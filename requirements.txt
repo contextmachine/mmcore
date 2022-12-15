@@ -11,4 +11,3 @@ uvicorn>=0.20.0
 redis>=4.3.5
 requests~=2.28.1
 scipy~=1.9.3
-geomdl~=5.3.1

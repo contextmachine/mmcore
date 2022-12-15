@@ -10,8 +10,8 @@ import rhino3dm
 from OCC.Core.gp import gp_Pnt
 from scipy.spatial.distance import euclidean
 
-from baseitems import DictableItem
-from baseitems import Matchable, WithSlots
+from ..baseitems import DictableItem
+from ..baseitems import Matchable, WithSlots
 
 mesh_js_schema = {
     "metadata": dict(),
