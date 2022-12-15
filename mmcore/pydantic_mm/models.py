@@ -1,7 +1,9 @@
+from typing import Any
+
 import pydantic
 from pydantic import ConstrainedStr
 import rhino3dm
-from mm.conversions import rhino
+from ..conversions import rhino
 
 
 class SnakeCaseName(ConstrainedStr):

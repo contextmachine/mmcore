@@ -10,15 +10,15 @@ def read_file(file, **kwargs):
     try:
         for _ in range(skip_lines):
             next(file)
-        content = fp.read() if callback is None else callback(fp)
+        content = file.read() if callback is None else callback(fp)
         return content
     except IOError as e:
-        raise GeomdlException("An error occurred during reading '{0}': {1}".format(file_name, e.args[-1]))
+        raise GeomdlException("An error occurred during reading '{0}': {1}".format(file, e.args[-1]))
     except Exception as e:
         raise GeomdlException("An error occurred: {0}".format(str(e)))
 
 
-def write_file(file, content, **kwargs):
+def write_file(fp, content, **kwargs):
     binary = kwargs.get('binary', False)
     callback = kwargs.get('callback', None)
     try:
@@ -120,6 +120,4 @@ def export_txt(obj, file, two_dimensional=False, **kwargs):
 
     content = exch.export_text_data(obj, sep, col_sep, two_dimensional)
     return write_file(file, content)
-import rhino3dm._rhino3dm as rh
-rh.Transform.Rotation()
-rhino3dm.Transform.
+

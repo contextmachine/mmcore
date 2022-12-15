@@ -3,11 +3,11 @@ import json
 import os
 import warnings
 from typing import Any
-
+from json import JSONEncoder, JSONDecoder
 import numpy as np
 import rhino3dm
 
-from mm.baseitems import Item
+from mmcore.baseitems import Item
 
 
 def DecodeToCommonObject(item):
@@ -29,9 +29,6 @@ def EncodeFromCommonObject(item):
         return [EncodeFromCommonObject(x) for x in item]
     else:
         pass
-
-
-from json import JSONEncoder, JSONDecoder
 
 
 def encode_dict(item: Any):

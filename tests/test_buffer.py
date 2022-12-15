@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest import TestCase
 
-from ..geom.buffer import TrimmingCone
+from mmcore.geom.buffer import TrimmingCone
 
 
 class TestTrimmingCone(TestCase):

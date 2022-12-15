@@ -6,8 +6,8 @@ import json
 
 import pandas as pd
 
-from ...connectors.gzjson import gzip_encoder
-from ...mm.meta import ItemEncoder, MetaItem
+
+from ..meta import ItemEncoder, MetaItem
 
 
 class _Item(metaclass=MetaItem, encoder=ItemEncoder):
@@ -37,11 +37,10 @@ class _Item(metaclass=MetaItem, encoder=ItemEncoder):
     def uid(self):
         return hex(id(self))
 
-    def dumps(self, use_gzip=True, **kwargs):
-        if use_gzip:
-            return gzip_encoder(json.dumps(self, cls=self.encoder, **kwargs))
-        else:
-            return json.dumps(self, cls=self.encoder, indent=3, **kwargs)
+    def dumps(self, **kwargs):
+
+
+        return json.dumps(self, cls=self.encoder, indent=3, **kwargs)
 
 
 class BaseItem(_Item, metaclass=MetaItem):

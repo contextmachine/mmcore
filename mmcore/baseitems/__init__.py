@@ -19,7 +19,7 @@ import numpy as np
 import pydantic
 import redis_om
 
-from versioning import Now
+from ..versioning import Now
 
 
 class StateExtras(redis_om.JsonModel):

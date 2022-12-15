@@ -14,8 +14,9 @@ from OCC.Core.GC import *
 from OCC.Core.gp import gp_Pnt
 from pydantic import BaseModel
 from rhino3dm import Point3d
-
-from baseitems import GeomConversionMap, GeomDataItem, ReprData
+from ..geom.utils import topo_converter, data_scheme
+from ..baseitems import GeomConversionMap, GeomDataItem, ReprData
+from .mat import TreeJsPhongMaterial
 
 
 class BufferGeometryDataTypes(str, Enum):
@@ -301,9 +302,6 @@ class BufferFace(BI):
         return dct_
 
 
-from geom.geomutils import topo_converter, data_scheme
-
-
 class BufferGeometryOcc(BI):
     def __array__(self, *args, **kw) -> np.ndarray:
         pass
@@ -323,9 +321,6 @@ class BufferGeometryOcc(BI):
 
     def to_dict(self):
         return self.data
-
-
-from geom.mat import TreeJsPhongMaterial
 
 
 class BufferGeometryObjProperty:

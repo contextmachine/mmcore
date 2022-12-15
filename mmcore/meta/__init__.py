@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 
 function_type = type(lambda: None)
 
-from ...mm.descriptors import HookDescriptor
+from ..descriptors import HookDescriptor
 
 from json import JSONEncoder
 

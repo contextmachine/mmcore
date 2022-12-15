@@ -1,11 +1,12 @@
 from typing import Any
 
 import pydantic
+from pydantic_numpy import NDArray
 import pydantic.generics as pg
-from pydantic_numpy.ndarray import NDArray
 
-import mm.generics.simple as gens
-from mm.baseitems import Item
+
+import mmcore.generics.simple as gens
+from ..baseitems import Item
 
 
 class MModel(pydantic.BaseModel):

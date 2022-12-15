@@ -31,7 +31,7 @@ DctBaseI = D3[Base, dict, str, Any]
 DctIdentifiableI = D3[Identifiable, dict, str, Any]
 DctItem = D3[Item, dict, str, Any]
 
-from ...mm.geom.buffer import BufferGeometryOcc, TrimmingCone
+from ..geom.buffer import BufferGeometryOcc, TrimmingCone
 
 BG_OCC = TypeVar("BG_OCC", bound=BufferGeometryOcc)
 
