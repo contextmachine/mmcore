@@ -1,0 +1,16 @@
+{
+  "binds": {
+    "compas": {
+      "from": "dtype",
+      "to": "to_data"
+    },
+    "json": {
+      "from": "object_hook",
+      "to":"default"
+    },
+    "ipy": {
+      "from": "notation",
+      "to":"ipy_notation"
+    }
+  }
+}

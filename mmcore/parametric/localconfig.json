@@ -1,0 +1,7 @@
+{
+  "storage": "https://storage.yandexcloud.net/",
+  "bucket": "bucket.contextmachine.online",
+  "parent": "mm",
+  "prefix": "parametric",
+  "remote": "cxmmodule.json"
+}

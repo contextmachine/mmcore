@@ -1,0 +1,14 @@
+pydantic>=1.10.2
+compas>=1.17.3
+numpy>=1.23.5
+rhino3dm>=7.14.2
+pandas>=1.5.1
+python-dotenv>=0.21.0
+setuptools>=65.5.1
+plotly>=5.11.0
+fastapi>=0.87.0
+uvicorn>=0.20.0
+redis>=4.3.5
+requests~=2.28.1
+scipy~=1.9.3
+geomdl~=5.3.1
