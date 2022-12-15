@@ -1,7 +1,7 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
 import itertools
-from typing import Any, Callable, Generic, Iterable, Type, TypeVar
+from typing import Any, Callable, Generic, Iterable, Mapping, Type, TypeVar
 
 MapType = type(map)
 
@@ -114,7 +114,7 @@ class CollectionItemGetter(Generic[Seq, T]):
     def __init__(self, seq: Generic[Seq, T]):
         super().__init__()
         self._seq = seq
-        if isinstance(seq[0], dict):
+        if isinstance(seq[0], dict | self.__class__):
             self._getter = multi_getitem(self._seq)
         else:
             self._getter = multi_getter(self._seq)
@@ -146,7 +146,7 @@ class CollectionItemGetSetter(CollectionItemGetter[Seq, T]):
         self._inst: Type[T] = type(seq[0])
 
         super().__init__(seq)
-        if isinstance(seq[0], dict):
+        if isinstance(seq[0], dict | self.__class__):
             self._setter = multi_setitem(self._seq)
         else:
             self._setter = multi_setter(self._seq)
@@ -156,7 +156,7 @@ class CollectionItemGetSetter(CollectionItemGetter[Seq, T]):
         self._setter(key, value)
 
 
-from collection.masks import Mask
+from ..collection.masks import Mask
 import hashlib
 
 
@@ -190,3 +190,43 @@ class MultiDescriptor(CollectionItemGetSetter):
     def __hash__(self):
         self.sha = hashlib.sha256(f"{self['__dict__']}".encode())
         return int(self.sha.hexdigest(), 36)
+
+
+class _MultiGetitem:
+
+    def __get__(self, instance, owner):
+        self.instance = instance
+        self.owner = owner
+        return self
+
+    def __call__(self, item):
+
+        print(item)
+        if isinstance(item, tuple | list | set | slice):
+            return [self(i) for i in item]
+        else:
+            return dict(self.instance)[item]
+
+
+class _MultiGetitem2:
+    def __get__(self, instance, owner):
+        self.instance = instance
+        self.owner = owner
+
+        def wrap(item):
+            if isinstance(item, Mapping | dict):
+                for k, v in item.items():
+                    try:
+                        return self.__get__(instance[k], owner)(v)
+                    except ValueError as err:
+                        print(f'{err}\n\n\t{instance[k]}, {v}')
+
+            elif isinstance(item, tuple | list | set | slice):
+                return [self.__get__(instance, owner)(i) for i in item]
+            else:
+                # Я осознаю что это страшный бул-шит
+                try:
+                    return dict(instance)[item]
+                except:
+                    return list(instance)[item]
+        return wrap
