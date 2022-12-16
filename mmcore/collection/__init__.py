@@ -5,7 +5,7 @@ import inspect
 from collections.abc import Iterator
 from functools import wraps
 
-from baseitems import Item
+from ..baseitems import Item
 
 
 def t(glb):
