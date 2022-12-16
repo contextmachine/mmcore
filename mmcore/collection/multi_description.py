@@ -225,8 +225,65 @@ class _MultiGetitem2:
                 return [self.__get__(instance, owner)(i) for i in item]
             else:
                 # Я осознаю что это страшный бул-шит
+
                 try:
-                    return dict(instance)[item]
+                    return dict.__getitem__(instance, item)
+
                 except:
-                    return list(instance)[item]
+                    return list.__getitem__(instance, item)
+
         return wrap
+
+
+class _MultiSetitem2:
+    def __get__(self, instance, o):
+        self.instance = instance
+
+        def wrap(item, val):
+            if isinstance(item, Mapping | dict):
+                for k, v in item.items():
+                    try:
+                        return wrap(v, val)
+                    except ValueError as err:
+                        print(f'{err}\n\n\t{instance[k]}, {v}')
+
+            elif isinstance(item, tuple | list | set | slice):
+                return [wrap(i, val) for i in item]
+            else:
+
+                try:
+                    print(item, val)
+                    return dict.__setitem__(instance, item, val)
+
+                except:
+                    print(item, val)
+                    return list.__setitem__(instance, item, val)
+
+        return wrap
+
+
+class MDict(dict):
+    __getitem__ = _MultiGetitem2()
+
+
+class pathdict(dict):
+    def __getitem__(self, keys):
+        if len(keys) == 1:
+            print("final: ", keys)
+            return dict.__getitem__(self, keys[0])
+        else:
+            k = keys.pop(0)
+            print(k, keys)
+
+            return self[k].__getitem__(keys)
+
+    def __setitem__(self, keys, v):
+        if len(keys) == 1:
+            print("final: ", keys)
+            return dict.__setitem__(self, keys[0], v)
+        else:
+            k = list(keys).pop(0)
+            print(k)
+            if self.get(k) is None:
+                self[k] = pathdict({})
+            self[k].__setitem__(keys, v)
