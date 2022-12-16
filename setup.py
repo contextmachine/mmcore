@@ -1,17 +1,16 @@
-import setuptools
+from setuptools import setup
 
-setuptools.setup(
-    name='mm',
-    version='0.0.1',
-    packages=['geom', 'geom.utils', 'meta', 'utils', 'xforms', 'generics', 'baseitems', 'objective',
-              'exceptions', 'parametric', 'collection', 'descriptors'],
+setup(
+    name='mmcore',
+    version='',
+    packages=['mmcore', 'mmcore.geom', 'mmcore.geom.utils', 'mmcore.meta', 'mmcore.utils', 'mmcore.xforms',
+              'mmcore.sockets', 'mmcore.generics', 'mmcore.baseitems', 'mmcore.objective', 'mmcore.collection',
+              'mmcore.exceptions', 'mmcore.parametric', 'mmcore.versioning', 'mmcore.conversions',
+              'mmcore.conversions.gmdl', 'mmcore.conversions.opencascade', 'mmcore.descriptors', 'mmcore.pydantic_mm',
+              'mmcore.redis_tools'],
     url='',
-    license='Apache 2.0',
-    author='Andrew Astakhov',
-    author_email='aa@contextmachine.ru',
-    description='Here is the best of what we wrote while working on the mmodel',
-
-    long_description="",
-    long_description_content_type="text/markdown",
-    python_requires=">=3.10",
+    license='',
+    author='andrewastakhov',
+    author_email='',
+    description=''
 )
