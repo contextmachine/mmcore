@@ -1,6 +1,5 @@
-from typing import Any, Optional
-import mmcore
 import uuid
+from typing import Any, Optional
 
 import pydantic
 from pydantic_numpy import NDArray
@@ -75,7 +74,7 @@ class BufferObjectField(pydantic.BaseModel):
 class BufferObject3d(pydantic.BaseModel):
     geometries: list[GeometryPrimitive]
     materials: list[BufferMaterial]
-    object: BufferObjectField = BufferObjectField()
+    object: BufferObjectField
     metadata: BufferMetaData = BufferMetaData(type="Object")
     userData: Any = {}
 
