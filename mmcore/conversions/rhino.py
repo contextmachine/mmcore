@@ -1,13 +1,26 @@
-#  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
+#  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction process"
 import json
 import os
 import warnings
+from json import JSONDecoder, JSONEncoder
 from typing import Any
-from json import JSONEncoder, JSONDecoder
-import numpy as np
-import rhino3dm
 
+import numpy as np
+import rhino3dm as rh
+
+import mmcore.conversions.compas
 from mmcore.baseitems import Item
+
+
+def rhino_transform_from_matrix(matrix):
+    t = rh.Transform(1.0)
+
+    i, j = np.asarray(matrix).shape
+    for ii in range(i):
+        for jj in range(j):
+            setattr(t, f"M{ii}{jj}", float(np.asarray(matrix)[ii, jj]))
+
+    return t
 
 
 def DecodeToCommonObject(item):
@@ -17,14 +30,14 @@ def DecodeToCommonObject(item):
         return DecodeToCommonObject(json.loads(item))
     elif isinstance(item, list):
         return [DecodeToCommonObject(x) for x in item]
-    return rhino3dm.CommonObject.Decode(item)
+    return rh.CommonObject.Decode(item)
 
 
 def EncodeFromCommonObject(item):
     if item is None:
         return None
-    elif isinstance(item, rhino3dm.CommonObject):
-        return rhino3dm.CommonObject.Encode(item)
+    elif isinstance(item, rh.CommonObject):
+        return rh.CommonObject.Encode(item)
     elif isinstance(item, list):
         return [EncodeFromCommonObject(x) for x in item]
     else:
@@ -32,11 +45,11 @@ def EncodeFromCommonObject(item):
 
 
 def encode_dict(item: Any):
-    return rhino3dm.ArchivableDictionary.EncodeDict({"data": item})
+    return rh.ArchivableDictionary.EncodeDict({"data": item})
 
 
 def decode_dict(item: str):
-    return rhino3dm.ArchivableDictionary.DecodeDict(item)["data"]
+    return rh.ArchivableDictionary.DecodeDict(item)["data"]
 
 
 class RhinoEncoder(JSONEncoder):
@@ -78,7 +91,7 @@ class RhDesc:
 
 
 class RhinoPoint(RhinoBind):
-    source_cls = rhino3dm.Point3d
+    source_cls = rh.Point3d
     X = RhDesc()
     Y = RhDesc()
     Z = RhDesc()
@@ -116,7 +129,7 @@ class RhinoAxis(RhinoBind):
     11.0
 
     """
-    source_cls = rhino3dm.Line
+    source_cls = rh.Line
     From = RhDesc()
     To = RhDesc()
 
@@ -133,14 +146,14 @@ class RhinoAxis(RhinoBind):
 
 
 class RhinoCircle(RhinoBind):
-    source_cls = rhino3dm.Circle
+    source_cls = rh.Circle
     radius = 1.0
     Center = RhDesc()
     Plane = RhDesc()
 
 
 class RhinoRuledSurf(RhinoBind):
-    source_cls = rhino3dm.NurbsSurface.CreateRuledSurface
+    source_cls = rh.NurbsSurface.CreateRuledSurface
     curve_a = None
     curve_b = None
 
@@ -149,59 +162,37 @@ class RhinoRuledSurf(RhinoBind):
 
 
 class RhinoBiCone:
-    source_cls = rhino3dm.NurbsSurface.CreateRuledSurface
+    source_cls = rh.NurbsSurface.CreateRuledSurface
     radius_start = 1.0
     radius_end = 0.5
     point_start = RhinoPoint(22, 22, -11)
     point_end = RhinoPoint(1, 0, 1)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__()
         self.__dict__ |= kwargs
 
     @property
     def plane1(self):
-        return rhino3dm.Plane(self.point_start.source,
-                              rhino3dm.Vector3d(*(self.point_end - self.point_start).__array__()))
+        return rh.Plane(self.point_start.source,
+                        rh.Vector3d(*(self.point_end - self.point_start).__array__()))
 
     @property
     def plane2(self):
-        return rhino3dm.Plane(self.point_end.source,
-                              rhino3dm.Vector3d(*(self.point_end - self.point_start).__array__()))
+        return rh.Plane(self.point_end.source,
+                        rh.Vector3d(*(self.point_end - self.point_start).__array__()))
 
     @property
     def c1(self):
-        T = cg.Transformation.from_frame(
-            cg.Frame.from_plane(
-                cg.Plane(list([self.plane1.Origin.X, self.plane1.Origin.Y, self.plane1.Origin.Z]),
-                         list([self.plane1.ZAxis.X, self.plane1.ZAxis.Y, self.plane1.ZAxis.Z]))))
-        t = rhino3dm.Transform(1.0)
-        c = rhino3dm.Circle(self.radius_start)
-        i, j = np.asarray(T.matrix).shape
-        for ii in range(i):
-            for jj in range(j):
-                setattr(t, f"M{ii}{jj}", float(np.asarray(T.matrix)[ii, jj]))
-        # print(t)
-        n = c.ToNurbsCurve()
+        t = rhino_transform_from_matrix(mmcore.conversions.compas.from_rhino_plane_transform(self.plane2).matrix)
+        n = rh.Circle(self.radius_end).ToNurbsCurve()
         n.Transform(t)
-
         return n
 
     @property
     def c2(self):
-        T = cg.Transformation.from_frame(
-            cg.Frame.from_plane(
-                cg.Plane(list([self.plane2.Origin.X, self.plane2.Origin.Y, self.plane2.Origin.Z]),
-                         list([self.plane2.ZAxis.X, self.plane1.ZAxis.Y, self.plane1.ZAxis.Z]))))
-        t = rhino3dm.Transform(1.0)
-        c = rhino3dm.Circle(self.radius_end)
-
-        i, j = np.asarray(T.matrix).shape
-        for ii in range(i):
-            for jj in range(j):
-                setattr(t, f"M{ii}{jj}", float(np.asarray(T.matrix)[ii, jj]))
-        # print(t)
-        n = c.ToNurbsCurve()
+        t = rhino_transform_from_matrix(mmcore.conversions.compas.from_rhino_plane_transform(self.plane1).matrix)
+        n = rh.Circle(self.radius_end).ToNurbsCurve()
         n.Transform(t)
         return n
 
@@ -210,11 +201,16 @@ class RhinoBiCone:
         return self.source_cls(self.c1, self.c2)
 
 
-import compas.geometry as cg
+def control_points_curve(points: list[list[float]] | np.ndarray, degree: int = 3):
+    return rh.NurbsCurve.CreateControlPointCurve(list(map(lambda x: rh.Point3d(*x), points)),
+                                                 degree=degree)
 
 
-def rhino_crv_from_compas(nurbs_curves: list) -> list[
-    rhino3dm.NurbsCurve]:
+def random_control_points_curve(count=5, degree=3):
+    return control_points_curve(np.random.random((count, 3)), degree=degree)
+
+
+def rhino_crv_from_compas(nurbs_curves: list) -> list[rh.NurbsCurve]:
     """
     Convert list of compas-like Nurbs curves to Rhino Nurbs Curves
     :param nurbs_curves:
@@ -224,21 +220,21 @@ def rhino_crv_from_compas(nurbs_curves: list) -> list[
 
     """
 
-    return list(map(lambda x: rhino3dm.NurbsCurve.Create(
+    return list(map(lambda x: rh.NurbsCurve.Create(
         x.is_periodic,
         x.degree,
-        list(map(lambda y: rhino3dm.Point3d(*y), x.points))), nurbs_curves))
+        list(map(lambda y: rh.Point3d(*y), x.points))), nurbs_curves))
 
 
 def list_curves_to_polycurves(curves):
-    poly = rhino3dm.PolyCurve()
+    poly = rh.PolyCurve()
     for curve in curves:
         poly.AppendSegment(curve)
     return poly
 
 
 def polyline_from_pts(pts):
-    polyline = rhino3dm.Polyline(0)
+    polyline = rh.Polyline(0)
     for pt in pts:
         polyline.Add(*pt)
     if polyline.IsValid:
@@ -249,12 +245,12 @@ def polyline_from_pts(pts):
 
 
 def model_from_json_file(path, modelpath=None):
-    model = rhino3dm.File3dm()
+    model = rh.File3dm()
     pth, _ = path.split(".")
     with open(f"{path}", "r") as f:
-        for l in json.load(f):
-            l["archive3dm"] = 70
-            model.Objects.Add(rhino3dm.GeometryBase.Decode(l))
+        for lod in json.load(f):
+            lod["archive3dm"] = 70
+            model.Objects.Add(rh.GeometryBase.Decode(lod))
     if modelpath:
         model.Write(f"{modelpath}.3dm", 7)
     else:
@@ -262,33 +258,35 @@ def model_from_json_file(path, modelpath=None):
 
 
 def model_from_dir_obj(directory):
-    model = rhino3dm.File3dm()
+    model = rh.File3dm()
     for path in os.scandir(directory):
         pth, _ = path.name.split(".")
         with open(f"{path}", "r") as f:
-            for l in json.load(f):
-                l["archive3dm"] = 70
-                model.Objects.Add(rhino3dm.GeometryBase.Decode(l))
+            for lod in json.load(f):
+                lod["archive3dm"] = 70
+                model.Objects.Add(rh.GeometryBase.Decode(lod))
 
     return model
 
 
-def model_from_multijson_file(directory, modelpath):
+def model_from_multijson_file(directory, model_path):
     model = model_from_dir_obj(directory)
-    model.Write(f"{modelpath}.3dm", 7)
+    model.Write(f"{model_path}.3dm", 7)
 
 
 def get_model_objects(path):
-    rr = rhino3dm.File3dm().Read(path)
+    rr = rh.File3dm().Read(path)
+    # noinspection PyTypeChecker
     return list(rr.Objects)
 
 
 def get_model_geometry(path):
-    rr = rhino3dm.File3dm().Read(path)
+    rr = rh.File3dm().Read(path)
+    # noinspection PyTypeChecker
     return [o.Geometry for o in rr.Objects]
 
 
 # noinspection PyUnresolvedReferences
 def get_model_attributes(path):
-    rr = rhino3dm.File3dm().Read(path)
+    rr = rh.File3dm().Read(path)
     return [o.Geometry for o in rr.Attributes]
