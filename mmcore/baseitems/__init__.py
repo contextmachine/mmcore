@@ -17,14 +17,8 @@ from typing import Callable, Generator, Union
 
 import numpy as np
 import pydantic
-import redis_om
 
 from ..versioning import Now
-
-
-class StateExtras(redis_om.JsonModel):
-    uuid: str
-    type: str
 
 
 class MatchableType(type):
@@ -37,9 +31,6 @@ class MatchableType(type):
         except KeyError as err:
             print(err)
             raise
-
-
-
 
 
 class BaseI:
