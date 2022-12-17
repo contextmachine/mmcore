@@ -9,6 +9,7 @@ __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'Dictabl
 import base64
 import gzip
 import itertools
+import json
 import uuid
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
@@ -29,7 +30,7 @@ class MatchableType(type):
                 dct["__slots__"] = dct["__match_args__"]
             return super().__new__(mcs, name, bases + (object,), dct, **kws)
         except KeyError as err:
-            print(err)
+            # print(err)
             raise
 
 
@@ -367,7 +368,7 @@ class DictableItem(FieldItem, ItemFormatter):
                     iter(v)
 
                     if not isinstance(v, str):
-                        # print(f'hash iter {v}')
+                        # #print(f'hash iter {v}')
                         st.join([hex(int(n)) for n in np.asarray(np.ndarray(v) * 100, _dtype=int)])
                     else:
                         continue
@@ -450,6 +451,8 @@ class GeomDataItem(DictableItem, GeometryItem):
 
 # New Style Classes
 # ----------------------------------------------------------------------------------------------------------------------
+from hashlib import sha256
+
 
 class Matchable(object):
     """
@@ -458,8 +461,9 @@ class Matchable(object):
     Generic __repr__ use __match_args__ by default, but you can use __repr_ignore__ from change.
 
     """
-    __match_args__: tuple[str] = ("self",)
-    __repr_ignore__: tuple[str | None]
+    __match_args__: tuple[str] = ()
+    __ignore__: tuple[str | None] = ()
+    __include__: tuple[str | None] = ()
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -473,11 +477,22 @@ class Matchable(object):
 
     def __getstate__(self) -> dict:
         state = {
-            "uuid": id(self)
+
         }
-        for arg in self.__match_args__:
-            state[arg] = self.__getattribute__(arg)
+
+        # print(list(set(self.__match_args__).union(set(self.__include__)) - set(self.__ignore__)))
+        for arg in list(set(self.__match_args__).union(set(self.__include__)) - set(self.__ignore__)):
+            # print(arg)
+            val = getattr(self, arg)
+            if hasattr(val, "__match_args__"):
+                state[arg] = val.__getstate__()
+            else:
+                state[arg] = val
         return state
+
+    @property
+    def uuid(self):
+        return self._uuid
 
     def __call__(self, *args, **kwargs):
         if args:
@@ -492,17 +507,158 @@ class Matchable(object):
         return self
 
     @property
-    def uuid(self):
-        return self._uuid
+    def sha256(self):
+        # noinspection InsecureHash
+        return sha256(json.dumps(tuple(self.__getstate__().values())))
+
+    @property
+    def checksum(self):
+        # noinspection InsecureHash
+        return int(self.sha256.hexdigest(), 32)
+
+    def __hash__(self):
+        return self.checksum
 
     def __repr__(self) -> str:
+
         s = f"{self.__class__.__name__}("
-        for k in self.__match_args__:
-            if k not in type(self).__repr_ignore__:
-                s += f"{k}={self.__getattribute__(k)}, "
+        for k in self.__getstate__().keys():
+            s += f"{k}={getattr(self, k)}, "
         return s[:-2] + ")"
 
 
 class WithSlots(Matchable):
     __match_args__ = ()
     __slots__ = __match_args__
+
+
+class UserData:
+
+    def __get__(self, instance, owner):
+        dd = []
+        # print(instance, owner)
+        for k in self.userdata_names:
+            dt = self.udd[k]
+            # print(dt)
+
+            dd.append({
+                "name": dt.doc,
+                "value": dt.value(instance),
+                "id": dt.name
+            })
+        return dd
+
+
+    class UserDataProperty(Matchable):
+        """
+        User Data Property
+        """
+        __include__ = "id", "name", "value"
+
+        def __init__(self, f):
+            super().__init__()
+            self.f = f
+            self.name = f.__name__
+            self.id = self.name
+
+        def __get__(self, instance, owner):
+            return self.f(instance)
+
+        @property
+        def value(self):
+            return lambda instance: self.f(instance)
+
+
+    def __init__(self):
+        super().__init__()
+
+        self.userdata_names = []
+        self.udd = {}
+
+    def property(self, common_name="UserData Property"):
+        def werp(ck):
+            inst = self.UserDataProperty(ck)
+            inst.common_name = common_name
+            self.userdata_names.append(inst.name)
+            self.udd[inst.name] = inst
+
+            def wrp(slf):
+                return inst.f(slf)
+
+            wrp.__name__ = wrp.name = inst.name
+
+            return wrp
+
+        return werp
+
+
+class IdentifiableMatchable(Matchable):
+    __match_args__ = ()
+    __include__ = ("uuid",)
+    __ignore__ = ()
+
+    userdata = UserData()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._uuid = uuid.uuid4()
+
+    @userdata.property("UUID")
+    def uuid(self):
+        return self._uuid.__str__()
+
+
+class UserDataExample(IdentifiableMatchable):
+    """
+    Data Views Management.
+    ----------------------------------------------------------------------------------------------
+
+    ☎️ По итогу обычный класс должен выглядеть как то так: Основная логика + Менеджмент разных представлений для разных целей
+    (Это в том числе импорт/экспорт в разные комплексы но не только ).
+    Разница представлений `панель -> 3d | развертка` не сильно отличается от `панель -> three.js | tekla | rhino | ...`
+    Представления в виде декораторов в свою очередь удобно менеджерить.
+
+    Example:
+
+    >>> class MultiDataExample(IdentifiableMatchable):
+    ...     __match_args__ = ...
+    ...     userdata = UserData()
+    ...     websocket = WsData()
+    ...     production = ProdData()
+    ...
+    ...
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("X")
+    ...     def x(self): return self.x
+    ...
+    ...
+    ...     @production.property("test")
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("Y")
+    ...     def y(self): return self.y
+    ...
+    ...
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("Z")
+    ...     def z(self): return self.z
+    ...
+    ...
+    ...     @production.property("tag")
+    ...     @userdata.property("UUID")
+    ...     def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
+    ...
+    """
+    __match_args__ = "x", "y", "z"
+    userdata = UserData()
+
+    @userdata.property("X")
+    def x(self): return self.x
+
+    @userdata.property("Y")
+    def y(self): return self.y
+
+    @userdata.property("Z")
+    def z(self): return self.z
+
+    @userdata.property("UUID")
+    def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
