@@ -527,138 +527,21 @@ class Matchable(object):
         return s[:-2] + ")"
 
 
-class WithSlots(Matchable):
-    __match_args__ = ()
-    __slots__ = __match_args__
-
-
-class UserData:
-
-    def __get__(self, instance, owner):
-        dd = []
-        # print(instance, owner)
-        for k in self.userdata_names:
-            dt = self.udd[k]
-            # print(dt)
-
-            dd.append({
-                "name": dt.doc,
-                "value": dt.value(instance),
-                "id": dt.name
-            })
-        return dd
-
-
-    class UserDataProperty(Matchable):
-        """
-        User Data Property
-        """
-        __include__ = "id", "name", "value"
-
-        def __init__(self, f):
-            super().__init__()
-            self.f = f
-            self.name = f.__name__
-            self.id = self.name
-
-        def __get__(self, instance, owner):
-            return self.f(instance)
-
-        @property
-        def value(self):
-            return lambda instance: self.f(instance)
-
-
-    def __init__(self):
-        super().__init__()
-
-        self.userdata_names = []
-        self.udd = {}
-
-    def property(self, common_name="UserData Property"):
-        def werp(ck):
-            inst = self.UserDataProperty(ck)
-            inst.common_name = common_name
-            self.userdata_names.append(inst.name)
-            self.udd[inst.name] = inst
-
-            def wrp(slf):
-                return inst.f(slf)
-
-            wrp.__name__ = wrp.name = inst.name
-
-            return wrp
-
-        return werp
-
-
 class IdentifiableMatchable(Matchable):
     __match_args__ = ()
     __include__ = ("uuid",)
     __ignore__ = ()
 
-    userdata = UserData()
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._uuid = uuid.uuid4()
 
-    @userdata.property("UUID")
+    _uuid = None
+
+    @property
     def uuid(self):
-        return self._uuid.__str__()
+        return self._uuid
 
-
-class UserDataExample(IdentifiableMatchable):
-    """
-    Data Views Management.
-    ----------------------------------------------------------------------------------------------
-
-    ☎️ По итогу обычный класс должен выглядеть как то так: Основная логика + Менеджмент разных представлений для разных целей
-    (Это в том числе импорт/экспорт в разные комплексы но не только ).
-    Разница представлений `панель -> 3d | развертка` не сильно отличается от `панель -> three.js | tekla | rhino | ...`
-    Представления в виде декораторов в свою очередь удобно менеджерить.
-
-    Example:
-
-    >>> class MultiDataExample(IdentifiableMatchable):
-    ...     __match_args__ = ...
-    ...     userdata = UserData()
-    ...     websocket = WsData()
-    ...     production = ProdData()
-    ...
-    ...
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("X")
-    ...     def x(self): return self.x
-    ...
-    ...
-    ...     @production.property("test")
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("Y")
-    ...     def y(self): return self.y
-    ...
-    ...
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("Z")
-    ...     def z(self): return self.z
-    ...
-    ...
-    ...     @production.property("tag")
-    ...     @userdata.property("UUID")
-    ...     def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
-    ...
-    """
-    __match_args__ = "x", "y", "z"
-    userdata = UserData()
-
-    @userdata.property("X")
-    def x(self): return self.x
-
-    @userdata.property("Y")
-    def y(self): return self.y
-
-    @userdata.property("Z")
-    def z(self): return self.z
-
-    @userdata.property("UUID")
-    def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
+    @uuid.setter
+    def uuid(self, value):
+        raise AttributeError("You dont can set UUID from any object.")
