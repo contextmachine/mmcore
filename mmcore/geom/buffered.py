@@ -2,7 +2,6 @@ import uuid
 from typing import Any, Optional
 
 import pydantic
-from pydantic_numpy import NDArray
 
 Number = int | float
 
@@ -12,14 +11,14 @@ class BufferMaterial(pydantic.BaseModel):
 
 
 class BufferBndSphere(pydantic.BaseModel):
-    center: list[float] | NDArray[float]
+    center: list[float]
     radius: float
 
 
 class BufferAttribute(pydantic.BaseModel):
     itemSize: int = 3,
     type: str = "Float32Array",
-    array: list[float] | NDArray[float]
+    array: list[float]
     normalized: bool = False
 
 
@@ -65,7 +64,7 @@ class BufferObjectField(pydantic.BaseModel):
     castShadow: bool = True
     receiveShadow: bool = True
     layers: int = 1
-    matrix: list[float | int] | NDArray[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    matrix: list[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
     geometry: str
     material: str
     children: Optional[list['BufferObjectField']] = None

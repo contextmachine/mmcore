@@ -168,24 +168,3 @@ class BaseCollection(Item, Iterator):
     def __repr__(self):
         return f"<{self.dtype}({self.state} in {self.seq}) at {self.uid}>"
 
-
-class MultiDict(dict):
-    """"""
-
-    def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-
-    def __setitem__(self, k, v):
-
-        try:
-            item = dict.__getitem__(self, k)
-            item.append(v)
-        except KeyError:
-            item = [v]
-            dict.__setitem__(self, k, item)
-        except Exception as err:
-            print(f"Unexpected {err=}, {type(err)=}")
-            raise
-
-    def __getitem__(self, __k):
-        return dict.__getitem__(self, __k)

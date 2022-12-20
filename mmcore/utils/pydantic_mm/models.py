@@ -1,8 +1,9 @@
 from typing import Any
 
 import pydantic
-from pydantic import ConstrainedStr
 import rhino3dm
+from pydantic import ConstrainedStr
+
 from ..conversions import rhino
 
 

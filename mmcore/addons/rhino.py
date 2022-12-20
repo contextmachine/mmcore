@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import rhino3dm as rh
 
-import mmcore.conversions.compas
+import mmcore.addons.compas
 from mmcore.baseitems import Item
 
 

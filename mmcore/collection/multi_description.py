@@ -1,8 +1,19 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
+import collections
 import itertools
-from typing import Any, Callable, Generic, Iterable, Mapping, Type, TypeVar
+from abc import ABC
+from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Sequence, Type, TypeVar
 
+import numpy as np
+
+from ..baseitems import IdentifiableMatchable, Matchable
+
+
+def _(): pass
+
+
+FunctionType = type(_)
 MapType = type(map)
 
 
@@ -79,12 +90,49 @@ def multi_setitem(y) -> Callable[[str, Any], None]:
 
 # Class Implementation
 # -----------------------------------------------------------------------------------------------------------------------
-
+KTo = TypeVar("KTo", covariant=True)
+VTco = TypeVar("VTco", contravariant=True)
 T = TypeVar("T")
-Seq = TypeVar("Seq", bound=Iterable)
+Seq = TypeVar("Seq", bound=Sequence)
 
 
-class CollectionItemGetter(Generic[Seq, T]):
+class traverse(Callable):
+    """
+    Полностью проходит секвенцию любой степени вложенности.
+    В момент обладания каждым из объектов может применить `placeholder`.
+    По умолчанию не делает ничего (вернет генератор той-же самой секвенции, что и получил).
+    Генератор всегда предсказуем. самый простой способ распаковки -- один раз передать его в `next`.
+    -----------------------------------------------------------------------------------------------------
+    Example:
+    >>> import numpy as np
+    >>> a = np.random.random((4,2,3,7))
+    >>> b = next(traverse(a))
+    >>> b.shape, a.shape
+    ((4, 2, 3, 7), (4, 2, 3, 7))
+    >>> np.allclose(a,b)
+    True
+    """
+    __slots__ = ("callback",)
+
+    def __init__(self, callback: Callable):
+        if callback is None:
+            self.callback = lambda x: x
+        else:
+            self.callback = callback
+
+    def __call__(self, seq: Sequence | Any) -> collections.Generator[Sequence | Any]:
+
+        if not isinstance(seq, str) and isinstance(seq, Sequence):
+            for l in seq: yield next(self(l))
+        else:
+            yield self.callback(seq)
+
+
+class _MultiDescriptor(Mapping[KTo, Seq], ABC):
+    ...
+
+
+class CollectionItemGetter(_MultiDescriptor[[Sequence, ...], str, Any]):
     """
     # Multi Getter
     Simple functional and objectiv implementation for a generic collection getter.
@@ -111,6 +159,12 @@ class CollectionItemGetter(Generic[Seq, T]):
     ['something else', 'nothing']
     """
 
+    def __len__(self) -> int:
+        pass
+
+    def __iter__(self) -> Iterator[_T_co]:
+        pass
+
     def __init__(self, seq: Generic[Seq, T]):
         super().__init__()
         self._seq = seq
@@ -123,7 +177,7 @@ class CollectionItemGetter(Generic[Seq, T]):
         return list(self._getter(k))
 
 
-class CollectionItemGetSetter(CollectionItemGetter[Seq, T]):
+class CollectionItemGetSetter(CollectionItemGetter):
     """
     >>> from dataclasses import dataclass
     >>> @dataclass
@@ -170,7 +224,7 @@ class MultiDescriptorMask(Mask):
         return lambda key: list(filter(constrains(instance[key], **kwargs), instance))  # 💄💋 By, baby
 
 
-class MaskedGetSetter(CollectionItemGetSetter):
+class MaskedGetSetter(CollectionItemGetSetter, ABC):
     masks = {}
 
     def set_mask(self, name: str, mask: Mask):
@@ -187,9 +241,26 @@ class MultiDescriptor(CollectionItemGetSetter):
     Common class
     """
 
+    def __len__(self):
+        return len(self._seq)
+
     def __hash__(self):
         self.sha = hashlib.sha256(f"{self['__dict__']}".encode())
         return int(self.sha.hexdigest(), 36)
+
+
+class SequenceBinder(MultiDescriptor):
+    ignored = int, float, str, Callable, FunctionType
+
+    def __getitem__(self, item):
+        r = super().__getitem__(item)
+
+        placeholder = lambda x: type(x) not in self.ignored
+        typechecker = traverse(callback=placeholder)
+        if all(next(typechecker(r))):
+            return SequenceBinder(r)
+        else:
+            return r
 
 
 class _MultiGetitem:
@@ -208,7 +279,7 @@ class _MultiGetitem:
             return dict(self.instance)[item]
 
 
-class _MultiGetitem2:
+class MultiGetitem2:
     def __get__(self, instance, owner):
         self.instance = instance
         self.owner = owner
@@ -235,7 +306,7 @@ class _MultiGetitem2:
         return wrap
 
 
-class _MultiSetitem2:
+class MultiSetitem2:
     def __get__(self, instance, o):
         self.instance = instance
 
@@ -262,28 +333,130 @@ class _MultiSetitem2:
         return wrap
 
 
-class MDict(dict):
-    __getitem__ = _MultiGetitem2()
+class UserData:
+
+    def __get__(self, instance, owner):
+        dd = []
+        # print(instance, owner)
+        for k in self.userdata_names:
+            dt = self.udd[k]
+            # print(dt)
+
+            dd.append({
+                "name": dt.doc,
+                "value": dt.value(instance),
+                "id": dt.name
+            })
+        return dd
 
 
-class pathdict(dict):
-    def __getitem__(self, keys):
-        if len(keys) == 1:
-            print("final: ", keys)
-            return dict.__getitem__(self, keys[0])
-        else:
-            k = keys.pop(0)
-            print(k, keys)
+    class UserDataProperty(Matchable):
+        """
+        User Data Property
+        """
+        __include__ = "id", "name", "value"
 
-            return self[k].__getitem__(keys)
+        def __init__(self, f):
+            super().__init__()
+            self.f = f
+            self.name = f.__name__
+            self.id = self.name
 
-    def __setitem__(self, keys, v):
-        if len(keys) == 1:
-            print("final: ", keys)
-            return dict.__setitem__(self, keys[0], v)
-        else:
-            k = list(keys).pop(0)
-            print(k)
-            if self.get(k) is None:
-                self[k] = pathdict({})
-            self[k].__setitem__(keys, v)
+        def __get__(self, instance, owner):
+            return self.f(instance)
+
+        @property
+        def value(self):
+            return lambda instance: self.f(instance)
+
+
+    def __init__(self):
+        super().__init__()
+
+        self.userdata_names = []
+        self.udd = {}
+
+    def property(self, common_name="UserData Property"):
+        def werp(ck):
+            inst = self.UserDataProperty(ck)
+            inst.common_name = common_name
+            self.userdata_names.append(inst.name)
+            self.udd[inst.name] = inst
+
+            def wrp(slf):
+                return inst.f(slf)
+
+            wrp.__name__ = wrp.name = inst.name
+
+            return wrp
+
+        return werp
+
+
+class ObjectWithUserData(IdentifiableMatchable):
+    __match_args__ = ("bar",)
+
+    userdata = UserData()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @userdata.property("Foo")
+    def foo(self):
+        return self.bar
+
+
+class UserDataExample(IdentifiableMatchable):
+    """
+    Data Views Management.
+    ----------------------------------------------------------------------------------------------
+
+    ☎️ По итогу обычный класс должен выглядеть как то так: Основная логика + Менеджмент разных представлений для разных целей
+    (Это в том числе импорт/экспорт в разные комплексы но не только ).
+    Разница представлений `панель -> 3d | развертка` не сильно отличается от `панель -> three.js | tekla | rhino | ...`
+    Представления в виде декораторов в свою очередь удобно менеджерить.
+
+    Example:
+
+    >>> class MultiDataExample(IdentifiableMatchable):
+    ...     __match_args__ = ...
+    ...     userdata = UserData()
+    ...     websocket = WsData()
+    ...     production = ProdData()
+    ...
+    ...
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("X")
+    ...     def x(self): return self.x
+    ...
+    ...
+    ...     @production.property("test")
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("Y")
+    ...     def y(self): return self.y
+    ...
+    ...
+    ...     @websocket.property("api/route/myobj")
+    ...     @userdata.property("Z")
+    ...     def z(self): return self.z
+    ...
+    ...
+    ...     @production.property("tag")
+    ...     @userdata.property("UUID")
+    ...     def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
+    ...
+    """
+    __match_args__ = "x", "y", "z"
+    userdata = UserData()
+
+    @userdata.property("X")
+    def x(self): return self.x
+
+    @userdata.property("Y")
+    def y(self): return self.y
+
+    @userdata.property("Z")
+    def z(self): return self.z
+
+    @userdata.property("UUID")
+    def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()

@@ -1,9 +1,7 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 import copy
 
-import numpy as np
-
-from . import PrmGenerator, ParametricType
+from . import ParametricType
 
 
 class Grid(ParametricType):
