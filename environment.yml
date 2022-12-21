@@ -2,20 +2,18 @@ channels:
   - conda-forge
   - default
 dependencies:
-  - python>=3.10.*
+  - python>=3.10.4
   - pip
   - cmake
-  - compas
+  - COMPAS
   - flask
   - numpy
-  - pythonocc-core
-  - freecad
+  - pythonocc
   - pyopenssl
   - scipy=1.8.1
   - setuptools
   - shapely
   - wheel
-  - ifcopenshell
   - pip:
       - cmake
       - boto3
