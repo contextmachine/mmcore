@@ -1,4 +1,4 @@
-FROM ubuntu:latest
+FROM continuumio/anaconda-pkg-build
 MAINTAINER "CONTEXTMACHINE"
 USER root
 WORKDIR cxm
