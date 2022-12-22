@@ -2,15 +2,15 @@ from setuptools import setup
 
 setup(
     name='mmcore',
-    version='',
-    packages=['mmcore', 'mmcore.geom', 'mmcore.geom.utils', 'mmcore.meta', 'mmcore.utils', 'mmcore.xforms',
-              'mmcore.sockets', 'mmcore.generics', 'mmcore.baseitems', 'mmcore.objective', 'mmcore.collection',
-              'mmcore.exceptions', 'mmcore.parametric', 'mmcore.versioning', 'mmcore.conversions',
-              'mmcore.conversions.gmdl', 'mmcore.conversions.opencascade', 'mmcore.descriptors', 'mmcore.pydantic_mm',
-              'mmcore.redis_tools'],
+    version='0.1.1',
+    packages=['mmcore', 'mmcore.geom', 'mmcore.geom.tools', 'mmcore.geom.xforms', 'mmcore.geom.parametric',
+              'mmcore.utils', 'mmcore.utils.sockets', 'mmcore.utils.versioning', 'mmcore.utils.pydantic_mm',
+              'mmcore.utils.redis_tools', 'mmcore.addons', 'mmcore.addons.gmdl', 'mmcore.addons.opencascade',
+              'mmcore.baseitems', 'mmcore.baseitems.descriptors', 'mmcore.collection', 'mmcore.collection.generics',
+              'mmcore.exceptions'],
     url='',
     license='',
-    author='andrewastakhov',
-    author_email='',
+    author='sth-v',
+    author_email='aa@contextmachine.ru',
     description=''
 )
