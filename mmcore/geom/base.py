@@ -11,7 +11,7 @@ from OCC.Core.gp import gp_Pnt
 from scipy.spatial.distance import euclidean
 
 from ..baseitems import DictableItem
-from ..baseitems import Matchable, WithSlots
+from ..baseitems import Matchable
 
 mesh_js_schema = {
     "metadata": dict(),
@@ -63,7 +63,7 @@ class Point(DictableItem):
         return np.asarray([self.x, self.y, self.z])
 
 
-class MmPoint(WithSlots, MmAbstractBufferGeometry):
+class MmPoint(Matchable, MmAbstractBufferGeometry):
     __match_args__ = "x", "y", "z"
 
     @property
