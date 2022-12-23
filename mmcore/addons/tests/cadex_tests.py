@@ -1,18 +1,20 @@
 import json
 import subprocess
 
-from mm.conversions.cadex import cdxfb
-from mm.conversions.rhino import model_from_multijson_file
+# from mmcore.addons.cadex import cdxfb
+from mmcore.addons.rhino import model_from_multijson_file
 
-CADEX_LICENSE="clicense.py"
+CADEX_LICENSE = "clicense.py"
 
-cadex.LicenseManager.Activate(aKey)
-source="/home/sthv/app/dumps/allark.3dm"
-jsonpath="/home/sthv/app/rhjs/"
-cadex_viewer_path="/home/sthv/cadexchanger-web-toolkit-examples/public/assets/models"
-subprocess.Popen(["python",CADEX_LICENSE])
+# cadex.LicenseManager.Activate(aKey)
+source = "/home/sthv/app/dumps/allark.3dm"
+jsonpath = "/home/sthv/app/rhjs/"
+cadex_viewer_path = "/home/sthv/cadexchanger-web-toolkit-examples/public/assets/models"
+subprocess.Popen(["python", CADEX_LICENSE])
+
+
 def test(name, cadex_viewer_path=cadex_viewer_path):
-    model_from_multijson_file(jsonpath,modelpath=source)
+    model_from_multijson_file(jsonpath, modelpath=source)
     rhreader=cdxfb.readrhino(source)
     f=open(cadex_viewer_path+"/scenegraph.cdxfb","w")
     f.close()

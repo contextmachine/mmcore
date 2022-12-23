@@ -8,8 +8,8 @@ import numpy as np
 import rhino3dm
 from compas_occ.geometry.curves.nurbs import OCCNurbsCurve
 
-from ..baseitems import Base, DictableItem, Item
-from ..geom import Point
+from mmcore.baseitems import Base, DictableItem, Item
+from mmcore.geom.base import Point
 
 
 def to_cmp_point(func):

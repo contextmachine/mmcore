@@ -2,7 +2,7 @@
 
 from typing import Any, Generic, TypeVar
 
-from ..baseitems import Base, Identifiable, Item
+from ...baseitems import Base, Identifiable, Item
 
 SP = TypeVar("SP")  # descriptor
 KT = TypeVar("KT")
@@ -31,7 +31,7 @@ DctBaseI = D3[Base, dict, str, Any]
 DctIdentifiableI = D3[Identifiable, dict, str, Any]
 DctItem = D3[Item, dict, str, Any]
 
-from ..geom.buffer import BufferGeometryOcc, TrimmingCone
+from ...geom.buffer import BufferGeometryOcc, TrimmingCone
 
 BG_OCC = TypeVar("BG_OCC", bound=BufferGeometryOcc)
 

@@ -58,7 +58,7 @@ class DataDescriptor(Descriptor):
 class BaseClientDescriptor(Descriptor):
 
     def __set_name__(self, owner, name):
-        super().__set_name__(wner, name)
+        super().__set_name__(owner, name)
         self.bucket = owner.bucket
         self.prefix = owner.prefix
 
