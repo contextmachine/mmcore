@@ -7,7 +7,7 @@ from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
 
-from ..baseitems import Item
+from ...baseitems import Item
 
 
 def mirror(right):

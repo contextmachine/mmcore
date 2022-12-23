@@ -3,7 +3,7 @@
 import compas.geometry as cg
 import numpy as np
 
-from ..parametric import Arc
+from mmcore.geom.parametric import Arc
 
 js = {}
 

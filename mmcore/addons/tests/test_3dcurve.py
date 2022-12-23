@@ -11,7 +11,8 @@ from geomdl import BSpline
 from geomdl import utilities
 # from gmdl.visualization import VisMPL
 from geomdl.visualization import VisPlotly
-from mm.conversions.gmdl import txt
+
+from mmcore.addons.gmdl import txt
 
 if __name__ == "__main__":
     def test():
