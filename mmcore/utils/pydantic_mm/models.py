@@ -4,7 +4,7 @@ import pydantic
 import rhino3dm
 from pydantic import ConstrainedStr
 
-from ..conversions import rhino
+from mmcore.addons import rhino
 
 
 class SnakeCaseName(ConstrainedStr):
@@ -29,6 +29,10 @@ class Archive3dm(pydantic.BaseModel):
     archive3dm: RhinoVersion
     data: str
 
+    @property
+    def api_type(self):
+        return "Rhino.Geometry.GeometryBase"
+
     @classmethod
     def from_3dm(cls, data3dm) -> 'Archive3dm':
         return cls(**rhino.RhinoEncoder().default(data3dm))
@@ -46,8 +50,28 @@ class Archive3dm(pydantic.BaseModel):
 
 
 class InnerTreeItem(pydantic.BaseModel):
+    type: str | bytes
+    data: str | bytes
+
+
+class NormInnerItem(pydantic.BaseModel):
     type: str
-    data: str
+    data: dict[str, Any]
+
+    def transform_json(self):
+        dct = self.dict()
+        return {
+            "type": self.type,
+            "data": json.dumps(dct["data"])
+        }
+
+
+class ComputeJson(NormInnerItem):
+    type: str
+    data: list[Archive3dm]
+
+    def transform_json(self):
+        return super().transform_json()
 
 
 class DataTreeParam(pydantic.BaseModel):
@@ -58,3 +82,8 @@ class DataTreeParam(pydantic.BaseModel):
 class ComputeRequest(pydantic.BaseModel):
     pointer: str
     values: list[DataTreeParam]
+
+
+class ComputeResponse(pydantic.BaseModel):
+    data: dict
+    metadata: dict | None = None

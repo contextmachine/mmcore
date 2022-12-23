@@ -54,3 +54,46 @@ class SlimRedisMapping(Mapping[str, Any], ABC):
                 yield self[k]
 
         return ValuesView(list(generate()))
+
+
+class RC(dict):
+    def __init__(self, mk="ug:test:", conn=None):
+        dict.__init__(self)
+        self._keys = []
+
+        self.root_key = mk
+        self.conn = conn
+
+    def __getitem__(self, pk):
+
+        return unpickle(self.conn.get(self.root_key + pk))
+
+    def __setitem__(self, pk, item):
+        if pk not in self._keys:
+            self._keys.append(pk)
+        self.conn.set(self.root_key + pk, topickle(item))
+
+    def keys(self) -> KeysView:
+
+        return KeysView(self._keys)
+
+    def items(self) -> ItemsView:
+        self._items = []
+        for k in self._keys:
+            self._items.append((k, self[k]))
+        return ItemsView(self._items)
+
+    def values(self) -> KeysView:
+        def generate():
+            for k in self._keys:
+                yield self[k]
+
+        return ValuesView(list(generate()))
+
+
+def unpickle(get_result):
+    return pickle.loads(bytes.fromhex(get_result))
+
+
+def topickle(item):
+    return pickle.dumps(item).hex()
