@@ -9,7 +9,6 @@ import numpy as np
 import rhino3dm as rh
 
 import mmcore.addons.compas
-from mmcore.baseitems import Item
 
 
 def rhino_transform_from_matrix(matrix):
@@ -71,7 +70,7 @@ class RhinoDecoder(JSONDecoder):
         return DecodeToCommonObject(dct)
 
 
-class RhinoBind(Item):
+class RhinoBind:
     source_cls = None
 
     def __init__(self, *args, **kwargs):
