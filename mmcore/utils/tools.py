@@ -1,7 +1,7 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 import numpy as np
 
-from ..baseitems import Item
+
 
 
 def args_flatten(arg, *args):
@@ -48,7 +48,7 @@ class rm(ReplaceMapping):
         instance.__dict__[self.replace_back(self.name)] = v
 
 
-class DotView(Item, ReplaceMapping):
+class DotView(ReplaceMapping):
     """
     >>> class R2(ReplaceMapping):
     ...     replacements = {
