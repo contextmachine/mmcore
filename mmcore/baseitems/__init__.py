@@ -2,7 +2,7 @@ from __future__ import annotations, absolute_import
 
 __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'DictableItem',
            'DataviewInterface', 'Dataview', 'DataviewDescriptor', 'Metadata', 'ReprData', 'GeomConversionMap',
-           'GeomDataItem']
+           'GeomDataItem', "Matchable"]
 
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 
@@ -21,6 +21,7 @@ import numpy as np
 import pydantic
 
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
+from mmcore.utils.pydantic_mm.models import InnerTreeItem
 
 
 class Now(str):
