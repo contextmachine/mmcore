@@ -1,3 +1,3 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 
-from .utils import DotView, ReplaceMapping, TraverseDict
+from .tools import DotView, ReplaceMapping, TraverseDict

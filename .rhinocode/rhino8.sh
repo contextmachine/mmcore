@@ -1,0 +1,1 @@
+/Applications/RhinoWIP.app/Contents/MacOS/Rhinoceros -runscript "-_RunPythonScript ./example.py"

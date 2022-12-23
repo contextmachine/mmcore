@@ -286,7 +286,25 @@ def get_model_geometry(path):
     return [o.Geometry for o in rr.Objects]
 
 
+def get_model_geometry_from_buffer(buff: bytes):
+    rr = rh.File3dm.FromByteArray(buff)
+    # noinspection PyTypeChecker
+    return [o.Geometry for o in rr.Objects]
+
+
+def get_model_objects_from_buffer(buff: bytes):
+    rr = rh.File3dm.FromByteArray(buff)
+    # noinspection PyTypeChecker
+    return [o for o in rr.Objects]
+
+
+def get_model_attributes_from_buffer(buff: bytes):
+    rr = rh.File3dm.FromByteArray(buff)
+    # noinspection PyTypeChecker
+    return [o.Attributes for o in rr.Objects]
+
+
 # noinspection PyUnresolvedReferences
 def get_model_attributes(path):
     rr = rh.File3dm().Read(path)
-    return [o.Geometry for o in rr.Attributes]
+    return [o.Attributes for o in rr.Objects]

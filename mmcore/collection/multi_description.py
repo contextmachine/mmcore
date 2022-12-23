@@ -7,8 +7,6 @@ from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
 
-from ..baseitems import IdentifiableMatchable, Matchable
-
 
 def _(): pass
 
@@ -120,7 +118,7 @@ class traverse(Callable):
         else:
             self.callback = callback
 
-    def __call__(self, seq: Sequence | Any) -> collections.Generator[Sequence | Any]:
+    def __call__(self, seq: Sequence | Any) -> collections.abc.Generator[Sequence | Any]:
 
         if not isinstance(seq, str) and isinstance(seq, Sequence):
             for l in seq: yield next(self(l))
@@ -162,7 +160,7 @@ class CollectionItemGetter(_MultiDescriptor[[Sequence, ...], str, Any]):
     def __len__(self) -> int:
         pass
 
-    def __iter__(self) -> Iterator[_T_co]:
+    def __iter__(self) -> Iterator:
         pass
 
     def __init__(self, seq: Generic[Seq, T]):
@@ -332,131 +330,3 @@ class MultiSetitem2:
 
         return wrap
 
-
-class UserData:
-
-    def __get__(self, instance, owner):
-        dd = []
-        # print(instance, owner)
-        for k in self.userdata_names:
-            dt = self.udd[k]
-            # print(dt)
-
-            dd.append({
-                "name": dt.doc,
-                "value": dt.value(instance),
-                "id": dt.name
-            })
-        return dd
-
-
-    class UserDataProperty(Matchable):
-        """
-        User Data Property
-        """
-        __include__ = "id", "name", "value"
-
-        def __init__(self, f):
-            super().__init__()
-            self.f = f
-            self.name = f.__name__
-            self.id = self.name
-
-        def __get__(self, instance, owner):
-            return self.f(instance)
-
-        @property
-        def value(self):
-            return lambda instance: self.f(instance)
-
-
-    def __init__(self):
-        super().__init__()
-
-        self.userdata_names = []
-        self.udd = {}
-
-    def property(self, common_name="UserData Property"):
-        def werp(ck):
-            inst = self.UserDataProperty(ck)
-            inst.common_name = common_name
-            self.userdata_names.append(inst.name)
-            self.udd[inst.name] = inst
-
-            def wrp(slf):
-                return inst.f(slf)
-
-            wrp.__name__ = wrp.name = inst.name
-
-            return wrp
-
-        return werp
-
-
-class ObjectWithUserData(IdentifiableMatchable):
-    __match_args__ = ("bar",)
-
-    userdata = UserData()
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    @userdata.property("Foo")
-    def foo(self):
-        return self.bar
-
-
-class UserDataExample(IdentifiableMatchable):
-    """
-    Data Views Management.
-    ----------------------------------------------------------------------------------------------
-
-    ☎️ По итогу обычный класс должен выглядеть как то так: Основная логика + Менеджмент разных представлений для разных целей
-    (Это в том числе импорт/экспорт в разные комплексы но не только ).
-    Разница представлений `панель -> 3d | развертка` не сильно отличается от `панель -> three.js | tekla | rhino | ...`
-    Представления в виде декораторов в свою очередь удобно менеджерить.
-
-    Example:
-
-    >>> class MultiDataExample(IdentifiableMatchable):
-    ...     __match_args__ = ...
-    ...     userdata = UserData()
-    ...     websocket = WsData()
-    ...     production = ProdData()
-    ...
-    ...
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("X")
-    ...     def x(self): return self.x
-    ...
-    ...
-    ...     @production.property("test")
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("Y")
-    ...     def y(self): return self.y
-    ...
-    ...
-    ...     @websocket.property("api/route/myobj")
-    ...     @userdata.property("Z")
-    ...     def z(self): return self.z
-    ...
-    ...
-    ...     @production.property("tag")
-    ...     @userdata.property("UUID")
-    ...     def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()
-    ...
-    """
-    __match_args__ = "x", "y", "z"
-    userdata = UserData()
-
-    @userdata.property("X")
-    def x(self): return self.x
-
-    @userdata.property("Y")
-    def y(self): return self.y
-
-    @userdata.property("Z")
-    def z(self): return self.z
-
-    @userdata.property("UUID")
-    def uuid(self): return super(IdentifiableMatchable, self).uuid.__str__()

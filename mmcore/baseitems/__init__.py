@@ -13,13 +13,22 @@ import json
 import uuid
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
+from datetime import datetime
 from json import JSONEncoder
 from typing import Callable, Generator, Union
 
 import numpy as np
 import pydantic
 
-from ..versioning import Now
+from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
+
+
+class Now(str):
+    def __new__(cls, *a, **kw):
+        d = datetime.now()
+        instance = str.__new__(cls, d.isoformat())
+        instance.__datetime__ = d
+        return instance
 
 
 class MatchableType(type):
@@ -454,6 +463,62 @@ class GeomDataItem(DictableItem, GeometryItem):
 from hashlib import sha256
 
 
+class ViewData(DataDescriptor):
+    params = {}
+
+    def __init__(self):
+        super().__init__()
+
+        def ps(slf, f):
+            slf.f = f
+            slf.name = f.__name__
+
+            self.params[slf.name] = slf
+
+        self.Property.__init__ = ps
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+        setattr(owner, "_" + name, self)
+
+
+    @abstractmethod
+    class Property(Descriptor):
+        ...
+
+        @abstractmethod
+        def convert(self, o, *args, **kwargs):
+            ...
+
+
+    def __call__(self, inst, own):
+        for name in self.params.keys():
+            yield self.params[name].convert(self, inst, own)
+
+
+class UserData(ViewData):
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        else:
+            return {"properties": list(self(instance, owner)), "gui": []}
+
+
+    class Property(Descriptor):
+
+        def __get__(self, instance, owner):
+            return getattr(instance, f"_{self.name}")
+
+        def __set__(self, instance, value: InnerTreeItem):
+            setattr(instance, f"_{self.name}", value)
+
+        def convert(self, o, inst, own):
+            return {"id": self.name, "value": o.params[self.name].__get__(inst, own),
+                    "name": self.name[0].upper() + self.name[1:]}
+
+
 class Matchable(object):
     """
     New style baseclass version.
@@ -462,8 +527,7 @@ class Matchable(object):
 
     """
     __match_args__: tuple[str] = ()
-    __ignore__: tuple[str | None] = ()
-    __include__: tuple[str | None] = ()
+    userData = UserData()
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -481,18 +545,12 @@ class Matchable(object):
         }
 
         # print(list(set(self.__match_args__).union(set(self.__include__)) - set(self.__ignore__)))
-        for arg in list(set(self.__match_args__).union(set(self.__include__)) - set(self.__ignore__)):
+
+        for arg in self.__match_args__:
             # print(arg)
             val = getattr(self, arg)
-            if hasattr(val, "__match_args__"):
-                state[arg] = val.__getstate__()
-            else:
-                state[arg] = val
-        return state
 
-    @property
-    def uuid(self):
-        return self._uuid
+        return state
 
     def __call__(self, *args, **kwargs):
         if args:
@@ -526,18 +584,6 @@ class Matchable(object):
             s += f"{k}={getattr(self, k)}, "
         return s[:-2] + ")"
 
-
-class IdentifiableMatchable(Matchable):
-    __match_args__ = ()
-    __include__ = ("uuid",)
-    __ignore__ = ()
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._uuid = uuid.uuid4()
-
-    _uuid = None
-
     @property
     def uuid(self):
         return self._uuid
@@ -545,3 +591,14 @@ class IdentifiableMatchable(Matchable):
     @uuid.setter
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
+
+    def encode(self):
+        return json.dumps(dict(self.__getstate__()))
+
+    def default(self):
+        return dict(self.__getstate__())
+
+    def solve_pydantic(self):
+        self.pydantic_model = pydantic.create_model(self.__class__.__name__,
+                                                    dict([(k, getattr(self, k)) for k in self.__match_args__]))
+        return self.pydantic_model
