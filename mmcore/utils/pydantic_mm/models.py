@@ -86,5 +86,4 @@ class ComputeRequest(pydantic.BaseModel):
 
 
 class ComputeResponse(pydantic.BaseModel):
-    data: dict
-    metadata: dict | None = None
+    data: dict | list
