@@ -1,5 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class AbstractDescriptor(ABC):
@@ -92,3 +93,52 @@ class ClientDescriptor(Descriptor):
         print(instance, value)
         instance.client.put_object(Bucket=self.bucket, Key=f"{self.prefix}{self.name}{instance.suffix}",
                                    Body=instance.__sethook__(value))
+
+
+class DataView(NoDataDescriptor):
+    """
+    >>> class DataOO(DataView):
+    ...     def item_model(self, name, value):
+    ...         return {"id": name, "value": value}
+    ...     def data_model(self, value):
+    ...         return {"type":"DataOO","data":value}
+    >>> from mmcore.baseitems import Descriptor, NoDataDescriptor, Matchable
+
+    >>> class AA('Matchable'):
+    ...     __match_args__="a","b","c"
+    ...     compute_data_params=["a","b"]
+    ...
+    ...     compute_data=DataOO("compute_data_params")
+    >>> a = AA(1,2.,"tt")
+    >>> a.compute_data
+    {'type': 'DataOO',
+     'data': [{'id': 'a', 'value': 1}, {'id': 'b', 'value': 2.0}]}
+
+    """
+
+    @abstractmethod
+    def item_model(self, name: str, value: Any):
+        ...
+
+    @abstractmethod
+    def data_model(self, instance, value: list[tuple[str, Any]]):
+        ...
+
+    def __init__(self, targets):
+        super().__init__()
+        self.targets = targets
+
+    def __set_name__(self, owner, name):
+        super().__set_name__(owner, name)
+
+        setattr(owner, "_" + name, self)
+
+    def __generate__(self, instance, owner):
+        for name in getattr(instance, self.targets):
+            yield self.item_model(name=name, value=owner.__getattribute__(instance, name))
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        else:
+            return self.data_model(instance, value=list(self.__generate__(instance, owner)))
