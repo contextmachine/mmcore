@@ -4,7 +4,8 @@ import collections
 import itertools
 from abc import ABC
 from collections import Counter
-from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Protocol, Sequence, Type, TypeVar
+from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Protocol, Sequence, Type, TypeVar, \
+    Union
 
 import numpy as np
 
@@ -131,29 +132,35 @@ class traverse(Callable):
 type_extractor = traverse(lambda x: x.__class__)
 
 
-def sequence_type(seq, return_type=False) -> set[Type] | tuple[Type, tuple[Type]]:
+def sequence_type(seq: Sequence) -> Type:
     """
     Extract types for sequence.
+
     >>> ints = [2, 3, 4, 9]
     >>> sequence_type(ints)
-    {<class 'int'>}
+    <class 'int'>
     >>> some = [2, 3, 4, "9", {"a": 6}]
     >>> sequence_type(some)
-    {<class 'str'>, <class 'dict'>, <class 'int'>}
-    >>> sequence_type(some, return_type=True)
-    list[str, dict, int]
+    typing.Union[str, dict, int]
+
+    @param seq: input sequence
+    @return: single or Union type
     """
 
     assert isinstance(seq, Sequence)
     tps = set(type_extractor(seq))
-    if return_type:
-        return type(seq)[tuple(tps)]
-    else:
-        return tps
+
+    return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
 
 
 def ismonotype(seq: Sequence) -> bool:
-    return len(sequence_type_counter(seq)) == 1
+    tp = sequence_type(seq),
+    try:
+        return not (tp.__origin__ == Union)
+
+    except Exception as err:
+        print(err)
+        return True
 
 
 def sequence_type_counter(seq: Sequence) -> Counter[Type]:
@@ -215,7 +222,8 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
         super().__init__()
         assert len(sequence_type(seq)) == 1
         self._seq = seq
-        if isinstance(seq[0], dict | self.__class__):
+        if isinstance(seq[0], Mapping):
+
             self._getter = multi_getitem(self._seq)
         else:
             self._getter = multi_getter(self._seq)
@@ -398,3 +406,6 @@ class E(SeqProto):
 
 
 c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
+#
+# Explicit passing of an element type to a __init_subclass__
+# --------------------------------------------------------
