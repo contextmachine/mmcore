@@ -5,10 +5,9 @@ import warnings
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
+import mmcore.addons.comp
 import numpy as np
 import rhino3dm as rh
-
-import mmcore.addons.compas
 
 
 def rhino_transform_from_matrix(matrix):
@@ -307,3 +306,8 @@ def get_model_attributes_from_buffer(buff: bytes):
 def get_model_attributes(path):
     rr = rh.File3dm().Read(path)
     return [o.Attributes for o in rr.Objects]
+
+    def encode(self, o) -> str:
+        dct = self.default(o)
+
+        return json.dumps(dct)
