@@ -3,6 +3,7 @@
 import collections
 import itertools
 from abc import ABC
+from collections import Counter
 from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Sequence, Type, TypeVar
 
 import numpy as np
@@ -126,11 +127,55 @@ class traverse(Callable):
             yield self.callback(seq)
 
 
+# Проходит по всем элементам секвенции, возвращая секвенцию типов элементов.
+type_extractor = traverse(lambda x: x.__class__)
+
+
+def sequence_type(seq, return_type=False) -> set[Type]:
+    """
+    Extract types for sequence.
+    >>> ints = [2, 3, 4, 9]
+    >>> sequence_type(ints)
+    {<class 'int'>}
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> sequence_type(some)
+    {<class 'str'>, <class 'dict'>, <class 'int'>}
+    >>> sequence_type(some, return_type=True)
+    list[str, dict, int]
+    """
+
+    assert isinstance(seq, Sequence)
+    tps = set(type_extractor(seq))
+    if return_type:
+        return type(seq)[tuple(tps)]
+    else:
+        return tps
+
+
+def ismonotype(seq: Sequence) -> bool:
+    return len(sequence_type_counter(seq)) == 1
+
+
+def sequence_type_counter(seq: Sequence) -> Counter[Type]:
+    """
+    ```type_extractor``` based function.
+
+    @param seq: Any sequence
+    @return: Count of unique types
+
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> sequence_type_counter(some)
+    Counter({<class 'int'>: 3, <class 'str'>: 1, <class 'dict'>: 1})
+    """
+    assert isinstance(seq, Sequence)
+    return Counter(type_extractor(seq))
+
+
 class _MultiDescriptor(Mapping[KTo, Seq], ABC):
     ...
 
 
-class CollectionItemGetter(_MultiDescriptor[[Sequence, ...], str, Any]):
+class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     """
     # Multi Getter
     Simple functional and objectiv implementation for a generic collection getter.
@@ -208,7 +253,7 @@ class CollectionItemGetSetter(CollectionItemGetter):
         self._setter(key, value)
 
 
-from ..collection.masks import Mask
+from mmcore.collection.masks import Mask
 import hashlib
 
 
@@ -247,16 +292,14 @@ class MultiDescriptor(CollectionItemGetSetter):
         return int(self.sha.hexdigest(), 36)
 
 
-class SequenceBinder(MultiDescriptor):
+class ElementSequence(MultiDescriptor):
     ignored = int, float, str, Callable, FunctionType
+    typechecker = traverse(callback=lambda self, x: type(x) not in self.ignored)
 
     def __getitem__(self, item):
         r = super().__getitem__(item)
-
-        placeholder = lambda x: type(x) not in self.ignored
-        typechecker = traverse(callback=placeholder)
-        if all(next(typechecker(r))):
-            return SequenceBinder(r)
+        if all(self.typechecker(r)):
+            return ElementSequence(r)
         else:
             return r
 
@@ -329,4 +372,3 @@ class MultiSetitem2:
                     return list.__setitem__(instance, item, val)
 
         return wrap
-
