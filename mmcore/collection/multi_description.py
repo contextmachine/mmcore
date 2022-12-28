@@ -4,7 +4,7 @@ import collections
 import itertools
 from abc import ABC
 from collections import Counter
-from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Sequence, Type, TypeVar
+from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Protocol, Sequence, Type, TypeVar
 
 import numpy as np
 
@@ -131,7 +131,7 @@ class traverse(Callable):
 type_extractor = traverse(lambda x: x.__class__)
 
 
-def sequence_type(seq, return_type=False) -> set[Type]:
+def sequence_type(seq, return_type=False) -> set[Type] | tuple[Type, tuple[Type]]:
     """
     Extract types for sequence.
     >>> ints = [2, 3, 4, 9]
@@ -201,15 +201,19 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     >>> mg["foo"]
     ['something else', 'nothing']
     """
+    element_type: Type = property(fget=lambda self: sequence_type(self._seq).pop())
+
+    # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
 
     def __len__(self) -> int:
-        pass
+        return self._seq.__len__()
 
     def __iter__(self) -> Iterator:
-        pass
+        return iter(self[k] for k in self.keys())
 
     def __init__(self, seq: Generic[Seq, T]):
         super().__init__()
+        assert len(sequence_type(seq)) == 1
         self._seq = seq
         if isinstance(seq[0], dict | self.__class__):
             self._getter = multi_getitem(self._seq)
@@ -218,6 +222,9 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __getitem__(self, k) -> Seq:
         return list(self._getter(k))
+
+    def __repr__(self):
+        return self.__class__.__name__ + f"[{self._seq.__class__.__name__}, {sequence_type(self._seq).pop()}]"
 
 
 class CollectionItemGetSetter(CollectionItemGetter):
@@ -240,7 +247,6 @@ class CollectionItemGetSetter(CollectionItemGetter):
     """
 
     def __init__(self, seq: Generic[Seq, T]):
-        self._inst: Type[T] = type(seq[0])
 
         super().__init__(seq)
         if isinstance(seq[0], dict | self.__class__):
@@ -285,7 +291,7 @@ class MultiDescriptor(CollectionItemGetSetter):
     """
 
     def __len__(self):
-        return len(self._seq)
+        return super().__len__()
 
     def __hash__(self):
         self.sha = hashlib.sha256(f"{self['__dict__']}".encode())
@@ -294,11 +300,12 @@ class MultiDescriptor(CollectionItemGetSetter):
 
 class ElementSequence(MultiDescriptor):
     ignored = int, float, str, Callable, FunctionType
-    typechecker = traverse(callback=lambda self, x: type(x) not in self.ignored)
 
     def __getitem__(self, item):
+
         r = super().__getitem__(item)
-        if all(self.typechecker(r)):
+        typechecker = traverse(callback=lambda x: type(x) not in self.ignored)
+        if all(typechecker(r)):
             return ElementSequence(r)
         else:
             return r
@@ -372,3 +379,22 @@ class MultiSetitem2:
                     return list.__setitem__(instance, item, val)
 
         return wrap
+
+
+class SeqProto(Protocol):
+
+    @property
+    def _getter(self):
+        return multi_getitem(self._seq) if list(sequence_type(self._seq))[0] == dict else multi_getter(self._seq)
+
+    def __getitem__(self, i):
+        return list(self._getter(i))
+
+
+class E(SeqProto):
+    def __init__(self, seq):
+        super().__init__()
+        self._seq = seq
+
+
+c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
