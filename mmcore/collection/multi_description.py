@@ -4,7 +4,7 @@ import collections
 import itertools
 from abc import ABC
 from collections import Counter
-from typing import Any, Callable, Generic, Iterable, Iterator, Mapping, Protocol, Sequence, Type, TypeVar, \
+from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar, \
     Union
 
 import numpy as np
@@ -106,7 +106,7 @@ class traverse(Callable):
     Example:
     >>> import numpy as np
     >>> a = np.random.random((4,2,3,7))
-    >>> b = next(traverse(a))
+    >>> b = next(traverse()(a))
     >>> b.shape, a.shape
     ((4, 2, 3, 7), (4, 2, 3, 7))
     >>> np.allclose(a,b)
@@ -114,7 +114,7 @@ class traverse(Callable):
     """
     __slots__ = ("callback",)
 
-    def __init__(self, callback: Callable):
+    def __init__(self, callback: Callable | None = None):
         if callback is None:
             self.callback = lambda x: x
         else:
@@ -122,8 +122,8 @@ class traverse(Callable):
 
     def __call__(self, seq: Sequence | Any) -> collections.abc.Generator[Sequence | Any]:
 
-        if not isinstance(seq, str) and isinstance(seq, Sequence):
-            for l in seq: yield next(self(l))
+        if isinstance(seq, Sequence | np.ndarray):
+            for l in seq: yield seq.__class__(self(l))
         else:
             yield self.callback(seq)
 
@@ -148,18 +148,30 @@ def sequence_type(seq: Sequence) -> Type:
     """
 
     assert isinstance(seq, Sequence)
-    tps = set(type_extractor(seq))
+    tps = set(np.array(next(type_extractor(seq))).flatten())
 
     return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
 
 
 def ismonotype(seq: Sequence) -> bool:
-    tp = sequence_type(seq),
-    try:
-        return not (tp.__origin__ == Union)
+    """
+    @param seq:
+    @return: bool
 
-    except Exception as err:
-        print(err)
+    >>> ints = [2, 3, 4, 9]
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> ismonotype(some)
+    False
+    >>> ismonotype(ints)
+    True
+
+
+    """
+    tp = sequence_type(seq)
+    if hasattr(tp, "__origin__"):
+
+        return not tp.__origin__ == Union
+    else:
         return True
 
 
@@ -208,9 +220,11 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     >>> mg["foo"]
     ['something else', 'nothing']
     """
-    element_type: Type = property(fget=lambda self: sequence_type(self._seq).pop())
+    element_type: Type = property(fget=lambda self: sequence_type(self._seq))
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
+    def keys(self) -> KeysView:
+        return np.array(self._seq).flatten()[0].__dict__.keys()
 
     def __len__(self) -> int:
         return self._seq.__len__()
@@ -220,19 +234,21 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __init__(self, seq: Generic[Seq, T]):
         super().__init__()
-        assert len(sequence_type(seq)) == 1
-        self._seq = seq
-        if isinstance(seq[0], Mapping):
 
-            self._getter = multi_getitem(self._seq)
-        else:
-            self._getter = multi_getter(self._seq)
+        self._seq = seq
 
     def __getitem__(self, k) -> Seq:
-        return list(self._getter(k))
+        if isinstance(self._seq[0], Mapping):
+
+            # _getter = multi_getitem(self._seq)
+            _getter = traverse(lambda x: x.__class__.__getitem__(x, k))
+        else:
+            _getter = traverse(lambda x: getattr(x, k))
+            # multi_getter(self._seq)
+        return list(_getter(self._seq))
 
     def __repr__(self):
-        return self.__class__.__name__ + f"[{self._seq.__class__.__name__}, {sequence_type(self._seq).pop()}]"
+        return self.__class__.__name__ + f"[{self._seq.__class__.__name__}, {self.element_type}]"
 
 
 class CollectionItemGetSetter(CollectionItemGetter):
@@ -257,14 +273,14 @@ class CollectionItemGetSetter(CollectionItemGetter):
     def __init__(self, seq: Generic[Seq, T]):
 
         super().__init__(seq)
-        if isinstance(seq[0], dict | self.__class__):
-            self._setter = multi_setitem(self._seq)
-        else:
-            self._setter = multi_setter(self._seq)
 
     def __setitem__(self, key: str, value):
         # print("v")
-        self._setter(key, value)
+        if isinstance(self._seq[0], dict | self.__class__):
+            _setter = multi_setitem(self._seq)
+        else:
+            _setter = multi_setter(self._seq)
+        return _setter(key, value)
 
 
 from mmcore.collection.masks import Mask
@@ -309,14 +325,15 @@ class MultiDescriptor(CollectionItemGetSetter):
 class ElementSequence(MultiDescriptor):
     ignored = int, float, str, Callable, FunctionType
 
+    def __list__(self):
+        return list(self._seq)
+    def __array__(self):
+        return np.asarray(list(self._seq))
     def __getitem__(self, item):
 
-        r = super().__getitem__(item)
-        typechecker = traverse(callback=lambda x: type(x) not in self.ignored)
-        if all(typechecker(r)):
-            return ElementSequence(r)
-        else:
-            return r
+        return super().__getitem__(item)
+
+
 
 
 class _MultiGetitem:

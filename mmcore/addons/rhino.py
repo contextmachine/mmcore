@@ -32,14 +32,16 @@ def DecodeToCommonObject(item):
 
 
 def EncodeFromCommonObject(item):
-    if item is None:
-        return None
-    elif isinstance(item, rh.CommonObject):
-        return rh.CommonObject.Encode(item)
+    if hasattr(item,"Encode"):
+        return EncodeFromCommonObject(ss.Encode())
+    elif isinstance(item, dict):
+        dd = {}
+        for k, v in item.items():
+            dd[k] = EncodeFromCommonObject(v)
     elif isinstance(item, list):
         return [EncodeFromCommonObject(x) for x in item]
     else:
-        pass
+        return item
 
 
 def encode_dict(item: Any):
@@ -68,135 +70,6 @@ class RhinoDecoder(JSONDecoder):
         dct = super().decode(s, *args, **kwargs)
         return DecodeToCommonObject(dct)
 
-
-class RhinoBind:
-    source_cls = None
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.source = self.source_cls(*args, **kwargs)
-
-
-class RhDesc:
-    def __set_name__(self, own, name):
-        self.name = name
-
-    def __get__(self, inst, ow=None):
-        return getattr(inst.source, self.name)
-
-    def __set__(self, inst, v):
-        setattr(inst.source, self.name, v)
-
-
-class RhinoPoint(RhinoBind):
-    source_cls = rh.Point3d
-    X = RhDesc()
-    Y = RhDesc()
-    Z = RhDesc()
-    DistanceTo = RhDesc()
-
-    @property
-    def xyz(self):
-        return self.X, self.Y, self.Z
-
-    def __str__(self):
-        return f"RhinoPoint({self.__array__()})"
-
-    def __repr__(self):
-        return f"RhinoPoint({self.__array__()})"
-
-    def __list__(self):
-        return list(self.xyz)
-
-    def __array__(self):
-        return np.array(self.xyz)
-
-    def __sub__(self, other):
-        return self.__class__(self.X - other.X, self.Y - other.Y, self.Z - other.Z)
-
-    def __add__(self, other):
-        return self.__class__(self.X + other.X, self.Y + other.Y, self.Z + other.Z)
-
-
-class RhinoAxis(RhinoBind):
-    """
-    >>> ax = RhinoAxis(RhinoPoint(1, 2, 3), RhinoPoint(12, 2, 3))
-    >>> ax.end
-    RhinoPoint([12.  2.  3.])
-    >>> ax.end.DistanceTo(ax.start.source)
-    11.0
-
-    """
-    source_cls = rh.Line
-    From = RhDesc()
-    To = RhDesc()
-
-    def __init__(self, start, end, **kwargs):
-        super().__init__(start.source, end.source, **kwargs)
-
-    @property
-    def start(self):
-        return RhinoPoint(self.From.X, self.From.Y, self.From.Z)
-
-    @property
-    def end(self):
-        return RhinoPoint(self.To.X, self.To.Y, self.To.Z)
-
-
-class RhinoCircle(RhinoBind):
-    source_cls = rh.Circle
-    radius = 1.0
-    Center = RhDesc()
-    Plane = RhDesc()
-
-
-class RhinoRuledSurf(RhinoBind):
-    source_cls = rh.NurbsSurface.CreateRuledSurface
-    curve_a = None
-    curve_b = None
-
-    def __init__(self, curve_a, curve_b, **kwargs):
-        super().__init__(curve_a.source.ToNurbsCurve(), curve_b.source.ToNurbsCurve(), **kwargs)
-
-
-class RhinoBiCone:
-    source_cls = rh.NurbsSurface.CreateRuledSurface
-    radius_start = 1.0
-    radius_end = 0.5
-    point_start = RhinoPoint(22, 22, -11)
-    point_end = RhinoPoint(1, 0, 1)
-
-    def __init__(self, **kwargs):
-        super().__init__()
-        self.__dict__ |= kwargs
-
-    @property
-    def plane1(self):
-        return rh.Plane(self.point_start.source,
-                        rh.Vector3d(*(self.point_end - self.point_start).__array__()))
-
-    @property
-    def plane2(self):
-        return rh.Plane(self.point_end.source,
-                        rh.Vector3d(*(self.point_end - self.point_start).__array__()))
-
-    @property
-    def c1(self):
-        t = rhino_transform_from_matrix(mmcore.conversions.compas.from_rhino_plane_transform(self.plane2).matrix)
-        n = rh.Circle(self.radius_end).ToNurbsCurve()
-        n.Transform(t)
-        return n
-
-    @property
-    def c2(self):
-        t = rhino_transform_from_matrix(mmcore.conversions.compas.from_rhino_plane_transform(self.plane1).matrix)
-        n = rh.Circle(self.radius_end).ToNurbsCurve()
-        n.Transform(t)
-        return n
-
-    @property
-    def source(self):
-        return self.source_cls(self.c1, self.c2)
 
 
 def control_points_curve(points: list[list[float]] | np.ndarray, degree: int = 3):
@@ -311,3 +184,48 @@ def get_model_attributes(path):
         dct = self.default(o)
 
         return json.dumps(dct)
+
+
+import rhino3dm as rg
+
+
+class DPoint3d(rg.Point3d):
+    def Encode(self):
+        return {"array": [self.X, self.Y, self.Z], "type": self.__class__.__bases__[0].__name__}
+
+    @classmethod
+    def Decode(cls, dct: dict):
+        return cls(*dct["array"])
+
+
+class DVector3d(rg.Vector3d):
+    def Encode(self):
+        return {"array": [self.X, self.Y, self.Z], "type": self.__class__.__bases__[0].__name__}
+
+    @classmethod
+    def Decode(cls, dct: dict):
+        return cls(*dct["array"])
+
+
+class DPlane(rg.Plane):
+    Origin: DPoint3d
+    XAxis: DVector3d
+    YAxis: DVector3d
+
+    @property
+    def Normal(self):
+        return self.ZAxis
+
+    def Encode(self):
+        return {"array": [self.Origin, self.XAxis, self.YAxis], "type": self.__class__.__bases__[0].__name__}
+
+    @classmethod
+    def Decode(cls, dct: dict):
+        return cls(*dct["array"])
+
+import subprocess
+
+def start_with_arg():
+    proc = subprocess.Popen(["-nosplash"], executable="/Applications/RhinoWIP.app/Contents/MacOS/Rhinoceros")
+
+    proc.send_signal(subprocess.signal.SIGKILL)

@@ -581,7 +581,7 @@ class Matchable(object):
     def __repr__(self) -> str:
 
         s = f"{self.__class__.__name__}("
-        for k in self.__getstate__().keys():
+        for k in self.__class__.__match_args__:
             s += f"{k}={getattr(self, k)}, "
         return s[:-2] + ")"
 
