@@ -9,7 +9,7 @@ from numpy import ndarray
 
 from ...baseitems import Item
 
-
+import rhino3dm as rg
 def mirror(right):
     mirror = np.eye(3, 3)
     mirror[1, 1] = -1
@@ -20,6 +20,14 @@ def mirror(right):
         left[i, ...] = mirror @ np.asarray(pt).T
     return left
 
+def create_Transform(flat_arr):
+    tg = rg.Transform.ZeroTransformation
+    k = 0
+    for i in range(4):
+        for j in range(4):
+            setattr(tg, "M{}{}".format(i, j), flat_arr[k])
+            k += 1
+    return tg
 
 class Xf(Item):
     def __init__(self, *args, **kwargs):
