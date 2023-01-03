@@ -12,4 +12,5 @@ def setup_secrets(update=False):
         data["CADEX_LICENSE"] = base64.b64decode(data["CADEX_LICENSE"]).decode()
         for k in data.keys():
             os.environ[k] = str(data[k])
+        print("Success!")
         return data

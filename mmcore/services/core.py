@@ -6,8 +6,9 @@ from typing import Protocol
 import dill
 import httpx
 
-from mmcore.cxmdata import CxmData
+from cxmdata import CxmData
 from mmcore.services.service import Service
+from mmcore.addons import compute
 
 class Injection(Protocol):
     """
@@ -33,6 +34,11 @@ class Inputs:
 
 
 class RhinoIronPython(Service):
+    """
+
+    Overhead restrictions
+    """
+
     def __init__(self, address=('localhost', 10000), bytesize=4096 * 2, **kwargs):
         """
 
@@ -61,7 +67,10 @@ class RhinoIronPython(Service):
 
         except Exception as err:
             print(err)
+
+
 import Rhino.Geometry as rg
+
 rg.Brep.CreateFromLoftRebuild()
 
 
@@ -69,18 +78,16 @@ class RhinoCompute(Service):
 
     def __init__(self, address, apikey=os.getenv("RHIBOCOMPUTE"), **kwargs):
         super().__init__(address, *kwargs)
-        self.apikey=apikey
+        self.apikey = apikey
         self.extra_kwargs = kwargs
         self.client = httpx.AsyncClient(headers="http://{}/")
 
-
-    _headers ={
+    _headers = {
         "User-Agent": "compute.rhino3d.py/1.2.0",
         "Accept": "application/json",
-        "Content-Type": ("application/json","application/binary","application/text"),
+        "Content-Type": ("application/json", "application/binary", "application/text"),
 
         }
-
 
     def solve(self, msg) -> dict:
         from compute_rhino3d import Util
@@ -105,15 +112,15 @@ class RhinoCompute(Service):
         print(out)
         return Util.PythonEvaluate(script, inp, out)
 
-
     @property
     def headers(self):
-        self._headers["RhinoComputeKey"]= self.apikey
+        self._headers["RhinoComputeKey"] = self.apikey
         return self._headers
 
     @headers.setter
     def headers(self, value):
         self._headers = value
+
 
 class A:
     def __init__(self, pln):
@@ -137,10 +144,3 @@ class A:
     def sweep(self, rail):
         x, y, z = rail
         return self.rhcmp(polyline=self.polyline, x=f'{x}', y=f'{y}', z=f'{z}')["ans"][0]
-
-result = Util.PythonEvaluate("import Rhino.Geometry as rg\nres=rg.NurbsCurve.CreateControlPointCurve([rg.Point3d(xx,yy,zz) for xx,yy,zz in zip(eval(x),eval(y),eval(z))], 3)",
-                                 {
-                                     "x": '[0.0,1.0,2.0,3.0,4.0,5.0,6.0]',
-                                     "y": '[0.0,1.0,2.0,3.0,4.0,5.0,6.0]',
-                                     "z": '[0.0,1.0,2.0,3.0,4.0,5.0,6.0]'
-                                 }, ["res"])"""
