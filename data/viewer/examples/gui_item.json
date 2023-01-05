@@ -1,0 +1,10 @@
+{
+   "id": "color-linechart",
+   "name": "график по цветам",
+   "type": "chart",
+   "key": "color",
+   "colors": "default",
+   "require": [
+      "piechart"
+   ]
+}

@@ -21,7 +21,7 @@ def mirror(right):
     return left
 
 def create_Transform(flat_arr):
-    tg = rg.Transform.ZeroTransformation
+    tg = rg.Transform.ZeroTransformation()
     k = 0
     for i in range(4):
         for j in range(4):
