@@ -1,6 +1,6 @@
 from typing import Callable, Protocol
 
-from mmcore.utils.sockets.examples.upd_client import CxmData
+from cxmdata import CxmData
 
 
 class Service(Protocol):
@@ -44,7 +44,7 @@ class Service(Protocol):
 
 from mmcore.collection.multi_description import ElementSequence
 
-ImportStatement = namedtuple("ImportStatement", ["name", "asname"])
+
 
 
 class Injection(Protocol):

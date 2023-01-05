@@ -69,7 +69,7 @@ class StandardGrasshopperRequest(GrashopperRequest):
 
     @property
     def defaults(self) -> Any:
-        return CxmData(self.get(address=self.address).json()["Inputs"][0]["Default"]).decompress()[0]
+        return CxmData(self.get(address=self.address).json()["Inputs"][0]["Default"]).decompress()
 
     def post(self, data=None, address=None):
         if data is None:
@@ -90,6 +90,9 @@ class StandardGrasshopperRequest(GrashopperRequest):
             address=address
             )
 
+        return response
+    def solve(self, *args,**kwargs):
+        response=self.post(*args,**kwargs)
         return CxmData(
             list(response.json()["values"][0]["InnerTree"].values())[0][0]["data"].replace('"', "")).decompress()
 
