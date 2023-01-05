@@ -1,11 +1,11 @@
 from mmcore.baseitems import Matchable
 from mmcore.services.core import RhinoIronPython
-
-
+from cxmdata import CxmData
+import rhino3dm as rg
 # Create a UDP socket
 
 
-@RhinoIronPython(adress=('localhost', 10000), bytesize=1024 * 8)
+@RhinoIronPython(('localhost', 10081), bytesize=1024 * 8)
 class BrepExtruder(Matchable):
     """
 # You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
@@ -28,7 +28,8 @@ offset_brep=list(a)
     __match_args__ = "mybrep", "offset_brep"
 
 
-@RhinoIronPython(adress=('localhost', 10006), bytesize=1024 * 8)
+
+@RhinoIronPython(('localhost', 10006), bytesize=1024 * 8)
 class SweepOneRail(Matchable):
     """
 # You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
@@ -51,7 +52,7 @@ sweep_result=list(sweep.PerformSweep(rail=rail, crossSection=profile))
     __match_args__ = "transform", "sweep_result"
 
 
-@RhinoIronPython(adress=('localhost', 10006), bytesize=1024 * 8)
+@RhinoIronPython(('localhost', 10006), bytesize=1024 * 8)
 class SweepTwoRail(Matchable):
     """
 # You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
@@ -76,9 +77,14 @@ sweep_result=list(sweep.PerformSweep(c1,c2, crossSection=profile))
     __match_args__ = "transform", "sweep_result"
 
 
-@RhinoIronPython(adress=('localhost', 10006), bytesize=1024 * 8)
+@RhinoIronPython(('localhost', 10088), bytesize=1024 * 8)
 class StopSignal(Matchable):
     """
     stop
     """
     __match_args__ = ()
+
+
+stop=CxmData({
+    "py":"stop"
+    })

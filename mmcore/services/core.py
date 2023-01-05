@@ -10,6 +10,7 @@ from cxmdata import CxmData
 from mmcore.services.service import Service
 from mmcore.addons import compute
 
+
 class Injection(Protocol):
     """
         """
@@ -39,7 +40,7 @@ class RhinoIronPython(Service):
     Overhead restrictions
     """
 
-    def __init__(self, address=('localhost', 10000), bytesize=4096 * 2, **kwargs):
+    def __init__(self, address=('localhost', 10004), bytesize=4096 * 2, **kwargs):
         """
 
         @param address:
@@ -67,80 +68,3 @@ class RhinoIronPython(Service):
 
         except Exception as err:
             print(err)
-
-
-import Rhino.Geometry as rg
-
-rg.Brep.CreateFromLoftRebuild()
-
-
-class RhinoCompute(Service):
-
-    def __init__(self, address, apikey=os.getenv("RHIBOCOMPUTE"), **kwargs):
-        super().__init__(address, *kwargs)
-        self.apikey = apikey
-        self.extra_kwargs = kwargs
-        self.client = httpx.AsyncClient(headers="http://{}/")
-
-    _headers = {
-        "User-Agent": "compute.rhino3d.py/1.2.0",
-        "Accept": "application/json",
-        "Content-Type": ("application/json", "application/binary", "application/text"),
-
-        }
-
-    def solve(self, msg) -> dict:
-        from compute_rhino3d import Util
-        Util.url = self.server_address
-        Util.apiKey = self.apikey
-        dill.source.likely_import()
-        self._method = meth
-        self._lines = dill.source.getsourcelines(self._method)[0]
-        # print(self._lines)
-        self.inputs = set(extract_inputs(self._method, True))
-        self.out = set(extract_out(self._lines))
-        self.intern = set(self._method.__code__.co_varnames) - self.inputs.union(self.out)
-        inp = kwargs
-
-        out = list(self.out)
-        script = ""
-
-        for line in self._lines[2:-1]:
-            script += line.replace("        ", "")
-        print(script)
-        print(inp)
-        print(out)
-        return Util.PythonEvaluate(script, inp, out)
-
-    @property
-    def headers(self):
-        self._headers["RhinoComputeKey"] = self.apikey
-        return self._headers
-
-    @headers.setter
-    def headers(self, value):
-        self._headers = value
-
-
-class A:
-    def __init__(self, pln):
-        self.polyline = pln
-
-    @ComputeBinder
-    def rhcmp(self, polyline: rhino3dm.Polyline = None, x=None, y=None, z=None):
-        import Rhino.Geometry as rg
-
-        rail = rg.NurbsCurve.CreateControlPointCurve \
-            ([rg.Point3d(xx, yy, zz) for xx, yy, zz in zip(eval(x), eval(y), eval(z))], 2)
-        _, pln = rail.FrameAt(0.0)
-
-        plnn = rg.Plane(pln.Origin, pln.YAxis,
-                        pln.ZAxis)
-        polyline.Transform(rg.Transform.PlaneToPlane(rg.Plane.WorldXY, plnn))
-        swp = rg.SweepOneRail()
-        ans = swp.PerformSweep(rail, polyline)
-        return ans
-
-    def sweep(self, rail):
-        x, y, z = rail
-        return self.rhcmp(polyline=self.polyline, x=f'{x}', y=f'{y}', z=f'{z}')["ans"][0]
