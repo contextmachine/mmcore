@@ -59,6 +59,7 @@ class traverse(Callable):
                     return typ.resolver(seq)
                 else:
                     continue
+
         elif isinstance(seq, str):
             # Это надо обработать в самом начале
             return self.callback(seq)
@@ -72,6 +73,8 @@ class traverse(Callable):
                 for k,v in seq.items():
                     dt[k]=self(v)
                 return dt
+            else:
+                return seq
         else:
             return self.callback(seq)
 
