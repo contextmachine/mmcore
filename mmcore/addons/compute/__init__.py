@@ -1,3 +1,4 @@
+from functools import wraps
 from typing import Any
 
 import requests
@@ -38,6 +39,7 @@ class ComputeRequest:
 
 class GrashopperRequest(ComputeRequest):
     def __init__(self, definition_name="example.gh"):
+        super().__init__()
         self.definition_name = definition_name
 
     _address = secrets['RHINO_COMPUTE_GH_DEPLOY_PATH']
@@ -55,7 +57,12 @@ class GrashopperRequest(ComputeRequest):
 
     def post(self, data, address=None):
         return requests.post(Util.url + "grasshopper", json={
-            "pointer": f"{self.address if address is None else address}/{self.definition_name}", "values": [data]})
+            "pointer": f"{self.address if address is None else address}/{self.definition_name}", "values": data},timeout=1200)
+
+    def solve(self, *args, **kwargs):
+        response = self.post(*args, **kwargs)
+        return CxmData(
+            list(response.json()["values"][0]["InnerTree"].values())[0][0]["data"].replace('"', "")).decompress()
 
 
 class StandardGrasshopperRequest(GrashopperRequest):
@@ -75,8 +82,8 @@ class StandardGrasshopperRequest(GrashopperRequest):
         if data is None:
             data = self.defaults
 
-        response = super().post(
-            {
+        return super().post(
+            [{
                 "ParamName": "input",
                 "InnerThree": {
                     "0": [
@@ -86,14 +93,77 @@ class StandardGrasshopperRequest(GrashopperRequest):
                             }
                         ]
                     }
-                },
+                }],
             address=address
             )
 
-        return response
-    def solve(self, *args,**kwargs):
-        response=self.post(*args,**kwargs)
+    def solve(self, *args, **kwargs):
+        response = self.post(*args, **kwargs)
         return CxmData(
             list(response.json()["values"][0]["InnerTree"].values())[0][0]["data"].replace('"', "")).decompress()
+
+
+class CustomGrasshopperRequest(GrashopperRequest):
+    """
+    Предполагается что определение имеет несколько входов и один выход "input/output" с типами данных cxmdata/cxmdata.
+    Этого должно быть достаточно в 90% случаев .
+
+    Если в метод post не поступает аргумент data, определение будет вычисляться с input по умолчанию (если такое
+    значение существует)
+    """
+
+    def __init__(self, definition_name="example.gh"):
+        super().__init__(definition_name=definition_name)
+
+    @property
+    def defaults(self) -> Any:
+        flds = []
+        for field in self.get(address=self.address).json()["Inputs"]:
+            flds.append((field["Name"], CxmData(field["Default"]).decompress()))
+        return dict(flds)
+
+    def post(self, data=None, address=None):
+        if data is None:
+            data = self.defaults
+        dt = []
+        for k, v in data.items():
+            prm = {
+                "ParamName": k,
+                "InnerThree": {
+                    "0": [
+                        {
+                            "type": "System.String",
+                            "data": CxmData.compress(v).decode()
+                            }
+                        ]
+                    }
+                }
+            dt.append(prm)
+        return super().post(dt, address=address)
+
+    def solve(self, *args, **kwargs):
+        response = self.post(*args, **kwargs)
+        return CxmData(
+            list(response.json()["values"][0]["InnerTree"].values())[0][0]["data"].replace('"', "")).decompress()
+
+
+class GhDecore(CustomGrasshopperRequest):
+
+    def __call__(self, f):
+
+        @wraps(f)
+        def wrapcall(slf, *args, **kwargs):
+            dd = {}
+            res = f(slf, *args, **kwargs)
+
+            for k, v in self.defaults.items():
+
+                if k in res.keys():
+                    dd[k] = res[k]
+                else:
+                    dd[k] = v
+
+            return self.solve(dd, address=self.address)
+        return wrapcall
 
 

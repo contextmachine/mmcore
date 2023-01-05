@@ -1,5 +1,6 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
+import collections
 import itertools
 from abc import ABC
 from collections import Counter
@@ -7,7 +8,6 @@ from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping
     Union
 
 import numpy as np
-from mmcore.collection.traversal import traverse, type_extractor
 
 
 def _(): pass
@@ -95,7 +95,41 @@ VTco = TypeVar("VTco", contravariant=True)
 T = TypeVar("T")
 Seq = TypeVar("Seq", bound=Sequence)
 
+
+class traverse(Callable):
+    """
+    Полностью проходит секвенцию любой степени вложенности.
+    В момент обладания каждым из объектов может применить `placeholder`.
+    По умолчанию не делает ничего (вернет генератор той-же самой секвенции, что и получил).
+    Генератор всегда предсказуем. самый простой способ распаковки -- один раз передать его в `next`.
+    -----------------------------------------------------------------------------------------------------
+    Example:
+    >>> import numpy as np
+    >>> a = np.random.random((4,2,3,7))
+    >>> b = next(traverse()(a))
+    >>> b.shape, a.shape
+    ((4, 2, 3, 7), (4, 2, 3, 7))
+    >>> np.allclose(a,b)
+    True
+    """
+    __slots__ = ("callback",)
+
+    def __init__(self, callback: Callable | None = None):
+        if callback is None:
+            self.callback = lambda x: x
+        else:
+            self.callback = callback
+
+    def __call__(self, seq: Sequence | Any) -> collections.abc.Generator[Sequence | Any]:
+
+        if isinstance(seq, Sequence | np.ndarray):
+            for l in seq: yield seq.__class__(self(l))
+        else:
+            yield self.callback(seq)
+
+
 # Проходит по всем элементам секвенции, возвращая секвенцию типов элементов.
+type_extractor = traverse(lambda x: x.__class__)
 
 
 def sequence_type(seq: Sequence) -> Type:
@@ -114,7 +148,7 @@ def sequence_type(seq: Sequence) -> Type:
     """
 
     assert isinstance(seq, Sequence)
-    tps = set(np.array(type_extractor(seq)).flatten())
+    tps = set(np.array(next(type_extractor(seq))).flatten())
 
     return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
 
