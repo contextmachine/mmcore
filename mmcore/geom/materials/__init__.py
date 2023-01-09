@@ -26,13 +26,12 @@ class Material(Mmodel):
     data: dict = MaterialData(*properties)
     _color: ColorRGB | ColorRGBA = ColorRGB(50, 50, 50)
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, color, **kwargs):
 
-        color = args[0]
         if len(color) == 4:
             cls.properties.extend(['opacity', 'transparent'])
         indt = super().__new__(cls)
-        indt.__init__(*args, **kwargs)
+        indt.__init__(*(color,), **kwargs)
         return indt
 
     @property
@@ -74,14 +73,11 @@ class Material(Mmodel):
 class MaterialType(type):
     @classmethod
     def __prepare__(metacls, name, bases=(Material,), templates=f"{__file__.replace('/__init__.py', '')}/templates",
-                    typ=None, **kwargs):
+                    **kwargs):
         ns = dict(super().__prepare__(name, bases))
-        if typ is not None:
-            with open(f"{templates}/{typ}.json") as f:
-                data = json.load(f)
-        else:
-            with open(f"{templates}/{name}.json") as f:
-                data = json.load(f)
+
+        with open(f"{templates}/{name}.json") as f:
+            data = json.load(f)
 
         ns.update(data)
         ns["_type"] = data["type"]
@@ -98,22 +94,17 @@ class MaterialType(type):
         return cls
 
 
-class MeshPhongBasic(Material, metaclass=MaterialType, typ='MeshPhongMaterial'):
+class MeshPhongBasic(Material, metaclass=MaterialType):
     ...
 
 
-class MeshPhongFlatShade(Material, metaclass=MaterialType, typ='MeshPhongMaterial',
-                         flatShading=True
-                         ):
+class MeshPhongFlatShading(Material, metaclass=MaterialType):
     ...
 
 
-class MeshPhysicalBasic(Material, metaclass=MaterialType, typ='MeshPhysicalMaterial'):
+class MeshPhysicalBasic(Material, metaclass=MaterialType):
     ...
 
 
-class MeshPhysicalMetallic(Material, metaclass=MaterialType, typ='MeshPhysicalMaterial',
-                           metalness=0.65,
-                           roughness=0.34
-                           ):
+class MeshPhysicalMetallic(Material, metaclass=MaterialType):
     ...

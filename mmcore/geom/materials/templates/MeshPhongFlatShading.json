@@ -1,0 +1,22 @@
+{
+    "type": "MeshPhongMaterial",
+    "emissive": 0,
+    "specular": 1118481,
+    "shininess": 30,
+    "reflectivity": 1.2,
+    "refractionRatio": 0.98,
+    "side": 2,
+    "depthFunc": 3,
+    "depthTest": true,
+    "depthWrite": true,
+    "colorWrite": true,
+    "stencilWrite": false,
+    "stencilWriteMask": 255,
+    "stencilFunc": 519,
+    "stencilRef": 0,
+    "stencilFuncMask": 255,
+    "stencilFail": 7680,
+    "stencilZFail": 7680,
+    "stencilZPass": 7680,
+    "flatShading": true
+}
