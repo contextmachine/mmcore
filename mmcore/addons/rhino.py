@@ -5,7 +5,6 @@ import warnings
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
-import mmcore.addons.comp
 import numpy as np
 import rhino3dm as rh
 
@@ -33,7 +32,7 @@ def DecodeToCommonObject(item):
 
 def EncodeFromCommonObject(item):
     if hasattr(item,"Encode"):
-        return EncodeFromCommonObject(ss.Encode())
+        return EncodeFromCommonObject(item.Encode())
     elif isinstance(item, dict):
         dd = {}
         for k, v in item.items():
@@ -128,6 +127,16 @@ def model_from_json_file(path, modelpath=None):
         model.Write(f"{pth}.3dm", 7)
 
 
+def model_from_dct(dct, path, modelpath=None):
+    model = rh.File3dm()
+
+    dct["archive3dm"] = 70
+    model.Objects.Add(rh.GeometryBase.Decode(dct))
+    if modelpath:
+        model.Write(f"{modelpath}.3dm", 7)
+    else:
+        model.Write(f"{path}.3dm", 7)
+    return model
 def model_from_dir_obj(directory):
     model = rh.File3dm()
     for path in os.scandir(directory):
@@ -144,6 +153,12 @@ def model_from_multijson_file(directory, model_path):
     model = model_from_dir_obj(directory)
     model.Write(f"{model_path}.3dm", 7)
 
+
+def model_from_geometry_list(objects, model_path):
+    model = rg.File3dm()
+    [model.Objects.Add(obj) for obj in objects]
+    model.Write(f"{model_path}.3dm", 7)
+    return model
 
 def get_model_objects(path):
     rr = rh.File3dm().Read(path)
