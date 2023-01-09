@@ -1,11 +1,8 @@
 import collections
+import typing
 from typing import Any, Callable, Sequence
 
-import numpy
 import numpy as np
-import typing
-from typing import TypeVar
-
 
 """
     class traverse(Callable):
@@ -74,9 +71,9 @@ class traverse(Callable):
                     dt[k]=self(v)
                 return dt
             else:
-                return seq
+                return self.callback(seq)
         else:
             return self.callback(seq)
 
 
-type_extractor = traverse(lambda x: x.__class__, traverse_dict=False)
+type_extractor = traverse(lambda x: type(x), traverse_dict=False)

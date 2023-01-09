@@ -21,7 +21,6 @@ import numpy as np
 import pydantic
 
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
-from mmcore.utils.pydantic_mm.models import InnerTreeItem
 
 
 class Now(str):
@@ -462,7 +461,7 @@ class GeomDataItem(DictableItem, GeometryItem):
 # New Style Classes
 # ----------------------------------------------------------------------------------------------------------------------
 from hashlib import sha256
-
+from mmcore.baseitems import descriptors
 
 class ViewData(DataDescriptor):
     params = {}
@@ -498,7 +497,8 @@ class ViewData(DataDescriptor):
             yield self.params[name].convert(self, inst, own)
 
 
-class UserData(ViewData):
+"""
+class UserData(descriptors.DataView):
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -516,9 +516,8 @@ class UserData(ViewData):
             setattr(instance, f"_{self.name}", value)
 
         def convert(self, o, inst, own):
-            return {"id": self.name, "value": o.params[self.name].__get__(inst, own),
-                    "name": self.name[0].upper() + self.name[1:]}
-
+            return {self.name: o.params[self.name].__get__(inst, own)}
+"""
 
 class Matchable(object):
     """
@@ -528,11 +527,11 @@ class Matchable(object):
 
     """
     __match_args__: tuple[str] = ()
-    userData = UserData()
+    userData = descriptors.UserData(())
 
     def __init__(self, *args, **kwargs):
         super().__init__()
-        self._uuid = uuid.uuid4()
+        self._uuid = uuid.uuid4().__str__()
         self.__call__(*args, **kwargs)
 
     def __setstate__(self, state: OrderedDict | dict) -> None:
@@ -599,7 +598,19 @@ class Matchable(object):
     def default(self):
         return dict(self.__getstate__())
 
-    def solve_pydantic(self):
-        self.pydantic_model = pydantic.create_model(self.__class__.__name__,
-                                                    dict([(k, getattr(self, k)) for k in self.__match_args__]))
-        return self.pydantic_model
+    @property
+    def pydantic_model(self):
+        return self.__class__.solve_pydantic()(**self.__dict__)
+
+    @classmethod
+    def solve_pydantic(cls, defaults=None):
+        if defaults is None:
+            defaults = []
+            for k in cls.__match_args__:
+                try:
+                    defaults.append(getattr(cls, k))
+                except:
+                    defaults.append(None)
+
+        __pydantic_model__ = pydantic.create_model("Pydantic" + cls.__name__, **dict(zip(cls.__match_args__, defaults)))
+        return __pydantic_model__
