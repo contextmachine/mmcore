@@ -124,7 +124,7 @@ class DataView(NoDataDescriptor):
     def data_model(self, instance, value: list[tuple[str, Any]]):
         ...
 
-    def __init__(self, targets):
+    def __init__(self, *targets):
         super().__init__()
         self.targets = targets
 
@@ -134,7 +134,7 @@ class DataView(NoDataDescriptor):
         setattr(owner, "_" + name, self)
 
     def __generate__(self, instance, owner):
-        for name in getattr(instance, self.targets):
+        for name in self.targets:
             yield self.item_model(name=name, value=owner.__getattribute__(instance, name))
 
     def __get__(self, instance, owner):
@@ -142,3 +142,31 @@ class DataView(NoDataDescriptor):
             return self
         else:
             return self.data_model(instance, value=list(self.__generate__(instance, owner)))
+
+
+class UserData(DataView):
+    def item_model(self, name, value):
+        return name, value
+
+    def data_model(self, instance, value):
+        return {"properties": dict(value)}
+
+
+class GroupUserData(DataView):
+    def __generate__(self, instance, owner):
+        for name in self.targets:
+            yield self.item_model(name=name, value=getattr(instance, "gui_" + name))
+
+    def item_model(self, name, value):
+        return {
+            "id": "color-" + "".join(value),
+            "name": name[0].upper() + name[1:] + " chart",
+            "type": "chart",
+            "key": name,
+            "colors": "default",
+            "require": value
+
+            }
+
+    def data_model(self, instance, value):
+        return {"gui": value}
