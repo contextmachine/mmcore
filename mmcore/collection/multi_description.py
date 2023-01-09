@@ -1,13 +1,15 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
-import collections
 import itertools
 from abc import ABC
 from collections import Counter
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar, \
     Union
-from .traversal import type_extractor
+
+import numpy
 import numpy as np
+
+from .traversal import type_extractor
 
 
 def _(): pass
@@ -114,7 +116,7 @@ def sequence_type(seq: Sequence) -> Type:
     """
 
     assert isinstance(seq, Sequence)
-    tps = set(np.array(next(type_extractor(seq))).flatten())
+    tps = set(numpy.asarray(type_extractor(seq)).flatten())
 
     return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
 
@@ -190,7 +192,11 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
-        return np.array(self._seq).flatten()[0].__dict__.keys()
+        d = np.array(self._seq).flatten()[0]
+        if isinstance(d, dict):
+            return d.keys()
+        else:
+            return d.__dict__.keys()
 
     def __len__(self) -> int:
         return self._seq.__len__()
@@ -207,11 +213,11 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
         if isinstance(self._seq[0], Mapping):
 
             # _getter = multi_getitem(self._seq)
-            _getter = traverse(lambda x: x.__class__.__getitem__(x, k))
+            _getter = multi_getitem(self._seq)
         else:
-            _getter = traverse(lambda x: getattr(x, k))
+            _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
-        return list(_getter(self._seq))
+        return list(_getter(k))
 
     def __repr__(self):
         return self.__class__.__name__ + f"[{self._seq.__class__.__name__}, {self.element_type}]"
