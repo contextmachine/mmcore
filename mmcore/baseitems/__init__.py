@@ -9,10 +9,8 @@ __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'Dictabl
 import base64
 import gzip
 import itertools
-import json
 import uuid
 from abc import ABCMeta, abstractmethod
-from collections import OrderedDict
 from datetime import datetime
 from json import JSONEncoder
 from typing import Callable, Generator, Union
@@ -187,14 +185,14 @@ class Metadata(DataviewDescriptor):
     include = ["uid", "uuid", "dtype", "version"]
     replace = {
         "_dtype": "dtype"
-    }
+        }
 
 
 class ReprData(DataviewDescriptor):
     include = []
     replace = {
         "_dtype": "dtype"
-    }
+        }
 
     def __init__(self, *include, **kwargs):
         super().__init__(**kwargs)
@@ -265,7 +263,7 @@ class GeomConversionMap(DataviewDescriptor):
     include = ["to_rhino", "to_compas"]
     replace = {
 
-    }
+        }
 
 
 class GeometryItem(Item):
@@ -460,8 +458,8 @@ class GeomDataItem(DictableItem, GeometryItem):
 
 # New Style Classes
 # ----------------------------------------------------------------------------------------------------------------------
-from hashlib import sha256
 from mmcore.baseitems import descriptors
+
 
 class ViewData(DataDescriptor):
     params = {}
@@ -519,6 +517,7 @@ class UserData(descriptors.DataView):
             return {self.name: o.params[self.name].__get__(inst, own)}
 """
 
+
 class Matchable(object):
     """
     New style baseclass version.
@@ -534,24 +533,6 @@ class Matchable(object):
         self._uuid = uuid.uuid4().__str__()
         self.__call__(*args, **kwargs)
 
-    def __setstate__(self, state: OrderedDict | dict) -> None:
-
-        for k, arg in state.items():
-            self.__setattr__(k, arg)
-
-    def __getstate__(self) -> dict:
-        state = {
-
-        }
-
-        # print(list(set(self.__match_args__).union(set(self.__include__)) - set(self.__ignore__)))
-
-        for arg in self.__match_args__:
-            # print(arg)
-            val = getattr(self, arg)
-
-        return state
-
     def __call__(self, *args, **kwargs):
         if args:
             if len(self.__match_args__) + 1 < len(args):
@@ -563,19 +544,6 @@ class Matchable(object):
         for k, v in kwargs.items():
             self.__setattr__(k, v)
         return self
-
-    @property
-    def sha256(self):
-        # noinspection InsecureHash
-        return sha256(json.dumps(tuple(self.__getstate__().values())))
-
-    @property
-    def checksum(self):
-        # noinspection InsecureHash
-        return int(self.sha256.hexdigest(), 32)
-
-    def __hash__(self):
-        return self.checksum
 
     def __repr__(self) -> str:
 
@@ -591,12 +559,6 @@ class Matchable(object):
     @uuid.setter
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
-
-    def encode(self):
-        return json.dumps(dict(self.__getstate__()))
-
-    def default(self):
-        return dict(self.__getstate__())
 
     @property
     def pydantic_model(self):
@@ -614,3 +576,13 @@ class Matchable(object):
 
         __pydantic_model__ = pydantic.create_model("Pydantic" + cls.__name__, **dict(zip(cls.__match_args__, defaults)))
         return __pydantic_model__
+
+
+class Mmodel(Matchable):
+    __match_args__ = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        return super().__call__(*args, **kwargs)
