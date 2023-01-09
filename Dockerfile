@@ -10,6 +10,9 @@ WORKDIR mmodel
 COPY . .
 # Install extra packages
 RUN python -m pip install git+https://github.com/contextmachine/cxmdata.git
+RUN pip install git+https://github.com/tpaviot/pythonocc-utils
+
+
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
 ENV MY_FAVORIT_TRANSPORT="CONTEXTMACHINE"

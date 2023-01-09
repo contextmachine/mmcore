@@ -1,5 +1,7 @@
 import copy
-from mmcore.addons.compute import StandardGrasshopperRequest
+
+from mmcore.addons.compute.gh_models import SlimGHRequest
+
 
 class Filter:
     def __init__(self, mask):
@@ -13,16 +15,18 @@ class Filter:
         else:
 
             return filter(lambda x: next(nm), iter(seq))
-class BrepMask(StandardGrasshopperRequest):
+
+
+class BrepMask(SlimGHRequest):
     def __init__(self, mask=None, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-        self.mask=mask
-    def __call__(self, seq=None):
-        dfl=self.defaults
-        if self.mask is None:
+        self.mask = mask
 
-            self.mask==dfl["mask"]
+    def __call__(self, seq=None):
+        dfl = self.defaults
+        if self.mask is None:
+            self.mask == dfl["mask"]
 
         if seq==None:
             seq == dfl["geoms"]

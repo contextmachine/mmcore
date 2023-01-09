@@ -10,7 +10,6 @@ dependencies:
   - flask
   - numpy
   - pyopenssl
-  - scipy=1.8.1
   - setuptools
   - shapely
   - wheel
@@ -21,22 +20,23 @@ dependencies:
       - redis-py-cluster
       - setuptools_rust
       - redis
+      - redisom
       - pottery
-      - colored==1.4.3
+      - colored>=1.4.3
       - compas-occ
-      - fastapi
-      - gh-io-stubs==7.7.21140
-      - gh-util-stubs==7.7.21140
-      - grasshopper-stubs==7.7.21140
+      - gh-io-stubs>=7.7.21140
+      - gh-util-stubs>=7.7.21140
+      - grasshopper-stubs>=7.7.21140
       - jedi==0.18.1
       - orjson==3.8.0
       - pydantic
       - python-dotenv
       - python-multipart
-      - pythreejs==2.4.1
-      - rhino-stubs==7.7.21140
-      - ujson==5.5.0
-      - uvicorn
+      - pythreejs>=2.4.1
+      - rhino-stubs>=7.7.21140
+      - ujson>=5.5.0
+      - uvicorn[standard]
       - uvloop
       - fastapi[all]
+      - rhino3dm==7.14.2
 prefix: $CONDA_PREFIX
