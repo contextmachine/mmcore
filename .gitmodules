@@ -1,0 +1,3 @@
+[submodule "cxmdata"]
+	path = cxmdata
+	url = git@github.com:contextmachine/cxmdata.git
