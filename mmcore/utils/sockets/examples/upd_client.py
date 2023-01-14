@@ -1,12 +1,19 @@
 from mmcore.baseitems import Matchable
-from mmcore.services.core import RhinoIronPython
-from cxmdata import CxmData
-import rhino3dm as rg
-# Create a UDP socket
+from mmcore.services.service import RhinoIronPython, Serviceable
 
 
-@RhinoIronPython(('localhost', 10081), bytesize=1024 * 8)
-class BrepExtruder(Matchable):
+class IronPyCommand(Serviceable):
+    __match_args__ = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def injection(cls):
+        return cls.__doc__
+
+
+class BrepExtruder(IronPyCommand):
     """
 # You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
 # It is simple and native.
@@ -28,63 +35,34 @@ offset_brep=list(a)
     __match_args__ = "mybrep", "offset_brep"
 
 
-
-@RhinoIronPython(('localhost', 10006), bytesize=1024 * 8)
-class SweepOneRail(Matchable):
+class Sweep(IronPyCommand):
     """
 # You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
 # It is simple and native.
 # Maybe we could also probably use something like dockets ...
 
 import Rhino.Geometry as rg
-sweep = rg.SweepOneRail()
 # noinspection PyUnresolvedReferences
-rail=input_msg["rail"]
+rail = rg.NurbsCurve.CreateControlPointCurve(input_msg['points'], input_msg['degree'])
+_, pln = rail.FrameAt(0.0)
 # noinspection PyUnresolvedReferences
-profile=input_msg["crossSection"]
-framestart = rg.Plane.WorldXY
-_, frame = rail.FrameAt(0.0)
-# noinspection PyTypeChecker
-transform = rg.Transform.PlaneToPlane(framestart, frame)
-profile.Transform(transform)
-sweep_result=list(sweep.PerformSweep(rail=rail, crossSection=profile))
+section=input_msg['section']
+plnn = rg.Plane(pln.Origin, pln.YAxis,pln.ZAxis)
+section_transform = rg.Transform.PlaneToPlane(rg.Plane.WorldXY, plnn)
+section.Transform(section_transform)
+swp = rg.SweepOneRail()
+brp = list(swp.PerformSweep(rail, section))
+b
     """
-    __match_args__ = "transform", "sweep_result"
+    __match_args__ = "brp", "swp"
 
 
-@RhinoIronPython(('localhost', 10006), bytesize=1024 * 8)
-class SweepTwoRail(Matchable):
-    """
-# You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
-# It is simple and native.
-# Maybe we could also probably use something like dockets ...
-
-import Rhino.Geometry as rg
-rg.SweepFrame()
-sweep = rg.SweepTwoRail()
-# noinspection PyUnresolvedReferences
-rails=input_msg["rails"]
-# noinspection PyUnresolvedReferences
-profile=input_msg["crossSection"]
-framestart = rg.Plane.WorldXY
-_, frame = rails[0].FrameAt(0.0)
-# noinspection PyTypeChecker
-transform = rg.Transform.PlaneToPlane(framestart, frame)
-profile.Transform(transform)
-c1,c2=rails
-sweep_result=list(sweep.PerformSweep(c1,c2, crossSection=profile))
-    """
-    __match_args__ = "transform", "sweep_result"
+@classmethod
+def injection(cls):
+    return cls.__doc__
 
 
-@RhinoIronPython(('localhost', 10088), bytesize=1024 * 8)
+@RhinoIronPython(('localhost', 10081), bytesize=1024 ** 10)
 class StopSignal(Matchable):
-    """
-    stop
-    """
+    """stop"""
     __match_args__ = ()
-
-
-stop=CxmData({
-    "py":"stop"
-    })

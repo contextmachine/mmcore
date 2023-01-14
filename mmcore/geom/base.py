@@ -2,37 +2,43 @@
 from __future__ import absolute_import
 
 from abc import abstractmethod
+from collections import namedtuple
+from typing import Any
 
 import compas.geometry
-import compas.geometry as cg
 import numpy as np
 import rhino3dm
 from OCC.Core.gp import gp_Pnt
 from scipy.spatial.distance import euclidean
 
-from ..baseitems import DictableItem
-from ..baseitems import Matchable
+from mmcore.baseitems import Matchable
 
 mesh_js_schema = {
     "metadata": dict(),
     "uuid": '',
     "type": "BufferGeometry",
-    "data": {"attributes": {"position": {"itemSize": 3,
-                                         "type": "Float32Array",
-                                         "array": []}
-                            }
-             },
-}
+    "data": {
+        "attributes": {
+            "position": {
+                "itemSize": 3,
+                "type": "Float32Array",
+                "array": []}
+            }
+        },
+    }
 pts_js_schema = {
     "metadata": dict(),
     "uuid": '',
     "type": "BufferGeometry",
-    "data": {"attributes": {"position": {"itemSize": 3,
-                                         "type": "Float32Array",
-                                         "array": None}
-                            }
-             }
-}
+    "data": {
+        "attributes": {
+            "position": {
+                "itemSize": 3,
+                "type": "Float32Array",
+                "array": None}
+            }
+        }
+    }
 
 
 class MmSphere(Matchable):
@@ -50,20 +56,11 @@ class MmAbstractBufferGeometry(Matchable):
         return self.__array__().tolist()
 
 
-class Point(DictableItem):
-    x = 0.0
-    y = 0.0
-    z = 0.0
-    exclude = ["version", "uid", "__array__"]
-
-    def to_compas(self):
-        return cg.Point(self.x, self.y, self.z)
-
-    def __array__(self, *args):
-        return np.asarray([self.x, self.y, self.z])
+class MmGeometry(Matchable):
+    ...
 
 
-class MmPoint(Matchable, MmAbstractBufferGeometry):
+class MmPoint(Matchable):
     __match_args__ = "x", "y", "z"
 
     @property
@@ -92,7 +89,15 @@ class MmPoint(Matchable, MmAbstractBufferGeometry):
         return MmPoint(point.x, point.y, point.z)
 
 
-class MmBoundedGeometry(MmAbstractBufferGeometry):
+ConversionMethods = namedtuple("ConversionMethods", ["decode", "encode"])
+GeometryConversion = namedtuple("GeometryConversion", ["name", "target", "conversion"])
+
+from mmcore.collection.multi_description import ElementSequence
+
+from mmcore.addons import rhino
+
+
+class MmBoundedGeometry(Matchable):
     __match_args__ = "vertices"
     vertices: list[MmPoint]
 
@@ -110,12 +115,103 @@ class MmBoundedGeometry(MmAbstractBufferGeometry):
             np.array([self.centroid.distance(MmPoint(*r)) for r in self.array])))
 
 
-class MmFace(MmBoundedGeometry):
-    ...
+class GeometryConversionsMap(dict):
+    """
+
+    """
+
+    def __init__(self, *conversions):
+
+        super().__init__()
+        self.conversions = conversions
+        self.conversion_sequence = ElementSequence([cnv._asdict() for cnv in conversions])
+        for cnv in conversions:
+            self[cnv.target] = cnv
+
+    def __getitem__(self, item):
+        return self.__getitem__(item)
+
+    def __setitem__(self, item, v) -> None:
+        dict.__setitem__(self, item, v)
+
+    def __call__(self, obj):
+
+        for name, cls, conversion in self.conversions:
+            decode, encode = conversion
+
+        def wrap_init(*args, target=None, **kwargs):
+            print(target)
+
+            if target is not None:
+                if self.get(target.__class__) is not None:
+                    _decode, _encode = self.get(target.__class__).conversion
+                    if encode is not None:
+                        setattr(obj, f"to_{name}", encode)
+
+                    return obj(*_decode(target).values())
+                else:
+                    raise KeyError
+            else:
+                return obj(*args, **kwargs)
+
+        return wrap_init
 
 
-'''class Quad(Vector):
-    a: Point
-    b: Point
-    c: Point
-    d: Point'''
+from mmcore.baseitems.descriptors import DataView
+from mmcore.addons import compute
+
+
+class BufferGeometryData(DataView):
+    """
+    @summary : DataView like descriptor, provides BufferGeometry data structure, can follow
+    `"indices", "position", "normal", "uv"` attributes for a Mesh instances. Data schema is
+
+    """
+    itemsize = {
+        "position": 3, "normal": 3, "uv": 2}
+
+    def item_model(self, name: str, value: Any):
+        return name, {
+            "array": np.asarray(value).flatten().tolist(),
+            "itemSize": self.itemsize[name],
+            "type": "Float32Array",
+            "normalized": False
+            }
+
+    def data_model(self, instance, value: list[tuple[str, Any]]):
+        return {
+            "uuid": instance.uuid,
+            "type": "BufferGeometry",
+            "data": {
+                "attributes": dict(value), "index": dict(type='Uint16Array',
+                                                         array=np.asarray(instance.indices).flatten().tolist())
+                }
+            }
+
+
+@GeometryConversionsMap(
+    GeometryConversion("rhino", rhino3dm.Mesh, ConversionMethods(rhino.mesh_to_buffer_geometry, None)),
+    GeometryConversion("rhino", rhino3dm.Surface,
+                       ConversionMethods(compute.request_models.surf_to_buffer_geometry, None)),
+    GeometryConversion("rhino", rhino3dm.NurbsSurface,
+                       ConversionMethods(compute.request_models.surf_to_buffer_geometry, None)))
+class MmUVMesh(MmGeometry):
+    """
+    Mesh with "uv" attribute. Triangulate Quad Mesh.
+    0---1---2---3
+    |  /|  /|  /|
+    | / | / | / |
+    |/  |/  |/  |
+    4---5---6---7
+    |  /|  /|  /|
+    | / | / | / |
+    |/  |/  |/  |
+    8---9--10--11
+    """
+    __match_args__ = "indices", "position", "normal", "uv"
+    buffer_geometry = BufferGeometryData("position", "normal", "uv")
+    userData = {}
+
+    def __init__(self, indices, position, normal, uv, /, **kwargs):
+        print(indices, position, normal, uv)
+        super().__init__(indices=indices, position=position, normal=normal, uv=uv, **kwargs)

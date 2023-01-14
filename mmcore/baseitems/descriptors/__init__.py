@@ -29,8 +29,11 @@ class Descriptor(AbstractDescriptor):
         super().__set_name__(owner, name)
 
     def __get__(self, instance, owner):
-        super().__get__(instance, owner)
-        return getattr(instance, self.name)
+
+        if instance is None:
+            return owner.__getattribute__(self.name)
+        else:
+            return getattr(instance, self.name)
 
     @abstractmethod
     def __set__(self, instance, val): ...
@@ -41,6 +44,9 @@ class NoDataDescriptor(Descriptor):
         Basic No Data Descriptor.
         Простейшая реализация дескриптора НЕ данных
     """
+
+    def __get__(self, instance, owner):
+        return super().__get__(instance, owner)
 
     def __set__(self, instance, val):
         raise AttributeError("NoDataDescriptor does not support attributes __set__")
@@ -55,6 +61,8 @@ class DataDescriptor(Descriptor):
     def __set__(self, instance, val):
         instance.__setattr__(self.name, val)
 
+    def __get__(self, instance, owner):
+        return super().__get__(instance, owner)
 
 class BaseClientDescriptor(Descriptor):
 
