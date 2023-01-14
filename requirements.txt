@@ -15,3 +15,4 @@ geomdl>=5.3.1
 dill>=0.3.6
 httpx>=0.23.1
 sphinx>=6.1.2
+rpyc>=5.3.0

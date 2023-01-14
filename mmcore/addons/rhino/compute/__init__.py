@@ -1,5 +1,4 @@
-import compute_rhino3d
-from compute_rhino3d import Util
+from compute_rhino3d import Mesh, Surface, Util
 
 from setupsecrets import SecretsManager
 
@@ -20,12 +19,14 @@ with SecretsManager(logging=False, update=True) as secrets:
         # For more information, read original docs: https://developer.rhino3d.com/guides/compute/development/
         Util.url = "http://localhost:8081/"
 
-from .request_models import ComputeRequest
-from .gh_models import GHRequest, SlimGHRequest, AdvanceGHRequest
+from .request_models import ComputeRequest, GHRequest, SlimGHRequest, AdvanceGHRequest
 
 __all__ = [
+    "mmconfigs"
     "compute_rhino3d",
     "Util",
+    "Surface",
+    "Mesh",
     "ComputeRequest",
     "GHRequest",
     "SlimGHRequest",

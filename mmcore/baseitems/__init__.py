@@ -560,22 +560,7 @@ class Matchable(object):
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
 
-    @property
-    def pydantic_model(self):
-        return self.__class__.solve_pydantic()(**self.__dict__)
 
-    @classmethod
-    def solve_pydantic(cls, defaults=None):
-        if defaults is None:
-            defaults = []
-            for k in cls.__match_args__:
-                try:
-                    defaults.append(getattr(cls, k))
-                except:
-                    defaults.append(None)
-
-        __pydantic_model__ = pydantic.create_model("Pydantic" + cls.__name__, **dict(zip(cls.__match_args__, defaults)))
-        return __pydantic_model__
 
 
 class Mmodel(Matchable):

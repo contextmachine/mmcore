@@ -1,71 +1,107 @@
-from typing import Callable, Protocol
+import socket
+from functools import wraps
+from types import TracebackType
+from typing import ContextManager
+from typing import Type
+
+from mmcore.baseitems import Matchable
+
+
+class Serviceable(Matchable):
+    __match_args__ = ()
+    _injection = None
+
+    def __init__(self, *args, **kwargs):
+        self._injection = None
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def injection(cls):
+        return cls._injection
+
 
 from cxmdata import CxmData
+import rhino3dm as rg
 
 
-class Service(Protocol):
+def serve(serv):
+    @wraps(serv)
+    def sserv(*ar, **kws):
+        def wrp(obj):
+            with serv(obj, *ar, **kws) as obbj:
+                return obbj
+
+        return wrp
+
+    return sserv
+
+
+class SocketService(ContextManager):
     _server_address = None
 
     server_address: tuple[str, int] | str
     bytesize: int | None
     extra_kwargs: dict
 
+    def __init__(self, obj, server_address, bytesize, **kwargs):
+        super().__init__()
+        self.obj = obj
+        self.outputs = obj.__match_args__
+        self.server_address = server_address
+        self.bytesize = bytesize
+        self.__dict__ |= kwargs
+
     def solve(self, msg) -> dict: ...
 
-    def __call__(self, obj) -> Callable[..., 'Service']:
-        self.outputs = obj.__match_args__
-        print(self.outputs)
-        self.obj = obj
+    def __enter__(self):
+        return self
 
-        print(self.outputs)
+    def __call__(self, *args, **kwargs):
+        compressed = CxmData.compress(self.request(**kwargs))
+        cxm_out = self.solve(compressed)
+        self.inst = self.obj(*cxm_out)
+        return self.inst
 
-        def wrp(**parameters):
-            print(parameters)
-            compressed = self.request(parameters=parameters, injection=obj.__doc__)
-            print(compressed)
-            cxm_out = self.solve(compressed)
-            print(cxm_out)
-            self.req = cxm_out
-            self.inst = self.obj.__new__(obj, *cxm_out)
-
-            return self
-
-        return wrp
-
-    def request(self, parameters=None, injection=None) -> CxmData:
-        return CxmData.compress(
-            dict(
-                input=parameters,
-                py=injection,
-                output=self.outputs
-                )
+    def request(self, **parameters) -> dict:
+        return dict(
+            input=parameters,
+            py=self.obj.injection(),
+            output=self.outputs
             )
 
 
-from mmcore.collection.multi_description import ElementSequence
+class RhinoIronPython(SocketService):
 
-
-
-
-class Injection(Protocol):
-    """
-        """
+    def __exit__(self, __exc_type: Type[BaseException] | None, __exc_value: BaseException | None,
+                 __traceback: TracebackType | None) -> bool | None:
+        return False
 
     def __init__(self, *args, **kwargs):
-        ...
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        super().__init__(*args, **kwargs)
 
-    @property
-    def injection(self) -> str:
-        return self.__class__.__doc__
+    def solve(self, msg):
+        try:
+            sent = self.sock.sendto(bytes(msg), self.server_address)
+            data, server = self.sock.recvfrom(self.bytesize)
+            return CxmData(data).decompress()
+        except Exception as err:
+            print(err)
 
-    def __call__(self, *args, **results):
-        ...
 
-
-class Inputs:
-    def __init__(self, srv):
-        self.srv = srv
-
-    def __set__(self, instance, owner):
-        ...
-
+class DRhinoIronPython(RhinoIronPython):
+    """
+    >>> @DRhinoIronPython(('localhost', 10081), bytesize=1024 * 1024)
+    ... class BrepExtruder(IronPyCommand):
+    ...     __doc__ = "..."
+    ...     __match_args__ = "mybrep", "offset_brep"
+    ...
+    ... a=rg.Point3d(650.03, -1031.64, 378.658)
+    ... b=rg.Point3d(832.03, -86.6376, 0)
+    ... c=rg.Point3d(-74.4714, 700.864, 0)
+    ... d=rg.Point3d(-431.472, -793.639, 0)
+    ... brp = BrepExtruder(pt1=a,pt2=b,pt3=c, pt4=d, tolerance=0.001)
+    >>> brp
+    BrepExtruder(mybrep=<rhino3dm._rhino3dm.Brep object at 0x1571f05f0>,
+    offset_brep=[<rhino3dm._rhino3dm.Brep object at 0x1572104b0>])
+    """
