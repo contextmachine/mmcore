@@ -1,5 +1,6 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
+# multi_description.py
 import itertools
 from abc import ABC
 from collections import Counter
@@ -8,6 +9,7 @@ from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping
 
 import numpy
 import numpy as np
+import pandas as pd
 
 from .traversal import type_extractor
 
@@ -96,8 +98,6 @@ KTo = TypeVar("KTo", covariant=True)
 VTco = TypeVar("VTco", contravariant=True)
 T = TypeVar("T")
 Seq = TypeVar("Seq", bound=Sequence)
-
-
 
 
 def sequence_type(seq: Sequence) -> Type:
@@ -210,17 +210,28 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
         self._seq = seq
 
     def __getitem__(self, k) -> Seq:
+
         if isinstance(self._seq[0], Mapping):
 
             # _getter = multi_getitem(self._seq)
+
             _getter = multi_getitem(self._seq)
         else:
             _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
-        return list(_getter(k))
+        try:
+
+            return list(_getter(k))
+        except AttributeError as err:
+            raise KeyError from err
+        except KeyError as err:
+            raise err
+
+    def __str__(self):
+        return f"{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})]"
 
     def __repr__(self):
-        return self.__class__.__name__ + f"[{self._seq.__class__.__name__}, {self.element_type}]"
+        return f"<{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})] object at {id(self)}>"
 
 
 class CollectionItemGetSetter(CollectionItemGetter):
@@ -299,13 +310,75 @@ class ElementSequence(MultiDescriptor):
 
     def __list__(self):
         return list(self._seq)
+
     def __array__(self):
         return np.asarray(list(self._seq))
-    def __getitem__(self, item):
 
+    def __getitem__(self, item):
         return super().__getitem__(item)
 
+    def get_from_index(self, index):
+        return self._seq[index]
 
+    def search_from_key_value(self, key, value) -> int:
+        """
+
+        @param key:
+        @param value:
+        @return: Return index value. Item can be assessed by
+        """
+        try:
+            return list(self[key]).index(value)
+        except KeyError as err:
+            raise KeyError(f"Lost key: {key}\n", err)
+        except ValueError as err:
+            message = f"Lost key: {key}\nLost value: {value} in sequence: \n\t{self[key]}"
+            raise ValueError(message, err)
+
+    # Convert to pandas.DataFrame
+    # Presets any pandas.DataFrame conversions
+    # All in this method can be call self.to_pandas().to_<target_format>().
+    # Use it if you want to use ALL custom export properties .
+
+    def to_pandas(self) -> pd.DataFrame:
+        return pd.DataFrame(self._seq)
+
+    def to_csv(self, **kwargs):
+        """
+
+        @param kwargs:
+        @return:
+        We have predefined some reasonable (in our opinion) export parameters.
+        You can change it by passing **kwargs.
+
+        If you want completely custom parameters,
+         override the method or just call the original function with:
+            ```
+            <ElementSequence object>.to_pandas().to_<target_format>(**your_custom_kwargs)
+            ```
+        """
+        return self.to_pandas().to_csv(**kwargs)
+
+    def to_excel(self, **kwargs):
+        return self.to_pandas().to_excel(**kwargs)
+
+    def to_sql(self, **kwargs):
+        return self.to_pandas().to_sql(**kwargs)
+
+    def to_html(self, classes='table table-stripped', **kwargs):
+        return self.to_pandas().to_html(classes=classes, **kwargs)
+
+    def to_dict(self, **kwargs):
+        return self.to_pandas().to_dict(**kwargs)
+
+
+"""
+def ff(data, i):
+    
+    if isinstance(data, Sequence | Mapping | ) and not isinstance(data, str):
+        return data[i]
+    elif isinstance(data, list)
+"""
 
 
 class _MultiGetitem:
@@ -395,6 +468,9 @@ class E(SeqProto):
 
 
 c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
+
 #
+
+
 # Explicit passing of an element type to a __init_subclass__
 # --------------------------------------------------------
