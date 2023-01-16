@@ -7,10 +7,9 @@
 
 
 import base64
+import json
 import os
 import pprint
-import shutil
-import subprocess
 
 __all__ = ["SecretsManager"]
 
@@ -104,33 +103,7 @@ class SecretsManager(ContextManager):
         else:
             return str(val)
 
-    def __setup_repo__(self) -> None:
-        """
 
-        @return:  None
-        @rtype: NoneType
-        @summary: Override this method if you want to create a custom secret delivery pipeline.
-        By default, a closed repository is used with the env file[1],
-        which is referenced by the secrets_link attribute; it will be cloned with git.
-
-        @note: This scheme is successful because it allows you to work with your git infrastructure
-        and does not require additional authentication layers.
-        The method will also work when using a local git repository, and when using Kubernetes[777]
-        [1] Can be set by env_file_name attribute, "env.json" by default.
-        [777] Kubernetes support is in progress, but will be available as soon as possible.
-        """
-        # This check is in the body of the method
-        # that you can completely override what you need without changing __enter__
-        if USE_REPO:
-            if self.update or not os.path.isfile(self.env_file_name):
-                # Yes, this may be excessive.
-                # But I prefer to check this case to avoid having to routinely delete the directory in some cases.
-                shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
-
-                proc = subprocess.Popen(["git", "clone", self.secrets_link])
-                proc.wait()
-                shutil.move(f"{self.repo_name}/{self.env_file_name}", self.env_file_name)
-                shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
 
     def __setup_env__(self) -> dict[str, Any]:
         """
@@ -146,17 +119,6 @@ class SecretsManager(ContextManager):
 
             """
 
-        return {
-            "REDISHOST": "c-c9q1muil9vsf3ol4p3di.rw.mdb.yandexcloud.net",
-            "REDISPORT": 6380,
-            "REDISPASSWORD": "caMbuj-tabxy1-pikkij",
-            "AWS_ACCESS_KEY_ID": "YCAJEByh8jqwmTx5XF8oWvbGj",
-            "AWS_SECRET_ACCESS_KEY": "YCN4wjUY7RY25f_EAG9aL-muke8LTo0tgCCcBhN4",
-            "DEFAULT_REGION": "ru_center_1",
-            "RHINO_COMPUTE_URL": "79.143.24.246",
-            "RHINO_COMPUTE_PORT": 8080,
-            "RHINO_COMPUTE_API_KEY": "84407047-8380-441c-9c76-a07ca394b88e",
-            "RHINO_COMPUTE_GH_DEPLOY_PATH": "c:/users/administrator/compute-deploy",
-            "CADEX_LICENSE": "QENVU1RPTUVSPWZhdGFoaTI3MDdAaGVtcHlsLmNvbSBAQ1VTVE9NRVJfQVBQPUVWQUwgQFBST0RVQ1Q9QU5ZIEBPUz1BTlkgQENPTkZJR1VSQVRJT049QU5ZIEBWRVJTSU9OPUFOWSBAU0VSSUFMX05VTUJFUj1ETUNILTM0WEItRFVYUS1NM1NTIEBMQU5HVUFHRT1QWVRIT04gQFVQR1JBREVfRVhQSVJBVElPTj0yMDIyMTIwNSBAVVNFX0VYUElSQVRJT049MjAyMjEyMDUgQFZFTkRPUj1odHRwOi8vd3d3LmNhZGV4Y2hhbmdlci5jb20gQFdBUk5JTkc9VGhpcyBsaWNlbnNlIGtleSBtYXkgbm90IGJlIGRpc2Nsb3NlZCB0byBhbnkgdGhpcmQgcGFydHkgd2l0aG91dCBwcmlvciB3cml0dGVuIHBlcm1pc3Npb24gZnJvbSB2ZW5kb3IuIFRLTFFJOUJHMUVHMlVYRE9VT0xVVjdLUDlOV1k0NDBZTzE0TkJHM1NBSlU0R044UUNUMTdITENRTzg0VENMN0gyQjRUN05NSE5XMUowQUFDSkJaR0NDTjBLUlREU0dBVjhVT0ZIUURLM0U0MzRFVjQ1QUtIMjdIM0ZSNzFLNUlUNEhPOUNGQThCRDE5NVA2TThEVTVNT0xZNkM3MUs1SVQ0SE9aN1VBNDJFNkVQTU0wNkdWQlVCUjNVQzdESVo3U0dPNkJIQ1M0MERQM0xWOVM4REcxSUFDOExCRURGWjdTR082VkJTSkNCN0hOQ0szMDhHSkJFUlhEVlFVNktFTko0QlBWSUFNQzlWVTM2SkYyRzBFRkdNUU9OVlAzNUpQTkhXRlU3UUoyOVQxNjdTQk9EREk4VlRWSTIwUkJKTklSNkFGNjI0V0c5VzZRMTAzU0RCTzlJVUFQSEJTSElYV0Q0S0Y0OU1OWldQVDBZTDc2OTM3VUdKS0FFQ0o3RUE2TjZMS1pGTUQ0UUNNWktBNFBQTzg5SUFGUTBHS0QwRVUyMk9CSTNNQTFBNkZRREpHMkNPWExZTUhLRkNWQzRMRzZRMkpTWUJHMUpQVEI0MUhOMkVJQVNISjFEUEwyQTBXNlQ3SVRGRk9BQVQ4NEtFMlRTQklQUzFIVElNU1I5UUFCNjk2RTQ1WFU2SVVBNk9JM0EwMzNFRVBTOE83TTJRNVFGRTZPNUNONTlGMjg1TjdIM0VXNzU5S0hDQVY2SUg3NDUxSDZFVlU2OFQ3NTlKR1VHRERHMDFJSTFBMDYzQkFWRlJJODI0MjZaTUdYQzZaOEdGWE8wSFdMWEdGMTc2Q01EQUFXVkRJVVpaOFI1NzAxMkRQSVVMM1JIWlNPTExSWVYxVVFVVDFVUzk=",
-            "MAINTAINER": "CONTEXTMACHINE"
-            }
+        with open(self.env_file_name, "r") as f:
+            data = json.load(f)
+        return data
