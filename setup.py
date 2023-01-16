@@ -22,7 +22,7 @@ setup(
     version='0.1.2',
     packages=['mmcore', 'mmcore.geom', 'mmcore.geom.tools', 'mmcore.geom.xforms', 'mmcore.geom.parametric',
               'mmcore.utils', 'mmcore.utils.sockets', 'mmcore.utils.versioning', 'mmcore.utils.pydantic_mm',
-              'mmcore.utils.redis_tools', 'mmcore.addons', 'mmcore.addons.gmdl', 'mmcore.addons.opencascade',
+              'mmcore.utils.redis_tools', 'mmcore.addons', 'mmcore.addons.gmdl', 'mmcore.addons.mmcore',
               'mmcore.addons.rhino', 'mmcore.addons.rhino.compute', 'mmcore.addons.rhino.native', 'mmcore.services',
               'mmcore.baseitems', 'mmcore.baseitems.descriptors', 'mmcore.collection', 'mmcore.collection.generics',
               'mmcore.exceptions'],
