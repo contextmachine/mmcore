@@ -455,7 +455,7 @@ def fix_continuity(edge, continuity=1):
     su = ShapeUpgrade_ShapeDivideContinuity(edge)
     su.SetBoundaryCriterion(eval("GeomAbs_C" + str(continuity)))
     su.Perform()
-    te = st(su.Result())
+    te = su(su.Result())
     return te
 
 
