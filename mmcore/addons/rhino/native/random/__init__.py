@@ -1,7 +1,10 @@
 import numpy as np
 import rhino3dm as rg
 
-from mmcore.addons.rhino import control_points_curve
+
+def control_points_curve(points: list[list[float]] | np.ndarray, degree: int = 3):
+    return rg.NurbsCurve.CreateControlPointCurve(list(map(lambda x: rg.Point3d(*x), points)),
+                                                 degree=degree)
 
 
 def random_pointlist(count):
