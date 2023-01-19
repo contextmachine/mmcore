@@ -15,15 +15,16 @@ subprocess.Popen(["python", CADEX_LICENSE])
 
 def test(name, cadex_viewer_path=cadex_viewer_path):
     model_from_multijson_file(jsonpath, modelpath=source)
-    rhreader=cdxfb.readrhino(source)
-    f=open(cadex_viewer_path+"/scenegraph.cdxfb","w")
-    f.close()
-    cdxfb.to_cadex_viewer(rhreader, target_path=cadex_viewer_path+f"/native/{name}.cdxfb/scenegraph.cdxfb")
-    with open(cadex_viewer_path+"/model.json", "r")as fl:
-        lst=json.load(fl)
 
-        for i,l in enumerate(lst):
-            if l["name"]==name:
+    rhreader = cdxfb
+    f = open(cadex_viewer_path + "/scenegraph.cdxfb", "w")
+    f.close()
+    cdxfb.to_cadex_viewer(rhreader, target_path=cadex_viewer_path + f"/native/{name}.cdxfb/scenegraph.cdxfb")
+    with open(cadex_viewer_path + "/model.json", "r") as fl:
+        lst = json.load(fl)
+
+        for i, l in enumerate(lst):
+            if l["name"] == name:
                 del lst[i]
 
                 break
