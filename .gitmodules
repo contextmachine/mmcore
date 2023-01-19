@@ -10,3 +10,6 @@
 [submodule "mmcore/addons/mmocc/pythonocc-utils"]
 	path = mmcore/addons/mmocc/pythonocc-utils
 	url = git@github.com:contextmachine/pythonocc-utils.git
+[submodule "mmbusybox"]
+	path = mmbusybox
+	url = git@github.com:contextmachine/mmbusybox.git
