@@ -1,18 +1,13 @@
-FROM mambaorg/micromamba:latest
-MAINTAINER "CONTEXTMACHINE"
+FROM condaforge/mambaforge
 USER root
-ENV MAMBA_USER=root
-# Copy and install package
+WORKDIR /app
 
-RUN micromamba env update --file
-WORKDIR mmodel
+# workspace:pridex:
+# workspace:internal
+COPY environment.yml environment.yml
+RUN conda update -n base -c conda-forge conda
+RUN conda env create --file environment.yml && conda init --all
 COPY . .
-# Install extra packages
-RUN python -m pip install git+https://github.com/contextmachine/cxmdata.git
-RUN pip install git+https://github.com/tpaviot/pythonocc-utils
-
-
+ENTRYPOINT ["python app.py"]
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-ENV MY_FAVORIT_TRANSPORT="CONTEXTMACHINE"
-ENTRYPOINT ["/bin/bash"]
