@@ -23,8 +23,8 @@ import Rhino.Geometry as rg
 
 # Create 4 corner surf
 # noinspection PyUnresolvedReferences
-mybrep=rg.Brep.CreateFromCornerPoints(input_msg['pt1'],input_msg['pt2'],input_msg['pt3'],input_msg['pt4'],
-                                        tolerance=input_msg["tolerance"])
+mybrep=rg.Brep.CreateFromCornerPoints(self.pt1,self.pt2,self.pt3,self.pt4,
+                                        tolerance=self.tolerance)
 
 # Make brep offset
 a,b,c = rg.Brep.CreateOffsetBrep(mybrep, 1.0, True, True, 0.1)
@@ -56,10 +56,9 @@ b
     """
     __match_args__ = "brp", "swp"
 
-
-@classmethod
-def injection(cls):
-    return cls.__doc__
+    @classmethod
+    def injection(cls):
+        return cls.__doc__
 
 
 @RhinoIronPython(('localhost', 10081), bytesize=1024 ** 10)

@@ -158,7 +158,6 @@ class GeometryConversionsMap(dict):
 
 
 from mmcore.baseitems.descriptors import DataView
-from mmcore.addons import compute
 
 
 class BufferGeometryData(DataView):
@@ -189,12 +188,15 @@ class BufferGeometryData(DataView):
             }
 
 
+from mmcore.addons.rhino.compute import surf_to_buffer_geometry
+
+
 @GeometryConversionsMap(
     GeometryConversion("rhino", rhino3dm.Mesh, ConversionMethods(rhino.mesh_to_buffer_geometry, None)),
     GeometryConversion("rhino", rhino3dm.Surface,
-                       ConversionMethods(compute.request_models.surf_to_buffer_geometry, None)),
+                       ConversionMethods(surf_to_buffer_geometry, None)),
     GeometryConversion("rhino", rhino3dm.NurbsSurface,
-                       ConversionMethods(compute.request_models.surf_to_buffer_geometry, None)))
+                       ConversionMethods(surf_to_buffer_geometry, None)))
 class MmUVMesh(MmGeometry):
     """
     Mesh with "uv" attribute. Triangulate Quad Mesh.

@@ -193,10 +193,14 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
         d = np.array(self._seq).flatten()[0]
+        keys = {}
         if isinstance(d, dict):
             return d.keys()
         else:
-            return d.__dict__.keys()
+            for key in dir(d):
+                if not key.startswith("_"):
+                    keys.setdefault(key)
+            return keys.keys()
 
     def __len__(self) -> int:
         return self._seq.__len__()
