@@ -1,8 +1,9 @@
+import abc
+import os
 import socket
+import subprocess
 from functools import wraps
-from types import TracebackType
 from typing import ContextManager
-from typing import Type
 
 from mmcore.baseitems import Matchable
 
@@ -29,7 +30,7 @@ def serve(serv):
     def sserv(*ar, **kws):
         def wrp(obj):
             with serv(obj, *ar, **kws) as obbj:
-                return obbj
+                obbj.s
 
         return wrp
 
@@ -41,7 +42,7 @@ class SocketService(ContextManager):
 
     server_address: tuple[str, int] | str
     bytesize: int | None
-    extra_kwargs: dict
+    extra_kwargs: dict = dict()
 
     def __init__(self, obj, server_address, bytesize, **kwargs):
         super().__init__()
@@ -49,42 +50,83 @@ class SocketService(ContextManager):
         self.outputs = obj.__match_args__
         self.server_address = server_address
         self.bytesize = bytesize
-        self.__dict__ |= kwargs
+        self.extra_kwargs |= kwargs
 
+    @abc.abstractmethod
     def solve(self, msg) -> dict: ...
 
     def __enter__(self):
         return self
 
-    def __call__(self, *args, **kwargs):
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return super().__exit__(exc_type, exc_val, exc_tb)
+
+    def __call__(self, **kwargs):
+        print(kwargs)
         compressed = CxmData.compress(self.request(**kwargs))
         cxm_out = self.solve(compressed)
-        self.inst = self.obj(*cxm_out)
-        return self.inst
+        return self.obj(*cxm_out)
 
     def request(self, **parameters) -> dict:
         return dict(
             input=parameters,
-            py=self.obj.injection(),
+            py=self.obj.__doc__,
             output=self.outputs
             )
 
 
+class RhinoRunner(ContextManager):
+    def __init__(self, path, **kwargs):
+        if os.getenv("IS_RHINO_RUNNING") == 'True':
+            subprocess.Popen(['sudo', 'kill', os.getenv("RHINO_PID")])
+
+        super().__init__()
+        self.path = path
+        self.kwargs = kwargs
+
+    def __enter__(self):
+        self.proc = subprocess.Popen(
+            ["/Applications/RhinoWIP.app/Contents/MacOS/Rhinoceros", "-runscript", "-_RunPythonScript ./app.py"],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE, **self.kwargs)
+        os.environ["IS_RHINO_RUNNING"] = 'True'
+        os.environ["RHINO_PID"] = str(self.proc.pid)
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.kill()
+
+    def __call__(self, *args, **kwargs):
+        return self.proc.communicate(*args, **kwargs)
+
+    def kill(self):
+
+        self.proc.kill()
+        try:
+            del os.environ["IS_RHINO_RUNNING"]
+        except:
+            pass
+
+
 class RhinoIronPython(SocketService):
+    server_address: tuple[str, int] | str
+    bytesize: int | None
+    extra_kwargs: dict
 
-    def __exit__(self, __exc_type: Type[BaseException] | None, __exc_value: BaseException | None,
-                 __traceback: TracebackType | None) -> bool | None:
-        return False
+    def __init__(self, obj, server_address, bytesize, **kwargs):
+        super().__init__(obj, server_address, bytesize, **kwargs)
 
-    def __init__(self, *args, **kwargs):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        super().__init__(*args, **kwargs)
+
+    def __call__(self, **kwargs):
+        return super().__call__(**kwargs)
 
     def solve(self, msg):
         try:
-            sent = self.sock.sendto(bytes(msg), self.server_address)
+            sent = self.sock.sendto(msg, self.server_address)
             data, server = self.sock.recvfrom(self.bytesize)
-            return CxmData(data).decompress()
+            return dict(zip(self.obj.__match_args__, CxmData(data).decompress()))
         except Exception as err:
             print(err)
 
