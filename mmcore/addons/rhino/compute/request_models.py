@@ -1,5 +1,7 @@
-from mmcore.addons.rhino import mmconfig
+import json
 
+with open("data/mmconfig.json") as j:
+    mmconfig = json.load(j)
 MMCONFIG = mmconfig["bundles"]
 GHDEPLOYPATH = "c:/users/administrator/compute-deploy/"
 
@@ -39,8 +41,6 @@ from typing import Any
 import requests
 from compute_rhino3d import Util
 from cxmdata import CxmData
-
-from mmcore.addons.rhino.compute import ComputeRequest
 
 
 class GHRequest(ComputeRequest):

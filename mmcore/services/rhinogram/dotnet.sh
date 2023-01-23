@@ -1,3 +1,1 @@
-#! /bin/bash
-dir="/Applications/RhinoWIP.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources"
-"$dir/dotnet/$(uname -m)/dotnet" run $dir/RhinoCode.dll script ./example.py
+/Applications/RhinoWIP.app/Contents/Resources/bin/rhinocode script "/Users/andrewastakhov/PycharmProjects/mmcore/mmcore/services/rhinogram/app.py"

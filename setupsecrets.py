@@ -80,7 +80,6 @@ class SecretsManager(ContextManager):
         if self.logging:
             print("Starting setup secrets ...")
 
-        self.__setup_repo__()
         data = self.__setup_env__()
 
         for action in self.additional_actions:
@@ -102,8 +101,6 @@ class SecretsManager(ContextManager):
             return self.stringify_spec.get(key)(str(val))
         else:
             return str(val)
-
-
 
     def __setup_env__(self) -> dict[str, Any]:
         """

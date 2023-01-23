@@ -111,7 +111,7 @@ class BufferObjectRoot:
 
     @property
     def geometries(self):
-        return self._geometries.buffer_geometry
+        return self._geometries
 
     @geometries.setter
     def geometries(self, v):

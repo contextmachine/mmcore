@@ -1,4 +1,5 @@
 import collections
+import copy
 import typing
 from typing import Any, Callable, Sequence
 
@@ -19,6 +20,7 @@ import numpy as np
 """
 TraverseTypeExtra = collections.namedtuple("TraverseTypeExtra", ["cls", "resolver"])
 
+
 class traverse(Callable):
     """
     Полностью проходит секвенцию любой степени вложенности.
@@ -37,18 +39,20 @@ class traverse(Callable):
     """
     __slots__ = ("callback", "traverse_dict", "type_extras")
 
-    def __init__(self, callback: Callable | None = None, traverse_dict = True, type_extras=()):
+    def __init__(self, callback: Callable | None = None, traverse_dict=True, type_extras=()):
         super().__init__()
         self.traverse_dict = traverse_dict
 
-        self.type_extras=type_extras
+        self.type_extras = type_extras
         if callback is None:
             self.callback = lambda x: x
         else:
             self.callback = callback
+
     @property
     def extra_classes(self):
         return [typ.cls for typ in self.type_extras]
+
     def __call__(self, seq: Sequence | typing.Mapping | Any) -> Sequence | typing.Mapping | Any:
         if seq.__class__ in self.extra_classes:
             for typ in self.type_extras:
@@ -66,9 +70,9 @@ class traverse(Callable):
 
         elif isinstance(seq, dict):
             if self.traverse_dict:
-                dt={}
-                for k,v in seq.items():
-                    dt[k]=self(v)
+                dt = {}
+                for k, v in seq.items():
+                    dt[k] = self(v)
                 return dt
             else:
                 return self.callback(seq)
@@ -77,3 +81,58 @@ class traverse(Callable):
 
 
 type_extractor = traverse(lambda x: type(x), traverse_dict=False)
+
+
+def walk(target, names):
+    if isinstance(names, str):
+        return getattr(target, names)
+    elif isinstance(names, list) and isinstance(names[-1], str):
+        return [walk(target, n) for n in names]
+    else:
+
+        return walk(getattr(target, names.pop(0)), names.pop())
+
+
+class Walk:
+    """
+    >>> import rhino3dm
+    >>> frame = rhino3dm.Plane(0, 3, 1, 3)
+    >>> xaxis = Walk(["XAxis",["X","Y","Z"]])
+    >>> yaxis = Walk(["YAxis",["X","Y","Z"]])
+    >>> zaxis = Walk(["ZAxis",["X","Y","Z"]])
+    >>> def query(plane): return xaxis[plane],yaxis[plane],zaxis[plane]
+    >>> query(frame)
+    ([0.0, -0.31622776601683794, 0.9486832980505138],
+     [1.0, 0.0, -0.0],
+     [0.0, 0.9486832980505138, 0.31622776601683794])
+    """
+
+    def __init__(self, names):
+        super().__init__()
+        self.names = names
+
+    def __getitem__(self, target):
+        return walk(target, copy.deepcopy(self.names))
+
+
+class Query(Walk):
+    def __init__(self, names):
+        super().__init__(names)
+
+    def __getitem__(self, target):
+        return super().__getitem__(target)
+
+    def __setitem__(self, target, value):
+        ...
+
+    def __call__(self, f):
+        self.name = f.__name__
+        self._f = f
+
+        return self
+
+    def __get__(self, instance, owner):
+        if instance is not None:
+            return self._f(instance, self[instance])
+        else:
+            return self

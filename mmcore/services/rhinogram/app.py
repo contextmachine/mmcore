@@ -63,8 +63,14 @@ def encode(geoms):
 import pprint
 
 
+class SelfProxy(object):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__dict__.update(kwargs)
+
+
 def compress(data):
-    return base64.b16encode(bz2.compress(json.dumps(encode(data)), compresslevel=9)).decode()
+    return base64.b16encode(bz2.compress(json.dumps(encode(data)).encode(), compresslevel=9))
 
 
 def stop(self):
@@ -73,16 +79,16 @@ def stop(self):
 
 
 def main(sock, server_address):
-    print('starting up on %s port %s' % server_address)
-    sock.bind(server_address)
-
     while True:
-        data, address = sock.recvfrom(1024 * 1024)
+
+        data, address = sock.recvfrom(8096)
+
         try:
-
             msg = decompress(data.decode())
+            print(msg)
+            ctx = SelfProxy(**msg["input"])
+            print(ctx)
 
-            input_msg = msg["input"]
             if msg["py"] == "stop":
 
                 stop(sock)
@@ -91,7 +97,7 @@ def main(sock, server_address):
             else:
                 try:
 
-                    exec(msg["py"])
+                    exec(msg["py"], locals())
 
                     out = [eval(k) for k in msg["output"]]
                     print(pprint.pformat(out))
@@ -116,13 +122,16 @@ def main(sock, server_address):
             break
 
 
+import threading
 if __name__ == "__main__":
     # Create a TCP/IP socket
     _sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # Bind the socket to the port
     _server_address = ('localhost', 10081)
 
-    import threading
+    _sock.bind(_server_address)
+
+    print('starting up on %s port %s' % _server_address)
 
     serv = threading.Thread(target=main, args=(_sock, _server_address))
     serv.start()

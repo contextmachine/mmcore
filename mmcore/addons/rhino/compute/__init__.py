@@ -1,3 +1,4 @@
+import compute_rhino3d
 from compute_rhino3d import Mesh, Surface, Util
 
 from setupsecrets import SecretsManager
@@ -20,9 +21,8 @@ with SecretsManager(logging=False, update=True) as secrets:
         Util.url = "http://localhost:8081/"
 
 from .request_models import ComputeRequest, GHRequest, SlimGHRequest, AdvanceGHRequest
-
+from .geometry import surf_to_buffer_geometry, surf_to_buffer_mesh, surf_to_buffer, surface_closest_normals
 __all__ = [
-    "mmconfigs"
     "compute_rhino3d",
     "Util",
     "Surface",
@@ -30,5 +30,6 @@ __all__ = [
     "ComputeRequest",
     "GHRequest",
     "SlimGHRequest",
-    "AdvanceGHRequest"
+    "AdvanceGHRequest",
+    "geometry", "surf_to_buffer_geometry", "surf_to_buffer_mesh", "surf_to_buffer", "surface_closest_normals"
     ]
