@@ -1,0 +1,7 @@
+.idea
+io_tools
+tests
+data
+env.json
+.env
+mmcore.egg-info
