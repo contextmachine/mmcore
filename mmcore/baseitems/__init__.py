@@ -459,63 +459,13 @@ class GeomDataItem(DictableItem, GeometryItem):
 # New Style Classes
 # ----------------------------------------------------------------------------------------------------------------------
 from mmcore.baseitems import descriptors
+from types import prepare_class
 
 
-class ViewData(DataDescriptor):
-    params = {}
-
-    def __init__(self):
-        super().__init__()
-
-        def ps(slf, f):
-            slf.f = f
-            slf.name = f.__name__
-
-            self.params[slf.name] = slf
-
-        self.Property.__init__ = ps
-
-    def __set_name__(self, owner, name):
-        self.name = name
-
-        setattr(owner, "_" + name, self)
-
-
-    @abstractmethod
-    class Property(Descriptor):
-        ...
-
-        @abstractmethod
-        def convert(self, o, *args, **kwargs):
-            ...
-
-
-    def __call__(self, inst, own):
-        for name in self.params.keys():
-            yield self.params[name].convert(self, inst, own)
-
-
-"""
-class UserData(descriptors.DataView):
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-        else:
-            return {"properties": list(self(instance, owner)), "gui": []}
-
-
-    class Property(Descriptor):
-
-        def __get__(self, instance, owner):
-            return getattr(instance, f"_{self.name}")
-
-        def __set__(self, instance, value: InnerTreeItem):
-            setattr(instance, f"_{self.name}", value)
-
-        def convert(self, o, inst, own):
-            return {self.name: o.params[self.name].__get__(inst, own)}
-"""
+class MMtype(type):
+    @classmethod
+    def __prepare__(metacls, name, bases, **kwds):
+        prepare_class(metacls, name, bases, kwds)
 
 
 class Matchable(object):
@@ -525,8 +475,13 @@ class Matchable(object):
     Generic __repr__ use __match_args__ by default, but you can use __repr_ignore__ from change.
 
     """
-    __match_args__: tuple[str] = ()
-    userData = descriptors.UserData(())
+    match_args: tuple[str] = ()
+    __match_args__ = ()
+    __match_args__ += match_args
+
+    gui = descriptors.UserDataGui()
+    properties = descriptors.UserDataProperties()
+    userData = descriptors.UserData()
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -561,13 +516,14 @@ class Matchable(object):
         raise AttributeError("You dont can set UUID from any object.")
 
 
-
-
-class Mmodel(Matchable):
-    __match_args__ = ()
+class MmItem(Matchable):
+    match_args = ()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
+
+    def __repr__(self):
+        return super().__repr__()

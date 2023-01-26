@@ -1,5 +1,5 @@
 import compute_rhino3d
-from compute_rhino3d import Mesh, Surface, Util
+from compute_rhino3d import AreaMassProperties, Mesh, Surface, Util
 
 from setupsecrets import SecretsManager
 
@@ -27,6 +27,7 @@ __all__ = [
     "Util",
     "Surface",
     "Mesh",
+    "AreaMassProperties",
     "ComputeRequest",
     "GHRequest",
     "SlimGHRequest",

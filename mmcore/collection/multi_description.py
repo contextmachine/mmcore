@@ -1,6 +1,7 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
 # multi_description.py
+import functools
 import itertools
 from abc import ABC
 from collections import Counter
@@ -162,6 +163,10 @@ class _MultiDescriptor(Mapping[KTo, Seq], ABC):
     ...
 
 
+def dequeue(param):
+    pass
+
+
 class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     """
     # Multi Getter
@@ -189,6 +194,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     ['something else', 'nothing']
     """
     element_type: Type = property(fget=lambda self: sequence_type(self._seq))
+    format_spec = lambda self: [self.__class__.__name__, self.element_type.__name__, list(self.keys()), id(self)]
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
@@ -199,6 +205,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
         else:
             for key in dir(d):
                 if not key.startswith("_"):
+
                     keys.setdefault(key)
             return keys.keys()
 
@@ -236,6 +243,17 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __repr__(self):
         return f"<{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})] object at {id(self)}>"
+
+    def __format__(self, format_spec=None):
+        spec = self.format_spec()
+        if format_spec is None:
+            return spec
+        else:
+            newargs = format_spec(self)
+            newargs.reverse()
+            for val in range(len(newargs)):
+                spec.insert(len(spec) - val, newargs[val])
+            return spec
 
 
 class CollectionItemGetSetter(CollectionItemGetter):
@@ -309,6 +327,41 @@ class MultiDescriptor(CollectionItemGetSetter):
         return int(self.sha.hexdigest(), 36)
 
 
+class MethodDescriptor:
+    def __init__(self, name):
+
+        self.name = name
+
+    def __get__(self, instance: MultiDescriptor, owner) -> Callable:
+        return self(instance, owner if owner is not None else instance.element_type)
+
+    def __call__(self, instance, owner) -> Callable:
+        """
+        Может принять одну или несколько секвенций в качестве аргументов
+        @param instance:
+        @return:
+        """
+
+        @functools.wraps(getattr(owner, self.name))
+        def wrp(seq: ElementSequence | tuple[ElementSequence] | Any | None = None) -> MapType:
+            if isinstance(seq, MultiDescriptor):
+                arg = zip(instance._seq, seq._seq)
+                return itertools.starmap(getattr(owner, self.name), arg)
+            elif isinstance(seq, tuple):
+                arg = zip(*((instance._seq) + tuple([s._seq for s in seq])))
+                return itertools.starmap(getattr(owner, self.name), arg)
+
+            else:
+                arg = instance._seq
+
+                return map(getattr(owner, self.name), arg)
+
+        return wrp
+
+
+from types import MethodType
+
+
 class ElementSequence(MultiDescriptor):
     ignored = int, float, str, Callable, FunctionType
 
@@ -319,7 +372,13 @@ class ElementSequence(MultiDescriptor):
         return np.asarray(list(self._seq))
 
     def __getitem__(self, item):
-        return super().__getitem__(item)
+
+        val = super().__getitem__(item)
+        seq_type = sequence_type(val)
+        if sequence_type(val) == MethodType:
+            return MethodDescriptor(item).__get__(self, None)
+        else:
+            return val
 
     def get_from_index(self, index):
         return self._seq[index]
