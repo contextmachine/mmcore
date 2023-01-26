@@ -1,5 +1,4 @@
 import uuid
-import weakref
 from typing import Any, Optional
 
 import numpy as np
@@ -12,6 +11,23 @@ from mmcore.geom.base import MmGeometry
 from mmcore.geom.materials import Material
 
 Number = int | float
+
+
+def group_notation_from_mesh(name, userdata={},
+                             matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), children=[], uid=None):
+    if uid is None:
+        uid = uuid.uuid4().__str__()
+    return {
+        'uuid': uid,
+        'type': 'Group',
+        'name': name,
+        'castShadow': True,
+        'receiveShadow': True,
+        'userData': userdata,
+        'layers': 1,
+        'matrix': matrix,
+        'children': children
+        }
 
 
 class BufferMaterial(pydantic.BaseModel):
@@ -86,6 +102,66 @@ class BufferObject3d(pydantic.BaseModel):
     userData: Any = {}
 
 
+class BufferGroup(pydantic.BaseModel):
+    uuid: str
+    name: str
+    type: str = "Group"
+    castShadow: bool = True
+    receiveShadow: bool = True
+    layers: int = 1,
+    matrix: list[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    children: list[BufferObjectField] | list = []
+    userData: Any = {}
+
+
+from mmcore.baseitems.descriptors import GroupUserData
+
+
+class Group(ElementSequence, Matchable):
+    _name = None
+    _children = []
+    __match_args__ = "_seq", "name", "matrix"
+    userData = GroupUserData()
+
+    def __repr__(self):
+        return super(ElementSequence, self).__repr__()
+
+    @property
+    def name(self):
+        if self._name is None:
+            return f"Group {self.uuid}"
+        else:
+            return self.name
+
+    _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+
+    @property
+    def matrix(self):
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, value):
+        self._matrix = value
+
+    @property
+    def object(self):
+        return BufferGroup(**{
+            'uuid': self.uuid,
+            'type': 'Group',
+            'name': self.name,
+            'castShadow': True,
+            'receiveShadow': True,
+            'userData': self.userData,
+            'layers': 1,
+            'matrix': self.matrix,
+            'children': self.children
+            })
+
+    @property
+    def children(self):
+        return
+
+
 def create_root(self):
     return {
         "metadata": {
@@ -99,18 +175,50 @@ def create_root(self):
         }
 
 
-class BufferObjectRoot:
+from mmcore.utils import redis_tools
+
+
+class Scene(redis_tools.RC):
+    ...
+
+
+class BufferObjectRoot(ElementSequence, Matchable):
     _geometries = []
     _materials = []
-    __match_args__ = '_obj',
+    __match_args__ = 'children', 'name', 'matrix'
 
-    def __init__(self, obj):
-        super().__init__()
-        self._obj = obj
-        self._obj._root = weakref.proxy(self)
+    def __init__(self, children=(), name="Group", matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), **kwargs):
+        for child in children()
+            Matchable.__init__(self, name, matrix, **kwargs)
+        super(ElementSequence, self).__init__(children)
+
+    _name = None
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    _matrix = None
+
+    @property
+    def matrix(self):
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, value):
+        self._matrix = value
+
+    @property
+    def material_sequence(self):
+        return ElementSequence(self.materials)
 
     @property
     def geometries(self):
+        # [mesh_to_buffer(obj) for obj in self["mesh"]]
         return self._geometries
 
     @geometries.setter
@@ -119,6 +227,8 @@ class BufferObjectRoot:
 
     @property
     def materials(self):
+        # self.materials = list(map(lambda x: MeshPhongFlatShading(color=ColorRGB(*eval(x)[:-1])), list(self.color_counter.keys())))
+
         return self._materials
 
     @materials.setter
@@ -135,16 +245,21 @@ class BufferObjectRoot:
                 },
             "geometries": self.geometries,
             "materials": self.materials,
-            "object": self._obj.object
+            "object": self.object
             }
 
     def __call__(self, *args, **kwargs):
-        return self._obj(*args, **kwargs)
+        return self.object(*args, **kwargs)
+
+    @property
+    def object(self):
+        return group_notation_from_mesh(self.name, userdata=self.userData,
+                                        matrix=self.matrix, uid=self.uuid)
 
 
 class BufferObject(Matchable):
-    __match_args__ = "name",
-    userData = {}
+    __match_args__ = "root", "name"
+
     _area = 0
     _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
@@ -152,8 +267,8 @@ class BufferObject(Matchable):
     _geometry = None
     _root = None
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, root, name="Object", *args, **kwargs):
+        super().__init__(root, name="Object", *args, **kwargs)
 
     @property
     def object(self):
@@ -171,6 +286,10 @@ class BufferObject(Matchable):
     @property
     def root(self):
         return self._root.root
+
+    @root.setter
+    def root(self, v):
+        self._root = v
 
     @material.setter
     def material(self, v):

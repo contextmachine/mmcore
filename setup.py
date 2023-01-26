@@ -1,4 +1,9 @@
+import sys
+
 from setuptools import setup
+
+WORK_DIRECTORY = "/".join(__file__.split("/")[:-1])
+sys.path.append(f"{WORK_DIRECTORY}/mmcore/bin")
 
 print("""
 Copyright (c) 2022. CONTEXTMACHINE. AEC. 

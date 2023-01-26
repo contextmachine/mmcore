@@ -1,0 +1,87 @@
+#! python3
+# ! async:true
+# requirements: numpy, requests
+
+
+import socket
+
+import sys
+
+sys.path.extend(["/Users/andrewastakhov/PycharmProjects/mmcore/cxmdata"])
+sys.path.extend(["/Users/andrewastakhov/PycharmProjects/mmcore"])
+import cxmdata as cxd
+import importlib
+
+importlib.reload(cxd)
+print('IS_INSIDE_RHINOCODE', cxd.IS_INSIDE_RHINOCODE)
+
+
+class SelfProxy:
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+def stop(slf):
+    # socket.socket(socket.AF_INET, socket.SOCK_DGRAM).connect((self.hostname, self.port))
+    slf.close()
+
+
+def main(sock, server_address):
+    sock.bind(server_address)
+    print("start sucsess")
+    while True:
+
+        data, address = sock.recvfrom(65507)
+
+        if data == b"stop":
+
+            stop(sock)
+
+            break
+        else:
+            try:
+
+                outp = eval_py(data)
+                print('response {} 200'.format(address))
+                sent = sock.sendto(outp, address)
+
+            except KeyboardInterrupt as err:
+                stop(sock)
+                break
+            except Exception as err:
+                outperr = cxd.CxmData({"statuscode": 400, "msg": {"err": repr(err)}})
+                sent = sock.sendto(outperr, address)
+                print('response {} 400\n\n\t{}'.format(address, repr(err)))
+
+
+def eval_py(data):
+    ctxx = cxd.CxmData(data).decompress()
+    ctx = SelfProxy(**ctxx["input"])
+    dt = globals()
+    dt |= locals()
+    exec(ctxx["py"], dt)
+    outp = {}
+    dt2 = globals()
+    dt2 |= locals()
+    for output_param in ctxx["output"]:
+        outp[output_param] = dt2[output_param]
+    dt = cxd.CxmData(outp)
+    print(outp)
+    return dt
+
+
+if __name__ == "__main__":
+    # Create a TCP/IP socket
+    _sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    # Bind the socket to the port
+    _server_address = ('localhost', 10085)
+
+    # _sock.bind(_server_address)
+
+    print('starting up on %s port %s' % _server_address)
+
+    main(_sock, _server_address)
