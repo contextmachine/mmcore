@@ -24,10 +24,11 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
       )
 setup(
     name='mmcore',
-    version='0.1.2',
-    packages=['mmcore', 'mmcore.mmbusybox','mmcore.geom', 'mmcore.geom.tools', 'mmcore.geom.xforms', 'mmcore.geom.parametric',
+    version='0.1.3',
+    packages=['mmcore', 'mmcore.mmbusybox', 'mmcore.geom', 'mmcore.geom.tools', 'mmcore.geom.xforms',
+              'mmcore.geom.parametric',
               'mmcore.utils', 'mmcore.utils.sockets', 'mmcore.utils.versioning', 'mmcore.utils.pydantic_mm',
-              'mmcore.utils.redis_tools', 'mmcore.addons', 'mmcore.addons.gmdl', 'mmcore.addons.mmcore',
+              'mmcore.utils.redis_tools', 'mmcore.addons', 'mmcore.addons.gmdl',
               'mmcore.addons.rhino', 'mmcore.addons.rhino.compute', 'mmcore.addons.rhino.native', 'mmcore.services',
               'mmcore.baseitems', 'mmcore.baseitems.descriptors', 'mmcore.collection', 'mmcore.collection.generics',
               'mmcore.exceptions'],
