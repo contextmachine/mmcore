@@ -1,6 +1,7 @@
 import json
+import os
 
-with open("data/mmconfig.json") as j:
+with open(f"{os.getenv('PWD')}/data/mmconfig.json") as j:
     mmconfig = json.load(j)
 MMCONFIG = mmconfig["bundles"]
 GHDEPLOYPATH = "c:/users/administrator/compute-deploy/"

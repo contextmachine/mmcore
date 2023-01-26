@@ -131,6 +131,15 @@ class RhinoIronPython(SocketService):
             print(err)
 
 
+import cxmdata
+
+
+def dgram(msg, sock, server_address, bufsize=65507):
+    sock.sendto(cxmdata.CxmData(msg), server_address)
+    aaa, bbb = sock.recvfrom(bufsize)
+    return cxmdata.CxmData(aaa).decompress(), bbb
+
+
 class DRhinoIronPython(RhinoIronPython):
     """
     >>> @DRhinoIronPython(('localhost', 10081), bytesize=1024 * 1024)

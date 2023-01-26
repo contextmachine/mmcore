@@ -1,6 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Iterator, Mapping
 
 
 class AbstractDescriptor(ABC):
@@ -36,7 +36,8 @@ class Descriptor(AbstractDescriptor):
             return getattr(instance, self.name)
 
     @abstractmethod
-    def __set__(self, instance, val): ...
+    def __set__(self, instance, val):
+        ...
 
 
 class NoDataDescriptor(Descriptor):
@@ -63,6 +64,7 @@ class DataDescriptor(Descriptor):
 
     def __get__(self, instance, owner):
         return super().__get__(instance, owner)
+
 
 class BaseClientDescriptor(Descriptor):
 
@@ -101,6 +103,13 @@ class ClientDescriptor(Descriptor):
         print(instance, value)
         instance.client.put_object(Bucket=self.bucket, Key=f"{self.prefix}{self.name}{instance.suffix}",
                                    Body=instance.__sethook__(value))
+
+
+def safe_getattribute(cls, self, item) -> None | Any:
+    try:
+        return cls.__getattribute__(self, item)
+    except AttributeError as err:
+        return None
 
 
 class DataView(NoDataDescriptor):
@@ -143,7 +152,7 @@ class DataView(NoDataDescriptor):
 
     def __generate__(self, instance, owner):
         for name in self.targets:
-            yield self.item_model(name=name, value=owner.__getattribute__(instance, name))
+            yield self.item_model(name=name, value=safe_getattribute(owner, instance, name))
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -152,29 +161,140 @@ class DataView(NoDataDescriptor):
             return self.data_model(instance, value=list(self.__generate__(instance, owner)))
 
 
-class UserData(DataView):
+class UserDataField(DataView):
+    @abstractmethod
+    def item_model(self, name: str, value: Any):
+        ...
+
+    def data_model(self, instance, value: list[None | tuple[str, Any]]):
+        if all(list(map(lambda x: x is None, dict(value).values()))):
+            return None
+        else:
+            return dict(value)
+
+
+class UserDataProperties(UserDataField):
     def item_model(self, name, value):
         return name, value
 
-    def data_model(self, instance, value):
-        return {"properties": dict(value)}
+    def data_model(self, instance, value: list[None | tuple[str, Any]]):
+        return super().data_model(instance, value)
+
+
+class UserData(DataView):
+    deps = "properties", "gui"
+
+    def __init__(self, *targets):
+        object.__init__(self)
+        super().__init__(*(self.deps + targets))
+
+    def item_model(self, name: str, value: Any):
+
+        return name, value
+
+    def data_model(self, instance, value: list[tuple[str, Any]]) -> dict:
+        d = {}
+        for k, v in value:
+            if v is not None:
+                d[k] = v
+        return d
+
+
+from enum import Enum
+
+
+class Template(str):
+    type: str
+
+    def __repr__(self):
+        return f"{self.type}-template'{super().__repr__()}'"
+
+    def __str__(self):
+        return super().__str__()
+
+
+class ChartTemplate(Template):
+    type: str = "chart"
+
+
+class GuiTemplates(Template, Enum):
+    line_chart = ChartTemplate("linechart")
+    pie_chart = ChartTemplate("piechart")
+
+
+class GuiColors(str, Enum):
+    default = "default"
+
+
+class UserDataGuiItem(Mapping, DataDescriptor):
+    """
+    {
+        "id": "color-linechart",
+        "name": "график по цветам",
+        "type": "chart",
+        "key": "color",
+        "colors": "default",
+        "require": [
+          "piechart"
+       ]
+    }
+    """
+
+    def __set_name__(self, owner, name):
+        owner.gui.targets.append(name)
+        self.name = name
+
+    def __iter__(self) -> Iterator:
+        return self._dct().__iter__()
+
+    def __len__(self) -> int:
+        return self._dct().__len__()
+
+    id: str
+    common: str
+    colors: GuiColors = GuiColors.default
+
+    def __init__(self, templates, common="График", **kwargs):
+        super().__init__()
+        self.common = common
+        self.templates = templates
+        self.common = common
+        self.__dict__ |= kwargs
+
+    def __getitem__(self, item):
+        return self._dct().__getitem__(item)
+
+    def _dct(self):
+        return {
+            "id": f"{self.name}-{'-'.join(self.templates)}",
+            "name": self.common,
+            "type": self.templates[0].type,
+            "key": self.name,
+            "colors": self.colors,
+            "require": list(self.templates)
+            }
+
+
+class UserDataGui(DataView):
+    targets = []
+
+    def __init__(self, *targets):
+        super().__init__(*targets)
+        self.targets = list(self.targets)
+
+    def item_model(self, name: str, value: UserDataGuiItem):
+        return value
+
+    def data_model(self, instance, value: list[UserDataGuiItem] | None = None):
+        return None if (value is None) or (value == []) else value
 
 
 class GroupUserData(DataView):
-    def __generate__(self, instance, owner):
-        for name in self.targets:
-            yield self.item_model(name=name, value=getattr(instance, "gui_" + name))
+    def __init__(self, *targets):
+        super().__init__(*(("gui",) + targets))
 
     def item_model(self, name, value):
-        return {
-            "id": "color-" + "".join(value),
-            "name": name[0].upper() + name[1:] + " chart",
-            "type": "chart",
-            "key": name,
-            "colors": "default",
-            "require": value
-
-            }
+        return {name: value}
 
     def data_model(self, instance, value):
-        return {"gui": value}
+        return dict(value)

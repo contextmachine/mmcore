@@ -1,11 +1,50 @@
 import json
 from collections import namedtuple
+from typing import Any, SupportsIndex
 
-from mmcore.baseitems import Mmodel
+from mmcore.baseitems import Matchable
 from mmcore.baseitems.descriptors import DataView
 
 ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
-ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
+_ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
+
+import numpy as np
+
+
+class ColorRGB(tuple):
+
+    def __new__(cls, *iterable):
+        if all(map(lambda x: isinstance(x, int), iterable)):
+            inst = tuple.__new__(cls, iterable)
+            inst.r, inst.g, inst.b = iterable
+            return inst
+        else:
+
+            ss = np.array(iterable)
+            dd = np.array(np.round(ss * 255), dtype=int).tolist()
+
+            inst = tuple.__new__(cls, tuple(dd))
+            inst.r, inst.g, inst.b = tuple(dd)
+            return inst
+
+    @property
+    def decimal(self):
+        return int('%02x%02x%02x' % (self.r, self.g, self.b), 16)
+
+    def __int__(self):
+        return int(self.hex(), 16)
+
+    def hex(self):
+        return '%02x%02x%02x' % (self.r, self.g, self.b)
+
+    def index(self, __value: Any, __start: SupportsIndex = ..., __stop: SupportsIndex = ...) -> int:
+        return tuple.index(self, __value, __start, __stop)
+
+    def __getitem__(self, item):
+        return tuple.__getitem__(self, item)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.r}, {self.g}, {self.b})"
 
 
 def rgb_to_three_decimal(color: ColorRGB | ColorRGBA) -> int:
@@ -20,7 +59,7 @@ class MaterialData(DataView):
         return dict(value)
 
 
-class Material(Mmodel):
+class Material(Matchable):
     properties = "uuid", "type", "color"
     __match_args__ = "color",
     data: dict = MaterialData(*properties)
@@ -38,15 +77,15 @@ class Material(Mmodel):
     def opacity(self) -> float | None:
         try:
             return (1 / 255) * self._color.a
-        except:
-            pass
+        except AttributeError:
+            return None
 
     @property
-    def transparent(self) -> bool:
+    def transparent(self) -> bool | None:
         try:
             return self.opacity < 1.0
-        except:
-            pass
+        except AttributeError:
+            return None
 
     @property
     def type(self):
