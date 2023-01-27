@@ -21,6 +21,36 @@ import numpy as np
 TraverseTypeExtra = collections.namedtuple("TraverseTypeExtra", ["cls", "resolver"])
 
 
+class TypeExtras:
+    def __init__(self, *args):
+        self._args = set(args)
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.owner = owner
+        setattr(owner, "__" + self.name, self._args)
+
+    def __get__(self, instance, owner):
+        cls_extras = resolve_class_extras(owner)
+        if instance is not None:
+            instance_overrides = getattr(instance, "_" + self.name)
+            extras = copy.deepcopy(cls_extras)
+
+            extras.update(instance_overrides)
+            return extras
+        else:
+            return cls_extras
+
+
+def resolve_class_extras(cls):
+    extras_set = set()
+    for parent in cls.__bases__:
+        if hasattr(parent, "type_extras"):
+            extras_set.update(parent.__type_extras)
+    extras_set.update(cls.__type_extras)
+    return extras_set
+
+
 class traverse(Callable):
     """
     Полностью проходит секвенцию любой степени вложенности.
@@ -37,17 +67,44 @@ class traverse(Callable):
     >>> np.allclose(a,b)
     True
     """
-    __slots__ = ("callback", "traverse_dict", "type_extras")
+    __type_extras: set[TraverseTypeExtra] = set()
+    type_extras = TypeExtras()
 
-    def __init__(self, callback: Callable | None = None, traverse_dict=True, type_extras=()):
+    def __init__(self, callback: Callable | None = None, traverse_dict=True, traverse_seq=True, type_extras=()):
         super().__init__()
-        self.traverse_dict = traverse_dict
 
-        self.type_extras = type_extras
+        self._traverse_dict = traverse_dict
+        self._traverse_seq = traverse_seq
+        self._type_extras = type_extras
+
         if callback is None:
             self.callback = lambda x: x
         else:
             self.callback = callback
+
+    def traverse_dict(self, dct):
+        if self._traverse_dict:
+            dt = {}
+            for k, v in dct.items():
+                dt[k] = self(v)
+            return dt
+        else:
+            return self.callback(dct)
+
+    def traverse_seq(self, seq):
+        if self._traverse_seq:
+
+            typeset = set([self(l) for l in seq])
+            if len(typeset) > 1:
+                typ = typing.Union[tuple(typeset)]
+            elif len(typeset) == 0:
+                typ = typing.Any
+            else:
+                typ = list(typeset)[0]
+            return seq.__class__.__class_getitem__(typ)
+
+        else:
+            return self.callback(seq)
 
     @property
     def extra_classes(self):
@@ -65,22 +122,49 @@ class traverse(Callable):
             # Это надо обработать в самом начале
             return self.callback(seq)
         elif isinstance(seq, Sequence | np.ndarray):
-
-            return seq.__class__([self(l) for l in seq])
+            return self.traverse_seq(seq)
 
         elif isinstance(seq, dict):
-            if self.traverse_dict:
-                dt = {}
-                for k, v in seq.items():
-                    dt[k] = self(v)
-                return dt
-            else:
-                return self.callback(seq)
+            return self.traverse_dict(seq)
         else:
             return self.callback(seq)
 
 
 type_extractor = traverse(lambda x: type(x), traverse_dict=False)
+dict_type_extractor = traverse(lambda x: type(x), traverse_dict=True)
+
+
+class NumSenseTrav(traverse):
+    type_extras = TypeExtras(
+        TraverseTypeExtra(int, lambda x: typing.Union[int, float]),
+        TraverseTypeExtra(float, lambda x: typing.Union[float, int])
+        )
+
+
+class NoneSenseTrav(traverse):
+    type_extras = TypeExtras(
+        TraverseTypeExtra(type(None), lambda x: typing.Any),
+        TraverseTypeExtra(type(None), lambda x: typing.Any),
+        )
+
+
+class StrSenseTrav(traverse):
+    type_extras = TypeExtras(
+        TraverseTypeExtra(str, lambda x: str),
+        TraverseTypeExtra((list, str), lambda x: list[str]),
+        )
+
+
+class TypeSensevityTraverse(NumSenseTrav, NoneSenseTrav, StrSenseTrav, traverse):
+    """
+    It is identical this:
+    >>> type_sensevity_traverse = traverse(lambda x: type(x), traverse_dict=True, type_extras=(
+    ...     TraverseTypeExtra(int, lambda x: typing.Union[int, float]),
+    ...     TraverseTypeExtra(float, lambda x: typing.Union[float, int]),
+    ...     TraverseTypeExtra(type(None), lambda x: typing.Any),
+    ...                 ))
+    """
+    type_extras = TypeExtras()
 
 
 def walk(target, names):

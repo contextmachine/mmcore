@@ -2,7 +2,6 @@ name:
   mmcore
 channels:
   - conda-forge
-  - default
 dependencies:
   - python[version='>=3.10.*']
   - cmake
@@ -18,6 +17,7 @@ dependencies:
   - scipy
   - sphinx==6.1.2
   - uvicorn
+  - gmsh
   - pip:
       - cmake
       - COMPAS

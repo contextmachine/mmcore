@@ -10,6 +10,7 @@ COPY . .
 RUN python -m pip install -e .
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-ENV REDIS_DB=0 REDIS_STATESTREAM_ID=0 REDIS_STATESTREAM_KEY=tests:ug-stream REDIS_URL=redis://localhost:6380 PWD=/app
+ENV PYTHONPATH=$CONDA_PRIFIX/envs/mmcore/bin/python REDIS_DB=0 REDIS_STATESTREAM_ID=0 REDIS_STATESTREAM_KEY=tests:ug-stream REDIS_URL=redis://localhost:6380 PWD=/app
 
 VOLUME ["/mmcore/data"]
+ENTRYPOINT ["python"]
