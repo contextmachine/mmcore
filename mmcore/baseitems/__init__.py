@@ -515,15 +515,21 @@ class Matchable(object):
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
 
-
-class MmItem(Matchable):
-    match_args = ()
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
 
     def __repr__(self):
         return super().__repr__()
+
+
+class MatchableItem(Matchable, Base):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        super().__call__(*args)
+        return Base.__call__(self, **kwargs)
+
+    def __repr__(self):
+        return super().__repr__() + f" at {self.uuid}"
