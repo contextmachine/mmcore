@@ -1,8 +1,10 @@
 import collections
 import copy
 import typing
-from typing import Any, Callable, Sequence
+from collections import Counter
+from typing import Any, Callable, Sequence, Type, Union
 
+import numpy
 import numpy as np
 
 """
@@ -220,3 +222,61 @@ class Query(Walk):
             return self._f(instance, self[instance])
         else:
             return self
+
+
+def sequence_type(seq: Sequence) -> Type:
+    """
+    Extract types for sequence.
+
+    >>> ints = [2, 3, 4, 9]
+    >>> sequence_type(ints)
+    <class 'int'>
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> sequence_type(some)
+    typing.Union[str, dict, int]
+
+    @param seq: input sequence
+    @return: single or Union type
+    """
+
+    assert isinstance(seq, Sequence)
+    tps = set(numpy.asarray(type_extractor(seq)).flatten())
+
+    return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
+
+
+def ismonotype(seq: Sequence) -> bool:
+    """
+    @param seq:
+    @return: bool
+
+    >>> ints = [2, 3, 4, 9]
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> ismonotype(some)
+    False
+    >>> ismonotype(ints)
+    True
+
+
+    """
+    tp = sequence_type(seq)
+    if hasattr(tp, "__origin__"):
+
+        return not tp.__origin__ == Union
+    else:
+        return True
+
+
+def sequence_type_counter(seq: Sequence) -> Counter[Type]:
+    """
+    ```type_extractor``` based function.
+
+    @param seq: Any sequence
+    @return: Count of unique types
+
+    >>> some = [2, 3, 4, "9", {"a": 6}]
+    >>> sequence_type_counter(some)
+    Counter({<class 'int'>: 3, <class 'str'>: 1, <class 'dict'>: 1})
+    """
+    assert isinstance(seq, Sequence)
+    return Counter(type_extractor(seq))

@@ -298,3 +298,33 @@ class GroupUserData(DataView):
 
     def data_model(self, instance, value):
         return dict(value)
+
+
+import numpy as np
+
+
+def trx(tx):
+    xf = np.array(tx).reshape((4, 4))
+    xxf = rg.Transform(0.0)
+    for i in range(4):
+        for j in range(4):
+            setattr(xxf, f"M{i}{j}", xf[i, j])
+
+    return xxf
+
+
+class BackendProxyDescriptor:
+    def __init__(self):
+        self.name = '__getitem__'
+
+    def __get__(self, instance, owner):
+
+        def __getitem__(item):
+            i, j = tuple(item)
+            if instance is None:
+
+                return lambda x: getattr(x._backend, f"M{i}{j}")
+            else:
+                return getattr(instance._backend, f"M{i}{j}")
+
+        return __getitem__
