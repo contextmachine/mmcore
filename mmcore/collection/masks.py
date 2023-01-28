@@ -2,6 +2,7 @@ import typing
 from abc import abstractmethod
 from typing import Callable
 
+
 class HashedSeq(list):
     """ This class guarantees that hash() will be called no more than once
         per element.  This is important because the lru_cache() will hash
@@ -17,6 +18,7 @@ class HashedSeq(list):
 
     def __hash__(self):
         return self.hashvalue
+
 
 class _wrapper:
     def __init__(self, mask, instance, owner, **kwargs):
