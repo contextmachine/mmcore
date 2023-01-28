@@ -631,10 +631,10 @@ def wire_to_curve(
     @param wire:
     """
     adap = BRepAdaptor_CompCurve(wire)
-    hadap = BRepAdaptor_CompCurve(adap)
+
     from OCC.Core.Approx import Approx_Curve3d
 
-    approx = Approx_Curve3d(hadap, tolerance, order, max_segment, max_order)
+    approx = Approx_Curve3d(adap, tolerance, order, max_segment, max_order)
     with assert_isdone(approx, "not able to compute approximation from wire"):
         return approx.Curve().GetObject()
 

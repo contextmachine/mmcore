@@ -188,7 +188,7 @@ class BufferObjectRoot(ElementSequence, Matchable):
     __match_args__ = 'children', 'name', 'matrix'
 
     def __init__(self, children=(), name="Group", matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), **kwargs):
-        for child in children()
+        for child in children:
             Matchable.__init__(self, name, matrix, **kwargs)
         super(ElementSequence, self).__init__(children)
 

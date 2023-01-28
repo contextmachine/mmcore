@@ -62,14 +62,14 @@ class Base(Callable):
     Base Abstract class
     """
 
-    def __init__(self, *args, **kwargs):
-        self.__call__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__call__(**kwargs)
 
-    def __call__(self, *args, **kwargs):
-        super().__call__()
+    def __call__(self, **kwargs):
+        for k in kwargs:
+            self.__setattr__(k, kwargs[k])
 
-        self.__dict__.update(kwargs)
-        self._dtype = self.__class__.__name__
         return self
 
 
@@ -505,7 +505,7 @@ class Matchable(object):
         s = f"{self.__class__.__name__}("
         for k in self.__class__.__match_args__:
             s += f"{k}={getattr(self, k)}, "
-        return s[:-2] + ")"
+        return s + ")"
 
     @property
     def uuid(self):
@@ -515,21 +515,23 @@ class Matchable(object):
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
 
-    def __call__(self, *args, **kwargs):
-        return super().__call__(*args, **kwargs)
-
-    def __repr__(self):
-        return super().__repr__()
-
 
 class MatchableItem(Matchable, Base):
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, value):
+        raise AttributeError("You dont can set UUID from any object.")
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self._uuid = uuid.uuid4()
+        super(Matchable, self).__init__(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
-        super().__call__(*args)
+        super(Matchable, self).__call__(*args)
         return Base.__call__(self, **kwargs)
 
     def __repr__(self):
-        return super().__repr__() + f" at {self.uuid}"
+        return Matchable.__repr__(self) + f" at {self.uuid}"
