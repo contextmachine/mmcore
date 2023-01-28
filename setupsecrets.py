@@ -13,6 +13,10 @@ import pprint
 
 __all__ = ["SecretsManager"]
 
+import shutil
+
+import subprocess
+
 from types import TracebackType
 
 from typing import Any, ContextManager, Type
@@ -57,6 +61,32 @@ class SecretsManager(ContextManager):
                  __traceback: TracebackType | None) -> bool | None:
         return False
 
+    def __setup_repo__(self) -> None:
+        """
+
+        @return:  None
+        @rtype: NoneType
+        @summary: Override this method if you want to create a custom secret delivery pipeline.
+        By default, a closed repository is used with the env file[1],
+        which is referenced by the secrets_link attribute; it will be cloned with git.
+
+        @note: This scheme is successful because it allows you to work with your git infrastructure
+        and does not require additional authentication layers.
+        The method will also work when using a local git repository, and when using Kubernetes[777]
+        [1] Can be set by env_file_name attribute, "env.json" by default.
+        [777] Kubernetes support is in progress, but will be available as soon as possible.
+        """
+        # This check is in the body of the method
+        # that you can completely override what you need without changing __enter__
+        if self.update or not os.path.isfile(self.env_file_name):
+            # Yes, this may be excessive.
+            # But I prefer to check this case to avoid having to routinely delete the directory in some cases.
+            shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
+
+            proc = subprocess.Popen(["git", "clone", self.secrets_link])
+            proc.wait()
+            shutil.move(f"{self.repo_name}/{self.env_file_name}", self.env_file_name)
+            shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
     def __enter__(self) -> dict[str, Any]:
         """
 
@@ -79,7 +109,7 @@ class SecretsManager(ContextManager):
         """
         if self.logging:
             print("Starting setup secrets ...")
-
+        self.__setup_repo__()
         data = self.__setup_env__()
 
         for action in self.additional_actions:
