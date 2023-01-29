@@ -1,16 +1,30 @@
+# syntax=docker/dockerfile:1
+
+#             //*[@id="understand-how-cmd-and-entrypoint-interact"]
+#        |     No ENTRYPOINT      |	 ENTRYPOINT exec_entry p1_entry	 | ENTRYPOINT [“exec_entry”, “p1_entry”]          |
+# -------+------------------------+----------------------------------+------------------------------------------------+
+# No CMD | error, not allowed	  | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry                            |
+# -------+------------------------+----------------------------------+------------------------------------------------+
+# CMD    | [“exec_cmd”, “p1_cmd”] | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry exec_cmd p1_cmd            |
+# -------+------------------------+----------------------------------+------------------------------------------------+
+# CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
+
+
 FROM condaforge/mambaforge
+# больной ублюдок
 USER root
+# Нет ну если вы предпочитаете другой стиль можете конечно сделать все чисто ...
+#
 WORKDIR /mmcore
-# workspace:pridex:
-# workspace:internal
-COPY environment.yml environment.yml
-RUN conda update -n base -c conda-forge conda
-RUN conda env create --file environment.yml && conda init --all
-COPY . .
-RUN python -m pip install -e .
+COPY --link . .
+RUN bash mamba env create -f environment.yml && mamba init --all
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-ENV PYTHONPATH=$CONDA_PRIFIX/envs/mmcore/bin/python REDIS_DB=0 REDIS_STATESTREAM_ID=0 REDIS_STATESTREAM_KEY=tests:ug-stream REDIS_URL=redis://localhost:6380 PWD=/app
+ENV PYTHONPATH=${CONDA_DIR}/envs/mmcore/bin/python
+RUN bash ${CONDA_DIR}/envs/mmcore/bin/python -m pip install -e .
+# Чтобы следующая команджа работала правильно включите в команду сборки следующее:
+#   `docker buildx build --secret id=aws,src=$HOME/.aws/credentials .`
+RUN --mount=type=secret,id=aws,target=/root/.aws/credentials \
+  aws s3 cp s3://storage.yandexcloud.net/lahta.contextmachine.online
 
-VOLUME ["/mmcore/data"]
-ENTRYPOINT ["python"]
+ENTRYPOINT ["bash", "${CONDA_DIR}/envs/mmcore/bin/python"]
