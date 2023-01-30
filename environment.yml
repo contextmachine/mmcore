@@ -1,12 +1,13 @@
 name:
-  mmcore
+  base
 channels:
   - conda-forge
 dependencies:
-  - python[version='>=3.10.*']
+  - python[version='==3.10']
+  - make
   - cmake
   - cython
-  - mamba
+  - mono
   - numpy
   - pycollada
   - pybind11
@@ -16,17 +17,16 @@ dependencies:
   - pythonocc-core
   - scipy
   - sphinx==6.1.2
-  - uvicorn
   - gmsh
+  - gcc
+  - gxx
   - pip:
-      - cmake
       - COMPAS
       - boto3
       - yandexcloud
       - redis-py-cluster
-      - setuptools_rust
       - redis
-      - redisom
+      - redis_om
       - rpyc
       - colored>=1.4.3
       - compas-occ
@@ -45,5 +45,5 @@ dependencies:
       - uvloop
       - fastapi[all]
       - ifcopenshell
-      - rhino3dm==7.14.2
-prefix: ${CONDA_DIR}/envs/mmcore
+
+prefix: ${CONDA_DIR}
