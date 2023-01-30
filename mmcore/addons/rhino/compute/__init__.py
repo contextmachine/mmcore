@@ -3,7 +3,10 @@ from compute_rhino3d import AreaMassProperties, Mesh, Surface, Util
 
 from setupsecrets import SecretsManager
 
-with SecretsManager(logging=False, update=True) as secrets:
+LOGGING = False
+UPDATE = False
+
+with SecretsManager(logging=LOGGING, update=UPDATE) as secrets:
     try:
         Util.url = f"http://{secrets['RHINO_COMPUTE_URL']}:{secrets['RHINO_COMPUTE_PORT']}/"
         if secrets.get("RHINO_COMPUTE_AUTHTOKEN") is not None:
@@ -22,6 +25,7 @@ with SecretsManager(logging=False, update=True) as secrets:
 
 from .request_models import ComputeRequest, GHRequest, SlimGHRequest, AdvanceGHRequest
 from .geometry import surf_to_buffer_geometry, surf_to_buffer_mesh, surf_to_buffer, surface_closest_normals
+
 __all__ = [
     "compute_rhino3d",
     "Util",

@@ -6,6 +6,7 @@ import json
 import sys
 import uuid
 
+import numpy as np
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Display.WebGl.threejs_renderer import spinning_cursor
 from OCC.Extend.TopologyUtils import discretize_edge, discretize_wire, is_edge, is_wire
@@ -13,13 +14,30 @@ from OCC.Extend.TopologyUtils import discretize_edge, discretize_wire, is_edge, 
 data_scheme = {
     "uuid": None,
     "type": None,
-    "data": {"attributes": {"position": {"itemSize": None,
-                                         "type": None,
-                                         "array": None}
-                            }
-             },
+    "data": {
+        "attributes": {
+            "position": {
+                "itemSize": None,
+                "type": None,
+                "array": None}
+            }
+        },
 
-}
+    }
+
+
+def area_2d(pts: list | np.ndarray):
+    """
+
+    @param pts: array like [[ 1., 2.],[ 0., 0.],[ -1.33, 0.], ...],
+        or collections of objects with __array__ method (np.asarray compatibility).
+
+
+    @return:
+    """
+    lines = np.hstack([np.asarray(pts), np.roll(pts, -1, axis=0)])
+    area = 0.5 * abs(sum(x1 * y2 - x2 * y1 for x1, y1, x2, y2 in lines))
+    return area
 
 
 def tesselation(shape, export_edges=False, mesh_quality=1.0):
@@ -53,12 +71,15 @@ def export_edge_data_to_json(edge_hash, point_set, scheme=None):
     edges_data = {
         "uuid": edge_hash,
         "type": "BufferGeometry",
-        "data": {"attributes": {"position": {"itemSize": 3,
-                                             "type": "Float32Array",
-                                             "array": points_coordinates}
-                                }
-                 },
-    }
+        "data": {
+            "attributes": {
+                "position": {
+                    "itemSize": 3,
+                    "type": "Float32Array",
+                    "array": points_coordinates}
+                }
+            },
+        }
 
     sch |= edges_data
 
@@ -104,21 +125,21 @@ def shaper(tess, export_edges, color=None, specular_color=None, shininess=None,
 
 
 def topo_converter(
-        shape,
-        *args,
-        export_edges=False,
-        color=(0.65, 0.65, 0.7),
-        specular_color=(0.2, 0.2, 0.2),
-        shininess=0.9,
-        transparency=0.,
-        line_color=(0, 0., 0.),
-        line_width=1.,
-        mesh_quality=1.,
-        deflection=0.1,
+    shape,
+    *args,
+    export_edges=False,
+    color=(0.65, 0.65, 0.7),
+    specular_color=(0.2, 0.2, 0.2),
+    shininess=0.9,
+    transparency=0.,
+    line_color=(0, 0., 0.),
+    line_width=1.,
+    mesh_quality=1.,
+    deflection=0.1,
 
-        scheme=None,
-        **kwargs
-):
+    scheme=None,
+    **kwargs
+    ):
     # if the shape is an edge or a wire, use the related functions
     if scheme is None:
         scheme = data_scheme

@@ -1,7 +1,5 @@
 .idea
-io_tools
 tests
 data
-env.json
-.env
+gen
 mmcore.egg-info

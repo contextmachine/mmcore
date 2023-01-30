@@ -12,7 +12,7 @@ import os
 import pprint
 
 __all__ = ["SecretsManager"]
-
+from mmcore.utils import EnvString
 import shutil
 
 import subprocess
@@ -33,18 +33,20 @@ class SecretsManager(ContextManager):
     secrets_link = "https://github.com/contextmachine/secrets.git" if os.getenv("SECRETS_LINK") is None else \
         os.getenv("SECRETS_LINK")
 
-    env_file_name = "env.json" if os.getenv("SECRETS_ENV_FILE_NAME") is None else os.getenv("SECRETS_ENV_FILE_NAME")
+    env_file_name = f'{EnvString(os.getenv("WORKDIR"))}/{"env.json" if os.getenv("SECRETS_ENV_FILE_NAME") is None else os.getenv("SECRETS_ENV_FILE_NAME")}'
     update = True if os.getenv("SECRETS_UPDATE") is None else os.getenv("SECRETS_UPDATE")
     logging = True if os.getenv("SECRETS_LOGGING") is None else os.getenv("SECRETS_LOGGING")
-    update_environ = True if os.getenv("SECRETS_UPDATE_ENVIRON") is None else os.getenv("SECRETS_UPDATE_ENVIRON")
+    update_environ = True
     additional_actions = [
         lambda data: data.__setitem__("CADEX_LICENSE", base64.b64decode(data["CADEX_LICENSE"]).decode())
         ]
     stringify_spec = dict()
 
-    def __init__(self, extend_additional_actions=(), update_stringify_spec=None, **kwargs):
+    def __init__(self, extend_additional_actions=(), update=True, update_stringify_spec=None, **kwargs):
 
         super().__init__()
+        self.update = update
+
         if update_stringify_spec is None:
             update_stringify_spec = dict()
         for name in dir(self):
@@ -52,6 +54,7 @@ class SecretsManager(ContextManager):
                 self.__dict__[name] = self.__getattribute__(name)
         self.additional_actions.extend(extend_additional_actions)
         self.stringify_spec.update(update_stringify_spec)
+
         self.__dict__ |= kwargs
         if self.logging:
             pprint.pprint(self.__dict__)
@@ -60,6 +63,7 @@ class SecretsManager(ContextManager):
     def __exit__(self, __exc_type: Type[BaseException] | None, __exc_value: BaseException | None,
                  __traceback: TracebackType | None) -> bool | None:
         return False
+
 
     def __setup_repo__(self) -> None:
         """
@@ -78,15 +82,15 @@ class SecretsManager(ContextManager):
         """
         # This check is in the body of the method
         # that you can completely override what you need without changing __enter__
-        if self.update or not os.path.isfile(self.env_file_name):
-            # Yes, this may be excessive.
-            # But I prefer to check this case to avoid having to routinely delete the directory in some cases.
-            shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
 
-            proc = subprocess.Popen(["git", "clone", self.secrets_link])
-            proc.wait()
-            shutil.move(f"{self.repo_name}/{self.env_file_name}", self.env_file_name)
-            shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
+        # Yes, this may be excessive.
+        # But I prefer to check this case to avoid having to routinely delete the directory in some cases.
+        shutil.rmtree(f"{self.repo_name}", ignore_errors=True)
+
+        proc = subprocess.Popen(["git", "clone", self.secrets_link])
+        proc.wait()
+        shutil.move(f"{os.getenv('WORKDIR')}/{self.repo_name}/{self.env_file_name}", self.env_file_name)
+        shutil.rmtree(f"{os.getenv('WORKDIR')}/{self.repo_name}", ignore_errors=True)
     def __enter__(self) -> dict[str, Any]:
         """
 
@@ -109,7 +113,8 @@ class SecretsManager(ContextManager):
         """
         if self.logging:
             print("Starting setup secrets ...")
-        self.__setup_repo__()
+        if self.update or not os.path.isfile(self.env_file_name):
+            self.__setup_repo__()
         data = self.__setup_env__()
 
         for action in self.additional_actions:
@@ -121,6 +126,16 @@ class SecretsManager(ContextManager):
         if self.logging:
             print("Success!")
         return data
+
+    _update = True
+
+    @property
+    def update(self):
+        return self._update
+
+    @update.setter
+    def update(self, value):
+        self._update = value
 
     @property
     def repo_name(self):
@@ -148,4 +163,5 @@ class SecretsManager(ContextManager):
 
         with open(self.env_file_name, "r") as f:
             data = json.load(f)
+
         return data

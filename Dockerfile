@@ -17,14 +17,11 @@ USER root
 #
 WORKDIR /mmcore
 COPY --link . .
-RUN bash mamba env create -f environment.yml && mamba init --all
+RUN conda env update -f environment.yml && conda init --all
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-ENV PYTHONPATH=${CONDA_DIR}/envs/mmcore/bin/python
-RUN bash ${CONDA_DIR}/envs/mmcore/bin/python -m pip install -e .
+ENV PYTHONPATH=${CONDA_DIR}/bin/python
+RUN ${CONDA_DIR}/bin/python mmcore/bin/occ_resolver.py && ${CONDA_DIR}/bin/python -m pip install .
 # Чтобы следующая команджа работала правильно включите в команду сборки следующее:
 #   `docker buildx build --secret id=aws,src=$HOME/.aws/credentials .`
-RUN --mount=type=secret,id=aws,target=/root/.aws/credentials \
-  aws s3 cp s3://storage.yandexcloud.net/lahta.contextmachine.online
-
-ENTRYPOINT ["bash", "${CONDA_DIR}/envs/mmcore/bin/python"]
+ENTRYPOINT ["${CONDA_DIR}/bin/python"]
