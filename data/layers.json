@@ -1,0 +1,38 @@
+[
+    {
+        "name": "Laser Cut",
+        "color": [
+            255,
+            255,
+            255,
+            255
+        ]
+    },
+    {
+        "name": "Frezerovka",
+        "color": [
+            255,
+            0,
+            0,
+            255
+        ]
+    },
+    {
+        "name": "Razmetka Frezer",
+        "color": [
+            0,
+            255,
+            0,
+            255
+        ]
+    },
+    {
+        "name": "Markirovka Laser",
+        "color": [
+            255,
+            255,
+            0,
+            255
+        ]
+    }
+]

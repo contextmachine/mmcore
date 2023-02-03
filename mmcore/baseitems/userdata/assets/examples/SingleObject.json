@@ -1,0 +1,65 @@
+{
+    "gui": [
+        {
+            "type": "controls",
+            "data": {
+                "depth": 16,
+                "offsets": 0.6,
+                "segments": [
+                    {
+                        "length": 40,
+                        "angle": 0,
+                        "radius": 5
+                    },
+                    {
+                        "length": 20,
+                        "angle": -60,
+                        "radius": 2
+                    },
+                    {
+                        "length": 15,
+                        "angle": 60,
+                        "radius": 5
+                    },
+                    {
+                        "length": 15,
+                        "angle": 0,
+                        "radius": 5
+                    }
+                ]
+            },
+            "post": {
+                "endpoint": "https://api.contextmachine.online/api/any",
+                "mutation": {
+                    "scene": {
+                        "where": {
+                            "userData": {
+                                "properties": {
+                                    "": {
+                                        "_eq": "original"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "id": "color-piechartlinechart",
+            "name": "Tag chart",
+            "type": "chart",
+            "key": "tag",
+            "colors": "default",
+            "require": [
+                "piechart",
+                "linechart"
+            ]
+        }
+    ],
+    "properties": {
+        "area": 20.4,
+        "ceiling_type": "A"
+    },
+    "version": null
+}

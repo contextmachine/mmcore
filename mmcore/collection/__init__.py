@@ -5,8 +5,6 @@ import inspect
 from collections.abc import Iterator
 from functools import wraps
 
-from ..baseitems import Item
-
 
 def t(glb):
     for i, kv in enumerate(glb.items()):
@@ -62,7 +60,7 @@ def clsmap(seq, item):
 # different in function.
 #
 
-class BaseCollection(Item, Iterator):
+class BaseCollection(Iterator):
     def __init__(self, seq, *args, **kwargs):
         try:
             iter(seq)

@@ -14,7 +14,6 @@ dependencies:
   - pandas
   - pip
   - pythonnet
-  - pythonocc-core
   - scipy
   - sphinx==6.1.2
   - gmsh
@@ -44,6 +43,6 @@ dependencies:
       - uvicorn[standard]
       - uvloop
       - fastapi[all]
-      - ifcopenshell
+
 
 prefix: ${CONDA_DIR}

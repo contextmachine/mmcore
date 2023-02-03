@@ -157,11 +157,17 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __getitem__(self, k) -> Seq:
 
-        if isinstance(self._seq[0], Mapping):
+        if isinstance(sequence_type(self._seq), Mapping):
 
             # _getter = multi_getitem(self._seq)
 
             _getter = multi_getitem(self._seq)
+        elif isinstance(sequence_type(self._seq), Sequence) and not isinstance(self._seq[0], str):
+            return [multi_getitem(i) for i in self._seq]
+
+        elif isinstance(sequence_type(self._seq), CollectionItemGetter):
+            return [multi_getitem(i._seq) for i in self._seq]
+
         else:
             _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
@@ -298,7 +304,7 @@ from types import MethodType
 
 
 class ElementSequence(MultiDescriptor):
-    ignored = int, float, str, Callable, FunctionType
+    ignored = int, float, str, bytes
 
     def __list__(self):
         return list(self._seq)
@@ -308,9 +314,11 @@ class ElementSequence(MultiDescriptor):
 
     def __getitem__(self, item):
 
-        val = super().__getitem__(item)
+        val = CollectionItemGetter.__getitem__(self, item)
         seq_type = sequence_type(val)
-        if sequence_type(val) == MethodType:
+        if sequence_type(val) == property:
+            return val
+        elif sequence_type(val) == MethodType:
             return MethodDescriptor(item).__get__(self, None)
         else:
             return val
@@ -467,8 +475,6 @@ class E(SeqProto):
 
 c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 
-#
-
-
+# aa
 # Explicit passing of an element type to a __init_subclass__
 # --------------------------------------------------------
