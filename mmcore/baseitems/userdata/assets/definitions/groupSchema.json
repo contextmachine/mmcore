@@ -1,0 +1,49 @@
+{
+    "title": "group",
+    "description": "Auto generated JSON schema based on the 'group' file",
+    "type": "object",
+    "properties": {
+        "userData": {
+            "type": "object",
+            "properties": {
+                "gui": {
+                    "type": "array",
+                    "items": {
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "require": {
+                                "type": "array",
+                                "items": {}
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "colors": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "properties": {
+                    "type": "object",
+                    "properties": {
+                        "uuid": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "type": {
+            "type": "string"
+        }
+    }
+}

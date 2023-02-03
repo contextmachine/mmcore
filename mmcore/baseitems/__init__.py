@@ -4,21 +4,63 @@ __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'Dictabl
            'DataviewInterface', 'Dataview', 'DataviewDescriptor', 'Metadata', 'ReprData', 'GeomConversionMap',
            'GeomDataItem', "Matchable"]
 
-#  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
+#  Copyright (c) 2022. Computational Geometry,(int, bool, bytes, float, str) Digital Engineering and Optimizing your construction processe"
 
 import base64
 import gzip
 import itertools
+import json
 import uuid
 from abc import ABCMeta, abstractmethod
 from datetime import datetime
 from json import JSONEncoder
-from typing import Callable, Generator, Union
+from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, Union
 
 import numpy as np
 import pydantic
 
+from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
+from mmcore.collection.traversal import traverse
+
+collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
+
+
+def strong_attr_items(data) -> ItemsView:
+    if isinstance(data, Mapping):
+        return data.items()
+    elif isinstance(data, Sequence):
+        return [strong_attr_items(d) for d in data]
+
+    else:
+
+        keys = {}
+        for key in dir(data):
+            if not key.startswith("_"):
+                g = getattr(data, key)
+                if not isinstance(g, property) and isinstance(g, Callable):
+                    continue
+                else:
+                    keys[key] = getattr(data, key)
+
+        return keys.items()
+
+
+def strong_attr_names(data) -> KeysView:
+    return dict(strong_attr_items(data)).keys()
+
+
+def wrp(dt):
+    x = {}
+    while True:
+        if hasattr(dt, 'to_dict'):
+            return dt.to_dict()
+        elif isinstance(dt, Sequence) and not isinstance(x, str):
+            for i in dt:
+                return wrp(dt)
+        elif isinstance(dt, dict):
+            for k, v in dt.items():
+                wrp(dt)
 
 
 class Now(str):
@@ -479,9 +521,8 @@ class Matchable(object):
     __match_args__ = ()
     __match_args__ += match_args
 
-    gui = descriptors.UserDataGui()
     properties = descriptors.UserDataProperties()
-    userData = descriptors.UserData()
+    userdata = descriptors.UserData()
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -497,7 +538,7 @@ class Matchable(object):
                 kwargs |= dict(zip(self.__match_args__[:len(args)], args))
 
         for k, v in kwargs.items():
-            self.__setattr__(k, v)
+            setattr(self, k, v)
         return self
 
     def __repr__(self) -> str:
@@ -515,7 +556,33 @@ class Matchable(object):
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
 
+    def _dump_keys(self) -> KeysView:
 
+        return strong_attr_names(self)
+
+    def to_dict(self):
+        def wrp(dt):
+
+            if type(dt) in BasicTypes:
+                return dt
+            elif hasattr(dt, "to_dict"):
+                return dict(strong_attr_items(self))
+            elif isinstance(dt, Mapping):
+                dct = {}
+                for k, v in dt.items():
+                    dct[k] = wrp(v)
+                return dct
+            elif isinstance(dt, Sequence):
+                return [wrp(d) for d in dt]
+            else:
+                pass
+
+        return wrp(self)
+
+    def toJSON(self):
+
+        return json.dumps(self, default=self.__class__.to_dict,
+                          sort_keys=True, indent=3)
 class MatchableItem(Matchable, Base):
     @property
     def uuid(self):
@@ -527,7 +594,8 @@ class MatchableItem(Matchable, Base):
 
     def __init__(self, *args, **kwargs):
         self._uuid = uuid.uuid4()
-        super(Matchable, self).__init__(*args, **kwargs)
+        Base.__init__(self, **kwargs)
+        Matchable.__init__(self, *args)
 
     def __call__(self, *args, **kwargs):
         super(Matchable, self).__call__(*args)

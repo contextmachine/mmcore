@@ -1,0 +1,10 @@
+{
+    "id": "color-piechart",
+    "name": "Pie chart",
+    "type": "chart",
+    "key": "type",
+    "colors": "default",
+    "require": [
+        "piechart"
+    ]
+}

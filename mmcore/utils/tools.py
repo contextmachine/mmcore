@@ -9,6 +9,7 @@ class EnvString(str):
 
     def __new__(cls, *args, **kwargs):
         # target form "{$"
+        exec("import os")
         s = str.__new__(cls, *args, **kwargs)
         s = s.replace("${", "{os.getenv('", -1).replace("}", "')}", -1)
 
