@@ -76,8 +76,8 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
     def distance(self, other):
         return euclidean(np.asarray(self.xyz), np.asarray(other))
 
-    def __array__(self, *args):
-        return np.asarray([self.a, self.b, self.c])
+    def __array__(self, dtype=float, *args, **kwargs):
+        return np.ndarray.__array__(np.asarray([self.x, self.y, self.z], dtype=dtype, *args, **kwargs), dtype)
 
     def __len__(self):
         return len(self.xyz)
@@ -101,6 +101,7 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
     def _validate_dict(cls, dct):
         return all(map(lambda k: (k.upper() in dct.keys()) or (k.lower() in dct.keys()), cls.cxmdata_keys))
 
+    @classmethod
     def from_dict(cls, dct: dict) -> 'Point':
         if cls._validate_dict(dct):
             return cls(*dct.values())
@@ -109,7 +110,7 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
 
     @classmethod
     def from_rhino(cls, point: rhino3dm.Point3d) -> 'Point':
-        return cls(point.X, point.Y, point.Z)
+        return Point(x=point.X, y=point.Y, z=point.Z)
 
     @classmethod
     def from_occ(cls, point: gp_Pnt) -> 'Point':
@@ -196,7 +197,7 @@ class Polygon:
         signedArea *= 0.5
         ans[0] = (ans[0]) / (6 * signedArea)
         ans[1] = (ans[1]) / (6 * signedArea)
-        return Point(ans)
+        return Point(*ans)
 
 
 class PolygonWithHoles(Polygon):
