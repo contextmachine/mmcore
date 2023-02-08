@@ -57,3 +57,62 @@ class OrderedSet(collections.abc.MutableSet):
         if isinstance(other, OrderedSet):
             return len(self) == len(other) and list(self) == list(other)
         return set(self) == set(other)
+
+
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+        self.previous = None
+
+
+class CircularLinkedList:
+    def __init__(self):
+        self.head = None
+
+    def traverse(self, starting_point=None):
+        if starting_point is None:
+            starting_point = self.head
+        node = starting_point
+        while node is not None and (node.next != starting_point):
+            yield node
+            node = node.next
+        yield node
+
+    def print_list(self, starting_point=None):
+        nodes = []
+        for node in self.traverse(starting_point):
+            nodes.append(str(node))
+        print(" -> ".join(nodes))
+
+
+from collections.abc import Iterator
+
+
+class Grouper(Iterator):
+    def __init__(self, iterable):
+        self._itr = iterable
+        self._iterable = enumerate(iterable)
+        self.data = {}
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        i, v = self._iterable.__next__()
+        self._wrp(v, i)
+
+    def release(self):
+        def wrp(s, data):
+            yield data
+            del s
+
+        return wrp(self, iter(self.data))
+
+    def get_counter(self):
+        return collections.Counter(self._itr)
+
+    def _wrp(self, key, item):
+        if self.data.get(key) is None:
+            self.data[key] = []
+        self.data[key].append(item)

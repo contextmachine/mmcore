@@ -239,7 +239,6 @@ def sequence_type(seq: Sequence) -> Type:
     @return: single or Union type
     """
 
-    assert isinstance(seq, Sequence)
     tps = set(numpy.asarray(type_extractor(seq)).flatten())
 
     return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
