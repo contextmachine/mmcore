@@ -1,14 +1,14 @@
 import compute_rhino3d
-from compute_rhino3d import AreaMassProperties, Mesh, Surface, Util
-
+from compute_rhino3d import AreaMassProperties, Brep, Curve, Mesh, NurbsCurve, SubD, Surface, Util
 from mmcore.utils import EnvString
 
 LOGGING = False
 UPDATE = False
 USE = "dotenv"
+from setupsecrets import SecretsManager
 match USE:
     case "repo":
-        from setupsecrets import SecretsManager
+
 
         with SecretsManager(logging=LOGGING, update=UPDATE) as secrets:
             try:
@@ -28,9 +28,9 @@ match USE:
                 Util.url = "http://localhost:8081/"
 
     case "dotenv":
-        import dotenv
+        with SecretsManager(logging=True, update=True, env_file_name=".env", update_environ=True) as secrets:
+            print(secrets)
 
-        dotenv.load_dotenv()
 
 Util.url = EnvString("http://${RHINO_COMPUTE_URL}:${RHINO_COMPUTE_PORT}/")
 from .request_models import ComputeRequest, GHRequest, SlimGHRequest, AdvanceGHRequest
@@ -41,6 +41,10 @@ __all__ = [
     "Util",
     "Surface",
     "Mesh",
+    "Brep",
+    "Curve",
+    "NurbsCurve",
+    "SubD",
     "AreaMassProperties",
     "ComputeRequest",
     "GHRequest",

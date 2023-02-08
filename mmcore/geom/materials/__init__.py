@@ -83,7 +83,7 @@ class Material(Matchable):
     @property
     def transparent(self) -> bool | None:
         try:
-            return self.opacity < 1.0
+            return self.opacity is None
         except AttributeError:
             return None
 
@@ -108,7 +108,8 @@ class Material(Matchable):
         else:
             self._color = v
 
-
+    def ToJSON(self, *args, **kwargs):
+        return json.dumps(self.data, *args, **kwargs)
 class MaterialType(type):
     @classmethod
     def __prepare__(metacls, name, bases=(Material,), templates=f"{__file__.replace('/__init__.py', '')}/templates",
@@ -124,6 +125,7 @@ class MaterialType(type):
                                       "type",
                                       "color") + tuple(data.keys())))
         ns['data'] = MaterialData(*ns['properties'])
+
         return ns
 
     def __new__(mcs, name, bases, dct, **kwargs):

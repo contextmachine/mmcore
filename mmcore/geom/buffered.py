@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 import numpy as np
 import pydantic
-
 from mmcore.addons.rhino import obj_notation_from_mesh
 from mmcore.baseitems import Matchable
 from mmcore.collection.multi_description import ElementSequence
@@ -267,8 +266,8 @@ class BufferObject(Matchable):
     _geometry = None
     _root = None
 
-    def __init__(self, root, name="Object", *args, **kwargs):
-        super().__init__(root, name="Object", *args, **kwargs)
+    def __init__(self, root, *args, **kwargs):
+        super().__init__(root, *args, **kwargs)
 
     @property
     def object(self):

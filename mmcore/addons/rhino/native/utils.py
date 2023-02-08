@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 import warnings
+from collections import namedtuple
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
@@ -340,14 +341,14 @@ class GeometriesItem(Matchable):
     __match_args__ = "index", "attributes"
 
 
-def create_buffer(indices, verts, normals, uv):
+def create_buffer(indices, verts, normals, uv, uid=None):
     return {
-        "uuid": uuid.uuid4().__str__(),
+        "uuid": uuid.uuid4().__str__() if uid is None else uid,
         "type": "BufferGeometry",
         "data": {
             "attributes": {
                 "normal": {
-                    "array": np.asarray(normals).flatten().tolist(),
+                    "array": np.asarray(normals, dtype=float).flatten().tolist(),
                     "itemSize": 3,
                     "type": "Float32Array",
                     "normalized": False
@@ -366,9 +367,12 @@ def create_buffer(indices, verts, normals, uv):
                     }
                 },
             "index": dict(type='Uint16Array',
-                          array=np.asarray(indices).flatten().tolist())
+                          array=np.asarray(indices, dtype=int).flatten().tolist())
             }
         }
+
+
+from scipy.spatial import distance as spdist
 
 
 def get_triangle_mesh_only(msh):
@@ -384,11 +388,25 @@ def get_triangle_mesh_only(msh):
         for i in range(3):
             pt = pts[i + 1]
             vv.append((pt.X, pt.Y, pt.Z))
-            lst.append(vertss.index((pt.X, pt.Y, pt.Z)))
+            try:
+                lst.append(vertss.index((pt.X, pt.Y, pt.Z)))
+            except ValueError as err:
+                vrt = list(range(len(vertss)))
+                vrt.sort(key=lambda x: spdist.cosine([pt.X, pt.Y, pt.Z], vertss[x]))
+                lst.append(vrt[0])
 
         llst.append(lst)
 
     return llst, vertss, normals
+
+
+CommonMeshTopology = namedtuple("CommonMeshTopology", ["indices", "vertices", "normals", "uv"])
+
+
+def rhino_mesh_to_topology(input_mesh: rg.Mesh):
+    indices, verts, normals = get_triangle_mesh_only(input_mesh)
+    uv = get_np_mesh_uv(input_mesh)
+    return CommonMeshTopology(indices, verts, normals, uv)
 
 
 def mesh_to_buffer(input_mesh) -> dict:

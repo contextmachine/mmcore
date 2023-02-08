@@ -132,12 +132,15 @@ def simple_rpc(redis_stream: Generator[..., str]):
             try:
                 res = eval(v["command"])
                 print(f"eval: {v['command']} = {res}")
+                yield res
             except SyntaxError as err:
 
                 res = exec(v["command"])
                 print(f"exec: {v['command']} = {res}")
+                yield res
             except Exception as err:
                 print(err)
+                yield err
                 continue
         else:
 

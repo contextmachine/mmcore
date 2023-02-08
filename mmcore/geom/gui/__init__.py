@@ -2,8 +2,8 @@ from enum import Enum
 from typing import Any
 
 import pydantic
-
 from mmcore.baseitems.descriptors import ChartTemplate, DataView, Template
+
 from ._gui import classes
 
 dt = {}
@@ -55,7 +55,7 @@ class UserDataGui(DataView):
 class UserCharts(DataView):
     targets = []
 
-    def __init__(self, targets):
+    def __init__(self, *targets):
         super().__init__(*[k for k, v in targets])
         self.dt = dict(targets)
 

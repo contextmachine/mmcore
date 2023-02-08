@@ -2,4 +2,6 @@
 tests
 data
 gen
-mmcore.egg-info
+mmcore.egg-info/
+B1
+docs

@@ -10,6 +10,7 @@ import base64
 import gzip
 import itertools
 import json
+import typing
 import uuid
 from abc import ABCMeta, abstractmethod
 from datetime import datetime
@@ -18,12 +19,18 @@ from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, 
 
 import numpy as np
 import pydantic
-
 from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
 from mmcore.collection.traversal import traverse
+from typing_extensions import ParamSpec
 
 collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
+T = typing.TypeVar('T')  # Any type.
+KT = typing.TypeVar('KT')  # Key type.
+VT = typing.TypeVar('VT')  # Value type.
+T_co = typing.TypeVar('T_co', covariant=True)  # Any type covariant containers.
+T_contra = typing.TypeVar('T_contra', contravariant=True)  # Ditto contravariant.
+P = ParamSpec('P')
 
 
 def strong_attr_items(data) -> ItemsView:
@@ -510,6 +517,30 @@ class MMtype(type):
         prepare_class(metacls, name, bases, kwds)
 
 
+from mmcore.collection.basic import OrderedSet
+
+
+class Follower:
+
+    def __init_subclass__(cls, follow, include_parents_follow=False, **kwargs):
+        cls.follow = OrderedSet(list(follow))
+        if include_parents_follow:
+            cls.follow.update(cls.__base__.follow)
+        super().__init_subclass__(**kwargs)
+
+    ...
+
+
+class MatchingDecorator(Follower, follow=('__match_args__',)):
+    def __init__(self, func: Callable[P, T]):
+        self._func = func
+        self.name = func.__name__
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+        print(f'{self._func.__name__} was called with {kwargs}')
+        return self._func(*args, **kwargs)
+
+
 class Matchable(object):
     """
     New style baseclass version.
@@ -554,7 +585,7 @@ class Matchable(object):
 
     @uuid.setter
     def uuid(self, value):
-        raise AttributeError("You dont can set UUID from any object.")
+        self._uuid = uuid
 
     def _dump_keys(self) -> KeysView:
 
@@ -583,6 +614,8 @@ class Matchable(object):
 
         return json.dumps(self, default=self.__class__.to_dict,
                           sort_keys=True, indent=3)
+
+
 class MatchableItem(Matchable, Base):
     @property
     def uuid(self):
@@ -603,3 +636,51 @@ class MatchableItem(Matchable, Base):
 
     def __repr__(self):
         return Matchable.__repr__(self) + f" at {self.uuid}"
+
+
+class FromKet():
+    match_targets = "__match_args__",
+
+    def __init__(self, func: Callable[P, T]):
+        self._func = func
+        self.name = func.__name__
+
+
+class Trait:
+    def __init__(self, minimum, maximum):
+        self.minimum = minimum
+        self.maximum = maximum
+
+    def __get__(self, instance, owner):
+        return instance.__dict__[self.key]
+
+    def __set__(self, instance, value):
+        if self.minimum < value < self.maximum:
+            instance.__dict__[self.key] = value
+        else:
+            raise ValueError("value not in range")
+
+    def __set_name__(self, owner, name):
+        self.key = name
+
+
+import weakref
+
+
+class WeakAttribute:
+    def __get__(self, instance, owner):
+        return instance.__dict__[self.name]()
+
+    def __set__(self, instance, value):
+        instance.__dict__[self.name] = weakref.ref(value)
+
+    # this is the new initializer:
+    def __set_name__(self, owner, name):
+        self.name = name
+
+
+class TreeNode:
+    parent = WeakAttribute()
+
+    def __init__(self, parent):
+        self.parent = parent
