@@ -3,7 +3,6 @@ class: UserData
 fields:
   gui:
 
-
     type: "controls"
     data:
       ... #type_ceiling: "A"

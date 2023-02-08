@@ -375,7 +375,15 @@ class ElementSequence(MultiDescriptor):
         return self.to_pandas().to_html(classes=classes, **kwargs)
 
     def to_dict(self, **kwargs):
-        return self.to_pandas().to_dict(**kwargs)
+        """
+        return not a dict but Array[dict]
+        @param kwargs:
+        @type kwargs:
+        @return:
+        @rtype:
+        """
+
+        return [s.to_dict() for s in self._seq]
 
 
 """

@@ -1,3 +1,9 @@
+from types import TracebackType
+from typing import Type
+
+from typing_extensions import ContextManager
+
+
 def stream_reader(conn):
     i = 0
     while True:

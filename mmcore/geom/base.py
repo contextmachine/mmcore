@@ -1,17 +1,20 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from __future__ import absolute_import
 
+import uuid
+import zlib
 from abc import abstractmethod
 from collections import namedtuple
+from enum import Enum
+from functools import lru_cache
 from typing import Any
 
 import compas.geometry
 import numpy as np
 import rhino3dm
 from OCC.Core.gp import gp_Pnt
-from scipy.spatial.distance import euclidean
-
 from mmcore.baseitems import Matchable
+from scipy.spatial.distance import euclidean
 
 mesh_js_schema = {
     "metadata": dict(),
@@ -39,6 +42,10 @@ pts_js_schema = {
             }
         }
     }
+from mmcore.addons.rhino import rhino_mesh_to_topology, create_buffer, CommonMeshTopology
+import rpyc
+
+rpyc.classic.ClassicService()
 
 
 class CustomRepr(type):
@@ -282,17 +289,270 @@ from mmcore.collection.multi_description import ElementSequence
 from mmcore.addons import rhino
 
 
-class Rectangle:
+class mesh_cache:
+    def __init__(self, func):
+        self.func = func
 
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
+    def __call__(self, slf, *args, **kwargs):
+        @lru_cache(1024)
+        def wwrp(adler):
+            print(adler)
+            return self.func(slf, *args, **kwargs)
 
-    def perimeter(self):
-        return 2 * (self.width + self.height)
+        return wwrp(slf.adler32())
 
+
+from mmcore.utils.pydantic_mm.models import PropertyBaseModel
+
+
+class ThreeJsTypeEnum(str, Enum):
+    Float32Array = float
+    Uint16Array = int
+
+
+class BufferAttribute(PropertyBaseModel):
+    type: str
+    itemSize: int | None
+    normalized: bool = False
+
+    _array = None
+
+    @property
+    def array(self):
+        return np.asarray(self._array, dtype=ThreeJsTypeEnum[self.type]).flatten().tolist()
+
+    @array.setter
+    def array(self, v):
+        self._array = v
+
+
+class BufferGeometryAttributes(PropertyBaseModel):
+    _normal = None
+    _position = None
+    _uv = None
+
+    @property
+    def uv(self):
+        return BufferAttribute(array=self._uv,
+                               type="Uint16Array",
+                               itemSize=2,
+                               normalized=False).dict()
+
+    @uv.setter
+    def uv(self, value):
+        self._uv = value
+
+    @property
+    def position(self):
+        return BufferAttribute(array=self._position,
+                               type="Float32Array",
+                               itemSize=3,
+                               normalized=False).dict()
+
+    @position.setter
+    def position(self, value):
+        self._position = value
+
+    @property
+    def normal(self):
+        return BufferAttribute(array=self._normal,
+                               type="Float32Array",
+                               itemSize=3,
+                               normalized=False).dict()
+
+    @normal.setter
+    def normal(self, value):
+        self._normal = value
+
+
+class BufferGeometryData(PropertyBaseModel):
+    _index = None
+    _attributes = None
+
+    @property
+    def attributes(self):
+        return dict(
+            position=self._attributes.vertices,
+            normal=self._attributes.normals,
+            uv=self._attributes.uv
+            )
+
+    @attributes.setter
+    def attributes(self, value):
+        self._attributes = value
+
+    @property
+    def index(self):
+        return dict(array=self._index,
+                    type="Uint16Array",
+                    normalized=False)
+
+    @index.setter
+    def index(self, value):
+        self._index = value
+
+
+class BufferGeometry(PropertyBaseModel):
+    uuid: str
+    type: str = "BufferGeometry"
+    _data: BufferGeometryData | None = None
+
+    def __init__(self, data, uuid):
+        BufferGeometryData(attributes=data)
+
+    @property
+    def data(self):
+        return BufferGeometryData(data=self._data).dict()
+
+    @data.setter
+    def data(self, value):
+        self._data = value
+
+
+def create_buffer_geometry(topo: CommonMeshTopology, uid=None):
+    return create_buffer(indices=topo.indices,
+                         verts=topo.vertices,
+                         normals=topo.normals,
+                         uv=topo.uv,
+                         uid=uuid.uuid4().__str__() if uid is None else uid)
+
+
+from functools import cached_property
+
+
+class StateMatchable(Matchable):
+    state_includes = "uuid",
+    state_excludes = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __init_subclass__(cls, **kwargs):
+        incl, excl = set(), set()
+
+        for m in cls.mro():
+            if hasattr(m, 'state_includes'):
+                if m.state_includes is not None:
+                    incl.update(set(m.state_includes))
+
+            if hasattr(m, 'state_excludes'):
+                if m.state_excludes is not None:
+                    excl.update(set(m.state_excludes))
+
+        cls.state_includes, cls.state_excludes = incl, excl
+        super().__init_subclass__(**kwargs)
+
+
+class CommonMesh(StateMatchable):
+    __match_args__ = "indices", "vertices", "normals", "uv"
+    _rhino_mesh = None
+    _area_mass_properties = None
+
+    @property
+    def rhino_mesh(self):
+        return self._rhino_mesh
+
+    @rhino_mesh.setter
+    def rhino_mesh(self, value):
+        self._rhino_mesh = value
+
+    _vertices = None
+    _matrix = None
+
+    @property
+    def matrix(self):
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, value):
+        self._matrix = value
+
+    _transform_inplace = False
+    _matrix_inplace = [0.001, 0, 0, 0,
+                       0, 0.001, 0, 0,
+                       0, 0, 0.001, 0,
+                       0, 0, 0, 1]
+
+    @property
+    def matrix_inplace(self):
+        return self._matrix_inplace
+
+    @matrix_inplace.setter
+    def matrix_inplace(self, value):
+        self._matrix_inplace = value
+
+    @property
+    def transform_inplace(self):
+        return self._transform_inplace
+
+    @transform_inplace.setter
+    def transform_inplace(self, value):
+        self._transform_inplace = value
+
+    @property
+    def vertices(self):
+        if self.transform_inplace:
+
+            m = np.asarray(self.matrix_inplace).reshape((4, 4))
+            return np.asarray([(m @ np.asarray(tuple(v) + (1,)).T)[:3] for v in self._vertices]).tolist()
+        else:
+            return self._vertices
+
+    @vertices.setter
+    def vertices(self, value):
+        self._vertices = value
+
+    @classmethod
+    def from_rhino(cls, rhino_mesh: rhino3dm.Mesh):
+        inst = cls(*rhino_mesh_to_topology(rhino_mesh))
+        inst.rhino_mesh = rhino_mesh
+        return inst
+
+    @property
+    def common_topo(self):
+        return CommonMeshTopology(self.indices, self.vertices, self.normals, self.uv)
+
+    @property
+    def buffer_geometry(self):
+        return create_buffer_geometry(self.common_topo, uid=self.uuid)
+
+    @staticmethod
+    def _concat_arr(topo):
+        return np.concatenate([np.asarray(topo.vertices), np.asarray(topo.normals)])
+
+    def _cropped_bytes(self) -> bytes:
+        """
+        Only vertices and normals!
+        @return: Byte array
+        @rtype: bytes
+        """
+        return CommonMesh._concat_arr(self.common_topo).tobytes()
+
+    def adler32(self):
+        return zlib.adler32(self._cropped_bytes())
+
+    def __eq__(self, other):
+        return self.adler32() == other.adler32()
+
+    @cached_property
+    def calc_area(self):
+        sc = rhino.compute.AreaMassProperties.Compute3(self.rhino_mesh, multiple=False)
+        return sc
+
+    @property
     def area(self):
-        return self.width * self.height
+
+        return self.area_mass_properties["Area"] * 1e-6
+
+    @property
+    def centroid(self):
+        return self.area_mass_properties["Centroid"]
+
+    @property
+    def area_mass_properties(self):
+        if self._area_mass_properties is None:
+            self._area_mass_properties = self.calc_area
+        return self._area_mass_properties
 
 
 class MmBoundedGeometry(Matchable):
