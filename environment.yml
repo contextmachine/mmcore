@@ -41,6 +41,8 @@ dependencies:
       - uvicorn[standard]
       - uvloop
       - fastapi[all]
+      - cppyy
+
 
 
 prefix: ${CONDA_DIR}/envs/mmodel
