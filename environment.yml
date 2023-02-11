@@ -1,5 +1,5 @@
 name:
-  base
+  mmodel
 channels:
   - conda-forge
 dependencies:
@@ -7,7 +7,6 @@ dependencies:
   - make
   - cmake
   - cython
-  - mono
   - numpy
   - pycollada
   - pybind11
@@ -17,8 +16,6 @@ dependencies:
   - scipy
   - sphinx==6.1.2
   - gmsh
-  - gcc
-  - gxx
   - pip:
       - COMPAS
       - boto3
@@ -34,6 +31,7 @@ dependencies:
       - grasshopper-stubs>=7.7.21140
       - jedi==0.18.1
       - orjson==3.8.0
+      - jsonb
       - pydantic
       - python-dotenv
       - python-multipart
@@ -45,4 +43,4 @@ dependencies:
       - fastapi[all]
 
 
-prefix: ${CONDA_DIR}
+prefix: ${CONDA_DIR}/envs/mmodel
