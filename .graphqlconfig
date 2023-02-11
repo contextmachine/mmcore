@@ -8,7 +8,7 @@
                 "headers": {
                     "content-type": "application/json",
                     "user-agent": "JS GraphQL",
-                    "x-hasura-role": "admin",
+                    "X-Hasura-Role": "admin",
                     "X-Hasura-Admin-Secret": "mysecretkey"
                 },
                 "introspect": true
