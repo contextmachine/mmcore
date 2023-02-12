@@ -11,7 +11,7 @@
                     "X-Hasura-Role": "admin",
                     "X-Hasura-Admin-Secret": "mysecretkey"
                 },
-                "introspect": true
+                "introspect": false
             }
         }
     }

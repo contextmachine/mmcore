@@ -1,0 +1,22 @@
+query My2 {
+  ...buffgeom_objectsFragment
+  buffgeom_objects_aggregate(distinct_on: geometry) {
+    aggregate {
+      count(columns: castShadow)
+    }
+  }
+}
+
+fragment buffgeom_objectsFragment on buffgeom_objects{
+  castShadow
+  children
+  geometry
+  layers
+  material
+  matrix
+  name
+  receiveShadow
+  type
+  userData
+  uuid
+}
