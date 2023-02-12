@@ -1,65 +1,14 @@
 from dataclasses import dataclass
-from functools import wraps
 from typing import Any
 
 import requests
 from jinja2.nativetypes import NativeEnvironment
 
-from mmcore.baseitems.descriptors import DataView
+from mmcore.addons.gql.templates import _query_temp, _mutation_insert_one
 from mmcore.collection.multi_description import ElementSequence
-from mmcore.collection.traversal import traverse
+from pg import format_mutation
 
 GQL_PLATFORM_URL = "http://84.201.140.137/v1/graphql"
-from pg import String, Int, name
-
-
-def pg_type_matcher(f):
-    @wraps(f)
-    def wrp(obj):
-        match obj[1].__class__.__name__, obj[0]:
-
-            case 'str', 'name':
-                return f(obj[0], name(obj[1]))
-            case 'str', _:
-                return f(obj[0], String(obj[1]))
-            case 'int', _:
-                return f(obj[0], Int(obj[1]))
-
-    return wrp
-
-
-@pg_type_matcher
-def match_pg_type(kv):
-    k, v = kv
-    return k, v
-
-
-@pg_type_matcher
-def formatter(x, y):
-    return f'${x}: {y.__class__.__name__} = {y.pg_default}'
-
-
-def get(self, route, *args, **kwargs):
-    request = requests.get(url="/".join((self.url, route)), headers=self.headers)
-    assert request.ok, f"Failed with code {request.status_code}"
-    data = []
-    res = request.json()
-    trv = traverse(callback=lambda x: data.extend(x) if isinstance(x, list) else None, traverse_seq=False)
-    trv(res)
-    return data
-
-
-class GQLRequest:
-    def __init__(self):
-        super().__init__()
-
-    @property
-    def query(self) -> str:
-        ...
-
-    @property
-    def variables(self) -> dict:
-        ...
 
 
 @dataclass
@@ -70,110 +19,6 @@ class GQLClient:
     def __call__(self, dcls):
         self._cls = dcls
         return self
-
-
-class GQLPaginateClient(GQLClient):
-    def post_processing(self, request: requests.Response) -> dict[str, Any] | list[dict[str, Any]]:
-        data = []
-        paginate = traverse(callback=lambda x: data.extend(x) if isinstance(x, list) else None, traverse_seq=False)
-        paginate(super().post_processing(request))
-        return data
-
-
-client = GQLClient(url="http://84.201.140.137/v1/graphql",
-                   headers={
-                       "content-type": "application/json",
-                       "user-agent": "JS GraphQL",
-                       "X-Hasura-Role": "admin",
-                       "X-Hasura-Admin-Secret": "mysecretkey"
-                   })
-
-mutat = """
-mutation MaskMutation($matrix: jsonb = "", $uuid: uuid! = "") {
-  update_buffgeom_objects(where: {uuid: {_eq: $uuid}}, _set: {matrix: $matrix}) {
-    returning {
-      uuid
-      geometry
-      matrix
-      children
-      name
-      userData
-    }
-  }
-}
-"""
-get_uuids = """
-mutation {classname}($matrix: jsonb = "", $uuid: uuid! = "") {
-  update_buffgeom_objects(where: {uuid: {_eq: $uuid}}, _set: {matrix: $matrix}) {
-    returning {
-      {return_keys}
-      geometry
-      matrix
-      children
-      name
-      userData
-    }
-  }
-}
-"""
-
-"""
-mutation InsertColor(${{  }}: Int = 10, $decimal: Int = 10, $name: name = "", $palette: Int = 10, $hex: String = "", $r: Int = 10, $g: Int = 10) {
-  insert_presets_colors_one(object: {b: $b, decimal: $decimal, g: $g, hex: $hex, name: $name, palette: $palette, r: $r})
-"""
-
-
-class BufferGeometryDictionary(dict):
-    def __init__(self, req):
-        dct = {
-            "data": {
-                "attributes": dict((a, req[a]) for a in ["position", "normal", "uv"]),
-                "index": req["index"]
-            },
-            "type": req["type"],
-            "uuid": req["uuid"]
-        }
-
-        dict.__init__(self, **dct)
-
-
-_query_temp = """
-query {
-  {{ root }} {
-    {% for attr in attrs %}
-    {{ attr }}{% endfor %}
-  }
-}
-"""
-_mutation_insert_one = """
-mutation {{ directive_name }} ({{ x }}) {
-     insert_{{ schema }}_{{ table }}_one(object: {{ y }}) {
-        {% for attr in attrs %}
-        {{ attr }}{% endfor %}
-  }
-}
-"""
-
-
-class GQLVarsDescriptor(DataView):
-    def item_model(self, name, value):
-        return name, value
-
-    def data_model(self, instance, value: list[None | tuple[str, Any]]):
-        return dict(value)
-
-
-def format_mutation(obj: dict, tmpl, back=("id", "name"), directive_name="InsertAny",
-                    schema="presets", table="colors"):
-    a, b = ", ".join([formatter(kv) for kv in obj.items()]), "{" + ", ".join([f'{k}: ${k}' for k in obj.keys()]) + "}"
-
-    return tmpl.render(directive_name=directive_name,
-                       schema=schema,
-                       table=table,
-                       x=a,
-                       y=b,
-                       attrs=back
-                       )
 
 
 class AbsGQLTemplate:
@@ -209,7 +54,7 @@ class AbsGQLTemplate:
         self.name = name
 
     def do(self, instance=None, variables=None, **kwargs):
-        return self.template.render(**self.temp_args)
+        return self.template.render(root=self.root, **self.temp_args)
 
     def __get__(self, inst, own):
         return self.run_query(inst, variables=self.variables)
@@ -269,8 +114,7 @@ class GQLQuery(AbsGQLTemplate):
         }
       }
     ```
-    >>> query = GQLQuery(temp_args=dict(root="buffgeom_attributes",
-    ...                         attrs=("uuid",)))
+    >>> query = GQLQuery(temp_args=dict(attrs=("uuid",)), schema="buffgeom", table="attributes")
     >>> query.run_query()
     [{'uuid': '05c70b0e-3c8a-4459-a0e5-a777b0263cf2'},
      {'uuid': '313ad897-3b58-497f-80fd-cf1344c4a827'}]
@@ -314,7 +158,11 @@ class GQLQuery(AbsGQLTemplate):
         @param request:
         @return:
         """
-        return super().post_processing(request)["data"][self.root]
+        try:
+            return super().post_processing(request)["data"][self.root]
+        except KeyError as err:
+            print(request.request.body.decode())
+            raise GQLError(f'\n{super().post_processing(request)}')
 
 
 class GQLError(BaseException):
@@ -352,48 +200,6 @@ class GQLMutation(AbsGQLTemplate):
         # return request.json()
 
 
-class _mutation(str):
-    def __new__(cls, client=client, returned=("uuid", "name"), variables: dict = dict({"matrix": ("jsonb", "")}), ):
-        name, (typ, val) = list(variables.items())[0]
-        varss = []
-        for n in list(variables.items()):
-            name, (typ, val) = n
-            varss.append((name, val))
-        format_seq = [cls.__name__, name, typ, name, name, "\n\t".join(returned)]
-
-        mutat = """
-        mutation %($% : % = "", $uuid: uuid! = "") {
-          update_buffgeom_objects(where: {uuid: {_eq: $uuid}}, _set: {%: $%}) {
-            returning {
-              %
-            }
-          }
-        }
-        """
-
-        uuu = list(mutat)
-        i = 0
-        while True:
-            try:
-                uuu[uuu.index("%")] = format_seq[i]
-                i += 1
-            except:
-                break
-        indt = super().__new__(cls, "".join(uuu))
-
-        indt.client = client
-        indt.variables = varss
-        return indt
-
-    def run_query(self):
-        request = requests.post(
-            self.client.url,
-            headers=self.client.headers,
-            json={"query": self, "variables": self.variables},
-        )
-        assert request.ok, f"Failed with code {request.status_code}"
-        return request.json()
-
 
 matrix, uuid = [
     0.721,
@@ -421,9 +227,8 @@ class GQLPaginateQuery(GQLQuery):
     Единственнвя существенная разница -- это то что Paginate возвращвет ElementSequence вместо оригинального массива.
     А также принимает необязательным аргументом класс в котлорый нужно преобразовать каждый dict из массива.
     ### Simple example:
-    >>> pf=GQLPaginateQuery(temp_args=dict(
-    ...      root="buffgeom_attributes",
-    ...      attrs=("position", "normal", "uv", "type", "uuid", "index")))
+    >>> pf=GQLPaginateQuery(temp_args=dict( attrs=("position", "normal", "uv", "type", "uuid", "index")),schema="buffgeom",table="attributes")
+
     >>> pf.run_query()
     ElementSequence[list(['position', 'normal', 'uv', 'type', 'uuid', 'index'])]
 
@@ -449,8 +254,7 @@ class GQLPaginateQuery(GQLQuery):
     [2] Пременение остается столь-же простым:
 
     >>> pf=GQLPaginateQuery(target_class=BufferGeometryDict, temp_args=dict(
-    ...      root="buffgeom_attributes",
-    ...      attrs=("position", "normal", "uv", "type", "uuid", "index")))
+    ...    attrs=("position", "normal", "uv", "type", "uuid", "index")),schema="buffgeom",table="attributes")
     >>> pf.run_query()
     ElementSequence[list(['data', 'type', 'uuid'])]
 

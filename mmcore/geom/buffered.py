@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pydantic
+
 from mmcore.addons.rhino import obj_notation_from_mesh
 from mmcore.baseitems import Matchable
 from mmcore.collection.multi_description import ElementSequence
@@ -337,3 +338,17 @@ class BufferObject(Matchable):
     @matrix.setter
     def matrix(self, v):
         self._matrix = v
+
+
+class BufferGeometryDictionary(dict):
+    def __init__(self, req):
+        dct = {
+            "data": {
+                "attributes": dict((a, req[a]) for a in ["position", "normal", "uv"]),
+                "index": req["index"]
+            },
+            "type": req["type"],
+            "uuid": req["uuid"]
+        }
+
+        dict.__init__(self, **dct)
