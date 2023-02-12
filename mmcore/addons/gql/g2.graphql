@@ -1,0 +1,11 @@
+query {
+    buffgeom_attributes {
+
+        position
+        normal
+        uv
+        type
+        uuid
+        index
+    }
+}

@@ -157,7 +157,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __getitem__(self, k) -> Seq:
 
-        if isinstance(sequence_type(self._seq), Mapping):
+        if isinstance(self._seq[0], Mapping):
 
             # _getter = multi_getitem(self._seq)
 

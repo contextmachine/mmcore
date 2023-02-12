@@ -198,13 +198,6 @@ type mutation_root {
     ): buffgeom_objects_mutation_response
     "delete single row from the table: \"buffgeom.objects\""
     delete_buffgeom_objects_by_pk(uuid: uuid!): buffgeom_objects
-    "delete data from the table: \"presets.colors\""
-    delete_presets_colors(
-        "filter the rows which have to be deleted"
-        where: presets_colors_bool_exp!
-    ): presets_colors_mutation_response
-    "delete single row from the table: \"presets.colors\""
-    delete_presets_colors_by_pk(id: Int!, palette: Int!): presets_colors
     "delete data from the table: \"projects.projects_hub\""
     delete_projects_projects_hub(
         "filter the rows which have to be deleted"
@@ -247,20 +240,6 @@ type mutation_root {
         "upsert condition"
         on_conflict: buffgeom_objects_on_conflict
     ): buffgeom_objects
-    "insert data into the table: \"presets.colors\""
-    insert_presets_colors(
-        "the rows to be inserted"
-        objects: [presets_colors_insert_input!]!,
-        "upsert condition"
-        on_conflict: presets_colors_on_conflict
-    ): presets_colors_mutation_response
-    "insert a single row into the table: \"presets.colors\""
-    insert_presets_colors_one(
-        "the row to be inserted"
-        object: presets_colors_insert_input!,
-        "upsert condition"
-        on_conflict: presets_colors_on_conflict
-    ): presets_colors
     "insert data into the table: \"projects.projects_hub\""
     insert_projects_projects_hub(
         "the rows to be inserted"
@@ -369,28 +348,6 @@ type mutation_root {
         "updates to execute, in order"
         updates: [buffgeom_objects_updates!]!
     ): [buffgeom_objects_mutation_response]
-    "update data of the table: \"presets.colors\""
-    update_presets_colors(
-        "increments the numeric columns with given value of the filtered values"
-        _inc: presets_colors_inc_input,
-        "sets the columns of the filtered rows to the given values"
-        _set: presets_colors_set_input,
-        "filter the rows which have to be updated"
-        where: presets_colors_bool_exp!
-    ): presets_colors_mutation_response
-    "update single row of the table: \"presets.colors\""
-    update_presets_colors_by_pk(
-        "increments the numeric columns with given value of the filtered values"
-        _inc: presets_colors_inc_input,
-        "sets the columns of the filtered rows to the given values"
-        _set: presets_colors_set_input,
-        pk_columns: presets_colors_pk_columns_input!
-    ): presets_colors
-    "update multiples rows of table: \"presets.colors\""
-    update_presets_colors_many(
-        "updates to execute, in order"
-        updates: [presets_colors_updates!]!
-    ): [presets_colors_mutation_response]
     "update data of the table: \"projects.projects_hub\""
     update_projects_projects_hub(
         "sets the columns of the filtered rows to the given values"
@@ -447,149 +404,6 @@ type mutation_root {
         "updates to execute, in order"
         updates: [projects_queries_hub_updates!]!
     ): [projects_queries_hub_mutation_response]
-}
-
-"colours using in scene"
-type presets_colors {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int!
-    name: name
-    palette: Int!
-    r: Int
-}
-
-"aggregated selection of \"presets.colors\""
-type presets_colors_aggregate {
-    aggregate: presets_colors_aggregate_fields
-    nodes: [presets_colors!]!
-}
-
-"aggregate fields of \"presets.colors\""
-type presets_colors_aggregate_fields {
-    avg: presets_colors_avg_fields
-    count(columns: [presets_colors_select_column!], distinct: Boolean): Int!
-    max: presets_colors_max_fields
-    min: presets_colors_min_fields
-    stddev: presets_colors_stddev_fields
-    stddev_pop: presets_colors_stddev_pop_fields
-    stddev_samp: presets_colors_stddev_samp_fields
-    sum: presets_colors_sum_fields
-    var_pop: presets_colors_var_pop_fields
-    var_samp: presets_colors_var_samp_fields
-    variance: presets_colors_variance_fields
-}
-
-"aggregate avg on columns"
-type presets_colors_avg_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate max on columns"
-type presets_colors_max_fields {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int
-    palette: Int
-    r: Int
-}
-
-"aggregate min on columns"
-type presets_colors_min_fields {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int
-    palette: Int
-    r: Int
-}
-
-"response of any mutation on the table \"presets.colors\""
-type presets_colors_mutation_response {
-    "number of rows affected by the mutation"
-    affected_rows: Int!
-    "data from the rows affected by the mutation"
-    returning: [presets_colors!]!
-}
-
-"aggregate stddev on columns"
-type presets_colors_stddev_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate stddev_pop on columns"
-type presets_colors_stddev_pop_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate stddev_samp on columns"
-type presets_colors_stddev_samp_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate sum on columns"
-type presets_colors_sum_fields {
-    b: Int
-    decimal: Int
-    g: Int
-    id: Int
-    palette: Int
-    r: Int
-}
-
-"aggregate var_pop on columns"
-type presets_colors_var_pop_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate var_samp on columns"
-type presets_colors_var_samp_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
-}
-
-"aggregate variance on columns"
-type presets_colors_variance_fields {
-    b: Float
-    decimal: Float
-    g: Float
-    id: Float
-    palette: Float
-    r: Float
 }
 
 "columns and relationships of \"projects.projects_hub\""
@@ -747,34 +561,6 @@ type query_root {
     ): buffgeom_objects_aggregate!
     "fetch data from the table: \"buffgeom.objects\" using primary key columns"
     buffgeom_objects_by_pk(uuid: uuid!): buffgeom_objects
-    "fetch data from the table: \"presets.colors\""
-    presets_colors(
-        "distinct select on columns"
-        distinct_on: [presets_colors_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [presets_colors_order_by!],
-        "filter the rows returned"
-        where: presets_colors_bool_exp
-    ): [presets_colors!]!
-    "fetch aggregated fields from the table: \"presets.colors\""
-    presets_colors_aggregate(
-        "distinct select on columns"
-        distinct_on: [presets_colors_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [presets_colors_order_by!],
-        "filter the rows returned"
-        where: presets_colors_bool_exp
-    ): presets_colors_aggregate!
-    "fetch data from the table: \"presets.colors\" using primary key columns"
-    presets_colors_by_pk(id: Int!, palette: Int!): presets_colors
     "fetch data from the table: \"projects.projects_hub\""
     projects_projects_hub(
         "distinct select on columns"
@@ -908,43 +694,6 @@ type subscription_root {
         "filter the rows returned"
         where: buffgeom_objects_bool_exp
     ): [buffgeom_objects!]!
-    "fetch data from the table: \"presets.colors\""
-    presets_colors(
-        "distinct select on columns"
-        distinct_on: [presets_colors_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [presets_colors_order_by!],
-        "filter the rows returned"
-        where: presets_colors_bool_exp
-    ): [presets_colors!]!
-    "fetch aggregated fields from the table: \"presets.colors\""
-    presets_colors_aggregate(
-        "distinct select on columns"
-        distinct_on: [presets_colors_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [presets_colors_order_by!],
-        "filter the rows returned"
-        where: presets_colors_bool_exp
-    ): presets_colors_aggregate!
-    "fetch data from the table: \"presets.colors\" using primary key columns"
-    presets_colors_by_pk(id: Int!, palette: Int!): presets_colors
-    "fetch data from the table in a streaming manner: \"presets.colors\""
-    presets_colors_stream(
-        "maximum number of rows returned in a single batch"
-        batch_size: Int!,
-        "cursor to stream the results returned by the query"
-        cursor: [presets_colors_stream_cursor_input]!,
-        "filter the rows returned"
-        where: presets_colors_bool_exp
-    ): [presets_colors!]!
     "fetch data from the table: \"projects.projects_hub\""
     projects_projects_hub(
         "distinct select on columns"
@@ -1143,54 +892,6 @@ enum order_by {
     desc_nulls_last
 }
 
-"unique or primary key constraints on table \"presets.colors\""
-enum presets_colors_constraint {
-    "unique or primary key constraint on columns \"id\""
-    colors_id_key
-    "unique or primary key constraint on columns \"id\", \"palette\""
-    colors_pkey
-}
-
-"select columns of table \"presets.colors\""
-enum presets_colors_select_column {
-    "column name"
-    b
-    "column name"
-    decimal
-    "column name"
-    g
-    "column name"
-    hex
-    "column name"
-    id
-    "column name"
-    name
-    "column name"
-    palette
-    "column name"
-    r
-}
-
-"update columns of table \"presets.colors\""
-enum presets_colors_update_column {
-    "column name"
-    b
-    "column name"
-    decimal
-    "column name"
-    g
-    "column name"
-    hex
-    "column name"
-    id
-    "column name"
-    name
-    "column name"
-    palette
-    "column name"
-    r
-}
-
 "unique or primary key constraints on table \"projects.projects_hub\""
 enum projects_projects_hub_constraint {
     "unique or primary key constraint on columns \"id\""
@@ -1260,8 +961,6 @@ enum projects_queries_hub_update_column {
 }
 
 scalar jsonb
-
-scalar name
 
 scalar timestamptz
 
@@ -1639,122 +1338,6 @@ input jsonb_comparison_exp {
     _lte: jsonb
     _neq: jsonb
     _nin: [jsonb!]
-}
-
-"Boolean expression to compare columns of type \"name\". All fields are combined with logical 'AND'."
-input name_comparison_exp {
-    _eq: name
-    _gt: name
-    _gte: name
-    _in: [name!]
-    _is_null: Boolean
-    _lt: name
-    _lte: name
-    _neq: name
-    _nin: [name!]
-}
-
-"Boolean expression to filter rows from the table \"presets.colors\". All fields are combined with a logical 'AND'."
-input presets_colors_bool_exp {
-    _and: [presets_colors_bool_exp!]
-    _not: presets_colors_bool_exp
-    _or: [presets_colors_bool_exp!]
-    b: Int_comparison_exp
-    decimal: Int_comparison_exp
-    g: Int_comparison_exp
-    hex: String_comparison_exp
-    id: Int_comparison_exp
-    name: name_comparison_exp
-    palette: Int_comparison_exp
-    r: Int_comparison_exp
-}
-
-"input type for incrementing numeric columns in table \"presets.colors\""
-input presets_colors_inc_input {
-    b: Int
-    decimal: Int
-    g: Int
-    id: Int
-    palette: Int
-    r: Int
-}
-
-"input type for inserting data into table \"presets.colors\""
-input presets_colors_insert_input {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int
-    name: name
-    palette: Int
-    r: Int
-}
-
-"on_conflict condition type for table \"presets.colors\""
-input presets_colors_on_conflict {
-    constraint: presets_colors_constraint!
-    update_columns: [presets_colors_update_column!]! = []
-    where: presets_colors_bool_exp
-}
-
-"Ordering options when selecting data from \"presets.colors\"."
-input presets_colors_order_by {
-    b: order_by
-    decimal: order_by
-    g: order_by
-    hex: order_by
-    id: order_by
-    name: order_by
-    palette: order_by
-    r: order_by
-}
-
-"primary key columns input for table: presets.colors"
-input presets_colors_pk_columns_input {
-    id: Int!
-    palette: Int!
-}
-
-"input type for updating data in table \"presets.colors\""
-input presets_colors_set_input {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int
-    name: name
-    palette: Int
-    r: Int
-}
-
-"Streaming cursor of the table \"presets_colors\""
-input presets_colors_stream_cursor_input {
-    "Stream column input with initial value"
-    initial_value: presets_colors_stream_cursor_value_input!
-    "cursor ordering"
-    ordering: cursor_ordering
-}
-
-"Initial value of the column from where the streaming should start"
-input presets_colors_stream_cursor_value_input {
-    b: Int
-    decimal: Int
-    g: Int
-    hex: String
-    id: Int
-    name: name
-    palette: Int
-    r: Int
-}
-
-input presets_colors_updates {
-    "increments the numeric columns with given value of the filtered values"
-    _inc: presets_colors_inc_input
-    "sets the columns of the filtered rows to the given values"
-    _set: presets_colors_set_input
-    "filter the rows which have to be updated"
-    where: presets_colors_bool_exp!
 }
 
 "Boolean expression to filter rows from the table \"projects.projects_hub\". All fields are combined with a logical 'AND'."

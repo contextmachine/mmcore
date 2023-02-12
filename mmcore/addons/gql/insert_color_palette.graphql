@@ -1,0 +1,6 @@
+mutation InsertAny ($palette: Int = 0, $name: name = "", $hex: String = "", $decimal: Int = 0, $r: Int = 0, $g: Int = 0, $b: Int = 0) {
+    insert_presets_colors_one(object: {palette: $palette, name: $name, hex: $hex, decimal: $decimal, r: $r, g: $g, b: $b}) {
+        id
+        name
+    }
+}

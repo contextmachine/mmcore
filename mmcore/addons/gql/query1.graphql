@@ -1,0 +1,6 @@
+query {
+  buffgeom_attributes {
+    uuid
+  }
+}
+

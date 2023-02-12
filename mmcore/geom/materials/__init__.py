@@ -13,10 +13,10 @@ import numpy as np
 
 class ColorRGB(tuple):
 
-    def __new__(cls, *iterable):
+    def __new__(cls, *iterable, **kwargs):
         if all(map(lambda x: isinstance(x, int), iterable)):
             inst = tuple.__new__(cls, iterable)
-            inst.r, inst.g, inst.b = iterable
+            inst.r, inst.g, inst.b = iterable[:3]
             return inst
         else:
 
