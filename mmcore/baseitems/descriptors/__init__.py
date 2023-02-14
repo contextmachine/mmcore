@@ -112,7 +112,7 @@ def safe_getattribute(cls, self, item) -> None | Any:
         return None
 
 
-class DataView(NoDataDescriptor):
+class DataView(NoDataDescriptor, dict):
     """
     >>> class DataOO(DataView):
     ...     def item_model(self, name, value):
@@ -145,6 +145,9 @@ class DataView(NoDataDescriptor):
         super().__init__()
         if targets is not None:
             self.targets = targets
+        super(dict, self).__init__()
+        for target in self.targets:
+            self.setdefault(target, None)
 
     def __set_name__(self, owner, name):
         super().__set_name__(owner, name)
