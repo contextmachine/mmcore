@@ -59,11 +59,132 @@ class OrderedSet(collections.abc.MutableSet):
         return set(self) == set(other)
 
 
+import string
+
+
+class UnlimitedAscii:
+    def __init__(self, upper=True):
+        if upper:
+            self._ascii = string.ascii_uppercase
+        else:
+            self._ascii = string.ascii_lowercase
+        self._ptr = -1
+
+    def __getstate__(self):
+        return {"ptr": self._ptr, "sequence": self._ascii}
+
+    def __setstate__(self, state):
+        self._ptr = state["ptr"]
+        self._ascii = state["sequence"]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._ptr += 1
+        n, c = divmod(self._ptr, len(self._ascii))
+        return (n + 1) * self._ascii[c]
+
+
+import uuid
+
+
 class Node:
-    def __init__(self, data):
+    def __init__(self, name, data=None):
+        self.uuid = uuid.uuid4()
         self.data = data
         self.next = None
+        self.name = name
         self.previous = None
+
+    def __repr__(self):
+        return self.name
+
+
+class LinkedList:
+    def __init__(self, nodes=None):
+        self.head = None
+        if nodes is not None:
+            node = Node(data=nodes.pop(0))
+            self.head = node
+            for elem in nodes:
+                node.next = Node(data=elem)
+                node = node.next
+
+    def __repr__(self):
+        node = self.head
+        nodes = []
+        while node is not None:
+            nodes.append(node.data)
+            node = node.next
+        nodes.append("None")
+        return " -> ".join([i.__repr__() for i in nodes])
+
+    def __iter__(self):
+        node = self.head
+        while node is not None:
+            yield node
+            node = node.next
+
+    def add_first(self, node):
+        node.next = self.head
+        self.head = node
+
+    def add_last(self, node):
+        if self.head is None:
+            self.head = node
+            return
+        for current_node in self:
+            pass
+        current_node.next = node
+
+    def add_after(self, target_node_data, new_node):
+        if self.head is None:
+            raise Exception("List is empty")
+
+        for node in self:
+            if node.data == target_node_data:
+                new_node.next = node.next
+                node.next = new_node
+                return
+
+        raise Exception("Node with data '%s' not found" % target_node_data)
+
+    def add_before(self, target_node_data, new_node):
+        if self.head is None:
+            raise Exception("List is empty")
+        if self.head.data == target_node_data:
+            return self.add_first(new_node)
+        prev_node = self.head
+
+        for node in self:
+
+            if node.data == target_node_data:
+                prev_node.next = new_node
+
+            new_node.next = node
+
+            return
+
+            prev_node = node
+        raise Exception("Node with data '%s' not found" % target_node_data)
+
+    def remove_node(self, target_node_data):
+        if self.head is None:
+            raise Exception("List is empty")
+
+        if self.head.data == target_node_data:
+            self.head = self.head.next
+            return
+
+        previous_node = self.head
+        for node in self:
+            if node.data == target_node_data:
+                previous_node.next = node.next
+                return
+            previous_node = node
+
+        raise Exception("Node with data '%s' not found" % target_node_data)
 
 
 class CircularLinkedList:

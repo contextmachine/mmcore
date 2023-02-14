@@ -5,10 +5,17 @@ import requests
 from jinja2.nativetypes import NativeEnvironment
 
 from mmcore.collection.multi_description import ElementSequence
-from mmcore.gql.gql.templates import _query_temp, _mutation_insert_one
-from pg import format_mutation
+from mmcore.gql.templates import _query_temp, _mutation_insert_one
+from ..pg import format_mutation
 
 GQL_PLATFORM_URL = "http://84.201.140.137/v1/graphql"
+
+__all__ = [
+    "GQLClient",
+    "GQLQuery",
+    "GQLPaginateQuery",
+    "GQLMutation"
+]
 
 
 @dataclass

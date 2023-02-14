@@ -106,7 +106,6 @@ class SecretsManager(ContextManager):
     @USE_DOTENV.setter
     def USE_DOTENV(self, v):
         os.environ['USE_DOTENV'] = str(int(v))
-        os.environ['USE_DOTENV'] = str(int(v))
 
     @USE_REPO.setter
     def USE_REPO(self, v):

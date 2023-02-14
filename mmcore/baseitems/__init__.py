@@ -19,10 +19,11 @@ from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, 
 
 import numpy as np
 import pydantic
+from typing_extensions import ParamSpec
+
 from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
 from mmcore.collection.traversal import traverse
-from typing_extensions import ParamSpec
 
 collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
 T = typing.TypeVar('T')  # Any type.
@@ -576,7 +577,11 @@ class Matchable(object):
 
         s = f"{self.__class__.__name__}("
         for k in self.__class__.__match_args__:
-            s += f"{k}={getattr(self, k)}, "
+            try:
+                s += f"{k}={getattr(self, k)}, "
+            except AttributeError:
+                pass
+
         return s + ")"
 
     @property
@@ -585,7 +590,7 @@ class Matchable(object):
 
     @uuid.setter
     def uuid(self, value):
-        self._uuid = uuid
+        self._uuid = uuid.uuid4().__str__()
 
     def _dump_keys(self) -> KeysView:
 
@@ -593,6 +598,7 @@ class Matchable(object):
 
     def to_dict(self):
         def wrp(dt):
+
 
             if type(dt) in BasicTypes:
                 return dt
@@ -605,15 +611,18 @@ class Matchable(object):
                 return dct
             elif isinstance(dt, Sequence):
                 return [wrp(d) for d in dt]
+            elif hasattr(dt, "Encode"):
+                return dt.Encode()
             else:
                 pass
 
         return wrp(self)
 
     def toJSON(self):
-
         return json.dumps(self, default=self.__class__.to_dict,
                           sort_keys=True, indent=3)
+
+
 
 
 class MatchableItem(Matchable, Base):
@@ -684,3 +693,24 @@ class TreeNode:
 
     def __init__(self, parent):
         self.parent = parent
+
+
+class simpleproperty:
+    def __init__(self, expression=None, default=None):
+        super().__init__()
+        self.expression = expression
+        self.default = default
+
+    def __set_name__(self, owner, name):
+        setattr(owner, "_" + name, self.default)
+        self.name = name
+
+    def __set__(self, instance, val):
+        setattr(instance, "_" + self.name, val)
+
+    def __get__(self, instance, owner):
+        if self.expression:
+            return self.expression(instance, self.name, getattr(instance, "_" + self.name))
+        else:
+
+            return getattr(instance, "_" + self.name)
