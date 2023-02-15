@@ -31,7 +31,6 @@ dependencies:
       - grasshopper-stubs>=7.7.21140
       - jedi==0.18.1
       - orjson==3.8.0
-      - jsonb
       - pydantic
       - python-dotenv
       - python-multipart
@@ -41,7 +40,7 @@ dependencies:
       - uvicorn[standard]
       - uvloop
       - fastapi[all]
-      - cppyy
+
 
 
 
