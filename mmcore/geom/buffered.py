@@ -1,14 +1,11 @@
 import uuid
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import pydantic
 
-from mmcore.addons.rhino import obj_notation_from_mesh
 from mmcore.baseitems import Matchable
 from mmcore.baseitems.descriptors import UserData
-from mmcore.collection.multi_description import ElementSequence
-from mmcore.geom.base import MmGeometry
 from mmcore.gql.client import GQLQuery
 
 Number = int | float
@@ -41,9 +38,6 @@ def group_notation_from_mesh(name, userdata={},
         'matrix': matrix,
         'children': children
     }
-
-
-from mmcore.geom.materials import Material
 
 
 class BufferBndSphere(pydantic.BaseModel):
@@ -115,8 +109,8 @@ class BufferGeometry(pydantic.BaseModel):
 
 
 class Root:
-    geometries = []
-    materials = []
+    geometries: list = []
+    materials: list = []
 
     def __init__(self, obj=None):
         super().__init__()
@@ -144,101 +138,78 @@ class Root:
         self.obj = value
 
 
-class BufferObject(Matchable):
-    type: ThreeJSTypes = ThreeJSTypes.Mesh
-    uuid: pydantic.UUID4
-    userData: dict = UserData()
+class ThreeJSObject(UserData):
+    ...
+
+    def item_model(self, name: str, value: Any):
+
+        if name == "userdata":
+            return {"userData": value}
+        elif value is None:
+            pass
+        else:
+            return {name: value}
+
+
+class _BufferObject(Matchable):
+    type: str | ThreeJSTypes = ThreeJSTypes.Mesh
     castShadow: bool = True
     receiveShadow: bool = True
     layers: int = 1
     matrix: list[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-    _name: Optional[str] = None
-    _geometry: Optional[pydantic.UUID4] = None
-    _material: Optional[pydantic.UUID4] = None
-    root = Root()
+    name = None
 
-    def __init__(self, *args, **data):
-        super().__init__(self, *args, **data)
-        if not data.get("uuid"):
-            data['uuid'] = uuid.uuid4()
+    # object = ThreeJSObject() #"name", 'castShadow', 'layers', 'receiveShadow', 'type', "userdata", "matrix"
 
-    @property
-    def object(self):
-        return obj_notation_from_mesh(self.name, self.geometry, self.material, userdata=self.userData,
-                                      matrix=self.matrix, uid=self.uuid)
-
-    @property
-    def name(self):
-        if self._name is None:
-            return f"Group {self.uuid}"
-        else:
-            return self.name
-
-    @name.setter
-    def name(self, v):
-        self._name = v
-
-    @property
-    def material(self):
-        return self._material
-
-    @property
-    def geometry(self):
-        return self._geometry
-
-    @material.setter
-    def material(self, v):
-
-        if isinstance(v, str):
-            if v in ElementSequence(self.root.materials)["uuid"]:
-                self.material = v
-            else:
-                raise KeyError(v)
-        elif isinstance(v, Material):
-            self._material = v.uuid
-            if not self.root.materials:
-                self.root.materials.append(v)
-
-            elif v.uuid in ElementSequence(self.root.materials)["uuid"]:
-                self.root.materials[(ElementSequence(self.root.materials)["uuid"]).index(v.uuid)] = v
-
-            else:
-                self.root.append_materials(v)
-        elif isinstance(v, int):
-            self._material = self.root.materials[v]['uuid']
-
-    @geometry.setter
-    def geometry(self, v):
-        if isinstance(v, str):
-            if v in ElementSequence(self.root.geometries)["uuid"]:
-                self._geometry = v
-            else:
-                raise KeyError(v)
-        elif isinstance(v, MmGeometry):
-            self._geometry = v.uuid
-            if not self.root.geometries:
-                self.root.geometries.append(v)
-
-            elif v.uuid in ElementSequence(self.root.geometries)["uuid"]:
-                self.root.geometries[(ElementSequence(self.root.geometries)["uuid"]).index(v.uuid)] = v
-
-            else:
-                self.root.geometries.append(v)
-        elif isinstance(v, int):
-            self._geometry = self.root.geometries[v]['uuid']
-
-    def to_dict(self):
-        return Matchable.to_dict(self)
-
-    def json(self):
-        return self.toJSON()
-
-    def dict(self):
-        return self.to_dict()
+    geometry: str = None
+    material: str = None
+    object = UserData(
+        "name",
+        'castShadow',
+        'layers',
+        'receiveShadow',
+        'type', "userdata", "matrix", "geometry", "material")
 
 
-from mmcore.baseitems.descriptors import GroupUserData
+def __init__(self, *args, **data):
+    super().__init__(self, *args, **data)
 
+    if not data.get("uuid"):
+        data['uuid'] = uuid.uuid4()
+
+
+class BufferObject(_BufferObject):
+    """
+    Example:
+        >>> class B(BufferObject):
+        ...     __match_args__="name", "area", "subtype", "tag"
+        ...     userdata = UserData(*__match_args__)
+        >>> c=B(1,2,34,5)
+        >>> c.object
+    {'name': 1,
+     'castShadow': True,
+     'layers': 1,
+     'receiveShadow': True,
+     'type': 'Mesh',
+     'userdata': {'name': 1, 'area': 2, 'subtype': 34, 'tag': 5},
+     'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]}
+        >>> c.geometry = "999"
+        >>> c.object
+    {'name': 1,
+     'castShadow': True,
+     'layers': 1,
+     'receiveShadow': True,
+     'type': 'Mesh',
+     'userdata': {'name': 1, 'area': 2, 'subtype': 34, 'tag': 5},
+     'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+     'geometry': '999'}
+
+
+    """
+    ...
+
+
+"""
 
 # TODO: Понять что не так с ```name```
 class BufferGroup(ElementSequence, BufferObject):
@@ -251,7 +222,6 @@ class BufferGroup(ElementSequence, BufferObject):
         BufferObject.__init__(self, *args, **kwargs)
 
 
-"""
 class Group(ElementSequence, Matchable):
     _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
     _name = None
@@ -278,13 +248,56 @@ class Group(ElementSequence, Matchable):
     def matrix(self, value):
         self._matrix = value
 
+  
     @property
     def object(self):
-        return
+        return obj_notation_from_mesh(self.name, self.geometry, self.material, userdata=self.userdata,
+                                      matrix=self.matrix, uid=self.uuid)
 
     @property
     def children(self):
         return []
+      @material.setter
+    def material(self, v):
+
+        if isinstance(v, str):
+            if v in ElementSequence(self.root.materials)["uuid"]:
+                self.material = v
+            else:
+                raise KeyError(v)
+        elif isinstance(v, Material):
+            self._material = v.uuid
+            if not self.root.materials:
+                self.root.materials.append(v)
+
+            elif v.uuid in ElementSequence(self.root.materials)["uuid"]:
+                self.root.materials[(ElementSequence(self.root.materials)["uuid"]).index(v.uuid)] = v
+
+            else:
+                self.root.append_materials(v)
+        elif isinstance(v, int):
+            self._material = self.root.materials[v]['uuid']
+            \
+
+    @geometry.setter
+    def geometry(self, v):
+        if isinstance(v, str):
+            if v in ElementSequence(self.root.geometries)["uuid"]:
+                self._geometry = v
+            else:
+                raise KeyError(v)
+        elif isinstance(v, MmGeometry):
+            self._geometry = v.uuid
+            if not self.root.geometries:
+                self.root.geometries.append(v)
+
+            elif v.uuid in ElementSequence(self.root.geometries)["uuid"]:
+                self.root.geometries[(ElementSequence(self.root.geometries)["uuid"]).index(v.uuid)] = v
+
+            else:
+                self.root.geometries.append(v)
+        elif isinstance(v, int):
+            self._geometry = self.root.geometries[v]['uuid']
 
 """
 
@@ -324,26 +337,3 @@ class Scene(redis_tools.RC):
 
 def assign_root(root, obj):
     obj.root = root
-
-
-class BufferObjectRoot(BufferGroup):
-    _geometries = []
-    _materials = []
-    __match_args__ = 'children',
-
-    def __init__(self, children=(), **kwargs):
-        super().__init__(**kwargs)
-
-        super(ElementSequence, self).__init__(children)
-        self.traverse_children(callback=assign_root)
-
-    root = None
-
-    def traverse_children(self, callback=lambda x: x):
-        def trav(data):
-            if data.get("children"):
-                return trav(data["children"])
-            else:
-                return callback(data)
-
-        return trav
