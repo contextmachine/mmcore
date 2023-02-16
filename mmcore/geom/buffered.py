@@ -6,7 +6,7 @@ import pydantic
 
 from mmcore.baseitems import Matchable
 from mmcore.baseitems.descriptors import UserData
-from mmcore.gql.client import GQLQuery
+from mmcore.gql.client import geometry_query
 
 Number = int | float
 
@@ -94,6 +94,7 @@ class BufferGeometry(pydantic.BaseModel):
     data: dict
     type: ThreeJSTypes = ThreeJSTypes.BufferGeometry
     uuid: pydantic.UUID4
+    query = geometry_query()
 
     def __init__(self, **data):
         if not data.get("uuid"):
@@ -101,10 +102,10 @@ class BufferGeometry(pydantic.BaseModel):
         super().__init__(**data)
 
     @classmethod
-    def from_request(cls):
-        client = GQLQuery()
-        inst = BufferGeometryDictionary(**client.run_query())
-        inst.gql_client = client
+    def from_query(cls):
+        inst = cls(**BufferGeometryDictionary(
+            **cls.query("position", "normal", "uv", "type", "uuid", "index").run_query().json()))
+
         return inst
 
 
@@ -277,7 +278,7 @@ class Group(ElementSequence, Matchable):
                 self.root.append_materials(v)
         elif isinstance(v, int):
             self._material = self.root.materials[v]['uuid']
-            \
+            
 
     @geometry.setter
     def geometry(self, v):
@@ -337,3 +338,4 @@ class Scene(redis_tools.RC):
 
 def assign_root(root, obj):
     obj.root = root
+
