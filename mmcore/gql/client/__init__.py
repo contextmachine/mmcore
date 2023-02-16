@@ -1,5 +1,6 @@
+from collections import UserDict, namedtuple
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 import requests
 from jinja2.nativetypes import NativeEnvironment
@@ -17,6 +18,8 @@ __all__ = [
     "GQLMutation"
 ]
 
+import Rhino.Geometry as rg
+
 
 @dataclass
 class GQLClient:
@@ -26,6 +29,67 @@ class GQLClient:
     def __call__(self, dcls):
         self._cls = dcls
         return self
+
+
+class query:
+    """
+    Minimal syntax:
+    >>> my_query = query("geometry_attributes",(),  {
+    ...         "index",
+    ...         "normal",
+    ...         "position",
+    ...         "type",
+    ...         "uuid",
+    ...         "uv"
+    ...       }
+    ...     )
+    """
+
+    temp: str = """
+    query MyQuery({{ spec }}) {
+        {{ root }} {
+        {% for attr in attrs %}
+        {{ attr }}{% endfor %}
+        }
+    }"""
+
+    headers = {
+        "content-type": "application/json",
+        "user-agent": "JS GraphQL",
+        "X-Hasura-Role": "admin",
+        "X-Hasura-Admin-Secret": "mysecretkey"
+    }
+
+    def __init__(self, parent: NamedTuple, children: set):
+        super().__init__()
+
+        self.parent = parent
+        self.children = set(children)
+        self.fields = parent
+        self._jinja_env = NativeEnvironment()
+        self.template = self._jinja_env.from_string(self.temp)
+
+    def render(self):
+        return self.template.render(root=self.parent, attrs=self.children)
+
+    @property
+    def client(self):
+        return GQLClient(url=GQL_PLATFORM_URL, headers=self.headers)
+
+    def __call__(self, **variables):
+        if variables is None:
+            variables = {}
+        # print(self._body(inst, own))
+        request = requests.post(self.client.url,
+
+                                headers=self.client.headers,
+                                json={
+                                    "query": self.render(),
+                                    "variables": variables
+
+                                }
+                                )
+        return request
 
 
 class AbsGQLTemplate:
@@ -64,7 +128,7 @@ class AbsGQLTemplate:
         return self.template.render(root=self.root, **self.temp_args)
 
     def __get__(self, inst, own):
-        return self.run_query(inst, variables=self.variables)
+        return self.post_processing(self.run_query(inst, variables=self.variables))
 
     def run_query(self, inst=None, variables: dict = None, **kwargs):
         """
@@ -90,7 +154,7 @@ class AbsGQLTemplate:
 
                                 }
                                 )
-        return self.post_processing(request)
+        return request
 
     def post_processing(self, request: requests.Response) -> dict[str, Any]:
         return request.json()
@@ -176,6 +240,26 @@ class GQLError(BaseException):
     ...
 
 
+namedtuple("GQLrequest", [])
+
+
+class GQl(UserDict):
+    def __getitem__(self, variables, inst, kwargs):
+        if variables is None:
+            variables = {}
+        mtt = self.do(inst, variables=variables, **kwargs)
+        print(inst, variables, mtt)
+        # print(self._body(inst, own))
+        request = requests.post(self.client.url,
+                                headers=self.client.headers,
+                                json={
+                                    "query": mtt,
+                                    "variables": variables
+
+                                }
+                                )
+
+
 class GQLMutation(AbsGQLTemplate):
     """
     """
@@ -207,7 +291,6 @@ class GQLMutation(AbsGQLTemplate):
         # return request.json()
 
 
-
 matrix, uuid = [
     0.721,
     0,
@@ -227,7 +310,7 @@ matrix, uuid = [
     1
 ], "9de4c938-c011-4b05-a958-2fbd455e5c30"
 
-
+rg.Circle
 class GQLPaginateQuery(GQLQuery):
     """
     @note
@@ -277,3 +360,10 @@ class GQLPaginateQuery(GQLQuery):
         if self.target_class is not None:
             resp = list(map(lambda x: self.target_class(x), resp))
         return ElementSequence(resp)
+
+
+def geometry_query(schema="geometries", table="attributes"):
+    def wrap(*attrs):
+        return GQLQuery(temp_args=dict(attrs=attrs), schema=schema, table=table)
+
+    return wrap
