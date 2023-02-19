@@ -23,7 +23,7 @@ from typing_extensions import ParamSpec
 
 from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
-from mmcore.collection.traversal import traverse
+from mmcore.collections.traversal import traverse
 
 collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
 T = typing.TypeVar('T')  # Any type.
@@ -518,7 +518,7 @@ class MMtype(type):
         prepare_class(metacls, name, bases, kwds)
 
 
-from mmcore.collection.basic import OrderedSet
+from mmcore.collections.basic import OrderedSet
 
 
 class Follower:

@@ -30,7 +30,8 @@ match USE:
 
 Util.url = EnvString("http://${RHINO_COMPUTE_URL}:${RHINO_COMPUTE_PORT}/")
 from .request_models import ComputeRequest, GHRequest, SlimGHRequest, AdvanceGHRequest
-from .geometry import surf_to_buffer_geometry, surf_to_buffer_mesh, surf_to_buffer, surface_closest_normals
+from .geometry import surf_to_buffer_geometry, surf_to_buffer_mesh, surf_to_buffer, surface_closest_normals, \
+    brep_to_mesh, breps_to_mesh
 
 __all__ = [
     "compute_rhino3d",
@@ -46,5 +47,6 @@ __all__ = [
     "GHRequest",
     "SlimGHRequest",
     "AdvanceGHRequest",
-    "geometry", "surf_to_buffer_geometry", "surf_to_buffer_mesh", "surf_to_buffer", "surface_closest_normals"
+    "geometry", "surf_to_buffer_geometry", "surf_to_buffer_mesh", "surf_to_buffer", "brep_to_mesh", "breps_to_mesh",
+    "surface_closest_normals"
 ]

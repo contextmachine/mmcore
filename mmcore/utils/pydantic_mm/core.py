@@ -4,7 +4,7 @@ from typing import Any, Union
 import pydantic
 import pydantic.generics as pg
 
-import mmcore.collection.generics.simple as gens
+import mmcore.collections.generics.simple as gens
 from ...baseitems import Item
 
 

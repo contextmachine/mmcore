@@ -13,8 +13,9 @@ import compas.geometry
 import numpy as np
 import rhino3dm
 from OCC.Core.gp import gp_Pnt
-from mmcore.baseitems import Matchable
 from scipy.spatial.distance import euclidean
+
+from mmcore.baseitems import Matchable
 
 mesh_js_schema = {
     "metadata": dict(),
@@ -284,7 +285,7 @@ class MmPoint(Matchable):
 ConversionMethods = namedtuple("ConversionMethods", ["decode", "encode"])
 GeometryConversion = namedtuple("GeometryConversion", ["name", "target", "conversion"])
 
-from mmcore.collection.multi_description import ElementSequence
+from mmcore.collections.multi_description import ElementSequence
 
 from mmcore.addons import rhino
 
