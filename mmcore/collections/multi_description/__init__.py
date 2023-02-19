@@ -4,15 +4,12 @@
 import functools
 import itertools
 from abc import ABC
-from collections import Counter
-from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar, \
-    Union
+from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
 
-import numpy
 import numpy as np
 import pandas as pd
 
-from .traversal import type_extractor
+from mmcore.collections.traversal import sequence_type
 
 
 def _(): pass
@@ -101,70 +98,8 @@ T = TypeVar("T")
 Seq = TypeVar("Seq", bound=Sequence)
 
 
-def sequence_type(seq: Sequence) -> Type:
-    """
-    Extract types for sequence.
-
-    >>> ints = [2, 3, 4, 9]
-    >>> sequence_type(ints)
-    <class 'int'>
-    >>> some = [2, 3, 4, "9", {"a": 6}]
-    >>> sequence_type(some)
-    typing.Union[str, dict, int]
-
-    @param seq: input sequence
-    @return: single or Union type
-    """
-
-    assert isinstance(seq, Sequence)
-    tps = set(numpy.asarray(type_extractor(seq)).flatten())
-
-    return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
-
-
-def ismonotype(seq: Sequence) -> bool:
-    """
-    @param seq:
-    @return: bool
-
-    >>> ints = [2, 3, 4, 9]
-    >>> some = [2, 3, 4, "9", {"a": 6}]
-    >>> ismonotype(some)
-    False
-    >>> ismonotype(ints)
-    True
-
-
-    """
-    tp = sequence_type(seq)
-    if hasattr(tp, "__origin__"):
-
-        return not tp.__origin__ == Union
-    else:
-        return True
-
-
-def sequence_type_counter(seq: Sequence) -> Counter[Type]:
-    """
-    ```type_extractor``` based function.
-
-    @param seq: Any sequence
-    @return: Count of unique types
-
-    >>> some = [2, 3, 4, "9", {"a": 6}]
-    >>> sequence_type_counter(some)
-    Counter({<class 'int'>: 3, <class 'str'>: 1, <class 'dict'>: 1})
-    """
-    assert isinstance(seq, Sequence)
-    return Counter(type_extractor(seq))
-
-
 class _MultiDescriptor(Mapping[KTo, Seq], ABC):
     ...
-
-
-def dequeue(param):
-    pass
 
 
 class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
@@ -227,6 +162,12 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
             # _getter = multi_getitem(self._seq)
 
             _getter = multi_getitem(self._seq)
+        elif isinstance(sequence_type(self._seq), Sequence) and not isinstance(self._seq[0], str):
+            return [multi_getitem(i) for i in self._seq]
+
+        elif isinstance(sequence_type(self._seq), CollectionItemGetter):
+            return [multi_getitem(i._seq) for i in self._seq]
+
         else:
             _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
@@ -288,7 +229,7 @@ class CollectionItemGetSetter(CollectionItemGetter):
         return _setter(key, value)
 
 
-from mmcore.collection.masks import Mask
+from mmcore.collections.masks import Mask
 import hashlib
 
 
@@ -363,7 +304,7 @@ from types import MethodType
 
 
 class ElementSequence(MultiDescriptor):
-    ignored = int, float, str, Callable, FunctionType
+    ignored = int, float, str, bytes
 
     def __list__(self):
         return list(self._seq)
@@ -373,9 +314,11 @@ class ElementSequence(MultiDescriptor):
 
     def __getitem__(self, item):
 
-        val = super().__getitem__(item)
+        val = CollectionItemGetter.__getitem__(self, item)
         seq_type = sequence_type(val)
-        if sequence_type(val) == MethodType:
+        if sequence_type(val) == property:
+            return val
+        elif sequence_type(val) == MethodType:
             return MethodDescriptor(item).__get__(self, None)
         else:
             return val
@@ -432,7 +375,15 @@ class ElementSequence(MultiDescriptor):
         return self.to_pandas().to_html(classes=classes, **kwargs)
 
     def to_dict(self, **kwargs):
-        return self.to_pandas().to_dict(**kwargs)
+        """
+        return not a dict but Array[dict]
+        @param kwargs:
+        @type kwargs:
+        @return:
+        @rtype:
+        """
+
+        return [s.to_dict() for s in self._seq]
 
 
 """
@@ -532,8 +483,6 @@ class E(SeqProto):
 
 c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 
-#
-
-
+# aa
 # Explicit passing of an element type to a __init_subclass__
 # --------------------------------------------------------

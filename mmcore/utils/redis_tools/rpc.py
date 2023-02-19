@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import pickle
 from types import TracebackType
 from typing import ContextManager, Generator, ItemsView, KeysView, Type, ValuesView
 
+import dill
 import redis
 
 
@@ -12,23 +12,17 @@ import redis
 #
 # To accept any number of positional arguments using *args: def foo(*args): pass, here foo accepts any number of
 # positional arguments, i. e., the following calls are valid foo(1), foo(1, 'bar')
-
 # To accept any number of keyword arguments using **kwargs: def foo(**kwargs): pass, here 'foo' accepts any number of
 # keyword arguments, i. e., the following calls are valid foo(name='Tom'), foo(name='Tom', age=33)
-
 # To accept any number of positional and keyword arguments using *args, **kwargs: def foo(*args, **kwargs): pass,
 # here foo accepts any number of positional and keyword arguments, i. e., the following calls are valid foo(1,
 # name='Tom'), foo(1, 'bar', name='Tom', age=33)
-
 # To enforce keyword only arguments using *: def foo(pos1, pos2, *, kwarg1): pass, here * means that foo only accept
 # keyword arguments after pos2, hence foo(1, 2, 3) raises TypeError but foo(1, 2, kwarg1=3) is ok.
-
 # To express no further interest in more positional arguments using *_ (Note: this is a convention only): def foo(
 # bar, baz, *_): pass means (by convention) foo only uses bar and baz arguments in its working and will ignore others.
-
 # To express no further interest in more keyword arguments using **_ (Note: this is a convention only): def foo(bar,
 # baz, **_): pass means (by convention) foo only uses bar and baz arguments in its working and will ignore others.
-
 # BONUS: From python 3.8 onward, one can use / in function definition to enforce positional only parameters. In the
 # following example, parameters a and b are positional-only, while c or d can be positional or keyword, and e or f
 # are required to be keywords:
@@ -42,7 +36,7 @@ import redis
 
 
 def unpickle(get_result):
-    return pickle.loads(bytes.fromhex(get_result))
+    return dill.loads(bytes.fromhex(get_result))
 
 
 def stream_reader(conn):
@@ -99,12 +93,12 @@ class RC(dict):
 
     def __getitem__(self, pk):
 
-        return pickle.loads(bytes.fromhex(self.conn.get(self.root_key + pk)))
+        return dill.loads(bytes.fromhex(self.conn.get(self.root_key + pk)))
 
     def __setitem__(self, pk, item):
         if pk not in self._keys:
             self._keys.append(pk)
-        self.conn.set(self.root_key + pk, pickle.dumps(item).hex())
+        self.conn.set(self.root_key + pk, dill.dumps(item).hex())
 
     def keys(self) -> KeysView:
 
@@ -132,12 +126,15 @@ def simple_rpc(redis_stream: Generator[..., str]):
             try:
                 res = eval(v["command"])
                 print(f"eval: {v['command']} = {res}")
+                yield res
             except SyntaxError as err:
 
                 res = exec(v["command"])
                 print(f"exec: {v['command']} = {res}")
+                yield res
             except Exception as err:
                 print(err)
+                yield err
                 continue
         else:
 

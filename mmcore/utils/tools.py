@@ -2,6 +2,18 @@
 import numpy as np
 
 
+class EnvString(str):
+    """
+
+    """
+
+    def __new__(cls, *args, **kwargs):
+        # target form "{$"
+        exec("import os")
+        s = str.__new__(cls, *args, **kwargs)
+        s = s.replace("${", "{os.getenv('", -1).replace("}", "')}", -1)
+
+        return eval(f'f"{s}"')
 
 
 def args_flatten(arg, *args):
@@ -16,7 +28,7 @@ class ReplaceMapping:
         "-": "_",
         " ": "__",
         ".": "___"
-    }
+        }
 
     def __init__(self):
         super(ReplaceMapping, self).__init__()
@@ -79,7 +91,6 @@ class DotView(ReplaceMapping):
     @classmethod
     def replace(cls, string: str):
         return super(DotView, cls).replace(string)
-
 
     @classmethod
     def replace_back(cls, string: str):

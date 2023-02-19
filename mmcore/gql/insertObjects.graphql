@@ -1,0 +1,5 @@
+mutation insertObjects {
+    insert_buffgeom_objects(objects: "{{$objects}}" {
+
+    }
+    }

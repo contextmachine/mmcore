@@ -1,0 +1,33 @@
+{
+    "title": "GuiWithCharts",
+    "description": "Auto generated JSON schema based on the 'controls' file",
+    "type": "object",
+    "properties": {
+        "gui": {
+            "type": "array",
+            "items": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "require": {
+                        "type": "array",
+                        "items": {}
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "colors": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    }
+}

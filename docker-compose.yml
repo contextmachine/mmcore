@@ -1,0 +1,21 @@
+services:
+  mmcore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    privileged: true
+    env_file:
+      - .env
+    volumes:
+      - .:/mmcore
+      - ./data:/mmcore/data
+    depends_on:
+      - redis
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+      - "6380:6380"
+volumes:
+  vol: { }

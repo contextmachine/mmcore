@@ -1,0 +1,75 @@
+{
+    "title": "properties",
+    "description": "Auto generated JSON schema based on the 'properties' file",
+    "type": "object",
+    "properties": {
+        "gui": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "message": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "post": {
+                    "type": "object",
+                    "properties": {
+                        "mutation": {
+                            "type": "object",
+                            "properties": {
+                                "scene": {
+                                    "type": "object",
+                                    "properties": {
+                                        "where": {
+                                            "type": "object",
+                                            "properties": {
+                                                "userData": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "properties": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "_eq": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "endpoint": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "properties": {
+            "type": "object",
+            "properties": {
+                "area": {
+                    "type": "number"
+                },
+                "ceiling_type": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

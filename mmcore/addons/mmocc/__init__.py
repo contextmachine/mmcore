@@ -5,5 +5,5 @@ import sys
 
 PWD = os.getenv("PWD")
 posixpath.abspath("mmcore/")
-sys.path.append(f'{os.getenv()}pythonocc-utils')
+
 sys.path.append('OCCUtils')

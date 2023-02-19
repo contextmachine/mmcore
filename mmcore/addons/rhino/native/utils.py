@@ -3,11 +3,39 @@ import json
 import os
 import uuid
 import warnings
+from collections import namedtuple
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
 import numpy as np
 import rhino3dm as rh
+
+
+def point_to_tuple(point) -> tuple[float, float, float]:
+    return point.X, point.Y, point.Z
+
+
+def point_from_tuple(*xyz):
+    return rg.Point3d(*xyz)
+
+
+def vector_from_tuple(*xyz):
+    return rg.Vector3d(*xyz)
+
+
+def points_to_arr(points):
+    for point in points:
+        yield point_to_tuple(point)
+
+
+def point_from_arr(points):
+    for point in points:
+        yield point_from_tuple(*point)
+
+
+def vectors_from_arr(vectors):
+    for vector in vectors:
+        yield point_from_tuple(*vector)
 
 
 def rhino_transform_from_matrix(matrix):
@@ -340,38 +368,41 @@ class GeometriesItem(Matchable):
     __match_args__ = "index", "attributes"
 
 
-def create_buffer(indices, verts, normals, uv):
+def create_buffer(indices, verts, normals, uv, uid=None):
     return {
-        "uuid": uuid.uuid4().__str__(),
+        "uuid": uuid.uuid4().__str__() if uid is None else uid,
         "type": "BufferGeometry",
         "data": {
             "attributes": {
                 "normal": {
-                    "array": np.asarray(normals).flatten().tolist(),
+                    "array": np.asarray(normals, dtype=float).flatten().tolist(),
                     "itemSize": 3,
                     "type": "Float32Array",
                     "normalized": False
-                    },
+                },
                 "position": {
                     "array": np.asarray(verts, dtype=float).flatten().tolist(),
                     "itemSize": 3,
                     "type": "Float32Array",
                     "normalized": False
-                    },
+                },
                 "uv": {
                     'itemSize': 2,
                     "array": np.asarray(uv, dtype=float).flatten().tolist(),
                     "type": "Float32Array",
                     "normalized": False
-                    }
-                },
+                }
+            },
             "index": dict(type='Uint16Array',
-                          array=np.asarray(indices).flatten().tolist())
-            }
+                          array=np.asarray(indices, dtype=int).flatten().tolist())
         }
+    }
 
 
-def get_triangle_mesh_only(msh):
+from scipy.spatial import distance as spdist
+
+
+def mesh_decomposition(msh):
     f = msh.Faces
     f.ConvertQuadsToTriangles()
     vertss = get_mesh_vertices(msh)
@@ -384,22 +415,36 @@ def get_triangle_mesh_only(msh):
         for i in range(3):
             pt = pts[i + 1]
             vv.append((pt.X, pt.Y, pt.Z))
-            lst.append(vertss.index((pt.X, pt.Y, pt.Z)))
+            try:
+                lst.append(vertss.index((pt.X, pt.Y, pt.Z)))
+            except ValueError as err:
+                vrt = list(range(len(vertss)))
+                vrt.sort(key=lambda x: spdist.cosine([pt.X, pt.Y, pt.Z], vertss[x]))
+                lst.append(vrt[0])
 
         llst.append(lst)
 
     return llst, vertss, normals
 
 
+CommonMeshTopology = namedtuple("CommonMeshTopology", ["indices", "vertices", "normals", "uv"])
+
+
+def rhino_mesh_to_topology(input_mesh: rg.Mesh):
+    indices, verts, normals = mesh_decomposition(input_mesh)
+    uv = get_np_mesh_uv(input_mesh)
+    return CommonMeshTopology(indices, verts, normals, uv)
+
+
 def mesh_to_buffer(input_mesh) -> dict:
-    indices, verts, normals = get_triangle_mesh_only(input_mesh)
+    indices, verts, normals = mesh_decomposition(input_mesh)
     uv = get_np_mesh_uv(input_mesh)
 
     return create_buffer(indices, verts, normals, uv)
 
 
 def mesh_to_buffer_geometry(input_mesh) -> dict:
-    (indices, position, normals), uv = get_triangle_mesh_only(input_mesh), get_np_mesh_uv(input_mesh)
+    (indices, position, normals), uv = mesh_decomposition(input_mesh), get_np_mesh_uv(input_mesh)
     return dict(indices=indices, position=position, normals=normals, uv=uv)
 
 
@@ -418,7 +463,7 @@ def mesh_to_buffer_mesh(mesh,
             "version": 4.5,
             "type": "Object",
             "generator": "Object3D.toJSON"
-            },
+        },
         "geometries": [geom],
         "materials": [material.data],
         "object": {
@@ -431,9 +476,9 @@ def mesh_to_buffer_mesh(mesh,
             "matrix": matrix,
             "geometry": geom["uuid"],
             "material": material.uuid
-            }
-
         }
+
+    }
 
 
 def create_root(rootobj):
@@ -442,11 +487,11 @@ def create_root(rootobj):
             "version": 4.5,
             "type": "Object",
             "generator": "Object3D.toJSON"
-            },
+        },
         "geometries": [],
         "materials": [],
         "object": rootobj
-        }
+    }
 
 
 def obj_notation_from_mesh(name, geometry_uuid, material_uuid, userdata={},
@@ -464,7 +509,7 @@ def obj_notation_from_mesh(name, geometry_uuid, material_uuid, userdata={},
         'matrix': matrix,
         'geometry': geometry_uuid,
         'material': material_uuid
-        }
+    }
 
 
 def group_notation_from_mesh(name, userdata={},
@@ -481,7 +526,7 @@ def group_notation_from_mesh(name, userdata={},
         'layers': 1,
         'matrix': matrix,
         'children': children
-        }
+    }
 
 
 def tree_obj_from_mesh_obj(obj):

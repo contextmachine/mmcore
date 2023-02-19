@@ -1,0 +1,48 @@
+{
+    "properties": {
+        "uuid": ""
+    },
+    "gui": [
+        {
+            "id": "color-piechart-linechart",
+            "name": "Tag chart",
+            "type": "chart",
+            "key": "tag",
+            "colors": "default",
+            "require": [
+                "piechart",
+                "linechart"
+            ]
+        },
+        {
+            "id": "color-piechart",
+            "name": "Type chart",
+            "type": "chart",
+            "key": "type",
+            "colors": "default",
+            "require": [
+                "piechart"
+            ]
+        },
+        {
+            "id": "color-linechart",
+            "name": "Subtype chart",
+            "type": "chart",
+            "key": "subtype",
+            "colors": "default",
+            "require": [
+                "linechart"
+            ]
+        },
+        {
+            "id": "color-linechart",
+            "name": "Area chart",
+            "type": "chart",
+            "key": "area",
+            "colors": "default",
+            "require": [
+                "linechart"
+            ]
+        }
+    ]
+}

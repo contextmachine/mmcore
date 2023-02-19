@@ -1,0 +1,10 @@
+{
+    "id": "color-linechart",
+    "name": "Line chart",
+    "type": "chart",
+    "key": "type",
+    "colors": "default",
+    "require": [
+        "linechart"
+    ]
+}

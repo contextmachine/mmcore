@@ -23,11 +23,8 @@ __all__ = ["Topo", "WireExplorer", "dumpTopology"]
 
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepTools import BRepTools_WireExplorer
-from OCC.Core.TopAbs import (TopAbs_COMPOUND, TopAbs_COMPSOLID, TopAbs_EDGE, TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID,
-                             TopAbs_VERTEX, TopAbs_WIRE)
 from OCC.Core.TopExp import TopExp_Explorer, topexp_MapShapesAndAncestors
-from OCC.Core.TopTools import (TopTools_IndexedDataMapOfShapeListOfShape, TopTools_ListIteratorOfListOfListOfShape,
-                               TopTools_ListOfShape)
+from OCC.Core.TopTools import *
 from OCC.Core.TopoDS import (TopoDS_CompSolid, TopoDS_Compound, TopoDS_Edge, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell,
                              TopoDS_Solid, TopoDS_Vertex, TopoDS_Wire, topods, topods_Edge, topods_Vertex)
 

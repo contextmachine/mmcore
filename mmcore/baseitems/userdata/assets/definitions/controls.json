@@ -1,0 +1,12 @@
+{
+    "id": "color-piechart-linechart",
+    "name": "Type chart",
+    "type": "chart",
+    "key": "type",
+    "colors": "default",
+    "require": [
+        "piechart",
+        "linechart"
+    ]
+}
+

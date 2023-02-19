@@ -1,16 +1,26 @@
 import uuid
-from typing import Any, Optional
+from enum import Enum
+from typing import Any
 
-import numpy as np
 import pydantic
 
-from mmcore.addons.rhino import obj_notation_from_mesh
 from mmcore.baseitems import Matchable
-from mmcore.collection.multi_description import ElementSequence
-from mmcore.geom.base import MmGeometry
-from mmcore.geom.materials import Material
+from mmcore.baseitems.descriptors import UserData
+from mmcore.gql.client import geometry_query
 
 Number = int | float
+
+
+class ThreeJSTypes(str, Enum):
+    Object3d = "Object3d"
+    Mesh = "Mesh"
+    Group = "Group"
+    Bone = "Bone"
+    Line = "Line"
+    Points = "Points"
+    Sprite = "Sprite"
+    BufferGeometry = "BufferGeometry"
+    CapsuleGeometry = "CapsuleGeometry"
 
 
 def group_notation_from_mesh(name, userdata={},
@@ -27,11 +37,7 @@ def group_notation_from_mesh(name, userdata={},
         'layers': 1,
         'matrix': matrix,
         'children': children
-        }
-
-
-class BufferMaterial(pydantic.BaseModel):
-    ...
+    }
 
 
 class BufferBndSphere(pydantic.BaseModel):
@@ -57,70 +63,172 @@ class BufferAttributes(pydantic.BaseModel):
     normal: BufferAttribute
 
 
-class BufferData(pydantic.BaseModel):
-    attributes: BufferAttributes
-    boundingSphere: BufferBndSphere
-    type: str = "BufferGeometry"
-
-
 class GeometryPrimitive(pydantic.BaseModel):
     type: str
     uuid: str = uuid.uuid4().__str__()
 
 
-class CapsuleGeometry(GeometryPrimitive):
-    type: str = "CapsuleGeometry"
+class CapsuleGeometry(pydantic.BaseModel):
+    type: ThreeJSTypes = ThreeJSTypes.CapsuleGeometry
     radius: Number = 1
     height: Number = 1
     capSegments: int = 4
     radialSegments: int = 8
 
 
+class BufferGeometryDictionary(dict):
+    def __init__(self, req):
+        dct = {
+            "data": {
+                "attributes": dict((a, req[a]) for a in ["position", "normal", "uv"]),
+                "index": req["index"]
+            },
+            "type": req["type"],
+            "uuid": req["uuid"]
+        }
+
+        dict.__init__(self, **dct)
+
+
 class BufferGeometry(pydantic.BaseModel):
-    data: BufferData
-    type: str = "BufferGeometry"
+    data: dict
+    type: ThreeJSTypes = ThreeJSTypes.BufferGeometry
+    uuid: pydantic.UUID4
+    query = geometry_query()
+
+    def __init__(self, **data):
+        if not data.get("uuid"):
+            data['uuid'] = uuid.uuid4()
+        super().__init__(**data)
+
+    @classmethod
+    def from_query(cls):
+        inst = cls(**BufferGeometryDictionary(
+            **cls.query("position", "normal", "uv", "type", "uuid", "index").run_query().json()))
+
+        return inst
 
 
-class BufferObjectField(pydantic.BaseModel):
-    uuid: str = uuid.uuid4().__str__()
-    type: str = "Mesh"
-    name: Optional[str]
+class Root:
+    geometries: list = []
+    materials: list = []
+
+    def __init__(self, obj=None):
+        super().__init__()
+        self.obj = obj
+
+    def append_geometries(self, val):
+        self.geometries.append(val)
+
+    def remove_geometries(self, val):
+        self.geometries.remove(val)
+
+    def append_materials(self, val):
+        self.materials.append(val)
+
+    def remove_materials(self, val):
+        self.materials.remove(val)
+
+    def get_root_dict(self):
+        return create_root_descriptor(self)
+
+    def __get__(self, key, value):
+        return self
+
+    def __set__(self, instance, value):
+        self.obj = value
+
+
+class ThreeJSObject(UserData):
+    ...
+
+    def item_model(self, name: str, value: Any):
+
+        if name == "userdata":
+            return {"userData": value}
+        elif value is None:
+            pass
+        else:
+            return {name: value}
+
+
+class _BufferObject(Matchable):
+    type: str | ThreeJSTypes = ThreeJSTypes.Mesh
     castShadow: bool = True
     receiveShadow: bool = True
     layers: int = 1
     matrix: list[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-    geometry: str
-    material: str
-    children: Optional[list['BufferObjectField']] = None
+    name = None
+
+    # object = ThreeJSObject() #"name", 'castShadow', 'layers', 'receiveShadow', 'type', "userdata", "matrix"
+
+    geometry: str = None
+    material: str = None
+    object = UserData(
+        "name",
+        'castShadow',
+        'layers',
+        'receiveShadow',
+        'type', "userdata", "matrix", "geometry", "material")
 
 
-class BufferObject3d(pydantic.BaseModel):
-    geometries: list[GeometryPrimitive]
-    materials: list[BufferMaterial]
-    object: BufferObjectField
-    metadata: BufferMetaData = BufferMetaData(type="Object")
-    userData: Any = {}
+def __init__(self, *args, **data):
+    super().__init__(self, *args, **data)
+
+    if not data.get("uuid"):
+        data['uuid'] = uuid.uuid4()
 
 
-class BufferGroup(pydantic.BaseModel):
-    uuid: str
-    name: str
-    type: str = "Group"
-    castShadow: bool = True
-    receiveShadow: bool = True
-    layers: int = 1,
-    matrix: list[float | int] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-    children: list[BufferObjectField] | list = []
-    userData: Any = {}
+class BufferObject(_BufferObject):
+    """
+    Example:
+        >>> class B(BufferObject):
+        ...     __match_args__="name", "area", "subtype", "tag"
+        ...     userdata = UserData(*__match_args__)
+        >>> c=B(1,2,34,5)
+        >>> c.object
+    {'name': 1,
+     'castShadow': True,
+     'layers': 1,
+     'receiveShadow': True,
+     'type': 'Mesh',
+     'userdata': {'name': 1, 'area': 2, 'subtype': 34, 'tag': 5},
+     'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]}
+        >>> c.geometry = "999"
+        >>> c.object
+    {'name': 1,
+     'castShadow': True,
+     'layers': 1,
+     'receiveShadow': True,
+     'type': 'Mesh',
+     'userdata': {'name': 1, 'area': 2, 'subtype': 34, 'tag': 5},
+     'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+     'geometry': '999'}
 
 
-from mmcore.baseitems.descriptors import GroupUserData
+    """
+    ...
+
+
+"""
+
+# TODO: Понять что не так с ```name```
+class BufferGroup(ElementSequence, BufferObject):
+    userData: Any = GroupUserData()
+    children: list[BufferObject] | list = []
+    type: ThreeJSTypes = ThreeJSTypes.Group
+
+    def __init__(self, children, *args, **kwargs):
+        super(ElementSequence, self).__init__(children)
+        BufferObject.__init__(self, *args, **kwargs)
 
 
 class Group(ElementSequence, Matchable):
+    _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
     _name = None
     _children = []
     __match_args__ = "_seq", "name", "matrix"
+
     userData = GroupUserData()
 
     def __repr__(self):
@@ -133,8 +241,6 @@ class Group(ElementSequence, Matchable):
         else:
             return self.name
 
-    _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-
     @property
     def matrix(self):
         return self._matrix
@@ -143,23 +249,58 @@ class Group(ElementSequence, Matchable):
     def matrix(self, value):
         self._matrix = value
 
+  
     @property
     def object(self):
-        return BufferGroup(**{
-            'uuid': self.uuid,
-            'type': 'Group',
-            'name': self.name,
-            'castShadow': True,
-            'receiveShadow': True,
-            'userData': self.userData,
-            'layers': 1,
-            'matrix': self.matrix,
-            'children': self.children
-            })
+        return obj_notation_from_mesh(self.name, self.geometry, self.material, userdata=self.userdata,
+                                      matrix=self.matrix, uid=self.uuid)
 
     @property
     def children(self):
-        return
+        return []
+      @material.setter
+    def material(self, v):
+
+        if isinstance(v, str):
+            if v in ElementSequence(self.root.materials)["uuid"]:
+                self.material = v
+            else:
+                raise KeyError(v)
+        elif isinstance(v, Material):
+            self._material = v.uuid
+            if not self.root.materials:
+                self.root.materials.append(v)
+
+            elif v.uuid in ElementSequence(self.root.materials)["uuid"]:
+                self.root.materials[(ElementSequence(self.root.materials)["uuid"]).index(v.uuid)] = v
+
+            else:
+                self.root.append_materials(v)
+        elif isinstance(v, int):
+            self._material = self.root.materials[v]['uuid']
+            
+
+    @geometry.setter
+    def geometry(self, v):
+        if isinstance(v, str):
+            if v in ElementSequence(self.root.geometries)["uuid"]:
+                self._geometry = v
+            else:
+                raise KeyError(v)
+        elif isinstance(v, MmGeometry):
+            self._geometry = v.uuid
+            if not self.root.geometries:
+                self.root.geometries.append(v)
+
+            elif v.uuid in ElementSequence(self.root.geometries)["uuid"]:
+                self.root.geometries[(ElementSequence(self.root.geometries)["uuid"]).index(v.uuid)] = v
+
+            else:
+                self.root.geometries.append(v)
+        elif isinstance(v, int):
+            self._geometry = self.root.geometries[v]['uuid']
+
+"""
 
 
 def create_root(self):
@@ -168,11 +309,24 @@ def create_root(self):
             "version": 4.5,
             "type": "Object",
             "generator": "Object3D.toJSON"
-            },
+        },
         "geometries": [],
         "materials": [],
-        "object": self.obj
-        }
+        "object": self.to_dict()
+    }
+
+
+def create_root_descriptor(self):
+    return {
+        "metadata": {
+            "version": 4.5,
+            "type": "Object",
+            "generator": "Object3D.toJSON"
+        },
+        "geometries": self.geometries,
+        "materials": self.materials,
+        "object": self.obj.to_dict()
+    }
 
 
 from mmcore.utils import redis_tools
@@ -182,159 +336,6 @@ class Scene(redis_tools.RC):
     ...
 
 
-class BufferObjectRoot(ElementSequence, Matchable):
-    _geometries = []
-    _materials = []
-    __match_args__ = 'children', 'name', 'matrix'
+def assign_root(root, obj):
+    obj.root = root
 
-    def __init__(self, children=(), name="Group", matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), **kwargs):
-        for child in children()
-            Matchable.__init__(self, name, matrix, **kwargs)
-        super(ElementSequence, self).__init__(children)
-
-    _name = None
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        self._name = value
-
-    _matrix = None
-
-    @property
-    def matrix(self):
-        return self._matrix
-
-    @matrix.setter
-    def matrix(self, value):
-        self._matrix = value
-
-    @property
-    def material_sequence(self):
-        return ElementSequence(self.materials)
-
-    @property
-    def geometries(self):
-        # [mesh_to_buffer(obj) for obj in self["mesh"]]
-        return self._geometries
-
-    @geometries.setter
-    def geometries(self, v):
-        self._geometries = v
-
-    @property
-    def materials(self):
-        # self.materials = list(map(lambda x: MeshPhongFlatShading(color=ColorRGB(*eval(x)[:-1])), list(self.color_counter.keys())))
-
-        return self._materials
-
-    @materials.setter
-    def materials(self, v):
-        self._materials = v
-
-    @property
-    def root(self):
-        return {
-            "metadata": {
-                "version": 4.5,
-                "type": "Object",
-                "generator": "Object3D.toJSON"
-                },
-            "geometries": self.geometries,
-            "materials": self.materials,
-            "object": self.object
-            }
-
-    def __call__(self, *args, **kwargs):
-        return self.object(*args, **kwargs)
-
-    @property
-    def object(self):
-        return group_notation_from_mesh(self.name, userdata=self.userData,
-                                        matrix=self.matrix, uid=self.uuid)
-
-
-class BufferObject(Matchable):
-    __match_args__ = "root", "name"
-
-    _area = 0
-    _matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-
-    _material = None
-    _geometry = None
-    _root = None
-
-    def __init__(self, root, name="Object", *args, **kwargs):
-        super().__init__(root, name="Object", *args, **kwargs)
-
-    @property
-    def object(self):
-        return obj_notation_from_mesh(self.name, self.geometry, self.material, userdata=self.userData,
-                                      matrix=self.matrix, uid=self.uuid)
-
-    @property
-    def geometry(self):
-        return self._geometry
-
-    @property
-    def material(self):
-        return self._material
-
-    @property
-    def root(self):
-        return self._root.root
-
-    @root.setter
-    def root(self, v):
-        self._root = v
-
-    @material.setter
-    def material(self, v):
-        if isinstance(v, str):
-            if v in ElementSequence(self._root.materials)["uuid"]:
-                self._material = v
-            else:
-                raise KeyError(v)
-        elif isinstance(v, Material):
-            self._material = v.uuid
-            if not self._root.materials:
-                self._root.materials.append(v)
-
-            elif v.uuid in ElementSequence(self.root['materials'])["uuid"]:
-                self._root.materials[(ElementSequence(self._root.materials)["uuid"]).index(v.uuid)] = v
-
-            else:
-                self.root['materials'].append(v)
-        elif isinstance(v, int):
-            self._material = self._root.materials[v]['uuid']
-
-    @geometry.setter
-    def geometry(self, v):
-        if isinstance(v, str):
-            if v in ElementSequence(self._root.geometries)["uuid"]:
-                self._geometry = v
-            else:
-                raise KeyError(v)
-        elif isinstance(v, MmGeometry):
-            self._geometry = v.uuid
-            if not self._root.geometries:
-                self._root.geometries.append(v)
-
-            elif v.uuid in ElementSequence(self._root.geometries)["uuid"]:
-                self._root.geometries[(ElementSequence(self.root['geometries'])["uuid"]).index(v.uuid)] = v
-
-            else:
-                self._root.geometries.append(v)
-        elif isinstance(v, int):
-            self._geometry = self._root.geometries[v]['uuid']
-
-    @property
-    def matrix(self):
-        return np.asarray(self._matrix).reshape((4, 4)).T.flatten().tolist()
-
-    @matrix.setter
-    def matrix(self, v):
-        self._matrix = v
