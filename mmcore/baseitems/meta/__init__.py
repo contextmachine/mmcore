@@ -6,6 +6,24 @@ import types
 import rhino3dm as rg
 
 
+# Create all the named tuple methods to be added to the class namespace
+def create_method(func, namespace={}, typename="generic", arg_list=[], kwarg_dict={}, defaults=None):
+    _namespace = {
+        '_func': func,
+        '__builtins__': {},
+        '__name__': f'func_{typename}',
+        }
+    _namespace |= namespace
+    code = f'lambda _cls, {arg_list}, {", ".join(kwarg_dict.keys())}: _tuple_new(_cls, ({arg_list}))'
+    __func__ = eval(code, _namespace)
+    __func__.__name__ = func.__name__
+    __func__.__doc__ = f'Create new instance of {typename}({arg_list})'
+
+    if defaults is not None:
+        __func__.__defaults__ = defaults
+    return __func__
+
+
 class datatype(object):
     def __init__(self):
         object.__init__(self)
@@ -81,7 +99,7 @@ class _Encodeble(object):
         return {
             "type": self.datatype,
             "data": dct
-        }
+            }
 
     @classmethod
     def decode(cls, obj):
@@ -124,7 +142,7 @@ class _EncodableArray(list):
         return {
             "type": self.datatype,
             "data": dct
-        }
+            }
 
 
 def traverse(callback=lambda x: x):

@@ -14,7 +14,7 @@ REDIS_CONN = bootstrap_local(REDIS_URL)
 
 @app.get("/take/task/{uid}")
 async def take(uid: str):
-    if 'REDIS_URL' in os.environ.keys() and PRIMARY_KEY + uid in REDIS_CONN.keys(PRIMKEY + "*"):
+    if 'REDIS_URL' in os.environ.keys() and PRIMARY_KEY + uid in REDIS_CONN.keys(PRIMARY_KEY + "*"):
         model = done_pool[uid]
         return JSONResponse({"msg": {"x": model.x.tolist(), "fun": model.final()}}, status_code=200)
 
@@ -30,7 +30,7 @@ class ExecModelParam(pydantic.BaseModel):
 async def take(uid: str, x: ExecModelParam):
     if 'REDIS_URL' in os.environ.keys():
         if PRIMARY_KEY + uid in REDIS_CONN.keys(PRIMARY_KEY + "*"):
-            model = done_pool[uid]
+            model = d[uid]
             fun = model(x.x)
             fig = go.Figure(model.metrics[0].masked_plot)
             fig.to_plotly_json()

@@ -1,0 +1,26 @@
+type: DataView
+class: UserData
+fields:
+  gui:
+
+    type: "controls"
+    data:
+      ... #type_ceiling: "A"
+    post:
+      endpoint: "https://api.contextmachine.online/api/test/olymp"
+      "mutation": {
+        "scene": {
+          "where": {
+            "userData": {
+              "properties": {
+                "": {
+                  "_eq": "original"
+                }
+              }
+            }
+          }
+        }
+      }
+
+    "version": "1.0"
+

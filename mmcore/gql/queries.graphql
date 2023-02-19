@@ -1,0 +1,52 @@
+query GeometryFromUuid ($uuid1: uuid) {
+    buffgeom_attributes_by_pk(uuid: $uuid1) {
+        uuid
+        uv
+        index
+        position
+        type
+        normal
+
+    }
+}
+
+query GeometryAttrsUuids {
+    buffgeom_attributes {
+        uuid
+    }
+}
+
+query ObjectsUuids {
+    buffgeom_objects {
+        uuid
+    }
+}
+
+query ObjectFromUuid {
+    buffgeom_objects_by_pk(uuid: $uuid2) {
+        ...buffgeom_objectsFragment
+    }
+}
+
+query My2 {
+    ...buffgeom_objectsFragment
+    buffgeom_objects_aggregate(where: {}, order_by: {uuid: asc}, distinct_on: geometry) {
+        aggregate {
+            count(columns: castShadow)
+        }
+    }
+}
+
+fragment buffgeom_objectsFragment on buffgeom_objects{
+    castShadow
+    children
+    geometry
+    layers
+    material
+    matrix
+    name
+    receiveShadow
+    type
+    userData
+    uuid
+}

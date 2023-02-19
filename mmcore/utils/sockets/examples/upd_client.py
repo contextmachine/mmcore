@@ -1,7 +1,6 @@
 from mmcore.baseitems import Matchable
 from mmcore.services.service import RhinoIronPython, Serviceable
 
-
 class IronPyCommand(Serviceable):
     __match_args__ = ()
 
@@ -65,6 +64,23 @@ b
     def injection(cls):
         return cls.__doc__
 
+class Sweep(IronPyCommand):
+    """
+# You can use "Inject language reference" in Pycharm to continue using the hints & intelligence.
+# It is simple and native.
+# Maybe we could also probably use something like dockets ...
+
+import Rhino.Geometry as rg
+import rhinoscriptsyntax as rs
+surf = rs.AddPlanarSrf(self.x)
+surface = rs.coercegeometry(surf)
+
+    """
+    __match_args__ = "surface", "area"
+
+    @classmethod
+    def injection(cls):
+        return cls.__doc__
 
 @RhinoIronPython(('localhost', 10081), bytesize=1024 ** 10)
 class StopSignal(Matchable):
@@ -94,6 +110,12 @@ with open("/tmp/rhsock/brp.cxm", "wb") as fl:
     fl.write(cxd.CxmData(brp))
 
 
+"""
+scr2 = """
+import Rhino.Geometry as rg
+import rhinoscriptsyntax as rs
+surf = rs.AddPlanarSrf(self.x)
+surface = rs.coercegeometry(surf)
 """
 import rhino3dm as rg
 
