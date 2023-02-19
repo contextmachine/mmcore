@@ -402,7 +402,7 @@ def create_buffer(indices, verts, normals, uv, uid=None):
 from scipy.spatial import distance as spdist
 
 
-def get_triangle_mesh_only(msh):
+def mesh_decomposition(msh):
     f = msh.Faces
     f.ConvertQuadsToTriangles()
     vertss = get_mesh_vertices(msh)
@@ -431,20 +431,20 @@ CommonMeshTopology = namedtuple("CommonMeshTopology", ["indices", "vertices", "n
 
 
 def rhino_mesh_to_topology(input_mesh: rg.Mesh):
-    indices, verts, normals = get_triangle_mesh_only(input_mesh)
+    indices, verts, normals = mesh_decomposition(input_mesh)
     uv = get_np_mesh_uv(input_mesh)
     return CommonMeshTopology(indices, verts, normals, uv)
 
 
 def mesh_to_buffer(input_mesh) -> dict:
-    indices, verts, normals = get_triangle_mesh_only(input_mesh)
+    indices, verts, normals = mesh_decomposition(input_mesh)
     uv = get_np_mesh_uv(input_mesh)
 
     return create_buffer(indices, verts, normals, uv)
 
 
 def mesh_to_buffer_geometry(input_mesh) -> dict:
-    (indices, position, normals), uv = get_triangle_mesh_only(input_mesh), get_np_mesh_uv(input_mesh)
+    (indices, position, normals), uv = mesh_decomposition(input_mesh), get_np_mesh_uv(input_mesh)
     return dict(indices=indices, position=position, normals=normals, uv=uv)
 
 

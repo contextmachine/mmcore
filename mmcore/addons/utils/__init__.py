@@ -9,7 +9,7 @@ import json
 from typing import ContextManager
 
 from mmcore.baseitems import descriptors
-from mmcore.collection import multi_description
+from mmcore.collections import multi_description
 
 
 class VarString(str):

@@ -5,7 +5,7 @@ from typing import Any, NamedTuple
 import requests
 from jinja2.nativetypes import NativeEnvironment
 
-from mmcore.collection.multi_description import ElementSequence
+from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
 

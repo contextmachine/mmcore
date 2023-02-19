@@ -6,7 +6,7 @@ import numpy as np
 
 from mmcore.addons.rhino.compute import Mesh
 from mmcore.baseitems import Matchable, descriptors
-from mmcore.collection.multi_description import ElementSequence
+from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.buffered import group_notation_from_mesh
 from mmcore.geom.materials import MeshPhongFlatShading, ColorRGB
 from mmcore.viewer.gui import chart
