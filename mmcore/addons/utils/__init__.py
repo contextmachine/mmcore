@@ -9,7 +9,17 @@ import json
 from typing import ContextManager
 
 from mmcore.baseitems import descriptors
-from mmcore.collection import multi_description
+from mmcore.collections import multi_description
+
+
+class VarString(str):
+    def __new__(cls, *args, **kwargs):
+        # target form "{$"
+
+        s = super().__new__(*args, **kwargs)
+        s = s.replace("${", "{os.getenv('", -1).replace("}", "')}", -1)
+
+        return s
 
 
 class _target_getitem(descriptors.NoDataDescriptor):

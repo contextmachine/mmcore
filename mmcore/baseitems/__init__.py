@@ -4,21 +4,71 @@ __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'Dictabl
            'DataviewInterface', 'Dataview', 'DataviewDescriptor', 'Metadata', 'ReprData', 'GeomConversionMap',
            'GeomDataItem', "Matchable"]
 
-#  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
+#  Copyright (c) 2022. Computational Geometry,(int, bool, bytes, float, str) Digital Engineering and Optimizing your construction processe"
 
 import base64
 import gzip
 import itertools
+import json
+import typing
 import uuid
 from abc import ABCMeta, abstractmethod
 from datetime import datetime
 from json import JSONEncoder
-from typing import Callable, Generator, Union
+from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, Union
 
 import numpy as np
 import pydantic
+from typing_extensions import ParamSpec
 
+from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
+from mmcore.collections.traversal import traverse
+
+collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
+T = typing.TypeVar('T')  # Any type.
+KT = typing.TypeVar('KT')  # Key type.
+VT = typing.TypeVar('VT')  # Value type.
+T_co = typing.TypeVar('T_co', covariant=True)  # Any type covariant containers.
+T_contra = typing.TypeVar('T_contra', contravariant=True)  # Ditto contravariant.
+P = ParamSpec('P')
+
+
+def strong_attr_items(data) -> ItemsView:
+    if isinstance(data, Mapping):
+        return data.items()
+    elif isinstance(data, Sequence):
+        return [strong_attr_items(d) for d in data]
+
+    else:
+
+        keys = {}
+        for key in dir(data):
+            if not key.startswith("_"):
+                g = getattr(data, key)
+                if not isinstance(g, property) and isinstance(g, Callable):
+                    continue
+                else:
+                    keys[key] = getattr(data, key)
+
+        return keys.items()
+
+
+def strong_attr_names(data) -> KeysView:
+    return dict(strong_attr_items(data)).keys()
+
+
+def wrp(dt):
+    x = {}
+    while True:
+        if hasattr(dt, 'to_dict'):
+            return dt.to_dict()
+        elif isinstance(dt, Sequence) and not isinstance(x, str):
+            for i in dt:
+                return wrp(dt)
+        elif isinstance(dt, dict):
+            for k, v in dt.items():
+                wrp(dt)
 
 
 class Now(str):
@@ -62,14 +112,14 @@ class Base(Callable):
     Base Abstract class
     """
 
-    def __init__(self, *args, **kwargs):
-        self.__call__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.__call__(**kwargs)
 
-    def __call__(self, *args, **kwargs):
-        super().__call__()
+    def __call__(self, **kwargs):
+        for k in kwargs:
+            self.__setattr__(k, kwargs[k])
 
-        self.__dict__.update(kwargs)
-        self._dtype = self.__class__.__name__
         return self
 
 
@@ -468,6 +518,30 @@ class MMtype(type):
         prepare_class(metacls, name, bases, kwds)
 
 
+from mmcore.collections.basic import OrderedSet
+
+
+class Follower:
+
+    def __init_subclass__(cls, follow, include_parents_follow=False, **kwargs):
+        cls.follow = OrderedSet(list(follow))
+        if include_parents_follow:
+            cls.follow.update(cls.__base__.follow)
+        super().__init_subclass__(**kwargs)
+
+    ...
+
+
+class MatchingDecorator(Follower, follow=('__match_args__',)):
+    def __init__(self, func: Callable[P, T]):
+        self._func = func
+        self.name = func.__name__
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+        print(f'{self._func.__name__} was called with {kwargs}')
+        return self._func(*args, **kwargs)
+
+
 class Matchable(object):
     """
     New style baseclass version.
@@ -479,9 +553,8 @@ class Matchable(object):
     __match_args__ = ()
     __match_args__ += match_args
 
-    gui = descriptors.UserDataGui()
     properties = descriptors.UserDataProperties()
-    userData = descriptors.UserData()
+    userdata = descriptors.UserData()
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -497,16 +570,62 @@ class Matchable(object):
                 kwargs |= dict(zip(self.__match_args__[:len(args)], args))
 
         for k, v in kwargs.items():
-            self.__setattr__(k, v)
+            setattr(self, k, v)
         return self
 
     def __repr__(self) -> str:
 
         s = f"{self.__class__.__name__}("
         for k in self.__class__.__match_args__:
-            s += f"{k}={getattr(self, k)}, "
-        return s[:-2] + ")"
+            try:
+                s += f"{k}={getattr(self, k)}, "
+            except AttributeError:
+                pass
 
+        return s + ")"
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, value):
+        self._uuid = uuid.uuid4().__str__()
+
+    def _dump_keys(self) -> KeysView:
+
+        return strong_attr_names(self)
+
+    def to_dict(self):
+        def wrp(dt):
+
+
+            if type(dt) in BasicTypes:
+                return dt
+            elif hasattr(dt, "to_dict"):
+                return dict(strong_attr_items(self))
+            elif isinstance(dt, Mapping):
+                dct = {}
+                for k, v in dt.items():
+                    dct[k] = wrp(v)
+                return dct
+            elif isinstance(dt, Sequence):
+                return [wrp(d) for d in dt]
+            elif hasattr(dt, "Encode"):
+                return dt.Encode()
+            else:
+                pass
+
+        return wrp(self)
+
+    def toJSON(self):
+        return json.dumps(self, default=self.__class__.to_dict,
+                          sort_keys=True, indent=3)
+
+
+
+
+class MatchableItem(Matchable, Base):
     @property
     def uuid(self):
         return self._uuid
@@ -515,15 +634,83 @@ class Matchable(object):
     def uuid(self, value):
         raise AttributeError("You dont can set UUID from any object.")
 
-
-class MmItem(Matchable):
-    match_args = ()
-
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self._uuid = uuid.uuid4()
+        Base.__init__(self, **kwargs)
+        Matchable.__init__(self, *args)
 
     def __call__(self, *args, **kwargs):
-        return super().__call__(*args, **kwargs)
+        super(Matchable, self).__call__(*args)
+        return Base.__call__(self, **kwargs)
 
     def __repr__(self):
-        return super().__repr__()
+        return Matchable.__repr__(self) + f" at {self.uuid}"
+
+
+class FromKet():
+    match_targets = "__match_args__",
+
+    def __init__(self, func: Callable[P, T]):
+        self._func = func
+        self.name = func.__name__
+
+
+class Trait:
+    def __init__(self, minimum, maximum):
+        self.minimum = minimum
+        self.maximum = maximum
+
+    def __get__(self, instance, owner):
+        return instance.__dict__[self.key]
+
+    def __set__(self, instance, value):
+        if self.minimum < value < self.maximum:
+            instance.__dict__[self.key] = value
+        else:
+            raise ValueError("value not in range")
+
+    def __set_name__(self, owner, name):
+        self.key = name
+
+
+import weakref
+
+
+class WeakAttribute:
+    def __get__(self, instance, owner):
+        return instance.__dict__[self.name]()
+
+    def __set__(self, instance, value):
+        instance.__dict__[self.name] = weakref.ref(value)
+
+    # this is the new initializer:
+    def __set_name__(self, owner, name):
+        self.name = name
+
+
+class TreeNode:
+    parent = WeakAttribute()
+
+    def __init__(self, parent):
+        self.parent = parent
+
+
+class simpleproperty:
+    def __init__(self, expression=None, default=None):
+        super().__init__()
+        self.expression = expression
+        self.default = default
+
+    def __set_name__(self, owner, name):
+        setattr(owner, "_" + name, self.default)
+        self.name = name
+
+    def __set__(self, instance, val):
+        setattr(instance, "_" + self.name, val)
+
+    def __get__(self, instance, owner):
+        if self.expression:
+            return self.expression(instance, self.name, getattr(instance, "_" + self.name))
+        else:
+
+            return getattr(instance, "_" + self.name)

@@ -1,32 +1,28 @@
 name:
-  mmcore
+  mmodel
 channels:
   - conda-forge
-  - default
 dependencies:
-  - python[version='>=3.10.*']
+  - python[version='==3.10']
+  - make
   - cmake
   - cython
-  - mamba
   - numpy
   - pycollada
   - pybind11
   - pandas
   - pip
   - pythonnet
-  - pythonocc-core
   - scipy
   - sphinx==6.1.2
-  - uvicorn
+  - gmsh
   - pip:
-      - cmake
       - COMPAS
       - boto3
       - yandexcloud
       - redis-py-cluster
-      - setuptools_rust
       - redis
-      - redisom
+      - redis_om
       - rpyc
       - colored>=1.4.3
       - compas-occ
@@ -44,6 +40,8 @@ dependencies:
       - uvicorn[standard]
       - uvloop
       - fastapi[all]
-      - ifcopenshell
-      - rhino3dm==7.14.2
-prefix: ${CONDA_DIR}/envs/mmcore
+
+
+
+
+prefix: ${CONDA_DIR}/envs/mmodel

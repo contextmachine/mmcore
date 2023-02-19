@@ -1,10 +1,16 @@
-import json
 import os
 
-with open(f"{os.getenv('PWD')}/data/mmconfig.json") as j:
-    mmconfig = json.load(j)
-MMCONFIG = mmconfig["bundles"]
 GHDEPLOYPATH = "c:/users/administrator/compute-deploy/"
+
+
+def headers():
+    return {
+        "Accept": "application/json",
+        "RhinoComputeKey": os.getenv("RhinoComputeKey"),
+        "Content-Type": ["application/json", "application/binary", "application/text"],
+        "User-Agent": "compute.rhino3d.py/1.2.0",
+        "Accept-Encoding": ["br", "deflate", "gzip", "x-gzip"]
+        }
 
 
 class ComputeRequest:
@@ -23,7 +29,7 @@ class ComputeRequest:
 
     @property
     def headers(self):
-        return mmconfig[""]
+        return headers()
 
     def get(self):
         return requests.get(self.url + self.endpoint_get)

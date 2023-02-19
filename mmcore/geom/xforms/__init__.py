@@ -3,13 +3,14 @@ from functools import wraps
 from typing import Any, Union
 
 import numpy as np
+import rhino3dm as rg
 from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
 
 from ...baseitems import Item
 
-import rhino3dm as rg
+
 def mirror(right):
     mirror = np.eye(3, 3)
     mirror[1, 1] = -1
@@ -20,6 +21,7 @@ def mirror(right):
         left[i, ...] = mirror @ np.asarray(pt).T
     return left
 
+
 def create_Transform(flat_arr):
     tg = rg.Transform.ZeroTransformation()
     k = 0
@@ -28,6 +30,7 @@ def create_Transform(flat_arr):
             setattr(tg, "M{}{}".format(i, j), flat_arr[k])
             k += 1
     return tg
+
 
 class Xf(Item):
     def __init__(self, *args, **kwargs):
@@ -94,3 +97,35 @@ class XformParametricDecorator(XformDecorator):
         self.frame_to_frame(self.target.old_plane, self.target.new_plane)
 
         return super().__call__(*args, **kwargs)
+
+
+from mmcore.baseitems.descriptors import BackendProxyDescriptor
+
+
+class MmAffineTransform(list):
+    __getitem__ = BackendProxyDescriptor()
+
+    def __init__(self, obj):
+        object.__init__(self)
+        self._backend = obj
+        super().__init__(self.yield_vals())
+
+    def yield_vals(self):
+        for i in range(4):
+            for j in range(4):
+                yield self[i, j]
+
+    def __array__(self):
+        return np.array(list(self.yield_vals())).reshape((4, 4))
+
+    def list(self):
+        return list(self.yield_vals())
+
+    def __list__(self):
+        return super().__list__(self.yield_vals())
+
+    def __str__(self):
+        return f"{self.__class__.__name__}(\n{np.array(self)})"
+
+    def __repr__(self):
+        return f"<{self.__str__()} at {id(self)}>"

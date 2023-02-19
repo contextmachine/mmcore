@@ -66,7 +66,7 @@ def surface_closest_normals(srf, points):
 
     uvs = Surface.ClosestPoint(list(itertools.repeat(srf, len(points))), [rh.Point3d(*pt) for pt in points],
                                multiple=True)
-    return [srf.NormalAt(*uv) for uv in uvs]
+    return [srf.NormalAt(*uv) for uv in uvs[1:]]
 
 
 def surf_to_buffer_mesh(surface,
@@ -88,7 +88,7 @@ def surf_to_buffer_mesh(surface,
             "version": 4.5,
             "type": "Object",
             "generator": "Object3D.toJSON"
-            },
+        },
         "geometries": [geom],
         "materials": [material.data],
         "object": {
@@ -101,9 +101,9 @@ def surf_to_buffer_mesh(surface,
             "matrix": matrix,
             "geometry": geom["uuid"],
             "material": material.uuid
-            }
-
         }
+
+    }
 
 
 def get1_triangle_mesh_indices(msh, srf):
@@ -157,7 +157,7 @@ class GeomBack:
         'MinimumEdgeLength': 0.0001,
         'MaximumEdgeLength': 0.0,
         'RefineAngle': 0.0
-        }
+    }
 
     @property
     def mesh_parameters(self):
@@ -182,20 +182,28 @@ class GeomBack:
                     "itemSize": 3,
                     "type": "Float32Array",
                     "normalized": False
-                    },
+                },
                 "position": {
                     "array": np.asarray(position, dtype=float).flatten().tolist(),
                     "itemSize": 3,
                     "type": "Float32Array",
                     "normalized": False
-                    },
+                },
                 "uv": {
                     'itemSize': 2,
                     "array": np.asarray(get_np_mesh_uv(mesh), dtype=float).flatten().tolist(),
                     "type": "Float32Array",
                     "normalized": False
-                    }
-                },
+                }
+            },
             "index": dict(type='Uint16Array',
                           array=np.asarray(index).flatten().tolist())
-            }
+        }
+
+
+def breps_to_mesh(*breps):
+    return Mesh.CreateFromBrep(breps, multiple=True)
+
+
+def brep_to_mesh(brep):
+    return Mesh.CreateFromBrep(brep, multiple=False)

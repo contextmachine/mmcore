@@ -1,6 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from abc import ABC, abstractmethod
-from typing import Any, Iterator, Mapping
+from typing import Any, Mapping, Sequence
 
 
 class AbstractDescriptor(ABC):
@@ -112,7 +112,7 @@ def safe_getattribute(cls, self, item) -> None | Any:
         return None
 
 
-class DataView(NoDataDescriptor):
+class DataView(NoDataDescriptor, dict):
     """
     >>> class DataOO(DataView):
     ...     def item_model(self, name, value):
@@ -143,7 +143,11 @@ class DataView(NoDataDescriptor):
 
     def __init__(self, *targets):
         super().__init__()
-        self.targets = targets
+        if targets is not None:
+            self.targets = targets
+        super(dict, self).__init__()
+        for target in self.targets:
+            self.setdefault(target, None)
 
     def __set_name__(self, owner, name):
         super().__set_name__(owner, name)
@@ -200,9 +204,6 @@ class UserData(DataView):
         return d
 
 
-from enum import Enum
-
-
 class Template(str):
     type: str
 
@@ -217,78 +218,6 @@ class ChartTemplate(Template):
     type: str = "chart"
 
 
-class GuiTemplates(Template, Enum):
-    line_chart = ChartTemplate("linechart")
-    pie_chart = ChartTemplate("piechart")
-
-
-class GuiColors(str, Enum):
-    default = "default"
-
-
-class UserDataGuiItem(Mapping, DataDescriptor):
-    """
-    {
-        "id": "color-linechart",
-        "name": "график по цветам",
-        "type": "chart",
-        "key": "color",
-        "colors": "default",
-        "require": [
-          "piechart"
-       ]
-    }
-    """
-
-    def __set_name__(self, owner, name):
-        owner.gui.targets.append(name)
-        self.name = name
-
-    def __iter__(self) -> Iterator:
-        return self._dct().__iter__()
-
-    def __len__(self) -> int:
-        return self._dct().__len__()
-
-    id: str
-    common: str
-    colors: GuiColors = GuiColors.default
-
-    def __init__(self, templates, common="График", **kwargs):
-        super().__init__()
-        self.common = common
-        self.templates = templates
-        self.common = common
-        self.__dict__ |= kwargs
-
-    def __getitem__(self, item):
-        return self._dct().__getitem__(item)
-
-    def _dct(self):
-        return {
-            "id": f"{self.name}-{'-'.join(self.templates)}",
-            "name": self.common,
-            "type": self.templates[0].type,
-            "key": self.name,
-            "colors": self.colors,
-            "require": list(self.templates)
-            }
-
-
-class UserDataGui(DataView):
-    targets = []
-
-    def __init__(self, *targets):
-        super().__init__(*targets)
-        self.targets = list(self.targets)
-
-    def item_model(self, name: str, value: UserDataGuiItem):
-        return value
-
-    def data_model(self, instance, value: list[UserDataGuiItem] | None = None):
-        return None if (value is None) or (value == []) else value
-
-
 class GroupUserData(DataView):
     def __init__(self, *targets):
         super().__init__(*(("gui",) + targets))
@@ -297,4 +226,66 @@ class GroupUserData(DataView):
         return {name: value}
 
     def data_model(self, instance, value):
+        return dict(value)
+
+
+import numpy as np
+import rhino3dm as rg
+
+
+def trx(tx):
+    xf = np.array(tx).reshape((4, 4))
+    xxf = rg.Transform(0.0)
+    for i in range(4):
+        for j in range(4):
+            setattr(xxf, f"M{i}{j}", xf[i, j])
+
+    return xxf
+
+
+class BackendProxyDescriptor:
+    def __init__(self):
+        self.name = '__getitem__'
+
+    def __get__(self, instance, owner):
+
+        def __getitem__(item):
+            i, j = tuple(item)
+            if instance is None:
+
+                return lambda x: getattr(x._backend, f"M{i}{j}")
+            else:
+                return getattr(instance._backend, f"M{i}{j}")
+
+        return __getitem__
+
+
+class DumpData(DataView):
+
+    def __set_name__(self, owner, name):
+        super().__set_name__(owner, name)
+        targets = set()
+        for key in dir(owner):
+            if not key.startswith("_"):
+                targets.add(key)
+        self.targets = list(targets)
+
+    def item_model(self, name: str, value: Any):
+
+        if hasattr(value, "to_dict"):
+            v = value.to_dict()
+        elif hasattr(value, "data"):
+            v = value.data
+        elif hasattr(value, "dumpdata"):
+            v = value.dumpdata
+        elif isinstance(value, Sequence) and not isinstance(value, str):
+            return [self.item_model(None, val) for val in value]
+        elif isinstance(value, Mapping):
+            return [self.item_model(key, val) for key, val in value]
+        else:
+            v = value
+        return v if name is None else (name, v)
+
+    def data_model(self, instance, value: list[tuple[str, Any]]) -> dict:
+
         return dict(value)
