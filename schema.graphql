@@ -14,59 +14,12 @@ directive @cached(
     ttl: Int! = 60
 ) on QUERY
 
-"attractive"
-type buffgeom_attributes {
-    index(
-        "JSON select path"
-        path: String
-    ): jsonb
-    normal(
-        "JSON select path"
-        path: String
-    ): jsonb
-    position(
-        "JSON select path"
-        path: String
-    ): jsonb
-    type: String!
-    uuid: uuid!
-    uv(
-        "JSON select path"
-        path: String
-    ): jsonb
-}
+"A union of all types that use the @key directive"
+union _Entity = buffgeom_objects | geometry_attributes | lc_properties
 
-"aggregated selection of \"buffgeom.attributes\""
-type buffgeom_attributes_aggregate {
-    aggregate: buffgeom_attributes_aggregate_fields
-    nodes: [buffgeom_attributes!]!
-}
-
-"aggregate fields of \"buffgeom.attributes\""
-type buffgeom_attributes_aggregate_fields {
-    count(columns: [buffgeom_attributes_select_column!], distinct: Boolean): Int!
-    max: buffgeom_attributes_max_fields
-    min: buffgeom_attributes_min_fields
-}
-
-"aggregate max on columns"
-type buffgeom_attributes_max_fields {
-    type: String
-    uuid: uuid
-}
-
-"aggregate min on columns"
-type buffgeom_attributes_min_fields {
-    type: String
-    uuid: uuid
-}
-
-"response of any mutation on the table \"buffgeom.attributes\""
-type buffgeom_attributes_mutation_response {
-    "number of rows affected by the mutation"
-    affected_rows: Int!
-    "data from the rows affected by the mutation"
-    returning: [buffgeom_attributes!]!
+type _Service {
+    "SDL representation of schema"
+    sdl: String!
 }
 
 "geometry fields"
@@ -182,15 +135,168 @@ type buffgeom_objects_variance_fields {
     layers: Float
 }
 
+"attractive"
+type geometry_attributes {
+    index(
+        "JSON select path"
+        path: String
+    ): jsonb
+    normal(
+        "JSON select path"
+        path: String
+    ): jsonb
+    position(
+        "JSON select path"
+        path: String
+    ): jsonb
+    type: String!
+    uuid: uuid!
+    uv(
+        "JSON select path"
+        path: String
+    ): jsonb
+}
+
+"aggregated selection of \"buffgeom.attributes\""
+type geometry_attributes_aggregate {
+    aggregate: geometry_attributes_aggregate_fields
+    nodes: [geometry_attributes!]!
+}
+
+"aggregate fields of \"buffgeom.attributes\""
+type geometry_attributes_aggregate_fields {
+    count(columns: [geometry_attributes_select_column!], distinct: Boolean): Int!
+    max: geometry_attributes_max_fields
+    min: geometry_attributes_min_fields
+}
+
+"aggregate max on columns"
+type geometry_attributes_max_fields {
+    type: String
+    uuid: uuid
+}
+
+"aggregate min on columns"
+type geometry_attributes_min_fields {
+    type: String
+    uuid: uuid
+}
+
+"response of any mutation on the table \"buffgeom.attributes\""
+type geometry_attributes_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [geometry_attributes!]!
+}
+
+"columns and relationships of \"lht_ceiling.properties\""
+type lc_properties {
+    id: Int!
+    part: String
+    stage: String
+    status: String!
+    subtype: String!
+    type: String!
+    uuid: uuid!
+    zone: String!
+}
+
+"aggregated selection of \"lht_ceiling.properties\""
+type lc_properties_aggregate {
+    aggregate: lc_properties_aggregate_fields
+    nodes: [lc_properties!]!
+}
+
+"aggregate fields of \"lht_ceiling.properties\""
+type lc_properties_aggregate_fields {
+    avg: lc_properties_avg_fields
+    count(columns: [lc_properties_select_column!], distinct: Boolean): Int!
+    max: lc_properties_max_fields
+    min: lc_properties_min_fields
+    stddev: lc_properties_stddev_fields
+    stddev_pop: lc_properties_stddev_pop_fields
+    stddev_samp: lc_properties_stddev_samp_fields
+    sum: lc_properties_sum_fields
+    var_pop: lc_properties_var_pop_fields
+    var_samp: lc_properties_var_samp_fields
+    variance: lc_properties_variance_fields
+}
+
+"aggregate avg on columns"
+type lc_properties_avg_fields {
+    id: Float
+}
+
+"aggregate max on columns"
+type lc_properties_max_fields {
+    id: Int
+    part: String
+    stage: String
+    status: String
+    subtype: String
+    type: String
+    uuid: uuid
+    zone: String
+}
+
+"aggregate min on columns"
+type lc_properties_min_fields {
+    id: Int
+    part: String
+    stage: String
+    status: String
+    subtype: String
+    type: String
+    uuid: uuid
+    zone: String
+}
+
+"response of any mutation on the table \"lht_ceiling.properties\""
+type lc_properties_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [lc_properties!]!
+}
+
+"aggregate stddev on columns"
+type lc_properties_stddev_fields {
+    id: Float
+}
+
+"aggregate stddev_pop on columns"
+type lc_properties_stddev_pop_fields {
+    id: Float
+}
+
+"aggregate stddev_samp on columns"
+type lc_properties_stddev_samp_fields {
+    id: Float
+}
+
+"aggregate sum on columns"
+type lc_properties_sum_fields {
+    id: Int
+}
+
+"aggregate var_pop on columns"
+type lc_properties_var_pop_fields {
+    id: Float
+}
+
+"aggregate var_samp on columns"
+type lc_properties_var_samp_fields {
+    id: Float
+}
+
+"aggregate variance on columns"
+type lc_properties_variance_fields {
+    id: Float
+}
+
 "mutation root"
 type mutation_root {
-    "delete data from the table: \"buffgeom.attributes\""
-    delete_buffgeom_attributes(
-        "filter the rows which have to be deleted"
-        where: buffgeom_attributes_bool_exp!
-    ): buffgeom_attributes_mutation_response
-    "delete single row from the table: \"buffgeom.attributes\""
-    delete_buffgeom_attributes_by_pk(uuid: uuid!): buffgeom_attributes
     "delete data from the table: \"buffgeom.objects\""
     delete_buffgeom_objects(
         "filter the rows which have to be deleted"
@@ -198,6 +304,20 @@ type mutation_root {
     ): buffgeom_objects_mutation_response
     "delete single row from the table: \"buffgeom.objects\""
     delete_buffgeom_objects_by_pk(uuid: uuid!): buffgeom_objects
+    "delete data from the table: \"buffgeom.attributes\""
+    delete_geometry_attributes(
+        "filter the rows which have to be deleted"
+        where: geometry_attributes_bool_exp!
+    ): geometry_attributes_mutation_response
+    "delete single row from the table: \"buffgeom.attributes\""
+    delete_geometry_attributes_by_pk(uuid: uuid!): geometry_attributes
+    "delete data from the table: \"lht_ceiling.properties\""
+    delete_lc_properties(
+        "filter the rows which have to be deleted"
+        where: lc_properties_bool_exp!
+    ): lc_properties_mutation_response
+    "delete single row from the table: \"lht_ceiling.properties\""
+    delete_lc_properties_by_pk(id: Int!, subtype: String!, type: String!, uuid: uuid!): lc_properties
     "delete data from the table: \"presets.colors\""
     delete_presets_colors(
         "filter the rows which have to be deleted"
@@ -219,20 +339,13 @@ type mutation_root {
     ): projects_queries_hub_mutation_response
     "delete single row from the table: \"projects.queries_hub\""
     delete_projects_queries_hub_by_pk(id: uuid!): projects_queries_hub
-    "insert data into the table: \"buffgeom.attributes\""
-    insert_buffgeom_attributes(
-        "the rows to be inserted"
-        objects: [buffgeom_attributes_insert_input!]!,
-        "upsert condition"
-        on_conflict: buffgeom_attributes_on_conflict
-    ): buffgeom_attributes_mutation_response
-    "insert a single row into the table: \"buffgeom.attributes\""
-    insert_buffgeom_attributes_one(
-        "the row to be inserted"
-        object: buffgeom_attributes_insert_input!,
-        "upsert condition"
-        on_conflict: buffgeom_attributes_on_conflict
-    ): buffgeom_attributes
+    "delete data from the table: \"tests.properties\""
+    delete_properties(
+        "filter the rows which have to be deleted"
+        where: properties_bool_exp!
+    ): properties_mutation_response
+    "delete single row from the table: \"tests.properties\""
+    delete_properties_by_pk(index: Int!, uuid: uuid!): properties
     "insert data into the table: \"buffgeom.objects\""
     insert_buffgeom_objects(
         "the rows to be inserted"
@@ -247,6 +360,34 @@ type mutation_root {
         "upsert condition"
         on_conflict: buffgeom_objects_on_conflict
     ): buffgeom_objects
+    "insert data into the table: \"buffgeom.attributes\""
+    insert_geometry_attributes(
+        "the rows to be inserted"
+        objects: [geometry_attributes_insert_input!]!,
+        "upsert condition"
+        on_conflict: geometry_attributes_on_conflict
+    ): geometry_attributes_mutation_response
+    "insert a single row into the table: \"buffgeom.attributes\""
+    insert_geometry_attributes_one(
+        "the row to be inserted"
+        object: geometry_attributes_insert_input!,
+        "upsert condition"
+        on_conflict: geometry_attributes_on_conflict
+    ): geometry_attributes
+    "insert data into the table: \"lht_ceiling.properties\""
+    insert_lc_properties(
+        "the rows to be inserted"
+        objects: [lc_properties_insert_input!]!,
+        "upsert condition"
+        on_conflict: lc_properties_on_conflict
+    ): lc_properties_mutation_response
+    "insert a single row into the table: \"lht_ceiling.properties\""
+    insert_lc_properties_one(
+        "the row to be inserted"
+        object: lc_properties_insert_input!,
+        "upsert condition"
+        on_conflict: lc_properties_on_conflict
+    ): lc_properties
     "insert data into the table: \"presets.colors\""
     insert_presets_colors(
         "the rows to be inserted"
@@ -289,44 +430,20 @@ type mutation_root {
         "upsert condition"
         on_conflict: projects_queries_hub_on_conflict
     ): projects_queries_hub
-    "update data of the table: \"buffgeom.attributes\""
-    update_buffgeom_attributes(
-        "append existing jsonb value of filtered columns with new jsonb value"
-        _append: buffgeom_attributes_append_input,
-        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
-        _delete_at_path: buffgeom_attributes_delete_at_path_input,
-        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
-        _delete_elem: buffgeom_attributes_delete_elem_input,
-        "delete key/value pair or string element. key/value pairs are matched based on their key value"
-        _delete_key: buffgeom_attributes_delete_key_input,
-        "prepend existing jsonb value of filtered columns with new jsonb value"
-        _prepend: buffgeom_attributes_prepend_input,
-        "sets the columns of the filtered rows to the given values"
-        _set: buffgeom_attributes_set_input,
-        "filter the rows which have to be updated"
-        where: buffgeom_attributes_bool_exp!
-    ): buffgeom_attributes_mutation_response
-    "update single row of the table: \"buffgeom.attributes\""
-    update_buffgeom_attributes_by_pk(
-        "append existing jsonb value of filtered columns with new jsonb value"
-        _append: buffgeom_attributes_append_input,
-        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
-        _delete_at_path: buffgeom_attributes_delete_at_path_input,
-        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
-        _delete_elem: buffgeom_attributes_delete_elem_input,
-        "delete key/value pair or string element. key/value pairs are matched based on their key value"
-        _delete_key: buffgeom_attributes_delete_key_input,
-        "prepend existing jsonb value of filtered columns with new jsonb value"
-        _prepend: buffgeom_attributes_prepend_input,
-        "sets the columns of the filtered rows to the given values"
-        _set: buffgeom_attributes_set_input,
-        pk_columns: buffgeom_attributes_pk_columns_input!
-    ): buffgeom_attributes
-    "update multiples rows of table: \"buffgeom.attributes\""
-    update_buffgeom_attributes_many(
-        "updates to execute, in order"
-        updates: [buffgeom_attributes_updates!]!
-    ): [buffgeom_attributes_mutation_response]
+    "insert data into the table: \"tests.properties\""
+    insert_properties(
+        "the rows to be inserted"
+        objects: [properties_insert_input!]!,
+        "upsert condition"
+        on_conflict: properties_on_conflict
+    ): properties_mutation_response
+    "insert a single row into the table: \"tests.properties\""
+    insert_properties_one(
+        "the row to be inserted"
+        object: properties_insert_input!,
+        "upsert condition"
+        on_conflict: properties_on_conflict
+    ): properties
     "update data of the table: \"buffgeom.objects\""
     update_buffgeom_objects(
         "append existing jsonb value of filtered columns with new jsonb value"
@@ -369,6 +486,66 @@ type mutation_root {
         "updates to execute, in order"
         updates: [buffgeom_objects_updates!]!
     ): [buffgeom_objects_mutation_response]
+    "update data of the table: \"buffgeom.attributes\""
+    update_geometry_attributes(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: geometry_attributes_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: geometry_attributes_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: geometry_attributes_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: geometry_attributes_delete_key_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: geometry_attributes_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: geometry_attributes_set_input,
+        "filter the rows which have to be updated"
+        where: geometry_attributes_bool_exp!
+    ): geometry_attributes_mutation_response
+    "update single row of the table: \"buffgeom.attributes\""
+    update_geometry_attributes_by_pk(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: geometry_attributes_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: geometry_attributes_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: geometry_attributes_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: geometry_attributes_delete_key_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: geometry_attributes_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: geometry_attributes_set_input,
+        pk_columns: geometry_attributes_pk_columns_input!
+    ): geometry_attributes
+    "update multiples rows of table: \"buffgeom.attributes\""
+    update_geometry_attributes_many(
+        "updates to execute, in order"
+        updates: [geometry_attributes_updates!]!
+    ): [geometry_attributes_mutation_response]
+    "update data of the table: \"lht_ceiling.properties\""
+    update_lc_properties(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lc_properties_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lc_properties_set_input,
+        "filter the rows which have to be updated"
+        where: lc_properties_bool_exp!
+    ): lc_properties_mutation_response
+    "update single row of the table: \"lht_ceiling.properties\""
+    update_lc_properties_by_pk(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lc_properties_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lc_properties_set_input,
+        pk_columns: lc_properties_pk_columns_input!
+    ): lc_properties
+    "update multiples rows of table: \"lht_ceiling.properties\""
+    update_lc_properties_many(
+        "updates to execute, in order"
+        updates: [lc_properties_updates!]!
+    ): [lc_properties_mutation_response]
     "update data of the table: \"presets.colors\""
     update_presets_colors(
         "increments the numeric columns with given value of the filtered values"
@@ -447,6 +624,28 @@ type mutation_root {
         "updates to execute, in order"
         updates: [projects_queries_hub_updates!]!
     ): [projects_queries_hub_mutation_response]
+    "update data of the table: \"tests.properties\""
+    update_properties(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: properties_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: properties_set_input,
+        "filter the rows which have to be updated"
+        where: properties_bool_exp!
+    ): properties_mutation_response
+    "update single row of the table: \"tests.properties\""
+    update_properties_by_pk(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: properties_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: properties_set_input,
+        pk_columns: properties_pk_columns_input!
+    ): properties
+    "update multiples rows of table: \"tests.properties\""
+    update_properties_many(
+        "updates to execute, in order"
+        updates: [properties_updates!]!
+    ): [properties_mutation_response]
 }
 
 "colours using in scene"
@@ -643,6 +842,7 @@ type projects_queries_hub {
         "JSON select path"
         path: String
     ): jsonb!
+    cr: timestamptz
     endpoint: String!
     id: uuid!
     name: String!
@@ -668,6 +868,7 @@ type projects_queries_hub_aggregate_fields {
 
 "aggregate max on columns"
 type projects_queries_hub_max_fields {
+    cr: timestamptz
     endpoint: String
     id: uuid
     name: String
@@ -676,6 +877,7 @@ type projects_queries_hub_max_fields {
 
 "aggregate min on columns"
 type projects_queries_hub_min_fields {
+    cr: timestamptz
     endpoint: String
     id: uuid
     name: String
@@ -690,35 +892,131 @@ type projects_queries_hub_mutation_response {
     returning: [projects_queries_hub!]!
 }
 
+"columns and relationships of \"tests.properties\""
+type properties {
+    area: numeric!
+    index: Int!
+    part: String
+    stage: String
+    status: String
+    subtype: Int!
+    type: String!
+    uuid: uuid!
+}
+
+"aggregated selection of \"tests.properties\""
+type properties_aggregate {
+    aggregate: properties_aggregate_fields
+    nodes: [properties!]!
+}
+
+"aggregate fields of \"tests.properties\""
+type properties_aggregate_fields {
+    avg: properties_avg_fields
+    count(columns: [properties_select_column!], distinct: Boolean): Int!
+    max: properties_max_fields
+    min: properties_min_fields
+    stddev: properties_stddev_fields
+    stddev_pop: properties_stddev_pop_fields
+    stddev_samp: properties_stddev_samp_fields
+    sum: properties_sum_fields
+    var_pop: properties_var_pop_fields
+    var_samp: properties_var_samp_fields
+    variance: properties_variance_fields
+}
+
+"aggregate avg on columns"
+type properties_avg_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate max on columns"
+type properties_max_fields {
+    area: numeric
+    index: Int
+    part: String
+    stage: String
+    status: String
+    subtype: Int
+    type: String
+    uuid: uuid
+}
+
+"aggregate min on columns"
+type properties_min_fields {
+    area: numeric
+    index: Int
+    part: String
+    stage: String
+    status: String
+    subtype: Int
+    type: String
+    uuid: uuid
+}
+
+"response of any mutation on the table \"tests.properties\""
+type properties_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [properties!]!
+}
+
+"aggregate stddev on columns"
+type properties_stddev_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate stddev_pop on columns"
+type properties_stddev_pop_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate stddev_samp on columns"
+type properties_stddev_samp_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate sum on columns"
+type properties_sum_fields {
+    area: numeric
+    index: Int
+    subtype: Int
+}
+
+"aggregate var_pop on columns"
+type properties_var_pop_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate var_samp on columns"
+type properties_var_samp_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
+"aggregate variance on columns"
+type properties_variance_fields {
+    area: Float
+    index: Float
+    subtype: Float
+}
+
 type query_root {
-    "fetch data from the table: \"buffgeom.attributes\""
-    buffgeom_attributes(
-        "distinct select on columns"
-        distinct_on: [buffgeom_attributes_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [buffgeom_attributes_order_by!],
-        "filter the rows returned"
-        where: buffgeom_attributes_bool_exp
-    ): [buffgeom_attributes!]!
-    "fetch aggregated fields from the table: \"buffgeom.attributes\""
-    buffgeom_attributes_aggregate(
-        "distinct select on columns"
-        distinct_on: [buffgeom_attributes_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [buffgeom_attributes_order_by!],
-        "filter the rows returned"
-        where: buffgeom_attributes_bool_exp
-    ): buffgeom_attributes_aggregate!
-    "fetch data from the table: \"buffgeom.attributes\" using primary key columns"
-    buffgeom_attributes_by_pk(uuid: uuid!): buffgeom_attributes
+    "query _Entity union"
+    _entities(representations: [_Any!]!): _Entity
+    _service: _Service!
     "fetch data from the table: \"buffgeom.objects\""
     buffgeom_objects(
         "distinct select on columns"
@@ -747,6 +1045,62 @@ type query_root {
     ): buffgeom_objects_aggregate!
     "fetch data from the table: \"buffgeom.objects\" using primary key columns"
     buffgeom_objects_by_pk(uuid: uuid!): buffgeom_objects
+    "fetch data from the table: \"buffgeom.attributes\""
+    geometry_attributes(
+        "distinct select on columns"
+        distinct_on: [geometry_attributes_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [geometry_attributes_order_by!],
+        "filter the rows returned"
+        where: geometry_attributes_bool_exp
+    ): [geometry_attributes!]!
+    "fetch aggregated fields from the table: \"buffgeom.attributes\""
+    geometry_attributes_aggregate(
+        "distinct select on columns"
+        distinct_on: [geometry_attributes_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [geometry_attributes_order_by!],
+        "filter the rows returned"
+        where: geometry_attributes_bool_exp
+    ): geometry_attributes_aggregate!
+    "fetch data from the table: \"buffgeom.attributes\" using primary key columns"
+    geometry_attributes_by_pk(uuid: uuid!): geometry_attributes
+    "fetch data from the table: \"lht_ceiling.properties\""
+    lc_properties(
+        "distinct select on columns"
+        distinct_on: [lc_properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lc_properties_order_by!],
+        "filter the rows returned"
+        where: lc_properties_bool_exp
+    ): [lc_properties!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.properties\""
+    lc_properties_aggregate(
+        "distinct select on columns"
+        distinct_on: [lc_properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lc_properties_order_by!],
+        "filter the rows returned"
+        where: lc_properties_bool_exp
+    ): lc_properties_aggregate!
+    "fetch data from the table: \"lht_ceiling.properties\" using primary key columns"
+    lc_properties_by_pk(id: Int!, subtype: String!, type: String!, uuid: uuid!): lc_properties
     "fetch data from the table: \"presets.colors\""
     presets_colors(
         "distinct select on columns"
@@ -831,46 +1185,37 @@ type query_root {
     ): projects_queries_hub_aggregate!
     "fetch data from the table: \"projects.queries_hub\" using primary key columns"
     projects_queries_hub_by_pk(id: uuid!): projects_queries_hub
+    "fetch data from the table: \"tests.properties\""
+    properties(
+        "distinct select on columns"
+        distinct_on: [properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [properties_order_by!],
+        "filter the rows returned"
+        where: properties_bool_exp
+    ): [properties!]!
+    "fetch aggregated fields from the table: \"tests.properties\""
+    properties_aggregate(
+        "distinct select on columns"
+        distinct_on: [properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [properties_order_by!],
+        "filter the rows returned"
+        where: properties_bool_exp
+    ): properties_aggregate!
+    "fetch data from the table: \"tests.properties\" using primary key columns"
+    properties_by_pk(index: Int!, uuid: uuid!): properties
 }
 
 type subscription_root {
-    "fetch data from the table: \"buffgeom.attributes\""
-    buffgeom_attributes(
-        "distinct select on columns"
-        distinct_on: [buffgeom_attributes_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [buffgeom_attributes_order_by!],
-        "filter the rows returned"
-        where: buffgeom_attributes_bool_exp
-    ): [buffgeom_attributes!]!
-    "fetch aggregated fields from the table: \"buffgeom.attributes\""
-    buffgeom_attributes_aggregate(
-        "distinct select on columns"
-        distinct_on: [buffgeom_attributes_select_column!],
-        "limit the number of rows returned"
-        limit: Int,
-        "skip the first n rows. Use only with order_by"
-        offset: Int,
-        "sort the rows by one or more columns"
-        order_by: [buffgeom_attributes_order_by!],
-        "filter the rows returned"
-        where: buffgeom_attributes_bool_exp
-    ): buffgeom_attributes_aggregate!
-    "fetch data from the table: \"buffgeom.attributes\" using primary key columns"
-    buffgeom_attributes_by_pk(uuid: uuid!): buffgeom_attributes
-    "fetch data from the table in a streaming manner: \"buffgeom.attributes\""
-    buffgeom_attributes_stream(
-        "maximum number of rows returned in a single batch"
-        batch_size: Int!,
-        "cursor to stream the results returned by the query"
-        cursor: [buffgeom_attributes_stream_cursor_input]!,
-        "filter the rows returned"
-        where: buffgeom_attributes_bool_exp
-    ): [buffgeom_attributes!]!
     "fetch data from the table: \"buffgeom.objects\""
     buffgeom_objects(
         "distinct select on columns"
@@ -908,6 +1253,80 @@ type subscription_root {
         "filter the rows returned"
         where: buffgeom_objects_bool_exp
     ): [buffgeom_objects!]!
+    "fetch data from the table: \"buffgeom.attributes\""
+    geometry_attributes(
+        "distinct select on columns"
+        distinct_on: [geometry_attributes_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [geometry_attributes_order_by!],
+        "filter the rows returned"
+        where: geometry_attributes_bool_exp
+    ): [geometry_attributes!]!
+    "fetch aggregated fields from the table: \"buffgeom.attributes\""
+    geometry_attributes_aggregate(
+        "distinct select on columns"
+        distinct_on: [geometry_attributes_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [geometry_attributes_order_by!],
+        "filter the rows returned"
+        where: geometry_attributes_bool_exp
+    ): geometry_attributes_aggregate!
+    "fetch data from the table: \"buffgeom.attributes\" using primary key columns"
+    geometry_attributes_by_pk(uuid: uuid!): geometry_attributes
+    "fetch data from the table in a streaming manner: \"buffgeom.attributes\""
+    geometry_attributes_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [geometry_attributes_stream_cursor_input]!,
+        "filter the rows returned"
+        where: geometry_attributes_bool_exp
+    ): [geometry_attributes!]!
+    "fetch data from the table: \"lht_ceiling.properties\""
+    lc_properties(
+        "distinct select on columns"
+        distinct_on: [lc_properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lc_properties_order_by!],
+        "filter the rows returned"
+        where: lc_properties_bool_exp
+    ): [lc_properties!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.properties\""
+    lc_properties_aggregate(
+        "distinct select on columns"
+        distinct_on: [lc_properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lc_properties_order_by!],
+        "filter the rows returned"
+        where: lc_properties_bool_exp
+    ): lc_properties_aggregate!
+    "fetch data from the table: \"lht_ceiling.properties\" using primary key columns"
+    lc_properties_by_pk(id: Int!, subtype: String!, type: String!, uuid: uuid!): lc_properties
+    "fetch data from the table in a streaming manner: \"lht_ceiling.properties\""
+    lc_properties_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [lc_properties_stream_cursor_input]!,
+        "filter the rows returned"
+        where: lc_properties_bool_exp
+    ): [lc_properties!]!
     "fetch data from the table: \"presets.colors\""
     presets_colors(
         "distinct select on columns"
@@ -1019,46 +1438,43 @@ type subscription_root {
         "filter the rows returned"
         where: projects_queries_hub_bool_exp
     ): [projects_queries_hub!]!
-}
-
-"unique or primary key constraints on table \"buffgeom.attributes\""
-enum buffgeom_attributes_constraint {
-    "unique or primary key constraint on columns \"uuid\""
-    attributes_pkey
-    "unique or primary key constraint on columns \"uuid\""
-    attributes_uuid_key
-}
-
-"select columns of table \"buffgeom.attributes\""
-enum buffgeom_attributes_select_column {
-    "column name"
-    index
-    "column name"
-    normal
-    "column name"
-    position
-    "column name"
-    type
-    "column name"
-    uuid
-    "column name"
-    uv
-}
-
-"update columns of table \"buffgeom.attributes\""
-enum buffgeom_attributes_update_column {
-    "column name"
-    index
-    "column name"
-    normal
-    "column name"
-    position
-    "column name"
-    type
-    "column name"
-    uuid
-    "column name"
-    uv
+    "fetch data from the table: \"tests.properties\""
+    properties(
+        "distinct select on columns"
+        distinct_on: [properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [properties_order_by!],
+        "filter the rows returned"
+        where: properties_bool_exp
+    ): [properties!]!
+    "fetch aggregated fields from the table: \"tests.properties\""
+    properties_aggregate(
+        "distinct select on columns"
+        distinct_on: [properties_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [properties_order_by!],
+        "filter the rows returned"
+        where: properties_bool_exp
+    ): properties_aggregate!
+    "fetch data from the table: \"tests.properties\" using primary key columns"
+    properties_by_pk(index: Int!, uuid: uuid!): properties
+    "fetch data from the table in a streaming manner: \"tests.properties\""
+    properties_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [properties_stream_cursor_input]!,
+        "filter the rows returned"
+        where: properties_bool_exp
+    ): [properties!]!
 }
 
 "unique or primary key constraints on table \"buffgeom.objects\""
@@ -1127,6 +1543,94 @@ enum cursor_ordering {
     DESC
 }
 
+"unique or primary key constraints on table \"buffgeom.attributes\""
+enum geometry_attributes_constraint {
+    "unique or primary key constraint on columns \"uuid\""
+    attributes_pkey
+    "unique or primary key constraint on columns \"uuid\""
+    attributes_uuid_key
+}
+
+"select columns of table \"buffgeom.attributes\""
+enum geometry_attributes_select_column {
+    "column name"
+    index
+    "column name"
+    normal
+    "column name"
+    position
+    "column name"
+    type
+    "column name"
+    uuid
+    "column name"
+    uv
+}
+
+"update columns of table \"buffgeom.attributes\""
+enum geometry_attributes_update_column {
+    "column name"
+    index
+    "column name"
+    normal
+    "column name"
+    position
+    "column name"
+    type
+    "column name"
+    uuid
+    "column name"
+    uv
+}
+
+"unique or primary key constraints on table \"lht_ceiling.properties\""
+enum lc_properties_constraint {
+    "unique or primary key constraint on columns \"uuid\", \"id\""
+    properties_id_uuid_key
+    "unique or primary key constraint on columns \"type\", \"uuid\", \"id\", \"subtype\""
+    properties_pkey
+}
+
+"select columns of table \"lht_ceiling.properties\""
+enum lc_properties_select_column {
+    "column name"
+    id
+    "column name"
+    part
+    "column name"
+    stage
+    "column name"
+    status
+    "column name"
+    subtype
+    "column name"
+    type
+    "column name"
+    uuid
+    "column name"
+    zone
+}
+
+"update columns of table \"lht_ceiling.properties\""
+enum lc_properties_update_column {
+    "column name"
+    id
+    "column name"
+    part
+    "column name"
+    stage
+    "column name"
+    status
+    "column name"
+    subtype
+    "column name"
+    type
+    "column name"
+    uuid
+    "column name"
+    zone
+}
+
 "column ordering options"
 enum order_by {
     "in ascending order, nulls last"
@@ -1145,6 +1649,10 @@ enum order_by {
 
 "unique or primary key constraints on table \"presets.colors\""
 enum presets_colors_constraint {
+    "unique or primary key constraint on columns \"decimal\""
+    colors_decimal_key
+    "unique or primary key constraint on columns \"hex\""
+    colors_hex_key
     "unique or primary key constraint on columns \"id\""
     colors_id_key
     "unique or primary key constraint on columns \"id\", \"palette\""
@@ -1232,6 +1740,8 @@ enum projects_queries_hub_select_column {
     "column name"
     body
     "column name"
+    cr
+    "column name"
     endpoint
     "column name"
     id
@@ -1248,6 +1758,8 @@ enum projects_queries_hub_update_column {
     "column name"
     body
     "column name"
+    cr
+    "column name"
     endpoint
     "column name"
     id
@@ -1259,9 +1771,64 @@ enum projects_queries_hub_update_column {
     tags
 }
 
+"unique or primary key constraints on table \"tests.properties\""
+enum properties_constraint {
+    "unique or primary key constraint on columns \"index\""
+    lht_tri_pnl_0_index_key
+    "unique or primary key constraint on columns \"index\", \"uuid\""
+    lht_tri_pnl_0_pkey
+    "unique or primary key constraint on columns \"uuid\""
+    lht_tri_pnl_0_uuid_key
+}
+
+"select columns of table \"tests.properties\""
+enum properties_select_column {
+    "column name"
+    area
+    "column name"
+    index
+    "column name"
+    part
+    "column name"
+    stage
+    "column name"
+    status
+    "column name"
+    subtype
+    "column name"
+    type
+    "column name"
+    uuid
+}
+
+"update columns of table \"tests.properties\""
+enum properties_update_column {
+    "column name"
+    area
+    "column name"
+    index
+    "column name"
+    part
+    "column name"
+    stage
+    "column name"
+    status
+    "column name"
+    subtype
+    "column name"
+    type
+    "column name"
+    uuid
+}
+
+"Scalar _Any"
+scalar _Any
+
 scalar jsonb
 
 scalar name
+
+scalar numeric
 
 scalar timestamptz
 
@@ -1324,136 +1891,6 @@ input String_comparison_exp {
     _regex: String
     "does the column match the given SQL regular expression"
     _similar: String
-}
-
-"append existing jsonb value of filtered columns with new jsonb value"
-input buffgeom_attributes_append_input {
-    index: jsonb
-    normal: jsonb
-    position: jsonb
-    uv: jsonb
-}
-
-"Boolean expression to filter rows from the table \"buffgeom.attributes\". All fields are combined with a logical 'AND'."
-input buffgeom_attributes_bool_exp {
-    _and: [buffgeom_attributes_bool_exp!]
-    _not: buffgeom_attributes_bool_exp
-    _or: [buffgeom_attributes_bool_exp!]
-    index: jsonb_comparison_exp
-    normal: jsonb_comparison_exp
-    position: jsonb_comparison_exp
-    type: String_comparison_exp
-    uuid: uuid_comparison_exp
-    uv: jsonb_comparison_exp
-}
-
-"delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
-input buffgeom_attributes_delete_at_path_input {
-    index: [String!]
-    normal: [String!]
-    position: [String!]
-    uv: [String!]
-}
-
-"delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
-input buffgeom_attributes_delete_elem_input {
-    index: Int
-    normal: Int
-    position: Int
-    uv: Int
-}
-
-"delete key/value pair or string element. key/value pairs are matched based on their key value"
-input buffgeom_attributes_delete_key_input {
-    index: String
-    normal: String
-    position: String
-    uv: String
-}
-
-"input type for inserting data into table \"buffgeom.attributes\""
-input buffgeom_attributes_insert_input {
-    index: jsonb
-    normal: jsonb
-    position: jsonb
-    type: String
-    uuid: uuid
-    uv: jsonb
-}
-
-"on_conflict condition type for table \"buffgeom.attributes\""
-input buffgeom_attributes_on_conflict {
-    constraint: buffgeom_attributes_constraint!
-    update_columns: [buffgeom_attributes_update_column!]! = []
-    where: buffgeom_attributes_bool_exp
-}
-
-"Ordering options when selecting data from \"buffgeom.attributes\"."
-input buffgeom_attributes_order_by {
-    index: order_by
-    normal: order_by
-    position: order_by
-    type: order_by
-    uuid: order_by
-    uv: order_by
-}
-
-"primary key columns input for table: buffgeom.attributes"
-input buffgeom_attributes_pk_columns_input {
-    uuid: uuid!
-}
-
-"prepend existing jsonb value of filtered columns with new jsonb value"
-input buffgeom_attributes_prepend_input {
-    index: jsonb
-    normal: jsonb
-    position: jsonb
-    uv: jsonb
-}
-
-"input type for updating data in table \"buffgeom.attributes\""
-input buffgeom_attributes_set_input {
-    index: jsonb
-    normal: jsonb
-    position: jsonb
-    type: String
-    uuid: uuid
-    uv: jsonb
-}
-
-"Streaming cursor of the table \"buffgeom_attributes\""
-input buffgeom_attributes_stream_cursor_input {
-    "Stream column input with initial value"
-    initial_value: buffgeom_attributes_stream_cursor_value_input!
-    "cursor ordering"
-    ordering: cursor_ordering
-}
-
-"Initial value of the column from where the streaming should start"
-input buffgeom_attributes_stream_cursor_value_input {
-    index: jsonb
-    normal: jsonb
-    position: jsonb
-    type: String
-    uuid: uuid
-    uv: jsonb
-}
-
-input buffgeom_attributes_updates {
-    "append existing jsonb value of filtered columns with new jsonb value"
-    _append: buffgeom_attributes_append_input
-    "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
-    _delete_at_path: buffgeom_attributes_delete_at_path_input
-    "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
-    _delete_elem: buffgeom_attributes_delete_elem_input
-    "delete key/value pair or string element. key/value pairs are matched based on their key value"
-    _delete_key: buffgeom_attributes_delete_key_input
-    "prepend existing jsonb value of filtered columns with new jsonb value"
-    _prepend: buffgeom_attributes_prepend_input
-    "sets the columns of the filtered rows to the given values"
-    _set: buffgeom_attributes_set_input
-    "filter the rows which have to be updated"
-    where: buffgeom_attributes_bool_exp!
 }
 
 "append existing jsonb value of filtered columns with new jsonb value"
@@ -1613,6 +2050,136 @@ input buffgeom_objects_updates {
     where: buffgeom_objects_bool_exp!
 }
 
+"append existing jsonb value of filtered columns with new jsonb value"
+input geometry_attributes_append_input {
+    index: jsonb
+    normal: jsonb
+    position: jsonb
+    uv: jsonb
+}
+
+"Boolean expression to filter rows from the table \"buffgeom.attributes\". All fields are combined with a logical 'AND'."
+input geometry_attributes_bool_exp {
+    _and: [geometry_attributes_bool_exp!]
+    _not: geometry_attributes_bool_exp
+    _or: [geometry_attributes_bool_exp!]
+    index: jsonb_comparison_exp
+    normal: jsonb_comparison_exp
+    position: jsonb_comparison_exp
+    type: String_comparison_exp
+    uuid: uuid_comparison_exp
+    uv: jsonb_comparison_exp
+}
+
+"delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+input geometry_attributes_delete_at_path_input {
+    index: [String!]
+    normal: [String!]
+    position: [String!]
+    uv: [String!]
+}
+
+"delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+input geometry_attributes_delete_elem_input {
+    index: Int
+    normal: Int
+    position: Int
+    uv: Int
+}
+
+"delete key/value pair or string element. key/value pairs are matched based on their key value"
+input geometry_attributes_delete_key_input {
+    index: String
+    normal: String
+    position: String
+    uv: String
+}
+
+"input type for inserting data into table \"buffgeom.attributes\""
+input geometry_attributes_insert_input {
+    index: jsonb
+    normal: jsonb
+    position: jsonb
+    type: String
+    uuid: uuid
+    uv: jsonb
+}
+
+"on_conflict condition type for table \"buffgeom.attributes\""
+input geometry_attributes_on_conflict {
+    constraint: geometry_attributes_constraint!
+    update_columns: [geometry_attributes_update_column!]! = []
+    where: geometry_attributes_bool_exp
+}
+
+"Ordering options when selecting data from \"buffgeom.attributes\"."
+input geometry_attributes_order_by {
+    index: order_by
+    normal: order_by
+    position: order_by
+    type: order_by
+    uuid: order_by
+    uv: order_by
+}
+
+"primary key columns input for table: buffgeom.attributes"
+input geometry_attributes_pk_columns_input {
+    uuid: uuid!
+}
+
+"prepend existing jsonb value of filtered columns with new jsonb value"
+input geometry_attributes_prepend_input {
+    index: jsonb
+    normal: jsonb
+    position: jsonb
+    uv: jsonb
+}
+
+"input type for updating data in table \"buffgeom.attributes\""
+input geometry_attributes_set_input {
+    index: jsonb
+    normal: jsonb
+    position: jsonb
+    type: String
+    uuid: uuid
+    uv: jsonb
+}
+
+"Streaming cursor of the table \"geometry_attributes\""
+input geometry_attributes_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: geometry_attributes_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input geometry_attributes_stream_cursor_value_input {
+    index: jsonb
+    normal: jsonb
+    position: jsonb
+    type: String
+    uuid: uuid
+    uv: jsonb
+}
+
+input geometry_attributes_updates {
+    "append existing jsonb value of filtered columns with new jsonb value"
+    _append: geometry_attributes_append_input
+    "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+    _delete_at_path: geometry_attributes_delete_at_path_input
+    "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+    _delete_elem: geometry_attributes_delete_elem_input
+    "delete key/value pair or string element. key/value pairs are matched based on their key value"
+    _delete_key: geometry_attributes_delete_key_input
+    "prepend existing jsonb value of filtered columns with new jsonb value"
+    _prepend: geometry_attributes_prepend_input
+    "sets the columns of the filtered rows to the given values"
+    _set: geometry_attributes_set_input
+    "filter the rows which have to be updated"
+    where: geometry_attributes_bool_exp!
+}
+
 input jsonb_cast_exp {
     String: String_comparison_exp
 }
@@ -1641,6 +2208,106 @@ input jsonb_comparison_exp {
     _nin: [jsonb!]
 }
 
+"Boolean expression to filter rows from the table \"lht_ceiling.properties\". All fields are combined with a logical 'AND'."
+input lc_properties_bool_exp {
+    _and: [lc_properties_bool_exp!]
+    _not: lc_properties_bool_exp
+    _or: [lc_properties_bool_exp!]
+    id: Int_comparison_exp
+    part: String_comparison_exp
+    stage: String_comparison_exp
+    status: String_comparison_exp
+    subtype: String_comparison_exp
+    type: String_comparison_exp
+    uuid: uuid_comparison_exp
+    zone: String_comparison_exp
+}
+
+"input type for incrementing numeric columns in table \"lht_ceiling.properties\""
+input lc_properties_inc_input {
+    id: Int
+}
+
+"input type for inserting data into table \"lht_ceiling.properties\""
+input lc_properties_insert_input {
+    id: Int
+    part: String
+    stage: String
+    status: String
+    subtype: String
+    type: String
+    uuid: uuid
+    zone: String
+}
+
+"on_conflict condition type for table \"lht_ceiling.properties\""
+input lc_properties_on_conflict {
+    constraint: lc_properties_constraint!
+    update_columns: [lc_properties_update_column!]! = []
+    where: lc_properties_bool_exp
+}
+
+"Ordering options when selecting data from \"lht_ceiling.properties\"."
+input lc_properties_order_by {
+    id: order_by
+    part: order_by
+    stage: order_by
+    status: order_by
+    subtype: order_by
+    type: order_by
+    uuid: order_by
+    zone: order_by
+}
+
+"primary key columns input for table: lht_ceiling.properties"
+input lc_properties_pk_columns_input {
+    id: Int!
+    subtype: String!
+    type: String!
+    uuid: uuid!
+}
+
+"input type for updating data in table \"lht_ceiling.properties\""
+input lc_properties_set_input {
+    id: Int
+    part: String
+    stage: String
+    status: String
+    subtype: String
+    type: String
+    uuid: uuid
+    zone: String
+}
+
+"Streaming cursor of the table \"lc_properties\""
+input lc_properties_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: lc_properties_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input lc_properties_stream_cursor_value_input {
+    id: Int
+    part: String
+    stage: String
+    status: String
+    subtype: String
+    type: String
+    uuid: uuid
+    zone: String
+}
+
+input lc_properties_updates {
+    "increments the numeric columns with given value of the filtered values"
+    _inc: lc_properties_inc_input
+    "sets the columns of the filtered rows to the given values"
+    _set: lc_properties_set_input
+    "filter the rows which have to be updated"
+    where: lc_properties_bool_exp!
+}
+
 "Boolean expression to compare columns of type \"name\". All fields are combined with logical 'AND'."
 input name_comparison_exp {
     _eq: name
@@ -1652,6 +2319,19 @@ input name_comparison_exp {
     _lte: name
     _neq: name
     _nin: [name!]
+}
+
+"Boolean expression to compare columns of type \"numeric\". All fields are combined with logical 'AND'."
+input numeric_comparison_exp {
+    _eq: numeric
+    _gt: numeric
+    _gte: numeric
+    _in: [numeric!]
+    _is_null: Boolean
+    _lt: numeric
+    _lte: numeric
+    _neq: numeric
+    _nin: [numeric!]
 }
 
 "Boolean expression to filter rows from the table \"presets.colors\". All fields are combined with a logical 'AND'."
@@ -1839,6 +2519,7 @@ input projects_queries_hub_bool_exp {
     _not: projects_queries_hub_bool_exp
     _or: [projects_queries_hub_bool_exp!]
     body: jsonb_comparison_exp
+    cr: timestamptz_comparison_exp
     endpoint: String_comparison_exp
     id: uuid_comparison_exp
     name: String_comparison_exp
@@ -1867,6 +2548,7 @@ input projects_queries_hub_delete_key_input {
 "input type for inserting data into table \"projects.queries_hub\""
 input projects_queries_hub_insert_input {
     body: jsonb
+    cr: timestamptz
     endpoint: String
     id: uuid
     name: String
@@ -1884,6 +2566,7 @@ input projects_queries_hub_on_conflict {
 "Ordering options when selecting data from \"projects.queries_hub\"."
 input projects_queries_hub_order_by {
     body: order_by
+    cr: order_by
     endpoint: order_by
     id: order_by
     name: order_by
@@ -1905,6 +2588,7 @@ input projects_queries_hub_prepend_input {
 "input type for updating data in table \"projects.queries_hub\""
 input projects_queries_hub_set_input {
     body: jsonb
+    cr: timestamptz
     endpoint: String
     id: uuid
     name: String
@@ -1923,6 +2607,7 @@ input projects_queries_hub_stream_cursor_input {
 "Initial value of the column from where the streaming should start"
 input projects_queries_hub_stream_cursor_value_input {
     body: jsonb
+    cr: timestamptz
     endpoint: String
     id: uuid
     name: String
@@ -1945,6 +2630,106 @@ input projects_queries_hub_updates {
     _set: projects_queries_hub_set_input
     "filter the rows which have to be updated"
     where: projects_queries_hub_bool_exp!
+}
+
+"Boolean expression to filter rows from the table \"tests.properties\". All fields are combined with a logical 'AND'."
+input properties_bool_exp {
+    _and: [properties_bool_exp!]
+    _not: properties_bool_exp
+    _or: [properties_bool_exp!]
+    area: numeric_comparison_exp
+    index: Int_comparison_exp
+    part: String_comparison_exp
+    stage: String_comparison_exp
+    status: String_comparison_exp
+    subtype: Int_comparison_exp
+    type: String_comparison_exp
+    uuid: uuid_comparison_exp
+}
+
+"input type for incrementing numeric columns in table \"tests.properties\""
+input properties_inc_input {
+    area: numeric
+    index: Int
+    subtype: Int
+}
+
+"input type for inserting data into table \"tests.properties\""
+input properties_insert_input {
+    area: numeric
+    index: Int
+    part: String
+    stage: String
+    status: String
+    subtype: Int
+    type: String
+    uuid: uuid
+}
+
+"on_conflict condition type for table \"tests.properties\""
+input properties_on_conflict {
+    constraint: properties_constraint!
+    update_columns: [properties_update_column!]! = []
+    where: properties_bool_exp
+}
+
+"Ordering options when selecting data from \"tests.properties\"."
+input properties_order_by {
+    area: order_by
+    index: order_by
+    part: order_by
+    stage: order_by
+    status: order_by
+    subtype: order_by
+    type: order_by
+    uuid: order_by
+}
+
+"primary key columns input for table: tests.properties"
+input properties_pk_columns_input {
+    index: Int!
+    uuid: uuid!
+}
+
+"input type for updating data in table \"tests.properties\""
+input properties_set_input {
+    area: numeric
+    index: Int
+    part: String
+    stage: String
+    status: String
+    subtype: Int
+    type: String
+    uuid: uuid
+}
+
+"Streaming cursor of the table \"properties\""
+input properties_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: properties_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input properties_stream_cursor_value_input {
+    area: numeric
+    index: Int
+    part: String
+    stage: String
+    status: String
+    subtype: Int
+    type: String
+    uuid: uuid
+}
+
+input properties_updates {
+    "increments the numeric columns with given value of the filtered values"
+    _inc: properties_inc_input
+    "sets the columns of the filtered rows to the given values"
+    _set: properties_set_input
+    "filter the rows which have to be updated"
+    where: properties_bool_exp!
 }
 
 "Boolean expression to compare columns of type \"timestamptz\". All fields are combined with logical 'AND'."

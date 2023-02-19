@@ -9,7 +9,7 @@ from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping
 import numpy as np
 import pandas as pd
 
-from .traversal import sequence_type
+from mmcore.collections.traversal import sequence_type
 
 
 def _(): pass
@@ -229,7 +229,7 @@ class CollectionItemGetSetter(CollectionItemGetter):
         return _setter(key, value)
 
 
-from mmcore.collection.masks import Mask
+from mmcore.collections.masks import Mask
 import hashlib
 
 

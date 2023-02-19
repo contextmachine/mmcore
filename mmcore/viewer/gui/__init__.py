@@ -2,6 +2,7 @@ from enum import Enum
 from typing import Any
 
 from mmcore.baseitems.descriptors import DataView
+from .chart import Chart, ChartTypes, create_chart
 
 
 class GuiColors(str, Enum):
@@ -32,22 +33,6 @@ GuiControls = {"type": "controls",
 
 GuiModel = list[GuiControls, GuiColors, dict]
 
-
-class UserDataGui(DataView):
-    targets = []
-
-    def __init__(self, *targets):
-        super().__init__(*targets)
-        self.targets = list(self.targets)
-
-    def item_model(self, name: str, value: GuiModel):
-        return value
-
-    def data_model(self, instance, value: GuiModel | None = None):
-        if (value is None) or (value == []):
-            pass
-        else:
-            return value
 
 
 class UserCharts(DataView):
