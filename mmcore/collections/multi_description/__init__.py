@@ -133,7 +133,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
-        d = np.array(self._seq).flatten()[0]
+        d = self.element_type
         keys = {}
         if isinstance(d, dict):
             return d.keys()
@@ -157,27 +157,26 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __getitem__(self, k) -> Seq:
 
-        if isinstance(self._seq[0], Mapping):
+        if isinstance(self._seq[0], dict):
 
             # _getter = multi_getitem(self._seq)
 
             _getter = multi_getitem(self._seq)
-        elif isinstance(sequence_type(self._seq), Sequence) and not isinstance(self._seq[0], str):
-            return [multi_getitem(i) for i in self._seq]
+            return list(_getter(k))
+        elif isinstance(self._seq[0], str):
+            _getter = multi_getter(self._seq)
+            return list(_getter(k))
+        elif isinstance(self._seq[0], Sequence) and not isinstance(self._seq[0], str):
+            return [CollectionItemGetter(i).__getitem__(k) for i in self._seq]
 
-        elif isinstance(sequence_type(self._seq), CollectionItemGetter):
-            return [multi_getitem(i._seq) for i in self._seq]
+        elif isinstance(self._seq[0], CollectionItemGetter):
+            return [i.__getitem__(k) for i in self._seq]
 
         else:
             _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
-        try:
-
             return list(_getter(k))
-        except AttributeError as err:
-            raise KeyError from err
-        except KeyError as err:
-            raise err
+
 
     def __str__(self):
         return f"{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})]"
@@ -229,24 +228,14 @@ class CollectionItemGetSetter(CollectionItemGetter):
         return _setter(key, value)
 
 
-from mmcore.collections.masks import Mask
 import hashlib
 
-
-class MultiDescriptorMask(Mask):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    @staticmethod
-    def wrapper(mask, instance, owner, constrains,
-                **kwargs):  # Strong, very strong, functional programming ... 💪🏼💪🏼💪🏼
-        return lambda key: list(filter(constrains(instance[key], **kwargs), instance))  # 💄💋 By, baby
 
 
 class MaskedGetSetter(CollectionItemGetSetter, ABC):
     masks = {}
 
-    def set_mask(self, name: str, mask: Mask):
+    def set_mask(self, name: str, mask):
         self.__dict__[name] = mask
         mask.__set_name__(self, name)
         self.masks[name] = mask
