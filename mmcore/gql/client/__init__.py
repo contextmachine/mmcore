@@ -18,8 +18,6 @@ __all__ = [
     "GQLMutation"
 ]
 
-import Rhino.Geometry as rg
-
 
 @dataclass
 class GQLClient:
@@ -310,7 +308,7 @@ matrix, uuid = [
     1
 ], "9de4c938-c011-4b05-a958-2fbd455e5c30"
 
-rg.Circle
+
 class GQLPaginateQuery(GQLQuery):
     """
     @note
