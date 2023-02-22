@@ -1,5 +1,5 @@
 from mmcore.geom.materials import ColorRGB
-from mmcore.gql.gql import GQLMutation
+from mmcore.gql.client import GQLMutation
 
 
 def color_palette(colors, i=None, **kwargs):
