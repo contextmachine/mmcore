@@ -15,10 +15,11 @@ RhService.host = "0.0.0.0"
 # RhService.ssl_keyfile = f"{os.getenv('HOME')}/ssl/ca-certificates/private_key.pem"
 # RhService.logfile = f"{os.getenv('HOME')}/rhpyc.log"
 
+import os
 
 import pprint
 
-with open("/Users/andrewastakhov/PycharmProjects/mmcore/mmcore/services/rhpyc/service.yaml") as f:
+with open(os.getenv("RPYC_CONFIGS")) as f:
     data = yaml.unsafe_load(f)
     if list(data.keys())[0] == "service" and data["service"]["name"] == "rhpyc":
 
