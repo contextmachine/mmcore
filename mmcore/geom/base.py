@@ -184,28 +184,8 @@ class Polygon:
         return area
 
     def _centroid(self):
-        v = self.points
-        ans = [0, 0]
-        n = len(v)
-        signedArea = 0
-        # For all vertices
-        for i in range(len(v)):
-            x0 = v[i].x
-            y0 = v[i].y
-            x1 = v[(i + 1) % n].x
-            y1 = v[(i + 1) % n].y
-            # Calculate value of A
-            # using shoelace formula
-            A = (x0 * y1) - (x1 * y0)
-            signedArea += A
-            # Calculating coordinates of
-            # centroid of polygon
-            ans[0] += (x0 + x1) * A
-            ans[1] += (y0 + y1) * A
-        signedArea *= 0.5
-        ans[0] = (ans[0]) / (6 * signedArea)
-        ans[1] = (ans[1]) / (6 * signedArea)
-        return Point(*ans)
+
+        return Point(*np.mean(np.asarray([pt.xy for pt in self.points])))
 
 
 class PolygonWithHoles(Polygon):
@@ -619,7 +599,7 @@ class GeometryConversionsMap(dict):
 from mmcore.baseitems.descriptors import DataView
 
 
-class BufferGeometryData(DataView):
+class BufferGeometryData2(DataView):
     """
     @summary : DataView like descriptor, provides BufferGeometry data structure, can follow
     `"indices", "position", "normal", "uv"` attributes for a Mesh instances. Data schema is
@@ -643,36 +623,36 @@ class BufferGeometryData(DataView):
             "data": {
                 "attributes": dict(value), "index": dict(type='Uint16Array',
                                                          array=np.asarray(instance.indices).flatten().tolist())
-                }
             }
+        }
 
 
 from mmcore.addons.rhino.compute import surf_to_buffer_geometry
 
-
-@GeometryConversionsMap(
-    GeometryConversion("rhino", rhino3dm.Mesh, ConversionMethods(rhino.mesh_to_buffer_geometry, None)),
-    GeometryConversion("rhino", rhino3dm.Surface,
-                       ConversionMethods(surf_to_buffer_geometry, None)),
-    GeometryConversion("rhino", rhino3dm.NurbsSurface,
-                       ConversionMethods(surf_to_buffer_geometry, None)))
-class MmUVMesh(MmGeometry):
-    """
-    Mesh with "uv" attribute. Triangulate Quad Mesh.
-    0---1---2---3
-    |  /|  /|  /|
-    | / | / | / |
-    |/  |/  |/  |
-    4---5---6---7
-    |  /|  /|  /|
-    | / | / | / |
-    |/  |/  |/  |
-    8---9--10--11
-    """
-    __match_args__ = "indices", "position", "normal", "uv"
-    buffer_geometry = BufferGeometryData("position", "normal", "uv")
-    userData = {}
-
-    def __init__(self, indices, position, normal, uv, /, **kwargs):
-        print(indices, position, normal, uv)
-        super().__init__(indices=indices, position=position, normal=normal, uv=uv, **kwargs)
+# @GeometryConversionsMap(
+#    GeometryConversion("rhino", rhino3dm.Mesh, ConversionMethods(rhino.mesh_to_buffer_geometry, None)),
+#    GeometryConversion("rhino", rhino3dm.Surface,
+#                       ConversionMethods(surf_to_buffer_geometry, None)),
+#    GeometryConversion("rhino", rhino3dm.NurbsSurface,
+#                       ConversionMethods(surf_to_buffer_geometry, None)))
+# class MmUVMesh(MmGeometry):
+#    """
+#    Mesh with "uv" attribute. Triangulate Quad Mesh.
+#    0---1---2---3
+#    |  /|  /|  /|
+#    | / | / | / |
+#    |/  |/  |/  |
+#    4---5---6---7
+#    |  /|  /|  /|
+#    | / | / | / |
+#    |/  |/  |/  |
+#    8---9--10--11
+#    """
+#    __match_args__ = "indices", "position", "normal", "uv"
+#    buffer_geometry = BufferGeometryData("position", "normal", "uv")
+#    userData = {}
+#
+#    def __init__(self, indices, position, normal, uv, /, **kwargs):
+#        print(indices, position, normal, uv)
+#        super().__init__(indices=indices, position=position, normal=normal, uv=uv, **kwargs)
+#

@@ -89,3 +89,4 @@ def get_connection(host, port):
         raise Exception("Rpyc is not configurate")
     else:
         return rpyc.connect(host=host, port=port)
+

@@ -93,6 +93,7 @@ class traverse(Callable):
         else:
             return self.callback(dct)
 
+
     def traverse_seq(self, seq):
         if self._traverse_seq:
 
@@ -123,7 +124,7 @@ class traverse(Callable):
         elif isinstance(seq, str):
             # Это надо обработать в самом начале
             return self.callback(seq)
-        elif isinstance(seq, Sequence | np.ndarray):
+        elif isinstance(seq, Sequence):
             return self.traverse_seq(seq)
 
         elif isinstance(seq, dict):
@@ -132,9 +133,12 @@ class traverse(Callable):
             return self.callback(seq)
 
 
+def itm(x):
+    if not type(x) == list:
+        return type(x)
 type_extractor = traverse(lambda x: type(x), traverse_dict=False)
 dict_type_extractor = traverse(lambda x: type(x), traverse_dict=True)
-
+item_type_extractor = traverse(itm, traverse_dict=False)
 
 class NumSenseTrav(traverse):
     type_extras = TypeExtras(
