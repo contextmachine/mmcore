@@ -83,7 +83,7 @@ def get_connection():
       'geometry': '46444538-4f6a-4ad0-97dc-3568d5d6ddcd',
       'material': '64ce2001-8bc2-4dbf-a4c5-978017d3a4b2'}}
     """
-    with open("/Users/andrewastakhov/PycharmProjects/mmcore/mmcore/services/rhpyc/service.yaml") as f:
+    with open(os.getenv("RPYC_CONFIGS")) as f:
         data = yaml.unsafe_load(f)
         if list(data.keys())[0] == "service" and data["service"]["name"] == "rhpyc":
             configs = data["service"].get("configs")
