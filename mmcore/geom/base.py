@@ -184,28 +184,8 @@ class Polygon:
         return area
 
     def _centroid(self):
-        v = self.points
-        ans = [0, 0]
-        n = len(v)
-        signedArea = 0
-        # For all vertices
-        for i in range(len(v)):
-            x0 = v[i].x
-            y0 = v[i].y
-            x1 = v[(i + 1) % n].x
-            y1 = v[(i + 1) % n].y
-            # Calculate value of A
-            # using shoelace formula
-            A = (x0 * y1) - (x1 * y0)
-            signedArea += A
-            # Calculating coordinates of
-            # centroid of polygon
-            ans[0] += (x0 + x1) * A
-            ans[1] += (y0 + y1) * A
-        signedArea *= 0.5
-        ans[0] = (ans[0]) / (6 * signedArea)
-        ans[1] = (ans[1]) / (6 * signedArea)
-        return Point(*ans)
+
+        return Point(*np.mean(np.asarray([pt.xy for pt in self.points])))
 
 
 class PolygonWithHoles(Polygon):

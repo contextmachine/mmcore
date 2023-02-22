@@ -579,8 +579,10 @@ class Matchable(object):
         for k in self.__class__.__match_args__:
             try:
                 s += f"{k}={getattr(self, k)}, "
-            except AttributeError:
+            except AttributeError as err:
                 pass
+            except TypeError as err:
+                s += f"{k}=None(TypeError), "
 
         return s + ")"
 
