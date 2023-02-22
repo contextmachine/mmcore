@@ -28,7 +28,11 @@ class GQLClient:
         self._cls = dcls
         return self
 
-
+class GqlString(str):
+    def __new__(cls, a:str, b:str, **kwargs):
+        inst=str.__new__(cls,"_".join([a,b]),  **kwargs)
+        inst.a,inst.b = a, b
+        return inst
 class query:
     """
     Minimal syntax:
@@ -44,7 +48,7 @@ class query:
     """
 
     temp: str = """
-    query MyQuery({{ spec }}) {
+    query {
         {{ root }} {
         {% for attr in attrs %}
         {{ attr }}{% endfor %}
@@ -58,37 +62,72 @@ class query:
         "X-Hasura-Admin-Secret": "mysecretkey"
     }
 
-    def __init__(self, parent: NamedTuple, children: set):
+    def __init__(self, parent: str|GqlString, fields: set={},  variables={}):
         super().__init__()
 
         self.parent = parent
-        self.children = set(children)
-        self.fields = parent
+        self.children = set(fields)
+        self.fields =fields
         self._jinja_env = NativeEnvironment()
         self.template = self._jinja_env.from_string(self.temp)
+        self.variables= variables
 
-    def render(self):
-        return self.template.render(root=self.parent, attrs=self.children)
+    def render(self, fields=None):
+        if fields is not None:
+
+            return self.template.render(root=self.parent,attrs=fields)
+        else:
+            return self.template.render(root=self.parent, attrs=self.fields)
 
     @property
     def client(self):
         return GQLClient(url=GQL_PLATFORM_URL, headers=self.headers)
 
-    def __call__(self, **variables):
+    def __call__(self, fields=None, variables=None, full_root=True, return_json=True):
+        if fields is None:
+
+            fields = self.fields
         if variables is None:
-            variables = {}
+            variables = self.variables
+        ren = self.render(fields=fields)
         # print(self._body(inst, own))
         request = requests.post(self.client.url,
 
                                 headers=self.client.headers,
                                 json={
-                                    "query": self.render(),
+                                    "query": ren,
                                     "variables": variables
 
                                 }
                                 )
-        return request
+        if return_json:
+            if not full_root:
+                return request.json()["data"][self.parent]
+            else:
+                return request.json()
+        else:
+            return request
 
+class mutate(query):
+    temp = """
+mutation mutate($objects: [{{ roota }}_{{ rootb }}_insert_input!] = {}) {
+  insert_{{ roota }}_{{ rootb }}(on_conflict: {constraint: {{ rootb }}_pkey}, objects: $objects) {
+    returning {
+    {% for attr in attrs %}
+    {{ attr }}{% endfor %}
+    }
+  }
+}
+"""
+    def __init__(self, parent:GqlString, children, variables,**kwargs):
+        super().__init__(parent,children , variables,**kwargs)
+
+    def render(self, fields=None):
+        if fields is not None:
+
+            return self.template.render(roota=self.parent.a, rootb=self.parent.b, attrs=fields)
+        else:
+            return self.template.render(roota=self.parent.a, rootb=self.parent.b, attrs=self.fields)
 
 class AbsGQLTemplate:
     schema: str = "test"

@@ -133,7 +133,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
-        d = self.element_type
+        d = np.array(self._seq).flatten()[0]
         keys = {}
         if isinstance(d, dict):
             return d.keys()
