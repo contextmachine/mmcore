@@ -1,4 +1,7 @@
 import collections.abc
+from collections import namedtuple
+
+from mmcore.baseitems import Matchable
 
 
 class OrderedSet(collections.abc.MutableSet):
@@ -14,6 +17,9 @@ class OrderedSet(collections.abc.MutableSet):
 
     def __contains__(self, key):
         return key in self.map
+
+    def extend(self, keys):
+        [self.add(key) for key in keys]
 
     def add(self, key):
         if key not in self.map:
@@ -89,7 +95,31 @@ class UnlimitedAscii:
 import uuid
 
 
-class Node:
+class Graph:
+    ...
+
+
+class Node(Matchable):
+    __match_args__ = "name", "links"
+
+    def __init__(self, name, links=(), *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.uuid = uuid.uuid4()
+
+        self.name = name
+        self.links = OrderedSet(list(links))
+
+    def add_link(self, link):
+        self.links.add(link)
+
+    def remove_link(self, link):
+        self.links.remove(link)
+
+    def __repr__(self):
+        return self.name
+
+
+class ListNode:
     def __init__(self, name, data=None):
         self.uuid = uuid.uuid4()
         self.data = data
@@ -207,7 +237,7 @@ class CircularLinkedList:
         print(" -> ".join(nodes))
 
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Container
 
 
 class Grouper(Iterator):
@@ -237,3 +267,176 @@ class Grouper(Iterator):
         if self.data.get(key) is None:
             self.data[key] = []
         self.data[key].append(item)
+
+
+from abc import abstractmethod
+from typing import Type, Generic, TypeVar, ParamSpec, Any
+from typing_extensions import TypeVarTuple
+from mmcore.baseitems.descriptors import DataDescriptor
+
+Ts = TypeVarTuple('Ts')
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+class ParamContainer:
+    def __init__(self, *args: P.args, **kwargs: P.kwargs):
+        super().__init__(*args, **kwargs)
+        self._args = list(args)
+        self._kwargs = kwargs
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+        self._args.extend(args)
+        self._kwargs.update(kwargs)
+        return self
+
+    @property
+    def args(self) -> P.args:
+        return tuple(self._args)
+
+    @property
+    def kwargs(self) -> P.kwargs:
+        return dict(self._kwargs)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(args={self.args}, kwargs={self.kwargs})"
+
+
+class BoolMask(Container):
+    _masked = OrderedSet()
+    name: str = None
+
+    def __get__(self, instance, owner):
+        return instance in self
+
+    def __set__(self, instance, value: bool):
+        self.add_to_mask(instance) if value else self.remove_from_mask(val=instance)
+
+    def __contains__(self, __x: object) -> bool:
+        return not self.get_id(__x) in self._masked
+
+    def get_id(self, val):
+        return val if type(val) is str else hex(id(val))
+
+    def add_to_mask(self, val):
+        k = self.get_id(val)
+        self._masked.add(k)
+        return k
+
+    def extend_mask(self, val):
+        *ks,= (self.get_id(v) for v in val)
+        self._masked.extend(ks)
+        return ks
+
+    def set_mask(self, val):
+        ks=[self.get_id(v) for v in val]
+        self._masked = ks
+        return ks
+
+    def remove_from_mask(self, val):
+        k = self.get_id(val)
+        self._masked.remove(k)
+        return k
+    def removes_from_mask(self, vals):
+        removed=[]
+        for val in vals:
+            removed.append(self.remove_from_mask(val))
+        return removed
+class MNode(BoolMask, Matchable):
+    __match_args__ = "name", "links"
+    _masked = []
+
+    def links(self):
+        return self._links
+
+    def __init__(self, name, links=(), *args, **kwargs):
+        super(Matchable, self).__init__(*args, **kwargs)
+        self.uuid = uuid.uuid4()
+
+        self.name = name
+        self._links = links
+        self._masked.extend([l.uuid for l in list(links)])
+
+    def get_id(self, val):
+        return val.uuid
+
+    def __repr__(self):
+        return self.name
+
+from functools import wraps
+
+def curry(func):
+    """
+    >>> @curry
+    ... def foo(a, b, c):
+    ...     return a + b + c
+    >>> foo(1)
+    <function __main__.foo>
+    """
+    @wraps(func)
+    def curried(*args, **kwargs):
+        if len(args) + len(kwargs) >= func.__code__.co_argcount:
+            return func(*args, **kwargs)
+
+        @wraps(func)
+        def new_curried(*args2, **kwargs2):
+            return curried(*(args + args2), **dict(kwargs, **kwargs2))
+
+        return new_curried
+
+    return curried
+class ComposeMask:
+
+    def __init__(self, masks):
+        super().__init__()
+        self.masks = masks
+
+    def _per_mask(self, item):
+        return (item in mask for mask in self.masks)
+
+    def elementwise(self, item):
+        return zip((mask.name for mask in self.masks), self._per_mask(item))
+
+    def match(self, item)-> int | Any:
+        ...
+
+
+
+
+    def __contains__(self, item) -> int:
+        """
+
+        @param item:
+        @return:
+        match self.elementwise(item)->int:
+            case {"a": True, "b":False}:
+            return 1:
+        """
+        ...
+
+"""
+class FuncMultiDesc:
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.reg_name = "_"+self.name+"_registry"
+        setattr(owner,self.reg_name , dict())
+
+
+
+
+    def __get__(self, instance, owner):
+        if not owner:
+
+            owner = instance.__class__
+        owner.element_type
+        instance._seq[instance]
+        instance[]
+        ParamContainer()
+        if
+
+    def __call__(self, *args, **kwargs):
+        self
+        if len(args) + len(kwargs) >= func.__code__.co_argcount:
+            return func(*args, **kwargs)
+"""
