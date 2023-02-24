@@ -518,28 +518,6 @@ class MMtype(type):
         prepare_class(metacls, name, bases, kwds)
 
 
-from mmcore.collections.basic import OrderedSet
-
-
-class Follower:
-
-    def __init_subclass__(cls, follow, include_parents_follow=False, **kwargs):
-        cls.follow = OrderedSet(list(follow))
-        if include_parents_follow:
-            cls.follow.update(cls.__base__.follow)
-        super().__init_subclass__(**kwargs)
-
-    ...
-
-
-class MatchingDecorator(Follower, follow=('__match_args__',)):
-    def __init__(self, func: Callable[P, T]):
-        self._func = func
-        self.name = func.__name__
-
-    def __call__(self, *args: P.args, **kwargs: P.kwargs):
-        print(f'{self._func.__name__} was called with {kwargs}')
-        return self._func(*args, **kwargs)
 
 
 class Matchable(object):

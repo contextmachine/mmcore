@@ -6,10 +6,11 @@ import itertools
 from abc import ABC
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
 
+import more_itertools
 import numpy as np
 import pandas as pd
 
-from mmcore.collections.traversal import sequence_type
+from mmcore.collections.traversal import sequence_type, type_extractor, dict_type_extractor, item_type_extractor
 
 
 def _(): pass
@@ -102,6 +103,9 @@ class _MultiDescriptor(Mapping[KTo, Seq], ABC):
     ...
 
 
+from mmcore.collections.traversal import ttrv
+
+
 class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     """
     # Multi Getter
@@ -128,7 +132,8 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
     >>> mg["foo"]
     ['something else', 'nothing']
     """
-    element_type: Type = property(fget=lambda self: sequence_type(self._seq))
+    sequence_type: Type = property(fget=lambda self: sequence_type(self._seq))
+    element_type = d = property(fget=lambda self: ttrv(self._seq))
     format_spec = lambda self: [self.__class__.__name__, self.element_type.__name__, list(self.keys()), id(self)]
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
@@ -140,7 +145,6 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
         else:
             for key in dir(d):
                 if not key.startswith("_"):
-
                     keys.setdefault(key)
             return keys.keys()
 
@@ -176,7 +180,6 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
             _getter = multi_getter(self._seq)
             # multi_getter(self._seq)
             return list(_getter(k))
-
 
     def __str__(self):
         return f"{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})]"
@@ -229,7 +232,6 @@ class CollectionItemGetSetter(CollectionItemGetter):
 
 
 import hashlib
-
 
 
 class MaskedGetSetter(CollectionItemGetSetter, ABC):
@@ -294,6 +296,12 @@ from types import MethodType
 
 class ElementSequence(MultiDescriptor):
     ignored = int, float, str, bytes
+
+    def schema(self):
+        if self.element_type == dict:
+            return dict_type_extractor(list(more_itertools.collapse(self._seq))[0])
+        else:
+            return item_type_extractor(list(more_itertools.collapse(self._seq))[0])
 
     def __list__(self):
         return list(self._seq)
@@ -398,6 +406,19 @@ class _MultiGetitem:
             return [self(i) for i in item]
         else:
             return dict(self.instance)[item]
+
+
+class ES(ElementSequence):
+    def __getitem__(self, item):
+        k = super().__getitem__(item)
+
+        if not isinstance(k[0], str):
+            if isinstance(k[0], Sequence) or isinstance(k[0], dict):
+                return ES(k)
+            else:
+                return k
+        else:
+            return k
 
 
 class MultiGetitem2:
