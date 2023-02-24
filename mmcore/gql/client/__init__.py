@@ -8,6 +8,13 @@ from jinja2.nativetypes import NativeEnvironment
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
+class GQLException(BaseException):
+    def __init__(self, *args, error_dict:dict=None):
+        super().__init__( *args)
+        self.error_dict=error_dict
+        #self.message = error_dict["message"]
+        #self.extensions = error_dict["extensions"]
+        print(self.error_dict)
 
 GQL_PLATFORM_URL = "http://84.201.140.137/v1/graphql"
 
@@ -29,14 +36,20 @@ class GQLClient:
         return self
 
 class GqlString(str):
-    def __new__(cls, a:str, b:str, **kwargs):
-        inst=str.__new__(cls,"_".join([a,b]),  **kwargs)
-        inst.a,inst.b = a, b
+    def __new__(cls, a:str, b:str, condition:str=None):
+        s = "_".join([a, b])
+        if condition is not None:
+            s += condition
+
+
+        inst=str.__new__(cls, s)
+        inst.a,inst.b,inst.condition = a, b, condition
+        inst._no_condition="_".join([a, b])
         return inst
 class query:
     """
     Minimal syntax:
-    >>> my_query = query("geometry_attributes",(),  {
+    >>> my_query = query("geometry_attributes",fields= {
     ...         "index",
     ...         "normal",
     ...         "position",
@@ -100,27 +113,42 @@ class query:
 
                                 }
                                 )
-        if return_json:
-            if not full_root:
-                return request.json()["data"][self.parent]
+        if request.status_code == 200:
+            if return_json:
+
+                try:
+                    data=request.json()
+                    if "errors" in data.keys():
+                        raise GQLException("GraphQl response error",error_dict=data)
+                    elif "data" in data.keys():
+                        if not full_root:
+                            return request.json()["data"][self.parent]
+                        else:
+                            return request.json()
+
+                    else:
+                        return data
+
+                except Exception as err:
+                    raise err
             else:
-                return request.json()
+                return request
         else:
+            print("bad response")
             return request
 
 class mutate(query):
-    temp = """
-mutation mutate($objects: [{{ roota }}_{{ rootb }}_insert_input!] = {}) {
-  insert_{{ roota }}_{{ rootb }}(on_conflict: {constraint: {{ rootb }}_pkey}, objects: $objects) {
+    temp = """mutation mutate($objects: [{{ roota }}_{{ rootb }}_insert_input!] = {}) { 
+    insert_{{ roota }}_{{ rootb }}(on_conflict: {constraint: {{ rootb }}_pkey}, objects: $objects) { 
     returning {
-    {% for attr in attrs %}
-    {{ attr }}{% endfor %}
+        {% for attr in attrs %}
+        {{ attr }}{% endfor %}
+        }
+      }
     }
-  }
-}
-"""
-    def __init__(self, parent:GqlString, children, variables,**kwargs):
-        super().__init__(parent,children , variables,**kwargs)
+    """
+    def __init__(self, parent:GqlString, fields, variables,**kwargs):
+        super().__init__(parent, fields , variables, **kwargs)
 
     def render(self, fields=None):
         if fields is not None:

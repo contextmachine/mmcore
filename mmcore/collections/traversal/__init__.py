@@ -1,9 +1,12 @@
 import collections
 import copy
+import json
+import pprint
 import typing
 from collections import Counter
 from typing import Any, Callable, Sequence, Type, Union
 
+import more_itertools
 import numpy
 import numpy as np
 
@@ -136,10 +139,15 @@ class traverse(Callable):
 def itm(x):
     if not type(x) == list:
         return type(x)
+
+def itm2(x):
+    if not (isinstance(x,Sequence) and not isinstance(x, str)):
+        return type(x)
 type_extractor = traverse(lambda x: type(x), traverse_dict=False)
 dict_type_extractor = traverse(lambda x: type(x), traverse_dict=True)
+dict_type_print = lambda tp: json.dumps(repr(traverse(lambda x: type(x).__name__, traverse_dict=True)(tp)),indent=3)
 item_type_extractor = traverse(itm, traverse_dict=False)
-
+item_type_extractor2 = traverse(itm2, traverse_dict=False)
 class NumSenseTrav(traverse):
     type_extras = TypeExtras(
         TraverseTypeExtra(int, lambda x: typing.Union[int, float]),
@@ -160,6 +168,10 @@ class StrSenseTrav(traverse):
         TraverseTypeExtra((list, str), lambda x: list[str]),
         )
 
+class DctSenseTrav(traverse):
+    type_extras = TypeExtras(
+        TraverseTypeExtra(dict, lambda x: dict_type_extractor(x))
+        )
 
 class TypeSensevityTraverse(NumSenseTrav, NoneSenseTrav, StrSenseTrav, traverse):
     """
@@ -172,7 +184,8 @@ class TypeSensevityTraverse(NumSenseTrav, NoneSenseTrav, StrSenseTrav, traverse)
     """
     type_extras = TypeExtras()
 
-
+class TravDictpretty(NumSenseTrav, NoneSenseTrav, StrSenseTrav, DctSenseTrav, traverse):
+    ...
 def walk(target, names):
     if isinstance(names, str):
         return getattr(target, names)
@@ -243,6 +256,8 @@ def sequence_type(seq: Sequence) -> Type:
     @return: single or Union type
     """
 
+    trv = traverse(lambda x: type(x), traverse_dict=True)
+
     tps = set(numpy.asarray(type_extractor(seq)).flatten())
 
     return Union[tuple(tps)] if len(tps) != 0 else tuple(tps)[0]
@@ -283,3 +298,17 @@ def sequence_type_counter(seq: Sequence) -> Counter[Type]:
     """
     assert isinstance(seq, Sequence)
     return Counter(type_extractor(seq))
+
+def trv(tp):
+    if hasattr(tp, "__args__"):
+        return more_itertools.collapse([trv(arg) for arg in tp.__args__])
+    else:
+        return tp
+def ttrv(d):
+    R=list(trv(item_type_extractor(d)))
+    if len(R)>1:
+        return typing.Union[tuple(R)]
+    else:
+
+
+        return R[0]
