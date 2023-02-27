@@ -753,7 +753,7 @@ from mmcore.baseitems import Matchable
 
 class OccEntity(Matchable):
     __match_args__ = ()
-    __entities__ = __match_args__ + ("occ_entity",)
+    __entities__ = __match_args__ + ("input_entity",)
     repr_args = "__entities__"
     input_entity: Any
     occ_entity: Any
@@ -794,10 +794,16 @@ class OccVertex(OccEntity):
 
 
 class OccEntityList(list):
-    def __class_getitem__(cls, item):
+    def __init_subclass__(cls, item: Any = None, **kwargs):
         cls.item = item
         cls.__match_args__ = item.__match_args__
-        return cls
+        super().__init_subclass__(**kwargs)
+
+    def __init__(self, seq=None):
+
+        super().__init__()
+        if seq is not None:
+            self.extend(seq)
 
     @property
     def multi_seq(self):
@@ -848,29 +854,75 @@ class OccEntityList(list):
 
 
 class OccEdge(OccEntity):
-    __match_args__ = "start", "end"
+    __match_args__ = "start", "next"
 
     start = OccVertex()
-    end = OccVertex()
+    next = OccVertex()
 
     def occ_entity(self):
-        b = BRepBuilderAPI_MakeEdge(self.start, self.end)
+        b = BRepBuilderAPI_MakeEdge(self.start, self.next)
         b.Build()
         return b.Edge()
 
 
-OccVertexList = OccEntityList[OccVertex]
-OccEdgeList = OccEntityList[OccEdge]
+class OccVertexList(OccEntityList, item=OccVertex): ...
+
+
+class OccEdgeList(OccEntityList, item=OccEdge): ...
 
 
 class OccWire(OccEntity):
     __match_args__ = 'edges',
     edges = OccEdgeList()
 
+
+
     def occ_entity(self):
         b = BRepBuilderAPI_MakeWire(*self.edges)
         b.Build()
         return b.Wire()
+
+
+def polyline_from_points(*points):
+    points = list(points)
+    wr = OccWire(list(chain_split_list(points)))
+    wr.points = points
+    return wr
+
+
+def fillet_from_points(*points):
+
+    return OccWire(list(chain_split_list(list(points))))
+
+
+class OccPolyline(OccEntity):
+    __match_args__ = 'points',
+    points: tuple[float, float, float]
+    edges = OccVertexList()
+
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, item):
+        self._points = item
+        self.make_edges()
+
+    def make_edges(self):
+        l = []
+        for v1, v2 in chain_split_list(self.points):
+            l.append((v1, v2))
+        self.edges = l
+
+    def occ_entity(self):
+        b = BRepBuilderAPI_MakeWire(*self.edges)
+        b.Build()
+        return b.Wire()
+
+
+def fillet(*points):
+    OccWire(create_topods_wire(points))
 
 
 def create_topods_wire(*pts):
@@ -893,14 +945,33 @@ def create_topods_wire(*pts):
     return BRepBuilderAPI_MakeWire(*edges), edges, ss
 
 
-class OccFace(OccEntity):
+class OccPlanarFace(OccEntity):
+    __entities__ = "wire"
+    wire = OccWire()
+
+    is_planar: bool = True
+
     def occ_entity(self):
-        return ...
+        baseFace = BRepBuilderAPI_MakeFace(self.wire, self.is_planar)
+        baseFace.Build()
+        return baseFace.Face()
+
+
+class OccShape(OccEntity):
+    __entities__ = "wire"
+    wire = OccWire()
+
+    is_planar: bool = True
+
+    def occ_entity(self):
+        baseFace = BRepBuilderAPI_MakeFace(self.wire, self.is_planar)
+        baseFace.Build()
+        return baseFace.Face()
 
 # def fillet(polyline, fillets):
-#    isPlannar = true
 #
-#    baseFace = BRepBuilderAPI_MakeFace(polyline, isPlannar)
+#
+#
 #
 #    filletOp = BRepFilletAPI_MakeFillet2d(baseFace)
 #
