@@ -1,7 +1,18 @@
 import collections.abc
+import copy
 from collections import namedtuple
 
-from mmcore.baseitems import Matchable
+from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
+
+
+def chain_split_list(iterable):
+    ss = deque(iterable)
+    l = []
+    for i in range(len(ss)):
+        print(i)
+        a, b, _ = ss[0], ss[1], ss.rotate()
+        l.append((a, b))
+    return l
 
 
 class OrderedSet(collections.abc.MutableSet):
@@ -99,7 +110,7 @@ class Graph:
     ...
 
 
-class Node(Matchable):
+class Node:
     __match_args__ = "name", "links"
 
     def __init__(self, name, links=(), *args, **kwargs):
@@ -324,12 +335,12 @@ class BoolMask(Container):
         return k
 
     def extend_mask(self, val):
-        *ks,= (self.get_id(v) for v in val)
+        *ks, = (self.get_id(v) for v in val)
         self._masked.extend(ks)
         return ks
 
     def set_mask(self, val):
-        ks=[self.get_id(v) for v in val]
+        ks = [self.get_id(v) for v in val]
         self._masked = ks
         return ks
 
@@ -337,33 +348,16 @@ class BoolMask(Container):
         k = self.get_id(val)
         self._masked.remove(k)
         return k
+
     def removes_from_mask(self, vals):
-        removed=[]
+        removed = []
         for val in vals:
             removed.append(self.remove_from_mask(val))
         return removed
-class MNode(BoolMask, Matchable):
-    __match_args__ = "name", "links"
-    _masked = []
 
-    def links(self):
-        return self._links
-
-    def __init__(self, name, links=(), *args, **kwargs):
-        super(Matchable, self).__init__(*args, **kwargs)
-        self.uuid = uuid.uuid4()
-
-        self.name = name
-        self._links = links
-        self._masked.extend([l.uuid for l in list(links)])
-
-    def get_id(self, val):
-        return val.uuid
-
-    def __repr__(self):
-        return self.name
 
 from functools import wraps
+
 
 def curry(func):
     """
@@ -373,6 +367,7 @@ def curry(func):
     >>> foo(1)
     <function __main__.foo>
     """
+
     @wraps(func)
     def curried(*args, **kwargs):
         if len(args) + len(kwargs) >= func.__code__.co_argcount:
@@ -385,6 +380,8 @@ def curry(func):
         return new_curried
 
     return curried
+
+
 class ComposeMask:
 
     def __init__(self, masks):
@@ -397,11 +394,8 @@ class ComposeMask:
     def elementwise(self, item):
         return zip((mask.name for mask in self.masks), self._per_mask(item))
 
-    def match(self, item)-> int | Any:
+    def match(self, item) -> int | Any:
         ...
-
-
-
 
     def __contains__(self, item) -> int:
         """
@@ -414,29 +408,42 @@ class ComposeMask:
         """
         ...
 
-"""
+
 class FuncMultiDesc:
 
     def __set_name__(self, owner, name):
         self.name = name
-        self.reg_name = "_"+self.name+"_registry"
-        setattr(owner,self.reg_name , dict())
+        self.reg_name = "_" + self.name + "_registry"
+        setattr(owner, self.reg_name, dict())
 
-
-
+    def get_id(self, instance):
+        return instance["uuid"]
 
     def __get__(self, instance, owner):
-        if not owner:
 
-            owner = instance.__class__
-        owner.element_type
-        instance._seq[instance]
-        instance[]
-        ParamContainer()
-        if
+        def wrap(*args, **kwargs):
 
-    def __call__(self, *args, **kwargs):
-        self
-        if len(args) + len(kwargs) >= func.__code__.co_argcount:
-            return func(*args, **kwargs)
-"""
+            func = getattr(instance.element_type, self.name)
+
+            z = zip(*(instance._seq, args, kwargs))
+
+            try:
+                data = []
+                for slf, arg, kw in z:
+                    print(slf, arg, kw)
+                    if not self.get_id(slf) in instance[self.reg_name].keys():
+                        instance[self.reg_name][self.get_id(slf)] = ParamContainer(*arg, **kw)
+                    a = instance[self.reg_name][self.get_id(slf)]
+
+                    data.append(func(slf, *a.args, **a.kwargs))
+                return data
+            except:
+                for slf, arg, kw in zip(instance._seq, args, kwargs):
+                    if not self.get_id(slf) in instance[self.reg_name].keys():
+                        instance[self.reg_name][self.get_id(slf)] = ParamContainer(*arg, **kw)
+                    a = instance[self.reg_name][self.get_id(slf)]
+
+                    instance[self.reg_name][self.get_id(slf)](slf, *a.args, **a.kwargs)
+                return wrap
+
+        return wrap
