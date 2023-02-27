@@ -7,12 +7,15 @@ from abc import abstractmethod
 from collections import namedtuple
 from enum import Enum
 from functools import lru_cache
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import compas.geometry
 import numpy as np
 import rhino3dm
+from OCC.Core import TopoDS
 from OCC.Core.gp import gp_Pnt
+from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
+from mmcore.collections import chain_split_list
 from scipy.spatial.distance import euclidean
 
 from mmcore.baseitems import Matchable
@@ -27,9 +30,9 @@ mesh_js_schema = {
                 "itemSize": 3,
                 "type": "Float32Array",
                 "array": []}
-            }
-        },
-    }
+        }
+    },
+}
 pts_js_schema = {
     "metadata": dict(),
     "uuid": '',
@@ -40,9 +43,9 @@ pts_js_schema = {
                 "itemSize": 3,
                 "type": "Float32Array",
                 "array": None}
-            }
         }
     }
+}
 from mmcore.addons.rhino import rhino_mesh_to_topology, create_buffer, CommonMeshTopology
 import rpyc
 
@@ -93,7 +96,7 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
     def to_rhino(self) -> rhino3dm.Point3d:
         return rhino3dm.Point3d(*self.xyz)
 
-    def to_occ(self) -> 'Point':
+    def to_occ(self) -> 'gp_Pnt':
         return gp_Pnt(*self.xyz)
 
     def to_compas(self) -> 'Point':
@@ -158,6 +161,9 @@ class Rectangle:
         return (max(x_s) - min(x_s)) * (max(y_s) - min(y_s))
 
 
+from mmcore.addons.mmocc.OCCUtils import Construct
+
+
 class Polygon:
     def __init__(self, points: list[Point]):
         self.points = points
@@ -165,6 +171,12 @@ class Polygon:
     area = property(fget=lambda self: self._area())
     perimetr = property(fget=lambda self: self._perimetr())
     centroid = property(fget=lambda self: self._centroid())
+    vertices = property(fget=lambda self: self._centroid())
+
+    def to_occ(self):
+        DAT = map(lambda x: x.to_occ(), self.vertices)
+
+        return Construct.make_closed_polygon(*list(DAT))
 
     def _perimeter(self):
         perim = 0
@@ -186,6 +198,83 @@ class Polygon:
     def _centroid(self):
 
         return Point(*np.mean(np.asarray([pt.xy for pt in self.points])))
+
+
+def point_from_all(*args, **kwargs):
+    if not (args == ()):
+        return Point(*args)
+    elif not (kwargs == dict()):
+        return Point(*kwargs.values())
+
+
+class Triangle(Matchable):
+    __match_args__ = "a", "b", "c"
+
+    def __init__(self, a, b, c, *args, **kwargs):
+        super().__init__(a, b, c, *args, **kwargs)
+
+    _a, _c = None, None
+
+    @property
+    def a(self):
+        return self._a
+
+    @a.setter
+    def a(self, value):
+        if self._a is None:
+            self._a = Point(*value)
+        else:
+            self._a.x, self._a.y, self._a.z = value
+
+    _b = None
+
+    @property
+    def b(self):
+        return self._b
+
+    @b.setter
+    def b(self, value):
+        if self._b is None:
+            self._b = Point(*value)
+        else:
+            self._b.x, self._b.y, self._b.z = value
+
+    @property
+    def c(self):
+        return self._с
+
+    @c.setter
+    def c(self, value):
+
+        if self._c is None:
+            self._c = Point(*value)
+        else:
+            self._c.x, self._c.y, self._c.z = value
+
+    @property
+    def vertices(self):
+
+        return [self._a, self._b, self._c]
+
+    @property
+    def polygon(self):
+        return make_closed_polygon(self._a.to_occ(), self._b.to_occ(), self._b.to_occ())
+
+    @property
+    def mark(self):
+
+        return "-".join([self.tag, self.subtype])
+
+    @property
+    def name(self):
+        return "-".join([self.mark, self.id, self.zone])
+
+    @property
+    def centroid(self):
+        return self.polygon.centroid
+
+    def to_occ(self):
+        return make_closed_polygon()
 
 
 class PolygonWithHoles(Polygon):
@@ -356,7 +445,7 @@ class BufferGeometryData(PropertyBaseModel):
             position=self._attributes.vertices,
             normal=self._attributes.normals,
             uv=self._attributes.uv
-            )
+        )
 
     @attributes.setter
     def attributes(self, value):
@@ -614,7 +703,7 @@ class BufferGeometryData2(DataView):
             "itemSize": self.itemsize[name],
             "type": "Float32Array",
             "normalized": False
-            }
+        }
 
     def data_model(self, instance, value: list[tuple[str, Any]]):
         return {
@@ -656,3 +745,175 @@ from mmcore.addons.rhino.compute import surf_to_buffer_geometry
 #        print(indices, position, normal, uv)
 #        super().__init__(indices=indices, position=position, normal=normal, uv=uv, **kwargs)
 #
+
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeVertex, \
+    BRepBuilderAPI_MakeWire
+from mmcore.baseitems import Matchable
+
+
+class OccEntity(Matchable):
+    __match_args__ = ()
+    __entities__ = __match_args__ + ("occ_entity",)
+    repr_args = "__entities__"
+    input_entity: Any
+    occ_entity: Any
+
+    def input_entity(self):
+        attrs = []
+        for attr in self.__match_args__:
+            attrs.append(getattr(self, attr))
+
+        return attrs
+
+    def occ_entity(self):
+        ...
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.inst_name = "_" + name
+
+    def __get__(self, instance, own):
+        return self.occ_entity()
+
+    def __set__(self, instance, val):
+        for name, attr in zip(self.__match_args__, val):
+            self.__setattr__(name, attr)
+
+
+class OccVertex(OccEntity):
+    __match_args__ = "x", "y", "z"
+
+    @property
+    def point(self):
+        return Point(*self.input_entity())
+
+    def occ_entity(self):
+        b = BRepBuilderAPI_MakeVertex(self.point.to_occ())
+        b.Build()
+        return b.Vertex()
+
+
+class OccEntityList(list):
+    def __class_getitem__(cls, item):
+        cls.item = item
+        cls.__match_args__ = item.__match_args__
+        return cls
+
+    @property
+    def multi_seq(self):
+        return ElementSequence(self)
+
+    def __getattr__(self, item):
+        es = ElementSequence(self)
+        if item in es.keys():
+            return es[item]
+        else:
+            return getattr(self, item)
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.inst_name = "_" + name
+
+    def input_entity(self):
+        lst = []
+        for i in self:
+            lst.append(i.input_entity())
+        return lst
+
+    def __getitem__(self, item):
+        val = list.__getitem__(self, item)
+        return val
+
+    def __setitem__(self, item, value):
+        self[item](*value)
+
+    def append(self, value):
+        list.append(self, self.item(*value))
+
+    def extend(self, value):
+        list.extend(self, [self.item(*v) for v in value])
+
+    def occ_entity(self):
+        lst = []
+        for i in self:
+            lst.append(i.occ_entity())
+        return lst
+
+    def __get__(self, instance, own):
+        return self.occ_entity()
+
+    def __set__(self, instance, val):
+        self.clear()
+        self.extend(val)
+
+
+class OccEdge(OccEntity):
+    __match_args__ = "start", "end"
+
+    start = OccVertex()
+    end = OccVertex()
+
+    def occ_entity(self):
+        b = BRepBuilderAPI_MakeEdge(self.start, self.end)
+        b.Build()
+        return b.Edge()
+
+
+OccVertexList = OccEntityList[OccVertex]
+OccEdgeList = OccEntityList[OccEdge]
+
+
+class OccWire(OccEntity):
+    __match_args__ = 'edges',
+    edges = OccEdgeList()
+
+    def occ_entity(self):
+        b = BRepBuilderAPI_MakeWire(*self.edges)
+        b.Build()
+        return b.Wire()
+
+
+def create_topods_wire(*pts):
+    ss = []
+
+    for pt in pts:
+        b = BRepBuilderAPI_MakeVertex(gp_Pnt(*pt))
+        b.Build()
+        ss.append(TopoDS.TopoDS_Vertex(b.Vertex()))
+
+    edges = []
+    for v1, v2 in chain_split_list(ss):
+        print(v1, v2)
+        vv = BRepBuilderAPI_MakeEdge(v1, v2)
+        vv.Build()
+        edge = vv.Edge()
+
+        edges.append(edge)
+
+    return BRepBuilderAPI_MakeWire(*edges), edges, ss
+
+
+class OccFace(OccEntity):
+    def occ_entity(self):
+        return ...
+
+# def fillet(polyline, fillets):
+#    isPlannar = true
+#
+#    baseFace = BRepBuilderAPI_MakeFace(polyline, isPlannar)
+#
+#    filletOp = BRepFilletAPI_MakeFillet2d(baseFace)
+#
+#    rFillet1 = 0.1
+#
+#    rFillet2 = 0.03
+#
+#    filletOp.AddFillet(V1, rFillet1)
+#    filletOp.AddFillet(V2, rFillet2)
+#    filletOp.AddFillet(V3, rFillet1)
+#    filletOp.AddFillet(V4, rFillet2)
+#    filletOp.Build()
+#
+#    explorer(filletOp.Shape(), TopAbs_WIRE)
+#
+#    filletWire = TopoDS.Wire(explorer.Current())

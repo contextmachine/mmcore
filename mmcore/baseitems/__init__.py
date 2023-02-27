@@ -19,7 +19,7 @@ from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, 
 
 import numpy as np
 import pydantic
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, Protocol
 
 from cxmdata import BasicTypes
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
@@ -235,14 +235,14 @@ class Metadata(DataviewDescriptor):
     include = ["uid", "uuid", "dtype", "version"]
     replace = {
         "_dtype": "dtype"
-        }
+    }
 
 
 class ReprData(DataviewDescriptor):
     include = []
     replace = {
         "_dtype": "dtype"
-        }
+    }
 
     def __init__(self, *include, **kwargs):
         super().__init__(**kwargs)
@@ -313,7 +313,7 @@ class GeomConversionMap(DataviewDescriptor):
     include = ["to_rhino", "to_compas"]
     replace = {
 
-        }
+    }
 
 
 class GeometryItem(Item):
@@ -518,8 +518,6 @@ class MMtype(type):
         prepare_class(metacls, name, bases, kwds)
 
 
-
-
 class Matchable(object):
     """
     New style baseclass version.
@@ -530,7 +528,7 @@ class Matchable(object):
     match_args: tuple[str] = ()
     __match_args__ = ()
     __match_args__ += match_args
-
+    repr_args = "__match_args__"
     properties = descriptors.UserDataProperties()
     userdata = descriptors.UserData()
 
@@ -554,7 +552,8 @@ class Matchable(object):
     def __repr__(self) -> str:
 
         s = f"{self.__class__.__name__}("
-        for k in self.__class__.__match_args__:
+
+        for k in getattr(self, "repr_args"):
             try:
                 s += f"{k}={getattr(self, k)}, "
             except AttributeError as err:
@@ -579,7 +578,6 @@ class Matchable(object):
     def to_dict(self):
         def wrp(dt):
 
-
             if type(dt) in BasicTypes:
                 return dt
             elif hasattr(dt, "to_dict"):
@@ -601,8 +599,6 @@ class Matchable(object):
     def toJSON(self):
         return json.dumps(self, default=self.__class__.to_dict,
                           sort_keys=True, indent=3)
-
-
 
 
 class MatchableItem(Matchable, Base):
