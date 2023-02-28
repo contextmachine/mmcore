@@ -10,7 +10,7 @@ import more_itertools
 import numpy as np
 import pandas as pd
 
-from mmcore.collections.traversal import sequence_type, type_extractor, dict_type_extractor, item_type_extractor
+from mmcore.collections.traversal import sequence_type,dict_type_extractor, item_type_extractor
 
 
 def _(): pass

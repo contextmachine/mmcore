@@ -7,7 +7,7 @@ import redis_om
 
 KeyProxy = type(dict().keys())
 
-REDIS_CONN = redis_om.get_redis_connection(url=os.getenv("REDIS_URL"), db=0)
+REDIS_CONN = redis_om.get_redis_connection(url=os.getenv("REDIS_STACK_URL"), db=0)
 ConnType = redis_om.connections.redis.Redis
 T = TypeVar('T')  # Any type.
 KT = TypeVar('KT')  # Key type.
