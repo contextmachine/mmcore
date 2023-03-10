@@ -8,8 +8,21 @@ from json import JSONDecoder, JSONEncoder
 from typing import Any
 
 import numpy as np
-import rhino3dm as rh
+try:
+    import rhino3dm as rg
+except ModuleNotFoundError:
+    import a
 
+
+
+def rhino_transform_from_np(tx):
+    xf = np.array(tx).reshape((4, 4))
+    xxf = rg.Transform(0.0)
+    for i in range(4):
+        for j in range(4):
+            setattr(xxf, f"M{i}{j}", xf[i, j])
+
+    return xxf
 
 def point_to_tuple(point) -> tuple[float, float, float]:
     return point.X, point.Y, point.Z
@@ -39,7 +52,7 @@ def vectors_from_arr(vectors):
 
 
 def rhino_transform_from_matrix(matrix):
-    t = rh.Transform(1.0)
+    t = rg.Transform(1.0)
 
     i, j = np.asarray(matrix).shape
     for ii in range(i):
@@ -56,7 +69,7 @@ def DecodeToCommonObject(item):
         return DecodeToCommonObject(json.loads(item))
     elif isinstance(item, list):
         return [DecodeToCommonObject(x) for x in item]
-    return rh.CommonObject.Decode(item)
+    return rg.CommonObject.Decode(item)
 
 
 def EncodeFromCommonObject(item):
@@ -73,11 +86,11 @@ def EncodeFromCommonObject(item):
 
 
 def encode_dict(item: Any):
-    return rh.ArchivableDictionary.EncodeDict({"data": item})
+    return rg.ArchivableDictionary.EncodeDict({"data": item})
 
 
 def decode_dict(item: str):
-    return rh.ArchivableDictionary.DecodeDict(item)["data"]
+    return rg.ArchivableDictionary.DecodeDict(item)["data"]
 
 
 class RhinoEncoder(JSONEncoder):
@@ -100,11 +113,11 @@ class RhinoDecoder(JSONDecoder):
 
 
 def control_points_curve(points: list[list[float]] | np.ndarray, degree: int = 3):
-    return rh.NurbsCurve.CreateControlPointCurve(list(map(lambda x: rh.Point3d(*x), points)),
+    return rg.NurbsCurve.CreateControlPointCurve(list(map(lambda x: rg.Point3d(*x), points)),
                                                  degree=degree)
 
 
-def rhino_crv_from_compas(nurbs_curves: list) -> list[rh.NurbsCurve]:
+def rhino_crv_from_compas(nurbs_curves: list) -> list[rg.NurbsCurve]:
     """
     Convert list of compas-like Nurbs curves to Rhino Nurbs Curves
     :param nurbs_curves:
@@ -114,21 +127,21 @@ def rhino_crv_from_compas(nurbs_curves: list) -> list[rh.NurbsCurve]:
 
     """
 
-    return list(map(lambda x: rh.NurbsCurve.Create(
+    return list(map(lambda x: rg.NurbsCurve.Create(
         x.is_periodic,
         x.degree,
-        list(map(lambda y: rh.Point3d(*y), x.points))), nurbs_curves))
+        list(map(lambda y: rg.Point3d(*y), x.points))), nurbs_curves))
 
 
 def list_curves_to_polycurves(curves):
-    poly = rh.PolyCurve()
+    poly = rg.PolyCurve()
     for curve in curves:
         poly.AppendSegment(curve)
     return poly
 
 
 def polyline_from_pts(pts):
-    polyline = rh.Polyline(0)
+    polyline = rg.Polyline(0)
     for pt in pts:
         polyline.Add(*pt)
     if polyline.IsValid:
@@ -139,12 +152,12 @@ def polyline_from_pts(pts):
 
 
 def model_from_json_file(path, modelpath=None):
-    model = rh.File3dm()
+    model = rg.File3dm()
     pth, _ = path.split(".")
     with open(f"{path}", "r") as f:
         for lod in json.load(f):
             lod["archive3dm"] = 70
-            model.Objects.Add(rh.GeometryBase.Decode(lod))
+            model.Objects.Add(rg.GeometryBase.Decode(lod))
     if modelpath:
         model.Write(f"{modelpath}.3dm", 7)
     else:
@@ -152,10 +165,10 @@ def model_from_json_file(path, modelpath=None):
 
 
 def model_from_dct(dct, path, modelpath=None):
-    model = rh.File3dm()
+    model = rg.File3dm()
 
     dct["archive3dm"] = 70
-    model.Objects.Add(rh.GeometryBase.Decode(dct))
+    model.Objects.Add(rg.GeometryBase.Decode(dct))
     if modelpath:
         model.Write(f"{modelpath}.3dm", 7)
     else:
@@ -164,13 +177,13 @@ def model_from_dct(dct, path, modelpath=None):
 
 
 def model_from_dir_obj(directory):
-    model = rh.File3dm()
+    model = rg.File3dm()
     for path in os.scandir(directory):
         pth, _ = path.name.split(".")
         with open(f"{path}", "r") as f:
             for lod in json.load(f):
                 lod["archive3dm"] = 70
-                model.Objects.Add(rh.GeometryBase.Decode(lod))
+                model.Objects.Add(rg.GeometryBase.Decode(lod))
 
     return model
 
@@ -188,38 +201,38 @@ def model_from_geometry_list(objects, model_path):
 
 
 def get_model_objects(path):
-    rr = rh.File3dm().Read(path)
+    rr = rg.File3dm().Read(path)
     # noinspection PyTypeChecker
     return list(rr.Objects)
 
 
 def get_model_geometry(path):
-    rr = rh.File3dm().Read(path)
+    rr = rg.File3dm().Read(path)
     # noinspection PyTypeChecker
     return [o.Geometry for o in rr.Objects]
 
 
 def get_model_geometry_from_buffer(buff: bytes):
-    rr = rh.File3dm.FromByteArray(buff)
+    rr = rg.File3dm.FromByteArray(buff)
     # noinspection PyTypeChecker
     return [o.Geometry for o in rr.Objects]
 
 
 def get_model_objects_from_buffer(buff: bytes):
-    rr = rh.File3dm.FromByteArray(buff)
+    rr = rg.File3dm.FromByteArray(buff)
     # noinspection PyTypeChecker
     return [o for o in rr.Objects]
 
 
 def get_model_attributes_from_buffer(buff: bytes):
-    rr = rh.File3dm.FromByteArray(buff)
+    rr = rg.File3dm.FromByteArray(buff)
     # noinspection PyTypeChecker
     return [o.Attributes for o in rr.Objects]
 
 
 # noinspection PyUnresolvedReferences
 def get_model_attributes(path):
-    rr = rh.File3dm().Read(path)
+    rr = rg.File3dm().Read(path)
     return [o.Attributes for o in rr.Objects]
 
     def encode(self, o) -> str:
@@ -331,8 +344,8 @@ def get_np_mesh_normals(msh) -> np.ndarray: return np.asarray(get_mesh_normals(m
 
 
 # noinspection PyTypeChecker
-def create_model_with_items(*items, return_uuids=False) -> rh.File3dm | tuple[rh.File3dm | list[Any]]:
-    model3dm = rh.File3dm()
+def create_model_with_items(*items, return_uuids=False) -> rg.File3dm | tuple[rg.File3dm | list[Any]]:
+    model3dm = rg.File3dm()
     uuids = [model3dm.Objects.Add(item) for item in items]
     return model3dm if not return_uuids else model3dm, uuids
 

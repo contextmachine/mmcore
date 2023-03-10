@@ -55,7 +55,7 @@ class StreamConnector:
 
         return self.xrange(count=1, min=min, max=max)
     def keys(self):
-        return [tg.decode().split("-")[0] for tg in list(zip(*self.xrange(count=)))[0]]
+        return [tg.decode().split("-")[0] for tg in list(zip(*self.xrange(count=None)))[0]]
 
     def __len__(self):
         return self.xlen()
