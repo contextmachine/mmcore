@@ -102,12 +102,20 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
     def to_compas(self) -> 'Point':
         return compas.geometry.Point(*self.xyz)
 
-    def to_dict(self) -> 'Point':
+    def to_dict(self,lower=False) -> 'Point':
+        if lower:
+            return self.to_dict_lower()
+        else:
+            dct = {}
+            for k in self.cxmdata_keys:
+                dct[k] = getattr(self, k.lower())
+            return dct
+
+    def to_dict_lower(self) -> 'Point':
         dct = {}
         for k in self.cxmdata_keys:
-            dct[k] = getattr(self, k.lower())
+            dct[k.lower()] = getattr(self, k.lower())
         return dct
-
     @classmethod
     def _validate_dict(cls, dct):
         return all(map(lambda k: (k.upper() in dct.keys()) or (k.lower() in dct.keys()), cls.cxmdata_keys))

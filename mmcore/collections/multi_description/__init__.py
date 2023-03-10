@@ -2,6 +2,7 @@
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
 # multi_description.py
 import functools
+import inspect
 import itertools
 from abc import ABC
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
@@ -10,7 +11,7 @@ import more_itertools
 import numpy as np
 import pandas as pd
 
-from mmcore.collections.traversal import sequence_type,dict_type_extractor, item_type_extractor
+from mmcore.collections.traversal import sequence_type, dict_type_extractor, item_type_extractor
 
 
 def _(): pass
@@ -166,10 +167,10 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
             # _getter = multi_getitem(self._seq)
 
             _getter = multi_getitem(self._seq)
-            return list(_getter(k))
+            return tuple(_getter(k))
         elif isinstance(self._seq[0], str):
             _getter = multi_getter(self._seq)
-            return list(_getter(k))
+            return tuple(_getter(k))
         elif isinstance(self._seq[0], Sequence) and not isinstance(self._seq[0], str):
             return [CollectionItemGetter(i).__getitem__(k) for i in self._seq]
 
@@ -473,6 +474,24 @@ class MultiSetitem2:
                     return list.__setitem__(instance, item, val)
 
         return wrap
+
+
+class EntityCollection(ElementSequence):
+    def __init_subclass__(cls, kind=None, **kwargs):
+        cls.kind = kind
+
+        cls.__init_subclass__(**kwargs)
+
+    @property
+    def element_type(self):
+        return self.kind
+
+    def __getitem__(self, item):
+        return lambda slf: map(lambda *args, **kwargs: self.kind.__getattribute__( item)(slf, *args, **kwargs), self._seq)
+
+    def __setitem__(self, item, v):
+        super().__setitem__(self, item, v)
+                               
 
 
 class SeqProto(Protocol):
