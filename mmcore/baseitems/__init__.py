@@ -21,14 +21,16 @@ import numpy as np
 import pydantic
 from typing_extensions import ParamSpec, Protocol
 
-from cxmdata import BasicTypes
+
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
 from mmcore.collections.traversal import traverse
 
+BasicTypes=[]
 collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
 T = typing.TypeVar('T')  # Any type.
 KT = typing.TypeVar('KT')  # Key type.
-VT = typing.TypeVar('VT')  # Value type.
+VT = typing.TypeVar('VT')  #
+# Value type.
 T_co = typing.TypeVar('T_co', covariant=True)  # Any type covariant containers.
 T_contra = typing.TypeVar('T_contra', contravariant=True)  # Ditto contravariant.
 P = ParamSpec('P')
@@ -531,7 +533,7 @@ class Matchable(object):
     repr_args = "__match_args__"
     properties = descriptors.UserDataProperties()
     userdata = descriptors.UserData()
-
+    repr_exclude=()
     def __init__(self, *args, **kwargs):
         super().__init__()
         self._uuid = uuid.uuid4().__str__()
@@ -552,8 +554,8 @@ class Matchable(object):
     def __repr__(self) -> str:
 
         s = f"{self.__class__.__name__}("
-
-        for k in getattr(self, "repr_args"):
+        args = set(self.repr_args)-set(self.repr_exclude)
+        for k in args:
             try:
                 s += f"{k}={getattr(self, k)}, "
             except AttributeError as err:
@@ -580,11 +582,13 @@ class Matchable(object):
 
             if type(dt) in BasicTypes:
                 return dt
+
             elif hasattr(dt, "to_dict"):
                 return dict(strong_attr_items(self))
             elif isinstance(dt, Mapping):
                 dct = {}
                 for k, v in dt.items():
+
                     dct[k] = wrp(v)
                 return dct
             elif isinstance(dt, Sequence):
@@ -596,8 +600,8 @@ class Matchable(object):
 
         return wrp(self)
 
-    def toJSON(self):
-        return json.dumps(self, default=self.__class__.to_dict,
+    def ToJSON(self):
+        return json.dumps(self.to_dict(),
                           sort_keys=True, indent=3)
 
 
@@ -690,3 +694,5 @@ class simpleproperty:
         else:
 
             return getattr(instance, "_" + self.name)
+
+

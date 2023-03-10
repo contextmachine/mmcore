@@ -3,7 +3,6 @@ name:
 channels:
   - conda-forge
 dependencies:
-  - python[version='==3.10']
   - make
   - cmake
   - cython
@@ -40,8 +39,4 @@ dependencies:
       - uvicorn[standard]
       - uvloop
       - fastapi[all]
-
-
-
-
 prefix: ${CONDA_DIR}/envs/mmodel
