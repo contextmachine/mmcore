@@ -2,7 +2,7 @@ import collections.abc
 import copy
 from collections import namedtuple, deque
 
-from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
+
 
 
 def chain_split_list(iterable):
@@ -291,22 +291,22 @@ T = TypeVar("T")
 
 
 class ParamContainer:
-    def __init__(self, *args: P.args, **kwargs: P.kwargs):
+    def __init__(self, *args , **kwargs ):
         super().__init__(*args, **kwargs)
         self._args = list(args)
         self._kwargs = kwargs
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs):
+    def __call__(self, *args , **kwargs ):
         self._args.extend(args)
         self._kwargs.update(kwargs)
         return self
 
     @property
-    def args(self) -> P.args:
+    def args(self) :
         return tuple(self._args)
 
     @property
-    def kwargs(self) -> P.kwargs:
+    def kwargs(self) :
         return dict(self._kwargs)
 
     def __repr__(self):
