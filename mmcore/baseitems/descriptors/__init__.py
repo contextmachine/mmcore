@@ -136,7 +136,7 @@ class DataView(NoDataDescriptor, dict):
         ...
 
     @abstractmethod
-    def data_model(self, instance, value: list[tuple[str, Any]]):
+    def data_model(self, instance, value: list[None | tuple]):
         ...
 
     def __init__(self, *targets):
@@ -168,7 +168,7 @@ class UserDataField(DataView):
     def item_model(self, name: str, value: Any):
         ...
 
-    def data_model(self, instance, value: list[None | tuple[str, Any]]):
+    def data_model(self, instance, value: list[None | tuple]):
         if all(list(map(lambda x: x is None, dict(value).values()))):
             return None
         else:
@@ -179,7 +179,7 @@ class UserDataProperties(UserDataField):
     def item_model(self, name, value):
         return name, value
 
-    def data_model(self, instance, value: list[None | tuple[str, Any]]):
+    def data_model(self, instance, value: list[None | tuple]):
         return super().data_model(instance, value)
 
 
