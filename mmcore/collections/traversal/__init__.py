@@ -75,7 +75,7 @@ class traverse(Callable):
     __type_extras: set[TraverseTypeExtra] = set()
     type_extras = TypeExtras()
 
-    def __init__(self, callback: Callable | None = None, traverse_dict=True, traverse_seq=True, type_extras=()):
+    def __init__(self, callback, traverse_dict=True, traverse_seq=True, type_extras=()):
         super().__init__()
 
         self._traverse_dict = traverse_dict
@@ -116,7 +116,7 @@ class traverse(Callable):
     def extra_classes(self):
         return [typ.cls for typ in self.type_extras]
 
-    def __call__(self, seq: Sequence | typing.Mapping | Any) -> Sequence | typing.Mapping | Any:
+    def __call__(self, seq):
         if seq.__class__ in self.extra_classes:
             for typ in self.type_extras:
                 if isinstance(seq, typ.cls):
