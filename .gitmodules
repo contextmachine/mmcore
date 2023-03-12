@@ -1,7 +1,3 @@
-[submodule "cxmdata"]
-	path = cxmdata
-	url = https://github.com/contextmachine/cxmdata.git
-
 [submodule "mmcore/addons/mmocc/pythonocc-utils"]
 	path = mmcore/addons/mmocc/pythonocc-utils
 	url =  https://github.com/contextmachine/pythonocc-utils.git
