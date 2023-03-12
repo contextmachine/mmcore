@@ -1,6 +1,6 @@
 import copy
 
-from mmcore.addons.compute.gh_models import SlimGHRequest
+from mmcore.addons.rhino.compute.request_models import SlimGHRequest
 
 
 class Filter:
