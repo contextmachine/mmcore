@@ -1,7 +1,11 @@
 import os
+import sys
 
+import requests
 import rpyc
 import yaml
+
+import dotenv
 
 
 def get_connection():
@@ -83,14 +87,18 @@ def get_connection():
       'geometry': '46444538-4f6a-4ad0-97dc-3568d5d6ddcd',
       'material': '64ce2001-8bc2-4dbf-a4c5-978017d3a4b2'}}
     """
-    with open(os.getenv("RPYC_CONFIGS")) as f:
-        data = yaml.unsafe_load(f)
-        if list(data.keys())[0] == "service" and data["service"]["name"] == "rhpyc":
-            configs = data["service"].get("configs")
-            attrs = data["service"].get("attributes")
+    rconf = os.getenv("RPYC_CONFIGS")
+    if rconf.startswith("http"):
+        data = yaml.unsafe_load(requests.get(rconf).text)
+    else:
+        with open(os.getenv("RPYC_CONFIGS")) as f:
+            data = yaml.unsafe_load(f)
+    if list(data.keys())[0] == "service" and data["service"]["name"] == "rhpyc":
+        configs = data["service"].get("configs")
+        attrs = data["service"].get("attributes")
 
-            hosts = configs.get("hosts")
-            port = attrs.get("port")
+        hosts = configs.get("hosts")
+        port = attrs.get("port")
     hosts = hosts if hosts is not None else [os.getenv("RHINO_RPYC_HOST")]
     port = port if port is not None else os.getenv("RHINO_RPYC_PORT")
     i = -1
@@ -101,12 +109,11 @@ def get_connection():
 
             conn = rpyc.connect(host=hosts[i], port=port)
             conn.ping()
+
             if not conn.closed:
                 print(f"{hosts[i]} success!!!")
                 rhpyc_conn = conn
                 break
-
-
         except ConnectionRefusedError:
             print(f"{hosts[i]} fail...")
 
@@ -127,3 +134,5 @@ class PrintTools:
 
 def remote_help(obj):
     return obj.__doc__
+def remote_stop():
+    return sys.exit()

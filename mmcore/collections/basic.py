@@ -1,6 +1,6 @@
 import collections.abc
 import copy
-from collections import namedtuple
+from collections import namedtuple, deque
 
 from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
 
@@ -131,7 +131,7 @@ class Node:
 
 
 class ListNode:
-    def __init__(self, name, data=None):
+    def __init__(self, name="n", data=None):
         self.uuid = uuid.uuid4()
         self.data = data
         self.next = None
@@ -146,10 +146,10 @@ class LinkedList:
     def __init__(self, nodes=None):
         self.head = None
         if nodes is not None:
-            node = Node(data=nodes.pop(0))
+            node = ListNode(data=nodes.pop(0))
             self.head = node
             for elem in nodes:
-                node.next = Node(data=elem)
+                node.next = ListNode(data=elem)
                 node = node.next
 
     def __repr__(self):
@@ -407,6 +407,7 @@ class ComposeMask:
             return 1:
         """
         ...
+
 
 
 class FuncMultiDesc:

@@ -1,6 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from abc import ABC, abstractmethod
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, Callable
 
 
 class AbstractDescriptor(ABC):
@@ -117,15 +117,13 @@ class DataView(NoDataDescriptor, dict):
     >>> class DataOO(DataView):
     ...     def item_model(self, name, value):
     ...         return {"id": name, "value": value}
-    ...     def data_model(self, value):
-    ...         return {"type":"DataOO","data":value}
+    ...     def data_model(self, instance, value):
+    ...         return {"type":instance.__clas__.__name__,"data":value}
     >>> from mmcore.baseitems import Descriptor, NoDataDescriptor, Matchable
 
     >>> class AA('Matchable'):
     ...     __match_args__="a","b","c"
-    ...     compute_data_params=["a","b"]
-    ...
-    ...     compute_data=DataOO("compute_data_params")
+    ...     compute_data=DataOO("a","b")
     >>> a = AA(1,2.,"tt")
     >>> a.compute_data
     {'type': 'DataOO',
@@ -204,6 +202,15 @@ class UserData(DataView):
         return d
 
 
+
+class JsonView(DataView):
+    deps = "uuid", "type", "_class",
+
+    def __init__(self, *targets):
+        object.__init__(self)
+        super().__init__(*(self.deps + targets))
+
+
 class Template(str):
     type: str
 
@@ -229,20 +236,6 @@ class GroupUserData(DataView):
         return dict(value)
 
 
-import numpy as np
-import rhino3dm as rg
-
-
-def trx(tx):
-    xf = np.array(tx).reshape((4, 4))
-    xxf = rg.Transform(0.0)
-    for i in range(4):
-        for j in range(4):
-            setattr(xxf, f"M{i}{j}", xf[i, j])
-
-    return xxf
-
-
 class BackendProxyDescriptor:
     def __init__(self):
         self.name = '__getitem__'
@@ -258,6 +251,7 @@ class BackendProxyDescriptor:
                 return getattr(instance._backend, f"M{i}{j}")
 
         return __getitem__
+
 
 
 class DumpData(DataView):
