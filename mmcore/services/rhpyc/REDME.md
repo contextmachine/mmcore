@@ -62,6 +62,5 @@ Creating webgl object from rhino geometry for ten lines of code.
     'material': '64ce2001-8bc2-4dbf-a4c5-978017d3a4b2'}}
 
 ```
-
-![Wireframe view in Three.js editor](http://storage.yandexcloud.net/box.contextmachine.space/content/Screenshot%202023-02-16%20at%2017.59.19.png)
 ![Solid view in Three.js editor](http://storage.yandexcloud.net/box.contextmachine.space/content/Screenshot%202023-02-16%20at%2017.59.54.png)
+![Wireframe view in Three.js editor](http://storage.yandexcloud.net/box.contextmachine.space/content/Screenshot%202023-02-16%20at%2017.59.19.png)

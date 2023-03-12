@@ -88,7 +88,7 @@ class query:
     def render(self, fields=None):
         if fields is not None:
 
-            return self.template.render(root=self.parent,attrs=fields)
+            return self.template.render(root=self.parent, attrs=fields)
         else:
             return self.template.render(root=self.parent, attrs=self.fields)
 
