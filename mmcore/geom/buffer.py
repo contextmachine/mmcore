@@ -106,11 +106,11 @@ class BufferGeometryItem(GeomDataItem, typing.Sequence):
     @abstractmethod
     def __array__(self, *args, **kw) -> np.ndarray: ...
 
-    def __list__(self) -> list[float]:
+    def __list__(self):
         return self.__array__().tolist()
 
     @property
-    def array(self) -> list[float] | list[list[float]]:
+    def array(self):
         return self.__array__().tolist()
 
 
