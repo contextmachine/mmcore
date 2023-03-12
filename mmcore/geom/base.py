@@ -14,7 +14,6 @@ import numpy as np
 import rhino3dm
 from OCC.Core import TopoDS
 from OCC.Core.gp import gp_Pnt
-from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
 from mmcore.collections import chain_split_list
 from scipy.spatial.distance import euclidean
 
