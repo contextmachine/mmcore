@@ -31,6 +31,8 @@ class MmService(ClassicServer):
             pattrs = "attributes: {}\n\t\n"
             pconfigs = "configs: {}\n\t\n"
             cls.host = attrs.get("host") if attrs.get("host") is not None else '0.0.0.0'
+            cls.port = attrs.get("port") if attrs.get("port") is not None else 7777
+
             if attrs:
 
                 for k, v in attrs.items():

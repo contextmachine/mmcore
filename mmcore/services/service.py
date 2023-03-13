@@ -5,7 +5,7 @@ import socket
 import subprocess
 from functools import wraps
 from typing import ContextManager
-
+from rpyc.core.service import ClassicService
 from mmcore.baseitems import Matchable
 
 
@@ -169,7 +169,7 @@ import os
 import pprint
 
 
-class RpycService(ClassicServer):
+class RpycService(ClassicService):
     def __init_subclass__(cls, configs=None, **kwargs):
         if configs is not None:
             os.environ["RPYC_CONFIGS"] = configs
