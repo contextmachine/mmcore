@@ -105,7 +105,7 @@ class ClientDescriptor(Descriptor):
                                    Body=instance.__sethook__(value))
 
 
-def safe_getattribute(cls, self, item) -> None | Any:
+def safe_getattribute(cls, self, item):
     try:
         return cls.__getattribute__(self, item)
     except AttributeError as err:
