@@ -176,12 +176,13 @@ class RpycService(ClassicServer):
             os.environ["RPYC_CONFIGS"] = configs
         if os.getenv("RPYC_CONFIGS").startswith("http:") or os.getenv("RPYC_CONFIGS").startswith("https:"):
             import requests
+
             data = yaml.unsafe_load(requests.get(os.getenv("RPYC_CONFIGS")).text)
         else:
             with open(os.getenv("RPYC_CONFIGS")) as f:
                 data = yaml.unsafe_load(f)
 
-        if list(data.keys())[0] == "service" and data["service"]["name"] == os.getenv("RPYC_CONFIGS").split("/")[-1]:
+        if list(data.keys())[0] == "service":
 
             configs = data["service"].get("configs")
             attrs = data["service"].get("attributes")
@@ -191,6 +192,7 @@ class RpycService(ClassicServer):
             pconfigs = "configs: {}\n\t\n"
             cls.host = attrs.get("host") if attrs.get("host") is not None else '0.0.0.0'
             cls.port = attrs.get("port") if attrs.get("port") is not None else 7777
+            print(cls.host, cls.port)
             if attrs:
 
                 for k, v in attrs.items():
