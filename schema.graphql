@@ -15,7 +15,7 @@ directive @cached(
 ) on QUERY
 
 "A union of all types that use the @key directive"
-union _Entity = buffgeom_objects | geometry_attributes | lc_properties
+union _Entity = buffgeom_objects | geometry_attributes | lc_properties | lht_ceiling_panels
 
 type _Service {
     "SDL representation of schema"
@@ -194,6 +194,7 @@ type geometry_attributes_mutation_response {
 type lc_properties {
     id: Int!
     part: String
+    sss: Int!
     stage: String
     status: String!
     subtype: String!
@@ -226,12 +227,14 @@ type lc_properties_aggregate_fields {
 "aggregate avg on columns"
 type lc_properties_avg_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate max on columns"
 type lc_properties_max_fields {
     id: Int
     part: String
+    sss: Int
     stage: String
     status: String
     subtype: String
@@ -244,6 +247,7 @@ type lc_properties_max_fields {
 type lc_properties_min_fields {
     id: Int
     part: String
+    sss: Int
     stage: String
     status: String
     subtype: String
@@ -263,36 +267,325 @@ type lc_properties_mutation_response {
 "aggregate stddev on columns"
 type lc_properties_stddev_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate stddev_pop on columns"
 type lc_properties_stddev_pop_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate stddev_samp on columns"
 type lc_properties_stddev_samp_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate sum on columns"
 type lc_properties_sum_fields {
     id: Int
+    sss: Int
 }
 
 "aggregate var_pop on columns"
 type lc_properties_var_pop_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate var_samp on columns"
 type lc_properties_var_samp_fields {
     id: Float
+    sss: Float
 }
 
 "aggregate variance on columns"
 type lc_properties_variance_fields {
     id: Float
+    sss: Float
+}
+
+"columns and relationships of \"lht_ceiling.panels\""
+type lht_ceiling_panels {
+    centroid(
+        "JSON select path"
+        path: String
+    ): jsonb
+    cutted: Boolean
+    "An object relationship"
+    dtype: lht_ceiling_type_marks
+    extra: Boolean
+    floor: String!
+    id: Int!
+    mark: String
+    mask: Boolean
+    matrix(
+        "JSON select path"
+        path: String
+    ): jsonb
+    outside: Boolean
+    points(
+        "JSON select path"
+        path: String
+    ): jsonb
+    stage: String
+    stripe: Int
+    subtype: Int!
+    tag: String!
+    updated_at: timestamptz!
+    uuid: uuid!
+    x: numeric!
+    y: numeric!
+}
+
+"aggregated selection of \"lht_ceiling.panels\""
+type lht_ceiling_panels_aggregate {
+    aggregate: lht_ceiling_panels_aggregate_fields
+    nodes: [lht_ceiling_panels!]!
+}
+
+"aggregate fields of \"lht_ceiling.panels\""
+type lht_ceiling_panels_aggregate_fields {
+    avg: lht_ceiling_panels_avg_fields
+    count(columns: [lht_ceiling_panels_select_column!], distinct: Boolean): Int!
+    max: lht_ceiling_panels_max_fields
+    min: lht_ceiling_panels_min_fields
+    stddev: lht_ceiling_panels_stddev_fields
+    stddev_pop: lht_ceiling_panels_stddev_pop_fields
+    stddev_samp: lht_ceiling_panels_stddev_samp_fields
+    sum: lht_ceiling_panels_sum_fields
+    var_pop: lht_ceiling_panels_var_pop_fields
+    var_samp: lht_ceiling_panels_var_samp_fields
+    variance: lht_ceiling_panels_variance_fields
+}
+
+"aggregate avg on columns"
+type lht_ceiling_panels_avg_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate max on columns"
+type lht_ceiling_panels_max_fields {
+    floor: String
+    id: Int
+    mark: String
+    stage: String
+    stripe: Int
+    subtype: Int
+    tag: String
+    updated_at: timestamptz
+    uuid: uuid
+    x: numeric
+    y: numeric
+}
+
+"aggregate min on columns"
+type lht_ceiling_panels_min_fields {
+    floor: String
+    id: Int
+    mark: String
+    stage: String
+    stripe: Int
+    subtype: Int
+    tag: String
+    updated_at: timestamptz
+    uuid: uuid
+    x: numeric
+    y: numeric
+}
+
+"response of any mutation on the table \"lht_ceiling.panels\""
+type lht_ceiling_panels_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [lht_ceiling_panels!]!
+}
+
+"aggregate stddev on columns"
+type lht_ceiling_panels_stddev_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate stddev_pop on columns"
+type lht_ceiling_panels_stddev_pop_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate stddev_samp on columns"
+type lht_ceiling_panels_stddev_samp_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate sum on columns"
+type lht_ceiling_panels_sum_fields {
+    id: Int
+    stripe: Int
+    subtype: Int
+    x: numeric
+    y: numeric
+}
+
+"aggregate var_pop on columns"
+type lht_ceiling_panels_var_pop_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate var_samp on columns"
+type lht_ceiling_panels_var_samp_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"aggregate variance on columns"
+type lht_ceiling_panels_variance_fields {
+    id: Float
+    stripe: Float
+    subtype: Float
+    x: Float
+    y: Float
+}
+
+"columns and relationships of \"lht_ceiling.type_marks\""
+type lht_ceiling_type_marks {
+    floor: String!
+    modify: timestamptz!
+    tag: String!
+    uuid: uuid!
+    x: numeric!
+    y: numeric!
+    z: numeric!
+}
+
+"aggregated selection of \"lht_ceiling.type_marks\""
+type lht_ceiling_type_marks_aggregate {
+    aggregate: lht_ceiling_type_marks_aggregate_fields
+    nodes: [lht_ceiling_type_marks!]!
+}
+
+"aggregate fields of \"lht_ceiling.type_marks\""
+type lht_ceiling_type_marks_aggregate_fields {
+    avg: lht_ceiling_type_marks_avg_fields
+    count(columns: [lht_ceiling_type_marks_select_column!], distinct: Boolean): Int!
+    max: lht_ceiling_type_marks_max_fields
+    min: lht_ceiling_type_marks_min_fields
+    stddev: lht_ceiling_type_marks_stddev_fields
+    stddev_pop: lht_ceiling_type_marks_stddev_pop_fields
+    stddev_samp: lht_ceiling_type_marks_stddev_samp_fields
+    sum: lht_ceiling_type_marks_sum_fields
+    var_pop: lht_ceiling_type_marks_var_pop_fields
+    var_samp: lht_ceiling_type_marks_var_samp_fields
+    variance: lht_ceiling_type_marks_variance_fields
+}
+
+"aggregate avg on columns"
+type lht_ceiling_type_marks_avg_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate max on columns"
+type lht_ceiling_type_marks_max_fields {
+    floor: String
+    modify: timestamptz
+    tag: String
+    uuid: uuid
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"aggregate min on columns"
+type lht_ceiling_type_marks_min_fields {
+    floor: String
+    modify: timestamptz
+    tag: String
+    uuid: uuid
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"response of any mutation on the table \"lht_ceiling.type_marks\""
+type lht_ceiling_type_marks_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [lht_ceiling_type_marks!]!
+}
+
+"aggregate stddev on columns"
+type lht_ceiling_type_marks_stddev_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate stddev_pop on columns"
+type lht_ceiling_type_marks_stddev_pop_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate stddev_samp on columns"
+type lht_ceiling_type_marks_stddev_samp_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate sum on columns"
+type lht_ceiling_type_marks_sum_fields {
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"aggregate var_pop on columns"
+type lht_ceiling_type_marks_var_pop_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate var_samp on columns"
+type lht_ceiling_type_marks_var_samp_fields {
+    x: Float
+    y: Float
+    z: Float
+}
+
+"aggregate variance on columns"
+type lht_ceiling_type_marks_variance_fields {
+    x: Float
+    y: Float
+    z: Float
 }
 
 "mutation root"
@@ -318,6 +611,20 @@ type mutation_root {
     ): lc_properties_mutation_response
     "delete single row from the table: \"lht_ceiling.properties\""
     delete_lc_properties_by_pk(id: Int!, subtype: String!, type: String!, uuid: uuid!): lc_properties
+    "delete data from the table: \"lht_ceiling.panels\""
+    delete_lht_ceiling_panels(
+        "filter the rows which have to be deleted"
+        where: lht_ceiling_panels_bool_exp!
+    ): lht_ceiling_panels_mutation_response
+    "delete single row from the table: \"lht_ceiling.panels\""
+    delete_lht_ceiling_panels_by_pk(floor: String!, x: numeric!, y: numeric!): lht_ceiling_panels
+    "delete data from the table: \"lht_ceiling.type_marks\""
+    delete_lht_ceiling_type_marks(
+        "filter the rows which have to be deleted"
+        where: lht_ceiling_type_marks_bool_exp!
+    ): lht_ceiling_type_marks_mutation_response
+    "delete single row from the table: \"lht_ceiling.type_marks\""
+    delete_lht_ceiling_type_marks_by_pk(x: numeric!, y: numeric!): lht_ceiling_type_marks
     "delete data from the table: \"presets.colors\""
     delete_presets_colors(
         "filter the rows which have to be deleted"
@@ -325,6 +632,13 @@ type mutation_root {
     ): presets_colors_mutation_response
     "delete single row from the table: \"presets.colors\""
     delete_presets_colors_by_pk(id: Int!, palette: Int!): presets_colors
+    "delete data from the table: \"projects.infographics_hub\""
+    delete_projects_infographics_hub(
+        "filter the rows which have to be deleted"
+        where: projects_infographics_hub_bool_exp!
+    ): projects_infographics_hub_mutation_response
+    "delete single row from the table: \"projects.infographics_hub\""
+    delete_projects_infographics_hub_by_pk(id: uuid!): projects_infographics_hub
     "delete data from the table: \"projects.projects_hub\""
     delete_projects_projects_hub(
         "filter the rows which have to be deleted"
@@ -388,6 +702,34 @@ type mutation_root {
         "upsert condition"
         on_conflict: lc_properties_on_conflict
     ): lc_properties
+    "insert data into the table: \"lht_ceiling.panels\""
+    insert_lht_ceiling_panels(
+        "the rows to be inserted"
+        objects: [lht_ceiling_panels_insert_input!]!,
+        "upsert condition"
+        on_conflict: lht_ceiling_panels_on_conflict
+    ): lht_ceiling_panels_mutation_response
+    "insert a single row into the table: \"lht_ceiling.panels\""
+    insert_lht_ceiling_panels_one(
+        "the row to be inserted"
+        object: lht_ceiling_panels_insert_input!,
+        "upsert condition"
+        on_conflict: lht_ceiling_panels_on_conflict
+    ): lht_ceiling_panels
+    "insert data into the table: \"lht_ceiling.type_marks\""
+    insert_lht_ceiling_type_marks(
+        "the rows to be inserted"
+        objects: [lht_ceiling_type_marks_insert_input!]!,
+        "upsert condition"
+        on_conflict: lht_ceiling_type_marks_on_conflict
+    ): lht_ceiling_type_marks_mutation_response
+    "insert a single row into the table: \"lht_ceiling.type_marks\""
+    insert_lht_ceiling_type_marks_one(
+        "the row to be inserted"
+        object: lht_ceiling_type_marks_insert_input!,
+        "upsert condition"
+        on_conflict: lht_ceiling_type_marks_on_conflict
+    ): lht_ceiling_type_marks
     "insert data into the table: \"presets.colors\""
     insert_presets_colors(
         "the rows to be inserted"
@@ -402,6 +744,20 @@ type mutation_root {
         "upsert condition"
         on_conflict: presets_colors_on_conflict
     ): presets_colors
+    "insert data into the table: \"projects.infographics_hub\""
+    insert_projects_infographics_hub(
+        "the rows to be inserted"
+        objects: [projects_infographics_hub_insert_input!]!,
+        "upsert condition"
+        on_conflict: projects_infographics_hub_on_conflict
+    ): projects_infographics_hub_mutation_response
+    "insert a single row into the table: \"projects.infographics_hub\""
+    insert_projects_infographics_hub_one(
+        "the row to be inserted"
+        object: projects_infographics_hub_insert_input!,
+        "upsert condition"
+        on_conflict: projects_infographics_hub_on_conflict
+    ): projects_infographics_hub
     "insert data into the table: \"projects.projects_hub\""
     insert_projects_projects_hub(
         "the rows to be inserted"
@@ -546,6 +902,70 @@ type mutation_root {
         "updates to execute, in order"
         updates: [lc_properties_updates!]!
     ): [lc_properties_mutation_response]
+    "update data of the table: \"lht_ceiling.panels\""
+    update_lht_ceiling_panels(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: lht_ceiling_panels_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: lht_ceiling_panels_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: lht_ceiling_panels_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: lht_ceiling_panels_delete_key_input,
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lht_ceiling_panels_inc_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: lht_ceiling_panels_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lht_ceiling_panels_set_input,
+        "filter the rows which have to be updated"
+        where: lht_ceiling_panels_bool_exp!
+    ): lht_ceiling_panels_mutation_response
+    "update single row of the table: \"lht_ceiling.panels\""
+    update_lht_ceiling_panels_by_pk(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: lht_ceiling_panels_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: lht_ceiling_panels_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: lht_ceiling_panels_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: lht_ceiling_panels_delete_key_input,
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lht_ceiling_panels_inc_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: lht_ceiling_panels_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lht_ceiling_panels_set_input,
+        pk_columns: lht_ceiling_panels_pk_columns_input!
+    ): lht_ceiling_panels
+    "update multiples rows of table: \"lht_ceiling.panels\""
+    update_lht_ceiling_panels_many(
+        "updates to execute, in order"
+        updates: [lht_ceiling_panels_updates!]!
+    ): [lht_ceiling_panels_mutation_response]
+    "update data of the table: \"lht_ceiling.type_marks\""
+    update_lht_ceiling_type_marks(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lht_ceiling_type_marks_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lht_ceiling_type_marks_set_input,
+        "filter the rows which have to be updated"
+        where: lht_ceiling_type_marks_bool_exp!
+    ): lht_ceiling_type_marks_mutation_response
+    "update single row of the table: \"lht_ceiling.type_marks\""
+    update_lht_ceiling_type_marks_by_pk(
+        "increments the numeric columns with given value of the filtered values"
+        _inc: lht_ceiling_type_marks_inc_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: lht_ceiling_type_marks_set_input,
+        pk_columns: lht_ceiling_type_marks_pk_columns_input!
+    ): lht_ceiling_type_marks
+    "update multiples rows of table: \"lht_ceiling.type_marks\""
+    update_lht_ceiling_type_marks_many(
+        "updates to execute, in order"
+        updates: [lht_ceiling_type_marks_updates!]!
+    ): [lht_ceiling_type_marks_mutation_response]
     "update data of the table: \"presets.colors\""
     update_presets_colors(
         "increments the numeric columns with given value of the filtered values"
@@ -568,6 +988,48 @@ type mutation_root {
         "updates to execute, in order"
         updates: [presets_colors_updates!]!
     ): [presets_colors_mutation_response]
+    "update data of the table: \"projects.infographics_hub\""
+    update_projects_infographics_hub(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: projects_infographics_hub_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: projects_infographics_hub_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: projects_infographics_hub_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: projects_infographics_hub_delete_key_input,
+        "increments the numeric columns with given value of the filtered values"
+        _inc: projects_infographics_hub_inc_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: projects_infographics_hub_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: projects_infographics_hub_set_input,
+        "filter the rows which have to be updated"
+        where: projects_infographics_hub_bool_exp!
+    ): projects_infographics_hub_mutation_response
+    "update single row of the table: \"projects.infographics_hub\""
+    update_projects_infographics_hub_by_pk(
+        "append existing jsonb value of filtered columns with new jsonb value"
+        _append: projects_infographics_hub_append_input,
+        "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+        _delete_at_path: projects_infographics_hub_delete_at_path_input,
+        "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+        _delete_elem: projects_infographics_hub_delete_elem_input,
+        "delete key/value pair or string element. key/value pairs are matched based on their key value"
+        _delete_key: projects_infographics_hub_delete_key_input,
+        "increments the numeric columns with given value of the filtered values"
+        _inc: projects_infographics_hub_inc_input,
+        "prepend existing jsonb value of filtered columns with new jsonb value"
+        _prepend: projects_infographics_hub_prepend_input,
+        "sets the columns of the filtered rows to the given values"
+        _set: projects_infographics_hub_set_input,
+        pk_columns: projects_infographics_hub_pk_columns_input!
+    ): projects_infographics_hub
+    "update multiples rows of table: \"projects.infographics_hub\""
+    update_projects_infographics_hub_many(
+        "updates to execute, in order"
+        updates: [projects_infographics_hub_updates!]!
+    ): [projects_infographics_hub_mutation_response]
     "update data of the table: \"projects.projects_hub\""
     update_projects_projects_hub(
         "sets the columns of the filtered rows to the given values"
@@ -789,6 +1251,106 @@ type presets_colors_variance_fields {
     id: Float
     palette: Float
     r: Float
+}
+
+"columns and relationships of \"projects.infographics_hub\""
+type projects_infographics_hub {
+    body(
+        "JSON select path"
+        path: String
+    ): jsonb!
+    cr: timestamptz!
+    id: uuid!
+    name: String!
+    object_id: Int!
+    project_name: String
+}
+
+"aggregated selection of \"projects.infographics_hub\""
+type projects_infographics_hub_aggregate {
+    aggregate: projects_infographics_hub_aggregate_fields
+    nodes: [projects_infographics_hub!]!
+}
+
+"aggregate fields of \"projects.infographics_hub\""
+type projects_infographics_hub_aggregate_fields {
+    avg: projects_infographics_hub_avg_fields
+    count(columns: [projects_infographics_hub_select_column!], distinct: Boolean): Int!
+    max: projects_infographics_hub_max_fields
+    min: projects_infographics_hub_min_fields
+    stddev: projects_infographics_hub_stddev_fields
+    stddev_pop: projects_infographics_hub_stddev_pop_fields
+    stddev_samp: projects_infographics_hub_stddev_samp_fields
+    sum: projects_infographics_hub_sum_fields
+    var_pop: projects_infographics_hub_var_pop_fields
+    var_samp: projects_infographics_hub_var_samp_fields
+    variance: projects_infographics_hub_variance_fields
+}
+
+"aggregate avg on columns"
+type projects_infographics_hub_avg_fields {
+    object_id: Float
+}
+
+"aggregate max on columns"
+type projects_infographics_hub_max_fields {
+    cr: timestamptz
+    id: uuid
+    name: String
+    object_id: Int
+    project_name: String
+}
+
+"aggregate min on columns"
+type projects_infographics_hub_min_fields {
+    cr: timestamptz
+    id: uuid
+    name: String
+    object_id: Int
+    project_name: String
+}
+
+"response of any mutation on the table \"projects.infographics_hub\""
+type projects_infographics_hub_mutation_response {
+    "number of rows affected by the mutation"
+    affected_rows: Int!
+    "data from the rows affected by the mutation"
+    returning: [projects_infographics_hub!]!
+}
+
+"aggregate stddev on columns"
+type projects_infographics_hub_stddev_fields {
+    object_id: Float
+}
+
+"aggregate stddev_pop on columns"
+type projects_infographics_hub_stddev_pop_fields {
+    object_id: Float
+}
+
+"aggregate stddev_samp on columns"
+type projects_infographics_hub_stddev_samp_fields {
+    object_id: Float
+}
+
+"aggregate sum on columns"
+type projects_infographics_hub_sum_fields {
+    object_id: Int
+}
+
+"aggregate var_pop on columns"
+type projects_infographics_hub_var_pop_fields {
+    object_id: Float
+}
+
+"aggregate var_samp on columns"
+type projects_infographics_hub_var_samp_fields {
+    object_id: Float
+}
+
+"aggregate variance on columns"
+type projects_infographics_hub_variance_fields {
+    object_id: Float
 }
 
 "columns and relationships of \"projects.projects_hub\""
@@ -1101,6 +1663,62 @@ type query_root {
     ): lc_properties_aggregate!
     "fetch data from the table: \"lht_ceiling.properties\" using primary key columns"
     lc_properties_by_pk(id: Int!, subtype: String!, type: String!, uuid: uuid!): lc_properties
+    "fetch data from the table: \"lht_ceiling.panels\""
+    lht_ceiling_panels(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_panels_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_panels_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_panels_bool_exp
+    ): [lht_ceiling_panels!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.panels\""
+    lht_ceiling_panels_aggregate(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_panels_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_panels_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_panels_bool_exp
+    ): lht_ceiling_panels_aggregate!
+    "fetch data from the table: \"lht_ceiling.panels\" using primary key columns"
+    lht_ceiling_panels_by_pk(floor: String!, x: numeric!, y: numeric!): lht_ceiling_panels
+    "fetch data from the table: \"lht_ceiling.type_marks\""
+    lht_ceiling_type_marks(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_type_marks_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_type_marks_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_type_marks_bool_exp
+    ): [lht_ceiling_type_marks!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.type_marks\""
+    lht_ceiling_type_marks_aggregate(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_type_marks_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_type_marks_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_type_marks_bool_exp
+    ): lht_ceiling_type_marks_aggregate!
+    "fetch data from the table: \"lht_ceiling.type_marks\" using primary key columns"
+    lht_ceiling_type_marks_by_pk(x: numeric!, y: numeric!): lht_ceiling_type_marks
     "fetch data from the table: \"presets.colors\""
     presets_colors(
         "distinct select on columns"
@@ -1129,6 +1747,34 @@ type query_root {
     ): presets_colors_aggregate!
     "fetch data from the table: \"presets.colors\" using primary key columns"
     presets_colors_by_pk(id: Int!, palette: Int!): presets_colors
+    "fetch data from the table: \"projects.infographics_hub\""
+    projects_infographics_hub(
+        "distinct select on columns"
+        distinct_on: [projects_infographics_hub_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [projects_infographics_hub_order_by!],
+        "filter the rows returned"
+        where: projects_infographics_hub_bool_exp
+    ): [projects_infographics_hub!]!
+    "fetch aggregated fields from the table: \"projects.infographics_hub\""
+    projects_infographics_hub_aggregate(
+        "distinct select on columns"
+        distinct_on: [projects_infographics_hub_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [projects_infographics_hub_order_by!],
+        "filter the rows returned"
+        where: projects_infographics_hub_bool_exp
+    ): projects_infographics_hub_aggregate!
+    "fetch data from the table: \"projects.infographics_hub\" using primary key columns"
+    projects_infographics_hub_by_pk(id: uuid!): projects_infographics_hub
     "fetch data from the table: \"projects.projects_hub\""
     projects_projects_hub(
         "distinct select on columns"
@@ -1327,6 +1973,80 @@ type subscription_root {
         "filter the rows returned"
         where: lc_properties_bool_exp
     ): [lc_properties!]!
+    "fetch data from the table: \"lht_ceiling.panels\""
+    lht_ceiling_panels(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_panels_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_panels_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_panels_bool_exp
+    ): [lht_ceiling_panels!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.panels\""
+    lht_ceiling_panels_aggregate(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_panels_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_panels_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_panels_bool_exp
+    ): lht_ceiling_panels_aggregate!
+    "fetch data from the table: \"lht_ceiling.panels\" using primary key columns"
+    lht_ceiling_panels_by_pk(floor: String!, x: numeric!, y: numeric!): lht_ceiling_panels
+    "fetch data from the table in a streaming manner: \"lht_ceiling.panels\""
+    lht_ceiling_panels_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [lht_ceiling_panels_stream_cursor_input]!,
+        "filter the rows returned"
+        where: lht_ceiling_panels_bool_exp
+    ): [lht_ceiling_panels!]!
+    "fetch data from the table: \"lht_ceiling.type_marks\""
+    lht_ceiling_type_marks(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_type_marks_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_type_marks_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_type_marks_bool_exp
+    ): [lht_ceiling_type_marks!]!
+    "fetch aggregated fields from the table: \"lht_ceiling.type_marks\""
+    lht_ceiling_type_marks_aggregate(
+        "distinct select on columns"
+        distinct_on: [lht_ceiling_type_marks_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [lht_ceiling_type_marks_order_by!],
+        "filter the rows returned"
+        where: lht_ceiling_type_marks_bool_exp
+    ): lht_ceiling_type_marks_aggregate!
+    "fetch data from the table: \"lht_ceiling.type_marks\" using primary key columns"
+    lht_ceiling_type_marks_by_pk(x: numeric!, y: numeric!): lht_ceiling_type_marks
+    "fetch data from the table in a streaming manner: \"lht_ceiling.type_marks\""
+    lht_ceiling_type_marks_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [lht_ceiling_type_marks_stream_cursor_input]!,
+        "filter the rows returned"
+        where: lht_ceiling_type_marks_bool_exp
+    ): [lht_ceiling_type_marks!]!
     "fetch data from the table: \"presets.colors\""
     presets_colors(
         "distinct select on columns"
@@ -1364,6 +2084,43 @@ type subscription_root {
         "filter the rows returned"
         where: presets_colors_bool_exp
     ): [presets_colors!]!
+    "fetch data from the table: \"projects.infographics_hub\""
+    projects_infographics_hub(
+        "distinct select on columns"
+        distinct_on: [projects_infographics_hub_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [projects_infographics_hub_order_by!],
+        "filter the rows returned"
+        where: projects_infographics_hub_bool_exp
+    ): [projects_infographics_hub!]!
+    "fetch aggregated fields from the table: \"projects.infographics_hub\""
+    projects_infographics_hub_aggregate(
+        "distinct select on columns"
+        distinct_on: [projects_infographics_hub_select_column!],
+        "limit the number of rows returned"
+        limit: Int,
+        "skip the first n rows. Use only with order_by"
+        offset: Int,
+        "sort the rows by one or more columns"
+        order_by: [projects_infographics_hub_order_by!],
+        "filter the rows returned"
+        where: projects_infographics_hub_bool_exp
+    ): projects_infographics_hub_aggregate!
+    "fetch data from the table: \"projects.infographics_hub\" using primary key columns"
+    projects_infographics_hub_by_pk(id: uuid!): projects_infographics_hub
+    "fetch data from the table in a streaming manner: \"projects.infographics_hub\""
+    projects_infographics_hub_stream(
+        "maximum number of rows returned in a single batch"
+        batch_size: Int!,
+        "cursor to stream the results returned by the query"
+        cursor: [projects_infographics_hub_stream_cursor_input]!,
+        "filter the rows returned"
+        where: projects_infographics_hub_bool_exp
+    ): [projects_infographics_hub!]!
     "fetch data from the table: \"projects.projects_hub\""
     projects_projects_hub(
         "distinct select on columns"
@@ -1589,6 +2346,8 @@ enum lc_properties_constraint {
     properties_id_uuid_key
     "unique or primary key constraint on columns \"type\", \"uuid\", \"id\", \"subtype\""
     properties_pkey
+    "unique or primary key constraint on columns \"sss\""
+    properties_sss_key
 }
 
 "select columns of table \"lht_ceiling.properties\""
@@ -1597,6 +2356,8 @@ enum lc_properties_select_column {
     id
     "column name"
     part
+    "column name"
+    sss
     "column name"
     stage
     "column name"
@@ -1618,6 +2379,8 @@ enum lc_properties_update_column {
     "column name"
     part
     "column name"
+    sss
+    "column name"
     stage
     "column name"
     status
@@ -1629,6 +2392,142 @@ enum lc_properties_update_column {
     uuid
     "column name"
     zone
+}
+
+"unique or primary key constraints on table \"lht_ceiling.panels\""
+enum lht_ceiling_panels_constraint {
+    "unique or primary key constraint on columns \"id\""
+    panels_id_key
+    "unique or primary key constraint on columns \"x\", \"y\", \"floor\""
+    panels_pkey
+    "unique or primary key constraint on columns \"uuid\""
+    panels_uuid_key
+    "unique or primary key constraint on columns \"x\", \"y\", \"floor\""
+    panels_x_y_floor_key
+}
+
+"select columns of table \"lht_ceiling.panels\""
+enum lht_ceiling_panels_select_column {
+    "column name"
+    centroid
+    "column name"
+    cutted
+    "column name"
+    extra
+    "column name"
+    floor
+    "column name"
+    id
+    "column name"
+    mark
+    "column name"
+    mask
+    "column name"
+    matrix
+    "column name"
+    outside
+    "column name"
+    points
+    "column name"
+    stage
+    "column name"
+    stripe
+    "column name"
+    subtype
+    "column name"
+    tag
+    "column name"
+    updated_at
+    "column name"
+    uuid
+    "column name"
+    x
+    "column name"
+    y
+}
+
+"update columns of table \"lht_ceiling.panels\""
+enum lht_ceiling_panels_update_column {
+    "column name"
+    centroid
+    "column name"
+    cutted
+    "column name"
+    extra
+    "column name"
+    floor
+    "column name"
+    id
+    "column name"
+    mark
+    "column name"
+    mask
+    "column name"
+    matrix
+    "column name"
+    outside
+    "column name"
+    points
+    "column name"
+    stage
+    "column name"
+    stripe
+    "column name"
+    subtype
+    "column name"
+    tag
+    "column name"
+    updated_at
+    "column name"
+    uuid
+    "column name"
+    x
+    "column name"
+    y
+}
+
+"unique or primary key constraints on table \"lht_ceiling.type_marks\""
+enum lht_ceiling_type_marks_constraint {
+    "unique or primary key constraint on columns \"x\", \"y\""
+    type_marks_pkey
+    "unique or primary key constraint on columns \"uuid\""
+    type_marks_uuid_key
+}
+
+"select columns of table \"lht_ceiling.type_marks\""
+enum lht_ceiling_type_marks_select_column {
+    "column name"
+    floor
+    "column name"
+    modify
+    "column name"
+    tag
+    "column name"
+    uuid
+    "column name"
+    x
+    "column name"
+    y
+    "column name"
+    z
+}
+
+"update columns of table \"lht_ceiling.type_marks\""
+enum lht_ceiling_type_marks_update_column {
+    "column name"
+    floor
+    "column name"
+    modify
+    "column name"
+    tag
+    "column name"
+    uuid
+    "column name"
+    x
+    "column name"
+    y
+    "column name"
+    z
 }
 
 "column ordering options"
@@ -1697,6 +2596,44 @@ enum presets_colors_update_column {
     palette
     "column name"
     r
+}
+
+"unique or primary key constraints on table \"projects.infographics_hub\""
+enum projects_infographics_hub_constraint {
+    "unique or primary key constraint on columns \"id\""
+    infographics_hub_pkey
+}
+
+"select columns of table \"projects.infographics_hub\""
+enum projects_infographics_hub_select_column {
+    "column name"
+    body
+    "column name"
+    cr
+    "column name"
+    id
+    "column name"
+    name
+    "column name"
+    object_id
+    "column name"
+    project_name
+}
+
+"update columns of table \"projects.infographics_hub\""
+enum projects_infographics_hub_update_column {
+    "column name"
+    body
+    "column name"
+    cr
+    "column name"
+    id
+    "column name"
+    name
+    "column name"
+    object_id
+    "column name"
+    project_name
 }
 
 "unique or primary key constraints on table \"projects.projects_hub\""
@@ -2215,6 +3152,7 @@ input lc_properties_bool_exp {
     _or: [lc_properties_bool_exp!]
     id: Int_comparison_exp
     part: String_comparison_exp
+    sss: Int_comparison_exp
     stage: String_comparison_exp
     status: String_comparison_exp
     subtype: String_comparison_exp
@@ -2226,12 +3164,14 @@ input lc_properties_bool_exp {
 "input type for incrementing numeric columns in table \"lht_ceiling.properties\""
 input lc_properties_inc_input {
     id: Int
+    sss: Int
 }
 
 "input type for inserting data into table \"lht_ceiling.properties\""
 input lc_properties_insert_input {
     id: Int
     part: String
+    sss: Int
     stage: String
     status: String
     subtype: String
@@ -2251,6 +3191,7 @@ input lc_properties_on_conflict {
 input lc_properties_order_by {
     id: order_by
     part: order_by
+    sss: order_by
     stage: order_by
     status: order_by
     subtype: order_by
@@ -2271,6 +3212,7 @@ input lc_properties_pk_columns_input {
 input lc_properties_set_input {
     id: Int
     part: String
+    sss: Int
     stage: String
     status: String
     subtype: String
@@ -2291,6 +3233,7 @@ input lc_properties_stream_cursor_input {
 input lc_properties_stream_cursor_value_input {
     id: Int
     part: String
+    sss: Int
     stage: String
     status: String
     subtype: String
@@ -2306,6 +3249,309 @@ input lc_properties_updates {
     _set: lc_properties_set_input
     "filter the rows which have to be updated"
     where: lc_properties_bool_exp!
+}
+
+"append existing jsonb value of filtered columns with new jsonb value"
+input lht_ceiling_panels_append_input {
+    centroid: jsonb
+    matrix: jsonb
+    points: jsonb
+}
+
+"Boolean expression to filter rows from the table \"lht_ceiling.panels\". All fields are combined with a logical 'AND'."
+input lht_ceiling_panels_bool_exp {
+    _and: [lht_ceiling_panels_bool_exp!]
+    _not: lht_ceiling_panels_bool_exp
+    _or: [lht_ceiling_panels_bool_exp!]
+    centroid: jsonb_comparison_exp
+    cutted: Boolean_comparison_exp
+    dtype: lht_ceiling_type_marks_bool_exp
+    extra: Boolean_comparison_exp
+    floor: String_comparison_exp
+    id: Int_comparison_exp
+    mark: String_comparison_exp
+    mask: Boolean_comparison_exp
+    matrix: jsonb_comparison_exp
+    outside: Boolean_comparison_exp
+    points: jsonb_comparison_exp
+    stage: String_comparison_exp
+    stripe: Int_comparison_exp
+    subtype: Int_comparison_exp
+    tag: String_comparison_exp
+    updated_at: timestamptz_comparison_exp
+    uuid: uuid_comparison_exp
+    x: numeric_comparison_exp
+    y: numeric_comparison_exp
+}
+
+"delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+input lht_ceiling_panels_delete_at_path_input {
+    centroid: [String!]
+    matrix: [String!]
+    points: [String!]
+}
+
+"delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+input lht_ceiling_panels_delete_elem_input {
+    centroid: Int
+    matrix: Int
+    points: Int
+}
+
+"delete key/value pair or string element. key/value pairs are matched based on their key value"
+input lht_ceiling_panels_delete_key_input {
+    centroid: String
+    matrix: String
+    points: String
+}
+
+"input type for incrementing numeric columns in table \"lht_ceiling.panels\""
+input lht_ceiling_panels_inc_input {
+    id: Int
+    stripe: Int
+    subtype: Int
+    x: numeric
+    y: numeric
+}
+
+"input type for inserting data into table \"lht_ceiling.panels\""
+input lht_ceiling_panels_insert_input {
+    centroid: jsonb
+    cutted: Boolean
+    dtype: lht_ceiling_type_marks_obj_rel_insert_input
+    extra: Boolean
+    floor: String
+    id: Int
+    mark: String
+    mask: Boolean
+    matrix: jsonb
+    outside: Boolean
+    points: jsonb
+    stage: String
+    stripe: Int
+    subtype: Int
+    tag: String
+    updated_at: timestamptz
+    uuid: uuid
+    x: numeric
+    y: numeric
+}
+
+"on_conflict condition type for table \"lht_ceiling.panels\""
+input lht_ceiling_panels_on_conflict {
+    constraint: lht_ceiling_panels_constraint!
+    update_columns: [lht_ceiling_panels_update_column!]! = []
+    where: lht_ceiling_panels_bool_exp
+}
+
+"Ordering options when selecting data from \"lht_ceiling.panels\"."
+input lht_ceiling_panels_order_by {
+    centroid: order_by
+    cutted: order_by
+    dtype: lht_ceiling_type_marks_order_by
+    extra: order_by
+    floor: order_by
+    id: order_by
+    mark: order_by
+    mask: order_by
+    matrix: order_by
+    outside: order_by
+    points: order_by
+    stage: order_by
+    stripe: order_by
+    subtype: order_by
+    tag: order_by
+    updated_at: order_by
+    uuid: order_by
+    x: order_by
+    y: order_by
+}
+
+"primary key columns input for table: lht_ceiling.panels"
+input lht_ceiling_panels_pk_columns_input {
+    floor: String!
+    x: numeric!
+    y: numeric!
+}
+
+"prepend existing jsonb value of filtered columns with new jsonb value"
+input lht_ceiling_panels_prepend_input {
+    centroid: jsonb
+    matrix: jsonb
+    points: jsonb
+}
+
+"input type for updating data in table \"lht_ceiling.panels\""
+input lht_ceiling_panels_set_input {
+    centroid: jsonb
+    cutted: Boolean
+    extra: Boolean
+    floor: String
+    id: Int
+    mark: String
+    mask: Boolean
+    matrix: jsonb
+    outside: Boolean
+    points: jsonb
+    stage: String
+    stripe: Int
+    subtype: Int
+    tag: String
+    updated_at: timestamptz
+    uuid: uuid
+    x: numeric
+    y: numeric
+}
+
+"Streaming cursor of the table \"lht_ceiling_panels\""
+input lht_ceiling_panels_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: lht_ceiling_panels_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input lht_ceiling_panels_stream_cursor_value_input {
+    centroid: jsonb
+    cutted: Boolean
+    extra: Boolean
+    floor: String
+    id: Int
+    mark: String
+    mask: Boolean
+    matrix: jsonb
+    outside: Boolean
+    points: jsonb
+    stage: String
+    stripe: Int
+    subtype: Int
+    tag: String
+    updated_at: timestamptz
+    uuid: uuid
+    x: numeric
+    y: numeric
+}
+
+input lht_ceiling_panels_updates {
+    "append existing jsonb value of filtered columns with new jsonb value"
+    _append: lht_ceiling_panels_append_input
+    "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+    _delete_at_path: lht_ceiling_panels_delete_at_path_input
+    "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+    _delete_elem: lht_ceiling_panels_delete_elem_input
+    "delete key/value pair or string element. key/value pairs are matched based on their key value"
+    _delete_key: lht_ceiling_panels_delete_key_input
+    "increments the numeric columns with given value of the filtered values"
+    _inc: lht_ceiling_panels_inc_input
+    "prepend existing jsonb value of filtered columns with new jsonb value"
+    _prepend: lht_ceiling_panels_prepend_input
+    "sets the columns of the filtered rows to the given values"
+    _set: lht_ceiling_panels_set_input
+    "filter the rows which have to be updated"
+    where: lht_ceiling_panels_bool_exp!
+}
+
+"Boolean expression to filter rows from the table \"lht_ceiling.type_marks\". All fields are combined with a logical 'AND'."
+input lht_ceiling_type_marks_bool_exp {
+    _and: [lht_ceiling_type_marks_bool_exp!]
+    _not: lht_ceiling_type_marks_bool_exp
+    _or: [lht_ceiling_type_marks_bool_exp!]
+    floor: String_comparison_exp
+    modify: timestamptz_comparison_exp
+    tag: String_comparison_exp
+    uuid: uuid_comparison_exp
+    x: numeric_comparison_exp
+    y: numeric_comparison_exp
+    z: numeric_comparison_exp
+}
+
+"input type for incrementing numeric columns in table \"lht_ceiling.type_marks\""
+input lht_ceiling_type_marks_inc_input {
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"input type for inserting data into table \"lht_ceiling.type_marks\""
+input lht_ceiling_type_marks_insert_input {
+    floor: String
+    modify: timestamptz
+    tag: String
+    uuid: uuid
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"input type for inserting object relation for remote table \"lht_ceiling.type_marks\""
+input lht_ceiling_type_marks_obj_rel_insert_input {
+    data: lht_ceiling_type_marks_insert_input!
+    "upsert condition"
+    on_conflict: lht_ceiling_type_marks_on_conflict
+}
+
+"on_conflict condition type for table \"lht_ceiling.type_marks\""
+input lht_ceiling_type_marks_on_conflict {
+    constraint: lht_ceiling_type_marks_constraint!
+    update_columns: [lht_ceiling_type_marks_update_column!]! = []
+    where: lht_ceiling_type_marks_bool_exp
+}
+
+"Ordering options when selecting data from \"lht_ceiling.type_marks\"."
+input lht_ceiling_type_marks_order_by {
+    floor: order_by
+    modify: order_by
+    tag: order_by
+    uuid: order_by
+    x: order_by
+    y: order_by
+    z: order_by
+}
+
+"primary key columns input for table: lht_ceiling.type_marks"
+input lht_ceiling_type_marks_pk_columns_input {
+    x: numeric!
+    y: numeric!
+}
+
+"input type for updating data in table \"lht_ceiling.type_marks\""
+input lht_ceiling_type_marks_set_input {
+    floor: String
+    modify: timestamptz
+    tag: String
+    uuid: uuid
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+"Streaming cursor of the table \"lht_ceiling_type_marks\""
+input lht_ceiling_type_marks_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: lht_ceiling_type_marks_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input lht_ceiling_type_marks_stream_cursor_value_input {
+    floor: String
+    modify: timestamptz
+    tag: String
+    uuid: uuid
+    x: numeric
+    y: numeric
+    z: numeric
+}
+
+input lht_ceiling_type_marks_updates {
+    "increments the numeric columns with given value of the filtered values"
+    _inc: lht_ceiling_type_marks_inc_input
+    "sets the columns of the filtered rows to the given values"
+    _set: lht_ceiling_type_marks_set_input
+    "filter the rows which have to be updated"
+    where: lht_ceiling_type_marks_bool_exp!
 }
 
 "Boolean expression to compare columns of type \"name\". All fields are combined with logical 'AND'."
@@ -2435,6 +3681,128 @@ input presets_colors_updates {
     _set: presets_colors_set_input
     "filter the rows which have to be updated"
     where: presets_colors_bool_exp!
+}
+
+"append existing jsonb value of filtered columns with new jsonb value"
+input projects_infographics_hub_append_input {
+    body: jsonb
+}
+
+"Boolean expression to filter rows from the table \"projects.infographics_hub\". All fields are combined with a logical 'AND'."
+input projects_infographics_hub_bool_exp {
+    _and: [projects_infographics_hub_bool_exp!]
+    _not: projects_infographics_hub_bool_exp
+    _or: [projects_infographics_hub_bool_exp!]
+    body: jsonb_comparison_exp
+    cr: timestamptz_comparison_exp
+    id: uuid_comparison_exp
+    name: String_comparison_exp
+    object_id: Int_comparison_exp
+    project_name: String_comparison_exp
+}
+
+"delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+input projects_infographics_hub_delete_at_path_input {
+    body: [String!]
+}
+
+"delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+input projects_infographics_hub_delete_elem_input {
+    body: Int
+}
+
+"delete key/value pair or string element. key/value pairs are matched based on their key value"
+input projects_infographics_hub_delete_key_input {
+    body: String
+}
+
+"input type for incrementing numeric columns in table \"projects.infographics_hub\""
+input projects_infographics_hub_inc_input {
+    object_id: Int
+}
+
+"input type for inserting data into table \"projects.infographics_hub\""
+input projects_infographics_hub_insert_input {
+    body: jsonb
+    cr: timestamptz
+    id: uuid
+    name: String
+    object_id: Int
+    project_name: String
+}
+
+"on_conflict condition type for table \"projects.infographics_hub\""
+input projects_infographics_hub_on_conflict {
+    constraint: projects_infographics_hub_constraint!
+    update_columns: [projects_infographics_hub_update_column!]! = []
+    where: projects_infographics_hub_bool_exp
+}
+
+"Ordering options when selecting data from \"projects.infographics_hub\"."
+input projects_infographics_hub_order_by {
+    body: order_by
+    cr: order_by
+    id: order_by
+    name: order_by
+    object_id: order_by
+    project_name: order_by
+}
+
+"primary key columns input for table: projects.infographics_hub"
+input projects_infographics_hub_pk_columns_input {
+    id: uuid!
+}
+
+"prepend existing jsonb value of filtered columns with new jsonb value"
+input projects_infographics_hub_prepend_input {
+    body: jsonb
+}
+
+"input type for updating data in table \"projects.infographics_hub\""
+input projects_infographics_hub_set_input {
+    body: jsonb
+    cr: timestamptz
+    id: uuid
+    name: String
+    object_id: Int
+    project_name: String
+}
+
+"Streaming cursor of the table \"projects_infographics_hub\""
+input projects_infographics_hub_stream_cursor_input {
+    "Stream column input with initial value"
+    initial_value: projects_infographics_hub_stream_cursor_value_input!
+    "cursor ordering"
+    ordering: cursor_ordering
+}
+
+"Initial value of the column from where the streaming should start"
+input projects_infographics_hub_stream_cursor_value_input {
+    body: jsonb
+    cr: timestamptz
+    id: uuid
+    name: String
+    object_id: Int
+    project_name: String
+}
+
+input projects_infographics_hub_updates {
+    "append existing jsonb value of filtered columns with new jsonb value"
+    _append: projects_infographics_hub_append_input
+    "delete the field or element with specified path (for JSON arrays, negative integers count from the end)"
+    _delete_at_path: projects_infographics_hub_delete_at_path_input
+    "delete the array element with specified index (negative integers count from the end). throws an error if top level container is not an array"
+    _delete_elem: projects_infographics_hub_delete_elem_input
+    "delete key/value pair or string element. key/value pairs are matched based on their key value"
+    _delete_key: projects_infographics_hub_delete_key_input
+    "increments the numeric columns with given value of the filtered values"
+    _inc: projects_infographics_hub_inc_input
+    "prepend existing jsonb value of filtered columns with new jsonb value"
+    _prepend: projects_infographics_hub_prepend_input
+    "sets the columns of the filtered rows to the given values"
+    _set: projects_infographics_hub_set_input
+    "filter the rows which have to be updated"
+    where: projects_infographics_hub_bool_exp!
 }
 
 "Boolean expression to filter rows from the table \"projects.projects_hub\". All fields are combined with a logical 'AND'."
