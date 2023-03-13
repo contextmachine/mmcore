@@ -4,7 +4,7 @@
     "extensions": {
         "endpoints": {
             "Default GraphQL Endpoint": {
-                "url": "http://84.201.140.137/v1/graphql",
+                "url": "https://viewer.contextmachine.online/v1/graphql",
                 "headers": {
                     "content-type": "application/json",
                     "user-agent": "JS GraphQL",

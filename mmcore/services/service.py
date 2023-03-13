@@ -10,17 +10,6 @@ from rpyc.core.service import ClassicService
 from mmcore.baseitems import Matchable
 
 
-class Serviceable(Matchable):
-    __match_args__ = ()
-    _injection = None
-
-    def __init__(self, *args, **kwargs):
-        self._injection = None
-        super().__init__(*args, **kwargs)
-
-    @classmethod
-    def injection(cls):
-        return cls._injection
 
 
 from cxmdata import CxmData
