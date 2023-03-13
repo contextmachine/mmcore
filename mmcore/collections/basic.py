@@ -280,13 +280,13 @@ class Grouper(Iterator):
         self.data[key].append(item)
 
 
-from abc import abstractmethod
-from typing import Type, Generic, TypeVar, ParamSpec, Any
+
+from typing import  TypeVar, Any
 from typing_extensions import TypeVarTuple
-from mmcore.baseitems.descriptors import DataDescriptor
+
 
 Ts = TypeVarTuple('Ts')
-P = ParamSpec("P")
+
 T = TypeVar("T")
 
 
