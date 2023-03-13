@@ -9,7 +9,7 @@ from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping
 
 import more_itertools
 import numpy as np
-import pandas as pd
+
 
 from mmcore.collections.traversal import sequence_type, dict_type_extractor, item_type_extractor
 
@@ -344,7 +344,8 @@ class ElementSequence(MultiDescriptor):
     # All in this method can be call self.to_pandas().to_<target_format>().
     # Use it if you want to use ALL custom export properties .
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self):
+        import pandas as pd
         return pd.DataFrame(self._seq)
 
     def to_csv(self, **kwargs):
