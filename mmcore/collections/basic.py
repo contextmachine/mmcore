@@ -394,7 +394,7 @@ class ComposeMask:
     def elementwise(self, item):
         return zip((mask.name for mask in self.masks), self._per_mask(item))
 
-    def match(self, item) -> int | Any:
+    def match(self, item):
         ...
 
     def __contains__(self, item) -> int:
