@@ -204,7 +204,7 @@ class RpycService(ClassicServer):
                 pattrs.format(pprint.pformat(real_attrs, indent=4))
             if configs:
                 pconfigs.format(pprint.pformat(configs, indent=4))
-        cls.__init_subclass__(**kwargs)
+
 
 
 # RhService.ssl_certfile = f"{os.getenv('HOME')}/ssl/ca-certificates/certificate_full_chain.pem"
