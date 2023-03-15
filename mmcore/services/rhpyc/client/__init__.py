@@ -8,7 +8,7 @@ import yaml
 import dotenv
 
 
-def get_connection():
+def get_connection(url=None):
     """
 
 
@@ -86,21 +86,27 @@ def get_connection():
       'matrix': (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1),
       'geometry': '46444538-4f6a-4ad0-97dc-3568d5d6ddcd',
       'material': '64ce2001-8bc2-4dbf-a4c5-978017d3a4b2'}}
+
     """
-    rconf = os.getenv("RPYC_CONFIGS")
+    if url is not None:
+        rconf = url
+    else:
+        rconf = os.getenv("RPYC_CONFIGS")
     if rconf.startswith("http"):
         data = yaml.unsafe_load(requests.get(rconf).text)
     else:
-        with open(os.getenv("RPYC_CONFIGS")) as f:
+        with open(rconf) as f:
             data = yaml.unsafe_load(f)
-    if list(data.keys())[0] == "service" and data["service"]["name"] == "rhpyc":
+    if list(data.keys())[0] == "service":
         configs = data["service"].get("configs")
         attrs = data["service"].get("attributes")
 
         hosts = configs.get("hosts")
         port = attrs.get("port")
-    hosts = hosts if hosts is not None else [os.getenv("RHINO_RPYC_HOST")]
-    port = port if port is not None else os.getenv("RHINO_RPYC_PORT")
+    else:
+
+        hosts = ["localhost"]
+        port = 7777
     i = -1
     while True:
         i += 1

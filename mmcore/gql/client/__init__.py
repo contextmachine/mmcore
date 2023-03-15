@@ -8,15 +8,18 @@ from jinja2.nativetypes import NativeEnvironment
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
+
+
 class GQLException(BaseException):
-    def __init__(self, *args, error_dict:dict=None):
-        super().__init__( *args)
-        self.error_dict=error_dict
-        #self.message = error_dict["message"]
-        #self.extensions = error_dict["extensions"]
+    def __init__(self, *args, error_dict: dict = None):
+        super().__init__(*args)
+        self.error_dict = error_dict
+        # self.message = error_dict["message"]
+        # self.extensions = error_dict["extensions"]
         print(self.error_dict)
 
-GQL_PLATFORM_URL = "http://84.201.140.137/v1/graphql"
+
+GQL_PLATFORM_URL = "http://62.84.116.219:8081/v1/graphql"
 
 __all__ = [
     "GQLClient",
@@ -35,17 +38,19 @@ class GQLClient:
         self._cls = dcls
         return self
 
+
 class GqlString(str):
-    def __new__(cls, a:str, b:str, condition:str=None):
+    def __new__(cls, a: str, b: str, condition: str = None):
         s = "_".join([a, b])
         if condition is not None:
             s += condition
 
-
-        inst=str.__new__(cls, s)
-        inst.a,inst.b,inst.condition = a, b, condition
-        inst._no_condition="_".join([a, b])
+        inst = str.__new__(cls, s)
+        inst.a, inst.b, inst.condition = a, b, condition
+        inst._no_condition = "_".join([a, b])
         return inst
+
+
 class query:
     """
     Minimal syntax:
@@ -75,15 +80,15 @@ class query:
         "X-Hasura-Admin-Secret": "mysecretkey"
     }
 
-    def __init__(self, parent: str|GqlString, fields: set={},  variables={}):
+    def __init__(self, parent: str | GqlString, fields: set = {}, variables={}):
         super().__init__()
 
         self.parent = parent
         self.children = set(fields)
-        self.fields =fields
+        self.fields = fields
         self._jinja_env = NativeEnvironment()
         self.template = self._jinja_env.from_string(self.temp)
-        self.variables= variables
+        self.variables = variables
 
     def render(self, fields=None):
         if fields is not None:
@@ -98,7 +103,6 @@ class query:
 
     def __call__(self, fields=None, variables=None, full_root=True, return_json=True):
         if fields is None:
-
             fields = self.fields
         if variables is None:
             variables = self.variables
@@ -117,9 +121,9 @@ class query:
             if return_json:
 
                 try:
-                    data=request.json()
+                    data = request.json()
                     if "errors" in data.keys():
-                        raise GQLException("GraphQl response error",error_dict=data)
+                        raise GQLException("GraphQl response error", error_dict=data)
                     elif "data" in data.keys():
                         if not full_root:
                             return request.json()["data"][self.parent]
@@ -137,6 +141,7 @@ class query:
             print("bad response")
             return request
 
+
 class mutate(query):
     temp = """mutation mutate($objects: [{{ roota }}_{{ rootb }}_insert_input!] = {}) { 
     insert_{{ roota }}_{{ rootb }}(on_conflict: {constraint: {{ rootb }}_pkey}, objects: $objects) { 
@@ -147,8 +152,9 @@ class mutate(query):
       }
     }
     """
-    def __init__(self, parent:GqlString, fields, variables,**kwargs):
-        super().__init__(parent, fields , variables, **kwargs)
+
+    def __init__(self, parent: GqlString, fields, variables, **kwargs):
+        super().__init__(parent, fields, variables, **kwargs)
 
     def render(self, fields=None):
         if fields is not None:
@@ -156,6 +162,7 @@ class mutate(query):
             return self.template.render(roota=self.parent.a, rootb=self.parent.b, attrs=fields)
         else:
             return self.template.render(roota=self.parent.a, rootb=self.parent.b, attrs=self.fields)
+
 
 class AbsGQLTemplate:
     schema: str = "test"
@@ -432,3 +439,73 @@ def geometry_query(schema="geometries", table="attributes"):
         return GQLQuery(temp_args=dict(attrs=attrs), schema=schema, table=table)
 
     return wrap
+
+
+class GQLSimpleQuery:
+    client = GQLClient(url=GQL_PLATFORM_URL,
+                       headers={
+                           "content-type": "application/json",
+                           "X-Hasura-Role": "admin",
+                           "X-Hasura-Admin-Secret": "mysecretkey"
+                       })
+
+    def __init__(self, template, fields=()):
+        super().__init__()
+        self._jinja_env = NativeEnvironment()
+        self.template = self._jinja_env.from_string(template)
+        self.fields = fields
+
+
+
+    def render(self, fields=None):
+        if fields is not None:
+
+            return self.template.render(attrs=fields)
+        else:
+            return self.template.render(attrs=self.fields)
+
+    def __call__(self, variables=None, full_root=False, return_json=True, fields=None):
+
+        if variables is None:
+            variables = {}
+
+        # print(self._body(inst, own))
+        request = requests.post(self.client.url,
+
+                                headers=self.client.headers,
+                                json={
+                                    "query": self.render(fields=fields if fields is not None else None),
+                                    "variables": variables
+
+                                }
+                                )
+        if request.status_code == 200:
+            if return_json:
+
+                try:
+                    data = request.json()
+                    if "errors" in data.keys():
+                        print(data)
+                        raise GQLException("GraphQl response error", error_dict=data)
+                    elif "data" in data.keys():
+                        if not full_root:
+                            return request.json()["data"]
+                        else:
+                            return request.json()
+
+                    else:
+                        return data
+
+                except Exception as err:
+                    raise err
+            else:
+                return request
+        else:
+            print("bad response")
+            return request
+
+
+class GQLFileBasedQuery(GQLSimpleQuery):
+    def __init__(self, path):
+        with open(path) as f:
+            super().__init__(f.read())

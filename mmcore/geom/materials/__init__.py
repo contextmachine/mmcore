@@ -46,7 +46,13 @@ class ColorRGB(tuple):
     def __repr__(self):
         return f"{self.__class__.__name__}({self.r}, {self.g}, {self.b})"
 
+    def to_rhino(self):
+        return (self.r,  self.g, self.b , 255)
 
+    def to_dict(self):
+        return {"r": self.r, "g": self.g, "b": self.b, "a": 255}
+    def ToJSON(self):
+        return json.dumps(self.to_dict())
 def rgb_to_three_decimal(color: ColorRGB | ColorRGBA) -> int:
     return int('%02x%02x%02x' % (color.r, color.g, color.b), 16)
 
