@@ -1,6 +1,5 @@
 # syntax=docker/dockerfile:1
 
-#             //*[@id="understand-how-cmd-and-entrypoint-interact"]
 #        |     No ENTRYPOINT      |	 ENTRYPOINT exec_entry p1_entry	 | ENTRYPOINT [“exec_entry”, “p1_entry”]          |
 # -------+------------------------+----------------------------------+------------------------------------------------+
 # No CMD | error, not allowed	  | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry                            |
@@ -10,18 +9,26 @@
 # CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
 
-FROM condaforge/mambaforge
-# больной ублюдок
+FROM mambaorg/micromamba
 USER root
-# Нет ну если вы предпочитаете другой стиль можете конечно сделать все чисто ...
-#
-WORKDIR /mmcore
-COPY --link . .
-RUN conda env update -f environment.yml && conda init --all
+
+
+
+
+# Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
+
+# 🐍 Setup micromamba.
+# ⚙️ Source: https://hub.docker.com/r/mambaorg/micromamba
+COPY --chown=$MAMBA_USER:$MAMBA_USER env.yaml /tmp/env.yaml
+RUN micromamba install -y -n base -f /tmp/env.yaml && \
+    micromamba clean --all --yes
+
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-ENV PYTHONPATH=${CONDA_DIR}/bin/python
-RUN python -m pip install .
-# Чтобы следующая команджа работала правильно включите в команду сборки следующее:
-#   `docker buildx build --secret id=aws,src=$HOME/.aws/credentials .`
-ENTRYPOINT ["${CONDA_DIR}/bin/python"]
+# ENV PARAM=value
+WORKDIR /mmcore
+COPY --link . .
+RUN /usr/local/bin/_entrypoint.sh python -m pip install -e . && \
+
+
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
