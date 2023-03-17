@@ -1,6 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from __future__ import absolute_import
-
+import sys
 import uuid
 import zlib
 from abc import abstractmethod
@@ -9,11 +9,24 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any, Generic, TypeVar
 
+import OCC.Core.BRepClass3d
 import compas.geometry
 import numpy as np
-import rhino3dm
-from OCC.Core import TopoDS
+import rpyc
+try:
+    import rhino3dm
+except ImportError as err:
+    cn=rpyc.connect("84.201.152.88", 18812)
+    rhino3dm=cn.root.getmodule("rhino3dm")
+    sys.modules["rhino3dm"]=rhino3dm
+    import rhino3dm
+
+
+from OCC.Core import TopoDS, gp
+
 from OCC.Core.gp import gp_Pnt
+
+from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
 from mmcore.collections import chain_split_list
 from scipy.spatial.distance import euclidean
 
@@ -51,29 +64,12 @@ import rpyc
 rpyc.classic.ClassicService()
 
 
-class CustomRepr(type):
-    @classmethod
-    def __prepare__(metacls, name, bases, display=(), **kws):
-        ns = type.__prepare__(name, bases)
-        ns["__repr__"] = lambda \
-                self: f'<{name}({", ".join([f"{i}={getattr(self, i)}" for i in display])}) at {id(self)}>'
-        ns["__str__"] = lambda \
-                self: f'{name}({", ".join([f"{i}={getattr(self, i)}" for i in display])})'
-
-        return dict(ns)
-
-    def __new__(mcs, name, bases, attrs, **kwargs):
-        return super().__new__(mcs, name, bases, attrs)
-
-
-class Point(metaclass=CustomRepr, display=("x", "y", "z")):
+class Point(Matchable):
+    __match_args__ = "x", "y"
     cxmdata_keys = "X", "Y", "Z"
 
     def __init__(self, x, y, z=0.0):
-        super().__init__()
-        self.x = x
-        self.y = y
-        self.z = z
+        super().__init__(x, y, z=z)
 
     @property
     def xyz(self) -> tuple[float, float, float]:
@@ -95,13 +91,13 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
     def to_rhino(self) -> rhino3dm.Point3d:
         return rhino3dm.Point3d(*self.xyz)
 
-    def to_occ(self) -> 'gp_Pnt':
+    def to_occ(self) -> gp_Pnt:
         return gp_Pnt(*self.xyz)
 
-    def to_compas(self) -> 'Point':
+    def to_compas(self) -> compas.geometry.Point:
         return compas.geometry.Point(*self.xyz)
 
-    def to_dict(self,lower=False) -> 'Point':
+    def to_dict(self, lower=False) -> dict:
         if lower:
             return self.to_dict_lower()
         else:
@@ -110,11 +106,12 @@ class Point(metaclass=CustomRepr, display=("x", "y", "z")):
                 dct[k] = getattr(self, k.lower())
             return dct
 
-    def to_dict_lower(self) -> 'Point':
+    def to_dict_lower(self) -> dict:
         dct = {}
         for k in self.cxmdata_keys:
             dct[k.lower()] = getattr(self, k.lower())
         return dct
+
     @classmethod
     def _validate_dict(cls, dct):
         return all(map(lambda k: (k.upper() in dct.keys()) or (k.lower() in dct.keys()), cls.cxmdata_keys))
@@ -310,8 +307,27 @@ class PolygonWithHoles(Polygon):
         return [self._polygons[i] for i in self.indxz[1:]]
 
 
-class MmSphere(Matchable):
+class Sphere(Matchable):
+    radius: float
+    center: Point
     __match_args__ = "radius", "center"
+
+    def is_point_inside(self, pt: Point):
+        return pt.distance(self.center) < self.radius
+
+    def is_point_on_boundary(self, pt: Point):
+        return pt.distance(self.center) == self.radius
+
+    def to_rhino(self):
+        return rhino3dm.Sphere(self.center.to_rhino(), self.radius)
+
+    def to_compas(self):
+        return compas.geometry.Sphere(self.center.to_compas(), self.radius)
+
+    def to_occ(self):
+        gp.gp_Ax3()
+        ax = gp.gp_Ax3(self.center.to_occ(), gp.gp_Dir(1, 0, 0), gp.gp_Dir(0, 1, 0))
+        return gp.gp_Sphere(ax, self.radius)
 
 
 class MmAbstractBufferGeometry(Matchable):
@@ -645,8 +661,8 @@ class MmBoundedGeometry(Matchable):
         return MmPoint(np.average(rshp[..., 0]), np.average(rshp[..., 1]), float(np.average(rshp[..., 2])))
 
     @property
-    def bnd_sphere(self) -> MmSphere:
-        return MmSphere(center=self.centroid.array, radius=np.max(
+    def bnd_sphere(self) -> Sphere:
+        return Sphere(center=self.centroid.array, radius=np.max(
             np.array([self.centroid.distance(MmPoint(*r)) for r in self.array])))
 
 
@@ -722,8 +738,6 @@ class BufferGeometryData2(DataView):
             }
         }
 
-
-from mmcore.addons.rhino.compute import surf_to_buffer_geometry
 
 # @GeometryConversionsMap(
 #    GeometryConversion("rhino", rhino3dm.Mesh, ConversionMethods(rhino.mesh_to_buffer_geometry, None)),
@@ -882,8 +896,6 @@ class OccWire(OccEntity):
     __match_args__ = 'edges',
     edges = OccEdgeList()
 
-
-
     def occ_entity(self):
         b = BRepBuilderAPI_MakeWire(*self.edges)
         b.Build()
@@ -898,7 +910,6 @@ def polyline_from_points(*points):
 
 
 def fillet_from_points(*points):
-
     return OccWire(list(chain_split_list(list(points))))
 
 

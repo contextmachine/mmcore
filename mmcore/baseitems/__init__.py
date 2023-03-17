@@ -21,11 +21,10 @@ import numpy as np
 import pydantic
 from typing_extensions import ParamSpec, Protocol
 
-
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
 from mmcore.collections.traversal import traverse
 
-BasicTypes=[]
+BasicTypes = []
 collection_to_dict = traverse(lambda x: x.to_dict(), traverse_seq=True, traverse_dict=False)
 T = typing.TypeVar('T')  # Any type.
 KT = typing.TypeVar('KT')  # Key type.
@@ -512,28 +511,50 @@ class GeomDataItem(DictableItem, GeometryItem):
 # ----------------------------------------------------------------------------------------------------------------------
 from mmcore.baseitems import descriptors
 from types import prepare_class
+from mmcore.collections import OrderedSet
+
+
+class resolve:
+    """
+    class A:
+        @resolve(with_meta="__new__")
+        def ha(obj, ): ...
+    """
+
+    def __new__(cls, with_meta="__new__", **kwargs):
+        inst = super().__new__(cls)
+        inst.__dict__ |= kwargs
+        inst.with_meta = with_meta
+
+        def decore(func):
+            inst.func = func
+            return inst
+
+        return decore
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
 
 
 class MMtype(type):
     @classmethod
     def __prepare__(metacls, name, bases, **kwds):
-        prepare_class(metacls, name, bases, kwds)
+        ns = dict(super().__prepare__(name, bases, **kwds))
+
+        return ns
+
+    def __new__(mcs, name, bases, attrs, **kwargs):
+        cl = super().__new__(mcs, name, bases, attrs, **kwargs)
+
+        for attr in attrs:
+            if hasattr(attr, "with_meta") and attr.with_meta == "__name__":
+                cl.__dict__[attr]()
+        return cl
 
 
-class Matchable(object):
-    """
-    New style baseclass version.
-    Matchable can be initialized from *args if they are listed in the __matched_args__ field.
-    Generic __repr__ use __match_args__ by default, but you can use __repr_ignore__ from change.
-
-    """
-    match_args: tuple[str] = ()
+class MMItem(metaclass=MMtype):
     __match_args__ = ()
-    __match_args__ += match_args
-    repr_args = "__match_args__"
-    properties = descriptors.UserDataProperties()
-    userdata = descriptors.UserData()
-    repr_exclude=()
+
     def __init__(self, *args, **kwargs):
         super().__init__()
         self._uuid = uuid.uuid4().__str__()
@@ -551,19 +572,66 @@ class Matchable(object):
             setattr(self, k, v)
         return self
 
-    def __repr__(self) -> str:
+    def __repr__(self):
+        return f'{self.__class__.__name__}({", ".join([f"{k}={getattr(self, k)}" for k in self.__match_args__])}) at {id(self)}'
 
-        s = f"{self.__class__.__name__}("
-        args = set(self.repr_args)-set(self.repr_exclude)
-        for k in args:
-            try:
-                s += f"{k}={getattr(self, k)}, "
-            except AttributeError as err:
-                pass
-            except TypeError as err:
-                s += f"{k}=None(TypeError), "
+    @classmethod
+    def resolve_match_args(cls):
+        match_args = OrderedSet([])
+        for base in cls.mro():
+            if hasattr(base, "__match_args__"):
+                match_args.extend(base.__match_args__)
+        cls.__match_args__ = tuple(match_args)
 
-        return s + ")"
+
+class Matchable(object):
+    """
+    New style baseclass version.
+    Matchable can be initialized from *args if they are listed in the __matched_args__ field.
+    Generic __repr__ use __match_args__ by default, but you can use __repr_ignore__ from change.
+
+    """
+    match_args: tuple[str] = ()
+    __match_args__ = ()
+    __match_args__ += match_args
+    repr_args = "__match_args__"
+    properties = descriptors.UserDataProperties()
+    userdata = descriptors.UserData()
+    repr_exclude = ()
+
+    def __new__(cls, *args, **kwargs):
+        cls.resolve_match_args()
+        inst = super().__new__(cls)
+        inst.__init__(*args, **kwargs)
+        return inst
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._uuid = uuid.uuid4().__str__()
+        self.__call__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        if args:
+            if len(self.__match_args__) + 1 < len(args):
+                raise TypeError(
+                    f"length self.__match_args__ = {len(self.__match_args__)} > length *args = {len(args)}, {args}")
+            else:
+                kwargs |= dict(zip(self.__match_args__[:len(args)], args))
+
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        return self
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({", ".join([f"{k}={getattr(self, k)}" for k in self.__match_args__])}) at {id(self)}'
+
+    @classmethod
+    def resolve_match_args(cls):
+        match_args = OrderedSet([])
+        for base in cls.mro():
+            if hasattr(base, "__match_args__"):
+                match_args.extend(base.__match_args__)
+        cls.__match_args__ = tuple(match_args)
 
     @property
     def uuid(self):
@@ -588,7 +656,6 @@ class Matchable(object):
             elif isinstance(dt, Mapping):
                 dct = {}
                 for k, v in dt.items():
-
                     dct[k] = wrp(v)
                 return dct
             elif isinstance(dt, Sequence):
@@ -599,10 +666,11 @@ class Matchable(object):
                 pass
 
         return wrp(self)
-
-    def ToJSON(self):
-        return json.dumps(self.to_dict(),
-                          sort_keys=True, indent=3)
+    @classmethod
+    def encode(cls, o):
+        return cls.ToJSON(o)
+    def ToJSON(self, **kwargs):
+        return json.dumps(self.to_dict(), **kwargs)
 
 
 class MatchableItem(Matchable, Base):
@@ -624,7 +692,15 @@ class MatchableItem(Matchable, Base):
         return Base.__call__(self, **kwargs)
 
     def __repr__(self):
-        return Matchable.__repr__(self) + f" at {self.uuid}"
+        return Matchable.__repr__(self)
+
+
+class Entity(Matchable):
+    type: str = "Entity"
+
+    json = descriptors.JsonView("userdata",)
+    def __repr__(self):
+        return f'{self.__class__.__name__}({", ".join([f"{k}={getattr(self, k)}" for k in self.__match_args__])}) at {self.uuid}'
 
 
 class FromKet():
@@ -694,5 +770,3 @@ class simpleproperty:
         else:
 
             return getattr(instance, "_" + self.name)
-
-
