@@ -6,7 +6,7 @@ import rpyc
 import yaml
 
 import dotenv
-
+dotenv.load_dotenv()
 
 def get_connection(url=None):
     """
@@ -106,7 +106,7 @@ def get_connection(url=None):
     else:
 
         hosts = ["localhost"]
-        port = 7777
+        port = 7778
     i = -1
     while True:
         i += 1

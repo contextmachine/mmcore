@@ -204,7 +204,7 @@ class UserData(DataView):
 
 
 class JsonView(DataView):
-    deps = "uuid", "type", "_class",
+    deps = "uuid", "type"
 
     def __init__(self, *targets):
         object.__init__(self)
