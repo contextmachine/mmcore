@@ -117,6 +117,9 @@ import rhinoscriptsyntax as rs
 surf = rs.AddPlanarSrf(self.x)
 surface = rs.coercegeometry(surf)
 """
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 a = rg.Point3d(650.03, -1031.64, 378.658)

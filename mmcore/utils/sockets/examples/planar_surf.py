@@ -9,6 +9,9 @@ with open("/tmp/rhsock/brp.cxm", "wb") as fl:
 
 """
 
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 a = rg.Point3d(650.03, -1031.64, 378.658)
@@ -27,6 +30,9 @@ c = [[54.350284322718444, 21.148292487536807], [41.249867706885297, 3.8075231591
      [48.429922368848302, -2.4520116743120308], [67.155760572846958, 13.992385259557480],
      [54.350284322718444, 21.148292487536807]]
 
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 

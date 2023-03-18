@@ -13,13 +13,9 @@ import OCC.Core.BRepClass3d
 import compas.geometry
 import numpy as np
 import rpyc
-try:
-    import rhino3dm
-except ImportError as err:
-    cn=rpyc.connect("84.201.152.88", 18812)
-    rhino3dm=cn.root.getmodule("rhino3dm")
-    sys.modules["rhino3dm"]=rhino3dm
-    import rhino3dm
+
+from mmcore.addons.rhino import rhino3dm
+
 
 
 from OCC.Core import TopoDS, gp
