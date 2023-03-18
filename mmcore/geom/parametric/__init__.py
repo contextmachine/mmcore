@@ -5,7 +5,11 @@ from functools import wraps
 
 import compas.geometry as cg
 import numpy as np
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm
+
 from compas_occ.geometry.curves.nurbs import OCCNurbsCurve
 
 from mmcore.baseitems import Base, DictableItem, Item

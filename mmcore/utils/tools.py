@@ -1,6 +1,10 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 import numpy as np
 
+def as_multiple(x):
+    '''Ensure a list or tuple.'''
+    x = x if isinstance(x, (list, tuple)) else [x]
+    return [si for s in x for si in ([s] if callable(s) else str(s).split(','))]
 
 class EnvString(str):
     """

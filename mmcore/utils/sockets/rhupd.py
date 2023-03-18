@@ -1,5 +1,8 @@
 import os, sys
 import socket, json
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 import json, ast
 import bz2, base64

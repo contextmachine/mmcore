@@ -1,12 +1,16 @@
 # Native imports
 import rpyc, sys
-try:
+from mmcore.addons import ModuleResolver
+
+with ModuleResolver() as rsl:
     import rhino3dm
-except ImportError as err:
-    cn = rpyc.connect("84.201.152.88", 18812)
-    rhino3dm = cn.root.getmodule("rhino3dm")
-    sys.modules["rhino3dm"] = rhino3dm
-    import rhino3dm
+
+
+import rhino3dm
+
+
+print(rhino3dm.Point3d(1, 2, 3))
+
 
 from mmcore.addons.rhino.native import random
 from mmcore.addons.rhino.native.utils import *

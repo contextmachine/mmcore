@@ -3,6 +3,9 @@ import types
 # try:
 # import Rhino.Geometry as rg
 # except:
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 

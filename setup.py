@@ -42,7 +42,6 @@ setup(
               'mmcore.addons.rhino',
               'mmcore.addons.rhino.compute',
               'mmcore.addons.rhino.native',
-              'mmcore.addons.rhino.random',
               'mmcore.addons.mmocc',
               'mmcore.addons.mmocc.OCCUtils',
               'mmcore.services',

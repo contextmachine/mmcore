@@ -3,7 +3,10 @@ import uuid
 from typing import Any
 
 import numpy as np
-import rhino3dm
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
+
 import rhino3dm as rh
 
 MESHING_PARAMS = rh.MeshingParameters.FastRenderMesh

@@ -198,7 +198,11 @@ def walk(target, names):
 
 class Walk:
     """
-    >>> import rhino3dm
+    >>> from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
+import rhino3dm
+
     >>> frame = rhino3dm.Plane(0, 3, 1, 3)
     >>> xaxis = Walk(["XAxis",["X","Y","Z"]])
     >>> yaxis = Walk(["YAxis",["X","Y","Z"]])

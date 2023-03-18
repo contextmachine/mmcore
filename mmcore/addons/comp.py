@@ -1,5 +1,9 @@
 import compas.geometry as cg
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm
+
 
 
 def from_rhino_plane_transform(plane: rhino3dm.Plane):

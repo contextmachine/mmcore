@@ -13,6 +13,9 @@ from mmcore.baseitems import Matchable
 
 
 from cxmdata import CxmData
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 
@@ -170,7 +173,7 @@ class RpycService(ClassicServer):
         else:
             with open(os.getenv("RPYC_CONFIGS")) as f:
                 data = yaml.unsafe_load(f)
-
+        print(data)
         if list(data.keys())[0] == "service":
 
             configs = data["service"].get("configs")
