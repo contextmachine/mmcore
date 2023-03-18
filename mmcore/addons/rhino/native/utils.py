@@ -7,11 +7,7 @@ from collections import namedtuple
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
-import numpy as np
-try:
-    import rhino3dm as rg
-except ModuleNotFoundError:
-    import a
+import rhino3dm as rg
 
 
 
@@ -241,6 +237,9 @@ def get_model_attributes(path):
         return json.dumps(dct)
 
 
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 

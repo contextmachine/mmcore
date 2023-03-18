@@ -1,4 +1,7 @@
 import numpy as np
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm as rg
 
 

@@ -1,3 +1,4 @@
+import os
 from collections import UserDict, namedtuple
 from dataclasses import dataclass
 from typing import Any, NamedTuple
@@ -8,7 +9,8 @@ from jinja2.nativetypes import NativeEnvironment
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
-
+from dotenv import find_dotenv,load_dotenv
+load_dotenv(find_dotenv(raise_error_if_not_found=True))
 
 class GQLException(BaseException):
     def __init__(self, *args, error_dict: dict = None):
@@ -19,7 +21,7 @@ class GQLException(BaseException):
         print(self.error_dict)
 
 
-GQL_PLATFORM_URL = "http://62.84.116.219:8081/v1/graphql"
+GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
 
 __all__ = [
     "GQLClient",
@@ -455,8 +457,6 @@ class GQLSimpleQuery:
         self.template = self._jinja_env.from_string(template)
         self.fields = fields
 
-
-
     def render(self, fields=None):
         if fields is not None:
 
@@ -509,3 +509,15 @@ class GQLFileBasedQuery(GQLSimpleQuery):
     def __init__(self, path):
         with open(path) as f:
             super().__init__(f.read())
+
+
+class GQLReducedQuery(GQLSimpleQuery):
+
+    def __call__(self, variables=None, fields=None, **kwargs):
+        return list(super().__call__(variables=variables, full_root=False, fields=fields, **kwargs).values())[0]
+
+
+class GQLReducedFileBasedQuery(GQLFileBasedQuery):
+
+    def __call__(self, variables=None, fields=None, **kwargs):
+        return list(super().__call__(variables=variables, full_root=False, fields=fields, **kwargs).values())[0]

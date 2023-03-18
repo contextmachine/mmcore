@@ -3,7 +3,11 @@ import typing
 from typing import Any
 
 import pydantic
+from mmcore.addons import ModuleResolver
+with ModuleResolver() as rsl:
+    import rhino3dm
 import rhino3dm
+
 from mmcore.addons import rhino
 from pydantic import ConstrainedStr
 

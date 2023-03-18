@@ -1,54 +1,40 @@
+import sys
+
 from abc import ABCMeta
 from typing import ContextManager
+import dotenv
+from mmcore.gql.client import GQLReducedQuery
+from mmcore.services.client import get_connection
 
+class ModuleResolver(ContextManager):
+    def __init__(self, dotenv_name=".env"):
+        self.env = dotenv.dotenv_values(dotenv.find_dotenv(dotenv_name, usecwd=True))
+        self.query = GQLReducedQuery("""
+query MyQuery($_eq1: platform_topics_enum) {
+  platform_services(where: {roles: {topic_name: {_eq: $_eq1}}}) {
+    url
+    value
+  }
+}
 
-class FromSource:
-    def __init__(self, name):
-        self.name = name
+        """)
 
-    def __get__(self, instance, owner):
-        if instance is None:
-            source = owner.source
-
-        else:
-            source = instance.__class__.source
-        if source is None:
-            exec(f"from . import * as source")
-            source = "source"
-        else:
-            exec(f"import {source}")
-
-        return eval(source).__dict__[self.name]
-
-
-class SourceManager(ContextManager):
-
-    def __init__(self, target):
-        self.target = target
-
-    def __call__(self, defaults, **kwargs):
-        self.defaults = defaults
-        self.kwargs = kwargs
-        return self
 
     def __enter__(self):
-        return lambda dep: self.target(dep, self.defaults, **self.kwargs)
+        print("__enter__",self)
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print(exc_type, exc_val, exc_tb)
-        return False
+        print("__exit__", self)
+        self.exc_type, self.exc_val, self.exc_tb=exc_type, exc_val, exc_tb
+        print("__exit__2", exc_val)
+        #self.exc_response=self.query(variables={"_eq1": self.exc_val.name.replace(".", "")})
+
+        self.conn = get_connection(self.query(variables={"_eq1":self.exc_val.name})[0]["url"])
+        missed_module = self.conn.root.getmodule(self.exc_val.name)
+
+        sys.modules[self.exc_val.name]=missed_module
+        __import__(self.exc_val.name)
+        return self
 
 
-class AddonBaseType(ABCMeta):
-    @classmethod
-    def __prepare__(mcs, name, bases, source_manager=None, deps=(), defaults=(), **kwargs):
-        ns = dict(super().__prepare__(name, bases))
-        with source_manager(defaults, **kwargs) as source:
-            for name in deps:
-                ns[name] = source(name)
-
-            return ns
-
-    def __new__(mcs, name, bases, dct, **kwargs):
-        cls = super().__new__(mcs, name, bases, dct, **kwargs)
-        return cls
