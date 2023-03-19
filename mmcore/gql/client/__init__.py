@@ -1,16 +1,20 @@
 import os
 from collections import UserDict, namedtuple
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any
 
 import requests
+from dotenv import find_dotenv, load_dotenv
 from jinja2.nativetypes import NativeEnvironment
 
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
-from dotenv import find_dotenv,load_dotenv
+
 load_dotenv(find_dotenv(raise_error_if_not_found=True))
+
+GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
+
 
 class GQLException(BaseException):
     def __init__(self, *args, error_dict: dict = None):
@@ -21,7 +25,6 @@ class GQLException(BaseException):
         print(self.error_dict)
 
 
-GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
 
 __all__ = [
     "GQLClient",
