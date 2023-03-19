@@ -28,8 +28,7 @@ RUN micromamba install -y -n base -f /tmp/env.yaml && \
 # ENV PARAM=value
 WORKDIR /mmcore
 COPY --link . .
-RUN /usr/local/bin/_entrypoint.sh python bin/platform_resolver.py
 RUN /usr/local/bin/_entrypoint.sh python -m pip install -e .
 
 
-ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python"]
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
