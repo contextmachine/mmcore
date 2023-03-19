@@ -9,7 +9,7 @@ from typing import Any
 
 import rhino3dm as rg
 
-
+import numpy as np
 
 def rhino_transform_from_np(tx):
     xf = np.array(tx).reshape((4, 4))
@@ -237,45 +237,8 @@ def get_model_attributes(path):
         return json.dumps(dct)
 
 
-from mmcore.addons import ModuleResolver
-with ModuleResolver() as rsl:
-    import rhino3dm
-import rhino3dm as rg
 
 
-class DPoint3d(rg.Point3d):
-    def Encode(self):
-        return {"array": [self.X, self.Y, self.Z], "type": self.__class__.__bases__[0].__name__}
-
-    @classmethod
-    def Decode(cls, dct: dict):
-        return cls(*dct["array"])
-
-
-class DVector3d(rg.Vector3d):
-    def Encode(self):
-        return {"array": [self.X, self.Y, self.Z], "type": self.__class__.__bases__[0].__name__}
-
-    @classmethod
-    def Decode(cls, dct: dict):
-        return cls(*dct["array"])
-
-
-class DPlane(rg.Plane):
-    Origin: DPoint3d
-    XAxis: DVector3d
-    YAxis: DVector3d
-
-    @property
-    def Normal(self):
-        return self.ZAxis
-
-    def Encode(self):
-        return {"array": [self.Origin, self.XAxis, self.YAxis], "type": self.__class__.__bases__[0].__name__}
-
-    @classmethod
-    def Decode(cls, dct: dict):
-        return cls(*dct["array"])
 
 
 import subprocess
@@ -343,7 +306,7 @@ def get_np_mesh_normals(msh) -> np.ndarray: return np.asarray(get_mesh_normals(m
 
 
 # noinspection PyTypeChecker
-def create_model_with_items(*items, return_uuids=False) -> rg.File3dm | tuple[rg.File3dm | list[Any]]:
+def create_model_with_items(*items, return_uuids=False) :
     model3dm = rg.File3dm()
     uuids = [model3dm.Objects.Add(item) for item in items]
     return model3dm if not return_uuids else model3dm, uuids

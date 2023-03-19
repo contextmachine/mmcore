@@ -27,14 +27,15 @@ query MyQuery($_eq1: platform_topics_enum) {
     def __exit__(self, exc_type, exc_val, exc_tb):
         print("__exit__", self)
         self.exc_type, self.exc_val, self.exc_tb=exc_type, exc_val, exc_tb
-        print("__exit__2", exc_val)
+        if exc_val:
+            print("__exit__2", exc_val)
         #self.exc_response=self.query(variables={"_eq1": self.exc_val.name.replace(".", "")})
 
-        self.conn = get_connection(self.query(variables={"_eq1":self.exc_val.name})[0]["url"])
-        missed_module = self.conn.root.getmodule(self.exc_val.name)
+            self.conn = get_connection(self.query(variables={"_eq1":self.exc_val.name})[0]["url"])
+            missed_module = self.conn.root.getmodule(self.exc_val.name)
 
-        sys.modules[self.exc_val.name]=missed_module
-        __import__(self.exc_val.name)
+            sys.modules[self.exc_val.name]=missed_module
+            __import__(self.exc_val.name)
         return self
 
 
