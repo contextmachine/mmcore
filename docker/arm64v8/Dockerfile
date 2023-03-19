@@ -32,4 +32,4 @@ RUN /usr/local/bin/_entrypoint.sh python bin/platform_resolver.py
 RUN /usr/local/bin/_entrypoint.sh python -m pip install -e .
 
 
-ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python"]
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
