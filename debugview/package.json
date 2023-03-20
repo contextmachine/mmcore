@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "three": "^0.150.1"
+  },
+  "name": "debugview",
+  "version": "1.0.0",
+  "main": "index.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "description": ""
+}

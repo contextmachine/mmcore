@@ -1,0 +1,23 @@
+{
+     "type": "PointsMaterial",
+     "color": [
+        0,
+        0,
+        0
+    ],
+     "size": 5,
+     "sizeAttenuation": false,
+     "vertexColors": true,
+     "depthFunc": 3,
+     "depthTest": true,
+     "depthWrite": true,
+     "colorWrite": true,
+     "stencilWrite": false,
+     "stencilWriteMask": 255,
+     "stencilFunc": 519,
+     "stencilRef": 0,
+     "stencilFuncMask": 255,
+     "stencilFail": 7680,
+     "stencilZFail": 7680,
+     "stencilZPass": 7680
+}

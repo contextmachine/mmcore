@@ -47,12 +47,15 @@ class ColorRGB(tuple):
         return f"{self.__class__.__name__}({self.r}, {self.g}, {self.b})"
 
     def to_rhino(self):
-        return (self.r,  self.g, self.b , 255)
+        return (self.r, self.g, self.b, 255)
 
     def to_dict(self):
         return {"r": self.r, "g": self.g, "b": self.b, "a": 255}
+
     def ToJSON(self):
         return json.dumps(self.to_dict())
+
+
 def rgb_to_three_decimal(color: ColorRGB | ColorRGBA) -> int:
     return int('%02x%02x%02x' % (color.r, color.g, color.b), 16)
 
@@ -116,6 +119,8 @@ class Material(Matchable):
 
     def ToJSON(self, *args, **kwargs):
         return json.dumps(self.data, *args, **kwargs)
+
+
 class MaterialType(type):
     @classmethod
     def __prepare__(metacls, name, bases=(Material,), templates=f"{__file__.replace('/__init__.py', '')}/templates",
@@ -154,4 +159,8 @@ class MeshPhysicalBasic(Material, metaclass=MaterialType):
 
 
 class MeshPhysicalMetallic(Material, metaclass=MaterialType):
+    ...
+
+
+class PointsBase(Material, metaclass=MaterialType):
     ...

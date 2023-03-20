@@ -103,7 +103,7 @@ class Archive3dm(pydantic.BaseModel):
     def from_3dm(cls, data3dm) -> 'Archive3dm':
         return cls(**rhino.RhinoEncoder().default(data3dm))
 
-    def to_3dm(self) -> dict | rhino3dm.CommonObject | Any:
+    def to_3dm(self) -> dict:
         return rhino.RhinoDecoder().decode(self.data)
 
     def __repr__(self):
