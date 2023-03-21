@@ -1,15 +1,17 @@
 {
-  "dependencies": {
-    "three": "^0.150.1"
-  },
-  "name": "debugview",
-  "version": "1.0.0",
-  "main": "index.js",
-  "devDependencies": {},
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "",
-  "license": "MIT",
-  "description": ""
+    "name": "debugview",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.html",
+    "dependencies": {
+        "eslint": "^8.36.0",
+        "pyodide": "^0.22.1",
+        "pyscript": "^1.0.6",
+        "three": "^0.150.1"
+    },
+    "scripts": {
+        "test": "npm run"
+    },
+    "author": "",
+    "license": "ISC"
 }

@@ -329,13 +329,3 @@ def create_root_descriptor(self):
     }
 
 
-from mmcore.utils import redis_tools
-
-
-class Scene(redis_tools.RC):
-    ...
-
-
-def assign_root(root, obj):
-    obj.root = root
-
