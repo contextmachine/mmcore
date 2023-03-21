@@ -1,13 +1,11 @@
+import itertools
+import os
 import socket
 
-import os
-import sys
-
+import dotenv
 import requests
 import rpyc
 import yaml
-
-import dotenv
 
 dotenv.load_dotenv(dotenv_path=dotenv.find_dotenv(".env"))
 
@@ -39,9 +37,15 @@ def get_connection(url=None):
 
         hosts = ["localhost"]
         port = 7778
+
+    return get_connection_by_host_port(itertools.zip_longest(hosts, [port], fillvalue=port))
+
+
+def get_connection_by_host_port(*pairs):
     i = -1
     while True:
         i += 1
+        host, port = pairs[i]
         try:
             print(hosts[i])
 
@@ -49,12 +53,11 @@ def get_connection(url=None):
             conn.ping()
 
             if not conn.closed:
-                print(f"{hosts[i]} success!!!")
+                print(f"{hosts[i]}:{port} success!!!")
                 rpyc_conn = conn
                 break
         except ConnectionRefusedError:
-            print(f"{hosts[i]} fail...")
+            print(f"{hosts[i]}:{port} fail...")
         except socket.gaierror:
-            print(f"{hosts[i]} fail...")
+            print(f"{hosts[i]}:{port} fail...")
     return rpyc_conn
-
