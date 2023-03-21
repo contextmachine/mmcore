@@ -1,0 +1,86 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>cxm</title>
+    <link rel="icon" type="image/png" href="../favicon.png"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link rel="stylesheet" href="./style.css"/>
+</head>
+<body>
+<div class="container-fluid fixed-top header disable-selection">
+    <div class="row">
+        <div class="col"></div>
+        <div class="col-md-6">
+            <div class="row">
+                <div class="col"></div>
+            </div>
+        </div>
+        <div class="col"></div>
+    </div>
+</div>
+<script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"
+        content="application/javascript"></script>
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.150.1/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.150.1/examples/jsm/",
+            "pyscript": "https://pyscript.net/latest/pyscript.js"
+        }
+    }
+</script>
+
+<script type="application/javascript">
+
+    import * as THREE from 'three';
+    import {OrbitControls} from 'three/addons/';
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 500);
+    camera.position.set(0, 0, 100);
+    camera.lookAt(0, 0, 0);
+    const lightpt = new THREE.PointLight(0x404040, 1, 100,);
+    lightpt.position.set(50, 50, 50);
+    scene.add(lightpt);
+    const light = new THREE.AmbientLight(0x404040); // soft white light
+    scene.add(light);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    export const controls = new OrbitControls(camera, renderer.domElement);
+    console.log(scene)
+    console.log(controls)
+
+    const loader = new THREE.ObjectLoader()
+  loader.load( "http://0.0.0.0:8086/data/BufferGeometryObject.json", function ( obj ) {
+		// Add the loaded object to the scene
+		scene.add( obj );
+	},
+          function ( xhr ) {
+		console.log( (xhr.loaded / xhr.total * 100) + '% loaded' );
+	},
+          	function ( err ) {
+		console.error( 'An error happened' );
+	}
+  )
+  console.log(scene)
+  function animate() {
+
+	requestAnimationFrame( animate );
+
+	// required if controls.enableDamping or controls.autoRotate are set to true
+	controls.update();
+
+	renderer.render( scene, camera );
+
+
+}
+
+animate()
+
+</script>
+
+
+
+    </body>
+</html>
