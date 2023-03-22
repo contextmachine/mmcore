@@ -2,14 +2,12 @@
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
 # multi_description.py
 import functools
-import inspect
 import itertools
 from abc import ABC
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
 
 import more_itertools
 import numpy as np
-
 
 from mmcore.collections.traversal import sequence_type, dict_type_extractor, item_type_extractor
 
@@ -385,6 +383,23 @@ class ElementSequence(MultiDescriptor):
         return [s.to_dict() for s in self._seq]
 
 
+class NextIndex(Iterator):
+    def __init__(self, iterable, target):
+        self.iterable = iterable
+        self.target = target
+        self.i = -1
+
+    def __next__(self):
+        try:
+            self.i = self.iterable.index(self.target, self.i + 1, -1)
+            return self.i
+        except ValueError as err:
+            raise StopIteration
+
+    def __iter__(self):
+        return self
+
+
 """
 def ff(data, i):
     
@@ -488,11 +503,11 @@ class EntityCollection(ElementSequence):
         return self.kind
 
     def __getitem__(self, item):
-        return lambda slf: map(lambda *args, **kwargs: self.kind.__getattribute__( item)(slf, *args, **kwargs), self._seq)
+        return lambda slf: map(lambda *args, **kwargs: self.kind.__getattribute__(item)(slf, *args, **kwargs),
+                               self._seq)
 
     def __setitem__(self, item, v):
         super().__setitem__(self, item, v)
-                               
 
 
 class SeqProto(Protocol):
