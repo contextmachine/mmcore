@@ -4,7 +4,10 @@ from typing import ContextManager
 import dotenv
 
 from mmcore.gql.client import GQLReducedQuery
-from mmcore.services.client import get_connection
+from mmcore.services.client import get_connection, get_connection_by_host_port
+
+
+hosts = ["localhost", "host.docker.internal"]
 
 
 class ModuleResolver(ContextManager):
@@ -12,20 +15,25 @@ class ModuleResolver(ContextManager):
         self.env = dotenv.dotenv_values(dotenv.find_dotenv(dotenv_name, usecwd=True))
         self.query = GQLReducedQuery("""
         
-query BackendQuery($trget: String = "") {
-  platform_topics(where: {
-    value: {_eq: $trget}}) {
+query MyQuery($value: String!) {
+  platform_topics_by_pk(value: $value) {
     value
-    services {
-      port
-      endpoints(order_by: {host: {address: asc}}) {
-        host {
-          address
+    subscribes {
+      serviceByTopic {
+        attributes {
+          port
+        }
+        hosts {
+          host {
+            name
+            address
+          }
         }
       }
     }
   }
 }
+
 
         """)
 
@@ -39,8 +47,12 @@ query BackendQuery($trget: String = "") {
         if exc_val:
             print("__exit__2", exc_val)
             # self.exc_response=self.query(variables={"_eq1": self.exc_val.name.replace(".", "")})
+            resp=self.query(variables={"value": self.exc_val.name})["subscribes"][0]["serviceByTopic"]
 
-            self.conn = get_connection(self.query(variables={"target": self.exc_val.name})[0]["url"])
+            port = resp["attributes"]["port"]
+            hosts = resp["hosts"]["port"]
+
+            self.conn = get_connection_by_host_port(itertools.zip_longest(hosts, [port], fillvalue=port))
             missed_module = self.conn.root.getmodule(self.exc_val.name)
 
             sys.modules[self.exc_val.name] = missed_module

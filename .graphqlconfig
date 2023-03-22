@@ -1,18 +1,16 @@
 {
-    "name": "Untitled GraphQL Schema",
-    "schemaPath": "schema.graphql",
-    "extensions": {
-        "endpoints": {
-            "Default GraphQL Endpoint": {
-                "url": "https://viewer.contextmachine.online/v1/graphql",
-                "headers": {
-                    "content-type": "application/json",
-                    "user-agent": "JS GraphQL",
-                    "X-Hasura-Role": "admin",
-                    "X-Hasura-Admin-Secret": "mysecretkey"
-                },
-                "introspect": true
-            }
-        }
+  "name": "Untitled GraphQL Schema",
+  "schemaPath": "schema.graphql",
+  "extensions": {
+    "endpoints": {
+      "Default GraphQL Endpoint": {
+        "url": "http://84.201.156.249:8080/v1/graphql",
+        "headers": {
+          "user-agent": "JS GraphQL",
+          "x-hasura-admin-secret": "mysecretkey"
+        },
+        "introspect": true
+      }
     }
+  }
 }
