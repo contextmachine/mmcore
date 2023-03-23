@@ -1,6 +1,6 @@
-.idea
-tests
-data
+.idea/
+tests/
+data/
 mmcore.egg-info/
 docs/
 build/
@@ -10,3 +10,6 @@ mmdb.sqlite
 tril2w.msh
 tril2w.stp
 tril2w.db
+debugview/
+docker/
+.run/
