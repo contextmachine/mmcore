@@ -64,4 +64,5 @@ query MyQuery($value: String!) {
 
             sys.modules[self.exc_val.name] = missed_module
             __import__(self.exc_val.name)
+
         return self
