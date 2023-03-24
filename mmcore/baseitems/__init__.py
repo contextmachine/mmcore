@@ -602,7 +602,7 @@ class Matchable(object):
     def __new__(cls, *args, **kwargs):
         cls.resolve_match_args()
         inst = super().__new__(cls)
-        inst.__init__(*args, **kwargs)
+
         return inst
 
     def __init__(self, *args, **kwargs):
