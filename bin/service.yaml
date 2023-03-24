@@ -1,0 +1,17 @@
+service:
+  name: rhpyc
+  attributes:
+    port: 7778
+    mode: threaded
+    allow_setattr: true
+    allow_delattr: true
+    allow_pickle: true
+  configs:
+    hosts:
+      - localhost
+      - 92.53.64.197
+      - 92.53.64.254
+      - 92.53.64.253
+
+
+
