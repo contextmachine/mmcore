@@ -11,7 +11,7 @@ from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 from ..pg import format_mutation
 
-load_dotenv(find_dotenv(raise_error_if_not_found=True))
+load_dotenv(find_dotenv(usecwd=True, raise_error_if_not_found=True))
 
 GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
 
@@ -524,3 +524,54 @@ class GQLReducedFileBasedQuery(GQLFileBasedQuery):
 
     def __call__(self, variables=None, fields=None, **kwargs):
         return list(super().__call__(variables=variables, full_root=False, fields=fields, **kwargs).values())[0]
+
+
+class GQLVar(str):
+    def __new__(cls, name, tp, **kwargs):
+        inst = super().__new__(cls, f"${name}:{tp}".encode(), **kwargs)
+        inst.name = name
+        inst.tp = tp
+
+
+class query2(GQLSimpleQuery):
+    def __init__(self, root, fields, variables, **kwargs):
+        with open("assets/query.jinja2") as f:
+            super().__init__(f.read())
+        with open("assets/body.jinja2") as f:
+            self.body_template = f.read()
+        self.root = root
+        self.fields = fields
+        self.variables = variables
+
+    def render(self, fields=None):
+        if fields is not None:
+            self.fields = fields
+        return self.template.render(self=self)
+
+    @property
+    def body(self):
+        """{{self.root}}
+        {
+            {{self.receive}}
+        }"""
+        return
+
+    @property
+    def receive(self):
+        def wrp(data):
+
+            for d in data:
+                if isinstance(d, str):
+                    return d
+                elif isinstance(d, dict):
+
+                    temp = copy.deepcopy(self.body_template)
+                    return [temp.render(root=k, attrs=wrp(v)) for k, v in d.items()]
+                else:
+                    print(f"fail with: {d}")
+
+        return wrp(self.fields)
+
+    @property
+    def sign(self):
+        return "(" + " ,".join(self.variables) + ")"
