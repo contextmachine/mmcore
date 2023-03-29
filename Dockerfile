@@ -21,5 +21,6 @@ RUN micromamba install -y -n base -f /tmp/env.yaml && \
 WORKDIR /mmcore
 COPY --link . .
 RUN /usr/local/bin/_entrypoint.sh python bin/platform_resolver.py
-RUN /usr/local/bin/_entrypoint.sh python -m pip install -e .
+RUN /usr/local/bin/_entrypoint.sh python -m pip install -r requirements.txt --no-cache
+RUN /usr/local/bin/_entrypoint.sh python -m pip install -e . && /usr/local/bin/_entrypoint.sh python -m pip install http://storage.yandexcloud.net/box.contextmachine.space/share/packages/pip/rhino3dm-8.0.0.tar.gz
 ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python"]
