@@ -6,7 +6,6 @@ docs/
 build/
 docker-compose.yml
 masks.cxm
-mmdb.sqlite
 tril2w.msh
 tril2w.stp
 tril2w.db

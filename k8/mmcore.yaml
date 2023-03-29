@@ -7,21 +7,24 @@ metadata:
   name: mmcore
   namespace: default
 spec:
-    containers:
+  containers:
     - image:
-        cr.yandex/crpfskvn79g5ht8njq0k/cxm-viewer:latest
+        sthv/cxm-viewer:latest
       imagePullPolicy: Always
     name: cxmviewer
     env:
 
-        - name:
-            NODE_ENV
-          value: "development"
+      - name:
+          NODE_ENV
+      value: "development"
 
         ports:
-        - containerPort: 3000
-          protocol: TCP
-        resources: {}
+          - containerPort: 3000
+            protocol: TCP
+        resources: { }
+  selector:
+
+  template:
 
 ---
 apiVersion: v1
