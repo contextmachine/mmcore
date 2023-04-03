@@ -19,3 +19,10 @@ def bootstrap_cloud() -> redis.Redis | redis.StrictRedis | Any:
     r = redis.Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), password=os.getenv("REDIS_PASSWORD"))
 
     return r
+
+
+def get_cloud_connection(host=os.getenv("REDIS_HOST"),
+                         port=os.getenv("REDIS_PORT"),
+                         password=os.getenv("REDIS_PASSWORD"),
+                         db=0):
+    return redis.Redis(host=host, port=int(port), password=password, db=db)

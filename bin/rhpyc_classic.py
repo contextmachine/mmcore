@@ -15,8 +15,6 @@ from rpyc.cli.rpyc_classic import ClassicServer
 sys.path.append(FREECADPATH)
 __all__ = ["MmService", "RhService", "FreeCadService"]
 
-import pprint
-
 
 class MmService(ClassicServer):
     def __init_subclass__(cls, configs=None, **kwargs):
@@ -57,20 +55,30 @@ class MmService(ClassicServer):
 # RhService.ssl_certfile = f"{os.getenv('HOME')}/ssl/ca-certificates/certificate_full_chain.pem"
 # RhService.ssl_keyfile = f"{os.getenv('HOME')}/ssl/ca-certificates/private_key.pem"
 # RhService.logfile = f"{os.getenv('HOME')}/rhpyc.log"
+
+
+import os, os.path
+
+if os.path.exists("bin/socket_test.s"):
+    os.remove("/tmp/socket_test.s")
+os.environ["RPYC_CONFIGS"] = "http://storage.yandexcloud.net/box.contextmachine.space/share/configs/rhpyc.yaml"
+
+
 class RhService(MmService, configs="http://storage.yandexcloud.net/box.contextmachine.space/share/configs/rhpyc.yaml"):
     ...
 
 
-import sys, os
-
-sys.path.extend(["~/PycharmProjects/mmcore"])
-os.environ["RPYC_CONFIGS"] = "http://storage.yandexcloud.net/box.contextmachine.space/share/configs/rhpyc.yaml"
+import threading, pprint
 
 
 def main():
-    RhService.run()
+    RhService.host = "0.0.0.0"
+    RhService.port = 7778
+    pprint.pprint(RhService.__dict__)
+    threa = threading.Thread(target=lambda: sys.exit(RhService.run()), name="rhpyc")
+    threa.start()
+    return threa
 
 
 if __name__ == "__main__":
-
-    sys.exit(main())
+    main()

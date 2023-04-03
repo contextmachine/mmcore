@@ -1,1 +1,1 @@
-chmod +x "rhcode"
+chmod +x "bootstrap_rhpyc"
