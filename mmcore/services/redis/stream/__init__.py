@@ -1,3 +1,5 @@
+import uuid
+
 import redis
 
 
@@ -70,7 +72,7 @@ def encode_dict_with_bytes(obj):
         return [encode_dict_with_bytes(v) for v in obj]
     elif isinstance(obj, (bytes, bytearray)):
         norm = obj.decode("ASCII")
-        print(norm)
+
         if norm == '':
             return ''
         else:
@@ -87,30 +89,49 @@ def encode_dict_with_bytes(obj):
         return obj
 
 
-class ThreeCommit(dict):
-    _stream_bane = "api:stream:test"
-    schema = {
-        "object": {
+class SharedDict(dict):
+    schema = {}
 
-        },
-        "materials": [
-
-        ],
-        "geometries": [
-
-        ],
-        "metadata": {
-
-        }
-    }
-
-    def __init__(self, name, conn, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name, conn, uuid=None):
         self.stream_name = name
         self.conn = conn
+        self._uuid = uuid
 
-    def last(self):
-        return encode_dict_with_bytes(self.stream.get_last())
+        dict.__init__(self, self._last())
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @classmethod
+    def create_new(cls, name, conn):
+        uid = uuid.uuid4()
+        return cls(f"{name}:{uid}", conn, uuid=uid)
+
+    def _last(self):
+        res = encode_dict_with_bytes(self.stream.get_last())
+
+        self.id = res[0][0]
+
+        return res[0][1]
+
+    @property
+    def stream(self):
+        return StreamConnector(self.stream_name, redis_conn=self.conn)
+
+    def fields(self):
+        dct = {}
+        for key in self.keys():
+            dct[f'"{key}"'] = json.dumps(self.get(key))
+        return dct
+
+    def __getitem__(self, item):
+        return dict.__getitem__(self, item)
+
+    def __setitem__(self, item, v):
+        dict.__setitem__(self, item, v)
+
+        self.commit()
 
     @property
     def stream_name(self):
@@ -120,15 +141,52 @@ class ThreeCommit(dict):
     def stream_name(self, v):
         self._stream_name = v
 
-    @property
-    def stream(self):
-        return StreamConnector(self.stream_name, redis_conn=self.conn)
-
     def commit(self):
-        return self.stream.xadd(None, fields={
-            '"object"': json.dumps(self["object"]),
-            '"materials"': json.dumps(self["materials"]),
-            '"geometries"': json.dumps(self["geometries"]),
-            '"metadata"': json.dumps(self["metadata"])
+        return self.stream.xadd(None, fields=self.fields())
+
+
+class ThreeJsSharedDict(SharedDict):
+    """
+    >>> from mmcore.services.redis.stream import *
+    >>> redis_conn = redis.Redis(
+    >>> host="<your-redis-host>",
+    >>> port=6379,
+    >>> password="<your-redis-password>")
+    >>> from mmcore.services.redis.stream import ThreeJsSharedDict
+    >>> aa=ThreeJsSharedDict("<stream-name>", redis_conn)
+    >>> aa
+    {
+        'object': {
+            'type': 'Mesh'
+            },
+        'materials': '[]',
+        'geometries': '[]',
+        'metadata': {
+            'version': 4.5,
+            'type': "Object",
+            'generator': 'Object3D.toJSON'
         }
-                                )
+    }
+    }
+
+    """
+    _stream_bane = "api:stream:test"
+    schema = {
+        "object": {},
+        "materials": [],
+        "geometries": [],
+        "metadata": {
+            "version": 4.5,
+            "type": "Object",
+            "generator": "Object3D.toJSON"
+        }
+    }
+    id: str
+
+    def fields(self):
+        return {
+            f'"object"': json.dumps(self.get("object")),
+            '"materials"': json.dumps(self.get("materials")),
+            '"geometries"': json.dumps(self.get("geometries")),
+            '"metadata"': json.dumps(self.get("metadata"))
+        }
