@@ -29,6 +29,3 @@ class LaunchRhino(ContextManager):
         self.proc.terminate()
 
 
-if __name__ == "__main__":
-    with LaunchRhino("-nosplash"):
-        proc = sp.Popen("/Applications/RhinoWIP.app/Contents/Resources/bin/rhinocode script ./app.py".split(" "))
