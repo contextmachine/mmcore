@@ -1,32 +1,24 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from __future__ import absolute_import
-import sys
+
 import uuid
 import zlib
 from abc import abstractmethod
 from collections import namedtuple
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Generic, TypeVar
+from typing import Any
 
-import OCC.Core.BRepClass3d
 import compas.geometry
 import numpy as np
-import rpyc
-
-from mmcore.addons.rhino import rhino3dm
-
-
-
 from OCC.Core import TopoDS, gp
-
 from OCC.Core.gp import gp_Pnt
-
-from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
-from mmcore.collections import chain_split_list
 from scipy.spatial.distance import euclidean
 
+from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
+from mmcore.addons.rhino import rhino3dm
 from mmcore.baseitems import Matchable
+from mmcore.collections import chain_split_list
 
 mesh_js_schema = {
     "metadata": dict(),
@@ -54,7 +46,7 @@ pts_js_schema = {
         }
     }
 }
-from mmcore.addons.rhino import rhino_mesh_to_topology, create_buffer, CommonMeshTopology
+from geom.utils import create_buffer, rhino_mesh_to_topology, CommonMeshTopology
 import rpyc
 
 rpyc.classic.ClassicService()

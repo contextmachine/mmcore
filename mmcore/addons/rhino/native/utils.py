@@ -3,13 +3,14 @@ import json
 import os
 import uuid
 import warnings
-from collections import namedtuple
 from json import JSONDecoder, JSONEncoder
 from typing import Any
 
+import numpy as np
 import rhino3dm as rg
 
-import numpy as np
+import mmcore.base.models.gql
+
 
 def rhino_transform_from_np(tx):
     xf = np.array(tx).reshape((4, 4))
@@ -223,13 +224,13 @@ def get_model_objects_from_buffer(buff: bytes):
 def get_model_attributes_from_buffer(buff: bytes):
     rr = rg.File3dm.FromByteArray(buff)
     # noinspection PyTypeChecker
-    return [o.Attributes for o in rr.Objects]
+    return [mmcore.base.models.gql.Attributes for o in rr.Objects]
 
 
 # noinspection PyUnresolvedReferences
 def get_model_attributes(path):
     rr = rg.File3dm().Read(path)
-    return [o.Attributes for o in rr.Objects]
+    return [mmcore.base.models.gql.Attributes for o in rr.Objects]
 
     def encode(self, o) -> str:
         dct = self.default(o)
@@ -287,24 +288,6 @@ Tuple3dPt = Tuple3dVec = EpsTuple[float, float, float]
 Tuple4dPt = TupleWPt = EpsTuple[float, float, float, float]
 
 
-def get_mesh_uv(msh) -> list[TupleUV]: return [TupleUV((i.X, i.Y)) for i in list(msh.TextureCoordinates)]
-
-
-def get_np_mesh_uv(msh) -> np.ndarray: return np.asarray(get_mesh_uv(msh))
-
-
-def get_mesh_vertices(msh) -> list[tuple]: return [(i.X, i.Y, i.Z) for i in list(msh.Vertices)]
-
-
-def get_np_mesh_vertices(msh) -> np.ndarray: return np.asarray(get_mesh_vertices(msh))
-
-
-def get_mesh_normals(msh) -> list[Tuple3dVec]: return [Tuple3dPt((i.X, i.Y, i.Z)) for i in list(msh.Normals)]
-
-
-def get_np_mesh_normals(msh) -> np.ndarray: return np.asarray(get_mesh_normals(msh))
-
-
 # noinspection PyTypeChecker
 def create_model_with_items(*items, return_uuids=False) :
     model3dm = rg.File3dm()
@@ -343,7 +326,7 @@ class GeometriesItem(Matchable):
     __match_args__ = "index", "attributes"
 
 
-def create_buffer(indices, verts, normals, uv, uid=None):
+def create_buffer_wuv(indices, verts, normals, uid=None):
     return {
         "uuid": uuid.uuid4().__str__() if uid is None else uid,
         "type": "BufferGeometry",
@@ -361,12 +344,7 @@ def create_buffer(indices, verts, normals, uv, uid=None):
                     "type": "Float32Array",
                     "normalized": False
                 },
-                "uv": {
-                    'itemSize': 2,
-                    "array": np.asarray(uv, dtype=float).flatten().tolist(),
-                    "type": "Float32Array",
-                    "normalized": False
-                }
+
             },
             "index": dict(type='Uint16Array',
                           array=np.asarray(indices, dtype=int).flatten().tolist())
@@ -374,136 +352,3 @@ def create_buffer(indices, verts, normals, uv, uid=None):
     }
 
 
-from scipy.spatial import distance as spdist
-
-
-def mesh_decomposition(msh):
-    f = msh.Faces
-    f.ConvertQuadsToTriangles()
-    vertss = get_mesh_vertices(msh)
-    normals = get_mesh_normals(msh)
-    llst = []
-    vv = []
-    for i in range(f.TriangleCount):
-        pts = f.GetFaceVertices(i)
-        lst = []
-        for i in range(3):
-            pt = pts[i + 1]
-            vv.append((pt.X, pt.Y, pt.Z))
-            try:
-                lst.append(vertss.index((pt.X, pt.Y, pt.Z)))
-            except ValueError as err:
-                vrt = list(range(len(vertss)))
-                vrt.sort(key=lambda x: spdist.cosine([pt.X, pt.Y, pt.Z], vertss[x]))
-                lst.append(vrt[0])
-
-        llst.append(lst)
-
-    return llst, vertss, normals
-
-
-CommonMeshTopology = namedtuple("CommonMeshTopology", ["indices", "vertices", "normals", "uv"])
-
-
-def rhino_mesh_to_topology(input_mesh: rg.Mesh):
-    indices, verts, normals = mesh_decomposition(input_mesh)
-    uv = get_np_mesh_uv(input_mesh)
-    return CommonMeshTopology(indices, verts, normals, uv)
-
-
-def mesh_to_buffer(input_mesh) -> dict:
-    indices, verts, normals = mesh_decomposition(input_mesh)
-    uv = get_np_mesh_uv(input_mesh)
-
-    return create_buffer(indices, verts, normals, uv)
-
-
-def mesh_to_buffer_geometry(input_mesh) -> dict:
-    (indices, position, normals), uv = mesh_decomposition(input_mesh), get_np_mesh_uv(input_mesh)
-    return dict(indices=indices, position=position, normals=normals, uv=uv)
-
-
-def mesh_to_buffer_mesh(mesh,
-
-                        material,
-                        name="TestMesh",
-
-                        cast_shadow=True,
-                        receive_shadow=True,
-                        layers=1,
-                        matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)):
-    geom = mesh_to_buffer(mesh)
-    return {
-        "metadata": {
-            "version": 4.5,
-            "type": "Object",
-            "generator": "Object3D.toJSON"
-        },
-        "geometries": [geom],
-        "materials": [material.data],
-        "object": {
-            "uuid": uuid.uuid4().__str__(),
-            "type": "Mesh",
-            "name": name,
-            "castShadow": cast_shadow,
-            "receiveShadow": receive_shadow,
-            "layers": layers,
-            "matrix": matrix,
-            "geometry": geom["uuid"],
-            "material": material.uuid
-        }
-
-    }
-
-
-def create_root(rootobj):
-    return {
-        "metadata": {
-            "version": 4.5,
-            "type": "Object",
-            "generator": "Object3D.toJSON"
-        },
-        "geometries": [],
-        "materials": [],
-        "object": rootobj
-    }
-
-
-def obj_notation_from_mesh(name, geometry_uuid, material_uuid, userdata={},
-                           matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), uid=None):
-    if uid is None:
-        uid = uuid.uuid4().__str__()
-    return {
-        'uuid': uid,
-        'type': 'Mesh',
-        'name': name,
-        'castShadow': True,
-        'receiveShadow': True,
-        'userData': userdata,
-        'layers': 1,
-        'matrix': matrix,
-        'geometry': geometry_uuid,
-        'material': material_uuid
-    }
-
-
-def group_notation_from_mesh(name, userdata={},
-                             matrix=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1), children=[], uid=None):
-    if uid is None:
-        uid = uuid.uuid4().__str__()
-    return {
-        'uuid': uid,
-        'type': 'Group',
-        'name': name,
-        'castShadow': True,
-        'receiveShadow': True,
-        'userData': userdata,
-        'layers': 1,
-        'matrix': matrix,
-        'children': children
-    }
-
-
-def tree_obj_from_mesh_obj(obj):
-    return obj_notation_from_mesh(obj.name, geometry_uuid=obj.geometry, material_uuid=obj.material,
-                                  userdata=obj.userData, matrix=obj.matrix)

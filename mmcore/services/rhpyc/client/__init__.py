@@ -1,11 +1,11 @@
 import os
 import sys
 
+import dotenv
 import requests
 import rpyc
 import yaml
 
-import dotenv
 dotenv.load_dotenv()
 
 def get_connection(url=None):
@@ -29,12 +29,12 @@ def get_connection(url=None):
     ---
     [2] Advance Example
     Creating threejs object from rhino geometry
-    >>> from mmcore.addons import rhino
-    >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
+import geom.buffer    >>> from mmcore.addons import rhino
+import geom.utils.tools    >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
     >>> sph_mesh = rg.Mesh.CreateFromSphere(sph)
     >>> sph_brep_arr = rg.Mesh.CreateFromBrep(sph.ToBrep()) # Mesh.CreateFromBrep return mesh array (Mesh[]) object.
     >>> from mmcore.geom.materials import MeshPhysicalBasic, ColorRGB
-    >>> webgl_object = rhino.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
+    >>> webgl_object = geom.utils.tools.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
     >>> webgl_object
     {'metadata': {'version': 4.5,
       'type': 'Object',

@@ -1,10 +1,9 @@
 import collections
 import copy
 import json
-import pprint
 import typing
 from collections import Counter
-from typing import Any, Callable, Sequence, Type, Union
+from typing import Callable, Sequence, Type, Union
 
 import more_itertools
 import numpy
@@ -196,6 +195,7 @@ def walk(target, names):
         return walk(getattr(target, names.pop(0)), names.pop())
 
 
+
 class Walk:
     """
     >>> from mmcore.addons import ModuleResolver
@@ -316,3 +316,6 @@ def ttrv(d):
 
 
         return R[0]
+
+def traverse_sequence_types(d):
+    return ttrv(d)

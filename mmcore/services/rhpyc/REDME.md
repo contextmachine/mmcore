@@ -26,7 +26,7 @@ Closest point on circle curve for nine lines of code.
 Creating webgl object from rhino geometry for ten lines of code.
 
 ```doctest
->>> from mmcore.services.rhpyc import get_connection
+import geom.utils.tools>>>import geom.buffer from mmcore.services.rhpyc import get_connection
 >>> conn = get_connection("localhost", 18812)
 >>> rg = conn.root.getmodule("Rhino.Geometry")
 
@@ -36,7 +36,7 @@ Creating webgl object from rhino geometry for ten lines of code.
 
 >>> from mmcore.addons import rhino
 >>> from mmcore.geom.materials import MeshPhysicalBasic, ColorRGB
->>> webgl_object = rhino.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
+>>> webgl_object = geom.utils.tools.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
 >>> webgl_object # some parts of the json output were omitted
 {'metadata': {'version': 4.5,
   'type': 'Object',

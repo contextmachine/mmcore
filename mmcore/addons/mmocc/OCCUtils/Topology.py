@@ -21,14 +21,22 @@ from __future__ import print_function
 
 __all__ = ["Topo", "WireExplorer", "dumpTopology"]
 
+from OCC.Core import TopTools
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepTools import BRepTools_WireExplorer
 from OCC.Core.TopExp import TopExp_Explorer, topexp_MapShapesAndAncestors
-from OCC.Core.TopTools import *
 from OCC.Core.TopoDS import (TopoDS_CompSolid, TopoDS_Compound, TopoDS_Edge, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell,
                              TopoDS_Solid, TopoDS_Vertex, TopoDS_Wire, topods, topods_Edge, topods_Vertex)
 
-
+TopTools_ListIteratorOfListOfListOfShape=TopTools.TopTools_ListIteratorOfListOfShape
+TopTools_IndexedDataMapOfShapeListOfShape=TopTools.TopTools_IndexedDataMapOfShapeListOfShape
+from OCC.Core.TopAbs import (TopAbs_VERTEX,TopAbs_EDGE,
+            TopAbs_FACE,
+            TopAbs_WIRE,
+            TopAbs_SHELL,
+            TopAbs_SOLID,
+            TopAbs_COMPOUND,
+            TopAbs_COMPSOLID)
 class WireExplorer(object):
     """
     Wire traversal
@@ -50,7 +58,7 @@ class WireExplorer(object):
         topologyType = topods_Edge if edges else topods_Vertex
         seq = []
         hashes = []  # list that stores hashes to avoid redundancy
-        occ_seq = TopTools_ListOfShape()
+        occ_seq = TopTools.TopTools_ListOfShape()
         while self.wire_explorer.More():
             # loop edges
             if edges:
@@ -165,7 +173,7 @@ class Topo(object):
             self.topExp.Init(topologicalEntity, topologyType, topologyTypeToAvoid)
         seq = []
         hashes = []  # list that stores hashes to avoid redundancy
-        occ_seq = TopTools_ListOfShape()
+        occ_seq = TopTools.TopTools_ListOfShape()
         while self.topExp.More():
             current_item = self.topExp.Current()
             current_item_hash = current_item.__hash__()

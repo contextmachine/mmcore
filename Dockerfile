@@ -20,6 +20,8 @@ RUN micromamba install -y -n base -f /tmp/env.yaml && \
 # ENV PARAM=value
 WORKDIR /mmcore
 COPY --link . .
+RUN rm -r /root/.cache
+RUN apt update && apt -y install npm nodejs
 RUN /usr/local/bin/_entrypoint.sh python bin/platform_resolver.py
-RUN /usr/local/bin/_entrypoint.sh python -m pip install -r requirements.txt --no-cache
+RUN /usr/local/bin/_entrypoint.sh python -m pip install -e .
 ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python"]

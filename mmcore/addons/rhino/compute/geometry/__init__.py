@@ -3,7 +3,9 @@ import uuid
 from typing import Any
 
 import numpy as np
+
 from mmcore.addons import ModuleResolver
+
 with ModuleResolver() as rsl:
     import rhino3dm
 
@@ -15,7 +17,8 @@ MESHING_PARAMS.Tolerance = 0.01
 
 from mmcore.addons.rhino.compute import Mesh, Surface
 
-from mmcore.addons.rhino import Tuple3dVec, create_buffer, get_mesh_normals, get_mesh_vertices, get_np_mesh_uv
+from mmcore.addons.rhino import Tuple3dVec
+from geom.utils import get_np_mesh_uv, get_mesh_vertices, get_mesh_normals, create_buffer
 
 
 def surf_to_buffer_geometry(surface: rhino3dm.Surface | rhino3dm.NurbsSurface,

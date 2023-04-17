@@ -12,3 +12,5 @@ tril2w.db
 debugview/
 docker/
 .run/
+env.json
+node_modules

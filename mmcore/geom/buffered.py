@@ -266,7 +266,7 @@ class Group(ElementSequence, Matchable):
                 self.material = v
             else:
                 raise KeyError(v)
-        elif isinstance(v, Material):
+        elif isinstance(v, MeshPhongMaterial):
             self._material = v.uuid
             if not self.root.materials:
                 self.root.materials.append(v)

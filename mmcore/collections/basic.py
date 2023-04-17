@@ -1,5 +1,4 @@
 import collections.abc
-import copy
 from collections import namedtuple, deque
 
 
@@ -281,7 +280,7 @@ class Grouper(Iterator):
 
 
 
-from typing import  TypeVar, Any
+from typing import  TypeVar
 from typing_extensions import TypeVarTuple
 
 
@@ -292,9 +291,10 @@ T = TypeVar("T")
 
 class ParamContainer:
     def __init__(self, *args , **kwargs ):
-        super().__init__(*args, **kwargs)
+        super().__init__()
         self._args = list(args)
         self._kwargs = kwargs
+
 
     def __call__(self, *args , **kwargs ):
         self._args.extend(args)
@@ -311,6 +311,65 @@ class ParamContainer:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(args={self.args}, kwargs={self.kwargs})"
+from mmcore.collections.multi_description import CallbackList,ElementSequence
+import typing
+from dataclasses import make_dataclass, field
+
+field()
+class CallsHistory:
+
+
+    CallEvent = namedtuple("CallEvent", ["name", "params", "result", "func"])
+    ParamItem = namedtuple("ParamItem", ["name", "type", "default"])
+    def __init__(self, f):
+        self._history = CallbackList(orig=self)
+        super().__init__()
+        self.f=f
+        self.varnames=OrderedSet(list(self.f.__code__.co_varnames))
+        self.__defaults__=self.f.__defaults__
+        self.defaults = dict(zip(list(self.varnames)[-len(self.__defaults__):], self.__defaults__))
+        self.name=f.__name__
+        self.__name__ = f.__name__
+        self.solve_params()
+        self.solve_schema()
+    
+    def solve_params(self):
+        self._prms=[]
+        for name in self.varnames:
+            tp=self.f.__annotations__.get(name)
+            df=self.defaults.get(name)
+            self._prms.append(self.ParamItem(name, tp if tp else typing.Any, df if df else None)._asdict())
+            
+        self.params=ElementSequence(self._prms)
+
+    def solve_schema(self):
+        self.schema=make_dataclass(self.name.capitalize()+"Params",zip(self.params["name"],self.params["type"],self.params["default"]))
+    @property
+    def history(self):
+        return self._sequence
+    def __call__(self, *args, **kwargs):
+        
+        val=self.f(*args, **kwargs)
+        self._pc=ParamContainer(*args, **kwargs)
+        nms=self.varnames
+        for k in kwargs.keys():
+            if k in nms:
+                nms.remove(k)
+
+        dct=dict(zip(list(nms)[:len(self._pc.args)], self._pc.args))
+        dct|=kwargs
+        self._history.append(self.CallEvent(self.name, params=dct, result=val,func=self.f.__code__.co_code.hex())._asdict())
+        return val
+
+    def __contains__(self, item):
+        return item in self.history['params']
+
+    def get_result(self, **params):
+        if params in self:
+            print(f"Use cached result of {self.f.__name__}")
+            return self.history.where(params=params)[-1]["result"]
+        else:
+            return self(**params)
 
 
 class BoolMask(Container):
@@ -448,3 +507,14 @@ class FuncMultiDesc:
                 return wrap
 
         return wrap
+
+
+
+class Orig:
+    @property
+    def names(self):
+        return self._sequence
+
+
+    def append_name(self, name):
+        self._names.append(name)

@@ -4,12 +4,11 @@
   "extensions": {
     "endpoints": {
       "Default GraphQL Endpoint": {
-        "url": "http://84.201.156.249:8080/v1/graphql",
+        "url": "http://localhost:8080/graphql",
         "headers": {
-          "user-agent": "JS GraphQL",
-          "x-hasura-admin-secret": "mysecretkey"
+          "user-agent": "JS GraphQL"
         },
-        "introspect": true
+        "introspect": false
       }
     }
   }
