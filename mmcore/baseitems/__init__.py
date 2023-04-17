@@ -9,7 +9,10 @@ __all__ = ['Base', 'Versioned', 'Identifiable', 'Item', 'GeometryItem', 'Dictabl
 import base64
 import gzip
 import itertools
-import json
+import os
+import subprocess
+import threading
+import time
 import typing
 import uuid
 from abc import ABCMeta, abstractmethod
@@ -19,7 +22,7 @@ from typing import Callable, Generator, ItemsView, KeysView, Mapping, Sequence, 
 
 import numpy as np
 import pydantic
-from typing_extensions import ParamSpec, Protocol
+from typing_extensions import ParamSpec
 
 from mmcore.baseitems.descriptors import DataDescriptor, Descriptor, NoDataDescriptor
 from mmcore.collections.traversal import traverse
@@ -510,7 +513,6 @@ class GeomDataItem(DictableItem, GeometryItem):
 # New Style Classes
 # ----------------------------------------------------------------------------------------------------------------------
 from mmcore.baseitems import descriptors
-from types import prepare_class
 from mmcore.collections import OrderedSet
 
 
@@ -666,9 +668,11 @@ class Matchable(object):
                 pass
 
         return wrp(self)
+
     @classmethod
     def encode(cls, o):
         return cls.ToJSON(o)
+
     def ToJSON(self, **kwargs):
         return json.dumps(self.to_dict(), **kwargs)
 
@@ -698,7 +702,8 @@ class MatchableItem(Matchable, Base):
 class Entity(Matchable):
     type: str = "Entity"
 
-    json = descriptors.JsonView("userdata",)
+    json = descriptors.JsonView("userdata", )
+
     def __repr__(self):
         return f'{self.__class__.__name__}({", ".join([f"{k}={getattr(self, k)}" for k in self.__match_args__])}) at {self.uuid}'
 
@@ -770,3 +775,112 @@ class simpleproperty:
         else:
 
             return getattr(instance, "_" + self.name)
+
+
+import socket, jinja2, json
+
+
+def node_no_params(sock, cont):
+    sock.send(cont)
+    dat2 = sock.recv(9999)
+    d2 = dat2[:-len(cont)]
+    print(d2)
+    dtt = d2.decode()
+    print(dtt)
+    return json.loads(dtt)
+
+
+def node_with_params(tmp, je, jsn):
+    tmpl = je.from_string(tmp).render(jsn=json.dumps(jsn)).encode()
+    return ex(tmpl)
+
+
+class NodeSocketResolver:
+    def __init__(self, unix_addr="/tmp/cxm.sock",
+                 node_code_path=__file__.replace("baseitems/__init__.py", "js/temp.js"), size=8096):
+        self.unix_addr = unix_addr
+        self.size = size
+        self.traffic = 0
+        self.node_code_path = node_code_path
+        self.reload()
+
+    def send(self, data):
+        self.sock.send(data)
+        dat = self.sock.recv(self.size)
+        self.traffic += len(data)
+        self.traffic += len(dat)
+        return dat[:-len(data)]
+
+    def execute(self, code):
+        result = self.send(code)
+        return json.loads(result.decode())
+
+    @property
+    def reload_command(self):
+
+        return f"bash {os.getcwd()}/bin/node_serve.sh"
+
+    @property
+    def node_serve_command(self):
+        return f"node {self.node_code_path}"
+
+    def node_serve_thread(self):
+        th = threading.Thread(
+            target=lambda: subprocess.Popen(list(self.node_serve_command.split(" ")), subprocess.PIPE))
+
+        return th
+
+    def reload(self):
+        self.traffic = 0
+        if hasattr(self, "thread"):
+            self.thread.join(60)
+        proc1 = subprocess.Popen(list(self.reload_command.split(" ")))
+        proc1.wait()
+        self.thread = self.node_serve_thread()
+        self.thread.start()
+        time.sleep(3)
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(self.unix_addr)
+
+
+class Obj3D(Matchable):
+    __match_args__ = "name", "param1"
+    new_temp = '((require) => {' \
+               'const newObject = new THREE.Object3D();' \
+               'localResult =  newObject.toJSON();})'
+    call_temp = c2 = '((require) => {' \
+                     'const newObject = objLoader.parse({{ jsn }});' \
+                     'localResult = newObject.toJSON();})'
+    properties = descriptors.UserDataProperties("param1", "uuid")
+    three_fields = {"name", "userData"}
+
+    def __init__(self, *args, is_root=False,conn=None, **kwargs ):
+        self._je = jinja2.Environment()
+        self.conn=conn
+        dct = self.conn.execute(self.new_temp.encode())
+        self.three_fields.update(set(dct["object"].keys()))
+        kwargs |= dct["object"]
+        super().__init__(*args, **kwargs, is_root=is_root, metadata=dct["metadata"])
+        self._uuid = dct["object"]["uuid"]
+
+    def __call__(self, *args, **kwargs):
+        super().__call__(*args, **kwargs)
+
+        return self
+
+    @property
+    def object3d(self):
+        if self.is_root:
+            return dict(object=dict((k, getattr(self, k)) for k in self.three_fields), metadata=self.metadata)
+        else:
+            return dict(object=dict((k, getattr(self, k)) for k in self.three_fields))
+
+    @property
+    def object(self):
+
+        return dict((k, getattr(self, k)) for k in self.three_fields)
+
+    @property
+    def userData(self):
+
+        return self.userdata

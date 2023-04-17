@@ -27,6 +27,8 @@ def resolve_pythonocc(conda=Conda.MICROMAMBA):
     match pair:
         case InstallTypes2.ARM_MACOS_IN_DOCKER:
             print("\n[mmcore] We are in Macos Docker Linux\n---\n")
+            proc=sb.Popen(["apt","install","wget"])
+            proc.wait()
             sb.Popen(["wget",
                       "http://storage.yandexcloud.net/box.contextmachine.space/share/packages/conda/pythonocc-core.conda"],
                      stdout=sys.stdout, stderr=sys.stderr)

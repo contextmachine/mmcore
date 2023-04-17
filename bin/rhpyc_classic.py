@@ -4,16 +4,21 @@ Notice the 'async:true' specifier below. This ensures the associated run,
 debug, and profile commands run this script on a non-ui thread so Rhino
 UI does not get locked when script is running.
 """
-# ! async:true
+#! async:true
 
 from __future__ import absolute_import, annotations
 
 FREECADPATH = '/Applications/FreeCAD.app/Contents/Resources/lib'
 import yaml, sys
-from rpyc.cli.rpyc_classic import ClassicServer
+try:
+    from rpyc.cli.rpyc_classic import ClassicServer
+except ImportError:
+    import subprocess as sp
+    proc=sp.Popen(["pip","install","rpyc"])
+    proc.communicate()
 
 sys.path.append(FREECADPATH)
-__all__ = ["MmService", "RhService", "FreeCadService"]
+__all__ = ["MmService", "RhService"]
 
 
 class MmService(ClassicServer):

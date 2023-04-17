@@ -1,21 +1,23 @@
 from __future__ import absolute_import, annotations
+
 import abc
+import functools
+import importlib
 import os
 import socket
 import subprocess
+import typing
+from enum import Enum
 from functools import wraps
 from typing import ContextManager
-from rpyc.core.service import ClassicService
 
-from mmcore.baseitems import Matchable
-
-
-
-
+import dill
 from cxmdata import CxmData
+
 from mmcore.addons import ModuleResolver
+
 with ModuleResolver() as rsl:
-    import rhino3dm
+    pass
 import rhino3dm as rg
 
 
@@ -66,30 +68,46 @@ class SocketService(ContextManager):
             input=parameters,
             py=self.obj.__doc__,
             output=self.outputs
-            )
+        )
+
+
+class RhinoStartsEnum(str,Enum):
+    RHINO_CODE = f"-_ScriptEditor Run {os.getcwd()}/bin/rhpyc_classic.py"
+    IRONPYTHON = f"-_RunPythonScript {os.getcwd()}/bin/app.py"
 
 
 class RhinoRunner(ContextManager):
-    def __init__(self, path, **kwargs):
+    """
+    Use only on host with rhinoceros installation!
+    """
+    def __init__(self, path, command: typing.Union[RhinoStartsEnum, str] = RhinoStartsEnum.RHINO_CODE, **kwargs):
         if os.getenv("IS_RHINO_RUNNING") == 'True':
             subprocess.Popen(['sudo', 'kill', os.getenv("RHINO_PID")])
 
         super().__init__()
         self.path = path
+        self.command = command
         self.kwargs = kwargs
+        self.conn=None
 
     def __enter__(self):
         self.proc = subprocess.Popen(
-            ["/Applications/RhinoWIP.app/Contents/MacOS/Rhinoceros", "-runscript", "-_RunPythonScript ./app.py"],
+            [self.path, "-nosplash", "-runscript", self.command],
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE, **self.kwargs)
+
         os.environ["IS_RHINO_RUNNING"] = 'True'
         os.environ["RHINO_PID"] = str(self.proc.pid)
+        self.proc.communicate()
+        if self.command == RhinoStartsEnum.RHINO_CODE:
+            import rpyc
+            self.conn = rpyc.connect("localhost", 7778)
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.kill()
+        os.environ["IS_RHINO_RUNNING"] = 'False'
 
     def __call__(self, *args, **kwargs):
         return self.proc.communicate(*args, **kwargs)
@@ -152,10 +170,8 @@ class DRhinoIronPython(RhinoIronPython):
     """
 
 
-import yaml, sys
+import yaml
 from rpyc.cli.rpyc_classic import ClassicServer
-
-
 
 import os
 
@@ -198,9 +214,43 @@ class RpycService(ClassicServer):
                 pconfigs.format(pprint.pformat(configs, indent=4))
 
 
-
 # RhService.ssl_certfile = f"{os.getenv('HOME')}/ssl/ca-certificates/certificate_full_chain.pem"
 # RhService.ssl_keyfile = f"{os.getenv('HOME')}/ssl/ca-certificates/private_key.pem"
 # RhService.logfile = f"{os.getenv('HOME')}/rhpyc.log"
 
 
+class RpycBinder:
+    """
+    Поставьте этот декоратор над методом если хотите, чтобы он был вызван в определенном контексте
+    conn -- объект соединения
+    module -- модуль контекста
+    decoder -- функция обратного вызова для возвращаемых данных
+    Example:
+
+    >>> @Binder(conn=rhconn, module="models.axis", decoder=decode_axis)
+    ... def solve(curves, t0=0.0, t1=0.0, h=600.0):
+    ...     crv0, crv1 = generate_polyline(curves[0]).ToNurbsCurve(), generate_polyline(curves[1]).ToNurbsCurve()
+    ...     cells = CellingGenerator((crv0, crv1), (t0, t1), h)
+    ...     return list(cells)
+
+    В этом случае порядок действий будет следуюй:
+    module
+    solve
+    decoder
+    """
+
+    def __init__(self, conn, module="", decoder=lambda x: x):
+        self.target_module = importlib.import_module(module)
+        self.conn = conn
+        self.decoder = decoder
+        self.conn.root.execute(dill.source.getsource(self.target_module))
+
+    def __call__(self, obj):
+        self.conn.root.execute("\n".join(dill.source.getsource(obj).split('\n')[1:]))
+
+        @functools.wraps(obj)
+        def wrap(**params):
+            self.conn.root.execute(f"params = {params};result = {obj.__name__}(**params)")
+            return self.decoder(self.conn.root.namespace["result"])
+
+        return wrap

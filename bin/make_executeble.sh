@@ -1,1 +1,2 @@
-chmod +x "bootstrap_rhpyc"
+#chmod +x "$@"
+chmod +x "loadenv"
