@@ -1,4 +1,6 @@
 import uuid
+import redis
+import uuid
 
 import redis
 
@@ -14,6 +16,7 @@ class StreamConnector:
         self.conn = redis_conn
         self.last_pub = None
         self.last_sub = None
+        self.read_from_stream()
 
     def write_to_stream(self, data, **kwargs):
         last_pub_id = self.xadd(self.name, data, **kwargs)
@@ -21,6 +24,7 @@ class StreamConnector:
 
     def read_from_stream(self, min="-", max="+", count=1, **kwargs):
         self.last_sub = self.xrevrange(min=min, max=max, count=count, **kwargs)
+        
 
     def create_group(self, group_name=None, id="*", **kwargs):
         group = self.group if group_name is None else group_name
@@ -56,7 +60,7 @@ class StreamConnector:
         return self.xrange(count=1, min=min, max=max)
 
     def keys(self):
-        return [tg.decode().split("-")[0] for tg in list(zip(*self.xrange(count=None)))[0]]
+        return [tg.decode().split("-")[0] for tg in list(zip(*self.xrange(count=1)))[0]]
 
     def __len__(self):
         return self.xlen()
@@ -109,12 +113,14 @@ class SharedDict(dict):
         return cls(f"{name}:{uid}", conn, uuid=uid)
 
     def _last(self):
-        res = encode_dict_with_bytes(self.stream.get_last())
+        try:
+            res = encode_dict_with_bytes(self.stream.get_last())
 
-        self.id = res[0][0]
+            self.id = res[0][0]
 
-        return res[0][1]
-
+            return res[0][1]
+        except:
+            return {}
     @property
     def stream(self):
         return StreamConnector(self.stream_name, redis_conn=self.conn)
@@ -126,7 +132,9 @@ class SharedDict(dict):
         return dct
 
     def __getitem__(self, item):
+
         return dict.__getitem__(self, item)
+
 
     def __setitem__(self, item, v):
         dict.__setitem__(self, item, v)
@@ -190,3 +198,7 @@ class ThreeJsSharedDict(SharedDict):
             '"geometries"': json.dumps(self.get("geometries")),
             '"metadata"': json.dumps(self.get("metadata"))
         }
+
+
+class SharedMultiDict(SharedDict):
+    ...

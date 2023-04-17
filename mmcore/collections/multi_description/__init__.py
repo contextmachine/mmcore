@@ -1,9 +1,12 @@
 # Copyright (c) CONTEXTMACHINE
 # Andrew Astkhov (sth-v) aa@contextmachine.ru
 # multi_description.py
+import abc
 import functools
 import itertools
+import types
 from abc import ABC
+from operator import attrgetter, methodcaller, itemgetter
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
 
 import more_itertools
@@ -27,10 +30,12 @@ MapType = type(map)
 # Functional Implementation
 # -----------------------------------------------------------------------------------------------------------------------
 
-def multi_getter(z): return lambda y: map(lambda x: getattr(x, y), z)
+
+def multi_getter(z):
+    return lambda y: map(lambda x: getattr(x, y), z)
 
 
-def multi_getitem(sequence): return lambda y: map(lambda x: x[y], sequence)
+def multi_getitem(sequence): return lambda y: map(lambda x: x.get(y), sequence)
 
 
 def get_with_applicate(function) -> Callable[[Iterable, ...], Callable[[str], MapType]]:
@@ -137,16 +142,19 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     # element_type: Generic[Seq, T] = property(fget=lambda self: sequence_type(self._seq, return_type=True))
     def keys(self) -> KeysView:
-        d = np.array(self._seq).flatten()[0]
-        keys = {}
-        if isinstance(d, dict):
-            return d.keys()
-        else:
-            for key in dir(d):
-                if not key.startswith("_"):
-                    keys.setdefault(key)
-            return keys.keys()
+        try:
 
+            d = np.array(self._seq, dtype=object).flatten()[0]
+            keys = {}
+            if isinstance(d, dict):
+                return d.keys()
+            else:
+                for key in dir(d):
+                    if not key.startswith("_"):
+                        keys.setdefault(key)
+                return keys.keys()
+        except IndexError:
+            return []
     def __len__(self) -> int:
         return self._seq.__len__()
 
@@ -160,25 +168,28 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
 
     def __getitem__(self, k) -> Seq:
 
-        if isinstance(self._seq[0], dict):
+        try:
+            if isinstance(sequence_type(self._seq), dict):
 
-            # _getter = multi_getitem(self._seq)
+                # _getter = multi_getitem(self._seq)
 
-            _getter = multi_getitem(self._seq)
-            return tuple(_getter(k))
-        elif isinstance(self._seq[0], str):
-            _getter = multi_getter(self._seq)
-            return tuple(_getter(k))
-        elif isinstance(self._seq[0], Sequence) and not isinstance(self._seq[0], str):
-            return [CollectionItemGetter(i).__getitem__(k) for i in self._seq]
+                _getter = multi_getitem(self._seq)
+                return tuple(_getter(k))
+            elif isinstance(self._seq[0], str):
+                _getter = multi_getter(self._seq)
+                return tuple(_getter(k))
+            elif isinstance(self._seq[0], Sequence) and not isinstance(self._seq[0], str):
+                return [CollectionItemGetter(i).__getitem__(k) for i in self._seq]
 
-        elif isinstance(self._seq[0], CollectionItemGetter):
-            return [i.__getitem__(k) for i in self._seq]
+            elif isinstance(self._seq[0], CollectionItemGetter):
+                return [i.__getitem__(k) for i in self._seq]
 
-        else:
-            _getter = multi_getter(self._seq)
-            # multi_getter(self._seq)
-            return list(_getter(k))
+            else:
+                _getter = multi_getter(self._seq)
+                # multi_getter(self._seq)
+                return list(_getter(k))
+        except IndexError:
+            return []
 
     def __str__(self):
         return f"{self.__class__.__name__}[{self.element_type.__name__}({list(self.keys())})]"
@@ -321,6 +332,32 @@ class ElementSequence(MultiDescriptor):
 
     def get_from_index(self, index):
         return self._seq[index]
+
+    def multi_search_from_key_value(self, key, value) -> list[int]:
+        i = -1
+        ixs = []
+        while True:
+            try:
+                i = list(self[key]).index(value, i + 1)
+                ixs.append(i)
+            except ValueError as err:
+                break
+            except Exception as err:
+                raise err
+        return ixs
+
+    def iwhere(self, **rules):
+        s = None
+
+        for i, rule in enumerate(rules.items()):
+            if i == 0:
+                s = set(self.multi_search_from_key_value(*rule))
+            else:
+                s.intersection_update(set(self.multi_search_from_key_value(*rule)))
+        return s
+
+    def where(self, **rules):
+        return [self._seq[i] for i in self.iwhere(**rules)]
 
     def search_from_key_value(self, key, value) -> int:
         """
@@ -492,22 +529,53 @@ class MultiSetitem2:
         return wrap
 
 
-class EntityCollection(ElementSequence):
-    def __init_subclass__(cls, kind=None, **kwargs):
-        cls.kind = kind
+def fnmap(funcs: Sequence[Callable[..., map]], objects: Sequence[Any]):
+    """
 
-        cls.__init_subclass__(**kwargs)
+    :param funcs:
+    :param objects:
+    :return: map
+
+    >>> import operator
+    >>> fun=fnmap([operator.add,operator.mul], [1,2])
+    >>> res = fun(3)
+    >>> type(res)
+    map
+    >>> list(res)
+    [4, 6]
+    """
+    return lambda *args, **kwargs: map(lambda f, o: f(o, *args, **kwargs), funcs, objects)
+
+
+from mmcore.collections.traversal import ismonotype
+
+
+class EntityCollection(ElementSequence):
+
+    def ismonotype(self):
+        return ismonotype(self._seq)
 
     @property
     def element_type(self):
-        return self.kind
+
+        return sequence_type(self._seq).__args__[0]
 
     def __getitem__(self, item):
-        return lambda slf: map(lambda *args, **kwargs: self.kind.__getattribute__(item)(slf, *args, **kwargs),
-                               self._seq)
+        try:
+            val = CollectionItemGetter.__getitem__(self, item)
+            seq_type = sequence_type(val).__args__[0]
+
+            if seq_type == MethodType:
+
+                return fnmap(val, self._seq)
+            else:
+
+                return super().__getitem__(item)
+        except AttributeError as err:
+            return itertools.repeat()
 
     def __setitem__(self, item, v):
-        super().__setitem__(self, item, v)
+        super().__setitem__(item, v)
 
 
 class SeqProto(Protocol):
@@ -531,3 +599,212 @@ c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 # aa
 # Explicit passing of an element type to a __init_subclass__
 # --------------------------------------------------------
+
+
+
+
+class CallbackList(list):
+    """
+    >>> class Orig:
+    ...
+    ...     def __init__(self):                          
+    ...         self._names = CallbackList(orig=self) 
+    ...            
+    ...     @property
+    ...     def names(self):
+    ...         return self._sequence
+    ...    
+    ...     def append_name(self, name):
+    ...         self._names.append(name)
+    >>> oo=Orig()
+    >>> oo.append_name({"instance":1, "name":"foo"})
+    >>> oo.append_name({"instance":1, "name":"bar"})
+    >>> oo.names.where(instance=1,name="foo")
+    [{'instance': 1, 'name': 'foo'}]
+    >>> oo.names.where(name="foo")
+    [{'instance': 1, 'name': 'foo', 'bar': 'baz'},
+     {'instance': 2, 'name': 'foo', 'bar': 'other'}]
+    >>> oo.names.where(instance=1,bar="baz")
+    [{'instance': 1, 'name': 'foo', 'bar': 'baz'},
+     {'instance': 1, 'name': 'bar', 'bar': 'baz'}]
+    
+    """
+
+    def __init__(self, *args, orig=None, **kwargs):
+        super().__init__()
+        self.orig = orig
+
+    @staticmethod
+    def init_seq(cb):
+
+        def wrp(self, *args, **kwargs):
+            if len(self) == 0:
+                val = cb(self, *args, **kwargs)
+                if not (len(self) == 0):
+                    self.orig._sequence = ElementSequence(self)
+                return val
+            else:
+                return cb(self, *args, **kwargs)
+
+        return wrp
+
+    @staticmethod
+    def stash_seq(cb):
+
+        def wrp(self, *args, **kwargs):
+            if not (len(self) == 0):
+                val = cb(self, *args, **kwargs)
+                if len(self) == 0:
+                    del self.orig._sequence
+                return val
+            else:
+                return cb(self, *args, **kwargs)
+
+        return wrp
+
+    @init_seq
+    def append(self, *args, **kwargs):
+        list.append(self, *args, **kwargs)
+
+    @init_seq
+    def extend(self, *args, **kwargs):
+        list.extend(self, *args, **kwargs)
+
+    @stash_seq
+    def remove(self, val) -> None:
+        list.remove(self, val)
+
+    @stash_seq
+    def __delitem__(self, key):
+        list.__delitem__(self, key)
+
+class AttrGetter:
+    def __init__(self, *query):
+        super().__init__()
+        self.query = query
+
+    @property
+    def methodcaller(self):
+        return methodcaller(*self.query)
+
+    @property
+    def itemgetter(self):
+        return itemgetter(*self.query)
+
+    @property
+    def attrgetter(self):
+        return attrgetter(*self.query)
+
+    def __call__(self, obj):
+
+
+        if type(attrgetter(self.query[0])(obj)) == types.MethodType:
+            getter = self.methodcaller
+        elif issubclass(type(obj), Mapping):
+            getter = self.itemgetter
+        else:
+            getter = self.attrgetter
+        try:
+            return self.__post_getitem__(obj, getter)
+        except AttributeError as err:
+            return None
+
+    @abc.abstractmethod
+    def __post_getitem__(self, obj, getter):
+        return getter(obj)
+
+
+
+
+
+class MultiAttrGetSetter:
+    def __init__(self, *query):
+        super().__init__()
+        self.query = query
+
+    @property
+    def methodcaller(self):
+        return methodcaller(*self.query)
+
+    @property
+    def itemgetter(self):
+        return itemgetter(*self.query)
+
+    @property
+    def attrgetter(self):
+        return attrgetter(*self.query)
+
+    def __call__(self, objects, seq_type=None):
+        if seq_type is None:
+
+            seq_type = sequence_type(objects).__args__[0]
+        print(seq_type)
+        print(self.query)
+        if type(attrgetter(self.query[0])(objects[0])) == types.MethodType:
+            getter = self.methodcaller
+        elif issubclass(seq_type, Mapping):
+            getter = self.itemgetter
+        else:
+            getter = self.attrgetter
+        return self.__post_getitem__(objects, getter)
+    @abc.abstractmethod
+    def __post_getitem__(self, objects, getter):
+        lst = []
+
+        for obj in objects:
+            try:
+                lst.append(getter(obj))
+            except AttributeError as err:
+                lst.append(None)
+        return lst
+
+
+class Paginate(EntityCollection):
+    """
+    - Глобально переработан гетитем Можно запрашивать любое количество ключей
+    - При вызове метода для коллекции доп аргументы следует передавать также в гетитем
+    """
+
+    def __init__(self, seq):
+        super().__init__(seq)
+
+    def __getitem__(self, item):
+        return MultiAttrGetSetter(*item)(self._seq)
+import strawberry
+
+strawberry.scalar
+class GQLAttrGetter(AttrGetter):
+
+    @abc.abstractmethod
+    def __post_getitem__(self, obj, getter):
+        return dict(zip(self.query, super().__post_getitem__(obj,getter)))
+
+
+class GQLMultiAttrGetSetter(MultiAttrGetSetter):
+    def __post_getitem__(self, objects, getter):
+
+        lst = []
+        for obj in objects:
+            try:
+                val = getter(obj)
+                if not isinstance(val, (tuple, list)):
+                    val = [val]
+
+                lst.append(dict(zip(self.query, val)))
+            except AttributeError as err:
+                lst.append(None)
+        return lst
+
+
+class GQLPaginate(Paginate):
+    """
+    >>> pg = GQLPaginate(objs)
+    >>> pg["x"]
+    [{'x': 12}, {'x': 13}]
+    >>> pg["x", "negx"]
+    [{'x': 12, 'negx': -12}, {'x': 13, 'negx': -13}]
+    """
+
+
+    def __getitem__(self, item):
+        return GQLMultiAttrGetSetter(*item)(self._seq)

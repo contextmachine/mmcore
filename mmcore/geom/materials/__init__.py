@@ -54,8 +54,13 @@ class ColorRGB(tuple):
 
     def ToJSON(self):
         return json.dumps(self.to_dict())
+    @classmethod
+    def random(cls, size=1):
+        if size==1:
 
-
+            return ColorRGB(*np.random.randint(0,255,3)/255)
+        else:
+            return [ColorRGB(*col) for col in (np.random.randint(0, 255, (size,3)) / 255)]
 def rgb_to_three_decimal(color: ColorRGB | ColorRGBA) -> int:
     return int('%02x%02x%02x' % (color.r, color.g, color.b), 16)
 
@@ -164,3 +169,36 @@ class MeshPhysicalMetallic(Material, metaclass=MaterialType):
 
 class PointsBase(Material, metaclass=MaterialType):
     ...
+
+
+
+# language=GraphQL
+materialRequest = '''
+query MaterialRequest {
+  material(params: {color: {r: 10, g: 10, b: 10}, flatShading: true}) {
+    color
+    colorWrite
+    depthFunc
+    depthTest
+    depthWrite
+    emissive
+    envMapIntensity
+    flatShading
+    metalness
+    name
+    side
+    roughness
+    stencilFail
+    stencilFunc
+    stencilFuncMask
+    stencilRef
+    stencilWriteMask
+    stencilWrite
+    stencilZFail
+    type
+    uuid
+    stencilZPass
+  }
+}
+'''
+
