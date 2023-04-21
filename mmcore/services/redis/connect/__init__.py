@@ -15,7 +15,7 @@ def bootstrap_stack(url=os.getenv("REDIS_STACK_URL")):
     return conn
 
 
-def bootstrap_cloud() -> redis.Redis | redis.StrictRedis | Any:
+def bootstrap_cloud() :
     r = redis.Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), password=os.getenv("REDIS_PASSWORD"))
 
     return r

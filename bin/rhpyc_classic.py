@@ -80,10 +80,12 @@ def main():
     RhService.host = "0.0.0.0"
     RhService.port = 7778
     pprint.pprint(RhService.__dict__)
-    threa = threading.Thread(target=lambda: sys.exit(RhService.run()), name="rhpyc")
+    threa = threading.Thread(target=lambda: RhService.run(), name="rhpyc")
     threa.start()
-    return threa
+  
 
 
 if __name__ == "__main__":
     main()
+    print("end")
+

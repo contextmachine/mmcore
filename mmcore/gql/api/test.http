@@ -1,0 +1,19 @@
+###
+GRAPHQL http://localhost:5799/v2/qraphql
+content-type: application/json
+
+query {
+   test {
+     object {
+       name
+       baz {
+         name
+        }
+      }
+    }
+  }
+
+  {
+
+  }
+

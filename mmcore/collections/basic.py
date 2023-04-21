@@ -1,7 +1,6 @@
 import collections.abc
+import dataclasses
 from collections import namedtuple, deque
-
-
 
 
 def chain_split_list(iterable):
@@ -279,10 +278,8 @@ class Grouper(Iterator):
         self.data[key].append(item)
 
 
-
-from typing import  TypeVar
+from typing import TypeVar
 from typing_extensions import TypeVarTuple
-
 
 Ts = TypeVarTuple('Ts')
 
@@ -290,86 +287,186 @@ T = TypeVar("T")
 
 
 class ParamContainer:
-    def __init__(self, *args , **kwargs ):
+    def __init__(self, *args, **kwargs):
         super().__init__()
         self._args = list(args)
         self._kwargs = kwargs
 
-
-    def __call__(self, *args , **kwargs ):
+    def __call__(self, *args, **kwargs):
         self._args.extend(args)
         self._kwargs.update(kwargs)
         return self
 
     @property
-    def args(self) :
+    def args(self):
         return tuple(self._args)
 
     @property
-    def kwargs(self) :
+    def kwargs(self):
         return dict(self._kwargs)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(args={self.args}, kwargs={self.kwargs})"
-from mmcore.collections.multi_description import CallbackList,ElementSequence
+
+
+from mmcore.collections.multi_description import CallbackList, ElementSequence
 import typing
 from dataclasses import make_dataclass, field
 
-field()
-class CallsHistory:
+ParamTuple = namedtuple("ParamTuple", ["name", "type", "default"])
+import strawberry
+
+class Cond:
+    def convert(self, val):
+
+        return val
+    def __call__(self, val):
+        return isinstance(val, dict)
 
 
-    CallEvent = namedtuple("CallEvent", ["name", "params", "result", "func"])
-    ParamItem = namedtuple("ParamItem", ["name", "type", "default"])
-    def __init__(self, f):
-        self._history = CallbackList(orig=self)
+class Cond2:
+    def convert(self, val):
+        return dataclasses.asdict(val)
+
+    def __call__(self, val):
+        return dataclasses.is_dataclass(val)
+
+class Cond3:
+    def convert(self, val):
+
+        return dataclasses.asdict(val)
+
+    def __call__(self, val):
+        return dataclasses.is_dataclass(val)
+class Convertor:
+    def __init__(self, *conds):
+        self.conds=conds
+    def convert(self, val):
+            i=0
+            while True:
+                if self.conds[i](val):
+
+                    v=self.conds[i].convert(val)
+                    break
+                else:
+                    i+=1
+            return v
+
+
+
+
+@dataclasses.dataclass
+class Param:
+    name: str
+    type: typing.Optional[typing.Any] = None
+    default: typing.Optional[typing.Any] = None
+
+    def __post_init__(self):
+        if self.type is None:
+            self.type = typing.Any
+
+    def to_dict(self):
+        return self.to_namedtuple()._asdict()
+
+    def to_namedtuple(self):
+        return ParamTuple(self.name, self.type, self.default)
+
+    def to_strawberry(self):
+        return strawberry.field(**self.to_namedtuple()._asdict())
+
+def to_tuple(self):
+    if dataclasses.is_dataclass(self):
+        return dataclasses.astuple(self)
+    elif isinstance(self,dict):
+        return tuple(self.values())
+    else:
+        return tuple(self)
+def params_eq(self, other):
+
+    return to_tuple(self)==to_tuple(other)
+
+class ParamAccessible:
+    params: list[typing.Union[Param, None]]
+    schema: typing.Any
+    defaults:dict[str,typing.Any]
+    params_sequence: ElementSequence[Param]
+
+    def __init__(self, fun):
         super().__init__()
-        self.f=f
-        self.varnames=OrderedSet(list(self.f.__code__.co_varnames))
-        self.__defaults__=self.f.__defaults__
-        self.defaults = dict(zip(list(self.varnames)[-len(self.__defaults__):], self.__defaults__))
-        self.name=f.__name__
-        self.__name__ = f.__name__
+        self.f = fun
+        self.name = self.f.__name__
+        self.__name__ = self.f.__name__
+        self.varnames = OrderedSet(list(self.f.__code__.co_varnames))
+        self.__defaults__ = self.f.__defaults__
+        self.solve_defaults()
+
         self.solve_params()
         self.solve_schema()
-    
+
+
+    def solve_defaults(self):
+        self.defaults=dict(zip(list(self.f.__code__.co_varnames)[-len(self.f.__defaults__):], self.f.__defaults__))
+
     def solve_params(self):
-        self._prms=[]
+        self.params = []
         for name in self.varnames:
-            tp=self.f.__annotations__.get(name)
-            df=self.defaults.get(name)
-            self._prms.append(self.ParamItem(name, tp if tp else typing.Any, df if df else None)._asdict())
-            
-        self.params=ElementSequence(self._prms)
+            tp = self.f.__annotations__.get(name)
+
+            df = self.defaults.get(name)
+            tp = type(df) if tp is None else tp
+            tp = typing.Any if tp is type(None) else tp
+            self.params.append(Param(name, type=tp, default=df))
+        self.params_sequence = ElementSequence(self.params)
 
     def solve_schema(self):
-        self.schema=make_dataclass(self.name.capitalize()+"Params",zip(self.params["name"],self.params["type"],self.params["default"]))
+        self.schema = make_dataclass(self.name.capitalize() + "ParamSchema",
+                                     zip(self.params_sequence["name"],
+                                         self.params_sequence["type"],
+                                         self.params_sequence["default"]))
+        self.schema.to_tuple=property(fget=to_tuple)
+
+    def __call__(self, *args, **kwargs):
+        return self.f(*args, **kwargs)
+
+
+import copy
+
+
+class CallsHistory(ParamAccessible):
+    CallEvent = namedtuple("CallEvent", ["name", "params", "result", "func"])
+
+
+    def __init__(self, f):
+
+        super().__init__(f)
+        self._history = CallbackList(orig=self)
+
     @property
     def history(self):
         return self._sequence
-    def __call__(self, *args, **kwargs):
-        
-        val=self.f(*args, **kwargs)
-        self._pc=ParamContainer(*args, **kwargs)
-        nms=self.varnames
-        for k in kwargs.keys():
-            if k in nms:
-                nms.remove(k)
 
-        dct=dict(zip(list(nms)[:len(self._pc.args)], self._pc.args))
-        dct|=kwargs
-        self._history.append(self.CallEvent(self.name, params=dct, result=val,func=self.f.__code__.co_code.hex())._asdict())
-        return val
+    def __call__(self, *args, **kwargs):
+
+        kwargs.update(dict(zip(list(self.varnames)[:len(args)],args)))
+        s=self.schema(**kwargs)
+
+        if  s in self:
+            return self.get_result(**kwargs)
+        else:
+            val = self.f(**kwargs)
+            self._history.append(
+                self.CallEvent(self.name, params=self.schema(**kwargs), result=val, func=self.f.__code__.co_code.hex())._asdict())
+
+            return val
 
     def __contains__(self, item):
-        return item in self.history['params']
-
+        try:
+            return to_tuple(item) in (to_tuple(i) for i in self.history['params'])
+        except AttributeError:
+            return False
     def get_result(self, **params):
-        if params in self:
-            print(f"Use cached result of {self.f.__name__}")
-            return self.history.where(params=params)[-1]["result"]
-        else:
-            return self(**params)
+        return self.history.where(params=self.schema(**params))[-1]["result"]
+
 
 
 class BoolMask(Container):
@@ -468,7 +565,6 @@ class ComposeMask:
         ...
 
 
-
 class FuncMultiDesc:
 
     def __set_name__(self, owner, name):
@@ -509,12 +605,10 @@ class FuncMultiDesc:
         return wrap
 
 
-
 class Orig:
     @property
     def names(self):
         return self._sequence
-
 
     def append_name(self, name):
         self._names.append(name)

@@ -1,0 +1,1 @@
+from mmcore.base.geom import LineObject

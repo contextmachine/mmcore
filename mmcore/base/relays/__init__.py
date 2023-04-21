@@ -61,10 +61,10 @@ class DataD:
 
         val=getattr(obj, self._name,self._default)
 
-        resolver = rconn.hget(self.key(obj) [self._name[1:]]
+        resolver = rconn.hget(self.key(obj),[self._name[1:]])
         resolver(obj)
         return getattr(obj, self._name, self._default)
-    def __del__(self):
+
 
     def __set__(self, obj, value):
         setattr(obj, self._name, int(value))
