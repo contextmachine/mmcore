@@ -1,5 +1,5 @@
 ###
-GRAPHQL http://localhost:5799/v2/qraphql
+GRAPHQL http://localhost:5799/v2/graphql
 content-type: application/json
 
 query {
