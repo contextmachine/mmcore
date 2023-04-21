@@ -180,7 +180,9 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
                 return tuple(_getter(k))
             elif isinstance(self._seq[0], Sequence) and not isinstance(self._seq[0], str):
                 return [CollectionItemGetter(i).__getitem__(k) for i in self._seq]
-
+            elif isinstance(self._seq[0], dict):
+                _getter = multi_getitem(self._seq)
+                return list(_getter(k))
             elif isinstance(self._seq[0], CollectionItemGetter):
                 return [i.__getitem__(k) for i in self._seq]
 
@@ -601,6 +603,31 @@ c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 # --------------------------------------------------------
 
 
+def init_seq(cb):
+    def wrp(self, *args, **kwargs):
+            if len(self) == 0:
+                val = cb(self, *args, **kwargs)
+                if not (len(self) == 0):
+                    self.orig._sequence = ElementSequence(self)
+                return val
+            else:
+                return cb(self, *args, **kwargs)
+
+    return wrp
+
+
+def stash_seq(cb):
+
+    def wrp(self, *args, **kwargs):
+        if not (len(self) == 0):
+                val = cb(self, *args, **kwargs)
+                if len(self) == 0:
+                    del self.orig._sequence
+                return val
+        else:
+                return cb(self, *args, **kwargs)
+
+    return wrp
 
 
 class CallbackList(list):
@@ -634,33 +661,7 @@ class CallbackList(list):
         super().__init__()
         self.orig = orig
 
-    @staticmethod
-    def init_seq(cb):
 
-        def wrp(self, *args, **kwargs):
-            if len(self) == 0:
-                val = cb(self, *args, **kwargs)
-                if not (len(self) == 0):
-                    self.orig._sequence = ElementSequence(self)
-                return val
-            else:
-                return cb(self, *args, **kwargs)
-
-        return wrp
-
-    @staticmethod
-    def stash_seq(cb):
-
-        def wrp(self, *args, **kwargs):
-            if not (len(self) == 0):
-                val = cb(self, *args, **kwargs)
-                if len(self) == 0:
-                    del self.orig._sequence
-                return val
-            else:
-                return cb(self, *args, **kwargs)
-
-        return wrp
 
     @init_seq
     def append(self, *args, **kwargs):

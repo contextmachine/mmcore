@@ -2,17 +2,16 @@
 import dataclasses
 import json
 import sys
-import uuid
+
 from collections import namedtuple
 
-from mmcore import load_dotenv_from_path
 
-load_dotenv_from_path(".env")
+
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
+from mmcore.base.registry import geomdict, objdict, matdict
 import operator
 
 import typing
@@ -20,35 +19,38 @@ import typing
 import mmcore.base.models.gql as gql_models
 
 from operator import attrgetter, itemgetter
-import uuid as muuid
+import uuid as _uuid
 
 import copy
 
 import strawberry
 from mmcore.services.redis import connect
-rconn=connect.get_cloud_connection()
 from mmcore.collections.multi_description import Paginate, ElementSequence
 
-geomdict = dict()
-matdict = dict()
-Link=namedtuple("Link",["name", "parent", "child"])
+from mmcore.collections import ParamContainer
+
+
+Link = namedtuple("Link", ["name", "parent", "child"])
+
+
 @dataclasses.dataclass
 class Link:
-    parent:str
-    child:str
-    name:str
+    parent: str
+    child: str
+    name: str
+
     def __post_init__(self):
         ...
 
+
 @dataclasses.dataclass
 class UuidBind:
+    value: typing.Any
+    uuid: typing.Optional[str]  = None
 
-    value: typing.Any | None=None
-    uuid: str | None = None
     def __post_init__(self):
         if self.uuid is None:
-            self.uuid=uuid.uuid4()
-
+            self.uuid = _uuid.uuid4()
 
 
 class Orig:
@@ -58,8 +60,10 @@ class Orig:
 
     def get_class(self):
         return self.cls
+
     def set_class(self, cls):
-        self.cls=cls
+        self.cls = cls
+
     def __getitem__(self, item):
         ...
 
@@ -68,39 +72,46 @@ class Orig:
 
     def state(self):
         ...
+
     def getsetter(self, obj):
-        target=self
+        target = self
+
         class GetSetBind:
             def __getitem__(self, item):
                 ...
+
             def __setitem__(self, k, item):
                 target.__getitem__(k, item)
                 if target.cls is not None:
                     if isinstance(item, target.cls):
-                        itm = UuidBind(uuid=item.uuid,value=item)
+                        itm = UuidBind(uuid=item.uuid, value=item)
                     else:
                         itm = UuidBind(value=item)
                     Link(k, obj.uuid, itm.uuid)
-                setattr(obj,"_key_"+k, k)
+                setattr(obj, "_key_" + k, k)
+
+
 class RegistryDescriptor:
-
     class_origin: type
-    def __init__(self, origin:type[Orig]):
-        super().__init__()
-        self._orig=origin
 
-        self.origin=None
+    def __init__(self, origin: type[Orig]):
+        super().__init__()
+        self._orig = origin
+
+        self.origin = None
 
     def __set_name__(self, owner, name):
         self.origin = self._orig(owner)
         self.class_origin = owner
 
-        self._name="_"+name
+        self._name = "_" + name
+
     def __get__(self, inst, own):
         if inst is None:
             return self.origin.state()
         else:
             return self.origin.getsetter(inst)
+
 
 import pickle
 
@@ -124,7 +135,6 @@ class ExEncoder(json.JSONEncoder):
             return df(o)
 
 
-
 def hasitemattr(attr):
     def wrp(obj):
         if isinstance(obj, dict):
@@ -145,7 +155,6 @@ def hasitemattr(attr):
     return wrp
 
 
-
 def graph_from_json(data):
     a = []
     for d in data:
@@ -154,8 +163,11 @@ def graph_from_json(data):
     return a
 
 
-from mmcore.base.utils import objdict
+from mmcore.base.registry import objdict
+
 objdict = objdict
+
+
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -167,10 +179,11 @@ class Object3D:
     """
     __match_args__ = ()
     _matrix = None
-    _include_geometries=set()
+    _include_geometries = set()
     _include_materials = set()
     bind_class = gql_models.GqlObject3D
     name: str = "Object"
+
     def __new__(cls, *args, name="Object", uuid=None, pkl=None, **kwargs) -> 'Object3D':
 
         cls.objdoct = objdict
@@ -202,7 +215,7 @@ class Object3D:
 
             inst._parents = set()
             inst._children = set()
-            inst.uuid = muuid.uuid4()
+            inst.uuid = _uuid.uuid4()
             objdict[inst.uuid] = inst
             return inst.__call__(*args, **kwargs)
 
@@ -295,7 +308,6 @@ class Object3D:
             return [res]
         return res
 
-
     @property
     def userData(self):
         return {
@@ -320,8 +332,9 @@ class Object3D:
             if obj._geometry is not None:
                 self._include_geometries.add(obj._geometry)
                 self._include_materials.add(obj._material)
+
     def get_child_three(self):
-        self._include_materials=set()
+        self._include_materials = set()
         self._include_geometries = set()
 
         def childthree(obj):
@@ -361,14 +374,12 @@ class Object3D:
             object: target.bind_class
             metadata: gql_models.Metadata
             materials: list[typing.Union[gql_models.Material,
-                            gql_models.MeshPhongMaterial,
-                            gql_models.PointsMaterial,
-                            gql_models.LineBasicMaterial,
-                            None]]
+            gql_models.MeshPhongMaterial,
+            gql_models.PointsMaterial,
+            gql_models.LineBasicMaterial,
+            None]]
 
             geometries: list[typing.Union[gql_models.BufferGeometry, None]]
-
-
 
         return strawberry.type(Root)
 
@@ -377,11 +388,13 @@ class Object3D:
         return "Object3D"
 
     def threejs_root(self, dct, geometries=None, materials=None, metadata=None):
-        print(materials,geometries)
+        print(materials, geometries)
         return self.root(object=dct,
-                         materials=[matdict[mat] for mat in materials ] if materials is not None else list(matdict.values()),
-                         geometries=[geomdict[geom] for geom in geometries] if geometries is not None else list(geomdict.values()),
-                         metadata= metadata if  metadata is not None else gql_models.Metadata()
+                         materials=[matdict[mat] for mat in materials] if materials is not None else list(
+                             matdict.values()),
+                         geometries=[geomdict[geom] for geom in geometries] if geometries is not None else list(
+                             geomdict.values()),
+                         metadata=metadata if metadata is not None else gql_models.Metadata()
                          )
 
     @property
@@ -417,8 +430,6 @@ class Object3D:
             return eval(str(typ))
         except NameError:
             return getattr(sys.modules["mmcore.base.sketch"], str(typ), __default=Object3D)
-
-
 
 
 class Group(Object3D):
@@ -668,7 +679,8 @@ type SampleOutput {
 
 """
 
-def to_camel_case(name:str):
+
+def to_camel_case(name: str):
     """
     Ключевая особенность, при преобразовании имени начинающиегося с подчеркивания, подчеркивание будет сохранено.
 
@@ -681,10 +693,12 @@ def to_camel_case(name:str):
         return "".join(nm.capitalize() for nm in name.split("_"))
 
     else:
-        return "_"+"".join(nm.capitalize() for nm in name.split("_"))
+        return "_" + "".join(nm.capitalize() for nm in name.split("_"))
+
 
 class DictSchema:
-    bind= dataclasses.make_dataclass
+    bind = dataclasses.make_dataclass
+
     def __init__(self, dict_example):
         self.annotations = dict()
 
@@ -701,7 +715,7 @@ class DictSchema:
                     named_f[k] = fld
                 print(name, named_f)
                 dcls = self.bind("Generic" + to_camel_case(name),
-                                                  named_f.values())
+                                 named_f.values())
 
                 init = copy.deepcopy(dcls.__init__)
 
@@ -731,9 +745,14 @@ class DictSchema:
 
         return wrap("root", self.dict_example)
 
+
 from strawberry.tools import create_type
+
+
 class DictGqlSchema(DictSchema):
-    bind=create_type
+    bind = create_type
+
+
 class Object3DWithChildren(Object3D):
     bind_class = gql_models.GqlObject3D
 

@@ -1,2 +1,2 @@
 #chmod +x "$@"
-chmod +x "loadenv"
+chmod +x "load_dotenv"

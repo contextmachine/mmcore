@@ -1,27 +1,27 @@
 import dataclasses
 import json
+
 import typing
-import uuid
+
 import uuid as muuid
-from abc import ABCMeta
 
 import numpy as np
 import scipy.spatial.distance as spdist
-from OCC.Core.Tesselator import ShapeTesselator
+import strawberry
 
 import mmcore.base.models.gql
-from mmcore.base.basic import geomdict, matdict, Group
+from mmcore.base.basic import Object3D
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models import Point
-from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints
+from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints, MeshPhongMaterial, Material, PointsMaterial, \
+    LineBasicMaterial
 from mmcore.base.utils import getitemattr
 from mmcore.geom.materials import MeshPhysicalMetallic
 
 MODE = {"children": "parents"}
 from mmcore.geom.materials import ColorRGB
-
+from mmcore.base.registry import geomdict, matdict
 from mmcore.collections.multi_description import ElementSequence
-
 
 
 class MeshBufferGeometry:
@@ -89,7 +89,8 @@ class MeshBufferGeometry:
 
                 }),
                 "index": mmcore.base.models.gql.Index(**dict(type='Uint16Array',
-                                                             array=np.asarray(self.indices, dtype=int).flatten().tolist()))
+                                                             array=np.asarray(self.indices,
+                                                                              dtype=int).flatten().tolist()))
             })
         })
 
@@ -97,7 +98,7 @@ class MeshBufferGeometry:
 T = typing.TypeVar("T")
 
 
-class GeometryObject(Group):
+class GeometryObject(Object3D):
     """
     GeometryObject.
     @note It should be used to implement three-dimensional representations of objects.  Note that geometry
@@ -106,15 +107,27 @@ class GeometryObject(Group):
     we do not recommend doing so.
     """
     bind_class = GqlGeometry
-    material_class = MeshPhysicalMetallic
-    _material: str | None = None
-    _geometry: str | None = None
+    material_class = Material
+    _material: typing.Optional[str] = None
+    _geometry: typing.Optional[str] = None
+    color: typing.Optional[ColorRGB] = None
 
     def commit(self):
         ...
 
     def solve(self):
         return None
+
+    def __call__(self, *args, geometry=None, material=None, **kwargs):
+        super().__call__(*args, **kwargs)
+
+        if (material is None) and (self.color is not None):
+            self.material = self.material_class(color=self.color.decimal)
+        elif material is not None:
+            self.material = material
+        if geometry is not None:
+            self.geometry = geometry
+        return self
 
     @property
     def geometry(self) -> mmcore.base.models.gql.BufferGeometry:
@@ -153,7 +166,9 @@ class GeometryObject(Group):
             geomdict[self._geometry] = create_buffer_from_dict(v)
 
         else:
+
             self._geometry = v.uuid
+            print(f"Geometry set event: {self.name} <- {self._geometry}")
             geomdict[self._geometry] = v
 
     @property
@@ -183,22 +198,23 @@ class GeometryObject(Group):
         @return: None
 
         """
+        es = ElementSequence(list(matdict.values()))
 
         if isinstance(v, str):
-            self._material = v
+            material = matdict[v]
         elif isinstance(v, dict):
-
-            self._material = getitemattr("uuid")(v)
-
             if 'metadata' in v:
                 v.pop('metadata')
-
-            matdict[self._material] = v
-
+            material = self.material_class(**v)
         else:
 
-            self._material = v.uuid
-            matdict[v.uuid] = v
+            material = v
+        if material.color in es["color"]:
+            self._material = list(matdict.keys())[es["color"].index(material.color)]
+        else:
+
+            matdict[material.uuid] = material
+            self._material = material.uuid
 
     def threejs_type(self):
         return "Geometry"
@@ -251,6 +267,7 @@ class Mesh(GeometryObject):
     geometry_type = MeshBufferGeometry
     castShadow: bool = True
     receiveShadow: bool = True
+    material_class = MeshPhongMaterial
 
     @property
     def threejs_type(self):
@@ -266,32 +283,9 @@ class Mesh(GeometryObject):
         inst._rhino = mesh
         return inst
 
-    @classmethod
-    def from_rhino(cls, name, mesh, uuid=None):
-        if uuid is None:
-            uuid = muuid.uuid4()
-        inst = cls(name=name)
-        inst._uuid = uuid
-        inst.geometry = RhinoMeshBufferGeometry(mesh).create_buffer()
-        inst._rhino = mesh
-        return inst
-
-def to_camel_case(name:str):
-    """
-    Ключевая особенность, при преобразовании имени начинающиегося с подчеркивания, подчеркивание будет сохранено.
-
-        foo_bar -> FooBar
-        _foo_bar -> _FooBar
-    @param name: str
-    @return: str
-    """
-    if not name.startswith("_"):
-        return "".join(nm.capitalize() for nm in name.split("_"))
-
-    else:
-        return "_"+"".join(nm.capitalize() for nm in name.split("_"))
 
 class Brep(Mesh):
+    material_class = MeshPhongMaterial
 
     @classmethod
     def from_rhino(cls, name, brep, uuid=None):
@@ -307,150 +301,13 @@ class Brep(Mesh):
 class Line(GeometryObject):
     castShadow: bool = True
     receiveShadow: bool = True
+    material_class = LineBasicMaterial
 
     @property
     def threejs_type(self):
         return "Line"
 
-from mmcore.base.models import gql
-class MeshRh(Mesh):
-    def __call__(self, rhino_mesh, *args, **kwargs):
-        self._rhino_mesh = rhino_mesh
-        super().__call__(*args, **kwargs)
 
-    def solve(self):
-        return RhinoMeshBufferGeometry(self._rhino_mesh).create_buffer()
-
-def generate_edges_material(uid, color, linewidth):
-    return gql.LineBasicMaterial(**{"uuid": uid, "type": "LineBasicMaterial", "color": color.decimal, "vertexColors": True, "depthFunc": 3,
-            "depthTest": True, "depthWrite": True, "colorWrite": True, "stencilWrite": False, "stencilWriteMask": 255,
-            "stencilFunc": 519, "stencilRef": 0, "stencilFuncMask": 255, "stencilFail": 7680, "stencilZFail": 7680,
-            "stencilZPass": 7680, "linewidth": linewidth, "toneMapped": False})
-
-
-
-
-def export_edgedata_to_json(edge_hash, point_set):
-    """Export a set of points to a LineSegment buffergeometry"""
-    # first build the array of point coordinates
-    # edges are built as follows:
-    # points_coordinates  =[P0x, P0y, P0z, P1x, P1y, P1z, P2x, P2y, etc.]
-
-    points_coordinates = []
-    for point in point_set:
-        for coord in point:
-            points_coordinates.append(coord)
-    # then build the dictionary exported to json
-    edges_data = {
-        "uuid": edge_hash,
-        "type": "BufferGeometry",
-        "data": {
-            "attributes": {
-                "position": {
-                    "itemSize": 3,
-                    "type": "Float32Array",
-                    "array": points_coordinates,
-                }
-            }
-        },
-    }
-    return edges_data
-
-def generate_material(self):
-    vv = list(matdict.values())
-    if len(vv) > 0:
-        print(vv)
-        es = ElementSequence(vv)
-        print(self.color, es["color"])
-        if self.color.decimal in es["color"]:
-            i = es["color"].index(self.color.decimal)
-            print(i)
-            vvv = es._seq[i]
-            print(vvv)
-            self.mesh._material = vvv.uuid
-        else:
-            self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
-                                                                          color=self.color.decimal)
-
-    else:
-        self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
-                                                                      color=self.color.decimal)
-
-class Tessellate(metaclass=ABCMeta):
-    def __init__(self, shape, name, color):
-        super().__init__()
-        self.mesh = Mesh(name=name)
-        self.tess = ShapeTesselator(shape)
-        self._name = name
-        self.color = color
-        self.generate_material()
-
-    def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=True):
-
-        self.tess.Compute(compute_edges=compute_edges,
-                          mesh_quality=mesh_quality,
-                          parallel=parallel)
-
-        _uuid = uuid.uuid4().__str__()
-
-        self.mesh.geometry = create_buffer_from_dict(
-
-            json.loads(self.tess.ExportShapeToThreejsJSONString(_uuid)))
-
-        if compute_edges:
-
-            # export each edge to a single json
-            # get number of edges
-            nbr_edges = self.tess.ObjGetEdgeCount()
-
-            grp= Group(name="edges")
-            self.mesh.edges = grp
-            for i_edge in range(nbr_edges):
-
-                # after that, the file can be appended
-                str_to_write = ""
-                edge_point_set = []
-                nbr_vertices = self.tess.ObjEdgeGetVertexCount(i_edge)
-                for i_vert in range(nbr_vertices):
-                    edge_point_set.append(self.tess.GetEdgeVertex(i_edge, i_vert))
-                # write to file
-                ln = Line(name=f"edge-{i_edge}")
-                ln.geometry = export_edgedata_to_json(uuid.uuid4().__str__(), edge_point_set)
-                ln.material = generate_edges_material(uuid.uuid4().__str__(), color=ColorRGB(0, 0, 0), linewidth=1.0)
-                grp.add(ln)
-
-        return self.mesh
-
-    def generate_material(self):
-        vv = list(matdict.values())
-        if len(vv) > 0:
-            print(vv)
-            es = ElementSequence(vv)
-            print(self.color, es["color"])
-            if self.color.decimal in es["color"]:
-                i = es["color"].index(self.color.decimal)
-                print(i)
-                vvv = es._seq[i]
-                print(vvv)
-                self.mesh._material = vvv.uuid
-
-            else:
-                self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
-                                                                              color=self.color.decimal)
-
-        else:
-            self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
-                                                                          color=self.color.decimal)
-
-
-class TessellateIfc(Tessellate):
-    def __init__(self, shape):
-
-        self._shape = shape
-        super().__init__(shape.geometry, color=ColorRGB(*shape.styles[0][:-1]), name=shape.data.name)
-
-    def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=True):
-        return super().tessellate( compute_edges=False, mesh_quality=1.0, parallel=True)
 class RhinoMeshBufferGeometry(MeshBufferGeometry):
     def __init__(self, rhino_mesh, **kwargs):
 
@@ -501,15 +358,16 @@ class RhinoBrepBufferGeometry(RhinoMeshBufferGeometry):
 
     def __init__(self, brep, uuid: str):
         try:
-            import rhino3dm as rg
-        except ImportError:
-            from mmcore.addons import ModuleResolver
-            with ModuleResolver():
-                import Rhino.Geometry as rg
             import Rhino.Geometry as rg
+
+
+        except ImportError:
+
+            import rhino3dm as rg
+
         mesh = rg.Mesh()
         [mesh.Append(l) for l in list(rg.Mesh.CreateFromBrep(brep, rg.MeshingParameters.FastRenderMesh))]
-        super().__init__(mesh, uuid)
+        super().__init__(mesh, uuid=uuid)
 
 
 from mmcore.node import node_eval
@@ -517,27 +375,10 @@ from mmcore.node import node_eval
 
 class PointsObject(GeometryObject):
     __match_args__ = "points",
-    material_class = mmcore.base.models.gql.PointsMaterial
+    material_class = PointsMaterial
     bind_class = GqlPoints
-    points: list[Point]
-    _points = None
     name: str = "PointsObject"
     _color = ColorRGB(0.5, 0.5, 0.5)
-
-    def __call__(self, *args, **kwargs):
-        super().__call__(*args, **kwargs)
-        dct = self.solve()
-        dct.pop("metadata")
-        self.geometry = create_buffer_from_dict(dct)
-        dct = pointsMaterial(self.color)
-        dct.pop("metadata")
-        es = ElementSequence(list(matdict.values()))
-        if dct["color"] in es["color"]:
-            self._material = list(matdict.keys())[es["color"].index(dct["color"])]
-        else:
-            self.material = mmcore.base.models.gql.PointsMaterial(**dct)
-
-        return self
 
     @property
     def color(self):
@@ -554,23 +395,25 @@ class PointsObject(GeometryObject):
     @points.setter
     def points(self, v):
         self._points = v
+        self.solve_geometry()
 
     @property
     def threejs_type(self):
         return "Points"
 
-    @node_eval
-    def solve(self):
+    def solve_geometry(self):
 
-        return mmcore.base.models.gql.BufferGeometry({'metadata': mmcore.base.models.gql.Metadata(),
-                                      'uuid': muuid.uuid4().__str__(),
-                                      'type': 'BufferGeometry',
-                                      'data': mmcore.base.models.gql.Data1(**{'attributes': mmcore.base.models.gql.Attributes1(
-                                          **{'position': mmcore.base.models.gql.Position(**{'itemSize': 3,
-                                                                            'type': 'Float32Array',
-                                                                            'array': np.asarray(
-                                                                                self.points).flatten().tolist(),
-                                                                            'normalized': False})})})})
+        self.geometry = mmcore.base.models.gql.BufferGeometry(**{
+            'uuid': self.uuid + "-geom",
+            'type': 'BufferGeometry',
+            'data': mmcore.base.models.gql.Data1(
+                **{'attributes': mmcore.base.models.gql.Attributes1(
+                    **{'position': mmcore.base.models.gql.Position(
+                        **{'itemSize': 3,
+                           'type': 'Float32Array',
+                           'array': np.asarray(
+                               self.points).flatten().tolist(),
+                           'normalized': False})})})})
 
 
 @node_eval
@@ -588,54 +431,23 @@ def pointsMaterial(color):
 
 
 @node_eval
-def lineMaterial(color, width):
-    line = f"makePointMaterial({color.decimal}, {width})"
+def lineMaterial(color, width, opacity=1.):
+    line = f"makePointMaterial({color.decimal}, {width}, {opacity}, {json.dumps(opacity < 1.)})"
     # language=JavaScript
     return '''const THREE = require("three");
-                      function makePointMaterial( color, width) {
-                            const mat = new THREE.LineBasicMaterial({color: color, linewidth:width})
+                      function makePointMaterial( color, width, opacity, transparent) {
+                            const mat = new THREE.LineBasicMaterial({color: color, linewidth:width, opacity:opacity, transparent:transparent})
                             console.log(JSON.stringify(mat.toJSON()));
                       }; ''' + line
 
 
-class LineObject(GeometryObject):
+class LineObject(PointsObject):
     __match_args__ = "name", "color"
-    points: list[dict[str, float]] = []
-    color: ColorRGB = ColorRGB(0.7, 0.7, 0.7)
+
     width: int = 2
     bind_class = GqlLine
-
-    def __call__(self, **kwargs):
-
-        super().__call__(**kwargs)
-
-        dct = self.solve()
-        dct.pop("metadata")
-        self.geometry = create_buffer_from_dict(dct)
-        dct = lineMaterial(self.color, self.width)
-        dct.pop("metadata")
-        es = ElementSequence(list(matdict.values()))
-
-        if dct["color"] in es["color"]:
-            self._material = list(matdict.keys())[es["color"].index(dct["color"])]
-        else:
-            self.material = mmcore.base.models.gql.LineBasicMaterial(**dct)
-
-        return self
+    material_class = LineBasicMaterial
 
     @property
     def threejs_type(self):
         return "Line"
-
-    def solve(self):
-        return {'metadata': {'version': 4.5,
-                             'type': 'BufferGeometry',
-                             'generator': 'BufferGeometry.toJSON'},
-                'uuid': 'e3508e43-0ee5-4659-a4f0-0548d8f931fd',
-                'type': 'BufferGeometry',
-                'data': {'attributes': {'position': {'itemSize': 3,
-                                                     'type': 'Float32Array',
-                                                     'array': np.asarray(self.points).flatten().tolist(),
-                                                     'normalized': False}}}}
-
-
