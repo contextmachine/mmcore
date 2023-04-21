@@ -5,7 +5,7 @@ pandas>=1.5.1
 python-dotenv>=0.21.0
 fastapi>=0.87.0
 uvicorn>=0.19.0
-redis~=4.5.2
+redis==4.5.4
 requests~=2.28.1
 scipy~=1.10.1
 geomdl>=5.3.1
@@ -25,3 +25,4 @@ gmsh~=4.11.1
 rhino3dm~=8.0.0
 zlib~=1.2.13
 setuptools~=67.6.0
+graphql-core
