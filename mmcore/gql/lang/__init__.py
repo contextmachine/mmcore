@@ -1,6 +1,6 @@
 import copy
 import json
-from mmcore.gql.api import ast as gqlast
+from mmcore.gql.lang import ast as gqlast
 def parse_line(line, target=" "):
     word = ""
     words = []
@@ -16,7 +16,7 @@ def parse_line(line, target=" "):
     return words
 
 
-from mmcore.gql.api import ast as gqlast
+from mmcore.gql.lang import ast as gqlast
 
 
 def fff(exp):
