@@ -4,7 +4,7 @@ import dataclasses
 
 import graphql.language.parser
 
-from mmcore.gql.api.ast import convert, ExtendedSelectionSetNode
+from mmcore.gql.lang.ast import convert, ExtendedSelectionSetNode
 from graphql.language.parser import Parser, SourceType
 from graphql.language.ast import DocumentNode
 

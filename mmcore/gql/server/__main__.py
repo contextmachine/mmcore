@@ -1,9 +1,5 @@
-import dataclasses
-import typing
-from mmcore.gql.api.parse import parse_simple_query
+from mmcore.gql.server.fastapi import MmGraphQlAPI
 import uvicorn
-from fastapi import FastAPI
-
 data_test2 = {
     'test': {
         'object': [
@@ -27,21 +23,9 @@ data_test2 = {
     }
 }
 
-
-@dataclasses.dataclass
-class Query:
-    query: str
-    variables: dict[str, typing.Any] | dict[None, None]
-
-
-graphql_app = FastAPI()
-
-
-@graphql_app.post("/v2/graphql")
-def graphql2(data: Query):
-    qt2 = parse_simple_query(data.query)
-    return qt2.resolve(data_test2)
+app = MmGraphQlAPI(gql_endpoint="/v2/graphql", dataset=data_test2)
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:graphql_app", host="0.0.0.0", port=5799)
+    print("http://localhost:5799/docs", "http://localhost:5799/v2/graphql", sep="\n")
+    uvicorn.run("__main__:app", host="0.0.0.0", port=5799)

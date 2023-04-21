@@ -1,2 +1,2 @@
 #chmod +x "$@"
-chmod +x "load_dotenv"
+chmod +x "gql-server"
