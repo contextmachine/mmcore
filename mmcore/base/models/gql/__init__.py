@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 import typing
 import uuid
@@ -8,7 +9,7 @@ import strawberry
 from strawberry.scalars import JSON
 
 from mmcore.base.utils import getitemattr
-from mmcore.base.utils import objdict
+from mmcore.base.registry import objdict
 
 
 class ChildrenDesc:
@@ -112,15 +113,15 @@ class Attributes2(Attributes1):
 @strawberry.type
 class Attributes(Attributes1):
     position: Position
-    color: typing.Union[Color,None]=None
-    normal: typing.Union[Normal,None]=None
-    uv: typing.Union[Uv,None]=None
+    color: typing.Union[Color, None] = None
+    normal: typing.Union[Normal, None] = None
+    uv: typing.Union[Uv, None] = None
 
 
 @strawberry.type
 class Attributes3(Attributes1):
     position: Position
-    normal: typing.Union[Normal,None]=None
+    normal: typing.Union[Normal, None] = None
 
 
 @strawberry.type
@@ -156,8 +157,8 @@ class BufferGeometry:
 
 @strawberry.type
 class SphereBufferGeometry(BufferGeometry):
-    radius: float | None = None
-    detail: int | None = None
+    radius: typing.Optional[float] = None
+    detail: typing.Optional[int] = None
 
 
 @strawberry.type
@@ -167,9 +168,9 @@ class LinkItem:
 
 @strawberry.type
 class GqlUserData:
-    properties: JSON | None = None
+    properties: typing.Optional[JSON] = None
     gui: list[GqlChart] | None = None
-    params: JSON | None = None
+    params: typing.Optional[JSON] = None
 
 
 @strawberry.type
@@ -213,7 +214,8 @@ class GqlGeometry(GqlBaseObject):
     type: str = "Geometry"
     children: 'list[typing.Union[GqlGeometry, None]]' = ChildrenDesc()
 
-strawberry.auto
+
+
 @strawberry.type
 class GqlObject3D(GqlBaseObject):
     name: str
@@ -224,9 +226,7 @@ class GqlObject3D(GqlBaseObject):
     type: str = "Object3D"
     castShadow: bool = True
     receiveShadow: bool = True
-    children:  'list[typing.Union[ GqlObject3D, GqlGroup, GqlGeometry, None]]' = ChildrenDesc()
-
-
+    children: 'list[typing.Union[ GqlObject3D, GqlGroup, GqlGeometry, None]]' = ChildrenDesc()
 
 
 @strawberry.type
@@ -234,9 +234,6 @@ class GqlGroup(GqlObject3D):
     type: str = "Group"
     matrix: list[float] = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
     children: 'list[typing.Union[ GqlObject3D, GqlGroup, GqlGeometry, None]]' = ChildrenDesc()
-
-
-
 
 
 @strawberry.type
@@ -254,20 +251,30 @@ class GqlPoints(GqlGeometry):
     type: str = "Points"
 
 
-@strawberry.type
+@dataclasses.dataclass
 class BaseMaterial:
-    uuid: str
     color: int
-    type: str
+    type: typing.Optional[str] = None
+    uuid: typing.Optional[str] = None
+    opacity: float = 1.0
+    transparent: bool = False
+
+    def __post_init__(self):
+        if self.type is None:
+            self.type = self.__class__.__name__
+        if self.uuid is None:
+            self.uuid = uuid.uuid4().__str__()
+        if self.opacity < 1.0:
+            self.transparent = True
 
 
 @strawberry.type
 class Material(BaseMaterial):
-    uuid: str
-    type: str
+
     color: int
-    reflectivity: float | None = None
-    refractionRatio: float | None = None
+    type: str = 'Material'
+    reflectivity: typing.Optional[float] = None
+    refractionRatio: typing.Optional[float] = None
     depthFunc: int
     depthTest: bool
     depthWrite: bool
@@ -280,15 +287,15 @@ class Material(BaseMaterial):
     stencilFail: int
     stencilZFail: int
     stencilZPass: int
-    wireframe: bool | None = None
-    vertexColors: bool | None = None
-    toneMapped: bool | None = None
-    emissive: int | None = None
-    specular: int | None = None
-    shininess: int | None = None
-    side: int | None = None
-    flatShading: bool | None = None
-    thickness: float | None = None
+    wireframe: typing.Optional[bool] = None
+    vertexColors: typing.Optional[bool] = None
+    toneMapped: typing.Optional[bool] = None
+    emissive: typing.Optional[int] = None
+    specular: typing.Optional[int] = None
+    shininess: typing.Optional[int] = None
+    side: int = 2
+    flatShading: typing.Optional[bool] = None
+    thickness: typing.Optional[float] = None
 
 
 @strawberry.type
@@ -309,6 +316,8 @@ class LineBasicMaterial(BaseMaterial):
     stencilZFail: int = 7680
     stencilZPass: int = 7680
     linewidth: float = 2.0
+    opacity: float = 1.0
+    transparent: bool = False
 
 
 @strawberry.type
@@ -393,9 +402,7 @@ class MaterialInput:
 
     @property
     def material(self) -> Materials:
-
-
-        return getattr(sys.modules.get("__main__"),self.type)(color=self.color, name=self.name)
+        return getattr(sys.modules.get("__main__"), self.type)(color=self.color, name=self.name)
 
 
 @strawberry.type

@@ -7,7 +7,7 @@ import requests
 import rpyc
 import yaml
 
-dotenv.load_dotenv(dotenv_path=dotenv.find_dotenv(".env"))
+
 
 
 def get_connection(url=None):

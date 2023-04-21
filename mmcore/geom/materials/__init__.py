@@ -1,4 +1,5 @@
 import json
+import typing
 from collections import namedtuple
 from typing import Any, SupportsIndex
 
@@ -61,7 +62,7 @@ class ColorRGB(tuple):
             return ColorRGB(*np.random.randint(0,255,3)/255)
         else:
             return [ColorRGB(*col) for col in (np.random.randint(0, 255, (size,3)) / 255)]
-def rgb_to_three_decimal(color: ColorRGB | ColorRGBA) -> int:
+def rgb_to_three_decimal(color: typing.Union[ColorRGB , ColorRGBA]) -> int:
     return int('%02x%02x%02x' % (color.r, color.g, color.b), 16)
 
 
@@ -77,7 +78,7 @@ class Material(Matchable):
     properties = "uuid", "type", "color"
     __match_args__ = "color",
     data: dict = MaterialData(*properties)
-    _color: ColorRGB | ColorRGBA = ColorRGB(50, 50, 50)
+    _color: typing.Union[ColorRGB, ColorRGBA ]= ColorRGB(50, 50, 50)
 
     def __new__(cls, color, **kwargs):
 
@@ -88,14 +89,14 @@ class Material(Matchable):
         return indt
 
     @property
-    def opacity(self) -> float | None:
+    def opacity(self) -> typing.Union[float , None]:
         try:
             return (1 / 255) * self._color.a
         except AttributeError:
             return None
 
     @property
-    def transparent(self) -> bool | None:
+    def transparent(self) ->typing.Union[ bool , None]:
         try:
             return self.opacity is None
         except AttributeError:
@@ -110,7 +111,7 @@ class Material(Matchable):
         return rgb_to_three_decimal(self._color)
 
     @color.setter
-    def color(self, v: ColorRGB | ColorRGBA | tuple):
+    def color(self, v: typing.Union[ColorRGB , ColorRGBA , tuple[float,float,float]]):
         if isinstance(v, tuple):
             if len(v) == 3:
                 self._color = ColorRGB(*v)

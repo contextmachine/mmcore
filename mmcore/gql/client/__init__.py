@@ -1,17 +1,17 @@
+import copy
 import os
+import typing
 from collections import UserDict, namedtuple
 from dataclasses import dataclass
 from typing import Any
 
 import requests
-from dotenv import find_dotenv, load_dotenv
+
 from jinja2.nativetypes import NativeEnvironment
 
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
-from ..pg import format_mutation
 
-load_dotenv(find_dotenv(usecwd=True, raise_error_if_not_found=True))
 
 GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
 
@@ -85,7 +85,7 @@ class query:
         "X-Hasura-Admin-Secret": "mysecretkey"
     }
 
-    def __init__(self, parent: str | GqlString, fields: set = {}, variables={}):
+    def __init__(self, parent: typing.Union[str, GqlString], fields: set = {}, variables={}):
         super().__init__()
 
         self.parent = parent
@@ -347,9 +347,17 @@ class GQLMutation(AbsGQLTemplate):
         return f'insert_{self.schema}_{self.table}_one'
 
     def do(self, instance=None, variables=None, **kwargs):
-        return format_mutation(variables, self.template, back=self.temp_args['attrs'],
+        """
+
+        @param instance:
+        @param variables:
+        @param kwargs:
+        @return: return format_mutation(variables, self.template, back=self.temp_args['attrs'],
                                directive_name=self.directive_name,
                                schema=self.schema, table=self.table)
+
+        """
+        ...
 
     def __set__(self, instance, value: dict):
         self.run_query(instance=instance, variables=value)
@@ -550,11 +558,11 @@ class query2(GQLSimpleQuery):
 
     @property
     def body(self):
-        """{{self.root}}
+        return"""{{self.root}}
         {
             {{self.receive}}
         }"""
-        return
+
 
     @property
     def receive(self):

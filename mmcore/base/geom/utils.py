@@ -4,7 +4,7 @@ import json
 import numpy as np
 
 import mmcore.base.models.gql
-from mmcore.base.basic import getattr_, objdict, geomdict, matdict
+from mmcore.base.basic import getattr_, objdict, geomdict, matdict, ExEncoder
 from mmcore.node import node_eval
 
 mapattrs = {
@@ -126,7 +126,7 @@ def dumps_graph(path):
     with gzip.open(f"{path}/buffer.gz", "w", compresslevel=9) as f:
         f.write(json.dumps({"geometry": dict(geomdict), "materials": dict(matdict)}).encode())
     with open(f"{path}/graph.json", "w") as fg:
-        json.dump(uu, fg, cls=sketch.ExEncoder, ensure_ascii=False)
+        json.dump(uu, fg, cls=ExEncoder, ensure_ascii=False)
 
 
 def is_geometry(obj):
