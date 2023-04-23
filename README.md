@@ -1,8 +1,6 @@
+[![Docker](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml/badge.svg?branch=master)](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml)
 # mmcore
 
->
->
-<img alt="viewer_celling_pair.png" src="http://storage.yandexcloud.net/box.contextmachine.space/content/viewer_celling_pair.png"/>
 
 # Next
 
