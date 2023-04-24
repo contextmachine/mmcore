@@ -36,7 +36,7 @@ import geom.utils.tools>>>import geom.buffer from mmcore.services.rhpyc import g
 
 >>> from mmcore.addons import rhino
 >>> from mmcore.geom.materials import MeshPhysicalBasic, ColorRGB
->>> webgl_object = geom.utils.tools.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
+    webgl_object = geom.utils.tools.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
 >>> webgl_object # some parts of the json output were omitted
 {'metadata': {'version': 4.5,
   'type': 'Object',

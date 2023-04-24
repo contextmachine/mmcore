@@ -46,7 +46,7 @@ pts_js_schema = {
         }
     }
 }
-from geom.utils import create_buffer, rhino_mesh_to_topology, CommonMeshTopology
+from mmcore.geom.utils import create_buffer, rhino_mesh_to_topology, CommonMeshTopology
 import rpyc
 
 rpyc.classic.ClassicService()

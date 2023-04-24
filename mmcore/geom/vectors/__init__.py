@@ -57,7 +57,7 @@ class Vector(Iterable):
         return f"{self.__class__.__name__}({self.__array__().__str__()})"
 
     def cross(self, other):
-        return np.cross(self, other)
+        return Vector(*np.cross(self, other))
     @property
     def Length(self):
 
@@ -639,11 +639,11 @@ def rotate(u, angle, axis=Vector(0, 0, 1)):
     ys = y * s
     zs = z * s
 
-    m = FreeCAD.Matrix(c + x * x * t, xyt - zs, xzt + ys, 0,
+    m = np.array(c + x * x * t, xyt - zs, xzt + ys, 0,
                        xyt + zs, c + y * y * t, yzt - xs, 0,
                        xzt - ys, yzt + xs, c + z * z * t, 0)
 
-    return m.multiply(u)
+    return m*u
 
 
 def getRotation(vector, reference=Vector(1, 0, 0)):
@@ -920,10 +920,13 @@ def getPlaneRotation(u, v, w=None):
         w = u.cross(v)
     typecheck([(u, Vector), (v, Vector), (w, Vector)], "getPlaneRotation")
 
-    m = FreeCAD.Matrix(u.x, v.x, w.x, 0,
+    m = np.array((u.x, v.x, w.x, 0,
                        u.y, v.y, w.y, 0,
                        u.z, v.z, w.z, 0,
-                       0.0, 0.0, 0.0, 1.0)
+                       0.0, 0.0, 0.0, 1.0))
+
+
+
     return m
 
 

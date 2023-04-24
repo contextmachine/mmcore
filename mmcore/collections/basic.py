@@ -316,10 +316,11 @@ from dataclasses import make_dataclass, field
 ParamTuple = namedtuple("ParamTuple", ["name", "type", "default"])
 import strawberry
 
+
 class Cond:
     def convert(self, val):
-
         return val
+
     def __call__(self, val):
         return isinstance(val, dict)
 
@@ -331,28 +332,29 @@ class Cond2:
     def __call__(self, val):
         return dataclasses.is_dataclass(val)
 
+
 class Cond3:
     def convert(self, val):
-
         return dataclasses.asdict(val)
 
     def __call__(self, val):
         return dataclasses.is_dataclass(val)
+
+
 class Convertor:
     def __init__(self, *conds):
-        self.conds=conds
+        self.conds = conds
+
     def convert(self, val):
-            i=0
-            while True:
-                if self.conds[i](val):
+        i = 0
+        while True:
+            if self.conds[i](val):
 
-                    v=self.conds[i].convert(val)
-                    break
-                else:
-                    i+=1
-            return v
-
-
+                v = self.conds[i].convert(val)
+                break
+            else:
+                i += 1
+        return v
 
 
 @dataclasses.dataclass
@@ -374,21 +376,24 @@ class Param:
     def to_strawberry(self):
         return strawberry.field(**self.to_namedtuple()._asdict())
 
+
 def to_tuple(self):
     if dataclasses.is_dataclass(self):
         return dataclasses.astuple(self)
-    elif isinstance(self,dict):
+    elif isinstance(self, dict):
         return tuple(self.values())
     else:
         return tuple(self)
-def params_eq(self, other):
 
-    return to_tuple(self)==to_tuple(other)
+
+def params_eq(self, other):
+    return to_tuple(self) == to_tuple(other)
+
 
 class ParamAccessible:
     params: list[typing.Union[Param, None]]
     schema: typing.Any
-    defaults:dict[str,typing.Any]
+    defaults: dict[str, typing.Any]
     params_sequence: ElementSequence[Param]
 
     def __init__(self, fun):
@@ -403,9 +408,8 @@ class ParamAccessible:
         self.solve_params()
         self.solve_schema()
 
-
     def solve_defaults(self):
-        self.defaults=dict(zip(list(self.f.__code__.co_varnames)[-len(self.f.__defaults__):], self.f.__defaults__))
+        self.defaults = dict(zip(list(self.f.__code__.co_varnames)[-len(self.f.__defaults__):], self.f.__defaults__))
 
     def solve_params(self):
         self.params = []
@@ -423,7 +427,7 @@ class ParamAccessible:
                                      zip(self.params_sequence["name"],
                                          self.params_sequence["type"],
                                          self.params_sequence["default"]))
-        self.schema.to_tuple=property(fget=to_tuple)
+        self.schema.to_tuple = property(fget=to_tuple)
 
     def __call__(self, *args, **kwargs):
         return self.f(*args, **kwargs)
@@ -434,7 +438,6 @@ import copy
 
 class CallsHistory(ParamAccessible):
     CallEvent = namedtuple("CallEvent", ["name", "params", "result", "func"])
-
 
     def __init__(self, f):
 
@@ -447,15 +450,16 @@ class CallsHistory(ParamAccessible):
 
     def __call__(self, *args, **kwargs):
 
-        kwargs.update(dict(zip(list(self.varnames)[:len(args)],args)))
-        s=self.schema(**kwargs)
+        kwargs.update(dict(zip(list(self.varnames)[:len(args)], args)))
+        s = self.schema(**kwargs)
 
-        if  s in self:
+        if s in self:
             return self.get_result(**kwargs)
         else:
             val = self.f(**kwargs)
             self._history.append(
-                self.CallEvent(self.name, params=self.schema(**kwargs), result=val, func=self.f.__code__.co_code.hex())._asdict())
+                self.CallEvent(self.name, params=self.schema(**kwargs), result=val,
+                               func=self.f.__code__.co_code.hex())._asdict())
 
             return val
 
@@ -464,9 +468,9 @@ class CallsHistory(ParamAccessible):
             return to_tuple(item) in (to_tuple(i) for i in self.history['params'])
         except AttributeError:
             return False
+
     def get_result(self, **params):
         return self.history.where(params=self.schema(**params))[-1]["result"]
-
 
 
 class BoolMask(Container):
@@ -612,3 +616,385 @@ class Orig:
 
     def append_name(self, name):
         self._names.append(name)
+
+
+class DoublyNode:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+        self.prev = None
+
+
+# Function to insert at the end
+
+class DoublyCircularLinkedList:
+    last: DoublyNode
+
+    def __init__(self, start: DoublyNode = None):
+        super().__init__()
+        self.start = start
+
+    def insertEnd(self, value):
+
+        # If the list is empty, create a
+        # single node circular and doubly list
+        if self.start is None:
+            new_node = DoublyNode(0)
+            new_node.data = value
+            new_node.next = new_node.prev = new_node
+            self.start = new_node
+            return
+
+        # If list is not empty
+
+        # Find last node */
+        self.last = self.start.prev
+
+        # Create Node dynamically
+        new_node = DoublyNode(0)
+        new_node.data = value
+
+        # Start is going to be next of new_node
+        new_node.next = self.start
+
+        # Make new node previous of self.start
+        self.start.prev = new_node
+
+        # Make last previous of new node
+        new_node.prev = self.last
+
+        # Make new node next of old last
+        self.last.next = new_node
+
+    # Function to insert Node at the beginning
+    # of the List,
+
+    def insertBegin(self, value):
+
+        # Pointer points to last Node
+        self.last = self.start.prev
+
+        new_node = DoublyNode(0)
+        new_node.data = value  # Inserting the data
+
+        # setting up previous and
+        # next of new node
+        new_node.next = self.start
+        new_node.prev = self.last
+
+        # Update next and previous pointers
+        # of self.start and self.last.
+        self.last.next = self.start.prev = new_node
+
+        # Update self.start pointer
+        self.start = new_node
+
+    # Function to insert node with value as value1.
+    # The new node is inserted after the node with
+    # with value2
+
+    def insertAfter(self, value1, value2):
+
+        new_node = DoublyNode(0)
+        new_node.data = value1  # Inserting the data
+
+        # Find node having value2 and
+        # next node of it
+        temp = self.start
+        while temp.data != value2:
+            temp = temp.next
+        _next = temp.next
+
+        # insert new_node between temp and next.
+        temp.next = new_node
+        new_node.prev = temp
+        new_node.next = _next
+        _next.prev = new_node
+
+    def __repr__(self):
+        return f"{self.display()}"
+
+    def __next__(self):
+        self._temp = self.start
+        if self._temp.next != self.start:
+            self._temp = self._temp.next
+            return self._temp.prev.data
+
+        else:
+            raise StopIteration
+
+    def __iter__(self):
+
+        return self
+
+    def __getitem__(self, item):
+        return
+
+    def __len__(self):
+        *lst, = list(self)
+        return len(lst)
+
+    def display(self):
+
+        temp = self.start
+
+        print("Traversal in forward direction:")
+        while temp.next != self.start:
+            print(temp.data, end=" ")
+            temp = temp.next
+
+        print(temp.data)
+
+        print("Traversal in reverse direction:")
+        self.last = self.start.prev
+        temp = self.last
+        while temp.prev != self.last:
+            print(temp.data, end=" ")
+            temp = temp.prev
+
+        return temp.data
+
+
+class DNode:
+    def __init__(self, data=None):
+        self.data = data
+        self.prev = self
+        self.next = self
+
+
+class DCLLIterator(Iterator):
+    def __init__(self, dcll: 'DCLL'):
+        self._dcll = dcll
+        self._temp = self._dcll.head
+        self._i = 0
+
+    def __next__(self):
+        if self._i == 0:
+            self._temp = self._temp.next
+            self._i += 1
+            return self._temp.prev.data
+        elif self._temp != self._dcll.head:
+            self._temp = self._temp.next
+            return self._temp.prev.data
+
+        else:
+
+            raise StopIteration
+
+
+class DCLL:
+    """Circular Doubly Linked List
+    >>> dcll=DCLL()
+    >>> dcll.append(3)
+    >>> dcll.append(6)
+    >>> dcll.append(9)
+    >>> dcll
+    DCLL(3) -> 6 -> 9
+    >>> dcll.insert_end(4)
+    >>> dcll
+    DCLL(3) -> 6 -> 9 -> 4
+    >>> dcll.insert_end(5)
+    >>> dcll.insert_begin(5)
+    >>> dcll
+    DCLL(5) -> 3 -> 6 -> 9 -> 4 -> 5
+    >>> dcll.insert_after(4,6)
+    >>> dcll
+    DCLL(5) -> 3 -> 6 -> 4 -> 9 -> 4 -> 5
+    >>> for i in dcll:
+    ...     print(i)
+    5
+    3
+    6
+    4
+    9
+    4
+    5
+    >>> a=list(dcll)
+    >>> a
+    [5, 3, 6, 4, 9, 4, 5]
+
+
+
+    """
+
+    def __init__(self):
+        self.head = None
+        self.count = 0
+        self._temp = self.head
+
+    def reload(self):
+        self._temp = self.head
+
+    def __iter__(self):
+        return DCLLIterator(self)
+
+    def __repr__(self):
+        string = ""
+
+        if (self.head == None):
+            string += "DCLL(<Empty>)"
+            return string
+
+        string += f"DCLL({self.head.data})"
+        temp = self.head.next
+        while (temp != self.head):
+            string += f" -> {temp.data}"
+            temp = temp.next
+        return string
+
+    def append(self, data):
+        self.insert(data, self.count)
+
+    def insert(self, data, index):
+        if (index > self.count) | (index < 0):
+            raise ValueError(f"Index out of range: {index}, size: {self.count}")
+
+        if self.head == None:
+            self.head = DNode(data)
+            self.count = 1
+            return
+
+        temp = self.head
+        if (index == 0):
+            temp = temp.prev
+        else:
+            for _ in range(index - 1):
+                temp = temp.next
+
+        temp.next.prev = DNode(data)
+        temp.next.prev.next, temp.next.prev.prev = temp.next, temp
+        temp.next = temp.next.prev
+        if (index == 0):
+            self.head = self.head.prev
+        self.count += 1
+        return
+
+    def remove(self, index):
+        if (index >= self.count) | (index < 0):
+            raise ValueError(f"Index out of range: {index}, size: {self.count}")
+
+        if self.count == 1:
+            self.head = None
+            self.count = 0
+            return
+
+        target = self.head
+        for _ in range(index):
+            target = target.next
+
+        if target is self.head:
+            self.head = self.head.next
+
+        target.prev.next, target.next.prev = target.next, target.prev
+        self.count -= 1
+
+    def index(self, data):
+        temp = self.head
+        for i in range(self.count):
+            if (temp.data == data):
+                return i
+            temp = temp.next
+        return None
+
+    def get(self, index):
+        if (index >= self.count) | (index < 0):
+            raise ValueError(f"Index out of range: {index}, size: {self.count}")
+
+        temp = self.head
+        for _ in range(index):
+            temp = temp.next
+        return temp.data
+
+    def __getitem__(self, index):
+        val = self.get(index)
+        if val is None:
+            raise IndexError
+        return val
+
+    def size(self):
+        return self.count
+
+    def __len__(self):
+        return self.count
+
+    def get_node(self, index):
+        current = self.head
+        for i in range(index):
+            current = current.next
+            if current == self.head:
+                return None
+        return current
+
+    def insert_after(self, value1, value2):
+        self.count+=1
+        new_node = DNode(0)
+        new_node.data = value1  # Inserting the data
+
+        # Find node having value2 and
+        # next node of it
+        temp = self.head
+        while temp.data != value2:
+            print(temp, temp.data)
+            temp = temp.next
+        _next = temp.next
+
+        # insert new_node between temp and next.
+        temp.next = new_node
+        new_node.prev = temp
+        new_node.next = _next
+        _next.prev = new_node
+
+    def insert_before(self, ref_node, new_node):
+
+        self.insert_after(ref_node.prev.data, new_node)
+
+    def insert_end(self, value):
+        self.count += 1
+        # If the list is empty, create a
+        # single node circular and doubly list
+        if self.head is None:
+            new_node = DNode(0)
+            new_node.data = value
+            new_node.next = new_node.prev = new_node
+            self.start = new_node
+            return
+
+        # If list is not empty
+
+        # Find last node */
+        self.last = self.head.prev
+
+        # Create Node dynamically
+        new_node = DNode(0)
+        new_node.data = value
+
+        # Start is going to be next of new_node
+        new_node.next = self.head
+
+        # Make new node previous of self.start
+        self.head.prev = new_node
+
+        # Make last previous of new node
+        new_node.prev = self.last
+
+        # Make new node next of old last
+        self.last.next = new_node
+
+    def insert_begin(self, value):
+        # Pointer points to last Node
+        last = self.head.prev
+        self.count += 1
+        new_node = DNode(0)
+        new_node.data = value  # Inserting the data
+
+        # setting up previous and
+        # next of new node
+        new_node.next = self.head
+        new_node.prev = last
+
+        # Update next and previous pointers
+        # of self.start and self.last.
+        last.next = self.head.prev = new_node
+
+        # Update self.start pointer
+        self.head = new_node
