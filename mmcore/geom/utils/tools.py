@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import uuid
+from collections import namedtuple
 from enum import Enum
 from typing import Any, Optional
 

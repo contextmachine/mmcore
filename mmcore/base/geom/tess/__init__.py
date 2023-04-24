@@ -6,11 +6,10 @@ from OCC.Core.Tesselator import ShapeTesselator
 
 
 from mmcore.base.basic import Group
-from mmcore.base.geom import Line, create_buffer_from_dict, Mesh
+from mmcore.base.geom import Line, create_buffer_from_dict, Mesh, ColorRGB
 from mmcore.base.registry import matdict
 from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
 from mmcore.collections import ElementSequence
-from mmcore.geom.materials import ColorRGB
 from mmcore.base.models import gql as gql_models
 
 class Tessellate(metaclass=ABCMeta):

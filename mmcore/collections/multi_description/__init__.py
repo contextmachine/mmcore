@@ -5,6 +5,7 @@ import abc
 import functools
 import itertools
 import types
+import typing
 from abc import ABC
 from operator import attrgetter, methodcaller, itemgetter
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
@@ -155,6 +156,7 @@ class CollectionItemGetter(_MultiDescriptor[str, Sequence]):
                 return keys.keys()
         except IndexError:
             return []
+
     def __len__(self) -> int:
         return self._seq.__len__()
 
@@ -304,6 +306,8 @@ class MethodDescriptor:
 
 
 from types import MethodType
+import types
+
 
 
 class ElementSequence(MultiDescriptor):
@@ -347,6 +351,14 @@ class ElementSequence(MultiDescriptor):
             except Exception as err:
                 raise err
         return ixs
+
+    def where_with_rule(self, a, b, rule):
+        l = []
+        for i, item in enumerate(self[a]):
+            ans = rule(item, b)
+            if ans:
+                l.append(self.get_from_index(i))
+        return l
 
     def iwhere(self, **rules):
         s = None
@@ -598,6 +610,7 @@ class E(SeqProto):
 
 c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 
+
 # aa
 # Explicit passing of an element type to a __init_subclass__
 # --------------------------------------------------------
@@ -605,27 +618,26 @@ c = E([{"a": 1, "b": 2}, {"a": 5, "b": 3}, {"a": 9, "b": 12}])
 
 def init_seq(cb):
     def wrp(self, *args, **kwargs):
-            if len(self) == 0:
-                val = cb(self, *args, **kwargs)
-                if not (len(self) == 0):
-                    self.orig._sequence = ElementSequence(self)
-                return val
-            else:
-                return cb(self, *args, **kwargs)
+        if len(self) == 0:
+            val = cb(self, *args, **kwargs)
+            if not (len(self) == 0):
+                self.orig._sequence = ElementSequence(self)
+            return val
+        else:
+            return cb(self, *args, **kwargs)
 
     return wrp
 
 
 def stash_seq(cb):
-
     def wrp(self, *args, **kwargs):
         if not (len(self) == 0):
-                val = cb(self, *args, **kwargs)
-                if len(self) == 0:
-                    del self.orig._sequence
-                return val
+            val = cb(self, *args, **kwargs)
+            if len(self) == 0:
+                del self.orig._sequence
+            return val
         else:
-                return cb(self, *args, **kwargs)
+            return cb(self, *args, **kwargs)
 
     return wrp
 
@@ -661,8 +673,6 @@ class CallbackList(list):
         super().__init__()
         self.orig = orig
 
-
-
     @init_seq
     def append(self, *args, **kwargs):
         list.append(self, *args, **kwargs)
@@ -678,6 +688,7 @@ class CallbackList(list):
     @stash_seq
     def __delitem__(self, key):
         list.__delitem__(self, key)
+
 
 class AttrGetter:
     def __init__(self, *query):
@@ -698,7 +709,6 @@ class AttrGetter:
 
     def __call__(self, obj):
 
-
         if type(attrgetter(self.query[0])(obj)) == types.MethodType:
             getter = self.methodcaller
         elif issubclass(type(obj), Mapping):
@@ -713,9 +723,6 @@ class AttrGetter:
     @abc.abstractmethod
     def __post_getitem__(self, obj, getter):
         return getter(obj)
-
-
-
 
 
 class MultiAttrGetSetter:
@@ -737,7 +744,6 @@ class MultiAttrGetSetter:
 
     def __call__(self, objects, seq_type=None):
         if seq_type is None:
-
             seq_type = sequence_type(objects).__args__[0]
         print(seq_type)
         print(self.query)
@@ -748,6 +754,7 @@ class MultiAttrGetSetter:
         else:
             getter = self.attrgetter
         return self.__post_getitem__(objects, getter)
+
     @abc.abstractmethod
     def __post_getitem__(self, objects, getter):
         lst = []
@@ -771,14 +778,18 @@ class Paginate(EntityCollection):
 
     def __getitem__(self, item):
         return MultiAttrGetSetter(*item)(self._seq)
+
+
 import strawberry
 
 strawberry.scalar
+
+
 class GQLAttrGetter(AttrGetter):
 
     @abc.abstractmethod
     def __post_getitem__(self, obj, getter):
-        return dict(zip(self.query, super().__post_getitem__(obj,getter)))
+        return dict(zip(self.query, super().__post_getitem__(obj, getter)))
 
 
 class GQLMultiAttrGetSetter(MultiAttrGetSetter):
@@ -805,7 +816,6 @@ class GQLPaginate(Paginate):
     >>> pg["x", "negx"]
     [{'x': 12, 'negx': -12}, {'x': 13, 'negx': -13}]
     """
-
 
     def __getitem__(self, item):
         return GQLMultiAttrGetSetter(*item)(self._seq)
