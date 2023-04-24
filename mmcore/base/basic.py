@@ -5,9 +5,6 @@ import sys
 
 from collections import namedtuple
 
-
-
-
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -29,7 +26,6 @@ from mmcore.collections.multi_description import Paginate, ElementSequence
 
 from mmcore.collections import ParamContainer
 
-
 Link = namedtuple("Link", ["name", "parent", "child"])
 
 
@@ -46,7 +42,7 @@ class Link:
 @dataclasses.dataclass
 class UuidBind:
     value: typing.Any
-    uuid: typing.Optional[str]  = None
+    uuid: typing.Optional[str] = None
 
     def __post_init__(self):
         if self.uuid is None:
@@ -168,6 +164,23 @@ from mmcore.base.registry import objdict
 objdict = objdict
 
 
+class GeometrySet(set):
+
+    def __contains__(self, item):
+        # TODO: Это нужно переписать на np.allclose по буфферу, т.e. проверять идентичность геометрии честно
+        uuids = ElementSequence(list(self))["uuid"]
+
+        return item.uuid in uuids
+
+
+class MaterialSet(set):
+    def __contains__(self, item):
+        colors = ElementSequence(list(self))["color"]
+        # TODO: Это нужно расширить и проверять не только по цвету,
+        #  для этого нужно реально понять какие параметры важные
+        return item.color in colors
+
+
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -179,11 +192,13 @@ class Object3D:
     """
     __match_args__ = ()
     _matrix = None
-    _include_geometries = set()
-    _include_materials = set()
+    _include_geometries = GeometrySet()
+    _include_materials = MaterialSet()
     bind_class = gql_models.GqlObject3D
-    name: str = "Object"
-
+    _name: str = "Object"
+    @property
+    def strawberry_properties_input(self):
+        return type(list(self.properties.keys()))
     def __new__(cls, *args, name="Object", uuid=None, pkl=None, **kwargs) -> 'Object3D':
 
         cls.objdoct = objdict
@@ -233,6 +248,14 @@ class Object3D:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(name={self.name}, children: {len(self.children)}) at {self.uuid}"
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, v: str):
+        self._name = v
 
     @property
     def matrix(self) -> list[float]:
@@ -431,9 +454,22 @@ class Object3D:
         except NameError:
             return getattr(sys.modules["mmcore.base.sketch"], str(typ), __default=Object3D)
 
+    def __eq__(self, other):
+        return self.uuid == other.uuid
+
+    def __ne__(self, other):
+        return self.uuid != other.uuid
+
+    @properties.setter
+    def properties(self, v):
+        for k, v in v.items():
+            self.__setattr__("_" + k, v)
+
+    def strawberry_properties(self, input):
+        self.properties = strawberry.asdict(input)
 
 class Group(Object3D):
-    name: str = "Group"
+    _name: str = "Group"
     chart_class = gql_models.GqlChart
     bind_class = gql_models.GqlGroup
 
@@ -460,6 +496,8 @@ class Group(Object3D):
             "children_count": len(self._children)
 
         }
+
+
 
     def __len__(self):
         return len(self._children)

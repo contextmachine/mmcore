@@ -1,29 +1,26 @@
-from mmcore.gql.server.fastapi import MmGraphQlAPI
-import uvicorn
-data_test2 = {
-    'test': {
-        'object': [
-            {
-                'name': "foo1",
-                "uuid": 1,
-                "baz": {
-                    'name': "A",
-                    "uuid": 3
-                }
-            },
-            {
-                'name': "foo2",
-                "uuid": 2,
-                "baz": {
-                    'name': "B",
-                    "uuid": 4
-                }
-            }
-        ]
-    }
-}
+import json
 
-app = MmGraphQlAPI(gql_endpoint="/v2/graphql", dataset=data_test2)
+import uvicorn
+
+from mmcore.gql.lang.parse import parse_simple_query
+from mmcore.gql.server import models
+from mmcore.gql.server.fastapi import MmGraphQlAPI
+import os
+
+
+with open("tests/777.json") as f:
+    data_test2 = json.load(f)
+with open("mmcore/gql/templates/schema.json") as f:
+    data_test2 |= json.load(f)
+app = MmGraphQlAPI(gql_endpoint="/v2/graphql")
+
+
+
+@app.post(app.gql_endpoint)
+def graphql_query_resolver(data: dict):
+    print(data)
+    qt2 = parse_simple_query(data['query'])
+    return qt2.resolve(data_test2)
 
 
 if __name__ == "__main__":

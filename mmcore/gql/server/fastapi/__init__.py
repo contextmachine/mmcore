@@ -22,13 +22,5 @@ class MmGraphQlAPI(FastAPI):
             self.dataset = {}
         self.gql_kwargs=gql_kwargs
         self.gql_endpoint= gql_endpoint
-        self.init_graphql(**self.gql_kwargs)
 
-    def init_graphql(self, **kwargs):
-        @self.post(self.gql_endpoint, **kwargs)
-        def graphql_query_resolver(data: models.GQLAPIQuery):
-            qt2 = parse_simple_query(data.query)
-            return qt2.resolve(self.dataset)
-
-        return graphql_query_resolver
 

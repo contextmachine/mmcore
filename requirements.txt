@@ -26,3 +26,4 @@ rhino3dm~=8.0.0
 zlib~=1.2.13
 setuptools~=67.6.0
 graphql-core
+geomdl

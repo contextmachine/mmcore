@@ -10,7 +10,7 @@ import scipy.spatial.distance as spdist
 import strawberry
 
 import mmcore.base.models.gql
-from mmcore.base.basic import Object3D
+from mmcore.base.basic import Object3D, Group
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models import Point
 from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints, MeshPhongMaterial, Material, PointsMaterial, \
@@ -451,3 +451,24 @@ class LineObject(PointsObject):
     @property
     def threejs_type(self):
         return "Line"
+
+
+def hyp(arr):
+    d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
+        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
+    c = arr[2].reshape((3, 1)) + ((arr[1] - arr[2]).reshape((3, 1)) * np.stack(
+        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
+    f = arr[2].reshape((3, 1)) + ((arr[3] - arr[2]).reshape((3, 1)) * np.stack(
+        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
+    g = arr[3].reshape((3, 1)) + ((arr[0] - arr[3]).reshape((3, 1)) * np.stack(
+        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
+
+    grp = Group(name="grp")
+
+    lns2 = list(zip(g.T, c.T))
+    lns = list(zip(f.T, d.T))
+    for i, (lna, lnb) in enumerate(lns):
+        grp.add(LineObject(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
+    for i, (lna, lnb) in enumerate(lns2):
+        grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
+

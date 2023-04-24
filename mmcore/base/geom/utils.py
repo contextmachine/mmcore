@@ -14,7 +14,9 @@ mapattrs = {
 
 }
 
-attributes=[]
+attributes = []
+
+
 def geom_attributes_from_dict(att):
     ddct = {}
     for k, v in att.items():
@@ -141,6 +143,7 @@ def pop_in_keys(dct, key):
     if key in dct.keys():
         return dct.pop(key)
 
+
 """
 def create_object_from_threejs(kwargs):
     def trav(obj):
@@ -157,3 +160,21 @@ def create_object_from_threejs(kwargs):
             cls(**obj)
             for child in obj.children: ...
 """
+import os
+
+"""
+def dump_model(data: dict, path=os.getenv("HOME") + os.getenv("MICROVIEWER_PATH")):
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+from functools import wraps
+
+
+def debug_view(fn):
+    @wraps(fn)
+    def wrapper(*arga, **kwargs):
+        model = fn(*arga, **kwargs)
+        dump_model(model)
+        return model
+    return wrapper"""
