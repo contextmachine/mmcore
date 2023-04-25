@@ -1,0 +1,1 @@
+docker run --rm --name mmcore -t -i -e ./.env -w /mmcore -P --privileged sthv/mmcore:amd64

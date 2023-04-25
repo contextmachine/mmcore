@@ -196,9 +196,11 @@ class Object3D:
     _include_materials = MaterialSet()
     bind_class = gql_models.GqlObject3D
     _name: str = "Object"
+
     @property
     def strawberry_properties_input(self):
         return type(list(self.properties.keys()))
+
     def __new__(cls, *args, name="Object", uuid=None, pkl=None, **kwargs) -> 'Object3D':
 
         cls.objdoct = objdict
@@ -404,6 +406,7 @@ class Object3D:
 
             geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
+        Root.__name__ = f"GenericRoot{id(self)}"
         return strawberry.type(Root)
 
     @property
@@ -468,6 +471,7 @@ class Object3D:
     def strawberry_properties(self, input):
         self.properties = strawberry.asdict(input)
 
+
 class Group(Object3D):
     _name: str = "Group"
     chart_class = gql_models.GqlChart
@@ -496,8 +500,6 @@ class Group(Object3D):
             "children_count": len(self._children)
 
         }
-
-
 
     def __len__(self):
         return len(self._children)
