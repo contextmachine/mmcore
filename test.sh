@@ -1,1 +1,1 @@
-docker run --rm --tty --name mmcore sthv/mmcore:amd64 python tests/dockertest.py
+docker run --rm --tty --name mmcore sthv/mmcore:amd64 tests/dockertest.py
