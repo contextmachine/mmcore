@@ -16,8 +16,8 @@ from OCC.Core.gp import gp_Pnt
 from scipy.spatial.distance import euclidean
 
 from mmcore.addons.mmocc.OCCUtils.Construct import make_closed_polygon
-from mmcore.addons.rhino import rhino3dm
-from mmcore.baseitems import Matchable
+
+
 from mmcore.collections import chain_split_list
 
 mesh_js_schema = {
@@ -52,7 +52,7 @@ import rpyc
 rpyc.classic.ClassicService()
 
 
-class Point(Matchable):
+class Point:
     __match_args__ = "x", "y"
     cxmdata_keys = "X", "Y", "Z"
 
@@ -76,7 +76,8 @@ class Point(Matchable):
     def __len__(self):
         return len(self.xyz)
 
-    def to_rhino(self) -> rhino3dm.Point3d:
+    def to_rhino(self):
+        import rhino3dm
         return rhino3dm.Point3d(*self.xyz)
 
     def to_occ(self) -> gp_Pnt:
@@ -112,7 +113,7 @@ class Point(Matchable):
             raise AttributeError
 
     @classmethod
-    def from_rhino(cls, point: rhino3dm.Point3d) -> 'Point':
+    def from_rhino(cls, point) -> 'Point':
         return Point(x=point.X, y=point.Y, z=point.Z)
 
     @classmethod
@@ -199,7 +200,7 @@ def point_from_all(*args, **kwargs):
         return Point(*kwargs.values())
 
 
-class Triangle(Matchable):
+class Triangle:
     __match_args__ = "a", "b", "c"
 
     def __init__(self, a, b, c, *args, **kwargs):
@@ -295,7 +296,7 @@ class PolygonWithHoles(Polygon):
         return [self._polygons[i] for i in self.indxz[1:]]
 
 
-class Sphere(Matchable):
+class Sphere:
     radius: float
     center: Point
     __match_args__ = "radius", "center"
@@ -307,6 +308,8 @@ class Sphere(Matchable):
         return pt.distance(self.center) == self.radius
 
     def to_rhino(self):
+        import rhino3dm
+
         return rhino3dm.Sphere(self.center.to_rhino(), self.radius)
 
     def to_compas(self):
@@ -318,7 +321,7 @@ class Sphere(Matchable):
         return gp.gp_Sphere(ax, self.radius)
 
 
-class MmAbstractBufferGeometry(Matchable):
+class MmAbstractBufferGeometry:
     @abstractmethod
     def __array__(self, dtype=float, *args, **kwargs) -> np.ndarray:
         ...
@@ -329,11 +332,11 @@ class MmAbstractBufferGeometry(Matchable):
         return self.__array__().tolist()
 
 
-class MmGeometry(Matchable):
+class MmGeometry:
     ...
 
 
-class MmPoint(Matchable):
+class MmPoint:
     __match_args__ = "x", "y", "z"
 
     @property
@@ -350,7 +353,7 @@ class MmPoint(Matchable):
         return len(self.xyz)
 
     @classmethod
-    def from_rhino(cls, point: rhino3dm.Point3d) -> 'MmPoint':
+    def from_rhino(cls, point) -> 'MmPoint':
         return MmPoint(point.X, point.Y, point.Z)
 
     @classmethod
@@ -501,7 +504,7 @@ def create_buffer_geometry(topo: CommonMeshTopology, uid=None):
 from functools import cached_property
 
 
-class StateMatchable(Matchable):
+class StateMatchable:
     state_includes = "uuid",
     state_excludes = ()
 
@@ -584,7 +587,8 @@ class CommonMesh(StateMatchable):
         self._vertices = value
 
     @classmethod
-    def from_rhino(cls, rhino_mesh: rhino3dm.Mesh):
+    def from_rhino(cls, rhino_mesh
+                   ):
         inst = cls(*rhino_mesh_to_topology(rhino_mesh))
         inst.rhino_mesh = rhino_mesh
         return inst
@@ -636,7 +640,7 @@ class CommonMesh(StateMatchable):
         return self._area_mass_properties
 
 
-class MmBoundedGeometry(Matchable):
+class MmBoundedGeometry:
     __match_args__ = "vertices"
     vertices: list[MmPoint]
 
@@ -696,7 +700,7 @@ class GeometryConversionsMap(dict):
         return wrap_init
 
 
-from mmcore.baseitems.descriptors import DataView
+from mmcore.base.descriptors import DataView
 
 
 class BufferGeometryData2(DataView):
@@ -757,10 +761,10 @@ class BufferGeometryData2(DataView):
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeVertex, \
     BRepBuilderAPI_MakeWire
-from mmcore.baseitems import Matchable
 
 
-class OccEntity(Matchable):
+
+class OccEntity:
     __match_args__ = ()
     __entities__ = __match_args__ + ("input_entity",)
     repr_args = "__entities__"

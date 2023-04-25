@@ -1,1 +1,0 @@
-/Applications/RhinoWIP.app/Contents/MacOS/Rhinoceros -nosplash -runscript "-_RunPythonScript ./app.py"
