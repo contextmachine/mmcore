@@ -15,9 +15,6 @@ from OCC.Core.gp import gp_Pnt
 from pydantic import BaseModel
 from rhino3dm import Point3d
 
-from .mat import TreeJsPhongMaterial
-from ..baseitems import GeomConversionMap, GeomDataItem, ReprData
-from ..geom.utils import data_scheme, topo_converter
 
 
 class BufferGeometryDataTypes(str, Enum):

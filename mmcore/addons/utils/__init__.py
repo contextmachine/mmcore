@@ -8,7 +8,7 @@
 import json
 from typing import ContextManager
 
-from mmcore.baseitems import descriptors
+from mmcore.base import descriptors
 from mmcore.collections import multi_description
 
 

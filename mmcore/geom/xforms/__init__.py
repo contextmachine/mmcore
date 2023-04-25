@@ -5,7 +5,7 @@ from typing import Any, Union
 import numpy as np
 from mmcore.addons import ModuleResolver
 with ModuleResolver() as rsl:
-    import rhino3dm
+    pass
 import rhino3dm as rg
 from compas.data import Data
 from compas.geometry import Transformation
@@ -102,7 +102,7 @@ class XformParametricDecorator(XformDecorator):
         return super().__call__(*args, **kwargs)
 
 
-from mmcore.baseitems.descriptors import BackendProxyDescriptor
+from mmcore.base.descriptors import BackendProxyDescriptor
 
 
 class MmAffineTransform(list):

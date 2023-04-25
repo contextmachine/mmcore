@@ -6,7 +6,7 @@ from typing import Any, SupportsIndex
 import numpy as np
 
 from mmcore.baseitems import Matchable
-from mmcore.baseitems.descriptors import DataView
+from mmcore.base.descriptors import DataView
 
 ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
 _ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
