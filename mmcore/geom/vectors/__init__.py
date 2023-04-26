@@ -616,7 +616,6 @@ def rotate(u, angle, axis=Vector(0, 0, 1)):
         The new rotated vector.
         If the `angle` is zero, return the original vector `u`.
     """
-    typecheck([(u, Vector), (angle, (int, float)), (axis, Vector)], "rotate")
 
     if angle == 0:
         return u
