@@ -5,7 +5,7 @@ from typing import Any, SupportsIndex
 
 import numpy as np
 
-from mmcore.baseitems import Matchable
+
 from mmcore.base.descriptors import DataView
 
 ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
@@ -76,7 +76,7 @@ class MaterialData(DataView):
         return dict(value)
 
 
-class Material(Matchable):
+class Material:
     properties = "uuid", "type", "color"
     __match_args__ = "color",
     data: dict = MaterialData(*properties)

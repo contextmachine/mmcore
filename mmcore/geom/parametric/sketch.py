@@ -12,15 +12,15 @@ from mmcore.base.basic import Group
 from mmcore.base.geom import LineObject
 from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
-
+from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 
 TOLERANCE = 0.001
 
-from typing import dataclass_transform
 
 
-@dataclass_transform()
+
+
 class ParametricObject:
     @abc.abstractmethod
     def evaluate(self, t):
@@ -59,7 +59,12 @@ class Linear(ParametricObject):
         tstep = 1 / (self.length / step)
 
         return self.evaluate(np.arange(self.length // step) * tstep)
-
+    def divide_distance_dll(self, step):
+        tstep = 1 / (self.length / step)
+        dll = DoublyLinkedList ()
+        for i in np.arange(self.length // step) * tstep:
+            dll.append(self.evaluate(i))
+        return dll
     @property
     def start(self):
         return self.evaluate(0)
@@ -67,6 +72,10 @@ class Linear(ParametricObject):
     @property
     def end(self):
         return self.evaluate(1)
+
+    @property
+    def direction(self):
+        return self.end - self.start
 
 
 def hhp():
@@ -277,6 +286,48 @@ from mmcore.geom.vectors import unit
 
 
 @dataclasses.dataclass
+class PlaneLinear(ParametricObject):
+    origin: typing.Iterable[float]
+    normal: typing.Optional[typing.Iterable[float]] = None
+    xaxis: typing.Optional[typing.Iterable[float]] = None
+    yaxis: typing.Optional[typing.Iterable[float]] = None
+
+    def __post_init__(self):
+        print(unit(self.normal),self.xaxis,self.yaxis)
+        self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
+        self.yaxis =np.cross(unit(self.normal),self.xaxis
+                             )
+
+
+
+
+    def evaluate(self, t):
+        if len(t) == 2:
+            u, v = t
+            uu = np.array(self.x_linear.evaluate(u) - self.origin)
+            vv = np.array(self.y_linear.evaluate(v) - self.origin)
+            return np.array(self.origin) + uu + vv
+        else:
+            u, v, w = t
+            uu = np.array(self.x_linear.evaluate(u) - self.origin)
+            vv = np.array(self.y_linear.evaluate(v) - self.origin)
+            ww = np.array(self.z_linear.evaluate(w) - self.origin)
+            return np.array(self.origin) + uu + vv + ww
+
+    @property
+    def x_linear(self):
+        return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.xaxis)))
+
+    @property
+    def y_linear(self):
+        return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.yaxis)))
+
+    @property
+    def z_linear(self):
+        return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
+
+
+@dataclasses.dataclass
 class HyPar4pt(ParametricObject):
     a: typing.Iterable[float]
     b: typing.Iterable[float]
@@ -447,3 +498,14 @@ class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolutio
 
         else:
             return IntersectFail(r.pt, r.t, r.distance, is_intersect)
+
+
+def line_plane_collision(plane: PlaneLinear, ray: Linear, epsilon=1e-6):
+    ray_dir = np.array(ray.direction)
+    ndotu = np.array(plane.normal).dot(ray_dir)
+    if abs(ndotu) < epsilon:
+        raise RuntimeError("no intersection or line is within plane")
+    w = ray.start - plane.origin
+    si = -np.array(plane.normal).dot(w) / ndotu
+    Psi = w + si * ray_dir + plane.origin
+    return Psi

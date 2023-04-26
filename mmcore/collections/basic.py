@@ -618,7 +618,7 @@ class Orig:
         self._names.append(name)
 
 
-class DoublyNode:
+class DLLNode:
     def __init__(self, data):
         self.data = data
         self.next = None
@@ -627,140 +627,143 @@ class DoublyNode:
 
 # Function to insert at the end
 
-class DoublyCircularLinkedList:
-    last: DoublyNode
+class DoublyLinkedList:
+    def __init__(self):
+        self.start_node = None
 
-    def __init__(self, start: DoublyNode = None):
-        super().__init__()
-        self.start = start
+    # Insert Element to Empty list
+    def append(self, data):
+        self.insert(data)
 
-    def insertEnd(self, value):
-
-        # If the list is empty, create a
-        # single node circular and doubly list
-        if self.start is None:
-            new_node = DoublyNode(0)
-            new_node.data = value
-            new_node.next = new_node.prev = new_node
-            self.start = new_node
-            return
-
-        # If list is not empty
-
-        # Find last node */
-        self.last = self.start.prev
-
-        # Create Node dynamically
-        new_node = DoublyNode(0)
-        new_node.data = value
-
-        # Start is going to be next of new_node
-        new_node.next = self.start
-
-        # Make new node previous of self.start
-        self.start.prev = new_node
-
-        # Make last previous of new node
-        new_node.prev = self.last
-
-        # Make new node next of old last
-        self.last.next = new_node
-
-    # Function to insert Node at the beginning
-    # of the List,
-
-    def insertBegin(self, value):
-
-        # Pointer points to last Node
-        self.last = self.start.prev
-
-        new_node = DoublyNode(0)
-        new_node.data = value  # Inserting the data
-
-        # setting up previous and
-        # next of new node
-        new_node.next = self.start
-        new_node.prev = self.last
-
-        # Update next and previous pointers
-        # of self.start and self.last.
-        self.last.next = self.start.prev = new_node
-
-        # Update self.start pointer
-        self.start = new_node
-
-    # Function to insert node with value as value1.
-    # The new node is inserted after the node with
-    # with value2
-
-    def insertAfter(self, value1, value2):
-
-        new_node = DoublyNode(0)
-        new_node.data = value1  # Inserting the data
-
-        # Find node having value2 and
-        # next node of it
-        temp = self.start
-        while temp.data != value2:
-            temp = temp.next
-        _next = temp.next
-
-        # insert new_node between temp and next.
-        temp.next = new_node
-        new_node.prev = temp
-        new_node.next = _next
-        _next.prev = new_node
-
-    def __repr__(self):
-        return f"{self.display()}"
-
-    def __next__(self):
-        self._temp = self.start
-        if self._temp.next != self.start:
-            self._temp = self._temp.next
-            return self._temp.prev.data
-
+    def insert(self, data):
+        if self.start_node is None:
+            new_node = DNode(data)
+            self.start_node = new_node
         else:
-            raise StopIteration
+            self.insert_end(data)
 
-    def __iter__(self):
+    # Insert element at the end
+    def insert_end(self, data):
+        # Check if the list is empty
+        if self.start_node is None:
+            new_node = DNode(data)
+            self.start_node = new_node
+            return
+        n = self.start_node
+        # Iterate till the next reaches NULL
+        while n.next is not None:
+            n = n.next
+        new_node = DNode(data)
+        n.next = new_node
+        new_node.prev = n
 
-        return self
+    # Delete the elements from the start
+    def delete_at_start(self):
+        if self.start_node is None:
+            print("The Linked list is empty, no element to delete")
+            return
+        if self.start_node.next is None:
+            self.start_node = None
+            return
+        self.start_node = self.start_node.next
+        self.start_prev = None;
+
+    # Delete the elements from the end
+    def delete_at_end(self):
+        # Check if the List is empty
+        if self.start_node is None:
+            print("The Linked list is empty, no element to delete")
+            return
+        if self.start_node.next is None:
+            self.start_node = None
+            return
+        n = self.start_node
+        while n.next is not None:
+            n = n.next
+        n.prev.next = None
+
+    def _find_val(self, v):
+        temp = self.start_node
+        self._i = 0
+        while True:
+            if temp.data == v:
+
+                break
+            elif temp == self.start_node.prev:
+                raise ValueError(f"Value not in list: {v}")
+
+            temp = temp.next
+            self._i += 1
+        return self._i, temp
+
+    def _find_idx(self, i):
+        temp = self.start_node
+        for i in range(i):
+            temp = temp.next
+        return temp
 
     def __getitem__(self, item):
-        return
+        return self._find_idx(item).data
 
-    def __len__(self):
-        *lst, = list(self)
-        return len(lst)
+    def get(self, item):
 
-    def display(self):
+        return self._find_idx(item)
 
-        temp = self.start
+    def index(self, item):
+        i, _ =self._find_val(item)
+        return i
 
-        print("Traversal in forward direction:")
-        while temp.next != self.start:
-            print(temp.data, end=" ")
+    def remove(self, v):
+        if self.start_node is None:
+            print("The Linked list is empty, no element to delete")
+            return
+        temp = self.start_node
+        self._i = 0
+        while True:
+            if temp.data == v:
+
+                break
+            elif temp == self.start_node.prev:
+                raise ValueError(f"Value not in list: {v}")
+
             temp = temp.next
+            self._i += 1
+        n = temp.next
+        p = temp.prev
+        n.prev = p
+        p.next = n
+        del temp
 
-        print(temp.data)
+    # Traversing and Displaying each element of the list
+    def display(self):
+        if self.start_node is None:
+            print("The list is empty")
+            return
+        else:
+            n = self.start_node
+            while n is not None:
+                print("Element is: ", n.data)
+                n = n.next
+        print("\n")
 
-        print("Traversal in reverse direction:")
-        self.last = self.start.prev
-        temp = self.last
-        while temp.prev != self.last:
-            print(temp.data, end=" ")
-            temp = temp.prev
-
-        return temp.data
 
 
 class DNode:
     def __init__(self, data=None):
         self.data = data
+        self.prev = None
+        self.next = None
+
+    def __repr__(self):
+        return f'DNode(...) -> [DNode({self.data})] -> DNode(...)'
+
+class DCNode(DNode):
+    def __init__(self, data=None):
+        self.data = data
         self.prev = self
         self.next = self
-
+    def __repr__(self):
+        return f'DCNode({self.prev.data}) -> [DCNode({self.data})] -> DCNode({self.next.data})'
 
 class DCLLIterator(Iterator):
     def __init__(self, dcll: 'DCLL'):
@@ -850,7 +853,7 @@ class DCLL:
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
 
         if self.head == None:
-            self.head = DNode(data)
+            self.head = DCNode(data)
             self.count = 1
             return
 
@@ -861,7 +864,7 @@ class DCLL:
             for _ in range(index - 1):
                 temp = temp.next
 
-        temp.next.prev = DNode(data)
+        temp.next.prev = DCNode(data)
         temp.next.prev.next, temp.next.prev.prev = temp.next, temp
         temp.next = temp.next.prev
         if (index == 0):
@@ -903,13 +906,13 @@ class DCLL:
         temp = self.head
         for _ in range(index):
             temp = temp.next
-        return temp.data
+        return temp
 
     def __getitem__(self, index):
         val = self.get(index)
         if val is None:
             raise IndexError
-        return val
+        return val.data
 
     def size(self):
         return self.count
@@ -926,8 +929,8 @@ class DCLL:
         return current
 
     def insert_after(self, value1, value2):
-        self.count+=1
-        new_node = DNode(0)
+        self.count += 1
+        new_node = DCNode(0)
         new_node.data = value1  # Inserting the data
 
         # Find node having value2 and
@@ -953,7 +956,7 @@ class DCLL:
         # If the list is empty, create a
         # single node circular and doubly list
         if self.head is None:
-            new_node = DNode(0)
+            new_node = DCNode(0)
             new_node.data = value
             new_node.next = new_node.prev = new_node
             self.start = new_node
@@ -965,7 +968,7 @@ class DCLL:
         self.last = self.head.prev
 
         # Create Node dynamically
-        new_node = DNode(0)
+        new_node = DCNode(0)
         new_node.data = value
 
         # Start is going to be next of new_node
@@ -984,7 +987,7 @@ class DCLL:
         # Pointer points to last Node
         last = self.head.prev
         self.count += 1
-        new_node = DNode(0)
+        new_node = DCNode(0)
         new_node.data = value  # Inserting the data
 
         # setting up previous and
