@@ -627,6 +627,35 @@ class DLLNode:
 
 # Function to insert at the end
 
+
+class DNode:
+    def __init__(self, data=None):
+        self.data = data
+        self.prev = None
+        self.next = None
+
+    def __repr__(self):
+        return f'DNode(...) -> [DNode({self.data})] -> DNode(...)'
+class DLLIterator(Iterator):
+    def __init__(self, dcll: 'DoublyLinkedList'):
+        self._dcll = dcll
+        self._temp = self._dcll.start_node
+        self._i = 0
+
+    def __next__(self):
+
+
+
+        if self._temp is not None:
+            self._temp=self._temp.next
+            return self._temp.prev
+        else:
+
+
+
+
+            raise StopIteration
+
 class DoublyLinkedList:
     def __init__(self):
         self.start_node = None
@@ -638,6 +667,7 @@ class DoublyLinkedList:
     def insert(self, data):
         if self.start_node is None:
             new_node = DNode(data)
+
             self.start_node = new_node
         else:
             self.insert_end(data)
@@ -651,11 +681,14 @@ class DoublyLinkedList:
             return
         n = self.start_node
         # Iterate till the next reaches NULL
-        while n.next is not None:
+        while True:
+            if n.next is None:
+                break
             n = n.next
         new_node = DNode(data)
         n.next = new_node
         new_node.prev = n
+
 
     # Delete the elements from the start
     def delete_at_start(self):
@@ -698,8 +731,15 @@ class DoublyLinkedList:
 
     def _find_idx(self, i):
         temp = self.start_node
-        for i in range(i):
+        self._i = 0
+        while True:
+            if self._i == i or (temp.next is None):
+                break
+
             temp = temp.next
+            self._i += 1
+
+
         return temp
 
     def __getitem__(self, item):
@@ -710,7 +750,7 @@ class DoublyLinkedList:
         return self._find_idx(item)
 
     def index(self, item):
-        i, _ =self._find_val(item)
+        i, _ = self._find_val(item)
         return i
 
     def remove(self, v):
@@ -747,23 +787,15 @@ class DoublyLinkedList:
         print("\n")
 
 
-
-class DNode:
-    def __init__(self, data=None):
-        self.data = data
-        self.prev = None
-        self.next = None
-
-    def __repr__(self):
-        return f'DNode(...) -> [DNode({self.data})] -> DNode(...)'
-
 class DCNode(DNode):
     def __init__(self, data=None):
         self.data = data
         self.prev = self
         self.next = self
+
     def __repr__(self):
         return f'DCNode({self.prev.data}) -> [DCNode({self.data})] -> DCNode({self.next.data})'
+
 
 class DCLLIterator(Iterator):
     def __init__(self, dcll: 'DCLL'):
