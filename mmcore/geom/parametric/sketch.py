@@ -676,11 +676,3 @@ def line_plane_collision(plane: PlaneLinear, ray: Linear, epsilon=1e-6):
 
 
 
-class A:
-    ...
-
-class B(A):
-    ...
-
-class C(A, B):
-    ...
