@@ -387,9 +387,7 @@ class Object3D:
                                  geometries=self._include_geometries,
                                  materials=self._include_materials)
 
-    @property
-    def threejs_type(self):
-        return self.__class__.__name__
+
 
     @property
     def root(self):

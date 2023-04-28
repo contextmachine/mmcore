@@ -1,5 +1,7 @@
 import abc
+import copy
 import dataclasses
+import sys
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
@@ -17,11 +19,10 @@ from mmcore.collections.multi_description import EntityCollection
 
 TOLERANCE = 0.001
 
+T = typing.TypeVar("T")
 
 
-
-
-class ParametricObject:
+class ParametricObject(typing.Generic[T]):
     @abc.abstractmethod
     def evaluate(self, t):
         ...
@@ -58,13 +59,21 @@ class Linear(ParametricObject):
     def divide_distance(self, step):
         tstep = 1 / (self.length / step)
 
-        return self.evaluate(np.arange(self.length // step) * tstep)
+        for i in np.arange(self.length // step) * tstep:
+            yield self.evaluate(i)
+
     def divide_distance_dll(self, step):
         tstep = 1 / (self.length / step)
-        dll = DoublyLinkedList ()
+        dll = DoublyLinkedList()
         for i in np.arange(self.length // step) * tstep:
             dll.append(self.evaluate(i))
         return dll
+
+    def divide_distance_planes(self, step):
+
+        for d in self.divide_distance(step):
+            yield PlaneLinear(d, self.direction)
+
     @property
     def start(self):
         return self.evaluate(0)
@@ -138,7 +147,7 @@ class ProxyDescriptor(typing.Generic[T]):
             return res if res is not None else self.default
 
     def __set__(self, inst: T, v):
-        print(f"event: set {self.proxy_name}/{self.name}->{v}")
+        # print(f"event: set {self.proxy_name}/{self.name}->{v}")
         if not self.no_set:
             try:
 
@@ -266,13 +275,46 @@ class NurbsSurface(ProxyParametricObject):
 
         self._proxy.set_ctrlpts(self.control_points, (self.size_u, self.size_v))
         # self._proxy.ctrlpts=self.control_points
-        # print(self)
+        # #print(self)
 
         self._proxy.degree_u, self._proxy.degree_v = self.degree
 
     def normal_at(self, t):
         return self.proxy.t
 
+
+@dataclasses.dataclass
+class Polyline(ParametricObject):
+    control_points: typing.Union[DCLL, DoublyLinkedList]
+    closed: bool = False
+
+    @classmethod
+    def from_points(cls, pts):
+        closed = False
+        if all(pts[0] == pts[-1]):
+            closed = True
+
+        dll = DCLL()
+        for pt in pts:
+            dll.append(pt)
+        inst = cls(dll)
+        inst.closed = closed
+        return inst
+
+    @property
+    def segments(self):
+        h = self.control_points.head
+        lnr = []
+        for pt in self.control_points:
+            lnr.append(Linear.from_two_points(copy.deepcopy(h.data), copy.deepcopy(h.next.data)))
+            h = h.next
+        return lnr
+
+    def evaluate(self, t):
+        segm, tt = divmod(t, 1)
+        return self.segments[int(segm)].evaluate(tt)
+"""
+"""
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -293,13 +335,10 @@ class PlaneLinear(ParametricObject):
     yaxis: typing.Optional[typing.Iterable[float]] = None
 
     def __post_init__(self):
-        print(unit(self.normal),self.xaxis,self.yaxis)
+        # print(unit(self.normal), self.xaxis, self.yaxis)
         self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
-        self.yaxis =np.cross(unit(self.normal),self.xaxis
-                             )
-
-
-
+        self.yaxis = np.cross(unit(self.normal), self.xaxis
+                              )
 
     def evaluate(self, t):
         if len(t) == 2:
@@ -327,16 +366,33 @@ class PlaneLinear(ParametricObject):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
 
+from enum import Enum
+
+
 @dataclasses.dataclass
 class HyPar4pt(ParametricObject):
     a: typing.Iterable[float]
     b: typing.Iterable[float]
     c: typing.Iterable[float]
     d: typing.Iterable[float]
+
     side_a = property(fget=lambda self: Linear.from_two_points(self.a, self.b))
     side_b = property(fget=lambda self: Linear.from_two_points(self.b, self.c))
     side_c = property(fget=lambda self: Linear.from_two_points(self.d, self.c))
     side_d = property(fget=lambda self: Linear.from_two_points(self.a, self.d))
+    sides_enum: 'typing.Optional[typing.Type[Enum,...]]' = None
+
+    def generate_sides_enum(self):
+        class HypSidesEnum(Enum):
+            A = self.side_a
+            B = self.side_b
+            C = self.side_c
+            D = self.side_d
+
+        self.sides_enum = HypSidesEnum
+
+    def __post_init__(self):
+        self.generate_sides_enum()
 
     def evaluate(self, t):
         def evl(tt):
@@ -363,6 +419,93 @@ class HyPar4pt(ParametricObject):
                 for _v in v:
                     l.append(evl((_u, _v)))
             return EntityCollection(l)
+
+    def intr(self, pln):
+
+        d = []
+        for i in self.polyline.segments:
+            res = line_plane_collision(pln, i)
+
+            if res is not None:
+                re = ClosestPoint(res, i)(x0=0.5, bounds=[(0.0, 1.0)]).t
+                # print("RE", re)
+                if (re == 0.0) or (re == 1.0):
+                    pass
+                else:
+                    d.append(res)
+
+        return d
+
+    @property
+    def polyline(self):
+        return Polyline.from_points([self.a, self.b, self.c, self.d, self.a])
+
+
+@dataclasses.dataclass
+class HypPar4ptGrid(HyPar4pt):
+    def parallel_side_grid(self, step1, side: str = "D"):
+        self._grd = DCLL()
+        side = getattr(self.sides_enum, side).value
+        d = []
+        for pl in side.divide_distance_planes(step1):
+
+            # print("t",dd)
+            r = self.intr(pl)
+            if not (r == []):
+                a, b = r
+                d.append(Linear.from_two_points(a.tolist(), b.tolist()))
+
+        return d
+
+
+@dataclasses.dataclass
+class LineSequence(ParametricObject):
+    axis: typing.Iterable[Linear]
+    @classmethod
+    def from_arr(cls, arr):
+        ax=[]
+        for i in arr:
+            if len(i)>2:
+                ax.append(Polyline(*i))
+            else:
+                ax.append(Linear.from_two_points(*i))
+        return cls(ax)
+
+    def evaluate(self, t) -> Polyline:
+        dl = DCLL()
+        for i in self.axis:
+            dl.append(i.evaluate(t))
+        return Polyline(dl)
+
+    def surf(self, u=3) -> NurbsSurface:
+        pts = []
+        for p in np.linspace(0, 1, u):
+            if isinstance(p, NurbsCurve):
+                pts.append(p.control_points)
+            else:
+                pts.append(np.asarray(list(self.evaluate(p).control_points)
+                       ))
+        print(pts)
+        aa=np.asarray(pts).flatten()
+
+        return NurbsSurface(control_points=aa.reshape((len(aa)//3,3)).tolist(), size_u=u, size_v=len(self.axis))
+
+
+if sys.version_info.minor >= 10:
+    from typing_extensions import Protocol
+else:
+    from typing import Protocol
+
+
+class AbstractBuilder(Protocol):
+
+    def build(self, geoms, params) -> ParametricObject:
+        ...
+
+
+class Loft(AbstractBuilder):
+    def build(self,  geoms, params) -> NurbsSurface:
+        return LineSequence(geoms).surf(u=params)
 
 
 class MinimizeSolution:
@@ -392,6 +535,8 @@ class MinimizeSolution:
 ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
+
+MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
 
 
 class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -432,6 +577,23 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
 
 
 ProxPoints = ProximityPoints  # Alies for me
+from scipy.optimize import fsolve
+
+
+class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
+    @abc.abstractmethod
+    def solution(self, t): ...
+
+    def __call__(self,
+                 x0: np.ndarray = np.asarray([0.5, 0.5]),
+
+                 **kwargs):
+        res = fsolve(self.solution, x0, **kwargs)
+        return self.prepare_solution_response(res)
+
+    @abc.abstractmethod
+    def prepare_solution_response(self, solution):
+        ...
 
 
 class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -457,7 +619,8 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
     def solution(self, t):
         r = self.gm.evaluate(t)
         r = np.array(r).T.flatten()
-        print(self.point, r)
+        # print(self.point, r)
+
         return euclidean(self.point, r)
 
     def prepare_solution_response(self, solution):
@@ -504,8 +667,20 @@ def line_plane_collision(plane: PlaneLinear, ray: Linear, epsilon=1e-6):
     ray_dir = np.array(ray.direction)
     ndotu = np.array(plane.normal).dot(ray_dir)
     if abs(ndotu) < epsilon:
-        raise RuntimeError("no intersection or line is within plane")
+        return None
     w = ray.start - plane.origin
     si = -np.array(plane.normal).dot(w) / ndotu
     Psi = w + si * ray_dir + plane.origin
     return Psi
+
+
+
+
+class A:
+    ...
+
+class B(A):
+    ...
+
+class C(A, B):
+    ...
