@@ -398,7 +398,7 @@ class LineBasicMaterial(BaseMaterial):
     def __hash__(self):
         return super().__hash__()
 @strawberry.type
-class PointsMaterial:
+class PointsMaterial(BaseMaterial):
     uuid:typing.Optional[str] = UidSha256()
     type: str = 'PointsMaterial'
     color: int = 11672217
