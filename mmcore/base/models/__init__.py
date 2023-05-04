@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import uuid
 
-import numpy as np
+
 
 from mmcore.base.models.gql import BaseMaterial
 
@@ -22,8 +22,7 @@ class Point:
     def xyz(self):
         return [self.x, self.y, self.z]
 
-    def __array__(self):
-        return np.array([self.x, self.y, self.z])
+
 
 
 @dataclasses.dataclass

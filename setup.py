@@ -54,6 +54,7 @@ setup(
 'mmcore.base.models',
 'mmcore.base.models.gql',
 'mmcore.base.registry',
+'mmcore.base.registry.fspickle'
 'mmcore.datatools'
 
               ],
