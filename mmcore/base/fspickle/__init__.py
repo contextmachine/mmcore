@@ -1,8 +1,3 @@
-
-objdict = dict()
-geomdict = dict()
-matdict = dict()
-
 # Usage example:
 # from mmcore.base.registry.fcpickle import FSDB
 # from mmcore.base.basic import Object3D
@@ -16,11 +11,10 @@ matdict = dict()
 #                    name=A,
 #                    part=NE) at cf3d55d7-677e-4f96-9e31-b628c3962520
 #
-if __name__ =="__main__":
-    import os
-    PICKLE_FS_ROOT=f"{os.getcwd()}/.pkl"
-    import os
-    import pickleshare
-    FSDB = pickleshare.PickleShareDB(PICKLE_FS_ROOT)
+import os
+import pickleshare
+PICKLE_FS_ROOT=f"{os.getcwd()}/.pkl"
+
+FSDB = pickleshare.PickleShareDB(PICKLE_FS_ROOT)
 
 
