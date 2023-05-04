@@ -1,5 +1,9 @@
 #
+import uuid
+
+NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 import dataclasses
+import hashlib
 import json
 import sys
 
@@ -27,7 +31,7 @@ from mmcore.collections.multi_description import Paginate, ElementSequence
 from mmcore.collections import ParamContainer
 
 Link = namedtuple("Link", ["name", "parent", "child"])
-
+LOG_UUIDS=False
 
 @dataclasses.dataclass
 class Link:
@@ -160,6 +164,7 @@ def graph_from_json(data):
 
 
 from mmcore.base.registry import objdict
+from mmcore.utils.termtools import ColorStr, TermColors, TermAttrs, MMColorStr
 
 objdict = objdict
 
@@ -181,6 +186,132 @@ class MaterialSet(set):
         return item.color in colors
 
 
+parenthashmap = dict()
+
+
+class ObChd:
+    def __init__(self, default=None):
+        self._default = default
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __get__(self, instance, owner):
+        if instance is not None:
+
+            return objdict[parenthashmap[instance.uuid][self._name]]
+
+        else:
+            return self._default
+
+    def __set__(self, instance, value):
+        print(f"set event {instance}.{self._name} = {value}")
+        value._parents.add(instance.uuid)
+        value.origins
+        value._origins.add((instance.uuid, self._name))
+        instance._children.add(value.uuid)
+        try:
+            parenthashmap[instance.uuid] |= {self._name: value.uuid}
+        except KeyError:
+            parenthashmap[instance.uuid] = {self._name: value.uuid}
+
+    def __delete__(self, instance):
+
+        instance._remove_children(parenthashmap[instance.uuid][self._name])
+
+
+class UUIDMissPermException(AttributeError):
+    ...
+
+
+from functools import total_ordering
+ShaSub=namedtuple("ShaSub",["int","hex"])
+
+@total_ordering
+class UUID5mm(str):
+    _sha = ShaSub(0,hex(0))
+    def __set_name__(self, owner, name):
+        self.name=name
+    def __get__(self, instance, owner):
+        instance._sha = self.sha1(self.owner_hash_string(instance._hashdict())).hex
+        instance._uuid=instance._sha
+        return instance._sha
+
+    def __set__(self, instance, val):
+        if not self.is_permanently_override:
+            self.is_permanently_override = True
+            self._perm = val
+            return self.sha1(self.owner_hash_string(instance._hashdict())).hex
+        else:
+            raise UUIDMissPermException(MMColorStr("Cannot set perm hash UUID"))
+
+    def __new__(cls, namespace=NAMESPACE_MMCOREBASE, permanently_val=None, is_permanently_override=False):
+        inst = str.__new__(cls)
+
+        inst.namespace = namespace
+        inst.is_permanently_override = is_permanently_override
+        if permanently_val is not None:
+            inst.is_permanently_override = True
+            inst._perm = permanently_val
+
+        return inst
+
+    def owner_hash_string(self, st):
+        if not self.is_permanently_override:
+
+            return json.dumps(st, cls=ExEncoder)
+        elif hasattr(self, "_perm"):
+            return self._perm
+        else:
+            raise UUIDMissPermException("Permanently UUID missed")
+
+    def sha1(self, inst):
+
+        if self._sha == ShaSub(0,hex(0)) :
+
+            _sha = uuid.uuid5(self.namespace, inst)
+            self._sha=_sha
+        else:
+            _sha = uuid.uuid5(self.namespace, inst)
+            if not _sha.int == self._sha.int:
+                if LOG_UUIDS:
+                    print(MMColorStr(
+                        f"UUID change event: ") + f"{self.__str__()} -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
+                self._sha = _sha
+        if LOG_UUIDS:
+
+            print(MMColorStr(
+                f"UUID request event: ") + f"{self.__str__()} -> \n                          -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
+
+        return self._sha
+
+    def __eq__(self, other):
+        return self.__hash__() == other.__hash__()
+
+    def __le__(self, other):
+        return self.__hash__().__le__(other.__hash__())
+
+    def __hash__(self):
+        return int(self._sha.hex, 16)
+
+    def __bytes__(self):
+        return self.__hex__().encode()
+
+    def __int__(self):
+
+        return self._sha.int
+
+    def __hex__(self):
+        return hex(int(self._sha.hex, 16))
+
+    def __repr__(self):
+        return f"uuid'{self._sha}'"
+
+    def __str__(self):
+
+        return f"{ColorStr(self._sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold)).__str__()}"
+
+
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -196,6 +327,10 @@ class Object3D:
     _include_materials = MaterialSet()
     bind_class = gql_models.GqlObject3D
     _name: str = "Object"
+    _uuid = None
+    _is_uuid_set = False
+    _state=dict()
+
 
     @property
     def strawberry_properties_input(self):
@@ -203,16 +338,18 @@ class Object3D:
 
     def __new__(cls, *args, name="Object", uuid=None, pkl=None, **kwargs) -> 'Object3D':
 
-        cls.objdoct = objdict
+        cls.objdict = objdict
         if pkl:
             obj = pickle.loads(pkl)
             objdict[obj.uuid] = obj
+
             return obj
         if uuid is not None:
             try:
                 return objdict[uuid](*args, **kwargs)
             except KeyError:
                 inst = object.__new__(cls)
+
                 inst._uuid = uuid
                 kw = kwargs.get("dump_dict")
                 if kw.get("properties") is not None:
@@ -220,40 +357,89 @@ class Object3D:
 
                 inst._children = set(kw["children"])
                 inst._parents = set(kw["parents"])
+
                 if "geometry" in kw.keys():
                     inst._geometry = kw["geometry"]
                     inst._material = kw["material"]
-                objdict[uuid] = inst
 
+
+                inst.__init__(*args, **kwargs)
+                objdict[uuid] = inst
                 return inst
 
         else:
             inst = object.__new__(cls)
-
+            inst.__init__()
             inst._parents = set()
             inst._children = set()
             inst.uuid = _uuid.uuid4()
             objdict[inst.uuid] = inst
-            return inst.__call__(*args, **kwargs)
+            return inst
 
     def __init__(self, *args, **kwargs):
         super().__init__()
 
-        self.__call__(*args, **kwargs)
+        self.__call__(*args, **kwargs, trav=False)
+    @property
+    def state(self):
+        return self._state
 
-    def __call__(self, *args, **kwargs) -> 'Object3D':
+    @state.setter
+    def state(self):
+        raise
+    def __call__(self, *args, trav=True,**kwargs) -> 'Object3D':
         if args:
             kwargs |= dict(zip(self.__match_args__[:-len(args)], args))
+        self._state|=kwargs
         for k, v in kwargs.items():
             setattr(self, k, v)
-        return self
+
+        if not trav:
+            return self
+        else:
+            return self.get_child_three()
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(name={self.name}, children: {len(self.children)}) at {self.uuid}"
+        mm,head=MMColorStr(": "), ColorStr(self.__class__.__name__, color=TermColors.blue, term_attrs=(TermAttrs.blink, TermAttrs.bold))
+        t=" "*(mm.real_len+ len(head)+1)
+        aaa=f", \n{t}".join(
+            f'{ColorStr(k, color=TermColors.yellow, term_attrs=[TermAttrs.blink, TermAttrs.bold])}={self.properties[k]}' for k in self.properties.keys())
+
+        return mm+head+f"({aaa}) at {ColorStr(self._uuid ,color=TermColors.cyan, term_attrs=[TermAttrs.blink])}"
 
     @property
     def name(self):
         return self._name
+    @property
+    def dataclass_type(self):
+        return dataclasses.make_dataclass("GenericDataClass"+self.__class__.__name__+str(id(self)), fields=zip(self._state.keys(), [type(v).__name__ for v in self._state.values()], self._state.values()))
+
+    @property
+    def dataclass_instance(self):
+        return self.dataclass_type(**self.state)
+
+    @property
+    def strawberry_type(self):
+        return strawberry.type(self.dataclass_type)
+    @property
+    def strawberry_instance(self):
+        return self.strawberry_type(**self.state)
+
+    @property
+    def straw_inst(self):
+        """
+        alias of self.strawberry_instance
+        :return:   self.strawberry_instance
+        """
+        return self.strawberry_instance
+
+    @property
+    def straw_type(self):
+        """
+        alias of strawberry_type
+        :return:   self.strawberry_type
+        """
+        return self.strawberry_type
 
     @name.setter
     def name(self, v: str):
@@ -342,11 +528,13 @@ class Object3D:
 
     @property
     def properties(self):
-        return {
-            "name": self.name,
+        additional= {
+            'priority': 1.0, # Because its code generated object
             "children_count": len(self._children)
 
         }
+        additional|=self.state
+        return additional
 
     @property
     def gui(self):
@@ -359,6 +547,18 @@ class Object3D:
                 self._include_materials.add(obj._material)
 
     def get_child_three(self):
+        """
+        get_child_three() is a function that takes an object and returns a threejs_root object with all of its children.
+
+        Parameters:
+            self (object): The object to be processed.
+
+        Returns:
+            threejs_root: A threejs_root object with all of the object's children.
+
+        This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
+        @return:
+        """
         self._include_materials = set()
         self._include_geometries = set()
 
@@ -387,10 +587,31 @@ class Object3D:
                                  geometries=self._include_geometries,
                                  materials=self._include_materials)
 
+    def _hashdict(self):
+        return dict(name=self.name)
 
+    def __hash__(self):
+
+        return int(self.uuid,16)
+    @dataclasses.dataclass
+    class Root:
+        object:typing.Any
+        metadata: gql_models.Metadata
+        materials: list[typing.Union[gql_models.Material,
+            gql_models.MeshPhongMaterial,
+            gql_models.PointsMaterial,
+            gql_models.LineBasicMaterial,None]]
+        geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
     @property
-    def root(self):
+    def _root(self):
+        print(self.Root.__annotations__)
+        self.Root.__annotations__['object']={self.bind_class}
+        self.Root.__name__ = f"GenericRoot{id(self)}"
+        return self.Root
+
+    @property
+    def _root_(self):
         target = self
 
         class Root:
@@ -405,15 +626,15 @@ class Object3D:
             geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
         Root.__name__ = f"GenericRoot{id(self)}"
-        return strawberry.type(Root)
+        return strawberry.type(self._root)
 
     @property
     def threejs_type(self):
         return "Object3D"
 
-    def threejs_root(self, dct, geometries=None, materials=None, metadata=None):
+    def threejs_root(self, dct, geometries=None, materials=None, metadata=None, root_callback=lambda x: strawberry.type(x)):
         print(materials, geometries)
-        return self.root(object=dct,
+        return root_callback(self._root)(object=dct,
                          materials=[matdict[mat] for mat in materials] if materials is not None else list(
                              matdict.values()),
                          geometries=[geomdict[geom] for geom in geometries] if geometries is not None else list(
@@ -566,6 +787,45 @@ class Group(Object3D):
         return traverse(obj)
 
 
+class PyT(type):
+
+    def __new__(mcs, name, bases, attrs, param_prefix="_prm_",
+                include_properties=("name", "priority", "children_count"), **kws):
+        dct = dict()
+        kn = list(include_properties)
+
+        for k, v in attrs.items():
+            if k.startswith(param_prefix):
+
+                knew = k.replace(param_prefix, "")
+                dct[knew] = property(fget=lambda self: v, fset=lambda self, val: self.__setattr__(k, val))
+
+                kn.append(knew)
+            else:
+                pass
+
+        attrs["properties"] = property(fget=lambda self: dct, fset=lambda self, val: dct.update(val))
+        attrs["__properties_keys__"] = kn
+        attrs["__properties_dict__"] = dct
+        attrs |= dct
+        tt = type(name, bases, attrs)
+
+        return tt
+
+
+class ParametricObject3D(Object3D, metaclass=PyT, prefix_param="_prm_", include_properties=("name", "children_count")):
+    name: str = ""
+    _prm_a: tuple[float, float, float] = (0.1, 0.3, -0.2)
+    _prm_b: tuple[float, float, float] = (0.1, 0.3, -0.2)
+    _prm_c: tuple[float, float, float] = (0.1, 0.3, -0.2)
+    _prm_d: tuple[float, float, float] = (0.1, 0.3, -0.2)
+    _prm_part: str = "SW"
+    _prm_main_side: str = "D"
+    _prm_start_t: float = 0.0
+    _prm_priority: float = 1.0
+
+
+s1 = ParametricObject3D(name="s1", part="NE")
 def gen_rows(attrs=("uuid", "name", "_children", "_parents", "matrix"), return_dict=True):
     getter = attrgetter(*attrs)
     for k in objdict.keys():
@@ -782,7 +1042,8 @@ class GenericList(list):
 
         __ann = typing.Optional[list[item]]
 
-        return type(f'{__ann}', (list,), {"__new__": __new__, "__origin__": list[item] })
+        return type(f'{__ann}', (list,), {"__new__": __new__, "__origin__": list[item]})
+
 
 class DictSchema:
     """
@@ -837,7 +1098,6 @@ class DictSchema:
 
                     named_f[k] = fld
 
-
                 # print(name, named_f)
                 # print("Generic" + to_camel_case(name),
 
@@ -852,8 +1112,8 @@ class DictSchema:
                     for nm in named_f.keys():
 
                         _name, tp, dflt = named_f[nm]
-                        
-                        print(_name,tp,dflt )
+
+                        print(_name, tp, dflt)
                         if nm in kwargs.keys():
                             if isinstance(kwargs[nm], dict):
                                 kws[nm] = tp(**kwargs[nm])
@@ -863,12 +1123,11 @@ class DictSchema:
                                 try:
                                     kws[nm] = tp(kwargs[nm])
                                 except TypeError:
-                                    kws[nm]=kwargs[nm]
+                                    kws[nm] = kwargs[nm]
 
                         else:
                             kws[nm] = tp(dflt)
                     init(slf, **kws)
-
 
                 dcls.__init__ = _init
                 return name, dcls, lambda: dcls(**obj)
@@ -879,18 +1138,18 @@ class DictSchema:
                 print(nt)
                 if len(nt) == 0:
 
-                    return name, tuple,  lambda:[]
+                    return name, tuple, lambda: []
                 else:
                     g = GenericList[nt[1][0]]
                     if len(nt) == 3:
 
                         print(g)
-                        return name, g, lambda:nt[-1]
+                        return name, g, lambda: nt[-1]
 
 
 
                     else:
-                        return name, g, lambda:[]
+                        return name, g, lambda: []
             elif obj is None:
                 return name, typing.Optional[typing.Any], None
             else:

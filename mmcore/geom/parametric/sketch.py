@@ -5,6 +5,7 @@ import sys
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
+from itertools import starmap
 
 import numpy as np
 from scipy.optimize import minimize
@@ -313,8 +314,11 @@ class Polyline(ParametricObject):
     def evaluate(self, t):
         segm, tt = divmod(t, 1)
         return self.segments[int(segm)].evaluate(tt)
+
+
 """
 """
+
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -365,6 +369,8 @@ class PlaneLinear(ParametricObject):
     def z_linear(self):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
+    def point_at(self, pt):
+        return ClosestPoint(pt,self)
 
 from enum import Enum
 
@@ -440,7 +446,10 @@ class HyPar4pt(ParametricObject):
     def polyline(self):
         return Polyline.from_points([self.a, self.b, self.c, self.d, self.a])
 
-
+IsCoDirectedResponse = namedtuple('IsCoDirectedResponse' ,["do"])
+def is_co_directed(a, b):
+    dp=np.dot(a, b)
+    return dp, dp*(1 if dp//1>=0 else -1)
 @dataclasses.dataclass
 class HypPar4ptGrid(HyPar4pt):
     def parallel_side_grid(self, step1, side: str = "D"):
@@ -456,16 +465,49 @@ class HypPar4ptGrid(HyPar4pt):
                 d.append(Linear.from_two_points(a.tolist(), b.tolist()))
 
         return d
+    """
+    def custom_plane_grid(self, step1, plane: PlaneLinear):
+        self._grd = DCLL()
+        plane.normal
+        dct=[]
+        
+        for side in self.polyline.segments:
+            dt=np.dot(unit(plane.normal),unit(side.direction))
+            startplane=PlaneLinear(side.start,plane.normal)
+            plan
+            for i in np.linspace(0, 1, dt*side.length)
+                startplane.
+        for pt in [self.a, self.b, self.c, self.d]:
+            ans=plane.point_at(pt)
+            a = ans._asdict()
+            a['distance']= ans.distance * np.array(ans.pt-np.array(pt)).dot(plane.normal)
 
+            a["vec"]
+            dct.append(ans)
+        dct.sort(key=lambda x: x.distance)
+
+        plane.point_at()
+        side = getattr(self.sides_enum, self.side).value
+        d = []
+        for pl in side.divide_distance_planes(step1):
+
+            # print("t",dd)
+            r = self.intr(pl)
+            if not (r == []):
+                a, b = r
+                d.append(Linear.from_two_points(a.tolist(), b.tolist()))
+
+        return d"""
 
 @dataclasses.dataclass
 class LineSequence(ParametricObject):
     axis: typing.Iterable[Linear]
+
     @classmethod
     def from_arr(cls, arr):
-        ax=[]
+        ax = []
         for i in arr:
-            if len(i)>2:
+            if len(i) > 2:
                 ax.append(Polyline(*i))
             else:
                 ax.append(Linear.from_two_points(*i))
@@ -484,11 +526,11 @@ class LineSequence(ParametricObject):
                 pts.append(p.control_points)
             else:
                 pts.append(np.asarray(list(self.evaluate(p).control_points)
-                       ))
+                                      ))
         print(pts)
-        aa=np.asarray(pts).flatten()
+        aa = np.asarray(pts).flatten()
 
-        return NurbsSurface(control_points=aa.reshape((len(aa)//3,3)).tolist(), size_u=u, size_v=len(self.axis))
+        return NurbsSurface(control_points=aa.reshape((len(aa) // 3, 3)).tolist(), size_u=u, size_v=len(self.axis))
 
 
 if sys.version_info.minor >= 10:
@@ -504,7 +546,7 @@ class AbstractBuilder(Protocol):
 
 
 class Loft(AbstractBuilder):
-    def build(self,  geoms, params) -> NurbsSurface:
+    def build(self, geoms, params) -> NurbsSurface:
         return LineSequence(geoms).surf(u=params)
 
 
@@ -537,6 +579,7 @@ IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
+
 
 
 class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -576,6 +619,15 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
                                       solution.fun)
 
 
+    def __call__(self, x0: np.ndarray = np.asarray([0.5, 0.5]),
+                 bounds: typing.Optional[typing.Iterable[tuple[float, float]]] = ((0, 1), (0, 1)),
+                 *args,
+                 **kwargs):
+        res = minimize(self.solution, x0, bounds=bounds, **kwargs)
+
+        return self.prepare_solution_response(res)
+
+
 ProxPoints = ProximityPoints  # Alies for me
 from scipy.optimize import fsolve
 
@@ -594,6 +646,7 @@ class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
     @abc.abstractmethod
     def prepare_solution_response(self, solution):
         ...
+
 
 
 class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -674,5 +727,12 @@ def line_plane_collision(plane: PlaneLinear, ray: Linear, epsilon=1e-6):
     return Psi
 
 
+def test_cp():
+    pts = np.random.random((100, 3)).tolist()
+    pts2 = np.random.random((100, 3)).tolist()
+    *res, = starmap(Linear.from_two_points, (pts, pts2))
+    for i in res:
+        for j in res:
 
+            yield ProximityPoints(i, j)()
 

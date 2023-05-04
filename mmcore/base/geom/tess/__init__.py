@@ -79,11 +79,11 @@ class Tessellate(metaclass=ABCMeta):
             self.mesh.material = gql_models.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
                                                                           color=self.color.decimal)
 
-
+import numpy as np
 class TessellateIfc(Tessellate):
     def __init__(self, shape):
         self._shape = shape
-        super().__init__(shape.geometry, color=ColorRGB(*shape.styles[0][:-1]), name=shape.data.name)
+        super().__init__(shape.geometry, color=ColorRGB(*np.abs(np.asarray(shape.styles[0][:-1]))), name=shape.data.name)
 
     def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=True):
         return super().tessellate(compute_edges=False, mesh_quality=1.0, parallel=True)
