@@ -14,3 +14,14 @@ docker/
 .run/
 env.json
 node_modules
+.env
+bin/.env
+build
+build.sh
+push.sh
+run.sh
+test.sh
+.pkl
+docs
+lib
+.graphqlconfig

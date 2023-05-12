@@ -32,7 +32,7 @@ def resolve_pythonocc(conda=Conda.MICROMAMBA):
             sb.Popen(["wget",
                       "http://storage.yandexcloud.net/box.contextmachine.space/share/packages/conda/pythonocc-core.conda"],
                      stdout=sys.stdout, stderr=sys.stderr)
-            proc = sb.Popen([f"{conda.value}", "install", "-n", "base", "--use-local", "pythonocc-core.conda"],
+            proc = sb.Popen([f"{conda.value}", "install","-y", "-n", "base", "--use-local", "pythonocc-core.conda"],
                             stdout=sys.stdout, stderr=sys.stderr)
             proc.communicate()
 
@@ -40,7 +40,7 @@ def resolve_pythonocc(conda=Conda.MICROMAMBA):
 
         case _:
             print(f"\n[mmcore] We are in {pair} (base case)\n---\n")
-            proc = sb.Popen([f"{conda.value}", "install", "-n", "base", "-c", "conda-forge", "pythonocc-core"],
+            proc = sb.Popen([f"{conda.value}", "install", "-y","-n", "base", "-c", "conda-forge", "pythonocc-core"],
                             stdout=sys.stdout, stderr=sys.stderr)
             proc.communicate()
 

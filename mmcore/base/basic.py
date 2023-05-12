@@ -1,4 +1,5 @@
 #
+import os
 import uuid
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
@@ -6,12 +7,7 @@ import dataclasses
 import hashlib
 import json
 import sys
-
 from collections import namedtuple
-
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 from mmcore.base.registry import geomdict, objdict, matdict
 import operator
 
@@ -31,7 +27,8 @@ from mmcore.collections.multi_description import Paginate, ElementSequence
 from mmcore.collections import ParamContainer
 
 Link = namedtuple("Link", ["name", "parent", "child"])
-LOG_UUIDS=False
+LOG_UUIDS = False
+
 
 @dataclasses.dataclass
 class Link:
@@ -50,7 +47,7 @@ class UuidBind:
 
     def __post_init__(self):
         if self.uuid is None:
-            self.uuid = _uuid.uuid4()
+            self.uuid = _uuid.uuid4().__str__()
 
 
 class Orig:
@@ -163,10 +160,7 @@ def graph_from_json(data):
     return a
 
 
-from mmcore.base.registry import objdict
 from mmcore.utils.termtools import ColorStr, TermColors, TermAttrs, MMColorStr
-
-objdict = objdict
 
 
 class GeometrySet(set):
@@ -205,7 +199,7 @@ class ObChd:
             return self._default
 
     def __set__(self, instance, value):
-        print(f"set event {instance}.{self._name} = {value}")
+        # print(f"set event {instance}.{self._name} = {value}")
         value._parents.add(instance.uuid)
         value.origins
         value._origins.add((instance.uuid, self._name))
@@ -225,16 +219,20 @@ class UUIDMissPermException(AttributeError):
 
 
 from functools import total_ordering
-ShaSub=namedtuple("ShaSub",["int","hex"])
+
+ShaSub = namedtuple("ShaSub", ["int", "hex"])
+
 
 @total_ordering
 class UUID5mm(str):
-    _sha = ShaSub(0,hex(0))
+    _sha = ShaSub(0, hex(0))
+
     def __set_name__(self, owner, name):
-        self.name=name
+        self.name = name
+
     def __get__(self, instance, owner):
         instance._sha = self.sha1(self.owner_hash_string(instance._hashdict())).hex
-        instance._uuid=instance._sha
+        instance._uuid = instance._sha
         return instance._sha
 
     def __set__(self, instance, val):
@@ -267,10 +265,10 @@ class UUID5mm(str):
 
     def sha1(self, inst):
 
-        if self._sha == ShaSub(0,hex(0)) :
+        if self._sha == ShaSub(0, hex(0)):
 
             _sha = uuid.uuid5(self.namespace, inst)
-            self._sha=_sha
+            self._sha = _sha
         else:
             _sha = uuid.uuid5(self.namespace, inst)
             if not _sha.int == self._sha.int:
@@ -279,7 +277,6 @@ class UUID5mm(str):
                         f"UUID change event: ") + f"{self.__str__()} -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
                 self._sha = _sha
         if LOG_UUIDS:
-
             print(MMColorStr(
                 f"UUID request event: ") + f"{self.__str__()} -> \n                          -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
 
@@ -312,6 +309,39 @@ class UUID5mm(str):
         return f"{ColorStr(self._sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold)).__str__()}"
 
 
+class State(dict):
+    def __init__(self, follow=(), common=dict()):
+        dict.__init__(self)
+        self.common = common
+        self.follow = set(follow)
+
+    def __set_name__(self, owner, name):
+
+        self.name = name
+
+    def __get__(self, instance, owner):
+        if instance:
+            resp = dict()
+            for k in self.follow:
+                if k in self.common:
+
+                    resp[self.common[k]] = getattr(instance, k)
+                else:
+                    resp[k] = getattr(instance, k, None)
+
+            return resp
+        else:
+            return self
+
+    def __set__(self, instance, value):
+
+        self.follow = set(value)
+        instance._set = self
+
+
+from mmcore.collections import ParamAccessible
+
+
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -329,8 +359,7 @@ class Object3D:
     _name: str = "Object"
     _uuid = None
     _is_uuid_set = False
-    _state=dict()
-
+    _state = dict()
 
     @property
     def strawberry_properties_input(self):
@@ -362,35 +391,31 @@ class Object3D:
                     inst._geometry = kw["geometry"]
                     inst._material = kw["material"]
 
-
                 inst.__init__(*args, **kwargs)
                 objdict[uuid] = inst
                 return inst
 
         else:
             inst = object.__new__(cls)
-            inst.__init__()
+
             inst._parents = set()
             inst._children = set()
-            inst.uuid = _uuid.uuid4()
+            inst._uuid = _uuid.uuid4().__str__()
             objdict[inst.uuid] = inst
+
+            inst.__init__(*args, name=name, **kwargs)
             return inst
 
     def __init__(self, *args, **kwargs):
         super().__init__()
 
         self.__call__(*args, **kwargs, trav=False)
-    @property
-    def state(self):
-        return self._state
 
-    @state.setter
-    def state(self):
-        raise
-    def __call__(self, *args, trav=True,**kwargs) -> 'Object3D':
+    def __call__(self, *args, trav=True, **kwargs) -> 'Object3D':
+
         if args:
             kwargs |= dict(zip(self.__match_args__[:-len(args)], args))
-        self._state|=kwargs
+
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -399,47 +424,39 @@ class Object3D:
         else:
             return self.get_child_three()
 
-    def __repr__(self):
-        mm,head=MMColorStr(": "), ColorStr(self.__class__.__name__, color=TermColors.blue, term_attrs=(TermAttrs.blink, TermAttrs.bold))
-        t=" "*(mm.real_len+ len(head)+1)
-        aaa=f", \n{t}".join(
-            f'{ColorStr(k, color=TermColors.yellow, term_attrs=[TermAttrs.blink, TermAttrs.bold])}={self.properties[k]}' for k in self.properties.keys())
+    def __str__(self):
+        mm = "[mmcore]: "
 
-        return mm+head+f"({aaa}) at {ColorStr(self._uuid ,color=TermColors.cyan, term_attrs=[TermAttrs.blink])}"
+        t = " " * (len("[mmcore]: ") + 1)
+        aaa = f", \n{t}".join(f'{k}={self.properties[k]}' for k in self.properties.keys())
+
+        return mm + f"{self.__class__.__name__}({aaa}) at {self._uuid}"
+
+    def __repr__(self):
+
+        if int(os.getenv("INRHINO")) == 1:
+            mm = "[mmcore]: "
+
+            t = " " * (len("[mmcore]: ") + 1)
+            aaa = f", \n{t}".join(f'{k}={self.properties[k]}' for k in self.properties.keys())
+
+            return mm + f"{self.__class__.__name__}({aaa}) at {self._uuid}"
+
+        mm, head = MMColorStr(": "), ColorStr(self.__class__.__name__, color=TermColors.blue,
+                                              term_attrs=(TermAttrs.blink, TermAttrs.bold))
+        t = " " * (mm.real_len + len(head) + 1)
+        aaa = f", \n{t}".join(
+            f'{ColorStr(k, color=TermColors.yellow, term_attrs=[TermAttrs.blink, TermAttrs.bold])}={self.properties[k]}'
+            for k in self.properties.keys())
+
+        return mm + head + f"({aaa}) at {ColorStr(self._uuid, color=TermColors.cyan, term_attrs=[TermAttrs.blink])}"
+
+    def ToJSON(self, cls=ExEncoder, **kwargs):
+        return json.dumps(self(), cls=cls, **kwargs)
 
     @property
     def name(self):
         return self._name
-    @property
-    def dataclass_type(self):
-        return dataclasses.make_dataclass("GenericDataClass"+self.__class__.__name__+str(id(self)), fields=zip(self._state.keys(), [type(v).__name__ for v in self._state.values()], self._state.values()))
-
-    @property
-    def dataclass_instance(self):
-        return self.dataclass_type(**self.state)
-
-    @property
-    def strawberry_type(self):
-        return strawberry.type(self.dataclass_type)
-    @property
-    def strawberry_instance(self):
-        return self.strawberry_type(**self.state)
-
-    @property
-    def straw_inst(self):
-        """
-        alias of self.strawberry_instance
-        :return:   self.strawberry_instance
-        """
-        return self.strawberry_instance
-
-    @property
-    def straw_type(self):
-        """
-        alias of strawberry_type
-        :return:   self.strawberry_type
-        """
-        return self.strawberry_type
 
     @name.setter
     def name(self, v: str):
@@ -528,12 +545,12 @@ class Object3D:
 
     @property
     def properties(self):
-        additional= {
-            'priority': 1.0, # Because its code generated object
+        additional = {
+            'priority': 1.0,  # Because its code generated object
             "children_count": len(self._children)
 
         }
-        additional|=self.state
+
         return additional
 
     @property
@@ -563,7 +580,7 @@ class Object3D:
         self._include_geometries = set()
 
         def childthree(obj):
-            dct = copy.deepcopy(obj.threejs_repr)
+            dct = obj.threejs_repr
 
             self._add_includes(obj)
 
@@ -577,7 +594,7 @@ class Object3D:
                         del dct['children']
                 return obj.bind_class(**dct)
             else:
-                print(dct)
+                # print(dct)
                 if 'children' in dct:
                     if len(dct.get('children')) == 0:
                         del dct['children']
@@ -592,21 +609,22 @@ class Object3D:
 
     def __hash__(self):
 
-        return int(self.uuid,16)
+        return int(self.uuid, 16)
+
     @dataclasses.dataclass
     class Root:
-        object:typing.Any
+        object: typing.Any
         metadata: gql_models.Metadata
         materials: list[typing.Union[gql_models.Material,
-            gql_models.MeshPhongMaterial,
-            gql_models.PointsMaterial,
-            gql_models.LineBasicMaterial,None]]
+        gql_models.MeshPhongMaterial,
+        gql_models.PointsMaterial,
+        gql_models.LineBasicMaterial, None]]
         geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
     @property
     def _root(self):
-        print(self.Root.__annotations__)
-        self.Root.__annotations__['object']={self.bind_class}
+        # print(self.Root.__annotations__)
+        self.Root.__annotations__['object'] = {self.bind_class}
         self.Root.__name__ = f"GenericRoot{id(self)}"
         return self.Root
 
@@ -632,15 +650,18 @@ class Object3D:
     def threejs_type(self):
         return "Object3D"
 
-    def threejs_root(self, dct, geometries=None, materials=None, metadata=None, root_callback=lambda x: strawberry.type(x)):
-        print(materials, geometries)
+    def threejs_root(self, dct, geometries=None, materials=None, metadata=None,
+                     root_callback=lambda x: strawberry.type(x)):
+        # print(materials, geometries)
         return root_callback(self._root)(object=dct,
-                         materials=[matdict[mat] for mat in materials] if materials is not None else list(
-                             matdict.values()),
-                         geometries=[geomdict[geom] for geom in geometries] if geometries is not None else list(
-                             geomdict.values()),
-                         metadata=metadata if metadata is not None else gql_models.Metadata()
-                         )
+                                         materials=[matdict[mat] for mat in
+                                                    materials] if materials is not None else list(
+                                             matdict.values()),
+                                         geometries=[geomdict[geom] for geom in
+                                                     geometries] if geometries is not None else list(
+                                             geomdict.values()),
+                                         metadata=metadata if metadata is not None else gql_models.Metadata()
+                                         )
 
     @property
     def threejs_repr(self):
@@ -691,6 +712,14 @@ class Object3D:
         self.properties = strawberry.asdict(input)
 
 
+class GroupIterator(typing.Iterator):
+    def __init__(self, seq: typing.Iterable = ()):
+        self._seq = iter(seq)
+
+    def __next__(self):
+        return self._seq.__next__()
+
+
 class Group(Object3D):
     _name: str = "Group"
     chart_class = gql_models.GqlChart
@@ -723,6 +752,9 @@ class Group(Object3D):
     def __len__(self):
         return len(self._children)
 
+    def __iter__(self):
+        return GroupIterator(self._to_list())
+
     @property
     def children_count(self):
         return len(self)
@@ -736,15 +768,21 @@ class Group(Object3D):
             self._children.add(item.uuid)
             item._parents.add(self.uuid)
 
-    def to_list(self):
+    def _to_list(self):
         return list(objdict[child] for child in self._children)
 
+    def _to_ptrlist(self):
+        return list(self._children)
+
     def paginate(self):
-        return Paginate(self.to_list())
+        return Paginate(self._to_list())
 
     def paginate_userdata(self):
         try:
-            return ElementSequence(ElementSequence(ElementSequence(self.to_list())["userData"])["properties"])
+            return ElementSequence(
+                ElementSequence(
+                    ElementSequence(
+                        self._to_list())["userData"])["properties"])
         except:
             return dict()
 
@@ -753,8 +791,9 @@ class Group(Object3D):
 
         return self.paginate_userdata().keys()
 
-    def __len__(self):
-        return self._children.__len__()
+    def __getitem__(self, item):
+
+        return objdict[self._to_ptrlist()[item]]
 
     @property
     def threejs_repr(self):
@@ -785,54 +824,6 @@ class Group(Object3D):
                 return inst
 
         return traverse(obj)
-
-
-class PyT(type):
-
-    def __new__(mcs, name, bases, attrs, param_prefix="_prm_",
-                include_properties=("name", "priority", "children_count"), **kws):
-        dct = dict()
-        kn = list(include_properties)
-
-        for k, v in attrs.items():
-            if k.startswith(param_prefix):
-
-                knew = k.replace(param_prefix, "")
-                dct[knew] = property(fget=lambda self: v, fset=lambda self, val: self.__setattr__(k, val))
-
-                kn.append(knew)
-            else:
-                pass
-
-        attrs["properties"] = property(fget=lambda self: dct, fset=lambda self, val: dct.update(val))
-        attrs["__properties_keys__"] = kn
-        attrs["__properties_dict__"] = dct
-        attrs |= dct
-        tt = type(name, bases, attrs)
-
-        return tt
-
-
-class ParametricObject3D(Object3D, metaclass=PyT, prefix_param="_prm_", include_properties=("name", "children_count")):
-    name: str = ""
-    _prm_a: tuple[float, float, float] = (0.1, 0.3, -0.2)
-    _prm_b: tuple[float, float, float] = (0.1, 0.3, -0.2)
-    _prm_c: tuple[float, float, float] = (0.1, 0.3, -0.2)
-    _prm_d: tuple[float, float, float] = (0.1, 0.3, -0.2)
-    _prm_part: str = "SW"
-    _prm_main_side: str = "D"
-    _prm_start_t: float = 0.0
-    _prm_priority: float = 1.0
-
-
-s1 = ParametricObject3D(name="s1", part="NE")
-def gen_rows(attrs=("uuid", "name", "_children", "_parents", "matrix"), return_dict=True):
-    getter = attrgetter(*attrs)
-    for k in objdict.keys():
-        if return_dict:
-            yield dict(zip(attrs, getter(objdict[k])))
-        else:
-            yield getter(objdict[k])
 
 
 def getattr_(obj):
@@ -994,9 +985,6 @@ def to_camel_case(name: str):
         return "_" + "".join(nm.capitalize() for nm in name.split("_"))
 
 
-from mmcore.collections.traversal import sequence_type
-
-
 class DsDescr:
     def __init__(self, default=None):
         self._default = default
@@ -1036,7 +1024,7 @@ class GenericList(list):
                         try:
                             ll.append(item(**i))
                         except TypeError:
-                            print(item, i)
+                            # print(item, i)
                             ll.append(item(i))
                 return ll
 
@@ -1053,7 +1041,7 @@ class DictSchema:
     >>> B = Group(name="B")
     >>> B.add(A)
     >>> dct = strawberry.asdict(B.get_child_three())
-    >>> print(dct)
+    >>> #print(dct)
     {'object': {'name': 'B', 'uuid': 'bcd5e328-c5e5-4a8f-8381-bb97cb022708', 'userData': {'properties': {'name': 'B', 'children_count': 1}, 'gui': [{'key': 'name', 'id': 'name_chart_linechart_piechart', 'name': 'Name Chart', 'colors': 'default', 'require': ('linechart', 'piechart')}, {'key': 'children_count', 'id': 'children_count_chart_linechart_piechart', 'name': 'Children_count Chart', 'colors': 'default', 'require': ('linechart', 'piechart')}], 'params': None}, 'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 'layers': 1, 'type': 'Group', 'castShadow': True, 'receiveShadow': True, 'children': [{'name': 'A', 'uuid': 'c4864663-67f6-44bb-888a-5f1a1a72e974', 'userData': {'properties': {'name': 'A', 'children_count': 0}, 'gui': None, 'params': None}, 'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 'layers': 1, 'type': 'Object3D', 'castShadow': True, 'receiveShadow': True, 'children': []}]}, 'metadata': {'version': 4.5, 'type': 'Object', 'generator': 'Object3D.toJSON'}, 'materials': [], 'geometries': []}
     >>> ds=DictSchema(dct)
     >>> tp=ds.get_init_default()
@@ -1086,7 +1074,7 @@ class DictSchema:
 
         self.dict_example = dict_example
 
-    def generate_schema(self):
+    def generate_schema(self, callback=lambda x: x):
         def wrap(name, obj):
             if obj is None:
                 return name, typing.Optional[list[dict]], None
@@ -1098,11 +1086,11 @@ class DictSchema:
 
                     named_f[k] = fld
 
-                # print(name, named_f)
-                # print("Generic" + to_camel_case(name),
+                # #print(name, named_f)
+                # #print("Generic" + to_camel_case(name),
 
-                dcls = self.bind("Generic" + to_camel_case(name),
-                                 list(named_f.values()))
+                dcls = callback(self.bind("Generic" + to_camel_case(name),
+                                          list(named_f.values())))
 
                 init = copy.deepcopy(dcls.__init__)
 
@@ -1113,7 +1101,7 @@ class DictSchema:
 
                         _name, tp, dflt = named_f[nm]
 
-                        print(_name, tp, dflt)
+                        # print(_name, tp, dflt)
                         if nm in kwargs.keys():
                             if isinstance(kwargs[nm], dict):
                                 kws[nm] = tp(**kwargs[nm])
@@ -1132,22 +1120,16 @@ class DictSchema:
                 dcls.__init__ = _init
                 return name, dcls, lambda: dcls(**obj)
             elif isinstance(obj, list):
-                # print(name, type(obj), obj)
-
+                # #print(name, type(obj), obj)
                 *nt, = zip(*[wrap(name, o) for o in obj])
-                print(nt)
+                # print(nt)
                 if len(nt) == 0:
-
                     return name, tuple, lambda: []
                 else:
                     g = GenericList[nt[1][0]]
                     if len(nt) == 3:
-
-                        print(g)
+                        # print(g)
                         return name, g, lambda: nt[-1]
-
-
-
                     else:
                         return name, g, lambda: []
             elif obj is None:
@@ -1162,10 +1144,57 @@ class DictSchema:
         return self.generate_schema()
 
     def get_init_default(self):
+
         return self.schema(**self.dict_example)
+
+    def get_init_default_strawberry(self):
+        new_class = strawberry.type(self.schema)
+        return new_class(**self.dict_example)
 
 
 from strawberry.tools import create_type
+
+
+class Delegate:
+    def __init__(self, owner):
+
+        self._owner = owner
+
+    def __call__(self, delegate):
+        self._delegate = delegate
+
+        def _getattr_(inst, item):
+            if not item.startswith("_"):
+                if hasattr(inst.delegate, item):
+                    return getattr(inst.delegate, item)
+
+            return inst.__getattribute__(item)
+
+        self._owner.__getattr__ = _getattr_
+        d = set(dir(self._delegate))
+        d1 = set(dir(self._owner))
+        d.update(d1)
+
+        def _dir_(inst):
+
+            return list(d)
+
+        self._owner.__dir__ = _dir_
+        self._owner.__delegate__ = self
+
+        def wrap(*args, **kwargs):
+            kws2 = {}
+            for k, v in kwargs:
+                if k in self._delegate.__init__.__func__.__code__.co_argnames:
+                    kws2[k] = v
+                    del kwargs[k]
+
+            delegate = self._delegate(**kws2)
+            inst = self._owner(*args, **kwargs)
+            inst.delegate = delegate
+            return inst
+
+        return wrap
 
 
 class DictGqlSchema(DictSchema):
@@ -1182,3 +1211,8 @@ class Object3DWithChildren(Object3D):
             "children": []
         }
         return dct
+
+
+br = Group(name="base_root")
+
+objdict["_"] = br

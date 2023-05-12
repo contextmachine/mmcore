@@ -7,18 +7,20 @@ import typing
 import uuid
 import hashlib
 
+import numpy as np
 import strawberry
 from strawberry.scalars import JSON
 
 from mmcore.base.utils import getitemattr
 from mmcore.base.registry import objdict
+
 hashlib.sha224()
+
 
 class ChildrenDesc:
 
     def __set_name__(self, owner, name):
         self._name = "_" + name
-
 
     def __init__(self, default=None):
         self._default = default
@@ -77,7 +79,7 @@ class ItemSize:
 
 @strawberry.type
 class Position(BufferAttribute):
-    type: str
+    type: str = "Float32Array"
     array: list[float]
     itemSize: int = ItemSize(3)
     normalized: bool = False
@@ -94,6 +96,7 @@ class Color(Position):
 @strawberry.type
 class Normal(Position):
     itemSize: int = ItemSize(3)
+
 
 
 @strawberry.type
@@ -128,6 +131,12 @@ class Attributes3(Attributes1):
 
 
 @strawberry.type
+class Attributes4(Attributes1):
+    position: Position
+    colors: typing.Union[Color, None] = None
+
+
+@strawberry.type
 class BoundingSphere:
     center: list[float]
     radius: float
@@ -152,16 +161,42 @@ class Data1:
 
 
 @strawberry.type
+class PositionOnlyData:
+    attributes: Attributes1
+
+
+@strawberry.type
+class Data3:
+    attributes: Attributes3
+
+
+@strawberry.type
 class BufferGeometry:
     uuid: str
     type: str
     data: typing.Union[Data, Data1] = None
+
+    def __hash__(self):
+        arrs = []
+        for att in self.data:
+            arrs.append(att.array)
+        return int(hashlib.sha1(np.asarray(arrs).flatten().tobytes()).hexdigest(), 16)
 
 
 @strawberry.type
 class SphereBufferGeometry(BufferGeometry):
     radius: typing.Optional[float] = None
     detail: typing.Optional[int] = None
+
+
+@strawberry.type
+class PointsBufferGeometry(BufferGeometry):
+    data: PositionOnlyData
+
+
+@strawberry.type
+class LineBufferGeometry(PointsBufferGeometry):
+    data: PositionOnlyData
 
 
 @strawberry.type
@@ -174,6 +209,11 @@ class GqlUserData:
     properties: typing.Optional[JSON] = None
     gui: list[GqlChart] | None = None
     params: typing.Optional[JSON] = None
+
+
+@strawberry.type
+class LineBufferGeometry(BufferGeometry):
+    type = "LineGeometry"
 
 
 @strawberry.type
@@ -252,11 +292,15 @@ class GqlLine(GqlGeometry):
 class GqlPoints(GqlGeometry):
     type: str = "Points"
 
+
 import zlib
+
+
 class UidSha256:
-    def __init__(self, default='',concrete_override:str=None):
+    def __init__(self, default='', concrete_override: str = None):
         self.concrete_override = concrete_override
-        self._default= default
+        self._default = default
+
     def __get__(self, inst, own):
         if inst:
             if self.concrete_override is not None:
@@ -266,38 +310,41 @@ class UidSha256:
                 return hashlib.sha256(self.to_bytes(inst)).hexdigest()
         else:
             return self._default
-    def __set_name__(self, owner, name):
-        self.name=name
 
+    def __set_name__(self, owner, name):
+        self.name = name
 
     def to_bytes(self, inst):
 
-        d=dict(inst.__dict__)
+        d = dict(inst.__dict__)
         if 'uuid' in d.keys():
             del d['uuid']
         if self.name in d.keys():
             del d[self.name]
-        s=[]
-        for k,v in d.items():
-                if hasattr(v, self.name):
+        s = []
+        for k, v in d.items():
+            if hasattr(v, self.name):
 
-
-                    s.append(f'{k}:{getattr(v,self.name)}')
-                elif type(v).__name__ in ['str','int','bytes','float','bool']:
-                    s.append(f'{k}:{v}')
-                elif isinstance(v, typing.Iterable):
-                    s.append(f'{k}:{",".join([self.to_bytes(vv) for vv in v])}')
-                elif isinstance(v, dict):
-                    s.append(",".join([f'{k}={self.to_bytes(v)}' for k, v in v.items()]).encode())
-                else:
-                     s.append(f'{k}:{v.__repr__()}')
+                s.append(f'{k}:{getattr(v, self.name)}')
+            elif type(v).__name__ in ['str', 'int', 'bytes', 'float', 'bool']:
+                s.append(f'{k}:{v}')
+            elif isinstance(v, typing.Iterable):
+                s.append(f'{k}:{",".join([self.to_bytes(vv) for vv in v])}')
+            elif isinstance(v, dict):
+                s.append(",".join([f'{k}={self.to_bytes(v)}' for k, v in v.items()]).encode())
+            else:
+                s.append(f'{k}:{v.__repr__()}')
         return ','.join(s).encode()
 
     def __set__(self, instance, value):
         ...
-        #self.concrete_override=value
+        # self.concrete_override=value
+
+
 import pprint
-def compare_content(self,other, verbose=False):
+
+
+def compare_content(self, other, verbose=False):
     d = dict(self.__dict__)
     d2 = dict(other.__dict__)
 
@@ -313,6 +360,7 @@ def compare_content(self,other, verbose=False):
         pprint.pprint(dict(zip(ks, zip(r, vls))))
     return dict(zip(ks, r))
 
+
 @dataclasses.dataclass
 class BaseMaterial:
     color: int
@@ -320,7 +368,8 @@ class BaseMaterial:
 
     opacity: float = 1.0
     transparent: bool = False
-    uuid:typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = UidSha256()
+
     def __post_init__(self):
         if self.type is None:
             self.type = self.__class__.__name__
@@ -335,13 +384,18 @@ class BaseMaterial:
 
     def __hash__(self):
         return int(self.uuid, 16)
+from enum import Enum
+@strawberry.enum
+class Materials( Enum):
 
-
+    PointsMaterial = 'PointsMaterial'
+    LineBasicMaterial = 'LineBasicMaterial'
+    MeshPhongMaterial = 'MeshPhongMaterial'
 
 @strawberry.type
 class Material(BaseMaterial):
     color: int
-    type: str = 'Material'
+    type: Materials
     uuid: typing.Optional[str] = UidSha256()
     reflectivity: typing.Optional[float] = None
     refractionRatio: typing.Optional[float] = None
@@ -372,10 +426,12 @@ class Material(BaseMaterial):
 
     def __hash__(self):
         return super().__hash__()
+
+
 @strawberry.type
 class LineBasicMaterial(BaseMaterial):
-    uuid:typing.Optional[str] = UidSha256()
-    type: str = "LineBasicMaterial"
+    uuid: typing.Optional[str] = UidSha256()
+    type: Materials = Materials.LineBasicMaterial
     color: int = 16724838
     depthFunc: int = 3
     depthTest: bool = True
@@ -392,19 +448,22 @@ class LineBasicMaterial(BaseMaterial):
     linewidth: float = 2.0
     opacity: float = 1.0
     transparent: bool = False
+
     def __eq__(self, other):
         return super().__eq__(other)
 
     def __hash__(self):
         return super().__hash__()
+
+
 @strawberry.type
 class PointsMaterial(BaseMaterial):
-    uuid:typing.Optional[str] = UidSha256()
-    type: str = 'PointsMaterial'
+    uuid: typing.Optional[str] = UidSha256()
+    type: Materials = Materials.PointsMaterial
     color: int = 11672217
-    size: int = 1
-    sizeAttenuation: bool = True
-    depthFunc: int = 3
+    size: float = 5
+    sizeAttenuation: bool = False
+    depthFunc: int = 1
     depthTest: bool = True
     depthWrite: bool = True
     colorWrite: bool = True
@@ -416,11 +475,15 @@ class PointsMaterial(BaseMaterial):
     stencilFail: int = 7680
     stencilZFail: int = 7680
     stencilZPass: int = 7680
+
     def __eq__(self, other):
         return super().__eq__(other)
+
     def __hash__(self):
         return super().__hash__()
-from enum import Enum
+
+
+
 
 from mmcore.geom.materials import ColorRGB
 
@@ -429,7 +492,7 @@ from mmcore.geom.materials import ColorRGB
 class MeshPhongMaterial(BaseMaterial):
     name: str = "Default"
     color: int
-    type: str = "MeshPhongMaterial"
+    type: Materials = Materials.MeshPhongMaterial
     emissive: int = 0
     specular: int = 1118481
     shininess: int = 30
@@ -449,20 +512,18 @@ class MeshPhongMaterial(BaseMaterial):
     stencilZFail: int = 7680
     stencilZPass: int = 7680
     flatShading: bool = True
-    uuid:typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = UidSha256()
 
     def __post_init__(self):
-
         self.uuid = uuid.uuid4().__str__()
+
     def __hash__(self):
         return super().__hash__()
+
     def __eq__(self, other):
         return super().__eq__(other)
-@strawberry.enum
-class Materials(Enum):
-    PointsMaterial = 'PointsMaterial'
-    LineBasicMaterial = 'LineBasicMaterial'
-    MeshPhongMaterial = 'MeshPhongMaterial'
+
+
 
 
 @strawberry.input
