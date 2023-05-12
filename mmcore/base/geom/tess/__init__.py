@@ -1,9 +1,9 @@
 import json
-import uuid
+
 from abc import ABCMeta
 
 from OCC.Core.Tesselator import ShapeTesselator
-
+import uuid as _uuid
 
 from mmcore.base.basic import Group
 from mmcore.base.geom import Line, create_buffer_from_dict, Mesh, ColorRGB
@@ -27,7 +27,7 @@ class Tessellate(metaclass=ABCMeta):
                           mesh_quality=mesh_quality,
                           parallel=parallel)
 
-        _uuid = uuid.uuid4().__str__()
+        __uuid = _uuid.uuid4().__str__()
 
         self.mesh.geometry = create_buffer_from_dict(
 
@@ -51,8 +51,8 @@ class Tessellate(metaclass=ABCMeta):
                     edge_point_set.append(self.tess.GetEdgeVertex(i_edge, i_vert))
                 # write to file
                 ln = Line(name=f"edge-{i_edge}")
-                ln.geometry = export_edgedata_to_json(uuid.uuid4().__str__(), edge_point_set)
-                ln.material = generate_edges_material(uuid.uuid4().__str__(), color=ColorRGB(0, 0, 0), linewidth=1.0)
+                ln.geometry = export_edgedata_to_json(_uuid.uuid4().__str__(), edge_point_set)
+                ln.material = generate_edges_material(_uuid.uuid4().__str__(), color=ColorRGB(0, 0, 0), linewidth=1.0)
                 grp.add(ln)
 
         return self.mesh
