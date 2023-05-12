@@ -1,22 +1,20 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from __future__ import annotations
 
-import copy
-import json
 import uuid
 from collections import namedtuple
 from enum import Enum
-from typing import Any, Optional
+
 
 import numpy as np
-import pydantic
-from OCC.Core.Tesselator import ShapeTesselator
-from OCC.Extend.TopologyUtils import discretize_edge, discretize_wire, is_edge, is_wire
-from pydantic.main import ModelMetaclass
+
+
 from pydantic.types import UUID4, conlist
 from scipy.spatial import distance as spdist
 
-from mmcore.geom.materials import MeshPhongBasic
+
+
+from mmcore.geom.vectors import unit
 
 
 class ThreeTypes(str, Enum):
@@ -26,14 +24,22 @@ class ThreeTypes(str, Enum):
     BufferGeometry = "BufferGeometry"
 
 
-ThreeTransformMatrix = conlist(float | int, min_items=16, max_items=16)
+ThreeTransformMatrix = conlist(float, min_items=16, max_items=16)
 
 zero_transform = ThreeTransformMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
 
+import math
 
 
+def degtorad(deg):
+    return deg * (math.pi / 180)
 
-def area_2d(pts: list | np.ndarray):
+
+def radtodeg(rad):
+    return rad / (math.pi / 180)
+
+
+def area_2d(pts):
     """
 
     @param pts: array like [[ 1., 2.],[ 0., 0.],[ -1.33, 0.], ...],
@@ -47,9 +53,27 @@ def area_2d(pts: list | np.ndarray):
     return area
 
 
+def triangle_normal(p1, p2, p3):
+    Ax, Ay, Az = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+    Bx, By, Bz = p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]
+
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx
+    return Nx, Ny, Nz
 
 
-def get_mesh_uv(msh) : return [(i.X, i.Y) for i in list(msh.TextureCoordinates)]
+def triangle_unit_normal(p1, p2, p3):
+    Ax, Ay, Az = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+    Bx, By, Bz = p3[0] - p1[0], p3[1] - p1[1], p3[2] - p1[2]
+
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx
+    return unit(np.array([Nx, Ny, Nz]))
+
+
+def get_mesh_uv(msh): return [(i.X, i.Y) for i in list(msh.TextureCoordinates)]
 
 
 def get_np_mesh_uv(msh) -> np.ndarray: return np.asarray(get_mesh_uv(msh))
@@ -121,7 +145,6 @@ def mesh_decomposition(msh):
         llst.append(lst)
 
     return llst, vertss, normals
-
 
 def rhino_mesh_to_topology(input_mesh):
     indices, verts, normals = mesh_decomposition(input_mesh)

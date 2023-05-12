@@ -21,7 +21,7 @@ class ColorRGB(tuple):
             return inst
         else:
 
-            ss = np.array(iterable)
+            ss = np.array(list(iterable))
             dd = np.array(np.round(ss * 255), dtype=int).tolist()
 
             inst = tuple.__new__(cls, tuple(dd))
@@ -150,6 +150,7 @@ class MaterialType(type):
     def __new__(mcs, name, bases, dct, **kwargs):
         dct |= kwargs
         cls = super().__new__(mcs, name, bases, dct)
+
 
         return cls
 

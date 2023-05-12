@@ -636,6 +636,8 @@ class DNode:
 
     def __repr__(self):
         return f'DNode(...) -> [DNode({self.data})] -> DNode(...)'
+
+
 class DLLIterator(Iterator):
     def __init__(self, dcll: 'DoublyLinkedList'):
         self._dcll = dcll
@@ -644,17 +646,13 @@ class DLLIterator(Iterator):
 
     def __next__(self):
 
-
-
         if self._temp is not None:
-            self._temp=self._temp.next
+            self._temp = self._temp.next
             return self._temp.prev
         else:
 
-
-
-
             raise StopIteration
+
 
 class DoublyLinkedList:
     def __init__(self):
@@ -688,7 +686,6 @@ class DoublyLinkedList:
         new_node = DNode(data)
         n.next = new_node
         new_node.prev = n
-
 
     # Delete the elements from the start
     def delete_at_start(self):
@@ -738,7 +735,6 @@ class DoublyLinkedList:
 
             temp = temp.next
             self._i += 1
-
 
         return temp
 
@@ -852,7 +848,16 @@ class DCLL:
 
     """
 
+    @classmethod
+    def from_list(cls, seq):
+        lst = cls()
+        for s in seq:
+            lst.append(s)
+
+        return lst
+
     def __init__(self):
+
         self.head = None
         self.count = 0
         self._temp = self.head

@@ -49,13 +49,11 @@ setup(
               'mmcore.gql.pg',
               'mmcore.gql.templates',
               'mmcore.base',
-              'mmcore.base.basic',
-              'mmcore.base.geom'
-'mmcore.base.models',
-'mmcore.base.models.gql',
-'mmcore.base.registry',
-'mmcore.base.registry.fspickle'
-'mmcore.datatools'
+              'mmcore.base.geom',
+            'mmcore.base.models',
+                'mmcore.base.models.gql',
+                'mmcore.base.registry',
+                'mmcore.datatools'
 
               ],
     url='',

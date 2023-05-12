@@ -1,29 +1,39 @@
 import abc
 import copy
 import dataclasses
+import math
 import sys
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from itertools import starmap
 
+import mmcore
+from mmcore.base import geomdict
+from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, Mesh
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
+from mmcore.base.geom.materials import ColorRGB
+from mmcore.base.models.gql import MeshPhongMaterial
 
 from mmcore.base.basic import Group
 from mmcore.base.geom import LineObject
 from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
-from mmcore.collections.multi_description import EntityCollection
+from mmcore.collections.multi_description import EntityCollection, ElementSequence
+
+import uuid as _uuid
+from geomdl.operations import normal, tangent
 
 TOLERANCE = 0.001
 
 T = typing.TypeVar("T")
 
 
-class ParametricObject(typing.Generic[T]):
+@typing.runtime_checkable
+class ParametricObject(typing.Protocol[T]):
     @abc.abstractmethod
     def evaluate(self, t):
         ...
@@ -87,6 +97,8 @@ class Linear(ParametricObject):
     def direction(self):
         return self.end - self.start
 
+
+class ParametricLineObject():...
 
 def hhp():
     pts = [[-220175.307469, -38456.999234, 20521],
@@ -175,7 +187,7 @@ class ProxyParametricObject(ParametricObject):
         except AttributeError as err:
             self.prepare_proxy()
             return self._proxy
-
+    def tessellate(self):...
 
 @dataclasses.dataclass
 class NurbsCurve(ProxyParametricObject):
@@ -226,9 +238,23 @@ class NurbsCurve(ProxyParametricObject):
             self.prepare_proxy()
             return self._proxy
 
+    def tessellate(self):
+        ...
+from mmcore.collections import curry
+
+
+class ProxyMethod:
+    def __init__(self, fn):
+        self.fn = curry(fn)
+        self.name = fn.__name__
+
+    def __get__(self, instance, owner):
+        return self.fn(instance)
+
 
 @dataclasses.dataclass
 class NurbsSurface(ProxyParametricObject):
+    _proxy = NURBS.Surface()
     control_points: typing.Iterable[typing.Iterable[float]]
     degree: tuple = ProxyDescriptor(proxy_name="degree", default=(3, 3))
     delta: float = 0.025
@@ -242,7 +268,6 @@ class NurbsSurface(ProxyParametricObject):
     knots: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector", no_set=True)
     domain: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="domain", no_set=True)
     trims: tuple = ()
-    _proxy = NURBS.Surface()
 
     @property
     def proxy(self):
@@ -274,14 +299,74 @@ class NurbsSurface(ProxyParametricObject):
 
     def prepare_proxy(self):
 
-        self._proxy.set_ctrlpts(self.control_points, (self.size_u, self.size_v))
+        self._proxy.set_ctrlpts(list(self.control_points), (self.size_u, self.size_v))
         # self._proxy.ctrlpts=self.control_points
         # #print(self)
 
         self._proxy.degree_u, self._proxy.degree_v = self.degree
 
     def normal_at(self, t):
-        return self.proxy.t
+        return normal(self.proxy, t)
+
+    def tangent_at(self, t):
+        return tangent(self.proxy, t)
+
+    def tessellate(self, uuid=None):
+        self.proxy.tessellate()
+        vertseq = ElementSequence(self._proxy.vertices)
+        faceseq = ElementSequence(self._proxy.faces)
+        uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
+        normals = [v for p, v in normal(self._proxy, uv.tolist())]
+        if uuid is None:
+            uuid=_uuid.uuid4().__str__()
+        return MeshBufferGeometryBuilder(vertices=np.array(vertseq['data']).flatten(),
+                                         normals=np.array(normals).flatten(),
+                                         indices=np.array(faceseq["vertex_ids"]).flatten(),
+                                         uv=uv,
+                                         uuid=uuid)
+
+
+class NurbsSurfaceGeometry(Mesh):
+    material_type = MeshPhongMaterial
+    castShadow: bool = True
+    receiveShadow: bool = True
+    geometry_type = MeshBufferGeometryBuilder
+
+    def __new__(cls, *args, color=ColorRGB(0, 255, 40), control_points=(), **kwargs):
+        inst = super().__new__(cls, *args, material=MeshPhongMaterial(color=color.decimal), **kwargs)
+        inst.solve_proxy_view(control_points)
+
+        return inst
+
+    def __call__(self, *args, material=None, color=None, **kwargs):
+        if material is None:
+            if color is not None:
+                self.color = color
+
+                self.material = self.material_type(color=color.decimal)
+            else:
+                self.color = ColorRGB(125, 125, 125)
+                self.material = self.material_type(color=self.color.decimal)
+        super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
+
+    def solve_proxy_view(self, control_points, **kwargs):
+        arr = np.array(control_points)
+        su, sv, b = arr.shape
+        degu = su - 1 if su >= 4 else 3
+        degv = sv - 1 if sv >= 4 else 3
+
+        self._proxy = NurbsSurface(control_points=arr.reshape((su * sv, b)).tolist(),
+                                   size_u=su,
+                                   size_v=sv,
+                                   degree_u=degu,
+                                   degree_v=degv,
+                                   **kwargs)
+        self.solve_geometry()
+
+    def solve_geometry(self):
+        self._geometry = self.uuid + "-geom"
+
+        geomdict[self._geometry] = self._proxy.tessellate(uuid=self._geometry).create_buffer()
 
 
 @dataclasses.dataclass
@@ -314,10 +399,6 @@ class Polyline(ParametricObject):
     def evaluate(self, t):
         segm, tt = divmod(t, 1)
         return self.segments[int(segm)].evaluate(tt)
-
-
-"""
-"""
 
 
 @dataclasses.dataclass
@@ -370,7 +451,8 @@ class PlaneLinear(ParametricObject):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
     def point_at(self, pt):
-        return ClosestPoint(pt,self)
+        return ClosestPoint(pt, self)
+
 
 from enum import Enum
 
@@ -446,10 +528,15 @@ class HyPar4pt(ParametricObject):
     def polyline(self):
         return Polyline.from_points([self.a, self.b, self.c, self.d, self.a])
 
-IsCoDirectedResponse = namedtuple('IsCoDirectedResponse' ,["do"])
+
+IsCoDirectedResponse = namedtuple('IsCoDirectedResponse', ["do"])
+
+
 def is_co_directed(a, b):
-    dp=np.dot(a, b)
-    return dp, dp*(1 if dp//1>=0 else -1)
+    dp = np.dot(a, b)
+    return dp, dp * (1 if dp // 1 >= 0 else -1)
+
+
 @dataclasses.dataclass
 class HypPar4ptGrid(HyPar4pt):
     def parallel_side_grid(self, step1, side: str = "D"):
@@ -465,6 +552,7 @@ class HypPar4ptGrid(HyPar4pt):
                 d.append(Linear.from_two_points(a.tolist(), b.tolist()))
 
         return d
+
     """
     def custom_plane_grid(self, step1, plane: PlaneLinear):
         self._grd = DCLL()
@@ -498,6 +586,7 @@ class HypPar4ptGrid(HyPar4pt):
                 d.append(Linear.from_two_points(a.tolist(), b.tolist()))
 
         return d"""
+
 
 @dataclasses.dataclass
 class LineSequence(ParametricObject):
@@ -545,7 +634,39 @@ class AbstractBuilder(Protocol):
         ...
 
 
-class Loft(AbstractBuilder):
+class GeomDesc:
+    def __init__(self, default=None, cls=LineSequence):
+        self.default = default
+        self._cls = cls
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, inst, own=None):
+        if inst is None:
+            return self.default
+        return self._cls(getattr(inst, "_" + self.name))
+
+    def __set__(self, inst, v):
+        setattr(inst, "_" + self.name, v)
+
+
+class Loft:
+    geoms = GeomDesc()
+
+    def __call__(self, geoms):
+        geoms_seq = LineSequence(geoms)
+        ax = geoms.axis[0]
+        if hasattr(ax, "control_points"):
+            size_u = len(self.geoms.axis)
+            size_v = len(ax.control_points)
+
+        else:
+            size_u = len(self.geoms.axis)
+            size_v = 2
+
+        return geoms_seq.surf(size_u)
+
     def build(self, geoms, params) -> NurbsSurface:
         return LineSequence(geoms).surf(u=params)
 
@@ -579,7 +700,6 @@ IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
-
 
 
 class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -618,7 +738,6 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
                                       solution.x,
                                       solution.fun)
 
-
     def __call__(self, x0: np.ndarray = np.asarray([0.5, 0.5]),
                  bounds: typing.Optional[typing.Iterable[tuple[float, float]]] = ((0, 1), (0, 1)),
                  *args,
@@ -646,7 +765,6 @@ class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
     @abc.abstractmethod
     def prepare_solution_response(self, solution):
         ...
-
 
 
 class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -679,7 +797,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
     def prepare_solution_response(self, solution):
         return self.solution_response([self.gm.evaluate(solution.x)], solution.x, solution.fun)
 
-    def __call__(self, x0=[0.5], **kwargs):
+    def __call__(self, x0=(0.5,), **kwargs):
         return super().__call__(x0, **kwargs)
 
 
@@ -733,6 +851,4 @@ def test_cp():
     *res, = starmap(Linear.from_two_points, (pts, pts2))
     for i in res:
         for j in res:
-
             yield ProximityPoints(i, j)()
-

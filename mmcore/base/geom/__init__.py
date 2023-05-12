@@ -1,14 +1,16 @@
+import abc
 import dataclasses
 import json
 
 import typing
+import typing_extensions
 
 import uuid as muuid
-
+import uuid as _uuid
 import numpy as np
 import scipy.spatial.distance as spdist
 import strawberry
-
+from typing_extensions import runtime_checkable
 import mmcore.base.models.gql
 from mmcore.base.basic import Object3D, Group
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
@@ -24,9 +26,36 @@ from mmcore.base.registry import geomdict, matdict
 from mmcore.collections.multi_description import ElementSequence
 
 
-class MeshBufferGeometry:
+@runtime_checkable
+class BufferGeometryBuilder(typing.Protocol):
+    choices = {
+        '000': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
+        '100': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes3),
+        '110': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes2),
+        '111': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2)
+    }
+
+    def create_buffer(self, uuid: typing.Optional[str] = None) -> mmcore.base.models.gql.BufferGeometry: ...
+
+
+def _buff_attr_checker(builder, name, attributes, cls):
+    value = getattr(builder, name)
+    if value is not None:
+        attributes["normal"] = cls(**{
+            "array": np.asarray(value, dtype=float).flatten().tolist(),
+            "type": "Float32Array",
+            "normalized": False
+        })
+
+
+class MeshBufferGeometryBuilder(BufferGeometryBuilder):
+    _uv = None
+    _vertices = None
+    _normals = None
+    _indices = None
+
     @classmethod
-    def from_three(cls, dct: dict) -> 'MeshBufferGeometry':
+    def from_three(cls, dct: dict) -> 'MeshBufferGeometryBuilder':
         buff = create_buffer_from_dict(dct)
         return cls(indices=parse_attribute(buff.data.index),
                    vertices=parse_attribute(buff.data.attributes.position),
@@ -60,38 +89,53 @@ class MeshBufferGeometry:
     def indices(self):
         return self._indices
 
-    def create_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
-        return mmcore.base.models.gql.BufferGeometry(**{
-            "uuid": self.uuid,
-            "type": "BufferGeometry",
-            "data": mmcore.base.models.gql.Data(**{
-                "attributes": mmcore.base.models.gql.Attributes(**{
+    def create_buffer(self, uuid: str = None) -> mmcore.base.models.gql.BufferGeometry:
+        selector = ['0', '0', '0']  # norm,uv,index
+        attributes = {
+            "position": mmcore.base.models.gql.Position(**{
+                "array": np.asarray(self.vertices, dtype=float).flatten().tolist(),
+                "itemSize": 3,
+                "type": "Float32Array",
+                "normalized": False
+            }),
+        }
+        data = {}
 
-                    "normal": mmcore.base.models.gql.Normal(**{
-                        "array": np.asarray(self.normals, dtype=float).flatten().tolist(),
-                        "itemSize": 3,
-                        "type": "Float32Array",
-                        "normalized": False
-                    }),
-                    "position": mmcore.base.models.gql.Position(**{
-                        "array": np.asarray(self.vertices, dtype=float).flatten().tolist(),
-                        "itemSize": 3,
-                        "type": "Float32Array",
-                        "normalized": False
-                    }),
-                    "uv": mmcore.base.models.gql.Uv(**{
-                        'itemSize': 2,
-                        "array": np.asarray(self.uv, dtype=float).flatten().tolist(),
-                        "type": "Float32Array",
-                        "normalized": False
-
-                    }),
-
-                }),
-                "index": mmcore.base.models.gql.Index(**dict(type='Uint16Array',
-                                                             array=np.asarray(self.indices,
-                                                                              dtype=int).flatten().tolist()))
+        if self.normals is not None:
+            selector[0] = '1'
+            attributes["normal"] = mmcore.base.models.gql.Normal(**{
+                "array": np.asarray(self.normals, dtype=float).flatten().tolist(),
+                "itemSize": 3,
+                "type": "Float32Array",
+                "normalized": False
             })
+
+        if self.uv is not None:
+            selector[1] = '1'
+            attributes["uv"] = mmcore.base.models.gql.Uv(**{
+                'itemSize': 2,
+                "array": np.array(self.uv, dtype=float).flatten().tolist(),
+                "type": "Float32Array",
+                "normalized": False
+            })
+
+        if self.indices is not None:
+            print(self.indices)
+
+            selector[2] = '1'
+            data["index"] = mmcore.base.models.gql.Index(**dict(type='Uint16Array',
+                                                                array=np.asarray(self.indices,
+                                                                                 dtype=int).flatten().tolist()))
+        _data, _attribs = self.choices["".join(selector)]
+        data['attributes'] = _attribs(**attributes)
+        if uuid is None:
+            uuid = self.uuid
+
+        # print(selector)
+        return mmcore.base.gql_models.BufferGeometry(**{
+            "uuid": uuid,
+            "type": "BufferGeometry",
+            "data": _data(**data)
         })
 
 
@@ -107,27 +151,24 @@ class GeometryObject(Object3D):
     we do not recommend doing so.
     """
     bind_class = GqlGeometry
-    material_class = Material
+    material_type = Material
     _material: typing.Optional[str] = None
     _geometry: typing.Optional[str] = None
     color: typing.Optional[ColorRGB] = None
-
-    def commit(self):
-        ...
-
-    def solve(self):
-        return None
+    _children = ()
 
     def __call__(self, *args, geometry=None, material=None, **kwargs):
-        super().__call__(*args, **kwargs)
-
+        super().__call__(self, *args, **kwargs)
+        if self.uuid is None:
+            self.uuid = _uuid.uuid4().__str__()
         if (material is None) and (self.color is not None):
-            self.material = self.material_class(color=self.color.decimal)
+            self.material = self.material_type(color=self.color.decimal)
         elif material is not None:
             self.material = material
         if geometry is not None:
             self.geometry = geometry
-        return self
+
+        return self.get_child_three()
 
     @property
     def geometry(self) -> mmcore.base.models.gql.BufferGeometry:
@@ -141,7 +182,7 @@ class GeometryObject(Object3D):
         @return: mmcore.base.models.BufferGeometry
 
         """
-
+        self.solve_geometry()
         return geomdict[self._geometry]
 
     @geometry.setter
@@ -205,7 +246,7 @@ class GeometryObject(Object3D):
         elif isinstance(v, dict):
             if 'metadata' in v:
                 v.pop('metadata')
-            material = self.material_class(**v)
+            material = self.material_type(**v)
         else:
 
             material = v
@@ -232,9 +273,13 @@ class GeometryObject(Object3D):
     def from_three(cls, obj, geom, material, **kwargs) -> 'GeometryObject':
 
         inst = cls.from_three(obj)
-        inst.geometry = MeshBufferGeometry.from_three(geom)
-        inst.material = cls.material_class(**material)
+        inst.geometry = MeshBufferGeometryBuilder.from_three(geom)
+        inst.material = cls.material_type(**material)
         return inst
+
+    @abc.abstractmethod
+    def solve_geometry(self):
+        ...
 
 
 class PointObject(GeometryObject):
@@ -264,10 +309,11 @@ class PointObject(GeometryObject):
 
 
 class Mesh(GeometryObject):
-    geometry_type = MeshBufferGeometry
+    # TODO Добавить property для всех обязательных аттрибутов меши
+    geometry_type = MeshBufferGeometryBuilder
     castShadow: bool = True
     receiveShadow: bool = True
-    material_class = MeshPhongMaterial
+    material_type = MeshPhongMaterial
 
     @property
     def threejs_type(self):
@@ -279,13 +325,13 @@ class Mesh(GeometryObject):
             uuid = muuid.uuid4().__str__()
         inst = cls(name=name)
         inst._uuid = uuid
-        inst.geometry = RhinoMeshBufferGeometry(mesh).create_buffer()
+        inst.geometry = RhinoMeshBufferGeometryBuilder(mesh).create_buffer()
         inst._rhino = mesh
         return inst
 
 
 class Brep(Mesh):
-    material_class = MeshPhongMaterial
+    material_type = MeshPhongMaterial
 
     @classmethod
     def from_rhino(cls, name, brep, uuid=None):
@@ -301,14 +347,77 @@ class Brep(Mesh):
 class Line(GeometryObject):
     castShadow: bool = True
     receiveShadow: bool = True
-    material_class = LineBasicMaterial
+    material_type = LineBasicMaterial
 
     @property
     def threejs_type(self):
         return "Line"
 
 
-class RhinoMeshBufferGeometry(MeshBufferGeometry):
+class PointsBufferGeometryBuilder(BufferGeometryBuilder):
+    _points = None
+    _colors = None
+    choices = {
+        '0': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
+        '1': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes4),
+    }
+
+    def __init__(self, points=None, colors=None):
+
+        self.points = points
+        self.colors = colors
+
+    @property
+    def colors(self):
+        return self._colors
+
+    @colors.setter
+    def colors(self, v):
+        self._colors = v
+
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, v):
+        self._points = v
+
+    def create_buffer(self, uuid: typing.Optional[str] = None) -> mmcore.base.models.gql.BufferGeometry:
+
+        selector = ['0']  # norm,uv,index
+        attributes = {
+            "position": mmcore.base.models.gql.Position(**{
+                "array": np.asarray(self.points, dtype=float).flatten().tolist(),
+                "itemSize": 3,
+                "type": "Float32Array",
+                "normalized": False
+            }),
+        }
+        data = {}
+        if self.colors is not None:
+            selector[0] = '1'
+            attributes["colors"] = mmcore.base.models.gql.Uv(**{
+                'itemSize': 1,
+                "array": np.array(self.colors, dtype=float).flatten().tolist(),
+                "type": 'Uint16Array',
+                "normalized": False
+            })
+
+        _data, _attribs = self.choices["".join(selector)]
+        data['attributes'] = _attribs(**attributes)
+        if uuid is None:
+            uuid = _uuid.uuid4().__str__()
+
+        # print(selector)
+        return mmcore.base.gql_models.BufferGeometry(**{
+            "uuid": uuid,
+            "type": "BufferGeometry",
+            "data": _data(**data)
+        })
+
+
+class RhinoMeshBufferGeometryBuilder(MeshBufferGeometryBuilder):
     def __init__(self, rhino_mesh, **kwargs):
 
         self._data = rhino_mesh
@@ -354,7 +463,7 @@ class RhinoMeshBufferGeometry(MeshBufferGeometry):
         return super().create_buffer()
 
 
-class RhinoBrepBufferGeometry(RhinoMeshBufferGeometry):
+class RhinoBrepBufferGeometry(RhinoMeshBufferGeometryBuilder):
 
     def __init__(self, brep, uuid: str):
         try:
@@ -374,11 +483,14 @@ from mmcore.node import node_eval
 
 
 class PointsObject(GeometryObject):
+    _material: typing.Optional[str] = None
+    _geometry: typing.Optional[str] = None
     __match_args__ = "points",
-    material_class = PointsMaterial
+    material_type = PointsMaterial
     bind_class = GqlPoints
     name: str = "PointsObject"
     _color = ColorRGB(0.5, 0.5, 0.5)
+    _points = None
 
     @property
     def color(self):
@@ -401,30 +513,35 @@ class PointsObject(GeometryObject):
     def threejs_type(self):
         return "Points"
 
-    def solve_geometry(self):
+    def append(self, v):
+        self._points.append(v)
+        self.solve_geometry()
 
-        self.geometry = mmcore.base.models.gql.BufferGeometry(**{
-            'uuid': self.uuid + "-geom",
+    def solve_geometry(self):
+        self._geometry = self.uuid + "-geom"
+        geomdict[self._geometry] = mmcore.base.models.gql.BufferGeometry(**{
+            'uuid': self._geometry,
             'type': 'BufferGeometry',
             'data': mmcore.base.models.gql.Data1(
                 **{'attributes': mmcore.base.models.gql.Attributes1(
                     **{'position': mmcore.base.models.gql.Position(
                         **{'itemSize': 3,
                            'type': 'Float32Array',
-                           'array': np.asarray(
+                           'array': np.array(
                                self.points).flatten().tolist(),
                            'normalized': False})})})})
+    @property
+    def properties(self):
+        dct=super(GeometryObject, self).properties
 
-
+        dct.update(dict(points=self._points, color=self._color))
+        return dct
 @node_eval
 def pointsMaterial(color):
     line = f"makePointMaterial({color.decimal})"
     # language=JavaScript
     return '''const THREE = require("three");
-                
                       function makePointMaterial( color) {
-                           
-                          
                             const mat = new THREE.PointsMaterial({color: color})
                             console.log(JSON.stringify(mat.toJSON()));
                       }; ''' + line
@@ -446,7 +563,9 @@ class LineObject(PointsObject):
 
     width: int = 2
     bind_class = GqlLine
-    material_class = LineBasicMaterial
+    material_type = LineBasicMaterial
+    _material: typing.Optional[str] = None
+    _geometry: typing.Optional[str] = None
 
     @property
     def threejs_type(self):
@@ -471,4 +590,3 @@ def hyp(arr):
         grp.add(LineObject(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
     for i, (lna, lnb) in enumerate(lns2):
         grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
-
