@@ -6,7 +6,9 @@ from OCC.Core.Tesselator import ShapeTesselator
 import uuid as _uuid
 
 from mmcore.base.basic import Group
-from mmcore.base.geom import Line, create_buffer_from_dict, Mesh, ColorRGB
+from mmcore.geom.materials import ColorRGB
+from mmcore.base.geom import MeshObject, LineObject
+from mmcore.base.geom.utils import create_buffer_from_dict
 from mmcore.base.registry import matdict
 from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
 from mmcore.collections import ElementSequence
@@ -15,7 +17,7 @@ from mmcore.base.models import gql as gql_models
 class Tessellate(metaclass=ABCMeta):
     def __init__(self, shape, name, color):
         super().__init__()
-        self.mesh = Mesh(name=name)
+        self.mesh = MeshObject(name=name)
         self.tess = ShapeTesselator(shape)
         self._name = name
         self.color = color
@@ -50,7 +52,7 @@ class Tessellate(metaclass=ABCMeta):
                 for i_vert in range(nbr_vertices):
                     edge_point_set.append(self.tess.GetEdgeVertex(i_edge, i_vert))
                 # write to file
-                ln = Line(name=f"edge-{i_edge}")
+                ln = LineObject(name=f"edge-{i_edge}")
                 ln.geometry = export_edgedata_to_json(_uuid.uuid4().__str__(), edge_point_set)
                 ln.material = generate_edges_material(_uuid.uuid4().__str__(), color=ColorRGB(0, 0, 0), linewidth=1.0)
                 grp.add(ln)
