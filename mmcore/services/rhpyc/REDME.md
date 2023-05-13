@@ -31,8 +31,8 @@ import geom.utils.tools>>>import geom.buffer from mmcore.services.rhpyc import g
 >>> rg = conn.root.getmodule("Rhino.Geometry")
 
 >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
->>> sph_mesh = rg.Mesh.CreateFromSphere(sph)
->>> sph_brep_arr = rg.Mesh.CreateFromBrep(sph.ToBrep()) # Mesh.CreateFromBrep return mesh array (Mesh[]) object.
+>>> sph_mesh = rg.MeshObject.CreateFromSphere(sph)
+>>> sph_brep_arr = rg.MeshObject.CreateFromBrep(sph.ToBrep()) # Mesh.CreateFromBrep return mesh array (Mesh[]) object.
 
 >>> from mmcore.addons import rhino
 >>> from mmcore.geom.materials import MeshPhysicalBasic, ColorRGB

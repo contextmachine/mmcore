@@ -112,3 +112,8 @@ class Polygon(LineObject):
 
     def __contains__(self, item):
         return self.contains(other=item)
+    @property
+    def normal(self):
+        a= np.asarray(self.points[1]) - np.asarray(self.points[0])
+        b=np.asarray(self.points[2]) - np.asarray(self.points[0])
+        return np.cross(a,b)
