@@ -1,6 +1,11 @@
 #
+import inspect
 import os
 import uuid
+
+import dill.source
+import numpy as np
+from strawberry.scalars import JSON
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 import dataclasses
@@ -123,11 +128,13 @@ class ExEncoder(json.JSONEncoder):
                 return strawberry.asdict(o)
             elif dataclasses.is_dataclass(o):
                 return df(dataclasses.asdict(o))
+            elif isinstance(o, np.int64):
+                return int(o)
             else:
                 return o
 
         try:
-            return super().default(o)
+            return json.JSONEncoder.default(self, o)
         except TypeError:
             return df(o)
 
@@ -342,6 +349,7 @@ class State(dict):
 from mmcore.collections import ParamAccessible
 
 
+from mmcore.base.registry import AllDesc
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -452,7 +460,7 @@ class Object3D:
         return mm + head + f"({aaa}) at {ColorStr(self._uuid, color=TermColors.cyan, term_attrs=[TermAttrs.blink])}"
 
     def ToJSON(self, cls=ExEncoder, **kwargs):
-        return json.dumps(self(), cls=cls, **kwargs)
+        return json.dumps(self.get_child_three(), cls=cls, check_circular=False, **kwargs)
 
     @property
     def name(self):
@@ -588,7 +596,10 @@ class Object3D:
 
                 dct["children"] = []
                 for chl in obj._children:
-                    dct["children"].append(childthree(objdict[chl]))
+                    try:
+                        dct["children"].append(childthree(objdict[chl]))
+                    except KeyError:
+                        pass
                 if 'children' in dct:
                     if len(dct.get('children')) == 0:
                         del dct['children']
@@ -611,7 +622,7 @@ class Object3D:
 
         return int(self.uuid, 16)
 
-    @dataclasses.dataclass
+    @strawberry.type
     class Root:
         object: typing.Any
         metadata: gql_models.Metadata
@@ -621,11 +632,14 @@ class Object3D:
         gql_models.LineBasicMaterial, None]]
         geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
+
     @property
     def _root(self):
         # print(self.Root.__annotations__)
-        self.Root.__annotations__['object'] = {self.bind_class}
+        self.Root.__annotations__['object'] = self.bind_class
+        self.Root.__annotations__['getall'] = JSON
         self.Root.__name__ = f"GenericRoot{id(self)}"
+
         return self.Root
 
     @property
@@ -651,13 +665,13 @@ class Object3D:
         return "Object3D"
 
     def threejs_root(self, dct, geometries=None, materials=None, metadata=None,
-                     root_callback=lambda x: strawberry.type(x)):
+                     root_callback=lambda x: x):
         # print(materials, geometries)
         return root_callback(self._root)(object=dct,
-                                         materials=[matdict[mat] for mat in
+                                         materials=[matdict.get(mat) for mat in
                                                     materials] if materials is not None else list(
                                              matdict.values()),
-                                         geometries=[geomdict[geom] for geom in
+                                         geometries=[geomdict.get(geom) for geom in
                                                      geometries] if geometries is not None else list(
                                              geomdict.values()),
                                          metadata=metadata if metadata is not None else gql_models.Metadata()
@@ -1156,19 +1170,18 @@ from strawberry.tools import create_type
 
 
 class Delegate:
-    def __init__(self, owner):
-
-        self._owner = owner
-
-    def __call__(self, delegate):
+    def __init__(self, delegate):
         self._delegate = delegate
+
+    def __call__(self, owner):
+        self._owner = owner
 
         def _getattr_(inst, item):
             if not item.startswith("_"):
                 if hasattr(inst.delegate, item):
                     return getattr(inst.delegate, item)
 
-            return inst.__getattribute__(item)
+            return getattr(inst, item)
 
         self._owner.__getattr__ = _getattr_
         d = set(dir(self._delegate))
@@ -1187,6 +1200,7 @@ class Delegate:
             for k, v in kwargs:
                 if k in self._delegate.__init__.__func__.__code__.co_argnames:
                     kws2[k] = v
+
                     del kwargs[k]
 
             delegate = self._delegate(**kws2)
@@ -1216,3 +1230,38 @@ class Object3DWithChildren(Object3D):
 br = Group(name="base_root")
 
 objdict["_"] = br
+
+
+class A:
+    adict = dict()
+    idict = dict()
+
+    def __new__(cls, *args, **kwargs):
+        inst = object.__new__(cls)
+        A.adict[id(inst)] = inst
+        return inst
+
+    def __getattr__(self, key):
+        try:
+            if (key, id(self)) in A.idict:
+
+                return self.adict[self.idict[(key, id(self))]]
+            else:
+                return getattr(self, key)
+        except RecursionError as err:
+            raise AttributeError(f"object {self} has not a attribute {key}")
+
+    def __setattr__(self, key, v):
+        if (key, id(self)) in self.idict:
+
+            A.idict[(key, id(self))] = id(v)
+        elif isinstance(v, A):
+            A.idict[(key, id(self))] = id(v)
+
+
+        else:
+
+            setattr(self, key, v)
+
+
+class TestException(Exception): ...

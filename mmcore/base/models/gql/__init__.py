@@ -29,10 +29,13 @@ class ChildrenDesc:
         if instance is None:
             return self._default
         else:
-            l = []
-            for uid in objdict[instance.uuid]._children:
-                l.append(objdict[uid].bind_class(**objdict[uid].threejs_repr))
-            return l
+            try:
+                l = []
+                for uid in objdict[instance.uuid]._children:
+                    l.append(objdict[uid].bind_class(**objdict[uid].threejs_repr))
+                return l
+            except KeyError:
+                pass
 
     def __set__(self, instance, value):
 
@@ -96,7 +99,6 @@ class Color(Position):
 @strawberry.type
 class Normal(Position):
     itemSize: int = ItemSize(3)
-
 
 
 @strawberry.type
@@ -170,18 +172,39 @@ class Data3:
     attributes: Attributes3
 
 
-@strawberry.type
-class BufferGeometry:
-    uuid: str
-    type: str
-    data: typing.Union[Data, Data1] = None
+import ujson
+
+
+class HashUUID:
+    def __init__(self, default=None):
+        self._default=default
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, instance, owner) -> str:
+        if instance:
+            return instance.sha().hexdigest()
+        return self._default
+    def __set__(self, instance, value):
+        return DeprecationWarning(f"UUID set of {instance} is deprecated and not supported!")
+
+@dataclasses.dataclass
+class BufferGeometryObject:
+    data: typing.Union[Data, Data1]
+    type: str = "BufferGeometry"
+    uuid: str = HashUUID()
+
+
+
+    def sha(self):
+        return hashlib.sha1(ujson.dumps(self.data.attributes.position.array).encode())
 
     def __hash__(self):
-        arrs = []
-        for att in self.data:
-            arrs.append(att.array)
-        return int(hashlib.sha1(np.asarray(arrs).flatten().tobytes()).hexdigest(), 16)
-
+        return int(self.sha().hexdigest(), 16)
+@strawberry.type
+class BufferGeometry(BufferGeometryObject):
+    data: typing.Union[Data, Data1]
+    type:str= "BufferGeometry"
 
 @strawberry.type
 class SphereBufferGeometry(BufferGeometry):
@@ -326,7 +349,9 @@ class UidSha256:
             if hasattr(v, self.name):
 
                 s.append(f'{k}:{getattr(v, self.name)}')
-            elif type(v).__name__ in ['str', 'int', 'bytes', 'float', 'bool']:
+            elif v.__class__.__name__ in ['str', 'int', 'bytes', 'float', 'bool']:
+                s.append(f'{k}:{v}')
+            elif isinstance(v, str):
                 s.append(f'{k}:{v}')
             elif isinstance(v, typing.Iterable):
                 s.append(f'{k}:{",".join([self.to_bytes(vv) for vv in v])}')
@@ -384,13 +409,17 @@ class BaseMaterial:
 
     def __hash__(self):
         return int(self.uuid, 16)
-from enum import Enum
-@strawberry.enum
-class Materials( Enum):
 
+
+from enum import Enum
+
+
+@strawberry.enum
+class Materials(str, Enum):
     PointsMaterial = 'PointsMaterial'
     LineBasicMaterial = 'LineBasicMaterial'
     MeshPhongMaterial = 'MeshPhongMaterial'
+
 
 @strawberry.type
 class Material(BaseMaterial):
@@ -433,6 +462,7 @@ class LineBasicMaterial(BaseMaterial):
     uuid: typing.Optional[str] = UidSha256()
     type: Materials = Materials.LineBasicMaterial
     color: int = 16724838
+
     depthFunc: int = 3
     depthTest: bool = True
     depthWrite: bool = True
@@ -461,8 +491,8 @@ class PointsMaterial(BaseMaterial):
     uuid: typing.Optional[str] = UidSha256()
     type: Materials = Materials.PointsMaterial
     color: int = 11672217
-    size: float = 5
-    sizeAttenuation: bool = False
+    size: float = 1
+    sizeAttenuation: bool = True
     depthFunc: int = 1
     depthTest: bool = True
     depthWrite: bool = True
@@ -481,8 +511,6 @@ class PointsMaterial(BaseMaterial):
 
     def __hash__(self):
         return super().__hash__()
-
-
 
 
 from mmcore.geom.materials import ColorRGB
@@ -524,8 +552,6 @@ class MeshPhongMaterial(BaseMaterial):
         return super().__eq__(other)
 
 
-
-
 @strawberry.input
 class ColorInput:
     r: int
@@ -562,3 +588,20 @@ class GqlChart:
 
     def to_dict(self):
         return strawberry.asdict(self)
+
+
+AnyMaterial = strawberry.union("AnyMaterial", (MeshPhongMaterial,
+                                               PointsMaterial,
+                                               LineBasicMaterial,
+                                               Material
+                                               ),
+                               description="All materials in one Union Type")
+
+AnyObject3D = strawberry.union("AnyObject3D", (GqlObject3D,
+                                               GqlGroup,
+                                               GqlGeometry,
+                                               GqlMesh,
+                                               GqlLine,
+                                               GqlPoints,
+                                               GqlBaseObject),
+                               description="All objects in one Union Type")
