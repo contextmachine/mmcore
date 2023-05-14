@@ -7,4 +7,4 @@ import numpy as np
 arrABCD=np.array(ABCD)
 a1=np.mean(arrABCD,axis=-1)
 a2=np.mean(arrABCD,axis=0)
-A,B,C,D=(arrABCD-a2)*1e-3
+A,B,C,D=((arrABCD-a2)*1e-3).tolist()

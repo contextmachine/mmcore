@@ -115,7 +115,7 @@ def vec_from_point_chain(point_chain, p=-1):
 #   basis_to_custom_canonical_form
 
 
-def angle(a, b):
+def angle_s(a, b):
     try:
         v = np.arccos(np.dot(unit(a), unit(b)))
         return v

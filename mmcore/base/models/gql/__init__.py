@@ -177,7 +177,8 @@ import ujson
 
 class HashUUID:
     def __init__(self, default=None):
-        self._default=default
+        self._default = default
+
     def __set_name__(self, owner, name):
         self.name = name
 
@@ -185,8 +186,10 @@ class HashUUID:
         if instance:
             return instance.sha().hexdigest()
         return self._default
+
     def __set__(self, instance, value):
         return DeprecationWarning(f"UUID set of {instance} is deprecated and not supported!")
+
 
 @dataclasses.dataclass
 class BufferGeometryObject:
@@ -194,17 +197,18 @@ class BufferGeometryObject:
     type: str = "BufferGeometry"
     uuid: str = HashUUID()
 
-
-
     def sha(self):
         return hashlib.sha1(ujson.dumps(self.data.attributes.position.array).encode())
 
     def __hash__(self):
         return int(self.sha().hexdigest(), 16)
+
+
 @strawberry.type
 class BufferGeometry(BufferGeometryObject):
     data: typing.Union[Data, Data1]
-    type:str= "BufferGeometry"
+    type: str = "BufferGeometry"
+
 
 @strawberry.type
 class SphereBufferGeometry(BufferGeometry):
@@ -273,12 +277,9 @@ class Shadow:
 
 @strawberry.type
 class GqlGeometry(GqlBaseObject):
-    name: str
-    uuid: str
-    geometry: str
-    material: str
-    type: str = "Geometry"
-    children: 'list[typing.Union[GqlGeometry, None]]' = ChildrenDesc()
+    geometry: typing.Union[str, None] = None
+    material: typing.Union[str, None] = None
+    children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc()
 
 
 @strawberry.type
@@ -291,32 +292,39 @@ class GqlObject3D(GqlBaseObject):
     type: str = "Object3D"
     castShadow: bool = True
     receiveShadow: bool = True
-    children: 'list[typing.Union[ GqlObject3D, GqlGroup, GqlGeometry, None]]' = ChildrenDesc()
+    children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc()
 
 
 @strawberry.type
 class GqlGroup(GqlObject3D):
     type: str = "Group"
     matrix: list[float] = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-    children: 'list[typing.Union[ GqlObject3D, GqlGroup, GqlGeometry, None]]' = ChildrenDesc()
+    children: list[GQLObject3DUnion] = ChildrenDesc()
 
 
 @strawberry.type
 class GqlMesh(GqlGeometry):
     type: str = "Mesh"
+    children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc(default=None)
 
 
 @strawberry.type
 class GqlLine(GqlGeometry):
     type: str = "Line"
+    children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc(default=None)
 
 
 @strawberry.type
 class GqlPoints(GqlGeometry):
     type: str = "Points"
+    children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc(default=None)
 
 
 import zlib
+
+GQLGeometryUnion = strawberry.union("GQLObject3DUnion", types=[GqlGeometry, GqlMesh, GqlLine, GqlPoints])
+GQLObject3DUnion = strawberry.union("GQLObject3DUnion",
+                                    types=[GqlObject3D, GqlGroup, GqlGeometry, GqlMesh, GqlLine, GqlPoints])
 
 
 class UidSha256:
@@ -603,5 +611,5 @@ AnyObject3D = strawberry.union("AnyObject3D", (GqlObject3D,
                                                GqlMesh,
                                                GqlLine,
                                                GqlPoints,
-                                               GqlBaseObject),
+                                               ),
                                description="All objects in one Union Type")
