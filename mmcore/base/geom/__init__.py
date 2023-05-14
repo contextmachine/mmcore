@@ -52,7 +52,7 @@ class GeometryObject(Object3D):
 
     material_type = mmcore.base.models.gql.BaseMaterial
     _material: typing.Optional[str] = "MeshPhongMaterial"
-    _geometry: typing.Optional[str]
+    _geometry: typing.Optional[str] = None
     _color: typing.Optional[ColorRGB]
     _children = ()
 
@@ -74,7 +74,10 @@ class GeometryObject(Object3D):
         self._material = mat.uuid
         self.material = mat
 
-
+    def __call__(self, *args, **kwargs):
+        s = super().__call__(*args, **kwargs)
+        self.solve_geometry()
+        return s
 
     @property
     def geometry(self) -> mmcore.base.models.gql.BufferGeometry:
@@ -105,6 +108,11 @@ class GeometryObject(Object3D):
         @return: None
 
         """
+        try:
+            del geomdict[self._geometry]
+        except KeyError:
+            pass
+
         if isinstance(v, str):
             self._geometry = v
         elif isinstance(v, dict):
@@ -209,8 +217,7 @@ class MeshObject(GeometryObject):
             self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
 
         elif isinstance(self.mesh, dict):
-            self.geometry  = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
-
+            self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
 
     # TODO Добавить property для всех обязательных аттрибутов меши
     geometry_type = MeshBufferGeometryBuilder
@@ -239,16 +246,13 @@ class RhinoBrepObject(MeshObject):
     brep: typing.Any
 
     def solve_geometry(self):
-
         self.geometry = RhinoBrepBufferGeometryBuilder(self.brep).create_buffer()
-
 
 
 class RhinoMeshObject(MeshObject):
     def solve_geometry(self):
         self._geometry = self.uuid + "-geom"
         self.geometry = RhinoMeshBufferGeometryBuilder(self.mesh).create_buffer()
-
 
 
 from mmcore.node import node_eval
@@ -283,8 +287,12 @@ class PointsObject(GeometryObject):
         self.solve_geometry()
 
     def solve_geometry(self):
+        try:
+            del geomdict[self._geometry]
 
-        self.geometry= mmcore.base.models.gql.BufferGeometryObject(**{
+        except KeyError:
+            pass
+        self.geometry = mmcore.base.models.gql.BufferGeometryObject(**{
             'data': mmcore.base.models.gql.Data1(
                 **{'attributes': mmcore.base.models.gql.Attributes1(
                     **{'position': mmcore.base.models.gql.Position(
@@ -294,15 +302,29 @@ class PointsObject(GeometryObject):
                                self.points).flatten().tolist(),
                            'normalized': False})})})})
 
-
     @property
     def properties(self):
         return dict(points=self.points)
 
 
+class SharedGeometryObject(GeometryObject):
+    target: GeometryObject
+    width: int = 2
+    bind_class = GqlLine
+    material_type = LineBasicMaterial
+    _material: typing.Optional[str] = 'LineBasicMaterial'
+
+    @property
+    def geometry(self):
+        return self.target.geometry
+
+    @geometry.setter
+    def geometry(self, v):
+        self.target(**v)
+        self.target.solve_geometry()
+
+
 class LineObject(PointsObject):
-
-
     width: int = 2
     bind_class = GqlLine
     material_type = LineBasicMaterial
@@ -312,6 +334,9 @@ class LineObject(PointsObject):
     @property
     def threejs_type(self):
         return "Line"
+
+    def solve_geometry(self):
+        super().solve_geometry()
 
 
 @node_eval

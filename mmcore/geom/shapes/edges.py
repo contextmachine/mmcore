@@ -3,7 +3,7 @@ import shapely
 from mmcore.collections import DCLL
 from mmcore.base.geom import LineObject, LineBasicMaterial, GqlLine
 from mmcore.geom.utils import area_2d, triangle_unit_normal
-from mmcore.geom.parametric.sketch import Linear, Polyline
+from mmcore.geom.parametric.sketch import LinearSimple, Polyline
 
 
 def from_list(seq):

@@ -1,3 +1,5 @@
+import operator
+
 from mmcore.base.basic import DictSchema
 import abc
 import copy
@@ -32,7 +34,6 @@ T = TypeVar("T")
 
 import pyvis
 import networkx
-from mmcore.base.basic import Object3D, Group, ObChd
 import strawberry
 
 from mmcore.node import node_eval
@@ -43,6 +44,7 @@ import hashlib
 from mmcore.base.basic import DictSchema
 
 
+
 class HashDict(dict):
     def __hash__(self):
         return int(hashlib.sha1(json.dumps(dict(self)).encode()).hexdigest(), 16)
@@ -51,73 +53,98 @@ class HashDict(dict):
         ds = DictSchema(self)
         tp = ds.generate_schema(callback=strawberry.type)
         return tp(**ds.dict_example)
+
+
 @strawberry.type
 class D:
-    __annotations__ = {'url': str,
-     'name': str,
-     'method': str,
-     'rotation': typing.Optional[tuple[float]],
-     'position': typing.Optional[tuple[float]]}
-    name= "Panel"
-    rotation= (
-            1.5707963267948966,
-            0,
-            0
+    __annotations__ = {
+        "request": HashDict(**{'url': str, 'name': str}),
+        'method': str,
+        'rotation': typing.Optional[tuple[float]],
+        'position': typing.Optional[tuple[float]]}
+    name = "Panel"
+    rotation = (
+        1.5707963267948966,
+        0,
+        0
+    )
+    position = (
+        0,
+        0.5,
+        0
+    )
+
+    method = "GET"
+    url = "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel.json"
+
+
+store = HashDict(**{
+    "items": [
+        HashDict(
+            {
+                "name": "Panel",
+                "rotation": [
+                    1.5707963267948966,
+                    0,
+                    0
+                ],
+                "position": [
+                    0,
+                    0.5,
+                    0
+                ],
+                "request": {
+                    "method": "GET",
+                    "url": "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel.json"
+
+                }
+            }
+        ),
+        HashDict(
+            {
+                "name": "PanelGroup",
+                "rotation": [
+                    0,
+                    0,
+                    0
+                ],
+                "position": [
+                    0,
+                    0,
+                    0
+                ],
+                "request": {
+                    "method": "GET",
+                    "url": "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel_group.json",
+                },
+            }
         )
-    position= (
-            0,
-            0.5,
-            0
-        )
-    method= "GET"
-    url= "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel.json"
+    ],
 
-store = {"items": {
-    HashDict({
-        "name": "Panel",
-        "rotation": [
-            1.5707963267948966,
-            0,
-            0
-        ],
-        "position": [
-            0,
-            0.5,
-            0
-        ],
+})
+def agreagate(where: strawberry.scalars.JSON) -> list[sch]:
+    seq = ElementSequence(list(store['items']))
+    if isinstance(where, (str, bytes, bytearray)):
+        where = json.loads(where)
 
-        "method": "GET",
-        "url": "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel.json"
-    }),
-
-    HashDict({
-        "url": "https://storage.yandexcloud.net/service01vm.contextmachine.online/tests/panel_group.json",
-
-        "name": "PanelGroup",
-        "method": "GET",
-        "rotation": [
-            0,
-            0,
-            0
-        ],
-        "position": [
-            0,
-            0,
-            0
-        ]
-    })
-}}
-
+    return [sch(**data) for data in seq.where(**where)]
 from mmcore.collections.multi_description import ElementSequence
 
-ds = DictSchema(HashDict(list(store['items'])[0]))
-
+ds = DictSchema(HashDict(list(store['items'])))
+print(ds)
 sch = D
 print(sch)
 
 
 def _items() -> list[sch]:
     return [sch(**data) for data in list(store['items'])]
+
+
+operations = {
+    "_eq": operator.eq,
+    "_gt": operator.gt,
+    "_lt": operator.lt
+}
 
 
 @strawberry.type
@@ -128,11 +155,31 @@ class Query:
         return _items()
 
     @strawberry.field
-    def agreagate(self, query: strawberry.scalars.JSON) -> list[sch]:
+    def agreagate(self, where: strawberry.scalars.JSON) -> list[sch]:
         seq = ElementSequence(list(store['items']))
-        if isinstance(query,(str, bytes, bytearray)):
-            query=json.loads(query)
-        return [sch(**data) for data in seq.where(**query)]
+        if isinstance(where, (str, bytes, bytearray)):
+            where = json.loads(where)
+
+        return [sch(**data) for data in seq.where(**where)]
+
+    @strawberry.field
+    def agreagate_with_rules(self, where: strawberry.scalars.JSON) -> list[sch]:
+        seq = ElementSequence(list(store['items']))
+        if isinstance(where, (str, bytes, bytearray)):
+            where = json.loads(where)
+        sets = []
+        for k, v in where.items():
+            *keys, = v.keys()
+            *values, = v.values()
+            sets.append(set([HashDict(**data) for data in seq.where_with_rule(k, values[0], operations[keys[0]])]))
+        s1 = sets.pop(0)
+        print(s1)
+        if len(sets) > 0:
+
+            for s in sets:
+                s1.intersection_update(s)
+
+        return [sch(**data) for data in s1]
 
 
 @strawberry.type
@@ -166,4 +213,3 @@ app.include_router(graphql_app, prefix="/graphql")
 if __name__ == "__main__":
     print(f'http://localhost:{5558}{"/graphql"}')
     uvicorn.run("test_react:app", host="0.0.0.0", port=5558, reload=True)
-

@@ -1,6 +1,8 @@
 #
 import inspect
 import os
+import pprint
+import types
 import uuid
 
 import dill.source
@@ -34,92 +36,12 @@ from mmcore.collections import ParamContainer
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
 
-
-@dataclasses.dataclass
-class Link:
-    parent: str
-    child: str
-    name: str
-
-    def __post_init__(self):
-        ...
-
-
-@dataclasses.dataclass
-class UuidBind:
-    value: typing.Any
-    uuid: typing.Optional[str] = None
-
-    def __post_init__(self):
-        if self.uuid is None:
-            self.uuid = _uuid.uuid4().__str__()
-
-
-class Orig:
-    def __init__(self, cls):
-        super().__init__()
-        self.cls = cls
-
-    def get_class(self):
-        return self.cls
-
-    def set_class(self, cls):
-        self.cls = cls
-
-    def __getitem__(self, item):
-        ...
-
-    def __setitem__(self, item):
-        ...
-
-    def state(self):
-        ...
-
-    def getsetter(self, obj):
-        target = self
-
-        class GetSetBind:
-            def __getitem__(self, item):
-                ...
-
-            def __setitem__(self, k, item):
-                target.__getitem__(k, item)
-                if target.cls is not None:
-                    if isinstance(item, target.cls):
-                        itm = UuidBind(uuid=item.uuid, value=item)
-                    else:
-                        itm = UuidBind(value=item)
-                    Link(k, obj.uuid, itm.uuid)
-                setattr(obj, "_key_" + k, k)
-
-
-class RegistryDescriptor:
-    class_origin: type
-
-    def __init__(self, origin: type[Orig]):
-        super().__init__()
-        self._orig = origin
-
-        self.origin = None
-
-    def __set_name__(self, owner, name):
-        self.origin = self._orig(owner)
-        self.class_origin = owner
-
-        self._name = "_" + name
-
-    def __get__(self, inst, own):
-        if inst is None:
-            return self.origin.state()
-        else:
-            return self.origin.getsetter(inst)
-
-
 import pickle
 
 
 class ExEncoder(json.JSONEncoder):
     def default(self, o):
+
         def df(o):
 
             if isinstance(o, set):
@@ -190,37 +112,6 @@ class MaterialSet(set):
 parenthashmap = dict()
 
 
-class ObChd:
-    def __init__(self, default=None):
-        self._default = default
-
-    def __set_name__(self, owner, name):
-        self._name = name
-
-    def __get__(self, instance, owner):
-        if instance is not None:
-
-            return objdict[parenthashmap[instance.uuid][self._name]]
-
-        else:
-            return self._default
-
-    def __set__(self, instance, value):
-        # print(f"set event {instance}.{self._name} = {value}")
-        value._parents.add(instance.uuid)
-        value.origins
-        value._origins.add((instance.uuid, self._name))
-        instance._children.add(value.uuid)
-        try:
-            parenthashmap[instance.uuid] |= {self._name: value.uuid}
-        except KeyError:
-            parenthashmap[instance.uuid] = {self._name: value.uuid}
-
-    def __delete__(self, instance):
-
-        instance._remove_children(parenthashmap[instance.uuid][self._name])
-
-
 class UUIDMissPermException(AttributeError):
     ...
 
@@ -230,126 +121,6 @@ from functools import total_ordering
 ShaSub = namedtuple("ShaSub", ["int", "hex"])
 
 
-@total_ordering
-class UUID5mm(str):
-    _sha = ShaSub(0, hex(0))
-
-    def __set_name__(self, owner, name):
-        self.name = name
-
-    def __get__(self, instance, owner):
-        instance._sha = self.sha1(self.owner_hash_string(instance._hashdict())).hex
-        instance._uuid = instance._sha
-        return instance._sha
-
-    def __set__(self, instance, val):
-        if not self.is_permanently_override:
-            self.is_permanently_override = True
-            self._perm = val
-            return self.sha1(self.owner_hash_string(instance._hashdict())).hex
-        else:
-            raise UUIDMissPermException(MMColorStr("Cannot set perm hash UUID"))
-
-    def __new__(cls, namespace=NAMESPACE_MMCOREBASE, permanently_val=None, is_permanently_override=False):
-        inst = str.__new__(cls)
-
-        inst.namespace = namespace
-        inst.is_permanently_override = is_permanently_override
-        if permanently_val is not None:
-            inst.is_permanently_override = True
-            inst._perm = permanently_val
-
-        return inst
-
-    def owner_hash_string(self, st):
-        if not self.is_permanently_override:
-
-            return json.dumps(st, cls=ExEncoder)
-        elif hasattr(self, "_perm"):
-            return self._perm
-        else:
-            raise UUIDMissPermException("Permanently UUID missed")
-
-    def sha1(self, inst):
-
-        if self._sha == ShaSub(0, hex(0)):
-
-            _sha = uuid.uuid5(self.namespace, inst)
-            self._sha = _sha
-        else:
-            _sha = uuid.uuid5(self.namespace, inst)
-            if not _sha.int == self._sha.int:
-                if LOG_UUIDS:
-                    print(MMColorStr(
-                        f"UUID change event: ") + f"{self.__str__()} -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
-                self._sha = _sha
-        if LOG_UUIDS:
-            print(MMColorStr(
-                f"UUID request event: ") + f"{self.__str__()} -> \n                          -> {ColorStr(_sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold))}")
-
-        return self._sha
-
-    def __eq__(self, other):
-        return self.__hash__() == other.__hash__()
-
-    def __le__(self, other):
-        return self.__hash__().__le__(other.__hash__())
-
-    def __hash__(self):
-        return int(self._sha.hex, 16)
-
-    def __bytes__(self):
-        return self.__hex__().encode()
-
-    def __int__(self):
-
-        return self._sha.int
-
-    def __hex__(self):
-        return hex(int(self._sha.hex, 16))
-
-    def __repr__(self):
-        return f"uuid'{self._sha}'"
-
-    def __str__(self):
-
-        return f"{ColorStr(self._sha.hex, color=TermColors.cyan, term_attrs=(TermAttrs.blink, TermAttrs.bold)).__str__()}"
-
-
-class State(dict):
-    def __init__(self, follow=(), common=dict()):
-        dict.__init__(self)
-        self.common = common
-        self.follow = set(follow)
-
-    def __set_name__(self, owner, name):
-
-        self.name = name
-
-    def __get__(self, instance, owner):
-        if instance:
-            resp = dict()
-            for k in self.follow:
-                if k in self.common:
-
-                    resp[self.common[k]] = getattr(instance, k)
-                else:
-                    resp[k] = getattr(instance, k, None)
-
-            return resp
-        else:
-            return self
-
-    def __set__(self, instance, value):
-
-        self.follow = set(value)
-        instance._set = self
-
-
-from mmcore.collections import ParamAccessible
-
-
-from mmcore.base.registry import AllDesc
 class Object3D:
     """
     >>> obj2 = Object3D("test2")
@@ -502,18 +273,6 @@ class Object3D:
         else:
             return lambda x: []
 
-    def __set_name__(self, owner, name):
-        owner._children.add(self.uuid)
-        self._parents.add(owner.uuid)
-        owner.__dict__[name] = self.uuid
-        self.name = name
-
-    def __get__(self, instance, owner):
-        return objdict[instance.__dict__[self.name]]
-
-    def __set__(self, instance, v):
-        instance.__dict__[self.name] = v.uuid
-
     @property
     def child_getter(self):
         if len(self._children) > 0:
@@ -622,7 +381,7 @@ class Object3D:
 
         return int(self.uuid, 16)
 
-    @strawberry.type
+    @dataclasses.dataclass
     class Root:
         object: typing.Any
         metadata: gql_models.Metadata
@@ -632,12 +391,10 @@ class Object3D:
         gql_models.LineBasicMaterial, None]]
         geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
-
     @property
     def _root(self):
         # print(self.Root.__annotations__)
         self.Root.__annotations__['object'] = self.bind_class
-        self.Root.__annotations__['getall'] = JSON
         self.Root.__name__ = f"GenericRoot{id(self)}"
 
         return self.Root
@@ -661,7 +418,7 @@ class Object3D:
         return strawberry.type(self._root)
 
     @property
-    def threejs_type(self):
+    def threejs_type(self) -> str:
         return "Object3D"
 
     def threejs_root(self, dct, geometries=None, materials=None, metadata=None,
@@ -999,27 +756,6 @@ def to_camel_case(name: str):
         return "_" + "".join(nm.capitalize() for nm in name.split("_"))
 
 
-class DsDescr:
-    def __init__(self, default=None):
-        self._default = default
-
-    def __set_name__(self, owner, name):
-        self._name = "_" + name
-
-    def __get__(self, instance, owner):
-        if instance is not None:
-            if hasattr(instance, self._name):
-
-                return getattr(instance, self._name)
-            else:
-                return self._default
-        else:
-            return self._default
-
-    def __set__(self, instance, value):
-        setattr(instance, self._name, value)
-
-
 class GenericList(list):
     def __class_getitem__(cls, item):
 
@@ -1212,7 +948,7 @@ class Delegate:
 
 
 class DictGqlSchema(DictSchema):
-    bind = create_type
+    bind = strawberry.type
 
 
 class Object3DWithChildren(Object3D):
@@ -1229,39 +965,305 @@ class Object3DWithChildren(Object3D):
 
 br = Group(name="base_root")
 
+
+def iscollection(item):
+    return isinstance(item, typing.MutableSequence) or isinstance(item, (tuple, set, frozenset))
+
+
 objdict["_"] = br
+from mmcore.collections import traversal
+
+DEFAULT_MATRIX = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+
+
+def remove_empty(data, remove_empty_collections=True):
+    if isinstance(data, dict):
+        d = {}
+        for k, v in data.items():
+            res = remove_empty(v)
+            if res is not None or not (res == []):
+                d[k] = res
+
+        return d
+    elif iscollection(data):
+
+        if len(data) == [] and remove_empty_collections:
+            return None
+
+        else:
+            l = []
+            for i, v in enumerate(data):
+                res = remove_empty(v)
+                if res is not None:
+                    l.append(res)
+            return l
+    else:
+        return data
+
+
+def sumdicts(*dicts):
+    d = dict(dicts[0])
+    for dct in dicts[1:]:
+        d |= dct
+    return d
 
 
 class A:
-    adict = dict()
+    adict = objdict
     idict = dict()
+    args_keys = ["name"]
+    _uuid: str = "no-uuid"
+    name: str = "A"
+    _state_keys = {
+        "uuid",
+        "name",
+        "matrix"
+    }
+    _matrix = list(DEFAULT_MATRIX)
+    _include_geometries = GeometrySet()
+    _include_materials = MaterialSet()
+
+    def traverse_child_three(self):
+        """
+        get_child_three() is a function that takes an object and returns a threejs_root object with all of its children.
+
+        Parameters:
+            self (object): The object to be processed.
+
+        Returns:
+            threejs_root: A threejs_root object with all of the object's children.
+
+        This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
+        @return:
+        """
+        self._include_materials = set()
+        self._include_geometries = set()
+
+        def childthree(obj):
+            dct = dict()
+
+            self._add_includes(obj)
+
+            if len(obj.children) > 0:
+
+                dct["children"] = []
+                for chl in obj.children:
+                    try:
+                        dct["children"].append(childthree(chl))
+                    except KeyError:
+
+                        pass
+
+                return dct
+            else:
+                # print(dct)
+                if 'children' in dct:
+                    if len(dct.get('children')) == 0:
+                        del dct['children']
+                return dct
+
+        return childthree(self)
+
+    @property
+    def state_keys(self):
+        return set(list(self.args_keys + list(self.child_keys) + list(self._state_keys)))
+
+    @state_keys.setter
+    def state_keys(self, v):
+        self._state_keys = set(v)
+
+    @property
+    def properties(self):
+        return {
+            "name": self.name,
+            "priority": 1.0
+        }
+
+    @property
+    def matrix(self):
+        return self._matrix
+
+    @matrix.setter
+    def matrix(self, v):
+        self._matrix = v
+
+    @matrix.deleter
+    def matrix(self):
+        self._matrix = list(DEFAULT_MATRIX)
+
+    @property
+    def threejs_type(self):
+        return "Object3D"
+
+    @property
+    def uuid(self) -> str:
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, v):
+        try:
+
+            val = self.adict[self._uuid]
+            self.adict[str(v)] = val
+            del self.adict[self._uuid]
+            self._uuid = str(v)
+        except KeyError:
+            self._uuid = str(v)
+            self.adict[self._uuid] = self
+
+    @classmethod
+    def get_object(cls, uuid: str):
+        return cls.adict[uuid]
+
+    @property
+    def children(self):
+        l = []
+        for child in self._children:
+            l.append(self.adict[child])
+        return l
 
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls)
-        A.adict[id(inst)] = inst
+
+        inst.child_keys = set()
+        inst._children = set()
+        inst.set_state(*args, **kwargs)
+        A.adict[inst.uuid] = inst
         return inst
+
+    def render(self):
+        l = []
+        for w in self.children:
+            l.append(w())
+            self._add_includes(w)
+
+    def get_state(self):
+        dct = {}
+        for k in self.state_keys:
+            val = self.__getattr__(k)
+            if isinstance(val, A):
+                dct[k] = val.get_state()
+            else:
+                dct[k] = val
+        return dct
+
+    def set_state(self, *args, **kwargs):
+        _kwargs = dict(zip(self.args_keys, args[:len(self.args_keys)]))
+        _kwargs |= kwargs
+
+        for k, v in _kwargs.items():
+            self.__setattr__(k, v)
+
+        self.traverse_child_three()
+
+    @children.setter
+    def children(self, v):
+        for child in v:
+            self._children.add(child.uuid)
+
+    def root(self):
+        return {
+            "metadata": {},
+            "object": self(),
+            "geometries": list(self._include_geometries),
+            "materials": list(self._include_materials)
+
+        }
+
+    def __call__(self, *args, callback=lambda x: x, **kwargs):
+        self.set_state(*args, **kwargs)
+        return callback(
+            {
+                "name": self.name,
+                "uuid": self.uuid,
+                "children": [ch() for ch in self.children],
+                "type": self.threejs_type,
+                "layers": 1,
+                "matrix": self.matrix,
+                "castShadow": True,
+                "receiveShadow": True,
+                "userData": {
+                    "state": self.get_state(),
+                    "properties": sumdicts({
+                        "uuid": self.uuid,
+                        "name": self.name
+                    },
+                        self.properties,
+                    )
+                }
+            }
+        )
+
+    _parents = set()
 
     def __getattr__(self, key):
         try:
-            if (key, id(self)) in A.idict:
+            if (key, self.uuid) in A.idict.keys():
 
-                return self.adict[self.idict[(key, id(self))]]
+                return A.adict[A.idict[(key, self.uuid)]]
             else:
                 return getattr(self, key)
         except RecursionError as err:
-            raise AttributeError(f"object {self} has not a attribute {key}")
+            return object.__getattribute__(self, key)
+
+    def set_state_attr(self, key, value):
+        self.__setattr__(key, value)
+        self._state_keys.add(key)
 
     def __setattr__(self, key, v):
-        if (key, id(self)) in self.idict:
 
-            A.idict[(key, id(self))] = id(v)
-        elif isinstance(v, A):
-            A.idict[(key, id(self))] = id(v)
-
+        if isinstance(v, A):
+            if (key, self.uuid) in self.idict:
+                A.idict[(key, self.uuid)] = v.uuid
+            else:
+                self.child_keys.add(key)
+                self._children.add(v.uuid)
+                A.idict[(key, self.uuid)] = v.uuid
 
         else:
 
-            setattr(self, key, v)
+            object.__setattr__(self, key, v)
+
+    def __delattr__(self, key):
+        if (key, self.uuid) in self.idict:
+            del self.idict[(key, self.uuid)]
+            self.child_keys.remove(key)
+
+        else:
+            super().__delattr__(key)
+
+    def _add_includes(self, obj):
+        if hasattr(obj, "_geometry"):
+            if obj._geometry is not None:
+                self._include_geometries.add(obj._geometry)
+                self._include_materials.add(obj._material)
+
+
+class AGroup(A):
+    @property
+    def threejs_type(self):
+        return "Group"
+
+    def add(self, obj):
+        self._children.add(obj.uuid)
+
+
+class RootForm(A):
+    def __call__(self,res=None, *args, **kwargs):
+        _ = A.__call__(self, *args, **kwargs)
+        return {
+            "metadata": {
+                "version": 4.5,
+                "type": "Object",
+                "generator": "Object3D.toJSON"
+            },
+            "object": res,
+            "geometries": list(self._include_geometries),
+            "materials": list(self._include_materials)
+        }
+
+
+
 
 
 class TestException(Exception): ...

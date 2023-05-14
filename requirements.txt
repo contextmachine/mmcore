@@ -24,3 +24,4 @@ graphql-core
 geomdl
 shapely
 more-itertools
+pyquaternion

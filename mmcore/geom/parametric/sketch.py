@@ -9,14 +9,14 @@ from collections import namedtuple
 from itertools import starmap
 
 import mmcore
-from mmcore.base import geomdict, objdict
+from mmcore.base import geomdict
 from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, MeshObject
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
-from mmcore.geom.materials import ColorRGB
+from mmcore.base.geom.materials import ColorRGB
 from mmcore.base.models.gql import MeshPhongMaterial
-from mmcore.geom.basic import Point
+
 from mmcore.base.basic import Group
 from mmcore.base.geom import LineObject
 from geomdl import NURBS
@@ -39,43 +39,26 @@ class ParametricObject(typing.Protocol[T]):
         ...
 
 
-class Linear(LineObject, ParametricObject):
+@dataclasses.dataclass
+class Linear(ParametricObject):
     x0: float = 0
     y0: float = 0
     z0: float = 0
     a: float = 1
     b: float = 0
     c: float = 0
-    _points = None
-    x = lambda self, t: self.x0 + self.a * t
-    y = lambda self, t: self.y0 + self.b * t
-    z = lambda self, t: self.z0 + self.c * t
-    _direction=None
-    @property
-    def points(self):
-        return np.asarray([[self.evaluate(0)], [self.evaluate(1)]], dtype=float).tolist()
 
-    @points.setter
-    def points(self, v):
-        start, end = np.asarray(v, dtype=float).tolist()
-        self._points = start, end
-        self.a, self.b, self.c = np.asarray(end) - np.asarray(start)
-        self.x0, self.y0, self.z0 = start
-
-        self.solve_geometry()
+    def __post_init__(self):
+        self.x = lambda t: self.x0 + self.a * t
+        self.y = lambda t: self.y0 + self.b * t
+        self.z = lambda t: self.z0 + self.c * t
 
     @classmethod
     def from_two_points(cls, start, end):
         a, b, c = np.asarray(end) - np.asarray(start)
         x, y, z = start
-        x0 = x + a * 0
-        y0 = y + b * 0
-        z0 = z + c * 0
-        x1 = x + a * 1
-        y1 = y + b * 1
-        z1 = z + c * 1
 
-        return cls(points=np.asarray([[x0, y0, z0], [x1, y1, z1]], dtype=float).tolist())
+        return cls(x0=x, y0=y, z0=z, a=a, b=b, c=c)
 
     def evaluate(self, t):
         return np.array([self.x(t), self.y(t), self.z(t)])
@@ -112,39 +95,10 @@ class Linear(LineObject, ParametricObject):
 
     @property
     def direction(self):
-
         return self.end - self.start
 
-    def extend(self, a,b):
-        self(points=[self.start-unit(self.direction)*a,self.end+unit(self.direction)*b])
 
-
-
-class Line(LineObject):
-    _color = ColorRGB(10, 170, 40)
-
-    def __new__(cls, start, end, *args, **kwargs):
-        proxy = Linear.from_two_points(start, end)
-        inst = super().__new__(cls, points=[start, end], *args, **kwargs)
-        inst._proxy = proxy
-
-        return inst
-
-    @property
-    def proxy(self):
-        return self._proxy
-
-    @proxy.setter
-    def proxy(self, v):
-        self._proxy = v
-
-    def from_points(self):
-        start, end = self.points
-        self.proxy = Linear.from_two_points(start, end)
-
-
-class ParametricLineObject(): ...
-
+class ParametricLineObject():...
 
 def hhp():
     pts = [[-220175.307469, -38456.999234, 20521],
@@ -233,10 +187,7 @@ class ProxyParametricObject(ParametricObject):
         except AttributeError as err:
             self.prepare_proxy()
             return self._proxy
-
-    def tessellate(self):
-        ...
-
+    def tessellate(self):...
 
 @dataclasses.dataclass
 class NurbsCurve(ProxyParametricObject):
@@ -289,8 +240,6 @@ class NurbsCurve(ProxyParametricObject):
 
     def tessellate(self):
         ...
-
-
 from mmcore.collections import curry
 
 
@@ -369,7 +318,7 @@ class NurbsSurface(ProxyParametricObject):
         uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
         normals = [v for p, v in normal(self._proxy, uv.tolist())]
         if uuid is None:
-            uuid = _uuid.uuid4().__str__()
+            uuid=_uuid.uuid4().__str__()
         return MeshBufferGeometryBuilder(vertices=np.array(vertseq['data']).flatten(),
                                          normals=np.array(normals).flatten(),
                                          indices=np.array(faceseq["vertex_ids"]).flatten(),
@@ -428,7 +377,7 @@ class Polyline(ParametricObject):
     @classmethod
     def from_points(cls, pts):
         closed = False
-        if all(pts[0] == pts[-1]):
+        if pts[0] == pts[-1]:
             closed = True
 
         dll = DCLL()
@@ -443,7 +392,7 @@ class Polyline(ParametricObject):
         h = self.control_points.head
         lnr = []
         for pt in self.control_points:
-            lnr.append(Linear(points=[copy.deepcopy(h.data), copy.deepcopy(h.next.data)]))
+            lnr.append(Linear.from_two_points(copy.deepcopy(h.data), copy.deepcopy(h.next.data)))
             h = h.next
         return lnr
 
@@ -459,10 +408,6 @@ class EvaluatedPoint:
     direction: typing.Optional[list[typing.Union[float, list[float]]]]
     t: typing.Optional[list[typing.Union[float, list[float]]]]
 
-    def __iter__(self):
-        return iter(self.point)
-    def __array__(self):
-        return np.asarray(self.point,dtype=float)
 
 from mmcore.geom.vectors import unit
 
@@ -519,53 +464,30 @@ class HyPar4pt(ParametricObject):
     c: typing.Iterable[float]
     d: typing.Iterable[float]
 
+    side_a = property(fget=lambda self: Linear.from_two_points(self.a, self.b))
+    side_b = property(fget=lambda self: Linear.from_two_points(self.b, self.c))
+    side_c = property(fget=lambda self: Linear.from_two_points(self.d, self.c))
+    side_d = property(fget=lambda self: Linear.from_two_points(self.a, self.d))
     sides_enum: 'typing.Optional[typing.Type[Enum,...]]' = None
 
     def generate_sides_enum(self):
         class HypSidesEnum(Enum):
-            A = "side_a"
-            B = "side_b"
-            C = "side_c"
-            D = "side_d"
+            A = self.side_a
+            B = self.side_b
+            C = self.side_c
+            D = self.side_d
 
         self.sides_enum = HypSidesEnum
 
     def __post_init__(self):
-        self._side_a = Linear(points=[self.a, self.b])
-        self._side_b = Linear(points=[self.b, self.c])
-        self._side_c = Linear(points=[self.d, self.c])
-        self._side_d = Linear(points=[self.a, self.d])
         self.generate_sides_enum()
 
-    @property
-    def side_a(self):
-        self._side_a(points=[self.a, self.b])
-        return self._side_a
-
-    @property
-    def side_b(self):
-        self._side_b(points=[self.b, self.c])
-        return self._side_b
-
-    @property
-    def side_c(self):
-        self._side_c(points=[self.d, self.c])
-        return self._side_c
-
-    @property
-    def side_d(self):
-        self._side_d(points=[self.a, self.d])
-        return self._side_d
-
     def evaluate(self, t):
-        _u,_v=0.5,0.5
-        lu = Linear(points=[self.side_a.evaluate(_u), self.side_c.evaluate(_u)])
-        lv = Linear(points=[self.side_b.evaluate(_v), self.side_d.evaluate(_v)])
-
         def evl(tt):
             u, v = tt
-            lu(points=[self.side_a.evaluate(u), self.side_c.evaluate(u)])
-            lv(points=[self.side_b.evaluate(v), self.side_d.evaluate(v)])
+
+            lu = Linear.from_two_points(self.side_a.evaluate(u), self.side_c.evaluate(u))
+            lv = Linear.from_two_points(self.side_b.evaluate(v), self.side_d.evaluate(v))
             cl = CurveCurveIntersect(lu, lv)
 
             a, b, c = np.cross(unit([lu.a, lu.b, lu.c]), unit([lv.a, lv.b, lv.c]))
@@ -618,39 +540,18 @@ def is_co_directed(a, b):
 @dataclasses.dataclass
 class HypPar4ptGrid(HyPar4pt):
     def parallel_side_grid(self, step1, side: str = "D"):
-        if hasattr(self, "_grd"):
-            for item in self._grd:
-                objdict.__delitem__(item.uuid)
-                del item
-        self._grd = []
-        side = getattr(self, getattr(self.sides_enum, side).value)
-
+        self._grd = DCLL()
+        side = getattr(self.sides_enum, side).value
+        d = []
         for pl in side.divide_distance_planes(step1):
 
             # print("t",dd)
             r = self.intr(pl)
             if not (r == []):
-                a, b = r
-                self._grd.append(Linear(points=[a.tolist(), b.tolist()]))
-
-
-        return self._grd
-
-    def parallel_vec_grid(self, step1, name:str, vec: Linear):
-        if hasattr(self, name):
-            for item in getattr(self, name):
-                objdict.__delitem__(item.uuid)
-                del item
-
-        d = []
-        for pl in vec.divide_distance_planes(step1):
-
-            # print("t",dd)
-            r = self.intr(pl)
-            if not (r == []):
-                a, b = r
-                d.append(Linear(points=[a.tolist(), b.tolist()]))
-        setattr(self,name,d)
+                try:
+                    a, b = r
+                    d.append(Linear.from_two_points(a.tolist(), b.tolist()))
+                except: pass
 
         return d
 
@@ -830,7 +731,7 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
     def solution(self, t) -> float:
         t1, t2 = t
 
-        return euclidean(np.array(self.c1.evaluate(t1)), np.array(self.c2.evaluate(t2)))
+        return euclidean(self.c1.evaluate(t1), self.c2.evaluate(t2))
 
     def prepare_solution_response(self, solution):
         t1, t2 = solution.x
@@ -889,7 +790,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
         self.point, self.gm = point, geometry
 
     def solution(self, t):
-        r = np.array(self.gm.evaluate(t))
+        r = self.gm.evaluate(t)
         r = np.array(r).T.flatten()
         # print(self.point, r)
 

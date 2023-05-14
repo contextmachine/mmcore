@@ -1,4 +1,6 @@
-import json
+import datetime
+
+import ujson as json
 import sys
 import typing
 from dataclasses import asdict
@@ -9,11 +11,13 @@ from strawberry.extensions import DisableValidation
 from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
 
-
 STARTUP = False
 objdict = dict()
 geomdict = dict()
 matdict = dict()
+
+
+
 
 # Usage example:
 # from mmcore.base.registry.fcpickle import FSDB
@@ -49,7 +53,6 @@ _server_binds = []
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-
 from fastapi import WebSocket, WebSocketDisconnect, WebSocketException
 import mmcore.base.models.gql as gql_models
 
@@ -61,10 +64,11 @@ T = typing.TypeVar("T")
 
 app = fastapi.FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                           allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
-                           allow_headers=["*"],
-                           allow_credentials=["*"])
+                   allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
+                   allow_headers=["*"],
+                   allow_credentials=["*"])
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
 
 class ServerBind():
 
@@ -75,9 +79,6 @@ class ServerBind():
         inst = object.__new__(cls)
         _server_binds.append(inst)
 
-        @strawberry.field
-        def getall(uuid:str) -> JSON:
-            return json.loads(objdict[uuid].ToJSON())
 
         @strawberry.type
         class Root(typing.Generic[T]):
@@ -88,27 +89,28 @@ class ServerBind():
 
         @strawberry.type
         class Mutation:
-                @strawberry.field
-                def matrix(self, uuid:str, matrix: list[float]) -> Root[gql_models.AnyObject3D]:
-                    objdict[uuid].matrix=matrix
-                    return objdict[uuid].get_child_three()
+            @strawberry.field
+            def matrix(self, uuid: str, matrix: list[float]) -> Root[gql_models.AnyObject3D]:
+                objdict[uuid].matrix = matrix
+                return objdict[uuid].get_child_three()
 
+            @strawberry.field
+            def properties(self, uuid: str, key: str, value: str) -> Root[gql_models.AnyObject3D]:
+                objdict[uuid].__setattr__("_" + key, value)
+                return objdict[uuid].get_child_three()
 
+            @strawberry.field
+            def material_by_uuid(self, uuid: str, material: gql_models.MaterialInput) -> gql_models.Material:
+                mat = material.material
+                mat.uuid = uuid
+                matdict[uuid] = mat
+                return matdict[uuid]
 
-                @strawberry.field
-                def properties(self, uuid:str,key: str, value: str) -> Root[gql_models.AnyObject3D]:
-                    objdict[uuid].__setattr__("_" + key, value)
-                    return objdict[uuid].get_child_three()
+            @strawberry.field
+            def rootless_by_uuid(self, uuid: str,data:JSON) -> Root[gql_models.AnyObject3D]:
+                return objdict[uuid](**data).get_child_three()
 
-                @strawberry.field
-                def material_by_uuid(self, uuid: str, material: gql_models.MaterialInput) -> gql_models.Material:
-                    mat = material.material
-                    mat.uuid = uuid
-                    matdict[uuid] = mat
-                    return matdict[uuid]
-
-
-                """
+            """
                 @strawberry.field
                 def geometry(self, uuid: str) -> target.bind_class:
                     target._geometry = uuid
@@ -132,60 +134,66 @@ class ServerBind():
                     target._material = uuid
                     return target.get_child_three()["object"]"""
 
+            @strawberry.field
+            def rootless_by_name(self, name: str, data:JSON) -> Root[gql_models.AnyObject3D]:
+                ee = ElementSequence(list(objdict.values()))
+                from mmcore.base import Group
 
+                grp = ee._seq[ee.multi_search_from_key_value("name", name)[0]]
+                grp(**data)
+                print(grp)
 
+                return grp()
         @strawberry.type
         class Query:
-                @strawberry.field
-                def all_by_name(self, name:str)->JSON:
-                    ee = ElementSequence(list(objdict.values()))
-                    from mmcore.base import Group
 
-                    grp = Group([ee._seq[i] for i in ee.multi_search_from_key_value("name", name)], name=name + "s")
+            @strawberry.field
+            def all_by_name(self, name: str) -> JSON:
+                ee = ElementSequence(list(objdict.values()))
+                from mmcore.base import Group
 
-                    return strawberry.asdict(grp.get_child_three())
+                grp = Group([ee._seq[i] for i in ee.multi_search_from_key_value("name", name)], name=name + "s")
 
+                return strawberry.asdict(grp.get_child_three())
 
-                @strawberry.field
-                def all_by_uuid(self, uuid:str)->JSON:
-                    aaa=strawberry.asdict(objdict[uuid]())
-                    print(aaa)
+            @strawberry.field
+            def all_by_uuid(self, uuid: str) -> JSON:
+                aaa = strawberry.asdict(objdict[uuid]())
+                print(aaa)
 
-                    return aaa
-                @strawberry.field
-                def uuids(self) -> list[str]:
-                    return list(objdict.keys())
+                return aaa
 
-                @strawberry.field
-                def names(self) -> list[str]:
-                    return list(set(ElementSequence(list(objdict.values()))["name"]))
+            @strawberry.field
+            def uuids(self) -> list[str]:
+                return list(objdict.keys())
 
-                @strawberry.field
-                def object_by_uuid(self, uuid: str) -> gql_models.AnyObject3D:
-                    return objdict[uuid].get_child_three().object
+            @strawberry.field
+            def names(self) -> list[str]:
+                return list(set(ElementSequence(list(objdict.values()))["name"]))
 
-                @strawberry.field
-                def rootless_by_uuid(self, uuid: str) -> Root[gql_models.AnyObject3D]:
-                    return objdict[uuid].get_child_three()
+            @strawberry.field
+            def object_by_uuid(self, uuid: str) -> gql_models.AnyObject3D:
+                return objdict[uuid].get_child_three().object
 
-                @strawberry.field
-                def rootless_by_name(self, name: str) -> Root[gql_models.AnyObject3D]:
-                    ee = ElementSequence(list(objdict.values()))
-                    from mmcore.base import Group
+            @strawberry.field
+            def rootless_by_uuid(self, uuid: str) -> Root[gql_models.AnyObject3D]:
+                return objdict[uuid].get_child_three()
 
-                    grp=Group([ee._seq[i] for i in ee.multi_search_from_key_value("name", name)],name=name+"s")
+            @strawberry.field
+            def rootless_by_name(self, name: str) -> Root[gql_models.AnyObject3D]:
+                ee = ElementSequence(list(objdict.values()))
+                from mmcore.base import Group
 
+                grp = Group([ee._seq[i] for i in ee.multi_search_from_key_value("name", name)], name=name + "s")
 
-                    return grp.get_child_three()
+                return grp.get_child_three()
 
-                @strawberry.field
-                def object_by_name(self, name: str) -> typing.List[gql_models.AnyObject3D]:
-                    print(name)
-                    ee = ElementSequence(list(objdict.values()))
-                    return [ee.get_from_index(i).get_child_three().object for i in ee.multi_search_from_key_value("name", name)]
-
-
-
+            @strawberry.field
+            def object_by_name(self, name: str) -> typing.List[gql_models.AnyObject3D]:
+                print(name)
+                ee = ElementSequence(list(objdict.values()))
+                return [ee.get_from_index(i).get_child_three().object for i in
+                        ee.multi_search_from_key_value("name", name)]
 
         def pull():
             br = objdict["_"]
@@ -222,15 +230,15 @@ class ServerBind():
 
                 await websocket.send_json(data=strawberry.asdict(br.get_child_three()))
 
+        mm = strawberry.Schema(
+            query=Query,
+            mutation=Mutation,
 
-        mm=strawberry.Schema(
-                query=Query,
-                mutation=Mutation,
-
-            )
+        )
 
         graphql_app = GraphQLRouter(mm)
         app.include_router(graphql_app, prefix="/graphql")
+
         def run():
 
             uvicorn.run("mmcore.base.registry:app", port=7711, log_level="error")

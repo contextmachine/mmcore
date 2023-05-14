@@ -354,10 +354,13 @@ class ElementSequence(MultiDescriptor):
 
     def where_with_rule(self, a, b, rule):
         l = []
+        print(a,b,rule)
         for i, item in enumerate(self[a]):
             ans = rule(item, b)
+            print(ans)
             if ans:
                 l.append(self.get_from_index(i))
+        print(l)
         return l
 
     def iwhere(self, **rules):
