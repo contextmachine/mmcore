@@ -53,7 +53,7 @@ class GeometryObject(Object3D):
     material_type = mmcore.base.models.gql.BaseMaterial
     _material: typing.Optional[str] = "MeshPhongMaterial"
     _geometry: typing.Optional[str] = None
-    _color: typing.Optional[ColorRGB]
+    _color: typing.Optional[ColorRGB] = ColorRGB(128,128,128)
     _children = ()
 
     @property
@@ -218,8 +218,10 @@ class MeshObject(GeometryObject):
 
         elif isinstance(self.mesh, dict):
             self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
+        elif isinstance(self.mesh, mmcore.base.models.gql.BufferGeometry):
+            self.geometry = self.mesh
 
-    # TODO Добавить property для всех обязательных аттрибутов меши
+            # TODO Добавить property для всех обязательных аттрибутов меши
     geometry_type = MeshBufferGeometryBuilder
     castShadow: bool = True
     receiveShadow: bool = True

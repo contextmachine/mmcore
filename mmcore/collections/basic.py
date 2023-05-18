@@ -2,7 +2,7 @@ import collections.abc
 import dataclasses
 from collections import namedtuple, deque
 
-
+__all__=["ElementSequence","ParamContainer","DoublyLinkedList","DCLL","FuncMultiDesc","CircularLinkedList","CallbackList","LinkedList","ParamAccessible","OrderedSet","UnlimitedAscii","ListNode","CallsHistory","Convertor","curry"]
 def chain_split_list(iterable):
     ss = deque(iterable)
     l = []
@@ -657,12 +657,22 @@ class DLLIterator(Iterator):
 class DoublyLinkedList:
     def __init__(self):
         self.start_node = None
-
+        self.count = 0
+        self._current_node=self.start_node
+    @property
+    def head(self):
+        return self.start_node
+    def __iter__(self):
+        return DLLIterator(self)
+    @head.setter
+    def head(self,v):
+        self.start_node=v
     # Insert Element to Empty list
     def append(self, data):
         self.insert(data)
 
     def insert(self, data):
+
         if self.start_node is None:
             new_node = DNode(data)
 
@@ -686,6 +696,7 @@ class DoublyLinkedList:
         new_node = DNode(data)
         n.next = new_node
         new_node.prev = n
+        self.count+=1
 
     # Delete the elements from the start
     def delete_at_start(self):
@@ -697,6 +708,7 @@ class DoublyLinkedList:
             return
         self.start_node = self.start_node.next
         self.start_prev = None;
+        self.count-=1
 
     # Delete the elements from the end
     def delete_at_end(self):
@@ -712,6 +724,7 @@ class DoublyLinkedList:
             n = n.next
         n.prev.next = None
 
+        self.count -= 1
     def _find_val(self, v):
         temp = self.start_node
         self._i = 0
@@ -769,7 +782,7 @@ class DoublyLinkedList:
         n.prev = p
         p.next = n
         del temp
-
+        self.count -= 1
     # Traversing and Displaying each element of the list
     def display(self):
         if self.start_node is None:
@@ -781,6 +794,9 @@ class DoublyLinkedList:
                 print("Element is: ", n.data)
                 n = n.next
         print("\n")
+
+    def __len__(self):
+        return self.count
 
 
 class DCNode(DNode):
@@ -1038,3 +1054,16 @@ class DCLL:
 
         # Update self.start pointer
         self.head = new_node
+
+
+def rrange(start, end, count):
+    rng = range(0, count)
+    step = (end - start) * (1 / ((count - 0) - 1))
+
+    for r in rng:
+        yield start + r * step
+
+
+def addtorange(rng, i):
+    for r in rng:
+        yield r + 1
