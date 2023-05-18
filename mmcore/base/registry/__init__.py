@@ -6,7 +6,7 @@ import typing
 from dataclasses import asdict
 from fastapi.middleware.cors import CORSMiddleware
 import strawberry
-from mmcore.collections import ElementSequence
+from mmcore.collections.multi_description import ElementSequence
 from strawberry.extensions import DisableValidation
 from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
@@ -15,8 +15,9 @@ STARTUP = False
 objdict = dict()
 geomdict = dict()
 matdict = dict()
-
-
+adict = dict()
+ageomdict=dict()
+amatdict=dict()
 
 
 # Usage example:
@@ -147,6 +148,24 @@ class ServerBind():
         @strawberry.type
         class Query:
 
+
+            @strawberry.field
+            def items(self) -> Root[gql_models.AnyObject3D]:...
+
+
+            @strawberry.field
+            def agreagate(self, where: strawberry.scalars.JSON) -> list[JSON]:
+                seq = ElementSequence(list(objdict.values()))
+                Group = objdict["_"].__class__
+                grp=Group(name="aggregate_response")
+                if isinstance(where, (str, bytes, bytearray)):
+                    where = json.loads(where)
+
+                [grp.add(data)for data in seq.where(**where)]
+                return grp.get_child_three()
+
+
+
             @strawberry.field
             def all_by_name(self, name: str) -> JSON:
                 ee = ElementSequence(list(objdict.values()))
@@ -202,11 +221,24 @@ class ServerBind():
                     br.add(o)
             return br
 
-        @app.get("/")
-        async def home():
+
+        @app.get("/h")
+        async def home2():
 
             return strawberry.asdict(pull()())
 
+        @app.get("/")
+        def home():
+
+            from mmcore.base import AGroup
+            aa = AGroup(uuid="__")
+            for i in adict.values():
+
+                if not (i.uuid == "__"):
+
+                    aa.add(i)
+
+            return aa.root()
         @app.post("/")
         async def mutate(data: dict = None):
             if data is not None:

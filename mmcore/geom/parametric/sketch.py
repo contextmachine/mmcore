@@ -2,14 +2,18 @@ import abc
 import copy
 import dataclasses
 import math
+import os
 import sys
+import timeit
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from itertools import starmap
 
+from pyquaternion import Quaternion
+from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
-from mmcore.base import geomdict
+from mmcore.base import geomdict, objdict
 from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, MeshObject
 import numpy as np
 from scipy.optimize import minimize
@@ -23,9 +27,13 @@ from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection, ElementSequence
+import multiprocess as mp
 
+# mp.get_start_method = "swapn"
 import uuid as _uuid
 from geomdl.operations import normal, tangent
+
+from mmcore.geom.transform import Transform
 
 TOLERANCE = 0.001
 
@@ -52,6 +60,9 @@ class Linear(ParametricObject):
         self.x = lambda t: self.x0 + self.a * t
         self.y = lambda t: self.y0 + self.b * t
         self.z = lambda t: self.z0 + self.c * t
+
+    def extend(self, a, b):
+        return Linear.from_two_points(self.start - unit(self.direction) * a, self.end + unit(self.direction) * b)
 
     @classmethod
     def from_two_points(cls, start, end):
@@ -97,8 +108,19 @@ class Linear(ParametricObject):
     def direction(self):
         return self.end - self.start
 
+    def to_repr(self, backend=None):
+        if backend is None:
+            return LineObject(
+                points=[np.array(self.start, dtype=float).tolist(),
+                        np.array(self.start, dtype=float).tolist()]
 
-class ParametricLineObject():...
+            )
+        else:
+            return backend(self)
+
+
+class ParametricLineObject(): ...
+
 
 def hhp():
     pts = [[-220175.307469, -38456.999234, 20521],
@@ -187,7 +209,10 @@ class ProxyParametricObject(ParametricObject):
         except AttributeError as err:
             self.prepare_proxy()
             return self._proxy
-    def tessellate(self):...
+
+    def tessellate(self):
+        ...
+
 
 @dataclasses.dataclass
 class NurbsCurve(ProxyParametricObject):
@@ -240,6 +265,8 @@ class NurbsCurve(ProxyParametricObject):
 
     def tessellate(self):
         ...
+
+
 from mmcore.collections import curry
 
 
@@ -318,7 +345,7 @@ class NurbsSurface(ProxyParametricObject):
         uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
         normals = [v for p, v in normal(self._proxy, uv.tolist())]
         if uuid is None:
-            uuid=_uuid.uuid4().__str__()
+            uuid = _uuid.uuid4().__str__()
         return MeshBufferGeometryBuilder(vertices=np.array(vertseq['data']).flatten(),
                                          normals=np.array(normals).flatten(),
                                          indices=np.array(faceseq["vertex_ids"]).flatten(),
@@ -409,7 +436,7 @@ class EvaluatedPoint:
     t: typing.Optional[list[typing.Union[float, list[float]]]]
 
 
-from mmcore.geom.vectors import unit
+from mmcore.geom.vectors import unit, add_translate, angle
 
 
 @dataclasses.dataclass
@@ -420,9 +447,14 @@ class PlaneLinear(ParametricObject):
     yaxis: typing.Optional[typing.Iterable[float]] = None
 
     def __post_init__(self):
+
         # print(unit(self.normal), self.xaxis, self.yaxis)
-        self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
-        self.yaxis = np.cross(unit(self.normal), self.xaxis
+        if self.xaxis is not None and self.yaxis is not None:
+            self.normal=np.cross(unit(self.xaxis),unit(self.yaxis))
+        elif self.normal is not None:
+            self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
+
+            self.yaxis = np.cross(unit(self.normal), self.xaxis
                               )
 
     def evaluate(self, t):
@@ -511,7 +543,7 @@ class HyPar4pt(ParametricObject):
     def intr(self, pln):
 
         d = []
-        for i in self.polyline.segments:
+        for i in [self.side_a, self.side_b, self.side_c, self.side_d]:
             res = line_plane_collision(pln, i)
 
             if res is not None:
@@ -550,9 +582,22 @@ class HypPar4ptGrid(HyPar4pt):
             if not (r == []):
                 try:
                     a, b = r
-                    d.append(Linear.from_two_points(a.tolist(), b.tolist()))
-                except: pass
+                    d.append(Linear.from_two_points( b.tolist(),a.tolist()))
+                except:
+                    pass
 
+        return d
+
+    def parallel_vec_grid(self, step1, vec: Linear):
+
+        d = []
+        for pl in vec.divide_distance_planes(step1):
+
+            # print("t",dd)
+            r = self.intr(pl)
+            if not (r == []):
+                a, b = r
+                d.append(Linear.from_two_points( b.tolist(),a.tolist()))
         return d
 
     """
@@ -718,7 +763,6 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
     ...    [2.420935, 26.07378, 18.666591],
     ...    [-3.542004, 3.424012, 11.066738]]
     >>> A,B=NurbsCurve(control_points=a),NurbsCurve(control_points=b)
-    >>> pt=np.array([13.197247, 21.228605, 0])
     >>> prx=ProxPoints(A,B)
     >>> prx()
     ClosestPointSolution(pt=[array([16.27517685, 16.07437063,  4.86901707]), array([15.75918043, 14.67951531, 14.57947997])], t=array([0.52562605, 0.50105099]), distance=9.823693977393207)
@@ -854,3 +898,129 @@ def test_cp():
     for i in res:
         for j in res:
             yield ProximityPoints(i, j)()
+
+
+from mmcore.geom.parametric.sketch import *
+from mmcore.base.geom import *
+
+from mmcore.base.geom import LineObject
+
+from mmcore.base.basic import iscollection
+
+
+class HypGridLayer:
+    hyp: HypPar4ptGrid
+    prev:typing.Optional[list[Linear]]=None
+    color: typing.Union[ColorRGB, tuple] = (70, 10, 240)
+    name: str = "Foo"
+    high: float = 0.0
+    step: float = 0.0
+    direction: typing.Union[str, Linear] = "D"  # self.prev.sort(key=lambda x: x.length)
+
+    def offset_hyp(self, h=2.0):
+        A1, B1, C1, D1 = self.hyp.evaluate((0, 0)), self.hyp.evaluate((1, 0)), self.hyp.evaluate(
+            (1, 1)), self.hyp.evaluate((0, 1))
+        hpp = []
+        for item in [A1, B1, C1, D1]:
+            hpp.append(np.array(item.point) + np.array(item.normal) * h)
+        return HypPar4ptGrid(*hpp)
+    def __init__(self,**kwargs):
+        object.__init__(self)
+        self.__call__(**kwargs)
+    def __call__(self, **kwargs):
+        self.__dict__|=kwargs
+        if self.prev is not None:
+            self.prev.sort(key=lambda x: x.length)
+            self.direction=self.prev[-1].extend(60,60)
+        return self.solve_grid()
+
+
+    def solve_grid(self):
+        hp_next = self.offset_hyp(self.high)
+
+        if isinstance(self.direction, str):
+            return hp_next.parallel_side_grid(self.step, side=self.direction)
+        else:
+            return hp_next.parallel_vec_grid(self.step, self.direction)
+
+
+def to_repr(backend=None):
+    def wrapper(obj):
+        if backend is None:
+            return obj
+        else:
+            if isinstance(obj, dict):
+                return dict((k, wrapper(v)) for k, v in obj.items())
+            elif iscollection(obj):
+                return [wrapper(item) for item in obj]
+            else:
+                return backend(obj)
+
+    return wrapper
+
+
+class SubSyst2:
+    A = [-31.02414546224999, -17.3277158585, 9.136232981]
+    B = [-22.583505462250002, 11.731284141500002, 1.631432487]
+    C = [17.44049453775, 12.911284141500003, -5.555767019000001]
+    D = [36.167156386749994, -7.314852424499997, -5.211898449000001]
+
+    def __call__(self, *args, trav=False, **kwargs):
+        super().__call__(*args, trav=False, **kwargs)
+        self.hyp = HypPar4ptGrid(self.A, self.B, self.C, self.D)
+        self.grpr = []
+        self.initial = HypGridLayer(name="Layer-Initial", step=0.6, direction="D", color=(70, 10, 240))(trav=False)
+
+        self.layer1 = HypGridLayer(grid=self.initial(trav=False),
+                                   hyp=self.hyp,
+                                   high=0.3,
+                                   step=0.6,
+                                   color=(259, 49, 10),
+                                   name="Layer-1"
+                                   )
+        self.layer2 = HypGridLayer(grid=self.layer1(trav=False),
+                                   hyp=self.hyp,
+                                   high=0.2,
+                                   step=3,
+                                   color=(259, 49, 10),
+                                   name="Layer-2"
+                                   )
+        self.layer3 = HypGridLayer(grid=self.layer2(trav=False),
+                                   hyp=self.hyp,
+                                   high=0.5,
+                                   step=1.5,
+                                   color=(25, 229, 100),
+                                   name="Layer-3"
+                                   )
+        return self
+
+
+def webgl_line_backend(**props):
+    def wrapper(item):
+        return LineObject(points=[np.array(item.start, dtype=float).tolist(), np.array(item.end, dtype=float).tolist()],
+                          **props)
+
+    return wrapper
+
+
+
+"""
+def f(node):
+    # *r,=range(1,len(dl)-2)
+    if node.next is None:
+        pass
+
+    elif node.prev is not None:
+        return list(zip(hyp_transform(node.data, node.next.data), hyp_transform(node.data, node.prev.data)))
+
+
+def ff(dl):
+    for i in range(1, len(dl)):
+        item = dl.get(i)
+        yield f(item)
+
+
+def no_mp(dl):
+    return list(ff(dl))
+
+"""

@@ -183,8 +183,10 @@ class HashUUID:
         self.name = name
 
     def __get__(self, instance, owner) -> str:
-        if instance:
-            return instance.sha().hexdigest()
+        if self._default is None:
+            if instance:
+                self._default= instance.sha().hexdigest()
+
         return self._default
 
     def __set__(self, instance, value):
@@ -197,11 +199,12 @@ class BufferGeometryObject:
     type: str = "BufferGeometry"
     uuid: str = HashUUID()
 
+
     def sha(self):
         return hashlib.sha1(ujson.dumps(self.data.attributes.position.array).encode())
 
     def __hash__(self):
-        return int(self.sha().hexdigest(), 16)
+        return int(self.uuid, 16)
 
 
 @strawberry.type
@@ -287,7 +290,7 @@ class GqlObject3D(GqlBaseObject):
     name: str
     uuid: str
     userData: GqlUserData
-    matrix: list[float] = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+    matrix: list[float] = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
     layers: int = 1
     type: str = "Object3D"
     castShadow: bool = True
@@ -401,22 +404,23 @@ class BaseMaterial:
 
     opacity: float = 1.0
     transparent: bool = False
-    uuid: typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = ""
+
 
     def __post_init__(self):
         if self.type is None:
             self.type = self.__class__.__name__
         if self.uuid is None:
-            self.uuid = uuid.uuid4().__str__()
+            self.uuid = str(self.color)+self.__class__.__name__.lower()
         if self.opacity < 1.0:
             self.transparent = True
 
     def __eq__(self, other):
 
-        return all(compare_content(self, other, verbose=True).values())
+        return self.color==other.color
 
     def __hash__(self):
-        return int(self.uuid, 16)
+        return self.color
 
 
 from enum import Enum
@@ -433,7 +437,7 @@ class Materials(str, Enum):
 class Material(BaseMaterial):
     color: int
     type: Materials
-    uuid: typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = ""
     reflectivity: typing.Optional[float] = None
     refractionRatio: typing.Optional[float] = None
     depthFunc: int
@@ -458,16 +462,12 @@ class Material(BaseMaterial):
     flatShading: typing.Optional[bool] = None
     thickness: typing.Optional[float] = None
 
-    def __eq__(self, other):
-        return super().__eq__(other)
 
-    def __hash__(self):
-        return super().__hash__()
 
 
 @strawberry.type
 class LineBasicMaterial(BaseMaterial):
-    uuid: typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = ""
     type: Materials = Materials.LineBasicMaterial
     color: int = 16724838
 
@@ -487,16 +487,11 @@ class LineBasicMaterial(BaseMaterial):
     opacity: float = 1.0
     transparent: bool = False
 
-    def __eq__(self, other):
-        return super().__eq__(other)
-
-    def __hash__(self):
-        return super().__hash__()
 
 
 @strawberry.type
 class PointsMaterial(BaseMaterial):
-    uuid: typing.Optional[str] = UidSha256()
+    uuid: typing.Optional[str] = ""
     type: Materials = Materials.PointsMaterial
     color: int = 11672217
     size: float = 1
@@ -514,11 +509,6 @@ class PointsMaterial(BaseMaterial):
     stencilZFail: int = 7680
     stencilZPass: int = 7680
 
-    def __eq__(self, other):
-        return super().__eq__(other)
-
-    def __hash__(self):
-        return super().__hash__()
 
 
 from mmcore.geom.materials import ColorRGB
@@ -548,16 +538,7 @@ class MeshPhongMaterial(BaseMaterial):
     stencilZFail: int = 7680
     stencilZPass: int = 7680
     flatShading: bool = True
-    uuid: typing.Optional[str] = UidSha256()
-
-    def __post_init__(self):
-        self.uuid = uuid.uuid4().__str__()
-
-    def __hash__(self):
-        return super().__hash__()
-
-    def __eq__(self, other):
-        return super().__eq__(other)
+    uuid: typing.Optional[str] = ""
 
 
 @strawberry.input

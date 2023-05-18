@@ -7,6 +7,8 @@ import uuid
 
 import dill.source
 import numpy as np
+import ujson
+from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
@@ -481,6 +483,39 @@ class Object3D:
 
     def strawberry_properties(self, input):
         self.properties = strawberry.asdict(input)
+
+    def matrix_to_square_form(self) -> np.ndarray:
+        return np.array(self.matrix, dtype=float).reshape((4, 4)).T
+
+    def transform(self, matrix):
+        """
+        Этот метод применяет трансформацию к уже существующей матрице,
+        если вы просто хотите заменить матрицу трансформации используйте `self.matrix = <matrix>`.
+        @param matrix:
+        @return:
+        """
+        self.matrix = (
+                self.matrix_to_square_form() @ np.array(matrix, dtype=float).reshape((4, 4))).T.flatten().tolist()
+
+    def rotate(self, angle: float, axis: tuple[float, float, float] = (0, 0, 1)):
+        """
+
+        @param axis:
+        @param angle: radians
+        @return:
+        """
+        q = Quaternion(axis=unit(axis), angle=angle)
+        self.transform(q.transformation_matrix)
+
+    def translate(self, vector: tuple[float, float, float]):
+        matrix = np.array([[1, 0, 0, vector[0]],
+                           [0, 1, 0, vector[1]],
+                           [0, 0, 1, vector[2]],
+                           [0, 0, 0, 1]], dtype=float)
+        self.transform(matrix)
+
+    def reset_transform(self):
+        self.matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
 
 class GroupIterator(typing.Iterator):
@@ -1008,8 +1043,12 @@ def sumdicts(*dicts):
     return d
 
 
+from mmcore.base.registry import adict, ageomdict, amatdict
+from mmcore.geom.vectors import unit
+from pyquaternion import Quaternion
+
+
 class A:
-    adict = objdict
     idict = dict()
     args_keys = ["name"]
     _uuid: str = "no-uuid"
@@ -1022,6 +1061,18 @@ class A:
     _matrix = list(DEFAULT_MATRIX)
     _include_geometries = GeometrySet()
     _include_materials = MaterialSet()
+
+    def __copy__(self):
+
+        dct = {}
+        for k in dir(self):
+            if not k.startswith("_"):
+                if not (k in ["properties", "adict", 'threejs_type']):
+                    dct[k] = getattr(self, k)
+        dct["uuid"] = _uuid.uuid4().hex
+        obj = self.__class__.__new__(self.__class__, **dct)
+
+        return obj
 
     def traverse_child_three(self):
         """
@@ -1036,24 +1087,19 @@ class A:
         This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
         @return:
         """
-        self._include_materials = set()
-        self._include_geometries = set()
+        self._include_materials = GeometrySet()
+        self._include_geometries = MaterialSet()
 
         def childthree(obj):
             dct = dict()
-
             self._add_includes(obj)
-
             if len(obj.children) > 0:
-
                 dct["children"] = []
                 for chl in obj.children:
                     try:
                         dct["children"].append(childthree(chl))
                     except KeyError:
-
                         pass
-
                 return dct
             else:
                 # print(dct)
@@ -1103,23 +1149,23 @@ class A:
     def uuid(self, v):
         try:
 
-            val = self.adict[self._uuid]
-            self.adict[str(v)] = val
-            del self.adict[self._uuid]
+            val = adict[self._uuid]
+            adict[str(v)] = val
+            del adict[self._uuid]
             self._uuid = str(v)
         except KeyError:
             self._uuid = str(v)
-            self.adict[self._uuid] = self
+            adict[self._uuid] = self
 
     @classmethod
     def get_object(cls, uuid: str):
-        return cls.adict[uuid]
+        return adict[uuid]
 
     @property
     def children(self):
         l = []
         for child in self._children:
-            l.append(self.adict[child])
+            l.append(adict[child])
         return l
 
     def __new__(cls, *args, **kwargs):
@@ -1128,7 +1174,7 @@ class A:
         inst.child_keys = set()
         inst._children = set()
         inst.set_state(*args, **kwargs)
-        A.adict[inst.uuid] = inst
+        adict[inst.uuid] = inst
         return inst
 
     def render(self):
@@ -1161,14 +1207,32 @@ class A:
         for child in v:
             self._children.add(child.uuid)
 
-    def root(self):
-        return {
-            "metadata": {},
-            "object": self(),
-            "geometries": list(self._include_geometries),
-            "materials": list(self._include_materials)
+    def root(self, shapes=None):
 
-        }
+        if shapes:
+
+            return {
+                "metadata": {
+                    "version": 4.5,
+                    "type": "Object",
+                    "generator": "Object3D.toJSON"
+                },
+                "object": self(),
+                "shapes": shapes,
+                "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
+                "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
+            }
+        else:
+            return {
+                "metadata": {
+                    "version": 4.5,
+                    "type": "Object",
+                    "generator": "Object3D.toJSON"
+                },
+                "object": self(),
+                "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
+                "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
+            }
 
     def __call__(self, *args, callback=lambda x: x, **kwargs):
         self.set_state(*args, **kwargs)
@@ -1183,9 +1247,8 @@ class A:
                 "castShadow": True,
                 "receiveShadow": True,
                 "userData": {
-                    "state": self.get_state(),
+
                     "properties": sumdicts({
-                        "uuid": self.uuid,
                         "name": self.name
                     },
                         self.properties,
@@ -1200,7 +1263,7 @@ class A:
         try:
             if (key, self.uuid) in A.idict.keys():
 
-                return A.adict[A.idict[(key, self.uuid)]]
+                return adict[A.idict[(key, self.uuid)]]
             else:
                 return getattr(self, key)
         except RecursionError as err:
@@ -1238,6 +1301,39 @@ class A:
                 self._include_geometries.add(obj._geometry)
                 self._include_materials.add(obj._material)
 
+    def matrix_to_square_form(self) -> np.ndarray:
+        return np.array(self.matrix, dtype=float).reshape((4, 4)).T
+
+    def transform(self, matrix):
+        """
+        Этот метод применяет трансформацию к уже существующей матрице,
+        если вы просто хотите заменить матрицу трансформации используйте `self.matrix = <matrix>`.
+        @param matrix:
+        @return:
+        """
+        self.matrix = (
+                self.matrix_to_square_form() @ np.array(matrix, dtype=float).reshape((4, 4))).T.flatten().tolist()
+
+    def rotate(self, angle: float, axis: tuple[float, float, float] = (0, 0, 1)):
+        """
+
+        @param axis:
+        @param angle: radians
+        @return:
+        """
+        q = Quaternion(axis=unit(axis), angle=angle)
+        self.transform(q.transformation_matrix)
+
+    def translate(self, vector: tuple[float, float, float]):
+        matrix = np.array([[1, 0, 0, vector[0]],
+                           [0, 1, 0, vector[1]],
+                           [0, 0, 1, vector[2]],
+                           [0, 0, 0, 1]], dtype=float)
+        self.transform(matrix)
+
+    def reset_transform(self):
+        self.matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+
 
 class AGroup(A):
     @property
@@ -1249,7 +1345,7 @@ class AGroup(A):
 
 
 class RootForm(A):
-    def __call__(self,res=None, *args, **kwargs):
+    def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)
         return {
             "metadata": {
@@ -1263,7 +1359,223 @@ class RootForm(A):
         }
 
 
+class AGeometryDescriptor:
+    adict = dict()
 
+    def __init__(self, default=None):
+        super().__init__()
+        if default is not None:
+            ageomdict[default.uuid] = default
+            self._default = default.uuid
+        else:
+            self._default = default
+
+    def __set_name__(self, owner, name):
+        if not (name == "geometry"):
+            raise
+        self._name = "_" + name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+
+            return ageomdict.get(self._default)
+        else:
+            return ageomdict.get(getattr(instance, self._name))
+
+    def __set__(self, instance, value):
+        ageomdict[value.uuid] = value
+        setattr(instance, self._name, value.uuid)
+
+
+from mmcore.geom.materials import ColorRGB
+
+
+class AMaterialDescriptor:
+    adict = dict()
+
+    def __init__(self, default=None):
+        super().__init__()
+        if default is not None:
+            amatdict[default.uuid] = default
+            self._default = default.uuid
+        else:
+            self._default = default
+
+    def __set_name__(self, owner, name):
+        if not (name == "material"):
+            raise
+        self._name = "_" + name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+
+            return amatdict.get(self._default)
+        else:
+
+            return amatdict[getattr(instance, self._name)]
+
+    def __set__(self, instance, value):
+
+        amatdict[value.uuid] = value
+        setattr(instance, self._name, value.uuid)
+
+
+class AGeom(A):
+    material_type = gql_models.Material
+    geometry = AGeometryDescriptor(default=None)
+    material = AMaterialDescriptor(default=None)
+
+    @property
+    def threejs_type(self):
+        return "Geometry"
+
+    def __call__(self, *args, **kwargs):
+        res = super().__call__(*args, **kwargs)
+        res |= {
+            "geometry": self.geometry.uuid,
+            "material": self._material,
+        }
+        return res
+
+
+class AMesh(AGeom):
+    material_type = gql_models.MeshPhongMaterial
+    geometry = AGeometryDescriptor(default=None)
+    material = AMaterialDescriptor(default=gql_models.MeshPhongMaterial(color=ColorRGB(120, 200, 40).decimal))
+
+    @property
+    def threejs_type(self):
+        return "Mesh"
+
+
+def position_hash(points):
+    return hashlib.sha1(ujson.dumps(np.array(points, dtype=float).flatten().tolist()).encode()).hexdigest()
+
+
+class APointsGeometryDescriptor(AGeometryDescriptor):
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self._default
+        else:
+            if hasattr(instance, self._name):
+                return gql_models.BufferGeometryObject(**{
+                    'data': gql_models.Data1(
+                        **{'attributes': gql_models.Attributes1(
+                            **{'position': gql_models.Position(
+                                **{'itemSize': 3,
+                                   'type': 'Float32Array',
+                                   'array': np.array(
+                                       instance.points).flatten().tolist(),
+                                   'normalized': False})})})})
+            else:
+                return None
+
+    def __set__(self, instance, value):
+
+        instance.points = value
+
+        uid=position_hash(value)
+        setattr(instance, self._name, uid)
+        ageomdict[uid] = gql_models.BufferGeometryObject(**{
+            'data': gql_models.Data1(
+                **{'attributes': gql_models.Attributes1(
+                    **{'position': gql_models.Position(
+                        **{'itemSize': 3,
+                           'type': 'Float32Array',
+                           'array': np.array(value).flatten().tolist(),
+                           'normalized': False})})})})
+
+
+
+class APoints(AGeom):
+    material_type = gql_models.PointsMaterial
+    geometry = APointsGeometryDescriptor(default=None)
+
+    material = AMaterialDescriptor(default=gql_models.PointsMaterial(color=ColorRGB(120, 200, 40).decimal))
+    _material = None
+    _points = []
+    kd = None
+
+    def solve_kd(self):
+        self.kd = KDTree(self.points)
+        return self.kd
+
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, v):
+        self._points = v
+
+    @property
+    def threejs_type(self):
+        return "Points"
+
+
+from scipy.spatial import KDTree
+
+
+class APoint(APoints):
+
+    def __new__(cls, x, y, z, *args, **kwargs):
+        return super().__new__(points=[x, y, z], *args, **kwargs)
+
+    @property
+    def x(self):
+        return self.points[0]
+
+    @property
+    def y(self):
+        return self.points[1]
+
+    @property
+    def z(self):
+        return self.points[2]
+
+    @z.setter
+    def z(self, v):
+        self.points[2] = v
+
+    @y.setter
+    def y(self, v):
+        self.points[1] = v
+
+    @x.setter
+    def x(self, v):
+        self.points[0] = v
+
+    def distance(self, other: 'APoint'):
+        return euclidean(self.points, other.points)
+
+
+class ALine(APoints):
+    material_type = gql_models.LineBasicMaterial
+    geometry = APointsGeometryDescriptor(default=None)
+    material = AMaterialDescriptor(default=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal))
+
+    @property
+    def start(self):
+        return self.points[0]
+
+    @start.setter
+    def start(self, value):
+        self.points[0] = value
+
+    @property
+    def end(self):
+        return self.points[-1]
+
+    @end.setter
+    def end(self, value):
+        self.points[-1] = value
+
+    @property
+    def threejs_type(self):
+        return "Line"
+
+
+grp = AGroup(name="base_root", uuid="_")
 
 
 class TestException(Exception): ...
