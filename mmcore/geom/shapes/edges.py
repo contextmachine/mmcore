@@ -1,9 +1,11 @@
 import numpy as np
 import shapely
+
+from mmcore.base import ALine
 from mmcore.collections import DCLL
 from mmcore.base.geom import LineObject, LineBasicMaterial, GqlLine
 from mmcore.geom.utils import area_2d, triangle_unit_normal
-from mmcore.geom.parametric.sketch import LinearSimple, Polyline
+from mmcore.geom.parametric.sketch import Linear, Polyline
 
 
 def from_list(seq):
@@ -14,10 +16,16 @@ def from_list(seq):
     return lst
 
 
-class Polygon(LineObject):
-    _holes = DCLL()
+class Polygon:
+    _holes = []
     _points = DCLL()
-
+    def __init__(self,**kw):
+        super().__init__()
+        self.__call__(**kw)
+    def __call__(self,  **kwargs):
+        for k,v in kwargs.items():
+            setattr(self, k,v)
+        return self
     @classmethod
     def from_shapely(cls, poly):
         return cls(points=np.array(poly.boundary.coords.xy).T)
@@ -37,42 +45,36 @@ class Polygon(LineObject):
 
     @holes.setter
     def holes(self, v):
-        if v is not None:
-            if not (v == []):
-                self._holes = DCLL()
-                for hole in v:
-                    self._holes.append(Polygon(points=hole))
-                    self.solve_geometry()
+        self._holes=v
 
-    @property
-    def points(self):
-        return list(self._points)
-
-    @points.setter
-    def points(self, v):
-        if v is not None:
-            if not (v == []):
-                self._points = from_list(list(v))
-
-                if not (list(v)[0] == list(v)[-1]):
-                    self._points.append(list(v)[0])
-
-        self.solve_geometry()
 
     @property
     def poly_shapely(self):
 
-        return shapely.Polygon(shell=self.points)
+        return shapely.Polygon(list(self.points), [list(l) for l in self.holes])
 
     @property
     def area(self):
 
         return area_2d(self.points)
+    def append(self, pt):
+        self._points.append(pt)
+    def append_hole(self, hole):
+        self._holes.append(hole)
+    @property
+    def points(self):
+        return self._points
+
+    @points.setter
+    def points(self, v):
+        self._points=DCLL()
+        for i in v:
+            self._points.append(i)
 
     @property
     def centroid(self):
 
-        return self.poly_shapely.centroid
+        return np.asarray(self.poly_shapely.centroid.xy).flatten()
 
     def __add__(self, other):
 
@@ -117,3 +119,8 @@ class Polygon(LineObject):
         a= np.asarray(self.points[1]) - np.asarray(self.points[0])
         b=np.asarray(self.points[2]) - np.asarray(self.points[0])
         return np.cross(a,b)
+
+
+def check(crv, mask):
+    return mask.contains(crv.poly_shapely), mask.intersects(crv.poly_shapely), mask.within(crv.poly_shapely)
+

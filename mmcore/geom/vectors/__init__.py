@@ -115,13 +115,16 @@ def vec_from_point_chain(point_chain, p=-1):
 #   basis_to_custom_canonical_form
 
 
-def angle_s(a, b):
+def angle(a, b):
     try:
         v = np.arccos(np.dot(unit(a), unit(b)))
         return v
     except RuntimeWarning:
         print('bad value', np.dot(unit(a), unit(b)))
 
+def add_translate(x, transl):
+    x[:3, 3]+=transl
+    return np.asarray(x, dtype=float)
 
 
 def theta(xaxis):
@@ -439,70 +442,6 @@ def dist(u, v):
     typecheck([(u, Vector), (v, Vector)], "dist")
     return u.sub(v).Length
 
-
-def angle(u, v=Vector(1, 0, 0), normal=Vector(0, 0, 1)):
-    """Return the angle in radians between the two vectors.
-
-    It uses the definition of the dot product
-    ::
-        A * B = |A||B| cos(angle)
-
-    If only one vector is given, the angle is between that one and the
-    horizontal (+X).
-
-    If a third vector is given, it is the normal used to determine
-    the sign of the angle.
-    This normal is used to calculate a `factor` as the dot product
-    with the cross product of the first two vectors.
-    ::
-        C = A x B
-        factor = normal * C
-
-    If the `factor` is positive the angle is positive, otherwise
-    it is the opposite sign.
-
-    Parameters
-    ----------
-    u : Base::Vector3
-        The first vector.
-    v : Base::Vector3, optional
-        The second vector to test against the first one.
-        It defaults to `(1, 0, 0)`, or +X.
-    normal : Base::Vector3, optional
-        The vector indicating the normal.
-        It defaults to `(0, 0, 1)`, or +Z.
-
-    Returns
-    -------
-    float
-        The angle in radians between the vectors.
-        It is zero if the magnitude of one of the vectors is zero,
-        or if they are colinear.
-    """
-    typecheck([(u, Vector), (v, Vector)], "angle")
-    ll = u.Length * v.Length
-    if ll == 0:
-        return 0
-
-    # The dot product indicates the projection of one vector over the other
-    dp = u.dot(v) / ll
-
-    # Due to rounding errors, the dot product could be outside
-    # the range [-1, 1], so let's force it to be within this range.
-    if dp < -1:
-        dp = -1
-    elif dp > 1:
-        dp = 1
-
-    ang = math.acos(dp)
-
-    # The cross product compared with the provided normal
-    normal1 = u.cross(v)
-    coeff = normal.dot(normal1)
-    if coeff >= 0:
-        return ang
-    else:
-        return -ang
 
 
 def project(u, v):
@@ -1047,3 +986,4 @@ def get_cartesian_coords(radius, theta, phi):
     return (x, y, z)
 
 ##  @}
+l=[]

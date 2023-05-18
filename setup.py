@@ -28,7 +28,7 @@ setup(
     version='0.1.7',
     packages=['mmcore', 'mmcore.geom',
               'mmcore.geom.utils',
-              'mmcore.geom.xforms',
+              'mmcore.geom.transform',
               'mmcore.geom.parametric',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
