@@ -1,4 +1,5 @@
 import datetime
+import types
 
 import ujson as json
 import sys
@@ -16,9 +17,8 @@ objdict = dict()
 geomdict = dict()
 matdict = dict()
 adict = dict()
-ageomdict=dict()
-amatdict=dict()
-
+ageomdict = dict()
+amatdict = dict()
 
 # Usage example:
 # from mmcore.base.registry.fcpickle import FSDB
@@ -80,13 +80,24 @@ class ServerBind():
         inst = object.__new__(cls)
         _server_binds.append(inst)
 
-
         @strawberry.type
         class Root(typing.Generic[T]):
-            object: T
-            metadata: gql_models.Metadata
-            materials: list[gql_models.AnyMaterial]
-            geometries: list[typing.Union[gql_models.BufferGeometry, None]]
+            __annotations__ = {
+                "all": typing.Optional[JSON],
+                "shapes": typing.Optional[JSON],
+                "metadata": gql_models.Metadata,
+                "materials": list[gql_models.AnyMaterial],
+                "object": T,
+                "geometries": list[typing.Union[gql_models.BufferGeometry, None]]
+            }
+
+
+
+
+
+
+
+
 
         @strawberry.type
         class Mutation:
@@ -108,7 +119,7 @@ class ServerBind():
                 return matdict[uuid]
 
             @strawberry.field
-            def rootless_by_uuid(self, uuid: str,data:JSON) -> Root[gql_models.AnyObject3D]:
+            def rootless_by_uuid(self, uuid: str, data: JSON) -> Root[gql_models.AnyObject3D]:
                 return objdict[uuid](**data).get_child_three()
 
             """
@@ -136,7 +147,7 @@ class ServerBind():
                     return target.get_child_three()["object"]"""
 
             @strawberry.field
-            def rootless_by_name(self, name: str, data:JSON) -> Root[gql_models.AnyObject3D]:
+            def rootless_by_name(self, name: str, data: JSON) -> Root[gql_models.AnyObject3D]:
                 ee = ElementSequence(list(objdict.values()))
                 from mmcore.base import Group
 
@@ -145,26 +156,23 @@ class ServerBind():
                 print(grp)
 
                 return grp()
+
         @strawberry.type
         class Query:
 
-
             @strawberry.field
-            def items(self) -> Root[gql_models.AnyObject3D]:...
-
+            def items(self) -> Root[gql_models.AnyObject3D]: ...
 
             @strawberry.field
             def agreagate(self, where: strawberry.scalars.JSON) -> list[JSON]:
                 seq = ElementSequence(list(objdict.values()))
                 Group = objdict["_"].__class__
-                grp=Group(name="aggregate_response")
+                grp = Group(name="aggregate_response")
                 if isinstance(where, (str, bytes, bytearray)):
                     where = json.loads(where)
 
-                [grp.add(data)for data in seq.where(**where)]
+                [grp.add(data) for data in seq.where(**where)]
                 return grp.get_child_three()
-
-
 
             @strawberry.field
             def all_by_name(self, name: str) -> JSON:
@@ -221,7 +229,6 @@ class ServerBind():
                     br.add(o)
             return br
 
-
         @app.get("/h")
         async def home2():
 
@@ -235,10 +242,10 @@ class ServerBind():
             for i in adict.values():
 
                 if not (i.uuid == "__"):
-
                     aa.add(i)
 
             return aa.root()
+
         @app.post("/")
         async def mutate(data: dict = None):
             if data is not None:

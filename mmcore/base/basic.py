@@ -340,9 +340,10 @@ class Object3D:
             self (object): The object to be processed.
 
         Returns:
-            threejs_root: A threejs_root object with all of the object's children.
+            threejs_root: A threejs_root object with all the object's children.
 
-        This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
+        This function takes an object and creates a deep copy of its threejs_repr. It then adds all the object's
+        children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
         @return:
         """
         self._include_materials = set()
@@ -818,6 +819,22 @@ class GenericList(list):
         return type(f'{__ann}', (list,), {"__new__": __new__, "__origin__": list[item]})
 
 
+ROOT_DOC = """"""
+
+
+@strawberry.interface(description=ROOT_DOC)
+class RootInterface:
+    metadata: gql_models.Metadata
+    materials: gql_models.AnyMaterial
+    geometries: gql_models.BufferGeometry
+    object: gql_models.AnyObject3D
+    #shapes: typing.Optional[JSON] = None
+
+    @strawberry.field
+    def all(self) -> JSON:
+        return strawberry.asdict(self)
+
+
 class DictSchema:
     """
     >>> import strawberry
@@ -937,8 +954,6 @@ class DictSchema:
         return new_class(**self.dict_example)
 
 
-from strawberry.tools import create_type
-
 
 class Delegate:
     def __init__(self, delegate):
@@ -948,38 +963,33 @@ class Delegate:
         self._owner = owner
 
         def _getattr_(inst, item):
-            if not item.startswith("_"):
-                if hasattr(inst.delegate, item):
-                    return getattr(inst.delegate, item)
 
-            return getattr(inst, item)
+
+                if hasattr(self._owner, item):
+
+                    return self._owner.__getattribute__(inst, item)
+
+                else:
+
+
+                    return getattr(inst._ref, item)
+
+
+
 
         self._owner.__getattr__ = _getattr_
         d = set(dir(self._delegate))
         d1 = set(dir(self._owner))
         d.update(d1)
+        def dr(dlf):
+            r=object.__dir__(dlf._ref)
+            rr=set(object.__dir__(dlf))
+            rr.update(set(r))
+            return rr
 
-        def _dir_(inst):
+        self._owner.__dir__=dr
 
-            return list(d)
-
-        self._owner.__dir__ = _dir_
-        self._owner.__delegate__ = self
-
-        def wrap(*args, **kwargs):
-            kws2 = {}
-            for k, v in kwargs:
-                if k in self._delegate.__init__.__func__.__code__.co_argnames:
-                    kws2[k] = v
-
-                    del kwargs[k]
-
-            delegate = self._delegate(**kws2)
-            inst = self._owner(*args, **kwargs)
-            inst.delegate = delegate
-            return inst
-
-        return wrap
+        return self._owner
 
 
 class DictGqlSchema(DictSchema):
@@ -1136,6 +1146,10 @@ class A:
     @matrix.deleter
     def matrix(self):
         self._matrix = list(DEFAULT_MATRIX)
+
+    def gql_input_type(self):
+        ds = DictSchema(self.properties)
+        ds.get_init_default_strawberry()
 
     @property
     def threejs_type(self):
@@ -1474,7 +1488,7 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
 
         instance.points = value
 
-        uid=position_hash(value)
+        uid = position_hash(value)
         setattr(instance, self._name, uid)
         ageomdict[uid] = gql_models.BufferGeometryObject(**{
             'data': gql_models.Data1(
@@ -1484,7 +1498,6 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
                            'type': 'Float32Array',
                            'array': np.array(value).flatten().tolist(),
                            'normalized': False})})})})
-
 
 
 class APoints(AGeom):
