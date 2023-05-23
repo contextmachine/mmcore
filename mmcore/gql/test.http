@@ -1,16 +1,16 @@
 ###
-GRAPHQL http://localhost:5799/v2/graphql
+GRAPHQL http://localhost:7711/graphql
 content-type: application/json
 
 query {
-  metadata
-  geometries
-  materials
-  object
 
-
+  root{metadata object {name children {name}}
+  }
 
 }
+
+
+
 
   {
 

@@ -1,3 +1,10 @@
+from collections import deque
+
+import shapely
+from operator import itemgetter
+
+import uuid
+
 import abc
 import dataclasses
 import json
@@ -53,7 +60,7 @@ class GeometryObject(Object3D):
     material_type = mmcore.base.models.gql.BaseMaterial
     _material: typing.Optional[str] = "MeshPhongMaterial"
     _geometry: typing.Optional[str] = None
-    _color: typing.Optional[ColorRGB] = ColorRGB(128,128,128)
+    _color: typing.Optional[ColorRGB] = ColorRGB(128, 128, 128)
     _children = ()
 
     @property
@@ -195,15 +202,62 @@ class GeometryObject(Object3D):
         ...
 
 
+from mmcore.geom.vectors import triangle_normal
+
+
 @dataclasses.dataclass
 class MeshData:
     vertices: typing.Union[list, tuple]
     normals: typing.Optional[typing.Union[list, tuple]] = None
+    indices: typing.Optional[typing.Union[list, tuple]] = None
     uv: typing.Optional[typing.Union[list, tuple]] = None
-    uuid: typing.Optional[typing.Union[list, tuple]] = None
+    uuid: typing.Optional[str] = None
+    _buff = None
+
+    def calc_indices(self):
+        d = deque(range(len(self.vertices)))
+        d1 = d.copy()
+        d2 = d.copy()
+        d2.rotate(-1)
+        d.rotate(1)
+        *l, = zip(d1, d, d2)
+        self.indices = np.array(l, dtype=int).tolist()
+
+    def calc_normals(self):
+        self.normals = []
+        for a, b, c in self.indices:
+            self.normals.append(
+                triangle_normal(np.array(self.vertices[a]), np.array(self.vertices[b]), np.array(self.vertices[c])))
+
+    def __post_init__(self):
+        self._buf = None
+        if self.uuid is None:
+            self.uuid = uuid.uuid4().hex
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+    def create_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
+        if self._buf is None:
+            self._buf = MeshBufferGeometryBuilder(**self.asdict()).create_buffer()
+        return self._buf
+
+    def get_face(self, item):
+        if self.indices is not None:
+            return itemgetter(*self.indices[item])(self.vertices)
+
+    @property
+    def faces(self):
+
+        if self.indices is not None:
+            l = []
+            for i in range(len(self.indices)):
+                l.append(self.get_face(i))
+            return l
+        return
+
+    def translate(self, v):
+        self.vertices = np.array(self.vertices) + np.array(v)
 
 
 class MeshObject(GeometryObject):
@@ -217,11 +271,12 @@ class MeshObject(GeometryObject):
             self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
 
         elif isinstance(self.mesh, dict):
-            self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
+            self.geometry = MeshBufferGeometryBuilder(**self.mesh).create_buffer()
         elif isinstance(self.mesh, mmcore.base.models.gql.BufferGeometry):
             self.geometry = self.mesh
 
             # TODO Добавить property для всех обязательных аттрибутов меши
+
     geometry_type = MeshBufferGeometryBuilder
     castShadow: bool = True
     receiveShadow: bool = True
