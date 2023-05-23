@@ -1,11 +1,15 @@
 #
+import itertools
+
+import functools
+
 import inspect
 import os
 import pprint
 import types
 import uuid
 
-import dill.source
+
 import numpy as np
 import ujson
 from scipy.spatial.distance import euclidean
@@ -30,10 +34,10 @@ import uuid as _uuid
 import copy
 
 import strawberry
-from mmcore.services.redis import connect
+
 from mmcore.collections.multi_description import Paginate, ElementSequence
 
-from mmcore.collections import ParamContainer
+
 
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
@@ -774,6 +778,7 @@ type SampleOutput {
 
 
 """
+from strawberry.tools.merge_types import merge_types
 
 
 def to_camel_case(name: str):
@@ -786,10 +791,11 @@ def to_camel_case(name: str):
     @return: str
     """
     if not name.startswith("_"):
-        return "".join(nm.capitalize() for nm in name.split("_"))
+
+        return "".join(nm[0].capitalize() + nm[1:] for nm in name.split("_"))
 
     else:
-        return "_" + "".join(nm.capitalize() for nm in name.split("_"))
+        return "_" + "".join(nm[0].capitalize() + nm[1:] for nm in name.split("_"))
 
 
 class GenericList(list):
@@ -828,7 +834,8 @@ class RootInterface:
     materials: gql_models.AnyMaterial
     geometries: gql_models.BufferGeometry
     object: gql_models.AnyObject3D
-    #shapes: typing.Optional[JSON] = None
+
+    # shapes: typing.Optional[JSON] = None
 
     @strawberry.field
     def all(self) -> JSON:
@@ -868,13 +875,15 @@ class DictSchema:
     def bind(self, cls_name: str,
              fields: typing.Iterable,
              *args, **kwargs):
-
-        return dataclasses.make_dataclass(cls_name, fields, *args, **kwargs)
+        ncls = dataclasses.make_dataclass(cls_name, fields, *args, **kwargs)
+        self.classes.add(ncls)
+        return ncls
 
     def __init__(self, dict_example):
         self.annotations = dict()
-
-        self.dict_example = dict_example
+        self.cls = object
+        self.dict_example = DeepDict(dict_example)
+        self.classes = set()
 
     def generate_schema(self, callback=lambda x: x):
         def wrap(name, obj):
@@ -939,7 +948,7 @@ class DictSchema:
             else:
                 return name, type(obj), lambda: obj
 
-        return wrap("root", self.dict_example)[1]
+        return wrap(self.cls.__name__, self.dict_example)[1]
 
     @property
     def schema(self):
@@ -950,9 +959,31 @@ class DictSchema:
         return self.schema(**self.dict_example)
 
     def get_init_default_strawberry(self):
-        new_class = strawberry.type(self.schema)
-        return new_class(**self.dict_example)
 
+        return self.get_strawberry()(**self.dict_example)
+    def get_strawberry(self):
+
+        return strawberry.type(self.schema)
+    def init_partial(self, **kwargs):
+        dct = copy.deepcopy(self.dict_example)
+        dct |= kwargs
+        return self.schema(**dct)
+
+    def _get_new(self, kwargs):
+        cp = DeepDict(copy.copy(self.dict_example))
+        cp |= kwargs
+        inst = self.schema(**cp)
+        inst.__schema__ = self.schema
+        inst.__classes__ = list(self.classes)
+        return inst
+
+    def __call__(self, **kwargs):
+
+        return self._get_new(kwargs)
+
+    def decorate(self, cls):
+        self.cls = cls
+        return self
 
 
 class Delegate:
@@ -964,30 +995,26 @@ class Delegate:
 
         def _getattr_(inst, item):
 
+            if hasattr(self._owner, item):
 
-                if hasattr(self._owner, item):
+                return self._owner.__getattribute__(inst, item)
 
-                    return self._owner.__getattribute__(inst, item)
+            else:
 
-                else:
-
-
-                    return getattr(inst._ref, item)
-
-
-
+                return getattr(inst._ref, item)
 
         self._owner.__getattr__ = _getattr_
         d = set(dir(self._delegate))
         d1 = set(dir(self._owner))
         d.update(d1)
+
         def dr(dlf):
-            r=object.__dir__(dlf._ref)
-            rr=set(object.__dir__(dlf))
+            r = object.__dir__(dlf._ref)
+            rr = set(object.__dir__(dlf))
             rr.update(set(r))
             return rr
 
-        self._owner.__dir__=dr
+        self._owner.__dir__ = dr
 
         return self._owner
 
@@ -1053,13 +1080,46 @@ def sumdicts(*dicts):
     return d
 
 
-from mmcore.base.registry import adict, ageomdict, amatdict
+from mmcore.base.registry import adict, ageomdict, amatdict, idict
 from mmcore.geom.vectors import unit
 from pyquaternion import Quaternion
+from mmcore.gql.client import GQLReducedQuery
+
+
+class GQLPropertyDescriptor:
+    def __init__(self, query, mutate=None, vars=None):
+        self._query = GQLReducedQuery(query)
+        self._mutate = GQLReducedQuery(mutate)
+        self._vars = vars if vars is not None else set()
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        owner.properties_keys.add(name)
+
+    def __get__(self, inst, owner):
+        if inst:
+            variables = dict()
+            if len(self._vars) > 0:
+
+                for v in self._vars:
+                    variables[v] = getattr(inst, v)
+            return self._query(variables=variables)
+        else:
+            return self
+
+    def __set__(self, inst, v):
+
+        variables = dict()
+        if len(self._vars) > 0:
+
+            for k in self._vars:
+                variables[k] = getattr(inst, k)
+        variables |= v
+        self._mutate(variables=variables)
 
 
 class A:
-    idict = dict()
+    idict = idict
     args_keys = ["name"]
     _uuid: str = "no-uuid"
     name: str = "A"
@@ -1068,9 +1128,17 @@ class A:
         "name",
         "matrix"
     }
+    priority = 1.0
+
+    properties_keys = {
+        "priority",
+        "name"
+
+    }
     _matrix = list(DEFAULT_MATRIX)
     _include_geometries = GeometrySet()
     _include_materials = MaterialSet()
+    _properties = dict()
 
     def __copy__(self):
 
@@ -1120,6 +1188,9 @@ class A:
 
         return childthree(self)
 
+    def property_interface(self):
+        return
+
     @property
     def state_keys(self):
         return set(list(self.args_keys + list(self.child_keys) + list(self._state_keys)))
@@ -1130,10 +1201,13 @@ class A:
 
     @property
     def properties(self):
-        return {
-            "name": self.name,
-            "priority": 1.0
-        }
+
+        return self._properties
+
+    @properties.setter
+    def properties(self, v):
+
+        self._properties |= v
 
     @property
     def matrix(self):
@@ -1187,8 +1261,12 @@ class A:
 
         inst.child_keys = set()
         inst._children = set()
+
         inst.set_state(*args, **kwargs)
+        if inst.uuid == "no-uuid":
+            inst.uuid = uuid.uuid4().hex
         adict[inst.uuid] = inst
+
         return inst
 
     def render(self):
@@ -1592,3 +1670,122 @@ grp = AGroup(name="base_root", uuid="_")
 
 
 class TestException(Exception): ...
+
+
+def generate_object3d_dict(**kwargs):
+    dct = {
+        "uuid": uuid.uuid4().hex,
+        "type": "Object3D",
+        "layers": 1,
+        "matrix": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        "up": [0, 1, 0]
+    }
+
+
+def deep_update(dct, dct2):
+    for k, v in dct.items():
+        vv = dct2.get(k)
+        if vv is not None:
+            if isinstance(vv, dict):
+                if isinstance(v, dict):
+                    deep_update(v, vv)
+                else:
+                    dct[k] = vv
+            else:
+                dct[k] = vv
+    for k, v2 in dct2.items():
+        if not (k in dct.keys()):
+            dct[k] = v2
+    return dct
+
+
+class DeepDict(dict):
+    def __ior__(self, other):
+        deep_update(self, other)
+        return self
+
+
+class ObjectThree:
+    def __init__(self, root: A):
+        self.root = root
+
+    def get_obj(self):
+        return adict[self.root]
+
+    def all(self):
+        return adict[self.root].root()
+
+    def walk(self):
+        three = {}
+        obj = self.get_obj()
+        if len(obj.child_keys) > 0:
+            for k in obj.idict.keys():
+                name, key = k
+                if key == obj.uuid:
+                    three[name] = self.__class__(obj.idict[(name, key)])
+        return three
+
+    def __getitem__(self, item):
+        if item == "all":
+            return self.all()
+        else:
+            return self.walk()[item]
+
+
+    def keys(self):
+        return self.walk().keys()
+
+    def to_dict(self):
+
+
+        dct = {"all": self.all()}
+        for k, v in self.walk().items():
+            if isinstance(v, ObjectThree):
+                dct[k] = v.to_dict()
+        return dct
+
+class GqlObjectThree(ObjectThree):
+
+    def __getitem__(self, item):
+        if item !="all":
+
+
+            return super().__getitem__(item)
+        else:
+            return super().__getitem__(item)
+class Three:
+    all: JSON
+
+
+def new_three(origin: GqlObjectThree = None):
+    attrs = dict(itertools.zip_longest(origin.keys(), ['GenericThree'], fillvalue='GenericThree'))
+    define=f"""
+    
+@strawberry.type
+class GenericThree:
+    __annotations__ = {attrs}
+    
+    @property
+    def origin(self):
+        return self._origin
+      
+    @strawberry.field
+    def all(self) -> JSON:
+        return self.origin.all()
+        
+"""
+    for k in origin.keys():
+
+
+        define+=f"""   
+    @strawberry.field 
+    def {k}(self)->'GenericThree':
+        return new_three(self.origin["{k}"])"""
+
+    cd=compile(define, "_i", "exec")
+
+    exec(cd, globals(), locals())
+    e=eval('GenericThree')()
+    e._origin=origin
+    return e
+

@@ -14,6 +14,7 @@ class BufferGeometryBuilder(typing.Protocol):
     choices = {
         '000': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
         '100': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes3),
+        '101':(mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes3),
         '110': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes2),
         '111': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2)
     }

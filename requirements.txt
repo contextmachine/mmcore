@@ -27,3 +27,4 @@ more-itertools
 ujson
 pyquaternion
 multiprocess
+earcut

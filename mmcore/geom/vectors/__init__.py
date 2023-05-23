@@ -33,7 +33,7 @@ but which can also be used in other workbenches and in macros.
 
 # Check code with
 # flake8 --ignore=E226,E266,E401,W503
-PERCISSION=6
+PERCISSION = 6
 import math
 
 import warnings
@@ -42,6 +42,8 @@ from typing import Iterable, Iterator
 import numpy as np
 
 from scipy.spatial import distance
+
+
 class Vector(Iterable):
     def __iter__(self) -> Iterator[float]:
         return iter([self.x, self.y, self.z])
@@ -49,35 +51,41 @@ class Vector(Iterable):
     __match_args__ = "x", "y", "z"
 
     def __init__(self, x, y, z):
-        self.x,self.y, self.z=x,y,z
+        self.x, self.y, self.z = x, y, z
+
     def __repr__(self):
-        return self.__array__().__repr__().replace("array",self.__class__.__name__)
+        return self.__array__().__repr__().replace("array", self.__class__.__name__)
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.__array__().__str__()})"
 
     def cross(self, other):
         return Vector(*np.cross(self, other))
+
     @property
     def Length(self):
+        return distance.euclidean(self, self.__class__(0, 0, 0))
 
-        return distance.euclidean(self, self.__class__(0,0,0))
     def getAngle(self, other, normal=None):
+        return angle(self, other, normal=self.__class__(0, 0, 1) if normal is None else normal)
 
-        return angle(self, other, normal=self.__class__(0,0,1) if normal is None else normal)
     def dot(self, other):
         return np.dot(np.asarray(self), np.asarray(other))
-    def __array__(self, *args,dtype=float,  **kwargs):
-        return np.ndarray.__array__(np.array([self.x,self.y, self.z],dtype=dtype, *args, **kwargs))
+
+    def __array__(self, *args, dtype=float, **kwargs):
+        return np.ndarray.__array__(np.array([self.x, self.y, self.z], dtype=dtype, *args, **kwargs))
 
     def __sub__(self, other):
-
         return self.__class__(*(np.asarray(self) - np.asarray(other)))
+
     def sub(self, other):
         return self - other
+
+
 __title__ = "FreeCAD Draft Workbench - Vector library"
 __author__ = "Yorik van Havre, Werner Mayer, Martin Burbaum, Ken Cline"
 __url__ = "https://www.freecadweb.org"
+
 
 def unit(vec):
     return vec / np.linalg.norm(vec)
@@ -122,8 +130,9 @@ def angle(a, b):
     except RuntimeWarning:
         print('bad value', np.dot(unit(a), unit(b)))
 
+
 def add_translate(x, transl):
-    x[:3, 3]+=transl
+    x[:3, 3] += transl
     return np.asarray(x, dtype=float)
 
 
@@ -184,7 +193,6 @@ def rotate_batches(grid, rot_angle) -> np.ndarray:
     return d
 
 
-
 def elementwise_vector_prod(a, b):
     """
         Multiply the horizontal (1, n) and vertical (n, 1) vectors
@@ -207,7 +215,6 @@ def triangle_area(m):
     x2, y2 = m[1]
     x3, y3 = m[2]
     return 0.5 * np.abs(x1 * y2 - x2 * y1 + x2 * y3 - x3 * y2 + x3 * y1 - x1 * y3)
-
 
 
 ## \addtogroup DRAFTVECUTILS
@@ -418,7 +425,7 @@ def scaleTo(u, l):
     """
     typecheck([(u, Vector), (l, (int, int, float))], "scaleTo")
     if u.Length == 0:
-        return Vector(u,u,u)
+        return Vector(u, u, u)
     else:
         a = l / u.Length
         return Vector(u.x * a, u.y * a, u.z * a)
@@ -441,7 +448,6 @@ def dist(u, v):
     """
     typecheck([(u, Vector), (v, Vector)], "dist")
     return u.sub(v).Length
-
 
 
 def project(u, v):
@@ -578,10 +584,10 @@ def rotate(u, angle, axis=Vector(0, 0, 1)):
     zs = z * s
 
     m = np.array(c + x * x * t, xyt - zs, xzt + ys, 0,
-                       xyt + zs, c + y * y * t, yzt - xs, 0,
-                       xzt - ys, yzt + xs, c + z * z * t, 0)
+                 xyt + zs, c + y * y * t, yzt - xs, 0,
+                 xzt - ys, yzt + xs, c + z * z * t, 0)
 
-    return m*u
+    return m * u
 
 
 def getRotation(vector, reference=Vector(1, 0, 0)):
@@ -859,11 +865,9 @@ def getPlaneRotation(u, v, w=None):
     typecheck([(u, Vector), (v, Vector), (w, Vector)], "getPlaneRotation")
 
     m = np.array((u.x, v.x, w.x, 0,
-                       u.y, v.y, w.y, 0,
-                       u.z, v.z, w.z, 0,
-                       0.0, 0.0, 0.0, 1.0))
-
-
+                  u.y, v.y, w.y, 0,
+                  u.z, v.z, w.z, 0,
+                  0.0, 0.0, 0.0, 1.0))
 
     return m
 
@@ -985,5 +989,25 @@ def get_cartesian_coords(radius, theta, phi):
 
     return (x, y, z)
 
+
 ##  @}
-l=[]
+l = []
+
+
+def triangle_normal(p1, p2, p3):
+    """Quoting from https://www.khronos.org/opengl/wiki/Calculating_a_Surface_Normal
+
+    A surface normal for a triangle can be calculated by taking the vector cross product of two edges of that triangle. The order of the vertices used in the calculation will affect the direction of the normal (in or out of the face w.r.t. winding).
+    So for a triangle p1, p2, p3, if the vector A = p2 - p1 and the vector B = p3 - p1 then the normal N = A x B and can be calculated by:
+
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx"""
+    A = p2 - p1
+    B = p3 - p1
+    Ax, Ay, Az = A
+    Bx, By, Bz = B
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx
+    return Nx, Ny, Nz
