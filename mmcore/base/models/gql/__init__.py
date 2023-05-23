@@ -197,7 +197,10 @@ class HashUUID:
 class BufferGeometryObject:
     data: typing.Union[Data, Data1]
     type: str = "BufferGeometry"
-    uuid: str = HashUUID()
+    uuid: typing.Optional[str ]= None
+    def __post_init__(self):
+        print("create")
+        self.uuid = self.sha().hexdigest()
 
 
     def sha(self):

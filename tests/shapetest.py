@@ -1,189 +1,7 @@
-import dataclasses
-
-import typing
-
-import ujson
-from mmcore.base import ColorRGB, AGroup, AMesh
-import numpy as np
-from mmcore.base.models.gql import MeshPhongMaterial
-from mmcore.base.geom import utils
 import uuid
 
-from mmcore.geom.shapes.edges import Polygon
-
-ABCD = [[-220175.307469, -38456.999234, 20521],
-        [-211734.667469, -9397.999234, 13016.199506],
-        [-171710.667469, -8217.999234, 5829],
-        [-152984.00562, -28444.1358, 6172.86857]]
-
-tri = [[0.00023, 0, 0.019681],
-       [0.00023, 0, -0.019681],
-       [0.059273, 0, 0],
-       [0.00023, 0, 0.019681]]
-pgn = Polygon(points=[[-212818.591566, -34844.099614, 0],
-                      [-186313.419505, -30879.776971, 0],
-                      [-187846.265475, -14149.852188, 0],
-                      [-208229.849819, -14968.075443, 0],
-                      [-212818.591566, -34844.099614, 0]])
-
-PANEL_COLOR = 140, 140, 120
-POLKA_COLOR = 50, 50, 50
-SKOBA_COLOR = 200, 200, 200
-PANEL_UUID = 'f9f81ea7ac0c4839a7f103e9b8dd4159'
-SPRING_COLOR = 220, 40, 40
-LAYERS_COLORS = 220, 40, 40
-PANELS_STEP = 0.4
-arrABCD = np.array(ABCD)
-
-a1 = np.mean(arrABCD, axis=-1)
-a2 = np.mean(arrABCD, axis=0)
-A, B, C, D = (np.array(ABCD)).tolist()
-skoba_mat = MeshPhongMaterial(color=ColorRGB(*SKOBA_COLOR).decimal)
-polka_mat = MeshPhongMaterial(color=ColorRGB(*POLKA_COLOR).decimal)
-with open("tests/data/panel.json", "r") as f:
-    geom = ujson.load(f)
-with open("tests/data/polka.json", "r") as f:
-    polka = ujson.load(f)
-    pgrp = AGroup(name="Polka", uuid=uuid.uuid4().hex)
-    for g in polka["geometries"]:
-        pgrp.add(AMesh(geometry=utils.create_buffer_from_dict(g), material=polka_mat, uuid=uuid.uuid4().hex))
-with open("tests/data/skb.json", "r") as f:
-    skoba = ujson.load(f)
-    sgrp1 = AGroup(name="Skoba-1", uuid=uuid.uuid4().hex)
-    sgrp2 = AGroup(name="Skoba-2", uuid=uuid.uuid4().hex)
-    for g in skoba["geometries"]:
-        msh = AMesh(geometry=utils.create_buffer_from_dict(g), material=skoba_mat, uuid=uuid.uuid4().hex)
-        sgrp1.add(msh)
-        sgrp2.add(msh)
-        sgrp1.translate((0.018, 0.021, 0.135))
-        sgrp2.translate((0.018, 0.021, -0.135))
-with open("tests/data/joint1-2.json", "r") as f:
-    jnt = ujson.load(f)
-
-from dataclasses import InitVar
-
-from mmcore.gql.client import GQLReducedQuery
-
-data_point_query = GQLReducedQuery(
-    # language=GraphQL
-    """
-    query MyQuery($id: Int! ) {
-      panels_points_by_pk(id: $id) {
-        arch_type
-        eng_type
-        id
-        subzone
-        x
-        y
-        z
-        zone
-      }
-    }
-
-    """
-)
-
-
-@dataclasses.dataclass
-class DataPoint:
-    id: InitVar[int]
-
-    x: typing.Optional[float] = None
-    y: typing.Optional[float] = None
-    z: typing.Optional[float] = None
-    subzone: typing.Optional[str] = None
-    zone: typing.Optional[str] = None
-    eng_type: typing.Optional[int] = None
-    arch_type: str = "A"
-
-    def __post_init__(self, id=None):
-        if self.x is not None:
-            self.id = id
-
-
-        else:
-            self.id = id
-            self.__dict__ |= data_point_query(variables={"id": id})
-        self.x=self.x*1e-3
-        self.y = self.y * 1e-3
-        self.z = self.z * 1e-3
-
-
-from mmcore.collections import ElementSequence
-from scipy.spatial import cKDTree
-
-
-class DataPointSet:
-    _i: -1
-    child_query = data_point_query
-
-    def __iter__(self):
-        que = GQLReducedQuery("""
-        query MyQuery {
-          panels_points {
-            arch_type
-            eng_type
-            id
-            subzone
-            x
-            y
-            z
-            zone
-          }
-        }
-        
-                """)
-
-        def itr_():
-            for i in que():
-                yield DataPoint(**i)
-
-        return itr_()
-
-    def __getitem__(self, item):
-        return DataPoint(item)
-
-    def __len__(self):
-        return GQLReducedQuery("""
-        query MyQuery{
-          panels_points_aggregate {
-            aggregate {
-              count
-            }
-          }
-        }""")()["aggregate"]["count"]
-
-
-dt = DataPointSet()
-from mmcore.collections import ElementSequence
-
-ldt = list(dt)
-es = ElementSequence(ldt)
-
-
-def to_Kd(ess):
-    *aa, = zip(ess["x"], ess["y"], ess["z"])
-    return cKDTree(np.array(aa) / 1000)
-
-
-KD = to_Kd(es)
-
-pnl = utils.create_buffer_from_dict(geom["geometries"][0])
-
-from mmcore.base.registry import ageomdict
-
-ageomdict[pnl.uuid] = pnl
-
-"""
-panel.spring1=(AMesh(name="Spring",
-                geometry=utils.create_buffer_from_dict(geom["geometries"][1]),
-                uuid='bda8f4c4072749128ded1bee3bc2990e',
-                material=MeshPhongMaterial(color=ColorRGB(*SPRING_COLOR).decimal)))
-panel.spring2=(AMesh(name="Spring",
-                geometry=utils.create_buffer_from_dict(geom["geometries"][2]),
-                uuid='ba869eed03a34b6c81e440ec761b2a3c',
-                material=MeshPhongMaterial(color=ColorRGB(*SPRING_COLOR).decimal)))
-"""
+from mmcore.base import AGroup
+from mmcore.geom.extrusion import simple_extrusion
 
 crd = [[-0.059973265673081179, -0.046551261040996335], [-0.066352781844005004, -0.01239186594352833],
        [-0.072732298014928851, 0.021767529153939678], [-0.072778193814719783, 0.022013280197806451],
@@ -264,7 +82,8 @@ crd = [[-0.059973265673081179, -0.046551261040996335], [-0.066352781844005004, -
        [-0.047940643683572211, -0.044253216642472892], [-0.048060556830017705, -0.044428204748667363],
        [-0.048180469976463199, -0.044603192854861834], [-0.053931044402943454, -0.045677154569967016],
        [-0.059681618829423695, -0.046751116285072197], [-0.059927369873290448, -0.04679701208486315],
-       [-0.059973265673081165, -0.046551261040996335]]
+       [-0.059973265673081165, -0.046551261040996335]
+       ]
 holes = [[[-0.038422693367482733, -0.040746277552546707], [-0.038176942323616174, -0.040700381752755796],
           [-0.038222838123406856, -0.04045463070888921], [-0.040058670115039614, -0.030624588954222154],
           [-0.041894502106672366, -0.020794547199555098], [-0.041940397906463235, -0.020548796155688484],
@@ -309,23 +128,13 @@ holes = [[[-0.038422693367482733, -0.040746277552546707], [-0.038176942323616174
           [-0.066435812438745898, 0.00030874844792286245], [-0.064715555131679162, 0.00063001904645859934],
           [-0.06299529782461244, 0.00095128964499433617]]]
 
-# P2
-crdP2 = [[-0.028138201625663495, 0.005625217886232374], [0.031451083091131787, -0.0013831447571179809],
-         [0.040795566615598931, 0.078069234865275727], [-0.018793718101196354, 0.08507759750862609],
-         [-0.028138201625663495, 0.005625217886232374]]
-holesP2 = [[[-0.022588397678984688, 0.010006961392352784], [0.027069339585011374, 0.0041666591895608233],
-            [0.035245762668920121, 0.07368749135915531], [-0.014411974595075944, 0.07952779356194728],
-            [-0.022588397678984691, 0.010006961392352784]]]
-hP2 = 81.5
-# P3
-crdP3 = [[0.0050399079743474358, -0.022504292611324986], [-0.0072770141645338059, 0.047203136889087151],
-         [-0.14669187316535814, 0.022569292611324673], [-0.13437495102647687, -0.047138136889087481],
-         [0.0050399079743474358, -0.022504292611324986]]
-holesP3 = [[[-0.0017954546622603455, -0.017721750331197411], [-0.012059556444661385, 0.040367774252479352],
-            [-0.13985651052875031, 0.01778675033119707], [-0.12959240874634928, -0.040302774252479717],
-            [-0.0017954546622603713, -0.017721750331197415]]]
-hP2 = 81.5
+import json
+from mmcore.geom.shapes import Shape
+def test():
 
-vrtx=[]
-for c in crd:
-    vrtx.extend([c+[1.0],c+[-1.0]])
+
+    s=Shape( boundary=crd, holes=holes)
+    ss=simple_extrusion(s, 2.0)
+
+    with open("shp2.json","w") as f:
+        json.dump(ss.root(),f)
