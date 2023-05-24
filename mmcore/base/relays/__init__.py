@@ -2,7 +2,7 @@ import uuid
 
 relaydict=dict()
 import os
-print(os.environ)
+#print(os.environ)
 
 from collections import namedtuple
 namedtuple("RelayTuple",["name","resolver"])

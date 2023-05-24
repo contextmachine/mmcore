@@ -199,7 +199,7 @@ class BufferGeometryObject:
     type: str = "BufferGeometry"
     uuid: typing.Optional[str ]= None
     def __post_init__(self):
-        print("create")
+        #print("create")
         self.uuid = self.sha().hexdigest()
 
 

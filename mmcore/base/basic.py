@@ -371,7 +371,7 @@ class Object3D:
                         del dct['children']
                 return obj.bind_class(**dct)
             else:
-                # print(dct)
+                # #print(dct)
                 if 'children' in dct:
                     if len(dct.get('children')) == 0:
                         del dct['children']
@@ -400,7 +400,7 @@ class Object3D:
 
     @property
     def _root(self):
-        # print(self.Root.__annotations__)
+        # #print(self.Root.__annotations__)
         self.Root.__annotations__['object'] = self.bind_class
         self.Root.__name__ = f"GenericRoot{id(self)}"
 
@@ -430,7 +430,7 @@ class Object3D:
 
     def threejs_root(self, dct, geometries=None, materials=None, metadata=None,
                      root_callback=lambda x: x):
-        # print(materials, geometries)
+        # #print(materials, geometries)
         return root_callback(self._root)(object=dct,
                                          materials=[matdict.get(mat) for mat in
                                                     materials] if materials is not None else list(
@@ -816,7 +816,7 @@ class GenericList(list):
                         try:
                             ll.append(item(**i))
                         except TypeError:
-                            # print(item, i)
+                            # #print(item, i)
                             ll.append(item(i))
                 return ll
 
@@ -850,7 +850,7 @@ class DictSchema:
     >>> B = Group(name="B")
     >>> B.add(A)
     >>> dct = strawberry.asdict(B.get_child_three())
-    >>> #print(dct)
+    >>> ##print(dct)
     {'object': {'name': 'B', 'uuid': 'bcd5e328-c5e5-4a8f-8381-bb97cb022708', 'userData': {'properties': {'name': 'B', 'children_count': 1}, 'gui': [{'key': 'name', 'id': 'name_chart_linechart_piechart', 'name': 'Name Chart', 'colors': 'default', 'require': ('linechart', 'piechart')}, {'key': 'children_count', 'id': 'children_count_chart_linechart_piechart', 'name': 'Children_count Chart', 'colors': 'default', 'require': ('linechart', 'piechart')}], 'params': None}, 'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 'layers': 1, 'type': 'Group', 'castShadow': True, 'receiveShadow': True, 'children': [{'name': 'A', 'uuid': 'c4864663-67f6-44bb-888a-5f1a1a72e974', 'userData': {'properties': {'name': 'A', 'children_count': 0}, 'gui': None, 'params': None}, 'matrix': [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 'layers': 1, 'type': 'Object3D', 'castShadow': True, 'receiveShadow': True, 'children': []}]}, 'metadata': {'version': 4.5, 'type': 'Object', 'generator': 'Object3D.toJSON'}, 'materials': [], 'geometries': []}
     >>> ds=DictSchema(dct)
     >>> tp=ds.get_init_default()
@@ -897,8 +897,8 @@ class DictSchema:
 
                     named_f[k] = fld
 
-                # #print(name, named_f)
-                # #print("Generic" + to_camel_case(name),
+                # ##print(name, named_f)
+                # ##print("Generic" + to_camel_case(name),
 
                 dcls = callback(self.bind("Generic" + to_camel_case(name),
                                           list(named_f.values())))
@@ -912,7 +912,7 @@ class DictSchema:
 
                         _name, tp, dflt = named_f[nm]
 
-                        # print(_name, tp, dflt)
+                        # #print(_name, tp, dflt)
                         if nm in kwargs.keys():
                             if isinstance(kwargs[nm], dict):
                                 kws[nm] = tp(**kwargs[nm])
@@ -931,15 +931,15 @@ class DictSchema:
                 dcls.__init__ = _init
                 return name, dcls, lambda: dcls(**obj)
             elif isinstance(obj, list):
-                # #print(name, type(obj), obj)
+                # ##print(name, type(obj), obj)
                 *nt, = zip(*[wrap(name, o) for o in obj])
-                # print(nt)
+                # #print(nt)
                 if len(nt) == 0:
                     return name, tuple, lambda: []
                 else:
                     g = GenericList[nt[1][0]]
                     if len(nt) == 3:
-                        # print(g)
+                        # #print(g)
                         return name, g, lambda: nt[-1]
                     else:
                         return name, g, lambda: []
@@ -1180,7 +1180,7 @@ class A:
                         pass
                 return dct
             else:
-                # print(dct)
+                # #print(dct)
                 if 'children' in dct:
                     if len(dct.get('children')) == 0:
                         del dct['children']
@@ -1353,9 +1353,9 @@ class A:
 
     def __getattr__(self, key):
         try:
-            if (key, self.uuid) in A.idict.keys():
+            if (key, self.uuid) in idict.keys():
 
-                return adict[A.idict[(key, self.uuid)]]
+                return adict[idict[(key, self.uuid)]]
             else:
                 return getattr(self, key)
         except RecursionError as err:
@@ -1368,20 +1368,20 @@ class A:
     def __setattr__(self, key, v):
 
         if isinstance(v, A):
-            if (key, self.uuid) in self.idict:
-                A.idict[(key, self.uuid)] = v.uuid
+            if (key, self.uuid) in idict:
+                idict[(key, self.uuid)] = v.uuid
             else:
                 self.child_keys.add(key)
                 self._children.add(v.uuid)
-                A.idict[(key, self.uuid)] = v.uuid
+                idict[(key, self.uuid)] = v.uuid
 
         else:
 
             object.__setattr__(self, key, v)
 
     def __delattr__(self, key):
-        if (key, self.uuid) in self.idict:
-            del self.idict[(key, self.uuid)]
+        if (key, self.uuid) in idict:
+            del idict[(key, self.uuid)]
             self.child_keys.remove(key)
 
         else:

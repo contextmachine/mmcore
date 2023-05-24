@@ -114,7 +114,7 @@ class BufferGeometryItem(GeomDataItem, typing.Sequence):
 class BufferPoint(BufferGeometryItem):
     """
     >>> point = BufferPoint(1, 2, 3)
-    >>> print(point.to_json(indent=3))
+    >>> #print(point.to_json(indent=3))
     {
         "metadata": {
             "uuid": "4c6adef0bf554c2fb2731e8ddd8dcab3",
