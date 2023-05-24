@@ -85,14 +85,14 @@ def export_edgedata_to_json(edge_hash, point_set):
 def generate_material(self):
     vv = list(matdict.values())
     if len(vv) > 0:
-        print(vv)
+        #print(vv)
         es = ElementSequence(vv)
-        print(self.color, es["color"])
+        #print(self.color, es["color"])
         if self.color.decimal in es["color"]:
             i = es["color"].index(self.color.decimal)
-            print(i)
+            #print(i)
             vvv = es._seq[i]
-            print(vvv)
+            #print(vvv)
             self.mesh._material = vvv.uuid
         else:
             self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",

@@ -13,7 +13,7 @@ import cxmdata as cxd
 import importlib
 
 importlib.reload(cxd)
-print('IS_INSIDE_RHINOCODE', cxd.IS_INSIDE_RHINOCODE)
+#print('IS_INSIDE_RHINOCODE', cxd.IS_INSIDE_RHINOCODE)
 
 
 class SelfProxy:

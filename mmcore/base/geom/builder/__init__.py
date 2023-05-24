@@ -94,7 +94,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
             })
 
         if self.indices is not None:
-            print(self.indices)
+            #print(self.indices)
 
             selector[2] = '1'
             data["index"] = mmcore.base.models.gql.Index(**dict(type='Uint16Array',
@@ -104,7 +104,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
         data['attributes'] = _attribs(**attributes)
 
 
-        # print(selector)
+        # #print(selector)
         return mmcore.base.gql_models.BufferGeometry(**{
             "type": "BufferGeometry",
             "data": _data(**data)
@@ -164,7 +164,7 @@ class PointsBufferGeometryBuilder(BufferGeometryBuilder):
         _data, _attribs = self.choices["".join(selector)]
         data['attributes'] = _attribs(**attributes)
 
-        # print(selector)
+        # #print(selector)
         return mmcore.base.gql_models.BufferGeometry(**{
 
             "type": "BufferGeometry",

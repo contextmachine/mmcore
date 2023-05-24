@@ -85,10 +85,10 @@ def GetCurve():
 
 # rs.AddCurve(np.random.random((15,3)))
 
-# print(rs.GetCurveObject.__doc__)
+# #print(rs.GetCurveObject.__doc__)
 
 t0 = GetCurve()
 if t0 is not None:
-    print("Succsess ", t0)
+    #print("Succsess ", t0)
 else:
-    print(t0)
+    #print(t0)

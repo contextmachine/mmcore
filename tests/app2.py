@@ -36,7 +36,7 @@ def tri_transform(line, next_line, flip=1, step=0.4):
         panel @ tr
         panel @ t
         d, i = KD.query(x.origin + (y * 0.3))
-        print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
+        #print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
         panel.properties |= ldt[i].__dict__
         grp.add(panel)
     return grp.root()
@@ -75,7 +75,7 @@ def merge_shapes_roots(one, other):
     one["object"]["children"].append(other["object"])
     one["geometries"].extend(other["geometries"])
     one["materials"].extend(other["materials"])
-    if "shapes" in one.keys()+other.keys():
+    if "shapes" in list(one.keys())+list(other.keys()):
         if not ("shapes" in one.keys()):
             one["shapes"]=[]
         if not ("shapes" in other.keys()):
@@ -100,6 +100,10 @@ profile3 = Profile(crdP3, holesP3)
 
 
 class SubSyst:
+    A = [-31.02414546224999, -17.3277158585, 9.136232981]
+    B = [-22.583505462250002, 11.731284141500002, 1.631432487]
+    C = [17.44049453775, 12.911284141500003, -5.555767019000001]
+    D = [36.167156386749994, -7.314852424499997, -5.211898449000001]
 
     def __call__(self, step1=0.6, step2=1.8, step3=2.4, high1=0, high2=-0.16, high3=-0.24, **kwargs):
         self.__dict__ |= kwargs

@@ -53,7 +53,7 @@ def main(args):
     except Exception as err:
         raise err
 
-    # print(args)
+    # #print(args)
     for arg in args:
 
         if arg:

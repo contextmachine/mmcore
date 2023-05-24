@@ -18,7 +18,7 @@ app = MmGraphQlAPI(gql_endpoint="/v2/graphql")
 
 @app.post(app.gql_endpoint)
 def graphql_query_resolver(data: dict):
-    print(data)
+    #print(data)
     qt2 = parse_simple_query(data['query'])
     return qt2.resolve(data_test2)
 
