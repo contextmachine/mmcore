@@ -14,11 +14,11 @@ class TestRemoteObject(metaclass=RemoteType, bucket=os.getenv("BUCKET"), storage
                        prefix="cxm/tests/", suffix=""):
 
     def __gethook__(self, hook):
-        print(f"{self} get hook")
+        #print(f"{self} get hook")
         return json.loads(hook["Body"].read())
 
     def __sethook__(self, hook):
-        print(f"{self} set hook")
+        #print(f"{self} set hook")
         return json.dumps(hook)
 
 

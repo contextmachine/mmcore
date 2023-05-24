@@ -23,7 +23,7 @@ def fff(exp):
     match exp:
         case [fld, '{', *expr, '}']:
 
-            print(fld, expr, " aaa")
+            #print(fld, expr, " aaa")
             return gqlast.RootField(gqlast.Field(fld), fff(expr))
         case ['{', *expr, '}']:
 
@@ -55,7 +55,7 @@ def fff(exp):
 
         case w:
 
-            print("----", w)
+            #print("----", w)
             return gqlast.Field(w)
 
 
