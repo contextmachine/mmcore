@@ -12,7 +12,7 @@ def load_dotenv_from_stream(stream, override=False, **kwargs):
 
 
 def __version__():
-    return "0.1.10"
+    return "0.2.0"
 
 
 load_dotenv_from_path(".env")
