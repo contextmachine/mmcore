@@ -407,7 +407,7 @@ class BaseMaterial:
 
     opacity: float = 1.0
     transparent: bool = False
-    uuid: typing.Optional[str] = ""
+    uuid: typing.Optional[str] = None
 
 
     def __post_init__(self):
@@ -440,7 +440,7 @@ class Materials(str, Enum):
 class Material(BaseMaterial):
     color: int
     type: Materials
-    uuid: typing.Optional[str] = ""
+    uuid: typing.Optional[str] = None
     reflectivity: typing.Optional[float] = None
     refractionRatio: typing.Optional[float] = None
     depthFunc: int
@@ -470,7 +470,7 @@ class Material(BaseMaterial):
 
 @strawberry.type
 class LineBasicMaterial(BaseMaterial):
-    uuid: typing.Optional[str] = ""
+    uuid: typing.Optional[str] =None
     type: Materials = Materials.LineBasicMaterial
     color: int = 16724838
 
@@ -494,7 +494,7 @@ class LineBasicMaterial(BaseMaterial):
 
 @strawberry.type
 class PointsMaterial(BaseMaterial):
-    uuid: typing.Optional[str] = ""
+    uuid: typing.Optional[str] =None
     type: Materials = Materials.PointsMaterial
     color: int = 11672217
     size: float = 1
@@ -541,7 +541,7 @@ class MeshPhongMaterial(BaseMaterial):
     stencilZFail: int = 7680
     stencilZPass: int = 7680
     flatShading: bool = True
-    uuid: typing.Optional[str] = ""
+    uuid: typing.Optional[str] = None
 
 
 @strawberry.input

@@ -164,3 +164,9 @@ class TransformManager(ContextManager):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.obj @ self.matrix.inv
+
+
+def assign_transform(m):
+    def assign_transform_wrapper(obj, *args, **kw):
+        return ((np.array(m(obj, *args, **kw) + [1]) @ obj.matrix_to_square_form().T)[:3]).tolist()
+    return assign_transform_wrapper
