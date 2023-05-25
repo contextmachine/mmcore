@@ -16,7 +16,113 @@ from mmcore.geom.vectors import unit
 import multiprocess as mp
 from mmcore.base.models.gql import MeshPhongMaterial
 
+from dataclasses import InitVar
 
+from mmcore.gql.client import GQLReducedQuery
+
+data_point_query = GQLReducedQuery(
+    # language=GraphQL
+    """
+    query MyQuery($id: Int! ) {
+      panels_points_by_pk(id: $id) {
+        arch_type
+        eng_type
+        id
+        subzone
+        x
+        y
+        z
+        zone
+      }
+    }
+
+    """
+)
+
+
+@dataclasses.dataclass
+class DataPoint:
+    id: InitVar[int]
+
+    x: typing.Optional[float] = None
+    y: typing.Optional[float] = None
+    z: typing.Optional[float] = None
+    subzone: typing.Optional[str] = None
+    zone: typing.Optional[str] = None
+    eng_type: typing.Optional[int] = None
+    arch_type: str = "A"
+
+    def __post_init__(self, id=None):
+        if self.x is not None:
+            self.id = id
+
+
+        else:
+            self.id = id
+            self.__dict__ |= data_point_query(variables={"id": id})
+        self.x = self.x * 1e-3
+        self.y = self.y * 1e-3
+        self.z = self.z * 1e-3
+
+
+from mmcore.collections import ElementSequence
+from scipy.spatial import cKDTree
+
+
+class DataPointSet:
+    _i: -1
+    child_query = data_point_query
+
+    def __iter__(self):
+        que = GQLReducedQuery("""
+        query MyQuery {
+          panels_points {
+            arch_type
+            eng_type
+            id
+            subzone
+            x
+            y
+            z
+            zone
+          }
+        }
+
+                """)
+
+        def itr_():
+            for i in que():
+                yield DataPoint(**i)
+
+        return itr_()
+
+    def __getitem__(self, item):
+        return DataPoint(item)
+
+    def __len__(self):
+        return GQLReducedQuery("""
+        query MyQuery{
+          panels_points_aggregate {
+            aggregate {
+              count
+            }
+          }
+        }""")()["aggregate"]["count"]
+
+
+dt = DataPointSet()
+from mmcore.collections import ElementSequence
+
+ldt = list(dt)
+es = ElementSequence(ldt)
+
+
+def to_Kd(ess):
+    *aa, = zip(ess["x"], ess["y"], ess["z"])
+    return cKDTree(np.array(aa) / 1000)
+
+
+KD = to_Kd(es)
 def tri_transform(line, next_line, flip=1, step=0.4):
     grp = AGroup(name="row", uuid=uuid.uuid4().hex)
     for x in line.divide_distance_planes(step):
@@ -203,10 +309,10 @@ class SubSyst:
             ujson.dump(self(), f)
 
 
-ss = SubSyst()
+#ss = SubSyst()
 
 # pnls = ss()
-ss.dump()
+#ss.dump()
 from more_itertools import flatten
 
 from mmcore.base import ALine
