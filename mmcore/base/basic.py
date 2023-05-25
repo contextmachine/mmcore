@@ -1423,11 +1423,33 @@ class A:
                            [0, 0, 0, 1]], dtype=float)
         self.transform(matrix)
 
+    def scale(self, x: float = 1, y: float = 1, z: float = 1):
+        matrix = np.array([[x, 0, 0, 0],
+                           [0, y, 0, 0],
+                           [0, 0, z, 0],
+                           [0, 0, 0, 1]], dtype=float)
+        self.transform(matrix)
+
     def reset_transform(self):
         self.matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
+    def dispose(self):
+
+        for k, v in idict.items():
+            uid, name=k
+            if v == self.uuid:
+                parent = self.get_object(uid)
+                parent._children.remove(self.uuid)
+                parent.__delattr__(name)
+                idict.__delitem__((uid, name))
+
+        adict.__delitem__(self.uuid)
+        del self
+
 
 class AGroup(A):
+
+
     @property
     def threejs_type(self):
         return "Group"
@@ -1435,6 +1457,31 @@ class AGroup(A):
     def add(self, obj):
         self._children.add(obj.uuid)
 
+    def root(self, shapes=None):
+        if shapes:
+
+            return {
+                "metadata": {
+                    "version": 4.5,
+                    "type": "Object",
+                    "generator": "Object3D.toJSON"
+                },
+                "object": self(),
+                "shapes": shapes,
+                "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
+                "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
+            }
+        else:
+            return {
+                "metadata": {
+                    "version": 4.5,
+                    "type": "Object",
+                    "generator": "Object3D.toJSON"
+                },
+                "object": self(),
+                "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
+                "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
+            }
 
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
@@ -1643,7 +1690,8 @@ class APoint(APoints):
 class ALine(APoints):
     material_type = gql_models.LineBasicMaterial
     geometry = APointsGeometryDescriptor(default=None)
-    material = AMaterialDescriptor(default=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal))
+    material = AMaterialDescriptor(
+        default=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040"))
 
     @property
     def start(self):
