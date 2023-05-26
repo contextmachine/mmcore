@@ -828,6 +828,22 @@ class GenericList(list):
 ROOT_DOC = """"""
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @strawberry.interface(description=ROOT_DOC)
 class RootInterface:
     metadata: gql_models.Metadata

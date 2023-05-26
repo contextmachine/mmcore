@@ -1,3 +1,5 @@
+import json
+
 import copy
 import os
 import typing
@@ -12,8 +14,6 @@ from jinja2.nativetypes import NativeEnvironment
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 
-
-GQL_PLATFORM_URL = os.getenv("HASURA_GQL_ENDPOINT")
 
 
 class GQLException(BaseException):
@@ -32,16 +32,56 @@ __all__ = [
     "GQLPaginateQuery",
     "GQLMutation"
 ]
+if os.getenv("APP_ENV") == "prod":
+    GQL_PLATFORM_URL = os.getenv("GQL_PLATFORM_URL_PRODUCTION")
+
+else:
+    GQL_PLATFORM_URL = os.getenv("GQL_PLATFORM_URL")
+class HeadersDescriptor:
+
+        def __init__(self, default=None):
+            if default is None:
+                default={}
+            self._default=default
+
+        def __get__(self, instance, other):
+            if instance is not None:
+                if self._default is  not None:
+                    dct=self._default
+
+                else:
+                    dct={}
 
 
+
+
+            dct |= json.loads(os.getenv("GQL_PLATFORM_HEADERS"))
+
+            return dct
+
+
+class URLDescriptor:
+
+
+    def __init__(self, default=None):
+        self._default=default
+
+
+    def __get__(self, instance, other):
+        if os.getenv("APP_ENV") == "prod":
+            return os.getenv("GQL_PLATFORM_URL_PRODUCTION")
+        elif os.getenv("GQL_PLATFORM_URL") is not None:
+            return os.getenv("GQL_PLATFORM_URL")
+        else:
+            return self._default
 @dataclass
 class GQLClient:
-    url: str
-    headers: dict
+    url = URLDescriptor(default="http://localhost:7711/graphql")
+    headers=HeadersDescriptor(default={"content-type": "application/json", "user-agent": "mmcore.gql"})
 
-    def __call__(self, dcls):
-        self._cls = dcls
-        return self
+
+
+
 
 
 class GqlString(str):
@@ -102,9 +142,7 @@ class query:
         else:
             return self.template.render(root=self.parent, attrs=self.fields)
 
-    @property
-    def client(self):
-        return GQLClient(url=GQL_PLATFORM_URL, headers=self.headers)
+    client=GQLClient()
 
     def __call__(self, fields=None, variables=None, full_root=True, return_json=True):
         if fields is None:
@@ -173,13 +211,7 @@ class AbsGQLTemplate:
     schema: str = "test"
     table: str = "test"
     variables = {}
-    client = GQLClient(url=GQL_PLATFORM_URL,
-                       headers={
-                           "content-type": "application/json",
-                           "user-agent": "JS GraphQL",
-                           "X-Hasura-Role": "admin",
-                           "X-Hasura-Admin-Secret": "mysecretkey"
-                       })
+    client = GQLClient()
     temp: str = _query_temp
 
     @property
@@ -455,12 +487,7 @@ def geometry_query(schema="geometries", table="attributes"):
 
 
 class GQLSimpleQuery:
-    client = GQLClient(url=GQL_PLATFORM_URL,
-                       headers={
-                           "content-type": "application/json",
-                           "X-Hasura-Role": "admin",
-                           "X-Hasura-Admin-Secret": "mysecretkey"
-                       })
+    client = GQLClient()
 
     def __init__(self, template, fields=()):
         super().__init__()
