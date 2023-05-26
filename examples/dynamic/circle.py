@@ -4,7 +4,7 @@ from mmcore.geom.parametric import ParametricObject
 from mmcore.base.sharedstate import serve
 
 
-class ParametricSpring(AGroup, ParametricObject):
+class ParametricCircle(AGroup, ParametricObject):
 
     def __init__(self, r=2, h=3, tess=100, tess2=20, **kwargs):
         super().__init__()
@@ -33,5 +33,5 @@ class ParametricSpring(AGroup, ParametricObject):
 
 
 if __name__ == "__main__":
-    p = ParametricSpring(r=2, h=3, uuid="circle")
+    p = ParametricCircle(r=2, h=3, uuid="circle")
     serve.start_as_main()
