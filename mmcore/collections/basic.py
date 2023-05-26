@@ -633,9 +633,16 @@ class DNode:
         self.data = data
         self.prev = None
         self.next = None
-
+    def __rpr__(self):
+        return f'{self.__class__.__name__}({self.data})'
     def __repr__(self):
-        return f'DNode(...) -> [DNode({self.data})] -> DNode(...)'
+        rpr=f'[{self.__rpr__()}]'
+        if self.next is not None:
+            rpr=f'{rpr} -> {self.next.__rpr__()}'
+
+        if  self.prev is not None:
+            rpr = f'{self.prev.__rpr__()} -> {rpr}'
+        return rpr
 
 
 class DLLIterator(Iterator):
@@ -655,10 +662,22 @@ class DLLIterator(Iterator):
 
 
 class DoublyLinkedList:
-    def __init__(self):
+    __node_type__=DNode
+    def __class_getitem__(cls, item):
+        return type(cls.__name__+f"[{item}]",(cls,), {"__node_type__":item})
+    def __init__(self, seq=()):
+        super().__init__()
+
+
         self.start_node = None
         self.count = 0
-        self._current_node=self.start_node
+
+        if len(seq)>0:
+            for item in seq:
+                self.append(item)
+            self.count=len(seq)
+
+        self._current_node = self.start_node
     @property
     def head(self):
         return self.start_node
@@ -674,7 +693,7 @@ class DoublyLinkedList:
     def insert(self, data):
 
         if self.start_node is None:
-            new_node = DNode(data)
+            new_node = self.__class__.__node_type__(data)
 
             self.start_node = new_node
         else:
@@ -684,7 +703,7 @@ class DoublyLinkedList:
     def insert_end(self, data):
         # Check if the list is empty
         if self.start_node is None:
-            new_node = DNode(data)
+            new_node = self.__class__.__node_type__(data)
             self.start_node = new_node
             return
         n = self.start_node
@@ -693,7 +712,7 @@ class DoublyLinkedList:
             if n.next is None:
                 break
             n = n.next
-        new_node = DNode(data)
+        new_node = self.__class__.__node_type__(data)
         n.next = new_node
         new_node.prev = n
         self.count+=1
@@ -740,10 +759,14 @@ class DoublyLinkedList:
         return self._i, temp
 
     def _find_idx(self, i):
-        temp = self.start_node
+        temp = self.head
         self._i = 0
         while True:
-            if self._i == i or (temp.next is None):
+            if self._i == i :
+
+                break
+            elif temp.next is None:
+                temp = None
                 break
 
             temp = temp.next
@@ -752,8 +775,21 @@ class DoublyLinkedList:
         return temp
 
     def __getitem__(self, item):
-        return self._find_idx(item).data
+        try:
+            return self._find_idx(item).data
+        except AttributeError:
+            raise IndexError
 
+    def __setitem__(self, key, value):
+        node = self.get(key)
+        node.prev.next=value
+        node.next.prev=value
+
+    def __delitem__(self, key):
+        node = self.get(key)
+        node.prev.next = node.next
+        node.next.prev = node.prev
+        del node
     def get(self, item):
 
         return self._find_idx(item)
