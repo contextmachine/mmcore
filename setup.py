@@ -42,7 +42,7 @@ setup(
               'mmcore.services',
               'mmcore.services.redis',
               'mmcore.services.redis.connect',
-              'mmcore.services.redis.tools',
+              'mmcore.services.redis.redis_tools',
               'mmcore.services.redis.stream',
               'mmcore.collections',
               'mmcore.collections.traversal',
