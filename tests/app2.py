@@ -1,10 +1,4 @@
-import scipy
-import typing
-
-import dataclasses
-
 import copy
-import json
 from collections import namedtuple
 
 from localparams import *
@@ -35,7 +29,6 @@ data_point_query = GQLReducedQuery(
         zone
       }
     }
-
     """
 )
 
@@ -87,8 +80,7 @@ class DataPointSet:
             zone
           }
         }
-
-                """)
+        """)
 
         def itr_():
             for i in que():
@@ -101,7 +93,7 @@ class DataPointSet:
 
     def __len__(self):
         return GQLReducedQuery("""
-        query MyQuery{
+        query MyQuery {
           panels_points_aggregate {
             aggregate {
               count
@@ -123,6 +115,8 @@ def to_Kd(ess):
 
 
 KD = to_Kd(es)
+
+
 def tri_transform(line, next_line, flip=1, step=0.4):
     grp = AGroup(name="row", uuid=uuid.uuid4().hex)
     for x in line.divide_distance_planes(step):
@@ -142,7 +136,7 @@ def tri_transform(line, next_line, flip=1, step=0.4):
         panel @ tr
         panel @ t
         d, i = KD.query(x.origin + (y * 0.3))
-        #print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
+        # print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
         panel.properties |= ldt[i].__dict__
         grp.add(panel)
     return grp.root()
@@ -166,10 +160,8 @@ def solve_transforms_parallel(ll, step=0.4):
         return p.map(f2, range(1, len(ll)))
 
 
-
 from mmcore.geom.extrusion import makeNodeJsExtrusions
 from more_itertools import flatten
-
 
 panel_mat = MeshPhongMaterial(color=ColorRGB(*PANEL_COLOR).decimal)
 
@@ -177,15 +169,14 @@ m = MeshPhongMaterial(color=ColorRGB(*PANEL_COLOR).decimal)
 
 
 def merge_shapes_roots(one, other):
-
     one["object"]["children"].append(other["object"])
     one["geometries"].extend(other["geometries"])
     one["materials"].extend(other["materials"])
-    if "shapes" in list(one.keys())+list(other.keys()):
+    if "shapes" in list(one.keys()) + list(other.keys()):
         if not ("shapes" in one.keys()):
-            one["shapes"]=[]
+            one["shapes"] = []
         if not ("shapes" in other.keys()):
-            other["shapes"]=[]
+            other["shapes"] = []
 
     one["shapes"].extend(other["shapes"])
     return one
@@ -307,42 +298,3 @@ class SubSyst:
     def dump(self):
         with open("grp.json", "w") as f:
             ujson.dump(self(), f)
-
-
-#ss = SubSyst()
-
-# pnls = ss()
-#ss.dump()
-from more_itertools import flatten
-
-from mmcore.base import ALine
-
-# ext=makeExtrusions(crd,holes, list(map(lambda x: [x.start.tolist(),x.end.tolist()], ss.initial)),ColorRGB(50,210,220).decimal)
-# ext2=makeExtrusions(crdP2,holesP2, list(map(lambda x: [x.start.tolist(),x.end.tolist()], ss.lay1)),ColorRGB(50,60,200).decimal)
-# ext3=makeExtrusions(crdP3,holesP3, list(map(lambda x: [x.start.tolist(),x.end.tolist()], ss.lay2)),ColorRGB(50,180,20).decimal)
-
-
-# m = MeshPhongMaterial(color=ColorRGB(*PANEL_COLOR).decimal)
-
-# jgm=utils.create_buffer_from_dict(jnt["geometries"][0])
-# from mmcore.geom.parametric import ProximityPoints
-
-# joints=AGroup(name="Joints-1-2",uuid=uuid.uuid4().hex)
-# for i in ss.lay1:
-#    for j in ss.initial:
-#        res=ProximityPoints(i, j)(x0=[0.5,0.5],bounds=((0, 1), (0, 1)))
-#        a,b=res.pt
-#        ln=ALine(geometry=[a,b],uuid=uuid.uuid4().hex,material= LineBasicMaterial(color=ColorRGB(20,120,200).decimal))
-# x=np.cross(unit(j.direction),unit(a-b))
-# t=Transform.from_world_to_plane(PlaneLinear(normal=unit(a-b), origin=b))
-# joint12 = AMesh(geometry=jgm,
-#                material=skoba_mat,
-#                uuid=uuid.uuid4().hex)
-# joint12@t
-# joints.add(joint12)
-#        joints.add(ln)
-
-# grp.add(joints)
-
-
-# grp.add(grplns)
