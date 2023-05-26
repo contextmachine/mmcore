@@ -3,7 +3,6 @@ env.json
 B1
 .idea
 gen
-data
 build
 .run
 docs
