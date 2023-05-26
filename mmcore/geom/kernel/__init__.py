@@ -170,29 +170,30 @@ class GmshCylinder(KernelGeometry):
 
     @angle.setter
     def angle(self, value): self._angle = value
+    def tess(self):
+        ...
+def test_gmesh_kern():
+    gmsh.model.occ.addPoint(0.2, -0.6, 0.1, 1.0)
 
+    gmsh.model.occ.addPoint(-1.6, 2.8, 0.3, 1.0)
 
-gmsh.model.occ.addPoint(0.2, -0.6, 0.1, 1.0)
+    gmsh.model.occ.addPoint(-5.4, 7.4, 0.9, 1.0)
 
-gmsh.model.occ.addPoint(-1.6, 2.8, 0.3, 1.0)
+    gmsh.model.occ.addPoint(-14.8, 4.7, 1.2, 1.0)
 
-gmsh.model.occ.addPoint(-5.4, 7.4, 0.9, 1.0)
+    gmsh.model.occ.addPoint(-0.8, -1.8, -5.4, 1.0)
 
-gmsh.model.occ.addPoint(-14.8, 4.7, 1.2, 1.0)
+    gmsh.model.occ.addPoint(-5.4, 1.3, -3.8, 1.0)
 
-gmsh.model.occ.addPoint(-0.8, -1.8, -5.4, 1.0)
+    gmsh.model.occ.addPoint(-11, 3.4, -3.8, 1.0)
 
-gmsh.model.occ.addPoint(-5.4, 1.3, -3.8, 1.0)
+    gmsh.model.occ.addPoint(-15.3, 3.9, -3.8, 1.0)
 
-gmsh.model.occ.addPoint(-11, 3.4, -3.8, 1.0)
+    gmsh.model.occ.addPoint(-6.7, 5.7, -3.8, 1.0)
 
-gmsh.model.occ.addPoint(-15.3, 3.9, -3.8, 1.0)
+    gmsh.model.occ.addPoint(-2.2, -5.5, -3.8, 1.0)
 
-gmsh.model.occ.addPoint(-6.7, 5.7, -3.8, 1.0)
-
-gmsh.model.occ.addPoint(-2.2, -5.5, -3.8, 1.0)
-
-a = gmsh.model.occ.addBSpline((1, 2, 3, 4))
-b = gmsh.model.occ.addBSpline((5, 6, 7, 8))
-c = gmsh.model.occ.addBSpline((8, 4))
-d = gmsh.model.occ.addBSpline((1, 5))
+    a = gmsh.model.occ.addBSpline((1, 2, 3, 4))
+    b = gmsh.model.occ.addBSpline((5, 6, 7, 8))
+    c = gmsh.model.occ.addBSpline((8, 4))
+    d = gmsh.model.occ.addBSpline((1, 5))
