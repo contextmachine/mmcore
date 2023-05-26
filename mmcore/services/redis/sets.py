@@ -3,9 +3,9 @@ import typing
 from mmcore import load_dotenv_from_path
 from mmcore.services.redis.stream import encode_dict_with_bytes
 import pickle
-load_dotenv_from_path(".env")
 from mmcore.services.redis import connect
 
+load_dotenv_from_path(".env")
 rconn = connect.get_cloud_connection()
 
 
@@ -29,6 +29,9 @@ class Hdict:
         return encode_dict_with_bytes(rconn.hget(self.full_key, key))
 
     def items(self):
+        return zip(self.keys(), self.values())
+
+    def values(self):
         return list(encode_dict_with_bytes(rconn.hgetall(self.full_key)))
 
     def keys(self):
@@ -53,7 +56,9 @@ class Hdict:
         return self.scan()
 
 
+
 import gzip, json
+
 
 class CompressedHdict(Hdict):
     """
@@ -62,7 +67,6 @@ class CompressedHdict(Hdict):
     pk: str = 'api:hsets:'
 
     def __setitem__(self, key, value: dict):
-
         rconn.hset(self.full_key, key, gzip.compress(json.dumps(value).encode()))
 
     def __getitem__(self, key):
@@ -89,7 +93,6 @@ class PickleHdict(Hdict):
     pk: str = 'api:hsets:'
 
     def __setitem__(self, key, value: typing.Any):
-
         rconn.hset(self.full_key, key, pickle.dumps(value))
 
     def __getitem__(self, key):
@@ -100,4 +103,3 @@ class PickleHdict(Hdict):
 
     def keys(self):
         return list(encode_dict_with_bytes(rconn.hkeys(self.full_key)))
-

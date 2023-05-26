@@ -1,22 +1,32 @@
+from collections import namedtuple
+
 import os
 from typing import Any
-
+from mmcore import load_dotenv_from_path
 import redis
-import redis_om
+import re
+load_dotenv_from_path(".env")
+RedisURL=namedtuple("RedisURL", ["proto", "host", "port", "db"])
+def parse_url(url:str):
+    res=re.split('[:/]', url)
+    while "" in res:
+        res.remove("")
+    return RedisURL(*res)
 
 
 def bootstrap_local(url="redis://localhost:6379/0"):
-    conn = redis_om.get_redis_connection(url=url)
+    parsed=parse_url(url)
+    conn = redis.Redis(parsed.host, parsed.port, parsed.db)
+
     return conn
 
 
 def bootstrap_stack(url=os.getenv("REDIS_STACK_URL")):
-    conn = redis_om.get_redis_connection(url=url)
-    return conn
+    return bootstrap_local(url)
 
 
 def bootstrap_cloud() :
-    r = redis.Redis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), password=os.getenv("REDIS_PASSWORD"))
+    r = redis.StrictRedis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), password=os.getenv("REDIS_PASSWORD"))
 
     return r
 

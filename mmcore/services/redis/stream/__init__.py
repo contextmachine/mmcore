@@ -1,5 +1,4 @@
-import uuid
-import redis
+
 import uuid
 
 import redis
