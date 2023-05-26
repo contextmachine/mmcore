@@ -9,6 +9,15 @@ import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 from itertools import starmap
+from scipy.optimize import fsolve
+
+
+from enum import Enum
+
+from mmcore.geom.vectors import unit, add_translate, angle
+
+
+from mmcore.collections import DoublyLinkedList
 
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
@@ -21,8 +30,7 @@ from scipy.spatial.distance import euclidean
 from mmcore.base.geom.materials import ColorRGB
 from mmcore.base.models.gql import MeshPhongMaterial
 
-from mmcore.base.basic import Group
-from mmcore.base.geom import LineObject
+
 from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
@@ -394,8 +402,10 @@ class NurbsSurfaceGeometry(MeshObject):
         self._geometry = self.uuid + "-geom"
 
         geomdict[self._geometry] = self._proxy.tessellate(uuid=self._geometry).create_buffer()
-
-
+@dataclasses.dataclass
+class LineSequence(ParametricObject):
+    seq: dataclasses.InitVar[list[Linear]]
+    lines: DoublyLinkedList[Linear]
 @dataclasses.dataclass
 class Polyline(ParametricObject):
     control_points: typing.Union[DCLL, DoublyLinkedList]
@@ -434,9 +444,6 @@ class EvaluatedPoint:
     normal: typing.Optional[list[float]]
     direction: typing.Optional[list[typing.Union[float, list[float]]]]
     t: typing.Optional[list[typing.Union[float, list[float]]]]
-
-
-from mmcore.geom.vectors import unit, add_translate, angle
 
 
 @dataclasses.dataclass
@@ -484,10 +491,6 @@ class PlaneLinear(ParametricObject):
 
     def point_at(self, pt):
         return ClosestPoint(pt, self)
-
-
-from enum import Enum
-
 
 @dataclasses.dataclass
 class HyPar4pt(ParametricObject):
@@ -567,6 +570,12 @@ IsCoDirectedResponse = namedtuple('IsCoDirectedResponse', ["do"])
 def is_co_directed(a, b):
     dp = np.dot(a, b)
     return dp, dp * (1 if dp // 1 >= 0 else -1)
+@dataclasses.dataclass
+class Grid(ParametricObject):
+
+    def evaluate(self, t):
+        ...
+
 
 
 @dataclasses.dataclass
@@ -794,8 +803,6 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
 
 
 ProxPoints = ProximityPoints  # Alies for me
-from scipy.optimize import fsolve
-
 
 class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
     @abc.abstractmethod
