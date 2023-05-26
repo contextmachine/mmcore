@@ -9,7 +9,7 @@ import rich
 import jinja2
 from mmcore.utils.termtools import ColorStr, TermColors, MMColorStr
 DIRECTORY = "/".join(__file__.split("/")[:-1])
-dotenv.load_dotenv(dotenv_path="~/env/.env")
+#dotenv.load_dotenv(dotenv_path="~/env/.env")
 import mmcore
 from mmcore.base import DictSchema
 def stringify_kube_env(name, val):
@@ -18,12 +18,14 @@ def stringify_kube_env(name, val):
 
 
 class AppSpec:
-    def __init__(self, build_dir=f"{os.getcwd()}/.mm", title=f"Generate with mmcore {mmcore.__version__()}"):
+    def __init__(self, build_dir=f"{os.getcwd()}/.mm", env=f"{os.getcwd()}/.env",title=f"Generate with mmcore {mmcore.__version__()}"):
         self.build_dir = build_dir
+        self._env=env
         self.title=title
+
         self._jinja_env = jinja2.Environment()
         # language=Jinja2
-        self.kube_template = jinja2.Template("""{{title}}
+        self.kube_template = jinja2.Template("""#{{title}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,7 +48,7 @@ spec:
           # language=Jinja2
           env:  {% for key, value in env.items() %}
             - name: {{key}}
-              value: {{value}} {% endfor %}
+              value: '{{value}}' {% endfor %}
           image: {{app.registry}}/{{app.name}}
           imagePullPolicy: {{app.kube.policies.pull}}
       restartPolicy: {{app.kube.policies.restart}}
@@ -67,12 +69,12 @@ spec:
 
         """)
         # language=Bash
-        self.build_template = jinja2.Template("""{{title}}
+        self.build_template = jinja2.Template("""#{{title}}
 docker buildx build --tag {{app.registry}}/{{app.name}} --platform linux/arm64 --platform linux/amd64 --push .
         """)
 
         # language=Bash
-        self.dockerfile_template = jinja2.Template("""{{title}}
+        self.dockerfile_template = jinja2.Template("""#{{title}}
 FROM python
 WORKDIR /app
 COPY . .
@@ -83,7 +85,9 @@ ENTRYPOINT {{stringify(app.dockerfile.entrypoint)}}
 
     @property
     def env(self):
-        return dotenv.dotenv_values(dotenv_path=f"{os.getenv('HOME')}/env/.env")
+        vals=dotenv.dotenv_values(dotenv_path=self._env)
+        vals["APP_ENV"]="prod"
+        return vals
 
     @property
     def app(self):
