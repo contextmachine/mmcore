@@ -25,7 +25,7 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 setup(
     name='mmcore',
-    version='0.2.1',
+    version='0.2.2',
     packages=['mmcore','mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
@@ -40,6 +40,10 @@ setup(
               'mmcore.addons.mmocc',
               'mmcore.addons.mmocc.OCCUtils',
               'mmcore.services',
+              'mmcore.services.redis',
+              'mmcore.services.redis.connect',
+              'mmcore.services.redis.tools',
+              'mmcore.services.redis.stream',
               'mmcore.collections',
               'mmcore.collections.traversal',
               'mmcore.collections.multi_description',
