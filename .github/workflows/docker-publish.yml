@@ -48,8 +48,8 @@ jobs:
         uses: docker/login-action@28218f9b04b4f3f62068d7b6ce6ca5b26e35336c
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.YC_OAUTH_LOGIN }}
-          password: ${{ secrets.YC_OAUTH_KEY}}
+          username: oauth
+          password: ${{ secret-env.YC_OAUTH_KEY}}
 
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
