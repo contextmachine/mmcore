@@ -16,7 +16,6 @@ fastapi[all]
 uvicorn[standard]
 strawberry-graphql[fastapi]
 pyyaml
-gmsh
 setuptools
 graphql-core
 geomdl
