@@ -49,7 +49,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: oauth
-          password: ${{ secret-env.YC_OAUTH_KEY}}
+          password: ${{ secret-env.YC_OAUTH_KEY }}
 
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
