@@ -1,7 +1,8 @@
 import numpy as np
-from mmcore.base import A, AGroup, ALine, ColorRGB
+
+from mmcore.base import ALine, AGroup, A
+from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import ParametricObject
-from mmcore.base.sharedstate import serve
 
 
 class ParametricCircle(AGroup, ParametricObject):
@@ -41,8 +42,3 @@ class ParametricCircle(AGroup, ParametricObject):
                    material=ALine.material_type(color=color.decimal))
         self.add(ln)
         return A.__call__(self, **kwargs)
-
-
-if __name__ == "__main__":
-    p = ParametricCircle(r=2, h=3, uuid="circle")
-    serve.start_as_main()

@@ -179,3 +179,5 @@ class Shape:
 
         self.boundary = list(res.exterior.coords)
         self.holes = to_list_req(res.interiors)
+
+
