@@ -1,11 +1,9 @@
-compas>=1.17.3
+compas
 numpy>=1.23.5
-pandas>=1.5.1
+pandas==1.5.3
 python-dotenv>=0.21.0
-fastapi>=0.87.0
-uvicorn>=0.19.0
 redis>=4.5.4
-requests>=2.28.1
+requests
 scipy
 dill>=0.3.6
 httpx>=0.23.1
@@ -17,8 +15,8 @@ boto3>=1.26.69
 fastapi[all]
 uvicorn[standard]
 strawberry-graphql[fastapi]
-pyyaml~=6.0
-gmsh~=4.11.1
+pyyaml
+gmsh
 setuptools
 graphql-core
 geomdl
