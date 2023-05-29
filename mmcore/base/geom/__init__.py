@@ -46,7 +46,7 @@ matdict["PointsMaterial"] = mmcore.base.models.gql.PointsMaterial(color=ColorRGB
 matdict["LineBasicMaterial"] = mmcore.base.models.gql.LineBasicMaterial(color=ColorRGB(50, 50, 50).decimal,
                                                                         type=mmcore.base.models.gql.Materials.LineBasicMaterial)
 
-
+# OLD Depricated
 class GeometryObject(Object3D):
     """
     GeometryObject.
@@ -200,6 +200,8 @@ class GeometryObject(Object3D):
     @abc.abstractmethod
     def solve_geometry(self):
         ...
+
+# OLD Depricated
 
 
 from mmcore.geom.vectors import triangle_normal

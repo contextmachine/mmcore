@@ -1181,8 +1181,10 @@ class A:
         This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
         @return:
         """
-        self._include_materials = GeometrySet()
-        self._include_geometries = MaterialSet()
+        #self._include_materials = GeometrySet()
+        #self._include_geometries = MaterialSet()
+        self._include_materials = MaterialSet()
+        self._include_geometries = GeometrySet()
 
         def childthree(obj):
             dct = dict()
@@ -1459,7 +1461,10 @@ class A:
                 parent.__delattr__(name)
                 idict.__delitem__((uid, name))
 
-        adict.__delitem__(self.uuid)
+        try:
+            adict.__delitem__(self.uuid)
+        except KeyError as err:
+            pass
         del self
 
 
