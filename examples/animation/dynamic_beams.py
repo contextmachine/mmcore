@@ -25,7 +25,7 @@ extrusion2.translate([1, 1, 0])
 extrusion3.translate([0, 1, 0])
 
 
-for i in range(15000):
+for i in range(1500):
     time.sleep(0.0001)
     extrusion1.rotate(np.pi / 1000, [0, 1, 1])
     extrusion1.rotate(np.pi / 1000, [1, 0, 0])
