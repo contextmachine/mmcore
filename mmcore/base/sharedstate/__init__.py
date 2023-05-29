@@ -151,8 +151,9 @@ class ServerBind():
             return adict[uid].root()
 
         @app.post("/fetch/{uid}")
-        def get_item(uid: str, data: dict):
-            return adict[uid](**data)
+        def p_item(uid: str, data: dict):
+            adict[uid](**data)
+
 
         @app.get("/keys", response_model_exclude_none=True)
         async def keys():
