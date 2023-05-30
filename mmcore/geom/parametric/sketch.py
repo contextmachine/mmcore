@@ -14,6 +14,7 @@ from geomdl.operations import tangent
 from itertools import starmap
 from scipy.optimize import fsolve
 
+from mmcore.base import geomdict
 from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from mmcore.geom.vectors import *
 from enum import Enum
@@ -31,7 +32,7 @@ import mmcore
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
-from mmcore.base.geom.materials import ColorRGB
+from mmcore.geom.materials import ColorRGB
 from mmcore.base.models.gql import MeshPhongMaterial
 
 from geomdl import NURBS
@@ -358,7 +359,7 @@ class NurbsSurface(ProxyParametricObject):
         normals = [v for p, v in normal(self._proxy, uv.tolist())]
         if uuid is None:
             uuid = _uuid.uuid4().__str__()
-        return MeshBufferGeometryBuilder(vertices=np.array(vertseq['data']).flatten(),
+        return dict(vertices=np.array(vertseq['data']).flatten(),
                                          normals=np.array(normals).flatten(),
                                          indices=np.array(faceseq["vertex_ids"]).flatten(),
                                          uv=uv,
@@ -386,7 +387,7 @@ class NurbsSurfaceGeometry:
             else:
                 self.color = ColorRGB(125, 125, 125)
                 self.material = self.material_type(color=self.color.decimal)
-        super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
+        #super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
 
     def solve_proxy_view(self, control_points, **kwargs):
         arr = np.array(control_points)
@@ -941,7 +942,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
     def __call__(self, x0=(0.5,), **kwargs):
         return super().__call__(x0, **kwargs)
 
-
+"""
 def hyp(arr):
     d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
         [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
@@ -960,7 +961,7 @@ def hyp(arr):
     for i, (lna, lnb) in enumerate(lns2):
         grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
 
-
+"""
 class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolution):
     def __init__(self, c1, c2):
         super().__init__(c1, c2)
@@ -994,9 +995,6 @@ def test_cp():
         for j in res:
             yield ProximityPoints(i, j)()
 
-
-from mmcore.geom.parametric.sketch import *
-from mmcore.base.geom import *
 
 from mmcore.base.geom import LineObject
 
