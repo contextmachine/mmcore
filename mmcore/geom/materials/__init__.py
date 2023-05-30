@@ -128,15 +128,39 @@ class Material:
     def ToJSON(self, *args, **kwargs):
         return json.dumps(self.data, *args, **kwargs)
 
+TEMPLATES={
+    "MeshPhongMaterial":{
+    "type": "MeshPhongMaterial",
+    "emissive": 0,
+    "specular": 1118481,
+    "shininess": 30,
+    "reflectivity": 1.2,
+    "refractionRatio": 0.98,
+    "side": 2,
+    "depthFunc": 3,
+    "depthTest": True,
+    "depthWrite": True,
+    "colorWrite": True,
+    "stencilWrite": False,
+    "stencilWriteMask": 255,
+    "stencilFunc": 519,
+    "stencilRef": 0,
+    "stencilFuncMask": 255,
+    "stencilFail": 7680,
+    "stencilZFail": 7680,
+    "stencilZPass": 7680,
+    "flatShading": False
+}
+}
 
 class MaterialType(type):
     @classmethod
-    def __prepare__(metacls, name, bases=(Material,), templates=f"{__file__.replace('/__init__.py', '')}/templates",
+    def __prepare__(metacls, name, bases=(Material,), templates=TEMPLATES,
                     **kwargs):
         ns = dict(super().__prepare__(name, bases))
 
-        with open(f"{templates}/{name}.json") as f:
-            data = json.load(f)
+
+        data = templates[name]
 
         ns.update(data)
         ns["_type"] = data["type"]
@@ -157,7 +181,7 @@ class MaterialType(type):
 
 class MeshPhongBasic(Material, metaclass=MaterialType):
     ...
-
+"""
 
 class MeshPhongFlatShading(Material, metaclass=MaterialType):
     ...
@@ -174,7 +198,7 @@ class MeshPhysicalMetallic(Material, metaclass=MaterialType):
 class PointsBase(Material, metaclass=MaterialType):
     ...
 
-
+"""
 
 # language=GraphQL
 materialRequest = '''
