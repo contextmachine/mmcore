@@ -49,6 +49,7 @@ setup(
               'mmcore.collections.multi_description',
               'mmcore.exceptions',
               'mmcore.gql',
+                'mmcore.utils',
               'mmcore.gql.client',
               'mmcore.gql.pg',
               'mmcore.gql.templates',
