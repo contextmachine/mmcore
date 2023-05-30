@@ -31,6 +31,7 @@ setup(
               'mmcore.geom.parametric',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
+              'mmcore.geom.vectors',
               'mmcore.addons',
               'mmcore.addons.gmdl',
               'mmcore.addons.rhino',
