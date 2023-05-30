@@ -49,6 +49,7 @@ setup(
               'mmcore.collections.traversal',
               'mmcore.collections.multi_description',
               'mmcore.exceptions',
+'mmcore.node',
               'mmcore.gql',
                 'mmcore.utils',
               'mmcore.gql.client',
