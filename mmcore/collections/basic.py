@@ -2,7 +2,11 @@ import collections.abc
 import dataclasses
 from collections import namedtuple, deque
 
-__all__=["ElementSequence","ParamContainer","DoublyLinkedList","DCLL","FuncMultiDesc","CircularLinkedList","CallbackList","LinkedList","ParamAccessible","OrderedSet","UnlimitedAscii","ListNode","CallsHistory","Convertor","curry"]
+__all__ = ["ElementSequence", "ParamContainer", "DoublyLinkedList", "DCLL", "FuncMultiDesc", "CircularLinkedList",
+           "CallbackList", "LinkedList", "ParamAccessible", "OrderedSet", "UnlimitedAscii", "ListNode", "CallsHistory",
+           "Convertor", "curry","DNode","DCNode","DLLNode","DLLIterator","DCLLIterator"]
+
+
 def chain_split_list(iterable):
     ss = deque(iterable)
     l = []
@@ -633,14 +637,16 @@ class DNode:
         self.data = data
         self.prev = None
         self.next = None
+
     def __rpr__(self):
         return f'{self.__class__.__name__}({self.data})'
-    def __repr__(self):
-        rpr=f'[{self.__rpr__()}]'
-        if self.next is not None:
-            rpr=f'{rpr} -> {self.next.__rpr__()}'
 
-        if  self.prev is not None:
+    def __repr__(self):
+        rpr = f'[{self.__rpr__()}]'
+        if self.next is not None:
+            rpr = f'{rpr} -> {self.next.__rpr__()}'
+
+        if self.prev is not None:
             rpr = f'{self.prev.__rpr__()} -> {rpr}'
         return rpr
 
@@ -662,30 +668,35 @@ class DLLIterator(Iterator):
 
 
 class DoublyLinkedList:
-    __node_type__=DNode
+    __node_type__ = DNode
+
     def __class_getitem__(cls, item):
-        return type(cls.__name__+f"[{item}]",(cls,), {"__node_type__":item})
+        return type(cls.__name__ + f"[{item}]", (cls,), {"__node_type__": item})
+
     def __init__(self, seq=()):
         super().__init__()
-
 
         self.start_node = None
         self.count = 0
 
-        if len(seq)>0:
+        if len(seq) > 0:
             for item in seq:
                 self.append(item)
-            self.count=len(seq)
+            self.count = len(seq)
 
         self._current_node = self.start_node
+
     @property
     def head(self):
         return self.start_node
+
     def __iter__(self):
         return DLLIterator(self)
+
     @head.setter
-    def head(self,v):
-        self.start_node=v
+    def head(self, v):
+        self.start_node = v
+
     # Insert Element to Empty list
     def append(self, data):
         self.insert(data)
@@ -715,7 +726,7 @@ class DoublyLinkedList:
         new_node = self.__class__.__node_type__(data)
         n.next = new_node
         new_node.prev = n
-        self.count+=1
+        self.count += 1
 
     # Delete the elements from the start
     def delete_at_start(self):
@@ -727,7 +738,7 @@ class DoublyLinkedList:
             return
         self.start_node = self.start_node.next
         self.start_prev = None;
-        self.count-=1
+        self.count -= 1
 
     # Delete the elements from the end
     def delete_at_end(self):
@@ -744,6 +755,7 @@ class DoublyLinkedList:
         n.prev.next = None
 
         self.count -= 1
+
     def _find_val(self, v):
         temp = self.start_node
         self._i = 0
@@ -762,7 +774,7 @@ class DoublyLinkedList:
         temp = self.head
         self._i = 0
         while True:
-            if self._i == i :
+            if self._i == i:
 
                 break
             elif temp.next is None:
@@ -782,14 +794,15 @@ class DoublyLinkedList:
 
     def __setitem__(self, key, value):
         node = self.get(key)
-        node.prev.next=value
-        node.next.prev=value
+        node.prev.next = value
+        node.next.prev = value
 
     def __delitem__(self, key):
         node = self.get(key)
         node.prev.next = node.next
         node.next.prev = node.prev
         del node
+
     def get(self, item):
 
         return self._find_idx(item)
@@ -819,6 +832,7 @@ class DoublyLinkedList:
         p.next = n
         del temp
         self.count -= 1
+
     # Traversing and Displaying each element of the list
     def display(self):
         if self.start_node is None:
@@ -840,9 +854,6 @@ class DCNode(DNode):
         self.data = data
         self.prev = self
         self.next = self
-
-    def __repr__(self):
-        return f'DCNode({self.prev.data}) -> [DCNode({self.data})] -> DCNode({self.next.data})'
 
 
 class DCLLIterator(Iterator):
@@ -930,7 +941,9 @@ class DCLL:
         string += f"DCLL({self.head.data})"
         temp = self.head.next
         while (temp != self.head):
-            string += f" -> {temp.data}"
+            string += \
+                f""" -> 
+        {temp.data}"""
             temp = temp.next
         return string
 
@@ -1090,6 +1103,9 @@ class DCLL:
 
         # Update self.start pointer
         self.head = new_node
+
+    def __str__(self):
+        return self.__repr__()
 
 
 def rrange(start, end, count):

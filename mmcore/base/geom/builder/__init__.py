@@ -1,3 +1,6 @@
+import dataclasses
+
+import more_itertools
 import typing
 import uuid as _uuid
 
@@ -9,10 +12,13 @@ import mmcore.base
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 
 
+T = typing.TypeVar("T")
+S = typing.TypeVar("S")
 @runtime_checkable
 class BufferGeometryBuilder(typing.Protocol):
     choices = {
         '000': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
+        '001': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes1),
         '100': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes3),
         '101':(mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes3),
         '110': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes2),
@@ -64,6 +70,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
         return self._indices
 
     def create_buffer(self, uuid: str = None) -> mmcore.base.models.gql.BufferGeometry:
+
         selector = ['0', '0', '0']  # norm,uv,index
         attributes = {
             "position": mmcore.base.models.gql.Position(**{
@@ -94,12 +101,14 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
             })
 
         if self.indices is not None:
-            #print(self.indices)
-
+            print(self.indices)
+            indices=self.indices
             selector[2] = '1'
+            if isinstance(self.indices[0] ,list):
+                indices=list(more_itertools.flatten(self.indices))
             data["index"] = mmcore.base.models.gql.Index(**dict(type='Uint16Array',
-                                                                array=np.asarray(self.indices,
-                                                                                 dtype=int).flatten().tolist()))
+                                                                array=np.array(indices,
+                                                                               dtype=int).flatten().tolist()))
         _data, _attribs = self.choices["".join(selector)]
         data['attributes'] = _attribs(**attributes)
 
@@ -232,3 +241,51 @@ class RhinoBrepBufferGeometryBuilder(RhinoMeshBufferGeometryBuilder):
         mesh = rg.Mesh()
         [mesh.Append(l) for l in list(rg.Mesh.CreateFromBrep(brep, rg.MeshingParameters.FastRenderMesh))]
         super().__init__(mesh, uuid=uuid)
+
+
+
+class ConvertorProtocol(typing.Protocol[S, T]):
+    type_map: typing.Optional[dict]
+
+    def convert(self, obj: S) -> T: ...
+
+
+class Convertor(typing.Generic[S, T]):
+    target: typing.Type[T]
+    source: S
+    type_map: dict = None
+
+    def __init__(self, source: S, type_map=None, **kwargs):
+        super().__init__()
+        if type_map is None:
+            if self.type_map is None:
+                self.type_map = dict()
+        else:
+            self.type_map = type_map
+        self.source = source
+        self.__dict__ |= kwargs
+
+    def convert(self) -> T:
+        ...
+
+
+
+
+class DictToAnyConvertor(Convertor[dict, typing.Any]):
+    source: dict
+    target: typing.Any
+    def __init__(self, source: S, target, **kwargs):
+        super().__init__(source, **kwargs)
+        self.target=target
+    def convert(self) -> typing.Any:
+        dct = dict()
+        for k, v in self.source.items():
+            dct[self.type_map[k]] = v
+        return self.target(**dct)
+
+
+class DataclassToDictConvertor(Convertor[typing.Any, dict]):
+
+    def convert(self) -> dict:
+        return dataclasses.asdict(self.source)
+
