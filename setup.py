@@ -24,7 +24,7 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 setup(
     name='mmcore',
-    version='0.2.2',
+    version='0.2.3',
     packages=['mmcore','mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
