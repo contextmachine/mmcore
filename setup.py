@@ -57,6 +57,7 @@ setup(
             'mmcore.base.models',
                 'mmcore.base.models.gql',
                 'mmcore.base.registry',
+              'mmcore.base.descriptors',
                 'mmcore.datatools'
 
               ],
