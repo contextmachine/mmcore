@@ -27,7 +27,7 @@ from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
 
-from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, MeshObject
+
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
@@ -365,11 +365,11 @@ class NurbsSurface(ProxyParametricObject):
                                          uuid=uuid)
 
 
-class NurbsSurfaceGeometry(MeshObject):
+class NurbsSurfaceGeometry:
     material_type = MeshPhongMaterial
     castShadow: bool = True
     receiveShadow: bool = True
-    geometry_type = MeshBufferGeometryBuilder
+    geometry_type =...
 
     def __new__(cls, *args, color=ColorRGB(0, 255, 40), control_points=(), **kwargs):
         inst = super().__new__(cls, *args, material=MeshPhongMaterial(color=color.decimal), **kwargs)
