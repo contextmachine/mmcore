@@ -32,6 +32,7 @@ setup(
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
+"mmcore.base.geom.builder",
               'mmcore.addons',
               'mmcore.addons.gmdl',
               'mmcore.addons.rhino',
