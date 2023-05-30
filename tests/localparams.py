@@ -42,6 +42,8 @@ skoba_mat = MeshPhongMaterial(color=ColorRGB(*SKOBA_COLOR).decimal)
 polka_mat = MeshPhongMaterial(color=ColorRGB(*POLKA_COLOR).decimal)
 with open("tests/data/panel.json", "r") as f:
     geom = ujson.load(f)
+
+    pnl = utils.create_buffer_from_dict(geom["geometries"][0])
 with open("tests/data/polka.json", "r") as f:
     polka = ujson.load(f)
     pgrp = AGroup(name="Polka", uuid=uuid.uuid4().hex)

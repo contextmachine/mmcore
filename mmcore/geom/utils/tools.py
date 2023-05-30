@@ -1,18 +1,15 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from __future__ import annotations
 
+import scipy.spatial.distance
 import uuid
 from collections import namedtuple
 from enum import Enum
 
-
 import numpy as np
-
 
 from pydantic.types import UUID4, conlist
 from scipy.spatial import distance as spdist
-
-
 
 from mmcore.geom.vectors import unit
 
@@ -27,8 +24,16 @@ class ThreeTypes(str, Enum):
 ThreeTransformMatrix = conlist(float, min_items=16, max_items=16)
 
 zero_transform = ThreeTransformMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
-
+from scipy.spatial import distance
 import math
+
+
+def invdist(a, b):
+
+    d=distance.euclidean(a, b)
+    if d != 0:
+        return 1 / d
+
 
 
 def degtorad(deg):
@@ -145,6 +150,7 @@ def mesh_decomposition(msh):
         llst.append(lst)
 
     return llst, vertss, normals
+
 
 def rhino_mesh_to_topology(input_mesh):
     indices, verts, normals = mesh_decomposition(input_mesh)

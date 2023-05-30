@@ -2,7 +2,7 @@ import numpy as np
 
 from mmcore.base import ALine, AGroup, A
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import ParametricObject
+from mmcore.geom.parametric.base import ParametricObject
 
 
 class ParametricCircle(AGroup, ParametricObject):

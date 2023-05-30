@@ -49,7 +49,7 @@ def delegate_method(m):
     return wrap
 
 
-@Delegate(delegate=Polygon)
+#@Delegate(delegate=Polygon)
 @dataclasses.dataclass
 class Shape:
     boundary: list[list[float]]
@@ -59,6 +59,7 @@ class Shape:
     h: typing.Any = None
 
     def __post_init__(self):
+        self.boundary=list(self.boundary)
         if not self.uuid:
             self.uuid = uuid.uuid4().hex
         if self.h is None:
@@ -81,6 +82,7 @@ class Shape:
         return np.array(res).reshape((len(res) // 3, 3))
 
     def to3d_mesh_pts(self):
+        print(self.boundary)
         rrr = np.array(list(flatten([self.boundary] + self.holes)))
         return np.c_[rrr, np.ones((rrr.shape[0], 1)) * self.h]
 
@@ -98,7 +100,7 @@ class Shape:
     @property
     def mesh_data(self):
         _mesh_data = MeshData(self.to3d_mesh_pts(), indices=self.earcut_poly())
-        _mesh_data.calc_normals()
+        #_mesh_data.calc_normals()
         return _mesh_data
 
     @delegate_method

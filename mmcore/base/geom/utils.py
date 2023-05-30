@@ -39,11 +39,13 @@ def create_buffer_from_dict(kwargs) -> mmcore.base.models.gql.BufferGeometry:
             "type": kwargs.get('type'),
             "data": mmcore.base.models.gql.Data(**{
                 "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
+                "index": mmcore.base.models.gql.Index(**kwargs.get('data').get("index"))
 
             })
+
         })
 
-        dct.data.index: mmcore.base.models.gql.Index(**kwargs.get('data').get("index"))
+
     else:
 
         dct = mmcore.base.models.gql.BufferGeometry(**{

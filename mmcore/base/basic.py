@@ -1,4 +1,6 @@
 #
+import warnings
+
 import itertools
 
 import functools
@@ -8,7 +10,6 @@ import os
 import pprint
 import types
 import uuid
-
 
 import numpy as np
 import ujson
@@ -36,8 +37,6 @@ import copy
 import strawberry
 
 from mmcore.collections.multi_description import Paginate, ElementSequence
-
-
 
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
@@ -828,22 +827,6 @@ class GenericList(list):
 ROOT_DOC = """"""
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 @strawberry.interface(description=ROOT_DOC)
 class RootInterface:
     metadata: gql_models.Metadata
@@ -977,9 +960,11 @@ class DictSchema:
     def get_init_default_strawberry(self):
 
         return self.get_strawberry()(**self.dict_example)
+
     def get_strawberry(self):
 
         return strawberry.type(self.schema)
+
     def init_partial(self, **kwargs):
         dct = copy.deepcopy(self.dict_example)
         dct |= kwargs
@@ -1269,7 +1254,11 @@ class A:
     def children(self):
         l = []
         for child in self._children:
-            l.append(adict[child])
+            try:
+                l.append(adict[child])
+            except KeyError as err:
+
+                pass
         return l
 
     def __new__(cls, *args, **kwargs):
@@ -1452,7 +1441,7 @@ class A:
     def dispose(self):
 
         for k, v in idict.items():
-            uid, name=k
+            uid, name = k
             if v == self.uuid:
                 parent = self.get_object(uid)
                 parent._children.remove(self.uuid)
@@ -1462,9 +1451,10 @@ class A:
         adict.__delitem__(self.uuid)
         del self
 
-
+    def dump(self, filename):
+        with open(filename, "w") as f:
+            ujson.dump(self.root(), f)
 class AGroup(A):
-
 
     @property
     def threejs_type(self):
@@ -1498,6 +1488,7 @@ class AGroup(A):
                 "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
                 "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
             }
+
 
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
@@ -1746,13 +1737,13 @@ def generate_object3d_dict(**kwargs):
     }
 
 
-def deep_update(dct, dct2):
+def deep_merge(dct, dct2):
     for k, v in dct.items():
         vv = dct2.get(k)
         if vv is not None:
             if isinstance(vv, dict):
                 if isinstance(v, dict):
-                    deep_update(v, vv)
+                    deep_merge(v, vv)
                 else:
                     dct[k] = vv
             else:
@@ -1765,7 +1756,7 @@ def deep_update(dct, dct2):
 
 class DeepDict(dict):
     def __ior__(self, other):
-        deep_update(self, other)
+        deep_merge(self, other)
         return self
 
 
@@ -1795,12 +1786,10 @@ class ObjectThree:
         else:
             return self.walk()[item]
 
-
     def keys(self):
         return self.walk().keys()
 
     def to_dict(self):
-
 
         dct = {"all": self.all()}
         for k, v in self.walk().items():
@@ -1808,22 +1797,24 @@ class ObjectThree:
                 dct[k] = v.to_dict()
         return dct
 
+
 class GqlObjectThree(ObjectThree):
 
     def __getitem__(self, item):
-        if item !="all":
-
+        if item != "all":
 
             return super().__getitem__(item)
         else:
             return super().__getitem__(item)
+
+
 class Three:
     all: JSON
 
 
 def new_three(origin: GqlObjectThree = None):
     attrs = dict(itertools.zip_longest(origin.keys(), ['GenericThree'], fillvalue='GenericThree'))
-    define=f"""
+    define = f"""
     
 @strawberry.type
 class GenericThree:
@@ -1839,17 +1830,14 @@ class GenericThree:
         
 """
     for k in origin.keys():
-
-
-        define+=f"""   
+        define += f"""   
     @strawberry.field 
     def {k}(self)->'GenericThree':
         return new_three(self.origin["{k}"])"""
 
-    cd=compile(define, "_i", "exec")
+    cd = compile(define, "_i", "exec")
 
     exec(cd, globals(), locals())
-    e=eval('GenericThree')()
-    e._origin=origin
+    e = eval('GenericThree')()
+    e._origin = origin
     return e
-

@@ -8,16 +8,20 @@ import timeit
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
+
+from earcut.earcut import normal
+from geomdl.operations import tangent
 from itertools import starmap
 from scipy.optimize import fsolve
 
-
+from mmcore.geom.transform import remove_crd, Transform, WorldXY
+from mmcore.geom.vectors import *
 from enum import Enum
 
+from mmcore.geom.parametric.base import ParametricObject
 from mmcore.geom.vectors import unit, add_translate, angle
 
-
-from mmcore.collections import DoublyLinkedList
+from mmcore.collections import DoublyLinkedList, curry
 
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
@@ -30,29 +34,29 @@ from scipy.spatial.distance import euclidean
 from mmcore.base.geom.materials import ColorRGB
 from mmcore.base.models.gql import MeshPhongMaterial
 
-
 from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection, ElementSequence
 import multiprocess as mp
+def add_crd(pt, value):
+    if not isinstance(pt, np.ndarray):
+        pt = np.array(pt, dtype=float)
+    if len(pt.shape) == 1:
+        pt = pt.reshape(1, pt.shape[0])
+
+    return np.c_[pt, np.ones((pt.shape[0], 1)) * value]
+
+
+def add_w(pt):
+    return add_crd(pt, value=1)
 
 # mp.get_start_method = "swapn"
 import uuid as _uuid
-from geomdl.operations import normal, tangent
 
-from mmcore.geom.transform import Transform
-
-TOLERANCE = 0.001
+TOLERANCE = 1e-6
 
 T = typing.TypeVar("T")
-
-
-@typing.runtime_checkable
-class ParametricObject(typing.Protocol[T]):
-    @abc.abstractmethod
-    def evaluate(self, t):
-        ...
 
 
 @dataclasses.dataclass
@@ -126,7 +130,10 @@ class Linear(ParametricObject):
         else:
             return backend(self)
 
+    def prox(self, other,  bounds=[(0,1),(0,1)]):
+        res=ProximityPoints(self, other)([0.5,0.5], bounds=bounds)
 
+        return res
 class ParametricLineObject(): ...
 
 
@@ -156,7 +163,7 @@ def llll(hp, step=600):
     return lll
 
 
-T = typing.TypeVar("T")
+
 
 
 def l22(r):
@@ -273,9 +280,6 @@ class NurbsCurve(ProxyParametricObject):
 
     def tessellate(self):
         ...
-
-
-from mmcore.collections import curry
 
 
 class ProxyMethod:
@@ -402,10 +406,14 @@ class NurbsSurfaceGeometry(MeshObject):
         self._geometry = self.uuid + "-geom"
 
         geomdict[self._geometry] = self._proxy.tessellate(uuid=self._geometry).create_buffer()
+
+
 @dataclasses.dataclass
 class LineSequence(ParametricObject):
     seq: dataclasses.InitVar[list[Linear]]
     lines: DoublyLinkedList[Linear]
+
+
 @dataclasses.dataclass
 class Polyline(ParametricObject):
     control_points: typing.Union[DCLL, DoublyLinkedList]
@@ -457,14 +465,15 @@ class PlaneLinear(ParametricObject):
 
         # print(unit(self.normal), self.xaxis, self.yaxis)
         if self.xaxis is not None and self.yaxis is not None:
-            self.normal=np.cross(unit(self.xaxis),unit(self.yaxis))
+            self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
         elif self.normal is not None:
             self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
 
             self.yaxis = np.cross(unit(self.normal), self.xaxis
-                              )
+                                  )
 
     def evaluate(self, t):
+
         if len(t) == 2:
             u, v = t
             uu = np.array(self.x_linear.evaluate(u) - self.origin)
@@ -490,7 +499,84 @@ class PlaneLinear(ParametricObject):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
     def point_at(self, pt):
-        return ClosestPoint(pt, self)
+        T=Transform.from_plane_to_plane(self, WorldXY)
+        return remove_crd(add_w(pt)@T.matrix.T)
+
+    @property
+    def x0(self):
+        return self.origin[0]
+
+    @property
+    def y0(self):
+        return self.origin[1]
+
+    @property
+    def z0(self):
+        return self.origin[2]
+    @property
+    def a(self):
+        return self.normal[0]
+
+    @property
+    def b(self):
+        return self.normal[1]
+
+    @property
+    def c(self):
+        return self.normal[2]
+
+    @property
+    def d(self):
+
+        return -np.sum(self.normal * self.origin)
+
+
+
+    def is_parallel(self, other):
+        _cross = np.cross(unit(self.normal), unit(other.normal))
+        A = np.array([self.normal, other.normal, _cross])
+        return np.linalg.det(A) == 0
+
+    @classmethod
+    def from_tree_pt(cls, origin, pt2, pt3):
+
+        x=np.array(pt2)- np.array(origin)
+        nrm=np.cross(x,(pt3- np.array(origin)))
+        return PlaneLinear(normal=nrm, xaxis=x, origin=origin)
+
+    def intersect(self, other):
+
+            _cross=np.cross(unit(self.normal), unit(other.normal))
+            A = np.array([self.normal, other.normal, _cross])
+            d = np.array([-self.d, -other.d, 0.]).reshape(3, 1)
+
+            # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
+
+
+
+
+
+            # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
+
+            p_inter = np.linalg.solve(A, d).T
+
+            return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
+
+
+    @property
+    def transform_from_other(self, other):
+        return Transform.from_plane_to_plane(other, self)
+
+    @property
+    def transform_to_other(self, other):
+        return Transform.from_plane_to_plane(self, other)
+    @property
+    def projection(self):
+        return Transform.plane_projection(self)
+
+    def ray_intersect(self, ray:Linear):
+        return line_plane_collision(self, ray, TOLERANCE)
+
 
 @dataclasses.dataclass
 class HyPar4pt(ParametricObject):
@@ -570,12 +656,13 @@ IsCoDirectedResponse = namedtuple('IsCoDirectedResponse', ["do"])
 def is_co_directed(a, b):
     dp = np.dot(a, b)
     return dp, dp * (1 if dp // 1 >= 0 else -1)
+
+
 @dataclasses.dataclass
 class Grid(ParametricObject):
 
     def evaluate(self, t):
         ...
-
 
 
 @dataclasses.dataclass
@@ -591,7 +678,7 @@ class HypPar4ptGrid(HyPar4pt):
             if not (r == []):
                 try:
                     a, b = r
-                    d.append(Linear.from_two_points( b.tolist(),a.tolist()))
+                    d.append(Linear.from_two_points(b.tolist(), a.tolist()))
                 except:
                     pass
 
@@ -606,7 +693,7 @@ class HypPar4ptGrid(HyPar4pt):
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
-                d.append(Linear.from_two_points( b.tolist(),a.tolist()))
+                d.append(Linear.from_two_points(b.tolist(), a.tolist()))
         return d
 
     """
@@ -804,6 +891,7 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
 
 ProxPoints = ProximityPoints  # Alies for me
 
+
 class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
     @abc.abstractmethod
     def solution(self, t): ...
@@ -917,7 +1005,7 @@ from mmcore.base.basic import iscollection
 
 class HypGridLayer:
     hyp: HypPar4ptGrid
-    prev:typing.Optional[list[Linear]]=None
+    prev: typing.Optional[list[Linear]] = None
     color: typing.Union[ColorRGB, tuple] = (70, 10, 240)
     name: str = "Foo"
     high: float = 0.0
@@ -931,16 +1019,17 @@ class HypGridLayer:
         for item in [A1, B1, C1, D1]:
             hpp.append(np.array(item.point) + np.array(item.normal) * h)
         return HypPar4ptGrid(*hpp)
-    def __init__(self,**kwargs):
+
+    def __init__(self, **kwargs):
         object.__init__(self)
         self.__call__(**kwargs)
+
     def __call__(self, **kwargs):
-        self.__dict__|=kwargs
+        self.__dict__ |= kwargs
         if self.prev is not None:
             self.prev.sort(key=lambda x: x.length)
-            self.direction=self.prev[-1].extend(60,60)
+            self.direction = self.prev[-1].extend(60, 60)
         return self.solve_grid()
-
 
     def solve_grid(self):
         hp_next = self.offset_hyp(self.high)
@@ -1008,7 +1097,6 @@ def webgl_line_backend(**props):
                           **props)
 
     return wrapper
-
 
 
 """

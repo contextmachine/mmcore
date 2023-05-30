@@ -7,7 +7,7 @@ import json
 HIGH = 10
 with open("examples/data/profile.json") as f:
     profile = json.load(f)
-shape = Shape(boundary=profile["bounds"], holes=profile["holes"])
+shape = Shape(boundary=profile["bounds"], holes=profile["holes"], h=0)
 extrusion = simple_extrusion(shape, HIGH)
 
 
