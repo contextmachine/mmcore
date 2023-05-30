@@ -129,7 +129,7 @@ class Material:
         return json.dumps(self.data, *args, **kwargs)
 
 TEMPLATES={
-    "MeshPhongMaterial":{
+    "MeshPhongBasic":{
     "type": "MeshPhongMaterial",
     "emissive": 0,
     "specular": 1118481,
