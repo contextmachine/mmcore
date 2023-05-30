@@ -16,8 +16,7 @@ Computational Geometry, Digital Engineering and Optimizing your construction pro
     \____/\___ /_/ /_/\____/\____ /_ /\_\____/_/ /_/ /_/\__,_/\____/_/ /_/_/_/ /_/\____/       
 
 
-Andrew Astkhov (sth-v) aa@contextmachine.ru 
-🔫📠️💻🎚📹📟🚔🦾🦺📠️💻🎛️📱🚧🚔🦾🔫📠️🛠️🎛️📹📟🚔🦾🔫📠️👷‍🎛️🔩📟🚜⚙️🔫📠️💻🎚📹📟🚔🦾🦺📠️💻🎛️📱🚧🚔🦾🔫📠️🛠️🎛️📹📟🚔🦾🔫📠️👷‍🎛️🔩📟🚜⚙️🔫📠️💻🎚📹📟🚔🦾                                                          
+Andrew Astkhov (sth-v) aa@contextmachine.ru                                                         
 ------------------------------------------------------------------------------------------------------------------------
 
 """
@@ -32,6 +31,7 @@ setup(
               'mmcore.geom.parametric',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
+              'mmcore.geom.vectors',
               'mmcore.addons',
               'mmcore.addons.gmdl',
               'mmcore.addons.rhino',
