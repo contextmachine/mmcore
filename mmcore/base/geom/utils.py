@@ -5,7 +5,7 @@ import numpy as np
 
 import mmcore.base.models.gql
 from mmcore.base.basic import getattr_, objdict, geomdict, matdict, ExEncoder
-from mmcore.node import node_eval
+
 
 mapattrs = {
     "normal": mmcore.base.models.gql.Normal,
@@ -115,14 +115,6 @@ def parse_attribute(attr):
     shp = int(len(arr) / attr.itemSize), attr.itemSize
     arr.reshape(shp)
     return arr
-
-
-@node_eval
-def foo_three_js_type():
-    # language=JavaScript
-    return '''const THREE = require("three");
-              const result = new THREE.Object3D();
-              console.log(JSON.stringify(result.toJSON()))'''
 
 
 def dumps_graph(path):

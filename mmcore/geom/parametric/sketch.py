@@ -26,7 +26,7 @@ from mmcore.collections import DoublyLinkedList, curry
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
-from mmcore.base import geomdict, objdict
+
 from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, MeshObject
 import numpy as np
 from scipy.optimize import minimize
