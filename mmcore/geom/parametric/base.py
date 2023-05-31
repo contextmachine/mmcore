@@ -1,3 +1,5 @@
+from collections import namedtuple
+
 import dataclasses
 
 import abc
@@ -56,3 +58,11 @@ class NormalPoint:
     def __mat__(self, other):
         a,b = self.__array__()  @ other
         return NormalPoint(point=a, normal=b)
+
+UVPoint = namedtuple("UVPoint", ["u", "v", "point"])
+EvalPointTuple1D = namedtuple("EvalPointTuple1D", ["i", "t", "x", "y", "z"])
+EvalPointTuple1D.__doc__ = """Represent t like 1d evaluation result.\n 
+5e tuple[i: int, t: float, x: float, y: float, z: float]"""
+EvalPointTuple2D = namedtuple("EvalPointTuple2D", ["i", "j", "u", "v", "x", "y", "z"])
+EvalPointTuple2D.__doc__ = """Represent u,v like 2d evaluation result.\n 
+ 7e tuple[i: int, j: int, u: float, v: float, x: float, y: float, z: float]"""

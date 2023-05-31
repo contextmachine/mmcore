@@ -20,7 +20,7 @@ from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from mmcore.geom.vectors import *
 from enum import Enum
 
-from mmcore.geom.parametric.base import ParametricObject, NormalPoint
+from mmcore.geom.parametric.base import ParametricObject, NormalPoint, UVPoint, EvalPointTuple2D
 from mmcore.geom.vectors import unit, add_translate, angle
 
 from mmcore.collections import DoublyLinkedList, curry
@@ -285,6 +285,7 @@ class NurbsCurve(ProxyParametricObject):
         pt = tangent(self.proxy, t)
         return NormalPoint(*pt)
 
+
 class ProxyMethod:
     def __init__(self, fn):
         self.fn = curry(fn)
@@ -351,7 +352,7 @@ class NurbsSurface(ProxyParametricObject):
         return geomdl.operations.normal(self.proxy, t)
 
     def tan(self, t):
-        pt,tn=tangent(self.proxy, t)
+        pt, tn = tangent(self.proxy, t)
         return NormalPoint(*pt, normal=tn)
 
     def tessellate(self, uuid=None):
@@ -561,24 +562,24 @@ class PlaneLinear(ParametricObject):
 
         return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
 
-
     def transform_from_other(self, other):
         return Transform.from_plane_to_plane(other, self)
 
-
     def transform_to_other(self, other):
-        return Transform.to_plane_to_plane(self, other)
+        return Transform.from_plane_to_plane(self, other)
 
     @property
     def projection(self):
         return Transform.plane_projection(self)
 
     def project(self, gm):
-        return gm @ self.projection
+        # return gm @ self.projection
+        raise NotImplementedError
 
     def orient(self, gm, plane=WorldXY):
-        print(gm)
-        return add_crd(gm ,1) @ self.transform_from_other(plane)
+
+        # return remove_crd(add_crd(gm, 1).reshape((4,)) @ self.transform_from_other(plane).matrix.T)
+        raise NotImplementedError
 
     def ray_intersect(self, ray: Linear):
         return line_plane_collision(self, ray, TOLERANCE)
@@ -1140,8 +1141,11 @@ class Circle:
 r = Circle(r=1)
 
 
+
+
+
 @dataclasses.dataclass
-class Pipe(ParametricObject):
+class Pipe:
     """
     >>> nb2=NurbsCurve([[0, 0, 0        ] ,
     ...                 [-47, -315, 0   ] ,
@@ -1164,14 +1168,39 @@ class Pipe(ParametricObject):
 
         pln = self.evalplane(u)
 
-        return remove_crd(add_crd(r.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
+        return remove_crd(add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
 
-    def veval(self):
-        data = []
-        for i in np.linspace(0, 1, 20):
-            dt = []
-            for j in np.linspace(0, 1, 20):
-                dt.append(self.evaluate([i, j]))
-            data.append(dt)
+    def geval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
+        for i, u in enumerate(np.linspace(*bounds[0], uvs[0])):
+            for j, v in enumerate(np.linspace(*bounds[1], uvs[1])):
+                yield EvalPointTuple2D(i, j, u, v, *self.evaluate([u, v]))
 
-        return np.array(data, dtype=float)
+    def veval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
+        data = np.zeros(uvs + (3,), dtype=float)
+        for i, j, u, v, x, y, z in self.geval(uvs, bounds):
+            data[i, j, :] = [x, y, z]
+        return data
+
+    def mpeval(self, uvs=(20, 20), bounds=((0, 1), (0, 1)), workers=-1):
+        """
+        >>> path = NurbsCurve([[0, 0, 0],
+        ...               [-47, -315, 0],
+        ...               [-785, -844, 0],
+        ...               [-704, -1286, 0],
+        ...               [-969, -2316, 0]])
+
+        >>> profile = Circle(r=10.5)
+        >>> pipe = Pipe(path, profile)
+        >>> pipe.veval(uvs=(2000, 200)) # 400,000 points
+        time 40.84727501869202 s
+        >>> pipe.mpeval(uvs=(2000, 200)) # 400,000 points
+        time 8.37929892539978 s # Yes it's also too slow, but it's honest work
+        """
+        def inner(u):
+            return [(u, v, *self.evaluate([u, v])) for v in np.linspace(*bounds[1], uvs[1])]
+
+        if workers == -1:
+            workers = os.cpu_count()
+
+        with mp.Pool(workers) as p:
+            return p.map(inner, np.linspace(*bounds[0], uvs[0]))
