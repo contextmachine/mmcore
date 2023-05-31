@@ -71,7 +71,8 @@ class Transform:
         return Transform(self.__array__().__matmul__(np.array(other)))
 
     def __rmatmul__(self, other):
-
+        if isinstance(other, (list,tuple)):
+            other=np.array(other, dtype=float)
         if hasattr(other, 'matrix'):
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
@@ -81,6 +82,7 @@ class Transform:
                 return other
         elif isinstance(other, Transform):
             return Transform(other.__array__() @ self.matrix)
+
         elif isinstance(other, ndarray):
             if other.shape[0] == 3:
                 ppt = np.array([0, 0, 0, 1], dtype=float)
@@ -90,8 +92,10 @@ class Transform:
 
             elif other.shape[0] == 4:
                 return remove_crd(other @ self.matrix.T)
+
             else:
                 raise ValueError(f"Shape (3, ...) or (4, ...) was expected, but {other.shape} exist.")
+
         else:
             raise ValueError(f"{other} does not define any of the available interfaces for transformation.")
 
