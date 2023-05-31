@@ -1,8 +1,7 @@
-import copy
-
-import typing
-
-import dataclasses
+# This module is a somewhat reworked version of the Tim Knip original solution https://github.com/timknip/pycsg
+# The only reason we don't use the original version as a dependency
+#   is that by deeply embedding CSG principles into our class system, we can reduce the cost of building the CSG & BSP
+#   since we already do most of the work on our side.
 
 import math
 import numpy as np
@@ -21,17 +20,18 @@ from mmcore.geom.shapes import Shape
 
 # increase the max number of recursive calls
 sys.setrecursionlimit(10000)  # my default is 1000, increasing too much may cause a seg fault
-DEFAULTCOLOR=9868950 # 150, 150, 150
+DEFAULTCOLOR = 9868950  # 150, 150, 150
 
-class AbstractCSGGeometry:
+
+class AbstractBspGeometry:
     @abstractmethod
-    def clone(self) -> 'AbstractCSGGeometry': ...
+    def clone(self) -> 'AbstractBspGeometry': ...
 
-    def __copy__(self) -> 'AbstractCSGGeometry':
+    def __copy__(self) -> 'AbstractBspGeometry':
         return self.clone()
 
 
-class Vector(AbstractCSGGeometry):
+class BspVector(AbstractBspGeometry):
     """
     class Vector
 
@@ -58,7 +58,7 @@ class Vector(AbstractCSGGeometry):
                 self.z = a.get('z', 0.0)
             elif isinstance(a, (list, tuple)):
                 self.x, self.y, self.z = list(a)[:2] + [a[-1] if len(a) == 3 else 0.0]
-            elif isinstance(a, (Vector, Vertex)):
+            elif isinstance(a, (BspVector, BspVertex)):
                 self.x = a.x
                 self.y = a.y
                 self.z = a.z
@@ -75,11 +75,11 @@ class Vector(AbstractCSGGeometry):
 
     def clone(self):
         """ Clone. """
-        return Vector(self.x, self.y, self.z)
+        return BspVector(self.x, self.y, self.z)
 
     def negated(self):
         """ Negated. """
-        return Vector(-self.x, -self.y, -self.z)
+        return BspVector(-self.x, -self.y, -self.z)
 
     def __neg__(self):
         return self.negated()
@@ -94,28 +94,28 @@ class Vector(AbstractCSGGeometry):
 
     def plus(self, a):
         """ Add. """
-        return Vector(self.x + a.x, self.y + a.y, self.z + a.z)
+        return BspVector(self.x + a.x, self.y + a.y, self.z + a.z)
 
     def __add__(self, a):
         return self.plus(a)
 
     def minus(self, a):
         """ Subtract. """
-        return Vector(self.x - a.x, self.y - a.y, self.z - a.z)
+        return BspVector(self.x - a.x, self.y - a.y, self.z - a.z)
 
     def __sub__(self, a):
         return self.minus(a)
 
     def times(self, a):
         """ Multiply. """
-        return Vector(self.x * a, self.y * a, self.z * a)
+        return BspVector(self.x * a, self.y * a, self.z * a)
 
     def __mul__(self, a):
         return self.times(a)
 
     def dividedBy(self, a):
         """ Divide. """
-        return Vector(self.x / a, self.y / a, self.z / a)
+        return BspVector(self.x / a, self.y / a, self.z / a)
 
     def __truediv__(self, a):
         return self.dividedBy(float(a))
@@ -141,7 +141,7 @@ class Vector(AbstractCSGGeometry):
 
     def cross(self, a):
         """ Cross. """
-        return Vector(
+        return BspVector(
             self.y * a.z - self.z * a.y,
             self.z * a.x - self.x * a.z,
             self.x * a.y - self.y * a.x)
@@ -164,7 +164,7 @@ class Vector(AbstractCSGGeometry):
         return 'Vector(%.2f, %.2f, %0.2f)' % (self.x, self.y, self.z)
 
 
-class Vertex(AbstractCSGGeometry):
+class BspVertex(AbstractBspGeometry):
     """
     Class Vertex 
 
@@ -181,8 +181,8 @@ class Vertex(AbstractCSGGeometry):
         return iter(self.pos)
 
     def __init__(self, pos, normal=None):
-        self.pos = Vector(pos)
-        self.normal = Vector(normal)
+        self.pos = BspVector(pos)
+        self.normal = BspVector(normal)
 
     @property
     def x(self):
@@ -209,7 +209,7 @@ class Vertex(AbstractCSGGeometry):
         self.pos[2] = value
 
     def clone(self):
-        return Vertex(self.pos.clone(), self.normal.clone())
+        return BspVertex(self.pos.clone(), self.normal.clone())
 
     def flip(self):
         """
@@ -224,8 +224,8 @@ class Vertex(AbstractCSGGeometry):
         interpolating all properties using a parameter of `t`. Subclasses should
         override this to interpolate additional properties.
         """
-        return Vertex(self.pos.lerp(other.pos, t),
-                      self.normal.lerp(other.normal, t))
+        return BspVertex(self.pos.lerp(other.pos, t),
+                         self.normal.lerp(other.normal, t))
 
     def __repr__(self):
         return repr(self.pos)
@@ -238,7 +238,7 @@ class Vertex(AbstractCSGGeometry):
             raise NotImplementedError("Numpy is not install")
 
 
-class Plane(AbstractCSGGeometry):
+class BspPlane(AbstractBspGeometry):
     """
     class Plane
 
@@ -259,10 +259,14 @@ class Plane(AbstractCSGGeometry):
     @classmethod
     def fromPoints(cls, a, b, c):
         n = b.minus(a).cross(c.minus(a)).unit()
-        return Plane(n, n.dot(a))
+        return BspPlane(n, n.dot(a))
 
+    @classmethod
+    def fromParametric(cls, a, b, c):
+        n = b.minus(a).cross(c.minus(a)).unit()
+        return BspPlane(n, n.dot(a))
     def clone(self):
-        return Plane(self.normal.clone(), self.w)
+        return BspPlane(self.normal.clone(), self.w)
 
     def flip(self):
         self.normal = self.normal.negated()
@@ -293,9 +297,9 @@ class Plane(AbstractCSGGeometry):
         for i in range(numVertices):
             t = self.normal.dot(polygon.vertices[i].pos) - self.w
             loc = -1
-            if t < -Plane.EPSILON:
+            if t < -BspPlane.EPSILON:
                 loc = BACK
-            elif t > Plane.EPSILON:
+            elif t > BspPlane.EPSILON:
                 loc = FRONT
             else:
                 loc = COPLANAR
@@ -337,16 +341,16 @@ class Plane(AbstractCSGGeometry):
                     f.append(v)
                     b.append(v.clone())
             if len(f) >= 3:
-                front.append(Polygon(f, polygon.shared))
+                front.append(BspPolygon(f, polygon.shared))
             if len(b) >= 3:
-                back.append(Polygon(b, polygon.shared))
+                back.append(BspPolygon(b, polygon.shared))
 
 
 from mmcore.geom.vectors import rotate
 from earcut import earcut
 
 
-class Polygon(AbstractCSGGeometry):
+class BspPolygon(AbstractBspGeometry):
     """
     class Polygon
 
@@ -363,12 +367,12 @@ class Polygon(AbstractCSGGeometry):
     def __init__(self, vertices, shared=None, indices=None):
         self.vertices = vertices
         self.shared = shared
-        self.plane = Plane.fromPoints(vertices[0].pos, vertices[1].pos, vertices[2].pos)
-        self.indices=indices
+        self.plane = BspPlane.fromPoints(vertices[0].pos, vertices[1].pos, vertices[2].pos)
+        self.indices = indices
 
     def clone(self):
         vertices = list(map(lambda v: v.clone(), self.vertices))
-        return Polygon(vertices, self.shared)
+        return BspPolygon(vertices, self.shared)
 
     def flip(self):
         self.vertices.reverse()
@@ -385,9 +389,10 @@ class Polygon(AbstractCSGGeometry):
         res = earcut.earcut(data['vertices'], data['holes'], data['dimensions'])
         return res
 
-    def merge(self, polygon: 'Polygon'):
+    def merge(self, polygon: 'BspPolygon'):
         vcount = len(self.vertices)
-        return Polygon(vertices=self.vertices+polygon.vertices, shared=self.shared, indices=self.earcut() + list(map(lambda x: x + vcount, polygon.earcut())))
+        return BspPolygon(vertices=self.vertices + polygon.vertices, shared=self.shared,
+                          indices=self.earcut() + list(map(lambda x: x + vcount, polygon.earcut())))
 
     def vxs(self):
         self._vxs = []
@@ -408,9 +413,11 @@ class Polygon(AbstractCSGGeometry):
                 elif "material" in self.shared.keys():
                     return AMesh(geometry=self.mesh_data().create_buffer(), material=self.shared["material"], **kwargs)
 
-        return AMesh(geometry=self.mesh_data().create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR), **kwargs)
+        return AMesh(geometry=self.mesh_data().create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR),
+                     **kwargs)
 
-class BSPNode(AbstractCSGGeometry):
+
+class BSPNode(AbstractBspGeometry):
     """
     class BSPNode
 
