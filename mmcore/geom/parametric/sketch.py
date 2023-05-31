@@ -1141,7 +1141,7 @@ r = Circle(r=1)
 
 
 @dataclasses.dataclass
-class Pipe:
+class Pipe(ParametricObject):
     """
     >>> nb2=NurbsCurve([[0, 0, 0        ] ,
     ...                 [-47, -315, 0   ] ,
@@ -1171,7 +1171,7 @@ class Pipe:
         for i in np.linspace(0, 1, 20):
             dt = []
             for j in np.linspace(0, 1, 20):
-                dt.append(oo.evaluate([i, j]))
+                dt.append(self.evaluate([i, j]))
             data.append(dt)
 
         return np.array(data, dtype=float)
