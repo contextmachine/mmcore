@@ -1,6 +1,9 @@
+# This module is a somewhat reworked version of the Tim Knip original solution https://github.com/timknip/pycsg
+# The only reason we don't use the original version as a dependency
+#   is that by deeply embedding CSG principles into our class system, we can reduce the cost of building the CSG & BSP
+#   since we already do most of the work on our side.
 import typing
 
-import math
 import operator
 
 from mmcore.base import AGroup, ALine
@@ -29,8 +32,6 @@ def deep_merge(dct, dct2):
 
 
 from typing import TypedDict
-
-from mmcore.geom.shapes import Shape
 
 
 class ConeProps(TypedDict):
@@ -123,7 +124,7 @@ class CSG(object):
 
     def __init__(self):
         self.polygons = []
-        self._grp = AGroup()
+
 
     @classmethod
     def fromPolygons(cls, polygons):
@@ -157,7 +158,7 @@ class CSG(object):
             midNormal = None
             if verts[0].normal is not None:
                 midNormal = poly.plane.normal
-            midVert = Vertex(midPos, midNormal)
+            midVert = BspVertex(midPos, midNormal)
 
             newVerts = verts + \
                        [verts[i].interpolate(verts[(i + 1) % numVerts], 0.5) for i in range(numVerts)] + \
@@ -165,14 +166,14 @@ class CSG(object):
 
             i = 0
             vs = [newVerts[i], newVerts[i + numVerts], newVerts[2 * numVerts], newVerts[2 * numVerts - 1]]
-            newPoly = Polygon(vs, poly.shared)
+            newPoly = BspPolygon(vs, poly.shared)
             newPoly.shared = poly.shared
             newPoly.plane = poly.plane
             newCSG.polygons.append(newPoly)
 
             for i in range(1, numVerts):
                 vs = [newVerts[i], newVerts[numVerts + i], newVerts[2 * numVerts], newVerts[numVerts + i - 1]]
-                newPoly = Polygon(vs, poly.shared)
+                newPoly = BspPolygon(vs, poly.shared)
                 newCSG.polygons.append(newPoly)
 
         return newCSG
@@ -182,7 +183,7 @@ class CSG(object):
         Translate Geometry.
            disp: displacement (array of floats)
         """
-        d = Vector(disp[0], disp[1], disp[2])
+        d = BspVector(disp[0], disp[1], disp[2])
         for poly in self.polygons:
             for v in poly.vertices:
                 v.pos = v.pos.plus(d)
@@ -194,7 +195,7 @@ class CSG(object):
            axis: axis of rotation (array of floats)
            angleDeg: rotation angle in degrees
         """
-        ax = Vector(axis[0], axis[1], axis[2]).unit()
+        ax = BspVector(axis[0], axis[1], axis[2]).unit()
         cosAngle = math.cos(math.pi * angleDeg / 180.)
         sinAngle = math.sin(math.pi * angleDeg / 180.)
 
@@ -412,21 +413,21 @@ class CSG(object):
             deep_merge(default_props, props)
             props = default_props
 
-        c = Vector(0, 0, 0)
+        c = BspVector(0, 0, 0)
         r = [1, 1, 1]
         center = props.get("center")
         radius = props.get("radius")
-        if isinstance(center, list): c = Vector(center)
+        if isinstance(center, list): c = BspVector(center)
         if isinstance(radius, list):
             r = radius
         else:
             r = [radius, radius, radius]
 
         polygons = list(map(
-            lambda v: Polygon(
+            lambda v: BspPolygon(
                 list(map(lambda i:
-                         Vertex(
-                             Vector(
+                         BspVertex(
+                             BspVector(
                                  c.x + r[0] * (2 * bool(i & 1) - 1),
                                  c.y + r[1] * (2 * bool(i & 2) - 1),
                                  c.z + r[2] * (2 * bool(i & 4) - 1)
@@ -459,7 +460,7 @@ class CSG(object):
         center = kwargs.get('center', [0.0, 0.0, 0.0])
         if isinstance(center, float):
             center = [center, center, center]
-        c = Vector(center)
+        c = BspVector(center)
         r = kwargs.get('radius', 1.0)
         if isinstance(r, list) and len(r) > 2:
             r = r[0]
@@ -468,11 +469,11 @@ class CSG(object):
         polygons = []
 
         def appendVertex(vertices, theta, phi):
-            d = Vector(
+            d = BspVector(
                 math.cos(theta) * math.sin(phi),
                 math.cos(phi),
                 math.sin(theta) * math.sin(phi))
-            vertices.append(Vertex(c.plus(d.times(r)), d))
+            vertices.append(BspVertex(c.plus(d.times(r)), d))
 
         dTheta = math.pi * 2.0 / float(slices)
         dPhi = math.pi / float(stacks)
@@ -489,7 +490,7 @@ class CSG(object):
             appendVertex(vertices, i0 * dTheta, j0 * dPhi)
             appendVertex(vertices, i1 * dTheta, j1 * dPhi)
             appendVertex(vertices, i0 * dTheta, j1 * dPhi)
-            polygons.append(Polygon(vertices))
+            polygons.append(BspPolygon(vertices))
 
         j0 = stacks - 1
         j1 = j0 + 1
@@ -503,7 +504,7 @@ class CSG(object):
             appendVertex(vertices, i0 * dTheta, j0 * dPhi)
             appendVertex(vertices, i1 * dTheta, j0 * dPhi)
             appendVertex(vertices, i0 * dTheta, j1 * dPhi)
-            polygons.append(Polygon(vertices))
+            polygons.append(BspPolygon(vertices))
 
         for j0 in range(1, stacks - 1):
             j1 = j0 + 0.5
@@ -520,22 +521,22 @@ class CSG(object):
                 appendVertex(verticesN, i1 * dTheta, j1 * dPhi)
                 appendVertex(verticesN, i2 * dTheta, j2 * dPhi)
                 appendVertex(verticesN, i0 * dTheta, j2 * dPhi)
-                polygons.append(Polygon(verticesN))
+                polygons.append(BspPolygon(verticesN))
                 verticesS = []
                 appendVertex(verticesS, i1 * dTheta, j1 * dPhi)
                 appendVertex(verticesS, i0 * dTheta, j0 * dPhi)
                 appendVertex(verticesS, i2 * dTheta, j0 * dPhi)
-                polygons.append(Polygon(verticesS))
+                polygons.append(BspPolygon(verticesS))
                 verticesW = []
                 appendVertex(verticesW, i1 * dTheta, j1 * dPhi)
                 appendVertex(verticesW, i0 * dTheta, j2 * dPhi)
                 appendVertex(verticesW, i0 * dTheta, j0 * dPhi)
-                polygons.append(Polygon(verticesW))
+                polygons.append(BspPolygon(verticesW))
                 verticesE = []
                 appendVertex(verticesE, i1 * dTheta, j1 * dPhi)
                 appendVertex(verticesE, i2 * dTheta, j0 * dPhi)
                 appendVertex(verticesE, i2 * dTheta, j2 * dPhi)
-                polygons.append(Polygon(verticesE))
+                polygons.append(BspPolygon(verticesE))
 
         return CSG.fromPolygons(polygons)
 
@@ -552,22 +553,22 @@ class CSG(object):
                 
                 slices (int): Number of slices, default 16.
         """
-        s = Vector(*kwargs.get('start', (0.0, -1.0, 0.0)))
-        e = Vector(kwargs.get('end', (0.0, 1.0, 0.0)))
+        s = BspVector(*kwargs.get('start', (0.0, -1.0, 0.0)))
+        e = BspVector(kwargs.get('end', (0.0, 1.0, 0.0)))
         if isinstance(s, list):
-            s = Vector(*s)
+            s = BspVector(*s)
         if isinstance(e, list):
-            e = Vector(*e)
+            e = BspVector(*e)
         r = kwargs.get('radius', 1.0)
         slices = kwargs.get('slices', 16)
         ray = e.minus(s)
 
         axisZ = ray.unit()
         isY = (math.fabs(axisZ.y) > 0.5)
-        axisX = Vector(float(isY), float(not isY), 0).cross(axisZ).unit()
+        axisX = BspVector(float(isY), float(not isY), 0).cross(axisZ).unit()
         axisY = axisX.cross(axisZ).unit()
-        start = Vertex(s, axisZ.negated())
-        end = Vertex(e, axisZ.unit())
+        start = BspVertex(s, axisZ.negated())
+        end = BspVertex(e, axisZ.unit())
         polygons = []
 
         def point(stack, angle, normalBlend):
@@ -576,23 +577,23 @@ class CSG(object):
             pos = s.plus(ray.times(stack)).plus(out.times(r))
             normal = out.times(1.0 - math.fabs(normalBlend)).plus(
                 axisZ.times(normalBlend))
-            return Vertex(pos, normal)
+            return BspVertex(pos, normal)
 
         dt = math.pi * 2.0 / float(slices)
         for i in range(0, slices):
             t0 = i * dt
             i1 = (i + 1) % slices
             t1 = i1 * dt
-            polygons.append(Polygon([start.clone(),
-                                     point(0., t0, -1.),
-                                     point(0., t1, -1.)]))
-            polygons.append(Polygon([point(0., t1, 0.),
-                                     point(0., t0, 0.),
-                                     point(1., t0, 0.),
-                                     point(1., t1, 0.)]))
-            polygons.append(Polygon([end.clone(),
-                                     point(1., t1, 1.),
-                                     point(1., t0, 1.)]))
+            polygons.append(BspPolygon([start.clone(),
+                                        point(0., t0, -1.),
+                                        point(0., t1, -1.)]))
+            polygons.append(BspPolygon([point(0., t1, 0.),
+                                        point(0., t0, 0.),
+                                        point(1., t0, 0.),
+                                        point(1., t1, 0.)]))
+            polygons.append(BspPolygon([end.clone(),
+                                        point(1., t1, 1.),
+                                        point(1., t0, 1.)]))
 
         return CSG.fromPolygons(polygons)
 
@@ -621,8 +622,8 @@ class CSG(object):
             deep_merge(default_props, props)
             props = default_props
 
-        s = Vector(props['start'])
-        e = Vector(props['end'])
+        s = BspVector(props['start'])
+        e = BspVector(props['end'])
         r = props['radius']
         slices = props['slices']
         start = props['start']
@@ -630,10 +631,10 @@ class CSG(object):
 
         axisZ = ray.unit()
         isY = (math.fabs(axisZ.y) > 0.5)
-        axisX = Vector(float(isY), float(not isY), 0).cross(axisZ).unit()
+        axisX = BspVector(float(isY), float(not isY), 0).cross(axisZ).unit()
         axisY = axisX.cross(axisZ).unit()
         startNormal = axisZ.negated()
-        start = Vertex(s, startNormal)
+        start = BspVertex(s, startNormal)
         polygons = []
 
         taperAngle = math.atan2(r, ray.length())
@@ -661,12 +662,12 @@ class CSG(object):
             # average normal for the tip
             nAvg = n0.plus(n1).times(0.5)
             # polygon on the low side (disk sector)
-            polyStart = Polygon([start.clone(),
-                                 Vertex(p0, startNormal),
-                                 Vertex(p1, startNormal)])
+            polyStart = BspPolygon([start.clone(),
+                                    BspVertex(p0, startNormal),
+                                    BspVertex(p1, startNormal)])
             polygons.append(polyStart)
             # polygon extending from the low side to the tip
-            polySide = Polygon([Vertex(p0, n0), Vertex(e, nAvg), Vertex(p1, n1)])
+            polySide = BspPolygon([BspVertex(p0, n0), BspVertex(e, nAvg), BspVertex(p1, n1)])
             polygons.append(polySide)
 
         return CSG.fromPolygons(polygons)
@@ -687,8 +688,3 @@ class CSGDescriptor:
         instance.uuid
 
 
-[[0, 0, 0        ] ,
-[-47, -315, 0   ] ,
-[-785, -844, 0  ] ,
-[-704, -1286, 0 ] ,
-[-969, -2316, 0 ] ]
