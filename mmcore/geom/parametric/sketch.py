@@ -1,3 +1,5 @@
+import functools
+
 import abc
 import copy
 import dataclasses
@@ -472,10 +474,25 @@ class PlaneLinear(ParametricObject):
         if self.xaxis is not None and self.yaxis is not None:
             self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
         elif self.normal is not None:
-            self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
+            self.normal = unit(self.normal)
+            if np.allclose(self.normal, np.array([0.0, 0.0, 1.0])):
 
-            self.yaxis = np.cross(unit(self.normal), self.xaxis
-                                  )
+                if self.xaxis is not None:
+                    self.xaxis = unit(self.xaxis)
+                    self.yaxis = np.cross(self.normal, self.xaxis
+                                          )
+
+                elif self.yaxis is not None:
+                    self.yaxis = unit(self.yaxis)
+                    self.xaxis = np.cross(self.normal, self.yaxis)
+                else:
+
+                    self.xaxis = np.array([1, 0, 0], dtype=float)
+                    self.yaxis = np.array([0, 1, 0], dtype=float)
+            else:
+                self.xaxis = np.cross(self.normal, np.array([0, 0, 1]))
+                self.yaxis = np.cross(self.normal, self.xaxis
+                                      )
 
     def evaluate(self, t):
 
@@ -1137,13 +1154,34 @@ class Circle:
     def evaluate(self, t):
         return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
 
+    @property
+    def plane(self):
+        return WorldXY
 
-r = Circle(r=1)
+import zlib
+@dataclasses.dataclass
+class Circle3D(Circle):
+    origin: tuple[float, float, float] = (0, 0, 0)
+    normal: tuple[float, float, float] = (0, 0, 1)
+    torsion: tuple[float, float, float] = (1, 0, 0)  # The xaxis value of the base plane,
 
+    # defines the point of origin of the circle
+    @property
+    def plane(self):
+        return PlaneLinear(normal=unit(self.normal), origin=self.origin)
 
+    @functools.lru_cache(maxsize=1024)
+    def evaluate(self, t):
+        try:
+            return self.plane.orient(super().evaluate(t), super().plane)
+        except NotImplementedError:
+            return remove_crd(
+                add_crd(super().evaluate(t), 1).reshape((4,)) @ self.plane.transform_from_other(WorldXY).matrix.T)
 
-
-
+    def __hash__(self):
+        return zlib.adler32(self.__repr__().encode())
+    def __eq__(self, other):
+        return self.__repr__()==other.__repr__()
 @dataclasses.dataclass
 class Pipe:
     """
@@ -1168,7 +1206,8 @@ class Pipe:
 
         pln = self.evalplane(u)
 
-        return remove_crd(add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
+        return remove_crd(
+            add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
 
     def geval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
         for i, u in enumerate(np.linspace(*bounds[0], uvs[0])):
@@ -1196,6 +1235,7 @@ class Pipe:
         >>> pipe.mpeval(uvs=(2000, 200)) # 400,000 points
         time 8.37929892539978 s # Yes it's also too slow, but it's honest work
         """
+
         def inner(u):
             return [(u, v, *self.evaluate([u, v])) for v in np.linspace(*bounds[1], uvs[1])]
 
