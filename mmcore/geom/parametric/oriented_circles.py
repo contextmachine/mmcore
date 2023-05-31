@@ -11,23 +11,26 @@ from mmcore.base.models.gql import LineBasicMaterial
 from mmcore.geom.parametric import Circle3D
 from mmcore.geom.vectors import unit
 
-GridProps = namedtuple("GridProps", ["xsize", "ysize", "xstep", "ystep"])
-
 
 class Circle3DGrid(AGroup):
-    props_class = GridProps
+    props_class = dict
 
-    props: props_class = props_class(5, 5, 16.5, 16.5)
+    props = {
+        "xsize": 5,
+        "ysize": 5,
+        "xstep": 16.5,
+        "ystep": 16.5
+    }
 
     params: list[list[float]]
     target_point = (8.0, 8.0, 32.0)
 
-    def __call__(self, eval_point_count=8, target_point=None,*args, **kwargs):
+    def __call__(self, eval_point_count=8, target_point=None, *args, **kwargs):
         # if len(self._children) > 0:
         #    for child in self.children:
         #        child.dispose()
 
-        self.set_state(*args,**kwargs)
+        self.set_state(*args, **kwargs)
         if target_point is not None:
             self.target_point = target_point
 
@@ -35,11 +38,17 @@ class Circle3DGrid(AGroup):
             self.add(circle)
         return A.__call__(self)
 
+    @property
+    def properties(self):
+        return self.props
+
+    @property
+    def gui(self):
+        return self.props
+
     def set_state(self, *args, props=None, **kwargs):
         if props is not None:
-            dct = self.props._asdict()
-            dct |= kwargs.get('props')
-            self.props = self.props_class(**dct)
+            self.props |= props
         super().set_state(*args, **kwargs)
 
     def build_grid(self, eval_point_count=16):
