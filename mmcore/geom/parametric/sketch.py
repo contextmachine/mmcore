@@ -1,6 +1,7 @@
 import abc
 import copy
 import dataclasses
+import geomdl
 import math
 import os
 import sys
@@ -19,7 +20,7 @@ from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from mmcore.geom.vectors import *
 from enum import Enum
 
-from mmcore.geom.parametric.base import ParametricObject
+from mmcore.geom.parametric.base import ParametricObject, NormalPoint
 from mmcore.geom.vectors import unit, add_translate, angle
 
 from mmcore.collections import DoublyLinkedList, curry
@@ -27,7 +28,6 @@ from mmcore.collections import DoublyLinkedList, curry
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
-
 
 import numpy as np
 from scipy.optimize import minimize
@@ -40,6 +40,8 @@ from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection, ElementSequence
 import multiprocess as mp
+
+
 def add_crd(pt, value):
     if not isinstance(pt, np.ndarray):
         pt = np.array(pt, dtype=float)
@@ -51,6 +53,7 @@ def add_crd(pt, value):
 
 def add_w(pt):
     return add_crd(pt, value=1)
+
 
 # mp.get_start_method = "swapn"
 import uuid as _uuid
@@ -131,10 +134,12 @@ class Linear(ParametricObject):
         else:
             return backend(self)
 
-    def prox(self, other,  bounds=[(0,1),(0,1)]):
-        res=ProximityPoints(self, other)([0.5,0.5], bounds=bounds)
+    def prox(self, other, bounds=[(0, 1), (0, 1)]):
+        res = ProximityPoints(self, other)([0.5, 0.5], bounds=bounds)
 
         return res
+
+
 class ParametricLineObject(): ...
 
 
@@ -162,9 +167,6 @@ def llll(hp, step=600):
         lll.append(
             Linear.from_two_points(pt, np.asarray(ClosestPoint(pt, hp.side_d)(x0=0.5, bounds=((0, 1),)).pt).flatten()))
     return lll
-
-
-
 
 
 def l22(r):
@@ -279,9 +281,9 @@ class NurbsCurve(ProxyParametricObject):
             self.prepare_proxy()
             return self._proxy
 
-    def tessellate(self):
-        ...
-
+    def tan(self, t):
+        pt = tangent(self.proxy, t)
+        return NormalPoint(*pt)
 
 class ProxyMethod:
     def __init__(self, fn):
@@ -345,11 +347,12 @@ class NurbsSurface(ProxyParametricObject):
 
         self._proxy.degree_u, self._proxy.degree_v = self.degree
 
-    def normal_at(self, t):
-        return normal(self.proxy, t)
+    def normal(self, t):
+        return geomdl.operations.normal(self.proxy, t)
 
-    def tangent_at(self, t):
-        return tangent(self.proxy, t)
+    def tan(self, t):
+        pt,tn=tangent(self.proxy, t)
+        return NormalPoint(*pt, normal=tn)
 
     def tessellate(self, uuid=None):
         self.proxy.tessellate()
@@ -360,17 +363,17 @@ class NurbsSurface(ProxyParametricObject):
         if uuid is None:
             uuid = _uuid.uuid4().__str__()
         return dict(vertices=np.array(vertseq['data']).flatten(),
-                                         normals=np.array(normals).flatten(),
-                                         indices=np.array(faceseq["vertex_ids"]).flatten(),
-                                         uv=uv,
-                                         uuid=uuid)
+                    normals=np.array(normals).flatten(),
+                    indices=np.array(faceseq["vertex_ids"]).flatten(),
+                    uv=uv,
+                    uuid=uuid)
 
 
 class NurbsSurfaceGeometry:
     material_type = MeshPhongMaterial
     castShadow: bool = True
     receiveShadow: bool = True
-    geometry_type =...
+    geometry_type = ...
 
     def __new__(cls, *args, color=ColorRGB(0, 255, 40), control_points=(), **kwargs):
         inst = super().__new__(cls, *args, material=MeshPhongMaterial(color=color.decimal), **kwargs)
@@ -387,7 +390,7 @@ class NurbsSurfaceGeometry:
             else:
                 self.color = ColorRGB(125, 125, 125)
                 self.material = self.material_type(color=self.color.decimal)
-        #super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
+        # super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
 
     def solve_proxy_view(self, control_points, **kwargs):
         arr = np.array(control_points)
@@ -500,8 +503,8 @@ class PlaneLinear(ParametricObject):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
     def point_at(self, pt):
-        T=Transform.from_plane_to_plane(self, WorldXY)
-        return remove_crd(add_w(pt)@T.matrix.T)
+        T = Transform.from_plane_to_plane(self, WorldXY)
+        return remove_crd(add_w(pt) @ T.matrix.T)
 
     @property
     def x0(self):
@@ -514,6 +517,7 @@ class PlaneLinear(ParametricObject):
     @property
     def z0(self):
         return self.origin[2]
+
     @property
     def a(self):
         return self.normal[0]
@@ -531,8 +535,6 @@ class PlaneLinear(ParametricObject):
 
         return -np.sum(self.normal * self.origin)
 
-
-
     def is_parallel(self, other):
         _cross = np.cross(unit(self.normal), unit(other.normal))
         A = np.array([self.normal, other.normal, _cross])
@@ -541,41 +543,44 @@ class PlaneLinear(ParametricObject):
     @classmethod
     def from_tree_pt(cls, origin, pt2, pt3):
 
-        x=np.array(pt2)- np.array(origin)
-        nrm=np.cross(x,(pt3- np.array(origin)))
+        x = np.array(pt2) - np.array(origin)
+        nrm = np.cross(x, (pt3 - np.array(origin)))
         return PlaneLinear(normal=nrm, xaxis=x, origin=origin)
 
     def intersect(self, other):
 
-            _cross=np.cross(unit(self.normal), unit(other.normal))
-            A = np.array([self.normal, other.normal, _cross])
-            d = np.array([-self.d, -other.d, 0.]).reshape(3, 1)
+        _cross = np.cross(unit(self.normal), unit(other.normal))
+        A = np.array([self.normal, other.normal, _cross])
+        d = np.array([-self.d, -other.d, 0.]).reshape(3, 1)
 
-            # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
+        # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
 
+        # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
 
+        p_inter = np.linalg.solve(A, d).T
 
-
-
-            # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
-
-            p_inter = np.linalg.solve(A, d).T
-
-            return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
+        return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
 
 
-    @property
     def transform_from_other(self, other):
         return Transform.from_plane_to_plane(other, self)
 
-    @property
+
     def transform_to_other(self, other):
-        return Transform.from_plane_to_plane(self, other)
+        return Transform.to_plane_to_plane(self, other)
+
     @property
     def projection(self):
         return Transform.plane_projection(self)
 
-    def ray_intersect(self, ray:Linear):
+    def project(self, gm):
+        return gm @ self.projection
+
+    def orient(self, gm, plane=WorldXY):
+        print(gm)
+        return add_crd(gm ,1) @ self.transform_from_other(plane)
+
+    def ray_intersect(self, ray: Linear):
         return line_plane_collision(self, ray, TOLERANCE)
 
 
@@ -942,6 +947,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
     def __call__(self, x0=(0.5,), **kwargs):
         return super().__call__(x0, **kwargs)
 
+
 """
 def hyp(arr):
     d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
@@ -962,6 +968,8 @@ def hyp(arr):
         grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
 
 """
+
+
 class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolution):
     def __init__(self, c1, c2):
         super().__init__(c1, c2)
@@ -1117,3 +1125,53 @@ def no_mp(dl):
     return list(ff(dl))
 
 """
+
+nc = NurbsCurve([[0, 0, 0], [1, 0, 1], [2, 3, 4], [3, 3, 3]])
+
+
+@dataclasses.dataclass
+class Circle:
+    r: float
+
+    def evaluate(self, t):
+        return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
+
+
+r = Circle(r=1)
+
+
+@dataclasses.dataclass
+class Pipe:
+    """
+    >>> nb2=NurbsCurve([[0, 0, 0        ] ,
+    ...                 [-47, -315, 0   ] ,
+    ...                 [-785, -844, 0  ] ,
+    ...                 [-704, -1286, 0 ] ,
+    ...                 [-969, -2316, 0 ] ] )
+    >>> r=Circle(r=10.5)
+    >>> oo=Pipe(nb2, r)
+
+    """
+    path: ParametricObject
+    shape: ParametricObject
+
+    def evalplane(self, t):
+        pt = self.path.tan(t)
+        return PlaneLinear(origin=pt.point, normal=pt.normal)
+
+    def evaluate(self, t):
+        u, v = t
+
+        pln = self.evalplane(u)
+
+        return remove_crd(add_crd(r.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
+
+    def veval(self):
+        data = []
+        for i in np.linspace(0, 1, 20):
+            dt = []
+            for j in np.linspace(0, 1, 20):
+                dt.append(oo.evaluate([i, j]))
+            data.append(dt)
+
+        return np.array(data, dtype=float)

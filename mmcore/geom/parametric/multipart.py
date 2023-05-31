@@ -19,11 +19,6 @@ class GeomDNode(DNode):
         vec2 = unit(np.cross(self.dnext, self.plane.normal) * self.fillet)
         return self.data + vec1,self.data+vec2
 
-
-
-
-
-
     @property
     def data_local(self):
         self.plane.point_at(self.data)
