@@ -1166,8 +1166,8 @@ class A:
         This function takes an object and creates a deep copy of its threejs_repr. It then adds all of the object's children to the threejs_root object. Finally, it binds the class to the threejs_root object and returns it.
         @return:
         """
-        self._include_materials = GeometrySet()
-        self._include_geometries = MaterialSet()
+        self._include_materials = MaterialSet()
+        self._include_geometries = GeometrySet()
 
         def childthree(obj):
             dct = dict()
@@ -1296,8 +1296,8 @@ class A:
 
         for k, v in _kwargs.items():
             self.__setattr__(k, v)
-
         self.traverse_child_three()
+
 
     @children.setter
     def children(self, v):
@@ -1305,7 +1305,7 @@ class A:
             self._children.add(child.uuid)
 
     def root(self, shapes=None):
-
+        self.traverse_child_three()
         if shapes:
 
             return {
@@ -1364,7 +1364,7 @@ class A:
             else:
                 return getattr(self, key)
         except RecursionError as err:
-            return object.__getattribute__(self, key)
+            return self.__getattribute__(key)
 
     def set_state_attr(self, key, value):
         self.__setattr__(key, value)
@@ -1485,8 +1485,8 @@ class AGroup(A):
                     "generator": "Object3D.toJSON"
                 },
                 "object": self(),
-                "geometries": [strawberry.asdict(ageomdict[uid]) for uid in self._include_geometries],
-                "materials": [strawberry.asdict(amatdict[uid]) for uid in self._include_materials]
+                "geometries": [strawberry.asdict(ageomdict.get(uid)) for uid in self._include_geometries],
+                "materials": [strawberry.asdict(amatdict.get(uid)) for uid in self._include_materials]
             }
 
 
@@ -1578,8 +1578,8 @@ class AGeom(A):
     def __call__(self, *args, **kwargs):
         res = super().__call__(*args, **kwargs)
         res |= {
-            "geometry": self.geometry.uuid,
-            "material": self._material,
+            "geometry": self.geometry.uuid if self.geometry else None,
+            "material": self._material if self._material else None,
         }
         return res
 
