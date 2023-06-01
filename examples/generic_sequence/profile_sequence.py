@@ -8,11 +8,17 @@ from mmcore.base.sharedstate import serve
 HIGH = 10
 with open("examples/data/profile.json") as f:
     profile = json.load(f)
+
+with open("examples/data/artem_profile.json") as f:
+    artem_profile = json.load(f)
+
+
 shape = Shape(boundary=profile["bounds"], holes=profile["holes"])
+shape_profile = Shape(boundary=artem_profile["bounds"], holes=artem_profile["holes"])
 
 extr_hor = simple_extrusion(shape, HIGH)
 
-extr_ver = simple_extrusion(shape, HIGH)
+extr_ver = simple_extrusion(shape_profile, HIGH)
 extr_ver.rotate(np.pi / 2, [0, 1, 0])
 extr_ver.translate([0, 0.07, 0])
 
@@ -35,4 +41,4 @@ if __name__ == "__main__":
 
     with open("model.json", "w") as f:
         json.dump(group.root(), f)  # now you can view it with three js
-    serve.start_as_main()
+    #serve.start_as_main()
