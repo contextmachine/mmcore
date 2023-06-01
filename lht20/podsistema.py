@@ -17,7 +17,6 @@ rot_extrusion.rotate(np.pi / 2, [1, 0, 0])
 def bim_sequence_generator(extr=extrusion):
     for i in range(10):
         next_extrusion = extr.__copy__()
-        #next_extrusion.rotate(np.pi / 360, [0, 1, 1])
         next_extrusion.translate([1, 0, 0])
         yield next_extrusion
 
