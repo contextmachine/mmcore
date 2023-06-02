@@ -6,7 +6,6 @@ from typing import Any, Union, ContextManager
 import numpy as np
 from mmcore.geom.vectors import unit
 
-
 from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
@@ -39,13 +38,10 @@ def mirror(right):
     mirror = np.eye(3, 3)
     mirror[1, 1] = -1
     left = np.zeros((len(right), 3))
-
     for i, pt in enumerate(right):
         # print(i,pt)
         left[i, ...] = mirror @ np.asarray(pt).T
     return left
-
-
 
 
 class Transform:
@@ -71,8 +67,8 @@ class Transform:
         return Transform(self.__array__().__matmul__(np.array(other)))
 
     def __rmatmul__(self, other):
-        if isinstance(other, (list,tuple)):
-            other=np.array(other, dtype=float)
+        if isinstance(other, (list, tuple)):
+            other = np.array(other, dtype=float)
         if hasattr(other, 'matrix'):
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
@@ -164,6 +160,15 @@ class Transform:
         aa = t @ wxy_proj
         aa1 = aa @ tinv
         return aa1
+
+    @classmethod
+    def mirror(cls, x=-1, y=1, z=1):
+        return Transform([
+            [x, 0, 0, 0],
+            [0, y, 0, 0],
+            [0, 0, z, 0],
+            [0, 0, 0, 1]
+        ])
 
 
 class OwnerTransform:
