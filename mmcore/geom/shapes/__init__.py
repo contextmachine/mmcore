@@ -10,6 +10,7 @@ from earcut import earcut
 from more_itertools import flatten
 
 from mmcore.base import AMesh, ALine, A, AGroup, Delegate
+from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial, LineBasicMaterial
 from mmcore.geom.materials import ColorRGB
@@ -33,23 +34,26 @@ def to_list_req(obj):
         return obj
 
 
-def delegate_method(m):
-    def wrap(self, item):
-        if isinstance(item, self._ref.__class__):
-            return m(self._ref, item)
-        elif isinstance(item, self.__class__):
-            return m(self._ref, item._ref)
-        elif isinstance(item, (np.ndarray, list, tuple)):
-            return m(self._ref, self._ref.__class__(item))
-        elif hasattr(item, m.__name__):
-            return m(self._ref, item)
-        else:
-            raise ValueError(f"{m.__name__.capitalize()} operation unknown in {item.__class__} objects")
-
-    return wrap
+@class_bind_delegate_method
+def bind_poly_to_shape(self,  other, delegate=None ):
+    return self.__class__(boundary=list(delegate.boundary.coords), holes=list(delegate.interiors), color=self.color, h=self.h)
 
 
-#@Delegate(delegate=Polygon)
+@delegate_method
+def delegate_shape_operator(self, item, m):
+    if isinstance(item, self._ref.__class__):
+        return item
+    elif isinstance(item, self.__class__):
+        return item._ref
+    elif isinstance(item, (np.ndarray, list, tuple)):
+        return self._ref.__class__(item)
+    elif hasattr(item, m.__name__):
+        return item
+    else:
+        raise ValueError(f"{m.__name__.capitalize()} operation unknown in {item.__class__} objects")
+
+
+# @Delegate(delegate=Polygon)
 @dataclasses.dataclass
 class Shape:
     boundary: list[list[float]]
@@ -59,7 +63,7 @@ class Shape:
     h: typing.Any = None
 
     def __post_init__(self):
-        self.boundary=list(self.boundary)
+        self.boundary = list(self.boundary)
         if not self.uuid:
             self.uuid = uuid.uuid4().hex
         if self.h is None:
@@ -100,12 +104,12 @@ class Shape:
     @property
     def mesh_data(self):
         _mesh_data = MeshData(self.to3d_mesh_pts(), indices=self.earcut_poly())
-        #_mesh_data.calc_normals()
+        # _mesh_data.calc_normals()
         return _mesh_data
 
-    @delegate_method
-    def __contains__(self, item):
-        return shapely.contains(self, item)
+    @delegate_shape_operator.bind
+    def __contains__(self, delegate, item):
+        return shapely.contains(self, delegate, item)
 
     def contains(self, other):
         """
@@ -123,17 +127,17 @@ class Shape:
     def interior(self):
         return to_list_req(self._ref.interiors)
 
-    @delegate_method
-    def within(self, item):
-        return shapely.within(self, item)
+    @delegate_shape_operator.bind
+    def within(self, delegate, item):
+        return shapely.within(delegate, item)
 
-    @delegate_method
-    def intersects(self, item):
-        return shapely.intersects(self, item)
+    @delegate_shape_operator.bind
+    def intersects(self, delegate, item):
+        return shapely.intersects(delegate, item)
 
-    @delegate_method
-    def contains_properly(self, item):
-        return shapely.contains_properly(self, item)
+    @delegate_shape_operator.bind
+    def contains_properly(self, delegate, item):
+        return shapely.contains_properly(delegate, item)
 
     def evaluate(self, t):
         return np.asarray(self._ref.interpolate(t, normalized=True), dtype=float)
@@ -142,39 +146,40 @@ class Shape:
         return np.asarray(self._ref.interpolate(d, normalized=False), dtype=float)
 
     def __add__(self, item):
-        res = self.union(item)
-        return Shape(boundary=list(res.exterior.coords),
-                     holes=to_list_req(res.interiors),
-                     color=self.color,
-                     h=self.h)
-    def __sub__(self, item):
-        res = self.difference(item)
+        return self.union(item)
+
+    @delegate_shape_operator.bind
+    def __sub__(self, delegate, item):
+        print(delegate, item)
+        res = shapely.difference(delegate, item)
         if isinstance(res, MultiPolygon):
-            shapes=[]
+            shapes = []
             for i in res.geoms:
-
-
                 shapes.append(Shape(boundary=list(i.exterior.coords),
-                             holes=to_list_req(i.interiors),
-                             color=self.color,
-                             h=self.h))
+                                    holes=to_list_req(i.interiors),
+                                    color=self.color,
+                                    h=self.h))
             return shapes
         else:
             return Shape(boundary=list(res.exterior.coords),
-                     holes=to_list_req(res.interiors),
-                     color=self.color,
-                     h=self.h)
+                         holes=to_list_req(res.interiors),
+                         color=self.color,
+                         h=self.h)
+
     def __isub__(self, item):
         res = self.difference(item)
         self.boundary = list(res.exterior.coords)
         self.holes = to_list_req(res.interiors)
-    @delegate_method
-    def difference(self, item):
-        return shapely.difference(self, item)
 
-    @delegate_method
-    def union(self, other):
-        return shapely.union(self, other)
+    @bind_poly_to_shape
+    @delegate_shape_operator.bind
+    def difference(self, delegate, item):
+        return shapely.difference(delegate, item)
+
+    @bind_poly_to_shape
+    @delegate_shape_operator.bind
+    def union(self, delegate, other):
+        return shapely.union(delegate, other)
 
     def __iadd__(self, item):
         res = self.union(item)
@@ -183,3 +188,23 @@ class Shape:
         self.holes = to_list_req(res.interiors)
 
 
+    def intersection(self,  other):
+        res=shapely.intersection(self._ref, other._ref)
+        if isinstance(res, MultiPolygon):
+            shapes = []
+            for i in res.geoms:
+                shapes.append(Shape(boundary=list(i.exterior.coords),
+                                    holes=to_list_req(i.interiors),
+                                    color=self.color,
+                                    h=self.h))
+            return shapes
+        else:
+            return Shape(boundary=list(res.exterior.coords),
+                         holes=to_list_req(res.interiors),
+                         color=self.color,
+                         h=self.h)
+
+
+
+    def is_empty(self):
+        return self.boundary == []

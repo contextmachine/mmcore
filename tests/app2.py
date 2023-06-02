@@ -126,20 +126,38 @@ def tri_transform(line, next_line, flip=1, step=0.4):
                       material=m)
         point2 = np.array(ClosestPoint(x.origin, next_line.extend(60, 60))(x0=[0.5], bounds=[(0, 1)]).pt[0]).flatten()
         y = unit(point2 - x.origin)
-
         v2 = np.cross(unit(flip * x.normal), unit(y))
         pln = PlaneLinear(origin=x.origin, xaxis=unit(y), yaxis=v2)
         t = Transform.from_world_to_plane(pln)
-        tr = Transform()
+        #tr = Transform()
 
-        tr.rotate(axis=[1, 0, 0], angle=-np.pi / 2)
-        panel @ tr
+        #tr.rotate(axis=[1, 0, 0], angle=-np.pi / 2)
+        #panel @ tr
         panel @ t
         d, i = KD.query(x.origin + (y * 0.3))
         # print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
-        panel.properties |= ldt[i].__dict__
+        # panel.properties |= ldt[i].__dict__
         grp.add(panel)
     return grp.root()
+
+def tri_transform_gen(line, next_line, flip=1, step=0.4):
+    #grp = AGroup(name="row", uuid=uuid.uuid4().hex)
+    for x in line.divide_distance_planes(step):
+
+        point2 = np.array(ClosestPoint(x.origin, next_line.extend(60, 60))(x0=[0.5], bounds=[(0, 1)]).pt[0]).flatten()
+        y = unit(point2 - x.origin)
+        v2 = np.cross(unit(flip * x.normal), unit(y))
+        pln = PlaneLinear(origin=x.origin, xaxis=unit(y), yaxis=v2)
+        t = Transform.from_world_to_plane(pln)
+        #tr = Transform()
+
+        #tr.rotate(axis=[1, 0, 0], angle=-np.pi / 2)
+        #panel @ tr
+
+        #d, i = KD.query(x.origin + (y * 0.3))
+        # print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
+        # panel.properties |= ldt[i].__dict__
+        yield t
 
 
 #
