@@ -1,3 +1,2 @@
 #!/bin/bash
-eval "$(load_dotenv --help)"
 python -m mmcore.gql.server

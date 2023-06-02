@@ -1,5 +1,5 @@
 from mmcore.base.geom import LineObject, PointsObject
-from mmcore.geom.parametric import ParametricObject
+from mmcore.geom.parametric.base import ParametricObject
 import numpy as np
 
 

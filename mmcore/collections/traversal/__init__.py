@@ -203,7 +203,7 @@ with ModuleResolver() as rsl:
     import rhino3dm
 import rhino3dm
 
-    >>> frame = rhino3dm.Plane(0, 3, 1, 3)
+    >>> frame = rhino3dm.BspPlane(0, 3, 1, 3)
     >>> xaxis = Walk(["XAxis",["X","Y","Z"]])
     >>> yaxis = Walk(["YAxis",["X","Y","Z"]])
     >>> zaxis = Walk(["ZAxis",["X","Y","Z"]])

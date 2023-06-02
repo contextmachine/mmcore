@@ -1,0 +1,10 @@
+###
+GRAPHQL localhost:5799/v2/graphql
+
+{
+  object
+}
+
+{
+
+}

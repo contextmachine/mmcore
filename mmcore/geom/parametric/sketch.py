@@ -1,6 +1,9 @@
+import functools
+
 import abc
 import copy
 import dataclasses
+import geomdl
 import math
 import os
 import sys
@@ -8,28 +11,31 @@ import timeit
 import typing
 from abc import ABCMeta, abstractmethod
 from collections import namedtuple
+
+from earcut.earcut import normal
+from geomdl.operations import tangent
 from itertools import starmap
 from scipy.optimize import fsolve
 
-
+from mmcore.base import geomdict
+from mmcore.geom.transform import remove_crd, Transform, WorldXY
+from mmcore.geom.vectors import *
 from enum import Enum
 
+from mmcore.geom.parametric.base import ParametricObject, NormalPoint, UVPoint, EvalPointTuple2D
 from mmcore.geom.vectors import unit, add_translate, angle
 
-
-from mmcore.collections import DoublyLinkedList
+from mmcore.collections import DoublyLinkedList, curry
 
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
-from mmcore.base import geomdict, objdict
-from mmcore.base.geom import MeshBufferGeometryBuilder, GeometryObject, MeshObject
+
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
-from mmcore.base.geom.materials import ColorRGB
+from mmcore.geom.materials import ColorRGB
 from mmcore.base.models.gql import MeshPhongMaterial
-
 
 from geomdl import NURBS
 from geomdl import utilities as geomdl_utils
@@ -37,22 +43,26 @@ from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection, ElementSequence
 import multiprocess as mp
 
+
+def add_crd(pt, value):
+    if not isinstance(pt, np.ndarray):
+        pt = np.array(pt, dtype=float)
+    if len(pt.shape) == 1:
+        pt = pt.reshape(1, pt.shape[0])
+
+    return np.c_[pt, np.ones((pt.shape[0], 1)) * value]
+
+
+def add_w(pt):
+    return add_crd(pt, value=1)
+
+
 # mp.get_start_method = "swapn"
 import uuid as _uuid
-from geomdl.operations import normal, tangent
 
-from mmcore.geom.transform import Transform
-
-TOLERANCE = 0.001
+TOLERANCE = 1e-6
 
 T = typing.TypeVar("T")
-
-
-@typing.runtime_checkable
-class ParametricObject(typing.Protocol[T]):
-    @abc.abstractmethod
-    def evaluate(self, t):
-        ...
 
 
 @dataclasses.dataclass
@@ -126,6 +136,11 @@ class Linear(ParametricObject):
         else:
             return backend(self)
 
+    def prox(self, other, bounds=[(0, 1), (0, 1)]):
+        res = ProximityPoints(self, other)([0.5, 0.5], bounds=bounds)
+
+        return res
+
 
 class ParametricLineObject(): ...
 
@@ -154,9 +169,6 @@ def llll(hp, step=600):
         lll.append(
             Linear.from_two_points(pt, np.asarray(ClosestPoint(pt, hp.side_d)(x0=0.5, bounds=((0, 1),)).pt).flatten()))
     return lll
-
-
-T = typing.TypeVar("T")
 
 
 def l22(r):
@@ -271,11 +283,9 @@ class NurbsCurve(ProxyParametricObject):
             self.prepare_proxy()
             return self._proxy
 
-    def tessellate(self):
-        ...
-
-
-from mmcore.collections import curry
+    def tan(self, t):
+        pt = tangent(self.proxy, t)
+        return NormalPoint(*pt)
 
 
 class ProxyMethod:
@@ -340,11 +350,12 @@ class NurbsSurface(ProxyParametricObject):
 
         self._proxy.degree_u, self._proxy.degree_v = self.degree
 
-    def normal_at(self, t):
-        return normal(self.proxy, t)
+    def normal(self, t):
+        return geomdl.operations.normal(self.proxy, t)
 
-    def tangent_at(self, t):
-        return tangent(self.proxy, t)
+    def tan(self, t):
+        pt, tn = tangent(self.proxy, t)
+        return NormalPoint(*pt, normal=tn)
 
     def tessellate(self, uuid=None):
         self.proxy.tessellate()
@@ -354,18 +365,18 @@ class NurbsSurface(ProxyParametricObject):
         normals = [v for p, v in normal(self._proxy, uv.tolist())]
         if uuid is None:
             uuid = _uuid.uuid4().__str__()
-        return MeshBufferGeometryBuilder(vertices=np.array(vertseq['data']).flatten(),
-                                         normals=np.array(normals).flatten(),
-                                         indices=np.array(faceseq["vertex_ids"]).flatten(),
-                                         uv=uv,
-                                         uuid=uuid)
+        return dict(vertices=np.array(vertseq['data']).flatten(),
+                    normals=np.array(normals).flatten(),
+                    indices=np.array(faceseq["vertex_ids"]).flatten(),
+                    uv=uv,
+                    uuid=uuid)
 
 
-class NurbsSurfaceGeometry(MeshObject):
+class NurbsSurfaceGeometry:
     material_type = MeshPhongMaterial
     castShadow: bool = True
     receiveShadow: bool = True
-    geometry_type = MeshBufferGeometryBuilder
+    geometry_type = ...
 
     def __new__(cls, *args, color=ColorRGB(0, 255, 40), control_points=(), **kwargs):
         inst = super().__new__(cls, *args, material=MeshPhongMaterial(color=color.decimal), **kwargs)
@@ -382,7 +393,7 @@ class NurbsSurfaceGeometry(MeshObject):
             else:
                 self.color = ColorRGB(125, 125, 125)
                 self.material = self.material_type(color=self.color.decimal)
-        super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
+        # super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
 
     def solve_proxy_view(self, control_points, **kwargs):
         arr = np.array(control_points)
@@ -402,10 +413,14 @@ class NurbsSurfaceGeometry(MeshObject):
         self._geometry = self.uuid + "-geom"
 
         geomdict[self._geometry] = self._proxy.tessellate(uuid=self._geometry).create_buffer()
+
+
 @dataclasses.dataclass
 class LineSequence(ParametricObject):
     seq: dataclasses.InitVar[list[Linear]]
     lines: DoublyLinkedList[Linear]
+
+
 @dataclasses.dataclass
 class Polyline(ParametricObject):
     control_points: typing.Union[DCLL, DoublyLinkedList]
@@ -457,14 +472,30 @@ class PlaneLinear(ParametricObject):
 
         # print(unit(self.normal), self.xaxis, self.yaxis)
         if self.xaxis is not None and self.yaxis is not None:
-            self.normal=np.cross(unit(self.xaxis),unit(self.yaxis))
+            self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
         elif self.normal is not None:
-            self.xaxis = np.cross(unit(self.normal), np.array([0, 0, 1]))
+            self.normal = unit(self.normal)
+            if np.allclose(self.normal, np.array([0.0, 0.0, 1.0])):
 
-            self.yaxis = np.cross(unit(self.normal), self.xaxis
-                              )
+                if self.xaxis is not None:
+                    self.xaxis = unit(self.xaxis)
+                    self.yaxis = np.cross(self.normal, self.xaxis
+                                          )
+
+                elif self.yaxis is not None:
+                    self.yaxis = unit(self.yaxis)
+                    self.xaxis = np.cross(self.normal, self.yaxis)
+                else:
+
+                    self.xaxis = np.array([1, 0, 0], dtype=float)
+                    self.yaxis = np.array([0, 1, 0], dtype=float)
+            else:
+                self.xaxis = np.cross(self.normal, np.array([0, 0, 1]))
+                self.yaxis = np.cross(self.normal, self.xaxis
+                                      )
 
     def evaluate(self, t):
+
         if len(t) == 2:
             u, v = t
             uu = np.array(self.x_linear.evaluate(u) - self.origin)
@@ -490,7 +521,86 @@ class PlaneLinear(ParametricObject):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.normal)))
 
     def point_at(self, pt):
-        return ClosestPoint(pt, self)
+        T = Transform.from_plane_to_plane(self, WorldXY)
+        return remove_crd(add_w(pt) @ T.matrix.T)
+
+    @property
+    def x0(self):
+        return self.origin[0]
+
+    @property
+    def y0(self):
+        return self.origin[1]
+
+    @property
+    def z0(self):
+        return self.origin[2]
+
+    @property
+    def a(self):
+        return self.normal[0]
+
+    @property
+    def b(self):
+        return self.normal[1]
+
+    @property
+    def c(self):
+        return self.normal[2]
+
+    @property
+    def d(self):
+
+        return -np.sum(self.normal * self.origin)
+
+    def is_parallel(self, other):
+        _cross = np.cross(unit(self.normal), unit(other.normal))
+        A = np.array([self.normal, other.normal, _cross])
+        return np.linalg.det(A) == 0
+
+    @classmethod
+    def from_tree_pt(cls, origin, pt2, pt3):
+
+        x = np.array(pt2) - np.array(origin)
+        nrm = np.cross(x, (pt3 - np.array(origin)))
+        return PlaneLinear(normal=nrm, xaxis=x, origin=origin)
+
+    def intersect(self, other):
+
+        _cross = np.cross(unit(self.normal), unit(other.normal))
+        A = np.array([self.normal, other.normal, _cross])
+        d = np.array([-self.d, -other.d, 0.]).reshape(3, 1)
+
+        # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
+
+        # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
+
+        p_inter = np.linalg.solve(A, d).T
+
+        return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
+
+    def transform_from_other(self, other):
+        return Transform.from_plane_to_plane(other, self)
+
+    def transform_to_other(self, other):
+        return Transform.from_plane_to_plane(self, other)
+
+    @property
+    def projection(self):
+        return Transform.plane_projection(self)
+
+    def project(self, gm):
+        # return gm @ self.projection
+        raise NotImplementedError
+
+    def orient(self, gm, plane=WorldXY):
+
+        # return remove_crd(add_crd(gm, 1).reshape((4,)) @ self.transform_from_other(plane).matrix.T)
+        raise NotImplementedError
+
+    def ray_intersect(self, ray: Linear):
+        return line_plane_collision(self, ray, TOLERANCE)
+
 
 @dataclasses.dataclass
 class HyPar4pt(ParametricObject):
@@ -570,12 +680,13 @@ IsCoDirectedResponse = namedtuple('IsCoDirectedResponse', ["do"])
 def is_co_directed(a, b):
     dp = np.dot(a, b)
     return dp, dp * (1 if dp // 1 >= 0 else -1)
+
+
 @dataclasses.dataclass
 class Grid(ParametricObject):
 
     def evaluate(self, t):
         ...
-
 
 
 @dataclasses.dataclass
@@ -591,7 +702,7 @@ class HypPar4ptGrid(HyPar4pt):
             if not (r == []):
                 try:
                     a, b = r
-                    d.append(Linear.from_two_points( b.tolist(),a.tolist()))
+                    d.append(Linear.from_two_points(b.tolist(), a.tolist()))
                 except:
                     pass
 
@@ -606,7 +717,7 @@ class HypPar4ptGrid(HyPar4pt):
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
-                d.append(Linear.from_two_points( b.tolist(),a.tolist()))
+                d.append(Linear.from_two_points(b.tolist(), a.tolist()))
         return d
 
     """
@@ -804,6 +915,7 @@ class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
 
 ProxPoints = ProximityPoints  # Alies for me
 
+
 class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
     @abc.abstractmethod
     def solution(self, t): ...
@@ -854,6 +966,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
         return super().__call__(x0, **kwargs)
 
 
+"""
 def hyp(arr):
     d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
         [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
@@ -871,6 +984,8 @@ def hyp(arr):
         grp.add(LineObject(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
     for i, (lna, lnb) in enumerate(lns2):
         grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
+
+"""
 
 
 class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolution):
@@ -907,9 +1022,6 @@ def test_cp():
             yield ProximityPoints(i, j)()
 
 
-from mmcore.geom.parametric.sketch import *
-from mmcore.base.geom import *
-
 from mmcore.base.geom import LineObject
 
 from mmcore.base.basic import iscollection
@@ -917,7 +1029,7 @@ from mmcore.base.basic import iscollection
 
 class HypGridLayer:
     hyp: HypPar4ptGrid
-    prev:typing.Optional[list[Linear]]=None
+    prev: typing.Optional[list[Linear]] = None
     color: typing.Union[ColorRGB, tuple] = (70, 10, 240)
     name: str = "Foo"
     high: float = 0.0
@@ -931,16 +1043,17 @@ class HypGridLayer:
         for item in [A1, B1, C1, D1]:
             hpp.append(np.array(item.point) + np.array(item.normal) * h)
         return HypPar4ptGrid(*hpp)
-    def __init__(self,**kwargs):
+
+    def __init__(self, **kwargs):
         object.__init__(self)
         self.__call__(**kwargs)
+
     def __call__(self, **kwargs):
-        self.__dict__|=kwargs
+        self.__dict__ |= kwargs
         if self.prev is not None:
             self.prev.sort(key=lambda x: x.length)
-            self.direction=self.prev[-1].extend(60,60)
+            self.direction = self.prev[-1].extend(60, 60)
         return self.solve_grid()
-
 
     def solve_grid(self):
         hp_next = self.offset_hyp(self.high)
@@ -1010,7 +1123,6 @@ def webgl_line_backend(**props):
     return wrapper
 
 
-
 """
 def f(node):
     # *r,=range(1,len(dl)-2)
@@ -1031,3 +1143,104 @@ def no_mp(dl):
     return list(ff(dl))
 
 """
+
+nc = NurbsCurve([[0, 0, 0], [1, 0, 1], [2, 3, 4], [3, 3, 3]])
+
+
+@dataclasses.dataclass
+class Circle:
+    r: float
+
+    def evaluate(self, t):
+        return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
+
+    @property
+    def plane(self):
+        return WorldXY
+
+import zlib
+@dataclasses.dataclass
+class Circle3D(Circle):
+    origin: tuple[float, float, float] = (0, 0, 0)
+    normal: tuple[float, float, float] = (0, 0, 1)
+    torsion: tuple[float, float, float] = (1, 0, 0)  # The xaxis value of the base plane,
+
+    # defines the point of origin of the circle
+    @property
+    def plane(self):
+        return PlaneLinear(normal=unit(self.normal), origin=self.origin)
+
+    @functools.lru_cache(maxsize=1024)
+    def evaluate(self, t):
+        try:
+            return self.plane.orient(super().evaluate(t), super().plane)
+        except NotImplementedError:
+            return remove_crd(
+                add_crd(super().evaluate(t), 1).reshape((4,)) @ self.plane.transform_from_other(WorldXY).matrix.T)
+
+    def __hash__(self):
+        return zlib.adler32(self.__repr__().encode())
+    def __eq__(self, other):
+        return self.__repr__()==other.__repr__()
+@dataclasses.dataclass
+class Pipe:
+    """
+    >>> nb2=NurbsCurve([[0, 0, 0        ] ,
+    ...                 [-47, -315, 0   ] ,
+    ...                 [-785, -844, 0  ] ,
+    ...                 [-704, -1286, 0 ] ,
+    ...                 [-969, -2316, 0 ] ] )
+    >>> r=Circle(r=10.5)
+    >>> oo=Pipe(nb2, r)
+
+    """
+    path: ParametricObject
+    shape: ParametricObject
+
+    def evalplane(self, t):
+        pt = self.path.tan(t)
+        return PlaneLinear(origin=pt.point, normal=pt.normal)
+
+    def evaluate(self, t):
+        u, v = t
+
+        pln = self.evalplane(u)
+
+        return remove_crd(
+            add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
+
+    def geval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
+        for i, u in enumerate(np.linspace(*bounds[0], uvs[0])):
+            for j, v in enumerate(np.linspace(*bounds[1], uvs[1])):
+                yield EvalPointTuple2D(i, j, u, v, *self.evaluate([u, v]))
+
+    def veval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
+        data = np.zeros(uvs + (3,), dtype=float)
+        for i, j, u, v, x, y, z in self.geval(uvs, bounds):
+            data[i, j, :] = [x, y, z]
+        return data
+
+    def mpeval(self, uvs=(20, 20), bounds=((0, 1), (0, 1)), workers=-1):
+        """
+        >>> path = NurbsCurve([[0, 0, 0],
+        ...               [-47, -315, 0],
+        ...               [-785, -844, 0],
+        ...               [-704, -1286, 0],
+        ...               [-969, -2316, 0]])
+
+        >>> profile = Circle(r=10.5)
+        >>> pipe = Pipe(path, profile)
+        >>> pipe.veval(uvs=(2000, 200)) # 400,000 points
+        time 40.84727501869202 s
+        >>> pipe.mpeval(uvs=(2000, 200)) # 400,000 points
+        time 8.37929892539978 s # Yes it's also too slow, but it's honest work
+        """
+
+        def inner(u):
+            return [(u, v, *self.evaluate([u, v])) for v in np.linspace(*bounds[1], uvs[1])]
+
+        if workers == -1:
+            workers = os.cpu_count()
+
+        with mp.Pool(workers) as p:
+            return p.map(inner, np.linspace(*bounds[0], uvs[0]))

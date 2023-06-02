@@ -4,21 +4,37 @@ from functools import wraps
 from typing import Any, Union, ContextManager
 
 import numpy as np
-
-
-from mmcore.addons import ModuleResolver
 from mmcore.geom.vectors import unit
 
-with ModuleResolver() as rsl:
-    pass
-import rhino3dm as rg
+
 from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
 
 import pyquaternion as pq
 
-Plane=namedtuple("Plane", ["xaxis","yaxis","normal","origin"])
+
+def add_crd(pt, value):
+    if not isinstance(pt, np.ndarray):
+        pt = np.array(pt, dtype=float)
+    if len(pt.shape) == 1:
+        pt = pt.reshape(1, pt.shape[0])
+
+    return np.c_[pt, np.ones((pt.shape[0], 1)) * value]
+
+
+def add_w(pt):
+    return add_crd(pt, value=1)
+
+
+def remove_crd(pt):
+    return pt.flatten()[:-1]
+
+
+Plane = namedtuple("Plane", ["xaxis", "yaxis", "normal", "origin"])
+WorldXY = Plane([1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0])
+
+
 def mirror(right):
     mirror = np.eye(3, 3)
     mirror[1, 1] = -1
@@ -30,14 +46,6 @@ def mirror(right):
     return left
 
 
-def create_Transform(flat_arr):
-    tg = rg.Transform.ZeroTransformation()
-    k = 0
-    for i in range(4):
-        for j in range(4):
-            setattr(tg, "M{}{}".format(i, j), flat_arr[k])
-            k += 1
-    return tg
 
 
 class Transform:
@@ -63,6 +71,8 @@ class Transform:
         return Transform(self.__array__().__matmul__(np.array(other)))
 
     def __rmatmul__(self, other):
+        if isinstance(other, (list,tuple)):
+            other=np.array(other, dtype=float)
         if hasattr(other, 'matrix'):
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
@@ -72,17 +82,20 @@ class Transform:
                 return other
         elif isinstance(other, Transform):
             return Transform(other.__array__() @ self.matrix)
+
         elif isinstance(other, ndarray):
             if other.shape[0] == 3:
                 ppt = np.array([0, 0, 0, 1], dtype=float)
                 ppt[0:3] = other
-                other[:] = (ppt @ self.matrix)[0:3]
-                return other
+                other[:] = (ppt @ self.matrix.T)[0:3]
+                return remove_crd(other)
 
             elif other.shape[0] == 4:
-                return other @ self.matrix
+                return remove_crd(other @ self.matrix.T)
+
             else:
                 raise ValueError(f"Shape (3, ...) or (4, ...) was expected, but {other.shape} exist.")
+
         else:
             raise ValueError(f"{other} does not define any of the available interfaces for transformation.")
 
@@ -115,15 +128,15 @@ class Transform:
         return M
 
     @classmethod
-    def from_plane_to_plane(cls, plane_a,plane_b):
-        M1 = cls.from_plane(Plane(unit(plane_a.xaxis),unit(plane_a.yaxis),unit(plane_a.normal),plane_a.origin))
-        M2 = cls.from_plane(Plane(unit(plane_b.xaxis),unit(plane_b.yaxis),unit(plane_b.normal),plane_b.origin))
+    def from_plane_to_plane(cls, plane_a, plane_b):
+        M1 = cls.from_plane(Plane(unit(plane_a.xaxis), unit(plane_a.yaxis), unit(plane_a.normal), plane_a.origin))
+        M2 = cls.from_plane(Plane(unit(plane_b.xaxis), unit(plane_b.yaxis), unit(plane_b.normal), plane_b.origin))
         return cls(M2.matrix @ M1.matrix.T)
 
     @classmethod
     def from_world_to_plane(cls, plane):
 
-        return cls.from_plane_to_plane(Plane([1,0,0],[0,1,0],[0,0,1],[0,0,0]),plane)
+        return cls.from_plane_to_plane(Plane([1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]), plane)
 
     def __invert__(self):
         return Transform(np.linalg.inv(self.matrix))
@@ -141,6 +154,17 @@ class Transform:
 
     def flatten(self):
         return self.matrix.flatten()
+
+    @classmethod
+    def plane_projection(cls, plane: Plane):
+        t = Transform.from_plane_to_plane(WorldXY, plane)
+        wxy_proj = Transform()
+        wxy_proj.matrix[2, 2] = 0
+        tinv = t.__invert__()
+        aa = t @ wxy_proj
+        aa1 = aa @ tinv
+        return aa1
+
 
 class OwnerTransform:
     def __init__(self, f):
@@ -169,4 +193,5 @@ class TransformManager(ContextManager):
 def assign_transform(m):
     def assign_transform_wrapper(obj, *args, **kw):
         return ((np.array(m(obj, *args, **kw) + [1]) @ obj.matrix_to_square_form().T)[:3]).tolist()
+
     return assign_transform_wrapper
