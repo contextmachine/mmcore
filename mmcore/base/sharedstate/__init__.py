@@ -108,6 +108,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 app.add_middleware(GZipMiddleware, minimum_size=500)
 o = DictSchema(ObjectThree(grp.uuid).to_dict())
 oo = o.get_strawberry()
+from starlette.exceptions import HTTPException
 
 
 class ServerBind():
@@ -148,7 +149,10 @@ class ServerBind():
 
         @app.get("/fetch/{uid}")
         async def get_item(uid: str):
-            return adict[uid].root()
+            try:
+                return adict[uid].root()
+            except KeyError as errr:
+                return HTTPException(401, detail=f"KeyError. Trace: {errr.__traceback__}")
 
         @app.post("/fetch/{uid}")
         def p_item(uid: str, data: dict):
@@ -227,13 +231,17 @@ class ServerBind():
             @param websocket:
             @return:
             {
+                # POST
                 uuid: "some-item-uuid",
-                method: "GET"|"POST"|"DELETE"
                 body: {
                     # properties
                     name: "A"
                     ...
                 }
+                ---
+                # GET
+                uuid: "some-item-uuid",
+
             }
             """
             await websocket.accept()
@@ -241,12 +249,10 @@ class ServerBind():
                 data = await websocket.receive_json()
                 print(f"WS: {data}")
                 obj = adict[data["uuid"]]
-                if data["method"]=="GET":
-                    await websocket.send_json(data=obj.root())
-                elif data["method"]=="POST":
-                    await websocket.send_json(data=obj(**data["body"]))
-                elif   data["method"]=="DELETE":
-                    obj.dispose()
+                if "body" in data.keys():
+                    if not ((data["body"] is None) or (data["body"] == {})):
+                        obj(**data["body"])
+                await websocket.send_json(data=obj.root())
 
 
         def run():

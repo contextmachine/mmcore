@@ -25,12 +25,13 @@ from enum import Enum
 from mmcore.geom.parametric.base import ParametricObject, NormalPoint, UVPoint, EvalPointTuple2D
 from mmcore.geom.vectors import unit, add_translate, angle
 
-from mmcore.collections import DoublyLinkedList, curry
+from mmcore.collections import DoublyLinkedList
+from mmcore.func.curry import curry
 
 from pyquaternion import Quaternion
 from compas.geometry.transformations import matrix_from_frame_to_frame
 import mmcore
-
+import zlib
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
@@ -90,7 +91,7 @@ class Linear(ParametricObject):
         return cls(x0=x, y0=y, z0=z, a=a, b=b, c=c)
 
     def evaluate(self, t):
-        return np.array([self.x(t), self.y(t), self.z(t)])
+        return np.array([self.x(t), self.y(t), self.z(t)], dtype=float)
 
     @property
     def length(self):
@@ -141,6 +142,8 @@ class Linear(ParametricObject):
 
         return res
 
+    def __hash__(self):
+        return
 
 class ParametricLineObject(): ...
 
