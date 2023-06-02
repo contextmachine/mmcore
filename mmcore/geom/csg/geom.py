@@ -406,15 +406,18 @@ class BspPolygon(AbstractBspGeometry):
         return MeshData(vertices=self.vxs(), indices=self.indices)
 
     def mesh(self, **kwargs):
+        if kwargs.get(
+                "material") is None:
+            kwargs['material']=MeshPhongMaterial(color=DEFAULTCOLOR)
+
         if self.shared is not None:
             if isinstance(self.shared, dict):
                 if "material" in kwargs.keys():
                     return AMesh(geometry=self.mesh_data().create_buffer(), **kwargs)
                 elif "material" in self.shared.keys():
-                    return AMesh(geometry=self.mesh_data().create_buffer(), material=self.shared["material"], **kwargs)
+                    return AMesh(geometry=self.mesh_data().create_buffer(),  **kwargs)
 
-        return AMesh(geometry=self.mesh_data().create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR),
-                     **kwargs)
+        return AMesh(geometry=self.mesh_data().create_buffer(), **kwargs)
 
 
 class BSPNode(AbstractBspGeometry):

@@ -4,7 +4,8 @@ from collections import namedtuple, deque
 
 __all__ = ["ElementSequence", "ParamContainer", "DoublyLinkedList", "DCLL", "FuncMultiDesc", "CircularLinkedList",
            "CallbackList", "LinkedList", "ParamAccessible", "OrderedSet", "UnlimitedAscii", "ListNode", "CallsHistory",
-           "Convertor", "curry","DNode","DCNode","DLLNode","DLLIterator","DCLLIterator"]
+           "DNode","DCNode","DLLNode","DLLIterator","DCLLIterator"
+           ]
 
 
 def chain_split_list(iterable):
@@ -106,10 +107,6 @@ class UnlimitedAscii:
 
 
 import uuid
-
-
-class Graph:
-    ...
 
 
 class Node:
@@ -250,37 +247,7 @@ class CircularLinkedList:
         print(" -> ".join(nodes))
 
 
-from collections.abc import Iterator, Container
-
-
-class Grouper(Iterator):
-    def __init__(self, iterable):
-        self._itr = iterable
-        self._iterable = enumerate(iterable)
-        self.data = {}
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        i, v = self._iterable.__next__()
-        self._wrp(v, i)
-
-    def release(self):
-        def wrp(s, data):
-            yield data
-            del s
-
-        return wrp(self, iter(self.data))
-
-    def get_counter(self):
-        return collections.Counter(self._itr)
-
-    def _wrp(self, key, item):
-        if self.data.get(key) is None:
-            self.data[key] = []
-        self.data[key].append(item)
-
+from collections.abc import Iterator
 
 from typing import TypeVar
 from typing_extensions import TypeVarTuple
@@ -315,50 +282,10 @@ class ParamContainer:
 
 from mmcore.collections.multi_description import CallbackList, ElementSequence
 import typing
-from dataclasses import make_dataclass, field
+from dataclasses import make_dataclass
 
 ParamTuple = namedtuple("ParamTuple", ["name", "type", "default"])
 import strawberry
-
-
-class Cond:
-    def convert(self, val):
-        return val
-
-    def __call__(self, val):
-        return isinstance(val, dict)
-
-
-class Cond2:
-    def convert(self, val):
-        return dataclasses.asdict(val)
-
-    def __call__(self, val):
-        return dataclasses.is_dataclass(val)
-
-
-class Cond3:
-    def convert(self, val):
-        return dataclasses.asdict(val)
-
-    def __call__(self, val):
-        return dataclasses.is_dataclass(val)
-
-
-class Convertor:
-    def __init__(self, *conds):
-        self.conds = conds
-
-    def convert(self, val):
-        i = 0
-        while True:
-            if self.conds[i](val):
-
-                v = self.conds[i].convert(val)
-                break
-            else:
-                i += 1
-        return v
 
 
 @dataclasses.dataclass
@@ -436,10 +363,6 @@ class ParamAccessible:
     def __call__(self, *args, **kwargs):
         return self.f(*args, **kwargs)
 
-
-import copy
-
-
 class CallsHistory(ParamAccessible):
     CallEvent = namedtuple("CallEvent", ["name", "params", "result", "func"])
 
@@ -475,102 +398,6 @@ class CallsHistory(ParamAccessible):
 
     def get_result(self, **params):
         return self.history.where(params=self.schema(**params))[-1]["result"]
-
-
-class BoolMask(Container):
-    _masked = OrderedSet()
-    name: str = None
-
-    def __get__(self, instance, owner):
-        return instance in self
-
-    def __set__(self, instance, value: bool):
-        self.add_to_mask(instance) if value else self.remove_from_mask(val=instance)
-
-    def __contains__(self, __x: object) -> bool:
-        return not self.get_id(__x) in self._masked
-
-    def get_id(self, val):
-        return val if type(val) is str else hex(id(val))
-
-    def add_to_mask(self, val):
-        k = self.get_id(val)
-        self._masked.add(k)
-        return k
-
-    def extend_mask(self, val):
-        *ks, = (self.get_id(v) for v in val)
-        self._masked.extend(ks)
-        return ks
-
-    def set_mask(self, val):
-        ks = [self.get_id(v) for v in val]
-        self._masked = ks
-        return ks
-
-    def remove_from_mask(self, val):
-        k = self.get_id(val)
-        self._masked.remove(k)
-        return k
-
-    def removes_from_mask(self, vals):
-        removed = []
-        for val in vals:
-            removed.append(self.remove_from_mask(val))
-        return removed
-
-
-from functools import wraps
-
-
-def curry(func):
-    """
-    >>> @curry
-    ... def foo(a, b, c):
-    ...     return a + b + c
-    >>> foo(1)
-    <function __main__.foo>
-    """
-
-    @wraps(func)
-    def curried(*args, **kwargs):
-        if len(args) + len(kwargs) >= func.__code__.co_argcount:
-            return func(*args, **kwargs)
-
-        @wraps(func)
-        def new_curried(*args2, **kwargs2):
-            return curried(*(args + args2), **dict(kwargs, **kwargs2))
-
-        return new_curried
-
-    return curried
-
-
-class ComposeMask:
-
-    def __init__(self, masks):
-        super().__init__()
-        self.masks = masks
-
-    def _per_mask(self, item):
-        return (item in mask for mask in self.masks)
-
-    def elementwise(self, item):
-        return zip((mask.name for mask in self.masks), self._per_mask(item))
-
-    def match(self, item):
-        ...
-
-    def __contains__(self, item) -> int:
-        """
-
-        @param item:
-        @return:
-        match self.elementwise(item)->int:
-            case {"a": True, "b":False}:
-            return 1:
-        """
-        ...
 
 
 class FuncMultiDesc:
