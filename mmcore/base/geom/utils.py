@@ -5,7 +5,7 @@ import numpy as np
 
 import mmcore.base.models.gql
 from mmcore.base.basic import getattr_, objdict, geomdict, matdict, ExEncoder
-from mmcore.node import node_eval
+
 
 mapattrs = {
     "normal": mmcore.base.models.gql.Normal,
@@ -39,11 +39,13 @@ def create_buffer_from_dict(kwargs) -> mmcore.base.models.gql.BufferGeometry:
             "type": kwargs.get('type'),
             "data": mmcore.base.models.gql.Data(**{
                 "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
+                "index": mmcore.base.models.gql.Index(**kwargs.get('data').get("index"))
 
             })
+
         })
 
-        dct.data.index: mmcore.base.models.gql.Index(**kwargs.get('data').get("index"))
+
     else:
 
         dct = mmcore.base.models.gql.BufferGeometry(**{
@@ -113,14 +115,6 @@ def parse_attribute(attr):
     shp = int(len(arr) / attr.itemSize), attr.itemSize
     arr.reshape(shp)
     return arr
-
-
-@node_eval
-def foo_three_js_type():
-    # language=JavaScript
-    return '''const THREE = require("three");
-              const result = new THREE.Object3D();
-              console.log(JSON.stringify(result.toJSON()))'''
 
 
 def dumps_graph(path):

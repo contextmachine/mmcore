@@ -8,10 +8,7 @@ from mmcore.gql.server.fastapi import MmGraphQlAPI
 import os
 
 
-with open("tests/777.json") as f:
-    data_test2 = json.load(f)
-with open("mmcore/gql/templates/schema.json") as f:
-    data_test2 |= json.load(f)
+
 app = MmGraphQlAPI(gql_endpoint="/v2/graphql")
 
 
@@ -20,7 +17,11 @@ app = MmGraphQlAPI(gql_endpoint="/v2/graphql")
 def graphql_query_resolver(data: dict):
     #print(data)
     qt2 = parse_simple_query(data['query'])
-    return qt2.resolve(data_test2)
+    with open("../tests/data/panel.json") as f:
+        data_test2 = json.load(f)
+        with open("../mmcore/gql/templates/schema.json") as f2:
+            data_test2 |= json.load(f2)
+            return qt2.resolve(data_test2)
 
 
 if __name__ == "__main__":

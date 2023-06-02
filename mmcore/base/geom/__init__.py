@@ -15,9 +15,9 @@ import uuid as muuid
 import uuid as _uuid
 import numpy as np
 import mmcore.base.models.gql
-from mmcore.base.basic import Object3D, Group
+from mmcore.base.basic import Object3D, Group, AMesh
 from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
-    RhinoBrepBufferGeometryBuilder
+    RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints, MeshPhongMaterial, Material, PointsMaterial, \
     LineBasicMaterial
@@ -27,6 +27,16 @@ MODE = {"children": "parents"}
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.registry import geomdict, matdict
 from mmcore.collections.multi_description import ElementSequence
+
+DEFAULTCOLOR = 9868950  # 150, 150, 150
+buffer_geometry_type_map = {
+    "position": "vertices",
+    "normal": "normals",
+    "index": "indices",
+    "color": "colors",
+    'uv': "uv",
+    'uuid': 'uuid'
+}
 
 
 def _buff_attr_checker(builder, name, attributes, cls):
@@ -40,6 +50,8 @@ def _buff_attr_checker(builder, name, attributes, cls):
 
 
 T = typing.TypeVar("T")
+S = typing.TypeVar("S")
+
 matdict["MeshPhongMaterial"] = mmcore.base.models.gql.MeshPhongMaterial(color=ColorRGB(50, 50, 50).decimal,
                                                                         type=mmcore.base.models.gql.Materials.MeshPhongMaterial)
 matdict["PointsMaterial"] = mmcore.base.models.gql.PointsMaterial(color=ColorRGB(50, 50, 50).decimal)
@@ -130,7 +142,7 @@ class GeometryObject(Object3D):
         else:
 
             self._geometry = v.uuid
-            #print(f"Geometry set event: {self.name} <- {self._geometry}")
+            # print(f"Geometry set event: {self.name} <- {self._geometry}")
             geomdict[self._geometry] = v
 
     @property
@@ -207,6 +219,31 @@ class GeometryObject(Object3D):
 from mmcore.geom.vectors import triangle_normal
 
 
+class BufferGeometryToMeshDataConvertor(Convertor):
+    type_map = buffer_geometry_type_map
+    source: mmcore.base.models.gql.BufferGeometry
+
+    def __init__(self, source, **kwargs):
+        super().__init__(source, **kwargs)
+
+    def convert(self) -> 'MeshData':
+        dct = dict()
+        dct["uuid"] = self.source.uuid
+
+        if hasattr(self.source.data, "index"):
+            dct["index"] = self.source.data.index.array
+
+        for k, v in DataclassToDictConvertor(self.source.data.attributes).convert().items():
+            dct[k] = v['array']
+
+        return DictToAnyConvertor(dct, MeshData, type_map=self.type_map).convert()
+
+
+class BufferGeometryDictToMeshDataConvertor(BufferGeometryToMeshDataConvertor):
+    def convert(self) -> 'MeshData':
+        return BufferGeometryToMeshDataConvertor(create_buffer_from_dict(self.source)).convert()
+
+
 @dataclasses.dataclass
 class MeshData:
     vertices: typing.Union[list, tuple]
@@ -227,7 +264,7 @@ class MeshData:
 
     def calc_normals(self):
         self.normals = []
-        for a, b, c in self.indices:
+        for a, b, c in self.indices[:3]:
             self.normals.append(
                 triangle_normal(np.array(self.vertices[a]), np.array(self.vertices[b]), np.array(self.vertices[c])))
 
@@ -237,7 +274,11 @@ class MeshData:
             self.uuid = uuid.uuid4().hex
 
     def asdict(self):
-        return dataclasses.asdict(self)
+        dct = {}
+        for k, v in dataclasses.asdict(self).items():
+            if v is not None:
+                dct[k] = v
+        return dct
 
     def create_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
         if self._buf is None:
@@ -245,21 +286,55 @@ class MeshData:
         return self._buf
 
     def get_face(self, item):
-        if self.indices is not None:
+        if (self.indices is not None) and (self.indices != ()):
             return itemgetter(*self.indices[item])(self.vertices)
 
     @property
     def faces(self):
 
-        if self.indices is not None:
+        if (self.indices is not None) and (self.indices != ()):
+
             l = []
             for i in range(len(self.indices)):
                 l.append(self.get_face(i))
             return l
-        return
 
     def translate(self, v):
         self.vertices = np.array(self.vertices) + np.array(v)
+
+    def merge(self, other: 'MeshData'):
+        count = np.array(self.indices).max()
+        dct = dict()
+        if ("indices" in self.__dict__.keys()) and ("indices" in other.__dict__.keys()):
+            dct["indices"] = self.indices + (np.array(other.indices, dtype=int) + count).tolist()
+
+        for k in self.__dict__.keys():
+            if (k in other.__dict__) and (k != "indices") and (k != "uuid"):
+                if all([not isinstance(self.__dict__[k], np.ndarray),
+                        not isinstance(other.__dict__[k], np.ndarray),
+                        self.__dict__[k] is not None,
+                        other.__dict__[k] is not None]):
+
+                    dct[k] = self.__dict__[k] + other.__dict__[k]
+                elif isinstance(self.__dict__[k], np.ndarray) and not isinstance(other.__dict__[k], np.ndarray):
+                    dct[k] = self.__dict__[k].tolist() + other.__dict__[k]
+                elif isinstance(other.__dict__[k], np.ndarray) and not isinstance(self.__dict__[k], np.ndarray):
+                    dct[k] = self.__dict__[k] + other.__dict__[k].tolist()
+                elif isinstance(other.__dict__[k], np.ndarray) and isinstance(self.__dict__[k], np.ndarray):
+                    dct[k] = self.__dict__[k].tolist() + other.__dict__[k].tolist()
+                else:
+                    pass
+        dct["uuid"] = uuid.uuid4().hex
+        return MeshData(**dct)
+
+    def to_mesh(self):
+        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR))
+
+    @classmethod
+    def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
+        if isinstance(geom, dict):
+            return BufferGeometryDictToMeshDataConvertor(geom).convert()
+        return BufferGeometryToMeshDataConvertor(geom).convert()
 
 
 class MeshObject(GeometryObject):

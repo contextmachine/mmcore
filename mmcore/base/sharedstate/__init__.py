@@ -275,9 +275,11 @@ class ServerBind():
     def is_alive(self):
         return self.thread.is_alive()
 
-    def start_as_main(self, **kwargs):
+    def start_as_main(self, on_start=None, **kwargs):
         if kwargs.get("port"):
             self.port = kwargs.get("port")
+        if on_start:
+            on_start()
         uvicorn.run("mmcore.base.sharedstate:app", port=self.port, log_level="error", **kwargs)
 
 

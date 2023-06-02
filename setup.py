@@ -16,8 +16,7 @@ Computational Geometry, Digital Engineering and Optimizing your construction pro
     \____/\___ /_/ /_/\____/\____ /_ /\_\____/_/ /_/ /_/\__,_/\____/_/ /_/_/_/ /_/\____/       
 
 
-Andrew Astkhov (sth-v) aa@contextmachine.ru 
-🔫📠️💻🎚📹📟🚔🦾🦺📠️💻🎛️📱🚧🚔🦾🔫📠️🛠️🎛️📹📟🚔🦾🔫📠️👷‍🎛️🔩📟🚜⚙️🔫📠️💻🎚📹📟🚔🦾🦺📠️💻🎛️📱🚧🚔🦾🔫📠️🛠️🎛️📹📟🚔🦾🔫📠️👷‍🎛️🔩📟🚜⚙️🔫📠️💻🎚📹📟🚔🦾                                                          
+Andrew Astkhov (sth-v) aa@contextmachine.ru                                                         
 ------------------------------------------------------------------------------------------------------------------------
 
 """
@@ -25,13 +24,15 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 setup(
     name='mmcore',
-    version='0.2.2',
-    packages=['mmcore','mmcore.mmbuild', 'mmcore.geom',
+    version='0.2.4',
+    packages=['mmcore', 'mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.parametric',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
+              'mmcore.geom.vectors',
+              "mmcore.base.geom.builder",
               'mmcore.addons',
               'mmcore.addons.gmdl',
               'mmcore.addons.rhino',
@@ -48,16 +49,19 @@ setup(
               'mmcore.collections.traversal',
               'mmcore.collections.multi_description',
               'mmcore.exceptions',
+              'mmcore.node',
               'mmcore.gql',
+              'mmcore.utils',
               'mmcore.gql.client',
               'mmcore.gql.pg',
               'mmcore.gql.templates',
               'mmcore.base',
               'mmcore.base.geom',
-            'mmcore.base.models',
-                'mmcore.base.models.gql',
-                'mmcore.base.registry',
-                'mmcore.datatools'
+              'mmcore.base.models',
+              'mmcore.base.models.gql',
+              'mmcore.base.registry',
+              'mmcore.base.descriptors',
+              'mmcore.datatools'
 
               ],
     url='',

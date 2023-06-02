@@ -15,7 +15,7 @@ Closest point on circle curve for nine lines of code.
 >>> rg = conn.root.getmodule("Rhino.Geometry")
 >>> rs = conn.root.getmodule("rhinoscript")
 
->>> circle = rg.Circle(rg.Plane(0.0,0.0,1.0,0.0), 15.4) # create circle at world xyz plane
+>>> circle = rg.Circle(rg.BspPlane(0.0,0.0,1.0,0.0), 15.4) # create circle at world xyz plane
 >>> point_on_circle = circle.ClosestPoint(rg.Point3d(1,2,3))
 >>> point_to_tuple(point_on_circle)
 (6.887089370699354, 13.774178741398705, 0.0)

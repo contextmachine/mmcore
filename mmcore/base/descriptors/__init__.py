@@ -119,7 +119,7 @@ class DataView(NoDataDescriptor, dict):
     ...         return {"id": name, "value": value}
     ...     def data_model(self, instance, value):
     ...         return {"type":instance.__clas__.__name__,"data":value}
-    >>> from mmcore.baseitems import Descriptor, NoDataDescriptor, Matchable
+    >>> from mmcore.base.descriptors import Descriptor, NoDataDescriptor
 
     >>> class AA('Matchable'):
     ...     __match_args__="a","b","c"
