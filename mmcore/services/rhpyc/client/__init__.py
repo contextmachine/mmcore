@@ -111,17 +111,17 @@ import geom.utils.tools    >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
     while True:
         i += 1
         try:
-            print(hosts[i])
+            #print(hosts[i])
 
             conn = rpyc.connect(host=hosts[i], port=port)
             conn.ping()
 
             if not conn.closed:
-                print(f"{hosts[i]} success!!!")
+                #print(f"{hosts[i]} success!!!")
                 rhpyc_conn = conn
                 break
         except ConnectionRefusedError:
-            print(f"{hosts[i]} fail...")
+            #print(f"{hosts[i]} fail...")
 
     return rhpyc_conn
 

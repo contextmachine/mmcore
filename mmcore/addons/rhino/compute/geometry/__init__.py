@@ -45,7 +45,7 @@ def get_triangle_mesh_indices(msh, srf):
         pts = f.GetFaceVertices(i)
         l = []
 
-        # print(pts, verts)
+        # #print(pts, verts)
 
         for i in range(3):
             pt = pts[i + 1]
@@ -124,7 +124,7 @@ def get1_triangle_mesh_indices(msh, srf):
         pts = f.GetFaceVertices(i)
         l = []
 
-        # print(pts, verts)
+        # #print(pts, verts)
 
         for i in range(3):
             pt = pts[i + 1]

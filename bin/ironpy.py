@@ -85,9 +85,9 @@ def main(sock, server_address):
 
         try:
             msg = decompress(data.decode())
-            #print(msg)
+            ##print(msg)
             ctx = SelfProxy(**msg["input"])
-            #print(ctx)
+            ##print(ctx)
 
             if msg["py"] == "stop":
 
@@ -100,21 +100,21 @@ def main(sock, server_address):
                     exec(msg["py"], locals())
 
                     out = [eval(k) for k in msg["output"]]
-                    #print(pprint.pformat(out))
+                    ##print(pprint.pformat(out))
                     outp = compress(out)
-                    #print('response {} 200'.format(address, out, outp))
+                    ##print('response {} 200'.format(address, out, outp))
                     sent = sock.sendto(outp, address)
 
 
                 except Exception as err:
                     outperr = compress({"statuscode": 400, "msg": {"err": repr(err)}})
                     sent = sock.sendto(outperr, address)
-                    #print('response {} 400\n\n\t{}'.format(address, repr(err)))
+                    ##print('response {} 400\n\n\t{}'.format(address, repr(err)))
         except KeyboardInterrupt as err:
             stop(sock)
             break
         except Exception as err:
-            #print("Runtime Exception 500\n\n {}".format(err))
+            ##print("Runtime Exception 500\n\n {}".format(err))
             outperr = compress({"statuscode": 500, "msg": {"critical_err": repr(err)}})
             sent = sock.sendto(outperr, address)
             stop(sock)
@@ -130,9 +130,9 @@ if __name__ == "__main__":
     # Bind the socket to the port
     _server_address = ('localhost', 10082)
 
-    #print('starting up on %s port %s' % _server_address)
+    ##print('starting up on %s port %s' % _server_address)
 
     serv = threading.Thread(target=main, args=(_sock, _server_address))
     serv.start()
 
-    #print("start sucsess")
+    ##print("start sucsess")

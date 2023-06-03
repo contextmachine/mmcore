@@ -150,7 +150,7 @@ class query:
         if variables is None:
             variables = self.variables
         ren = self.render(fields=fields)
-        # print(self._body(inst, own))
+        # #print(self._body(inst, own))
         request = requests.post(self.client.url,
 
                                 headers=self.client.headers,
@@ -181,7 +181,7 @@ class query:
             else:
                 return request
         else:
-            print("bad response")
+            #print("bad response")
             return request
 
 
@@ -254,7 +254,7 @@ class AbsGQLTemplate:
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
         print(inst, variables, mtt)
-        # print(self._body(inst, own))
+        # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
                                 json={
@@ -341,7 +341,7 @@ class GQLQuery(AbsGQLTemplate):
         try:
             return super().post_processing(request)["data"][self.root]
         except KeyError as err:
-            print(request.request.body.decode())
+            #print(request.request.body.decode())
             raise GQLError(f'\n{super().post_processing(request)}')
 
 
@@ -358,7 +358,7 @@ class GQl(UserDict):
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
         print(inst, variables, mtt)
-        # print(self._body(inst, own))
+        # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
                                 json={
@@ -403,7 +403,7 @@ class GQLMutation(AbsGQLTemplate):
         try:
             return super().post_processing(request)["data"][self.root]
         except KeyError as err:
-            print(request.request.body.decode())
+            #print(request.request.body.decode())
             raise GQLError(f'\n{super().post_processing(request)}')
         # return request.json()
 
@@ -507,7 +507,7 @@ class GQLSimpleQuery:
         if variables is None:
             variables = {}
 
-        # print(self._body(inst, own))
+        # #print(self._body(inst, own))
         request = requests.post(self.client.url,
 
                                 headers=self.client.headers,
@@ -523,7 +523,7 @@ class GQLSimpleQuery:
                 try:
                     data = request.json()
                     if "errors" in data.keys():
-                        print(data)
+                        #print(data)
                         raise GQLException("GraphQl response error", error_dict=data)
                     elif "data" in data.keys():
                         if not full_root:
@@ -539,7 +539,7 @@ class GQLSimpleQuery:
             else:
                 return request
         else:
-            print("bad response")
+            #print("bad response")
             return request
 
 

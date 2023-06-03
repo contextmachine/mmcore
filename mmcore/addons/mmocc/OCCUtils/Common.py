@@ -294,7 +294,7 @@ def random_vec():
 def random_colored_material_aspect():
     clrs = [i for i in dir(Graphic3d) if i.startswith("Graphic3d_NOM_")]
     color = random.sample(clrs, 1)[0]
-    print("color", color)
+    #print("color", color)
     return Graphic3d.Graphic3d_MaterialAspect(getattr(Graphic3d, color))
 
 
@@ -366,7 +366,7 @@ def point_in_solid(solid, pnt, tolerance=1e-5):
     from OCC.Core.TopAbs import TopAbs_ON, TopAbs_OUT, TopAbs_IN
 
     _in_solid = BRepClass3d_SolidClassifier(solid, pnt, tolerance)
-    print("State", _in_solid.State())
+    #print("State", _in_solid.State())
     if _in_solid.State() == TopAbs_ON:
         return None, "on"
     if _in_solid.State() == TopAbs_OUT:

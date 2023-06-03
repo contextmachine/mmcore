@@ -47,21 +47,21 @@ def get_connection_by_host_port(*pairs):
         i += 1
         host, port = pairs[i]
         try:
-            print(host)
+            #print(host)
 
             conn = rpyc.connect(host=host, port=port)
             conn.ping()
 
             if not conn.closed:
-                print(f"{host[i]}:{port} success!!!")
+                #print(f"{host[i]}:{port} success!!!")
                 rpyc_conn = conn
                 break
         except ConnectionRefusedError:
-            print(f"{host}:{port} fail...")
+            #print(f"{host}:{port} fail...")
         except TimeoutError:
-            print(f"{host}:{port} fail...")
+            #print(f"{host}:{port} fail...")
         except socket.gaierror:
-            print(f"{host}:{port} fail...")
+            #print(f"{host}:{port} fail...")
         except Exception as err:
-            print(f"{host}:{port} fail...\n{err}")
+            #print(f"{host}:{port} fail...\n{err}")
     return rpyc_conn

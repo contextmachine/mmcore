@@ -13,9 +13,9 @@ class TraitType(type):
 
             for k in dir(trait):
                 v=getattr(trait,k)
-                #print(k,v)
+                ##print(k,v)
                 if not k.startswith("_") and( inspect.isfunction(v) or inspect.ismethod(v)):
-                    #print(k, v)
+                    ##print(k, v)
                     class TraitMethodDescriptor:
 
                         def __init__(self, cls):

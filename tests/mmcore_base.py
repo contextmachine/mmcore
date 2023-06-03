@@ -6,7 +6,7 @@ A=Object3D(name="A")
 B = Group(name="B")
 B.add(A)
 dct = strawberry.asdict(B.get_child_three())
-#print(dct)
+##print(dct)
 ds=DictSchema(dct).generate_schema()
 class MyTestCase(unittest.TestCase):
     def test_base(self):
