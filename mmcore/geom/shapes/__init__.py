@@ -86,7 +86,7 @@ class Shape:
         return np.array(res).reshape((len(res) // 3, 3))
 
     def to3d_mesh_pts(self):
-        print(self.boundary)
+        #print(self.boundary)
         rrr = np.array(list(flatten([self.boundary] + self.holes)))
         return np.c_[rrr, np.ones((rrr.shape[0], 1)) * self.h]
 
@@ -150,7 +150,7 @@ class Shape:
 
     @delegate_shape_operator.bind
     def __sub__(self, delegate, item):
-        print(delegate, item)
+        #print(delegate, item)
         res = shapely.difference(delegate, item)
         if isinstance(res, MultiPolygon):
             shapes = []
@@ -186,8 +186,6 @@ class Shape:
 
         self.boundary = list(res.exterior.coords)
         self.holes = to_list_req(res.interiors)
-
-
     def intersection(self,  other):
         res=shapely.intersection(self._ref, other._ref)
         if isinstance(res, MultiPolygon):
@@ -203,9 +201,6 @@ class Shape:
                          holes=to_list_req(res.interiors),
                          color=self.color,
                          h=self.h)
-
-
-
     def is_empty(self):
         return self.boundary == []
 
