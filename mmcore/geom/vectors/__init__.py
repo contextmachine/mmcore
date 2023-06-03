@@ -1006,7 +1006,7 @@ def triangle_normal(p1, p2, p3):
 
     A = p2 - p1
     B = p3 - p1
-    print(p1,p2,p3,A,B)
+    #print(p1,p2,p3,A,B)
     Ax, Ay, Az = A
     Bx, By, Bz = B
     Nx = Ay * Bz - Az * By

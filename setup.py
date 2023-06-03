@@ -5,7 +5,7 @@ from setuptools import setup
 WORK_DIRECTORY = "/".join(__file__.split("/")[:-1])
 sys.path.append(f"{WORK_DIRECTORY}/mmcore/bin")
 
-print("""
+#print("""
 Copyright (c) 2022. CONTEXTMACHINE. AEC. 
 Computational Geometry, Digital Engineering and Optimizing your construction process.    
 ------------------------------------------------------------------------------------------------------------------------    

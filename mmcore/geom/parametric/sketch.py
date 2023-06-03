@@ -205,7 +205,7 @@ class ProxyDescriptor(typing.Generic[T]):
             return res if res is not None else self.default
 
     def __set__(self, inst: T, v):
-        # print(f"event: set {self.proxy_name}/{self.name}->{v}")
+        # #print(f"event: set {self.proxy_name}/{self.name}->{v}")
         if not self.no_set:
             try:
 
@@ -349,7 +349,7 @@ class NurbsSurface(ProxyParametricObject):
 
         self._proxy.set_ctrlpts(list(self.control_points), (self.size_u, self.size_v))
         # self._proxy.ctrlpts=self.control_points
-        # #print(self)
+        # ##print(self)
 
         self._proxy.degree_u, self._proxy.degree_v = self.degree
 
@@ -473,7 +473,7 @@ class PlaneLinear(ParametricObject):
 
     def __post_init__(self):
 
-        # print(unit(self.normal), self.xaxis, self.yaxis)
+        # #print(unit(self.normal), self.xaxis, self.yaxis)
         if self.xaxis is not None and self.yaxis is not None:
             self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
         elif self.normal is not None:
@@ -664,7 +664,7 @@ class HyPar4pt(ParametricObject):
 
             if res is not None:
                 re = ClosestPoint(res, i)(x0=0.5, bounds=[(0.0, 1.0)]).t
-                # print("RE", re)
+                # #print("RE", re)
                 if (re == 0.0) or (re == 1.0):
                     pass
                 else:
@@ -700,7 +700,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in side.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 try:
@@ -716,7 +716,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in vec.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
@@ -749,7 +749,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in side.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
@@ -958,7 +958,7 @@ class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
     def solution(self, t):
         r = self.gm.evaluate(t)
         r = np.array(r).T.flatten()
-        # print(self.point, r)
+        # #print(self.point, r)
 
         return euclidean(self.point, r)
 

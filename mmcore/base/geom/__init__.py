@@ -142,7 +142,7 @@ class GeometryObject(Object3D):
         else:
 
             self._geometry = v.uuid
-            # print(f"Geometry set event: {self.name} <- {self._geometry}")
+            # #print(f"Geometry set event: {self.name} <- {self._geometry}")
             geomdict[self._geometry] = v
 
     @property

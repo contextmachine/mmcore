@@ -123,7 +123,7 @@
                                             def gen_sheet3(x):
                                             tt=th.tree_to_list(x)
                                             for i, xx, in enumerate(tt):
-                                            #print i,xx
+                                            ##print i,xx
                                             for j, yy, in enumerate(xx):
                                             p=rg.AreaMassProperties.Compute(tt[i][j])
 
@@ -1074,7 +1074,7 @@
                                             def gen_sheet3(x):
                                             tt=th.tree_to_list(x)
                                             for i, xx, in enumerate(tt):
-                                            #print i,xx
+                                            ##print i,xx
                                             for j, yy, in enumerate(xx):
                                             p=rg.AreaMassProperties.Compute(tt[i][j])
 
@@ -1082,7 +1082,7 @@
                                             def gen_sheet4(x):
                                             tt=th.tree_to_list(x)
                                             for i, xx, in enumerate(tt):
-                                            #print i,xx
+                                            ##print i,xx
                                             for j, yy, in enumerate(xx):
                                             p=rg.AreaMassProperties.Compute(tt[i][j])
 
@@ -1598,7 +1598,7 @@
                                             if xx&lt;200:
                                             l[ii] = yy
                                             a=l
-                                            print(set(l))
+                                            #print(set(l))
                                         </item>
                                         <item name="Description" type_name="gh_string" type_code="10">Provides a
                                             scripting component.
@@ -2077,7 +2077,7 @@
                                             def gen_sheet3(x, s=("1","2")):
 
                                             for i, xx, in enumerate(th.tree_to_list(x)):
-                                            #print i,xx
+                                            ##print i,xx
                                             for j, yy, in enumerate(xx):
                                             u=i%2 == 0
                                             v=j%2 == 0
@@ -5814,7 +5814,7 @@
                                             "r") as f:
                                             data=decompress(y)
 
-                                            print data.keys()[0]
+                                            #print data.keys()[0]
                                             def encode_types(data):
                                             labels=[]
                                             points=[]

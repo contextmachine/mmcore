@@ -84,7 +84,6 @@ def bnd(shp, h, color=ColorRGB(100,100,100).decimal):
 
     md = MeshData(vertices=list(vrtx), indices=l)
     md.calc_indices()
-    md.calc_normals()
     buf = md.create_buffer()
     return AMesh(geometry=buf, uuid=uuid.uuid4().hex, material=material)
 
@@ -95,8 +94,19 @@ def simple_extrusion(shape, h):
     for hole in shape.holes:
         grp.add(bnd(hole, h))
 
-    s2=Shape(shape.boundary,shape.holes, h=h)
+    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
     grp.add(s2.mesh)
     grp.add(shape.mesh)
 
     return grp
+
+def md_extrusion(shape, h):
+    md = shape.mesh_data
+    for hole in shape.holes:
+        md.merge(MeshData.from_buffer_geometry(bnd(hole, h).geometry))
+
+    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
+    md.merge(s2.mesh)
+
+
+    return md

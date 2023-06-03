@@ -59,7 +59,7 @@ class DiffGeomSurface(object):
 
         _domain = self.instance.domain()
         if u in _domain or v in _domain:
-            print("<<<CORRECTING DOMAIN...>>>")
+            #print("<<<CORRECTING DOMAIN...>>>")
             div = 1000
             delta_u, delta_v = (_domain[0] - _domain[1]) / div, (
                     _domain[2] - _domain[3]
@@ -260,7 +260,7 @@ class Face(TopoDS_Face, BaseObject):
         a = map(_round, breptools_UVBounds(self))
         b = map(_round, self.adaptor.Surface().Surface().Bounds())
         if a != b:
-            print("a,b", a, b)
+            #print("a,b", a, b)
             return True
         return False
 
@@ -371,5 +371,5 @@ if __name__ == "__main__":
 
     sph = BRepPrimAPI_MakeSphere(1, 1).Face()
     fc = Face(sph)
-    print(fc.is_trimmed())
-    print(fc.is_planar())
+    #print(fc.is_trimmed())
+    #print(fc.is_planar())
