@@ -26,7 +26,7 @@ def resolve_pythonocc(conda=Conda.MICROMAMBA):
     pair = InstallTypes2(OsAndArch(platform.system(), platform.machine(), platform.processor()))
     match pair:
         case InstallTypes2.ARM_MACOS_IN_DOCKER:
-            #print("\n[mmcore] We are in Macos Docker Linux\n---\n")
+            ##print("\n[mmcore] We are in Macos Docker Linux\n---\n")
             proc=sb.Popen(["apt","install","wget"])
             proc.wait()
             sb.Popen(["wget",
@@ -36,15 +36,15 @@ def resolve_pythonocc(conda=Conda.MICROMAMBA):
                             stdout=sys.stdout, stderr=sys.stderr)
             proc.communicate()
 
-            #print("\n---\n[mmcore] done")
+            ##print("\n---\n[mmcore] done")
 
         case _:
-            #print(f"\n[mmcore] We are in {pair} (base case)\n---\n")
+            ##print(f"\n[mmcore] We are in {pair} (base case)\n---\n")
             proc = sb.Popen([f"{conda.value}", "install", "-y","-n", "base", "-c", "conda-forge", "pythonocc-core"],
                             stdout=sys.stdout, stderr=sys.stderr)
             proc.communicate()
 
-            #print("\n---\n[mmcore] done")
+            ##print("\n---\n[mmcore] done")
 
 
 if __name__ == "__main__":

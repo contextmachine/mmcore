@@ -558,7 +558,7 @@ class DoublyLinkedList:
     # Delete the elements from the start
     def delete_at_start(self):
         if self.start_node is None:
-            print("The Linked list is empty, no element to delete")
+            #print("The Linked list is empty, no element to delete")
             return
         if self.start_node.next is None:
             self.start_node = None
@@ -571,7 +571,7 @@ class DoublyLinkedList:
     def delete_at_end(self):
         # Check if the List is empty
         if self.start_node is None:
-            print("The Linked list is empty, no element to delete")
+            #print("The Linked list is empty, no element to delete")
             return
         if self.start_node.next is None:
             self.start_node = None
@@ -640,7 +640,7 @@ class DoublyLinkedList:
 
     def remove(self, v):
         if self.start_node is None:
-            print("The Linked list is empty, no element to delete")
+            #print("The Linked list is empty, no element to delete")
             return
         temp = self.start_node
         self._i = 0
@@ -663,12 +663,12 @@ class DoublyLinkedList:
     # Traversing and Displaying each element of the list
     def display(self):
         if self.start_node is None:
-            print("The list is empty")
+            #print("The list is empty")
             return
         else:
             n = self.start_node
             while n is not None:
-                print("Element is: ", n.data)
+                #print("Element is: ", n.data)
                 n = n.next
         print("\n")
 
@@ -722,7 +722,7 @@ class DCLL:
     >>> dcll
     DCLL(5) -> 3 -> 6 -> 4 -> 9 -> 4 -> 5
     >>> for i in dcll:
-    ...     print(i)
+    ...     #print(i)
     5
     3
     6
@@ -866,7 +866,7 @@ class DCLL:
         # next node of it
         temp = self.head
         while temp.data != value2:
-            print(temp, temp.data)
+            #print(temp, temp.data)
             temp = temp.next
         _next = temp.next
 

@@ -173,7 +173,7 @@ gp_Vec.__getstate__ = gp_Pnt_get_state
 gp_Vec.__setstate__ = gp_Pnt_set_state
 # equality, not identity comparison
 gp_Pnt.__eq__ = gp_Pnt_equal
-# print gp_Pnt() should return something informative...
+# #print gp_Pnt() should return something informative...
 gp_Vec.__repr__ = gp_vec_print
 gp_Vec.__str__ = gp_vec_print
 gp_Pnt.__repr__ = gp_pnt_print
@@ -610,10 +610,10 @@ def sew_shapes(shapes, tolerance=0.001):
         else:
             sew.Add(shp)
     sew.Perform()
-    print("n degenerated shapes", sew.NbDegeneratedShapes())
-    print("n deleted faces:", sew.NbDeletedFaces())
-    print("n free edges", sew.NbFreeEdges())
-    print("n multiple edges:", sew.NbMultipleEdges())
+    #print("n degenerated shapes", sew.NbDegeneratedShapes())
+    #print("n deleted faces:", sew.NbDeletedFaces())
+    #print("n free edges", sew.NbFreeEdges())
+    #print("n multiple edges:", sew.NbMultipleEdges())
     result = ShapeToTopology()(sew.SewedShape())
     return result
 

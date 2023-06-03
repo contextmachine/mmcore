@@ -93,7 +93,7 @@ ENTRYPOINT {{stringify(app.dockerfile.entrypoint)}}
     def app(self):
         with open("config.yaml", "r") as config_stream:
             return DictSchema(yaml.load(config_stream, yaml.BaseLoader)).get_init_default().app
-            # print("\n\nconfig:\n")
+            # #print("\n\nconfig:\n")
             # rich.print_json(json.dumps(data))
 
     @property

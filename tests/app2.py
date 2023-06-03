@@ -135,7 +135,7 @@ def tri_transform(line, next_line, flip=1, step=0.4):
         #panel @ tr
         panel @ t
         d, i = KD.query(x.origin + (y * 0.3))
-        # print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
+        # #print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
         # panel.properties |= ldt[i].__dict__
         grp.add(panel)
     return grp.root()
@@ -155,7 +155,7 @@ def tri_transform_gen(line, next_line, flip=1, step=0.4):
         #panel @ tr
 
         #d, i = KD.query(x.origin + (y * 0.3))
-        # print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
+        # #print(x.origin, x.origin + (y * 0.3), d, i, ldt[i])
         # panel.properties |= ldt[i].__dict__
         yield t
 
@@ -276,15 +276,15 @@ class SubSyst:
         #                  uuid=uuid.uuid4().hex,
         #                  material=m)
         #    centt = (cent@o.matrix).tolist()[:-1]
-        #    print(o)
+        #    #print(o)
         #    d, idx = KD.query(centt, eps=0.00001)
-        #    print(d,idx,centt, ldt[idx])
+        #    #print(d,idx,centt, ldt[idx])
         #    panel @ o
         #
         #    prp=dict(ldt[idx].__dict__)
-        #    print(prp.pop("x"))
-        #    print(prp.pop("y"))
-        #    print(prp.pop("z"))
+        #    #print(prp.pop("x"))
+        #    #print(prp.pop("y"))
+        #    #print(prp.pop("z"))
         #    panel.properties = prp
         #    _panels.add(panel)
         # return _panels

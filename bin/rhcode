@@ -13,7 +13,7 @@ import cxmdata as cxd
 import importlib
 
 importlib.reload(cxd)
-#print('IS_INSIDE_RHINOCODE', cxd.IS_INSIDE_RHINOCODE)
+##print('IS_INSIDE_RHINOCODE', cxd.IS_INSIDE_RHINOCODE)
 
 
 class SelfProxy:
@@ -31,7 +31,7 @@ def stop(slf):
 
 def main(sock, server_address):
     sock.bind(server_address)
-    print("start sucsess")
+    #print("start sucsess")
     while True:
 
         data, address = sock.recvfrom(65507)
@@ -45,7 +45,7 @@ def main(sock, server_address):
             try:
 
                 outp = eval_py(data)
-                print('response {} 200'.format(address))
+                #print('response {} 200'.format(address))
                 sent = sock.sendto(outp, address)
 
             except KeyboardInterrupt as err:
@@ -54,7 +54,7 @@ def main(sock, server_address):
             except Exception as err:
                 outperr = cxd.CxmData({"statuscode": 400, "msg": {"err": repr(err)}})
                 sent = sock.sendto(outperr, address)
-                print('response {} 400\n\n\t{}'.format(address, repr(err)))
+                #print('response {} 400\n\n\t{}'.format(address, repr(err)))
 
 
 def eval_py(data):
@@ -69,7 +69,7 @@ def eval_py(data):
     for output_param in ctxx["output"]:
         outp[output_param] = dt2[output_param]
     dt = cxd.CxmData(outp)
-    print(outp)
+    #print(outp)
     return dt
 
 
@@ -82,6 +82,6 @@ if __name__ == "__main__":
 
     # _sock.bind(_server_address)
 
-    print('starting up on %s port %s' % _server_address)
+    #print('starting up on %s port %s' % _server_address)
 
     main(_sock, _server_address)

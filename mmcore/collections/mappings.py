@@ -16,7 +16,7 @@ class MultiDict(dict):
             item = [v]
             dict.__setitem__(self, k, item)
         except Exception as err:
-            print(f"Unexpected {err=}, {type(err)=}")
+            #print(f"Unexpected {err=}, {type(err)=}")
             raise
 
     def __getitem__(self, __k):
@@ -31,21 +31,21 @@ class pathdict(dict):
 
     def __getitem__(self, keys):
         if len(keys) == 1:
-            print("final: ", keys)
+            #print("final: ", keys)
             return dict.__getitem__(self, keys[0])
         else:
             k = keys.pop(0)
-            print(k, keys)
+            #print(k, keys)
 
             return self[k].__getitem__(keys)
 
     def __setitem__(self, keys, v):
         if len(keys) == 1:
-            print("final: ", keys)
+            #print("final: ", keys)
             return dict.__setitem__(self, keys[0], v)
         else:
             k = list(keys).pop(0)
-            print(k)
+            #print(k)
             if self.get(k) is None:
                 self[k] = pathdict({})
             self[k].__setitem__(keys, v)

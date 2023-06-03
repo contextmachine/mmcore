@@ -79,7 +79,7 @@ if __name__ == "__main__":
         for j in range(5):
             for i in np.linspace(0, 1, 100):
                 grid(target_point=orbit.evaluate(i))
-                # print(grid.target_point)
+                # #print(grid.target_point)
                 time.sleep(sleeptime)
 
 

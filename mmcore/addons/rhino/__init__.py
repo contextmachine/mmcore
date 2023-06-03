@@ -9,7 +9,7 @@ with ModuleResolver() as rsl:
 import rhino3dm
 
 
-print(rhino3dm.Point3d(1, 2, 3))
+#print(rhino3dm.Point3d(1, 2, 3))
 
 
 from mmcore.addons.rhino.native import random

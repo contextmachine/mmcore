@@ -208,3 +208,24 @@ class Shape:
 
     def is_empty(self):
         return self.boundary == []
+
+@dataclasses.dataclass
+class Boundary:
+    bounds: 'list[typing.Union[Shape, Boundary]]'
+    boundaries: dataclasses.InitVar[typing.Optional[list[tuple[float]]]]
+
+    def __post_init__(self, boundaries):
+        def prs(obj):
+            if not isinstance(obj, (Boundary, Shape)):
+                if isinstance(obj, (list,tuple,np.ndarray)):
+                    if isinstance(obj[0][0],  (list,tuple,np.ndarray)):
+
+                        return Boundary([prs(o) for o in obj])
+                    elif isinstance(obj[0][0],float):
+                        return Shape(obj)
+                else:
+                    pass
+            else:
+                return obj
+        self.bounds=[prs() for b in boundaries]
+

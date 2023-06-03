@@ -246,7 +246,7 @@ class ServerBind():
             await websocket.accept()
             while True:
                 data = await websocket.receive_json()
-                print(f"WS: {data}")
+                #print(f"WS: {data}")
                 obj = adict[data["uuid"]]
                 if "body" in data.keys():
                     if not ((data["body"] is None) or (data["body"] == {})):
@@ -264,7 +264,7 @@ class ServerBind():
 
                 inst.thread.start()
             except OSError as err:
-                print("Shared State server is already to startup. Shutdown...")
+                #print("Shared State server is already to startup. Shutdown...")
 
         return inst
 

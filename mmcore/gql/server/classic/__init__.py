@@ -115,7 +115,7 @@ def mutation(slf):
             def wrap(value: type(getattr(target, _name))) -> target.bind_class:
                 tp=type(getattr(target, _name))
                 target.__setattr__(name, value)
-                #print(tp)
+                ##print(tp)
                 return target.get_child_three()["object"]
 
             return wrap

@@ -53,13 +53,13 @@ def main(args):
     except Exception as err:
         raise err
 
-    # #print(args)
+    # ##print(args)
     for arg in args:
 
         if arg:
 
             for k, v in dotenv.dotenv_values(dotenv.find_dotenv(filename=arg, usecwd=True)).items():
-                print(f"export {k}={v}")
+                #print(f"export {k}={v}")
 
                 # sys.stdin.write(f"export {k}={v}")
 

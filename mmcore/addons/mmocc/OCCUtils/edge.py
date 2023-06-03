@@ -344,7 +344,7 @@ class Edge(TopoDS_Edge, BaseObject):
         try:
             npts = GCPnts_UniformAbscissa(self.adaptor, n_pts, _lbound, _ubound)
         except:
-            print("Warning : GCPnts_UniformAbscissa failed")
+            #print("Warning : GCPnts_UniformAbscissa failed")
         if npts.IsDone():
             tmp = []
             for i in xrange(1, npts.NbPoints() + 1):
@@ -448,4 +448,4 @@ if __name__ == "__main__":
     t = Topo(b)
     ed = next(t.edges())
     my_e = Edge(ed)
-    print(my_e.tolerance)
+    #print(my_e.tolerance)
