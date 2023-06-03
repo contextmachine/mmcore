@@ -11,6 +11,13 @@ from typing_extensions import runtime_checkable
 import mmcore.base
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 
+buffer_geometry_itemsize_map = {
+    "position": 3,
+    "normal": 3,
+    "index": 3,
+    "color": 3,
+    'uv': 2
+}
 
 T = typing.TypeVar("T")
 S = typing.TypeVar("S")
@@ -101,11 +108,11 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
             })
 
         if self.indices is not None:
-            #print(self.indices)
-            indices=self.indices
+            print(self.indices)
+
             selector[2] = '1'
-            if isinstance(self.indices[0] ,list):
-                indices=list(more_itertools.flatten(self.indices))
+
+            indices=list(more_itertools.flatten(self.indices))
             data["index"] = mmcore.base.models.gql.Index(**dict(type='Uint16Array',
                                                                 array=np.array(indices,
                                                                                dtype=int).flatten().tolist()))
@@ -283,7 +290,22 @@ class DictToAnyConvertor(Convertor[dict, typing.Any]):
             dct[self.type_map[k]] = v
         return self.target(**dct)
 
-
+class DictToAnyMeshDataConvertor(Convertor[dict, typing.Any]):
+    source: dict
+    target: typing.Any
+    def __init__(self, source: S, target, **kwargs):
+        super().__init__(source, **kwargs)
+        self.target=target
+    def convert(self) -> typing.Any:
+        dct = dict()
+        for k, v in self.source.items():
+            flt=np.array(v).flatten()
+            print("VVV", k, v)
+            if k in buffer_geometry_itemsize_map.keys():
+                dct[self.type_map[k]] = flt.reshape((flt.shape[0]//3,3)).tolist()
+            else:
+                dct[self.type_map[k]]=v
+        return self.target(**dct)
 class DataclassToDictConvertor(Convertor[typing.Any, dict]):
 
     def convert(self) -> dict:

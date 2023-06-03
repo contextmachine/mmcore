@@ -14,10 +14,12 @@ import typing
 import uuid as muuid
 import uuid as _uuid
 import numpy as np
+from more_itertools import flatten
+
 import mmcore.base.models.gql
 from mmcore.base.basic import Object3D, Group, AMesh
 from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
-    RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor
+    RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor, DictToAnyMeshDataConvertor
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints, MeshPhongMaterial, Material, PointsMaterial, \
     LineBasicMaterial
@@ -36,6 +38,13 @@ buffer_geometry_type_map = {
     "color": "colors",
     'uv': "uv",
     'uuid': 'uuid'
+}
+buffer_geometry_itemsize_map = {
+    "position": 3,
+    "normal": 3,
+    "index": 3,
+    "color": 3,
+    'uv': 2
 }
 
 
@@ -234,7 +243,7 @@ class BufferGeometryToMeshDataConvertor(Convertor):
         for k, v in DataclassToDictConvertor(self.source.data.attributes).convert().items():
             dct[k] = v['array']
 
-        return DictToAnyConvertor(dct, MeshData, type_map=self.type_map).convert()
+        return DictToAnyMeshDataConvertor(dct, MeshData, type_map=self.type_map).convert()
 
 
 class BufferGeometryDictToMeshDataConvertor(BufferGeometryToMeshDataConvertor):
@@ -270,6 +279,10 @@ class MeshData:
         self._buf = None
         if self.uuid is None:
             self.uuid = uuid.uuid4().hex
+        if self.indices is not None:
+            f = np.array(self.indices).flatten()
+
+            self.indices=np.array(self.indices).flatten().reshape((len(f) // 3, 3))
 
     def asdict(self):
         dct = {}
@@ -291,7 +304,6 @@ class MeshData:
     def faces(self):
 
         if (self.indices is not None) and (self.indices != ()):
-
             l = []
             for i in range(len(self.indices)):
                 l.append(self.get_face(i))
@@ -302,12 +314,13 @@ class MeshData:
 
     def merge(self, other: 'MeshData'):
         count = np.array(self.indices).max()
-        dct = dict()
+
+        dct = dict(vertices=np.array(self.vertices).tolist()+np.array(other.vertices).tolist())
         if ("indices" in self.__dict__.keys()) and ("indices" in other.__dict__.keys()):
-            dct["indices"] = self.indices + (np.array(other.indices, dtype=int) + count).tolist()
+            dct["indices"] =np.array(self.indices).tolist() + (np.array(other.indices, dtype=int) + count).tolist()
 
         for k in self.__dict__.keys():
-            if (k in other.__dict__) and (k != "indices") and (k != "uuid"):
+            if (k in other.__dict__) and (k != "indices") and (k != "uuid")  and (k != "vertices"):
                 if all([not isinstance(self.__dict__[k], np.ndarray),
                         not isinstance(other.__dict__[k], np.ndarray),
                         self.__dict__[k] is not None,
@@ -323,6 +336,7 @@ class MeshData:
                 else:
                     pass
         dct["uuid"] = uuid.uuid4().hex
+
         return MeshData(**dct)
 
     def to_mesh(self):
@@ -372,7 +386,7 @@ class MeshObject(GeometryObject):
 
         return inst
 
-
+flatten
 class RhinoBrepObject(MeshObject):
     material_type = MeshPhongMaterial
     brep: typing.Any

@@ -4,6 +4,7 @@ import uuid
 
 import copy
 import numpy as np
+from more_itertools import flatten
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
@@ -87,26 +88,84 @@ def bnd(shp, h, color=ColorRGB(100,100,100).decimal):
     buf = md.create_buffer()
     return AMesh(geometry=buf, uuid=uuid.uuid4().hex, material=material)
 
+def tess(shp, h):
+    a2 = np.array(shp.mesh_data.vertices)
+    a2[..., 2] += h
+    *l, = zip(shp.mesh_data.vertices.tolist(), a2.tolist())
+    *ll, = flatten(l)
+    ixs = []
+
+    def tess_bound(boundary):
+        for i, v in enumerate(boundary):
+            if i > len(boundary):
+                yield boundary[i] + [0], boundary[i] + [h], boundary[i + 1] + [h], boundary[i] + [0], boundary[
+                    i - 1] + [0], boundary[i - 1] + [h]
+            else:
+                yield boundary[i] + [0], boundary[i] + [h], boundary[i - 1] + [h], boundary[i] + [0], boundary[
+                    i - 1] + [0], boundary[i - 1] + [h]
+
+    for i in [tess_bound(bndr) for bndr in [shp.boundary] + shp.holes]:
+        for j in i:
+            for jj in j:
+                ixs.append(ll.index(jj))
+
+    return ixs, ll
+
+
+from mmcore.geom.csg import CSG, BspPolygon
+
 
 def simple_extrusion(shape, h):
     grp=AGroup()
-    grp.add(bnd(shape.boundary, h))
-    for hole in shape.holes:
-        grp.add(bnd(hole, h))
-
+    ixs,vxs=tess(shape, h)
+    grp.add(MeshData(vertices=vxs, indices=ixs).to_mesh())
     s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
     grp.add(s2.mesh)
     grp.add(shape.mesh)
 
     return grp
 
+def mesher(obj, **kwargs):
+        grp2 = AGroup()
+        for p in obj.toPolygons():
+            grp2.add(p.mesh(**kwargs))
+        return grp2
+
+def csg_extrusion(shape, h):
+    grp=AGroup()
+    ixs,vxs=tess(shape, h)
+
+    polys=[]
+    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
+    for sshape in shape.mesh_data.faces:
+        polys.append(BspPolygon(sshape))
+    for ss2 in s2.mesh_data.faces:
+        polys.append(BspPolygon(ss2))
+
+    md = MeshData(vertices=vxs, indices=ixs)
+
+    for mmd in md.faces[1:]:
+        print(mmd)
+        polys.append(BspPolygon(mmd))
+
+    csgm = CSG.fromPolygons(polys).refine()
+    csgm=csgm - CSG.cylinder(start=(0, 0, 50), end=(-200, 0, 25), radius=15)
+    grp.add(mesher(csgm, material=MeshPhongMaterial(color=ColorRGB(40, 100, 140).decimal)))
+
+
+    return grp
+
 def md_extrusion(shape, h):
     md = shape.mesh_data
+    md=md.merge(   MeshData.from_buffer_geometry(bnd(shape.boundary, h).geometry))
     for hole in shape.holes:
-        md.merge(MeshData.from_buffer_geometry(bnd(hole, h).geometry))
-
+        print(len(md.vertices))
+        r = MeshData.from_buffer_geometry(bnd(hole, h).geometry)
+        #print(r)
+        md=md.merge(r)
+    #print(mdd)
     s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
-    md.merge(s2.mesh)
+    md=md.merge(s2.mesh_data)
 
 
     return md

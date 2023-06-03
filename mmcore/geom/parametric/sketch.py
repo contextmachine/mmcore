@@ -145,6 +145,7 @@ class Linear(ParametricObject):
     def __hash__(self):
         return
 
+
 class ParametricLineObject(): ...
 
 
@@ -289,6 +290,7 @@ class NurbsCurve(ProxyParametricObject):
     def tan(self, t):
         pt = tangent(self.proxy, t)
         return NormalPoint(*pt)
+
 
 
 class ProxyMethod:
@@ -1173,7 +1175,7 @@ class Circle3D(Circle):
     def plane(self):
         return PlaneLinear(normal=unit(self.normal), origin=self.origin)
 
-    @functools.lru_cache(maxsize=1024)
+    @functools.lru_cache(maxsize=128)
     def evaluate(self, t):
         try:
             return self.plane.orient(super().evaluate(t), super().plane)
