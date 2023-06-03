@@ -4,7 +4,7 @@
 #   since we already do most of the work on our side.
 
 import math
-import numpy as np
+
 import sys
 from abc import abstractmethod
 from functools import reduce
@@ -12,11 +12,7 @@ from functools import reduce
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial
-from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import PlaneLinear, TOLERANCE
-from scipy.spatial import distance
 
-from mmcore.geom.shapes import Shape
 
 # increase the max number of recursive calls
 sys.setrecursionlimit(10000)  # my default is 1000, increasing too much may cause a seg fault
