@@ -3,7 +3,7 @@ import numpy as np
 from mmcore.base import ageomdict
 from mmcore.base.geom import MeshData
 from mmcore.geom.shapes import Shape
-from mmcore.geom.extrusion import simple_extrusion, md_extrusion
+from mmcore.geom.extrusion import simple_extrusion
 import json
 
 HIGH = 2

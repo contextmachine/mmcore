@@ -8,7 +8,7 @@ from collections import namedtuple
 
 from mmcore.base import A, AGroup, ALine
 from mmcore.base.models.gql import LineBasicMaterial
-from mmcore.geom.parametric import Circle3D
+from mmcore.geom.parametric.sketch import Circle3D
 from mmcore.geom.vectors import unit
 
 GridProps = namedtuple("GridProps", ["xsize", "ysize", "xstep", "ystep"])
