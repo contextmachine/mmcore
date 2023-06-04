@@ -95,3 +95,5 @@ serve.start()  # Server run in non-blocked thread on http://localhost:7711
 def nurbs_resolver(**kws):
     n = NurbsCurve(kws.get('x'))
     return n.evaluate(np.linspace(0, 1, 100)).tolist()
+
+# Now, interact with extrusion model in console. Yo can transform , change color and more ...
