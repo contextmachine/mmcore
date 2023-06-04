@@ -62,8 +62,7 @@ setup(
               'mmcore.base.models.gql',
               'mmcore.base.registry',
               'mmcore.base.descriptors',
-              'mmcore.base.delegate',
-              'mmcore.datatools'
+              'mmcore.base.delegate'
 
               ],
     url='',
