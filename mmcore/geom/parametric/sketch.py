@@ -755,9 +755,7 @@ class Circle3D(Circle):
     torsion: tuple[float, float, float] = (1, 0, 0)  # The xaxis value of the base plane,
 
     # defines the point of origin of the circle
-    @property
-    def __params__(self):
-        return dataclasses.asdict(self)
+
 
     @property
     def plane(self):
@@ -770,3 +768,10 @@ class Circle3D(Circle):
         except NotImplementedError:
             return remove_crd(
                 add_crd(super().evaluate(t), 1).reshape((4,)) @ self.plane.transform_from_other(WorldXY).matrix.T)
+
+    @property
+    def __params__(self):
+        return [self.origin, self.normal]
+
+    def __hash__(self):
+        return super(ParametricObject, self).__hash__()

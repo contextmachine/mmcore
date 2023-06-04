@@ -5,7 +5,7 @@ from setuptools import setup
 WORK_DIRECTORY = "/".join(__file__.split("/")[:-1])
 sys.path.append(f"{WORK_DIRECTORY}/mmcore/bin")
 
-#print("""
+print("""
 Copyright (c) 2022. CONTEXTMACHINE. AEC. 
 Computational Geometry, Digital Engineering and Optimizing your construction process.    
 ------------------------------------------------------------------------------------------------------------------------    
@@ -24,11 +24,12 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 setup(
     name='mmcore',
-    version='0.2.5',
+    version='0.2.7',
     packages=['mmcore', 'mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.parametric',
+
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
