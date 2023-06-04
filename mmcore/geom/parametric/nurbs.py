@@ -54,7 +54,16 @@ class NurbsCurve(ProxyParametricObject):
         self.proxy.delta = self.delta
         self.proxy.evaluate()
 
+    def resolve(self):
+        self.proxy.degree = self.degree
+        self.proxy.ctrlpts = self.control_points
+        self.knots = geomdl_utils.generate_knot_vector(self._proxy.degree, len(self._proxy.ctrlpts))
+        self.proxy.knotvector = self.knots
+        self.proxy.delta = self.delta
+
+
     def prepare_proxy(self):
+
         self._proxy = NURBS.Curve()
 
         self._proxy.degree = self.degree
@@ -68,8 +77,6 @@ class NurbsCurve(ProxyParametricObject):
             return np.asarray(self._proxy.evaluate_list(t))
         else:
             return np.asarray(self._proxy.evaluate_single(t))
-
-
 
     def tan(self, t):
         pt = tangent(self.proxy, t)
@@ -89,7 +96,6 @@ class NurbsCurve(ProxyParametricObject):
 
 @dataclasses.dataclass
 class NurbsSurface(ProxyParametricObject):
-
     _proxy = NURBS.Surface()
     control_points: typing.Iterable[typing.Iterable[float]]
     degree: tuple = ProxyDescriptor(proxy_name="degree", default=(3, 3))
@@ -166,7 +172,9 @@ class NurbsSurface(ProxyParametricObject):
 
     @property
     def __params__(self) -> typing.Any:
-        return self.closest_point, self.degree, self.domain, self.knots,  self.delta
+        return self.closest_point, self.degree, self.domain, self.knots, self.delta
+
+
 class ProxyGeometryDescriptor(AGeometryDescriptor, metaclass=ABCMeta):
     __proxy_dict__ = dict()
 
