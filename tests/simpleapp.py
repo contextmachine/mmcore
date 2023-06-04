@@ -11,7 +11,8 @@ import numpy as np
 from pyquaternion import Quaternion
 from mmcore.geom.transform import Transform, OwnerTransform
 from mmcore.base import AGroup, AMesh, ALine, adict
-from mmcore.geom.parametric import HypPar4ptGrid, ClosestPoint, PlaneLinear, Linear
+from mmcore.geom.parametric import HypPar4ptGrid, PlaneLinear, Linear
+from mmcore.geom.parametric.algorithms import ClosestPoint
 import multiprocess as mp
 from mmcore.collections import DoublyLinkedList
 from compas.geometry.transformations import matrix_from_frame_to_frame

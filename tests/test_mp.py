@@ -1,7 +1,8 @@
 import numpy as np
 import time
 
-from mmcore.geom.parametric import Pipe, NurbsCurve, Circle
+from mmcore.geom.parametric import NurbsCurve, Circle
+from mmcore.geom.parametric.pipe import Pipe
 
 
 def test():
