@@ -1,6 +1,6 @@
 [![Docker](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml)
 # mmcore
-===
+
 
 ## Base Docker Image
 
