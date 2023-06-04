@@ -218,7 +218,7 @@ class Object3D:
 
     def __repr__(self):
 
-        if int(os.getenv("INRHINO")) == 1:
+        if os.getenv("INRHINO") == '1':
             mm = "[mmcore]: "
 
             t = " " * (len("[mmcore]: ") + 1)
@@ -1576,6 +1576,7 @@ class AGeom(A):
         return "Geometry"
 
     def __call__(self, *args, **kwargs):
+
         res = super().__call__(*args, **kwargs)
         res |= {
             "geometry": self.geometry.uuid if self.geometry else None,

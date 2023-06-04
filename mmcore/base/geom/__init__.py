@@ -253,10 +253,10 @@ class BufferGeometryDictToMeshDataConvertor(BufferGeometryToMeshDataConvertor):
 
 @dataclasses.dataclass
 class MeshData:
-    vertices: typing.Union[list, tuple]
-    normals: typing.Optional[typing.Union[list, tuple]] = None
-    indices: typing.Optional[typing.Union[list, tuple]] = None
-    uv: typing.Optional[typing.Union[list, tuple]] = None
+    vertices: typing.Union[list, tuple, np.ndarray]
+    normals: typing.Optional[typing.Union[list, tuple, np.ndarray]] = None
+    indices: typing.Optional[typing.Union[list, tuple, np.ndarray]] = None
+    uv: typing.Optional[typing.Union[list, tuple, np.ndarray]] = None
     uuid: typing.Optional[str] = None
     _buff = None
 

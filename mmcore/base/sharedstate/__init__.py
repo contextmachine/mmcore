@@ -17,6 +17,8 @@ from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
 import uvicorn, fastapi
 from mmcore.base.registry import *
+import rpyc
+from rpyc import ThreadPoolServer, ClassicService, SlaveService
 
 
 class AllDesc:
@@ -40,6 +42,10 @@ from fastapi import WebSocket, WebSocketDisconnect, WebSocketException
 import mmcore.base.models.gql as gql_models
 from graphql.language import parse
 import graphql
+
+rpyc_input = dict()
+
+rpyc_namespace = dict(post=lambda k, v: rpyc_input.__setitem__(json.dumps(k), json.loads(v)))
 
 TYPE_CHECKING = False
 # language=GraphQl
@@ -111,8 +117,9 @@ oo = o.get_strawberry()
 from starlette.exceptions import HTTPException
 
 
-class ServerBind():
+class SharedStateServer():
     port: int = 7711
+    rpyc_port: int = 7799
 
     def __new__(cls, *args, **kwargs):
         if len(_server_binds) > 0:
@@ -246,46 +253,103 @@ class ServerBind():
             await websocket.accept()
             while True:
                 data = await websocket.receive_json()
-                #print(f"WS: {data}")
+                # print(f"WS: {data}")
                 obj = adict[data["uuid"]]
                 if "body" in data.keys():
                     if not ((data["body"] is None) or (data["body"] == {})):
                         obj(**data["body"])
                 await websocket.send_json(data=obj.root())
 
-
         def run():
 
             uvicorn.run("mmcore.base.sharedstate:app", port=inst.port, log_level="error")
 
+        def run_rpyc():
+            service = SlaveService()
+            service.namespace = rpyc_namespace
+            _serv = ThreadPoolServer(service, port=cls.rpyc_port)
+            _serv.start()
+
         inst.thread = th.Thread(target=run)
+        inst.rpyc_thread = th.Thread(target=run_rpyc)
+        inst.runtime_env = dict(inputs=dict(), out=dict())
+        inst.resolvers = dict()
+
+        @app.post("/resolver/{uid}")
+        async def external_post(uid: str, data: dict):
+
+            if uid in inst.resolvers.keys():
+                return inst.resolvers[uid](**data)
+            return inst.runtime_env["out"].get(uid)
+
+        @app.get("/resolver/{uid}")
+        async def external_get(uid: str):
+            return inst.runtime_env["out"].get(uid)
+
         if STARTUP:
             try:
 
                 inst.thread.start()
             except OSError as err:
-                #print("Shared State server is already to startup. Shutdown...")
+                print("Shared State server is already to startup. Shutdown...")
 
         return inst
 
     def stop(self):
-        self.thread.join(60)
+        self.thread.join(6)
 
     def start(self):
         self.thread.start()
 
+    def stop_rpyc(self):
+
+        self.rpyc_thread.join(6)
+
+    def resolver(self, func):
+        self.runtime_env["inputs"][func.__name__] = dict()
+        self.runtime_env["out"][func.__name__] = dict()
+
+        def wrapper(**kwargs):
+            self.runtime_env["inputs"][func.__name__] = kwargs
+            self.runtime_env["out"][func.__name__] = func(**self.runtime_env["inputs"][func.__name__])
+            return self.runtime_env["out"][func.__name__]
+
+        self.resolvers[str(func.__name__)] = wrapper
+        return wrapper
+
+    def add_resolver(self, name, func):
+        self.runtime_env["inputs"][name] = dict()
+        self.runtime_env["out"][name] = dict()
+
+        def wrapper(**kwargs):
+            self.runtime_env["inputs"][name] |= kwargs
+            self.runtime_env["out"][name] |= func(**self.runtime_env["inputs"][name])
+            return self.runtime_env["out"][name]
+
+        self.resolvers[str(name)] = wrapper
+
+    def start_rpyc(self):
+        self.rpyc_thread.start()
+
     def run(self):
         self.thread.run()
 
+    def run_rpyc(self):
+        self.rpyc_thread.run()
+
     def is_alive(self):
         return self.thread.is_alive()
+
+    def is_alive_rpyc(self):
+        return self.rpyc_thread.is_alive()
 
     def start_as_main(self, on_start=None, **kwargs):
         if kwargs.get("port"):
             self.port = kwargs.get("port")
         if on_start:
             on_start()
+
         uvicorn.run("mmcore.base.sharedstate:app", port=self.port, log_level="error", **kwargs)
 
 
-serve = ServerBind()
+serve = SharedStateServer()
