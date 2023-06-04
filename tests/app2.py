@@ -3,7 +3,8 @@ from collections import namedtuple
 
 from localparams import *
 from mmcore.collections import DoublyLinkedList
-from mmcore.geom.parametric import PlaneLinear, ClosestPoint, HypPar4ptGrid
+from mmcore.geom.parametric import PlaneLinear, HypPar4ptGrid
+from mmcore.geom.parametric.algorithms import ClosestPoint
 
 from mmcore.geom.transform import Transform
 from mmcore.geom.vectors import unit

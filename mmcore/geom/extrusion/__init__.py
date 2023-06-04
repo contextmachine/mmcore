@@ -128,6 +128,7 @@ def simple_extrusion(shape, h):
 def mesher(obj, **kwargs):
         grp2 = AGroup()
         for p in obj.toPolygons():
+            p.mesh_data()
             grp2.add(p.mesh(**kwargs))
         return grp2
 
@@ -140,7 +141,9 @@ def csg_extrusion(shape, h):
     for sshape in shape.mesh_data.faces:
         polys.append(BspPolygon(sshape))
     for ss2 in s2.mesh_data.faces:
-        polys.append(BspPolygon(ss2))
+        pl=BspPolygon(ss2)
+        pl.flip()
+        polys.append(pl)
 
     md = MeshData(vertices=vxs, indices=ixs)
 
@@ -155,17 +158,3 @@ def csg_extrusion(shape, h):
 
     return grp
 
-def md_extrusion(shape, h):
-    md = shape.mesh_data
-    md=md.merge(   MeshData.from_buffer_geometry(bnd(shape.boundary, h).geometry))
-    for hole in shape.holes:
-        print(len(md.vertices))
-        r = MeshData.from_buffer_geometry(bnd(hole, h).geometry)
-        #print(r)
-        md=md.merge(r)
-    #print(mdd)
-    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
-    md=md.merge(s2.mesh_data)
-
-
-    return md

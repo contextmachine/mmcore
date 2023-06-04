@@ -12,7 +12,8 @@ CubeInput = namedtuple("CubeInput", ["center", "u", "v", "h"])
 
 import mmcore
 from mmcore.geom.transform import Transform, add_w, remove_crd
-from mmcore.geom.parametric.sketch import PlaneLinear, line_plane_collision, ProximityPoints, Linear
+from mmcore.geom.parametric.sketch import PlaneLinear, line_plane_collision, Linear
+from mmcore.geom.parametric.algorithms import ProximityPoints
 from mmcore.geom.csg import CSG
 from mmcore.collections import DCLL
 

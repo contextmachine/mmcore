@@ -57,11 +57,11 @@ def get_connection_by_host_port(*pairs):
                 rpyc_conn = conn
                 break
         except ConnectionRefusedError:
-            #print(f"{host}:{port} fail...")
+            print(f"{host}:{port} fail...")
         except TimeoutError:
-            #print(f"{host}:{port} fail...")
+            print(f"{host}:{port} fail...")
         except socket.gaierror:
-            #print(f"{host}:{port} fail...")
+            print(f"{host}:{port} fail...")
         except Exception as err:
-            #print(f"{host}:{port} fail...\n{err}")
+            print(f"{host}:{port} fail...\n{err}")
     return rpyc_conn
