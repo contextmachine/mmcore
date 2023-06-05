@@ -29,7 +29,7 @@ setup(
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.parametric',
-                     'mmcore.geom.parametric.shapes',
+                     'mmcore.geom.shapes',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
