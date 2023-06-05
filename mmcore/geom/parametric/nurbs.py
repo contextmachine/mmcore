@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import typing
 import warnings
@@ -7,18 +8,27 @@ import geomdl
 import numpy as np
 from geomdl import utilities as geomdl_utils, NURBS
 from geomdl.operations import tangent
+from more_itertools import flatten
 
 from mmcore.base import AMesh, AGeometryDescriptor, APointsGeometryDescriptor, ALine, AGeom, \
-    APoints
+    APoints, ageomdict, AGroup
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import BufferGeometryObject, LineBasicMaterial, PointsMaterial, Data1, \
     Attributes1, Position
-
-from mmcore.geom.parametric.base import NormalPoint, ProxyDescriptor, ProxyParametricObject
-from mmcore.collections import ElementSequence
+from mmcore.base.models.pydantic import BufferGeometry
+from mmcore.geom.parametric.base import NormalPoint, ProxyAttributeDescriptor, ProxyParametricObject
+from mmcore.collections import ElementSequence, DoublyLinkedList
 from mmcore.geom.materials import ColorRGB
 
 from scipy import optimize
+
+
+@dataclasses.dataclass(eq=True, unsafe_hash=True)
+class LoftOptions:
+    degree: int = 1
+
+    def asdict(self):
+        return dataclasses.asdict(self)
 
 
 @dataclasses.dataclass
@@ -31,14 +41,14 @@ class NurbsCurve(ProxyParametricObject):
     def __params__(self) -> typing.Any:
         return self.closest_point, self.degree, self.domain, self.knots, self.delta
 
-    control_points: typing.Iterable[typing.Iterable[float]] = ProxyDescriptor(proxy_name="ctrlpts")
+    control_points: typing.Iterable[typing.Iterable[float]] = ProxyAttributeDescriptor(proxy_name="ctrlpts")
     delta: float = 0.01
     degree: int = 3
-    dimension: int = ProxyDescriptor(default=2)
-    rational: bool = ProxyDescriptor()
-    domain: typing.Optional[tuple[float, float]] = ProxyDescriptor()
+    dimension: int = ProxyAttributeDescriptor(default=2)
+    rational: bool = ProxyAttributeDescriptor()
+    domain: typing.Optional[tuple[float, float]] = ProxyAttributeDescriptor()
 
-    bbox: typing.Optional[list[list[float]]] = ProxyDescriptor()
+    bbox: typing.Optional[list[list[float]]] = ProxyAttributeDescriptor()
     knots: typing.Optional[list[float]] = None
     slices: int = 32
 
@@ -60,7 +70,6 @@ class NurbsCurve(ProxyParametricObject):
         self.knots = geomdl_utils.generate_knot_vector(self._proxy.degree, len(self._proxy.ctrlpts))
         self.proxy.knotvector = self.knots
         self.proxy.delta = self.delta
-
 
     def prepare_proxy(self):
 
@@ -96,20 +105,13 @@ class NurbsCurve(ProxyParametricObject):
 
 @dataclasses.dataclass
 class NurbsSurface(ProxyParametricObject):
-    _proxy = NURBS.Surface()
-    control_points: typing.Iterable[typing.Iterable[float]]
-    degree: tuple = ProxyDescriptor(proxy_name="degree", default=(3, 3))
+    cpts: dataclasses.InitVar[typing.Iterable[typing.Iterable[float]]]
+
+    degree_u: int = 3
+    degree_v: int = 3,
     delta: float = 0.025
-    degree_u: int = ProxyDescriptor(proxy_name="degree_u", default=3)
-    degree_v: int = ProxyDescriptor(proxy_name="degree_v", default=3)
-    size_u: int = ProxyDescriptor(proxy_name="ctrlpts_size_u", default=6)
-    size_v: int = ProxyDescriptor(proxy_name="ctrlpts_size_v", default=6)
-    dimentions: int = ProxyDescriptor(proxy_name="dimentions", default=3)
-    knots_u: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector_u", no_set=True)
-    knots_v: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector_v", no_set=True)
-    knots: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector", no_set=True)
-    domain: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="domain", no_set=True)
-    trims: tuple = ()
+
+    dimension: int = ProxyAttributeDescriptor(default=3)
 
     @property
     def proxy(self):
@@ -119,16 +121,30 @@ class NurbsSurface(ProxyParametricObject):
             self.prepare_proxy()
             return self._proxy
 
-    def __post_init__(self):
+    def __post_init__(self, cpts):
 
-        self.proxy.ctrlpts = self.control_points
+        self.prepare_proxy()
 
-        self.proxy.knotvector_u = geomdl_utils.generate_knot_vector(self._proxy.degree[0], self.size_u)
-        self.proxy.knotvector_v = geomdl_utils.generate_knot_vector(self._proxy.degree[1], self.size_v)
+        self.proxy._control_points_size[0] = np.array(cpts).shape[0]
+        self.proxy._control_points_size[1] = np.array(cpts).shape[1]
+
+        self.proxy.degree_u, self.proxy.degree_v = self.degree
+
+        *fl, = np.array(cpts).reshape((self.proxy._control_points_size[0] * self.proxy._control_points_size[1], 3),
+                                      order="C").tolist()
+
+        self.proxy.ctrlpts = fl
         self.proxy.delta = self.delta
-        self.proxy.evaluate()
+
+        self.proxy.knotvector_u = geomdl_utils.generate_knot_vector(self._proxy.degree[0], self.proxy.ctrlpts_size_u)
+        self.proxy.knotvector_v = geomdl_utils.generate_knot_vector(self._proxy.degree[1], self.proxy.ctrlpts_size_v)
+        self.control_points = cpts
 
         # u,v=self.size_u, self.size_v
+
+    @property
+    def degree(self):
+        return self.degree_u, self.degree_v
 
     def evaluate(self, t):
         if len(np.array(t).shape) > 2:
@@ -141,11 +157,7 @@ class NurbsSurface(ProxyParametricObject):
 
     def prepare_proxy(self):
 
-        self._proxy.set_ctrlpts(list(self.control_points), (self.size_u, self.size_v))
-        # self._proxy.ctrlpts=self.control_points
-        # ##print(self)
-
-        self._proxy.degree_u, self._proxy.degree_v = self.degree
+        self._proxy = NURBS.Surface()
 
     def normal(self, t):
         return geomdl.operations.normal(self.proxy, t)
@@ -156,11 +168,12 @@ class NurbsSurface(ProxyParametricObject):
 
     @property
     def mesh_data(self) -> MeshData:
-        self.proxy.tessellate()
+        # self.proxy.tessellate()
         vertseq = ElementSequence(self._proxy.vertices)
         faceseq = ElementSequence(self._proxy.faces)
         uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
-        normals = [v for p, v in geomdl.operations.normal(self._proxy, uv.tolist())]
+
+        normals = [pv[1] for pv in geomdl.operations.normal(self._proxy, uv.tolist())]
         return MeshData(vertices=np.array(vertseq['data'], dtype=float),
                         normals=np.array(normals, dtype=float),
                         indices=np.array(faceseq["vertex_ids"],
@@ -174,8 +187,12 @@ class NurbsSurface(ProxyParametricObject):
     def __params__(self) -> typing.Any:
         return self.closest_point, self.degree, self.domain, self.knots, self.delta
 
+    @property
+    def dim(self) -> int:
+        return 2
 
-class ProxyGeometryDescriptor(AGeometryDescriptor, metaclass=ABCMeta):
+
+class ProxyGeometryDescriptor(AGeometryDescriptor):
     __proxy_dict__ = dict()
 
     def __init__(self, default=None):
@@ -185,12 +202,18 @@ class ProxyGeometryDescriptor(AGeometryDescriptor, metaclass=ABCMeta):
         return super().__get__(instance, owner)
 
     def __set__(self, instance, value):
-        super().__set__(instance, self.solve_proxy(instance, value))
+        geom = self.solve_proxy(instance, value)
+        ageomdict[geom.uuid] = geom
+        instance._geometry = geom.uuid
 
     def __set_name__(self, owner, name):
         super().__set_name__(owner, name)
+        self._ref_name = "_ref" + self._name
         owner.__ref__ = property(fget=lambda slf: self,
                                  doc="Access to reference parametric NURBS Surface object. Read only")
+        setattr(owner, self.refname, property(fget=lambda slf: self.proxy_namespace[str(id(slf))],
+                                              doc="Access to reference parametric NURBS Surface object. Read only"))
+
         if not (name in self.__proxy_dict__.keys()):
             self.__proxy_dict__[name] = dict()
         owner._ref_extra = dict()
@@ -200,7 +223,11 @@ class ProxyGeometryDescriptor(AGeometryDescriptor, metaclass=ABCMeta):
 
     @abstractmethod
     def solve_geometry(self, instance):
-        pass
+        ...
+
+    @property
+    def refname(self):
+        return f'__ref{self._ref_name}'
 
     @abstractmethod
     def solve_proxy(self, instance, control_points):
@@ -214,27 +241,25 @@ class ProxyGeometryDescriptor(AGeometryDescriptor, metaclass=ABCMeta):
 class NurbsProxyDescriptor(ProxyGeometryDescriptor):
     def __set_name__(self, owner, name):
         super().__set_name__(owner, name)
-        owner.control_points = property(fget=lambda slf: self.proxy_namespace.get(str(id(slf))).control_points,
+        owner.control_points = property(fget=lambda slf: self.proxy_namespace.get(str(id(slf)))._ref.cntrlpts,
+
                                         doc="NURBS Surface control points.")
 
     def solve_proxy(self, instance, control_points):
-        ...
         arr = np.array(control_points)
         su, sv, b = arr.shape
         degu = su - 1 if su >= 4 else 3
         degv = sv - 1 if sv >= 4 else 3
 
         self.__proxy_dict__[self._name[1:]][str(id(instance))] = NurbsSurface(
-            control_points=arr.reshape((su * sv, b)).tolist(),
-            size_u=su,
-            size_v=sv,
+            control_points=arr.flatten().tolist(),
             degree_u=degu,
             degree_v=degv,
             **instance.__ref_extra__)
         return self.solve_geometry(instance)
 
     def solve_geometry(self, instance) -> BufferGeometryObject:
-        return self.proxy_namespace[str(id(instance))].tessellate().create_buffer()
+        return getattr(instance, self.refname).tessellate()
 
 
 class NurbsCurveProxyDescriptor(NurbsProxyDescriptor, APointsGeometryDescriptor):
@@ -244,20 +269,41 @@ class NurbsCurveProxyDescriptor(NurbsProxyDescriptor, APointsGeometryDescriptor)
 
 
 class NurbsSurfaceProxyDescriptor(NurbsProxyDescriptor):
-    def solve_proxy(self, instance, control_points):
-        arr = np.array(control_points)
+    def solve_proxy(self, instance, value):
+        arr = np.array(value)
         su, sv, b = arr.shape
-        degu = su - 1 if su >= 4 else 3
-        degv = sv - 1 if sv >= 4 else 3
+        print(su, sv)
+        degu = su - 1
+        degv = sv + 1 if sv <= 2 else 3
 
         self.__proxy_dict__[self._name[1:]][str(id(instance))] = NurbsSurface(
-            control_points=arr.reshape((su * sv, b)).tolist(),
-            size_u=su,
-            size_v=sv,
+            control_points=arr.tolist(),
             degree_u=degu,
             degree_v=degv,
+
             **instance.__ref_extra__)
+
         return self.solve_geometry(instance)
+
+
+class NurbsLoftProxyDescriptor(NurbsSurfaceProxyDescriptor):
+
+    def solve_proxy(self, instance, value):
+        self.__proxy_dict__[self._name[1:]][str(id(instance))] = self.solve_loft(instance, value)
+        return self.solve_geometry(instance)
+
+    def solve_loft(self, instance, value):
+        crvspt = value.pop("control_points")
+        instance.__ref_extra__ |= value
+        crvs = []
+        for crv in crvspt:
+            crvs.append(NurbsCurve(crv))
+
+        lsp = np.linspace(*np.array(ElementSequence(crvs)["control_points"]), 3)
+        prms = copy.deepcopy(instance.__ref_extra__)
+        ud, vd = prms.pop("degree")
+
+        return NurbsSurface(lsp, degree_u=ud, degree_v=vd, **prms)
 
 
 # material=MeshPhongMaterial(color=color.decimal)
@@ -272,45 +318,36 @@ class ProxyGeometry(AGeom):
     def proxy(self):
         return self.__ref__
 
-    def __new__(cls, control_points=None, *args, color=ColorRGB(0, 255, 40), ref_extra={}, **kwargs):
-        if kwargs.get("geometry") and (control_points is not None):
-            raise Exception("You can not pass control_points and geometry simultaneously!")
-        elif (kwargs.get("geometry") is None) and (control_points is not None):
-
-            inst = super().__new__(cls, geometry=control_points, *args, **kwargs)
-            inst.__ref_extra__ = ref_extra
-
-            inst.geometry = control_points
-            return inst
-        elif (kwargs.get("geometry") is not None) and (control_points is None):
-            warnings.warn("ProxyGeometry is used for computable geometry types that take parameters as arguments. "
-                          "\nIf you want to pass BufferGeometry at once, "
-                          "use the base classes AGeom, APoints, ALine. "
-                          "\n\nTo remove this warning, "
-                          "set the ProxyGeometry.__GEOMETRY_WARNING__ attribute to False.")
-            if isinstance(kwargs.get("material"), PointsMaterial):
-                return APoints(**kwargs)
-            elif isinstance(kwargs.get("material"), LineBasicMaterial):
-                return ALine(**kwargs)
-
-            else:
-                return AMesh(**kwargs)
+    def __new__(cls, *args, control_points=None, color=ColorRGB(0, 255, 40).decimal, ref_extra={}, **kwargs):
+        inst = super().__new__(cls, *args, geometry=control_points, material=cls.material_type(color=color), **kwargs)
+        inst.__ref_extra__ = ref_extra
+        return inst
 
     def __call__(self, control_points=None, **kwargs):
         if control_points is not None:
             self.geometry = control_points
 
-        if kwargs.get('material') is None:
-            if kwargs.get('color') is not None:
-                self.color = kwargs.get('color').decimal
-                self.material = self.material_type(color=kwargs.get('color'))
-
         return super().__call__(**kwargs)
 
+    def helpers_geometry(self):
+        ...
+    def include_helpers(self):
+        self.helpers_geometry()
+        self._children.add(self.uuid + "-helpers")
 
 class NurbsCurveGeometry(ProxyGeometry, ALine):
     geometry = NurbsCurveProxyDescriptor()
 
+    def helpers_geometry(self):
+        cpts = self.__ref_ref_geometry.control_points
+        return ALine(name="NurbsCurveControlPoints", geometry=cpts, uuid=self.uuid + "-helpers")
+
 
 class NurbsSurfaceGeometry(ProxyGeometry, AMesh):
     geometry = NurbsSurfaceProxyDescriptor()
+
+
+
+
+class NurbsLoft(ProxyGeometry, AMesh):
+    geometry = NurbsLoftProxyDescriptor()
