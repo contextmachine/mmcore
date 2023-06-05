@@ -20,7 +20,7 @@ from enum import Enum
 from mmcore.geom.parametric.base import ParametricObject
 from mmcore.geom.vectors import unit
 
-from mmcore.func.curry import curry
+
 from scipy.optimize import minimize
 import numpy as np
 from scipy.spatial.distance import euclidean
