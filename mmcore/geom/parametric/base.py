@@ -28,7 +28,7 @@ from mmcore.geom.parametric.algorithms import ClosestPoint, ProximityPoints, Eva
 
 
 @typing.runtime_checkable
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=True,unsafe_hash=True)
 class ParametricObject(typing.Protocol[T]):
     @property
     def __params__(self) -> typing.Any:
@@ -66,11 +66,6 @@ class ParametricObject(typing.Protocol[T]):
         return ProximityPoints(self, other)(x0=np.array(list(itertools.repeat(0.5, self.dim + other.dim))),
                                             bounds=(itertools.repeat((0.0, 1.0), self.dim + other.dim)))
 
-    def __hash__(self):
-        return int(sha256(json.dumps(self.__params__).encode()).hexdigest(), 16)
-
-    def __eq__(self, other):
-        return self.__hash__() == other.__hash__()
 
 
 @dataclasses.dataclass
@@ -118,7 +113,7 @@ class NormalPoint:
         return NormalPoint(point=a, normal=b)
 
 
-class ProxyDescriptor(typing.Generic[T]):
+class ProxyAttributeDescriptor(typing.Generic[T]):
     def __init__(self, proxy_name=None, default=None, callback=lambda x: x, no_set=False):
         self.proxy_name = proxy_name
         self.callback = callback
@@ -136,7 +131,7 @@ class ProxyDescriptor(typing.Generic[T]):
             return self.default
 
         else:
-            res = self.callback(getattr(inst.proxy, self.proxy_name))
+            res = self.callback(getattr(inst._proxy, self.proxy_name))
             return res if res is not None else self.default
 
     def __set__(self, inst: T, v):

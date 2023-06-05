@@ -19,15 +19,9 @@ This project is work-in-progress and still in its infancy
 
     # r: pytoml==0.10.2, keras>=2.6.0
 """
+import json
 # ! async:true
 import os
-
-import rhinoscriptsyntax as rs
-
-import System
-import System.Collections.Generic
-import Rhino
-import json
 
 from Rhino import RhinoDoc
 
@@ -65,9 +59,8 @@ def m():
             log.writelines([f"sucsess dump\n"])
 
 
-import sys
 import threading as th
 
 thread = th.Thread(target=m)
-if __name__=="__"
-thread.start()
+if __name__=="__":
+    thread.start()
