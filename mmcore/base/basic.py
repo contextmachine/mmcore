@@ -1555,10 +1555,12 @@ class AMaterialDescriptor:
     def __get__(self, instance, owner):
         if instance is None:
 
-            return amatdict.get(self._default)
+            return self._default
         else:
+            return amatdict.get(getattr(instance, self._name, self._default))
 
-            return amatdict[getattr(instance, self._name)]
+
+
 
     def __set__(self, instance, value):
 
@@ -1568,14 +1570,18 @@ class AMaterialDescriptor:
 
 class AGeom(A):
     material_type = gql_models.Material
-    geometry = AGeometryDescriptor(default=None)
-    material = AMaterialDescriptor(default=None)
+    geometry = AGeometryDescriptor()
+    material = AMaterialDescriptor()
 
     @property
     def threejs_type(self):
         return "Geometry"
 
     def __call__(self, *args, **kwargs):
+        if kwargs.get('material') is None:
+            if kwargs.get('color') is not None:
+                self.color = kwargs.get('color').decimal
+                kwargs['material'] = self.material_type(color=kwargs.get('color').decimal if isinstance(kwargs.get('color'), int) else kwargs.get('color').decimal)
 
         res = super().__call__(*args, **kwargs)
         res |= {
@@ -1694,13 +1700,15 @@ class APoint(APoints):
     def distance(self, other: 'APoint'):
         return euclidean(self.points, other.points)
 
+LineDefaultMaterial=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040")
+amatdict[LineDefaultMaterial.uuid]=LineDefaultMaterial
 
 class ALine(APoints):
     material_type = gql_models.LineBasicMaterial
     geometry = APointsGeometryDescriptor(default=None)
     material = AMaterialDescriptor(
-        default=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040"))
-
+        default=LineDefaultMaterial)
+    _material = 'line-12020040'
     @property
     def start(self):
         return self.points[0]
