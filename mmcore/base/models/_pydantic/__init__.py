@@ -1,3 +1,5 @@
+
+"""
 import functools
 import hashlib
 import typing
@@ -43,3 +45,4 @@ class BufferGeometry(ThreeJsModel):
 
     def __post_init__(self):
         self.uuid = hashlib.sha256(ujson.dumps(self.data.attributes.position.array)).hexdigest()
+"""

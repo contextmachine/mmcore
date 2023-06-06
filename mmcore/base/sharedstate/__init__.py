@@ -1,4 +1,5 @@
 import datetime
+import functools
 import types
 from typing import TYPE_CHECKING
 
@@ -106,12 +107,6 @@ ee = ElementSequence(list(objdict.values()))
 
 T = typing.TypeVar("T")
 
-app = fastapi.FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
-                   allow_headers=["*"],
-                   allow_credentials=["*"])
-app.add_middleware(GZipMiddleware, minimum_size=500)
 o = DictSchema(ObjectThree(grp.uuid).to_dict())
 oo = o.get_strawberry()
 from starlette.exceptions import HTTPException
@@ -121,13 +116,24 @@ class SharedStateServer():
     port: int = 7711
     rpyc_port: int = 7799
 
-    def __new__(cls, *args, **kwargs):
-        if len(_server_binds) > 0:
-            return _server_binds[0]
+    def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
+        global app
+
+
         import threading as th
         inst = object.__new__(cls)
         inst.__dict__ |= kwargs
+        inst.header = header
+        fastapi.FastAPI.title = property(fget=lambda slf: inst.header, fset=lambda slf, v: setattr(inst, 'header', v))
+        app = fastapi.FastAPI(title=inst.header)
         _server_binds.append(inst)
+        inst.app = app
+
+        inst.app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                                allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
+                                allow_headers=["*"],
+                                allow_credentials=["*"])
+        inst.app.add_middleware(GZipMiddleware, minimum_size=500)
 
         from mmcore.base import ObjectThree, grp, DictSchema
 
@@ -308,7 +314,7 @@ class SharedStateServer():
     def resolver(self, func):
         self.runtime_env["inputs"][func.__name__] = dict()
         self.runtime_env["out"][func.__name__] = dict()
-
+        @functools.wraps(func)
         def wrapper(**kwargs):
             self.runtime_env["inputs"][func.__name__] = kwargs
             self.runtime_env["out"][func.__name__] = func(**self.runtime_env["inputs"][func.__name__])
@@ -321,12 +327,14 @@ class SharedStateServer():
         self.runtime_env["inputs"][name] = dict()
         self.runtime_env["out"][name] = dict()
 
+        @functools.wraps(func)
         def wrapper(**kwargs):
             self.runtime_env["inputs"][name] |= kwargs
             self.runtime_env["out"][name] |= func(**self.runtime_env["inputs"][name])
             return self.runtime_env["out"][name]
 
         self.resolvers[str(name)] = wrapper
+        return wrapper
 
     def start_rpyc(self):
         self.rpyc_thread.start()
@@ -351,5 +359,10 @@ class SharedStateServer():
 
         uvicorn.run("mmcore.base.sharedstate:app", port=self.port, log_level="error", **kwargs)
 
+    def mount(self, path, other_app, name: str):
+        self.app.mount(path, other_app, name)
+    def event(self, fun):
+
+        self.app.on_event()
 
 serve = SharedStateServer()

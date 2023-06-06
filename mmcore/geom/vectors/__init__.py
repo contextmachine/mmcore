@@ -42,6 +42,41 @@ from typing import Iterable, Iterator
 import numpy as np
 
 from scipy.spatial import distance
+from scipy.spatial.distance import euclidean
+
+
+def dot(u, v):
+    """
+    3D dot product
+    @param u:
+    @param v:
+    @return: float
+    """
+    return u.x * v.x + u.y * v.y + u.z * v.z
+
+
+def norm(v):
+    """
+    norm is a length of  vector
+    @param v:
+    @return:
+    """
+    return math.sqrt(dot(v, v))
+
+
+def d(P, Q):
+    """
+    distance is a norm of difference
+    @param P: vector
+    @param Q: vector
+    @return: float
+    >>> from scipy.spatial.distance import euclidean
+    >>> import numpy as np
+    >>> p1, p2 = np.random.random((2,3))
+    >>> np.allclose(d(p1,p2), euclidean(p1,p2) )
+    True
+    """
+    return norm(P - Q)
 
 
 class Vector(Iterable):
@@ -1006,7 +1041,7 @@ def triangle_normal(p1, p2, p3):
 
     A = p2 - p1
     B = p3 - p1
-    #print(p1,p2,p3,A,B)
+    # print(p1,p2,p3,A,B)
     Ax, Ay, Az = A
     Bx, By, Bz = B
     Nx = Ay * Bz - Az * By

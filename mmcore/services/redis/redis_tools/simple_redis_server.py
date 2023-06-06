@@ -1,6 +1,8 @@
+import dataclasses
 import os
 
-import pydantic
+
+
 from fastapi import FastAPI
 
 app = FastAPI()
@@ -10,7 +12,7 @@ from .connect import bootstrap_local
 REDIS_URL = os.getenv('REDIS_URL')
 PRIMARY_KEY = ""
 REDIS_CONN = bootstrap_local(REDIS_URL)
-
+done_pool=dict()
 
 @app.get("/take/task/{uid}")
 async def take(uid: str):
@@ -21,8 +23,8 @@ async def take(uid: str):
 
 import plotly.graph_objects as go
 
-
-class ExecModelParam(pydantic.BaseModel):
+@dataclasses.dataclass
+class ExecModelParam:
     x: list[float]
 
 

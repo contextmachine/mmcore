@@ -25,4 +25,4 @@ WORKDIR /mmcore
 COPY --link . .
 #RUN apt update && apt -y install npm nodejs
 RUN python3 -m pip install . && python3 -m pip install -r requirements.txt
-ENTRYPOINT ["python3"]
+ENTRYPOINT ["python", "-m", "mmcore.serve","--serve-start=true"]
