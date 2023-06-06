@@ -25,3 +25,6 @@ ujson
 pyquaternion
 multiprocess
 earcut
+cloudpickle
+termcolor
+IPython
