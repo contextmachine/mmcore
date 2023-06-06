@@ -15,7 +15,6 @@ from mmcore.base import AMesh, AGeometryDescriptor, APointsGeometryDescriptor, A
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import BufferGeometryObject, LineBasicMaterial, PointsMaterial, Data1, \
     Attributes1, Position
-from mmcore.base.models.pydantic import BufferGeometry
 from mmcore.geom.parametric.base import NormalPoint, ProxyAttributeDescriptor, ProxyParametricObject
 from mmcore.collections import ElementSequence, DoublyLinkedList
 from mmcore.geom.materials import ColorRGB
