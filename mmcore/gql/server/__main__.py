@@ -17,9 +17,9 @@ app = MmGraphQlAPI(gql_endpoint="/v2/graphql")
 def graphql_query_resolver(data: dict):
     ##print(data)
     qt2 = parse_simple_query(data['query'])
-    with open("../tests/data/panel.json") as f:
+    with open("tests/data/panel.json") as f:
         data_test2 = json.load(f)
-        with open("../mmcore/gql/templates/schema.json") as f2:
+        with open("mmcore/gql/templates/schema.json") as f2:
             data_test2 |= json.load(f2)
             return qt2.resolve(data_test2)
 
