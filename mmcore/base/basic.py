@@ -370,7 +370,7 @@ class Object3D:
                         del dct['children']
                 return obj.bind_class(**dct)
             else:
-                # #print(dct)
+                # #(dct)
                 if 'children' in dct:
                     if len(dct.get('children')) == 0:
                         del dct['children']
@@ -399,7 +399,7 @@ class Object3D:
 
     @property
     def _root(self):
-        # #print(self.Root.__annotations__)
+        # #(self.Root.__annotations__)
         self.Root.__annotations__['object'] = self.bind_class
         self.Root.__name__ = f"GenericRoot{id(self)}"
 
@@ -429,7 +429,7 @@ class Object3D:
 
     def threejs_root(self, dct, geometries=None, materials=None, metadata=None,
                      root_callback=lambda x: x):
-        # #print(materials, geometries)
+        # #(materials, geometries)
         return root_callback(self._root)(object=dct,
                                          materials=[matdict.get(mat) for mat in
                                                     materials] if materials is not None else list(

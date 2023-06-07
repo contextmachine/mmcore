@@ -23,7 +23,7 @@ extr_ver = simple_extrusion(shape_profile, HIGH)
 extr_ver.rotate(np.pi / 2, [1, 0, 0])
 
 def bim_sequence_generator(extr=extrusion, transl=(1, 0, 0)):
-    for i in range(10):
+    for i in range(1):
         next_extrusion = extr.__copy__()
         next_extrusion.translate(transl)
         yield next_extrusion
@@ -32,11 +32,11 @@ if __name__ == "__main__":
     from mmcore.base import AGroup
     group = AGroup()
 
-    for bim in bim_sequence_generator(extrusion):
-        group.add(bim)
+    #for bim in bim_sequence_generator(extrusion):
+    #    group.add(bim)
     for bim in bim_sequence_generator(extr_ver, transl=(-1, 0, 0)):
         group.add(bim)
 
     with open("model.json", "w") as f:
         json.dump(group.root(), f)  # now you can view it with three js
-    serve.start_as_main()
+    #serve.start_as_main()
