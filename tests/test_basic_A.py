@@ -18,7 +18,7 @@ class TestA(TestCase):
 
             b.cc = c
             a.first = b
-            #print(a.idict)
+            #(a.idict)
         except Exception as err:
             self.fail(f"Test {__file__}]'{self.test_A.__doc__}' fail with:\n\t{err}")
 

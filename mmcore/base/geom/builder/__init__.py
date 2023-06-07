@@ -101,7 +101,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
             })
 
         if self.indices is not None:
-            print(self.indices)
+            #print(self.indices)
             indices=self.indices
             selector[2] = '1'
             if isinstance(self.indices[0] ,list):

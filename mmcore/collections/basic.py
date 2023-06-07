@@ -12,7 +12,7 @@ def chain_split_list(iterable):
     ss = deque(iterable)
     l = []
     for i in range(len(ss)):
-        print(i)
+        #print(i)
         a, b, _ = ss[0], ss[1], ss.rotate()
         l.append((a, b))
     return l
@@ -421,7 +421,7 @@ class FuncMultiDesc:
             try:
                 data = []
                 for slf, arg, kw in z:
-                    print(slf, arg, kw)
+                    #print(slf, arg, kw)
                     if not self.get_id(slf) in instance[self.reg_name].keys():
                         instance[self.reg_name][self.get_id(slf)] = ParamContainer(*arg, **kw)
                     a = instance[self.reg_name][self.get_id(slf)]
@@ -866,7 +866,7 @@ class DCLL:
         # next node of it
         temp = self.head
         while temp.data != value2:
-            print(temp, temp.data)
+            #print(temp, temp.data)
             temp = temp.next
         _next = temp.next
 
