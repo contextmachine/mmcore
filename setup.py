@@ -21,10 +21,11 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 """
       )
-
+with open(".version") as f:
+    vers=f.read()
 setup(
     name='mmcore',
-    version='0.2.7',
+    version=vers,
     packages=['mmcore', 'mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
