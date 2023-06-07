@@ -786,7 +786,7 @@ class LineSequence(ParametricObject):
             else:
                 pts.append(np.asarray(list(self.evaluate(p).control_points)
                                       ))
-        print(pts)
+        #print(pts)
         aa = np.asarray(pts).flatten()
 
         return NurbsSurface(control_points=aa.reshape((len(aa) // 3, 3)).tolist(), size_u=u, size_v=len(self.axis))

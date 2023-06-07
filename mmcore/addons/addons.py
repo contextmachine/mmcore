@@ -16,7 +16,7 @@ def resolve_query(data):
     port = []
 
     for i, v in enumerate(ES(data)["serviceByTopic"]._seq):
-        print(i, v
+        (i, v
               )
         if v["attributes"] is not None:
             port = v["attributes"]["port"]

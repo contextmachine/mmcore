@@ -100,7 +100,7 @@ class ClientDescriptor(Descriptor):
         return instance.__gethook__(instance.client.get_object(Bucket=self.bucket, Key=f"{self.prefix}{self.name}"))
 
     def __set__(self, instance, value):
-        print(instance, value)
+        #print(instance, value)
         instance.client.put_object(Bucket=self.bucket, Key=f"{self.prefix}{self.name}{instance.suffix}",
                                    Body=instance.__sethook__(value))
 

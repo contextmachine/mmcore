@@ -53,13 +53,13 @@ def main(args):
     except Exception as err:
         raise err
 
-    # #print(args)
+    # #(args)
     for arg in args:
 
         if arg:
 
             for k, v in dotenv.dotenv_values(dotenv.find_dotenv(filename=arg, usecwd=True)).items():
-                print(f"export {k}={v}")
+                (f"export {k}={v}")
 
                 # sys.stdin.write(f"export {k}={v}")
 
@@ -68,7 +68,7 @@ def main(args):
 
 if __name__ == "__main__":
     if sys.argv[1:] in MyLiteral['-h', '--help']:
-        print(f"{description}\n\nUSAGE:\n\t{usage}\n")
+        (f"{description}\n\nUSAGE:\n\t{usage}\n")
         warnings.simplefilter("ignore")
     else:
         main(sys.argv[1:])
