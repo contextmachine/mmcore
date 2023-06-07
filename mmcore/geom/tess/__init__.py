@@ -1,10 +1,13 @@
 import json
+import warnings
 
 from abc import ABCMeta
-
-from OCC.Core.Tesselator import ShapeTesselator
+try:
+    from OCC.Core.Tesselator import ShapeTesselator
+except ImportError as err:
+    warnings.warn(ImportWarning("Install pythonOCC to use this tesselation tools"))
 import uuid as _uuid
-
+import numpy as np
 from mmcore.base.basic import Group
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.geom import MeshObject, LineObject
@@ -13,6 +16,18 @@ from mmcore.base.registry import matdict
 from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
 from mmcore.collections import ElementSequence
 from mmcore.base.models import gql as gql_models
+import uuid as _uuid
+from mmcore.base.models.gql import BufferGeometryObject
+def simple_tessellate(shape, uuid=None, compute_edges: bool = False,
+            mesh_quality: float = 1.0,
+            parallel: bool = False):
+    tesselator=ShapeTesselator(shape)
+    tesselator.Compute(compute_edges=compute_edges, mesh_quality=mesh_quality, parallel=parallel)
+    data=json.loads(tesselator.ExportShapeToThreejsJSONString(uuid if uuid is not None else _uuid.uuid4().hex))
+    del data["metadata"]
+    return BufferGeometryObject(**data)
+
+
 
 class Tessellate(metaclass=ABCMeta):
     def __init__(self, shape, name, color):
@@ -62,14 +77,14 @@ class Tessellate(metaclass=ABCMeta):
     def generate_material(self):
         vv = list(matdict.values())
         if len(vv) > 0:
-            #print(vv)
+            ##print(vv)
             es = ElementSequence(vv)
-            #print(self.color, es["color"])
+            ##print(self.color, es["color"])
             if self.color.decimal in es["color"]:
                 i = es["color"].index(self.color.decimal)
-                #print(i)
+                ##print(i)
                 vvv = es._seq[i]
-                #print(vvv)
+                ##print(vvv)
                 self.mesh._material = vvv.uuid
 
             else:
@@ -81,7 +96,7 @@ class Tessellate(metaclass=ABCMeta):
             self.mesh.material = gql_models.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
                                                                           color=self.color.decimal)
 
-import numpy as np
+
 class TessellateIfc(Tessellate):
     def __init__(self, shape):
         self._shape = shape

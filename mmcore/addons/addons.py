@@ -56,7 +56,7 @@ query MyQuery($value: String!) {
         print("__exit__", self)
         self.exc_type, self.exc_val, self.exc_tb = exc_type, exc_val, exc_tb
         if exc_val:
-            print("__exit__2", exc_val)
+            #print("__exit__2", exc_val)
             response = resolve_query(self.query(variables={"value": self.exc_val.name.replace(".", "")})['subscribes'])
 
             self.conn = get_connection_by_host_port(*response)

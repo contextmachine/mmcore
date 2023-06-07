@@ -21,14 +21,16 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 """
       )
-
+with open(".version") as f:
+    vers=f.read()
 setup(
     name='mmcore',
-    version='0.2.5',
+    version=vers,
     packages=['mmcore', 'mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.parametric',
+                     'mmcore.geom.shapes',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
@@ -38,8 +40,6 @@ setup(
               'mmcore.addons.rhino',
               'mmcore.addons.rhino.compute',
               'mmcore.addons.rhino.native',
-              'mmcore.addons.mmocc',
-              'mmcore.addons.mmocc.OCCUtils',
               'mmcore.services',
               'mmcore.services.redis',
               'mmcore.services.redis.connect',
@@ -61,8 +61,7 @@ setup(
               'mmcore.base.models.gql',
               'mmcore.base.registry',
               'mmcore.base.descriptors',
-              'mmcore.base.delegate',
-              'mmcore.datatools'
+              'mmcore.base.delegate'
 
               ],
     url='',

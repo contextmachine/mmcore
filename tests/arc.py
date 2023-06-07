@@ -34,7 +34,7 @@ class ArcForArc(Arc):
 
 test = ArcForArc(origin=[5.542538, 35.977149, -12.14216], normal=[68.076713, 40.180588, -14.656795], r=15,
                  evalute_param=np.radians(10))
-print(test.to_compas_vector())
+#print(test.to_compas_vector())
 
 js['tang'] = [test.to_compas_vector()[0].x, test.to_compas_vector()[0].y, test.to_compas_vector()[0].z]
 js['point'] = [test.to_compas_vector()[1].x, test.to_compas_vector()[1].y, test.to_compas_vector()[1].z]

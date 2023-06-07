@@ -1,19 +1,19 @@
 def echo(value=None):
     """
     >>> generator = echo(1)
-    >>> print(next(generator))
+    >>> #print(next(generator))
     Execution starts when 'next()' is called for the first time.
     1
-    >>> print(next(generator))
+    >>> #print(next(generator))
     None
-    >>> print(generator.send(2))
+    >>> #print(generator.send(2))
     2
     >>> generator.throw(TypeError, "spam")
     TypeError('spam', )
     >>> generator.close()
     Don't forget to clean up when 'close()' is called.
     """
-    print("Execution starts when 'next()' is called for the first time.")
+    #print("Execution starts when 'next()' is called for the first time.")
     try:
         while True:
             try:

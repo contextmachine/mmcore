@@ -131,9 +131,9 @@ def agreagate(where: strawberry.scalars.JSON) -> list[sch]:
 from mmcore.collections.multi_description import ElementSequence
 
 ds = DictSchema(HashDict(list(store['items'])))
-#(ds)
+##print(ds)
 sch = D
-#(sch)
+##print(sch)
 
 
 def _items() -> list[sch]:
@@ -173,7 +173,7 @@ class Query:
             *values, = v.values()
             sets.append(set([HashDict(**data) for data in seq.where_with_rule(k, values[0], operations[keys[0]])]))
         s1 = sets.pop(0)
-        #(s1)
+        ##print(s1)
         if len(sets) > 0:
 
             for s in sets:
@@ -211,5 +211,5 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 app.include_router(graphql_app, prefix="/graphql")
 
 if __name__ == "__main__":
-    #(f'http://localhost:{5558}{"/graphql"}')
+    ##print(f'http://localhost:{5558}{"/graphql"}')
     uvicorn.run("test_react:app", host="0.0.0.0", port=5558, reload=True)

@@ -1,6 +1,9 @@
 import datetime
+import functools
 import types
 from typing import TYPE_CHECKING
+
+from starlette.responses import Response, HTMLResponse
 
 from mmcore.base import DictSchema, ObjectThree, grp
 
@@ -17,7 +20,22 @@ from strawberry.fastapi import GraphQLRouter
 from strawberry.scalars import JSON
 import uvicorn, fastapi
 from mmcore.base.registry import *
+import rpyc
+from rpyc import ThreadPoolServer, ClassicService, SlaveService
 
+
+def search_all_indices(lst, value):
+    for i, v in enumerate(lst):
+        if v == value:
+            yield i
+
+
+def generate_uvicorn_app_name(fpath,  appname="app"):
+    r=list(fpath.split("/"))
+    if r[-1].startswith("__"):
+        r=r[:-1]
+
+    return ".".join(r[list(search_all_indices(r, "mmcore"))[-1]:])+":"+appname
 
 class AllDesc:
     def __init__(self, default=None):
@@ -40,6 +58,10 @@ from fastapi import WebSocket, WebSocketDisconnect, WebSocketException
 import mmcore.base.models.gql as gql_models
 from graphql.language import parse
 import graphql
+
+rpyc_input = dict()
+
+rpyc_namespace = dict(post=lambda k, v: rpyc_input.__setitem__(json.dumps(k), json.loads(v)))
 
 TYPE_CHECKING = False
 # language=GraphQl
@@ -100,27 +122,34 @@ ee = ElementSequence(list(objdict.values()))
 
 T = typing.TypeVar("T")
 
-app = fastapi.FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
-                   allow_headers=["*"],
-                   allow_credentials=["*"])
-app.add_middleware(GZipMiddleware, minimum_size=500)
 o = DictSchema(ObjectThree(grp.uuid).to_dict())
 oo = o.get_strawberry()
 from starlette.exceptions import HTTPException
 
 
-class ServerBind():
-    port: int = 7711
 
-    def __new__(cls, *args, **kwargs):
-        if len(_server_binds) > 0:
-            return _server_binds[0]
+class SharedStateServer():
+    port: int = 7711
+    rpyc_port: int = 7799
+    host:str= "0.0.0.0"
+
+    def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
+        global serve_app
+
         import threading as th
         inst = object.__new__(cls)
         inst.__dict__ |= kwargs
+        inst.header = header
+
+
         _server_binds.append(inst)
+        serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
+        inst.app = serve_app
+        inst.app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                                allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
+                                allow_headers=["*"],
+                                allow_credentials=["*"])
+        inst.app.add_middleware(GZipMiddleware, minimum_size=500)
 
         from mmcore.base import ObjectThree, grp, DictSchema
 
@@ -141,29 +170,53 @@ class ServerBind():
                 if not o.name == "base_root":
                     br.add(o)
             return br
+        @inst.app.get("/test/app/{uid}")
+        def appp(uid: str):
+            # language=JavaScript
+            application = """
+            const socket = new WebSocket('ws://${host}:${port}/ws');
+            socket.addEventListener('open', function (event) {socket.send('{ "uuid":"${uid}" }');});
+            socket.addEventListener('message', function (event) {console.log(event.data);});
+            socket.onmessage
+            """.replace('${host}', str(inst.host)).replace('${port}', str(inst.port)).replace('${uid}', uid)
+            # language=Html
+            return HTMLResponse("""
+        <!DOCTYPE html>
+        <body>
+            <code>
+                <script>
+                    {script}
+                </script>
+            </code>
+        </body>
+            """.format(
+                    script=application
+                    )
+                )
 
-        @app.get("/h")
+
+
+        @inst.app.get("/h")
         async def home2():
 
             return strawberry.asdict(pull()())
 
-        @app.get("/fetch/{uid}")
+        @inst.app.get("/fetch/{uid}")
         async def get_item(uid: str):
             try:
                 return adict[uid].root()
             except KeyError as errr:
                 return HTTPException(401, detail=f"KeyError. Trace: {errr.__traceback__}")
 
-        @app.post("/fetch/{uid}")
-        def p_item(uid: str, data: dict):
-            adict[uid](**data)
+        @inst.app.post("/fetch/{uid}")
+        def get_item(uid: str, data: dict):
+            return adict[uid](**data)
 
-
-        @app.get("/keys", response_model_exclude_none=True)
+        @inst.app.get("/keys", response_model_exclude_none=True)
         async def keys():
             return list(adict.keys())
 
-        @app.get("/", response_model_exclude_none=True)
+        @inst.app.get("/", response_model_exclude_none=True)
         async def home():
 
             from mmcore.base import AGroup
@@ -175,7 +228,7 @@ class ServerBind():
 
             return aa.root()
 
-        @app.post("/graphql")
+        @inst.app.post("/graphql")
         async def gql(data: dict):
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
@@ -188,7 +241,7 @@ class ServerBind():
                            root_value={"root": aa.root()},
                            variable_values=data.get("variables")).data
 
-        @app.options("/graphql")
+        @inst.app.options("/graphql")
         async def gql(data: dict):
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
@@ -201,7 +254,7 @@ class ServerBind():
                            root_value={"root": aa.root()},
                            variable_values=data.get("variables")).data
 
-        @app.get("/graphql")
+        @inst.app.get("/graphql")
         async def gql(data: dict):
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
@@ -214,7 +267,7 @@ class ServerBind():
                            root_value={"root": aa.root()},
                            variable_values=data.get("variables")).data
 
-        @app.post("/", response_model_exclude_none=True)
+        @inst.app.post("/", response_model_exclude_none=True)
         async def mutate(data: dict = None):
             if data is not None:
                 if len(data.keys()) > 0:
@@ -224,7 +277,7 @@ class ServerBind():
 
             return strawberry.asdict(pull().get_child_three())
 
-        @app.websocket("/ws")
+        @inst.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             """
 
@@ -247,19 +300,41 @@ class ServerBind():
             await websocket.accept()
             while True:
                 data = await websocket.receive_json()
-                print(f"WS: {data}")
+                # print(f"WS: {data}")
                 obj = adict[data["uuid"]]
                 if "body" in data.keys():
                     if not ((data["body"] is None) or (data["body"] == {})):
                         obj(**data["body"])
+
                 await websocket.send_json(data=obj.root())
 
-
         def run():
+            uvicorn_appname=generate_uvicorn_app_name(__file__, owner="serve")
+            print(uvicorn_appname)
+            uvicorn.run(uvicorn_appname, port=inst.port, log_level="error")
 
-            uvicorn.run("mmcore.base.sharedstate:app", port=inst.port, log_level="error")
+        def run_rpyc():
+            service = SlaveService()
+            service.namespace = rpyc_namespace
+            _serv = ThreadPoolServer(service, port=cls.rpyc_port)
+            _serv.start()
 
-        inst.thread = th.Thread(target=run)
+        inst.thread = th.Thread(target=inst.run)
+        inst.rpyc_thread = th.Thread(target=run_rpyc)
+        inst.runtime_env = dict(inputs=dict(), out=dict())
+        inst.resolvers = dict()
+
+        @inst.app.post("/resolver/{uid}")
+        async def external_post(uid: str, data: dict):
+
+            if uid in inst.resolvers.keys():
+                return inst.resolvers[uid](**data)
+            return inst.runtime_env["out"].get(uid)
+
+        @inst.app.get("/resolver/{uid}")
+        async def external_get(uid: str):
+            return inst.runtime_env["out"].get(uid)
+
         if STARTUP:
             try:
 
@@ -269,24 +344,77 @@ class ServerBind():
 
         return inst
 
+    def run(self):
+        uvicorn_appname = generate_uvicorn_app_name(__file__, appname="serve_app")
+        print(f'running uvicorn {uvicorn_appname}')
+        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error")
+
+
     def stop(self):
-        self.thread.join(60)
+        self.thread.join(6)
 
     def start(self):
         self.thread.start()
 
-    def run(self):
+    def stop_rpyc(self):
+
+        self.rpyc_thread.join(6)
+
+    def resolver(self, func):
+        self.runtime_env["inputs"][func.__name__] = dict()
+        self.runtime_env["out"][func.__name__] = dict()
+
+        @functools.wraps(func)
+        def wrapper(**kwargs):
+            self.runtime_env["inputs"][func.__name__] = kwargs
+            self.runtime_env["out"][func.__name__] = func(**self.runtime_env["inputs"][func.__name__])
+            return self.runtime_env["out"][func.__name__]
+
+        self.resolvers[str(func.__name__)] = wrapper
+        return wrapper
+
+    def add_resolver(self, name, func):
+        self.runtime_env["inputs"][name] = dict()
+        self.runtime_env["out"][name] = dict()
+
+        @functools.wraps(func)
+        def wrapper(**kwargs):
+            self.runtime_env["inputs"][name] |= kwargs
+            self.runtime_env["out"][name] |= func(**self.runtime_env["inputs"][name])
+            return self.runtime_env["out"][name]
+
+        self.resolvers[str(name)] = wrapper
+        return wrapper
+
+    def start_rpyc(self):
+        self.rpyc_thread.start()
+
+    def run_thread(self):
         self.thread.run()
+
+    def run_rpyc(self):
+        self.rpyc_thread.run()
 
     def is_alive(self):
         return self.thread.is_alive()
+
+    def is_alive_rpyc(self):
+        return self.rpyc_thread.is_alive()
 
     def start_as_main(self, on_start=None, **kwargs):
         if kwargs.get("port"):
             self.port = kwargs.get("port")
         if on_start:
             on_start()
+
         uvicorn.run("mmcore.base.sharedstate:app", port=self.port, log_level="error", **kwargs)
 
+    def mount(self, path, other_app, name: str):
+        self.app.mount(path, other_app, name)
 
-serve = ServerBind()
+    def event(self, fun):
+
+        self.app.on_event()
+
+
+serve = SharedStateServer()
