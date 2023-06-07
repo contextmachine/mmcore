@@ -7,7 +7,7 @@ Based on mmcore & rhinocode
 Closest point on circle curve for nine lines of code.
 
 ```doctest
->>> from mmcore.services.rhpyc import get_connection
+>>>import mmcore.geom.parametric.algorithms from mmcore.services.rhpyc import get_connection
 >>> from mmcore.addons.rhino import point_to_tuple
 
 >>> conn = get_connection("localhost", 18812)
@@ -16,7 +16,7 @@ Closest point on circle curve for nine lines of code.
 >>> rs = conn.root.getmodule("rhinoscript")
 
 >>> circle = rg.Circle(rg.BspPlane(0.0,0.0,1.0,0.0), 15.4) # create circle at world xyz plane
->>> point_on_circle = circle.ClosestPoint(rg.Point3d(1,2,3))
+>>> point_on_circle = mmcore.geom.parametric.algorithms.ClosestPoint(rg.Point3d(1,2,3))
 >>> point_to_tuple(point_on_circle)
 (6.887089370699354, 13.774178741398705, 0.0)
 ```

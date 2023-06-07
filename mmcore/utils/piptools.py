@@ -11,7 +11,7 @@ def install(*packages):
         try:
             importlib.import_module(package)
         except ImportError as err:
-            print(err)
+            #print(err)
             to_install.append(package)
     if len(to_install)>0:
         mmprint(f"{ColorStr(f'{to_install}', color=TermColors.light_yellow).__str__()} will be installed.")

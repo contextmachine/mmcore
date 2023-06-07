@@ -14,7 +14,7 @@ class TestTrimmingCone(TestCase):
 
     def test_to_json(self):
         self.assertIsNotNone(self.tc.to_json())
-        #(self.tc.to_json(indent=2))
+        ##print(self.tc.to_json(indent=2))
 
     def test_to_dict(self):
         self.assertIsNotNone(self.tc.to_dict())

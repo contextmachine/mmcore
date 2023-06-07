@@ -8,7 +8,7 @@ from enum import Enum
 
 import numpy as np
 
-from pydantic.types import UUID4, conlist
+
 from scipy.spatial import distance as spdist
 
 from mmcore.geom.vectors import unit
@@ -21,9 +21,9 @@ class ThreeTypes(str, Enum):
     BufferGeometry = "BufferGeometry"
 
 
-ThreeTransformMatrix = conlist(float, min_items=16, max_items=16)
 
-zero_transform = ThreeTransformMatrix((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
+
+
 from scipy.spatial import distance
 import math
 

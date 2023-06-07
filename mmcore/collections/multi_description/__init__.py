@@ -237,7 +237,7 @@ class CollectionItemGetSetter(CollectionItemGetter):
         super().__init__(seq)
 
     def __setitem__(self, key: str, value):
-        # print("v")
+        # #print("v")
         if isinstance(self._seq[0], dict | self.__class__):
             _setter = multi_setitem(self._seq)
         else:
@@ -357,7 +357,7 @@ class ElementSequence(MultiDescriptor):
         print(a,b,rule)
         for i, item in enumerate(self[a]):
             ans = rule(item, b)
-            print(ans)
+            #print(ans)
             if ans:
                 l.append(self.get_from_index(i))
         print(l)
@@ -503,7 +503,7 @@ class MultiGetitem2:
                     try:
                         return self.__get__(instance[k], owner)(v)
                     except ValueError as err:
-                        print(f'{err}\n\n\t{instance[k]}, {v}')
+                        raise ValueError(f'{err}\n\n\t{instance[k]}, {v}')
 
             elif isinstance(item, tuple | list | set | slice):
                 return [self.__get__(instance, owner)(i) for i in item]

@@ -12,7 +12,8 @@ CubeInput = namedtuple("CubeInput", ["center", "u", "v", "h"])
 
 import mmcore
 from mmcore.geom.transform import Transform, add_w, remove_crd
-from mmcore.geom.parametric.sketch import PlaneLinear, line_plane_collision, ProximityPoints, Linear
+from mmcore.geom.parametric.sketch import PlaneLinear, line_plane_collision, Linear
+from mmcore.geom.parametric.algorithms import ProximityPoints
 from mmcore.geom.csg import CSG
 from mmcore.collections import DCLL
 
@@ -55,7 +56,7 @@ class CSGTube(CSG):
         @return:
         """
         start, end = kwargs.get('start'), kwargs.get('end')
-        print(kwargs.get('start'), kwargs.get('end'))
+        #print(kwargs.get('start'), kwargs.get('end'))
         if kwargs.get('start') is not None and end is None:
             self.axis = Linear.from_two_points(start, self.axis.end).extend(*self.extends)
         elif kwargs.get('start') is not None and kwargs.get('end') is not None:
@@ -65,7 +66,7 @@ class CSGTube(CSG):
 
         self.__dict__ |= kwargs
         e, s = self.extends
-        print(self.axis.evaluate(s), self.axis.evaluate(1 + e))
+        #print(self.axis.evaluate(s), self.axis.evaluate(1 + e))
         self._inner_cylinder = self.cylinder(start=self.axis.evaluate(s).tolist(),
                                              end=self.axis.evaluate(1 + e).tolist(),
                                              radius=self.radius - self.width,
@@ -137,9 +138,8 @@ if __name__ == '__main__':
 
     # grp.add(tubes[0].mesh_data().to_mesh())
     # grp.add(tubes[1].mesh_data().to_mesh())
+    grp.dump("model.json")
 
-    with open("model.json", "w") as f:
-        json.dump(grp.root(), f)
 from mmcore.base.sharedstate import serve
 
 

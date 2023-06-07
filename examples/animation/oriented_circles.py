@@ -8,7 +8,7 @@ from collections import namedtuple
 
 from mmcore.base import A, AGroup, ALine
 from mmcore.base.models.gql import LineBasicMaterial
-from mmcore.geom.parametric import Circle3D
+from mmcore.geom.parametric.sketch import Circle3D
 from mmcore.geom.vectors import unit
 
 GridProps = namedtuple("GridProps", ["xsize", "ysize", "xstep", "ystep"])
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         for j in range(5):
             for i in np.linspace(0, 1, 60):
                 grid(target_point=orbit.evaluate(i))
-                # print(grid.target_point)
+                # #print(grid.target_point)
                 time.sleep(0.001)
     if IPYTHON:
         serve.start()

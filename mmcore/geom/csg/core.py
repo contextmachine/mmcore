@@ -671,8 +671,13 @@ class CSG(object):
             polygons.append(polySide)
 
         return CSG.fromPolygons(polygons)
+    @classmethod
+    def from_mesh_data(cls, md):
+        poly=[]
+        for f in md.faces:
 
-
+            poly.append(BspPolygon(vertices=f))
+        return CSG.fromPolygons(poly)
 class CSGDescriptor:
     def __init__(self, rules=()):
         self._csg = CSG()
