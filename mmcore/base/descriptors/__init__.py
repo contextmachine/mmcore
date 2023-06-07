@@ -96,7 +96,7 @@ class ClientDescriptor(Descriptor):
         self.name = name
 
     def __get__(self, instance, owner=None):
-        #print(instance, owner)
+        ##print(instance, owner)
         return instance.__gethook__(instance.client.get_object(Bucket=self.bucket, Key=f"{self.prefix}{self.name}"))
 
     def __set__(self, instance, value):

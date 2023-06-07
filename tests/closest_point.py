@@ -26,7 +26,7 @@ class ParametricCircle(LineObject, ParametricObject):
 
 p = ParametricCircle(name="testcircle2", r=5)
 
-from mmcore.geom.parametric import ClosestPoint
+from mmcore.geom.parametric.algorithms import ClosestPoint
 from mmcore.base.registry import objdict
 import mmcore
 

@@ -1,7 +1,8 @@
 import numpy as np
 import time
 
-from mmcore.geom.parametric import Pipe, NurbsCurve, Circle
+from mmcore.geom.parametric import NurbsCurve, Circle
+from mmcore.geom.parametric.pipe import Pipe
 
 
 def test():
@@ -34,11 +35,11 @@ def test():
     oo = Pipe(nb2, r)
     s=time.time()
     oo.mpeval(uvs=(2000, 200))
-    print(f"[mp] time {time.time() - s} s")
+    #print(f"[mp] time {time.time() - s} s")
 
     s = time.time()
     oo.veval(uvs=(2000, 200))
-    print(f"[single] time {time.time() - s} s")
+    #print(f"[single] time {time.time() - s} s")
 
 
 test()

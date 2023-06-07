@@ -39,7 +39,7 @@ def mirror(right):
     mirror[1, 1] = -1
     left = np.zeros((len(right), 3))
     for i, pt in enumerate(right):
-        # print(i,pt)
+        # #print(i,pt)
         left[i, ...] = mirror @ np.asarray(pt).T
     return left
 

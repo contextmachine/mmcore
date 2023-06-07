@@ -13,7 +13,7 @@ BUCKET = bool(os.getenv("BUCKET"))
 VERBOSE = bool(os.getenv("CXM_VERBOSE"))
 API = os.getenv("CXM_VIEWER_API_ENDPOINT")
 if VERBOSE:
-    print(f"using viewer api endpoint: {API}")
+    #print(f"using viewer api endpoint: {API}")
 
 API = "https://api.contextmachine.online"
 

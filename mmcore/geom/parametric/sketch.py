@@ -1,48 +1,34 @@
 import functools
 
-import abc
 import copy
 import dataclasses
-import geomdl
-import math
-import os
 import sys
-import timeit
 import typing
-from abc import ABCMeta, abstractmethod
 from collections import namedtuple
 
-from earcut.earcut import normal
-from geomdl.operations import tangent
 from itertools import starmap
-from scipy.optimize import fsolve
 
-from mmcore.base import geomdict
+import dill
+import scipy.optimize
+
+from mmcore.geom.parametric.algorithms import EvaluatedPoint, ProximityPoints, ClosestPoint, CurveCurveIntersect
+
+from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import remove_crd, Transform, WorldXY
-from mmcore.geom.vectors import *
 from enum import Enum
 
-from mmcore.geom.parametric.base import ParametricObject, NormalPoint, UVPoint, EvalPointTuple2D
-from mmcore.geom.vectors import unit, add_translate, angle
+from mmcore.geom.parametric.base import ParametricObject
+from mmcore.geom.vectors import unit
 
-from mmcore.collections import DoublyLinkedList
-from mmcore.func.curry import curry
 
-from pyquaternion import Quaternion
-from compas.geometry.transformations import matrix_from_frame_to_frame
-import mmcore
-import zlib
-import numpy as np
 from scipy.optimize import minimize
+import numpy as np
 from scipy.spatial.distance import euclidean
 from mmcore.geom.materials import ColorRGB
-from mmcore.base.models.gql import MeshPhongMaterial
 
-from geomdl import NURBS
-from geomdl import utilities as geomdl_utils
 from mmcore.collections import DCLL, DoublyLinkedList
-from mmcore.collections.multi_description import EntityCollection, ElementSequence
-import multiprocess as mp
+from mmcore.collections.multi_description import EntityCollection
+import base64
 
 
 def add_crd(pt, value):
@@ -59,11 +45,22 @@ def add_w(pt):
 
 
 # mp.get_start_method = "swapn"
-import uuid as _uuid
 
 TOLERANCE = 1e-6
 
 T = typing.TypeVar("T")
+
+
+@dataclasses.dataclass
+class PolyNominal(ParametricObject):
+    func: typing.Callable
+
+    def evaluate(self, t):
+        return self.func(t)
+
+    @property
+    def __params__(self):
+        return {"func": base64.b64encode(dill.dumps(self.func))}
 
 
 @dataclasses.dataclass
@@ -145,9 +142,26 @@ class Linear(ParametricObject):
     def __hash__(self):
         return
 
-class ParametricLineObject(): ...
+    def distance_func(self, point):
+        """
+        return a distance function with t param.
+        """
 
+        def inner(t):
+            x_0, y_0, z_0 = point
+            x_1, y_1, z_1 = self.start
+            x_2, y_2, z_2 = self.end
+            return ((x_1 - x_0) + (x_2 - x_1) * t) ** 2 \
+                + ((y_1 - y_0) + (y_2 - y_1) * t) ** 2 \
+                + ((z_1 - z_0) + (z_2 - z_1) * t) ** 2
 
+        return PolyNominal(inner)
+
+    def distance_at(self, point, t):
+        return self.distance_func(point).evaluate(t)
+
+    def distance(self, point):
+        return minimize(self.distance_func(point).evaluate, x0=np.array([0.5]), bounds=[0, 1])
 def hhp():
     pts = [[-220175.307469, -38456.999234, 20521],
            [-211734.667469, -9397.999234, 13016.199506],
@@ -183,247 +197,6 @@ def m():
     return np.asarray(l22(llll(hhp(), 600))).tolist()
 
 
-class ProxyDescriptor(typing.Generic[T]):
-    def __init__(self, proxy_name=None, default=None, callback=lambda x: x, no_set=False):
-        self.proxy_name = proxy_name
-        self.callback = callback
-        self.default = default
-        self.no_set = no_set
-
-    def __set_name__(self, owner, name):
-        self.name = name
-        if self.proxy_name is None:
-            self.proxy_name = self.name
-
-    def __get__(self, inst, own=None) -> T:
-
-        if inst is None:
-            return self.default
-
-        else:
-            res = self.callback(getattr(inst.proxy, self.proxy_name))
-            return res if res is not None else self.default
-
-    def __set__(self, inst: T, v):
-        # print(f"event: set {self.proxy_name}/{self.name}->{v}")
-        if not self.no_set:
-            try:
-
-                setattr(inst.proxy, self.proxy_name, v)
-            except  AttributeError:
-                pass
-
-
-@dataclasses.dataclass
-class ProxyParametricObject(ParametricObject):
-
-    @abc.abstractmethod
-    def prepare_proxy(self):
-        ...
-
-    @abc.abstractmethod
-    def evaluate(self, t):
-        ...
-
-    @property
-    def proxy(self):
-        try:
-            return self._proxy
-        except AttributeError as err:
-            self.prepare_proxy()
-            return self._proxy
-
-    def tessellate(self):
-        ...
-
-
-@dataclasses.dataclass
-class NurbsCurve(ProxyParametricObject):
-    """
-
-    """
-
-    control_points: typing.Iterable[typing.Iterable[float]] = ProxyDescriptor(proxy_name="ctrlpts")
-    delta: float = 0.01
-    degree: int = 3
-    dimension: int = ProxyDescriptor(default=2)
-    rational: bool = ProxyDescriptor()
-    domain: typing.Optional[tuple[float, float]] = ProxyDescriptor()
-
-    bbox: typing.Optional[list[list[float]]] = ProxyDescriptor()
-    knots: typing.Optional[list[float]] = None
-
-    def __post_init__(self):
-        self.proxy.degree = self.degree
-
-        self.proxy.ctrlpts = self.control_points
-
-        if self.knots is None:
-            self.knots = geomdl_utils.generate_knot_vector(self._proxy.degree, len(self._proxy.ctrlpts))
-            self.proxy.knotvector = self.knots
-        self.proxy.delta = self.delta
-        self.proxy.evaluate()
-
-    def prepare_proxy(self):
-        self._proxy = NURBS.Curve()
-        self._proxy.degree = self.degree
-
-    def evaluate(self, t):
-        if hasattr(t, "__len__"):
-            if hasattr(t, "tolist"):
-                t = t.tolist()
-            else:
-                t = list(t)
-            return np.asarray(self._proxy.evaluate_list(t))
-        else:
-            return np.asarray(self._proxy.evaluate_single(t))
-
-    @property
-    def proxy(self):
-        try:
-            return self._proxy
-        except AttributeError:
-            self.prepare_proxy()
-            return self._proxy
-
-    def tan(self, t):
-        pt = tangent(self.proxy, t)
-        return NormalPoint(*pt)
-
-
-class ProxyMethod:
-    def __init__(self, fn):
-        self.fn = curry(fn)
-        self.name = fn.__name__
-
-    def __get__(self, instance, owner):
-        return self.fn(instance)
-
-
-@dataclasses.dataclass
-class NurbsSurface(ProxyParametricObject):
-    _proxy = NURBS.Surface()
-    control_points: typing.Iterable[typing.Iterable[float]]
-    degree: tuple = ProxyDescriptor(proxy_name="degree", default=(3, 3))
-    delta: float = 0.025
-    degree_u: int = ProxyDescriptor(proxy_name="degree_u", default=3)
-    degree_v: int = ProxyDescriptor(proxy_name="degree_v", default=3)
-    size_u: int = ProxyDescriptor(proxy_name="ctrlpts_size_u", default=6)
-    size_v: int = ProxyDescriptor(proxy_name="ctrlpts_size_v", default=6)
-    dimentions: int = ProxyDescriptor(proxy_name="dimentions", default=3)
-    knots_u: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector_u", no_set=True)
-    knots_v: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector_v", no_set=True)
-    knots: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="knotvector", no_set=True)
-    domain: typing.Optional[list[list[float]]] = ProxyDescriptor(proxy_name="domain", no_set=True)
-    trims: tuple = ()
-
-    @property
-    def proxy(self):
-        try:
-            return self._proxy
-        except AttributeError:
-            self.prepare_proxy()
-            return self._proxy
-
-    def __post_init__(self):
-
-        self.proxy.ctrlpts = self.control_points
-
-        self.proxy.knotvector_u = geomdl_utils.generate_knot_vector(self._proxy.degree[0], self.size_u)
-        self.proxy.knotvector_v = geomdl_utils.generate_knot_vector(self._proxy.degree[1], self.size_v)
-        self.proxy.delta = self.delta
-        self.proxy.evaluate()
-
-        # u,v=self.size_u, self.size_v
-
-    def evaluate(self, t):
-        if len(np.array(t).shape) > 2:
-
-            t = np.array(t).tolist()
-
-            return np.asarray(self._proxy.evaluate_list(t))
-        else:
-            return np.asarray(self._proxy.evaluate_single(t))
-
-    def prepare_proxy(self):
-
-        self._proxy.set_ctrlpts(list(self.control_points), (self.size_u, self.size_v))
-        # self._proxy.ctrlpts=self.control_points
-        # #print(self)
-
-        self._proxy.degree_u, self._proxy.degree_v = self.degree
-
-    def normal(self, t):
-        return geomdl.operations.normal(self.proxy, t)
-
-    def tan(self, t):
-        pt, tn = tangent(self.proxy, t)
-        return NormalPoint(*pt, normal=tn)
-
-    def tessellate(self, uuid=None):
-        self.proxy.tessellate()
-        vertseq = ElementSequence(self._proxy.vertices)
-        faceseq = ElementSequence(self._proxy.faces)
-        uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
-        normals = [v for p, v in normal(self._proxy, uv.tolist())]
-        if uuid is None:
-            uuid = _uuid.uuid4().__str__()
-        return dict(vertices=np.array(vertseq['data']).flatten(),
-                    normals=np.array(normals).flatten(),
-                    indices=np.array(faceseq["vertex_ids"]).flatten(),
-                    uv=uv,
-                    uuid=uuid)
-
-
-class NurbsSurfaceGeometry:
-    material_type = MeshPhongMaterial
-    castShadow: bool = True
-    receiveShadow: bool = True
-    geometry_type = ...
-
-    def __new__(cls, *args, color=ColorRGB(0, 255, 40), control_points=(), **kwargs):
-        inst = super().__new__(cls, *args, material=MeshPhongMaterial(color=color.decimal), **kwargs)
-        inst.solve_proxy_view(control_points)
-
-        return inst
-
-    def __call__(self, *args, material=None, color=None, **kwargs):
-        if material is None:
-            if color is not None:
-                self.color = color
-
-                self.material = self.material_type(color=color.decimal)
-            else:
-                self.color = ColorRGB(125, 125, 125)
-                self.material = self.material_type(color=self.color.decimal)
-        # super(GeometryObject, self).__call__(*args, material=self.material, **kwargs)
-
-    def solve_proxy_view(self, control_points, **kwargs):
-        arr = np.array(control_points)
-        su, sv, b = arr.shape
-        degu = su - 1 if su >= 4 else 3
-        degv = sv - 1 if sv >= 4 else 3
-
-        self._proxy = NurbsSurface(control_points=arr.reshape((su * sv, b)).tolist(),
-                                   size_u=su,
-                                   size_v=sv,
-                                   degree_u=degu,
-                                   degree_v=degv,
-                                   **kwargs)
-        self.solve_geometry()
-
-    def solve_geometry(self):
-        self._geometry = self.uuid + "-geom"
-
-        geomdict[self._geometry] = self._proxy.tessellate(uuid=self._geometry).create_buffer()
-
-
-@dataclasses.dataclass
-class LineSequence(ParametricObject):
-    seq: dataclasses.InitVar[list[Linear]]
-    lines: DoublyLinkedList[Linear]
-
-
 @dataclasses.dataclass
 class Polyline(ParametricObject):
     control_points: typing.Union[DCLL, DoublyLinkedList]
@@ -457,14 +230,6 @@ class Polyline(ParametricObject):
 
 
 @dataclasses.dataclass
-class EvaluatedPoint:
-    point: list[float]
-    normal: typing.Optional[list[float]]
-    direction: typing.Optional[list[typing.Union[float, list[float]]]]
-    t: typing.Optional[list[typing.Union[float, list[float]]]]
-
-
-@dataclasses.dataclass
 class PlaneLinear(ParametricObject):
     origin: typing.Iterable[float]
     normal: typing.Optional[typing.Iterable[float]] = None
@@ -473,7 +238,7 @@ class PlaneLinear(ParametricObject):
 
     def __post_init__(self):
 
-        # print(unit(self.normal), self.xaxis, self.yaxis)
+        # #print(unit(self.normal), self.xaxis, self.yaxis)
         if self.xaxis is not None and self.yaxis is not None:
             self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
         elif self.normal is not None:
@@ -627,6 +392,10 @@ class HyPar4pt(ParametricObject):
 
         self.sides_enum = HypSidesEnum
 
+    @property
+    def __params__(self):
+        return dataclasses.asdict(self)
+
     def __post_init__(self):
         self.generate_sides_enum()
 
@@ -664,7 +433,7 @@ class HyPar4pt(ParametricObject):
 
             if res is not None:
                 re = ClosestPoint(res, i)(x0=0.5, bounds=[(0.0, 1.0)]).t
-                # print("RE", re)
+                # #print("RE", re)
                 if (re == 0.0) or (re == 1.0):
                     pass
                 else:
@@ -680,16 +449,9 @@ class HyPar4pt(ParametricObject):
 IsCoDirectedResponse = namedtuple('IsCoDirectedResponse', ["do"])
 
 
-def is_co_directed(a, b):
+def is_collinear(a, b):
     dp = np.dot(a, b)
     return dp, dp * (1 if dp // 1 >= 0 else -1)
-
-
-@dataclasses.dataclass
-class Grid(ParametricObject):
-
-    def evaluate(self, t):
-        ...
 
 
 @dataclasses.dataclass
@@ -700,7 +462,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in side.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 try:
@@ -716,7 +478,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in vec.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
@@ -749,7 +511,7 @@ class HypPar4ptGrid(HyPar4pt):
         d = []
         for pl in side.divide_distance_planes(step1):
 
-            # print("t",dd)
+            # #print("t",dd)
             r = self.intr(pl)
             if not (r == []):
                 a, b = r
@@ -761,6 +523,10 @@ class HypPar4ptGrid(HyPar4pt):
 @dataclasses.dataclass
 class LineSequence(ParametricObject):
     axis: typing.Iterable[Linear]
+
+    @property
+    def __params__(self):
+        return dataclasses.asdict(self)
 
     @classmethod
     def from_arr(cls, arr):
@@ -793,181 +559,9 @@ class LineSequence(ParametricObject):
 
 
 if sys.version_info.minor >= 10:
-    from typing_extensions import Protocol
+    pass
 else:
-    from typing import Protocol
-
-
-class AbstractBuilder(Protocol):
-
-    def build(self, geoms, params) -> ParametricObject:
-        ...
-
-
-class GeomDesc:
-    def __init__(self, default=None, cls=LineSequence):
-        self.default = default
-        self._cls = cls
-
-    def __set_name__(self, owner, name):
-        self.name = name
-
-    def __get__(self, inst, own=None):
-        if inst is None:
-            return self.default
-        return self._cls(getattr(inst, "_" + self.name))
-
-    def __set__(self, inst, v):
-        setattr(inst, "_" + self.name, v)
-
-
-class Loft:
-    geoms = GeomDesc()
-
-    def __call__(self, geoms):
-        geoms_seq = LineSequence(geoms)
-        ax = geoms.axis[0]
-        if hasattr(ax, "control_points"):
-            size_u = len(self.geoms.axis)
-            size_v = len(ax.control_points)
-
-        else:
-            size_u = len(self.geoms.axis)
-            size_v = 2
-
-        return geoms_seq.surf(size_u)
-
-    def build(self, geoms, params) -> NurbsSurface:
-        return LineSequence(geoms).surf(u=params)
-
-
-class MinimizeSolution:
-    solution_response: typing.Any
-
-    @abc.abstractmethod
-    def solution(self, t):
-        ...
-
-    def __call__(self,
-                 x0: np.ndarray = np.asarray([0.5, 0.5]),
-                 bounds: typing.Optional[typing.Iterable[tuple[float, float]]] = ((0, 1), (0, 1)),
-                 *args,
-                 **kwargs):
-        res = minimize(self.solution, x0, bounds=bounds, **kwargs)
-        return self.prepare_solution_response(res)
-
-    def __init_subclass__(cls, solution_response=None, **kwargs):
-        cls.solution_response = solution_response
-        super().__init_subclass__(**kwargs)
-
-    @abc.abstractmethod
-    def prepare_solution_response(self, solution):
-        ...
-
-
-ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
-IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
-IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
-
-MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
-
-
-class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
-    """
-
-    >>> a=[[9.258697, -8.029476, 0],
-    ...    [6.839202, -1.55593, -6.390758],
-    ...    [18.258577, 16.93191, 11.876064],
-    ...    [19.834301, 27.566156, 1.173745],
-    ...    [-1.257139, 45.070784, 0]]
-    >>> b=[[27.706367, 29.142311, 6.743523],
-    ...    [29.702408, 18.6766, 19.107107],
-    ...    [15.5427, 6.960314, 10.273386],
-    ...    [2.420935, 26.07378, 18.666591],
-    ...    [-3.542004, 3.424012, 11.066738]]
-    >>> A,B=NurbsCurve(control_points=a),NurbsCurve(control_points=b)
-    >>> prx=ProxPoints(A,B)
-    >>> prx()
-    ClosestPointSolution(pt=[array([16.27517685, 16.07437063,  4.86901707]), array([15.75918043, 14.67951531, 14.57947997])], t=array([0.52562605, 0.50105099]), distance=9.823693977393207)
-    """
-
-    def __init__(self, c1, c2):
-        super().__init__()
-        self.c1, self.c2 = c1, c2
-
-    def solution(self, t) -> float:
-        t1, t2 = t
-
-        return euclidean(self.c1.evaluate(t1), self.c2.evaluate(t2))
-
-    def prepare_solution_response(self, solution):
-        t1, t2 = solution.x
-        return self.solution_response([self.c1.evaluate(t1),
-                                       self.c2.evaluate(t2)],
-                                      solution.x,
-                                      solution.fun)
-
-    def __call__(self, x0: np.ndarray = np.asarray([0.5, 0.5]),
-                 bounds: typing.Optional[typing.Iterable[tuple[float, float]]] = ((0, 1), (0, 1)),
-                 *args,
-                 **kwargs):
-        res = minimize(self.solution, x0, bounds=bounds, **kwargs)
-
-        return self.prepare_solution_response(res)
-
-
-ProxPoints = ProximityPoints  # Alies for me
-
-
-class MultiSolution(MinimizeSolution, solution_response=MultiSolutionResponse):
-    @abc.abstractmethod
-    def solution(self, t): ...
-
-    def __call__(self,
-                 x0: np.ndarray = np.asarray([0.5, 0.5]),
-
-                 **kwargs):
-        res = fsolve(self.solution, x0, **kwargs)
-        return self.prepare_solution_response(res)
-
-    @abc.abstractmethod
-    def prepare_solution_response(self, solution):
-        ...
-
-
-class ClosestPoint(MinimizeSolution, solution_response=ClosestPointSolution):
-    """
-    >>> a= [[-25.0, -25.0, -5.0],
-    ... [-25.0, -15.0, 0.0],
-    ... [-25.0, -5.0, 0.0],
-    ... ...
-    ... [25.0, 15.0, 0.0],
-    ... [25.0, 25.0, -5.0]]
-    >>> srf=NurbsSurface(control_points=a,size_u=6,size_v=6)
-    >>> pt=np.array([13.197247, 21.228605, 0])
-    >>> cpt=ClosestPoint(pt, srf)
-    >>> cpt(x0=np.array((0.5,0.5)), bounds=srf.domain)
-
-    ClosestPointSolution(pt=[array([13.35773142, 20.01771329, -7.31090389])], t=array([0.83568967, 0.9394131 ]), distance=7.41224187927431)
-    """
-
-    def __init__(self, point, geometry):
-        super().__init__()
-        self.point, self.gm = point, geometry
-
-    def solution(self, t):
-        r = self.gm.evaluate(t)
-        r = np.array(r).T.flatten()
-        # print(self.point, r)
-
-        return euclidean(self.point, r)
-
-    def prepare_solution_response(self, solution):
-        return self.solution_response([self.gm.evaluate(solution.x)], solution.x, solution.fun)
-
-    def __call__(self, x0=(0.5,), **kwargs):
-        return super().__call__(x0, **kwargs)
-
+    pass
 
 """
 def hyp(arr):
@@ -989,20 +583,6 @@ def hyp(arr):
         grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
 
 """
-
-
-class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolution):
-    def __init__(self, c1, c2):
-        super().__init__(c1, c2)
-
-    def __call__(self, *args, tolerance=TOLERANCE, **kwargs):
-        r = super().__call__(*args, **kwargs)
-        is_intersect = np.allclose(r.distance, 0.0, atol=tolerance)
-        if is_intersect:
-            return IntersectSolution(np.mean(r.pt, axis=0), r.t, is_intersect)
-
-        else:
-            return IntersectFail(r.pt, r.t, r.distance, is_intersect)
 
 
 def line_plane_collision(plane: PlaneLinear, ray: Linear, epsilon=1e-6):
@@ -1147,13 +727,16 @@ def no_mp(dl):
 
 """
 
-nc = NurbsCurve([[0, 0, 0], [1, 0, 1], [2, 3, 4], [3, 3, 3]])
-
 
 @dataclasses.dataclass
-class Circle:
+class Circle(ParametricObject):
     r: float
 
+    @property
+    def __params__(self):
+        return [self.r]
+
+    @functools.lru_cache
     def evaluate(self, t):
         return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
 
@@ -1161,7 +744,10 @@ class Circle:
     def plane(self):
         return WorldXY
 
+
 import zlib
+
+
 @dataclasses.dataclass
 class Circle3D(Circle):
     origin: tuple[float, float, float] = (0, 0, 0)
@@ -1169,11 +755,13 @@ class Circle3D(Circle):
     torsion: tuple[float, float, float] = (1, 0, 0)  # The xaxis value of the base plane,
 
     # defines the point of origin of the circle
+
+
     @property
     def plane(self):
         return PlaneLinear(normal=unit(self.normal), origin=self.origin)
 
-    @functools.lru_cache(maxsize=1024)
+    @functools.lru_cache(maxsize=512)
     def evaluate(self, t):
         try:
             return self.plane.orient(super().evaluate(t), super().plane)
@@ -1181,69 +769,9 @@ class Circle3D(Circle):
             return remove_crd(
                 add_crd(super().evaluate(t), 1).reshape((4,)) @ self.plane.transform_from_other(WorldXY).matrix.T)
 
+    @property
+    def __params__(self):
+        return [self.origin, self.normal]
+
     def __hash__(self):
-        return zlib.adler32(self.__repr__().encode())
-    def __eq__(self, other):
-        return self.__repr__()==other.__repr__()
-@dataclasses.dataclass
-class Pipe:
-    """
-    >>> nb2=NurbsCurve([[0, 0, 0        ] ,
-    ...                 [-47, -315, 0   ] ,
-    ...                 [-785, -844, 0  ] ,
-    ...                 [-704, -1286, 0 ] ,
-    ...                 [-969, -2316, 0 ] ] )
-    >>> r=Circle(r=10.5)
-    >>> oo=Pipe(nb2, r)
-
-    """
-    path: ParametricObject
-    shape: ParametricObject
-
-    def evalplane(self, t):
-        pt = self.path.tan(t)
-        return PlaneLinear(origin=pt.point, normal=pt.normal)
-
-    def evaluate(self, t):
-        u, v = t
-
-        pln = self.evalplane(u)
-
-        return remove_crd(
-            add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
-
-    def geval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
-        for i, u in enumerate(np.linspace(*bounds[0], uvs[0])):
-            for j, v in enumerate(np.linspace(*bounds[1], uvs[1])):
-                yield EvalPointTuple2D(i, j, u, v, *self.evaluate([u, v]))
-
-    def veval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
-        data = np.zeros(uvs + (3,), dtype=float)
-        for i, j, u, v, x, y, z in self.geval(uvs, bounds):
-            data[i, j, :] = [x, y, z]
-        return data
-
-    def mpeval(self, uvs=(20, 20), bounds=((0, 1), (0, 1)), workers=-1):
-        """
-        >>> path = NurbsCurve([[0, 0, 0],
-        ...               [-47, -315, 0],
-        ...               [-785, -844, 0],
-        ...               [-704, -1286, 0],
-        ...               [-969, -2316, 0]])
-
-        >>> profile = Circle(r=10.5)
-        >>> pipe = Pipe(path, profile)
-        >>> pipe.veval(uvs=(2000, 200)) # 400,000 points
-        time 40.84727501869202 s
-        >>> pipe.mpeval(uvs=(2000, 200)) # 400,000 points
-        time 8.37929892539978 s # Yes it's also too slow, but it's honest work
-        """
-
-        def inner(u):
-            return [(u, v, *self.evaluate([u, v])) for v in np.linspace(*bounds[1], uvs[1])]
-
-        if workers == -1:
-            workers = os.cpu_count()
-
-        with mp.Pool(workers) as p:
-            return p.map(inner, np.linspace(*bounds[0], uvs[0]))
+        return super(ParametricObject, self).__hash__()

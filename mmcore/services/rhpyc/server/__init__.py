@@ -40,7 +40,7 @@ class MmService(ClassicServer):
                         setattr(cls, k, v)
                         real_attrs[k] = v
                     else:
-                        print(f"miss {k}")
+                        #print(f"miss {k}")
                 pattrs.format(pprint.pformat(real_attrs, indent=4))
             if configs:
                 pconfigs.format(pprint.pformat(configs, indent=4))

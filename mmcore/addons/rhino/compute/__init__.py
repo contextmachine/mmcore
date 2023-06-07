@@ -17,7 +17,7 @@ match USE:
             Util.apiKey = os.getenv("RHINO_COMPUTE_APIKEY")
 
         except KeyError as err:
-            print(f"Secrets Key Error {err}. \nDo not worry, default configuration from {__file__} will be used.")
+            #print(f"Secrets Key Error {err}. \nDo not worry, default configuration from {__file__} will be used.")
             # Check yours default local host and port for compute.rhino3d or rhino.compute.
             # If you can't find compute.rhino3d or rhino.compute, you can build this from source.
             # We use a "JetBrains Rider" and this source code, but encourage you to read the solution and documentation

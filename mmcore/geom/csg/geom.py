@@ -4,7 +4,7 @@
 #   since we already do most of the work on our side.
 
 import math
-import numpy as np
+
 import sys
 from abc import abstractmethod
 from functools import reduce
@@ -12,11 +12,7 @@ from functools import reduce
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial
-from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import PlaneLinear, TOLERANCE
-from scipy.spatial import distance
 
-from mmcore.geom.shapes import Shape
 
 # increase the max number of recursive calls
 sys.setrecursionlimit(10000)  # my default is 1000, increasing too much may cause a seg fault
@@ -137,7 +133,7 @@ class BspVector(AbstractBspGeometry):
 
     def unit(self):
         """ Normalize. """
-        return self.dividedBy(self.length())
+        return BspVector(*unit([self.x,self.y,self.z]))
 
     def cross(self, a):
         """ Cross. """
@@ -346,7 +342,7 @@ class BspPlane(AbstractBspGeometry):
                 back.append(BspPolygon(b, polygon.shared))
 
 
-from mmcore.geom.vectors import rotate
+from mmcore.geom.vectors import rotate, unit
 from earcut import earcut
 
 
@@ -365,8 +361,12 @@ class BspPolygon(AbstractBspGeometry):
     """
 
     def __init__(self, vertices, shared=None, indices=None):
+        if not isinstance(vertices[0], (BspVector, BspVertex)):
+            vertices=[BspVertex(pos=v) for v in vertices]
+
         self.vertices = vertices
         self.shared = shared
+
         self.plane = BspPlane.fromPoints(vertices[0].pos, vertices[1].pos, vertices[2].pos)
         self.indices = indices
 
@@ -401,7 +401,9 @@ class BspPolygon(AbstractBspGeometry):
         return self._vxs
 
     def mesh_data(self):
+        print(self.indices)
         if self.indices is None:
+
             self.indices = self.earcut()
         return MeshData(vertices=self.vxs(), indices=self.indices)
 

@@ -121,21 +121,21 @@ class RC(dict):
 def simple_rpc(redis_stream: Generator[..., str]):
     for g, v in redis_stream:
         if "command" in v.keys():
-            print(v)
+            #print(v)
 
             try:
                 res = eval(v["command"])
-                print(f"eval: {v['command']} = {res}")
+                #print(f"eval: {v['command']} = {res}")
                 yield res
             except SyntaxError as err:
 
                 res = exec(v["command"])
-                print(f"exec: {v['command']} = {res}")
+                #print(f"exec: {v['command']} = {res}")
                 yield res
             except Exception as err:
-                print(err)
+                #print(err)
                 yield err
                 continue
         else:
 
-            print(f"pass")
+            #print(f"pass")

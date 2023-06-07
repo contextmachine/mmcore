@@ -1,0 +1,1 @@
+python ./bin/upd-version.py

@@ -15,14 +15,14 @@ def get_connection(url=None):
     @return: connection
 
     [1] Basic Example:
-    >>> from mmcore.services.rhpyc import get_connection
+import mmcore.geom.parametric.algorithms    >>> from mmcore.services.rhpyc import get_connection
     >>> from mmcore.addons.rhino import point_to_tuple
     >>> conn = get_connection("localhost", 18812)
     >>> rh = conn.root.getmodule("Rhino")
     >>> rg = conn.root.getmodule("Rhino.Geometry")
     >>> rs = conn.root.getmodule("rhinoscript")
     >>> circle = rg.Circle(rg.BspPlane(0.0,0.0,1.0,0.0), 15.4) # create circle at world xyz plane
-    >>> point_on_circle = circle.ClosestPoint(rg.Point3d(1,2,3))
+    >>> point_on_circle = mmcore.geom.parametric.algorithms.ClosestPoint(rg.Point3d(1,2,3))
     >>> point_to_tuple(point_on_circle)
     (6.887089370699354, 13.774178741398705, 0.0)
 
@@ -31,11 +31,7 @@ def get_connection(url=None):
     Creating threejs object from rhino geometry
 import geom.buffer    >>> from mmcore.addons import rhino
 import geom.utils.tools    >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
-    >>>     >>> sph_mesh = rg.MeshObject.CreateFromSphere(sph)
-    >>> sph_brep_arr = rg.MeshObject.CreateFromBrep(sph.ToBrep()) # Mesh.CreateFromBrep return mesh array (Mesh[]) object.
-    >>> from mmcore.geom.materials import MeshPhysicalBasic, ColorRGB
-    >>> webgl_object = geom.utils.tools.mesh_to_buffer_mesh(sph_brep_arr[0], MeshPhysicalBasic(ColorRGB(255,40,22)))
-    >>> webgl_object
+
     {'metadata': {'version': 4.5,
       'type': 'Object',
       'generator': 'Object3D.toJSON'},
@@ -111,17 +107,17 @@ import geom.utils.tools    >>> sph=rg.Sphere(rg.Point3d(1,2,3), 18)
     while True:
         i += 1
         try:
-            print(hosts[i])
+            #print(hosts[i])
 
             conn = rpyc.connect(host=hosts[i], port=port)
             conn.ping()
 
             if not conn.closed:
-                print(f"{hosts[i]} success!!!")
+                #print(f"{hosts[i]} success!!!")
                 rhpyc_conn = conn
                 break
         except ConnectionRefusedError:
-            print(f"{hosts[i]} fail...")
+            raise
 
     return rhpyc_conn
 
