@@ -7,6 +7,7 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import Linear
 from mmcore.base.params import param_graph_node
 from mmcore.base.sharedstate import serve
+from mmcore.geom.vectors import unit
 
 
 def line_from_points(start, end):
@@ -35,6 +36,7 @@ def hypar_wires(sides, uv, uuid, color):
     vertices=[]
     _vertices=[]
     _faces=[]
+    dirs=[]
     for ik,i in enumerate(np.linspace(*u)):
         points = []
 
@@ -46,9 +48,9 @@ def hypar_wires(sides, uv, uuid, color):
             _vertices.append(f"{ik}-{jk}")
             _faces.append((f"{ik}-{jk}",f"{ik+1}-{jk}",f"{ik+1}-{jk+1}"))
             points.append(point)
-
+        dirs.append(np.array(points[0])-np.array(points[1]))
         grp.add(ALine(geometry=points,name=f'u-{ik}', uuid=f'{uuid}-u-{ik}', material=LineBasicMaterial(color=color)))
-
+    dirsv=[]
     for ik,i in enumerate(np.linspace(*v)):
         points = []
 
@@ -59,10 +61,13 @@ def hypar_wires(sides, uv, uuid, color):
 
             points.append(point)
             _faces.append((f"{ik}-{jk}", f"{ik+1}-{jk+1}", f"{ik}-{jk + 1}"))
-
+        dirsv.append(np.array(points[0])-np.array(points[1]))
         grp.add(ALine(geometry=points, name=f'v-{ik}',uuid=f'{uuid}-v-{ik}', material=LineBasicMaterial(color=color)))
     indices=[]
-
+    normals=[]
+    for du in dirs:
+        for dv in dirsv:
+            normals.append(np.cross(unit(du),unit(dv)))
     for face in _faces:
         fc=[]
         try:
@@ -74,9 +79,9 @@ def hypar_wires(sides, uv, uuid, color):
         except:
 
                 pass
-    md=MeshData(vertices=vertices, indices=indices)
-    md.calc_normals()
-    grp.add(md.to_mesh(uuid=uuid+"-mesh" ,opacity=0.5, castShadow=False, flatShading=False,color=color))
+    md=MeshData(vertices=vertices, indices=indices, normals=np.array(normals).flatten())
+
+    grp.add(md.to_mesh(uuid=uuid+"-mesh" ,opacity=0.9, castShadow=False, flatShading=False,color=color))
     #print(md.normals)
     return grp
 
