@@ -401,7 +401,7 @@ class BspPolygon(AbstractBspGeometry):
         return self._vxs
 
     def mesh_data(self):
-        print(self.indices)
+        #print(self.indices)
         if self.indices is None:
 
             self.indices = self.earcut()
