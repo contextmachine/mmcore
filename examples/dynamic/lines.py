@@ -1,10 +1,16 @@
+
 import time
+import json
 
 from mmcore.base import ALine, AGroup
 from mmcore.base.models.gql import LineBasicMaterial
-from mmcore.base.params import ParamGraphNode, param_graph_node
 from mmcore.geom.parametric import Linear
-import json
+
+# This Api provides an extremely flexible way of updating data. You can pass any part of the parameter dictionary
+# structure, the parameters will be updated recursively and only the part of the graph affected by the change
+# will be recalculated.
+from mmcore.base.params import ParamGraphNode, param_graph_node
+
 
 a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
 b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
@@ -125,9 +131,7 @@ print(json.dumps(render_lines.todict(no_attrs=True), indent=3))
 #    "uuid": "result_group"
 # }
 
-# This Api provides an extremely flexible way of updating data. You can pass any part of the parameter dictionary
-# structure, the parameters will be updated recursively and only the part of the graph affected by the change
-# will be recalculated.
+
 # You can discard any part of the dictionary from the "back", the most important thing you cannot do
 # is lose keys from the "front".
 # For example:
