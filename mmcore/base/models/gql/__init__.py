@@ -525,10 +525,10 @@ class MeshPhongMaterial(BaseMaterial):
     emissive: int = 0
     specular: int = 1118481
     shininess: int = 30
-    reflectivity: float = 1.2
-    refractionRatio: float = 0.98
+    reflectivity: float = 0.5
+    refractionRatio: float = 0.5
     side: int = 2
-    depthFunc: int = 3
+    depthFunc: int = 2
     depthTest: bool = True
     depthWrite: bool = True
     colorWrite: bool = True

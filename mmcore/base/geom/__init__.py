@@ -271,7 +271,7 @@ class MeshData:
 
     def calc_normals(self):
         self.normals = []
-        for a, b, c in self.indices[:3]:
+        for a, b, c in self.indices:
             self.normals.append(
                 triangle_normal(np.array(self.vertices[a]), np.array(self.vertices[b]), np.array(self.vertices[c])))
 
@@ -339,8 +339,8 @@ class MeshData:
 
         return MeshData(**dct)
 
-    def to_mesh(self):
-        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR))
+    def to_mesh(self, color=None, flatShading=True, opacity = 1.0,**kwargs):
+        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR if color is None else color,opacity=opacity, flatShading=flatShading), **kwargs)
 
     @classmethod
     def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
