@@ -253,7 +253,7 @@ class AbsGQLTemplate:
         if variables is None:
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
-        print(inst, variables, mtt)
+        #print(inst, variables, mtt)
         # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
@@ -357,7 +357,7 @@ class GQl(UserDict):
         if variables is None:
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
-        print(inst, variables, mtt)
+        #print(inst, variables, mtt)
         # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
