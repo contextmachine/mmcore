@@ -147,7 +147,7 @@ class ParamGraphNode:
         if self.name is None:
             self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
         if self.resolver is None:
-            self.resolver = lambda slf: slf
+            self.resolver = lambda **kwargs:  kwargs
         self.graph.item_table[self.uuid] = self
         self.graph.relay_table[self.uuid] = dict()
 
@@ -193,7 +193,7 @@ class ParamGraphNode:
     def keys(self):
         return self.params.keys()
 
-    def todict(self, no_attrs=False):
+    def todict(self, no_attrs=True):
         dct = {}
         for k in self.keys():
 
@@ -221,7 +221,7 @@ class ParamGraphNode:
                 dct[k] = self.graph.get_relay(self, k).solve()
             else:
                 dct[k] = self.graph.get_relay(self, k).solve()
-        return self.resolver(dct)
+        return self.resolver(**dct)
 
     @property
     def params(self):
@@ -264,12 +264,35 @@ from mmcore.geom.parametric import Linear
 
 def param_graph_node(params: dict):
     def inner(fn):
-        def wrapper(kwargs):
-            return fn(**kwargs)
+
+        def wrapper(*args,**kwargs):
+
+
+            return fn(*args, **kwargs)
 
         name = fn.__name__ + "_node"
 
         return ParamGraphNode(params, name=name, resolver=wrapper)
 
     return inner
+
+
+def param_graph_node_native(fn):
+    """
+    Вся разница в том что здесь params берется из kwargs функции а не передается отдельно,
+    как следствие обязательно указывать значения для параметров по умолчанию. Сейчас не ясно какой из подходов удобнее,
+    поэтому они существуют оба.
+    @param fn:
+    @return:
+    """
+
+    def wrapper(*args, **kwargs):
+        return fn(*args, **kwargs)
+
+    name = fn.__name__ + "_node"
+
+    return ParamGraphNode(dict(zip(fn.__code__.co_varnames,fn.__defaults__)), name=name, resolver=wrapper)
+
+
+
 
