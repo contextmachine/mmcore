@@ -8,11 +8,11 @@ except ImportError as err:
     warnings.warn(ImportWarning("Install pythonOCC to use this tesselation tools"))
 import uuid as _uuid
 import numpy as np
-from mmcore.base.basic import Group
+from mmcore.base.basic import AGroup, AMesh
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.geom import MeshObject, LineObject
 from mmcore.base.geom.utils import create_buffer_from_dict
-from mmcore.base.registry import matdict
+from mmcore.base.registry import amatdict
 from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
 from mmcore.collections import ElementSequence
 from mmcore.base.models import gql as gql_models
@@ -32,7 +32,7 @@ def simple_tessellate(shape, uuid=None, compute_edges: bool = False,
 class Tessellate(metaclass=ABCMeta):
     def __init__(self, shape, name, color):
         super().__init__()
-        self.mesh = MeshObject(name=name)
+
         self.tess = ShapeTesselator(shape)
         self._name = name
         self.color = color
@@ -46,54 +46,39 @@ class Tessellate(metaclass=ABCMeta):
 
         __uuid = _uuid.uuid4().__str__()
 
-        self.mesh.geometry = create_buffer_from_dict(
+        self.mesh=AMesh(name=self._name, geometry=create_buffer_from_dict(
+            json.loads(
+                self.tess.ExportShapeToThreejsJSONString(__uuid)
+            )
+        ),
+            material=self.generate_material())
 
-            json.loads(self.tess.ExportShapeToThreejsJSONString(_uuid)))
 
-        if compute_edges:
 
-            # export each edge to a single json
-            # get number of edges
-            nbr_edges = self.tess.ObjGetEdgeCount()
-
-            grp = Group(name="edges")
-            self.mesh.edges = grp
-            for i_edge in range(nbr_edges):
-
-                # after that, the file can be appended
-                str_to_write = ""
-                edge_point_set = []
-                nbr_vertices = self.tess.ObjEdgeGetVertexCount(i_edge)
-                for i_vert in range(nbr_vertices):
-                    edge_point_set.append(self.tess.GetEdgeVertex(i_edge, i_vert))
-                # write to file
-                ln = LineObject(name=f"edge-{i_edge}")
-                ln.geometry = export_edgedata_to_json(_uuid.uuid4().__str__(), edge_point_set)
-                ln.material = generate_edges_material(_uuid.uuid4().__str__(), color=ColorRGB(0, 0, 0), linewidth=1.0)
-                grp.add(ln)
 
         return self.mesh
 
     def generate_material(self):
-        vv = list(matdict.values())
+        vv = list(amatdict.values())
         if len(vv) > 0:
             ##print(vv)
             es = ElementSequence(vv)
             ##print(self.color, es["color"])
+
             if self.color.decimal in es["color"]:
                 i = es["color"].index(self.color.decimal)
                 ##print(i)
                 vvv = es._seq[i]
                 ##print(vvv)
-                self.mesh._material = vvv.uuid
 
+                return amatdict[vvv.uuid]
             else:
-                self.mesh.material = gql_models.MeshPhongMaterial(
+                return gql_models.MeshPhongMaterial(
                     name=f"{'MeshPhongMaterial'} {self._name}",
                     color=self.color.decimal)
 
         else:
-            self.mesh.material = gql_models.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
+            return gql_models.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
                                                                           color=self.color.decimal)
 
 
