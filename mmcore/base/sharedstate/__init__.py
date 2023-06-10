@@ -116,8 +116,6 @@ from graphql.execution.execute import execute
 
 sch22 = parse(sch2)
 sch3 = graphql.build_ast_schema(sch22)
-sch3
-sch3.type_map
 ee = ElementSequence(list(objdict.values()))
 
 T = typing.TypeVar("T")
@@ -131,8 +129,8 @@ from starlette.exceptions import HTTPException
 class SharedStateServer():
     port: int = 7711
     rpyc_port: int = 7799
-    host:str= "0.0.0.0"
-
+    host: str= "0.0.0.0"
+    appname:str="serve_app"
     def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
         global serve_app
 
@@ -308,10 +306,6 @@ class SharedStateServer():
 
                 await websocket.send_json(data=obj.root())
 
-        def run():
-            uvicorn_appname=generate_uvicorn_app_name(__file__, owner="serve")
-            print(uvicorn_appname)
-            uvicorn.run(uvicorn_appname, port=inst.port, log_level="error")
 
         def run_rpyc():
             service = SlaveService()
@@ -345,7 +339,7 @@ class SharedStateServer():
         return inst
 
     def run(self):
-        uvicorn_appname = generate_uvicorn_app_name(__file__, appname="serve_app")
+        uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
         print(f'running uvicorn {uvicorn_appname}')
         uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error")
 
@@ -402,12 +396,10 @@ class SharedStateServer():
         return self.rpyc_thread.is_alive()
 
     def start_as_main(self, on_start=None, **kwargs):
-        if kwargs.get("port"):
-            self.port = kwargs.get("port")
+        self.__dict__|=kwargs
         if on_start:
             on_start()
-
-        uvicorn.run("mmcore.base.sharedstate:app", port=self.port, log_level="error", **kwargs)
+        self.run()
 
     def mount(self, path, other_app, name: str):
         self.app.mount(path, other_app, name)
