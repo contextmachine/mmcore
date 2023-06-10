@@ -59,6 +59,7 @@ setup(
               'mmcore.base.geom',
               'mmcore.base.models',
               'mmcore.base.models.gql',
+              'mmcore.base.params',
               'mmcore.base.registry',
               'mmcore.base.descriptors',
               'mmcore.base.delegate'
