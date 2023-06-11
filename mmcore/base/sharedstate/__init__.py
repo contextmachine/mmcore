@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from starlette.responses import Response, HTMLResponse
 
 from mmcore.base import DictSchema, ObjectThree, grp
+from mmcore.gql.lang.parse import parse_simple_query
 
 TYPE_CHECKING = False
 import ujson as json
@@ -30,12 +31,13 @@ def search_all_indices(lst, value):
             yield i
 
 
-def generate_uvicorn_app_name(fpath,  appname="app"):
-    r=list(fpath.split("/"))
+def generate_uvicorn_app_name(fpath, appname="app"):
+    r = list(fpath.split("/"))
     if r[-1].startswith("__"):
-        r=r[:-1]
+        r = r[:-1]
 
-    return ".".join(r[list(search_all_indices(r, "mmcore"))[-1]:])+":"+appname
+    return ".".join(r[list(search_all_indices(r, "mmcore"))[-1]:]) + ":" + appname
+
 
 class AllDesc:
     def __init__(self, default=None):
@@ -124,13 +126,15 @@ o = DictSchema(ObjectThree(grp.uuid).to_dict())
 oo = o.get_strawberry()
 from starlette.exceptions import HTTPException
 
+from mmcore.gql.server.fastapi import MmGraphQlAPI
 
 
 class SharedStateServer():
     port: int = 7711
     rpyc_port: int = 7799
-    host: str= "0.0.0.0"
-    appname:str="serve_app"
+    host: str = "0.0.0.0"
+    appname: str = "serve_app"
+
     def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
         global serve_app
 
@@ -139,10 +143,25 @@ class SharedStateServer():
         inst.__dict__ |= kwargs
         inst.header = header
 
+        gqlv2app = MmGraphQlAPI(gql_endpoint="/graphql")
+
+        @gqlv2app.post(gqlv2app.gql_endpoint)
+        def graphql_query_resolver(data: dict):
+            ##print(data)
+            qt2 = parse_simple_query(data['query'])
+            from mmcore.base import AGroup
+            aa = AGroup(uuid="__")
+            for i in adict.values():
+
+                if not (i.uuid == "__") and not (i.uuid == "_"):
+                    aa.add(i)
+
+            return qt2.resolve({"root": aa.root()})
 
         _server_binds.append(inst)
         serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
         inst.app = serve_app
+        serve_app.mount("/v2", gqlv2app)
         inst.app.add_middleware(CORSMiddleware, allow_origins=["*"],
                                 allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
                                 allow_headers=["*"],
@@ -168,6 +187,7 @@ class SharedStateServer():
                 if not o.name == "base_root":
                     br.add(o)
             return br
+
         @inst.app.get("/test/app/{uid}")
         def appp(uid: str):
             # language=JavaScript
@@ -188,11 +208,9 @@ class SharedStateServer():
             </code>
         </body>
             """.format(
-                    script=application
-                    )
-                )
-
-
+                script=application
+            )
+            )
 
         @inst.app.get("/h")
         async def home2():
@@ -306,7 +324,6 @@ class SharedStateServer():
 
                 await websocket.send_json(data=obj.root())
 
-
         def run_rpyc():
             service = SlaveService()
             service.namespace = rpyc_namespace
@@ -317,6 +334,7 @@ class SharedStateServer():
         inst.rpyc_thread = th.Thread(target=run_rpyc)
         inst.runtime_env = dict(inputs=dict(), out=dict())
         inst.resolvers = dict()
+        inst.params_nodes = dict()
 
         @inst.app.post("/resolver/{uid}")
         async def external_post(uid: str, data: dict):
@@ -328,6 +346,22 @@ class SharedStateServer():
         @inst.app.get("/resolver/{uid}")
         async def external_get(uid: str):
             return inst.runtime_env["out"].get(uid)
+
+        @inst.app.post("/params/node/{uid}")
+        async def params_post(uid: str, data: dict):
+            inst.params_nodes[uid](**data)
+            return inst.params_nodes.get(uid).todict(no_attrs=True)
+
+        @inst.app.get("/params/node/{uid}")
+        async def params_get(uid: str):
+            return inst.params_nodes.get(uid).todict(no_attrs=True)
+
+        @inst.app.get("/params/nodes")
+        async def params_nodes_names():
+            return list(inst.params_nodes.keys())
+        @inst.app.get("/resolvers")
+        def resolvers():
+            return list(inst.resolvers.keys())
 
         if STARTUP:
             try:
@@ -342,7 +376,6 @@ class SharedStateServer():
         uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
         print(f'running uvicorn {uvicorn_appname}')
         uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error")
-
 
     def stop(self):
         self.thread.join(6)
@@ -380,6 +413,16 @@ class SharedStateServer():
         self.resolvers[str(name)] = wrapper
         return wrapper
 
+    def add_params_node(self, name, fun):
+        self.params_nodes[name] = fun
+
+    def params_node(self, fun):
+        if hasattr(fun,'name'):
+            self.params_nodes[fun.name] = fun
+        else:
+            self.params_nodes[fun.__name__] = fun
+        return fun
+
     def start_rpyc(self):
         self.rpyc_thread.start()
 
@@ -396,7 +439,7 @@ class SharedStateServer():
         return self.rpyc_thread.is_alive()
 
     def start_as_main(self, on_start=None, **kwargs):
-        self.__dict__|=kwargs
+        self.__dict__ |= kwargs
         if on_start:
             on_start()
         self.run()

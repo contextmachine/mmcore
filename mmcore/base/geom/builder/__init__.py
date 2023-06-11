@@ -300,7 +300,7 @@ class DictToAnyMeshDataConvertor(Convertor[dict, typing.Any]):
         dct = dict()
         for k, v in self.source.items():
             flt=np.array(v).flatten()
-            print("VVV", k, v)
+            #print("VVV", k, v)
             if k in buffer_geometry_itemsize_map.keys():
                 dct[self.type_map[k]] = flt.reshape((flt.shape[0]//3,3)).tolist()
             else:

@@ -497,7 +497,7 @@ class PointsMaterial(BaseMaterial):
     uuid: typing.Optional[str] =None
     type: Materials = Materials.PointsMaterial
     color: int = 11672217
-    size: float = 1
+    size: float = 0.1
     sizeAttenuation: bool = True
     depthFunc: int = 1
     depthTest: bool = True
@@ -525,8 +525,9 @@ class MeshPhongMaterial(BaseMaterial):
     emissive: int = 0
     specular: int = 1118481
     shininess: int = 30
-    reflectivity: float = 0.5
+    reflectivity: float = 0.1
     refractionRatio: float = 0.5
+
     side: int = 2
     depthFunc: int = 2
     depthTest: bool = True

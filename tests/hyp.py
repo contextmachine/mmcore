@@ -1,3 +1,6 @@
+import mmcore.base.registry
+
+
 def llll(hp,step=600):
     a = ClosestPoint(hp.b, hp.side_d)(x0=0.5, bounds=((0, 1),))
     uva = unit([hp.side_a.a, hp.side_a.b, hp.side_a.c])
@@ -7,6 +10,6 @@ def llll(hp,step=600):
     dt = np.dot(uva, uvb)
     lll = []
     stp = (1 / dt)*step
-    for pt in hp.side_a.divide_distance(stp).T:
+    for pt in self.matrix.T:
         lll.append(Linear.from_two_points(pt, np.asarray(ClosestPoint(pt, hp.side_d)(x0=0.5, bounds=((0, 1),)).pt).flatten()))
     return lll

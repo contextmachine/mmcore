@@ -16,6 +16,8 @@ import ujson
 from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
 
+import mmcore.base.registry
+
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 import dataclasses
 import hashlib
@@ -489,7 +491,7 @@ class Object3D:
         self.properties = strawberry.asdict(input)
 
     def matrix_to_square_form(self) -> np.ndarray:
-        return np.array(self.matrix, dtype=float).reshape((4, 4)).T
+        return self.matrix.T
 
     def transform(self, matrix):
         """
@@ -498,8 +500,7 @@ class Object3D:
         @param matrix:
         @return:
         """
-        self.matrix = (
-                self.matrix_to_square_form() @ np.array(matrix, dtype=float).reshape((4, 4))).T.flatten().tolist()
+        self.matrix = self.matrix.T.flatten().tolist()
 
     def rotate(self, angle: float, axis: tuple[float, float, float] = (0, 0, 1)):
         """
@@ -1298,7 +1299,6 @@ class A:
             self.__setattr__(k, v)
         self.traverse_child_three()
 
-
     @children.setter
     def children(self, v):
         for child in v:
@@ -1399,7 +1399,7 @@ class A:
                 self._include_materials.add(obj._material)
 
     def matrix_to_square_form(self) -> np.ndarray:
-        return np.array(self.matrix, dtype=float).reshape((4, 4)).T
+        return self.matrix.T
 
     def transform(self, matrix):
         """
@@ -1408,8 +1408,7 @@ class A:
         @param matrix:
         @return:
         """
-        self.matrix = (
-                self.matrix_to_square_form() @ np.array(matrix, dtype=float).reshape((4, 4))).T.flatten().tolist()
+        self.matrix = self.matrix.T.flatten().tolist()
 
     def rotate(self, angle: float, axis: tuple[float, float, float] = (0, 0, 1)):
         """
@@ -1449,11 +1448,18 @@ class A:
                 idict.__delitem__((uid, name))
 
         adict.__delitem__(self.uuid)
-        del self
+
 
     def dump(self, filename):
         with open(filename, "w") as f:
             ujson.dump(self.root(), f)
+
+    def dispose_with_children(self):
+        for child in self._children:
+            adict[child].dispose_with_children()
+        self.dispose()
+
+
 class AGroup(A):
 
     @property
@@ -1559,9 +1565,6 @@ class AMaterialDescriptor:
         else:
             return amatdict.get(getattr(instance, self._name, self._default))
 
-
-
-
     def __set__(self, instance, value):
 
         amatdict[value.uuid] = value
@@ -1581,7 +1584,9 @@ class AGeom(A):
         if kwargs.get('material') is None:
             if kwargs.get('color') is not None:
                 self.color = kwargs.get('color').decimal
-                kwargs['material'] = self.material_type(color=kwargs.get('color').decimal if isinstance(kwargs.get('color'), int) else kwargs.get('color').decimal)
+                kwargs['material'] = self.material_type(
+                    color=kwargs.get('color').decimal if isinstance(kwargs.get('color'), int) else kwargs.get(
+                        'color').decimal)
 
         res = super().__call__(*args, **kwargs)
         res |= {
@@ -1700,8 +1705,10 @@ class APoint(APoints):
     def distance(self, other: 'APoint'):
         return euclidean(self.points, other.points)
 
-LineDefaultMaterial=gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040")
-amatdict[LineDefaultMaterial.uuid]=LineDefaultMaterial
+
+LineDefaultMaterial = gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040")
+amatdict[LineDefaultMaterial.uuid] = LineDefaultMaterial
+
 
 class ALine(APoints):
     material_type = gql_models.LineBasicMaterial
@@ -1709,6 +1716,7 @@ class ALine(APoints):
     material = AMaterialDescriptor(
         default=LineDefaultMaterial)
     _material = 'line-12020040'
+
     @property
     def start(self):
         return self.points[0]

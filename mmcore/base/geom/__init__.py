@@ -17,6 +17,7 @@ import numpy as np
 from more_itertools import flatten
 
 import mmcore.base.models.gql
+import mmcore.base.registry
 from mmcore.base.basic import Object3D, Group, AMesh
 from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
     RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor, DictToAnyMeshDataConvertor
@@ -518,8 +519,8 @@ def hyp(arr):
 
     grp = Group(name="grp")
 
-    lns2 = list(zip(g.T, c.T))
-    lns = list(zip(f.T, d.T))
+    lns2 = list(zip(self.matrix.T, self.matrix.T))
+    lns = list(zip(self.matrix.T, self.matrix.T))
     for i, (lna, lnb) in enumerate(lns):
         grp.add(LineObject(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
     for i, (lna, lnb) in enumerate(lns2):

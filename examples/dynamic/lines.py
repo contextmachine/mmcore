@@ -86,7 +86,7 @@ def render_lines(result, uuid, secondary_color):
 
 
 # render_lines.todict(no_attrs=True) will return the complete dictionary of parameters affecting the system.
-print(json.dumps(render_lines.todict(no_attrs=True), indent=3))
+print(json.dumps(render_lines.todict(), indent=3))
 
 
 # I use json.dumps(..., indent=3) to visually print out the whole dictionary, I could also use something like pprint,
@@ -264,3 +264,5 @@ serve.start()
 changes2()
 time.sleep(1)
 animate()
+time.sleep(2)
+#polyline().dispose()

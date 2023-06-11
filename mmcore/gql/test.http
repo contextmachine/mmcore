@@ -1,18 +1,20 @@
 ###
-GRAPHQL http://localhost:7711/graphql
+GRAPHQL http://localhost:7711/v2/graphql
 content-type: application/json
 
 query {
 
-  root{metadata object {name children {name}}
+  root
   }
 
-}
 
 
 
 
-  {
 
-  }
+
+
+
+
+
 

@@ -11,13 +11,14 @@ from itertools import starmap
 import dill
 import scipy.optimize
 
+import mmcore.base.registry
 from mmcore.geom.parametric.algorithms import EvaluatedPoint, ProximityPoints, ClosestPoint, CurveCurveIntersect
 
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from enum import Enum
 
-from mmcore.geom.parametric.base import ParametricObject
+from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.vectors import unit
 
 
@@ -72,7 +73,11 @@ class Linear(ParametricObject):
     b: float = 0
     c: float = 0
 
+    @transform_manager
+    def transform(self, m: Transform = None):
+        return super().transform(m)
     def __post_init__(self):
+        super().__post_init__()
         self.x = lambda t: self.x0 + self.a * t
         self.y = lambda t: self.y0 + self.b * t
         self.z = lambda t: self.z0 + self.c * t
@@ -82,11 +87,12 @@ class Linear(ParametricObject):
 
     @classmethod
     def from_two_points(cls, start, end):
+        #print(start,end)
         a, b, c = np.asarray(end) - np.asarray(start)
         x, y, z = start
 
         return cls(x0=x, y0=y, z0=z, a=a, b=b, c=c)
-
+    @transform
     def evaluate(self, t):
         return np.array([self.x(t), self.y(t), self.z(t)], dtype=float)
 
@@ -182,7 +188,7 @@ def llll(hp, step=600):
     dt = np.dot(uva, uvb)
     lll = []
     stp = (1 / dt) * step
-    for pt in hp.side_a.divide_distance(stp).T:
+    for pt in l.matrix.T:
         lll.append(
             Linear.from_two_points(pt, np.asarray(ClosestPoint(pt, hp.side_d)(x0=0.5, bounds=((0, 1),)).pt).flatten()))
     return lll
@@ -290,7 +296,7 @@ class PlaneLinear(ParametricObject):
 
     def point_at(self, pt):
         T = Transform.from_plane_to_plane(self, WorldXY)
-        return remove_crd(add_w(pt) @ T.matrix.T)
+        return remove_crd(add_w(pt) @ self.matrix.T)
 
     @property
     def x0(self):
@@ -343,7 +349,7 @@ class PlaneLinear(ParametricObject):
 
         # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
 
-        p_inter = np.linalg.solve(A, d).T
+        p_inter = self.matrix.T
 
         return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
 
@@ -727,16 +733,18 @@ def no_mp(dl):
 
 """
 
-
 @dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
-
+    @transform_manager
+    def transform(self, m: Transform):
+        return super().transform(m)
     @property
     def __params__(self):
         return [self.r]
 
     @functools.lru_cache
+    @transform
     def evaluate(self, t):
         return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
 
@@ -744,6 +752,12 @@ class Circle(ParametricObject):
     def plane(self):
         return WorldXY
 
+    @property
+    def points(self):
+        prs=[]
+        for s in np.linspace(0,1,32):
+            prs.append(self.evaluate(s).tolist())
+        return prs
 
 import zlib
 
@@ -767,7 +781,7 @@ class Circle3D(Circle):
             return self.plane.orient(super().evaluate(t), super().plane)
         except NotImplementedError:
             return remove_crd(
-                add_crd(super().evaluate(t), 1).reshape((4,)) @ self.plane.transform_from_other(WorldXY).matrix.T)
+                add_crd(super().evaluate(t), 1).reshape((4,)) @ self.matrix.T)
 
     @property
     def __params__(self):

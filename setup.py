@@ -57,6 +57,7 @@ setup(
               'mmcore.gql.templates',
               'mmcore.base',
               'mmcore.base.geom',
+              'mmcore.base.sharedstate',
               'mmcore.base.models',
               'mmcore.base.models.gql',
               'mmcore.base.params',
