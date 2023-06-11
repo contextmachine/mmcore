@@ -1,0 +1,28 @@
+services:
+  web:
+    image: cr.yandex/crpfskvn79g5ht8njq0k/sthv-viewer-alpha:arm64
+    container_name: debug-viewer
+    environment:
+      MMCORE_ADDRESS: http://localhost:7711/
+    ports:
+      - 3000:3000
+    expose:
+      - 3000
+    depends_on:
+      - mmcore
+  mmcore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: mmcore
+    tty: true
+
+    ports:
+      - 7711:7711
+    expose:
+      - 7711
+
+    stdin_open: true
+
+

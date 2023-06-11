@@ -1,10 +1,13 @@
+import copy
 import dataclasses
 import os
 
+import geomdl.operations
 import multiprocess as mp
 import numpy as np
 
-from mmcore.geom.parametric import Circle, ParametricObject, PlaneLinear, add_crd, EvalPointTuple2D
+import mmcore.base.registry
+from mmcore.geom.parametric import Circle, ParametricObject, PlaneLinear
 from mmcore.geom.parametric.nurbs import NurbsCurve
 from mmcore.geom.transform import remove_crd, WorldXY
 
@@ -25,21 +28,31 @@ class Pipe:
     shape: ParametricObject
 
     def evalplane(self, t):
-        pt = self.path.tan(t)
-        return PlaneLinear(origin=pt.point, normal=pt.normal)
+        #print(self,t)
+        pt = self.path.evaluate(t)
+
+        return PlaneLinear(origin=pt, normal=self.path.tan(t).normal)
 
     def evaluate(self, t):
         u, v = t
 
-        pln = self.evalplane(u)
+        return self.shape.evaluate(v).tolist() @ self.evalplane(u).transform_from_other(WorldXY)
 
-        return remove_crd(
-            add_crd(self.shape.evaluate(v), 1).reshape((4,)).tolist() @ pln.transform_from_other(WorldXY).matrix.T)
+    def evaluate_profile(self, t):
+        if isinstance(self.shape,NurbsCurve):
+             return self.shape.transform(self.evalplane(t).transform_from_other(WorldXY))
+        else:
+            s=copy.deepcopy(self.shape)
+            s.transform(self.evalplane(t).transform_from_other(WorldXY))
+        return s
+
+    def normal(self, t):
+        return geomdl.operations.normal(self.proxy, t)
 
     def geval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
         for i, u in enumerate(np.linspace(*bounds[0], uvs[0])):
             for j, v in enumerate(np.linspace(*bounds[1], uvs[1])):
-                yield EvalPointTuple2D(i, j, u, v, *self.evaluate([u, v]))
+                yield i, j, u, v, *self.evaluate([u, v])
 
     def veval(self, uvs=(20, 20), bounds=((0, 1), (0, 1))):
         data = np.zeros(uvs + (3,), dtype=float)
@@ -71,3 +84,7 @@ class Pipe:
 
         with mp.Pool(workers) as p:
             return p.map(inner, np.linspace(*bounds[0], uvs[0]))
+
+    @property
+    def surface(self):
+        self.geval

@@ -4,6 +4,8 @@ from functools import wraps
 from typing import Any, Union, ContextManager
 
 import numpy as np
+
+import mmcore.base.registry
 from mmcore.geom.vectors import unit
 
 from compas.data import Data
@@ -69,7 +71,21 @@ class Transform:
     def __rmatmul__(self, other):
         if isinstance(other, (list, tuple)):
             other = np.array(other, dtype=float)
-        if hasattr(other, 'matrix'):
+        if isinstance(other, ndarray):
+            if other.shape[0] == 3:
+                ppt = np.array([0, 0, 0, 1], dtype=float)
+                ppt[0:3] = other
+                other[:] = (ppt @ self.matrix.T)[0:-1]
+                return other
+
+            elif other.shape[0] == 4:
+                print('other!',other)
+                return remove_crd((other @ self.matrix).T)
+
+            else:
+                raise ValueError(f"Shape (3, ...) or (4, ...) was expected, but {other.shape} exist.")
+
+        elif hasattr(other, 'matrix'):
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
             if issubclass(other.__class__, Data):
@@ -79,18 +95,6 @@ class Transform:
         elif isinstance(other, Transform):
             return Transform(other.__array__() @ self.matrix)
 
-        elif isinstance(other, ndarray):
-            if other.shape[0] == 3:
-                ppt = np.array([0, 0, 0, 1], dtype=float)
-                ppt[0:3] = other
-                other[:] = (ppt @ self.matrix.T)[0:3]
-                return remove_crd(other)
-
-            elif other.shape[0] == 4:
-                return remove_crd(other @ self.matrix.T)
-
-            else:
-                raise ValueError(f"Shape (3, ...) or (4, ...) was expected, but {other.shape} exist.")
 
         else:
             raise ValueError(f"{other} does not define any of the available interfaces for transformation.")
@@ -125,6 +129,7 @@ class Transform:
 
     @classmethod
     def from_plane_to_plane(cls, plane_a, plane_b):
+        #print(plane_a,plane_b)
         M1 = cls.from_plane(Plane(unit(plane_a.xaxis), unit(plane_a.yaxis), unit(plane_a.normal), plane_a.origin))
         M2 = cls.from_plane(Plane(unit(plane_b.xaxis), unit(plane_b.yaxis), unit(plane_b.normal), plane_b.origin))
         return cls(M2.matrix @ M1.matrix.T)
@@ -197,6 +202,6 @@ class TransformManager(ContextManager):
 
 def assign_transform(m):
     def assign_transform_wrapper(obj, *args, **kw):
-        return ((np.array(m(obj, *args, **kw) + [1]) @ obj.matrix_to_square_form().T)[:3]).tolist()
+        return ((np.array(m(obj, *args, **kw) + [1]) @ obj.matrix.T)[:3]).tolist()
 
     return assign_transform_wrapper

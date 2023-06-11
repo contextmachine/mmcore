@@ -21,6 +21,8 @@ from mmcore.geom.materials import ColorRGB
 
 from scipy import optimize
 
+from mmcore.geom.transform import Transform
+
 
 @dataclasses.dataclass(eq=True, unsafe_hash=True)
 class LoftOptions:
@@ -28,6 +30,9 @@ class LoftOptions:
 
     def asdict(self):
         return dataclasses.asdict(self)
+
+
+from mmcore.geom.parametric.base import transform_manager
 
 
 @dataclasses.dataclass
@@ -51,8 +56,10 @@ class NurbsCurve(ProxyParametricObject):
     knots: typing.Optional[list[float]] = None
     slices: int = 32
 
-    def __post_init__(self):
 
+
+    def __post_init__(self):
+        super().__post_init__()
         self.proxy.degree = self.degree
 
         self.proxy.ctrlpts = self.control_points
@@ -75,6 +82,7 @@ class NurbsCurve(ProxyParametricObject):
         self._proxy = NURBS.Curve()
 
         self._proxy.degree = self.degree
+
 
     def evaluate(self, t):
         if hasattr(t, "__len__"):
@@ -100,6 +108,14 @@ class NurbsCurve(ProxyParametricObject):
                            'array': np.array(
                                [self.evaluate(t) for t in np.linspace(0, 1, self.slices)]).flatten().tolist(),
                            'normalized': False})})})})
+
+    def transform(self, m):
+        ll=[]
+        for cp in self.control_points:
+            ll.append(cp@m)
+        #r=self.control_points @ m
+        #print(r,ll)
+        return NurbsCurve(np.array(ll, dtype=float).tolist() )
 
 
 @dataclasses.dataclass
@@ -172,15 +188,16 @@ class NurbsSurface(ProxyParametricObject):
         faceseq = ElementSequence(self._proxy.faces)
         uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
 
-        normals = [pv[1] for pv in geomdl.operations.normal(self._proxy, uv.tolist())]
+        #normals = [pv[1] for pv in geomdl.operations.normal(self._proxy, uv.tolist())]
         return MeshData(vertices=np.array(vertseq['data'], dtype=float),
-                        normals=np.array(normals, dtype=float),
+
                         indices=np.array(faceseq["vertex_ids"],
                                          dtype=float),
                         uv=uv)
 
-    def tessellate(self) -> BufferGeometryObject:
-        return self.mesh_data.create_buffer()
+    def tessellate(self,**kwargs) -> BufferGeometryObject:
+        self.proxy.tessellate()
+        return self.mesh_data.to_mesh(**kwargs)
 
     @property
     def __params__(self) -> typing.Any:
@@ -292,6 +309,7 @@ class NurbsLoftProxyDescriptor(NurbsSurfaceProxyDescriptor):
         return self.solve_geometry(instance)
 
     def solve_loft(self, instance, value):
+        print(self, instance,value)
         crvspt = value.pop("control_points")
         instance.__ref_extra__ |= value
         crvs = []
@@ -330,9 +348,11 @@ class ProxyGeometry(AGeom):
 
     def helpers_geometry(self):
         ...
+
     def include_helpers(self):
         self.helpers_geometry()
         self._children.add(self.uuid + "-helpers")
+
 
 class NurbsCurveGeometry(ProxyGeometry, ALine):
     geometry = NurbsCurveProxyDescriptor()
@@ -344,8 +364,6 @@ class NurbsCurveGeometry(ProxyGeometry, ALine):
 
 class NurbsSurfaceGeometry(ProxyGeometry, AMesh):
     geometry = NurbsSurfaceProxyDescriptor()
-
-
 
 
 class NurbsLoft(ProxyGeometry, AMesh):
