@@ -13,6 +13,7 @@ from scipy.spatial import distance
 from mmcore.base import AGeom
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import BufferGeometryObject
+from mmcore.geom.transform import Transform
 
 T = typing.TypeVar("T")
 
@@ -27,9 +28,28 @@ EvalPointTuple2D.__doc__ = """Represent u,v like 2d evaluation result.\n
 from mmcore.geom.parametric.algorithms import ClosestPoint, ProximityPoints, EvaluatedPoint
 
 
-@typing.runtime_checkable
-@dataclasses.dataclass(eq=True,unsafe_hash=True)
+class transform_manager:
+    def __init__(self, trx):
+        self._trx = trx
+    @property
+    def trx(self):
+        return self._trx()
+    def __call__(self, method):
+        return lambda slf,*args, **kwargs: np.array(method(slf,*args, **kwargs)).tolist() @ slf.__trx__
+
+
+
+@dataclasses.dataclass(eq=True, unsafe_hash=True)
 class ParametricObject(typing.Protocol[T]):
+    @transform_manager
+    def transform(self, m: Transform=None):
+        if m is None:
+            m=Transform()
+        self.__trx__ @ m
+        return self.__trx__
+    def __post_init__(self):
+        self.__trx__ = Transform()
+
     @property
     def __params__(self) -> typing.Any:
         """
@@ -49,6 +69,7 @@ class ParametricObject(typing.Protocol[T]):
         return 1
 
     @abc.abstractmethod
+    @transform
     def evaluate(self, t):
         ...
 
@@ -66,6 +87,10 @@ class ParametricObject(typing.Protocol[T]):
         return ProximityPoints(self, other)(x0=np.array(list(itertools.repeat(0.5, self.dim + other.dim))),
                                             bounds=(itertools.repeat((0.0, 1.0), self.dim + other.dim)))
 
+
+
+
+transform_manager(ParametricObject)
 
 
 @dataclasses.dataclass
@@ -146,12 +171,15 @@ class ProxyAttributeDescriptor(typing.Generic[T]):
 
 @dataclasses.dataclass
 class ProxyParametricObject(ParametricObject[T]):
-
+    @transform_manager
+    def transform(self, m: Transform=None):
+        return super().transform(m)
     @abc.abstractmethod
     def prepare_proxy(self):
         ...
 
     @abc.abstractmethod
+    @transform
     def evaluate(self, t) -> typing.Union[tuple[float, float, float], np.ndarray, list, typing.Any]:
         ...
 
@@ -162,5 +190,3 @@ class ProxyParametricObject(ParametricObject[T]):
         except AttributeError as err:
             self.prepare_proxy()
             return self._proxy
-
-

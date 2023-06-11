@@ -2,6 +2,9 @@ import json
 import warnings
 
 from abc import ABCMeta
+
+from mmcore.geom.vectors import unit
+
 try:
     from OCC.Core.Tesselator import ShapeTesselator
 except ImportError as err:
@@ -10,7 +13,7 @@ import uuid as _uuid
 import numpy as np
 from mmcore.base.basic import AGroup, AMesh
 from mmcore.geom.materials import ColorRGB
-from mmcore.base.geom import MeshObject, LineObject
+from mmcore.base.geom import MeshObject, LineObject, MeshData
 from mmcore.base.geom.utils import create_buffer_from_dict
 from mmcore.base.registry import amatdict
 from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
@@ -89,3 +92,67 @@ class TessellateIfc(Tessellate):
 
     def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=True):
         return super().tessellate(compute_edges=False, mesh_quality=1.0, parallel=True)
+
+
+
+
+def parametric_mesh_bruteforce(prm,uv=[10, 4], closed=False):
+
+    u,v = uv
+    vertices=[]
+    _vertices=[]
+    _faces=[]
+    dirs=[]
+    for ik,i in enumerate(np.linspace(1,0,u)):
+        points = []
+
+        for jk, j in enumerate(np.linspace(0,1,v)):
+
+            #pt=APoints(name=f"{ik}-{jk}",geometry=point,uuid=f'{uuid}-u{ik}-v{jk}', material=PointsMaterial(color=color, size=0.2))
+            #grp.add(pt)
+            point=prm.evaluate([i,j])
+            vertices.append(point)
+            _vertices.append(f"{ik}-{jk}")
+            _faces.append((f"{ik}-{jk}",f"{ik+1}-{jk}",f"{ik+1}-{jk+1}"))
+            points.append(point)
+
+        if closed:
+            dirs.append(np.array(points[-1])-np.array(points[0]))
+        else:
+            dirs.append(np.array(points[0]) - np.array(points[1]))
+
+    dirsv=[]
+    for ik,i in enumerate(np.linspace(0, 1, u)):
+        points = []
+
+        for jk,j in enumerate(np.linspace(1,0,v)):
+            point=prm.evaluate([i,j])
+            #pt = APoints(name=f"{ik}-{jk}", geometry=point, uuid=f'{uuid}-v{jk}-u{ik}',material=PointsMaterial(color=color))
+            #grp.add(pt)
+
+            points.append(point)
+            _faces.append((f"{ik}-{jk}", f"{ik+1}-{jk+1}", f"{ik}-{jk + 1}"))
+            _vertices.append(f"{ik}-{jk}")
+        if closed:
+            dirsv.append(np.array(points[-1])-np.array(points[0]))
+        else:
+            dirsv.append(np.array(points[0])-np.array(points[1]))
+
+    indices=[]
+    normals=[]
+    for du in dirs:
+        for dv in dirsv:
+            normals.append(np.cross(unit(du),unit(dv)))
+    for face in _faces:
+        fc=[]
+        try:
+
+            for v in face:
+
+                fc.append(_vertices.index(v))
+            indices.append(fc)
+        except:
+                #print(face)
+                pass
+
+    return MeshData(vertices=vertices, indices=indices, normals=np.array(normals).flatten())

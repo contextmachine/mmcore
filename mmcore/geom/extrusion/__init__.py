@@ -148,7 +148,7 @@ def csg_extrusion(shape, h):
     md = MeshData(vertices=vxs, indices=ixs)
 
     for mmd in md.faces[1:]:
-        print(mmd)
+        #print(mmd)
         polys.append(BspPolygon(mmd))
 
     csgm = CSG.fromPolygons(polys).refine()

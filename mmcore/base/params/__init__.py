@@ -1,67 +1,28 @@
-import dataclasses, json, abc, typing
+import dataclasses, typing
 import uuid as _uuid
-from mmcore.base.basic import deep_merge, ALine, AGroup
-from mmcore.base.models.gql import LineBasicMaterial
+from mmcore.base.basic import DictSchema
+from mmcore.base.registry import  AGraph
 
 paramtable = dict()
 relaytable = dict()
-T = typing.TypeVar("T")
-
 DEBUG_GRAPH = False
+from mmcore.base.sharedstate import serve
+
+import string
 
 
-class ParamGraph:
-    item_table: dict[str, typing.Any] = dict()
-    relay_table: dict[str, dict] = dict()
+class ParamGraph(AGraph):
 
-    def __init__(self, *args, **kwargs):
-        dict.__init__(self.item_table, *args, **kwargs)
+    def draw(self):
+        self.mappingtable, self.ajtable, self.leafs = draw_aj(self)
+        return self.ajtable
 
-    def __setitem__(self, k, v):
-        self.item_table[k] = v
-
-    def __getitem__(self, k):
-        return self.item_table[k]
-
-    def __delitem__(self, key):
-        self.item_table[key].dispose()
-
-    def nodes(self):
-        return self.item_table.values()
-
-    def relays(self):
-        return self.relay_table.values()
-
-    def get_from_name(self, name):
+    def get_terms(self)->'list[TermParamGraphNode]':
         nodes = []
-        for i in self.item_table.values():
-            if i.name == name:
-                nodes.append(i)
+        for node in self.item_table.values():
+            if isinstance(node, TermParamGraphNode):
+                nodes.append(node)
         return nodes
-
-    def get_from_startswith(self, name):
-        nodes = []
-        for i in self.item_table.values():
-            if i.name.startswith(name):
-                nodes.append(i)
-        return nodes
-
-    def get_from_callback(self, callback=lambda node: True):
-        nodes = []
-        for i in self.item_table.values():
-            if callback(i):
-                nodes.append(i)
-
-        return nodes
-
-    def get(self, k):
-        return self.item_table.get(k)
-
-    def get_relays(self, node):
-        return dict((k, self.get_relay(node, k)) for k in self.relay_table[node.uuid].keys())
-
-    def get_relay(self, node, name):
-        return self.item_table[self.relay_table[node.uuid][name]]
 
     def set_relay(self, node, name, v):
         if DEBUG_GRAPH:
@@ -80,16 +41,6 @@ class ParamGraph:
                 self.relay_table[node.uuid][name] = v.uuid
             else:
                 self.relay_table[node.uuid][name] = TermParamGraphNode(v, name=f'{node.name}:{name}').uuid
-
-    def get_terms(self):
-        nodes = []
-        for node in self.item_table.values():
-            if isinstance(node, TermParamGraphNode):
-                nodes.append(node)
-        return nodes
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'({self.item_table.__repr__()}, {self.relay_table.__repr__()})'
 
 
 pgraph = ParamGraph()
@@ -115,7 +66,7 @@ class TermParamGraphNode:
     def solve(self):
         return self.graph.relay_table[self.uuid]
 
-    def __call__(self, data=None) -> typing.Optional[T]:
+    def __call__(self, data=None) :
 
         if data is not None:
             if DEBUG_GRAPH:
@@ -129,8 +80,16 @@ class TermParamGraphNode:
         del self.graph.item_table[self.uuid]
         del self.graph.relay_table[self.uuid]
 
+    def del_from_graph(self, graph):
+        graph.item_table.pop(self.uuid)
+        graph.relay_table.pop(self.uuid)
+
     def __repr__(self):
         return f'{self.__class__.__name__}(name={self.name}, value={self.solve()}, uuid={self.uuid})'
+
+    @property
+    def index(self):
+        return self.graph.item_table.index_from_key(self.uuid)
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -140,6 +99,10 @@ class ParamGraphNode:
     uuid: typing.Optional[str] = None
     resolver: typing.Optional[typing.Callable] = None
 
+    @property
+    def index(self):
+        return self.graph.item_table.index_from_key(self.uuid)
+
     def __post_init__(self, _params):
         self.graph = pgraph
         if self.uuid is None:
@@ -147,13 +110,13 @@ class ParamGraphNode:
         if self.name is None:
             self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
         if self.resolver is None:
-            self.resolver = lambda **kwargs:  kwargs
+            self.resolver = lambda **kwargs: kwargs
         self.graph.item_table[self.uuid] = self
         self.graph.relay_table[self.uuid] = dict()
-
+        serve.add_params_node(self.name, self)
         self(**_params)
 
-    def subgraph(self):
+    def neighbours(self):
         dct = list()
 
         def search(obj):
@@ -168,6 +131,29 @@ class ParamGraphNode:
 
         search(self)
         return dct
+
+    def subgraph(self):
+        subgraph = ParamGraph()
+
+        def search(obj):
+            subgraph.item_table[obj.uuid] = obj
+            subgraph.relay_table[obj.uuid] = dict()
+            for k in obj.keys():
+                r = self.graph.item_table[self.graph.relay_table[obj.uuid][k]]
+                subgraph.relay_table[obj.uuid][k] = r.uuid
+                if isinstance(r, ParamGraphNode):
+                    search(r)
+
+                else:
+                    subgraph.item_table[r.uuid] = r
+                    subgraph.relay_table[r.uuid] = self.graph.relay_table[r.uuid]
+                    r.graph = subgraph
+
+            obj.graph = subgraph
+
+        search(self)
+
+        return subgraph
 
     def get(self, k):
         try:
@@ -191,7 +177,7 @@ class ParamGraphNode:
         return nodes
 
     def keys(self):
-        return self.params.keys()
+        return self.graph.relay_table[self.uuid].keys()
 
     def todict(self, no_attrs=True):
         dct = {}
@@ -215,17 +201,22 @@ class ParamGraphNode:
     def solve(self):
         dct = {}
         for k in self.keys():
+            dct[k] = self.graph.get_relay(self, k).solve()
 
-            if isinstance(self.params[k], ParamGraphNode):
-
-                dct[k] = self.graph.get_relay(self, k).solve()
-            else:
-                dct[k] = self.graph.get_relay(self, k).solve()
         return self.resolver(**dct)
+
+    def schema(self):
+        return self.__dct_schema__.schema
+
+    def inputs(self):
+        return self.__dct_schema__.init_partial(**self.todict())
 
     @property
     def params(self):
-        return self.graph.get_relays(self)
+        dct = dict()
+        for i in self.graph.relay_table[self.uuid].keys():
+            dct[i] = self.graph.item_table[self.graph.relay_table[self.uuid][i]]
+        return dct
 
     def __setitem__(self, key, value):
 
@@ -234,20 +225,16 @@ class ParamGraphNode:
     def __getitem__(self, key):
         return self.graph.get_relay(self, key)
 
-    def __getattr__(self, key):
-        if key in self.keys():
-            return self.graph.get_relay(self, key)()
-        else:
-            return getattr(self, key)
 
-    def __call__(self, *args, **params) -> typing.Optional[T]:
+
+    def __call__(self, *args, **params) :
         if len(args) > 0:
             params |= dict(zip(list(self.keys())[:len(args)], args))
         if params is not None:
 
             for k, v in params.items():
                 self.graph.set_relay(self, k, v)
-
+            self.__dct_schema__ = DictSchema(self.todict(no_attrs=True))
         return self.solve()
 
     def dispose(self):
@@ -256,21 +243,37 @@ class ParamGraphNode:
             self.graph.item_table[v].dispose()
 
         del self.graph.relay_table[self.uuid]
-        del self
 
+    def del_from_graph(self, othergraph):
+        """
 
-from mmcore.geom.parametric import Linear
+        @param graph:
+        @return:
+        >>> from mmcore.base.params import ParamGraphNode, pgraph
+        >>> node = ParamGraphNode(...)
+        >>> subgraph = node.subgraph()
+        >>> node in subgraph
+        True
+        >>> node in pgraph
+        True
+        >>> node.del_from_graph(pgraph)
+        >>> node in pgraph
+        False
+        """
+
+        for i in othergraph.relay_table.get(self.uuid).values():
+            othergraph.item_table[i].del_from_graph(othergraph)
+
+        othergraph.relay_table.pop(self.uuid)
+        othergraph.item_table.pop(self.uuid)
 
 
 def param_graph_node(params: dict):
     def inner(fn):
-
-        def wrapper(*args,**kwargs):
-
-
+        def wrapper(*args, **kwargs):
             return fn(*args, **kwargs)
 
-        name = fn.__name__ + "_node"
+        name = fn.__name__
 
         return ParamGraphNode(params, name=name, resolver=wrapper)
 
@@ -289,10 +292,42 @@ def param_graph_node_native(fn):
     def wrapper(*args, **kwargs):
         return fn(*args, **kwargs)
 
-    name = fn.__name__ + "_node"
+    name = fn.__name__
 
-    return ParamGraphNode(dict(zip(fn.__code__.co_varnames,fn.__defaults__)), name=name, resolver=wrapper)
-
-
+    return ParamGraphNode(dict(zip(fn.__code__.co_varnames, fn.__defaults__)), name=name, resolver=wrapper)
 
 
+import itertools
+
+
+def draw_aj(graph):
+    import pandas as pd
+
+    pd.set_option('display.max_rows', 500)
+    pd.set_option('display.max_columns', 500)
+    pd.set_option('display.width', 1000)
+    l = len(graph.item_table.keys())
+
+    dct = dict()
+    for i, k in enumerate(graph.item_table.keys()):
+        n, m = divmod(i, len(string.ascii_uppercase))
+
+        dct[k] = string.ascii_uppercase[m] * (n + 1), i
+    dct2 = dict()
+    dct3 = dict()
+    for k, v in dct.items():
+        name, i = v
+        *r, = itertools.repeat(' ', l)
+        print(k, v)
+        if isinstance(graph.relay_table[k], dict):
+            for kk, vv in graph.relay_table[k].items():
+                r[list(dct.keys()).index(vv)] = f'{kk} : {name}->{dct[vv][0]}'
+
+        else:
+            dct3[name] = {"value": graph.relay_table[k], "uuid": v, "name": name}
+        dct2[name] = r
+
+    print(dct2)
+    *keys, = map(lambda x: x[0], dct.values())
+
+    return pd.DataFrame(dct), pd.DataFrame(dct2, index=list(keys)), pd.DataFrame(dct3, index=['value', 'uuid'])

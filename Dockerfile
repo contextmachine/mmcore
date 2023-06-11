@@ -25,5 +25,6 @@ WORKDIR /mmcore
 COPY --link . .
 #RUN apt update && apt -y install npm nodejs
 EXPOSE 7711
-RUN python3 -m pip install . && python3 -m pip install -r requirements.txt
-ENTRYPOINT ["python3", "-m", "mmcore.serve", "--serve-start=true"]
+RUN python3 -m pip install -r requirements.txt
+RUN python3 -m pip install -e .
+#ENTRYPOINT ["python3", "-m", "mmcore.serve", "--serve-start=true"]

@@ -1048,3 +1048,22 @@ def triangle_normal(p1, p2, p3):
     Ny = Az * Bx - Ax * Bz
     Nz = Ax * By - Ay * Bx
     return Nx, Ny, Nz
+def triangle_plane(p1, p2, p3):
+    """Quoting from https://www.khronos.org/opengl/wiki/Calculating_a_Surface_Normal
+
+    A surface normal for a triangle can be calculated by taking the vector cross product of two edges of that triangle. The order of the vertices used in the calculation will affect the direction of the normal (in or out of the face w.r.t. winding).
+    So for a triangle p1, p2, p3, if the vector A = p2 - p1 and the vector B = p3 - p1 then the normal N = A x B and can be calculated by:
+
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx"""
+
+    A = p2 - p1
+    B = p3 - p1
+    # print(p1,p2,p3,A,B)
+    Ax, Ay, Az = A
+    Bx, By, Bz = B
+    Nx = Ay * Bz - Az * By
+    Ny = Az * Bx - Ax * Bz
+    Nz = Ax * By - Ay * Bx
+    return np.array([A,B,(Nx, Ny, Nz)])
