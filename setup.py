@@ -30,7 +30,7 @@ setup(
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.parametric',
-                     'mmcore.geom.shapes',
+              'mmcore.geom.shapes',
               'mmcore.geom.materials',
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
@@ -59,6 +59,7 @@ setup(
               'mmcore.base.geom',
               'mmcore.base.models',
               'mmcore.base.models.gql',
+              'mmcore.base.params',
               'mmcore.base.registry',
               'mmcore.base.descriptors',
               'mmcore.base.delegate'

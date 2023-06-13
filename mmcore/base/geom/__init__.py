@@ -225,7 +225,7 @@ class GeometryObject(Object3D):
 # OLD Depricated
 
 
-from mmcore.geom.vectors import triangle_normal
+from mmcore.geom.vectors import triangle_normal, unit
 
 
 class BufferGeometryToMeshDataConvertor(Convertor):
@@ -273,9 +273,8 @@ class MeshData:
 
     def calc_normals(self):
         self.normals = []
-        for a, b, c in self.indices[:3]:
-            self.normals.append(
-                triangle_normal(np.array(self.vertices[a]), np.array(self.vertices[b]), np.array(self.vertices[c])))
+        for face in self.faces:
+            self.normals.append(triangle_normal(*face))
 
     def __post_init__(self):
         self._buf = None
@@ -341,8 +340,8 @@ class MeshData:
 
         return MeshData(**dct)
 
-    def to_mesh(self):
-        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR))
+    def to_mesh(self, color=None, flatShading=True, opacity = 1.0,**kwargs):
+        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR if color is None else color,opacity=opacity, flatShading=flatShading), **kwargs)
 
     @classmethod
     def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':

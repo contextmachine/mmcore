@@ -1,6 +1,9 @@
 import dotenv
 import os
+
 TOLERANCE = 0.000_001
+
+
 def load_dotenv_from_path(filename, override=False, raise_error_if_not_found=False, **kwargs):
     return dotenv.load_dotenv(dotenv_path=dotenv.find_dotenv(filename=filename,
                                                              raise_error_if_not_found=raise_error_if_not_found,
@@ -17,4 +20,3 @@ def __version__():
 
 
 load_dotenv_from_path(".env")
-

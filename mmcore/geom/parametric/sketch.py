@@ -51,7 +51,7 @@ TOLERANCE = 1e-6
 T = typing.TypeVar("T")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class PolyNominal(ParametricObject):
     func: typing.Callable
 
@@ -197,7 +197,7 @@ def m():
     return np.asarray(l22(llll(hhp(), 600))).tolist()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class Polyline(ParametricObject):
     control_points: typing.Union[DCLL, DoublyLinkedList]
     closed: bool = False
@@ -229,7 +229,7 @@ class Polyline(ParametricObject):
         return self.segments[int(segm)].evaluate(tt)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class PlaneLinear(ParametricObject):
     origin: typing.Iterable[float]
     normal: typing.Optional[typing.Iterable[float]] = None
@@ -370,7 +370,7 @@ class PlaneLinear(ParametricObject):
         return line_plane_collision(self, ray, TOLERANCE)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class HyPar4pt(ParametricObject):
     a: typing.Iterable[float]
     b: typing.Iterable[float]
@@ -454,7 +454,7 @@ def is_collinear(a, b):
     return dp, dp * (1 if dp // 1 >= 0 else -1)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class HypPar4ptGrid(HyPar4pt):
     def parallel_side_grid(self, step1, side: str = "D"):
         self._grd = DCLL()
@@ -728,7 +728,7 @@ def no_mp(dl):
 """
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
 
