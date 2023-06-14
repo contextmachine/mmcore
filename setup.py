@@ -21,6 +21,7 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 """
       )
+from mmcore import __version__
 with open(".version") as f:
     vers=f.read()
 setup(
