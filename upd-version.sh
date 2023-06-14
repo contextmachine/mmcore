@@ -1,1 +1,1 @@
-python ./bin/upd-version.py
+python ./bin/upd-version.py --minor "$@"
