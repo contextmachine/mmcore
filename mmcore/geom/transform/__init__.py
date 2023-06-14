@@ -1,18 +1,14 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from collections import namedtuple
-from functools import wraps
 from typing import Any, Union, ContextManager
 
 import numpy as np
-
-import mmcore.base.registry
-from mmcore.geom.vectors import unit
-
+import pyquaternion as pq
 from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
 
-import pyquaternion as pq
+from mmcore.geom.vectors import unit
 
 
 def add_crd(pt, value):
@@ -77,9 +73,14 @@ class Transform:
                 ppt[0:3] = other
                 other[:] = (ppt @ self.matrix.T)[0:-1]
                 return other
-
+            elif other.shape[1] == 3:
+                print('!!')
+                l = []
+                for i in other:
+                    l.append(self.__rmatmul__(i).tolist())
+                return np.array(l, dtype=float)
             elif other.shape[0] == 4:
-                print('other!',other)
+                print('other!', other)
                 return remove_crd((other @ self.matrix).T)
 
             else:
@@ -129,7 +130,7 @@ class Transform:
 
     @classmethod
     def from_plane_to_plane(cls, plane_a, plane_b):
-        #print(plane_a,plane_b)
+        # print(plane_a,plane_b)
         M1 = cls.from_plane(Plane(unit(plane_a.xaxis), unit(plane_a.yaxis), unit(plane_a.normal), plane_a.origin))
         M2 = cls.from_plane(Plane(unit(plane_b.xaxis), unit(plane_b.yaxis), unit(plane_b.normal), plane_b.origin))
         return cls(M2.matrix @ M1.matrix.T)
@@ -205,3 +206,8 @@ def assign_transform(m):
         return ((np.array(m(obj, *args, **kw) + [1]) @ obj.matrix.T)[:3]).tolist()
 
     return assign_transform_wrapper
+
+
+YZ_TO_XY = Transform(np.array([1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1]).reshape((4, 4)))
+
+XY_TO_YZ = Transform(np.array([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]).reshape((4, 4)))
