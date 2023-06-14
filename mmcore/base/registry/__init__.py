@@ -56,7 +56,7 @@ class OrderedKeysDict(dict):
         return self.getitem_from_index(-1)
 
 
-class AGraph(typing.Generic[T, N]):
+class AGraph(typing.Generic[N]):
     def __init__(self):
         self.item_table: OrderedKeysDict[str, typing.Union[T, N]] = OrderedKeysDict()
         self.relay_table: dict[str, dict] = dict()
