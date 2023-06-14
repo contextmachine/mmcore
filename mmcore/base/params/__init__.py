@@ -1,7 +1,9 @@
-import dataclasses, typing
+import dataclasses
+import typing
 import uuid as _uuid
+
 from mmcore.base.basic import DictSchema
-from mmcore.base.registry import  AGraph
+from mmcore.base.registry import AGraph
 
 paramtable = dict()
 relaytable = dict()
@@ -12,12 +14,26 @@ import string
 
 
 class ParamGraph(AGraph):
+    _scenegraph = None
+
+    def __init__(self):
+        super().__init__()
+        self.scene_relay_table = dict()
+
+    @property
+    def scenegraph(self):
+        return self._scenegraph
+
+    @scenegraph.setter
+    def scenegraph(self, v: AGraph):
+        self._scenegraph = v
+        self.scene_relay_table = dict()
 
     def draw(self):
         self.mappingtable, self.ajtable, self.leafs = draw_aj(self)
         return self.ajtable
 
-    def get_terms(self)->'list[TermParamGraphNode]':
+    def get_terms(self) -> 'list[TermParamGraphNode]':
         nodes = []
         for node in self.item_table.values():
             if isinstance(node, TermParamGraphNode):
