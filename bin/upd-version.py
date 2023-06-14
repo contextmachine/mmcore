@@ -1,6 +1,53 @@
+#!/usr/local/env/python3
 
-if __name__=="__main__":
-    with open(".version") as f:
-        _main,major, minor=f.read().split(".")
-    with open(".version", "w") as f:
-        f.write(".".join([_main, major, str(int(minor) + 1)]))
+import click
+import mmcore
+
+
+@click.command()
+@click.option('--main', is_flag=True, default=0, help='Update main')
+@click.option('--major', is_flag=True, default=0, help='Update major')
+@click.option('--minor', is_flag=True, default=0, help='Update minor')
+def cli(main, major,minor):
+    prev = mmcore.__version__()
+    _main, _major, _minor = prev.split(".")
+    new_minor = int(_minor)
+    new_major = int(_major)
+    new_main = int(_main)
+    print(main, major,minor)
+    if bool(minor):
+
+
+        new_minor=new_minor + 1
+        new_major=new_major
+        new_main=new_main
+    if bool(major):
+        new_minor = 0
+        new_major=new_major + 1
+        new_main = new_main
+    if bool(main):
+        new_minor = 0
+        new_major = 0
+        new_main = new_main + 1
+    with open("mmcore/__init__.py", "w") as f:
+        current = f"{new_main}.{new_major}.{new_minor}"
+        print(f'{prev}->{current}')
+        data = f"""#Generated with ./bin/upd-version.py
+from mmcore.utils.env import load_dotenv_from_path, load_dotenv_from_stream
+
+load_dotenv_from_path(".env")
+
+TOLERANCE = 0.000_001
+
+
+def __version__():
+    return "{current}"
+"""
+        f.write(data)
+
+    with open(".version", "w") as s2:
+        s2.write(current)
+
+
+if __name__ == "__main__":
+    cli()
