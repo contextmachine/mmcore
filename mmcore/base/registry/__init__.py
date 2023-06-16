@@ -86,6 +86,7 @@ class AGraph(typing.Generic[N]):
     def get_from_startswith(self, name):
         nodes = []
         for i in self.item_table.values():
+
             if i.name.startswith(name):
                 nodes.append(i)
         return nodes

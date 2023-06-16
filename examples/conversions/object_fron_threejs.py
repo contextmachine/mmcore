@@ -1,11 +1,10 @@
 # TODO this code dont working
 import json
 
-from mmcore.base.geom.utils import create_buffer_from_dict
 from mmcore.base import AMesh
-from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial
-from mmcore.geom.materials import ColorRGB
-from mmcore.base.sharedstate import serve
+from mmcore.base.geom.utils import create_buffer_from_dict
+from mmcore.base.models.gql import MeshPhongMaterial
+
 
 def mesh_from_threejs_json(path: str, material: MeshPhongMaterial = None) -> AMesh:
     with open(path, "r") as fl:
@@ -20,7 +19,7 @@ def mesh_from_threejs_json(path: str, material: MeshPhongMaterial = None) -> AMe
 
         mesh = AMesh(geometry=create_buffer_from_dict(geom["geometries"][0]), material=material, **object_dict)
         if childs is not None:
-            for i in childs:
-                child_mesh = mesh_from_threejs_json(i)
-                mesh._children.add(child_mesh.uuid)
+            for i, m in enumerate(childs):
+                child_mesh = mesh_from_threejs_json(m)
+                mesh.__setattr__(f"part-{i}", child_mesh)
         return mesh
