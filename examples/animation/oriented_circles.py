@@ -1,10 +1,9 @@
 # This example illustrates one of those idiotic tasks
 # that you might encounter if you were taught grasshopper in the 2010s.
 import time
+from collections import namedtuple
 
 import numpy as np
-import typing
-from collections import namedtuple
 
 from mmcore.base import A, AGroup, ALine
 from mmcore.base.models.gql import LineBasicMaterial
@@ -22,9 +21,6 @@ class Circle3DGrid(AGroup):
     eval_point_count = 16
 
     def __call__(self, target_point=None, *args, **kwargs):
-        # if len(self._children) > 0:
-        #    for child in self.children:
-        #        child.dispose()
 
         self.set_state(*args, **kwargs)
         if target_point is not None:

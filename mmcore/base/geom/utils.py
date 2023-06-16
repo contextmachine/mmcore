@@ -1,11 +1,8 @@
 import gzip
-import json
 
 import numpy as np
 
 import mmcore.base.models.gql
-from mmcore.base.basic import getattr_, objdict, geomdict, matdict, ExEncoder
-
 
 mapattrs = {
     "normal": mmcore.base.models.gql.Normal,
@@ -117,13 +114,6 @@ def parse_attribute(attr):
     return arr
 
 
-def dumps_graph(path):
-    uu = [getattr_(i) for i in list(objdict.values())]
-    with gzip.open(f"{path}/buffer.gz", "w", compresslevel=9) as f:
-        f.write(json.dumps({"geometry": dict(geomdict), "materials": dict(matdict)}).encode())
-    with open(f"{path}/graph.json", "w") as fg:
-        json.dump(uu, fg, cls=ExEncoder, ensure_ascii=False)
-
 
 def is_geometry(obj):
     if isinstance(obj, dict):
@@ -154,7 +144,6 @@ def create_object_from_threejs(kwargs):
             cls(**obj)
             for child in obj.children: ...
 """
-import os
 
 """
 def dump_model(data: dict, path=os.getenv("HOME") + os.getenv("MICROVIEWER_PATH")):

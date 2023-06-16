@@ -1,26 +1,18 @@
-import copy
-import os
-import uuid
-from functools import lru_cache
+import multiprocessing as mmp
 from operator import attrgetter
 
+import multiprocess as mp
 from more_itertools import flatten
 
 from mmcore.base import A as AA
-import numpy as np
-from pyquaternion import Quaternion
-from mmcore.geom.transform import Transform, OwnerTransform
-from mmcore.base import AGroup, AMesh, ALine, adict
+from mmcore.base import ALine
+from mmcore.collections import DoublyLinkedList
 from mmcore.geom.parametric import HypPar4ptGrid, PlaneLinear, Linear
 from mmcore.geom.parametric.algorithms import ClosestPoint
-import multiprocess as mp
-from mmcore.collections import DoublyLinkedList
-from compas.geometry.transformations import matrix_from_frame_to_frame
-import multiprocessing as mmp
+from mmcore.geom.transform import Transform
 
 mmp.set_start_method = "swapn"
 mp.set_start_method = "swapn"
-from mmcore.geom.vectors import unit, angle
 
 from localparams import *
 
@@ -180,10 +172,9 @@ class Panel(AA):
     #def triangle_pts(self):
     #    return self.triangle.points
     def __new__(cls, *args, **kwargs):
-        inst=super().__new__(cls, *args,**kwargs)
-        inst.idict[("panel", inst.uuid)] = 'f9f81ea7ac0c4839a7f103e9b8dd4159'
-        inst._children.add(PANEL_UUID)
-        inst.child_keys.add("panel")
+        inst = super().__new__(cls, *args, **kwargs)
+        inst.idict[inst.uuid]["panel"] = PANEL_UUID
+
         return inst
 
     @property
@@ -206,9 +197,6 @@ class Panel(AA):
             "name": self.name
 
         }
-
-
-from localparams import panel
 
 
 def f(node, grp, obj):

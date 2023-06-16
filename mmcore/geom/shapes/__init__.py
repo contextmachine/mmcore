@@ -1,23 +1,19 @@
+import dataclasses
+import typing
 import uuid
 
-import dataclasses
-
-import numpy as np
-import typing
-
 import earcut
+import numpy as np
+import shapely
 from earcut import earcut
 from more_itertools import flatten
+from shapely import Polygon, MultiPolygon
 
-from mmcore.base import AMesh, ALine, A, AGroup, Delegate
+from mmcore.base import AMesh
 from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import MeshPhongMaterial, LineBasicMaterial
+from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.geom.materials import ColorRGB
-
-import shapely
-from shapely.set_operations import union_all, union, intersection_all, intersection, difference
-from shapely import Polygon, MultiPolygon
 
 
 def to_list_req(obj):
@@ -58,7 +54,7 @@ def delegate_shape_operator(self, item, m):
 class Shape:
     boundary: list[list[float]]
     holes: typing.Optional[list[list[list[float]]]] = None
-    color: ColorRGB = ColorRGB(200, 20, 15).decimal
+    color: ColorRGB = ColorRGB(150, 150, 150).decimal
     uuid: typing.Optional[str] = None
     h: typing.Any = None
 
@@ -122,6 +118,37 @@ class Shape:
     @property
     def exterior(self):
         return list(self._ref.exterior.coords)
+
+    def offset(self, distance,
+
+               cap_style='flat',
+               join_style='mitre',
+               mitre_limit=1000,
+               single_sided=True,
+               inplace=False,
+               **kwargs):
+
+        """
+        @param distance,
+        @param quad_segs = 16,
+        @param cap_style = "round",
+        @param join_style = "round",
+        @param mitre_limit = 5.0,
+        @param single_sided = False
+        @return: Shape
+        """
+        res = self._ref.buffer(distance, cap_style=cap_style,
+                               join_style=join_style,
+                               mitre_limit=mitre_limit,
+                               single_sided=single_sided, **kwargs)
+
+        bounds, holes = list(res.exterior.coords), [list(i.coords) for i in list(res.interiors)]
+        if inplace:
+            self.boundary = bounds
+            self.holes = holes
+            return self
+        else:
+            return Shape(bounds, holes, color=self.color, h=self.h)
 
     @property
     def interior(self):

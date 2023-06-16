@@ -1,35 +1,26 @@
-import functools
-
+import base64
 import copy
 import dataclasses
+import functools
 import sys
 import typing
 from collections import namedtuple
-
+from enum import Enum
 from itertools import starmap
 
 import dill
-import scipy.optimize
-
-import mmcore.base.registry
-from mmcore.geom.parametric.algorithms import EvaluatedPoint, ProximityPoints, ClosestPoint, CurveCurveIntersect
-
-from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
-from mmcore.geom.transform import remove_crd, Transform, WorldXY
-from enum import Enum
-
-from mmcore.geom.parametric.base import ParametricObject, transform_manager
-from mmcore.geom.vectors import unit
-
-
-from scipy.optimize import minimize
 import numpy as np
+from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
-from mmcore.geom.materials import ColorRGB
 
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
-import base64
+from mmcore.geom.materials import ColorRGB
+from mmcore.geom.parametric.algorithms import EvaluatedPoint, ProximityPoints, ClosestPoint, CurveCurveIntersect
+from mmcore.geom.parametric.base import ParametricObject, transform_manager
+from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
+from mmcore.geom.transform import remove_crd, Transform, WorldXY
+from mmcore.geom.vectors import unit
 
 
 def add_crd(pt, value):
@@ -62,6 +53,50 @@ class PolyNominal(ParametricObject):
     @property
     def __params__(self):
         return {"func": base64.b64encode(dill.dumps(self.func))}
+
+
+def edge_intersection(x1: int, y1: int, x2: int, y2: int, x3: int, y3: int, x4: int, y4: int) -> list:
+    """Intersection point of two line segments in 2 dimensions
+
+    params:
+    ----------
+    x1, y1, x2, y2 -> coordinates of line a, p1 ->(x1, y1), p2 ->(x2, y2),
+
+    x3, y3, x4, y4 -> coordinates of line b, p3 ->(x3, y3), p4 ->(x4, y4)
+
+    Return:
+    ----------
+    list
+        A list contains x and y coordinates of the intersection point,
+        but return an empty list if no intersection point.
+
+    """
+    # None of lines' length could be 0.
+    if ((x1 == x2 and y1 == y2) or (x3 == x4 and y3 == y4)):
+        return []
+
+    # The denominators for the equations for ua and ub are the same.
+    den = ((y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1))
+
+    # Lines are parallel when denominator equals to 0,
+    # No intersection point
+    if den == 0:
+        return []
+
+    # Avoid the divide overflow
+    ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / (den + 1e-16)
+    ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / (den + 1e-16)
+
+    # if ua and ub lie between 0 and 1.
+    # Whichever one lies within that range then the corresponding line segment contains the intersection point.
+    # If both lie within the range of 0 to 1 then the intersection point is within both line segments.
+    if (ua < 0 or ua > 1 or ub < 0 or ub > 1):
+        return []
+
+    # Return a list with the x and y coordinates of the intersection
+    x = x1 + ua * (x2 - x1)
+    y = y1 + ua * (y2 - y1)
+    return [x, y]
 
 
 @dataclasses.dataclass
@@ -132,9 +167,9 @@ class Linear(ParametricObject):
 
     def to_repr(self, backend=None):
         if backend is None:
-            return LineObject(
-                points=[np.array(self.start, dtype=float).tolist(),
-                        np.array(self.start, dtype=float).tolist()]
+            return ALine(
+                geometry=[np.array(self.start, dtype=float).tolist(),
+                          np.array(self.start, dtype=float).tolist()]
 
             )
         else:
@@ -296,7 +331,7 @@ class PlaneLinear(ParametricObject):
 
     def point_at(self, pt):
         T = Transform.from_plane_to_plane(self, WorldXY)
-        return remove_crd(add_w(pt) @ self.matrix.T)
+        return remove_crd(add_w(pt) @ T.matrix.T)
 
     @property
     def x0(self):
@@ -349,7 +384,7 @@ class PlaneLinear(ParametricObject):
 
         # could add np.linalg.det(A) == 0 test to prevent linalg.solve throwing error
 
-        p_inter = self.matrix.T
+        p_inter = np.linalg.solve(A, d).T
 
         return Linear.from_two_points(p_inter[0], (p_inter + _cross)[0])
 
@@ -611,9 +646,7 @@ def test_cp():
             yield ProximityPoints(i, j)()
 
 
-from mmcore.base.geom import LineObject
-
-from mmcore.base.basic import iscollection
+from mmcore.base.basic import iscollection, ALine
 
 
 class HypGridLayer:
@@ -706,8 +739,8 @@ class SubSyst2:
 
 def webgl_line_backend(**props):
     def wrapper(item):
-        return LineObject(points=[np.array(item.start, dtype=float).tolist(), np.array(item.end, dtype=float).tolist()],
-                          **props)
+        return ALine(points=[np.array(item.start, dtype=float).tolist(), np.array(item.end, dtype=float).tolist()],
+                     **props)
 
     return wrapper
 
@@ -758,8 +791,6 @@ class Circle(ParametricObject):
         for s in np.linspace(0,1,32):
             prs.append(self.evaluate(s).tolist())
         return prs
-
-import zlib
 
 
 @dataclasses.dataclass

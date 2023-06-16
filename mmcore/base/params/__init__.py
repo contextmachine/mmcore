@@ -124,6 +124,7 @@ class ParamGraphNode:
         if self.uuid is None:
             self.uuid = _uuid.uuid4().hex
         if self.name is None:
+            self.name = "_"
             self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
         if self.resolver is None:
             self.resolver = lambda **kwargs: kwargs
@@ -202,7 +203,7 @@ class ParamGraphNode:
             if isinstance(self.params[k], ParamGraphNode):
                 dct[k] = self.graph.get_relay(self, k).todict(no_attrs)
             else:
-                dct[k] = self.graph.get_relay(self, k)()
+                dct[k] = self.graph.get_relay(self, k).solve()
 
         if no_attrs:
             return dct
