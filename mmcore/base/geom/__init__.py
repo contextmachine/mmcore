@@ -1,35 +1,24 @@
-from collections import deque
-
-import shapely
-from operator import itemgetter
-
-import uuid
-
-import abc
 import dataclasses
 import json
-
 import typing
+import uuid
+from collections import deque
+from operator import itemgetter
 
-import uuid as muuid
-import uuid as _uuid
 import numpy as np
-from more_itertools import flatten
 
 import mmcore.base.models.gql
 import mmcore.base.registry
-from mmcore.base.basic import Object3D, Group, AMesh
+from mmcore.base.basic import AMesh, ALine, AGroup
 from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
     RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor, DictToAnyMeshDataConvertor
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
-from mmcore.base.models.gql import GqlGeometry, GqlLine, GqlPoints, MeshPhongMaterial, Material, PointsMaterial, \
-    LineBasicMaterial
-from mmcore.base.utils import getitemattr
+from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.node import node_eval
 
 MODE = {"children": "parents"}
 from mmcore.geom.materials import ColorRGB
-from mmcore.base.registry import geomdict, matdict
-from mmcore.collections.multi_description import ElementSequence
+from mmcore.base.registry import matdict
 
 DEFAULTCOLOR = 9868950  # 150, 150, 150
 buffer_geometry_type_map = {
@@ -69,162 +58,10 @@ matdict["LineBasicMaterial"] = mmcore.base.models.gql.LineBasicMaterial(color=Co
                                                                         type=mmcore.base.models.gql.Materials.LineBasicMaterial)
 
 
-class GeometryObject(Object3D):
-    """
-    GeometryObject.
-    @note It should be used to implement three-dimensional representations of objects.  Note that geometry
-    has no children's field. The Three JS Api does not explicitly state that they exist, however, in most cases,
-    attempting to nest objects of geometric types will cause the nested object to lose its display. In short,
-    we do not recommend doing so.
-    """
-    bind_class = GqlGeometry
-
-    material_type = mmcore.base.models.gql.BaseMaterial
-    _material: typing.Optional[str] = "MeshPhongMaterial"
-    _geometry: typing.Optional[str] = None
-    _color: typing.Optional[ColorRGB] = ColorRGB(128, 128, 128)
-    _children = ()
-
-    @property
-    def color(self):
-        return self._color
-
-    @color.setter
-    def color(self, v):
-        if isinstance(v, dict):
-            self._color = ColorRGB(*list(v.values()))
-        elif isinstance(v, list) or isinstance(v, tuple):
-            self._color = ColorRGB(*v)
-        elif isinstance(v, ColorRGB):
-            self._color = v
-        else:
-            raise ValueError("\n\n\t\t:(\n\n")
-        mat = self.material_type(color=self._color.decimal)
-        self._material = mat.uuid
-        self.material = mat
-
-    def __call__(self, *args, **kwargs):
-        s = super().__call__(*args, **kwargs)
-        self.solve_geometry()
-        return s
-
-    @property
-    def geometry(self) -> mmcore.base.models.gql.BufferGeometry:
-        """
-        Geometry property
-        @note You can override this property at your discretion (e.g. to implement dynamic material).
-        The only conditions are:
-            [1] self._geometry : returns the string uuid
-            [2] self.geometry  : strawberry.type e.g mmcore.base.models.BufferGeometry
-
-        @return: mmcore.base.models.BufferGeometry
-
-        """
-
-        return geomdict.get(self._geometry)
-
-    @geometry.setter
-    def geometry(self, v):
-        """
-        Geometry property
-        @param v: You can set this property with dict or BufferGeometry object, or uuid (object
-        with this uuid will exist .
-        @note You can also override this property at your discretion (e.g. to implement dynamic material).
-        The only conditions are:
-            [1] self._geometry : returns the string uuid
-            [2] self.geometry  : strawberry.type e.g mmcore.base.geoms.BufferGeometry
-
-        @return: None
-
-        """
-        try:
-            del geomdict[self._geometry]
-        except KeyError:
-            pass
-
-        if isinstance(v, str):
-            self._geometry = v
-        elif isinstance(v, dict):
-
-            self._geometry = getitemattr("uuid")(v)
-            geomdict[self._geometry] = create_buffer_from_dict(v)
-
-        else:
-
-            self._geometry = v.uuid
-            # #print(f"Geometry set event: {self.name} <- {self._geometry}")
-            geomdict[self._geometry] = v
-
-    @property
-    def material(self) -> mmcore.base.models.gql.Material:
-        """
-        Material property
-        @note If you use mmcore.geom.materials api , you must pass <material object>.data . You can also override
-        this property at your discretion (e.g. to implement dynamic material). The only conditions are:
-            [1] self._material : returns the string uuid
-            [2] self.material : strawberry.type e.g mmcore.base.models.Material
-        @return: mmcore.base.models.Material
-
-        """
-        mat = matdict.get(self._material)
-        mat.color = self.color.decimal
-        return mat
-
-    @material.setter
-    def material(self, v):
-        """
-        Material property
-        @param v: You can set this property with dict or models.Material object, or uuid (object
-        with this uuid will exist .
-        @note If you use mmcore.geom.materials api , you must pass <material object>.data . You can also override
-        this property at your discretion (e.g. to implement dynamic material). The only conditions are:
-            [1] self._material : returns the string uuid
-            [2] self.material : strawberry.type e.g mmcore.base.models.Material
-
-        @return: None
-
-        """
-        es = ElementSequence(list(matdict.values()))
-
-        if isinstance(v, dict):
-            if 'metadata' in v:
-                v.pop('metadata')
-
-            m = self.material_type(**v)
-            self._material = m.uuid
-            matdict[self._material] = m
-
-        else:
-
-            self._material = v.uuid
-            matdict[self._material] = v
-
-    def threejs_type(self):
-        return "Geometry"
-
-    @property
-    def threejs_repr(self):
-        rpr = super().threejs_repr
-        rpr |= {"geometry": self._geometry,
-                "material": self._material,
-                "castShadow": True,
-                "receiveShadow": True}
-        return rpr
-
-    @classmethod
-    def from_three(cls, obj, geom, material, **kwargs) -> 'GeometryObject':
-
-        inst = cls.from_three(obj)
-        inst.geometry = MeshBufferGeometryBuilder.from_three(geom)
-        inst.material = cls.material_type(**material)
-        return inst
-
-    @abc.abstractmethod
-    def solve_geometry(self):
-        ...
 
 
-from mmcore.geom.vectors import triangle_normal, unit
+
+from mmcore.geom.vectors import triangle_normal
 
 
 class BufferGeometryToMeshDataConvertor(Convertor):
@@ -340,149 +177,15 @@ class MeshData:
         return MeshData(**dct)
 
     def to_mesh(self, color=None, flatShading=True, opacity = 1.0,**kwargs):
-        return AMesh(geometry=self.create_buffer(), material=MeshPhongMaterial(color=DEFAULTCOLOR if color is None else color,opacity=opacity, flatShading=flatShading), **kwargs)
+        return AMesh(geometry=self.create_buffer(),
+                     material=MeshPhongMaterial(color=DEFAULTCOLOR if color is None else color, opacity=opacity,
+                                                flatShading=flatShading), **kwargs)
 
     @classmethod
     def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
         if isinstance(geom, dict):
             return BufferGeometryDictToMeshDataConvertor(geom).convert()
         return BufferGeometryToMeshDataConvertor(geom).convert()
-
-
-class MeshObject(GeometryObject):
-    mesh: typing.Union[MeshData, dict] = MeshData([])
-    __match_args__ = "mesh"
-
-    def solve_geometry(self):
-
-        if isinstance(self.mesh, MeshData):
-
-            self.geometry = MeshBufferGeometryBuilder(**self.mesh.asdict()).create_buffer()
-
-        elif isinstance(self.mesh, dict):
-            self.geometry = MeshBufferGeometryBuilder(**self.mesh).create_buffer()
-        elif isinstance(self.mesh, mmcore.base.models.gql.BufferGeometry):
-            self.geometry = self.mesh
-
-            # TODO Добавить property для всех обязательных аттрибутов меши
-
-    geometry_type = MeshBufferGeometryBuilder
-    castShadow: bool = True
-    receiveShadow: bool = True
-    material_type = MeshPhongMaterial
-
-    @property
-    def threejs_type(self):
-        return "Mesh"
-
-    @classmethod
-    def from_rhino(cls, name, mesh, uuid=None):
-        if uuid is None:
-            uuid = muuid.uuid4().__str__()
-        inst = cls(name=name)
-        inst._uuid = uuid
-        inst.geometry = RhinoMeshBufferGeometryBuilder(mesh).create_buffer()
-        inst._rhino = mesh
-
-        return inst
-
-flatten
-class RhinoBrepObject(MeshObject):
-    material_type = MeshPhongMaterial
-    brep: typing.Any
-
-    def solve_geometry(self):
-        self.geometry = RhinoBrepBufferGeometryBuilder(self.brep).create_buffer()
-
-
-class RhinoMeshObject(MeshObject):
-    def solve_geometry(self):
-        self._geometry = self.uuid + "-geom"
-        self.geometry = RhinoMeshBufferGeometryBuilder(self.mesh).create_buffer()
-
-
-from mmcore.node import node_eval
-
-
-class PointsObject(GeometryObject):
-    _material: typing.Optional[str] = "PointsMaterial"
-    _geometry: typing.Optional[str]
-    __match_args__ = "points",
-    material_type = PointsMaterial
-
-    bind_class = GqlPoints
-    name: str = "PointsObject"
-    _color = ColorRGB(128, 128, 128)
-    _points = None
-
-    @property
-    def points(self):
-        return self._points
-
-    @points.setter
-    def points(self, v):
-        self._points = v
-        self.solve_geometry()
-
-    @property
-    def threejs_type(self):
-        return "Points"
-
-    def append(self, v):
-        self._points.append(v)
-        self.solve_geometry()
-
-    def solve_geometry(self):
-        try:
-            del geomdict[self._geometry]
-
-        except KeyError:
-            pass
-        self.geometry = mmcore.base.models.gql.BufferGeometryObject(**{
-            'data': mmcore.base.models.gql.Data1(
-                **{'attributes': mmcore.base.models.gql.Attributes1(
-                    **{'position': mmcore.base.models.gql.Position(
-                        **{'itemSize': 3,
-                           'type': 'Float32Array',
-                           'array': np.array(
-                               self.points).flatten().tolist(),
-                           'normalized': False})})})})
-
-    @property
-    def properties(self):
-        return dict(points=self.points)
-
-
-class SharedGeometryObject(GeometryObject):
-    target: GeometryObject
-    width: int = 2
-    bind_class = GqlLine
-    material_type = LineBasicMaterial
-    _material: typing.Optional[str] = 'LineBasicMaterial'
-
-    @property
-    def geometry(self):
-        return self.target.geometry
-
-    @geometry.setter
-    def geometry(self, v):
-        self.target(**v)
-        self.target.solve_geometry()
-
-
-class LineObject(PointsObject):
-    width: int = 2
-    bind_class = GqlLine
-    material_type = LineBasicMaterial
-    _material: typing.Optional[str] = 'LineBasicMaterial'
-    _geometry: typing.Optional[str] = None
-
-    @property
-    def threejs_type(self):
-        return "Line"
-
-    def solve_geometry(self):
-        super().solve_geometry()
 
 
 @node_eval
@@ -517,11 +220,11 @@ def hyp(arr):
     g = arr[3].reshape((3, 1)) + ((arr[0] - arr[3]).reshape((3, 1)) * np.stack(
         [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
 
-    grp = Group(name="grp")
+    grp = AGroup(name="grp")
 
     lns2 = list(zip(self.matrix.T, self.matrix.T))
     lns = list(zip(self.matrix.T, self.matrix.T))
     for i, (lna, lnb) in enumerate(lns):
-        grp.add(LineObject(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
+        grp.add(ALine(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
     for i, (lna, lnb) in enumerate(lns2):
-        grp.add(LineObject(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
+        grp.add(ALine(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))

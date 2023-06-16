@@ -21,7 +21,6 @@ Andrew Astkhov (sth-v) aa@contextmachine.ru
 
 """
       )
-from mmcore import __version__
 with open(".version") as f:
     vers=f.read()
 setup(
@@ -36,6 +35,8 @@ setup(
               'mmcore.geom.kernel',
               'mmcore.geom.vectors',
               "mmcore.base.geom.builder",
+              'mmcore.utils',
+              'mmcore.utils.env',
               'mmcore.addons',
               'mmcore.addons.gmdl',
               'mmcore.addons.rhino',

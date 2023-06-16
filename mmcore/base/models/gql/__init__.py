@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import copy
 import dataclasses
+import hashlib
 import sys
 import typing
-import uuid
-import hashlib
 
-import numpy as np
 import strawberry
 from strawberry.scalars import JSON
 
-from mmcore.base.utils import getitemattr
 from mmcore.base.registry import objdict
+from mmcore.base.utils import getitemattr
 
 hashlib.sha224()
 
@@ -326,8 +323,6 @@ class GqlPoints(GqlGeometry):
     children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc(default=None)
 
 
-import zlib
-
 GQLGeometryUnion = strawberry.union("GQLObject3DUnion", types=[GqlGeometry, GqlMesh, GqlLine, GqlPoints])
 GQLObject3DUnion = strawberry.union("GQLObject3DUnion",
                                     types=[GqlObject3D, GqlGroup, GqlGeometry, GqlMesh, GqlLine, GqlPoints])
@@ -406,6 +401,7 @@ class BaseMaterial:
     type: typing.Optional[str] = None
 
     opacity: float = 1.0
+    side: int = 2
     transparent: bool = False
     uuid: typing.Optional[str] = None
 
@@ -435,35 +431,6 @@ class Materials(str, Enum):
     LineBasicMaterial = 'LineBasicMaterial'
     MeshPhongMaterial = 'MeshPhongMaterial'
 
-
-@strawberry.type
-class Material(BaseMaterial):
-    color: int
-    type: Materials
-    uuid: typing.Optional[str] = None
-    reflectivity: typing.Optional[float] = None
-    refractionRatio: typing.Optional[float] = None
-    depthFunc: int
-    depthTest: bool
-    depthWrite: bool
-    colorWrite: bool
-    stencilWrite: bool
-    stencilWriteMask: int
-    stencilFunc: int
-    stencilRef: int
-    stencilFuncMask: int
-    stencilFail: int
-    stencilZFail: int
-    stencilZPass: int
-    wireframe: typing.Optional[bool] = None
-    vertexColors: typing.Optional[bool] = None
-    toneMapped: typing.Optional[bool] = None
-    emissive: typing.Optional[int] = None
-    specular: typing.Optional[int] = None
-    shininess: typing.Optional[int] = None
-    side: int = 2
-    flatShading: typing.Optional[bool] = None
-    thickness: typing.Optional[float] = None
 
 
 
@@ -586,7 +553,7 @@ class GqlChart:
 AnyMaterial = strawberry.union("AnyMaterial", (MeshPhongMaterial,
                                                PointsMaterial,
                                                LineBasicMaterial,
-                                               Material
+
                                                ),
                                description="All materials in one Union Type")
 
