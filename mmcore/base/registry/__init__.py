@@ -87,7 +87,7 @@ class AGraph(typing.Generic[N]):
         nodes = []
         for i in self.item_table.values():
 
-            if i.name.startswith(name):
+            if str(i.name).startswith(str(name)):
                 nodes.append(i)
         return nodes
 

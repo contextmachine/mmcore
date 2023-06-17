@@ -2,6 +2,7 @@ import functools
 
 from starlette.responses import HTMLResponse
 
+from mmcore.base.params import pgraph
 from mmcore.gql.lang.parse import parse_simple_query
 
 TYPE_CHECKING = False
@@ -116,6 +117,54 @@ from starlette.exceptions import HTTPException
 from mmcore.gql.server.fastapi import MmGraphQlAPI
 
 
+class IDict(dict):
+    def __init__(self, dct, table):
+        super().__init__(dct)
+        self.table = table
+        self.dct = dct
+
+    def __getitem__(self, k):
+
+        return self.trav(k)
+
+    def trav(self, i):
+        obj = {'kind': "Object", "name": i, "value": self.table[i]}
+        if self.dct[i] == {}:
+            obj |= {"isleaf": True}
+            return obj
+
+        elif isinstance(self.dct[i], (list, tuple)):
+            if len(self.dct[i]) == 0:
+                obj |= {'kind': "Group", "isleaf": True}
+                return obj
+            else:
+                obj |= {'kind': "Group", "items": [self.trav(j) for j in self.dct[i]], "isleaf": False}
+                return obj
+
+        else:
+
+            _dct = {}
+            for k, v in self.dct[i].items():
+                _dct[k] = self.trav(v)
+            obj |= _dct
+            obj |= {"isleaf": False}
+            return VDict(obj)
+
+
+class VDict(dict):
+    def __init__(self, *args, relay=idict, table=adict, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+        self.dct = relay
+        self.table = table
+
+    def __getitem__(self, item):
+        if item == "value":
+            return dict.__getitem__(self, item).value()
+
+        else:
+            return dict.__getitem__(self, item)
+
+
 class SharedStateServer():
     port: int = 7711
     rpyc_port: int = 7799
@@ -135,15 +184,13 @@ class SharedStateServer():
         @gqlv2app.post(gqlv2app.gql_endpoint)
         def graphql_query_resolver(data: dict):
             ##print(data)
+
             qt2 = parse_simple_query(data['query'])
-            from mmcore.base import AGroup
-            aa = AGroup(uuid="__")
-            for i in adict.values():
 
-                if not (i.uuid == "__") and not (i.uuid == "_"):
-                    aa.add(i)
+            return qt2.resolve(pgraph)
 
-            return qt2.resolve({"root": aa.root()})
+
+
 
         _server_binds.append(inst)
         serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
@@ -204,14 +251,22 @@ class SharedStateServer():
 
         @inst.app.get("/fetch/{uid}")
         async def get_item(uid: str):
+
             try:
+
                 return adict[uid].root()
             except KeyError as errr:
-                return HTTPException(401, detail=f"KeyError. Trace: {errr.__traceback__}")
+                return HTTPException(401, detail=f"KeyError. Trace: {errr}")
 
         @inst.app.post("/fetch/{uid}")
-        def get_item(uid: str, data: dict):
-            return adict[uid](**data)
+        def post_item(uid: str, data: dict):
+
+            if pgraph.item_table.get(uid) is not None:
+
+                pgraph.item_table.get(uid)(**kwargs)
+
+            else:
+                adict[uid](**data)
 
         @inst.app.get("/keys", response_model_exclude_none=True)
         async def keys():
@@ -334,16 +389,18 @@ class SharedStateServer():
 
         @inst.app.post("/params/node/{uid}")
         async def params_post(uid: str, data: dict):
-            inst.params_nodes[uid](**data)
-            return inst.params_nodes.get(uid).todict(no_attrs=True)
+            pgraph.item_table.get(uid)(**data)
+            return pgraph.item_table.get(uid).todict(no_attrs=True)
 
         @inst.app.get("/params/node/{uid}")
         async def params_get(uid: str):
-            return inst.params_nodes.get(uid).todict(no_attrs=True)
+            return pgraph.item_table.get(uid).todict(no_attrs=True)
 
         @inst.app.get("/params/nodes")
         async def params_nodes_names():
-            return list(inst.params_nodes.keys())
+
+            return list(pgraph.item_table.keys())
+
         @inst.app.get("/resolvers")
         def resolvers():
             return list(inst.resolvers.keys())
@@ -402,7 +459,7 @@ class SharedStateServer():
         self.params_nodes[name] = fun
 
     def params_node(self, fun):
-        if hasattr(fun,'name'):
+        if hasattr(fun, 'name'):
             self.params_nodes[fun.name] = fun
         else:
             self.params_nodes[fun.__name__] = fun

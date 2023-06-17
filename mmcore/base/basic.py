@@ -446,6 +446,107 @@ class ChildSet(set):
         super().add(element)
 
 
+@dataclasses.dataclass
+class UserDataItem:
+    def todict(self):
+        def tod(obj):
+            dct = dict()
+            for k, v in dataclasses.asdict(obj).items():
+                if hasattr(v, "todict"):
+                    dct[k] = v.todict()
+                elif dataclasses.is_dataclass(v):
+                    dct[k] = tod(v)
+                elif isinstance(v, (list, tuple)):
+                    dct[k] = [tod(i) for i in v]
+                else:
+                    dct[k] = v
+
+            return dct
+
+        return tod(self)
+
+    def asdict(self):
+        return self.todict()
+
+
+@dataclasses.dataclass
+class GuiConnectConfig:
+    address: str = "http://localhost:7711"
+    api_prefix: str = "/"
+
+    def update(self, dct):
+        self.__dict__ |= dct
+
+
+@dataclasses.dataclass
+class GuiPost(UserDataItem):
+    target: dataclasses.InitVar[str]
+    config: dataclasses.InitVar[GuiConnectConfig]
+    endpoint: typing.Optional[str] = None
+
+    def __post_init__(self, target: 'A', config):
+        self.endpoint = f'{config.address}{config.api_prefix}{target}'
+
+
+@dataclasses.dataclass
+class GuiItem(UserDataItem):
+    """
+    self.dct={"gui": [
+            {
+                "type": "controls",
+                "data":
+                    obj.properties
+                ,
+                "post": {
+                    "endpoint": "https://api.contextmachine.online:7771",
+
+                }
+            }
+        ]}
+    """
+    target: dataclasses.InitVar[str]
+
+    type: str
+    data: typing.Optional[dict[str, typing.Any]] = None
+    post: typing.Optional[GuiPost] = None
+    config: dataclasses.InitVar[GuiConnectConfig] = GuiConnectConfig()
+
+    def __post_init__(self, target, config):
+        if self.post is None:
+            self.post = GuiPost(target=target, config=config)
+        if self.data is None:
+            self.data = {}
+
+
+class Controls:
+    def __init__(self, config=None, default=None):
+        self.default = {}
+        if isinstance(default, dict):
+            self.default |= default
+        self.config = GuiConnectConfig()
+        if isinstance(config, dict):
+            self.config.update(config)
+
+    def __set_name__(self, owner, name):
+        self._name = "_" + name
+        setattr(owner, self._name, None)
+        setattr(owner, '__gui_controls__', self)
+
+    def __get__(self, instance, own):
+        if instance is not None:
+            return GuiItem(type="controls",
+                           target=instance._endpoint,
+                           config=self.config,
+                           data=getattr(instance, self._name, self.default),
+
+                           )
+        else:
+            return self
+
+    def __set__(self, instance, value):
+        setattr(instance, self._name, value)
+
+
 class A:
     idict = idict
     args_keys = ["name"]
@@ -457,7 +558,7 @@ class A:
         "matrix"
     }
     priority = 1.0
-
+    controls = Controls()
     properties_keys = {
         "priority",
         "name"
@@ -467,6 +568,8 @@ class A:
     _include_geometries = GeometrySet()
     _include_materials = MaterialSet()
     _properties = dict()
+    _controls = {}
+    _endpoint = "/"
 
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls)
@@ -631,7 +734,11 @@ class A:
                     "name": self.name
                 },
                     self.properties,
-                )
+                ),
+                "gui": [
+                    self.controls.todict()
+                ]
+
             }
         }
 
@@ -641,11 +748,9 @@ class A:
                 materials.add(self._material)
 
         if len(idict[self.uuid]) > 0:
-            data["children"] = [ch(geometries=geometries, materials=materials, asroot=False) for ch in
-                                self.children]
+            data["children"] = [ch(geometries=geometries, materials=materials) for ch in self.children]
 
-        return callback(data
-                        )
+        return data
 
     _parents = set()
 
@@ -747,10 +852,14 @@ class A:
 
 
 class AGroup(A):
+
     def __new__(cls, seq=(), **kwargs):
         inst = super().__new__(cls, **kwargs)
 
-        idict[inst.uuid]["__children__"] = set([s.uuid for s in seq])
+        idict[inst.uuid]["__children__"] = set()
+        if len(seq) > 0:
+            idict[inst.uuid]["__children__"] = set([s.uuid for s in seq])
+
         return inst
 
     @property
