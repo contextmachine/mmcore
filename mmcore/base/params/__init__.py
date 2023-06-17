@@ -8,7 +8,7 @@ from mmcore.base.registry import AGraph
 paramtable = dict()
 relaytable = dict()
 DEBUG_GRAPH = False
-from mmcore.base.sharedstate import serve
+
 
 import string
 
@@ -130,8 +130,10 @@ class ParamGraphNode:
             self.resolver = lambda **kwargs: kwargs
         self.graph.item_table[self.uuid] = self
         self.graph.relay_table[self.uuid] = dict()
-        serve.add_params_node(self.name, self)
-        self(**_params)
+
+        if _params is not None:
+            for k, v in _params.items():
+                self.graph.set_relay(self, k, v)
 
     def neighbours(self):
         dct = list()
@@ -174,7 +176,7 @@ class ParamGraphNode:
 
     def get(self, k):
         try:
-            self.__getitem__(k)
+            return self.graph.get_relay(self, k)
         except KeyError:
             return None
 
@@ -207,11 +209,21 @@ class ParamGraphNode:
 
         if no_attrs:
             return dct
+
+        def vl():
+            res = self.solve()
+            if hasattr(res, "_repr3d"):
+                return res._repr3d.root()
+            elif hasattr(res, "root"):
+                return res._repr3d.root()
+            else:
+                return res
+
         return {
             "kind": self.__class__.__name__,
             "name": self.name,
             "uuid": self.uuid,
-            "value": self.solve(),
+            "value": vl(),
             "params": dct
         }
 
