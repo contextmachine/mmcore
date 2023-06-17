@@ -1,5 +1,6 @@
-import graphql
 import operator as op
+
+import graphql
 
 
 def convert(self, target):
@@ -20,6 +21,24 @@ class ExtendedNameNode(graphql.language.ast.NameNode):
 
     def convert(self):
         ...
+
+class AExtendedNameNode(ExtendedNameNode):
+
+    def generic_getter(self):
+        def wrap(x):
+            try:
+                res = x.get(self.value)()
+                if hasattr(res, "root"):
+                    return res.root()
+
+                elif hasattr(res, "_repr3d"):
+                    return res._repr3d.root()
+                else:
+                    return res
+            except:
+                return x.get(self.value)
+
+        return wrap
 
 
 class ExtendedSelectionSetNode(graphql.language.ast.SelectionSetNode):
@@ -60,6 +79,6 @@ class ExtendedFieldNode(graphql.language.ast.FieldNode):
             return wrap
 
     def convert(self):
-        self.name = convert(self.name, ExtendedNameNode)
+        self.name = convert(self.name, AExtendedNameNode)
         if self.selection_set is not None:
             self.selection_set = convert(self.selection_set, ExtendedSelectionSetNode)
