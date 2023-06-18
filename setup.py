@@ -29,6 +29,8 @@ setup(
     packages=['mmcore', 'mmcore.mmbuild', 'mmcore.geom',
               'mmcore.geom.utils',
               'mmcore.geom.transform',
+              'mmcore.geom.csg',
+              'mmcore.geom.csg.core', 'mmcore.geom.csg.geom',
               'mmcore.geom.parametric',
               'mmcore.geom.shapes',
               'mmcore.geom.materials',

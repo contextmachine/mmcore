@@ -7,7 +7,7 @@
 # -------+------------------------+----------------------------------+------------------------------------------------+
 # CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
-FROM python:3.10.11-buster
+FROM python:latest
 
 
 # Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
@@ -26,5 +26,6 @@ COPY --link . .
 #RUN apt update && apt -y install npm nodejs
 EXPOSE 7711
 RUN python3 -m pip install -r requirements.txt
-RUN python3 -m pip install -e .
+RUN python3 -m pip install .
+
 #ENTRYPOINT ["python3", "-m", "mmcore.serve", "--serve-start=true"]
