@@ -1,3 +1,2 @@
-DOCKER_BUILDKIT=1 docker build --platform amd64 -t sthv/mmcore:latest  .
-docker tag sthv/mmcore:latest\
-           cr.yandex/crpfskvn79g5ht8njq0k/mmcore:latest
+docker buildx build --platform linux/amd64 --platform linux/arm64/v8 --tag sthv/mmcore:latest  --push .
+

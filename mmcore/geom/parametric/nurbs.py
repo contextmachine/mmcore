@@ -1,27 +1,21 @@
 import copy
 import dataclasses
 import typing
-import warnings
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
 
 import geomdl
 import numpy as np
 from geomdl import utilities as geomdl_utils, NURBS
 from geomdl.operations import tangent
-from more_itertools import flatten
 
 from mmcore.base import AMesh, AGeometryDescriptor, APointsGeometryDescriptor, ALine, AGeom, \
-    APoints, ageomdict, AGroup
+    ageomdict
 from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import BufferGeometryObject, LineBasicMaterial, PointsMaterial, Data1, \
+from mmcore.base.models.gql import BufferGeometryObject, LineBasicMaterial, Data1, \
     Attributes1, Position
-from mmcore.geom.parametric.base import NormalPoint, ProxyAttributeDescriptor, ProxyParametricObject
-from mmcore.collections import ElementSequence, DoublyLinkedList
+from mmcore.collections import ElementSequence
 from mmcore.geom.materials import ColorRGB
-
-from scipy import optimize
-
-from mmcore.geom.transform import Transform
+from mmcore.geom.parametric.base import NormalPoint, ProxyAttributeDescriptor, ProxyParametricObject
 
 
 @dataclasses.dataclass(eq=True, unsafe_hash=True)
@@ -30,9 +24,6 @@ class LoftOptions:
 
     def asdict(self):
         return dataclasses.asdict(self)
-
-
-from mmcore.geom.parametric.base import transform_manager
 
 
 @dataclasses.dataclass
@@ -109,14 +100,18 @@ class NurbsCurve(ProxyParametricObject):
                                [self.evaluate(t) for t in np.linspace(0, 1, self.slices)]).flatten().tolist(),
                            'normalized': False})})})})
 
-    def transform(self, m):
-        ll=[]
-        for cp in self.control_points:
-            ll.append(cp@m)
-        #r=self.control_points @ m
-        #print(r,ll)
-        return NurbsCurve(np.array(ll, dtype=float).tolist() )
+    def __repr3d__(self):
+        self._repr3d = ALine(uuid=str(id(self)), geometry=self.tessellate(),
+                             material=LineBasicMaterial(color=ColorRGB(150, 150, 150).decimal))
+        return self._repr3d
 
+    def transform(self, m):
+        ll = []
+        for cp in self.control_points:
+            ll.append(cp @ m)
+        # r=self.control_points @ m
+        # print(r,ll)
+        return NurbsCurve(np.array(ll, dtype=float).tolist())
 
 @dataclasses.dataclass
 class NurbsSurface(ProxyParametricObject):

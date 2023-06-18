@@ -1,3 +1,5 @@
+import typing
+
 from more_itertools import flatten
 
 from mmcore.base import ALine, A, APoints, AGroup
@@ -5,7 +7,7 @@ from mmcore.base.geom import MeshData
 # This Api provides an extremely flexible way of updating data. You can pass any part of the parameter dictionary
 # structure, the parameters will be updated recursively and only the part of the graph affected by the change
 # will be recalculated.
-from mmcore.base.params import ParamGraphNode, param_graph_node
+from mmcore.base.params import ParamGraphNode, param_graph_node, param_graph_node_native
 from mmcore.collections import DCLL
 from mmcore.geom.csg import CSG
 from mmcore.geom.parametric import Linear
@@ -26,103 +28,6 @@ from mmcore.geom.materials import ColorRGB
 # I use json.dumps(..., indent=3) to visually print out the whole dictionary, I could also use something like pprint,
 # but it"s important to show that the parameters are parsed to the scolar simplest data types.
 # We can decompose a system of any complexity into a parameter tree with prime, numbers, strings, boolean values, etc.
-# For example:
-# {
-#    "result": {
-#       "line": {
-#          "start": {
-#             "line": {
-#                "start": {
-#                   "x": 1.0,
-#                   "y": 2.0,
-#                   "z": 3.0
-#                },
-#                "end": {
-#                   "x": -1.0,
-#                   "y": -2.0,
-#                   "z": -3.0
-#                }
-#             },
-#             "t": 0.2
-#          },
-#          "end": {
-#             "line": {
-#                "start": {
-#                   "x": 10.0,
-#                   "y": 20.0,
-#                   "z": 30.0
-#                },
-#                "end": {
-#                   "x": -11.0,
-#                   "y": 12.0,
-#                   "z": 13.0
-#                }
-#             },
-#             "t": 0.8
-#          }
-#       },
-#       "uuid": "test_line",
-#       "color": [
-#          20,
-#          200,
-#          60
-#       ]
-#    },
-#    "uuid": "result_group"
-# }
-
-
-# You can discard any part of the dictionary from the "back", the most important thing you cannot do
-# is lose keys from the "front".
-# For example:
-# ----------------------------------------------------------------------------------------------------------------------
-#  We"ll use the dictionary from the example above, so what can we pass to the function in this case?
-#     Wrong:
-#     {
-#       "result": {
-#           "start":{
-#               "t":0.1
-#               },
-#           "end":{
-#               "t":0.9
-#               }
-#             }
-#           }
-#
-#    Correct:
-#     {
-#       "result":{
-#         "line": {
-#             "start": {
-#                 "t": 0.5
-#             },
-#             "end": {
-#                 "t": 0.5
-#             }
-#           }
-#         }
-#       }
-# def changes1():
-#    render_lines(result={
-#        "line": {
-#            "start": {
-#                "t": 0.5
-#            },
-#            "end": {
-#                "t": 0.5
-#            }
-#        }
-#    }
-#    )
-#
-
-ptA, ptB, ptC, ptD = (-8.323991, 6.70421, -8.323991), (-8.323991, -6.70421, 8.323991), (8.323991, 6.70421, 8.323991), (
-    8.323991, -6.70421, -8.323991)
-
-
-# lass ComponentGraph(AGraph['...,Component']):
-#   def set_relay(self, node: 'Component', name: str, v: typing.Any):
-#       ...
 
 
 class Component:
@@ -174,6 +79,13 @@ col2 = ColorRGB(157, 75, 75).decimal
 
 from mmcore.base.models.gql import PointsMaterial, LineBasicMaterial
 
+
+@param_graph_node_native
+def spiral(radius=10, high=10, pitches=12):
+    def evaluate(t):
+        return np.cos(t * pitches) * radius * np.cos(t), np.sin(t * pitches) * radius * np.cos(t), (t) * high
+
+    return NurbsCurve([evaluate(t) for t in np.linspace(0, 1, 8 * pitches)], dimension=3)
 
 class ControlPoint(Component):
     x: float = 0
@@ -414,8 +326,9 @@ class Bezier(Component):
 
 
 class Loft(Component):
-    path: Bezier
+
     profiles: list
+    path: typing.Any = spiral
     color: tuple = (200, 10, 10)
 
     def __new__(cls, *args, **kwargs):
@@ -459,12 +372,12 @@ class Loft(Component):
         pp2 = Pipe(bzz, prf2)
 
         self.cpts = DCLL()
-        for p in np.linspace(1, 0, self.path.num):
+        for p in np.linspace(1, 0, 100):
             pl = DCLL()
             for pt in pp.evaluate_profile(p).control_points:
                 pl.append(pt)
             self.cpts.append(pl)
-        for p2 in np.linspace(0, 1, self.path.num):
+        for p2 in np.linspace(0, 1, 100):
             pl = DCLL()
             for pt in pp2.evaluate_profile(p2).control_points:
                 pl.append(pt)
@@ -478,8 +391,8 @@ class Loft(Component):
         self.tesselate()
         self._repr3d = self._mesh_data.to_mesh(_endpoint=f"params/node/{self.param_node.uuid}",
                                                controls=self.param_node.todict(), uuid=self.uuid,
-                                               color=ColorRGB(*self.color).decimal)
-        self._repr3d.path = self.path._repr3d
+                                               color=ColorRGB(*self.color).decimal, opacity=0.5)
+        self._repr3d.path = self.path
         return self
 
 
@@ -513,8 +426,8 @@ profile_inner = p2.tolist()
 profile_outer.reverse()
 profile_inner.reverse()
 
-srf = Loft(name="test_loft", path=bz, profiles=(profile_outer, profile_inner), uuid="test_loft")
-
+# srf1 = Loft(name="test_loft_b", path=spiral, profiles=(profile_outer, profile_inner), uuid="test_loft_a")
+srf2 = Loft(name="test_loft_a", path=bz, profiles=(profile_outer, profile_inner), uuid="test_loft_b")
 serve.start()
 
 # mesh=parametric_mesh_bruteforce(pp,uv=[50, 9] ).to_mesh()
