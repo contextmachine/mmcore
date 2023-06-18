@@ -1,10 +1,9 @@
 ###
-GRAPHQL localhost:5799/v2/graphql
+GRAPHQL http://localhost:8081/v2/graphql
 
 {
-  object
+  root
 }
 
 {
-
 }

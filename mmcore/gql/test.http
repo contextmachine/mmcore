@@ -3,9 +3,8 @@ GRAPHQL http://localhost:7711/v2/graphql
 content-type: application/json
 
 query {
-
   root
-  }
+ }
 
 
 

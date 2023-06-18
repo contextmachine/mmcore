@@ -6,7 +6,7 @@ GET http://localhost:7711/keys
 
 
 ###
-POST http://localhost:7711/params/node/test_loft_a
+POST https://viewer.contextmachine.online/cxm/api/v2/mutable-example/params/node/test_loft_a
 Content-Type: application/json
 
 {
@@ -20,7 +20,7 @@ Content-Type: application/json
 }
 
 ###
-POST http://localhost:7711/params/node/test_loft_b
+POST https://viewer.contextmachine.online/cxm/api/v2/mutable-example/params/node/test_loft_b
 Content-Type: application/json
 
 {

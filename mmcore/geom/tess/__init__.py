@@ -1,6 +1,5 @@
 import json
 import warnings
-
 from abc import ABCMeta
 
 from mmcore.geom.vectors import unit
@@ -9,14 +8,12 @@ try:
     from OCC.Core.Tesselator import ShapeTesselator
 except ImportError as err:
     warnings.warn(ImportWarning("Install pythonOCC to use this tesselation tools"))
-import uuid as _uuid
 import numpy as np
-from mmcore.base.basic import AGroup, AMesh
+from mmcore.base.basic import AMesh
 from mmcore.geom.materials import ColorRGB
-from mmcore.base.geom import MeshObject, LineObject, MeshData
+from mmcore.base.geom import MeshData
 from mmcore.base.geom.utils import create_buffer_from_dict
 from mmcore.base.registry import amatdict
-from mmcore.base.utils import generate_edges_material, export_edgedata_to_json
 from mmcore.collections import ElementSequence
 from mmcore.base.models import gql as gql_models
 import uuid as _uuid
