@@ -158,37 +158,8 @@ class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolutio
             return IntersectFail(r.pt, r.t, r.distance, is_intersect)
 
 
-barycentric_coordinates2(np.array([0.5, 0.3, 0.2]), np.array([(0.1, 0.2, 0.3), (0.4, 0.5, 0.6), (0.7, 0.8, 0.9)]))
-intersection_point(np.array(ln1), np.array(ln2))
 
-
-def intersect_lines(line1, line2):
-    # Вычислим координаты точки пересечения строк
-    a1 = line1[0][0]
-    b1 = line1[1][0]
-    c1 = line1[2][0]
-    d1 = a1 * line1[0][1] + b1 * line1[1][1] + c1 * line1[2][1]
-    e1 = math.sqrt(a1 ** 2 + b1 ** 2)
-
-    a2 = line2[0][0]
-    b2 = line2[1][0]
-    c2 = line2[2][0]
-    d2 = a2 * line2[0][1] + b2 * line2[1][1] + c2 * line2[2][1]
-    e2 = math.sqrt(a2 ** 2 + b2 ** 2)
-
-    denominator = e1 * e2 - e2 * e1
-
-    if denominator == 0:
-        return None
-
-    numerator1 = d2 * e2 * e1 - d1 * e1 * e2
-    numerator2 = d1 * d2 - d2 * d1
-
-    x = numerator1 / denominator
-    y = (numerator2 - a1 * c2 + a2 * c1) / (a1 * b2 - a2 * b1)
-
-
-def closest_points(line1, line2):
+def proximity_points(line1, line2):
     # Extract points and directions from input lines
     p1, v1 = line1
     p2, v2 = line2
@@ -212,3 +183,29 @@ def closest_points(line1, line2):
     p2_closest = p2 + s * v2
 
     return p1_closest, p2_closest
+
+
+def closest_point_on_line(point, line):
+    """
+    Returns the closest point on a line to a given point in 3D space.
+
+    Parameters:
+    point (numpy.ndarray): An array of shape (3,) representing a point in 3D space.
+    line (tuple): A tuple of two numpy arrays of shape (3,) representing a point on the line and the direction of the line.
+
+    Returns:
+    numpy.ndarray: An array of shape (3,) representing the closest point on the line to the given point.
+    """
+    # Extract point and direction from input line
+    p1, v1 = line
+
+    # Calculate vector from point to line
+    w = point - p1
+
+    # Calculate parameter for closest point on line
+    t = np.dot(w, v1) / np.dot(v1, v1)
+
+    # Calculate closest point on line
+    p_closest = p1 + t * v1
+
+    return p_closest
