@@ -4,10 +4,10 @@ import typing
 from collections import namedtuple
 
 import numpy as np
+from mmcore import TOLERANCE
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
 
-from mmcore import TOLERANCE
 ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
@@ -156,3 +156,59 @@ class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolutio
 
         else:
             return IntersectFail(r.pt, r.t, r.distance, is_intersect)
+
+
+barycentric_coordinates2(np.array([0.5, 0.3, 0.2]), np.array([(0.1, 0.2, 0.3), (0.4, 0.5, 0.6), (0.7, 0.8, 0.9)]))
+intersection_point(np.array(ln1), np.array(ln2))
+
+
+def intersect_lines(line1, line2):
+    # Вычислим координаты точки пересечения строк
+    a1 = line1[0][0]
+    b1 = line1[1][0]
+    c1 = line1[2][0]
+    d1 = a1 * line1[0][1] + b1 * line1[1][1] + c1 * line1[2][1]
+    e1 = math.sqrt(a1 ** 2 + b1 ** 2)
+
+    a2 = line2[0][0]
+    b2 = line2[1][0]
+    c2 = line2[2][0]
+    d2 = a2 * line2[0][1] + b2 * line2[1][1] + c2 * line2[2][1]
+    e2 = math.sqrt(a2 ** 2 + b2 ** 2)
+
+    denominator = e1 * e2 - e2 * e1
+
+    if denominator == 0:
+        return None
+
+    numerator1 = d2 * e2 * e1 - d1 * e1 * e2
+    numerator2 = d1 * d2 - d2 * d1
+
+    x = numerator1 / denominator
+    y = (numerator2 - a1 * c2 + a2 * c1) / (a1 * b2 - a2 * b1)
+
+
+def closest_points(line1, line2):
+    # Extract points and directions from input lines
+    p1, v1 = line1
+    p2, v2 = line2
+
+    # Calculate direction vector of the line connecting the two points
+    w = p1 - p2
+
+    # Calculate direction vectors of the two input lines
+    a = np.dot(v1, v1)
+    b = np.dot(v1, v2)
+    c = np.dot(v2, v2)
+    d = np.dot(v1, w)
+    e = np.dot(v2, w)
+
+    # Calculate parameters for the two closest points
+    t = (b * e - c * d) / (a * c - b ** 2)
+    s = (a * e - b * d) / (a * c - b ** 2)
+
+    # Calculate the two closest points
+    p1_closest = p1 + t * v1
+    p2_closest = p2 + s * v2
+
+    return p1_closest, p2_closest
