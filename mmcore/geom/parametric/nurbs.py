@@ -7,7 +7,6 @@ import geomdl
 import numpy as np
 from geomdl import utilities as geomdl_utils, NURBS
 from geomdl.operations import tangent
-
 from mmcore.base import AMesh, AGeometryDescriptor, APointsGeometryDescriptor, ALine, AGeom, \
     ageomdict
 from mmcore.base.geom import MeshData
