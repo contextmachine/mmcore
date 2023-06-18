@@ -3,6 +3,7 @@ data/
 mmcore.egg-info/
 docs/
 build/
+examples/
 docker-compose.yml
 masks.cxm
 tril2w.msh
