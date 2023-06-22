@@ -4,10 +4,9 @@ import typing
 from collections import namedtuple
 
 import numpy as np
+from mmcore import TOLERANCE
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
-
-from mmcore import TOLERANCE
 
 ProxPointSolution = namedtuple("ProxPointSolution", ["pt1", "pt2", "t1", "t2"])
 ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
@@ -252,6 +251,30 @@ def ray_triangle_intersection(ray_origin, ray_direction, triangle_vertices):
     return intersection_point
 
 
+def line_line_intersection(line1, line2):
+    # Extract points and directions from input lines
+    p1, v1 = line1
+    p2, v2 = line2
+
+    # Calculate direction vector of the line connecting the two points
+    w = p1 - p2
+
+    # Calculate direction vectors of the two input lines
+    cross = np.cross(v1, v2)
+    if np.allclose(cross, [0, 0, 0]):
+        # Lines are parallel, return None
+        return None
+    else:
+        # Calculate parameters for point of intersection
+        s1 = np.dot(np.cross(w, v2), cross) / np.linalg.norm(cross) ** 2
+        s2 = np.dot(np.cross(w, v1), cross) / np.linalg.norm(cross) ** 2
+
+        # Calculate intersection point
+        p = 0.5 * (p1 + s1 * v1 + p2 + s2 * v2)
+
+        return p
+
+
 def line_plane_collision(plane, ray, epsilon=1e-6):
     ray_dir = np.array(ray.direction)
     ndotu = np.array(plane.normal).dot(ray_dir)
@@ -261,3 +284,55 @@ def line_plane_collision(plane, ray, epsilon=1e-6):
     si = -np.array(plane.normal).dot(w) / ndotu
     Psi = w + si * ray_dir + plane.origin
     return Psi
+
+
+class ProjectionEvent:
+    def __init__(self, projection):
+        super().__init__()
+        self.projection = projection
+
+    def __call__(self, point):
+        return point - self.projection
+
+    def __iter__(self):
+        return iter(self.projection.tolist())
+
+    def __array__(self):
+        return self.projection
+
+
+class PointPlaneProjectionEvent(ProjectionEvent):
+    def __init__(self, point, plane):
+        self.point, self.plane = np.array(point), plane
+        self.w = self.point - np.array(self.plane.origin)
+        super().__init__(np.dot(self.w, plane.normal) / 1 * plane.normal)
+        # Calculate projection of w onto plane normal
+
+    def __call__(self, point=None):
+        if point is None:
+            return self.point - self.projection
+        return np.array(point) - self.projection
+
+
+def project_point_onto_plane(point, plane_point, plane_normal):
+    """
+    Projects a point onto a plane in 3D space.
+
+    Parameters:
+    point (numpy.ndarray): An array of shape (3,) representing the point to be projected.
+    plane_point (numpy.ndarray): An array of shape (3,) representing a point on the plane.
+    plane_normal (numpy.ndarray): An array of shape (3,) representing the normal vector of the plane.
+
+    Returns:
+    numpy.ndarray: An array of shape (3,) representing the projected point.
+    """
+    # Calculate vector from plane point to input point
+    w = point - plane_point
+
+    # Calculate projection of w onto plane normal
+    projection = np.dot(w, plane_normal) / 1 * plane_normal
+
+    # Calculate projected point
+    projected_point = point - projection
+
+    return projected_point

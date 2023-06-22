@@ -110,6 +110,7 @@ class Linear(ParametricObject):
     @transform_manager
     def transform(self, m: Transform = None):
         return super().transform(m)
+
     def __post_init__(self):
         super().__post_init__()
         self.x = lambda t: self.x0 + self.a * t
@@ -121,11 +122,12 @@ class Linear(ParametricObject):
 
     @classmethod
     def from_two_points(cls, start, end):
-        #print(start,end)
+        # print(start,end)
         a, b, c = np.asarray(end) - np.asarray(start)
         x, y, z = start
 
         return cls(x0=x, y0=y, z0=z, a=a, b=b, c=c)
+
     @transform
     def evaluate(self, t):
         return np.array([self.x(t), self.y(t), self.z(t)], dtype=float)
@@ -202,6 +204,8 @@ class Linear(ParametricObject):
 
     def distance(self, point):
         return minimize(self.distance_func(point).evaluate, x0=np.array([0.5]), bounds=[0, 1])
+
+
 def hhp():
     pts = [[-220175.307469, -38456.999234, 20521],
            [-211734.667469, -9397.999234, 13016.199506],
@@ -352,7 +356,7 @@ class PlaneLinear(ParametricObject):
     @property
     def d(self):
         return -1 * (
-                    self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
+                self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
 
     def is_parallel(self, other):
         _cross = np.cross(unit(self.normal), unit(other.normal))
@@ -427,6 +431,10 @@ class PlaneLinear(ParametricObject):
         except Exception:
 
             raise ModuleNotFoundError("RhinoCommon missing")
+
+    def side(self, point):
+        w = np.array(point) - np.array(self.origin)
+        return np.dot(w, self.normal) >= 0.0
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -611,7 +619,7 @@ class LineSequence(ParametricObject):
             else:
                 pts.append(np.asarray(list(self.evaluate(p).control_points)
                                       ))
-        #print(pts)
+        # print(pts)
         aa = np.asarray(pts).flatten()
 
         return NurbsSurface(control_points=aa.reshape((len(aa) // 3, 3)).tolist(), size_u=u, size_v=len(self.axis))
@@ -784,12 +792,15 @@ def no_mp(dl):
 
 """
 
+
 @dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
+
     @transform_manager
     def transform(self, m: Transform):
         return super().transform(m)
+
     @property
     def __params__(self):
         return [self.r]
@@ -805,8 +816,8 @@ class Circle(ParametricObject):
 
     @property
     def points(self):
-        prs=[]
-        for s in np.linspace(0,1,32):
+        prs = []
+        for s in np.linspace(0, 1, 32):
             prs.append(self.evaluate(s).tolist())
         return prs
 
@@ -818,7 +829,6 @@ class Circle3D(Circle):
     torsion: tuple[float, float, float] = (1, 0, 0)  # The xaxis value of the base plane,
 
     # defines the point of origin of the circle
-
 
     @property
     def plane(self):

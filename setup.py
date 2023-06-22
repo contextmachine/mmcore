@@ -30,7 +30,7 @@ setup(
               'mmcore.geom.utils',
               'mmcore.geom.transform',
               'mmcore.geom.csg',
-              
+              'mmcore.geom.point',
               'mmcore.geom.parametric',
               'mmcore.geom.shapes',
               'mmcore.geom.materials',
