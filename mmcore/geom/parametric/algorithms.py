@@ -1,10 +1,11 @@
 import abc
 import dataclasses
 import typing
-from collections import namedtuple
 
 import numpy as np
-from mmcore import TOLERANCE
+from mmcore.collections.basic import namedtuple
+
+TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
 
@@ -275,7 +276,7 @@ def line_line_intersection(line1, line2):
         return p
 
 
-def line_plane_collision(plane, ray, epsilon=1e-6):
+def line_plane_intersection(plane, ray, epsilon=1e-6):
     ray_dir = np.array(ray.direction)
     ndotu = np.array(plane.normal).dot(ray_dir)
     if abs(ndotu) < epsilon:
