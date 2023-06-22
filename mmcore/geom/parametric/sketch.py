@@ -10,9 +10,6 @@ from itertools import starmap
 
 import dill
 import numpy as np
-from scipy.optimize import minimize
-from scipy.spatial.distance import euclidean
-
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
@@ -21,6 +18,8 @@ from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from mmcore.geom.vectors import unit
+from scipy.optimize import minimize
+from scipy.spatial.distance import euclidean
 
 
 def add_crd(pt, value):
@@ -420,10 +419,11 @@ class PlaneLinear(ParametricObject):
     def torhino(self):
         try:
             import Rhino.Geometry as rg
-            return rg.Plane(self.a, self.b, self.c, self.d)
+            return rg.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis), rg.Vector3d(*self.yaxis))
         except ModuleNotFoundError:
             import rhino3dm as rg
-            return rg.Plane(self.a, self.b, self.c, self.d)
+            return rg.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis), rg.Vector3d(*self.yaxis))
+
         except Exception:
 
             raise ModuleNotFoundError("RhinoCommon missing")
