@@ -1,9 +1,10 @@
 from mmcore.base import ALine, APoints, A
-from mmcore.base.components import Component, ControlPointList, ControlPoint
+from mmcore.base.components import Component
 from mmcore.base.models.gql import LineBasicMaterial, PointsMaterial
 from mmcore.base.params import param_graph_node_native, param_graph_node, ParamGraphNode
 from mmcore.geom.parametric import NurbsCurve, Linear
 from mmcore.geom.parametric.base import NormalPoint
+from mmcore.geom.point import ControlPoint, ControlPointList
 from mmcore.geom.vectors import unit
 
 a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")

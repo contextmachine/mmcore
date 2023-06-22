@@ -4,14 +4,17 @@ import typing
 from collections import namedtuple
 
 import numpy as np
-from mmcore import TOLERANCE
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
 
+from mmcore import TOLERANCE
+
+ProxPointSolution = namedtuple("ProxPointSolution", ["pt1", "pt2", "t1", "t2"])
 ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
+
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -43,8 +46,6 @@ class MinimizeSolution:
     @abc.abstractmethod
     def prepare_solution_response(self, solution):
         ...
-
-
 
 
 class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
@@ -158,7 +159,6 @@ class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolutio
             return IntersectFail(r.pt, r.t, r.distance, is_intersect)
 
 
-
 def proximity_points(line1, line2):
     # Extract points and directions from input lines
     p1, v1 = line1
@@ -182,7 +182,7 @@ def proximity_points(line1, line2):
     p1_closest = p1 + t * v1
     p2_closest = p2 + s * v2
 
-    return p1_closest, p2_closest
+    return ProxPointSolution(p1_closest, p2_closest, t, s)
 
 
 def closest_point_on_line(point, line):
@@ -208,4 +208,56 @@ def closest_point_on_line(point, line):
     # Calculate closest point on line
     p_closest = p1 + t * v1
 
-    return p_closest
+    return ClosestPointSolution(p_closest, t=t, distance=euclidean(point, p1))
+
+
+PointTuple = tuple[float, float, float]
+
+
+def eval_quad(t1, t2, quad: list[PointTuple, PointTuple, PointTuple, PointTuple]):
+    a, b, c, d = np.array(quad)
+    dc, ab = (d + ((c - d) * t1)), (a + ((b - a) * t1))
+    return ((dc - ab) * t2) + ab
+
+
+def ray_triangle_intersection(ray_origin, ray_direction, triangle_vertices):
+    """
+    Returns the intersection point of a ray and a triangle in 3D space.
+    Parameters:
+    ray_origin (numpy.ndarray): An array of shape (3,) representing the origin point of the ray.
+    ray_direction (numpy.ndarray): An array of shape (3,) representing the direction vector of the ray.
+    triangle_vertices (numpy.ndarray): An array of shape (3,3) representing the vertices of the triangle.
+    Returns:
+    numpy.ndarray: An array of shape (3,) representing the intersection point of the ray and the triangle, or None if there is no intersection.
+    """
+    # Calculate normal vector of the triangle
+    triangle_normal = np.cross(triangle_vertices[1] - triangle_vertices[0], triangle_vertices[2] - triangle_vertices[0])
+    # Calculate distance from ray origin to triangle plane
+    t = np.dot(triangle_normal, triangle_vertices[0] - ray_origin) / np.dot(triangle_normal, ray_direction)
+    # Calculate intersection point
+    intersection_point = ray_origin + t * ray_direction
+    # Check if intersection point is inside the triangle
+    edge1 = triangle_vertices[1] - triangle_vertices[0]
+    edge2 = triangle_vertices[2] - triangle_vertices[1]
+    edge3 = triangle_vertices[0] - triangle_vertices[2]
+    normal1 = np.cross(edge1, triangle_normal)
+    normal2 = np.cross(edge2, triangle_normal)
+    normal3 = np.cross(edge3, triangle_normal)
+    if np.dot(ray_direction, normal1) > 0 and np.dot(intersection_point - triangle_vertices[0], normal1) > 0:
+        return None
+    if np.dot(ray_direction, normal2) > 0 and np.dot(intersection_point - triangle_vertices[1], normal2) > 0:
+        return None
+    if np.dot(ray_direction, normal3) > 0 and np.dot(intersection_point - triangle_vertices[2], normal3) > 0:
+        return None
+    return intersection_point
+
+
+def line_plane_collision(plane, ray, epsilon=1e-6):
+    ray_dir = np.array(ray.direction)
+    ndotu = np.array(plane.normal).dot(ray_dir)
+    if abs(ndotu) < epsilon:
+        return None
+    w = ray.start - plane.origin
+    si = -np.array(plane.normal).dot(w) / ndotu
+    Psi = w + si * ray_dir + plane.origin
+    return Psi

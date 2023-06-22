@@ -1,6 +1,7 @@
 import dataclasses
 import typing
 import uuid
+from collections import namedtuple
 
 import earcut
 import numpy as np
@@ -9,11 +10,13 @@ from earcut import earcut
 from more_itertools import flatten
 from shapely import Polygon, MultiPolygon
 
-from mmcore.base import AMesh
+from mmcore.base import AMesh, ALine
 from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.geom.materials import ColorRGB
+from mmcore.geom.parametric import PlaneLinear
+from mmcore.geom.transform import Transform, WorldXY
 
 
 def to_list_req(obj):
@@ -52,8 +55,8 @@ def delegate_shape_operator(self, item, m):
 # @Delegate(delegate=Polygon)
 @dataclasses.dataclass
 class Shape:
-    boundary: list[list[float]]
-    holes: typing.Optional[list[list[list[float]]]] = None
+    boundary: list[list[float, float, float]]
+    holes: typing.Optional[list[list[list[float, float, float]]]] = None
     color: ColorRGB = ColorRGB(150, 150, 150).decimal
     uuid: typing.Optional[str] = None
     h: typing.Any = None
@@ -228,26 +231,81 @@ class Shape:
                          holes=to_list_req(res.interiors),
                          color=self.color,
                          h=self.h)
+
     def is_empty(self):
         return self.boundary == []
 
+
+TransformContext = namedtuple("TransformContext", ["obj", "to_world", "from_world"])
+
+
+class TrxMng:
+    def __init__(self, obj):
+        self._obj = obj
+
+    def __enter__(self):
+        self.to_world = self._obj.plane.transform_to_other(WorldXY)
+        self.from_world = self._obj.plane.transform_from_other(WorldXY)
+        self._obj.transform(self.to_world)
+        return TransformContext(self._obj, self.to_world, self.from_world)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._obj.transform(self.from_world)
+
+
 @dataclasses.dataclass
 class Boundary:
-    bounds: 'list[typing.Union[Shape, Boundary]]'
-    boundaries: dataclasses.InitVar[typing.Optional[list[tuple[float]]]]
+    bnds: dataclasses.InitVar[typing.Optional[list[tuple[float, float, float]]]]
+    hls: dataclasses.InitVar[typing.Optional[list[tuple[float, float, float]]]] = None
+    matrix: Transform = Transform()
+    uuid: typing.Optional[str] = None
 
-    def __post_init__(self, boundaries):
-        def prs(obj):
-            if not isinstance(obj, (Boundary, Shape)):
-                if isinstance(obj, (list,tuple,np.ndarray)):
-                    if isinstance(obj[0][0],  (list,tuple,np.ndarray)):
+    def __post_init__(self, bnds, hls=None):
+        self._plane = PlaneLinear(origin=np.array(WorldXY.origin), xaxis=np.array(WorldXY.xaxis),
+                                  yaxis=np.array(WorldXY.yaxis))
+        if self.uuid is None:
+            self.uuid = uuid.uuid4().hex
+        self._holes = [] if hls is None else hls
+        self._boundary = bnds
 
-                        return Boundary([prs(o) for o in obj])
-                    elif isinstance(obj[0][0],float):
-                        return Shape(obj)
-                else:
-                    pass
-            else:
-                return obj
-        self.bounds=[prs() for b in boundaries]
+    @property
+    def boundary(self):
+        return np.array(self._boundary @ self.matrix).tolist()
 
+    @property
+    def holes(self):
+        l = []
+        for hole in self._holes:
+            l.append(np.array(self._holes @ self.matrix).tolist())
+        return l
+
+    def transform(self, m):
+        self.matrix = self.matrix @ m
+
+    def to_shape(self):
+        if self._holes is not None:
+            holes = (np.array(self._holes)[..., :2]).tolist()
+            return Shape((np.array(self._boundary)[..., :2]).tolist(), holes=holes)
+        return Shape((np.array(self._boundary)[..., :2]).tolist())
+
+    def to_mesh(self, *args, **kwargs):
+
+        msh = self.to_shape().mesh_data.to_mesh(uuid=self.uuid, *args, **kwargs)
+        msh @ self.plane.transform_from_other(WorldXY)
+        msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary)
+        return msh
+
+    def transform_as_new(self, t):
+        obj = Boundary(bnds=self.boundary, hls=self.holes)
+        obj.transform(t)
+        return obj
+
+    @property
+    def plane(self):
+        return PlaneLinear(self._plane.origin.tolist() @ self.matrix,
+                           normal=self._plane.normal.tolist() @ self.matrix,
+                           xaxis=self._plane.xaxis.tolist() @ self.matrix
+                           )
+
+    def __copy__(self):
+        return Boundary(self._boundary, self._holes, matrix=self.matrix)
