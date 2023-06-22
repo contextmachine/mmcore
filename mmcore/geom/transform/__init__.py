@@ -68,12 +68,14 @@ class Transform:
         if isinstance(other, (list, tuple)):
             other = np.array(other, dtype=float)
         if isinstance(other, ndarray):
-            if other.shape[0] == 3:
+
+            if (len(other.shape) == 1) and (other.shape[0] == 3):
                 ppt = np.array([0, 0, 0, 1], dtype=float)
                 ppt[0:3] = other
                 other[:] = (ppt @ self.matrix.T)[0:-1]
                 return other
-            elif other.shape[1] == 3:
+            elif (len(other.shape) > 1) and (other.shape[1] == 3):
+
                 print('!!')
                 l = []
                 for i in other:
@@ -100,8 +102,8 @@ class Transform:
         else:
             raise ValueError(f"{other} does not define any of the available interfaces for transformation.")
 
-    def __array__(self, *args, **kwargs):
-        return np.array(self.matrix, dtype=float, *args, **kwargs)
+    def __array__(self):
+        return np.array(self.matrix, dtype=float)
 
     def __iter__(self):
         return self.matrix.__iter__()
@@ -133,7 +135,7 @@ class Transform:
         # print(plane_a,plane_b)
         M1 = cls.from_plane(Plane(unit(plane_a.xaxis), unit(plane_a.yaxis), unit(plane_a.normal), plane_a.origin))
         M2 = cls.from_plane(Plane(unit(plane_b.xaxis), unit(plane_b.yaxis), unit(plane_b.normal), plane_b.origin))
-        return cls(M2.matrix @ M1.matrix.T)
+        return cls(M2.matrix @ M1.matrix)
 
     @classmethod
     def from_world_to_plane(cls, plane):
@@ -176,6 +178,13 @@ class Transform:
             [0, 0, 0, 1]
         ])
 
+    @classmethod
+    def scale(cls, x: float = 1, y: float = 1, z: float = 1):
+        matrix = np.array([[x, 0, 0, 0],
+                           [0, y, 0, 0],
+                           [0, 0, z, 0],
+                           [0, 0, 0, 1]], dtype=float)
+        return Transform(matrix)
 
 class OwnerTransform:
     def __init__(self, f):

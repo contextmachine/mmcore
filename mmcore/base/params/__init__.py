@@ -2,13 +2,13 @@ import dataclasses
 import typing
 import uuid as _uuid
 
-from mmcore.base.basic import DictSchema
+import dill
+
 from mmcore.base.registry import AGraph
 
 paramtable = dict()
 relaytable = dict()
 DEBUG_GRAPH = False
-
 
 import string
 
@@ -57,6 +57,7 @@ class ParamGraph(AGraph):
                 self.relay_table[node.uuid][name] = v.uuid
             else:
                 self.relay_table[node.uuid][name] = TermParamGraphNode(v, name=f'{node.name}:{name}').uuid
+
 
 
 pgraph = ParamGraph()
@@ -133,6 +134,7 @@ class ParamGraphNode:
 
         if _params is not None:
             for k, v in _params.items():
+
                 self.graph.set_relay(self, k, v)
 
     def neighbours(self):
@@ -254,8 +256,6 @@ class ParamGraphNode:
     def __getitem__(self, key):
         return self.graph.get_relay(self, key)
 
-
-
     def __call__(self, *args, **params) :
         if len(args) > 0:
             params |= dict(zip(list(self.keys())[:len(args)], args))
@@ -263,7 +263,7 @@ class ParamGraphNode:
 
             for k, v in params.items():
                 self.graph.set_relay(self, k, v)
-            self.__dct_schema__ = DictSchema(self.todict(no_attrs=True))
+            # self.__dct_schema__ = DictSchema(self.todict(no_attrs=True))
         return self.solve()
 
     def dispose(self):
@@ -360,3 +360,17 @@ def draw_aj(graph):
     *keys, = map(lambda x: x[0], dct.values())
 
     return pd.DataFrame(dct), pd.DataFrame(dct2, index=list(keys)), pd.DataFrame(dct3, index=['value', 'uuid'])
+
+
+def restore_pgraph(s):
+    global pgraph
+    pgraph = dill.loads(s)
+
+
+def store_pgraph(graph=None):
+    if graph is None:
+        global pgraph
+
+        return dill.dumps(pgraph)
+    else:
+        return dill.dumps(graph)

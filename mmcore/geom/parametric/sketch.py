@@ -272,50 +272,43 @@ class Polyline(ParametricObject):
 
 @dataclasses.dataclass(unsafe_hash=True)
 class PlaneLinear(ParametricObject):
+    """
+    𝑎(𝑥−𝑥0)+𝑏(𝑦−𝑦0)+𝑐(𝑧−𝑧0)=0
+    a*x-a*x0+b*y-b*y0+c*z-c*z0=0
+    a*x+b*y+c*z-(a*x0+b*y0+c*z0)=0
+    a,b,c=normal
+    d=normal[0]*x0+normal[1]*y0+normal[2]*z0
+
+    """
     origin: typing.Iterable[float]
-    normal: typing.Optional[typing.Iterable[float]] = None
-    xaxis: typing.Optional[typing.Iterable[float]] = None
-    yaxis: typing.Optional[typing.Iterable[float]] = None
+    normal: typing.Optional[list[float]] = None
+    xaxis: typing.Optional[list[float]] = None
+    yaxis: typing.Optional[list[float]] = None
 
     def __post_init__(self):
 
         # #print(unit(self.normal), self.xaxis, self.yaxis)
         if self.xaxis is not None and self.yaxis is not None:
-            self.normal = np.cross(unit(self.xaxis), unit(self.yaxis))
+            self.normal = np.cross(unit(np.array(self.xaxis)), unit(np.array(self.yaxis)))
         elif self.normal is not None:
             self.normal = unit(self.normal)
             if np.allclose(self.normal, np.array([0.0, 0.0, 1.0])):
 
                 if self.xaxis is not None:
                     self.xaxis = unit(self.xaxis)
-                    self.yaxis = np.cross(self.normal, self.xaxis
-                                          )
+                    self.yaxis = np.cross(self.xaxis, self.normal)
 
                 elif self.yaxis is not None:
                     self.yaxis = unit(self.yaxis)
-                    self.xaxis = np.cross(self.normal, self.yaxis)
+                    self.xaxis = np.cross(self.yaxis, self.normal)
                 else:
 
                     self.xaxis = np.array([1, 0, 0], dtype=float)
                     self.yaxis = np.array([0, 1, 0], dtype=float)
             else:
-                self.xaxis = np.cross(self.normal, np.array([0, 0, 1]))
-                self.yaxis = np.cross(self.normal, self.xaxis
-                                      )
-
-    def evaluate(self, t):
-
-        if len(t) == 2:
-            u, v = t
-            uu = np.array(self.x_linear.evaluate(u) - self.origin)
-            vv = np.array(self.y_linear.evaluate(v) - self.origin)
-            return np.array(self.origin) + uu + vv
-        else:
-            u, v, w = t
-            uu = np.array(self.x_linear.evaluate(u) - self.origin)
-            vv = np.array(self.y_linear.evaluate(v) - self.origin)
-            ww = np.array(self.z_linear.evaluate(w) - self.origin)
-            return np.array(self.origin) + uu + vv + ww
+                if self.xaxis is None:
+                    self.xaxis = np.cross([0, 1, 0], self.normal)
+                self.yaxis = np.cross(self.xaxis, self.normal)
 
     @property
     def x_linear(self):
@@ -359,8 +352,8 @@ class PlaneLinear(ParametricObject):
 
     @property
     def d(self):
-
-        return -np.sum(self.normal * self.origin)
+        return -1 * (
+                    self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
 
     def is_parallel(self, other):
         _cross = np.cross(unit(self.normal), unit(other.normal))
@@ -394,6 +387,20 @@ class PlaneLinear(ParametricObject):
     def transform_to_other(self, other):
         return Transform.from_plane_to_plane(self, other)
 
+    def evaluate(self, t):
+
+        if len(t) == 2:
+            u, v = t
+            uu = np.array(self.x_linear.evaluate(u) - self.origin)
+            vv = np.array(self.y_linear.evaluate(v) - self.origin)
+            return np.array(self.origin) + uu + vv
+        else:
+            u, v, w = t
+            uu = np.array(self.x_linear.evaluate(u) - self.origin)
+            vv = np.array(self.y_linear.evaluate(v) - self.origin)
+            ww = np.array(self.z_linear.evaluate(w) - self.origin)
+            return np.array(self.origin) + uu + vv + ww
+
     @property
     def projection(self):
         return Transform.plane_projection(self)
@@ -409,6 +416,17 @@ class PlaneLinear(ParametricObject):
 
     def ray_intersect(self, ray: Linear):
         return line_plane_collision(self, ray, TOLERANCE)
+
+    def torhino(self):
+        try:
+            import Rhino.Geometry as rg
+            return rg.Plane(self.a, self.b, self.c, self.d)
+        except ModuleNotFoundError:
+            import rhino3dm as rg
+            return rg.Plane(self.a, self.b, self.c, self.d)
+        except Exception:
+
+            raise ModuleNotFoundError("RhinoCommon missing")
 
 
 @dataclasses.dataclass(unsafe_hash=True)

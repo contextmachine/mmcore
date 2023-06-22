@@ -801,7 +801,7 @@ class A:
         @return:
         """
         self.matrix = (
-                self.matrix_to_square_form() @ np.array(matrix, dtype=float).reshape((4, 4))).T.flatten().tolist()
+                self.matrix_to_square_form() @ np.array(matrix).reshape((4, 4))).T.flatten().tolist()
 
     def rotate(self, angle: float, axis: tuple[float, float, float] = (0, 0, 1)):
         """
@@ -932,6 +932,81 @@ class AGeometryDescriptor:
 from mmcore.geom.materials import ColorRGB
 
 
+class Domain:
+    def __init__(self, a, b):
+        super().__init__()
+        self.min, self.max = a, b
+
+    @property
+    def delta(self):
+        return self.max - self.min
+
+    def __getitem__(self, item):
+        return [self.max, self.min][item]
+
+    def __setitem__(self, item, v):
+        [self.max, self.min][item] = v
+
+    def __iter__(self):
+        return iter([self.max, self.min, self.delta])
+
+    def __array__(self):
+        return np.array([self.max, self.min], dtype=float)
+
+    def __repr__(self):
+        return f"Domain({self.max} to  {self.min}, delta={self.delta})"
+
+    def __sub__(self, other):
+        return Domain(self.max - other.a, self.b - other.b)
+
+    def __add__(self, other):
+        return Domain(self.a + other.a, self.b + other.b)
+
+    def __mul__(self, other):
+        if isinstance(other, (int, float)):
+
+            return Domain(self.a + other, self.b + other)
+        else:
+            return Domain(self.a + other.a, self.b + other.b)
+
+    def __contains__(self, item):
+        return self.a <= item <= self.b
+
+
+class BBox:
+    def __init__(self, points: np.ndarray):
+        super().__init__()
+        if not isinstance(points, np.ndarray):
+            points = np.array(points)
+
+        self.u, self.v, self.h = [Domain(*item) for item in
+                                  zip(points.min(axis=-1).tolist(), points.max(axis=-1).tolist())]
+
+    def __array__(self):
+        return np.array([self.u, self.v, self.h], dtype=float)
+
+    @property
+    def domains(self):
+        return [self.u, self.v, self.h]
+
+    @property
+    def points(self):
+        self.u.min, self.v.min
+        return [self.u, self.v, self.h]
+
+    def __iter__(self):
+        return iter([self.u, self.v, self.h])
+
+    def __contains__(self, item):
+        return all(i in dmn for i, dmn in zip(item, self.domains))
+
+    def inside(self, point):
+        return point in self
+
+    def __repr__(self):
+        return f"BBox(u={self.u}, v={self.v}, h={self.h})"
+
+
 class AMaterialDescriptor:
     adict = dict()
 
@@ -985,6 +1060,11 @@ class AGeom(A):
         }
         return res
 
+    @property
+    def aabb(self):
+        arr = self.geometry.data.attributes.position.array
+        return BBox(np.array(self.geometry.data.attributes.position.array, dtype=float).reshape((len(arr) // 3, 3)))
+
 
 class AMesh(AGeom):
     material_type = gql_models.MeshPhongMaterial
@@ -997,7 +1077,7 @@ class AMesh(AGeom):
 
 
 def position_hash(points):
-    return hashlib.sha512(ujson.dumps(points).encode()).hexdigest()
+    return hashlib.sha512(ujson.dumps(np.array(points).tolist()).encode()).hexdigest()
 
 
 class APointsGeometryDescriptor(AGeometryDescriptor):
