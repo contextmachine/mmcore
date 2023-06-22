@@ -35,14 +35,11 @@ but which can also be used in other workbenches and in macros.
 # flake8 --ignore=E226,E266,E401,W503
 PERCISSION = 6
 import math
-
 import warnings
 from typing import Iterable, Iterator
 
 import numpy as np
-
 from scipy.spatial import distance
-from scipy.spatial.distance import euclidean
 
 
 def dot(u, v):
@@ -122,7 +119,7 @@ __author__ = "Yorik van Havre, Werner Mayer, Martin Burbaum, Ken Cline"
 __url__ = "https://www.freecadweb.org"
 
 
-def unit(vec):
+def unit(vec) -> np.ndarray:
     return vec / np.linalg.norm(vec)
 
 

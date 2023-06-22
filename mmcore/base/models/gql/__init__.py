@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-import sys
 import typing
 
 import strawberry
@@ -481,7 +480,6 @@ class PointsMaterial(BaseMaterial):
 
 
 
-from mmcore.geom.materials import ColorRGB
 
 
 @strawberry.type
@@ -512,26 +510,7 @@ class MeshPhongMaterial(BaseMaterial):
     uuid: typing.Optional[str] = None
 
 
-@strawberry.input
-class ColorInput:
-    r: int
-    g: int
-    b: int
 
-    @property
-    def color(self):
-        return ColorRGB(self.r, self.g, self.b)
-
-
-@strawberry.input
-class MaterialInput:
-    color: ColorInput
-    type: Materials = Materials.MeshPhongMaterial
-    name: str = "Default"
-
-    @property
-    def material(self) -> Materials:
-        return getattr(sys.modules.get("__main__"), self.type)(color=self.color, name=self.name)
 
 
 @strawberry.type

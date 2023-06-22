@@ -30,10 +30,11 @@ IndexKeyValue = namedtuple('IndexKeyValue', ["i", "k", "v"])
 
 
 class OrderedKeysDict(dict):
-
+    _keys = []
     def __init__(self, *args, **kwargs):
-        self._keys = []
+
         super().__init__(*args, **kwargs)
+        self._keys = []
 
     def __setitem__(self, key, value):
         if not (key in self._keys):

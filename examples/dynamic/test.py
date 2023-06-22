@@ -1,4 +1,3 @@
-from more_itertools import flatten
 # importlib.reload( mmcore.geom.parametric )
 # importlib.reload( mmcore.geom.transform )
 import numpy as np
@@ -12,7 +11,7 @@ from mmcore.geom.parametric import Linear
 # importlib.reload(mmcore)
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.shapes import Shape
-from mmcore.geom.transform import Transform, Plane, YZ_TO_XY
+from mmcore.geom.transform import Transform, Plane, YZ_TO_XY, WorldXY
 from mmcore.geom.vectors import unit
 
 pts = [[-241245.93137, -10699.151687, 18315.472853],
@@ -91,7 +90,18 @@ class Panel:
             l.append(Panel(boundary=bound))
         return l
 
+    def __copy__(self):
+        if not self.is_compound():
+            return Panel(boundary=self._boundaries[0], matrix=self.matrix)
+        else:
+            p = Panel(boundary=self._boundaries[0], matrix=self.matrix)
+            for bnd in self._boundaries:
+                p._boundaries.append(bnd)
+            return p
 
+    def toshape(self):
+        m = self.plane.transform_to_other(WorldXY)
+        Shape()
 grp = AGroup(name="Panels")
 
 

@@ -1,4 +1,3 @@
-from mmcore.base.components import ControlPoint, ControlPointList
 # This Api provides an extremely flexible way of updating data. You can pass any part of the parameter dictionary
 # structure, the parameters will be updated recursively and only the part of the graph affected by the change
 # will be recalculated.
@@ -7,6 +6,7 @@ from mmcore.geom.parametric import Linear
 from mmcore.geom.parametric.bezier import Bezier
 from mmcore.geom.parametric.nurbs import NurbsCurve
 from mmcore.geom.parametric.sweep import Sweep
+from mmcore.geom.point import ControlPoint, ControlPointList
 
 a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
 b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
