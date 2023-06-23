@@ -1,9 +1,10 @@
 ###
-GRAPHQL http://localhost:7711/v2/graphql
+GRAPHQL http://localhost:7711/graphql
 content-type: application/json
 
 query {
-  root
+
+
  }
 
 

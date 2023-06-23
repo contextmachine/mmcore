@@ -291,28 +291,30 @@ class PlaneLinear(ParametricObject):
     def __post_init__(self):
 
         # #print(unit(self.normal), self.xaxis, self.yaxis)
-        if self.xaxis is not None and self.yaxis is not None:
-            self.normal = np.cross(unit(np.array(self.xaxis)), unit(np.array(self.yaxis)))
-        elif self.normal is not None:
+        if (self.xaxis is  None) and (self.yaxis is None):
+            l=[[1,0,0],[0,1,0],[0,0,1]]
             self.normal = unit(self.normal)
-            if np.allclose(self.normal, np.array([0.0, 0.0, 1.0])):
 
-                if self.xaxis is not None:
-                    self.xaxis = unit(self.xaxis)
-                    self.yaxis = np.cross(self.xaxis, self.normal)
+            l.sort(key=lambda x:np.dot(self.normal,x))
+            print(l, self.normal)
+            self.yaxis=np.cross(l[0],self.normal)
+            self.xaxis = np.cross(self.yaxis, self.normal)
 
-                elif self.yaxis is not None:
-                    self.yaxis = unit(self.yaxis)
-                    self.xaxis = np.cross(self.yaxis, self.normal)
-                else:
 
-                    self.xaxis = np.array([1, 0, 0], dtype=float)
-                    self.yaxis = np.array([0, 1, 0], dtype=float)
-            else:
-                if self.xaxis is None:
-                    self.xaxis = np.cross([0, 1, 0], self.normal)
+        elif (self.xaxis is not None) and (self.yaxis is not None):
+            self.yaxis = unit(self.yaxis)
+            self.xaxis= unit(self.xaxis)
+            self.normal=            np.cross(  self.xaxis,  self.yaxis)
+
+        else:
+            if self.xaxis is not None:
+                self.normal = unit(self.normal)
+                self.xaxis = unit(self.xaxis)
                 self.yaxis = np.cross(self.xaxis, self.normal)
-
+            else:
+                self.normal = unit(self.normal)
+                self.yaxis = unit(self.yaxis)
+                self.xaxis = np.cross(self.yaxis, self.normal)
     @property
     def x_linear(self):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.xaxis)))
@@ -368,7 +370,7 @@ class PlaneLinear(ParametricObject):
 
         x = np.array(pt2) - np.array(origin)
         nrm = np.cross(x, (pt3 - np.array(origin)))
-        return PlaneLinear(normal=nrm, xaxis=x, origin=origin)
+        return PlaneLinear(origin=origin,normal=nrm, xaxis=x)
 
     def intersect(self, other):
 
@@ -391,18 +393,9 @@ class PlaneLinear(ParametricObject):
         return Transform.from_plane_to_plane(self, other)
 
     def evaluate(self, t):
+        u,v=t
+        return np.array([self.origin+self.xaxis*u,self.origin+self.yaxis*v])
 
-        if len(t) == 2:
-            u, v = t
-            uu = np.array(self.x_linear.evaluate(u) - self.origin)
-            vv = np.array(self.y_linear.evaluate(v) - self.origin)
-            return np.array(self.origin) + uu + vv
-        else:
-            u, v, w = t
-            uu = np.array(self.x_linear.evaluate(u) - self.origin)
-            vv = np.array(self.y_linear.evaluate(v) - self.origin)
-            ww = np.array(self.z_linear.evaluate(w) - self.origin)
-            return np.array(self.origin) + uu + vv + ww
 
     @property
     def projection(self):

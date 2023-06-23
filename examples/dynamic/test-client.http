@@ -1,4 +1,4 @@
-GET http://localhost:7711/fetch/test_loft_b
+GET http://localhost:7711/fetch/sw_wall
 
 ###
 GET http://localhost:7711/keys
@@ -51,8 +51,9 @@ Content-Type: application/json
 }
 
 ###
-GRAPHQL localhost:7711/v2/graphql
+GRAPHQL localhost:7711/graphql
 
-query {
-  test_loft_b
+{
+sw_wall
 }
+
