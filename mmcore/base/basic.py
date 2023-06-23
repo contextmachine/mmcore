@@ -19,7 +19,7 @@ import mmcore.base.models.gql as gql_models
 from mmcore.base.registry import adict, ageomdict, amatdict, idict
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.vectors import unit
-from mmcore.gql.client import GQLReducedQuery
+
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
@@ -403,37 +403,6 @@ def sumdicts(*dicts):
         d |= dct
     return d
 
-
-class GQLPropertyDescriptor:
-    def __init__(self, query, mutate=None, vars=None):
-        self._query = GQLReducedQuery(query)
-        self._mutate = GQLReducedQuery(mutate)
-        self._vars = vars if vars is not None else set()
-
-    def __set_name__(self, owner, name):
-        self.name = name
-        owner.properties_keys.add(name)
-
-    def __get__(self, inst, owner):
-        if inst:
-            variables = dict()
-            if len(self._vars) > 0:
-
-                for v in self._vars:
-                    variables[v] = getattr(inst, v)
-            return self._query(variables=variables)
-        else:
-            return self
-
-    def __set__(self, inst, v):
-
-        variables = dict()
-        if len(self._vars) > 0:
-
-            for k in self._vars:
-                variables[k] = getattr(inst, k)
-        variables |= v
-        self._mutate(variables=variables)
 
 
 class ChildSet(set):

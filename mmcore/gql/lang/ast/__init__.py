@@ -33,8 +33,12 @@ class AExtendedNameNode(ExtendedNameNode):
                 res()
                 print(self.value)
                 if hasattr(res, "_repr3d"):
+                    res._repr3d._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
+                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
                     return res._repr3d.root()
                 if hasattr(res, "root"):
+                    res._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
+                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
                     return res.root()
                 else:
                     return res

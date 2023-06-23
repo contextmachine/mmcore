@@ -194,9 +194,3 @@ def hyp(pts=pts, step=600):
 
         node = node.next
 
-
-hyp()
-grp.scale(0.001, 0.001, 0.001)
-grp.rotate(-np.pi / 2, (1, 0, 0))
-grp.dump('pppp.json')
-serve.start()
