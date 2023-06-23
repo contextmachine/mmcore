@@ -27,11 +27,12 @@ class Pipe:
     path: ParametricObject
     shape: ParametricObject
 
+
     def evalplane(self, t):
         #print(self,t)
-        pt = self.path.evaluate(t)
+        pt = self.path.tan(t)
 
-        return PlaneLinear(origin=pt, normal=self.path.tan(t).normal)
+        return PlaneLinear(origin=pt.point, normal=pt.normal, yaxis=[0,0,1])
 
     def evaluate(self, t):
         u, v = t
@@ -39,11 +40,20 @@ class Pipe:
         return self.shape.evaluate(v).tolist() @ self.evalplane(u).transform_from_other(WorldXY)
 
     def evaluate_profile(self, t):
+        T = self.evalplane(t).transform_from_other(WorldXY)
+
         if isinstance(self.shape,NurbsCurve):
-             return self.shape.transform(self.evalplane(t).transform_from_other(WorldXY))
+
+
+
+            return self.shape.transform(T)
         else:
             s=copy.deepcopy(self.shape)
-            s.transform(self.evalplane(t).transform_from_other(WorldXY))
+            l = []
+            for pt in s:
+                l.append(pt @ T)
+            return l
+            #s.transform(self.evalplane(t).transform_from_other(WorldXY))
         return s
 
     def normal(self, t):

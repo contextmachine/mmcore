@@ -25,7 +25,7 @@ NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
 
-
+from graphql.type import GraphQLObjectType,GraphQLArgument, GraphQLArgumentKwargs, GraphQLFieldKwargs
 class ExEncoder(json.JSONEncoder):
     def default(self, ob):
 
@@ -182,7 +182,8 @@ class RootInterface:
     def all(self) -> JSON:
         return strawberry.asdict(self)
 
-
+def gqlcb(x):
+    x.field
 class DictSchema:
     """
     >>> import strawberry >>> from dataclasses import is_dataclass, asdict >>> a=A(name="A") >>> b = AGroup(name="B")
@@ -759,7 +760,8 @@ class A:
         if key in idict[self.uuid].keys():
 
             return adict[idict[self.uuid][key]]
-
+        elif key=="value":
+            return self
 
         else:
             return object.__getattribute__(self, key)
@@ -931,6 +933,32 @@ class AGeometryDescriptor:
 
 from mmcore.geom.materials import ColorRGB
 
+class ADynamicGeometryDescriptor:
+    adict = dict()
+
+    def __init__(self, resolver):
+        self.resolver=resolver
+
+    def __set_name__(self, owner, name):
+        if not (name == "geometry"):
+            raise
+        self._name = "_" + name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+
+            return self
+        else:
+            return self.resolve(instance)
+
+    def __set__(self, instance, value):
+        self.resolver=value
+    def resolve(self,instance):
+        def wrap(*args,**kwargs):
+            res=self.resolver(instance, *args, **kwargs)
+            ageomdict[res.uuid]=res
+            return res
+        return wrap
 
 class Domain:
     def __init__(self, a, b):

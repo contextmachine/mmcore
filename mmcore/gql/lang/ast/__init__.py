@@ -8,6 +8,7 @@ def convert(self, target):
     for key, attr in zip(self.keys, op.attrgetter(*self.keys)(self)):
         setattr(node, key, attr)
     node.convert()
+
     return node
 
 
@@ -26,13 +27,15 @@ class AExtendedNameNode(ExtendedNameNode):
 
     def generic_getter(self):
         def wrap(x):
+            print(x)
             try:
-                res = x.get(self.value)()
+                res = x.get(self.value)
+                res()
+                print(self.value)
+                if hasattr(res, "_repr3d"):
+                    return res._repr3d.root()
                 if hasattr(res, "root"):
                     return res.root()
-
-                elif hasattr(res, "_repr3d"):
-                    return res._repr3d.root()
                 else:
                     return res
             except:

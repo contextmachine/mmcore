@@ -11,7 +11,7 @@ from mmcore.base.basic import *
 
 TYPE_CHECKING = False
 
-ee = ElementSequence(list(objdict.values()))
+ee = ElementSequence(list(adict.values()))
 
 T = TypeVar("T")
 
@@ -25,7 +25,7 @@ class Root(Generic[T]):
     geometries: list[typing.Union[gql_models.BufferGeometry, None]]
 
 
-class ObjectRootFix(Object3DWithChildren):
+class ObjectRootFix(A):
 
     @property
     def root(self):
@@ -34,7 +34,7 @@ class ObjectRootFix(Object3DWithChildren):
         return Root[target.bind_class]
 
 
-class GroupRootFix(Group):
+class GroupRootFix(AGroup):
 
     @property
     def root(self):
@@ -43,7 +43,7 @@ class GroupRootFix(Group):
         return Root[target.bind_class]
 
 
-class MutableObject3D(Object3D):
+class MutableObject3D(A):
     def mutate(self, **inputs):
         ...
 
@@ -73,15 +73,15 @@ def mutation(slf):
         def material_by_uuid(self, uuid: str, material: gql_models.MaterialInput) -> gql_models.Material:
             mat = material.material
             mat.uuid = uuid
-            matdict[uuid] = mat
-            return matdict[uuid]
+            amatdict[uuid] = mat
+            return amatdict[uuid]
 
         @strawberry.field
         def material(self, material: mmcore.base.models.gql.MaterialInput) -> gql_models.Material:
             mat = material.material
 
             mat.uuid = target.material.uuid
-            matdict[mat.uuid] = mat
+            amatdict[mat.uuid] = mat
 
             return target.material
 
@@ -124,7 +124,7 @@ def mutation(slf):
 
     return strawberry.type(Mutation)
 strawberry.union("WhereInput", [] )
-from mmcore.datatools.rules import Rule
+from mmcore.func.datatools.rules import Rule
 class AbstractWhere:
     @abc.abstractmethod
     def interpret(self):

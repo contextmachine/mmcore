@@ -13,7 +13,7 @@ from shapely import Polygon, MultiPolygon
 from mmcore.base import AMesh, ALine
 from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.base.models.gql import MeshPhongMaterial, LineBasicMaterial
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.transform import Transform, WorldXY
@@ -260,6 +260,7 @@ class Boundary:
     matrix: Transform = Transform()
     uuid: typing.Optional[str] = None
 
+    color=(0,0,0)
     def __post_init__(self, bnds, hls=None):
         self._plane = PlaneLinear(origin=np.array(WorldXY.origin), xaxis=np.array(WorldXY.xaxis),
                                   yaxis=np.array(WorldXY.yaxis))
@@ -292,7 +293,7 @@ class Boundary:
 
         msh = self.to_shape().mesh_data.to_mesh(uuid=self.uuid, *args, **kwargs)
         msh @ self.plane.transform_from_other(WorldXY)
-        msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary)
+        msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
         return msh
 
     def transform_as_new(self, t):

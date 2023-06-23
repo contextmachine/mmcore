@@ -3,6 +3,8 @@ import typing
 import uuid as _uuid
 
 import dill
+import ujson
+from graphql import GraphQLScalarType, GraphQLObjectType, GraphQLSchema
 
 from mmcore.base.registry import AGraph
 
@@ -11,7 +13,33 @@ relaytable = dict()
 DEBUG_GRAPH = False
 
 import string
+from graphql.type import GraphQLObjectType,\
+    GraphQLArgument, \
+    GraphQLField, \
+GraphQLString,\
+    GraphQLArgumentKwargs, \
+    GraphQLFieldKwargs, \
+    GraphQLArgumentMap, \
+    GraphQLInputType,\
+    ThunkMapping,\
+    GraphQLUnionType,\
+    GraphQLList,GraphQLString,GraphQLInt,GraphQLNullableType,GraphQLFloat,GraphQLBoolean,GraphQLInputObjectType,GraphQLFieldMap
+from graphql.execution import execute_sync, map_async_iterator
 
+Schema=GraphQLSchema()
+
+
+def query_resolver(uid):
+    return pgraph.item_table[uid].togql()
+
+class ParamGraphNodeInput(GraphQLInputObjectType):
+    name = 'ParamGraphNodeInput'
+    fields = lambda :{
+        'name': GraphQLField(GraphQLString()),
+        'uuid':GraphQLField(GraphQLString()),
+        'params': GraphQLFieldMap(dict[str, GraphQLField(GraphQLUnionType( "ParamUnion",[ParamGraphNodeInput(), GraphQLScalarType(), JSONParamMap])
+        )])
+    }
 
 class ParamGraph(AGraph):
     _scenegraph = None
@@ -61,7 +89,7 @@ class ParamGraph(AGraph):
 
 
 pgraph = ParamGraph()
-
+JSONParamMap=GraphQLScalarType(name="JSONParamMap", serialize=lambda value:ujson.dumps(value), parse_value=lambda value: ujson.loads(value))
 
 @dataclasses.dataclass(unsafe_hash=True)
 class TermParamGraphNode:
@@ -108,14 +136,47 @@ class TermParamGraphNode:
     def index(self):
         return self.graph.item_table.index_from_key(self.uuid)
 
+    def togql(self):
+        return GraphQLObjectType('ParamGraphTerm',{
+            "name":GraphQLField(GraphQLString, resolve=lambda: self.name),
+            "uuid":GraphQLField(GraphQLString, resolve=lambda: self.uuid),
+            "data": GraphQLField(GraphQLNullableType, resolve=lambda: self.solve()),
 
+        } )
 @dataclasses.dataclass(unsafe_hash=True)
 class ParamGraphNode:
     _params: dataclasses.InitVar['dict[str, typing.Union[ ParamGraphNode, typing.Any]]']
     name: typing.Optional[str] = None
     uuid: typing.Optional[str] = None
     resolver: typing.Optional[typing.Callable] = None
+    def togql(self):
+        def chr(**kwargs):
+            if len(kwargs)>0:
+                self(**kwargs)
+            return self.todict()
 
+        def children():
+            dct2 = dict()
+            for k in self.keys():
+                tp = self.graph.get_relay(self, k)
+
+                dct2[k] = GraphQLField(ParamGraphNodeType,resolve=tp.togql())
+            return dct2
+
+        ParamGraphNodeType= GraphQLObjectType('GqlParamGraphNode', lambda :dict(
+            name = GraphQLField(GraphQLString, resolve=lambda : self.name),
+            uuid = GraphQLField(GraphQLString, resolve=lambda: self.uuid),
+            params = GraphQLField(
+                GraphQLObjectType(f"{self.name.capitalize()}NodeParams",children),
+                resolve=lambda **kwargs: chr( **kwargs)
+            )))
+
+
+
+
+
+
+        return ParamGraphNodeType
     @property
     def index(self):
         return self.graph.item_table.index_from_key(self.uuid)

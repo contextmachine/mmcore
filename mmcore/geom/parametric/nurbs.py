@@ -110,7 +110,12 @@ class NurbsCurve(ProxyParametricObject):
             ll.append(cp @ m)
         # r=self.control_points @ m
         # print(r,ll)
-        return NurbsCurve(np.array(ll, dtype=float).tolist())
+        return NurbsCurve(np.array(ll, dtype=float).tolist(), delta =self.delta,
+    degree=self.degree,
+    dimension =self.dimension,
+                          domain=self.domain
+
+    )
 
 @dataclasses.dataclass
 class NurbsSurface(ProxyParametricObject):
