@@ -1,4 +1,5 @@
 import numpy as np
+from mmcore.base import ALine
 from more_itertools import flatten
 
 from mmcore.geom.parametric import Linear
@@ -375,6 +376,7 @@ pw = PolyLineWall(v)
 b = Position(pw)
 b()
 
-a = [[i.shape.boundaries for i in b.geoms[0]], [i.shape.boundaries for i in b.geoms[1]],
-     [i.shape.boundaries for i in b.geoms[2]],
-     [[i.shape.boundaries for i in b.geoms[3]]]]
+a = [[ALine(geometry=i.shape.boundaries[0]) for i in b.geoms[0]],
+    [ALine(geometry=i.shape.boundaries[0]) for i in b.geoms[1]],
+     [ALine(geometry=i.shape.boundaries[0]) for i in b.geoms[2]],
+     [ALine(geometry=i.shape.boundaries[0]) for i in b.geoms[3]]]

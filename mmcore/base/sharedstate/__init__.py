@@ -2,6 +2,7 @@ import functools
 
 from starlette.responses import HTMLResponse
 
+
 from mmcore.base.params import pgraph
 from mmcore.gql.lang.parse import parse_simple_query
 
@@ -50,7 +51,12 @@ from fastapi import WebSocket
 import mmcore.base.models.gql as gql_models
 from graphql.language import parse
 import graphql
+import graphene
+from graphene import  utils, pyutils, types
+from graphene import ObjectType, String, Schema
 
+
+types.dynamic.MountedType
 rpyc_input = dict()
 
 rpyc_namespace = dict(post=lambda k, v: rpyc_input.__setitem__(json.dumps(k), json.loads(v)))
@@ -116,9 +122,9 @@ from starlette.exceptions import HTTPException
 
 from mmcore.gql.server.fastapi import MmGraphQlAPI
 
-
+debug_properties={}
 class IDict(dict):
-    def __init__(self, dct, table):
+    def __init__(self, dct=idict, table=adict):
         super().__init__(dct)
         self.table = table
         self.dct = dct
@@ -128,28 +134,44 @@ class IDict(dict):
         return self.trav(k)
 
     def trav(self, i):
-        obj = {'kind': "Object", "name": i, "value": self.table[i]}
-        if self.dct[i] == {}:
-            obj |= {"isleaf": True}
-            return obj
+        print(self.table[i])
+        if 'AGroup' == self.table[i].__class__.__name__:
 
-        elif isinstance(self.dct[i], (list, tuple)):
-            if len(self.dct[i]) == 0:
-                obj |= {'kind': "Group", "isleaf": True}
-                return obj
-            else:
-                obj |= {'kind': "Group", "items": [self.trav(j) for j in self.dct[i]], "isleaf": False}
-                return obj
 
+            return {'kind': "Group", "items":[self.trav(j) for j in  list(self.dct[i]["__children__"])]}
         else:
+            obj = {'kind': "Object", "name": i, "value": self.table[i]}
+            if self.dct[i] == {}:
+                obj |= {"isleaf": True}
+                return obj
 
-            _dct = {}
-            for k, v in self.dct[i].items():
-                _dct[k] = self.trav(v)
-            obj |= _dct
-            obj |= {"isleaf": False}
-            return VDict(obj)
+            elif isinstance(self.dct[i], (list, tuple, set)):
+                if isinstance(self.dct[i], set):
+                    dct=list(self.dct[i])
+                else:
+                    dct=self.dct[i]
+                if len(dct) == 0:
+                    obj |= {'kind': "Group", "isleaf": True}
+                    return obj
+                else:
+                    obj |= {'kind': "Group", "items": [self.trav(j) for j in dct], "isleaf": False}
+                    return obj
 
+            else:
+
+                _dct = {}
+                for k, v in self.dct[i].items():
+                    _dct[k] = self.trav(v)
+                obj |= _dct
+                obj |= {"isleaf": False}
+                return VDict(obj)
+
+class Query(ObjectType):
+    name = String()
+
+
+
+schema = Schema(Query)
 
 class VDict(dict):
     def __init__(self, *args, relay=idict, table=adict, **kwargs):
@@ -189,9 +211,6 @@ class SharedStateServer():
 
             return qt2.resolve(pgraph)
 
-
-
-
         _server_binds.append(inst)
         serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
         inst.app = serve_app
@@ -219,6 +238,7 @@ class SharedStateServer():
                 if not o.name == "base_root":
                     br.add(o)
             return br
+
 
         @inst.app.get("/test/app/{uid}")
         def appp(uid: str):
@@ -253,7 +273,8 @@ class SharedStateServer():
         async def get_item(uid: str):
 
             try:
-
+                adict[uid]._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, -0.001, 0, 0, 0.001,
+                                      2.220446049250313e-19, 0, 0, 0, 0, 1]
                 return adict[uid].root()
             except KeyError as errr:
                 return HTTPException(401, detail=f"KeyError. Trace: {errr}")
@@ -292,10 +313,10 @@ class SharedStateServer():
 
                 if not (i.uuid == "__") and not (i.uuid == "_"):
                     aa.add(i)
+            qq=parse_simple_query(data["query"])
 
-            return execute(sch3, parse(data["query"]),
-                           root_value={"root": aa.root()},
-                           variable_values=data.get("variables")).data
+
+            return qq.resolve(adict)
 
         @inst.app.options("/graphql")
         async def gql(data: dict):
@@ -405,6 +426,12 @@ class SharedStateServer():
         def resolvers():
             return list(inst.resolvers.keys())
 
+        @inst.app.get("/debug/props")
+        async def debug_props():
+            return debug_properties
+
+
+
         if STARTUP:
             try:
 
@@ -423,6 +450,7 @@ class SharedStateServer():
         self.thread.join(6)
 
     def start(self):
+
         self.thread.start()
 
     def stop_rpyc(self):
