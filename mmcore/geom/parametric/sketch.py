@@ -296,7 +296,7 @@ class PlaneLinear(ParametricObject):
             self.normal = unit(self.normal)
 
             l.sort(key=lambda x:np.dot(self.normal,x))
-            print(l, self.normal)
+            #print(l, self.normal)
             self.yaxis=np.cross(l[0],self.normal)
             self.xaxis = np.cross(self.yaxis, self.normal)
 
