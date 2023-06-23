@@ -12,8 +12,12 @@ import requests
 from jinja2.nativetypes import NativeEnvironment
 
 from mmcore.collections.multi_description import ElementSequence
+from mmcore.geom.point import ControlPointList, ControlPoint
 from mmcore.gql.templates import _query_temp, _mutation_insert_one
 
+from mmcore import load_dotenv_from_path
+
+load_dotenv_from_path("~PycharmProjects/mmcore/.env")
 
 
 class GQLException(BaseException):
@@ -23,7 +27,6 @@ class GQLException(BaseException):
         # self.message = error_dict["message"]
         # self.extensions = error_dict["extensions"]
         print(self.error_dict)
-
 
 
 __all__ = [
@@ -37,35 +40,30 @@ if os.getenv("APP_ENV") == "prod":
 
 else:
     GQL_PLATFORM_URL = os.getenv("GQL_PLATFORM_URL")
+
+
 class HeadersDescriptor:
 
-        def __init__(self, default=None):
-            if default is None:
-                default={}
-            self._default=default
+    def __init__(self, default=None):
+        if default is None:
+            default = {}
+        self._default = default
 
-        def __get__(self, instance, other):
-            if instance is not None:
-                if self._default is  not None:
-                    dct=self._default
+    def __get__(self, instance, other):
+        if instance is not None:
+            if self._default is not None:
+                dct = self._default
 
-                else:
-                    dct={}
+            else:
+                dct = {}
 
-
-
-
-            dct |= json.loads(os.getenv("GQL_PLATFORM_HEADERS"))
-
-            return dct
+        return dct
 
 
 class URLDescriptor:
 
-
     def __init__(self, default=None):
-        self._default=default
-
+        self._default = default
 
     def __get__(self, instance, other):
         if os.getenv("APP_ENV") == "prod":
@@ -74,14 +72,12 @@ class URLDescriptor:
             return os.getenv("GQL_PLATFORM_URL")
         else:
             return self._default
+
+
 @dataclass
 class GQLClient:
-    url = URLDescriptor(default="http://localhost:7711/graphql")
-    headers=HeadersDescriptor(default={"content-type": "application/json", "user-agent": "mmcore.gql"})
-
-
-
-
+    url = "http://51.250.47.166:8080/v1/graphql"
+    headers = {"x-hasura-admin-secret":"mysecretkey","content-type": "application/json", "user-agent": "mmcore.gql"}
 
 
 class GqlString(str):
@@ -142,7 +138,7 @@ class query:
         else:
             return self.template.render(root=self.parent, attrs=self.fields)
 
-    client=GQLClient()
+    client = GQLClient()
 
     def __call__(self, fields=None, variables=None, full_root=True, return_json=True):
         if fields is None:
@@ -181,7 +177,7 @@ class query:
             else:
                 return request
         else:
-            #print("bad response")
+            # print("bad response")
             return request
 
 
@@ -253,7 +249,7 @@ class AbsGQLTemplate:
         if variables is None:
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
-        #print(inst, variables, mtt)
+        # print(inst, variables, mtt)
         # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
@@ -341,7 +337,7 @@ class GQLQuery(AbsGQLTemplate):
         try:
             return super().post_processing(request)["data"][self.root]
         except KeyError as err:
-            #print(request.request.body.decode())
+            # print(request.request.body.decode())
             raise GQLError(f'\n{super().post_processing(request)}')
 
 
@@ -357,7 +353,7 @@ class GQl(UserDict):
         if variables is None:
             variables = {}
         mtt = self.do(inst, variables=variables, **kwargs)
-        #print(inst, variables, mtt)
+        # print(inst, variables, mtt)
         # #print(self._body(inst, own))
         request = requests.post(self.client.url,
                                 headers=self.client.headers,
@@ -403,7 +399,7 @@ class GQLMutation(AbsGQLTemplate):
         try:
             return super().post_processing(request)["data"][self.root]
         except KeyError as err:
-            #print(request.request.body.decode())
+            # print(request.request.body.decode())
             raise GQLError(f'\n{super().post_processing(request)}')
         # return request.json()
 
@@ -523,7 +519,7 @@ class GQLSimpleQuery:
                 try:
                     data = request.json()
                     if "errors" in data.keys():
-                        #print(data)
+                        # print(data)
                         raise GQLException("GraphQl response error", error_dict=data)
                     elif "data" in data.keys():
                         if not full_root:
@@ -539,7 +535,7 @@ class GQLSimpleQuery:
             else:
                 return request
         else:
-            #print("bad response")
+            # print("bad response")
             return request
 
 
@@ -585,11 +581,10 @@ class query2(GQLSimpleQuery):
 
     @property
     def body(self):
-        return"""{{self.root}}
+        return """{{self.root}}
         {
             {{self.receive}}
         }"""
-
 
     @property
     def receive(self):

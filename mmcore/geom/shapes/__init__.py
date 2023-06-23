@@ -293,7 +293,7 @@ class Boundary:
 
         msh = self.to_shape().mesh_data.to_mesh(uuid=self.uuid, *args, **kwargs)
         msh @ self.plane.transform_from_other(WorldXY)
-        msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
+        #msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
         return msh
 
     def transform_as_new(self, t):
