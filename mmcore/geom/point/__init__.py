@@ -2,6 +2,7 @@ import string
 import typing
 
 import numpy as np
+
 from mmcore.base import Delegate, APoints, AGroup
 from mmcore.base.components import Component
 from mmcore.base.models.gql import PointsMaterial
@@ -254,6 +255,3 @@ def update_array_children(self, graph: ParamGraph = pgraph):
                 graph.item_table[k](x=self._ref[int(i), 0], y=self._ref[int(i), 1], z=self._ref[int(i), 2])
 
 
-from OCC.Extend import ShapeFactory
-
-ShapeFactory.make_face()
