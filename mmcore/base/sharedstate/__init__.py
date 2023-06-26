@@ -1,10 +1,8 @@
 import functools
 
-from starlette.responses import HTMLResponse
-
-
 from mmcore.base.params import pgraph
 from mmcore.gql.lang.parse import parse_simple_query
+from starlette.responses import HTMLResponse
 
 TYPE_CHECKING = False
 import ujson as json
@@ -51,8 +49,7 @@ from fastapi import WebSocket
 import mmcore.base.models.gql as gql_models
 from graphql.language import parse
 import graphql
-import graphene
-from graphene import  utils, pyutils, types
+from graphene import types
 from graphene import ObjectType, String, Schema
 
 
@@ -430,7 +427,9 @@ class SharedStateServer():
         async def debug_props():
             return debug_properties
 
-
+        @inst.app.get("/flow")
+        async def get_flow():
+            return pgraph.toflow()
 
         if STARTUP:
             try:
