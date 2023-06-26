@@ -4,8 +4,7 @@ import uuid as _uuid
 
 import dill
 import ujson
-from graphql import GraphQLScalarType, GraphQLObjectType, GraphQLSchema
-
+from graphql import GraphQLScalarType, GraphQLSchema
 from mmcore.base.registry import AGraph
 
 paramtable = dict()
@@ -13,21 +12,23 @@ relaytable = dict()
 DEBUG_GRAPH = False
 
 import string
-from graphql.type import GraphQLObjectType,\
-    GraphQLArgument, \
+from graphql.type import GraphQLObjectType, \
     GraphQLField, \
-GraphQLString,\
-    GraphQLArgumentKwargs, \
-    GraphQLFieldKwargs, \
-    GraphQLArgumentMap, \
-    GraphQLInputType,\
-    ThunkMapping,\
-    GraphQLUnionType,\
-    GraphQLList,GraphQLString,GraphQLInt,GraphQLNullableType,GraphQLFloat,GraphQLBoolean,GraphQLInputObjectType,GraphQLFieldMap
-from graphql.execution import execute_sync, map_async_iterator
+    GraphQLUnionType, \
+    GraphQLString, GraphQLNullableType, GraphQLInputObjectType,GraphQLFieldMap
 
 Schema=GraphQLSchema()
+@dataclasses.dataclass
+class FlowEdge:
+    id: str
+    source: str
+    target: str
+    type: str = 'smoothstep'
 
+    animated: bool = True
+
+    def todict(self):
+        return dataclasses.asdict(self)
 
 def query_resolver(uid):
     return pgraph.item_table[uid].togql()
@@ -47,6 +48,9 @@ class ParamGraph(AGraph):
     def __init__(self):
         super().__init__()
         self.scene_relay_table = dict()
+
+    def keys(self):
+        return self.item_table.keys()
 
     @property
     def scenegraph(self):
@@ -86,7 +90,20 @@ class ParamGraph(AGraph):
             else:
                 self.relay_table[node.uuid][name] = TermParamGraphNode(v, name=f'{node.name}:{name}').uuid
 
-
+    def toflow(self):
+        nodes = []
+        edges = []
+        i = -1
+        for k, v in self.relay_table.items():
+            i += 1
+            nodes.append(self.item_table[k].toflow(i, i))
+            if isinstance(v, dict):
+                for kk, vv in v.items():
+                    print(vv, kk, k)
+                    edges.append(FlowEdge(id=f'e{k}-{kk}', source=k, target=vv).todict())
+                else:
+                    pass
+        return {"nodes": nodes, "edges": edges}
 
 pgraph = ParamGraph()
 JSONParamMap=GraphQLScalarType(name="JSONParamMap", serialize=lambda value:ujson.dumps(value), parse_value=lambda value: ujson.loads(value))
@@ -137,18 +154,29 @@ class TermParamGraphNode:
         return self.graph.item_table.index_from_key(self.uuid)
 
     def togql(self):
-        return GraphQLObjectType('ParamGraphTerm',{
-            "name":GraphQLField(GraphQLString, resolve=lambda: self.name),
-            "uuid":GraphQLField(GraphQLString, resolve=lambda: self.uuid),
+        return GraphQLObjectType('ParamGraphTerm', {
+            "name": GraphQLField(GraphQLString, resolve=lambda: self.name),
+            "uuid": GraphQLField(GraphQLString, resolve=lambda: self.uuid),
             "data": GraphQLField(GraphQLNullableType, resolve=lambda: self.solve()),
 
-        } )
+        })
+
+    def toflow(self, x=0, y=0):
+        return {
+            "id": self.uuid,
+            "data": {"label": f'Node {self.uuid}'},
+            "position": {"x": x, "y": y}
+        }
+
+
 @dataclasses.dataclass(unsafe_hash=True)
 class ParamGraphNode:
     _params: dataclasses.InitVar['dict[str, typing.Union[ ParamGraphNode, typing.Any]]']
     name: typing.Optional[str] = None
     uuid: typing.Optional[str] = None
     resolver: typing.Optional[typing.Callable] = None
+    graph: ParamGraph = pgraph
+
     def togql(self):
         def chr(**kwargs):
             if len(kwargs)>0:
@@ -182,7 +210,7 @@ class ParamGraphNode:
         return self.graph.item_table.index_from_key(self.uuid)
 
     def __post_init__(self, _params):
-        self.graph = pgraph
+
         if self.uuid is None:
             self.uuid = _uuid.uuid4().hex
         if self.name is None:
@@ -356,6 +384,13 @@ class ParamGraphNode:
 
         othergraph.relay_table.pop(self.uuid)
         othergraph.item_table.pop(self.uuid)
+
+    def toflow(self, x=0, y=0):
+        return {
+            "id": self.uuid,
+            "data": {"label": f'Node {self.uuid}'},
+            "position": {"x": x, "y": y}
+        }
 
 
 def param_graph_node(params: dict):
