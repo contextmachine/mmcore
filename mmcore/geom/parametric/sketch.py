@@ -10,6 +10,9 @@ from itertools import starmap
 
 import dill
 import numpy as np
+from scipy.optimize import minimize
+from scipy.spatial.distance import euclidean
+
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
@@ -18,8 +21,6 @@ from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import remove_crd, Transform, WorldXY
 from mmcore.geom.vectors import unit
-from scipy.optimize import minimize
-from scipy.spatial.distance import euclidean
 
 
 def add_crd(pt, value):
@@ -304,7 +305,8 @@ class PlaneLinear(ParametricObject):
         elif (self.xaxis is not None) and (self.yaxis is not None):
             self.yaxis = unit(self.yaxis)
             self.xaxis = unit(self.xaxis)
-            self.normal = np.cross(self.yaxis, self.normal)
+            print(self.yaxis, self.normal)
+            self.normal = np.cross(self.xaxis, self.yaxis)
 
         else:
             if self.xaxis is not None:
