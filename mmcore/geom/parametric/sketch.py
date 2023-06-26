@@ -295,22 +295,22 @@ class PlaneLinear(ParametricObject):
             l=[[1,0,0],[0,1,0],[0,0,1]]
             self.normal = unit(self.normal)
 
-            l.sort(key=lambda x:np.dot(self.normal,x))
+            l.sort(key=lambda x: np.dot(self.normal, x))
             #print(l, self.normal)
-            self.yaxis=np.cross(l[0],self.normal)
+            self.yaxis = np.cross(self.normal, l[0])
             self.xaxis = np.cross(self.yaxis, self.normal)
 
 
         elif (self.xaxis is not None) and (self.yaxis is not None):
             self.yaxis = unit(self.yaxis)
-            self.xaxis= unit(self.xaxis)
-            self.normal=            np.cross(  self.xaxis,  self.yaxis)
+            self.xaxis = unit(self.xaxis)
+            self.normal = np.cross(self.yaxis, self.normal)
 
         else:
             if self.xaxis is not None:
                 self.normal = unit(self.normal)
                 self.xaxis = unit(self.xaxis)
-                self.yaxis = np.cross(self.xaxis, self.normal)
+                self.yaxis = np.cross(self.normal, self.xaxis)
             else:
                 self.normal = unit(self.normal)
                 self.yaxis = unit(self.yaxis)
@@ -428,6 +428,13 @@ class PlaneLinear(ParametricObject):
     def side(self, point):
         w = np.array(point) - np.array(self.origin)
         return np.dot(w, self.normal) >= 0.0
+
+    def closest_point(self, point):
+        return project_point_onto_plane(np.array(point), plane_point=np.array(self.origin),
+                                        plane_normal=np.array(self.normal))
+
+
+from mmcore.geom.parametric.algorithms import project_point_onto_plane
 
 
 @dataclasses.dataclass(unsafe_hash=True)

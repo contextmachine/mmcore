@@ -1,15 +1,22 @@
-import uuid as _uuid
+from abc import abstractmethod
 
-from mmcore.base.params import ParamGraphNode
+from mmcore.base import APoint, AGeom
+from mmcore.base.params import ParamGraphNode, pgraph
 
 
 class Component:
-    __exclude__ = ()
-    def __new__(cls, *args, name=None, uuid=None, **params):
+    name: str = None
+    uuid: str = None
+    __exclude__ = ["name", "uuid"]
+
+    def __new__(cls, *args, name=None, uuid=None, graph=pgraph, **params):
         self = super().__new__(cls)
 
         if uuid is None:
-            self.uuid = _uuid.uuid4().hex
+            _name = randomname.get_name(sep="_")
+            uuid = _name
+            if self.name is None:
+                name = _name
         self.uuid = uuid
         self.name = name
 
@@ -17,16 +24,17 @@ class Component:
         params |= dct
 
         print(params)
-
+        self.param_keys = []
         for k, v in params.items():
             if v is not None:
                 setattr(self, k, v)
+                self.param_keys.append(k)
         prms = dict()
         for k in params.keys():
             if not k.startswith("_") and (k not in self.__exclude__):
                 prms[k] = params[k]
 
-        node = ParamGraphNode(prms, uuid=uuid, name=self.name, resolver=self)
+        node = ParamGraphNode(prms, uuid=uuid, name=name, resolver=self, graph=pgraph)
         self.param_node = node
         node.solve()
 
@@ -36,11 +44,49 @@ class Component:
         for k, p in params.items():
             if p is not None:
                 setattr(self, k, p)
+
         return self
 
-    @property
     def endpoint(self):
         return f"params/node/{self.param_node.uuid}"
+
+    def __hash__(self):
+        return self.param_node.__hash__()
+
+
+class ComponentProxy(Component):
+
+    def __class_getitem__(cls, item):
+        comp, item = item
+
+        def call(slf, **kws):
+            cls.__call__(slf, **kws)
+            dct = {}
+            for k in item.__annotations__:
+                if kws.get(k) is None:
+                    dct[k] = slf.__getattribute__(k)
+                else:
+                    dct[k] = kws[k]
+            slf.proxy = item(**kws)
+
+            return comp.__call__(slf, **kws)
+
+        def __getattr__(slf, k):
+            if k == "proxy":
+                return cls.__getattribute__(slf, "proxy")
+            elif hasattr(slf.proxy, k):
+                return getattr(slf.proxy, k)
+            else:
+                return cls.__getattribute__(slf, k)
+
+        anno = dict(cls.__annotations__)
+        anno |= item.__annotations__
+        return type(f'{cls.__name__}[{item.__name__}]', (comp,), {
+            "__qualname__": f'{cls.__name__}[{item.__name__}]',
+            "__getattr__": __getattr__,
+            "__call__": call,
+            "__annotations__": anno
+        })
 
 
 a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
@@ -60,4 +106,27 @@ from mmcore.geom.materials import ColorRGB
 
 col = ColorRGB(70, 70, 70).decimal
 col2 = ColorRGB(157, 75, 75).decimal
+import randomname
 
+
+class GeometryComponent(Component):
+    color = (100, 100, 100)
+    _repr3d = APoint(0, 0, 0)
+
+    @abstractmethod
+    def solve(self) -> AGeom:
+        ...
+
+    def __repr3d__(self) -> AGeom:
+        self._repr3d = self.solve()
+        self._repr3d._endpoint = f"params/node/{self.param_node.uuid}"
+        self._repr3d.controls = self.param_node.todict()
+        return self._repr3d
+
+    def root(self):
+        return self._repr3d.root()
+
+    def __call__(self, **kwargs):
+        super().__call__(**kwargs)
+        self.__repr3d__()
+        return self

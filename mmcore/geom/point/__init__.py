@@ -6,10 +6,7 @@ from mmcore.base import Delegate, APoints, AGroup
 from mmcore.base.components import Component
 from mmcore.base.models.gql import PointsMaterial
 from mmcore.base.params import ParamGraph, pgraph
-from mmcore.collections import DCLL
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import PlaneLinear, Linear
-from mmcore.geom.parametric import ray_triangle_intersection, line_plane_intersection
 
 
 class PointProtocol(typing.Protocol):
@@ -257,70 +254,6 @@ def update_array_children(self, graph: ParamGraph = pgraph):
                 graph.item_table[k](x=self._ref[int(i), 0], y=self._ref[int(i), 1], z=self._ref[int(i), 2])
 
 
-class Triangle:
-    def __init__(self, pta, ptb, ptc):
-        self.points = DCLL.from_list([pta, ptb, ptc])
-        self.plane = PlaneLinear.from_tree_pt(pta, ptb, ptc)
+from OCC.Extend import ShapeFactory
 
-    def ray_intersection(self, ray):
-        return ray_triangle_intersection(ray[0], ray[1], self.points)
-
-    def plane_intersection(self, plane):
-        sideA, sideB = self.divide_vertices_from_plane(plane)
-        if (sideB == []) or (sideA == []):
-            yield None
-
-        else:
-            for a in sideA:
-                for b in sideB:
-                    yield line_plane_intersection(plane,
-                                                  Linear.from_two_points(self.points[a], self.points[b])).tolist()
-
-    def plane_split(self, plane):
-        sideA, sideB = self.divide_vertices_from_plane(plane)
-        if (sideB == []) or (sideA == []):
-            return [self.points[i] for i in sideA], [self.points[i] for i in sideB]
-
-        else:
-            if len(sideA) == 2:
-                A0 = self.points[sideA[0]]
-                A1 = self.points[sideA[1]]
-                B0 = self.points[sideB[0]]
-                AB1, AB2 = line_plane_intersection(plane,
-                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
-                    plane, Linear.from_two_points(A1, B0)).tolist()
-                return [A0, A1, AB2, AB1], [B0, AB1, AB2]
-            else:
-                A0 = self.points[sideA[0]]
-                B0 = self.points[sideB[0]]
-                B1 = self.points[sideB[1]]
-                BA1, BA2 = line_plane_intersection(plane,
-                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
-                    plane, Linear.from_two_points(A0, B1)).tolist()
-
-                return [A0, BA1, BA2], [B0, B1, BA2, BA1],
-
-    def plane_cut(self, plane):
-        sideA, sideB = self.plane_split(plane)
-        return sideA
-
-    def divide_vertices_from_plane(self, plane):
-        node = self.points.head
-        la = []
-        lb = []
-        for i in range(3):
-            if plane.side(node.data):
-                la.append(i)
-            else:
-                lb.append(i)
-            node = node.next
-        return la, lb
-
-    @property
-    def lines(self):
-        node = self.points.head
-        lns = []
-        for i in range(3):
-            lns.append(Linear.from_two_points(node.data, node.next.data))
-            node = node.next
-        return lns
+ShapeFactory.make_face()
