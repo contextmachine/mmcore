@@ -4,6 +4,7 @@ import typing
 import earcut
 import numpy as np
 from earcut import earcut
+
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
@@ -21,7 +22,7 @@ try:
         BRepBuilderAPI_MakeFace,
         BRepBuilderAPI_GTransform,
     )
-    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Common
     from OCC.Core.gp import (
         gp_Pnt2d,
         gp_Circ2d,
@@ -329,6 +330,7 @@ class Triangle:
             self._occ_wire = mkw
             node = self.points.head
             for pt in range(len(self.points)):
+                print(node.data, node.next.data)
                 mkw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*node.data), gp_Pnt(*node.next.data)).Edge())
                 node = node.next
 
@@ -340,7 +342,7 @@ class Triangle:
 
     def make_occ_shape(self):
         if HAS_OCC:
-            self._occ_shape = OccShape(BRepBuilderAPI_MakeFace(self.make_occ_wire()).Shape())
+            self._occ_shape = OccShape(BRepBuilderAPI_MakeFace(self.make_occ_face()).Shape())
             return self._occ_shape
 
     def __repr3d__(self):
@@ -369,6 +371,11 @@ class Triangle:
 
         return OccShape(
             BRepAlgoAPI_Cut(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
+
+    def intersection(self, cutter):
+
+        return OccShape(
+            BRepAlgoAPI_Common(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
 
 
 class Quad(Triangle):
