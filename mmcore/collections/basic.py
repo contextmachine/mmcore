@@ -1,6 +1,6 @@
 import collections.abc
 import dataclasses
-from collections import namedtuple, deque
+from collections import deque, namedtuple
 
 __all__ = ["ElementSequence", "ParamContainer", "DoublyLinkedList", "DCLL", "FuncMultiDesc", "CircularLinkedList",
            "CallbackList", "LinkedList", "ParamAccessible", "OrderedSet", "UnlimitedAscii", "ListNode", "CallsHistory",
@@ -298,7 +298,7 @@ class Param:
         if self.type is None:
             self.type = typing.Any
 
-    def to_dict(self):
+    def todict(self):
         return self.to_namedtuple()._asdict()
 
     def to_namedtuple(self):

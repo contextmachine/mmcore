@@ -1,23 +1,28 @@
+import typing
+
 import numpy as np
 from more_itertools import flatten
 
-
+from mmcore.base import AMesh
 from mmcore.base.components import Component
+from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
+from mmcore.geom.csg import CSG
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import NurbsCurve
+from mmcore.geom.parametric import NurbsCurve, ParametricObject
 from mmcore.geom.parametric.pipe import Pipe
-
 from mmcore.geom.vectors import unit
 
 
 class Sweep(Component):
     __exclude__ = ["cpts"]
     profiles: list
-    path: NurbsCurve
+    path: typing.Union[NurbsCurve, ParametricObject]
     color: tuple = (200, 10, 10)
     opacity: float = 0.8
     density: int = 100
+    include_path: bool = False
+    compute_bsp: bool = False
 
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)
@@ -43,25 +48,27 @@ class Sweep(Component):
                 d, e, f = [nodeV2.next.data, nodeV.next.data, nodeV2.data]
                 from mmcore.geom.csg import BspPolygon, BspVertex
                 indices.extend([lcpts.index(i) for i in [a, b, c, d, e, f]])
-                polys.append(BspPolygon([BspVertex(pos=a), BspVertex(pos=b), BspVertex(pos=c)]))
-                polys.append(BspPolygon([BspVertex(pos=d), BspVertex(pos=e), BspVertex(pos=f)]))
+                if self.compute_bsp:
+                    polys.append(BspPolygon([BspVertex(pos=a), BspVertex(pos=b), BspVertex(pos=c)]))
+                    polys.append(BspPolygon([BspVertex(pos=d), BspVertex(pos=e), BspVertex(pos=f)]))
                 nodeV = nodeV.next
                 nodeV2 = nodeV2.next
 
             node = node.next
-
-        self._mesh_data = MeshData(vertices=lcpts, indices=np.array(indices).reshape((len(indices) // 3, 3)),
-                                   normals=normals)
-        self._csg = CSG.fromPolygons(polys)
+        if self.compute_bsp:
+            self._csg = CSG.fromPolygons(polys)
+        return MeshData(vertices=lcpts, indices=np.array(indices).reshape((len(indices) // 3, 3)),
+                        normals=normals).to_buffer()
 
     @property
     def length(self):
+
         return self.path.length
 
     def solve(self):
         # xxx = path(points=self.path.points)
-        pp = Pipe(self.path, NurbsCurve(self.profiles[0]),degree=1)
-        pp2 = Pipe(self.path, NurbsCurve(self.profiles[1]),degree=1)
+        pp = Pipe(self.path, NurbsCurve(self.profiles[0], degree=1))
+        pp2 = Pipe(self.path, NurbsCurve(self.profiles[1], degree=1))
 
         self.cpts = DCLL()
 
@@ -79,23 +86,28 @@ class Sweep(Component):
 
     def __call__(self, **kwargs):
         super().__call__(**kwargs)
-
         self.solve()
-        self.tessellate()
         self.__repr3d__()
-        self._repr3d = self._mesh_data.to_mesh(_endpoint=f"params/node/{self.param_node.uuid}",
-                                               controls=self.param_node.todict(),
-                                               uuid=self.uuid,
-                                               color=ColorRGB(*self.color).decimal,
-                                               opacity=self.opacity,
-                                               name=self.name,
-                                               properties={
-                                                   "name": self.name,
-                                                   "length": self.path.length
-                                               })
-        self._repr3d.path = self.path
         return self
 
-    def __repr3d__(self):
+    def __repr3d__(self, **kwargs):
+        self._repr3d = AMesh(_endpoint=f"params/node/{self.param_node.uuid}",
+                             controls=self.param_node.todict(),
+                             uuid=self.uuid,
+                             name=self.name,
+                             geometry=self.tessellate(),
+                             material=AMesh.material_type(color=ColorRGB(*self.color).decimal,
+                                                          opacity=self.opacity),
+                             properties={
+                                 "name": self.name,
+                                 "length": self.length
+                             }, **kwargs)
+        if self.include_path:
+            if not isinstance(self.path, NurbsCurve):
+                self.path.to_nurbs().__repr3d__(uuid=self.uuid + "_path", name=self.name + "_path", slices=self.density)
+
+            else:
+                self._repr3d.path = self.path.__repr3d__(uuid=self.uuid + "_path", name=self.name + "_path",
+                                                         slices=self.density)
 
         return self._repr3d
