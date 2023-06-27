@@ -4,7 +4,7 @@ import uuid as _uuid
 
 import dill
 import ujson
-from graphql import GraphQLScalarType, GraphQLObjectType, GraphQLSchema
+from graphql import GraphQLScalarType, GraphQLSchema
 
 from mmcore.base.registry import AGraph
 
@@ -13,18 +13,10 @@ relaytable = dict()
 DEBUG_GRAPH = False
 
 import string
-from graphql.type import GraphQLObjectType,\
-    GraphQLArgument, \
+from graphql.type import GraphQLObjectType, \
     GraphQLField, \
-GraphQLString,\
-    GraphQLArgumentKwargs, \
-    GraphQLFieldKwargs, \
-    GraphQLArgumentMap, \
-    GraphQLInputType,\
-    ThunkMapping,\
-    GraphQLUnionType,\
-    GraphQLList,GraphQLString,GraphQLInt,GraphQLNullableType,GraphQLFloat,GraphQLBoolean,GraphQLInputObjectType,GraphQLFieldMap
-from graphql.execution import execute_sync, map_async_iterator
+    GraphQLUnionType, \
+    GraphQLString, GraphQLNullableType, GraphQLInputObjectType,GraphQLFieldMap
 
 Schema=GraphQLSchema()
 
@@ -104,7 +96,8 @@ class TermParamGraphNode:
 
         if self.name is None:
             self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
-
+        if isinstance(data, TermParamGraphNode):
+            data = data.solve()
         self.graph.item_table[self.uuid] = self
         self.graph.relay_table[self.uuid] = data
 
@@ -117,6 +110,8 @@ class TermParamGraphNode:
             if DEBUG_GRAPH:
                 print(
                     f"[{self.__class__.__name__}] TERM PARAM UPDATE: node: {self.uuid}\n\t{self.graph.relay_table[self.uuid]} to {data}")
+            if isinstance(data, TermParamGraphNode):
+                data = data.solve()
             self.graph.relay_table[self.uuid] = data
 
         return self.solve()
@@ -129,8 +124,6 @@ class TermParamGraphNode:
         graph.item_table.pop(self.uuid)
         graph.relay_table.pop(self.uuid)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(name={self.name}, value={self.solve()}, uuid={self.uuid})'
 
     @property
     def index(self):

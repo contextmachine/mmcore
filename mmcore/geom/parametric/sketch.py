@@ -10,16 +10,17 @@ from itertools import starmap
 
 import dill
 import numpy as np
+from scipy.optimize import minimize
+from scipy.spatial.distance import euclidean
+
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric.algorithms import EvaluatedPoint, ProximityPoints, ClosestPoint, CurveCurveIntersect
+from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints
 from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
-from mmcore.geom.transform import remove_crd, Transform, WorldXY
+from mmcore.geom.transform import Transform, WorldXY, remove_crd
 from mmcore.geom.vectors import unit
-from scipy.optimize import minimize
-from scipy.spatial.distance import euclidean
 
 
 def add_crd(pt, value):
@@ -825,15 +826,14 @@ class Circle3D(Circle):
 
     @property
     def plane(self):
-        return PlaneLinear(normal=unit(self.normal), origin=self.origin)
+        return PlaneLinear(origin=self.origin, normal=unit(self.normal))
 
     @functools.lru_cache(maxsize=512)
     def evaluate(self, t):
         try:
             return self.plane.orient(super().evaluate(t), super().plane)
         except NotImplementedError:
-            return remove_crd(
-                add_crd(super().evaluate(t), 1).reshape((4,)) @ self.matrix.T)
+            return (super().evaluate(t).tolist() @ self.plane.transform_from_other(WorldXY)).tolist()
 
     @property
     def __params__(self):

@@ -77,8 +77,8 @@ p2 = np.array([[-21.0, 36.5, 0],
 
 path = bz()
 profile_inner = p2.tolist()
-profile_outer.reverse()
-profile_inner.reverse()
+profile_outer.reverse()  # Don't mind me I'm just a fool and wrote down the original profile coordinates clockwise
+profile_inner.reverse()  # Don't mind me I'm just a fool and wrote down the original profile coordinates clockwise
 
 srf1 = Sweep(name="sweep_a", path=spiral, profiles=(profile_outer, profile_inner), uuid="test_loft_a")
 srf2 = Sweep(name="sweep_b", path=bz, profiles=(profile_outer, profile_inner), uuid="test_loft_b")

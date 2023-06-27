@@ -2,14 +2,15 @@ import string
 import typing
 
 import numpy as np
-from mmcore.base import Delegate, APoints, AGroup
+
+from mmcore.base import AGroup, APoints, Delegate
 from mmcore.base.components import Component
 from mmcore.base.models.gql import PointsMaterial
 from mmcore.base.params import ParamGraph, pgraph
 from mmcore.collections import DCLL
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import PlaneLinear, Linear
-from mmcore.geom.parametric import ray_triangle_intersection, line_plane_intersection
+from mmcore.geom.parametric import Linear, PlaneLinear
+from mmcore.geom.parametric import line_plane_intersection, ray_triangle_intersection
 
 
 class PointProtocol(typing.Protocol):
@@ -143,15 +144,12 @@ class PointProxy(Point):
         self.point_owner[self.point_ptr, 2] = v
 
 
-class ControlPoint(Component, PointProtocol):
+class ControlPoint(Component):
     x: float = 0
     y: float = 0
     z: float = 0
     size: float = 0.5
     color: tuple = (157, 75, 75)
-
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls, *args, **kwargs)
 
     def __call__(self, **kwargs):
         super().__call__(**kwargs)
@@ -161,10 +159,11 @@ class ControlPoint(Component, PointProtocol):
     def __repr3d__(self):
         self._repr3d = APoints(uuid=self.uuid,
                                name=self.name,
-                               geometry=[self.x, self.y, self.z],
+                               geometry=list(self),
                                material=PointsMaterial(color=ColorRGB(*self.color).decimal, size=self.size),
                                _endpoint=self.endpoint,
                                controls=self.param_node.todict())
+
         return self._repr3d
 
     def __iter__(self):
