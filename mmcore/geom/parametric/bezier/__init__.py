@@ -1,5 +1,5 @@
 from mmcore.base import ALine, APoints, A
-from mmcore.base.components import Component
+from mmcore.base.components import GeometryComponent
 from mmcore.base.models.gql import LineBasicMaterial, PointsMaterial
 from mmcore.base.params import param_graph_node_native, param_graph_node, ParamGraphNode
 from mmcore.geom.parametric import NurbsCurve, Linear
@@ -89,36 +89,14 @@ cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="PointA", uuid="
                                ControlPoint(x=5, y=10, z=5, name="PointC", uuid="pointc")])
 
 
-class Bezier(Component):
-    points: ControlPointList
-
+class Bezier(GeometryComponent):
+    points: ControlPointList = cpt
+    pts = []
     num = 100
     color = (157, 75, 75)
     secondary_color = (100, 100, 100)
-
+    __exclude__ = ["vs", "us", "sleep_time", "pts"]
     num = 100
-
-    def __new__(cls, name=None,
-                uuid="test_bezier",
-                sleep=False,
-                points=cpt,
-                sleep_time=0.01,
-
-                us=(0, 1),
-                vs=(1, 0),
-                **kwargs):
-        node = super().__new__(cls, name=name,
-
-                               uuid=uuid,
-                               points=points,
-                               **kwargs
-
-                               )
-        node.resolver.sleep = sleep
-        node.resolver.sleep_time = sleep_time
-        node.resolver.vs = vs
-        node.resolver.us = us
-        return node
 
     def __call__(self, **params):
         """
@@ -135,13 +113,16 @@ class Bezier(Component):
         """
         super().__call__(**params)
         self._bz = evlbz2(*self.points)
+        self.pts = []
+        for n in np.linspace(0, 1, self.num):
+            self.pts.append(self._bz(n).evaluate(n).tolist())
         self.__repr3d__()
 
         # print(params)
 
         return self
 
-    def __repr3d__(self):
+    def solve(self):
         item = A(uuid=self.uuid,
                  _endpoint=f"params/node/{self.param_node.uuid}",
                  controls=self.param_node.todict()
@@ -157,20 +138,16 @@ class Bezier(Component):
                                                       material=PointsMaterial(color=ColorRGB(*self.color).decimal,
                                                                               size=0.3))
 
-        pts = []
-        for n in np.linspace(0, 1, self.num):
-            pts.append(self._bz(n).evaluate(n).tolist())
+
 
         item.bezier_curve = ALine(_endpoint=f"params/node/{self.param_node.uuid}",
-                                  controls=self.param_node.todict(), uuid=self.uuid + "_bezier_curve", geometry=pts,
+                                  controls=self.param_node.todict(), uuid=self.uuid + "_bezier_curve",
+                                  geometry=self.pts,
                                   material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
-        self._repr3d = item
+        return item
 
     def tan(self, t):
         return NormalPoint(self.evaluate(t).tolist(), unit(self._bz(t).direction).tolist())
-
-    def root(self):
-        return self._repr3d.root()
 
     def evaluate(self, t):
         return self._bz(t).evaluate(t)

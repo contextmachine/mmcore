@@ -8,18 +8,18 @@ import typing
 import uuid
 from collections import namedtuple
 
+import mmcore.base.models.gql as gql_models
 import numpy as np
 import strawberry
 import ujson
-from pyquaternion import Quaternion
-from scipy.spatial.distance import euclidean
-from strawberry.scalars import JSON
 
-import mmcore.base.models.gql as gql_models
 from mmcore.base.params import ParamGraphNode, TermParamGraphNode
 from mmcore.base.registry import adict, ageomdict, amatdict, idict
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.vectors import unit
+from pyquaternion import Quaternion
+from scipy.spatial.distance import euclidean
+from strawberry.scalars import JSON
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
@@ -540,6 +540,7 @@ class A:
     _properties = dict()
     _controls = {}
     _endpoint = "/"
+    RENDER_BBOX = False
 
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls)
@@ -939,7 +940,15 @@ class ADynamicGeometryDescriptor:
 class Domain:
     def __init__(self, a, b):
         super().__init__()
-        self.min, self.max = a, b
+        self.a, self.b = a, b
+
+    @property
+    def min(self):
+        return self.a
+
+    @property
+    def max(self):
+        return self.b
 
     @property
     def delta(self):
@@ -977,15 +986,71 @@ class Domain:
         return self.a <= item <= self.b
 
 
+
+@dataclasses.dataclass(unsafe_hash=True)
+class Cube:
+    u: typing.Union[tuple, Domain] = (0, 1)
+    v: typing.Union[tuple, Domain] = (0, 1)
+    h: typing.Union[tuple, Domain] = (0, 1)
+
+    def __post_init__(self):
+        l = []
+        for i in [self.u, self.v, self.h]:
+            if not isinstance(i, Domain):
+                l.append(Domain(*i))
+
+        self.u, self.v, self.h = l
+
+
+class CubeTable:
+    def __init__(self, proxy):
+        self.proxy = proxy
+
+    _table = {
+        0: operator.attrgetter("u.min", "v.min", "h.min"),
+        1: operator.attrgetter("u.min", "v.min", "h.max"),
+        2: operator.attrgetter("u.max", "v.min", "h.max"),
+        3: operator.attrgetter("u.max", "v.max", "h.max"),
+        4: operator.attrgetter("u.min", "v.max", "h.max"),
+        5: operator.attrgetter("u.min", "v.max", "h.min"),
+        6: operator.attrgetter("u.max", "v.max", "h.min"),
+        7: operator.attrgetter("u.max", "v.min", "h.min"),
+    }
+
+    _aj = {
+        0: operator.itemgetter(*[1, 4]),
+        1: operator.itemgetter(*[2, 5]),
+        2: operator.itemgetter(*[3, 6]),
+        3: operator.itemgetter(*[4, 0]),
+        4: operator.itemgetter(*[5, 7]),
+        5: operator.itemgetter(*[6, 1]),
+        6: operator.itemgetter(*[7, 2]),
+        7: operator.itemgetter(*[0, 4])}
+
+    def __getitem__(self, item):
+        return list(map(lambda x: x(self.proxy), self._aj[item](self._table)))
+
+    def __iter__(self):
+        def gen():
+            for i in range(len(self._table)):
+                for j in self[i]:
+                    yield self._table[i](self.proxy), j
+
+        return iter(gen())
+
+
 class BBox:
-    def __init__(self, points: np.ndarray):
+    def __init__(self, points: np.ndarray, owner):
+
         super().__init__()
         if not isinstance(points, np.ndarray):
             points = np.array(points)
 
         self.u, self.v, self.h = [Domain(*item) for item in
-                                  zip(points.min(axis=-1).tolist(), points.max(axis=-1).tolist())]
-
+                                  zip(points.min(axis=0).tolist(), points.max(axis=0).tolist())]
+        self.owner = owner
+        if owner.RENDER_BBOX:
+            self.owner.bbox = self.__repr3d__()
     def __array__(self):
         return np.array([self.u, self.v, self.h], dtype=float)
 
@@ -995,8 +1060,35 @@ class BBox:
 
     @property
     def points(self):
-        self.u.min, self.v.min
-        return [self.u, self.v, self.h]
+
+        return [pt @ self.matrix for pt in [[self.u.min, self.v.min, self.h.min],
+                                            [self.u.min, self.v.min, self.h.max],
+                                            [self.u.min, self.v.max, self.h.max],
+
+                                            [self.u.max, self.v.max, self.h.max],
+                                            [self.u.max, self.v.max, self.h.min],
+                                            [self.u.max, self.v.min, self.h.min],
+
+                                            [self.u.min, self.v.min, self.h.min],
+                                            [self.u.max, self.v.min, self.h.max],
+                                            [self.u.max, self.v.max, self.h.max],
+                                            [self.u.min, self.v.max, self.h.max]
+
+                                            ]]
+
+    @property
+    def matrix(self):
+        mx = self.owner.matrix
+        if not hasattr(mx, "matrix"):
+            mx = self.owner.matrix_to_square_form()
+
+        return mx
+
+    @matrix.setter
+    def matrix(self, v):
+
+
+        self._matrix = v
 
     def __iter__(self):
         return iter([self.u, self.v, self.h])
@@ -1009,6 +1101,26 @@ class BBox:
 
     def __repr__(self):
         return f"BBox(u={self.u}, v={self.v}, h={self.h})"
+
+    def __repr3d__(self):
+
+        self._repr3d = ALine(name=f'BBox at {self.owner.uuid}', uuid=f'{self.owner.uuid}_bbox', geometry=self.points,
+                             material=gql_models.LineBasicMaterial(color=ColorRGB(150, 150, 150).decimal))
+
+        return self._repr3d
+
+
+class BBoxDescriptor:
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        arr = instance.geometry.data.attributes.position.array
+
+        return BBox(np.array(instance.geometry.data.attributes.position.array, dtype=float).reshape((len(arr) // 3, 3)),
+                    owner=instance)
 
 
 class AMaterialDescriptor:
@@ -1044,7 +1156,7 @@ class AGeom(A):
     material_type = gql_models.BaseMaterial
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()
-
+    aabb = BBoxDescriptor()
     @property
     def threejs_type(self):
         return "Geometry"
@@ -1064,10 +1176,6 @@ class AGeom(A):
         }
         return res
 
-    @property
-    def aabb(self):
-        arr = self.geometry.data.attributes.position.array
-        return BBox(np.array(self.geometry.data.attributes.position.array, dtype=float).reshape((len(arr) // 3, 3)))
 
 
 class AMesh(AGeom):
@@ -1081,11 +1189,9 @@ class AMesh(AGeom):
 
 
 def position_hash(points):
-    try:
-        res = hashlib.sha512(ujson.dumps(np.array(points).tolist()).encode()).hexdigest()
-    except TypeError:
-        res = hash(points)
-    return res
+    return hashlib.sha512(ujson.dumps(np.array(points).tolist()).encode()).hexdigest()
+
+
 class APointsGeometryDescriptor(AGeometryDescriptor):
     def __get__(self, instance, owner):
         if instance is None:
@@ -1107,7 +1213,7 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
     def __set__(self, instance, value):
 
         instance.points = value
-        print(value)
+
         uid = position_hash(value)
         setattr(instance, self._name, uid)
         ageomdict[uid] = gql_models.BufferGeometryObject(**{
@@ -1152,7 +1258,7 @@ from scipy.spatial import KDTree
 class APoint(APoints):
 
     def __new__(cls, x, y, z, *args, **kwargs):
-        return super().__new__(points=[x, y, z], *args, **kwargs)
+        return super().__new__(cls, points=[x, y, z], *args, **kwargs)
 
     @property
     def x(self):
