@@ -1,6 +1,6 @@
-import typing
-
 import numpy as np
+from more_itertools import flatten
+
 from mmcore.base.components import Component
 from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
@@ -9,13 +9,15 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import NurbsCurve
 from mmcore.geom.parametric.pipe import Pipe
 from mmcore.geom.vectors import unit
-from more_itertools import flatten
 
 
 class Sweep(Component):
+    __exclude__ = ["cpts"]
     profiles: list
-    path: typing.Any
+    path: NurbsCurve
     color: tuple = (200, 10, 10)
+    opacity: float = 0.8
+    density: int = 100
 
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)
@@ -52,18 +54,23 @@ class Sweep(Component):
                                    normals=normals)
         self._csg = CSG.fromPolygons(polys)
 
-    def solve_ll(self, bzz, prf, prf2):
-        # xxx = bzz(points=self.path.points)
-        pp = Pipe(bzz, prf)
-        pp2 = Pipe(bzz, prf2)
+    @property
+    def length(self):
+        return self.path.length
+
+    def solve_ll(self, path, outer_profile, inner_profile):
+        # xxx = path(points=self.path.points)
+        pp = Pipe(path, outer_profile)
+        pp2 = Pipe(path, inner_profile)
 
         self.cpts = DCLL()
-        for p in np.linspace(1, 0, 100):
+
+        for p in np.linspace(1, 0, self.density):
             pl = DCLL()
             for pt in pp.evaluate_profile(p).control_points:
                 pl.append(pt)
             self.cpts.append(pl)
-        for p2 in np.linspace(0, 1, 100):
+        for p2 in np.linspace(0, 1, self.density):
             pl = DCLL()
             for pt in pp2.evaluate_profile(p2).control_points:
                 pl.append(pt)
@@ -76,7 +83,14 @@ class Sweep(Component):
         self.solve_ll(self.path, NurbsCurve(self.profiles[0], degree=1), NurbsCurve(self.profiles[1], degree=1))
         self.tesselate()
         self._repr3d = self._mesh_data.to_mesh(_endpoint=f"params/node/{self.param_node.uuid}",
-                                               controls=self.param_node.todict(), uuid=self.uuid,
-                                               color=ColorRGB(*self.color).decimal, opacity=0.5)
+                                               controls=self.param_node.todict(),
+                                               uuid=self.uuid,
+                                               color=ColorRGB(*self.color).decimal,
+                                               opacity=self.opacity,
+                                               name=self.name,
+                                               properties={
+                                                   "name": self.name,
+                                                   "length": self.path.length
+                                               })
         self._repr3d.path = self.path
         return self

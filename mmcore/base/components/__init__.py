@@ -26,7 +26,7 @@ class Component:
             if not k.startswith("_") and (k not in self.__exclude__):
                 prms[k] = params[k]
 
-        node = ParamGraphNode(prms, uuid=uuid, name=self.name, resolver=self)
+        node = ParamGraphNode(prms, uuid=self.uuid, name=self.name, resolver=self)
         self.param_node = node
         node.solve()
 
