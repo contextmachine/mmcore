@@ -16,16 +16,16 @@ from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
 
 import mmcore.base.models.gql as gql_models
+from mmcore.base.params import ParamGraphNode, TermParamGraphNode
 from mmcore.base.registry import adict, ageomdict, amatdict, idict
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.vectors import unit
-
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
 
-from graphql.type import GraphQLObjectType,GraphQLArgument, GraphQLArgumentKwargs, GraphQLFieldKwargs
+
 class ExEncoder(json.JSONEncoder):
     def default(self, ob):
 
@@ -606,6 +606,10 @@ class A:
 
         return self._properties
 
+    @properties.setter
+    def properties(self, v):
+        self._properties = v
+
     @property
     def matrix(self):
         return self._matrix
@@ -744,6 +748,9 @@ class A:
         if isinstance(v, A):
 
             idict[self.uuid][key] = v.uuid
+        elif isinstance(v, (ParamGraphNode, TermParamGraphNode)):
+            print("SETSTATE", key, v, v())
+            self.__setattr__(key, v())
         else:
 
             object.__setattr__(self, key, v)
@@ -1074,9 +1081,11 @@ class AMesh(AGeom):
 
 
 def position_hash(points):
-    return hashlib.sha512(ujson.dumps(np.array(points).tolist()).encode()).hexdigest()
-
-
+    try:
+        res = hashlib.sha512(ujson.dumps(np.array(points).tolist()).encode()).hexdigest()
+    except TypeError:
+        res = hash(points)
+    return res
 class APointsGeometryDescriptor(AGeometryDescriptor):
     def __get__(self, instance, owner):
         if instance is None:
@@ -1098,7 +1107,7 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
     def __set__(self, instance, value):
 
         instance.points = value
-
+        print(value)
         uid = position_hash(value)
         setattr(instance, self._name, uid)
         ageomdict[uid] = gql_models.BufferGeometryObject(**{

@@ -9,9 +9,10 @@ import numpy as np
 
 import mmcore.base.models.gql
 import mmcore.base.registry
-from mmcore.base.basic import AMesh, ALine, AGroup
-from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
-    RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor, DictToAnyMeshDataConvertor
+from mmcore.base.basic import AMesh
+from mmcore.base.geom.builder import Convertor, DataclassToDictConvertor, DictToAnyConvertor, \
+    DictToAnyMeshDataConvertor, MeshBufferGeometryBuilder, RhinoBrepBufferGeometryBuilder, \
+    RhinoMeshBufferGeometryBuilder
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.node import node_eval
@@ -209,22 +210,3 @@ def lineMaterial(color, width, opacity=1.):
                             console.log(JSON.stringify(mat.toJSON()));
                       }; ''' + line
 
-
-def hyp(arr):
-    d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    c = arr[2].reshape((3, 1)) + ((arr[1] - arr[2]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    f = arr[2].reshape((3, 1)) + ((arr[3] - arr[2]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    g = arr[3].reshape((3, 1)) + ((arr[0] - arr[3]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-
-    grp = AGroup(name="grp")
-
-    lns2 = list(zip(self.matrix.T, self.matrix.T))
-    lns = list(zip(self.matrix.T, self.matrix.T))
-    for i, (lna, lnb) in enumerate(lns):
-        grp.add(ALine(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
-    for i, (lna, lnb) in enumerate(lns2):
-        grp.add(ALine(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))
