@@ -121,7 +121,8 @@ class TermParamGraphNode:
 
         if self.name is None:
             self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
-
+        if isinstance(data, TermParamGraphNode):
+            data = data.solve()
         self.graph.item_table[self.uuid] = self
         self.graph.relay_table[self.uuid] = data
 
@@ -134,6 +135,8 @@ class TermParamGraphNode:
             if DEBUG_GRAPH:
                 print(
                     f"[{self.__class__.__name__}] TERM PARAM UPDATE: node: {self.uuid}\n\t{self.graph.relay_table[self.uuid]} to {data}")
+            if isinstance(data, TermParamGraphNode):
+                data = data.solve()
             self.graph.relay_table[self.uuid] = data
 
         return self.solve()
@@ -146,8 +149,6 @@ class TermParamGraphNode:
         graph.item_table.pop(self.uuid)
         graph.relay_table.pop(self.uuid)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(name={self.name}, value={self.solve()}, uuid={self.uuid})'
 
     @property
     def index(self):

@@ -1,14 +1,15 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 import warnings
 from collections import namedtuple
-from typing import Any, Union, ContextManager
+from typing import Any, ContextManager, Union
 
 import numpy as np
 import pyquaternion as pq
 from compas.data import Data
 from compas.geometry import Transformation
-from mmcore.geom.vectors import unit
 from numpy import ndarray
+
+from mmcore.geom.vectors import unit
 
 
 def add_crd(pt, value):
@@ -62,7 +63,7 @@ class Transform:
 
     def __new__(cls, matrix=None, *args, **kwargs):
         if TRANSFORM_WARN:
-            warnings.warn(Transform.__doc__)
+            warnings.warn(DeprecationWarning(Transform.__doc__))
         inst = super().__new__(cls)
         if matrix is None:
             matrix = np.eye(4)

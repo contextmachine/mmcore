@@ -1,22 +1,21 @@
 from abc import abstractmethod
-
+import uuid as _uuid
+import randomname
 from mmcore.base import APoint, AGeom
-from mmcore.base.params import ParamGraphNode, pgraph
+from mmcore.base.params import ParamGraphNode
 
 
 class Component:
     name: str = None
     uuid: str = None
-    __exclude__ = ["name", "uuid"]
-
-    def __new__(cls, *args, name=None, uuid=None, graph=pgraph, **params):
+    __exclude__ = ["uuid"]
+    def __new__(cls, *args, name=None, uuid=None, **params):
         self = super().__new__(cls)
 
         if uuid is None:
-            _name = randomname.get_name(sep="_")
-            uuid = _name
-            if self.name is None:
-                name = _name
+            uuid = _uuid.uuid4().hex
+            if name is None:
+                name=randomname.get_name()
         self.uuid = uuid
         self.name = name
 
@@ -24,17 +23,17 @@ class Component:
         params |= dct
 
         print(params)
-        self.param_keys = []
+
         for k, v in params.items():
             if v is not None:
                 setattr(self, k, v)
-                self.param_keys.append(k)
+
         prms = dict()
         for k in params.keys():
             if not k.startswith("_") and (k not in self.__exclude__):
                 prms[k] = params[k]
 
-        node = ParamGraphNode(prms, uuid=uuid, name=name, resolver=self, graph=pgraph)
+        node = ParamGraphNode(prms, uuid=self.uuid, name=self.name, resolver=self)
         self.param_node = node
         node.solve()
 
@@ -44,9 +43,9 @@ class Component:
         for k, p in params.items():
             if p is not None:
                 setattr(self, k, p)
-
         return self
 
+    @property
     def endpoint(self):
         return f"params/node/{self.param_node.uuid}"
 
@@ -106,8 +105,6 @@ from mmcore.geom.materials import ColorRGB
 
 col = ColorRGB(70, 70, 70).decimal
 col2 = ColorRGB(157, 75, 75).decimal
-import randomname
-
 
 class GeometryComponent(Component):
     color = (100, 100, 100)

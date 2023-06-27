@@ -9,9 +9,10 @@ import numpy as np
 
 import mmcore.base.models.gql
 import mmcore.base.registry
-from mmcore.base.basic import AMesh, ALine, AGroup
-from mmcore.base.geom.builder import MeshBufferGeometryBuilder, RhinoMeshBufferGeometryBuilder, \
-    RhinoBrepBufferGeometryBuilder, DictToAnyConvertor, DataclassToDictConvertor, Convertor, DictToAnyMeshDataConvertor
+from mmcore.base.basic import AMesh
+from mmcore.base.geom.builder import Convertor, DataclassToDictConvertor, DictToAnyConvertor, \
+    DictToAnyMeshDataConvertor, MeshBufferGeometryBuilder, RhinoBrepBufferGeometryBuilder, \
+    RhinoMeshBufferGeometryBuilder
 from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
 from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.node import node_eval
@@ -56,10 +57,6 @@ matdict["MeshPhongMaterial"] = mmcore.base.models.gql.MeshPhongMaterial(color=Co
 matdict["PointsMaterial"] = mmcore.base.models.gql.PointsMaterial(color=ColorRGB(50, 50, 50).decimal)
 matdict["LineBasicMaterial"] = mmcore.base.models.gql.LineBasicMaterial(color=ColorRGB(50, 50, 50).decimal,
                                                                         type=mmcore.base.models.gql.Materials.LineBasicMaterial)
-
-
-
-
 
 from mmcore.geom.vectors import triangle_normal
 
@@ -119,7 +116,7 @@ class MeshData:
         if self.indices is not None:
             f = np.array(self.indices).flatten()
 
-            self.indices=np.array(self.indices).flatten().reshape((len(f) // 3, 3))
+            self.indices = np.array(self.indices).flatten().reshape((len(f) // 3, 3))
 
     def asdict(self):
         dct = {}
@@ -152,12 +149,12 @@ class MeshData:
     def merge(self, other: 'MeshData'):
         count = np.array(self.indices).max()
 
-        dct = dict(vertices=np.array(self.vertices).tolist()+np.array(other.vertices).tolist())
+        dct = dict(vertices=np.array(self.vertices).tolist() + np.array(other.vertices).tolist())
         if ("indices" in self.__dict__.keys()) and ("indices" in other.__dict__.keys()):
-            dct["indices"] =np.array(self.indices).tolist() + (np.array(other.indices, dtype=int) + count).tolist()
+            dct["indices"] = np.array(self.indices).tolist() + (np.array(other.indices, dtype=int) + count).tolist()
 
         for k in self.__dict__.keys():
-            if (k in other.__dict__) and (k != "indices") and (k != "uuid")  and (k != "vertices"):
+            if (k in other.__dict__) and (k != "indices") and (k != "uuid") and (k != "vertices"):
                 if all([not isinstance(self.__dict__[k], np.ndarray),
                         not isinstance(other.__dict__[k], np.ndarray),
                         self.__dict__[k] is not None,
@@ -183,9 +180,17 @@ class MeshData:
 
     @classmethod
     def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
+
+        return cls.from_buffer(geom)
+
+    @classmethod
+    def from_buffer(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
         if isinstance(geom, dict):
             return BufferGeometryDictToMeshDataConvertor(geom).convert()
         return BufferGeometryToMeshDataConvertor(geom).convert()
+
+    def to_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
+        return self.create_buffer()
 
 
 @node_eval
@@ -208,23 +213,3 @@ def lineMaterial(color, width, opacity=1.):
                             const mat = new THREE.LineBasicMaterial({color: color, linewidth:width, opacity:opacity, transparent:transparent})
                             console.log(JSON.stringify(mat.toJSON()));
                       }; ''' + line
-
-
-def hyp(arr):
-    d = arr[1].reshape((3, 1)) + ((arr[0] - arr[1]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    c = arr[2].reshape((3, 1)) + ((arr[1] - arr[2]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    f = arr[2].reshape((3, 1)) + ((arr[3] - arr[2]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-    g = arr[3].reshape((3, 1)) + ((arr[0] - arr[3]).reshape((3, 1)) * np.stack(
-        [np.linspace(0, 1, num=10), np.linspace(0, 1, num=10), np.linspace(0, 1, num=10)]))
-
-    grp = AGroup(name="grp")
-
-    lns2 = list(zip(self.matrix.T, self.matrix.T))
-    lns = list(zip(self.matrix.T, self.matrix.T))
-    for i, (lna, lnb) in enumerate(lns):
-        grp.add(ALine(name=f"1-{i}", points=(lna.tolist(), lnb.tolist())))
-    for i, (lna, lnb) in enumerate(lns2):
-        grp.add(ALine(name=f"2-{i}", points=(lna.tolist(), lnb.tolist())))

@@ -8,16 +8,18 @@ import typing
 import uuid
 from collections import namedtuple
 
-import mmcore.base.models.gql as gql_models
 import numpy as np
 import strawberry
 import ujson
-from mmcore.base.registry import adict, ageomdict, amatdict, idict
-from mmcore.collections.multi_description import ElementSequence
-from mmcore.geom.vectors import unit
 from pyquaternion import Quaternion
 from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
+
+import mmcore.base.models.gql as gql_models
+from mmcore.base.params import ParamGraphNode, TermParamGraphNode
+from mmcore.base.registry import adict, ageomdict, amatdict, idict
+from mmcore.collections.multi_description import ElementSequence
+from mmcore.geom.vectors import unit
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
@@ -605,6 +607,10 @@ class A:
 
         return self._properties
 
+    @properties.setter
+    def properties(self, v):
+        self._properties = v
+
     @property
     def matrix(self):
         return self._matrix
@@ -743,6 +749,9 @@ class A:
         if isinstance(v, A):
 
             idict[self.uuid][key] = v.uuid
+        elif isinstance(v, (ParamGraphNode, TermParamGraphNode)):
+            print("SETSTATE", key, v, v())
+            self.__setattr__(key, v())
         else:
 
             object.__setattr__(self, key, v)
@@ -977,8 +986,6 @@ class Domain:
         return self.a <= item <= self.b
 
 
-from mmcore.geom.transform import Transform
-
 
 @dataclasses.dataclass(unsafe_hash=True)
 class Cube:
@@ -1072,12 +1079,14 @@ class BBox:
     @property
     def matrix(self):
         mx = self.owner.matrix
-        if not isinstance(self.owner, Transform):
-            mx = Transform(self.owner.matrix_to_square_form())
+        if not hasattr(mx, "matrix"):
+            mx = self.owner.matrix_to_square_form()
+
         return mx
 
     @matrix.setter
     def matrix(self, v):
+
 
         self._matrix = v
 
@@ -1369,12 +1378,12 @@ class ObjectThree:
     def keys(self):
         return self.walk().keys()
 
-    def to_dict(self):
+    def todict(self):
 
         dct = {"all": self.all()}
         for k, v in self.walk().items():
             if isinstance(v, ObjectThree):
-                dct[k] = v.to_dict()
+                dct[k] = v.todict()
         return dct
 
 
