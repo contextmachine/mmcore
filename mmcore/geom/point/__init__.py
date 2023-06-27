@@ -144,7 +144,7 @@ class PointProxy(Point):
         self.point_owner[self.point_ptr, 2] = v
 
 
-class ControlPoint(Component):
+class ControlPoint(Component, PointProtocol):
     x: float = 0
     y: float = 0
     z: float = 0
