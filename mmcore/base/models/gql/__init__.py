@@ -525,7 +525,7 @@ class GqlChart:
         self.name = self.key.capitalize() + " " + self.name
         self.id = self.name.lower().replace(" ", "_") + "_" + "_".join(self.require)
 
-    def to_dict(self):
+    def todict(self):
         return strawberry.asdict(self)
 
 

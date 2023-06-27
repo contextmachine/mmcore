@@ -1,6 +1,6 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
 from abc import ABC, abstractmethod
-from typing import Any, Mapping, Sequence, Callable
+from typing import Any, Mapping, Sequence
 
 
 class AbstractDescriptor(ABC):
@@ -266,8 +266,8 @@ class DumpData(DataView):
 
     def item_model(self, name: str, value: Any):
 
-        if hasattr(value, "to_dict"):
-            v = value.to_dict()
+        if hasattr(value, "todict"):
+            v = value.todict()
         elif hasattr(value, "data"):
             v = value.data
         elif hasattr(value, "dumpdata"):
