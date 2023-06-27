@@ -4,16 +4,14 @@
 import abc
 import functools
 import itertools
-import types
-import typing
 from abc import ABC
-from operator import attrgetter, methodcaller, itemgetter
+from operator import attrgetter, itemgetter, methodcaller
 from typing import Any, Callable, Generic, Iterable, Iterator, KeysView, Mapping, Protocol, Sequence, Type, TypeVar
 
 import more_itertools
 import numpy as np
 
-from mmcore.collections.traversal import sequence_type, dict_type_extractor, item_type_extractor
+from mmcore.collections.traversal import dict_type_extractor, item_type_extractor, sequence_type
 
 
 def _(): pass
@@ -425,7 +423,7 @@ class ElementSequence(MultiDescriptor):
     def to_html(self, classes='table table-stripped', **kwargs):
         return self.to_pandas().to_html(classes=classes, **kwargs)
 
-    def to_dict(self, **kwargs):
+    def todict(self, **kwargs):
         """
         return not a dict but Array[dict]
         @param kwargs:
@@ -434,7 +432,7 @@ class ElementSequence(MultiDescriptor):
         @rtype:
         """
 
-        return [s.to_dict() for s in self._seq]
+        return [s.todict() for s in self._seq]
 
 
 class NextIndex(Iterator):

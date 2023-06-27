@@ -47,11 +47,11 @@ class ColorRGB(tuple):
     def to_rhino(self):
         return (self.r, self.g, self.b, 255)
 
-    def to_dict(self):
+    def todict(self):
         return {"r": self.r, "g": self.g, "b": self.b, "a": 255}
 
     def ToJSON(self):
-        return json.dumps(self.to_dict())
+        return json.dumps(self.todict())
     @classmethod
     def random(cls, size=1):
         if size==1:

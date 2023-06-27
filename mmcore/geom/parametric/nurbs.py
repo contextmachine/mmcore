@@ -1,6 +1,7 @@
 import copy
 import dataclasses
 import typing
+import uuid as _uuid
 from abc import abstractmethod
 
 import geomdl
@@ -44,7 +45,7 @@ class NurbsCurve(ProxyParametricObject):
     bbox: typing.Optional[list[list[float]]] = ProxyAttributeDescriptor()
     knots: typing.Optional[list[float]] = None
     slices: int = 32
-
+    uuid: typing.Optional[str] = None
     def __post_init__(self):
         super().__post_init__()
         self.proxy.degree = self.degree
@@ -56,7 +57,8 @@ class NurbsCurve(ProxyParametricObject):
             self.proxy.knotvector = self.knots
         self.proxy.delta = self.delta
         self.proxy.evaluate()
-
+        if self.uuid is None:
+            self.uuid = _uuid.uuid4().hex
     def resolve(self):
         self.proxy.degree = self.degree
         self.proxy.ctrlpts = self.control_points
@@ -95,9 +97,19 @@ class NurbsCurve(ProxyParametricObject):
                                [self.evaluate(t) for t in np.linspace(0, 1, self.slices)]).flatten().tolist(),
                            'normalized': False})})})})
 
-    def __repr3d__(self):
-        self._repr3d = ALine(uuid=str(id(self)), geometry=self.tessellate(),
-                             material=LineBasicMaterial(color=ColorRGB(150, 150, 150).decimal))
+    def __repr3d__(self, uuid=None, name=None, color=None, slices=None, **kwargs):
+        if uuid is None:
+            uuid = self.uuid
+        if name is None:
+            name = "untitled_nurbs_curve"
+        if color is None:
+            color = (150, 150, 150)
+        if slices is None:
+            slices = self.slices
+        self._repr3d = ALine(uuid=uuid,
+                             name=name,
+                             geometry=[self.evaluate(t).tolist() for t in np.linspace(0, 1, slices)],
+                             material=LineBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
         return self._repr3d
 
     def transform(self, m):

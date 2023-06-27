@@ -8,18 +8,18 @@ import typing
 import uuid
 from collections import namedtuple
 
-import mmcore.base.models.gql as gql_models
 import numpy as np
 import strawberry
 import ujson
+from pyquaternion import Quaternion
+from scipy.spatial.distance import euclidean
+from strawberry.scalars import JSON
 
+import mmcore.base.models.gql as gql_models
 from mmcore.base.params import ParamGraphNode, TermParamGraphNode
 from mmcore.base.registry import adict, ageomdict, amatdict, idict
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.vectors import unit
-from pyquaternion import Quaternion
-from scipy.spatial.distance import euclidean
-from strawberry.scalars import JSON
 
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
@@ -1378,12 +1378,12 @@ class ObjectThree:
     def keys(self):
         return self.walk().keys()
 
-    def to_dict(self):
+    def todict(self):
 
         dct = {"all": self.all()}
         for k, v in self.walk().items():
             if isinstance(v, ObjectThree):
-                dct[k] = v.to_dict()
+                dct[k] = v.todict()
         return dct
 
 
