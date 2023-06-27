@@ -17,15 +17,19 @@ from mmcore.base.registry import amatdict
 from mmcore.collections import ElementSequence
 from mmcore.base.models import gql as gql_models
 import uuid as _uuid
-from mmcore.base.models.gql import BufferGeometryObject
-def simple_tessellate(shape, uuid=None, compute_edges: bool = False,
-            mesh_quality: float = 1.0,
-            parallel: bool = False):
-    tesselator=ShapeTesselator(shape)
+from mmcore.base.models.gql import MeshPhongMaterial
+
+
+def simple_tessellate(shape, uuid=None, color=(120, 200, 40), compute_edges: bool = False,
+                      mesh_quality: float = 1.0,
+                      parallel: bool = False):
+    tesselator = ShapeTesselator(shape)
     tesselator.Compute(compute_edges=compute_edges, mesh_quality=mesh_quality, parallel=parallel)
-    data=json.loads(tesselator.ExportShapeToThreejsJSONString(uuid if uuid is not None else _uuid.uuid4().hex))
+    _ = uuid if uuid is not None else _uuid.uuid4().hex
+    data = json.loads(tesselator.ExportShapeToThreejsJSONString(_ + "_geometry"))
     del data["metadata"]
-    return BufferGeometryObject(**data)
+    return AMesh(uuid=_ + "_mesh", geometry=create_buffer_from_dict(data),
+                 material=MeshPhongMaterial(color=ColorRGB(*color).decimal))
 
 
 

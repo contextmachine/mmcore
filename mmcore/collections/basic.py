@@ -737,6 +737,7 @@ class DCLL:
 
 
     """
+    nodetype = DCNode
 
     @classmethod
     def from_list(cls, seq):
@@ -762,10 +763,10 @@ class DCLL:
         string = ""
 
         if (self.head == None):
-            string += "DCLL(<Empty>)"
+            string += f"{self.__class__.__qualname__}(<Empty>)"
             return string
 
-        string += f"DCLL({self.head.data})"
+        string += f"{self.__class__.__qualname__}({self.head.data})"
         temp = self.head.next
         while (temp != self.head):
             string += \
@@ -782,7 +783,7 @@ class DCLL:
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
 
         if self.head == None:
-            self.head = DCNode(data)
+            self.head = self.nodetype(data)
             self.count = 1
             return
 
@@ -793,7 +794,7 @@ class DCLL:
             for _ in range(index - 1):
                 temp = temp.next
 
-        temp.next.prev = DCNode(data)
+        temp.next.prev = self.nodetype(data)
         temp.next.prev.next, temp.next.prev.prev = temp.next, temp
         temp.next = temp.next.prev
         if (index == 0):
@@ -859,7 +860,7 @@ class DCLL:
 
     def insert_after(self, value1, value2):
         self.count += 1
-        new_node = DCNode(0)
+        new_node = self.nodetype(0)
         new_node.data = value1  # Inserting the data
 
         # Find node having value2 and
@@ -885,7 +886,7 @@ class DCLL:
         # If the list is empty, create a
         # single node circular and doubly list
         if self.head is None:
-            new_node = DCNode(0)
+            new_node = self.nodetype(0)
             new_node.data = value
             new_node.next = new_node.prev = new_node
             self.start = new_node
@@ -897,7 +898,7 @@ class DCLL:
         self.last = self.head.prev
 
         # Create Node dynamically
-        new_node = DCNode(0)
+        new_node = self.nodetype(0)
         new_node.data = value
 
         # Start is going to be next of new_node
@@ -916,7 +917,7 @@ class DCLL:
         # Pointer points to last Node
         last = self.head.prev
         self.count += 1
-        new_node = DCNode(0)
+        new_node = self.nodetype(0)
         new_node.data = value  # Inserting the data
 
         # setting up previous and
@@ -934,7 +935,8 @@ class DCLL:
     def __str__(self):
         return self.__repr__()
 
-
+    def __class_getitem__(cls, item):
+        return type(f'{cls.__qualname__}[{item.__qualname__}]', (cls,), {'nodetype': item})
 def rrange(start, end, count):
     rng = range(0, count)
     step = (end - start) * (1 / ((count - 0) - 1))

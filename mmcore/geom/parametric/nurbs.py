@@ -368,3 +368,4 @@ class NurbsSurfaceGeometry(ProxyGeometry, AMesh):
 
 class NurbsLoft(ProxyGeometry, AMesh):
     geometry = NurbsLoftProxyDescriptor()
+

@@ -1,13 +1,13 @@
 import numpy as np
 from more_itertools import flatten
 
+
 from mmcore.base.components import Component
-from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
-from mmcore.geom.csg import CSG
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import NurbsCurve
 from mmcore.geom.parametric.pipe import Pipe
+
 from mmcore.geom.vectors import unit
 
 
@@ -22,7 +22,7 @@ class Sweep(Component):
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)
 
-    def tesselate(self):
+    def tessellate(self):
 
         lcpts = list(flatten(self.cpts))
         indices = []
@@ -58,10 +58,10 @@ class Sweep(Component):
     def length(self):
         return self.path.length
 
-    def solve_ll(self, path, outer_profile, inner_profile):
+    def solve(self):
         # xxx = path(points=self.path.points)
-        pp = Pipe(path, outer_profile)
-        pp2 = Pipe(path, inner_profile)
+        pp = Pipe(self.path, NurbsCurve(self.profiles[0]),degree=1)
+        pp2 = Pipe(self.path, NurbsCurve(self.profiles[1]),degree=1)
 
         self.cpts = DCLL()
 
@@ -70,7 +70,7 @@ class Sweep(Component):
             for pt in pp.evaluate_profile(p).control_points:
                 pl.append(pt)
             self.cpts.append(pl)
-        for p2 in np.linspace(0, 1, self.density):
+        for p2 in np.linspace(0, 1, 100):
             pl = DCLL()
             for pt in pp2.evaluate_profile(p2).control_points:
                 pl.append(pt)
@@ -80,8 +80,9 @@ class Sweep(Component):
     def __call__(self, **kwargs):
         super().__call__(**kwargs)
 
-        self.solve_ll(self.path, NurbsCurve(self.profiles[0], degree=1), NurbsCurve(self.profiles[1], degree=1))
-        self.tesselate()
+        self.solve()
+        self.tessellate()
+        self.__repr3d__()
         self._repr3d = self._mesh_data.to_mesh(_endpoint=f"params/node/{self.param_node.uuid}",
                                                controls=self.param_node.todict(),
                                                uuid=self.uuid,
@@ -94,3 +95,7 @@ class Sweep(Component):
                                                })
         self._repr3d.path = self.path
         return self
+
+    def __repr3d__(self):
+
+        return self._repr3d

@@ -1,79 +1,10 @@
-# ***************************************************************************
-# *   Copyright (c) 2009, 2010 Yorik van Havre <yorik@uncreated.net>        *
-# *   Copyright (c) 2009, 2010 Ken Cline <cline@frii.com>                   *
-# *                                                                         *
-# *   This program is free software; you can redistribute it and/or modify  *
-# *   it under the terms of the GNU Lesser General Public License (LGPL)    *
-# *   as published by the Free Software Foundation; either version 2 of     *
-# *   the License, or (at your option) any later version.                   *
-# *   for detail see the LICENCE text file.                                 *
-# *                                                                         *
-# *   This program is distributed in the hope that it will be useful,       *
-# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
-# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
-# *   GNU Library General Public License for more details.                  *
-# *                                                                         *
-# *   You should have received a copy of the GNU Library General Public     *
-# *   License along with this program; if not, write to the Free Software   *
-# *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  *
-# *   USA                                                                   *
-# *                                                                         *
-# ***************************************************************************
-"""Provide vector math utilities used in the Draft workbench.
-
-Vector math utilities used primarily in the Draft workbench
-but which can also be used in other workbenches and in macros.
-"""
-## \defgroup DRAFTVECUTILS DraftVecUtils
-#  \ingroup UTILITIES
-#  \brief Vector math utilities used in Draft workbench
-#
-# Vector math utilities used primarily in the Draft workbench
-# but which can also be used in other workbenches and in macros.
-
-# Check code with
-# flake8 --ignore=E226,E266,E401,W503
 PERCISSION = 6
-import math
 import warnings
 from typing import Iterable, Iterator
 
 import numpy as np
+from mmcore.geom.vectors.pure import *
 from scipy.spatial import distance
-
-
-def dot(u, v):
-    """
-    3D dot product
-    @param u:
-    @param v:
-    @return: float
-    """
-    return u.x * v.x + u.y * v.y + u.z * v.z
-
-
-def norm(v):
-    """
-    norm is a length of  vector
-    @param v:
-    @return:
-    """
-    return math.sqrt(dot(v, v))
-
-
-def d(P, Q):
-    """
-    distance is a norm of difference
-    @param P: vector
-    @param Q: vector
-    @return: float
-    >>> from scipy.spatial.distance import euclidean
-    >>> import numpy as np
-    >>> p1, p2 = np.random.random((2,3))
-    >>> np.allclose(d(p1,p2), euclidean(p1,p2) )
-    True
-    """
-    return norm(P - Q)
 
 
 class Vector(Iterable):
@@ -114,9 +45,6 @@ class Vector(Iterable):
         return self - other
 
 
-__title__ = "FreeCAD Draft Workbench - Vector library"
-__author__ = "Yorik van Havre, Werner Mayer, Martin Burbaum, Ken Cline"
-__url__ = "https://www.freecadweb.org"
 
 
 def unit(vec) -> np.ndarray:
@@ -461,25 +389,6 @@ def scaleTo(u, l):
     else:
         a = l / u.Length
         return Vector(u.x * a, u.y * a, u.z * a)
-
-
-def dist(u, v):
-    """Return the distance between two points (or vectors).
-
-    Parameters
-    ----------
-    u : Base::Vector3
-        First point, defined by a vector.
-    v : Base::Vector3
-        Second point, defined by a vector.
-
-    Returns
-    -------
-    float
-        The scalar distance from one point to the other.
-    """
-    typecheck([(u, Vector), (v, Vector)], "dist")
-    return u.sub(v).Length
 
 
 def project(u, v):
@@ -1045,6 +954,8 @@ def triangle_normal(p1, p2, p3):
     Ny = Az * Bx - Ax * Bz
     Nz = Ax * By - Ay * Bx
     return Nx, Ny, Nz
+
+
 def triangle_plane(p1, p2, p3):
     """Quoting from https://www.khronos.org/opengl/wiki/Calculating_a_Surface_Normal
 
@@ -1063,4 +974,4 @@ def triangle_plane(p1, p2, p3):
     Nx = Ay * Bz - Az * By
     Ny = Az * Bx - Ax * Bz
     Nz = Ax * By - Ay * Bx
-    return np.array([A,B,(Nx, Ny, Nz)])
+    return np.array([A, B, (Nx, Ny, Nz)])
