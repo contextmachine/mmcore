@@ -16,8 +16,8 @@ class TestTrimmingCone(TestCase):
         self.assertIsNotNone(self.tc.to_json())
         ##print(self.tc.to_json(indent=2))
 
-    def test_to_dict(self):
-        self.assertIsNotNone(self.tc.to_dict())
+    def test_todict(self):
+        self.assertIsNotNone(self.tc.todict())
 
     def test_write(self):
         with open(f"{os.getenv('HOME')}/mmodel/mm/tests/{self.__class__.__name__}.json", "w") as f:

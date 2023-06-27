@@ -1,8 +1,8 @@
-from mmcore.base import ALine, APoints, A
+from mmcore.base import A, ALine, APoints
 from mmcore.base.components import GeometryComponent
 from mmcore.base.models.gql import LineBasicMaterial, PointsMaterial
-from mmcore.base.params import param_graph_node_native, param_graph_node, ParamGraphNode
-from mmcore.geom.parametric import NurbsCurve, Linear
+from mmcore.base.params import ParamGraphNode, param_graph_node, param_graph_node_native
+from mmcore.geom.parametric import Linear, NurbsCurve
 from mmcore.geom.parametric.base import NormalPoint
 from mmcore.geom.point import ControlPoint, ControlPointList
 from mmcore.geom.vectors import unit
@@ -151,3 +151,10 @@ class Bezier(GeometryComponent):
 
     def evaluate(self, t):
         return self._bz(t).evaluate(t)
+
+    def to_nurbs(self):
+        return NurbsCurve(np.array(self.points).tolist(), degree=2)
+
+    @property
+    def length(self):
+        return self.to_nurbs().length
