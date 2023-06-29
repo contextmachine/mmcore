@@ -4,6 +4,11 @@ from mmcore.geom.shapes import Shape
 from mmcore.geom.extrusion import simple_extrusion
 import json
 from mmcore.base.sharedstate import serve
+from mmcore.base.geom.utils import create_buffer_from_dict
+from mmcore.base import AMesh
+from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial
+from mmcore.geom.materials import ColorRGB
+
 
 HIGH = 10
 with open("examples/data/profile.json") as f:
@@ -11,6 +16,15 @@ with open("examples/data/profile.json") as f:
 
 with open("examples/data/artem_profile.json") as f:
     artem_profile = json.load(f)
+
+
+def geometry_from_threejs_json(path: str, material: MeshPhongMaterial = None) -> AMesh:
+    with open(path, "r") as fl:
+        geom = json.load(fl)
+        print(material)
+        return AMesh(geometry=create_buffer_from_dict(geom["geometries"][0]),
+                     material=material if material is None else MeshPhongMaterial(**geom["materials"][0]))
+
 
 
 
@@ -28,10 +42,16 @@ def bim_sequence_generator(extr=extrusion, transl=(1, 0, 0)):
         next_extrusion.translate(transl)
         yield next_extrusion
 
+
+
 if __name__ == "__main__":
     from mmcore.base import AGroup
     group = AGroup()
 
+    panel = geometry_from_threejs_json("/Users/sofyadobycina/PycharmProjects/mmcore/examples/data/uzel.json",
+                                       material=MeshPhongMaterial(color=ColorRGB(22, 150, 70).decimal))
+
+    group.add(panel)
     #for bim in bim_sequence_generator(extrusion):
     #    group.add(bim)
     for bim in bim_sequence_generator(extr_ver, transl=(-1, 0, 0)):
