@@ -12,7 +12,8 @@ typing_extensions>=4.4.0
 jinja2>=3.1.2
 colored>=1.4.4
 boto3>=1.26.69
-fastapi[all]
+fastapi==0.88.0
+pydantic==1.10.7
 uvicorn[standard]
 strawberry-graphql[fastapi]
 pyyaml
@@ -28,5 +29,5 @@ earcut
 cloudpickle
 termcolor
 IPython
-starlette
+starlette==0.21.0
 graphene>=3.0
