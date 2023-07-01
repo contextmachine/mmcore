@@ -29,5 +29,5 @@ earcut
 cloudpickle
 termcolor
 IPython
-starlette==0.21.0
+starlette==0.22.0
 graphene>=3.0
