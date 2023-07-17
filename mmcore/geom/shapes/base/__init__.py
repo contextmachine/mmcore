@@ -196,9 +196,16 @@ class Triangle:
     @classmethod
     def from_indices(cls, ixs):
         return cls(*[cls.table[pt] for pt in ixs])
-
-    def __init__(self, *pts):
+    @property
+    def uuid(self):
+        return self._uuid
+    @uuid.setter
+    def uuid(self,v):
+        self._uuid=v
+        self._repr3d.uuid=self._uuid
+    def __init__(self, *pts, uuid=None):
         object.__init__(self)
+        self._uuid=uuid if uuid is not None else str(id(self))
         self.ixs = []
         for v in pts:
             if v not in point_table:
@@ -208,7 +215,7 @@ class Triangle:
 
         self.points = ShapeDCLL.from_list(self.ixs)
 
-        self.__repr3d__()
+
 
     def get_point(self, i):
         return self.table[i]
@@ -346,6 +353,7 @@ class Triangle:
             return self._occ_shape
 
     def __repr3d__(self):
+        """
         if HAS_OCC:
             if USE_OCC:
                 if self.width is not None:
@@ -358,10 +366,10 @@ class Triangle:
                 print('1.1')
                 self.triangulate()
                 self._repr3d = self.mesh_data.to_mesh(uuid=f'{id(self)}')
-        else:
-            print('2.0')
-            self.triangulate()
-            self._repr3d = self.mesh_data.to_mesh(uuid=f'{id(self)}')
+        else:"""
+
+        self.triangulate()
+        self._repr3d = self.mesh_data.to_mesh(uuid=f'{id(self)}')
         return self._repr3d
 
     def root(self):
@@ -376,15 +384,23 @@ class Triangle:
 
         return OccShape(
             BRepAlgoAPI_Common(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
-
+    @property
+    def mesh(self):
+        if hasattr(self,"_repr3d"):
+            if isinstance(self._repr3d,AMesh):
+                return self._repr3d
+        else:
+            return self.__repr3d__()
+    def tomesh(self):
+        return self.__repr3d__()
 
 class Quad(Triangle):
     """A 3d quadrilateral (polygon with 4 vertices)"""
 
     table = point_table
 
-    def __init__(self, /, *pts):
-        super().__init__(*pts)
+    def __init__(self, /, *pts, **kwargs):
+        super().__init__(*pts,**kwargs)
 
     def isplanar(self):
         return self.points.isplanar()
