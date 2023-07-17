@@ -19,7 +19,7 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints
 from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
-from mmcore.geom.transform import Transform, WorldXY, remove_crd
+from mmcore.geom.transform import Plane, Transform, WorldXY, remove_crd
 from mmcore.geom.vectors import unit
 
 
@@ -798,23 +798,20 @@ def no_mp(dl):
 @dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
+    plane:typing.Union[PlaneLinear,Plane]=WorldXY
 
-    @transform_manager
-    def transform(self, m: Transform):
-        return super().transform(m)
-
+    def __post_init__(self):
+        if not isinstance(self.plane ,PlaneLinear):
+            self.plane=PlaneLinear(origin=self.plane.origin,normal=self.plane.normal,xaxis=self.plane.xaxis)
     @property
     def __params__(self):
-        return [self.r]
+        return [self.r, self.plane]
 
-    @functools.lru_cache
-    @transform
+
     def evaluate(self, t):
-        return np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float)
+        return (self.plane.transform_from_other(WorldXY).matrix@np.append(np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float),1).T)[:-1]
 
-    @property
-    def plane(self):
-        return WorldXY
+
 
     @property
     def points(self):
@@ -836,6 +833,11 @@ class Circle3D(Circle):
     def plane(self):
         return PlaneLinear(origin=self.origin, normal=unit(self.normal))
 
+    @plane.setter
+    def plane(self, v):
+        self.normal=unit(v.normal)
+        self.origin = v.origin
+        return PlaneLinear(origin=self.origin, normal=unit(self.normal))
     @functools.lru_cache(maxsize=512)
     def evaluate(self, t):
         try:
