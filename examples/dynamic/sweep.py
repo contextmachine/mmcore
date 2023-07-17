@@ -42,6 +42,7 @@ debug_properties["target"] = "test_sweep"
 serve.start()
 
 # Comment the lines below if using ipython by default (e.g. in Pycharm with a python console)
+
 IPython.embed(header=f"[mmcore {mmcore.__version__()}]")
 
 # Go to https://viewer.contextmachine.online/v2/scene/006ccbec-f07c-48b4-ac4d-b5b456d6e7d7
