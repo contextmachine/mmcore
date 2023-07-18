@@ -1,8 +1,9 @@
-import copy
-from abc import abstractmethod
 import uuid as _uuid
+from abc import abstractmethod
+
 import randomname
-from mmcore.base import APoint, AGeom
+
+from mmcore.base import AGeom, APoint
 from mmcore.base.params import ParamGraphNode
 
 
@@ -17,7 +18,7 @@ class Component:
         if uuid is None:
             uuid = _uuid.uuid4().hex
             if name is None:
-                name = randomname.get_name()
+                name = randomname.get_name(sep="_")
         self.uuid = uuid
         self.name = name
 
