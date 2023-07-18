@@ -18,7 +18,7 @@ termcolor = { version = "^2.3.0", python = "^3.7" }
 setuptools = { version = "^67.8.0", python = "^3.7" }
 earcut = { version = "^1.1.5", python = "^3.8" }
 compas = { version = "*", python = "^3.7" }
-numpy = { version = "1.24.0", python = "^3.8" }
+numpy = { version = "1.25.1", python = "^3.8" }
 pandas = { version = "*", python = "^3.7" }
 python-dotenv = { version = "*", python = "^3.7" }
 redis = { version = "*", python = "^3.7" }
