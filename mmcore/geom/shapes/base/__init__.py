@@ -8,7 +8,7 @@ from earcut import earcut
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
-from mmcore.geom.parametric import PlaneLinear, ray_triangle_intersection, line_plane_intersection, Linear
+from mmcore.geom.parametric import Linear, PlaneLinear, line_plane_intersection, ray_triangle_intersection
 from mmcore.geom.tess import simple_tessellate
 from mmcore.geom.transform import TransformV2
 from mmcore.geom.vectors import V3
@@ -214,6 +214,7 @@ class Triangle:
             self.ixs.append(self.table.index(v))
 
         self.points = ShapeDCLL.from_list(self.ixs)
+        self.triangulate()
 
 
 
