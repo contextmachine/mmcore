@@ -106,10 +106,17 @@ class NurbsCurve(ProxyParametricObject):
             color = (150, 150, 150)
         if slices is None:
             slices = self.slices
-        self._repr3d = ALine(uuid=uuid,
-                             name=name,
-                             geometry=[self.evaluate(t).tolist() for t in np.linspace(0, 1, slices)],
-                             material=LineBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
+
+        if self.degree == 1:
+            self._repr3d = ALine(uuid=uuid,
+                                 name=name,
+                                 geometry=self.control_points,
+                                 material=LineBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
+        else:
+            self._repr3d = ALine(uuid=uuid,
+                                 name=name,
+                                 geometry=[self.evaluate(t).tolist() for t in np.linspace(0, 1, slices)],
+                                 material=LineBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
         return self._repr3d
 
     def transform(self, m):
