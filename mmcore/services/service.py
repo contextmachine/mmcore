@@ -140,7 +140,7 @@ class RhinoIronPython(SocketService):
             data, server = self.sock.recvfrom(self.bytesize)
             return dict(zip(self.obj.__match_args__, CxmData(data).decompress()))
         except Exception as err:
-            #print(err)
+            print(err)
 
 
 import cxmdata
@@ -208,7 +208,7 @@ class RpycService(ClassicServer):
                         setattr(cls, k, v)
                         real_attrs[k] = v
                     else:
-                        #print(f"miss {k}")
+                        print(f"miss {k}")
                 pattrs.format(pprint.pformat(real_attrs, indent=4))
             if configs:
                 pconfigs.format(pprint.pformat(configs, indent=4))

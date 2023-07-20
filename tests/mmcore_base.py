@@ -1,7 +1,11 @@
 import unittest
-from mmcore.base.basic import Object3D, Group, DictSchema
+from dataclasses import is_dataclass
+
 import strawberry
-from dataclasses import is_dataclass, asdict
+
+from mmcore.base.basic import Group, Object3D
+from mmcore.typegen.dict_schema import DictSchema
+
 A=Object3D(name="A")
 B = Group(name="B")
 B.add(A)

@@ -3,8 +3,8 @@ import dataclasses
 import typing
 
 import numpy as np
-from mmcore.collections.basic import namedtuple
-
+from collections import namedtuple
+from mmcore.exceptions import MmodelIntersectException
 TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
@@ -14,7 +14,14 @@ ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
-
+Vector2dTuple= namedtuple("VectorTuple", ["x", "y"])
+Point2dTuple= namedtuple("PointTuple", ["x", "y"])
+Vector3dTuple= namedtuple("VectorTuple", ["x", "y", "z"])
+Point3dTuple= namedtuple("PointTuple", ["x", "y", "z"])
+LineTuple=namedtuple("LineTuple", ["start", "vec"])
+LineStartEndTuple=namedtuple("LineStartEndTuple", ["start", "end"])
+Circle2dTuple=namedtuple("Circle2dTuple", [ "radius", "x", "y"])
+Circle3dTuple=namedtuple("Circle2dTuple", [ "circle", "plane"])
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -337,3 +344,40 @@ def project_point_onto_plane(point, plane_point, plane_normal):
     projected_point = point - projection
 
     return projected_point
+
+
+def circle_intersection(c1:Circle2dTuple, c2:Circle3dTuple) -> list[Point2dTuple]:
+    '''
+    Computes the intersection points of two circles in the plane.
+
+    Args:
+        c1: tuple (x, y, r) representing the first circle with center (x, y) and radius r.
+        c2: tuple (x, y, r) representing the second circle with center (x, y) and radius r.
+
+    Returns:
+        A list containing the coordinates of the intersection points, or None if the circles do not intersect.
+    '''
+
+    # Unpack the circle data
+    r1 ,x1, y1 = c1
+    r2, x2, y2 = c2
+
+    # Compute the distance between the centers of the circles
+    d = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+    # Check if the circles intersect
+    if d > r1 + r2 or d < np.abs(r2 - r1):
+
+        raise MmodelIntersectException("Objects not intersects!")
+
+    # Compute the coordinates of the intersection points
+    a = (r1**2 - r2**2 + d**2) / (2 * d)
+    h = np.sqrt(r1**2 - a**2)
+    xm = x1 + a * (x2 - x1) / d
+    ym = y1 + a * (y2 - y1) / d
+    xs1 = xm + h * (y2 - y1) / d
+    xs2 = xm - h * (y2 - y1) / d
+    ys1 = ym - h * (x2 - x1) / d
+    ys2 = ym + h * (x2 - x1) / d
+
+    return [Point2dTuple((xs1, ys1)), Point2dTuple((xs2, ys2))]

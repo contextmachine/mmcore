@@ -23,6 +23,8 @@ class ExtendedNameNode(graphql.language.ast.NameNode):
     def convert(self):
         ...
 
+
+NO_SCALE = True
 class AExtendedNameNode(ExtendedNameNode):
 
     def generic_getter(self):
@@ -32,16 +34,25 @@ class AExtendedNameNode(ExtendedNameNode):
                 res = x.get(self.value)
                 res()
                 print(self.value)
-                if hasattr(res, "_repr3d"):
-                    res._repr3d._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
-                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
-                    return res._repr3d.root()
-                if hasattr(res, "root"):
-                    res._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
-                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
-                    return res.root()
+                if NO_SCALE:
+                    if hasattr(res, "_repr3d"):
+                        return res._repr3d.root()
+                    elif hasattr(res, 'root'):
+
+                        return res.root()
+                    else:
+                        return res
                 else:
-                    return res
+                    if hasattr(res, "_repr3d"):
+                        res._repr3d._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
+                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
+                        return res._repr3d.root()
+                    if hasattr(res, "root"):
+                        res._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
+                                          2.220446049250313e-19, 0, 0, 0, 0, 1]
+                        return res.root()
+                    else:
+                        return res
             except:
                 return x.get(self.value)
 
