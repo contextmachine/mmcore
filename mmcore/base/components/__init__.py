@@ -22,13 +22,15 @@ class Component:
         self.uuid = uuid
         self.name = name
 
+
         dct = dict(zip(list(cls.__annotations__.keys())[:len(args)], args))
         params |= dct
 
         #print(params)
-        self.params=params
+        self.__params__ = params
         for k, v in params.items():
             if v is not None:
+
                 setattr(self, k, v)
 
         prms = dict(name=name)
@@ -60,7 +62,7 @@ class Component:
 
 
     def __getstate__(self):
-        dct = dict(self.params)
+        dct = dict(self.__params__)
         dct |= dict(
             uuid=self.uuid,
             name=self.name
@@ -104,10 +106,10 @@ class ComponentProxy(Component):
         })
 
 
-a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
-b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
-c = ParamGraphNode(dict(x=10.0, y=20.0, z=30.0), name="С")
-d = ParamGraphNode(dict(x=-11.0, y=12.0, z=13.0), name="D")
+# a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
+# b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
+# c = ParamGraphNode(dict(x=10.0, y=20.0, z=30.0), name="С")
+# d = ParamGraphNode(dict(x=-11.0, y=12.0, z=13.0), name="D")
 
 from mmcore.geom.materials import ColorRGB
 

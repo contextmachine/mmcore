@@ -5,6 +5,7 @@ import uuid as _uuid
 import dill
 import ujson
 from graphql import GraphQLScalarType, GraphQLSchema
+
 from mmcore.base.registry import AGraph
 
 paramtable = dict()
@@ -105,33 +106,11 @@ class ParamGraph(AGraph):
                     pass
         return {"nodes": nodes, "edges": edges}
 
-from mmcore.services.redis import  sets
-
-class RedisParamGraph(ParamGraph):
-    rdict:sets.RedisHashDict=None
-    def __init__(self, pk="param_graph"):
-        super().__init__()
-        self.rdict=sets.RedisHashDict(pk)
-
-    @property
-    def relay_table(self):
-        return self.rdict
-
-    @relay_table.setter
-    def relay_table(self, v):
-
-        self.rdict=v
-
-    def set_relay(self, node, name, v):
-        self.rdict[node.uuid, name]=v.uuid
-    def get_relay(self, node, name):
-        return self.rdict[node.uuid, name]
-
 
 pgraph = ParamGraph()
 JSONParamMap=GraphQLScalarType(name="JSONParamMap", serialize=lambda value:ujson.dumps(value), parse_value=lambda value: ujson.loads(value))
 
-rpgraph =RedisParamGraph()
+
 
 @dataclasses.dataclass(unsafe_hash=True)
 class TermParamGraphNode:
@@ -186,6 +165,9 @@ class TermParamGraphNode:
             "data": {"label": f'Node {self.uuid}'},
             "position": {"x": x, "y": y}
         }
+
+
+'''
 @dataclasses.dataclass(unsafe_hash=True)
 class RedisTermNode(TermParamGraphNode):
     graph:RedisParamGraph=rpgraph
@@ -212,7 +194,7 @@ class RedisTermNode(TermParamGraphNode):
             if isinstance(data, TermParamGraphNode):
                 data = data.solve()
             self.graph.set_relay(self, "__data__", data)
-        return self.graph.get_relay(self, "__data__")
+        return self.graph.get_relay(self, "__data__")'''
 @dataclasses.dataclass(unsafe_hash=True)
 class ParamGraphNode:
     _params: dataclasses.InitVar['dict[str, typing.Union[ ParamGraphNode, typing.Any]]']
@@ -267,7 +249,6 @@ class ParamGraphNode:
 
         if _params is not None:
             for k, v in _params.items():
-
                 self.graph.set_relay(self, k, v)
 
     def neighbours(self):
@@ -541,9 +522,6 @@ def store_pgraph(graph=None):
         return dill.dumps(pgraph, byref=True, recurse=True)
     else:
         return dill.dumps(graph,byref=True, recurse=True)
-
-
-import copy
 
 
 class Graph:
