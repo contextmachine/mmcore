@@ -1,8 +1,8 @@
-from mmcore.base.sharedstate import SharedStateServer
-
 import IPython
+
 from mmcore import __version__
-from mmcore.base import deep_merge
+from mmcore.base.sharedstate import SharedStateServer
+from mmcore.base.utils import deep_merge
 
 
 class MasterModel(SharedStateServer):
