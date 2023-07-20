@@ -5,6 +5,7 @@ import uuid as _uuid
 import dill
 import ujson
 from graphql import GraphQLScalarType, GraphQLSchema
+
 from mmcore.base.registry import AGraph
 
 paramtable = dict()
@@ -105,8 +106,11 @@ class ParamGraph(AGraph):
                     pass
         return {"nodes": nodes, "edges": edges}
 
+
 pgraph = ParamGraph()
 JSONParamMap=GraphQLScalarType(name="JSONParamMap", serialize=lambda value:ujson.dumps(value), parse_value=lambda value: ujson.loads(value))
+
+
 
 @dataclasses.dataclass(unsafe_hash=True)
 class TermParamGraphNode:
@@ -141,13 +145,6 @@ class TermParamGraphNode:
 
         return self.solve()
 
-    def dispose(self):
-        del self.graph.item_table[self.uuid]
-        del self.graph.relay_table[self.uuid]
-
-    def del_from_graph(self, graph):
-        graph.item_table.pop(self.uuid)
-        graph.relay_table.pop(self.uuid)
 
 
     @property
@@ -170,6 +167,34 @@ class TermParamGraphNode:
         }
 
 
+'''
+@dataclasses.dataclass(unsafe_hash=True)
+class RedisTermNode(TermParamGraphNode):
+    graph:RedisParamGraph=rpgraph
+
+    def __post_init__(self, data):
+
+        if self.uuid is None:
+            self.uuid = _uuid.uuid4().hex
+
+        if self.name is None:
+            self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
+        if isinstance(data, TermParamGraphNode):
+            data = data.solve()
+        self.graph.item_table[self.uuid] = self
+        self.graph.relay_table[self.uuid, "__data__"] = data
+
+    def solve(self):
+        return self.graph.get_relay(self, "__data__")
+    def __call__(self, data=None):
+        if data is not None:
+            if DEBUG_GRAPH:
+                print(
+                    f"[{self.__class__.__name__}] TERM PARAM UPDATE: node: {self.uuid}\n\t{self.graph.relay_table[self.uuid]} to {data}")
+            if isinstance(data, TermParamGraphNode):
+                data = data.solve()
+            self.graph.set_relay(self, "__data__", data)
+        return self.graph.get_relay(self, "__data__")'''
 @dataclasses.dataclass(unsafe_hash=True)
 class ParamGraphNode:
     _params: dataclasses.InitVar['dict[str, typing.Union[ ParamGraphNode, typing.Any]]']
@@ -224,7 +249,6 @@ class ParamGraphNode:
 
         if _params is not None:
             for k, v in _params.items():
-
                 self.graph.set_relay(self, k, v)
 
     def neighbours(self):
@@ -421,6 +445,22 @@ def param_graph_node_native(fn):
     name = fn.__name__
 
     return ParamGraphNode(dict(zip(fn.__code__.co_varnames, fn.__defaults__)), name=name, resolver=wrapper)
+@dataclasses.dataclass
+class RedisPgraphNode(ParamGraphNode):
+    def __post_init__(self, _params):
+        if self.uuid is None:
+            self.uuid = _uuid.uuid4().hex
+        if self.name is None:
+            self.name = "_"
+            self.name = f'untitled{len(self.graph.get_from_startswith("untitled"))}'
+        if self.resolver is None:
+            self.resolver = lambda **kwargs: kwargs
+        self.graph.item_table[self.uuid] = self
+
+
+        if _params is not None:
+            for k, v in _params.items():
+                self.graph.set_relay(self, k, v)
 
 
 import itertools
@@ -459,15 +499,243 @@ def draw_aj(graph):
     return pd.DataFrame(dct), pd.DataFrame(dct2, index=list(keys)), pd.DataFrame(dct3, index=['value', 'uuid'])
 
 
-def restore_pgraph(s):
+def restore_pgraph(s, graph:ParamGraph=None):
+
     global pgraph
-    pgraph = dill.loads(s)
+    _graph = dill.loads(s)
+    if graph is not None:
+
+        graph.item_table|=_graph.item_table
+        graph.relay_table|=_graph.relay_table
+
+    else:
+        pgraph.item_table |= _graph.item_table
+        pgraph.relay_table |= _graph.relay_table
+
+
 
 
 def store_pgraph(graph=None):
     if graph is None:
         global pgraph
 
-        return dill.dumps(pgraph)
+        return dill.dumps(pgraph, byref=True, recurse=True)
     else:
-        return dill.dumps(graph)
+        return dill.dumps(graph,byref=True, recurse=True)
+
+
+class Graph:
+    def __init__(self):
+        self.table = dict()
+        self.edges = dict()
+        self.pedges = dict()
+
+    def add_edge(self, parent, name, child):
+        self.edges[parent][name] = child
+        self.pedges[child][parent] = name
+
+
+from collections import namedtuple
+
+ParentsResponse = namedtuple('ParentsResponse', ["roots", "tree"])
+import copy
+
+
+class Graph:
+    def __init__(self):
+        self.table = dict()
+        self.edges = dict()
+        self.pedges = dict()
+
+    def add_edge(self, parent, name, child):
+        self.edges[parent][name] = child
+        self.pedges[child][parent] = name
+
+
+from collections import namedtuple
+
+ParentsResponse = namedtuple('ParentsResponse', ["roots", "tree"])
+
+
+class CallGraphEvent:
+    def __init__(self, node, request):
+        self.node = node
+        self.graph = node.graph
+        self.request = request
+        self.changes = []
+        self.compiled = False
+        self.paths = dict()
+        self.roots = []
+        self.changes = dict()
+
+    def all_roots(self, node):
+        self.paths[node.uuid] = dict()
+        if node.is_root:
+            self.roots.append(node.uuid)
+
+
+        else:
+
+            for parent in node.parents():
+                self.paths[node.uuid][node.graph.pedges[node.uuid][parent.uuid]] = parent.uuid
+
+                self.all_roots(
+                    parent)
+
+    def build(self, node, request):
+
+        self.changes[node.uuid] = dict()
+        if node.is_scalar:
+            print(f"change {node.uuid} value: {node.value} -> {request}")
+            self.changes[node.uuid]["value"] = {"old": copy.deepcopy(node.value), "new": request}
+
+            node.value = request
+
+            self.all_roots(node)
+
+        else:
+
+            for k, v in request.items():
+                self.changes[node.uuid][k] = node.edges()[k]
+
+                self.build(node.graph.table[node.edges()[k]], v)
+        self.compiled = True
+
+    def __call__(self):
+
+        self.build(self.node, self.request)
+
+
+class Node:
+    uuid = None
+
+    def __init__(self, graph, uuid=None, value=None, **kwargs):
+        self.uuid = uuid
+        if uuid is None:
+            self.uuid = _uuid.uuid4().hex
+        self.graph = graph
+        self.is_scalar = False
+        if self.uuid in self.graph.table:
+            raise KeyError(f"UUID {self.uuid} is exist (to write exist uuid use restore option)")
+        self.graph.table[self.uuid] = self
+        self.graph.pedges[self.uuid] = dict()
+        self.graph.edges[self.uuid] = dict()
+        if value is not None:
+            self.is_scalar = True
+            self.value = value
+        if len(kwargs) > 0:
+            self.add_edges(**kwargs)
+
+    def keys(self):
+        return self.graph.edges[self.uuid].keys()
+
+    def edges(self):
+        return self.graph.edges[self.uuid]
+
+    def todict(self):
+        if self.is_scalar:
+            return self.value
+        dct = {}
+        for k in self.keys():
+            dct[k] = self.graph.table[self.edges()[k]].todict()
+        return dct
+
+    def resolve_list(self, n, itm):
+        l = []
+        for i, j in zip(n, itm):
+            if isinstance(i, (list, tuple)) and isinstance(j, (list, tuple)):
+                l.extend(self.resolve_list(i, j))
+
+            elif i in self.graph.table and isinstance(j, dict):
+
+                l.extend(self.graph.table[i](**j))
+            else:
+                l.extend(self.graph.table[i](value=j))
+        return l
+
+    def parents(self):
+
+        return [self.graph.table[uid] for uid in self.graph.pedges[self.uuid].keys()]
+
+    def children(self):
+
+        return [self.graph.table[uid] for uid in self.graph.edges[self.uuid].values()]
+
+    @property
+    def is_root(self):
+        return len(self.parents()) == 0
+
+    def all_connected_roots(self):
+        roots = []
+        if self.is_root:
+            return [self.uuid]
+        else:
+            for parent in self.parents():
+                roots.extend(parent.all_connected_roots())
+            return roots
+
+    def __getattr__(self, v):
+        if v in object.__getattribute__(self, "graph").edges[object.__getattribute__(self, "uuid")].keys():
+            graph = object.__getattribute__(self, "graph")
+            uuid = object.__getattribute__(self, "uuid")
+            node = graph.table[graph.edges[uuid][v]]
+            if node.is_scalar:
+                return node.value
+            return node
+        else:
+            return object.__getattribute__(self, v)
+
+    def __call__(self, value=None, **params):
+
+
+        if self.is_scalar:
+            if value is not None:
+                self.value=value
+
+            return self.all_connected_roots()
+
+        else:
+
+            if params is not None:
+                changes = []
+                for k,v in params.items():
+                    if (k in self.edges()) and (v is not None):
+                        if isinstance(v,dict):
+                            changes.extend(self.graph.table[self.edges()[k]](**v))
+                        elif isinstance(v,(list,tuple)) and  isinstance(self.edges()[k],(list,tuple)):
+                            changes.extend(self.resolve_list(self.edges()[k], v))
+                        else:
+                            changes.extend(self.graph.table[self.edges()[k]](value=v))
+
+
+                return list(set(changes))
+            return []
+
+
+
+
+    def __repr__(self):
+
+        return f"{self.__class__.__qualname__}({', '.join(f'{k}={getattr(self, k)}' for k in self.keys())}) at {self.uuid}"
+
+    def add_edges(self, **kwargs):
+        if not self.is_scalar:
+            for k, v in kwargs.items():
+                if isinstance(v, Node):
+
+                    self.graph.add_edge(self.uuid, k, v.uuid)
+                elif isinstance(v, dict):
+                    node = Node(self.graph, uuid=f'{self.uuid}_{k}', **v)
+                    self.graph.add_edge(self.uuid, k, node.uuid)
+                else:
+                    node = Node(self.graph, uuid=f'{self.uuid}_{k}', value=v)
+                    self.graph.add_edge(self.uuid, k, node.uuid)
+
+        else:
+            raise
+
+    def bind(self, cls):
+
+        self.resolver = cls
+        return self
+

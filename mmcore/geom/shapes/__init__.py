@@ -62,13 +62,21 @@ class Shape:
     h: typing.Any = None
 
     def __post_init__(self):
-        self.boundary = list(self.boundary)
+        if len(self.boundary[0])==3:
+
+            self.boundary = (np.array(self.boundary)[...,:2]).tolist()
+
         if not self.uuid:
             self.uuid = uuid.uuid4().hex
         if self.h is None:
             self.h = 0
         if self.holes is None:
+
             self.holes = []
+        else:
+            if len(self.holes[0][0]) == 3:
+                self.holes= (np.array(self.holes)[..., :2]).tolist()
+
         self._ref = Polygon(shell=self.boundary, holes=self.holes)
 
     @property

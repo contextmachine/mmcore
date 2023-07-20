@@ -1,30 +1,18 @@
-import operator
-
-from mmcore.base.basic import DictSchema
-import abc
-import copy
-import typing
 import dotenv
-from mmcore.base.geom import GeometryObject
+
+from mmcore.typegen.dict_schema import DictSchema
 
 dotenv.load_dotenv(".env")
-from typing import Generic, TypeVar
+from typing import TypeVar
 import cxm
-import ifcopenshell
-import requests
-import strawberry
-from ifcopenshell import geom
 from strawberry.extensions import DisableValidation
-from typing import TYPE_CHECKING, Annotated
 
-import mmcore.base.models.gql
 from mmcore.base.basic import *
-from mmcore.base.geom.tess import TessellateIfc
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from strawberry.fastapi import GraphQLRouter
 from fastapi import FastAPI
-import os, uvicorn
+import uvicorn
 
 TYPE_CHECKING = False
 cxm.S3Session()
@@ -32,11 +20,6 @@ ee = ElementSequence(list(objdict.values()))
 
 T = TypeVar("T")
 
-import pyvis
-import networkx
-import strawberry
-
-from mmcore.node import node_eval
 import json
 import strawberry
 import hashlib

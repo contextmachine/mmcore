@@ -3,15 +3,17 @@ import json
 import os
 import sys
 
-import yaml
 import dotenv
-import rich
 import jinja2
-from mmcore.utils.termtools import ColorStr, TermColors, MMColorStr
+import rich
+import yaml
+
 DIRECTORY = "/".join(__file__.split("/")[:-1])
 #dotenv.load_dotenv(dotenv_path="~/env/.env")
 import mmcore
-from mmcore.base import DictSchema
+from mmcore.typegen.dict_schema import DictSchema
+
+
 def stringify_kube_env(name, val):
     return f"""- name: {name}
     value: {val}"""

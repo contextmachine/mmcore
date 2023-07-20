@@ -1,7 +1,9 @@
-from abc import abstractmethod
 import uuid as _uuid
+from abc import abstractmethod
+
 import randomname
-from mmcore.base import APoint, AGeom
+
+from mmcore.base import AGeom, APoint
 from mmcore.base.params import ParamGraphNode
 
 
@@ -9,34 +11,36 @@ class Component:
     name: str = None
     uuid: str = None
     __exclude__ = ["uuid"]
+
     def __new__(cls, *args, name=None, uuid=None, **params):
         self = super().__new__(cls)
 
         if uuid is None:
             uuid = _uuid.uuid4().hex
             if name is None:
-                name=randomname.get_name()
+                name = randomname.get_name(sep="_")
         self.uuid = uuid
         self.name = name
+
 
         dct = dict(zip(list(cls.__annotations__.keys())[:len(args)], args))
         params |= dct
 
-        print(params)
-
+        #print(params)
+        self.__params__ = params
         for k, v in params.items():
             if v is not None:
+
                 setattr(self, k, v)
 
-        prms = dict()
+        prms = dict(name=name)
         for k in params.keys():
             if not k.startswith("_") and (k not in self.__exclude__):
                 prms[k] = params[k]
 
         node = ParamGraphNode(prms, uuid=self.uuid, name=self.name, resolver=self)
         self.param_node = node
-        node.solve()
-
+        node()
         return node
 
     def __call__(self, **params):
@@ -51,6 +55,20 @@ class Component:
 
     def __hash__(self):
         return self.param_node.__hash__()
+
+    def __setstate__(self, state):
+        for k,v in state.items():
+            setattr(self,k,v)
+
+
+    def __getstate__(self):
+        dct = dict(self.__params__)
+        dct |= dict(
+            uuid=self.uuid,
+            name=self.name
+
+        )
+        return dct
 
 
 class ComponentProxy(Component):
@@ -88,10 +106,10 @@ class ComponentProxy(Component):
         })
 
 
-a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
-b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
-c = ParamGraphNode(dict(x=10.0, y=20.0, z=30.0), name="С")
-d = ParamGraphNode(dict(x=-11.0, y=12.0, z=13.0), name="D")
+# a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
+# b = ParamGraphNode(dict(x=-1.0, y=-2.0, z=-3.0), name="B")
+# c = ParamGraphNode(dict(x=10.0, y=20.0, z=30.0), name="С")
+# d = ParamGraphNode(dict(x=-11.0, y=12.0, z=13.0), name="D")
 
 from mmcore.geom.materials import ColorRGB
 
@@ -105,6 +123,7 @@ from mmcore.geom.materials import ColorRGB
 
 col = ColorRGB(70, 70, 70).decimal
 col2 = ColorRGB(157, 75, 75).decimal
+
 
 class GeometryComponent(Component):
     color = (100, 100, 100)
