@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mmcore"
-version = "0.3.6"
+version = "0.3.9"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>"]
 license = "Apache License Version 2.0"
@@ -17,7 +17,7 @@ termcolor = { version = "^2.3.0", python = "^3.7" }
 setuptools = { version = "^67.8.0", python = "^3.7" }
 earcut = { version = "^1.1.5", python = "^3.8" }
 compas = { version = "*", python = "^3.7" }
-numpy = { version = "^1.24.0", python = "^3.8" }
+numpy = { version = "1.25.1", python = "^3.9" }
 pandas = { version = "*", python = "^3.7" }
 python-dotenv = { version = "*", python = "^3.7" }
 redis = { version = "*", python = "^3.7" }
@@ -41,8 +41,8 @@ more-itertools = { version = "*", python = "^3.7" }
 ujson = { version = "*", python = "^3.7" }
 pyquaternion = { version = "*", python = "^3.7" }
 multiprocess = { version = "*", python = "^3.7" }
-
-
+randomname = { version = "*", python = "^3.7" }
+codon-jit = { version = "*", python = "^3.9" }
 
 [build-system]
 requires = ["poetry-core"]
