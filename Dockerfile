@@ -21,10 +21,17 @@ FROM python:latest
 # ⚙️ Please set you environment globals :)
 # ENV PARAM=value
 
+RUN apt update && sudo install libpython3-dev
+
+
+RUN /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
+
 WORKDIR /mmcore
 COPY --link . .
 #RUN apt update && apt -y install npm nodejs
 EXPOSE 7711
+
+
 RUN python3 -m pip install -r requirements.txt
 RUN python3 -m pip install .
 
