@@ -42,7 +42,7 @@ class Tessellate(metaclass=ABCMeta):
         self.color = color
         self.generate_material()
 
-    def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=True):
+    def tessellate(self, compute_edges=False, mesh_quality=1.0, parallel=False):
 
         self.tess.Compute(compute_edges=compute_edges,
                           mesh_quality=mesh_quality,

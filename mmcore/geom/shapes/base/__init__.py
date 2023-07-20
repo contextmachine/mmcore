@@ -5,10 +5,11 @@ import earcut
 import numpy as np
 from earcut import earcut
 
-from mmcore.base import AMesh
+from mmcore.base import ALine, AMesh
 from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
-from mmcore.geom.parametric import PlaneLinear, ray_triangle_intersection, line_plane_intersection, Linear
+from mmcore.geom.materials import ColorRGB
+from mmcore.geom.parametric import Linear, PlaneLinear, line_plane_intersection, ray_triangle_intersection
 from mmcore.geom.tess import simple_tessellate
 from mmcore.geom.transform import TransformV2
 from mmcore.geom.vectors import V3
@@ -115,30 +116,63 @@ patch_table = []
 class VertexNode:
     table = point_table
 
-    def __init__(self, data=None):
+    def __init__(self, data=None, table=None, ptr=None):
         super().__init__()
+        if table is not None:
+            self.table = table
 
-        self._data = None
-        self.data = data
+        if (ptr is not None) and (data is not None):
+            raise
+        elif (ptr is not None) and (data is None):
+            self.ptr = ptr
+        else:
+            self.data = data
         self.prev = self
         self.next = self
 
     @property
     def data(self):
-        return self.table[self._data]
+        return self.table[self.ptr]
 
     @data.setter
     def data(self, v):
         if isinstance(v, int):
-            self._data = v
+            self.ptr = v
         else:
             if v not in self.table:
                 self.table.append(v)
 
-            self._data = self.table.index(v)
+            self.ptr = self.table.index(v)
 
     def transform(self, m: TransformV2):
         ...
+
+
+class NodeDescriptor:
+    def __init__(self, nodetype=VertexNode):
+        self._nodetype = nodetype
+
+    def __get__(self, instance, owner: DCLL):
+        if instance is not None:
+
+            def new(*args, **kwargs):
+
+                if kwargs.get("table") is None:
+                    kwargs["table"] = instance.table
+                return self._nodetype(*args, **kwargs)
+
+            return new
+        else:
+            return self._nodetype
+
+    def __set_name__(self, owner, name):
+        self._name = name
+        self._nodetype.table = owner.table
+
+    def __set__(self, instance, value):
+        instance.nodetype = value
+
+
 
 
 from scipy.spatial.distance import euclidean
@@ -146,7 +180,28 @@ from scipy.spatial.distance import euclidean
 EPS = 6
 
 
-class ShapeDCLL(DCLL[VertexNode]):
+class ShapeDCLL(DCLL):
+    nodetype = NodeDescriptor(VertexNode)
+    table = point_table
+
+    @classmethod
+    def from_list(cls, seq, table=None):
+        lst = cls(table=table)
+        for s in seq:
+            lst.append(s)
+
+        return lst
+
+    def __init__(self, table=None):
+        if table is not None:
+            self.table = table
+
+        super().__init__()
+
+        self.head = None
+        self.count = 0
+        self._temp = self.head
+
     def isplanar(self):
         l = []
         for pt in list(self):
@@ -180,12 +235,22 @@ class OccPrism(OccShape):
         self.shape = self.shape.Shape()
 
 
+COMPUTE_SHAPE_BOUNDS = False
+
+
+def solve_boundary_repr(self, color=ColorRGB(20, 20, 20).decimal, **kwargs):
+    return ALine(points=list(self.points),
+                 name=self.uuid + "_boundary",
+                 uuid=self.uuid + "_boundary",
+                 material=ALine.material_type(color=color, **kwargs))
 class Triangle:
     table = point_table
     width = None
     _occ = None
 
+
     def triangulate(self):
+
         pts = list(self.points)
         res = earcut.flatten([pts])
         tess = earcut.earcut(res['vertices'], res['holes'], res['dimensions'])
@@ -194,21 +259,38 @@ class Triangle:
         return self.mesh_data
 
     @classmethod
-    def from_indices(cls, ixs):
-        return cls(*[cls.table[pt] for pt in ixs])
+    def from_indices(cls, ixs, uuid=None, table=None):
+        if table is None:
+            table = cls.table
+        if uuid is None:
+            uuid = hex(id(table)) + "".join(hex(n) for n in ixs)
 
-    def __init__(self, *pts):
+        return cls(*[cls.table[pt] for pt in ixs], uuid=uuid, table=table)
+    @property
+    def uuid(self):
+        return self._uuid
+    @uuid.setter
+    def uuid(self,v):
+        self._uuid=v
+        self._repr3d.uuid=self._uuid
+
+    def __init__(self, *pts, uuid=None, table=None):
+
         object.__init__(self)
+        if table is not None:
+            self.table = table
+
         self.ixs = []
         for v in pts:
-            if v not in point_table:
-                point_table.append(v)
+            if v not in self.table:
+                self.table.append(v)
 
             self.ixs.append(self.table.index(v))
+        self._uuid = uuid if uuid is not None else hex(id(table)) + "".join(hex(n) for n in self.ixs)
+        self.points = ShapeDCLL.from_list(self.ixs, table=self.table)
+        self.triangulate()
 
-        self.points = ShapeDCLL.from_list(self.ixs)
 
-        self.__repr3d__()
 
     def get_point(self, i):
         return self.table[i]
@@ -243,8 +325,8 @@ class Triangle:
         if (sideB == []) or (sideA == []):
             return [self.points[i] for i in sideA], [self.points[i] for i in sideB]
 
-        la = ShapeDCLL.from_list([self.points[i] for i in sideA])
-        lb = ShapeDCLL.from_list([self.points[i] for i in sideB])
+        la = ShapeDCLL.from_list([self.points[i] for i in sideA], table=self.table)
+        lb = ShapeDCLL.from_list([self.points[i] for i in sideB], table=self.table)
 
         for i in sideA:
             for j in sideB:
@@ -253,9 +335,13 @@ class Triangle:
                 la.insert_begin(res)
         if not return_lists:
             if len(la) > len(lb):
-                sa, sb = Quad(*list(la)), Triangle(*list(lb))
+                sa, sb = Quad(*list(la), uuid=self.uuid + "_a", table=self.table), Triangle(*list(lb),
+                                                                                            uuid=self.uuid + "_b",
+                                                                                            table=self.table)
             else:
-                sa, sb = Triangle(*list(la)), Quad(*list(lb))
+                sa, sb = Triangle(*list(la), uuid=self.uuid + "_a", table=self.table), Quad(*list(lb),
+                                                                                            uuid=self.uuid + "_b",
+                                                                                            table=self.table)
             return sa, sb
         return la, lb
 
@@ -346,6 +432,7 @@ class Triangle:
             return self._occ_shape
 
     def __repr3d__(self):
+        """
         if HAS_OCC:
             if USE_OCC:
                 if self.width is not None:
@@ -358,10 +445,13 @@ class Triangle:
                 print('1.1')
                 self.triangulate()
                 self._repr3d = self.mesh_data.to_mesh(uuid=f'{id(self)}')
-        else:
-            print('2.0')
-            self.triangulate()
-            self._repr3d = self.mesh_data.to_mesh(uuid=f'{id(self)}')
+        else:"""
+
+        self.triangulate()
+        self._repr3d = self.mesh_data.to_mesh(uuid=self.uuid)
+        global COMPUTE_SHAPE_BOUNDS
+        if COMPUTE_SHAPE_BOUNDS:
+            self._repr3d.boundary = solve_boundary_repr(self)
         return self._repr3d
 
     def root(self):
@@ -376,15 +466,28 @@ class Triangle:
 
         return OccShape(
             BRepAlgoAPI_Common(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
+    @property
+    def mesh(self):
+        if hasattr(self,"_repr3d"):
+            if isinstance(self._repr3d, AMesh):
+                return self._repr3d
+        else:
+            return self.__repr3d__()
+
+    def tomesh(self, compute_bounds=False, **kwargs):
+        self.__repr3d__()
+        if compute_bounds and not COMPUTE_SHAPE_BOUNDS:
+            self._repr3d.boundary = solve_boundary_repr(self, **kwargs)
+        return self._repr3d
+
 
 
 class Quad(Triangle):
     """A 3d quadrilateral (polygon with 4 vertices)"""
 
-    table = point_table
 
-    def __init__(self, /, *pts):
-        super().__init__(*pts)
+    def __init__(self, /, *pts, **kwargs):
+        super().__init__(*pts,**kwargs)
 
     def isplanar(self):
         return self.points.isplanar()
@@ -392,7 +495,7 @@ class Quad(Triangle):
     def plane_split(self, plane, return_lists=False):
         a, b = super().plane_split(plane, return_lists=True)
         if return_lists:
-            return Loop(*a), Loop(*b)
+            return Loop(*a, uuid=self.uuid + "_a", table=self.table), Loop(*b, uuid=self.uuid + "_b", table=self.table)
         else:
             return a, b
 
@@ -405,16 +508,17 @@ class Quad(Triangle):
         self.points[3] = v
 
     def _tri(self):
-        return [Triangle(self.v1, self.v2, self.v3), Triangle(self.v2, self.v3, self.v4)]
+        return [Triangle(self.v1, self.v2, self.v3, uuid=self.uuid + "_a", table=self.table),
+                Triangle(self.v2, self.v3, self.v4, uuid=self.uuid + "_b", table=self.table)]
 
     def map(self, f):
-        return Quad(f(self.v1), f(self.v2), f(self.v3), f(self.v4))
+        return Quad(f(self.v1), f(self.v2), f(self.v3), f(self.v4), uuid=self.uuid, table=self.table)
 
     def swap(self, swap=True):
         if swap:
-            return Quad(self.v4, self.v3, self.v2, self.v1)
+            return Quad(self.v4, self.v3, self.v2, self.v1, uuid=self.uuid, table=self.table)
         else:
-            return Quad(self.v1, self.v2, self.v3, self.v4)
+            return Quad(self.v1, self.v2, self.v3, self.v4, uuid=self.uuid, table=self.table)
 
 
 class Loop(Quad):
@@ -434,3 +538,81 @@ class OccLikeLoop(Loop):
     def width(self, v):
         self._width = v
         self.__repr3d__()
+
+
+class PolyHedron:
+    def __new__(cls, *args, uuid=None, table=None, **kwargs):
+        obj = super().__new__(cls)
+        if table is not None:
+            obj.table = table
+        else:
+            obj.table = []
+        obj.uuid = uuid if uuid is not None else hex(id(obj.table))
+        obj.shapes = []
+        obj._normals_table = None
+        obj._pt_faces = dict()
+        return obj(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+
+        for k, v in kwargs.items():
+            if v is not None:
+                self.__dict__[k] = v
+
+        return self
+
+    def add_shape(self, points):
+
+        ixs = []
+        for pt in points:
+            print(pt)
+            if pt in self.table:
+                vi = self.table.index(pt)
+
+            else:
+                self.table.append(pt)
+
+                vi = len(self.table) - 1
+                self._pt_faces[vi] = set()
+            ixs.append(vi)
+            self._pt_faces[vi].add(len(self.shapes))
+        self.shapes.append(ixs)
+
+        self.uuid + "_" + "".join(hex(i) for i in ixs)
+
+    def get_shape(self, item):
+
+        cls = [Triangle, Quad, Loop][len(self.shapes[item]) - 3]
+
+        obj = cls(*[self.table[jj] for jj in self.shapes[item]],
+                  uuid=self.uuid + "_" + "".join(hex(ix) for ix in self.shapes[item]), table=self.table)
+
+        return obj
+
+    def gen_triangulated_indices(self):
+
+        for sh in range(len(self.shapes)):
+            ss = self.get_shape(sh).triangulate()
+            yield ss.ixs
+
+    def triangulate(self):
+
+        self.mesh_data = MeshData(self.table, indices=self.shapes)
+        return self.mesh_data
+
+    def to_mesh(self, **kwargs):
+        md = self.triangulate()
+        self._repr3d = md.to_mesh(uuid=self.uuid, **kwargs)
+        return self._repr3d
+
+    def solve_normals(self):
+        norms = [None] * len(self.table)
+        for k, v in enumerate(self.table):
+            sh = self.get_shape(list(self._pt_faces[k])[0])
+
+            norms[k] = sh.normal
+
+        self._normals_table = norms
+        self.mesh_data = MeshData(self.table, indices=self.shapes, normals=norms)
+
+        return self.mesh_data
