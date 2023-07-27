@@ -7,7 +7,7 @@
 # -------+------------------------+----------------------------------+------------------------------------------------+
 # CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
-FROM python:latest
+FROM buildpack-deps as deps
 
 
 # Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
@@ -19,20 +19,21 @@ FROM python:latest
 #    micromamba clean --all --yes
 # 🐳 Setting pre-build params and environment variables.
 # ⚙️ Please set you environment globals :)
-# ENV PARAM=value
 
-RUN apt update && sudo install libpython3-dev
 
+RUN apt update -y && apt install python3.11-full -y && apt install python3-pip -y
+
+FROM deps AS deps-codon
 
 RUN /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
+FROM deps-codon
 
 WORKDIR /mmcore
 COPY --link . .
 #RUN apt update && apt -y install npm nodejs
 EXPOSE 7711
 
+RUN python3.11 -m pip install -e . --break-system-packages
 
-RUN python3 -m pip install -r requirements.txt
-RUN python3 -m pip install .
 
 #ENTRYPOINT ["python3", "-m", "mmcore.serve", "--serve-start=true"]

@@ -229,6 +229,7 @@ class ControlPointList(Component):
         if not isinstance(points[0], (Component, ControlPoint)):
             cpts = []
             for i, pt in enumerate(points):
+                print(pt)
                 x, y, z = pt
                 cpts.append(
                     cls.point_type(x=x, y=y, z=z, name="Point" + points_keys[i].upper(), uuid="point" + points_keys[i]))
