@@ -481,14 +481,23 @@ class DNode:
 class DLLIterator(Iterator):
     def __init__(self, dcll: 'DoublyLinkedList'):
         self._dcll = dcll
-        self._temp = self._dcll.start_node
-        self._i = 0
+        self._temp = None
+
 
     def __next__(self):
 
-        if self._temp is not None:
+        if self._temp is None:
+            self._temp = self._dcll.head
+            return self._temp.data
+
+
+        elif self._temp.next is not None:
+
+
             self._temp = self._temp.next
-            return self._temp.prev
+            return self._temp.data
+
+
         else:
 
             raise StopIteration
@@ -498,6 +507,7 @@ class DoublyLinkedList:
     __node_type__ = DNode
 
     def __class_getitem__(cls, item):
+
         return type(cls.__name__ + f"[{item}]", (cls,), {"__node_type__": item})
 
     def __init__(self, seq=()):

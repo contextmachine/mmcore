@@ -15,44 +15,46 @@ from mmcore.geom.transform import TransformV2
 from mmcore.geom.vectors import V3
 
 HAS_OCC = True
-try:
-    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
-    from OCC.Core.BRepBuilderAPI import (
-        BRepBuilderAPI_MakeWire,
-        BRepBuilderAPI_MakeEdge,
-        BRepBuilderAPI_MakeFace,
-        BRepBuilderAPI_GTransform,
-    )
-    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Common
-    from OCC.Core.gp import (
-        gp_Pnt2d,
-        gp_Circ2d,
-        gp_Ax2d,
-        gp_Dir2d,
-        gp_Pnt,
-        gp_Pln,
-        gp_Vec,
-        gp_OX,
-        gp_Trsf,
-        gp_GTrsf,
-    )
-    from OCC.Core.BRepLib import breplib_BuildCurves3d
-    from OCC.Core.BRepOffset import BRepOffset_Skin
-    from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakePrism
-    from OCC.Display.SimpleGui import init_display
-    from OCC.Core.GCE2d import GCE2d_MakeLine
-    from OCC.Core.Geom import Geom_Plane
-    from OCC.Core.Geom2d import Geom2d_Circle
-    from OCC.Core.GeomAbs import GeomAbs_Arc
-    from OCC.Core.TopTools import TopTools_ListOfShape
-    from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Solid
-    from OCC.Extend.TopologyUtils import TopologyExplorer
-except Exception as err:
-    print("OCC is not provide")
-    HAS_OCC = False
 
 USE_OCC = True
-
+COMPUTE_SHAPE_BOUNDS = False
+if USE_OCC:
+    try:
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeWire,
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeFace,
+            BRepBuilderAPI_GTransform,
+        )
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Common
+        from OCC.Core.gp import (
+            gp_Pnt2d,
+            gp_Circ2d,
+            gp_Ax2d,
+            gp_Dir2d,
+            gp_Pnt,
+            gp_Pln,
+            gp_Vec,
+            gp_OX,
+            gp_Trsf,
+            gp_GTrsf,
+        )
+        from OCC.Core.BRepLib import breplib_BuildCurves3d
+        from OCC.Core.BRepOffset import BRepOffset_Skin
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakePrism
+        from OCC.Display.SimpleGui import init_display
+        from OCC.Core.GCE2d import GCE2d_MakeLine
+        from OCC.Core.Geom import Geom_Plane
+        from OCC.Core.Geom2d import Geom2d_Circle
+        from OCC.Core.GeomAbs import GeomAbs_Arc
+        from OCC.Core.TopTools import TopTools_ListOfShape
+        from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Solid
+        from OCC.Extend.TopologyUtils import TopologyExplorer
+    except Exception as err:
+        print("OCC is not provide")
+        HAS_OCC = False
+        USE_OCC = False
 
 class Tri:
     """A 3d triangle"""
@@ -66,23 +68,6 @@ class Tri:
         return Tri(f(self.v1), f(self.v2), f(self.v3))
 
 
-class Quad:
-    """A 3d quadrilateral (polygon with 4 vertices)"""
-
-    def __init__(self, v1, v2, v3, v4):
-        self.v1 = v1
-        self.v2 = v2
-        self.v3 = v3
-        self.v4 = v4
-
-    def map(self, f):
-        return Quad(f(self.v1), f(self.v2), f(self.v3), f(self.v4))
-
-    def swap(self, swap=True):
-        if swap:
-            return Quad(self.v4, self.v3, self.v2, self.v1)
-        else:
-            return Quad(self.v1, self.v2, self.v3, self.v4)
 
 
 class SimpleMesh:
@@ -235,7 +220,7 @@ class OccPrism(OccShape):
         self.shape = self.shape.Shape()
 
 
-COMPUTE_SHAPE_BOUNDS = False
+
 
 
 def solve_boundary_repr(self, color=ColorRGB(20, 20, 20).decimal, **kwargs):
@@ -243,11 +228,22 @@ def solve_boundary_repr(self, color=ColorRGB(20, 20, 20).decimal, **kwargs):
                  name=self.uuid + "_boundary",
                  uuid=self.uuid + "_boundary",
                  material=ALine.material_type(color=color, **kwargs))
+
+
+attribute_table = dict()
+
+
+
+
 class Triangle:
     table = point_table
+    attribute_table = attribute_table
     width = None
     _occ = None
 
+    @property
+    def props(self):
+        return self.attribute_table[self.uuid]
 
     def triangulate(self):
 
@@ -256,6 +252,7 @@ class Triangle:
         tess = earcut.earcut(res['vertices'], res['holes'], res['dimensions'])
 
         self.mesh_data = MeshData(pts, indices=np.array(tess).reshape((len(tess) // 3, 3)).tolist())
+
         return self.mesh_data
 
     @classmethod
@@ -272,25 +269,28 @@ class Triangle:
     @uuid.setter
     def uuid(self,v):
         self._uuid=v
-        self._repr3d.uuid=self._uuid
 
-    def __init__(self, *pts, uuid=None, table=None):
+    def __init__(self, *pts, uuid=None, table=None, attribute_table=None, props=None):
 
         object.__init__(self)
+        if props is not None:
+            props = dict()
         if table is not None:
             self.table = table
-
+        if attribute_table is not None:
+            self.attribute_table = attribute_table
         self.ixs = []
-        for v in pts:
-            if v not in self.table:
-                self.table.append(v)
-
-            self.ixs.append(self.table.index(v))
+        if len(pts) > 0:
+            self.set_points(pts)
         self._uuid = uuid if uuid is not None else hex(id(table)) + "".join(hex(n) for n in self.ixs)
-        self.points = ShapeDCLL.from_list(self.ixs, table=self.table)
-        self.triangulate()
+        if self._uuid not in self.attribute_table:
+            self.attribute_table[self._uuid] = props
 
+    def __call__(self, *pts, attributes=None):
 
+        for i, pt in zip(self.ixs, pts):
+            self[i] = pt
+        return self
 
     def get_point(self, i):
         return self.table[i]
@@ -298,9 +298,27 @@ class Triangle:
     def get_points(self):
         return [self.table[i] for i in self.ixs]
 
+    def set_points(self, pts):
+        if isinstance(pts[0], int):
+            self.ixs = list(pts)
+        for v in pts:
+            if v not in self.table:
+                self.table.append(v)
+
+            self.ixs.append(self.table.index(v))
+
+        self.points = ShapeDCLL.from_list(self.ixs, table=self.table)
+        self.triangulate()
     def __getitem__(self, item):
 
         return self.get_point(self.ixs[item])
+
+    def __setitem__(self, item, pt):
+        if isinstance(pt, int):
+            self.ixs[item] = pt
+        else:
+            self.table[self.ixs[item]] = pt
+
 
     @property
     def plane(self):
@@ -522,6 +540,7 @@ class Quad(Triangle):
 
 
 class Loop(Quad):
+
     @classmethod
     def from_loop(cls, poly):
         return cls.from_indices(poly.ixs)
@@ -540,17 +559,37 @@ class OccLikeLoop(Loop):
         self.__repr3d__()
 
 
+class UniversalLoop(Loop):
+    def __new__(cls, /, *pts, **kwargs):
+
+        if len(pts) == 3:
+            return Triangle(*pts, **kwargs)
+        elif len(pts) == 4:
+            return Quad(*pts, **kwargs)
+        else:
+
+            return super().__new__(cls, *pts, **kwargs)
+
+
+
+
+
 class PolyHedron:
-    def __new__(cls, *args, uuid=None, table=None, **kwargs):
+    def __new__(cls, *args, uuid=None, table=None, attributes_table=None, **kwargs):
         obj = super().__new__(cls)
         if table is not None:
             obj.table = table
         else:
             obj.table = []
+        if attributes_table is not None:
+            obj.attributes_table = attributes_table
+        else:
+            obj.attributes_table = dict()
         obj.uuid = uuid if uuid is not None else hex(id(obj.table))
         obj.shapes = []
         obj._normals_table = None
         obj._pt_faces = dict()
+
         return obj(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
@@ -561,33 +600,45 @@ class PolyHedron:
 
         return self
 
-    def add_shape(self, points):
+    def add_shape(self, points, attributes=None):
 
         ixs = []
         for pt in points:
-            print(pt)
+            # print(pt)
             if pt in self.table:
                 vi = self.table.index(pt)
+
 
             else:
                 self.table.append(pt)
 
                 vi = len(self.table) - 1
-                self._pt_faces[vi] = set()
-            ixs.append(vi)
-            self._pt_faces[vi].add(len(self.shapes))
-        self.shapes.append(ixs)
 
-        self.uuid + "_" + "".join(hex(i) for i in ixs)
+            ixs.append(vi)
+
+
+        self.shapes.append(ixs)
+        u = self.children_uuid(len(self.shapes) - 1)
+        if attributes is None:
+            attributes = dict()
+        if u not in self.attributes_table:
+            self.attributes_table[u] = attributes
+        else:
+            self.attributes_table[u] |= attributes
+
+        return u
 
     def get_shape(self, item):
 
-        cls = [Triangle, Quad, Loop][len(self.shapes[item]) - 3]
+        if len(self.shapes[item]) == 3:
+            cls = Triangle
+        elif len(self.shapes[item]) == 4:
+            cls = Quad
+        else:
+            cls = Loop
+        return cls(*[self.table[jj] for jj in self.shapes[item]],
+                   uuid=self.children_uuid(item), table=self.table, attribute_table=self.attributes_table)
 
-        obj = cls(*[self.table[jj] for jj in self.shapes[item]],
-                  uuid=self.uuid + "_" + "".join(hex(ix) for ix in self.shapes[item]), table=self.table)
-
-        return obj
 
     def gen_triangulated_indices(self):
 
@@ -616,3 +667,10 @@ class PolyHedron:
         self.mesh_data = MeshData(self.table, indices=self.shapes, normals=norms)
 
         return self.mesh_data
+
+    def children_uuid(self, i):
+        return self.uuid + "_" + str(i)
+
+
+class Assembly(PolyHedron):
+    table = []
