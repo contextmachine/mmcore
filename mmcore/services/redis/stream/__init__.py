@@ -1,7 +1,48 @@
-
+import ast
 import uuid
 
 import redis
+
+
+def ppp(s):
+    if isinstance(s, bytes):
+        return ppp(s.decode())
+
+
+
+    elif isinstance(s, str) and "\\" in s:
+        try:
+            return ppp(ast.literal_eval(s))
+        except SyntaxError as err:
+            return ppp(ast.literal_eval(s.strip('"')))
+
+    elif isinstance(s, str) and any(t in s for t in ["false", "true", "null"]):
+        return encode_dict_with_bytes(json.loads(s))
+
+
+
+    elif isinstance(s, (dict, list, tuple)):
+        return encode_dict_with_bytes(s)
+    else:
+        try:
+            return ast.literal_eval(s)
+        except ValueError:
+            return s
+        except SyntaxError:
+            return s
+
+
+def encode_dict_with_bytes(obj):
+    if isinstance(obj, dict):
+        return dict((encode_dict_with_bytes(k), encode_dict_with_bytes(v)) for k, v in obj.items())
+    elif isinstance(obj, (list, tuple)):
+        return [encode_dict_with_bytes(v) for v in obj]
+    elif isinstance(obj, (str, bytes, bytearray)):
+
+        return ppp(obj)
+
+    else:
+        return obj
 
 
 class StreamConnector:
@@ -50,16 +91,37 @@ class StreamConnector:
         return self.conn.xread(streams, count=count, **kwargs)
 
     def xlen(self):
-        self.conn.xlen(self.name)
+        return self.conn.xlen(self.name)
 
     def __getitem__(self, item):
-        min = str(int(item))
-        max = str(int(item) + 1)
 
-        return self.xrange(count=1, min=min, max=max)
+        # FIXME В перспективе это может стать долго
+        #  ну и как минимум это игнорирует основные возможности предоставляемые redis
+        _all = self.xrange(count=self.xlen(), min="-", max="+")
+
+        _all.reverse()
+        return encode_dict_with_bytes(_all[item])
+
+    def get_all(self, reverse=False):
+        _all = self.xrange(count=self.xlen(), min="-", max="+")
+        if reverse:
+            _all.reverse()
+        return encode_dict_with_bytes(_all)
 
     def keys(self):
-        return [tg.decode().split("-")[0] for tg in list(zip(*self.xrange(count=1)))[0]]
+        for k, v in self.get_all():
+            yield k
+
+    def values(self):
+        for k, v in self.get_all():
+            yield v
+
+    def items(self):
+        for k, v in self.get_all():
+            yield k, v
+
+    def todict(self, reverse=True):
+        return dict(self.get_all(reverse=reverse))
 
     def __len__(self):
         return self.xlen()
@@ -67,44 +129,38 @@ class StreamConnector:
 
 import json
 
+from mmcore.utils.versioning import Now
 
-def encode_dict_with_bytes(obj):
-    if isinstance(obj, dict):
-        return dict((encode_dict_with_bytes(k), encode_dict_with_bytes(v)) for k, v in obj.items())
-    elif isinstance(obj, (list, tuple)):
-        return [encode_dict_with_bytes(v) for v in obj]
-    elif isinstance(obj, (bytes, bytearray)):
-        norm = obj.decode("ASCII")
+from mmcore.typegen.dict_schema import DictSchema
 
-        if norm == '':
-            return ''
-        else:
-            if all([char in "0123456789." for char in norm]):
-                if "." in norm:
-                    return float(norm)
-                else:
-                    return int(norm)
-            elif '"' in norm:
-                return json.loads(obj.decode("ASCII"))
-            else:
-                return obj.decode("ASCII")
-    else:
-        return obj
-
-
+rconn = None
 class SharedDict(dict):
-    schema = {}
+    _schema = {}
 
     def __init__(self, name, conn, uuid=None):
         self.stream_name = name
         self.conn = conn
         self._uuid = uuid
 
-        dict.__init__(self, self._last())
+        super().__init__(self._last())
 
+    def update(self, *args, **kwargs) -> None:
+        dict.update(self, *args, **kwargs)
+        self.commit()
     @property
     def uuid(self):
         return self._uuid
+
+    @property
+    def schema(self):
+        self._schema |= self
+        return DictSchema(self._schema)
+
+    @schema.setter
+    def schema(self, v):
+
+        self._schema = v
+
 
     @classmethod
     def create_new(cls, name, conn):
@@ -115,7 +171,7 @@ class SharedDict(dict):
         try:
             res = encode_dict_with_bytes(self.stream.get_last())
 
-            self.id = res[0][0]
+            self._uuid = res[0][0]
 
             return res[0][1]
         except:
@@ -124,11 +180,13 @@ class SharedDict(dict):
     def stream(self):
         return StreamConnector(self.stream_name, redis_conn=self.conn)
 
-    def fields(self):
+    def _fields(self):
         dct = {}
-        for key in self.keys():
-            dct[f'"{key}"'] = json.dumps(self.get(key))
-        return dct
+        # for key in self.keys():
+
+        # dct[f'"{key}"'] = json.dumps(self.get(key))
+
+        return dict(self.items())
 
     def __getitem__(self, item):
 
@@ -149,7 +207,8 @@ class SharedDict(dict):
         self._stream_name = v
 
     def commit(self):
-        return self.stream.xadd(None, fields=self.fields())
+
+        return self.stream.xadd(None, fields=self._fields())
 
 
 class ThreeJsSharedDict(SharedDict):
@@ -190,7 +249,7 @@ class ThreeJsSharedDict(SharedDict):
     }
     id: str
 
-    def fields(self):
+    def _fields(self):
         return {
             f'"object"': json.dumps(self.get("object")),
             '"materials"': json.dumps(self.get("materials")),
@@ -199,5 +258,80 @@ class ThreeJsSharedDict(SharedDict):
         }
 
 
+def upd(self, data, log=[]):
+    __vcs__ = {}
+    s1 = set(data.keys()) - {"__vcs__"}
+
+    s2 = set(self.keys()) - {"__vcs__"}
+    new_keys = list(s2 - s1)
+    # print(s1,s2,new_keys)
+    __vcs__["new"] = dict((i, s2[i]) for i in new_keys)
+    __vcs__["update"] = dict()
+    for k in s1:
+        # print(f"{data[k]}->{self[k]}" )
+        if not self[k] == data[k]:
+            print(f"[change]: {k}: {data[k]}->{self[k]}")
+            __vcs__["update"][k] = {"state": data[k], "commit": self[k], "dtime": Now()}
+
+    if not (__vcs__["update"] == {} and __vcs__["new"] == {}):
+        flds = self._fields()
+        flds["__vcs__"] = __vcs__
+        log.append(__vcs__)
+        self.stream.xadd(None, fields=dict((k, json.dumps(flds.get(k))) for k in flds.keys()))
 class SharedMultiDict(SharedDict):
     ...
+
+
+class RedisStreamDict(SharedDict):
+    log = []
+
+    def __init__(self, name, uuid=None, conn=None):
+
+        super().__init__(name, conn=conn if conn is not None else self.get_conn(), uuid=uuid)
+
+    def get_conn(self):
+        global rconn
+        if rconn is None:
+            import mmcore.services.redis.connect as connect
+            rconn = connect.bootstrap_local()
+        return rconn
+
+    @property
+    def conn(self):
+        global rconn
+        return rconn
+
+    @conn.setter
+    def conn(self, v):
+        global rconn
+        if v is not None:
+            rconn = v
+
+    def commit(self):
+        data = encode_dict_with_bytes(list(self.stream.get_last()[0]))[1]
+        log = f"[commit event] \n from:\n {data} -> \nto:\n {self}\n"
+
+        try:
+            if not (self == {}):
+                if len(data) == 0:
+
+                    # print(log)
+                    upd(self, data, log=log)
+
+
+
+
+                else:
+
+                    # log=f"Update state:\nprev: {json.dumps(data, indent=2)}\n\n---\n\ncurrent:\n{json.dumps(self, indent=2)}"
+                    # print(log)
+                    upd(self, data)
+
+            else:
+                log = f"Pass commit, target is empty:\n\t{self}"
+                # print(log)
+
+
+        except Exception as err:
+
+            raise Exception(f"\n{err}\n\n{data}")

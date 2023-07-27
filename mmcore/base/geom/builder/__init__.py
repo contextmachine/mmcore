@@ -1,9 +1,7 @@
 import dataclasses
+import typing
 
 import more_itertools
-import typing
-import uuid as _uuid
-
 import numpy as np
 from scipy.spatial import distance as spdist
 from typing_extensions import runtime_checkable
@@ -29,6 +27,7 @@ class BufferGeometryBuilder(typing.Protocol):
         '100': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes3),
         '101':(mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes3),
         '110': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes2),
+        '011': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2),
         '111': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2)
     }
 

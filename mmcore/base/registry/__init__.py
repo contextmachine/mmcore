@@ -86,7 +86,7 @@ class AGraph(typing.Generic[N]):
 
     def get_from_startswith(self, name):
         nodes = []
-        for i in self.item_table.values():
+        for i in self.keys():
 
             if str(i.name).startswith(str(name)):
                 nodes.append(i)
@@ -105,7 +105,8 @@ class AGraph(typing.Generic[N]):
 
     def get_relays(self, node):
         return dict((k, self.get_relay(node, k)) for k in self.relay_table[node.uuid].keys())
-
+    def keys(self):
+        return self.relay_table.keys()
     def get_relay(self, node, name):
         return self.item_table[self.relay_table[node.uuid][name]]
 
