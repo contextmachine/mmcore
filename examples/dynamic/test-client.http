@@ -12,7 +12,7 @@ Content-Type: application/json
 {
   "path": {
     "radius": 10,
-    "high": 10,
+    "high": 40,
     "pitches": 16
   },
   "color": [70, 170, 150],
