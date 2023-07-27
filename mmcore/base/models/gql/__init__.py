@@ -114,6 +114,7 @@ class Attributes2(Attributes1):
     uv: typing.Union[Uv, None] = None
 
 
+
 @strawberry.type
 class Attributes(Attributes1):
     position: Position
@@ -149,7 +150,7 @@ class Index(BufferAttribute):
 
 @strawberry.type
 class Data:
-    attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3]
+    attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3, Attributes4]
     index: typing.Union[Index, None] = None
 
 

@@ -2,12 +2,11 @@
 from operator import attrgetter, itemgetter, methodcaller
 
 import mmcore.base
-
-
 from mmcore.base.models import gql
+from mmcore.base.registry import matdict
 from mmcore.collections import ElementSequence
 
-from mmcore.base.registry import matdict,geomdict
+
 def getitemattrs(*attrs):
     def wrap(obj):
         return [getitemattr(attr)(obj) for attr in attrs]
@@ -38,7 +37,6 @@ def generate_edges_material(uid, color, linewidth):
            "stencilFunc": 519, "stencilRef": 0, "stencilFuncMask": 255, "stencilFail": 7680, "stencilZFail": 7680,
            "stencilZPass": 7680, "linewidth": linewidth, "toneMapped": False})
 
-
 def to_camel_case(name: str):
     """
     Ключевая особенность, при преобразовании имени начинающиегося с подчеркивания, подчеркивание будет сохранено.
@@ -49,10 +47,12 @@ def to_camel_case(name: str):
     @return: str
     """
     if not name.startswith("_"):
-        return "".join(nm.capitalize() for nm in name.split("_"))
+
+        return "".join(nm[0].capitalize() + nm[1:] for nm in name.split("_"))
 
     else:
-        return "_" + "".join(nm.capitalize() for nm in name.split("_"))
+        return "_" + "".join(nm[0].capitalize() + nm[1:] for nm in name.split("_"))
+
 
 
 def export_edgedata_to_json(edge_hash, point_set):
@@ -101,3 +101,20 @@ def generate_material(self):
     else:
         self.mesh.material = mmcore.base.models.gql.MeshPhongMaterial(name=f"{'MeshPhongMaterial'} {self._name}",
                                                                       color=self.color.decimal)
+
+
+def deep_merge(dct, dct2):
+    for k, v in dct.items():
+        vv = dct2.get(k)
+        if vv is not None:
+            if isinstance(vv, dict):
+                if isinstance(v, dict):
+                    deep_merge(v, vv)
+                else:
+                    dct[k] = vv
+            else:
+                dct[k] = vv
+    for k, v2 in dct2.items():
+        if not (k in dct.keys()):
+            dct[k] = v2
+    return dct

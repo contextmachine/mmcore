@@ -150,6 +150,7 @@ class ControlPoint(Component, PointProtocol):
     z: float = 0
     size: float = 0.5
     color: tuple = (157, 75, 75)
+    __exclude__ = Component.__exclude__
 
     def __call__(self, **kwargs):
         super().__call__(**kwargs)
@@ -177,6 +178,7 @@ class ControlPointProxy(ControlPoint):
     __exclude__ = ["point"]
 
     def __new__(cls, point: PointProxy, *args, **kwargs):
+
         node = super().__new__(cls, point=point, x=point.x, y=point.y, z=point.z,
                                uuid=hex(pointers.reference(point.point_owner)) + f"-{point.point_ptr}", *args,
                                **kwargs)
@@ -213,11 +215,27 @@ class ControlPointProxy(ControlPoint):
 
 
 class ControlPointList(Component):
-    __exclude__ = ["points_keys"]
+    __exclude__ = ["points_keys", "seq_names"]
+    point_type = ControlPoint
+    seq_names: list[str] = []
+
+    def __class_getitem__(cls, item):
+
+        return type(cls.__name__ + item.__name__, (cls,),
+                    {"__qualname__": f'{cls.__name__}[{item.__name__}]', "point_type": item})
 
     def __new__(cls, points=(), *args, **kwargs):
+        points_keys = list(string.ascii_lowercase[:len(points)])
+        if not isinstance(points[0], (Component, ControlPoint)):
+            cpts = []
+            for i, pt in enumerate(points):
+                print(pt)
+                x, y, z = pt
+                cpts.append(
+                    cls.point_type(x=x, y=y, z=z, name="Point" + points_keys[i].upper(), uuid="point" + points_keys[i]))
+            points = cpts
         node = super().__new__(cls, *args, **dict(zip(string.ascii_lowercase[:len(points) + 1], points)),
-                               points_keys=list(string.ascii_lowercase[:len(points)]), **kwargs)
+                               points_keys=points_keys, seq_names=points_keys, **kwargs)
 
         return node
 
@@ -256,6 +274,24 @@ def update_array_children(self, graph: ParamGraph = pgraph):
                 graph.item_table[k](x=self._ref[int(i), 0], y=self._ref[int(i), 1], z=self._ref[int(i), 2])
 
 
+ControlPointBaseList = ControlPointList[ControlPointList]
+
+
+class ControlPointProxyList(ControlPointList):
+    __exclude__ = ["points_keys", "seq_names"]
+    seq_names: list[str]
+
+    def __new__(cls, points=(), *args, **kwargs):
+        points_keys = list(string.ascii_lowercase[:len(points)])
+        if not isinstance(points[0], (Component, PointProxy, ControlPointProxy)):
+            arr_proxy = PointArrayProxy(np.array(points, dtype=float))
+            cpts = []
+            for i in range(len(points)):
+                cpts.append(ControlPointProxy(PointProxy(i, arr_proxy), name="Point" + points_keys[i].upper()))
+            points = cpts
+        node = Component.__new__(cls, *args, **dict(zip(string.ascii_lowercase[:len(points) + 1], points)),
+                                 points_keys=points_keys, **kwargs)
+        return node
 class Triangle:
     def __init__(self, pta, ptb, ptc):
         self.points = DCLL.from_list([pta, ptb, ptc])
@@ -323,3 +359,33 @@ class Triangle:
             lns.append(Linear.from_two_points(node.data, node.next.data))
             node = node.next
         return lns
+
+
+from mmcore.base.components import Component
+
+
+class ComponentList(Component):
+    __exclude__ = ["cmps", "comp_type", "prefix", "seq_names"]
+
+    comp_type: type = Component
+    prefix: str = "Component"
+
+    def __new__(cls, cmps=(), *args, prefix="Component", **kwargs):
+        items = {}
+        names = list(string.ascii_lowercase[:len(cmps)])
+        for i, pt in enumerate(cmps):
+            items[names[i]] = pt
+
+        return super().__new__(cls, *args, seq_names=names, **kwargs, **items)
+
+    def __getitem__(self, item):
+        return getattr(self, self.seq_names[item])
+
+
+class CompShapeList(ComponentList):
+    bounds: ControlPointProxyList
+
+    def __new__(cls, bounds, hls=(), *args, **kwargs):
+        node = super().__new__(cls, cmps=hls, bounds=bounds, *args, **kwargs)
+        node.resolver.seq_names = ["bounds"] + node.resolver.seq_names
+        return node

@@ -2,8 +2,13 @@ import functools
 import math
 import typing
 from operator import add, sub
-
-
+try:
+    import numpy as np
+    from numpy import ndarray as _ndarray
+except Exception as err:
+    _ndarray=list
+def isvector(obj):
+    return isinstance(obj, (tuple, list, _ndarray))
 def dot(u, v):
     """
     3D dot product
@@ -11,10 +16,19 @@ def dot(u, v):
     @param v:
     @return: float
     """
-    if hasattr(u, "z") and hasattr(v, "z"):
+    if isvector(u):
+        res:float = 0.0
+        for (i,j) in zip(u, v):
+            res += i*j
+
+        return res
+
+    elif hasattr(u, "z") and hasattr(v, "z"):
         return u.x * v.x + u.y * v.y + u.z * v.z
     elif (not hasattr(u, "z")) and (not hasattr(v, "z")):
+
         return u.x * v.x + u.y * v.y
+
     else:
         raise TypeError(f"You can apply the dot product to vectors of the same dimension. \n\t{u}, {v}")
 
@@ -96,17 +110,17 @@ class V3(V2):
         return f'{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z})'
 
 
-def punit(vec: typing.Union[V2, V3, list, tuple]) -> typing.Union[V2, V3]:
+def punit(vec: typing.Union[V2, V3, list, tuple]) -> typing.Union[V2, V3, tuple]:
     """pure unit implementation"""
-    if isinstance(vec, (list, tuple)):
+    if isvector(vec):
         if len(vec) == 2:
-            vec = V2(*vec)
+
             nv = norm(vec)
-            return V2(vec.x / nv, vec.y / nv)
+            return vec[0] / nv, vec[1] / nv
         else:
-            vec = V3(*vec)
+
             nv = norm(vec)
-            return V3(vec.x / nv, vec.y / nv, vec.z / nv)
+            return vec[0] / nv, vec[1] / nv, vec[2] / nv
 
 
 def cross(a: typing.Union[V2, V3, list, tuple], b: typing.Union[V2, V3, list, tuple]) -> V3:

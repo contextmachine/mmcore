@@ -76,8 +76,8 @@ class URLDescriptor:
 
 @dataclass
 class GQLClient:
-    url = "http://51.250.47.166:8080/v1/graphql"
-    headers = {"x-hasura-admin-secret":"mysecretkey","content-type": "application/json", "user-agent": "mmcore.gql"}
+    url:str = "http://51.250.47.166:8080/v1/graphql"
+    headers:dict = lambda :{"x-hasura-admin-secret":"mysecretkey","content-type": "application/json", "user-agent": "mmcore.gql"}
 
 
 class GqlString(str):
