@@ -1,8 +1,9 @@
 import functools
 
+from starlette.responses import HTMLResponse
+
 from mmcore.base.params import pgraph
 from mmcore.gql.lang.parse import parse_simple_query
-from starlette.responses import HTMLResponse
 
 TYPE_CHECKING = False
 import ujson as json
@@ -217,7 +218,7 @@ class SharedStateServer():
                                 allow_headers=["*"],
                                 allow_credentials=["*"])
         inst.app.add_middleware(GZipMiddleware, minimum_size=500)
-
+        inst.resolvers = dict()
         @strawberry.type
         class Root(typing.Generic[T]):
             __annotations__ = {
@@ -270,7 +271,7 @@ class SharedStateServer():
         async def get_item(uid: str):
 
             try:
-                adict[uid]._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, -0.001, 0, 0, 0.001,
+                adict[uid]._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
                                       2.220446049250313e-19, 0, 0, 0, 0, 1]
                 return adict[uid].root()
             except KeyError as errr:
@@ -394,16 +395,15 @@ class SharedStateServer():
         inst.resolvers = dict()
         inst.params_nodes = dict()
 
-        @inst.app.post("/resolver/{uid}")
-        async def external_post(uid: str, data: dict):
+        @inst.app.post("/resolver/{name}/{uid}")
+        async def external_post(name: str, uid: str, data: dict):
 
-            if uid in inst.resolvers.keys():
-                return inst.resolvers[uid](**data)
-            return inst.runtime_env["out"].get(uid)
+            return inst.resolvers[name](uid, data)
 
-        @inst.app.get("/resolver/{uid}")
-        async def external_get(uid: str):
-            return inst.runtime_env["out"].get(uid)
+        @inst.app.get("/resolver/{name}/{uid}")
+        async def external_get(name: str, uid: str):
+            return inst.resolvers[name](uid)
+
 
         @inst.app.post("/params/node/{uid}")
         async def params_post(uid: str, data: dict):
@@ -470,8 +470,6 @@ class SharedStateServer():
         return wrapper
 
     def add_resolver(self, name, func):
-        self.runtime_env["inputs"][name] = dict()
-        self.runtime_env["out"][name] = dict()
 
         @functools.wraps(func)
         def wrapper(**kwargs):
@@ -480,6 +478,7 @@ class SharedStateServer():
             return self.runtime_env["out"][name]
 
         self.resolvers[str(name)] = wrapper
+        self.resolvers[str(name) + "__wrapped__"] = func
         return wrapper
 
     def add_params_node(self, name, fun):

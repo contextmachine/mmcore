@@ -138,4 +138,4 @@ def simple_rpc(redis_stream: Generator[..., str]):
                 continue
         else:
 
-            #print(f"pass")
+            pass

@@ -25,7 +25,7 @@ class LoftOptions:
         return dataclasses.asdict(self)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class NurbsCurve(ProxyParametricObject):
     """
 
@@ -137,7 +137,7 @@ class NurbsCurve(ProxyParametricObject):
         return geomdl.operations.length_curve(self.proxy)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(unsafe_hash=True)
 class NurbsSurface(ProxyParametricObject):
     cpts: dataclasses.InitVar[typing.Iterable[typing.Iterable[float]]]
 
@@ -203,16 +203,21 @@ class NurbsSurface(ProxyParametricObject):
     @property
     def mesh_data(self) -> MeshData:
         # self.proxy.tessellate()
-        vertseq = ElementSequence(self._proxy.vertices)
-        faceseq = ElementSequence(self._proxy.faces)
-        uv = np.round(np.asarray(vertseq["uv"]), decimals=5)
+
+        normals = []
+        uvs = []
+        verts = []
+        for v in self._proxy.vertices:
+            _uv = np.round(v.uv, decimals=15)
+            normals.append(self.normal(_uv))
+            uvs.append(_uv)
+            verts.append(v.data)
+
+
 
         # normals = [pv[1] for pv in geomdl.operations.normal(self._proxy, uv.tolist())]
-        return MeshData(vertices=np.array(vertseq['data'], dtype=float),
-
-                        indices=np.array(faceseq["vertex_ids"],
-                                         dtype=float),
-                        uv=uv)
+        return MeshData(verts, indices=[i.data for i in self.proxy.tessellator.faces],
+                        normals=normals, uv=uvs)
 
     def tessellate(self, **kwargs) -> BufferGeometryObject:
         self.proxy.tessellate()
@@ -225,7 +230,6 @@ class NurbsSurface(ProxyParametricObject):
     @property
     def dim(self) -> int:
         return 2
-
 
 class ProxyGeometryDescriptor(AGeometryDescriptor):
     __proxy_dict__ = dict()

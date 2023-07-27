@@ -26,13 +26,18 @@ def bootstrap_stack(url=os.getenv("REDIS_STACK_URL")):
 
 
 def bootstrap_cloud() :
+
     r = redis.StrictRedis(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), password=os.getenv("REDIS_PASSWORD"))
 
     return r
 
 
-def get_cloud_connection(host=os.getenv("REDIS_HOST"),
-                         port=os.getenv("REDIS_PORT"),
-                         password=os.getenv("REDIS_PASSWORD"),
+def get_cloud_connection(host="localhost",
+                         port=6379,
+                         password="",
                          db=0):
-    return redis.StrictRedis(host=host, port=int(port), password=password, db=db)
+    try:
+
+        return redis.StrictRedis(host=host  , port=int(port), password=password, db=db)
+    except redis.exceptions.ConnectionError:
+        ...

@@ -1,4 +1,5 @@
 
-
 class MModelException(Exception):
+    ...
+class MmodelIntersectException(MModelException):
     ...
