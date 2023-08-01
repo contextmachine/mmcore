@@ -8,40 +8,55 @@ readme = "README.md"
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 [tool.poetry.dependencies]
-graphene = { version = "^3.0.0", python = ">=3.6,<4" }
-pydantic = { version = "1.10.7", python = "^3.7" }
-starlette = { version = "0.22.0", python = "^3.7" }
-ipython = { version = "^8.14.0", python = "^3.9" }
-termcolor = { version = "^2.3.0", python = "^3.7" }
-setuptools = { version = "^67.8.0", python = "^3.7" }
-earcut = { version = "^1.1.5", python = "^3.8" }
-compas = { version = "*", python = "^3.7" }
-numpy = { version = "1.25.1", python = "^3.9" }
-pandas = { version = "*", python = "^3.7" }
-python-dotenv = { version = "*", python = "^3.7" }
-redis = { version = "*", python = "^3.7" }
-requests = { version = "*", python = "^3.7" }
-scipy = { version = "*", python = "^3.7" }
-dill = { version = "*", python = "^3.7" }
-httpx = { version = "*", python = "^3.7" }
-rpyc = { version = "*", python = "^3.7" }
-typing_extensions = { version = "*", python = "^3.7" }
-jinja2 = { version = "*", python = "^3.7" }
-colored = { version = "*", python = "^3.7" }
-boto3 = { version = "*", python = "^3.7" }
-fastapi = { version = "0.88.0", python = "^3.7" }
-uvicorn = { version = "*", python = "^3.7" }
-strawberry-graphql = { version = "*", python = "^3.7" }
-pyyaml = { version = "*", python = "^3.7" }
-graphql-core = { version = "*", python = "^3.7" }
-geomdl = { version = "*", python = "^3.7" }
-shapely = { version = "*", python = "^3.7" }
-more-itertools = { version = "*", python = "^3.7" }
-ujson = { version = "*", python = "^3.7" }
-pyquaternion = { version = "*", python = "^3.7" }
-multiprocess = { version = "*", python = "^3.7" }
-randomname = { version = "*", python = "^3.7" }
+python = ">=3.9,<3.12"
+graphene = { version = "^3.0.0" }
+pydantic = { version = "1.10.7" }
+starlette = "0.22.0"
+ipython = { version = "^8.14.0" }
+termcolor = { version = "^2.3.0" }
+setuptools = { version = "^67.8.0" }
+fastapi = { version = "0.88.0" }
+earcut = { version = "^1.1.5" }
+numpy = { version = "1.24.1" }
+shapely = "^2.0.1"
+shell = "^1.0.1"
+compas = "^1.17.5"
+pandas = "^2.0.3"
+python-dotenv = "^1.0.0"
+redis = "^4.6.0"
+requests = "^2.31.0"
+scipy = "^1.11.1"
+dill = "^0.3.7"
+httpx = "^0.24.1"
+rpyc = "^5.3.1"
+typing-extensions = "^4.7.1"
+jinja2 = "^3.1.2"
+colored = "^2.2.3"
+boto3 = "^1.28.16"
+strawberry-graphql = { extras = ["fastapi"], version = "^0.198.0" }
+ujson = "^5.8.0"
+pyquaternion = "^0.9.9"
+multiprocess = "^0.70.15"
+cloudpickle = "^2.2.1"
+more-itertools = "^10.0.0"
+uvicorn = "^0.23.2"
+randomname = "^0.2.1"
+geomdl = "^5.3.1"
 
 
 [build-system]

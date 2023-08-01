@@ -1,1 +1,1 @@
-docker run --rm --name mmcore -t -i -p 0.0.0.0:7711:7711 -p 0.0.0.0:5799:5799 -e ./.env -w /mmcore -P --privileged sthv/mmcore:latest
+docker run --platform linux/amd64 --name mmcore -it --tty -p 0.0.0.0:7711:7711 -e ./.env  sthv/mmcore:stress python3 examples/dynamic/buffer.py

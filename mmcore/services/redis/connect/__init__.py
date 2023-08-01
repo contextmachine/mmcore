@@ -1,10 +1,11 @@
+import os
+import re
 from collections import namedtuple
 
-import os
-from typing import Any
-from mmcore import load_dotenv_from_path
 import redis
-import re
+
+from mmcore import load_dotenv_from_path
+
 load_dotenv_from_path(".env")
 RedisURL=namedtuple("RedisURL", ["proto", "host", "port", "db"])
 def parse_url(url:str):
@@ -32,9 +33,9 @@ def bootstrap_cloud() :
     return r
 
 
-def get_cloud_connection(host="localhost",
-                         port=6379,
-                         password="",
+def get_cloud_connection(host=os.getenv("REDIS_HOST"),
+                         port=os.getenv("REDIS_PORT"),
+                         password=os.getenv("REDIS_PASSWORD"),
                          db=0):
     try:
 

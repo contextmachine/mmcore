@@ -1,5 +1,6 @@
 import string
 import typing
+import uuid as _uuid
 
 import numpy as np
 
@@ -11,6 +12,24 @@ from mmcore.collections import DCLL
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import Linear, PlaneLinear
 from mmcore.geom.parametric import line_plane_intersection, ray_triangle_intersection
+
+
+def recsetter(obj, i, val):
+    if isinstance(i, (int, str)):
+        obj[i] = val
+    elif len(i) == 1:
+        obj[i[0]] = val
+    else:
+        return recsetter(obj[i[0]], i[1:], val)
+
+
+def recgetter(obj, i):
+    if isinstance(i, (int, str)):
+        return obj[i]
+    elif len(i) == 1:
+        return obj[i[0]]
+    else:
+        return recgetter(obj[i[0]], i[1:])
 
 
 class PointProtocol(typing.Protocol):
@@ -178,7 +197,6 @@ class ControlPointProxy(ControlPoint):
     __exclude__ = ["point"]
 
     def __new__(cls, point: PointProxy, *args, **kwargs):
-
         node = super().__new__(cls, point=point, x=point.x, y=point.y, z=point.z,
                                uuid=hex(pointers.reference(point.point_owner)) + f"-{point.point_ptr}", *args,
                                **kwargs)
@@ -292,6 +310,8 @@ class ControlPointProxyList(ControlPointList):
         node = Component.__new__(cls, *args, **dict(zip(string.ascii_lowercase[:len(points) + 1], points)),
                                  points_keys=points_keys, **kwargs)
         return node
+
+
 class Triangle:
     def __init__(self, pta, ptb, ptc):
         self.points = DCLL.from_list([pta, ptb, ptc])
@@ -389,3 +409,119 @@ class CompShapeList(ComponentList):
         node = super().__new__(cls, cmps=hls, bounds=bounds, *args, **kwargs)
         node.resolver.seq_names = ["bounds"] + node.resolver.seq_names
         return node
+
+
+BUFFERS = dict()
+
+
+class GeometryBuffer:
+    _tolerance = 6
+    _remove_duplicates = True
+    __props__ = ['tolerance', 'remove_duplicates']
+
+    def __init__(self, buffer=None, uuid=None, **kwargs):
+        super().__init__()
+        if (uuid is None) and len(BUFFERS) == 0:
+            uuid = "default"
+
+        self._buffer = [] if buffer is None else buffer
+        self.uuid = _uuid.uuid4().hex if uuid is None else uuid
+        self.update_props(kwargs)
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, v):
+        global BUFFERS
+        self._uuid = v
+        BUFFERS[v] = self
+
+    def add_items(self, pts):
+        ixs = []
+        for pt in pts:
+            ixs.append(self.add_item(pt))
+        return ixs
+
+    @property
+    def tolerance(self):
+        return self._tolerance
+
+    @tolerance.setter
+    def tolerance(self, value):
+        self._tolerance = value
+
+    @property
+    def remove_duplicates(self):
+        return self._remove_duplicates
+
+    @remove_duplicates.setter
+    def remove_duplicates(self, value):
+        self._remove_duplicates = value
+
+    def __getstate__(self):
+        dct = dict(
+            __props__=self.__props__,
+            buffer=self._buffer,
+            uuid=self.uuid)
+        for k in self.__props__:
+            dct[k] = getattr(self, k)
+
+        return dct
+
+    def update_props(self, props):
+        for k in self.__props__:
+            if k in props.keys():
+                setattr(self, k, props[k])
+
+    def __setstate__(self, state):
+        self.__props__ = state['__props__']
+        self._buffer = state["buffer"]
+        self.update_props(state)
+
+    def add_item(self, point):
+        value = list(round(i, self.tolerance) for i in point)
+        if self.remove_duplicates:
+            if value not in self._buffer:
+                self._buffer.append(value)
+                return len(self._buffer) - 1
+            else:
+                return self._buffer.index(value)
+        else:
+            self._buffer.append(value)
+            return len(self._buffer) - 1
+
+    def update_item(self, i, val):
+
+        self._buffer[i] = val
+
+    def update_all_items(self, vals):
+        l = len(self._buffer)
+        for i, pt in enumerate(vals):
+            if i < l:
+                self.update_item(i, pt)
+            else:
+                self.add_item(pt)
+
+    def get_all_points(self):
+        return self._buffer
+
+    def get_points(self, ixs):
+        return [self._buffer[i] for i in ixs]
+
+    def __getitem__(self, item):
+        return recgetter(self._buffer, item)
+
+    def __setitem__(self, item, value):
+
+        recsetter(self._buffer, item, value)
+
+    def __len__(self):
+        return self._buffer.__len__()
+
+    def __contains__(self, item):
+        return item in self._buffer
+
+    def __iter__(self):
+        return iter(self._buffer)
