@@ -1,5 +1,8 @@
 #!/usr/local/env/python3
+import os
+import sys
 
+sys.path.extend(["/".join(os.getcwd().split("/")[:-1]) if os.getcwd().endswith("bin") else os.getcwd()])
 import click
 import mmcore
 
@@ -44,7 +47,14 @@ def __version__():
     return "{current}"
 """
         f.write(data)
+    with open("pyproject.toml", "r") as fl:
 
+        data = fl.read()
+        with open("pyproject.toml", "w") as fll:
+            current = f"{new_main}.{new_major}.{new_minor}"
+            print(f'{prev}->{current}')
+            data.replace(prev, current)
+            fll.write(data)
     with open(".version", "w") as s2:
         s2.write(current)
 

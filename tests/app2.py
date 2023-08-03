@@ -1,18 +1,16 @@
 import copy
 from collections import namedtuple
-
-from localparams import *
-from mmcore.collections import DoublyLinkedList
-from mmcore.geom.parametric import PlaneLinear, HypPar4ptGrid
-from mmcore.geom.parametric.algorithms import ClosestPoint
-
-from mmcore.geom.transform import Transform
-from mmcore.geom.vectors import unit
-import multiprocess as mp
-from mmcore.base.models.gql import MeshPhongMaterial
-
 from dataclasses import InitVar
 
+import multiprocess as mp
+
+from localparams import *
+from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.collections import DoublyLinkedList
+from mmcore.geom.parametric import HypPar4ptGrid, PlaneLinear
+from mmcore.geom.parametric.algorithms import ClosestPoint
+from mmcore.geom.transform import Transform
+from mmcore.geom.vectors import unit
 from mmcore.gql.client import GQLReducedQuery
 
 data_point_query = GQLReducedQuery(
@@ -59,7 +57,6 @@ class DataPoint:
         self.z = self.z * 1e-3
 
 
-from mmcore.collections import ElementSequence
 from scipy.spatial import cKDTree
 
 
@@ -180,7 +177,6 @@ def solve_transforms_parallel(ll, step=0.4):
 
 
 from mmcore.geom.extrusion import makeNodeJsExtrusions
-from more_itertools import flatten
 
 panel_mat = MeshPhongMaterial(color=ColorRGB(*PANEL_COLOR).decimal)
 
@@ -317,3 +313,5 @@ class SubSyst:
     def dump(self):
         with open("grp.json", "w") as f:
             ujson.dump(self(), f)
+
+
