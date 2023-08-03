@@ -245,7 +245,8 @@ polyhedron = PolyHedron(uuid="test_polyhedron")
 
 if __name__ == "__main__":
 
- for face in points:
-  polyhedron.add_shape(face)
- # повторная треангуля
- polyhedron.to_mesh().dump("polyhedron.json")
+    for face in points:
+        polyhedron.add_shape(face)
+    # повторная треангуля
+
+    polyhedron.to_mesh().dump("polyhedron.json")
