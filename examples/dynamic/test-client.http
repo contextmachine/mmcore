@@ -6,13 +6,13 @@ GET http://localhost:7711/keys
 
 
 ###
-POST https://viewer.contextmachine.online/cxm/api/v2/mutable-example/params/node/test_loft_a
+POST http://localhost:7711/params/node/test_sweep
 Content-Type: application/json
 
 {
   "path": {
-    "radius": 10,
-    "high": 40,
+    "radius": 100,
+    "high": 420,
     "pitches": 16
   },
   "color": [70, 170, 150],

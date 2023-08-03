@@ -1,10 +1,8 @@
 # This Api provides an extremely flexible way of updating data. You can pass any part of the parameter dictionary
 # structure, the parameters will be updated recursively and only the part of the graph affected by the change
 # will be recalculated.
-import IPython
 import numpy as np
 
-import mmcore
 from mmcore.base.params import param_graph_node_native
 from mmcore.base.sharedstate import debug_properties, serve
 from mmcore.geom.parametric.nurbs import NurbsCurve
@@ -43,7 +41,7 @@ serve.start()
 
 # Comment the lines below if using ipython by default (e.g. in Pycharm with a python console)
 
-IPython.embed(header=f"[mmcore {mmcore.__version__()}]")
+# IPython.embed(header=f"[mmcore {mmcore.__version__()}]")
 
 # Go to https://viewer.contextmachine.online/v2/scene/006ccbec-f07c-48b4-ac4d-b5b456d6e7d7
 # or look "Sweep Local Example" scene in all scenes' menu.

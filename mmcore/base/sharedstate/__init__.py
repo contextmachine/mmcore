@@ -13,6 +13,8 @@ from strawberry.scalars import JSON
 import uvicorn, fastapi
 from mmcore.base.registry import *
 from rpyc import ThreadPoolServer, SlaveService
+from mmcore.geom.point import BUFFERS
+import IPython
 
 
 def search_all_indices(lst, value):
@@ -120,7 +122,9 @@ from starlette.exceptions import HTTPException
 
 from mmcore.gql.server.fastapi import MmGraphQlAPI
 
-debug_properties={}
+debug_properties = {}
+
+
 class IDict(dict):
     def __init__(self, dct=idict, table=adict):
         super().__init__(dct)
@@ -128,15 +132,12 @@ class IDict(dict):
         self.dct = dct
 
     def __getitem__(self, k):
-
         return self.trav(k)
 
     def trav(self, i):
         print(self.table[i])
         if 'AGroup' == self.table[i].__class__.__name__:
-
-
-            return {'kind': "Group", "items":[self.trav(j) for j in  list(self.dct[i]["__children__"])]}
+            return {'kind': "Group", "items": [self.trav(j) for j in list(self.dct[i]["__children__"])]}
         else:
             obj = {'kind': "Object", "name": i, "value": self.table[i]}
             if self.dct[i] == {}:
@@ -145,9 +146,9 @@ class IDict(dict):
 
             elif isinstance(self.dct[i], (list, tuple, set)):
                 if isinstance(self.dct[i], set):
-                    dct=list(self.dct[i])
+                    dct = list(self.dct[i])
                 else:
-                    dct=self.dct[i]
+                    dct = self.dct[i]
                 if len(dct) == 0:
                     obj |= {'kind': "Group", "isleaf": True}
                     return obj
@@ -156,7 +157,6 @@ class IDict(dict):
                     return obj
 
             else:
-
                 _dct = {}
                 for k, v in self.dct[i].items():
                     _dct[k] = self.trav(v)
@@ -164,12 +164,32 @@ class IDict(dict):
                 obj |= {"isleaf": False}
                 return VDict(obj)
 
+
 class Query(ObjectType):
     name = String()
 
 
-
 schema = Schema(Query)
+
+
+def _create_fastapi(name, mounts=(), mws=(
+        (
+                CORSMiddleware,
+                dict(allow_origins=["*"],
+                     allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
+                     allow_headers=["*"],
+                     allow_credentials=["*"])),
+        (GZipMiddleware, dict(minimum_size=500))
+), **kwargs):
+    _ = fastapi.FastAPI(name=name, **kwargs)
+    if len(mounts) > 0:
+        for path, v, mntname in iter(mounts):
+            _.mount(path, v, mntname)
+    if len(mws) > 0:
+        for obj, props in iter(mws):
+            _.add_middleware(obj, **props)
+    return _
+
 
 class VDict(dict):
     def __init__(self, *args, relay=idict, table=adict, **kwargs):
@@ -180,7 +200,7 @@ class VDict(dict):
     def __getitem__(self, item):
         if item == "value":
             return dict.__getitem__(self, item).value()
-
+        
         else:
             return dict.__getitem__(self, item)
 
@@ -190,6 +210,16 @@ class SharedStateServer():
     rpyc_port: int = 7799
     host: str = "0.0.0.0"
     appname: str = "serve_app"
+    prodapp = None
+    _is_production = False
+
+    @property
+    def is_production(self):
+        return self._is_production
+
+    @is_production.setter
+    def is_production(self, v):
+        self._is_production = v
 
     def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
         global serve_app
@@ -204,7 +234,6 @@ class SharedStateServer():
         @gqlv2app.post(gqlv2app.gql_endpoint)
         def graphql_query_resolver(data: dict):
             ##print(data)
-
             qt2 = parse_simple_query(data['query'])
 
             return qt2.resolve(pgraph)
@@ -212,13 +241,14 @@ class SharedStateServer():
         _server_binds.append(inst)
         serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
         inst.app = serve_app
-        serve_app.mount("/v2", gqlv2app)
+        serve_app.mount("/v2", gqlv2app, "gqlv2app")
         inst.app.add_middleware(CORSMiddleware, allow_origins=["*"],
                                 allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
                                 allow_headers=["*"],
                                 allow_credentials=["*"])
         inst.app.add_middleware(GZipMiddleware, minimum_size=500)
         inst.resolvers = dict()
+
         @strawberry.type
         class Root(typing.Generic[T]):
             __annotations__ = {
@@ -237,7 +267,31 @@ class SharedStateServer():
                     br.add(o)
             return br
 
+        @inst.app.get("/buffers/{uid}")
+        def get_buffer(uid: str):
+            print(f"GET {uid} buffer {BUFFERS[uid]._buffer}")
 
+            return {"data": BUFFERS[uid]._buffer}
+
+        @inst.app.post("/buffers/{uid}")
+        def upd_all_buffer(uid: str, data: dict):
+            BUFFERS[uid].update_all_items(data['data'])
+            if not inst.is_production:
+                print("GET", data)
+
+            return {"data": BUFFERS[uid]._buffer}
+
+        @inst.app.post("/buffers/{uid}/{index}")
+        def upd_item_buffer(uid: str, index: int, data: dict):
+            if not inst.is_production:
+                print(f"[POST] update index {index} for '{uid}' buffer: {BUFFERS[uid][index]}->{data['data']}>",
+                      )
+
+            BUFFERS[uid].update_item(index, data["data"])
+
+            return {"data": BUFFERS[uid]._buffer}
+        
+        
         @inst.app.get("/test/app/{uid}")
         def appp(uid: str):
             # language=JavaScript
@@ -264,24 +318,20 @@ class SharedStateServer():
 
         @inst.app.get("/h")
         async def home2():
-
             return strawberry.asdict(pull()())
 
         @inst.app.get("/fetch/{uid}")
         async def get_item(uid: str):
-
             try:
                 adict[uid]._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
                                       2.220446049250313e-19, 0, 0, 0, 0, 1]
                 return adict[uid].root()
             except KeyError as errr:
                 return HTTPException(401, detail=f"KeyError. Trace: {errr}")
-
+        
         @inst.app.post("/fetch/{uid}")
         def post_item(uid: str, data: dict):
-
             if pgraph.item_table.get(uid) is not None:
-
                 pgraph.item_table.get(uid)(**kwargs)
 
             else:
@@ -293,11 +343,9 @@ class SharedStateServer():
 
         @inst.app.get("/", response_model_exclude_none=True)
         async def home():
-
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
             for i in adict.values():
-
                 if not (i.uuid == "__"):
                     aa.add(i)
 
@@ -308,12 +356,10 @@ class SharedStateServer():
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
             for i in adict.values():
-
                 if not (i.uuid == "__") and not (i.uuid == "_"):
                     aa.add(i)
-            qq=parse_simple_query(data["query"])
-
-
+            qq = parse_simple_query(data["query"])
+            
             return qq.resolve(adict)
 
         @inst.app.options("/graphql")
@@ -321,20 +367,18 @@ class SharedStateServer():
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
             for i in adict.values():
-
                 if not (i.uuid == "__") and not (i.uuid == "_"):
                     aa.add(i)
 
             return execute(sch3, parse(data["query"]),
                            root_value={"root": aa.root()},
                            variable_values=data.get("variables")).data
-
+        
         @inst.app.get("/graphql")
         async def gql(data: dict):
             from mmcore.base import AGroup
             aa = AGroup(uuid="__")
             for i in adict.values():
-
                 if not (i.uuid == "__") and not (i.uuid == "_"):
                     aa.add(i)
 
@@ -346,7 +390,6 @@ class SharedStateServer():
         async def mutate(data: dict = None):
             if data is not None:
                 if len(data.keys()) > 0:
-
                     for k in data.keys():
                         objdict[k](**data[k])
 
@@ -395,15 +438,20 @@ class SharedStateServer():
         inst.resolvers = dict()
         inst.params_nodes = dict()
 
+        @inst.app.get("/ipykernel/connection_file")
+        async def ipykernel_connection_file():
+            data = inst.get_ipy_connection_file()
+            if data is None:
+                return {"data": None, "reason": "Kernel is not initialized"}
+            return {"data": data, "reason": {}}
+        
         @inst.app.post("/resolver/{name}/{uid}")
         async def external_post(name: str, uid: str, data: dict):
-
             return inst.resolvers[name](uid, data)
-
+        
         @inst.app.get("/resolver/{name}/{uid}")
         async def external_get(name: str, uid: str):
             return inst.resolvers[name](uid)
-
 
         @inst.app.post("/params/node/{uid}")
         async def params_post(uid: str, data: dict):
@@ -416,7 +464,6 @@ class SharedStateServer():
 
         @inst.app.get("/params/nodes")
         async def params_nodes_names():
-
             return list(pgraph.item_table.keys())
 
         @inst.app.get("/resolvers")
@@ -433,27 +480,47 @@ class SharedStateServer():
 
         if STARTUP:
             try:
-
                 inst.thread.start()
             except OSError as err:
                 print("Shared State server is already to startup. Shutdown...")
 
         return inst
 
-    def run(self):
+    def run(self, **kwargs):
         uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
         print(f'running uvicorn {uvicorn_appname}')
-        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error")
 
+        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error", **kwargs)
+
+    def production_run(self, name, api_prefix, mounts=(), middleware=None, app_kwargs=None, **kwargs):
+        if app_kwargs is None:
+            app_kwargs = dict()
+
+        if middleware is None:
+            middleware = []
+        for obj in self.app.user_middleware:
+            if not (obj in [mn[0] for mn in middleware]):
+                middleware.append(
+                    (obj.cls, obj.options))
+
+        self.prodapp = _create_fastapi(name,
+                                       mounts=[
+                                           (api_prefix, self.app, self.app.extra['name']),
+                                           *mounts],
+                                       mws=middleware, **app_kwargs
+                                       )
+        uvicorn_appname = generate_uvicorn_app_name(__file__, appname=name)
+        print(f'running uvicorn {uvicorn_appname}')
+        self.is_production = True
+        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, **kwargs)
+    
     def stop(self):
         self.thread.join(6)
 
     def start(self):
-
         self.thread.start()
 
     def stop_rpyc(self):
-
         self.rpyc_thread.join(6)
 
     def resolver(self, func):
@@ -470,7 +537,6 @@ class SharedStateServer():
         return wrapper
 
     def add_resolver(self, name, func):
-
         @functools.wraps(func)
         def wrapper(**kwargs):
             self.runtime_env["inputs"][name] |= kwargs
@@ -510,14 +576,44 @@ class SharedStateServer():
         self.__dict__ |= kwargs
         if on_start:
             on_start()
+        self.is_production = True
         self.run()
 
     def mount(self, path, other_app, name: str):
         self.app.mount(path, other_app, name)
 
     def event(self, fun):
-
         self.app.on_event()
+
+    def start_ipython(self, argv=(), embed=True, prod=False, askernel=False, **kwargs):
+        self.is_production = prod
+        if askernel and embed:
+            IPython.embed_kernel(header=self.header, **kwargs)
+        elif embed:
+            IPython.embed(header=self.header)
+        elif askernel:
+            from ipykernel import kernelapp
+
+            kernelapp.launch_new_instance(argv=argv, header=self.header, **kwargs)
+        else:
+            IPython.start_ipython(argv=argv, **kwargs)
+
+    def ipy(self):
+        try:
+            return eval("get_ipython()")
+        except NameError as err:
+            return None
+
+    def get_ipy_connection_file(self):
+        from ipykernel import connect
+        if self.ipy() is not None:
+            return connect.get_connection_file(self.ipy())
+        else:
+            return None
+
+    def start_embed_ipython(self, prod=False):
+        self.is_production = prod
+        return IPython.embed(header=self.header)
 
 
 serve = SharedStateServer()
