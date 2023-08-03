@@ -1,21 +1,15 @@
-import json
-
 import copy
 import os
 import typing
 from collections import UserDict, namedtuple
-from dataclasses import dataclass
 from typing import Any
 
 import requests
-
 from jinja2.nativetypes import NativeEnvironment
 
-from mmcore.collections.multi_description import ElementSequence
-from mmcore.geom.point import ControlPointList, ControlPoint
-from mmcore.gql.templates import _query_temp, _mutation_insert_one
-
 from mmcore import load_dotenv_from_path
+from mmcore.collections.multi_description import ElementSequence
+from mmcore.gql.templates import _mutation_insert_one, _query_temp
 
 load_dotenv_from_path("~PycharmProjects/mmcore/.env")
 
@@ -74,7 +68,6 @@ class URLDescriptor:
             return self._default
 
 
-@dataclass
 class GQLClient:
     url:str = "http://51.250.47.166:8080/v1/graphql"
     headers:dict = lambda :{"x-hasura-admin-secret":"mysecretkey","content-type": "application/json", "user-agent": "mmcore.gql"}
