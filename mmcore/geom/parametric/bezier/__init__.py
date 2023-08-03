@@ -4,7 +4,7 @@ from mmcore.base.models.gql import LineBasicMaterial, PointsMaterial
 from mmcore.base.params import ParamGraphNode, param_graph_node, param_graph_node_native
 from mmcore.geom.parametric import Linear, NurbsCurve
 from mmcore.geom.parametric.base import NormalPoint
-from mmcore.geom.point import ControlPoint, ControlPointList
+from mmcore.geom.point import ControlPointList
 from mmcore.geom.vectors import unit
 
 a = ParamGraphNode(dict(x=1.0, y=2.0, z=3.0), name="A")
@@ -84,13 +84,15 @@ evlbz = lambda x: lambda a, b, c: lambda t: x(**{
             'end': {'x': c.x, 'y': c.y, 'z': c.z}},
         't': t}})
 evlbz2 = evlbz(result_line_from_points)
-cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="PointA", uuid="pointa"),
-                               ControlPoint(x=10, y=0, z=10, name="PointB", uuid="pointb"),
-                               ControlPoint(x=5, y=10, z=5, name="PointC", uuid="pointc")])
+
+
+# cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="PointA", uuid="pointa"),
+#                               ControlPoint(x=10, y=0, z=10, name="PointB", uuid="pointb"),
+#                               ControlPoint(x=5, y=10, z=5, name="PointC", uuid="pointc")])
 
 
 class Bezier(GeometryComponent):
-    points: ControlPointList = cpt
+    points: ControlPointList
     pts = []
     num = 100
     color = (157, 75, 75)

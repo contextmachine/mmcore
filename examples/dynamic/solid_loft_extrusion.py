@@ -3,10 +3,8 @@
 # will be recalculated.
 from mmcore.base.params import ParamGraphNode, param_graph_node_native
 from mmcore.geom.parametric import Linear
-from mmcore.geom.parametric.bezier import Bezier
 from mmcore.geom.parametric.nurbs import NurbsCurve
 from mmcore.geom.parametric.sweep import Sweep
-from mmcore.geom.point import ControlPoint, ControlPointList
 
 a = ParamGraphNode(dict(x=1000.0, y=2000.0, z=3000.0), name="A")
 b = ParamGraphNode(dict(x=-1000.0, y=-2000.0, z=-3000.0), name="B")
@@ -45,9 +43,9 @@ col = ColorRGB(70, 70, 70).decimal
 col2 = ColorRGB(157, 75, 75).decimal
 
 # cgraph = ComponentGraph()
-cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="PointA", uuid="pointa"),
-                               ControlPoint(x=10, y=0, z=10, name="PointB", uuid="pointb"),
-                               ControlPoint(x=5, y=10, z=5, name="PointC", uuid="pointc")])
+# cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="pointa", uuid="pointa"),
+#                               ControlPoint(x=10, y=0, z=10, name="pointb", uuid="pointb"),
+#                               ControlPoint(x=5, y=10, z=5, name="pointc", uuid="pointc")])
 
 
 
@@ -55,7 +53,7 @@ cpt = ControlPointList(points=[ControlPoint(x=0, y=0, z=0, name="PointA", uuid="
 # prf=NurbsCurve(np.array(shapely.Polygon(prf.control_points).buffer(5).boundary.coords).tolist())
 # prf2=NurbsCurve(np.array(shapely.Polygon(prf2.control_points).buffer(1).boundary.coords).tolist())
 
-bz = Bezier(cpt)
+#bz = Bezier(cpt)
 
 p1 = np.array([[-23, 40, 0], [23, 40, 0],
                [25, 38, 0],
@@ -77,13 +75,13 @@ p2 = np.array([[-21.0, 36.5, 0.0],
                [-21.5, 36, 0],
                [-21.0, 36.5, 0]]) * 10
 
-path = bz()
+#path = bz()
 profile_inner = p2.tolist()
 profile_outer.reverse()  # Don't mind me I'm just a fool and wrote down the original profile coordinates clockwise
 profile_inner.reverse()  # Don't mind me I'm just a fool and wrote down the original profile coordinates clockwise
 
-srf1 = Sweep(name="sweep_a", path=spiral, profiles=(profile_outer, profile_inner), uuid="test_loft_a")
-srf2 = Sweep(name="sweep_b", path=bz, profiles=(profile_outer, profile_inner), uuid="test_loft_b")
+srf1 = Sweep(name="sweep_a", uuid="test_loft_a", path=spiral, profiles=(profile_outer, profile_inner))
+#srf2 = Sweep(name="sweep_b", path=bz, profiles=(profile_outer, profile_inner), uuid="test_loft_b")
 
 
 # mesh=parametric_mesh_bruteforce(pp,uv=[50, 9] ).to_mesh()
@@ -101,3 +99,4 @@ srf2 = Sweep(name="sweep_b", path=bz, profiles=(profile_outer, profile_inner), u
 
 debug_properties["target"] = "fetch/test_loft_a"
 serve.start()
+
