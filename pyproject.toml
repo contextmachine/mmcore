@@ -1,7 +1,3 @@
-[build-system]
-requires = ["poetry-core", ]
-build-backend = "poetry.core.masonry.api"
-
 [tool.poetry]
 name = "mmcore"
 version = "0.3.11"
@@ -12,7 +8,15 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
+graphene = { version = "^3.0.0" }
+pydantic = { version = "1.10.7" }
 starlette = "0.22.0"
+ipython = { version = "^8.14.0" }
+termcolor = { version = "^2.3.0" }
+setuptools = { version = "^67.8.0" }
+fastapi = { version = "0.88.0" }
+earcut = { version = "^1.1.5" }
+numpy = { version = "^1.24.1" }
 shapely = "^2.0.1"
 shell = "^1.0.1"
 compas = "^1.17.5"
@@ -28,40 +32,16 @@ typing-extensions = "^4.7.1"
 jinja2 = "^3.1.2"
 colored = "^2.2.3"
 boto3 = "^1.28.16"
+strawberry-graphql = { extras = ["fastapi"], version = "^0.198.0" }
 ujson = "^5.8.0"
 pyquaternion = "^0.9.9"
 multiprocess = "^0.70.15"
 cloudpickle = "^2.2.1"
-more-itertools = "^10.0.0"
+more-itertools = "~10.1.0"
 uvicorn = "^0.23.2"
 randomname = "^0.2.1"
 geomdl = "^5.3.1"
-toml = "^0.10.2"
 
-[tool.poetry.dependencies.graphene]
-version = "^3.0.0"
-
-[tool.poetry.dependencies.pydantic]
-version = "1.10.7"
-
-[tool.poetry.dependencies.ipython]
-version = "^8.14.0"
-
-[tool.poetry.dependencies.termcolor]
-version = "^2.3.0"
-
-[tool.poetry.dependencies.setuptools]
-version = "^67.8.0"
-
-[tool.poetry.dependencies.fastapi]
-version = "0.88.0"
-
-[tool.poetry.dependencies.earcut]
-version = "^1.1.5"
-
-[tool.poetry.dependencies.numpy]
-version = "1.24.1"
-
-[tool.poetry.dependencies.strawberry-graphql]
-extras = ["fastapi", ]
-version = "^0.198.0"
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
