@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mmcore"
-version = "0.3.11"
+version = "0.3.12"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -14,7 +14,7 @@ starlette = "0.22.0"
 ipython = { version = "^8.14.0" }
 termcolor = { version = "^2.3.0" }
 setuptools = { version = "^67.8.0" }
-fastapi = { version = "0.88.0" }
+fastapi = { version = "*", extras = ["all"] }
 earcut = { version = "^1.1.5" }
 numpy = { version = "^1.24.1" }
 shapely = "^2.0.1"
@@ -38,7 +38,7 @@ pyquaternion = "^0.9.9"
 multiprocess = "^0.70.15"
 cloudpickle = "^2.2.1"
 more-itertools = "~10.1.0"
-uvicorn = "^0.23.2"
+uvicorn = { version = "^0.23.2", extras = ["standard"] }
 randomname = "^0.2.1"
 geomdl = "^5.3.1"
 
