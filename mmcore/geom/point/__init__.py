@@ -1,3 +1,4 @@
+import gzip
 import string
 import typing
 import uuid as _uuid
@@ -415,7 +416,7 @@ BUFFERS = dict()
 
 
 class GeometryBuffer:
-    _tolerance = 6
+    _tolerance = -1
     _remove_duplicates = True
     __props__ = ['tolerance', 'remove_duplicates']
 
@@ -427,6 +428,9 @@ class GeometryBuffer:
         self._buffer = [] if buffer is None else buffer
         self.uuid = _uuid.uuid4().hex if uuid is None else uuid
         self.update_props(kwargs)
+
+    def index(self, val):
+        return self._buffer.index(val)
 
     @property
     def uuid(self):
@@ -476,12 +480,16 @@ class GeometryBuffer:
                 setattr(self, k, props[k])
 
     def __setstate__(self, state):
+
         self.__props__ = state['__props__']
         self._buffer = state["buffer"]
         self.update_props(state)
 
     def add_item(self, point):
-        value = list(round(i, self.tolerance) for i in point)
+        if self._tolerance >= 0:
+            value = list(round(i, self.tolerance) for i in point)
+        else:
+            value = point
         if self.remove_duplicates:
             if value not in self._buffer:
                 self._buffer.append(value)
@@ -525,3 +533,13 @@ class GeometryBuffer:
 
     def __iter__(self):
         return iter(self._buffer)
+
+    def append(self, v):
+        return self.add_item(v)
+
+    def dumps(self):
+        return gzip.compress(str(self._buffer).encode(), compresslevel=9)
+
+    def loads(self, b: bytes):
+        self._buffer = eval(gzip.decompress(b).decode())
+        return self

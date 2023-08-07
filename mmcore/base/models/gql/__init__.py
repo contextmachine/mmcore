@@ -419,7 +419,7 @@ class BaseMaterial:
         return self.color==other.color
 
     def __hash__(self):
-        return self.color
+        return int(f'{self.color}{round(self.opacity * 100)}')
 
 
 from enum import Enum
