@@ -20,7 +20,7 @@ Content-Type: application/json
 }
 
 ###
-POST https://viewer.contextmachine.online/cxm/api/v2/mutable-example/params/node/test_loft_b
+POST https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/params/node/test_loft_b
 Content-Type: application/json
 
 {
