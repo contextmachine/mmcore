@@ -15,7 +15,9 @@ from mmcore.base.registry import *
 from rpyc import ThreadPoolServer, SlaveService
 from mmcore.geom.point import BUFFERS
 import IPython
+from mmcore.base.tags import __databases__
 
+DBs = __databases__
 
 def search_all_indices(lst, value):
     for i, v in enumerate(lst):
@@ -52,11 +54,10 @@ from fastapi import WebSocket
 import mmcore.base.models.gql as gql_models
 from graphql.language import parse
 import graphql
-from graphene import types
+
 from graphene import ObjectType, String, Schema
 
 
-types.dynamic.MountedType
 rpyc_input = dict()
 
 rpyc_namespace = dict(post=lambda k, v: rpyc_input.__setitem__(json.dumps(k), json.loads(v)))
@@ -222,7 +223,7 @@ class SharedStateServer():
         self._is_production = v
 
     def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
-        global serve_app
+        global serve_app, DBs
 
         import threading as th
         inst = object.__new__(cls)
@@ -239,7 +240,14 @@ class SharedStateServer():
             return qt2.resolve(pgraph)
 
         _server_binds.append(inst)
-        serve_app = fastapi.FastAPI(name='serve_app', title=inst.header)
+
+        def shutdown():
+            print("shutdown event...")
+            for db in DBs.values():
+                db.save()
+
+        serve_app = fastapi.FastAPI(name='serve_app', title=inst.header, on_shutdown=[shutdown])
+
         inst.app = serve_app
         serve_app.mount("/v2", gqlv2app, "gqlv2app")
         inst.app.add_middleware(CORSMiddleware, allow_origins=["*"],
