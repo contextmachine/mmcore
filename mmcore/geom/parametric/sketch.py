@@ -16,7 +16,8 @@ from scipy.spatial.distance import euclidean
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints
+from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints, \
+    circle_intersection2d
 from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import Plane, Transform, WorldXY, remove_crd
@@ -821,6 +822,106 @@ class Circle(ParametricObject):
         return prs
 
 
+_point_table = []
+_relay_table = dict()
+_attrs_table = []
+
+
+class Circle2D:
+
+    def __init__(self, origin=(0, 0, 0), radius=1.0, table=_point_table, attrs=_attrs_table, relays=_relay_table):
+        self.uuid = len(attrs)
+        attrs.append(self)
+        self._relay = relays
+        self._attrs = attrs
+        self._relay[self.uuid] = dict()
+
+        if isinstance(radius, int):
+
+            self._relay[self.uuid]['radius'] = radius
+        else:
+            self._attrs.append(radius)
+            self._relay[self.uuid]['radius'] = len(self._attrs) - 1
+
+        self._table = table
+        if isinstance(origin, int):
+            self._origin_ptr = origin
+        else:
+            if origin in self._table:
+                self._origin_ptr = self._table.index(origin)
+            else:
+                self._table.append(origin)
+            self._origin_ptr = len(self._table) - 1
+
+    @property
+    def table(self):
+        return self._table
+
+    @property
+    def origin(self):
+        return self.table[self._origin_ptr]
+
+    @property
+    def radius(self):
+        return self._attrs[self._relay[self.uuid]['radius']]
+
+    @radius.setter
+    def radius(self, data):
+        if isinstance(data, int):
+            self._relay[self.uuid]['radius'] = data
+        else:
+
+            self._attrs[self._relay[self.uuid]['radius']] = data
+
+    @origin.setter
+    def origin(self, data):
+        if isinstance(data, int):
+            self._origin_ptr = data
+        else:
+            self.table[self._origin_ptr] = data
+
+    def evaluate(self, t):
+        if isinstance(t, float):
+            return (np.asarray(self.origin) + np.asarray(
+                [self.radius * np.cos(t * 2 * np.pi), self.radius * np.sin(t * 2 * np.pi), 0.0])).tolist()
+        else:
+            return (self.evaluate(tt) for tt in t)
+
+    def __call__(self, t, **kwargs):
+        for k, v in kwargs.items():
+            if v is not None:
+                setattr(self, k, v)
+        return self
+
+    def __iter__(self):
+        return self.evaluate(np.linspace(0, 1, 128))
+
+    def intersection(self, other):
+        if isinstance(other, int):
+            other = self._attrs[other]
+        if isinstance(other, Circle2D):
+            return circle_intersection2d(self, other)
+
+        else:
+            raise NotImplementedError()
+
+
+class ParametricIterator:
+    def __init__(self, ptr, bounds=(0, 1), cnt=32, table=_attrs_table):
+        self.cnt = cnt
+        self.ptr = ptr
+        self.table = table
+        self.i = -1
+        self._lsp = np.linspace(*bounds, cnt).tolist()
+
+    def __next__(self):
+        self.i += 1
+        if self.i > self.cnt:
+            raise StopIteration
+        return self.table[self.ptr].evaluate(self._lsp[self.i])
+
+    def __iter__(self):
+        return self
 @dataclasses.dataclass
 class Circle3D(Circle):
     origin: tuple[float, float, float] = (0, 0, 0)

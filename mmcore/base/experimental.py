@@ -1,55 +1,151 @@
-import json
+__derived_attributes_table__ = dict()
+__derived_dispatch_table__ = dict()
 
-import rich
 
-
-class ST:
-    INDENT = 2
-    ignore = ['tt', '_tt', "ignore"]
-
-    def __init__(self, **kw):
-        self._tt = "   "
-        self.tt = str(self._tt)
+class DerivedMethod:
+    def __init__(self, name, ref):
         super().__init__()
-        self.__dict__ |= kw
-        self.__dict__["type"] = self.__class__.__name__
-        self.uuid = hex(id(self))
 
-    def __str__(self):
+        self.__mmcore_ref__ = ref
+        self._name = name
 
-        lst = []
-        for k, v in self.__dict__.items():
-            if isinstance(v, ST):
-                v.tt += self.tt
-            if isinstance(v, str):
-                v = f'"{v}"'
-            if not k in self.ignore:
-                lst.append(f'{self._tt}"{k}": {v.__str__()}')
-        vls = f",\n{self.tt}".join(lst)
-        res = "{" + f"\n{self.tt}{vls}\n{self.tt}" + "}"
-        self.tt = str(self._tt)
-        return res
+    def __call__(self, own):
+        if own.__qualname__ not in __derived_attributes_table__:
+            __derived_attributes_table__[own.__qualname__] = dict()
+        __derived_attributes_table__[own.__qualname__][self._name] = self.__mmcore_ref__
 
-    def pretty(self, **kwargs):
-        rich.print_json(self.__str__())
+        setattr(own, self._name, property(
+            lambda slf: __derived_dispatch_table__[self.__mmcore_ref__](slf)))
+
+        return own
 
 
-s = ST(a=5, b=5, name="s1")
-s2 = ST(a=11, b="rrrr", name="s2")
-s3 = ST(first=s2, second=s, name="s3")
+class Derive:
+    """
+    >>> pts = [[0, 0, 0], [1, 0, 0], [1, 2, 0]]
 
-s5 = ST(first=s, second=s, name="s5")
-s4 = ST(first=s2, second=s5, name="s4")
+    >>> @Derive
+    ... def prev_attr_resolver(self):
+    ...     return pts[self._pt - 1]
 
-s7 = ST(first=s4, bar=22, name="s7")
-s6 = ST(first=s7, foo=s2, name="s6")
+    >>> @Derive
+    ... def next_attr_resolver(self):
+    ...     try:
+    ...         return pts[self._index + 1]
+    ...     except IndexError:
+    ...         return pts[(self._index  + 1) % len(pts)]
 
-s21 = ST(a=11, b="rrrr", name="s21", previous=s2)
-s31 = ST(first=s21, second=s5, previous=s3, name="s31")
-s51 = ST(first=s7, second=s4, previous=s5, sname="s51")
-s41 = ST(first=s21, second=s51, previous=s4, name="s41")
-s71 = ST(first=s41, bar=22, previous=s7, name="s71")
-s61 = ST(first=s71, foo=s21, previous=s6, name="s61")
+    >>> @Derive
+    ... def prev_attr_resolver(self):
+    ...    return pts[self._pt - 1]
 
-print(s61)
-json.loads(s7.__str__())
+    >>> @prev_attr_resolver.derived("prev_pt")
+    ... @next_attr_resolver.derived("next_pt")
+    ... class ExperimentalLinkedNode:
+    ...       def __init__(self, index=1):
+    ...           self._index = index
+
+
+
+
+
+
+
+pts = [[0, 0, 0], [1, 0, 0], [1, 2, 0]]
+
+
+
+from scipy.spatial import distance
+
+
+@Derive
+def all_tests_test(self):
+    return str(self._test) * 2
+
+
+
+
+
+@Derive
+def dist_resolver(self):
+    return distance.euclidean(prev_attr_resolver(self), next_attr_resolver(self))
+
+
+@all_tests_test.derived("test")
+@prev_attr_resolver.derived("prev_pt")
+@next_attr_resolver.derived("next_pt")
+class B:
+    _test = 1
+    dist = DerivedAttribute("dist_resolver")
+
+    def __init__(self, pt=1):
+        self._pt = 1
+
+
+stop = False
+
+
+def iii():
+    global stop
+    for i in np.linspace(0.1, 2 * np.pi, 200):
+        time.sleep(0.01)
+        pts[0] = [np.cosh(i), np.sinh(i), 1 / i]
+    stop = True
+
+
+th = threading.Thread(target=iii)
+th.start()
+j = -1
+while True:
+    if stop:
+        break
+    j += 1
+    print(f'[loop: {j}] {o.dist}', flush=True, end="\r")
+
+    """
+
+    def __init__(self, fun):
+        super().__init__()
+        self.__mmcore_ref__ = fun.__name__
+        __derived_dispatch_table__[self.__mmcore_ref__] = fun
+
+    def __call__(self, *arga, **kwargs):
+        return __derived_dispatch_table__[self.__mmcore_ref__](*arga, **kwargs)
+
+    def derived(self, name):
+        return DerivedMethod(name, self.__mmcore_ref__)
+
+
+class DerivedAttribute:
+
+    def __init__(self, ptr):
+        self.__mmcore_ref__ = ptr
+
+    def __set_name__(self, own, name):
+        self._name = name
+        if own.__qualname__ not in __derived_attributes_table__:
+            __derived_attributes_table__[own.__qualname__] = dict()
+
+        __derived_attributes_table__[own.__qualname__][self._name] = self.__mmcore_ref__
+
+    def __get__(self, inst, own=None):
+
+        if inst is not None:
+
+            return __derived_dispatch_table__[__derived_attributes_table__[own.__qualname__][self._name]](inst)
+
+
+        else:
+            return __derived_dispatch_table__[__derived_attributes_table__[own.__qualname__][self._name]]
+
+
+class DerivedProperty(DerivedAttribute):
+    def __init__(self, fget):
+        self.fget = fget
+        self._name = fget.__name__
+        __derived_dispatch_table__[fget.__qualname__] = fget
+
+        super().__init__(fget.__qualname__)
+
+    def __get__(self, inst, own=None):
+        return super().__get__(inst, own=None)

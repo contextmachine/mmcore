@@ -1,10 +1,12 @@
 import abc
 import dataclasses
 import typing
+from collections import namedtuple
 
 import numpy as np
-from collections import namedtuple
+
 from mmcore.exceptions import MmodelIntersectException
+
 TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
@@ -381,3 +383,39 @@ def circle_intersection(c1:Circle2dTuple, c2:Circle3dTuple) -> list[Point2dTuple
     ys2 = ym + h * (x2 - x1) / d
 
     return [Point2dTuple((xs1, ys1)), Point2dTuple((xs2, ys2))]
+
+
+def circle_intersection2d(c1, c2):
+    '''
+    Computes the intersection points of two circles in the plane.
+
+    Args:
+        c1: tuple (x, y, r) representing the first circle with center (x, y) and radius r.
+        c2: tuple (x, y, r) representing the second circle with center (x, y) and radius r.
+
+    Returns:
+        A list containing the coordinates of the intersection points, or None if the circles do not intersect.
+    '''
+
+    # Unpack the circle data
+    x1, y1, _1, r1 = (*(c1.origin), c1.radius)
+    x2, y2, _2, r2 = (*(c2.origin), c2.radius)
+
+    # Compute the distance between the centers of the circles
+    d = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+    # Check if the circles intersect
+    if d > r1 + r2 or d < np.abs(r2 - r1):
+        return None
+
+    # Compute the coordinates of the intersection points
+    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
+    h = np.sqrt(r1 ** 2 - a ** 2)
+    xm = x1 + a * (x2 - x1) / d
+    ym = y1 + a * (y2 - y1) / d
+    xs1 = xm + h * (y2 - y1) / d
+    xs2 = xm - h * (y2 - y1) / d
+    ys1 = ym - h * (x2 - x1) / d
+    ys2 = ym + h * (x2 - x1) / d
+
+    return [(xs1, ys1, _1), (xs2, ys2, _2)]
