@@ -283,7 +283,8 @@ class SharedStateServer():
 
         @inst.app.post("/buffers/{uid}")
         def upd_all_buffer(uid: str, data: dict):
-            BUFFERS[uid].update_all_items(data['data'])
+            for i, item in enumerate(data["data"]):
+                BUFFERS[uid].update_item(i, item)
             if not inst.is_production:
                 print("GET", data)
 

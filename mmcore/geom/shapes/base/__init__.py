@@ -309,6 +309,7 @@ class Triangle:
 
         self.points = ShapeDCLL.from_list(self.ixs, table=self.table)
         self.triangulate()
+
     def __getitem__(self, item):
 
         return self.get_point(self.ixs[item])
