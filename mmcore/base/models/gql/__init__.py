@@ -7,7 +7,7 @@ import typing
 import strawberry
 from strawberry.scalars import JSON
 
-from mmcore.base.registry import objdict
+from mmcore.base.registry import ageomdict, objdict
 from mmcore.base.utils import getitemattr
 
 hashlib.sha224()
@@ -197,8 +197,9 @@ class BufferGeometryObject:
     uuid: typing.Optional[str ]= None
     def __post_init__(self):
         ##print("create")
-        self.uuid = self.sha().hexdigest()
-
+        if self.uuid is None:
+            self.uuid = self.sha().hexdigest()
+        ageomdict[self.uuid] = self
 
     def sha(self):
         return hashlib.sha1(ujson.dumps(self.data.attributes.position.array).encode())

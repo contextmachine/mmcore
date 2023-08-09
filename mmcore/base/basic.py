@@ -1017,6 +1017,10 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
                                    'array': np.array(
                                        instance.points).flatten().tolist(),
                                    'normalized': False})})})})
+
+
+
+
             else:
                 return None
 
@@ -1051,10 +1055,12 @@ class APoints(AGeom):
 
     @property
     def points(self):
-        return self._points
+        return list(self._points)
 
     @points.setter
     def points(self, v):
+        if isinstance(v, np.ndarray):
+            v = v.tolist()
         self._points = v
 
     @property

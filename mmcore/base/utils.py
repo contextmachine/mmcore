@@ -7,6 +7,14 @@ from mmcore.base.registry import matdict
 from mmcore.collections import ElementSequence
 
 
+def methods_owner(method):
+    own = [k for k in method.__qualname__.split('.')[:-1]]
+    if len(own) > 1:
+        own = '.'.join(own)
+    else:
+        own, = own
+    return globals()[own]
+
 def getitemattrs(*attrs):
     def wrap(obj):
         return [getitemattr(attr)(obj) for attr in attrs]

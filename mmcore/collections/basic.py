@@ -812,6 +812,29 @@ class DCLL:
         self.count += 1
         return
 
+    def insert_node(self, data, index):
+        if (index > self.count) | (index < 0):
+            raise ValueError(f"Index out of range: {index}, size: {self.count}")
+
+        if self.head == None:
+            self.head = data
+            self.count = 1
+            return
+
+        temp = self.head
+        if (index == 0):
+            temp = temp.prev
+        else:
+            for _ in range(index - 1):
+                temp = temp.next
+
+        temp.next.prev = data
+        temp.next.prev.next, temp.next.prev.prev = temp.next, temp
+        temp.next = temp.next.prev
+        if (index == 0):
+            self.head = self.head.prev
+        self.count += 1
+        return
     def remove(self, index):
         if (index >= self.count) | (index < 0):
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
