@@ -57,6 +57,24 @@ def dist(P, Q):
     return norm(P - Q)
 
 
+def padd(self, other):
+    return list(map(lambda x: add(*x), zip(list(self), list(other))))
+
+
+def psub(self, other):
+    return list(map(lambda x: sub(*x), zip(list(self), list(other))))
+
+
+def pmul(self, other: float):
+    return list(map(lambda x: x * other, list(self)))
+
+
+def ptruediv(self, other: float):
+    return list(map(lambda x: x / other, list(self)))
+
+
+def pmatmul(self, other: float):
+    return list(map(lambda x: x / other, list(self)))
 class V2(typing.Iterable):
     """Pure implementation a vector 2D """
 
