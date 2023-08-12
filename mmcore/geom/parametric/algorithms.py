@@ -406,7 +406,7 @@ def circle_intersection2d(c1, c2):
 
     # Check if the circles intersect
     if d > r1 + r2 or d < np.abs(r2 - r1):
-        return None
+        return IntersectFail()
 
     # Compute the coordinates of the intersection points
     a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)

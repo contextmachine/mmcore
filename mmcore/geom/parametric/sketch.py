@@ -10,6 +10,7 @@ from itertools import starmap
 
 import dill
 import numpy as np
+import randomname
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
 
@@ -293,12 +294,12 @@ class PlaneLinear(ParametricObject):
     def __post_init__(self):
 
         # #print(unit(self.normal), self.xaxis, self.yaxis)
-        if (self.xaxis is  None) and (self.yaxis is None):
-            l=[[1,0,0],[0,1,0],[0,0,1]]
+        if (self.xaxis is None) and (self.yaxis is None):
+            l = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
             self.normal = unit(self.normal)
 
             l.sort(key=lambda x: np.dot(self.normal, x))
-            #print(l, self.normal)
+            # print(l, self.normal)
             self.yaxis = np.cross(self.normal, l[0])
             self.xaxis = np.cross(self.yaxis, self.normal)
 
@@ -318,6 +319,7 @@ class PlaneLinear(ParametricObject):
                 self.normal = unit(self.normal)
                 self.yaxis = unit(self.yaxis)
                 self.xaxis = np.cross(self.yaxis, self.normal)
+
     @property
     def x_linear(self):
         return Linear.from_two_points(self.origin, np.array(self.origin) + unit(np.array(self.xaxis)))
@@ -373,7 +375,7 @@ class PlaneLinear(ParametricObject):
 
         x = np.array(pt2) - np.array(origin)
         nrm = np.cross(x, (pt3 - np.array(origin)))
-        return PlaneLinear(origin=origin,normal=nrm, xaxis=x)
+        return PlaneLinear(origin=origin, normal=nrm, xaxis=x)
 
     def intersect(self, other):
 
@@ -396,9 +398,8 @@ class PlaneLinear(ParametricObject):
         return Transform.from_plane_to_plane(self, other)
 
     def evaluate(self, t):
-        u,v=t
-        return np.array([self.origin+self.xaxis*u,self.origin+self.yaxis*v])
-
+        u, v = t
+        return np.array([self.origin + self.xaxis * u, self.origin + self.yaxis * v])
 
     @property
     def projection(self):
@@ -799,20 +800,19 @@ def no_mp(dl):
 @dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
-    plane:typing.Union[PlaneLinear,Plane]=WorldXY
+    plane: typing.Union[PlaneLinear, Plane] = WorldXY
 
     def __post_init__(self):
-        if not isinstance(self.plane ,PlaneLinear):
-            self.plane=PlaneLinear(origin=self.plane.origin,normal=self.plane.normal,xaxis=self.plane.xaxis)
+        if not isinstance(self.plane, PlaneLinear):
+            self.plane = PlaneLinear(origin=self.plane.origin, normal=self.plane.normal, xaxis=self.plane.xaxis)
+
     @property
     def __params__(self):
         return [self.r, self.plane]
 
-
     def evaluate(self, t):
-        return (self.plane.transform_from_other(WorldXY).matrix@np.append(np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float),1).T)[:-1]
-
-
+        return (self.plane.transform_from_other(WorldXY).matrix @ np.append(
+            np.array([self.r * np.cos(t * 2 * np.pi), self.r * np.sin(t * 2 * np.pi), 0.0], dtype=float), 1).T)[:-1]
 
     @property
     def points(self):
@@ -825,6 +825,17 @@ class Circle(ParametricObject):
 _point_table = []
 _relay_table = dict()
 _attrs_table = []
+
+
+class ParametricModel:
+    def __init__(self, uuid=None, name=None):
+        if uuid is None:
+            uuid = randomname.get_name(sep="_")
+        self.uuid = uuid
+        if name is None:
+            name = uuid
+        self.name = name
+        self._table = GeometryBuffer(uuid=self.uuid)
 
 
 class Circle2D:
@@ -922,6 +933,8 @@ class ParametricIterator:
 
     def __iter__(self):
         return self
+
+
 @dataclasses.dataclass
 class Circle3D(Circle):
     origin: tuple[float, float, float] = (0, 0, 0)
@@ -936,9 +949,10 @@ class Circle3D(Circle):
 
     @plane.setter
     def plane(self, v):
-        self.normal=unit(v.normal)
+        self.normal = unit(v.normal)
         self.origin = v.origin
         return PlaneLinear(origin=self.origin, normal=unit(self.normal))
+
     @functools.lru_cache(maxsize=512)
     def evaluate(self, t):
         try:

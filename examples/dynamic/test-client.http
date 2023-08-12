@@ -3,7 +3,18 @@ GET http://localhost:7711/fetch/sw_wall
 ###
 GET http://localhost:7711/keys
 
+###
+POST https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/params/node/mfb_sw_l2_panels
+Content-Type: application/json
 
+{
+  "name": "mfb_sw_l2_panels",
+  "masks": {
+    "projmask": true,
+    "cut_mask": false,
+    "demo": false
+  }
+}
 
 ###
 POST http://localhost:7711/params/node/test_sweep
