@@ -10,7 +10,6 @@ from itertools import starmap
 
 import dill
 import numpy as np
-import randomname
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
 
@@ -18,7 +17,7 @@ from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints, \
-    circle_intersection2d
+    circle_intersection2d, global_to_custom
 from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import Plane, Transform, WorldXY, remove_crd
@@ -336,6 +335,19 @@ class PlaneLinear(ParametricObject):
         T = Transform.from_plane_to_plane(self, WorldXY)
         return remove_crd(add_w(pt) @ T.matrix.T)
 
+    def in_plane_coords(self, pt):
+        """
+        Точка из глобальной системы в локальную
+        Parameters
+        ----------
+        pt
+
+        Returns
+        -------
+
+        """
+
+        return global_to_custom(pt, self.origin, self.xaxis, self.yaxis, self.normal)
     @property
     def x0(self):
         return self.origin[0]
@@ -428,6 +440,11 @@ class PlaneLinear(ParametricObject):
         except Exception:
 
             raise ModuleNotFoundError("RhinoCommon missing")
+
+    @classmethod
+    def from_rhino(cls, obj):
+        return PlaneLinear(origin=[obj.Origin.X, obj.Origin.Y, obj.Origin.Z],
+                           xaxis=[obj.XAxis.X, obj.XAxis.Y, obj.XAxis.Z], yaxis=[obj.YAxis.X, obj.YAxis.Y, obj.YAxis.Z])
 
     def side(self, point):
         w = np.array(point) - np.array(self.origin)
@@ -827,15 +844,6 @@ _relay_table = dict()
 _attrs_table = []
 
 
-class ParametricModel:
-    def __init__(self, uuid=None, name=None):
-        if uuid is None:
-            uuid = randomname.get_name(sep="_")
-        self.uuid = uuid
-        if name is None:
-            name = uuid
-        self.name = name
-        self._table = GeometryBuffer(uuid=self.uuid)
 
 
 class Circle2D:
