@@ -412,9 +412,15 @@ class CompShapeList(ComponentList):
         return node
 
 
+from mmcore.geom.reflection import Ptr, tables
 BUFFERS = dict()
+tables["buffers"] = BUFFERS
+BUFFERS_PTR = Ptr("buffers")
 
 
+class BufferPtr(Ptr):
+    def __new__(cls, ref, parent_ptr=BUFFERS_PTR, **kwargs):
+        return super().__new__(cls, ref, parent_ptr=parent_ptr, **kwargs)
 class GeometryBuffer:
     _tolerance = -1
     _remove_duplicates = True
@@ -543,3 +549,6 @@ class GeometryBuffer:
     def loads(self, b: bytes):
         self._buffer = eval(gzip.decompress(b).decode())
         return self
+
+
+default = GeometryBuffer(uuid="default")

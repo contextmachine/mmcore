@@ -138,6 +138,7 @@ class RootInterface:
     def all(self) -> JSON:
         return strawberry.asdict(self)
 
+
 def gqlcb(x):
     x.field
 
@@ -212,7 +213,6 @@ def sumdicts(*dicts):
     for dct in dicts[1:]:
         d |= dct
     return d
-
 
 
 class ChildSet(set):
@@ -331,7 +331,7 @@ class A:
     idict = idict
     args_keys = ["name"]
     _uuid: str = "no-uuid"
-    name: str = "A"
+    name: str = "Object"
     _state_keys = {
         "uuid",
         "name",
@@ -544,7 +544,7 @@ class A:
         if key in idict[self.uuid].keys():
 
             return adict[idict[self.uuid][key]]
-        elif key=="value":
+        elif key == "value":
             return self
 
         else:
@@ -711,20 +711,25 @@ class AGeometryDescriptor:
 
             return ageomdict.get(self._default)
         else:
-            return ageomdict.get(getattr(instance, self._name))
+            geom = ageomdict.get(getattr(instance, self._name))
+            if hasattr(instance, "boundingSphere"):
+                setattr(geom.data, "boundingSphere", instance.boundingSphere)
+            return geom
 
     def __set__(self, instance, value):
+
         ageomdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
 
 
 from mmcore.geom.materials import ColorRGB
 
+
 class ADynamicGeometryDescriptor:
     adict = dict()
 
     def __init__(self, resolver):
-        self.resolver=resolver
+        self.resolver = resolver
 
     def __set_name__(self, owner, name):
         if not (name == "geometry"):
@@ -739,13 +744,16 @@ class ADynamicGeometryDescriptor:
             return self.resolve(instance)
 
     def __set__(self, instance, value):
-        self.resolver=value
-    def resolve(self,instance):
-        def wrap(*args,**kwargs):
-            res=self.resolver(instance, *args, **kwargs)
-            ageomdict[res.uuid]=res
+        self.resolver = value
+
+    def resolve(self, instance):
+        def wrap(*args, **kwargs):
+            res = self.resolver(instance, *args, **kwargs)
+            ageomdict[res.uuid] = res
             return res
+
         return wrap
+
 
 class Domain:
     def __init__(self, a, b):
@@ -794,7 +802,6 @@ class Domain:
 
     def __contains__(self, item):
         return self.a <= item <= self.b
-
 
 
 @dataclasses.dataclass(unsafe_hash=True)
@@ -861,6 +868,7 @@ class BBox:
         self.owner = owner
         if owner.RENDER_BBOX:
             self.owner.bbox = self.__repr3d__()
+
     def __array__(self):
         return np.array([self.u, self.v, self.h], dtype=float)
 
@@ -896,7 +904,6 @@ class BBox:
 
     @matrix.setter
     def matrix(self, v):
-
 
         self._matrix = v
 
@@ -967,6 +974,35 @@ class AGeom(A):
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()
     aabb = BBoxDescriptor()
+
+    @property
+    def points(self):
+        geom = ageomdict.get(self._geometry)
+        return np.array(geom.data.attributes.position.array).reshape(
+            (len(geom.data.attributes.position.array) // 3, 3)).tolist()
+
+    @property
+    def boundingSphere(self):
+
+        x = np.array(self.points)[:, 0]
+        y = np.array(self.points)[:, 1]
+        z = np.array(self.points)[:, 2]
+        corners = np.array([[np.min(x), np.min(y), np.min(z)],
+                            [np.max(x), np.min(y), np.min(z)],
+                            [np.max(x), np.max(y), np.min(z)],
+                            [np.max(x), np.max(y), np.max(z)],
+                            [np.min(x), np.max(y), np.max(z)],
+                            [np.min(x), np.min(y), np.max(z)],
+                            [np.min(x), np.max(y), np.min(z)],
+                            [np.max(y), np.min(y), np.max(z)]]).tolist()
+        dists = []
+        for corn in corners:
+            dists.append(euclidean(self.centroid, corn))
+        dists.sort(reverse=True)
+        rad = dists[0]
+
+        return self.centroid, rad
+
     @property
     def threejs_type(self):
         return "Geometry"
@@ -985,7 +1021,6 @@ class AGeom(A):
             "material": self._material if self._material else None,
         }
         return res
-
 
 
 class AMesh(AGeom):
@@ -1140,6 +1175,115 @@ grp = AGroup(name="base_root", uuid="_")
 
 
 class TestException(Exception): ...
+
+
+class ALineDynamic(ALine):
+    _colors = None
+    _closed = False
+
+    @property
+    def closed(self):
+        return self._closed
+
+    @closed.setter
+    def closed(self, v):
+        self._closed = bool(v)
+
+    @property
+    def colors(self):
+
+        return self._colors
+
+    @colors.setter
+    def colors(self, v):
+        self._colors = v
+
+    @property
+    def geometry(self):
+        if self.closed:
+            pts = self.points + [self.points[0]]
+        else:
+            pts = self.points
+        if self.colors is not None:
+            if len(self.colors) > 0:
+                return gql_models.BufferGeometryObject(**{
+                    'uuid': self._geometry,
+                    'data': gql_models.Data12(
+                        **{'attributes': gql_models.Attributes4(
+                            **{
+                                'position': gql_models.Position(
+                                    **{'itemSize': 3,
+                                       'type': 'Float32Array',
+                                       'array': np.array(pts).flatten().tolist(),
+                                       'normalized': False
+                                       }
+
+                                ),
+                                "colors": gql_models.Color(array=np.array(self.colors).flatten().tolist())
+                            }
+
+                        ),
+                            "boundingSphere": gql_models.BoundingSphere(*self.boundingSphere)
+
+                        }
+                    )
+                }
+                                                       )
+
+        return gql_models.BufferGeometryObject(**{
+            'uuid': self._geometry,
+            'data': gql_models.Data12(
+                **{'attributes': gql_models.Attributes1(
+                    **{
+                        'position': gql_models.Position(
+                            **{'itemSize': 3,
+                               'type': 'Float32Array',
+                               'array': np.array(pts).flatten().tolist(),
+                               'normalized': False
+                               }
+                        )
+                    }
+
+                ),
+                    "boundingSphere": gql_models.BoundingSphere(*self.boundingSphere)
+                }
+            )
+        }
+                                               )
+
+    @property
+    def _geometry(self):
+        return "geom_" + str(self.uuid)
+
+    @property
+    def centroid(self):
+        return np.average(np.array(self.points), axis=0).tolist()
+
+    @property
+    def boundingSphere(self):
+        x = np.array(self.points)[:, 0]
+        y = np.array(self.points)[:, 1]
+        z = np.array(self.points)[:, 2]
+        corners = np.array([[np.min(x), np.min(y), np.min(z)],
+                            [np.max(x), np.min(y), np.min(z)],
+                            [np.max(x), np.max(y), np.min(z)],
+                            [np.max(x), np.max(y), np.max(z)],
+                            [np.min(x), np.max(y), np.max(z)],
+                            [np.min(x), np.min(y), np.max(z)],
+                            [np.min(x), np.max(y), np.min(z)],
+                            [np.max(y), np.min(y), np.max(z)]]).tolist()
+        dists = []
+        for corn in corners:
+            dists.append(euclidean(self.centroid, corn))
+        dists.sort(reverse=True)
+        rad = dists[0]
+
+        return self.centroid, rad
+
+
+class APointsDynamic(ALineDynamic):
+    _closed = False
+    material_type = APoints.material_type
 
 
 class ObjectThree:

@@ -654,7 +654,7 @@ class PolyHedron:
 
     def to_mesh(self, **kwargs):
         md = self.triangulate()
-        self._repr3d = md.to_mesh(uuid=self.uuid, **kwargs)
+        self._repr3d = md.to_mesh(name="Polyhedron", uuid=self.uuid, **kwargs)
         return self._repr3d
 
     def solve_normals(self):
