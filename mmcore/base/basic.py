@@ -331,7 +331,7 @@ class A:
     idict = idict
     args_keys = ["name"]
     _uuid: str = "no-uuid"
-    name: str = "A"
+    name: str = "Object"
     _state_keys = {
         "uuid",
         "name",
@@ -711,9 +711,13 @@ class AGeometryDescriptor:
 
             return ageomdict.get(self._default)
         else:
-            return ageomdict.get(getattr(instance, self._name))
+            geom = ageomdict.get(getattr(instance, self._name))
+            if hasattr(instance, "boundingSphere"):
+                setattr(geom.data, "boundingSphere", instance.boundingSphere)
+            return geom
 
     def __set__(self, instance, value):
+
         ageomdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
 
@@ -970,6 +974,34 @@ class AGeom(A):
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()
     aabb = BBoxDescriptor()
+
+    @property
+    def points(self):
+        geom = ageomdict.get(self._geometry)
+        return np.array(geom.data.attributes.position.array).reshape(
+            (len(geom.data.attributes.position.array) // 3, 3)).tolist()
+
+    @property
+    def boundingSphere(self):
+
+        x = np.array(self.points)[:, 0]
+        y = np.array(self.points)[:, 1]
+        z = np.array(self.points)[:, 2]
+        corners = np.array([[np.min(x), np.min(y), np.min(z)],
+                            [np.max(x), np.min(y), np.min(z)],
+                            [np.max(x), np.max(y), np.min(z)],
+                            [np.max(x), np.max(y), np.max(z)],
+                            [np.min(x), np.max(y), np.max(z)],
+                            [np.min(x), np.min(y), np.max(z)],
+                            [np.min(x), np.max(y), np.min(z)],
+                            [np.max(y), np.min(y), np.max(z)]]).tolist()
+        dists = []
+        for corn in corners:
+            dists.append(euclidean(self.centroid, corn))
+        dists.sort(reverse=True)
+        rad = dists[0]
+
+        return self.centroid, rad
 
     @property
     def threejs_type(self):
