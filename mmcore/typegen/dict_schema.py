@@ -83,15 +83,20 @@ class DictSchema:
     def bind(self, cls_name: str,
              fields: typing.Iterable,
              *args, **kwargs):
-        ncls = dataclasses.make_dataclass(cls_name, fields, *args, **kwargs)
-        self.classes.add(ncls)
-        return ncls
+        if cls_name not in self.classes_dict.keys():
+            new_class = dataclasses.make_dataclass(cls_name, fields, *args, **kwargs)
+            self.classes_dict[cls_name] = new_class
+
+        self.classes.add(self.classes_dict[cls_name])
+        return self.classes_dict[cls_name]
 
     def __init__(self, dict_example):
         self.annotations = dict()
         self.cls = object
+        self.root_class_name = "schema"
         self.dict_example = DeepDict(dict_example)
         self.classes = set()
+        self.classes_dict = dict()
 
     def generate_schema(self, callback=lambda x: x):
         def wrap(name, obj):
@@ -156,7 +161,7 @@ class DictSchema:
             else:
                 return name, type(obj), lambda: obj
 
-        return wrap(self.cls.__name__, self.dict_example)[1]
+        return wrap(self.root_class_name, self.dict_example)[1]
 
     @property
     def schema(self):

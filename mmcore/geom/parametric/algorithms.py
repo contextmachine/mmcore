@@ -16,14 +16,15 @@ ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
-Vector2dTuple= namedtuple("VectorTuple", ["x", "y"])
-Point2dTuple= namedtuple("PointTuple", ["x", "y"])
-Vector3dTuple= namedtuple("VectorTuple", ["x", "y", "z"])
-Point3dTuple= namedtuple("PointTuple", ["x", "y", "z"])
-LineTuple=namedtuple("LineTuple", ["start", "vec"])
-LineStartEndTuple=namedtuple("LineStartEndTuple", ["start", "end"])
-Circle2dTuple=namedtuple("Circle2dTuple", [ "radius", "x", "y"])
-Circle3dTuple=namedtuple("Circle2dTuple", [ "circle", "plane"])
+Vector2dTuple = namedtuple("VectorTuple", ["x", "y"])
+Point2dTuple = namedtuple("PointTuple", ["x", "y"])
+Vector3dTuple = namedtuple("VectorTuple", ["x", "y", "z"])
+Point3dTuple = namedtuple("PointTuple", ["x", "y", "z"])
+LineTuple = namedtuple("LineTuple", ["start", "vec"])
+LineStartEndTuple = namedtuple("LineStartEndTuple", ["start", "end"])
+Circle2dTuple = namedtuple("Circle2dTuple", ["radius", "x", "y"])
+Circle3dTuple = namedtuple("Circle2dTuple", ["circle", "plane"])
+
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -348,7 +349,7 @@ def project_point_onto_plane(point, plane_point, plane_normal):
     return projected_point
 
 
-def circle_intersection(c1:Circle2dTuple, c2:Circle3dTuple) -> list[Point2dTuple]:
+def circle_intersection(c1: Circle2dTuple, c2: Circle3dTuple) -> list[Point2dTuple]:
     '''
     Computes the intersection points of two circles in the plane.
 
@@ -361,20 +362,19 @@ def circle_intersection(c1:Circle2dTuple, c2:Circle3dTuple) -> list[Point2dTuple
     '''
 
     # Unpack the circle data
-    r1 ,x1, y1 = c1
+    r1, x1, y1 = c1
     r2, x2, y2 = c2
 
     # Compute the distance between the centers of the circles
-    d = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    d = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
     # Check if the circles intersect
     if d > r1 + r2 or d < np.abs(r2 - r1):
-
         raise MmodelIntersectException("Objects not intersects!")
 
     # Compute the coordinates of the intersection points
-    a = (r1**2 - r2**2 + d**2) / (2 * d)
-    h = np.sqrt(r1**2 - a**2)
+    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
+    h = np.sqrt(r1 ** 2 - a ** 2)
     xm = x1 + a * (x2 - x1) / d
     ym = y1 + a * (y2 - y1) / d
     xs1 = xm + h * (y2 - y1) / d
@@ -406,7 +406,7 @@ def circle_intersection2d(c1, c2):
 
     # Check if the circles intersect
     if d > r1 + r2 or d < np.abs(r2 - r1):
-        return None
+        return IntersectFail()
 
     # Compute the coordinates of the intersection points
     a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
@@ -419,3 +419,31 @@ def circle_intersection2d(c1, c2):
     ys2 = ym + h * (x2 - x1) / d
 
     return [(xs1, ys1, _1), (xs2, ys2, _2)]
+
+
+def global_to_custom(point, origin, x_axis, y_axis, z_axis):
+    """
+    Convert a point from a global coordinate system to a custom coordinate system defined by an origin and three axes.
+
+    :param point: tuple or list of three numbers representing the coordinates of a point in the global coordinate system
+    :param origin: tuple or list of three numbers representing the origin of the custom coordinate system
+    :param x_axis: tuple or list of three numbers representing the x-axis of the custom coordinate system
+    :param y_axis: tuple or list of three numbers representing the y-axis of the custom coordinate system
+    :param z_axis: tuple or list of three numbers representing the z-axis of the custom coordinate system
+    :return: tuple of three numbers representing the coordinates of the point in the custom coordinate system
+    """
+    # Convert all inputs to numpy arrays for easier computation
+    point = np.array(point)
+    origin = np.array(origin)
+    x_axis = np.array(x_axis)
+    y_axis = np.array(y_axis)
+    z_axis = np.array(z_axis)
+
+    # Compute the transformation matrix from global to custom coordinate system
+    transform_matrix = np.column_stack([x_axis, y_axis, z_axis]).T
+
+    # Subtract the origin from the point and transform the result using the transformation matrix
+    transformed_point = transform_matrix.dot(point - origin)
+
+    # Return the transformed point as a tuple of three numbers
+    return transformed_point

@@ -89,7 +89,10 @@ class Position(BufferAttribute):
 
 @strawberry.type
 class Color(Position):
+    type: str = "Float32Array"
+    array: list[float]
     itemSize: int = ItemSize(3)
+
 
 
 @strawberry.type
@@ -135,7 +138,7 @@ class Attributes4(Attributes1):
     colors: typing.Union[Color, None] = None
 
 
-@strawberry.type
+@dataclasses.dataclass
 class BoundingSphere:
     center: list[float]
     radius: float
@@ -155,10 +158,20 @@ class Data:
 
 
 @strawberry.type
+class Data2:
+    attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3, Attributes4]
+    index: typing.Union[Index, None] = None
+    boundingSphere: typing.Union[BoundingSphere, None] = None
+
+@strawberry.type
 class Data1:
     attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3]
 
 
+@strawberry.type
+class Data12:
+    attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3]
+    boundingSphere: typing.Union[BoundingSphere, None] = None
 @strawberry.type
 class PositionOnlyData:
     attributes: Attributes1
