@@ -173,8 +173,8 @@ class MeshData:
 
         return MeshData(**dct)
 
-    def to_mesh(self, color=None, flatShading=True, opacity=1.0, cls=AMesh, **kwargs):
-        return cls(geometry=self.create_buffer(),
+    def to_mesh(self, color=None, flatShading=True, opacity=1.0, cls=AMesh, name="Mesh", **kwargs):
+        return cls(name=name, geometry=self.create_buffer(),
                      material=MeshPhongMaterial(color=DEFAULTCOLOR if color is None else color, opacity=opacity,
                                                 flatShading=flatShading), **kwargs)
 

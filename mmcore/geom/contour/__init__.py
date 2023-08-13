@@ -7,11 +7,6 @@ from mmcore.geom.parametric import CurveCurveIntersect, IntersectFail
 from mmcore.geom.parametric import Linear, NurbsCurve, PlaneLinear
 
 
-def to_nurbs(curve):
-    line =
-    return line
-
-
 class AbstractLoop:
     edges_table = []
 

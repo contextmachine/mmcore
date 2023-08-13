@@ -149,3 +149,121 @@ class DerivedProperty(DerivedAttribute):
 
     def __get__(self, inst, own=None):
         return super().__get__(inst, own=None)
+
+
+graphs = dict()
+
+
+class MmGraph:
+    def __new__(cls, uuid=None, name="Base Objects Graph"):
+        uuid = uuid if uuid is not None else _uuid.uuid4().hex
+        if uuid in graphs.keys():
+            return graphs[uuid]
+        self = super().__new__(cls)
+        self.name = name
+        self.table = dict()
+        self.relay = dict()
+        self.prelay = dict()
+        return self
+
+
+ggraph = MmGraph(uuid="root")
+import uuid as _uuid
+
+
+class GraphLink:
+    def __new__(cls, uuid, graph):
+        obj = super().__new__(cls)
+        obj.uuid, obj.graph = uuid, graph
+        return obj
+
+    def deref(self):
+        return self.graph.table[self.uuid]
+
+    def __get__(self, instance, own):
+        return self.graph.table[self.uuid]
+
+
+def get_from_full_uuid(uu):
+    g, o = uu.split("@")
+    return graphs[g].table[o]
+
+
+def find_in_all(obj):
+    o = obj.uuid
+    dct = dict()
+
+    for k, v in graphs.items():
+        if o in v.table.keys():
+            dct[k] = v.table[o]
+
+    return dct
+
+
+class MmBase:
+    _uuid: str
+
+    def __new__(cls, uuid=None, name="Base Object", graph=ggraph, **kwargs):
+        if uuid is None:
+            uuid = _uuid.uuid4().hex
+        else:
+            if uuid in graph.table.keys():
+                return graph.table[uuid]
+        self = super().__new__(cls)
+        self._uuid = uuid
+        self._name = name
+        self._graph = graph
+        self._graph.table[uuid] = self
+        self._graph.relay[uuid] = dict()
+        self._graph.prelay[uuid] = dict()
+        self.update(**kwargs)
+
+        return self
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, v):
+        self._graph.table[v] = self._graph.table[self._uuid]
+        self._graph.relay[v] = self._graph.relay[self._uuid]
+        self._graph.prelay[v] = self._graph.prelay[self._uuid]
+        for k, vv in self._graph.prelay[self._uuid].items():
+            self._graph.relay[k][vv] = v
+        del self._graph.table[self._uuid]
+        del self._graph.relay[self._uuid]
+        del self._graph.prelay[self._uuid]
+        self._uuid = v
+
+    def __call__(self, **kwargs):
+        self.update(**kwargs)
+        return self
+
+    def __getattr__(self, item: str):
+        if item.startswith("_"):
+            return object.__getattribute__(self, item)
+        elif item in self._graph.relay[self._uuid].keys():
+            res = self._graph.relay[self._uuid][item]
+            if isinstance(res, GraphLink):
+
+                return res.deref()
+            elif isinstance(res, str):
+                if res in self._graph.table.keys():
+                    return self._graph.table[res]
+
+            return res
+        else:
+            return object.__getattribute__(self, item)
+
+    def update(self, **kwargs):
+        for k, v in kwargs.items():
+            if isinstance(v, MmBase):
+
+                self._graph.relay[self._uuid][k] = v._uuid
+
+                v._graph.prelay[v._uuid][self._uuid] = k
+
+
+            else:
+                self._graph.relay[self._uuid][k] = v

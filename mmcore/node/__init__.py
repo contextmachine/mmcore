@@ -4,6 +4,16 @@ import subprocess as sp
 
 
 def node_eval(fun):
+    """
+
+    Parameters
+    ----------
+    fun
+    Выполните любой код с помощью node js
+    Returns
+    -------
+
+    """
     def wrap(*args, **kwargs):
         proc = sp.Popen(["node", "-e", fun(*args, **kwargs)], stdout=sp.PIPE)
         res, _ = proc.communicate()
@@ -12,7 +22,7 @@ def node_eval(fun):
     return wrap
 
 
-class Node:
+class NodeJs:
     def __init__(self, path="node"):
         super().__init__()
         self.path = path
@@ -31,7 +41,7 @@ class Node:
         return json.loads(o)
 
 
-class NodeType(Node):
+class NodeJsType(NodeJs):
 
     def decode(self, o):
         def init(slf, **kwargs):
