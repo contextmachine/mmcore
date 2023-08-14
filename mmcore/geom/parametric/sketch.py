@@ -184,7 +184,7 @@ class Linear(ParametricObject):
         return res
 
     def __hash__(self):
-        return
+        return hash(f'{(self.x0, self.y0, self.z0, self.a, self.b, self.c)}')
 
     def distance_func(self, point):
         """
@@ -275,7 +275,7 @@ class Polyline(ParametricObject):
         return self.segments[int(segm)].evaluate(tt)
 
 
-@dataclasses.dataclass(unsafe_hash=True)
+@dataclasses.dataclass
 class PlaneLinear(ParametricObject):
     """
     𝑎(𝑥−𝑥0)+𝑏(𝑦−𝑦0)+𝑐(𝑧−𝑧0)=0
@@ -306,7 +306,7 @@ class PlaneLinear(ParametricObject):
         elif (self.xaxis is not None) and (self.yaxis is not None):
             self.yaxis = unit(self.yaxis)
             self.xaxis = unit(self.xaxis)
-            print(self.yaxis, self.normal)
+            # print(self.yaxis, self.normal)
             self.normal = np.cross(self.xaxis, self.yaxis)
 
         else:
@@ -348,6 +348,9 @@ class PlaneLinear(ParametricObject):
         """
 
         return global_to_custom(pt, self.origin, self.xaxis, self.yaxis, self.normal)
+
+    def __hash__(self):
+        return hash(f'{self.origin, self.normal, self.xaxis, self.yaxis}')
     @property
     def x0(self):
         return self.origin[0]
@@ -454,6 +457,11 @@ class PlaneLinear(ParametricObject):
         return project_point_onto_plane(np.array(point), plane_point=np.array(self.origin),
                                         plane_normal=np.array(self.normal))
 
+
+@dataclasses.dataclass
+class LinearIterable(Linear):
+    def __iter__(self):
+        return iter([self.start, self.end])
 
 from mmcore.geom.parametric.algorithms import project_point_onto_plane
 
@@ -842,8 +850,6 @@ class Circle(ParametricObject):
 _point_table = []
 _relay_table = dict()
 _attrs_table = []
-
-
 
 
 class Circle2D:

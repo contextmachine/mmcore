@@ -286,14 +286,18 @@ def line_line_intersection(line1, line2):
         return p
 
 
-def line_plane_intersection(plane, ray, epsilon=1e-6):
+def line_plane_intersection(plane, ray: 'mmcore.geom.parametric.sketch.Linear', epsilon=1e-6, full_return=False):
     ray_dir = np.array(ray.direction)
     ndotu = np.array(plane.normal).dot(ray_dir)
     if abs(ndotu) < epsilon:
+        if full_return:
+            return None, None, None
         return None
     w = ray.start - plane.origin
     si = -np.array(plane.normal).dot(w) / ndotu
     Psi = w + si * ray_dir + plane.origin
+    if full_return:
+        return w, si, Psi
     return Psi
 
 
@@ -447,3 +451,4 @@ def global_to_custom(point, origin, x_axis, y_axis, z_axis):
 
     # Return the transformed point as a tuple of three numbers
     return transformed_point
+

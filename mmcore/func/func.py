@@ -1,4 +1,6 @@
 from operator import methodcaller
+
+
 class MapMethodDescriptor:
     def __init__(self, fun):
         super().__init__()
@@ -29,3 +31,8 @@ def mapper(name):
     return wrap
 
 
+def even_filter(iterable, reverse=False):
+    def even_filter_num(item):
+        return reverse != ((iterable.index(item) % 2) == 0)
+
+    return filter(even_filter_num, iterable)
