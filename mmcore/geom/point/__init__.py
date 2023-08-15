@@ -425,6 +425,7 @@ class GeometryBuffer:
     _tolerance = -1
     _remove_duplicates = True
     __props__ = ['tolerance', 'remove_duplicates']
+    _uuid = None
 
     def __init__(self, buffer=None, uuid=None, **kwargs):
         super().__init__()
@@ -432,7 +433,8 @@ class GeometryBuffer:
             uuid = "default"
 
         self._buffer = [] if buffer is None else buffer
-        self.uuid = _uuid.uuid4().hex if uuid is None else uuid
+        self._uuid = _uuid.uuid4().hex if uuid is None else uuid
+        BUFFERS[self._uuid] = self
         self.update_props(kwargs)
 
     def index(self, val):
@@ -486,9 +488,12 @@ class GeometryBuffer:
                 setattr(self, k, props[k])
 
     def __setstate__(self, state):
+        u = state.pop("uuid")
+        BUFFERS[u] = self
+        self._uuid = u
+        self.__props__ = state.pop('__props__')
+        self._buffer = state.pop("buffer")
 
-        self.__props__ = state['__props__']
-        self._buffer = state["buffer"]
         self.update_props(state)
 
     def add_item(self, point):
@@ -517,6 +522,11 @@ class GeometryBuffer:
                 self.update_item(i, pt)
             else:
                 self.add_item(pt)
+
+    def update_all(self, vals):
+
+        for i, pt in enumerate(vals):
+            self._buffer[i] = pt
 
     def get_all_points(self):
         return self._buffer

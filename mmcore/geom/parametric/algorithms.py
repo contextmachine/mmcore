@@ -437,6 +437,25 @@ def global_to_custom(point, origin, x_axis, y_axis, z_axis):
     :return: tuple of three numbers representing the coordinates of the point in the custom coordinate system
     """
     # Convert all inputs to numpy arrays for easier computation
+
+    # Compute the transformation matrix from global to custom coordinate system
+
+    # Return the transformed point as a tuple of three numbers
+    return np.array([x_axis, y_axis, z_axis]) @ (np.array(point) - np.array(origin))
+
+
+def global_to_custom_old(point, origin, x_axis, y_axis, z_axis):
+    """
+    Convert a point from a global coordinate system to a custom coordinate system defined by an origin and three axes.
+
+    :param point: tuple or list of three numbers representing the coordinates of a point in the global coordinate system
+    :param origin: tuple or list of three numbers representing the origin of the custom coordinate system
+    :param x_axis: tuple or list of three numbers representing the x-axis of the custom coordinate system
+    :param y_axis: tuple or list of three numbers representing the y-axis of the custom coordinate system
+    :param z_axis: tuple or list of three numbers representing the z-axis of the custom coordinate system
+    :return: tuple of three numbers representing the coordinates of the point in the custom coordinate system
+    """
+    # Convert all inputs to numpy arrays for easier computation
     point = np.array(point)
     origin = np.array(origin)
     x_axis = np.array(x_axis)
