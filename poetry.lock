@@ -1845,6 +1845,41 @@ files = [
 cli = ["click (>=5.0)"]
 
 [[package]]
+name = "python-fcl"
+version = "0.7.0.4"
+description = "Python bindings for the Flexible Collision Library"
+optional = false
+python-versions = "*"
+files = [
+    { file = "python_fcl-0.7.0.4-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:45f2776fedbdc69bb666f719a49b37bfbb0ffeae103255589faff609ebb6f0af" },
+    { file = "python_fcl-0.7.0.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:fafe9e9c15e2ba08c9d4ae13cd50b70c8081e0e44cf9b9acb108e87c7a526084" },
+    { file = "python_fcl-0.7.0.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f2a56ddfa5f66003650171c20470c27fb797be0a29eb53c485004a1c906b19af" },
+    { file = "python_fcl-0.7.0.4-cp310-cp310-win_amd64.whl", hash = "sha256:39949c8b0e0fdd92fb1cdadbb3a1f49eb98eedfb6d010fab635723fd285be80e" },
+    { file = "python_fcl-0.7.0.4-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:5f9de9c0d85126e482fb97d412fe6e92346039b07fa63a712500763e1554d102" },
+    { file = "python_fcl-0.7.0.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5d323f33d4fb9325b873899c88f2b0ee1dab394fa910544b42f9a9ffdc9fb633" },
+    { file = "python_fcl-0.7.0.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d8aceec08beba22283b1f5465838f044a197ad3d9f8cfd20d9f8a3090c128804" },
+    { file = "python_fcl-0.7.0.4-cp311-cp311-win_amd64.whl", hash = "sha256:69474e929d6dd91b2a62c98e059dfa88d9288d13cd69cc17e00eeab8059d796b" },
+    { file = "python_fcl-0.7.0.4-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:a250af4fb9846f4cc588cb741ba92862d6d36b6f5c2336409c1ed8c20a551b2d" },
+    { file = "python_fcl-0.7.0.4-cp36-cp36m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d46dcc41fa57ff10694f8f6454cb2eb71eb0c2e6b086168533242a18fe1cdf17" },
+    { file = "python_fcl-0.7.0.4-cp36-cp36m-win_amd64.whl", hash = "sha256:d49405639ab5966248751db63a3802420dc601e050b86839454bc2db46e8e6d4" },
+    { file = "python_fcl-0.7.0.4-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:34f4846b3ba2e42cbb105bac21a91b692dfd30361bfc21da094c93bfd83b6401" },
+    { file = "python_fcl-0.7.0.4-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ba6b0d1b2a79f550774767e45f42aa21f933e582a08dd2175b660a014b21919b" },
+    { file = "python_fcl-0.7.0.4-cp37-cp37m-win_amd64.whl", hash = "sha256:765659ddac27a3a74390126e910d64f8a1cbc816824624049deb3274ab48de6e" },
+    { file = "python_fcl-0.7.0.4-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:5a8334824414c24137be6d135d4036d82a989251725e2820a8cc1bacf3be9fe2" },
+    { file = "python_fcl-0.7.0.4-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:88f7ea486dcb3f2f06211b511cb32b9bc017bc2abe1a34958a6f1be578aac845" },
+    { file = "python_fcl-0.7.0.4-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bb659bf12204797e4a92775152446cc5b667ae46526d0f6f82541e24fa036236" },
+    { file = "python_fcl-0.7.0.4-cp38-cp38-win_amd64.whl", hash = "sha256:6436fe2bac22f25536e148a91169a50e9cbf7c77476d2017184eaf44cbb2ace4" },
+    { file = "python_fcl-0.7.0.4-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:e04318c65f0e14c8f92f8ce7c17d01da75644596f21e64710f7f21e099ab714a" },
+    { file = "python_fcl-0.7.0.4-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:77ae1f882c95d9b178e209c87b920b99979426f7741a8d4ea87a4c931868e0e8" },
+    { file = "python_fcl-0.7.0.4-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c0576695566fb4fe0bcfb134d74e592e3f4a7876ee00473a77435b34556edf50" },
+    { file = "python_fcl-0.7.0.4-cp39-cp39-win_amd64.whl", hash = "sha256:b937a16dd532da6804338fcdba2fcf4f8964d87e506696baf964d918e023979b" },
+]
+
+[package.dependencies]
+Cython = "*"
+numpy = "*"
+
+[[package]]
 name = "python-multipart"
 version = "0.0.6"
 description = "A streaming multipart parser for Python"
@@ -2806,4 +2841,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "5a1c72427f1a466b399bc73a375e349c8d216969200db897d458b39d4c5a84d5"
+content-hash = "e175e533024bf8efab454ed7c407691b9dc08a10561c3a724cdce1825c0dc08e"
