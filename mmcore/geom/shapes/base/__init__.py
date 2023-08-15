@@ -56,6 +56,7 @@ if USE_OCC:
         HAS_OCC = False
         USE_OCC = False
 
+
 class Tri:
     """A 3d triangle"""
 
@@ -66,8 +67,6 @@ class Tri:
 
     def map(self, f):
         return Tri(f(self.v1), f(self.v2), f(self.v3))
-
-
 
 
 class SimpleMesh:
@@ -158,8 +157,6 @@ class NodeDescriptor:
         instance.nodetype = value
 
 
-
-
 from scipy.spatial.distance import euclidean
 
 EPS = 6
@@ -220,9 +217,6 @@ class OccPrism(OccShape):
         self.shape = self.shape.Shape()
 
 
-
-
-
 def solve_boundary_repr(self, color=ColorRGB(20, 20, 20).decimal, **kwargs):
     return ALine(points=list(self.points),
                  name=self.uuid + "_boundary",
@@ -233,28 +227,39 @@ def solve_boundary_repr(self, color=ColorRGB(20, 20, 20).decimal, **kwargs):
 attribute_table = dict()
 
 
-
-
 class Triangle:
     table = point_table
     attribute_table = attribute_table
     width = None
     _occ = None
-
+    _tess = None
     @property
     def props(self):
         return self.attribute_table[self.uuid]
 
-    def triangulate(self):
-
+    def solve_earcut(self):
         pts = list(self.points)
         res = earcut.flatten([pts])
-        tess = earcut.earcut(res['vertices'], res['holes'], res['dimensions'])
+        _tess = earcut.earcut(res['vertices'], res['holes'], res['dimensions'])
 
-        self.mesh_data = MeshData(pts, indices=np.array(tess).reshape((len(tess) // 3, 3)).tolist())
+        self._tess = np.array(_tess, dtype=int).reshape((len(_tess) // 3, 3)).tolist()
+    def triangulate(self):
+        if self._tess is None:
+            self.solve_earcut()
+
+        self.mesh_data = MeshData(list(self.points), indices=self._tess)
 
         return self.mesh_data
 
+    def get_triangles(self):
+        if self._tess is None:
+            self.solve_earcut()
+        tris = []
+        if self.__class__ == Triangle:
+            return self
+        for i, tri in enumerate(self._tess):
+            tris.append(Triangle.from_indices(ixs=tri, uuid=self.uuid + "_" + str(i), table=self.table))
+        return tris
     @classmethod
     def from_indices(cls, ixs, uuid=None, table=None):
         if table is None:
@@ -262,13 +267,15 @@ class Triangle:
         if uuid is None:
             uuid = hex(id(table)) + "".join(hex(n) for n in ixs)
 
-        return cls(*[cls.table[pt] for pt in ixs], uuid=uuid, table=table)
+        return cls(*[table[pt] for pt in ixs], uuid=uuid, table=table)
+
     @property
     def uuid(self):
         return self._uuid
+
     @uuid.setter
-    def uuid(self,v):
-        self._uuid=v
+    def uuid(self, v):
+        self._uuid = v
 
     def __init__(self, *pts, uuid=None, table=None, attribute_table=None, props=None):
 
@@ -320,7 +327,6 @@ class Triangle:
         else:
             self.table[self.ixs[item]] = pt
 
-
     @property
     def plane(self):
         return PlaneLinear.from_tree_pt(*self.get_points()[:3])
@@ -339,7 +345,55 @@ class Triangle:
                     yield line_plane_intersection(plane,
                                                   Linear.from_two_points(self.points[a], self.points[b])).tolist()
 
-    def plane_split(self, plane, return_lists=False):
+    def plane_split(self, plane):
+        sideA, sideB = self.divide_vertices_from_plane(plane)
+        if (sideB == []) or (sideA == []):
+            return [self.points[i] for i in sideA], [self.points[i] for i in sideB]
+
+        else:
+            if len(sideA) == 2:
+                A0 = self.points[sideA[0]]
+                A1 = self.points[sideA[1]]
+                B0 = self.points[sideB[0]]
+                AB1, AB2 = line_plane_intersection(plane,
+                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
+                    plane, Linear.from_two_points(A1, B0)).tolist()
+                return [A0, A1, AB2, AB1], [B0, AB1, AB2]
+            else:
+                A0 = self.points[sideA[0]]
+                B0 = self.points[sideB[0]]
+                B1 = self.points[sideB[1]]
+                BA1, BA2 = line_plane_intersection(plane,
+                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
+                    plane, Linear.from_two_points(A0, B1)).tolist()
+
+                return [A0, BA1, BA2], [B0, B1, BA2, BA1]
+
+    def plane_split3(self, plane):
+        sideA, sideB = self.divide_vertices_from_plane(plane)
+        if (sideB == []) or (sideA == []):
+            return {"res": [[self.points[i] for i in sideA], [self.points[i] for i in sideB]], "new_pts": []}
+
+        else:
+            if len(sideA) == 2:
+                A0 = self.points[sideA[0]]
+                A1 = self.points[sideA[1]]
+                B0 = self.points[sideB[0]]
+                AB1, AB2 = line_plane_intersection(plane,
+                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
+                    plane, Linear.from_two_points(A1, B0)).tolist()
+                return {"res": [[A0, A1, AB2, AB1], [B0, AB1, AB2]], "new_pts": [AB1, AB2]}
+            else:
+                A0 = self.points[sideA[0]]
+                B0 = self.points[sideB[0]]
+                B1 = self.points[sideB[1]]
+                BA1, BA2 = line_plane_intersection(plane,
+                                                   Linear.from_two_points(A0, B0)).tolist(), line_plane_intersection(
+                    plane, Linear.from_two_points(A0, B1)).tolist()
+
+                return {"res": [[A0, BA1, BA2], [B0, B1, BA2, BA1]], "new_pts": [BA1, BA2]}
+
+    def plane_split2(self, plane, return_lists=False):
         sideA, sideB = self.divide_vertices_from_plane(plane)
         if (sideB == []) or (sideA == []):
             return [self.points[i] for i in sideA], [self.points[i] for i in sideB]
@@ -482,12 +536,13 @@ class Triangle:
             BRepAlgoAPI_Cut(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
 
     def intersection(self, cutter):
+        if HAS_OCC:
+            return OccShape(
+                BRepAlgoAPI_Common(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
 
-        return OccShape(
-            BRepAlgoAPI_Common(self.make_occ_prizm().prism.Shape(), cutter.make_occ_prizm().prism.Shape()).Shape())
     @property
     def mesh(self):
-        if hasattr(self,"_repr3d"):
+        if hasattr(self, "_repr3d"):
             if isinstance(self._repr3d, AMesh):
                 return self._repr3d
         else:
@@ -500,13 +555,11 @@ class Triangle:
         return self._repr3d
 
 
-
 class Quad(Triangle):
     """A 3d quadrilateral (polygon with 4 vertices)"""
 
-
     def __init__(self, /, *pts, **kwargs):
-        super().__init__(*pts,**kwargs)
+        super().__init__(*pts, **kwargs)
 
     def isplanar(self):
         return self.points.isplanar()
@@ -572,14 +625,21 @@ class UniversalLoop(Loop):
             return super().__new__(cls, *pts, **kwargs)
 
 
-
+from scipy.spatial import Delaunay, ConvexHull
 
 
 class PolyHedron:
-    def __new__(cls, *args, uuid=None, table=None, attributes_table=None, **kwargs):
+    __qhull_deps__ = ["table", "points", "vertices", "shapes"]
+    cache: dict
+    _delaunay = None
+    _convexhull = None
+
+    def __new__(cls, *args, uuid=None, table=None, attributes_table=None, solve_delaunay=False, solve_convexhull=False,
+                shapes=None, **kwargs):
         obj = super().__new__(cls)
         if table is not None:
             obj.table = table
+
         else:
             obj.table = []
         if attributes_table is not None:
@@ -590,20 +650,55 @@ class PolyHedron:
         obj.shapes = []
         obj._normals_table = None
         obj._pt_faces = dict()
+        obj.cache = dict()
+        if shapes is not None:
+            obj.add_shapes(shapes)
+
+        if solve_delaunay:
+            obj.solve_delaunay()
+        if solve_convexhull:
+            obj.solve_convexhull()
 
         return obj(*args, **kwargs)
 
+    def add_shapes(self, shapes):
+        ixs = []
+
+        for shape in shapes:
+            ixs.append(self.add_shape(points=shape))
+        return ixs
+
+
     def __call__(self, *args, **kwargs):
+        invalidate = False
 
         for k, v in kwargs.items():
             if v is not None:
-                self.__dict__[k] = v
+
+                if v != self.__dict__.get(k):
+                    self.__dict__[k] = v
+                    invalidate = True
+        if invalidate:
+            self.invalidate_cache()
 
         return self
+
+    @property
+    def vertices(self):
+        return self.table
+
+    @property
+    def points(self):
+        return self.table
+
+    @property
+    def faces(self):
+        return self.shapes
 
     def add_shape(self, points, attributes=None):
 
         ixs = []
+        unique = []
         for pt in points:
             # print(pt)
             if pt in self.table:
@@ -614,9 +709,8 @@ class PolyHedron:
                 self.table.append(pt)
 
                 vi = len(self.table) - 1
-
+                unique.append(pt)
             ixs.append(vi)
-
 
         self.shapes.append(ixs)
         u = self.children_uuid(len(self.shapes) - 1)
@@ -626,51 +720,154 @@ class PolyHedron:
             self.attributes_table[u] = attributes
         else:
             self.attributes_table[u] |= attributes
-
+        if self._convexhull is not None:
+            self._convexhull.add_points(unique)
+        if self._delaunay is not None:
+            self._delaunay.add_points(unique)
         return u
 
-    def get_shape(self, item):
+    def invalidate_cache(self):
+        self.cache = dict()
 
+    def get_shape(self, item) -> typing.Union[Triangle, Quad, Loop]:
+        if "loop_shapes" not in self.cache:
+            self.cache['loop_shapes'] = dict()
+
+        if item in self.cache['loop_shapes']:
+            return self.cache['loop_shapes'][item]
         if len(self.shapes[item]) == 3:
             cls = Triangle
         elif len(self.shapes[item]) == 4:
             cls = Quad
+
         else:
             cls = Loop
-        return cls(*[self.table[jj] for jj in self.shapes[item]],
-                   uuid=self.children_uuid(item), table=self.table, attribute_table=self.attributes_table)
 
+        obj = cls(*[self.table[jj] for jj in self.shapes[item]],
+                  uuid=self.children_uuid(item), table=self.table, attribute_table=self.attributes_table)
+        obj.triangulate()
+        self.cache['loop_shapes'][item] = obj
+        return obj
 
     def gen_triangulated_indices(self):
 
         for sh in range(len(self.shapes)):
-            ss = self.get_shape(sh).triangulate()
-            yield ss.ixs
+            yield self.get_shape(sh).ixs
 
     def triangulate(self):
-
-        self.mesh_data = MeshData(self.table, indices=self.shapes)
         return self.mesh_data
 
+    @property
+    def _repr3d(self) -> AMesh:
+
+        return self.cache.get("repr3d")
+
+    @_repr3d.setter
+    def _repr3d(self, v: AMesh):
+        if v is not None:
+            self.cache["repr3d"] = v
+
     def to_mesh(self, **kwargs):
-        md = self.triangulate()
-        self._repr3d = md.to_mesh(name="Polyhedron", uuid=self.uuid, **kwargs)
+
+        if self._repr3d is not None:
+            self._repr3d(**kwargs)
+            return self._repr3d
+        self._repr3d = self.mesh_data.to_mesh(name="Polyhedron", uuid=self.uuid, **kwargs)
+
         return self._repr3d
 
+    @property
+    def mesh_data(self) -> MeshData:
+        if 'mesh_data' in self.cache:
+            return self.cache['mesh_data']
+        elif 'normals' in self.cache:
+            return MeshData(self.table, indices=self.shapes, normals=self.cache['normals'])
+        else:
+            return MeshData(self.table, indices=self.shapes)
+
     def solve_normals(self):
+
         norms = [None] * len(self.table)
         for k, v in enumerate(self.table):
             sh = self.get_shape(list(self._pt_faces[k])[0])
 
             norms[k] = sh.normal
-
+        self.cache["normals"] = norms
         self._normals_table = norms
-        self.mesh_data = MeshData(self.table, indices=self.shapes, normals=norms)
 
         return self.mesh_data
 
+    def solve_delaunay(self, incremental=True, **kwargs):
+        self._delaunay = Delaunay(self.points, incremental=incremental, **kwargs)
+
+    def solve_convexhull(self, incremantal=True, qhull_options=None):
+        self._convexhull = ConvexHull(self.points, incremental=incremantal, qhull_options=qhull_options)
+
     def children_uuid(self, i):
         return self.uuid + "_" + str(i)
+
+    @property
+    def normals(self):
+        return self.cache.get("normals")
+
+    def mm_convex_hull(self):
+
+        ph = PolyHedron(self.uuid + "_convexhull", table=self.table)
+        ph.shapes = self._delaunay.convex_hull.tolist()
+        return ph
+
+    def point_inside(self, point):
+        if self._delaunay is None:
+            self.solve_delaunay()
+        res = self._delaunay.find_simplex(point, bruteforce=True)
+        return -1 != res
+
+    def find_simplex(self, point):
+        if self._delaunay is None:
+            self.solve_delaunay()
+
+        return self._delaunay.find_simplex(point, bruteforce=True)
+
+    def __len__(self):
+        return len(self.shapes)
+
+    def get_loops(self):
+
+        for i in range(self.__len__()):
+            self.get_shape(i)
+        return iter(self.cache['loop_shapes'].values())
+
+    def plane_split(self, plane):
+        loop = DCLL()
+        _r = []
+        _l = []
+
+        for shape in self.get_loops():
+            res = shape.plane_split3(plane)
+            ptright, ptleft = res["res"]
+
+            newpts = res["new_pts"]
+            yield ptright, ptleft, newpts
+
+            """
+            if len(newpts)>0:
+                if (newpts[0] in loop )and  (newpts[1] in loop ):
+                    continue
+                elif newpts[0] in loop :
+
+                    loop.insert_after(newpts[1],newpts[0])
+                elif newpts[1] in loop :
+                    loop.insert_before_by_index(loop.index(newpts[1]), newpts[0])
+                else:
+                    loop.append(newpts[0])
+                    loop.append(newpts[1])
+
+            r.append(ptright)
+            l.append(ptleft)
+        resf=list(loop)
+        _r.append(resf)
+        _l.append(resf)
+        return r,l"""
 
 
 class Assembly(PolyHedron):

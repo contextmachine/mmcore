@@ -891,15 +891,15 @@ class DCLL:
                 return None
         return current
 
-    def insert_after(self, value1, value2):
+    def insert_after(self, new_value, value):
         self.count += 1
         new_node = self.nodetype(0)
-        new_node.data = value1  # Inserting the data
+        new_node.data = new_value  # Inserting the data
 
         # Find node having value2 and
         # next node of it
         temp = self.head
-        while temp.data != value2:
+        while temp.data != value:
             #print(temp, temp.data)
             temp = temp.next
         _next = temp.next
@@ -910,7 +910,11 @@ class DCLL:
         new_node.next = _next
         _next.prev = new_node
 
+    def insert_before_by_index(self, index, new_value):
+
+        self.insert_after(new_value, self.get_node(index).prev.data)
     def insert_before(self, ref_node, new_node):
+        self.index(ref_node)
 
         self.insert_after(ref_node.prev.data, new_node)
 
@@ -970,6 +974,9 @@ class DCLL:
 
     def __class_getitem__(cls, item):
         return type(f'{cls.__qualname__}[{item.__qualname__}]', (cls,), {'nodetype': item})
+
+    def __contains__(self, item):
+        return self.index(item) is not None
 def rrange(start, end, count):
     rng = range(0, count)
     step = (end - start) * (1 / ((count - 0) - 1))
