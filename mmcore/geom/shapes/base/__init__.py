@@ -256,7 +256,7 @@ class Triangle:
             self.solve_earcut()
         tris = []
         if self.__class__ == Triangle:
-            return self
+            return [self]
         for i, tri in enumerate(self._tess):
             tris.append(Triangle.from_indices(ixs=tri, uuid=self.uuid + "_" + str(i), table=self.table))
         return tris
@@ -752,7 +752,8 @@ class PolyHedron:
     def gen_triangulated_indices(self):
 
         for sh in range(len(self.shapes)):
-            yield self.get_shape(sh).ixs
+            for tri in self.get_shape(sh).get_triangles():
+                yield tri.ixs
 
     def triangulate(self):
         return self.mesh_data
@@ -781,9 +782,9 @@ class PolyHedron:
         if 'mesh_data' in self.cache:
             return self.cache['mesh_data']
         elif 'normals' in self.cache:
-            return MeshData(self.table, indices=self.shapes, normals=self.cache['normals'])
+            return MeshData(self.table, indices=list(self.gen_triangulated_indices()), normals=self.cache['normals'])
         else:
-            return MeshData(self.table, indices=self.shapes)
+            return MeshData(self.table, indices=list(self.gen_triangulated_indices()))
 
     def solve_normals(self):
 
@@ -868,6 +869,24 @@ class PolyHedron:
         _r.append(resf)
         _l.append(resf)
         return r,l"""
+
+    def plane_solid_split(self, plane):
+        a, b, c = list(zip(*self.plane_split(plane)))
+        ap = PolyHedron()
+        bp = PolyHedron()
+        for r in a:
+            if not r:
+                continue
+            else:
+                ap.add_shape(r)
+        for r in b:
+            if not r:
+                continue
+            else:
+                bp.add_shape(r)
+        bp.solve_delaunay()
+        ap.solve_delaunay()
+        return ap.mm_convex_hull(), bp.mm_convex_hull()
 
 
 class Assembly(PolyHedron):

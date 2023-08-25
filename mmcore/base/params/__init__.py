@@ -4,6 +4,7 @@ import uuid
 import uuid as _uuid
 
 import dill
+import networkx as nx
 import ujson
 from graphql import GraphQLScalarType, GraphQLSchema
 
@@ -588,6 +589,15 @@ class Graph:
         self.graph.edges[dpc.uuid] = dict()
         return dpc
 
+    def to_nx(self):
+        G = nx.DiGraph()
+        for i in self.table.keys():
+            G.add_node(i)
+        for k, v in self.edges.items():
+            if len(v) != 0:
+                for val in v.values():
+                    G.add_edge(k, val)
+        return G
 
 from collections import namedtuple
 
@@ -792,7 +802,8 @@ class Node:
             self(**{k: v})
 
     def __repr__(self):
-
+        if self.is_scalar:
+            return f"Scalar{self.__class__.__qualname__}(value={self.value}) at {self.uuid}"
         return f"{self.__class__.__qualname__}({', '.join(f'{k}={getattr(self, k)}' for k in self.keys())}) at {self.uuid}"
 
     def add_edges(self, **kwargs):
