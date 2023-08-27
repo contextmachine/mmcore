@@ -5,6 +5,7 @@ import uuid as _uuid
 
 import dill
 import networkx as nx
+import pyvis
 import ujson
 from graphql import GraphQLScalarType, GraphQLSchema
 
@@ -28,9 +29,8 @@ class FlowEdge:
     id: str
     source: str
     target: str
-    type: str = 'smoothstep'
-
-    animated: bool = True
+    type: str = 'straight'
+    animated: bool = False
 
     def todict(self):
         return dataclasses.asdict(self)
@@ -526,17 +526,6 @@ def store_pgraph(graph=None):
         return dill.dumps(graph, byref=True, recurse=True)
 
 
-class Graph:
-    def __init__(self):
-        self.table = dict()
-        self.edges = dict()
-        self.pedges = dict()
-
-    def add_edge(self, parent, name, child):
-        self.edges[parent][name] = child
-        self.pedges[child][parent] = name
-
-
 from collections import namedtuple
 
 ParentsResponse = namedtuple('ParentsResponse', ["roots", "tree"])
@@ -569,6 +558,7 @@ class Graph:
         self.table = dict()
         self.edges = dict()
         self.pedges = dict()
+        self.vis_config_table = dict()
         self.update_query = []
 
         self.attaches = dict()
@@ -577,6 +567,7 @@ class Graph:
     def add_edge(self, parent, name, child):
         self.edges[parent][name] = child
         self.pedges[child][parent] = name
+
 
     def __copy__(self):
         dpc = copy.deepcopy(self.graph)
@@ -589,7 +580,7 @@ class Graph:
         self.graph.edges[dpc.uuid] = dict()
         return dpc
 
-    def to_nx(self):
+    def to_nx(self) -> nx.DiGraph:
         G = nx.DiGraph()
         for i in self.table.keys():
             G.add_node(i)
@@ -599,6 +590,29 @@ class Graph:
                     G.add_edge(k, val)
         return G
 
+    def to_pyvis(self, *args, **kwargs) -> pyvis.network.Network:
+        net = pyvis.network.Network(*args, directed=True, **kwargs)
+        net.from_nx(self.to_nx())
+        return net
+
+    def write_html(self, path, local=True, notebook: bool = False, open_browser=True, **kwargs):
+        net = self.to_pyvis(**kwargs)
+        return net.write_html(path, local=local, notebook=notebook, open_browser=open_browser)
+
+    def toflow(self):
+        nodes = []
+        edges = []
+        i = -1
+        for k, v in self.edges.items():
+            i += 1
+            nodes.append(self.table[k].toflow(i * 100, i * 100))
+            if isinstance(v, dict):
+                for kk, vv in v.items():
+                    print(vv, kk, k)
+                    edges.append(FlowEdge(id=f'e{k}-{kk}', source=k, target=vv).todict())
+                else:
+                    pass
+        return {"nodes": nodes, "edges": edges}
 from collections import namedtuple
 
 ParentsResponse = namedtuple('ParentsResponse', ["roots", "tree"])
@@ -656,18 +670,56 @@ class CallGraphEvent:
 NG = Graph()
 
 
+@dataclasses.dataclass(unsafe_hash=True)
+class NodeVisConfigsPosition:
+    __x: dataclasses.InitVar[float]
+    __y: dataclasses.InitVar[float]
+    _x = 0.0
+    _y = 0.0
+
+    def __post_init__(self, __x: float = 0.0, __y: float = 0.0):
+        self.x = __x
+        self.y = __y
+
+    @property
+    def x(self):
+        return self._x
+
+    @x.setter
+    def x(self, v):
+        self._x = v
+
+    @property
+    def y(self):
+        return self._y
+
+    @y.setter
+    def y(self, v):
+        self._y = v
+
+
+@dataclasses.dataclass(unsafe_hash=True)
+class NodeVisConfigs:
+    position: NodeVisConfigsPosition
+
+
+
 class Node:
     uuid = None
 
-    def __init__(self, graph=NG, uuid=None, value=None, **kwargs):
+    def __init__(self, graph=NG, uuid=None, value=None, vis_config=None, **kwargs):
         self.uuid = uuid
         if uuid is None:
             self.uuid = _uuid.uuid4().hex
         self.graph = graph
         self.is_scalar = False
+
         if self.uuid in self.graph.table:
             raise KeyError(f"UUID {self.uuid} is exist (to write exist uuid use restore option)")
         self.graph.table[self.uuid] = self
+        if vis_config is None:
+            vis_config = NodeVisConfigs(position=NodeVisConfigsPosition(0.0, 0.0))
+            self.graph.vis_config_table[self.uuid] = vis_config
         self.graph.pedges[self.uuid] = dict()
         self.graph.edges[self.uuid] = dict()
         self.graph.attaches_by_node[self.uuid] = dict()
@@ -902,6 +954,36 @@ class Node:
                 return dill.load(fl)
         else:
             return dill.load(f)
+
+    _metadata: dict = dict()
+
+    @property
+    def vis_config(self):
+        return self.graph.vis_config_table[self.uuid]
+
+    @vis_config.setter
+    def vis_config(self, v):
+        self.graph.vis_config_table[self.uuid] = v
+
+    @vis_config.deleter
+    def vis_config(self):
+        del self.graph.vis_config_table[self.uuid]
+
+    def toflow(self, x=0.0, y=0.0):
+
+        data = {
+            "id": self.uuid,
+            "data": {
+                "label": f'Node {self.uuid}'},
+            "position": {"x": x, "y": y}
+        }
+        if self.is_scalar:
+            data['data']['label'] = f'{self.uuid.split("_")[-1]} = {self.value}'
+
+        return data
+
+
+
 
 
 class BufferNode(Node):
