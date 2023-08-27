@@ -54,14 +54,15 @@ def main(args):
         raise err
 
     # ##print(args)
+    if len(args) == 0:
+        args = [".env"]
     for arg in args:
 
-        if arg:
+        print(f"load {arg} file.")
+        for k, v in dotenv.dotenv_values(dotenv.find_dotenv(filename=arg, usecwd=True)).items():
+            print(f"export {k}={v}")
 
-            for k, v in dotenv.dotenv_values(dotenv.find_dotenv(filename=arg, usecwd=True)).items():
-                #print(f"export {k}={v}")
-
-                # sys.stdin.write(f"export {k}={v}")
+            # sys.stdin.write(f"export {k}={v}")
 
     return 0
 
