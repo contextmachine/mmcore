@@ -2,12 +2,13 @@ import gzip
 
 import numpy as np
 
-import mmcore.base.models.gql
+import mmcore
+import mmcore.base.models.gql as mgql
 
 mapattrs = {
-    "normal": mmcore.base.models.gql.Normal,
-    "position": mmcore.base.models.gql.Position,
-    "uv": mmcore.base.models.gql.Uv
+    "normal": mgql.Normal,
+    "position": mgql.Position,
+    "uv": mgql.Uv
 
 }
 
