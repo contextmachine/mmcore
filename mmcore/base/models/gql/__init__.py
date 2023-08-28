@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import pprint
 import typing
+from enum import Enum
 
 import strawberry
+import ujson
 from strawberry.scalars import JSON
 
 from mmcore.base.registry import ageomdict, objdict
@@ -13,6 +16,7 @@ from mmcore.base.utils import getitemattr
 hashlib.sha224()
 
 
+# noinspection PyProtectedMember
 class ChildrenDesc:
 
     def __set_name__(self, owner, name):
@@ -26,10 +30,10 @@ class ChildrenDesc:
             return self._default
         else:
             try:
-                l = []
+                lst = []
                 for uid in objdict[instance.uuid]._children:
-                    l.append(objdict[uid].bind_class(**objdict[uid].threejs_repr))
-                return l
+                    lst.append(objdict[uid].bind_class(**objdict[uid].threejs_repr))
+                return lst
             except KeyError:
                 pass
 
@@ -84,7 +88,7 @@ class Position(BufferAttribute):
     normalized: bool = False
 
     def item_size(self) -> int:
-        return 3
+        return len(self.array)
 
 
 @strawberry.type
@@ -92,7 +96,6 @@ class Color(Position):
     type: str = "Float32Array"
     array: list[float]
     itemSize: int = ItemSize(3)
-
 
 
 @strawberry.type
@@ -115,7 +118,6 @@ class Attributes2(Attributes1):
     position: Position
     normal: typing.Union[Normal, None] = None
     uv: typing.Union[Uv, None] = None
-
 
 
 @strawberry.type
@@ -163,6 +165,7 @@ class Data2:
     index: typing.Union[Index, None] = None
     boundingSphere: typing.Union[BoundingSphere, None] = None
 
+
 @strawberry.type
 class Data1:
     attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3]
@@ -172,6 +175,8 @@ class Data1:
 class Data12:
     attributes: typing.Union[Attributes, Attributes1, Attributes2, Attributes3]
     boundingSphere: typing.Union[BoundingSphere, None] = None
+
+
 @strawberry.type
 class PositionOnlyData:
     attributes: Attributes1
@@ -180,9 +185,6 @@ class PositionOnlyData:
 @strawberry.type
 class Data3:
     attributes: Attributes3
-
-
-import ujson
 
 
 class HashUUID:
@@ -195,7 +197,7 @@ class HashUUID:
     def __get__(self, instance, owner) -> str:
         if self._default is None:
             if instance:
-                self._default= instance.sha().hexdigest()
+                self._default = instance.sha().hexdigest()
 
         return self._default
 
@@ -207,7 +209,8 @@ class HashUUID:
 class BufferGeometryObject:
     data: typing.Union[Data, Data1]
     type: str = "BufferGeometry"
-    uuid: typing.Optional[str ]= None
+    uuid: typing.Optional[str] = None
+
     def __post_init__(self):
         ##print("create")
         if self.uuid is None:
@@ -377,7 +380,7 @@ class UidSha256:
             elif isinstance(v, str):
                 s.append(f'{k}:{v}')
             elif isinstance(v, typing.Iterable):
-                s.append(f'{k}:{",".join([self.to_bytes(vv) for vv in v])}')
+                s.append(f'{k}:{",".join([self.to_bytes(vv).decode() for vv in v])}')
             elif isinstance(v, dict):
                 s.append(",".join([f'{k}={self.to_bytes(v)}' for k, v in v.items()]).encode())
             else:
@@ -387,9 +390,6 @@ class UidSha256:
     def __set__(self, instance, value):
         ...
         # self.concrete_override=value
-
-
-import pprint
 
 
 def compare_content(self, other, verbose=False):
@@ -419,24 +419,20 @@ class BaseMaterial:
     transparent: bool = False
     uuid: typing.Optional[str] = None
 
-
     def __post_init__(self):
         if self.type is None:
             self.type = self.__class__.__name__
         if self.uuid is None:
-            self.uuid = str(self.color)+self.__class__.__name__.lower()
+            self.uuid = str(self.color) + self.__class__.__name__.lower()
         if self.opacity < 1.0:
             self.transparent = True
 
     def __eq__(self, other):
 
-        return self.color==other.color
+        return self.color == other.color
 
     def __hash__(self):
         return int(f'{self.color}{round(self.opacity * 100)}')
-
-
-from enum import Enum
 
 
 @strawberry.enum
@@ -444,14 +440,35 @@ class Materials(str, Enum):
     PointsMaterial = 'PointsMaterial'
     LineBasicMaterial = 'LineBasicMaterial'
     MeshPhongMaterial = 'MeshPhongMaterial'
+    MeshBasicMaterial = 'MeshBasicMaterial'
 
 
+@strawberry.type
+class MeshBasicMaterial(BaseMaterial):
+    uuid: typing.Optional[str] = None
+    type: Materials = Materials.MeshBasicMaterial
+    name: str = "DefaultBasicMaterial"
+    color: int = 0
+    reflectivity: float = 1.0
+    refractionRatio: float = 0.98
 
+    depthFunc: int = 3
+    depthTest: bool = True
+    depthWrite: bool = True
+    colorWrite: bool = True
+    stencilWrite: bool = False
+    stencilWriteMask: int = 255
+    stencilFunc: int = 519
+    stencilRef: int = 0
+    stencilFuncMask: int = 255
+    stencilFail: int = 7680
+    stencilZFail: int = 7680
+    stencilZPass: int = 7680
 
 
 @strawberry.type
 class LineBasicMaterial(BaseMaterial):
-    uuid: typing.Optional[str] =None
+    uuid: typing.Optional[str] = None
     type: Materials = Materials.LineBasicMaterial
     color: int = 16724838
 
@@ -472,10 +489,9 @@ class LineBasicMaterial(BaseMaterial):
     transparent: bool = False
 
 
-
 @strawberry.type
 class PointsMaterial(BaseMaterial):
-    uuid: typing.Optional[str] =None
+    uuid: typing.Optional[str] = None
     type: Materials = Materials.PointsMaterial
     color: int = 11672217
     size: float = 0.1
@@ -492,9 +508,6 @@ class PointsMaterial(BaseMaterial):
     stencilFail: int = 7680
     stencilZFail: int = 7680
     stencilZPass: int = 7680
-
-
-
 
 
 @strawberry.type
@@ -523,9 +536,6 @@ class MeshPhongMaterial(BaseMaterial):
     stencilZPass: int = 7680
     flatShading: bool = True
     uuid: typing.Optional[str] = None
-
-
-
 
 
 @strawberry.type
