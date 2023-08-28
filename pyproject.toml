@@ -8,6 +8,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.12"
+wheels = "*"
 graphene = { version = "^3.0.0" }
 pydantic = { version = "1.10.7" }
 starlette = "0.22.0"
