@@ -531,9 +531,9 @@ class A:
             if hasattr(self, "_geometry"):
                 geometries.add(self._geometry)
                 materials.add(self._material)
-
-        if len(idict[self.uuid]) > 0:
-            data["children"] = [ch(geometries=geometries, materials=materials) for ch in self.children]
+        if idict.get(self.uuid):
+            if len(idict.get(self.uuid)) > 0:
+                data["children"] = [ch(geometries=geometries, materials=materials) for ch in self.children]
 
         return data
 
