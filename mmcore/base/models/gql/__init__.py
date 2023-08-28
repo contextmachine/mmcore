@@ -13,8 +13,6 @@ from strawberry.scalars import JSON
 from mmcore.base.registry import ageomdict, objdict
 from mmcore.base.utils import getitemattr
 
-hashlib.sha224()
-
 
 # noinspection PyProtectedMember
 class ChildrenDesc:
