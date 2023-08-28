@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import hashlib
 import itertools
@@ -351,6 +352,27 @@ class A:
     _controls = {}
     _endpoint = "/"
     RENDER_BBOX = False
+
+    def __getstate__(self):
+        dct = dict(self.__dict__)
+
+        dct |= {
+
+            "_self_idict": copy.deepcopy(self.idict[self.uuid])
+
+        }
+        return dct
+
+    def __setstate__(self, state):
+        _self_idict = state.pop("_self_idict")
+        _self_uuid = state["_uuid"]
+
+        adict[_self_uuid] = self
+        idict[_self_uuid] = _self_idict
+
+        for k, v in state.items():
+            setattr(self, k, v)
+
 
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls)
@@ -974,6 +996,19 @@ class AGeom(A):
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()
     aabb = BBoxDescriptor()
+
+    def __getstate__(self):
+        dct = super().__getstate__()
+        dct["geometry"] = self.geometry
+        dct["material"] = self.material
+        dct["_geometry"] = self._geometry
+        dct["_material"] = self._material
+        return dct
+
+    def __setstate__(self, state):
+        ageomdict[state["_geometry"]] = state["geometry"]
+        amatdict[state["_material"]] = state["material"]
+        super().__setstate__(state)
 
     @property
     def points(self):
