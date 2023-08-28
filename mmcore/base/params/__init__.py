@@ -29,7 +29,7 @@ class FlowEdge:
     id: str
     source: str
     target: str
-    type: str = 'straight'
+    type: str = 'smoothstep'
     animated: bool = False
 
     def todict(self):
