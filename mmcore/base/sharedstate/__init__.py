@@ -1,3 +1,4 @@
+import dataclasses
 import functools
 
 from starlette.responses import HTMLResponse
@@ -124,6 +125,12 @@ from starlette.exceptions import HTTPException
 from mmcore.gql.server.fastapi import MmGraphQlAPI
 
 debug_properties = {}
+
+
+@dataclasses.dataclass
+class PropsUpdate:
+    uuids: list[str]
+    props: dict[str, typing.Any]
 
 
 class IDict(dict):
@@ -298,8 +305,7 @@ class SharedStateServer():
             BUFFERS[uid].update_item(index, data["data"])
 
             return {"data": BUFFERS[uid]._buffer}
-        
-        
+
         @inst.app.get("/test/app/{uid}")
         def appp(uid: str):
             # language=JavaScript
@@ -331,12 +337,21 @@ class SharedStateServer():
         @inst.app.get("/fetch/{uid}")
         async def get_item(uid: str):
             try:
-                adict[uid]._matrix = [0.001, 0, 0, 0, 0, 2.220446049250313e-19, 0.001, 0, 0, 0.001,
-                                      2.220446049250313e-19, 0, 0, 0, 0, 1]
+
                 return adict[uid].root()
             except KeyError as errr:
                 return HTTPException(401, detail=f"KeyError. Trace: {errr}")
-        
+
+        @inst.app.post("/props-update/{uid}")
+        async def props_update(uid: str, data: PropsUpdate):
+            try:
+                target = adict[uid]
+
+            except KeyError as errr:
+                return HTTPException(401, detail=f"KeyError. Trace: {errr}")
+            target.props_update(data.uuids, data.props)
+            return {"uuid": target.uuid}
+
         @inst.app.post("/fetch/{uid}")
         def post_item(uid: str, data: dict):
             if pgraph.item_table.get(uid) is not None:
