@@ -661,6 +661,9 @@ class A:
 
         self.dispose()
 
+    def props_update(self, uuids: list[str], props: dict):
+
+        ...
 
 class AGroup(A):
 
