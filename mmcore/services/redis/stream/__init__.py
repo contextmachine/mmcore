@@ -1,5 +1,5 @@
 import ast
-import uuid
+import uuid as _uuid
 
 import redis
 
@@ -164,7 +164,7 @@ class SharedDict(dict):
 
     @classmethod
     def create_new(cls, name, conn):
-        uid = uuid.uuid4()
+        uid = _uuid.uuid4().hex
         return cls(f"{name}:{uid}", conn, uuid=uid)
 
     def _last(self):
