@@ -6,14 +6,27 @@ import uuid as _uuid
 from collections import Counter, namedtuple
 
 __databases__ = dict()
-
+__items__ = dict()
 
 class TagDBItem:
     __slots__ = ["index", "dbid"]
 
-    def __init__(self, index, dbid):
-        self.index = str(index)
-        self.dbid = dbid
+    def __new__(cls, index, dbid):
+        ix = str(index)
+        if ix in __items__[dbid]:
+            return __items__[dbid][ix]
+        else:
+            obj = super().__new__(cls)
+            obj.index = ix
+            obj.dbid = dbid
+            __items__[dbid][ix] = obj
+            return obj
+
+    def __del__(self):
+        del __items__[self.dbid][self.index]
+        del self
+
+
 
     @property
     def __annotations__(self):
@@ -30,6 +43,7 @@ class TagDBItem:
         self.db.set_column_item(field, self.index, v)
 
     def __iter__(self):
+        yield "name", self.index
         for name in self.db.names:
             yield name, self.db.get_column_item(name, self.index)
 
@@ -49,12 +63,27 @@ class TagDBItem:
 TagDBOverrideEvent = namedtuple("TagDBOverrideEvent", ["field", "index", "old", "new", "timestamp"])
 
 
+class TagDBIterator:
+    def __init__(self, dbid):
+        super().__init__()
+        self._owner_uuid = dbid
+        self._cursor = -1
+        self._iter = iter(__items__[self._owner_uuid].values())
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return dict(self._iter.__next__())
+
+
+
 class TagDB:
     columns: dict
     defaults = dict()
     overrides = list()
     types = dict()
-
+    __items__ = []
     # {'mfb_sw_panel_117_17_1':{
     #   'tag':345
     # }
@@ -67,6 +96,7 @@ class TagDB:
         self.uuid = uuid
 
         __databases__[self.uuid] = self
+        __items__[self.uuid] = dict()
         self.names = []
         self.columns = dict()
         self.overrides = list()
@@ -75,6 +105,7 @@ class TagDB:
         self.strong_types = strong_types
         self.resolve_types = resolve_types
         self.conn = conn
+
         return self
 
     @classmethod
@@ -183,3 +214,13 @@ class TagDB:
 
     def get_column_counter(self, name):
         return Counter(self.get_column(name).values())
+
+    def items(self):
+        return __items__[self.uuid]
+
+    def __iter__(self):
+        return TagDBIterator(self.uuid)
+
+    @property
+    def item_names(self):
+        return self.items().keys()
