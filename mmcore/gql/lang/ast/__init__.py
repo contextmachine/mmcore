@@ -29,11 +29,11 @@ class AExtendedNameNode(ExtendedNameNode):
 
     def generic_getter(self):
         def wrap(x):
-            print(x)
+            # print(x)
             try:
                 res = x.get(self.value)
                 res()
-                print(self.value)
+                #print(self.value)
                 if hasattr(res, "_repr3d"):
                     return res._repr3d.root()
                 elif hasattr(res, 'root'):
