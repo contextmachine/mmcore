@@ -1,7 +1,6 @@
 import dataclasses
 import os
 import pickle
-import time
 import uuid as _uuid
 from collections import Counter, namedtuple
 
@@ -83,7 +82,7 @@ class TagDB:
     defaults = dict()
     overrides = list()
     types = dict()
-    __items__ = []
+
     # {'mfb_sw_panel_117_17_1':{
     #   'tag':345
     # }
@@ -176,9 +175,7 @@ class TagDB:
         if field not in self.columns.keys():
             self.add_column(field, default=None, column_type=type(v))
 
-        self.overrides.append(
-            TagDBOverrideEvent(field, item, self.columns[field].get(item, self.defaults[field]), v, time.time()))
-        self.columns[field][item] = v
+        self.columns[field][item] = self.types[field](v)
 
     def get_column_item(self, field, item):
 
