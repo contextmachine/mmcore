@@ -112,7 +112,6 @@ type mut_root{
 
 
 """
-from graphql.execution.execute import execute
 
 sch22 = parse(sch2)
 sch3 = graphql.build_ast_schema(sch22)
@@ -376,38 +375,19 @@ class SharedStateServer():
 
         @inst.app.post("/graphql")
         async def gql(data: dict):
-            from mmcore.base import AGroup
-            aa = AGroup(uuid="__")
-            for i in adict.values():
-                if not (i.uuid == "__") and not (i.uuid == "_"):
-                    aa.add(i)
+
             qq = parse_simple_query(data["query"])
             
             return qq.resolve(adict)
 
         @inst.app.options("/graphql")
-        async def gql(data: dict):
-            from mmcore.base import AGroup
-            aa = AGroup(uuid="__")
-            for i in adict.values():
-                if not (i.uuid == "__") and not (i.uuid == "_"):
-                    aa.add(i)
+        async def gql():
 
-            return execute(sch3, parse(data["query"]),
-                           root_value={"root": aa.root()},
-                           variable_values=data.get("variables")).data
-        
+            return "OK"
         @inst.app.get("/graphql")
         async def gql(data: dict):
-            from mmcore.base import AGroup
-            aa = AGroup(uuid="__")
-            for i in adict.values():
-                if not (i.uuid == "__") and not (i.uuid == "_"):
-                    aa.add(i)
 
-            return execute(sch3, parse(data["query"]),
-                           root_value={"root": aa.root()},
-                           variable_values=data.get("variables")).data
+            return "OK"
 
         @inst.app.post("/", response_model_exclude_none=True)
         async def mutate(data: dict = None):
