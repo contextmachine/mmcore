@@ -387,6 +387,8 @@ class A:
         inst._uuid = _ouuid
         inst.child_keys = set()
         inst._children = ChildSet(inst)
+        if "_endpoint" not in kwargs.keys():
+            kwargs["_endpoint"] = _ouuid
         inst.set_state(*args, **kwargs)
 
         return inst
