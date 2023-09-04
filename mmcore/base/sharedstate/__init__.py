@@ -351,14 +351,25 @@ class SharedStateServer():
             target.props_update(data.uuids, data.props)
             return {"uuid": target.uuid}
 
+
         @inst.app.post("/fetch/{uid}")
         def post_item(uid: str, data: dict):
-            if pgraph.item_table.get(uid) is not None:
-                pgraph.item_table.get(uid)(**kwargs)
+            if len(data) > 0:
+                if pgraph.item_table.get(uid) is not None:
+                    pgraph.item_table.get(uid)(**kwargs)
 
-            else:
-                adict[uid](**data)
+                else:
+                    adict[uid](**data)
 
+        @inst.app.get("/gui/{uid}")
+        def gui_get_item(uid: str):
+
+            return adict[uid].gui_get()
+
+        @inst.app.post("/gui/{uid}")
+        def gui_post_item(uid: str, data: dict):
+
+            return adict[uid].gui_post(data)
         @inst.app.get("/keys", response_model_exclude_none=True)
         async def keys():
             return list(adict.keys())

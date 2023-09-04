@@ -266,7 +266,7 @@ class GuiPost(UserDataItem):
     endpoint: typing.Optional[str] = None
 
     def __post_init__(self, target: 'A', config):
-        self.endpoint = f'{config.address}{config.api_prefix}{target}'
+        self.endpoint = f'{config.address}{config.api_prefix}gui/{target}'
 
 
 @dataclasses.dataclass
@@ -666,6 +666,13 @@ class A:
     def props_update(self, uuids: list[str], props: dict):
 
         ...
+
+    def gui_get(self):
+        return dict()
+
+    def gui_post(self, data: dict):
+        return dict()
+
 
 class AGroup(A):
 
