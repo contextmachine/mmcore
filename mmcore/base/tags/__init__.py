@@ -10,7 +10,7 @@ __items__ = dict()
 class TagDBItem:
     __slots__ = ["index", "dbid"]
 
-    def __new__(cls, index=None, dbid=None):
+    def __new__(cls, index, dbid):
         ix = str(index)
         if ix in __items__[dbid]:
             return __items__[dbid][ix]
@@ -21,8 +21,7 @@ class TagDBItem:
             __items__[dbid][ix] = obj
             return obj
 
-    def __del__(self):
-        del __items__[self.dbid][self.index]
+
 
     def __getstate__(self):
         return {"index": self.index, "dbid": self.dbid}
@@ -33,8 +32,10 @@ class TagDBItem:
         self.dbid = dbid
         __items__[dbid][ix] = self
 
+    def todict(self):
+        return dict(self.__iter__())
     def __deepcopy__(self, memodict={}):
-        return self
+        return dict(self.__iter__())
 
     def __copy__(self):
         return self
