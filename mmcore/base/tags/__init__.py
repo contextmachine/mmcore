@@ -122,13 +122,14 @@ class TagDB:
 
     def __getstate__(self):
         dct = dict(self.__dict__)
+
         del dct["conn"]
         return dct
 
     def __setstate__(self, state):
 
         __databases__[state["uuid"]] = self
-
+        __items__[state["uuid"]] = dict()
         for k, v in state.items():
             if not k == "conn":
                 self.__dict__[k] = v
