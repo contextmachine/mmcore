@@ -266,7 +266,7 @@ class GuiPost(UserDataItem):
     endpoint: typing.Optional[str] = None
 
     def __post_init__(self, target: 'A', config):
-        self.endpoint = f'{config.address}{config.api_prefix}gui/{target}'
+        self.endpoint = f'{config.address}{config.api_prefix}{target}'
 
 
 @dataclasses.dataclass
@@ -388,9 +388,8 @@ class A:
         inst.child_keys = set()
         inst._children = ChildSet(inst)
         if "_endpoint" not in kwargs.keys():
-            kwargs["_endpoint"] = _ouuid
+            inst._endpoint = f"gui/{_ouuid}"
         inst.set_state(*args, **kwargs)
-
         return inst
 
     def traverse_child_three(self):
