@@ -23,7 +23,6 @@ class TagDBItem:
 
     def __del__(self):
         del __items__[self.dbid][self.index]
-        del self
 
     def __getstate__(self):
         return {"index": self.index, "dbid": self.dbid}
