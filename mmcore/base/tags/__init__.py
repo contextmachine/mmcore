@@ -34,7 +34,11 @@ class TagDBItem:
         self.dbid = dbid
         __items__[dbid][ix] = self
 
+    def __deepcopy__(self, memodict={}):
+        return self
 
+    def __copy__(self):
+        return self
     @property
     def __annotations__(self):
         return self.db.__annotations__
