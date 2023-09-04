@@ -12,12 +12,14 @@ class TagDBItem:
 
     def __new__(cls, index, dbid):
         ix = str(index)
+
         if ix in __items__[dbid]:
             return __items__[dbid][ix]
         else:
             obj = super().__new__(cls)
             obj.index = ix
             obj.dbid = dbid
+
             __items__[dbid][ix] = obj
             return obj
 
@@ -35,7 +37,7 @@ class TagDBItem:
     def todict(self):
         return dict(self.__iter__())
     def __deepcopy__(self, memodict={}):
-        return dict(self.__iter__())
+        return self
 
     def __copy__(self):
         return self
@@ -54,7 +56,7 @@ class TagDBItem:
         self.db.set_column_item(field, self.index, v)
 
     def __iter__(self):
-        yield "name", self.index
+        # yield "name", self.index
         for name in self.db.names:
             yield name, self.db.get_column_item(name, self.index)
 
