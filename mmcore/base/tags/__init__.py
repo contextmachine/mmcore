@@ -10,7 +10,7 @@ __items__ = dict()
 class TagDBItem:
     __slots__ = ["index", "dbid"]
 
-    def __new__(cls, index, dbid):
+    def __new__(cls, index=None, dbid=None):
         ix = str(index)
         if ix in __items__[dbid]:
             return __items__[dbid][ix]
@@ -25,6 +25,14 @@ class TagDBItem:
         del __items__[self.dbid][self.index]
         del self
 
+    def __getstate__(self):
+        return {"index": self.index, "dbid": self.dbid}
+
+    def __setstate__(self, state):
+        ix, dbid = state.get("index"), state.get("dbid")
+        self.index = ix
+        self.dbid = dbid
+        __items__[dbid][ix] = self
 
 
     @property
@@ -130,6 +138,7 @@ class TagDB:
 
         __databases__[state["uuid"]] = self
         __items__[state["uuid"]] = dict()
+
         for k, v in state.items():
             if not k == "conn":
                 self.__dict__[k] = v
