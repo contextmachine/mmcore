@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import typing
 import uuid
 import uuid as _uuid
@@ -1014,3 +1015,160 @@ class AssetType(type):
 
         attrs["__new__"] = new
         return type(name, bases, attrs)
+
+
+import zlib
+from collections import ChainMap
+from uuid import uuid4
+
+__g__ = dict()
+__s__ = dict()
+
+
+def _dt(): t, b = datetime.datetime.now().isoformat().replace("T", " ").split(" ");return f'{t} {b[:8]}'
+
+
+class GG:
+    """
+    def fffff(ff, tbl):
+        return Linear.from_two_points(Linear.from_two_points(tbl[__g__[ff].left.start],
+                                                             tbl[__g__[ff].left.end]).evaluate(__g__[ff].t),
+                                      Linear.from_two_points(tbl[__g__[ff].right.start],
+                                                             tbl[__g__[ff].right.end]).evaluate(__g__[ff].t)
+                                                             )
+
+
+    >>> g = GG()(**{"left": {"start": 11, "end": 12}, "right": {"start": 112, "end": 122}, "t": 0.5})
+    >>> g(left=dict(start=9))(right=dict(start=95))(t=0.99)
+GG({'left': GG({'start': 9, 'end': 12}) 1427244694, 'right': GG({'start': 95, 'end': 122}) 1644168957, 't': 0.99}) 1898519619
+    >>> g0 = g.iget(3)
+    >>> g0.select()
+    >>> lst=np.random.random((1000, 3))
+    >>> r1 = fffff(g0.uuid, lst)
+    >>> r1
+Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
+    >>> g0.iget(0).select()
+    >>> r2 = fffff(g0.uuid, lst)
+    >>> r2
+Linear(x0=0.7859260789013973, y0=0.6308696186785778, z0=0.9266336005225433, a=-0.2076829377633831, b=-0.45996186338381867, c=-0.5864401684515325)
+    >>> g0.rollback().select()
+ Linear(x0=0.3932193728273126, y0=0.471692721813888, z0=0.44143473016794593, a=0.19407916587504676, b=0.015702012813977373, c=-0.1713995877225078)
+    g0.rollback()
+     >>> g0.rollback().select()
+Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
+    """
+    _state = ChainMap()
+
+    def __init__(self, uuid=None, select=True):
+        super().__init__()
+
+        self.uuid = uuid4().hex if uuid is None else uuid
+        if select:
+            self.select()
+
+    def __setstate__(self, state):
+        self.uuid = state["uuid"]
+
+        self._state = ChainMap()
+        __s__[self.uuid] = state["__maps"]
+        self._state.maps = state["__maps"]
+        __g__[self.uuid] = self
+
+    def __getstate__(self):
+        state = dict(uuid=self.uuid)
+
+        state["__maps"] = __s__[self.uuid]
+        return state
+
+    def __getattr__(self, k):
+        if k.startswith("_"):
+            return super().__getattribute__(k)
+        elif k in self._state:
+            return self._state[k]
+        else:
+            return super().__getattribute__(k)
+
+    # _state=ChainMap()
+    def __hash__(self):
+        return zlib.adler32(repr(self.todict()).encode())
+
+    def __eq__(self, o):
+        return hash(self) == hash(o)
+
+    @property
+    def i(self):
+        return len(self._state.maps) - 1
+
+    def rollout(self, steps=1, select=True):
+        gg = self.iget(self.i + steps)
+        if select:
+            gg.select()
+        return gg
+
+    def iget(self, i):
+        gg = GG(uuid=self.uuid, select=False)
+        gg._state = ChainMap()
+
+        gg._state.maps = __s__[self.uuid][:i + 1]
+
+        return gg
+
+    def select(self):
+        __g__[self.uuid] = self
+
+    def rollback(self, steps=1, select=True):
+        def rb(o):
+            g = GG(uuid=self.uuid)
+            g._state = o._state.parents
+            return g
+
+        first = self
+        for i in range(steps):
+            first = rb(first)
+        if select:
+            first.select()
+        return first
+
+    def todict(self):
+        dct = {}
+        for k, v in dict(self._state).items():
+            if isinstance(v, GG):
+                dct[k] = v.todict()
+            elif isinstance(v, ChainMap):
+
+                dct[k] = dict(v)
+            else:
+                dct[k] = v
+        return dct
+
+    def __call__(self, **state):
+        ss = {}
+        for k in state.keys():
+            if state[k] is not None:
+                p = self._state.get(k)
+
+                if isinstance(state[k], dict):
+                    if isinstance(p, GG):
+
+                        ss[k] = p(**state[k])
+                    else:
+                        ss[k] = GG()(**state[k])
+
+
+
+
+
+                else:
+
+                    if state[k] != p:
+                        ss[k] = state[k]
+        if len(ss) > 0:
+            ss["update_at"] = _dt()
+        G = GG(uuid=self.uuid)
+        G._state = self._state.new_child(ss)
+        __s__[self.uuid] = G._state.maps
+
+        return G
+
+    def __repr__(self):
+        return f'{self.__class__.__qualname__}({self.todict()}) {self.__hash__()}'
