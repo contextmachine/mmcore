@@ -4,16 +4,17 @@ import uuid
 from collections import namedtuple
 
 import earcut
+import more_itertools
 import numpy as np
 import shapely
 from earcut import earcut
 from more_itertools import flatten
-from shapely import Polygon, MultiPolygon
+from shapely import MultiPolygon, Polygon
 
-from mmcore.base import AMesh, ALine
+from mmcore.base import AMesh
 from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import MeshPhongMaterial, LineBasicMaterial
+from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.transform import Transform, WorldXY
@@ -318,3 +319,165 @@ class Boundary:
 
     def __copy__(self):
         return Boundary(self._boundary, self._holes, matrix=self.matrix)
+
+
+def earcut_poly(boundary, holes):
+    data = earcut.flatten([boundary] + holes)
+    res = earcut.earcut(data['vertices'], data['holes'], data['dimensions'])
+    return np.array(res).reshape((len(res) // 3, 3))
+
+
+import uuid as _uuid
+from mmcore.geom.shapes import base as shpb
+
+__breps__ = dict()
+
+
+class Brep:
+    vertices = []
+    edges = []
+    edge_nodes = []
+    loops = []
+    faces = []
+
+    def __new__(cls, uuid=None):
+        self = super().__new__(cls)
+        if uuid is None:
+            uuid = _uuid.uuid4().hex
+        __breps__[uuid] = self
+        self.uuid = uuid
+        return self
+
+    def add_points(self, pts):
+        ixs = []
+        for pt in pts:
+            if pt not in self.vertices:
+                self.vertices.append(pt)
+
+            ixs.append(self.vertices.index(pt))
+
+        return ixs
+
+    def tess(self):
+        ixs = []
+        for face in self.faces:
+            ixs.extend(more_itertools.chunked(face.tess(), 3))
+        return MeshData(vertices=self.vertices, indices=ixs)
+
+    def add_loop_from_pts(self, ptss):
+        ixs = []
+        for pts in more_itertools.pairwise(ptss):
+            edge = Edge(list(pts), brep=self)
+            ixs.append(edge._i)
+        lp = Loop(edges=ixs, brep=self)
+        return lp._i
+
+    def add_loop_from_edges(self, edges):
+
+        lp = Loop(edges=edges, brep=self)
+        return lp._i
+
+    def add_face(self, boundary, holes=[]):
+        f = Face(boundary, holes, brep=self)
+        return f._i
+
+
+class BrepComponent:
+    __table_name__ = None
+
+    def __init__(self, brep=None):
+        super().__init__()
+
+        self._brep = brep.uuid if isinstance(brep, Brep) else brep
+        self._i = len(getattr(self.brep, self.__table_name__))
+        getattr(self.brep, self.__table_name__).append(self)
+
+    @property
+    def brep(self):
+        return __breps__[self._brep]
+
+
+class Edge(BrepComponent):
+    verts: list[int]
+    __table_name__ = "edges"
+
+    def __init__(self, verts, brep):
+        super().__init__(brep=brep)
+        self.verts = self.brep.add_points(verts)
+
+    def points(self):
+        return [self.brep.vertices[i] for i in self.verts]
+
+
+def earcut_poly2(boundary, holes):
+    data = earcut.flatten([boundary] + holes)
+    res = earcut.earcut(data['vertices'], data['holes'], data['dimensions'])
+    return data, res
+
+
+class Loop(BrepComponent):
+    brep: Brep
+    __table_name__ = "loops"
+
+    def __init__(self, edges, brep=None):
+        super().__init__(brep=brep)
+        self._edges = edges
+
+    def edges(self):
+        return [self.brep.edges[ed] for ed in self._edges]
+
+    def vertices(self):
+        pts = []
+        for edge in self.edges():
+
+            for pt in edge.verts:
+                if pt not in pts:
+                    pts.append(pt)
+        return pts
+
+    def points(self):
+        return [self.brep.vertices[i] for i in self.vertices()]
+
+    def shp(self):
+        return shpb.Loop(self.points())
+
+
+class Face(BrepComponent):
+    _boundary: int
+    _holes: list[int]
+    brep: Brep
+    __table_name__ = "faces"
+
+    def __init__(self, boundary, holes, brep):
+        super().__init__(brep=brep)
+        self._holes = holes
+        self._boundary = boundary
+
+    def loops(self):
+        return [self._boundary] + self._holes
+
+    def vertices(self):
+        vvs = []
+        [vvs.extend(b.loops[loop].vertices()) for loop in self.loops()]
+        return vvs
+
+    def edges(self):
+        ee = []
+        for l in self.loops():
+            ee.extend(self.brep.loops[l]._edges)
+        return ee
+
+    def tess(self):
+        res, faces = earcut_poly2(self.boundary.points(), [h.points() for h in self.holes])
+        return (np.array(self.vertices())[faces]).tolist()
+
+    @property
+    def boundary(self):
+        return self.brep.loops[self._boundary]
+
+    @property
+    def holes(self):
+        return [self.brep.loops[hole] for hole in self._holes]
+
+
+b = Brep()
