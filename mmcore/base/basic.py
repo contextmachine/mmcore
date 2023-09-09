@@ -744,10 +744,10 @@ class AGeometryDescriptor:
 
             return ageomdict.get(self._default)
         else:
-            geom = ageomdict.get(getattr(instance, self._name))
-            if hasattr(instance, "boundingSphere"):
-                setattr(geom.data, "boundingSphere", instance.boundingSphere)
-            return geom
+            # geom =
+            # if hasattr(instance, "boundingSphere"):
+            #    setattr(geom.data, "boundingSphere", instance.boundingSphere)
+            return ageomdict.get(getattr(instance, self._name))
 
     def __set__(self, instance, value):
 
@@ -1021,12 +1021,13 @@ class AGeom(A):
         amatdict[state["_material"]] = state["material"]
         super().__setstate__(state)
 
+    """
     @property
     def points(self):
         geom = ageomdict.get(self._geometry)
         return np.array(geom.data.attributes.position.array).reshape(
             (len(geom.data.attributes.position.array) // 3, 3)).tolist()
-
+    
     @property
     def boundingSphere(self):
 
@@ -1048,7 +1049,7 @@ class AGeom(A):
         rad = dists[0]
 
         return self.centroid, rad
-
+    """
     @property
     def threejs_type(self):
         return "Geometry"

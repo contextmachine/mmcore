@@ -1030,13 +1030,16 @@ def _dt(): t, b = datetime.datetime.now().isoformat().replace("T", " ").split(" 
 
 class GG:
     """
-    def fffff(ff, tbl):
-        return Linear.from_two_points(Linear.from_two_points(tbl[__g__[ff].left.start],
-                                                             tbl[__g__[ff].left.end]).evaluate(__g__[ff].t),
-                                      Linear.from_two_points(tbl[__g__[ff].right.start],
-                                                             tbl[__g__[ff].right.end]).evaluate(__g__[ff].t)
-                                                             )
-
+    >>> from mmcore.geom.parametric import Linear
+    >>> import numpy as np
+    
+    >>> def fffff(ff, tbl):
+    ... return Linear.from_two_points(Linear.from_two_points(tbl[__g__[ff].left.start],
+    ...                                                     tbl[__g__[ff].left.end]).evaluate(__g__[ff].t),
+    ...                              Linear.from_two_points(tbl[__g__[ff].right.start],
+    ...                                                     tbl[__g__[ff].right.end]).evaluate(__g__[ff].t)
+    ...                                                     )
+    ...
 
     >>> g = GG()(**{"left": {"start": 11, "end": 12}, "right": {"start": 112, "end": 122}, "t": 0.5})
     >>> g(left=dict(start=9))(right=dict(start=95))(t=0.99)
@@ -1046,16 +1049,33 @@ GG({'left': GG({'start': 9, 'end': 12}) 1427244694, 'right': GG({'start': 95, 'e
     >>> lst=np.random.random((1000, 3))
     >>> r1 = fffff(g0.uuid, lst)
     >>> r1
-Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
+    Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
     >>> g0.iget(0).select()
     >>> r2 = fffff(g0.uuid, lst)
     >>> r2
-Linear(x0=0.7859260789013973, y0=0.6308696186785778, z0=0.9266336005225433, a=-0.2076829377633831, b=-0.45996186338381867, c=-0.5864401684515325)
+    Linear(x0=0.7859260789013973, y0=0.6308696186785778, z0=0.9266336005225433, a=-0.2076829377633831, b=-0.45996186338381867, c=-0.5864401684515325)
     >>> g0.rollback().select()
- Linear(x0=0.3932193728273126, y0=0.471692721813888, z0=0.44143473016794593, a=0.19407916587504676, b=0.015702012813977373, c=-0.1713995877225078)
-    g0.rollback()
-     >>> g0.rollback().select()
-Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
+    Linear(x0=0.3932193728273126, y0=0.471692721813888, z0=0.44143473016794593, a=0.19407916587504676, b=0.015702012813977373, c=-0.1713995877225078)
+    >>> g0.rollback().select()
+    Linear(x0=0.6889861472482821, y0=0.8909674342106825, z0=0.8568261420024046, a=0.2950900739957746, b=-0.8777288437677975, c=-0.7182311178474678)
+
+    Example 2:
+
+    >>> import pickle
+    >>> gg=b'\x80\x04\x95Z\x02\x00\x00\x00\x00\x00\x00\x8c\x12mmcore.base.params\x94\x8c\x02GG\x94\x93\x94)\x81\x94}\x94(\x8c\x04uuid\x94\x8c faf7d499b3c046faa01bd34ce0c32a27\x94\x8c\x06__maps\x94]\x94(}\x94(\x8c\x01t\x94G?\xbcj~\xf9\xdb"\xd1\x8c\tupdate_at\x94\x8c\x132023-09-05 07:06:54\x94u}\x94(\x8c\x01t\x94G?\xef\xae\x14z\xe1G\xae\x8c\tupdate_at\x94\x8c\x132023-09-05 07:05:00\x94u}\x94(\x8c\x05right\x94h\x02)\x81\x94}\x94(h\x05\x8c 1ce94b43e0734c4592f86c915ae41260\x94h\x07]\x94(}\x94(\x8c\x05start\x94K_h\x0f\x8c\x132023-09-05 07:05:00\x94u}\x94(h\x18Kp\x8c\x03end\x94Kzh\x0f\x8c\x132023-09-05 07:05:00\x94u}\x94eubh\x0f\x8c\x132023-09-05 07:05:00\x94u}\x94(\x8c\x04left\x94h\x02)\x81\x94}\x94(h\x05\x8c 0054a7299e4d40e69f8a2ac33a8c221c\x94h\x07]\x94(}\x94(h\x18K\th\x0f\x8c\x132023-09-05 07:05:00\x94u}\x94(h\x18K\x0bh\x1bK\x0ch\x0f\x8c\x132023-09-05 07:05:00\x94uh\x1deubh\x0f\x8c\x132023-09-05 07:05:00\x94u}\x94(h h\x02)\x81\x94}\x94(h\x05h#h\x07h$ubh\x12h\x02)\x81\x94}\x94(h\x05h\x15h\x07h\x16ubh\x0eG?\xe0\x00\x00\x00\x00\x00\x00h\x0f\x8c\x132023-09-05 07:05:00\x94uh\x1deub.'
+    >>> p=pickle.loads(gg)
+    >>> p.iget(0)
+    Out[5]: GG({'t': 0.111, 'update_at': '2023-09-05 07:06:54'}) 725945272
+    >>> p.iget(4)
+    Out[6]: GG({'left': {'start': 9, 'end': 12, 'update_at': '2023-09-05 07:05:00'}, 'right': {'start': 95, 'end': 122, 'update_at': '2023-09-05 07:05:00'}, 't': 0.111, 'update_at': '2023-09-05 07:06:54'}) 3053531210
+    >>> p.iget(5)
+    Out[7]: GG({'left': {'start': 9, 'end': 12, 'update_at': '2023-09-05 07:05:00'}, 'right': {'start': 95, 'end': 122, 'update_at': '2023-09-05 07:05:00'}, 't': 0.111, 'update_at': '2023-09-05 07:06:54'}) 3053531210
+    >>> p.i
+    Out[8]: 5
+    >>> p.rollback()
+    Out[9]: GG({'left': {'start': 9, 'end': 12, 'update_at': '2023-09-05 07:05:00'}, 'right': {'start': 95, 'end': 122, 'update_at': '2023-09-05 07:05:00'}, 't': 0.99, 'update_at': '2023-09-05 07:05:00'}) 2316513311
+    >>> p.rollout()
+    Out[10]: GG({'left': {'start': 9, 'end': 12, 'update_at': '2023-09-05 07:05:00'}, 'right': {'start': 95, 'end': 122, 'update_at': '2023-09-05 07:05:00'}, 't': 0.111, 'update_at': '2023-09-05 07:06:54'}) 3053531210
     """
     _state = ChainMap()
 
