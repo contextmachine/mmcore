@@ -24,7 +24,7 @@ LineTuple = namedtuple("LineTuple", ["start", "vec"])
 LineStartEndTuple = namedtuple("LineStartEndTuple", ["start", "end"])
 Circle2dTuple = namedtuple("Circle2dTuple", ["radius", "x", "y"])
 Circle3dTuple = namedtuple("Circle2dTuple", ["circle", "plane"])
-
+NormalPlane = namedtuple("NormalPlane", ["origin", "normal"])
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -230,7 +230,19 @@ def eval_quad(t1, t2, quad: list[PointTuple, PointTuple, PointTuple, PointTuple]
     return ((dc - ab) * t2) + ab
 
 
-def ray_triangle_intersection(ray_origin, ray_direction, triangle_vertices):
+def triangle_normal(vertices: np.ndarray) -> np.ndarray:
+    return np.cross(vertices[1] - vertices[0], vertices[2] - vertices[0])
+
+
+def centroid(vertices: np.ndarray) -> np.ndarray:
+    return np.mean(vertices, axis=0)
+
+
+def normal_plane_from_triangle(vertices: np.ndarray) -> NormalPlane:
+    return NormalPlane(centroid(vertices), triangle_normal(vertices))
+
+
+def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, triangle_vertices: np.ndarray):
     """
     Returns the intersection point of a ray and a triangle in 3D space.
     Parameters:
@@ -241,18 +253,19 @@ def ray_triangle_intersection(ray_origin, ray_direction, triangle_vertices):
     numpy.ndarray: An array of shape (3,) representing the intersection point of the ray and the triangle, or None if there is no intersection.
     """
     # Calculate normal vector of the triangle
-    triangle_normal = np.cross(triangle_vertices[1] - triangle_vertices[0], triangle_vertices[2] - triangle_vertices[0])
+
+    normal = triangle_normal(triangle_vertices)
     # Calculate distance from ray origin to triangle plane
-    t = np.dot(triangle_normal, triangle_vertices[0] - ray_origin) / np.dot(triangle_normal, ray_direction)
+    t = np.dot(normal, triangle_vertices[0] - ray_origin) / np.dot(normal, ray_direction)
     # Calculate intersection point
     intersection_point = ray_origin + t * ray_direction
     # Check if intersection point is inside the triangle
     edge1 = triangle_vertices[1] - triangle_vertices[0]
     edge2 = triangle_vertices[2] - triangle_vertices[1]
     edge3 = triangle_vertices[0] - triangle_vertices[2]
-    normal1 = np.cross(edge1, triangle_normal)
-    normal2 = np.cross(edge2, triangle_normal)
-    normal3 = np.cross(edge3, triangle_normal)
+    normal1 = np.cross(edge1, normal)
+    normal2 = np.cross(edge2, normal)
+    normal3 = np.cross(edge3, normal)
     if np.dot(ray_direction, normal1) > 0 and np.dot(intersection_point - triangle_vertices[0], normal1) > 0:
         return None
     if np.dot(ray_direction, normal2) > 0 and np.dot(intersection_point - triangle_vertices[1], normal2) > 0:
@@ -300,6 +313,19 @@ def line_plane_intersection(plane, ray: 'mmcore.geom.parametric.sketch.Linear', 
         return w, si, Psi
     return Psi
 
+
+def ray_plane_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, plane, epsilon=1e-6, full_return=False):
+    ndotu = np.array(plane.normal).dot(ray_direction)
+    if abs(ndotu) < epsilon:
+        if full_return:
+            return None, None, None
+        return None
+    w = ray_origin - plane.origin
+    si = -np.array(plane.normal).dot(w) / ndotu
+    Psi = w + si * ray_direction + plane.origin
+    if full_return:
+        return w, si, Psi
+    return Psi
 
 class ProjectionEvent:
     def __init__(self, projection):
