@@ -73,6 +73,9 @@ class TagDBItem:
         return self
 
 
+class CustomTagDBItem:
+    ...
+
 TagDBOverrideEvent = namedtuple("TagDBOverrideEvent", ["field", "index", "old", "new", "timestamp"])
 
 
