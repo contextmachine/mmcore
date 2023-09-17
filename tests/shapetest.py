@@ -1,6 +1,3 @@
-import uuid
-
-from mmcore.base import AGroup
 from mmcore.geom.extrusion import simple_extrusion
 
 crd = [[-0.059973265673081179, -0.046551261040996335], [-0.066352781844005004, -0.01239186594352833],
@@ -129,11 +126,9 @@ holes = [[[-0.038422693367482733, -0.040746277552546707], [-0.038176942323616174
           [-0.06299529782461244, 0.00095128964499433617]]]
 
 import json
-from mmcore.geom.shapes import Shape
+from mmcore.geom.shapes import LegacyShape
 def test():
-
-
-    s=Shape( boundary=crd, holes=holes)
+    s = LegacyShape(boundary=crd, holes=holes)
     ss=simple_extrusion(s, 2.0)
 
     with open("shp2.json","w") as f:

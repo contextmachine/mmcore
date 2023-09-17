@@ -511,6 +511,7 @@ class A:
     def root(self, shapes=None):
         geometries = set()
         materials = set()
+
         obj = self(materials=materials, geometries=geometries)
         data = {
             "metadata": {
