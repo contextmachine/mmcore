@@ -4,14 +4,13 @@ import numpy as np
 from more_itertools import flatten
 from scipy.spatial.distance import euclidean
 
-from mmcore.base import AGroup, A
-from mmcore.base.sharedstate import serve
+from mmcore.base import A, AGroup
 from mmcore.collections.basic import DoublyLinkedList
 from mmcore.geom.parametric import Linear
 # importlib.reload(mmcore)
 from mmcore.geom.parametric import PlaneLinear
-from mmcore.geom.shapes import Shape
-from mmcore.geom.transform import Transform, Plane, YZ_TO_XY, WorldXY
+from mmcore.geom.shapes import LegacyShape
+from mmcore.geom.transform import Plane, Transform, WorldXY, YZ_TO_XY
 from mmcore.geom.vectors import unit
 
 pts = [[-241245.93137, -10699.151687, 18315.472853],
@@ -19,7 +18,7 @@ pts = [[-241245.93137, -10699.151687, 18315.472853],
        [-229852.594394, -39899.110783, 22587.502373],
        [-143306.718695, -27002.024251, 4106.366197]]
 panel_boundary = [[-600.0, 0.0], [0.0, -200.0], [0.0, 200.0], [-600.0, 0.0]]
-pnl = Shape(boundary=panel_boundary).offset(-2.3).mesh
+pnl = LegacyShape(boundary=panel_boundary).offset(-2.3).mesh
 pnl @ YZ_TO_XY
 
 
@@ -101,7 +100,7 @@ class Panel:
 
     def toshape(self):
         m = self.plane.transform_to_other(WorldXY)
-        Shape()
+        LegacyShape()
 grp = AGroup(name="Panels")
 
 

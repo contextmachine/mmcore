@@ -35,8 +35,9 @@ def to_list_req(obj):
 
 
 @class_bind_delegate_method
-def bind_poly_to_shape(self,  other, delegate=None ):
-    return self.__class__(boundary=list(delegate.boundary.coords), holes=list(delegate.interiors), color=self.color, h=self.h)
+def bind_poly_to_shape(self, other, delegate=None):
+    return self.__class__(boundary=list(delegate.boundary.coords), holes=list(delegate.interiors), color=self.color,
+                          h=self.h)
 
 
 @delegate_method
@@ -55,7 +56,7 @@ def delegate_shape_operator(self, item, m):
 
 # @Delegate(delegate=Polygon)
 @dataclasses.dataclass
-class Shape:
+class LegacyShape:
     boundary: list[list[float, float, float]]
     holes: typing.Optional[list[list[list[float, float, float]]]] = None
     color: ColorRGB = ColorRGB(150, 150, 150).decimal
@@ -63,9 +64,8 @@ class Shape:
     h: typing.Any = None
 
     def __post_init__(self):
-        if len(self.boundary[0])==3:
-
-            self.boundary = (np.array(self.boundary)[...,:2]).tolist()
+        if len(self.boundary[0]) == 3:
+            self.boundary = (np.array(self.boundary)[..., :2]).tolist()
 
         if not self.uuid:
             self.uuid = uuid.uuid4().hex
@@ -76,7 +76,7 @@ class Shape:
             self.holes = []
         else:
             if len(self.holes[0][0]) == 3:
-                self.holes= (np.array(self.holes)[..., :2]).tolist()
+                self.holes = (np.array(self.holes)[..., :2]).tolist()
 
         self._ref = Polygon(shell=self.boundary, holes=self.holes)
 
@@ -94,7 +94,7 @@ class Shape:
         return np.array(res).reshape((len(res) // 3, 3))
 
     def to3d_mesh_pts(self):
-        #print(self.boundary)
+        # print(self.boundary)
         rrr = np.array(list(flatten([self.boundary] + self.holes)))
         return np.c_[rrr, np.ones((rrr.shape[0], 1)) * self.h]
 
@@ -160,7 +160,7 @@ class Shape:
             self.holes = holes
             return self
         else:
-            return Shape(bounds, holes, color=self.color, h=self.h)
+            return LegacyShape(bounds, holes, color=self.color, h=self.h)
 
     @property
     def interior(self):
@@ -189,21 +189,21 @@ class Shape:
 
     @delegate_shape_operator.bind
     def __sub__(self, delegate, item):
-        #print(delegate, item)
+        # print(delegate, item)
         res = shapely.difference(delegate, item)
         if isinstance(res, MultiPolygon):
             shapes = []
             for i in res.geoms:
-                shapes.append(Shape(boundary=list(i.exterior.coords),
-                                    holes=to_list_req(i.interiors),
-                                    color=self.color,
-                                    h=self.h))
+                shapes.append(LegacyShape(boundary=list(i.exterior.coords),
+                                          holes=to_list_req(i.interiors),
+                                          color=self.color,
+                                          h=self.h))
             return shapes
         else:
-            return Shape(boundary=list(res.exterior.coords),
-                         holes=to_list_req(res.interiors),
-                         color=self.color,
-                         h=self.h)
+            return LegacyShape(boundary=list(res.exterior.coords),
+                               holes=to_list_req(res.interiors),
+                               color=self.color,
+                               h=self.h)
 
     def __isub__(self, item):
         res = self.difference(item)
@@ -225,21 +225,22 @@ class Shape:
 
         self.boundary = list(res.exterior.coords)
         self.holes = to_list_req(res.interiors)
-    def intersection(self,  other):
-        res=shapely.intersection(self._ref, other._ref)
+
+    def intersection(self, other):
+        res = shapely.intersection(self._ref, other._ref)
         if isinstance(res, MultiPolygon):
             shapes = []
             for i in res.geoms:
-                shapes.append(Shape(boundary=list(i.exterior.coords),
-                                    holes=to_list_req(i.interiors),
-                                    color=self.color,
-                                    h=self.h))
+                shapes.append(LegacyShape(boundary=list(i.exterior.coords),
+                                          holes=to_list_req(i.interiors),
+                                          color=self.color,
+                                          h=self.h))
             return shapes
         else:
-            return Shape(boundary=list(res.exterior.coords),
-                         holes=to_list_req(res.interiors),
-                         color=self.color,
-                         h=self.h)
+            return LegacyShape(boundary=list(res.exterior.coords),
+                               holes=to_list_req(res.interiors),
+                               color=self.color,
+                               h=self.h)
 
     def is_empty(self):
         return self.boundary == []
@@ -269,7 +270,8 @@ class Boundary:
     matrix: Transform = Transform()
     uuid: typing.Optional[str] = None
 
-    color=(0,0,0)
+    color = (0, 0, 0)
+
     def __post_init__(self, bnds, hls=None):
         self._plane = PlaneLinear(origin=np.array(WorldXY.origin), xaxis=np.array(WorldXY.xaxis),
                                   yaxis=np.array(WorldXY.yaxis))
@@ -295,14 +297,14 @@ class Boundary:
     def to_shape(self):
         if self._holes is not None:
             holes = (np.array(self._holes)[..., :2]).tolist()
-            return Shape((np.array(self._boundary)[..., :2]).tolist(), holes=holes)
-        return Shape((np.array(self._boundary)[..., :2]).tolist())
+            return LegacyShape((np.array(self._boundary)[..., :2]).tolist(), holes=holes)
+        return LegacyShape((np.array(self._boundary)[..., :2]).tolist())
 
     def to_mesh(self, *args, **kwargs):
 
         msh = self.to_shape().mesh_data.to_mesh(uuid=self.uuid, *args, **kwargs)
         msh @ self.plane.transform_from_other(WorldXY)
-        #msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
+        # msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
         return msh
 
     def transform_as_new(self, t):
@@ -409,10 +411,70 @@ class Edge(BrepComponent):
         return [self.brep.vertices[i] for i in self.verts]
 
 
+from more_itertools import chunked
+
+
 def earcut_poly2(boundary, holes):
     data = earcut.flatten([boundary] + holes)
     res = earcut.earcut(data['vertices'], data['holes'], data['dimensions'])
     return data, res
+
+
+class Shape:
+    boundary: list[list[float]]
+    holes: typing.Optional[list[list[list[float]]]] = None
+    earcut = None
+
+    def __init__(self, boundary, holes=None):
+        super().__init__()
+        self.cache = dict()
+        self.boundary = boundary
+        self.holes = holes
+
+        self.tessellate()
+
+    def shapely_polygon(self):
+        hs = hash(repr((self.boundary, self.holes)))
+        if hs not in self.cache.keys():
+            self.cache[hs] = shapely.Polygon(shell=self.boundary, holes=self.holes)
+        return self.cache[hs]
+
+    def tessellate(self):
+        self.earcut = Earcut(boundary=self.boundary, holes=self.holes, solve=True)
+
+    @property
+    def mesh_data(self):
+        return self.earcut.mesh_data
+
+    @property
+    def buffer(self):
+        return self.earcut.buffer
+
+
+class Earcut:
+    arguments = None
+    result = None
+    mesh_data = None
+    buffer = None
+
+    def __init__(self, boundary, holes=None, solve=True):
+        super().__init__()
+        self.boundary = boundary
+        if not holes:
+            holes = None
+        self.holes = holes
+        if solve:
+            self.solve()
+
+    def solve(self):
+        if self.holes is None:
+            self.arguments = earcut.flatten([self.boundary])
+        else:
+            self.arguments = earcut.flatten([self.boundary] + self.holes)
+        self.result = earcut.earcut(self.arguments['vertices'], self.arguments['holes'], self.arguments['dimensions'])
+        self.mesh_data = MeshData(vertices=list(chunked(self.arguments['vertices'], 3)),
+                                  indices=list(chunked(self.result, 3)))
+        self.buffer = self.mesh_data.create_buffer()
 
 
 class Loop(BrepComponent):
@@ -458,7 +520,7 @@ class Face(BrepComponent):
 
     def vertices(self):
         vvs = []
-        [vvs.extend(b.loops[loop].vertices()) for loop in self.loops()]
+        [vvs.extend(self.brep.loops[loop].vertices()) for loop in self.loops()]
         return vvs
 
     def edges(self):
@@ -478,6 +540,3 @@ class Face(BrepComponent):
     @property
     def holes(self):
         return [self.brep.loops[hole] for hole in self._holes]
-
-
-b = Brep()

@@ -1,13 +1,14 @@
+import json
+
 import numpy as np
 
-from mmcore.geom.shapes import Shape
 from mmcore.geom.extrusion import simple_extrusion
-import json
+from mmcore.geom.shapes import LegacyShape
 
 HIGH = 10
 with open("examples/data/profile.json") as f:
     profile = json.load(f)
-shape = Shape(boundary=profile["bounds"], holes=profile["holes"], h=0)
+shape = LegacyShape(boundary=profile["bounds"], holes=profile["holes"], h=0)
 extrusion = simple_extrusion(shape, HIGH)
 
 

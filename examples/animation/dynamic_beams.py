@@ -1,11 +1,13 @@
 # run this example in python console
-import numpy as np
 import json
 import time
+
+import numpy as np
+
 from mmcore.base.sharedstate import serve
 from mmcore.geom.extrusion import simple_extrusion
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.shapes import Shape
+from mmcore.geom.shapes import LegacyShape
 
 # Server run in non-blocked thread on http://localhost:7711
 # It dynamically update when you will create a new objects or change exist
@@ -15,7 +17,7 @@ HIGH = 2
 
 with open("examples/data/profile.json") as f:
     profile = json.load(f)
-shape = Shape(boundary=profile["bounds"], holes=profile["holes"])
+shape = LegacyShape(boundary=profile["bounds"], holes=profile["holes"])
 extrusion1 = simple_extrusion(shape, 1)
 extrusion2 = simple_extrusion(shape, 2)
 extrusion3 = simple_extrusion(shape, 3)

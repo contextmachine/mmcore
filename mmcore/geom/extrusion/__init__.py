@@ -1,17 +1,14 @@
+import uuid
 from collections import deque
 
-import uuid
-
-import copy
 import numpy as np
 from more_itertools import flatten
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
 from mmcore.geom.materials import ColorRGB
+from mmcore.geom.shapes import LegacyShape
 from mmcore.node import node_eval
-from mmcore.geom.shapes import Shape
-import gmsh
 
 
 @node_eval
@@ -69,7 +66,8 @@ function makeMany(cords,holes,axis,color){
 """ + f"makeMany({coords},{hls},{axis},{color});"
 
 
-from mmcore.base.models.gql import MeshPhongMaterial, LineBasicMaterial
+from mmcore.base.models.gql import MeshPhongMaterial
+
 
 def bnd(shp, h, color=ColorRGB(100,100,100).decimal):
     vrtx = []
@@ -119,7 +117,7 @@ def simple_extrusion(shape, h):
     grp=AGroup()
     ixs,vxs=tess(shape, h)
     grp.add(MeshData(vertices=vxs, indices=ixs).to_mesh())
-    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
+    s2 = LegacyShape(shape.boundary, shape.holes, color=shape.color, h=h)
     grp.add(s2.mesh)
     grp.add(shape.mesh)
 
@@ -137,7 +135,7 @@ def csg_extrusion(shape, h):
     ixs,vxs=tess(shape, h)
 
     polys=[]
-    s2=Shape(shape.boundary,shape.holes, color=shape.color, h=h)
+    s2 = LegacyShape(shape.boundary, shape.holes, color=shape.color, h=h)
     for sshape in shape.mesh_data.faces:
         polys.append(BspPolygon(sshape))
     for ss2 in s2.mesh_data.faces:
