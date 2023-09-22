@@ -5,6 +5,7 @@ from collections import namedtuple
 
 import numpy as np
 
+from mmcore.collections import DCLL
 from mmcore.exceptions import MmodelIntersectException
 
 TOLERANCE = 1e-8
@@ -25,6 +26,8 @@ LineStartEndTuple = namedtuple("LineStartEndTuple", ["start", "end"])
 Circle2dTuple = namedtuple("Circle2dTuple", ["radius", "x", "y"])
 Circle3dTuple = namedtuple("Circle2dTuple", ["circle", "plane"])
 NormalPlane = namedtuple("NormalPlane", ["origin", "normal"])
+PointUnion = typing.Union[list[float], tuple[float, float, float], np.ndarray]
+
 
 @dataclasses.dataclass
 class EvaluatedPoint:
@@ -281,23 +284,42 @@ def line_line_intersection(line1, line2):
     p2, v2 = line2
 
     # Calculate direction vector of the line connecting the two points
-    w = p1 - p2
 
     # Calculate direction vectors of the two input lines
-    cross = np.cross(v1, v2)
-    if np.allclose(cross, [0, 0, 0]):
+    _cross = np.cross(v1, v2)
+    if np.allclose(_cross, [0, 0, 0]):
         # Lines are parallel, return None
         return None
     else:
+        w = p1 - p2
         # Calculate parameters for point of intersection
-        s1 = np.dot(np.cross(w, v2), cross) / np.linalg.norm(cross) ** 2
-        s2 = np.dot(np.cross(w, v1), cross) / np.linalg.norm(cross) ** 2
+        s1 = np.dot(np.cross(w, v2), _cross) / np.linalg.norm(_cross) ** 2
+        s2 = np.dot(np.cross(w, v1), _cross) / np.linalg.norm(_cross) ** 2
 
-        # Calculate intersection point
-        p = 0.5 * (p1 + s1 * v1 + p2 + s2 * v2)
+        return 0.5 * np.array(p1 + s1 * v1 + p2 + s2 * v2)
 
-        return p
 
+def line_line_intersection2d(line1, line2):
+    x1, y1 = line1[0]
+    x2, y2 = x1 + line1[1][0], y1 + line1[1][1]
+    x3, y3 = line2[0]
+    x4, y4 = x3 + line2[1][0], y3 + line2[1][1]
+
+    # Calculate the denominator
+    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+
+    # Check if the lines are parallel
+    if denominator == 0:
+        return None
+
+    # Calculate the intersection point
+    x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
+    y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
+
+    return [x, y]
+
+
+# Example usage
 
 def line_plane_intersection(plane, ray: 'mmcore.geom.parametric.sketch.Linear', epsilon=1e-6, full_return=False):
     ray_dir = np.array(ray.direction)
@@ -327,6 +349,7 @@ def ray_plane_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, pl
         return w, si, Psi
     return Psi
 
+
 class ProjectionEvent:
     def __init__(self, projection):
         super().__init__()
@@ -355,6 +378,10 @@ class PointPlaneProjectionEvent(ProjectionEvent):
         return np.array(point) - self.projection
 
 
+def point_to_plane_distance(point, plane_point, plane_normal):
+    return np.dot(point - plane_point, plane_normal)
+
+
 def project_point_onto_plane(point, plane_point, plane_normal):
     """
     Projects a point onto a plane in 3D space.
@@ -377,6 +404,65 @@ def project_point_onto_plane(point, plane_point, plane_normal):
     projected_point = point - projection
 
     return projected_point
+
+
+class Derivative:
+    def __init__(self, f, method="central", h=0.01):
+        super().__init__()
+        self._f = f
+        self.h = h
+        self.method = method
+
+    def __call__(self, t):
+        return getattr(self, self.method)(t)
+
+    def central(self, t):
+        return (self._f(t + self.h) - self._f(t - self.h)) / (2 * self.h)
+
+    def forward(self, t):
+        return (self._f(t + self.h) - self._f(t)) / self.h
+
+    def backward(self, t):
+        return (self._f(t) - self._f(t - self.h)) / self.h
+
+
+def _ns(dx, dy):
+    return np.sqrt((dx ** 2) + (dy ** 2))
+
+
+def _ns2(dx, dy, dz):
+    return np.sqrt((dx ** 2) + (dy ** 2) + (dz ** 2))
+
+
+def offset_curve_2d(c, d):
+    df = Derivative(c)
+
+    def wrap(t):
+        x, y = c(t)
+        dx, dy = df(t)
+        ox = x + (d * dy / _ns(dx, dy))
+        oy = y - (d * dx / _ns(dx, dy))
+        return [ox, oy]
+
+    return wrap
+
+
+def offset_curve_3d(c, d):
+    df = Derivative(c)
+
+    def wrap(t):
+        x, y, z = c(t)
+        dx, dy, dz = df(t)
+        ox = x + (d * dy / _ns2(dx, dy, dz))
+        oy = y - (d * dx / _ns2(dx, dy, dz))
+        oz = z + (d * dz / _ns2(dx, dy, dz))
+        return [ox, oy, oz]
+
+    return wrap
+
+
+def line_to_func(line: LineTuple):
+    return lambda t: np.array(line[1]) * t + np.array(line[0])
 
 
 def circle_intersection(c1: Circle2dTuple, c2: Circle3dTuple) -> list[Point2dTuple]:
@@ -497,3 +583,58 @@ def global_to_custom_old(point, origin, x_axis, y_axis, z_axis):
     # Return the transformed point as a tuple of three numbers
     return transformed_point
 
+
+def line_from_ends(start, end) -> LineTuple:
+    start, end = np.array(start), np.array(end)
+    return start, end - start
+
+
+def offset_line_2d(line, distance):
+    return offset_curve_2d(line_to_func(line), distance)
+
+
+def offset_line_3d(line, distance):
+    ln = [line[0][0], line[0][1]], [line[1][0], line[1][1]]
+
+    return lambda t: offset_curve_2d(line_to_func(ln), distance)(t) + [line_to_func(line)(t)[2]]
+
+
+def line_point_param(ln: LineTuple, pt: list[float]):
+    """
+    Pass line and point, return t param
+    Parameters
+    ----------
+    ln
+    pt
+
+    Returns
+    -------
+
+    """
+    w = np.array(pt) - np.array(ln[0])
+    return (0.5 * np.dot(w, ln[1])) / euclidean(np.array(ln[0]), np.array(ln[0]) + np.array(ln[1]))
+
+
+def variable_line_offset_2d(bounds: list[PointUnion], distances: list[float]):
+    if not all(len(bnd) == 2 for bnd in bounds):
+        bounds = [[bn[0], bn[1]] for bn in bounds]
+    ll = DCLL.from_list(bounds)
+    dl = DCLL.from_list(distances)
+
+    def get_line_chain(nd):
+        a, b, c = np.array(nd.prev.data), np.array(nd.data), np.array(nd.next.data)
+        return line_from_ends(a, b), line_from_ends(b, c)
+
+    node = ll.head.prev
+    node_d = dl.head.prev
+
+    for i in range(len(bounds)):
+        node = node.next
+        node_d = node_d.next
+        la, lb = get_line_chain(node)
+        la1, lb1 = offset_line_2d(la, node_d.prev.data), offset_line_2d(lb, node_d.data)
+        pt = line_line_intersection2d(line_from_ends(la1(0), la1(1)), line_from_ends(lb1(0), lb1(1)))
+        if len(bounds[i]) == 3:
+            yield pt + [bounds[i][-1]]
+        else:
+            yield pt + [0]

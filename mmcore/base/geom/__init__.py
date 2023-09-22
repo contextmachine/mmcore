@@ -5,9 +5,9 @@ import uuid
 from collections import deque
 from operator import itemgetter
 
+import more_itertools
 import numpy as np
 
-import mmcore.base.models.gql
 import mmcore.base.registry
 from mmcore.base.basic import AMesh
 from mmcore.base.geom.builder import Convertor, DataclassToDictConvertor, DictToAnyConvertor, \
@@ -172,6 +172,24 @@ class MeshData:
         dct["uuid"] = uuid.uuid4().hex
 
         return MeshData(**dct)
+
+    def merge2(self, other: 'MeshData'):
+        ixs = np.array(self.indices, dtype=int)
+        ixsf = ixs.flatten()
+        mx = np.max(ixsf)
+        keys = ["vertices",
+                "normals",
+
+                "uv"]
+
+        kws = dict()
+        for k in keys:
+            val = getattr(self, k)
+            if val:
+                kws[k] = np.array(val).tolist() + np.array(val).tolist()
+
+        return MeshData(**kws, indices=list(
+            more_itertools.chunked(ixsf.tolist() + (np.array(other.indices, dtype=int).flatten() + mx).tolist(), 3)))
 
     def to_mesh(self, color=None, flatShading=True, opacity=1.0, cls=AMesh, name="Mesh", **kwargs):
         return cls(name=name, geometry=self.create_buffer(),

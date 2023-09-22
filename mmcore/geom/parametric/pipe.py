@@ -5,11 +5,14 @@ import os
 import geomdl.operations
 import multiprocess as mp
 import numpy as np
+from more_itertools import chunked
 
-import mmcore.base.registry
+from mmcore.base import AMesh
+from mmcore.base.models.gql import MeshBasicMaterial
+from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import Circle, ParametricObject, PlaneLinear
-from mmcore.geom.parametric.nurbs import NurbsCurve
-from mmcore.geom.transform import remove_crd, WorldXY
+from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
+from mmcore.geom.transform import WorldXY
 
 
 @dataclasses.dataclass
@@ -42,11 +45,21 @@ class Pipe:
     def evaluate_profile(self, t):
         T = self.evalplane(t).transform_from_other(WorldXY)
 
-        if isinstance(self.shape,NurbsCurve):
+        if isinstance(self.shape, NurbsCurve):
 
 
 
             return self.shape.transform(T)
+        elif isinstance(self.shape, Circle):
+            return Circle(r=self.shape.r, plane=self.evalplane(t))
+        elif hasattr(self.shape, "evaluate"):
+            # s=[self.shape.evaluate(i).tolist() for i in np.linspace(0,1,6)]
+            # l = []
+            # for pt in s:
+            #    l.append((pt @ T).tolist())
+            # return l
+            return self.shape.transform(T)
+
         else:
             s=copy.deepcopy(self.shape)
             l = []
@@ -97,4 +110,41 @@ class Pipe:
 
     @property
     def surface(self):
-        self.geval
+        ...
+
+
+@dataclasses.dataclass
+class NurbsPipe(Pipe):
+    u_count: int = 16
+    v_count: int = 4
+    degree_u = 3
+    degree_v = 1
+
+    def generate_uv(self):
+        return eval_pipe_uv(self, self.u_count, self.v_count)
+
+    def surface(self):
+        return NurbsSurface(list(self.generate_uv()), degree_u=self.degree_u, degree_v=self.degree_v)
+
+    def mesh_data(self):
+        return self.surface().mesh_data
+
+
+def spline_pipe_mesh(points, uuid, name=None, thickness=1, color=(0, 0, 0), u_count=16, degree=3, **kwargs):
+    return AMesh(uuid=uuid, name=name if name is not None else uuid,
+                 geometry=NurbsPipe(NurbsCurve(points, degree=degree), Circle(r=thickness), u_count=u_count,
+                                    v_count=4).mesh_data().to_buffer(),
+                 material=MeshBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
+
+
+def spline_pipe_mesh_data(points, thickness=1, u_count=16, degree=3):
+    return NurbsPipe(NurbsCurve(points, degree=degree), Circle(r=thickness), u_count=u_count, v_count=4).mesh_data()
+
+
+def eval_pipe_uv(pipe, u_count, v_count):
+    def wrapgen():
+        for i in np.linspace(0, 1, u_count):
+            for j in np.linspace(0, 1, v_count):
+                yield pipe.evaluate_profile(i).evaluate(j).tolist()
+
+    return chunked(wrapgen(), v_count)
