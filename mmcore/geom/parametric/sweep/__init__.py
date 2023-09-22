@@ -46,9 +46,10 @@ class Sweep(Component):
 
                 a, b, c = [nodeV.data, nodeV2.data, nodeV.next.data]
                 d, e, f = [nodeV2.next.data, nodeV.next.data, nodeV2.data]
-                from mmcore.geom.csg import BspPolygon, BspVertex
+
                 indices.extend([lcpts.index(i) for i in [a, b, c, d, e, f]])
                 if self.compute_bsp:
+                    from mmcore.geom.csg import BspPolygon, BspVertex
                     polys.append(BspPolygon([BspVertex(pos=a), BspVertex(pos=b), BspVertex(pos=c)]))
                     polys.append(BspPolygon([BspVertex(pos=d), BspVertex(pos=e), BspVertex(pos=f)]))
                 nodeV = nodeV.next

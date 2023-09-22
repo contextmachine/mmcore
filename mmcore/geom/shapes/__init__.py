@@ -15,8 +15,9 @@ from mmcore.base import AMesh
 from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.collections import DCLL
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import PlaneLinear
+from mmcore.geom.parametric import PlaneLinear, point_to_plane_distance, project_point_onto_plane
 from mmcore.geom.transform import Transform, WorldXY
 
 
@@ -450,6 +451,69 @@ class Shape:
     def buffer(self):
         return self.earcut.buffer
 
+
+def offset_with_plane(bounds, plane, distance=1.0):
+    styles = dict(join_style=shapely.BufferJoinStyle.mitre)
+    pts = []
+    for pt in list(shapely.Polygon([plane.in_plane_coords(pt).tolist() for pt in bounds]).buffer(distance=distance,
+                                                                                                 **styles).boundary.coords):
+        if len(pt) == 2:
+            point = plane.point_at(list(pt + (0,))).tolist()
+        else:
+            point = plane.point_at(list(pt)).tolist()
+        if point not in pts:
+            pts.append(point)
+    return pts
+
+
+def plane_dist(plane, point):
+    project_point_onto_plane(np.array(point), np.array(plane.origin), point)
+
+
+def is_coplanar(points, eps=1e-6):
+    if len(points) <= 3:
+        return True, PlaneLinear.from_tree_pt(points[0], points[-1], points[1])
+
+    ll = DCLL.from_list(points)
+    node = ll.head
+    plane = PlaneLinear.from_tree_pt(node.data, node.prev.data, node.next.data)
+    res = True
+    node = node.next
+    for i in range(len(points) - 2):
+        node = node.next
+        d = point_to_plane_distance(np.array(node.data), np.array(plane.origin), np.array(plane.normal))
+        if abs(d) > eps:
+            res = False
+            break
+        else:
+            continue
+
+    return res, plane
+
+
+def offset(bounds, distance=1.0):
+    styles = dict(join_style=shapely.BufferJoinStyle.mitre)
+    if all(pt[2] == 0.0 for pt in bounds):
+        print("on 0")
+        pts = list(shapely.Polygon(bounds).buffer(distance, **styles).boundary.coords)
+
+        return [list(_pt + (0,)) for _pt in pts]
+    else:
+        res, plane = is_coplanar(bounds)
+        if res:
+
+            return offset_with_plane(bounds, plane, distance=distance)
+        else:
+
+            ll = DCLL.from_list(bounds)
+            node = ll.head.prev
+            pts = []
+            for i in range(len(bounds)):
+                node = node.next
+                plane = PlaneLinear.from_tree_pt(node.data, node.prev.data, node.next.data)
+                pts.append(offset_with_plane(bounds, plane, distance=distance)[i])
+
+            return pts
 
 class Earcut:
     arguments = None
