@@ -3,7 +3,7 @@ from abc import abstractmethod
 
 import randomname
 
-from mmcore.base import AGeom, APoint
+from mmcore.base import AGeom
 from mmcore.base.params import ParamGraphNode
 
 
@@ -127,7 +127,13 @@ col2 = ColorRGB(157, 75, 75).decimal
 
 class GeometryComponent(Component):
     color = (100, 100, 100)
-    _repr3d = APoint(0, 0, 0)
+
+    def __new__(cls, *args, color=None, **kwargs):
+
+        if color is None:
+            color = cls.color
+
+        return super().__new__(cls, *args, color=color, **kwargs)
 
     @abstractmethod
     def solve(self) -> AGeom:
@@ -137,12 +143,11 @@ class GeometryComponent(Component):
         self._repr3d = self.solve()
         self._repr3d._endpoint = f"params/node/{self.param_node.uuid}"
         self._repr3d.controls = self.param_node.todict()
+
         return self._repr3d
 
     def root(self):
-        return self._repr3d.root()
-
-    def __call__(self, **kwargs):
-        super().__call__(**kwargs)
-        self.__repr3d__()
-        return self
+        if self._repr3d:
+            return self._repr3d.root()
+        else:
+            return self.__repr3d__().root()

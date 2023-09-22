@@ -11,6 +11,7 @@ from geomdl.operations import tangent
 
 from mmcore.base import AGeom, AGeometryDescriptor, ALine, AMesh, APointsGeometryDescriptor, ageomdict
 from mmcore.base.geom import MeshData
+from mmcore.base.models import gql
 from mmcore.base.models.gql import Attributes1, BufferGeometryObject, Data1, LineBasicMaterial, Position
 from mmcore.collections import ElementSequence
 from mmcore.geom.materials import ColorRGB
@@ -97,6 +98,11 @@ class NurbsCurve(ProxyParametricObject):
                                [self.evaluate(t) for t in np.linspace(0, 1, self.slices)]).flatten().tolist(),
                            'normalized': False})})})})
 
+    def toline(self, color=(0, 0, 0), uuid=None, name="NurbsCurve"):
+        col = ColorRGB(*color).decimal
+        return ALine(uuid=uuid if uuid is not None else _uuid.uuid4().hex, name=name,
+                     geometry=[self.evaluate(t) for t in np.linspace(0, 1, self.slices)],
+                     material=gql.LineBasicMaterial(color=col, uuid=f"linematerial{col}"))
     def __repr3d__(self, uuid=None, name=None, color=None, slices=None, **kwargs):
         if uuid is None:
             uuid = self.uuid
