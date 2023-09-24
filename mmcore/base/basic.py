@@ -565,9 +565,9 @@ class A:
 
     def __getattr__(self, key):
 
-        if key in idict[self.uuid].keys():
+        if key in idict[object.__getattribute__(self, "_uuid")].keys():
 
-            return adict[idict[self.uuid][key]]
+            return adict[idict[object.__getattribute__(self, "_uuid")][key]]
         elif key == "value":
             return self
 
