@@ -7,7 +7,6 @@ import typing
 from enum import Enum
 
 import strawberry
-import ujson
 from strawberry.scalars import JSON
 
 from mmcore.base.registry import ageomdict, objdict
@@ -212,11 +211,11 @@ class BufferGeometryObject:
     def __post_init__(self):
         ##print("create")
         if self.uuid is None:
-            self.uuid = self.sha().hexdigest()
+            self.uuid = hex(self.sha())
         ageomdict[self.uuid] = self
 
     def sha(self):
-        return hashlib.sha1(ujson.dumps(self.data.attributes.position.array).encode())
+        return hash(repr(self.data.attributes.position.array))
 
     def __hash__(self):
         return int(self.uuid, 16)
