@@ -373,7 +373,6 @@ class A:
         for k, v in state.items():
             setattr(self, k, v)
 
-
     def __new__(cls, *args, **kwargs):
         inst = object.__new__(cls)
         if kwargs.get("uuid") is None:
@@ -520,8 +519,8 @@ class A:
                 "generator": "Object3D.toJSON"
             },
             "object": obj,
-            "geometries": [strawberry.asdict(ageomdict[uid]) for uid in geometries],
-            "materials": [strawberry.asdict(amatdict[uid]) for uid in materials]}
+            "geometries": [dataclasses.asdict(ageomdict[uid]) for uid in geometries],
+            "materials": [dataclasses.asdict(amatdict[uid]) for uid in materials]}
         if shapes is not None:
             data["shapes"] = "shapes"
         return data
@@ -1028,7 +1027,7 @@ class AGeom(A):
         geom = ageomdict.get(self._geometry)
         return np.array(geom.data.attributes.position.array).reshape(
             (len(geom.data.attributes.position.array) // 3, 3)).tolist()
-    
+
     @property
     def boundingSphere(self):
 
@@ -1051,6 +1050,7 @@ class AGeom(A):
 
         return self.centroid, rad
     """
+
     @property
     def threejs_type(self):
         return "Geometry"
@@ -1389,19 +1389,19 @@ class Three:
 def new_three(origin: GqlObjectThree = None):
     attrs = dict(itertools.zip_longest(origin.keys(), ['GenericThree'], fillvalue='GenericThree'))
     define = f"""
-    
+
 @strawberry.type
 class GenericThree:
     __annotations__ = {attrs}
-    
+
     @property
     def origin(self):
         return self._origin
-      
+
     @strawberry.field
     def all(self) -> JSON:
         return self.origin.all()
-        
+
 """
     for k in origin.keys():
         define += f"""   
