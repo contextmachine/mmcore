@@ -1,6 +1,7 @@
 import dataclasses
 import functools
 
+from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
 
 from mmcore.base.params import pgraph
@@ -19,6 +20,7 @@ import IPython
 from mmcore.base.tags import __databases__
 
 DBs = __databases__
+
 
 def search_all_indices(lst, value):
     for i, v in enumerate(lst):
@@ -57,7 +59,6 @@ from graphql.language import parse
 import graphql
 
 from graphene import ObjectType, String, Schema
-
 
 rpyc_input = dict()
 
@@ -207,7 +208,7 @@ class VDict(dict):
     def __getitem__(self, item):
         if item == "value":
             return dict.__getitem__(self, item).value()
-        
+
         else:
             return dict.__getitem__(self, item)
 
@@ -241,6 +242,7 @@ class SharedStateServer():
         @gqlv2app.post(gqlv2app.gql_endpoint)
         def graphql_query_resolver(data: dict):
             ##print(data)
+
             qt2 = parse_simple_query(data['query'])
 
             return qt2.resolve(pgraph)
@@ -291,7 +293,6 @@ class SharedStateServer():
         def upd_all_buffer(uid: str, data: dict):
 
             BUFFERS[uid].update_all(data["data"])
-
 
             return {"data": BUFFERS[uid]._buffer}
 
@@ -351,7 +352,6 @@ class SharedStateServer():
             target.props_update(data.uuids, data.props)
             return {"uuid": target.uuid}
 
-
         @inst.app.post("/fetch/{uid}")
         def post_item(uid: str, data: dict):
             if len(data) > 0:
@@ -370,6 +370,7 @@ class SharedStateServer():
         def gui_post_item(uid: str, data: dict):
 
             return adict[uid].gui_post(data)
+
         @inst.app.get("/keys", response_model_exclude_none=True)
         async def keys():
             return list(adict.keys())
@@ -386,28 +387,31 @@ class SharedStateServer():
 
         @inst.app.post("/graphql")
         async def gql(data: dict):
+            if "target" in debug_properties:
 
-            qq = parse_simple_query(data["query"])
-            
-            return qq.resolve(adict)
+                return UJSONResponse(adict[debug_properties["target"]].root())
+            else:
+                qq = parse_simple_query(data["query"])
+
+                return qq.resolve(adict)
 
         @inst.app.options("/graphql")
         async def gql():
 
             return "OK"
+
         @inst.app.get("/graphql")
-        async def gql(data: dict):
+        async def gql():
 
             return "OK"
 
         @inst.app.post("/", response_model_exclude_none=True)
         async def mutate(data: dict = None):
-            if data is not None:
-                if len(data.keys()) > 0:
-                    for k in data.keys():
-                        objdict[k](**data[k])
+            if "target" in debug_properties:
 
-            return strawberry.asdict(pull().get_child_three())
+                return adict[debug_properties["target"]].root()
+            else:
+                return {}
 
         @inst.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
@@ -458,11 +462,11 @@ class SharedStateServer():
             if data is None:
                 return {"data": None, "reason": "Kernel is not initialized"}
             return {"data": data, "reason": {}}
-        
+
         @inst.app.post("/resolver/{name}/{uid}")
         async def external_post(name: str, uid: str, data: dict):
             return inst.resolvers[name](uid, data)
-        
+
         @inst.app.get("/resolver/{name}/{uid}")
         async def external_get(name: str, uid: str):
             return inst.resolvers[name](uid)
@@ -527,7 +531,7 @@ class SharedStateServer():
         print(f'running uvicorn {uvicorn_appname}')
         self.is_production = True
         uvicorn.run(uvicorn_appname, port=self.port, host=self.host, **kwargs)
-    
+
     def stop(self):
         self.thread.join(6)
 
@@ -620,10 +624,7 @@ class SharedStateServer():
             IPython.embed_kernel(header=self.header, **kwargs)
         elif embed:
             IPython.embed(header=self.header)
-        elif askernel:
-            from ipykernel import kernelapp
 
-            kernelapp.launch_new_instance(argv=argv, header=self.header, **kwargs)
         else:
             IPython.start_ipython(argv=argv, **kwargs)
 
@@ -632,17 +633,6 @@ class SharedStateServer():
             return eval("get_ipython()")
         except NameError as err:
             return None
-
-    def get_ipy_connection_file(self):
-        from ipykernel import connect
-        if self.ipy() is not None:
-            return connect.get_connection_file(self.ipy())
-        else:
-            return None
-
-    def start_embed_ipython(self, prod=False):
-        self.is_production = prod
-        return IPython.embed(header=self.header)
 
 
 serve = SharedStateServer()
