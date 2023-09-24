@@ -1,6 +1,8 @@
 import pickle
 import typing
+import uuid
 
+from mmcore.base.links import clear_token, islink, make_link
 from mmcore.services.redis import connect
 from mmcore.services.redis.stream import encode_dict_with_bytes
 
@@ -24,6 +26,7 @@ class Hdict:
         rconn.hset(self.full_key, key, json.dumps(value))
 
     def __getitem__(self, key):
+
         return encode_dict_with_bytes(rconn.hget(self.full_key, key))
 
     def __delitem__(self, key):
@@ -36,10 +39,10 @@ class Hdict:
         return zip(self.keys(), self.values())
 
     def values(self):
-        return list(encode_dict_with_bytes(rconn.hgetall(self.full_key)))
+        return iter(encode_dict_with_bytes(rconn.hvals(self.full_key)))
 
     def keys(self):
-        return list(encode_dict_with_bytes(rconn.hkeys(self.full_key)))
+        return iter(encode_dict_with_bytes(rconn.hkeys(self.full_key)))
 
     def __contains__(self, value):
         return rconn.hexists(self.full_key, value)
@@ -57,7 +60,7 @@ class Hdict:
         return wrapiter()
 
     def __iter__(self):
-        return self.scan()
+        return rconn.hgetall(self.full_key)
 
 
 import gzip, json
@@ -113,6 +116,75 @@ class ExtendedHdict(Hdict):
             return encode_dict_with_bytes(rconn.hget(self.full_key, key))
 
 
+class Hset(Hdict):
+    max_keys_repr = 5
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, k):
+        val = super().__getitem__(k)
+        if islink(val):
+            return Hset(clear_token(val))
+        return val
+
+    def __setitem__(self, k, v):
+        if isinstance(v, self.__class__):
+            super().__setitem__(k, make_link(v.key))
+        elif isinstance(v, dict):
+            if not rconn.hexists(self.full_key, k):
+                new_key = uuid.uuid4().hex
+                obj = Hset(new_key)
+                super().__setitem__(k, make_link(new_key))
+            else:
+                obj = self[k]
+
+            for key, val in v.items():
+                obj[key] = val
+
+        else:
+            super().__setitem__(k, v)
+
+    def __repr__(self):
+
+        return f'{self.__class__.__qualname__}({", ".join(self.keys())}) at {self.full_key}'
+
+    def items(self):
+        for k, v in encode_dict_with_bytes(rconn.hgetall(self.full_key)).items():
+            if islink(v):
+                yield k, Hset(clear_token(v))
+            else:
+                yield k, v
+        return iter(encode_dict_with_bytes(rconn.hgetall(self.full_key)))
+
+    def todict(self):
+        dct = dict()
+        for k, v in self.items():
+            if isinstance(v, Hset):
+                dct[k] = v.todict()
+            else:
+                dct[k] = v
+        return dct
+
+    def values(self):
+
+        for v in encode_dict_with_bytes(rconn.hvals(self.full_key)):
+            if islink(v):
+                yield Hset(clear_token(v))
+            else:
+                yield v
+
+    def update(self, value: dict):
+        for k, v in value.items():
+            self[k] = v
+
+    def __ior__(self, v):
+        for k, v in dict(v).items():
+            self[k] = v
+
+    def __ror__(self, v):
+
+        return super().__ror__(v)
 class GeometryHdict(CompressedHdict):
     """
     CompressedHdict with geometry specific

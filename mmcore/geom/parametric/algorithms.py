@@ -7,6 +7,16 @@ import numpy as np
 
 from mmcore.collections import DCLL
 from mmcore.exceptions import MmodelIntersectException
+from mmcore.geom.parametric.wrappers import AbstractParametricCurve
+
+SPEEDUPS = False
+try:
+    import mmvec
+
+    SPEEDUPS = True
+except ModuleNotFoundError as err:
+    SPEEDUPS = False
+    print("no speedups")
 
 TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
@@ -27,6 +37,20 @@ Circle2dTuple = namedtuple("Circle2dTuple", ["radius", "x", "y"])
 Circle3dTuple = namedtuple("Circle2dTuple", ["circle", "plane"])
 NormalPlane = namedtuple("NormalPlane", ["origin", "normal"])
 PointUnion = typing.Union[list[float], tuple[float, float, float], np.ndarray]
+CurvesIntersectSolution = namedtuple('CurvesIntersectSolution', ['t0', 't1', 'pt'])
+
+
+def translate_point(origin, direction, distance):
+    return [o + (n * distance) for o, n in zip(origin, direction)]
+
+
+class ParametricLine(AbstractParametricCurve):
+    obj: LineTuple
+
+    def solve(self, obj, t) -> list[float]:
+        start, direction = obj
+        return translate_point(start, direction, t)
+
 
 
 @dataclasses.dataclass
@@ -60,6 +84,82 @@ class MinimizeSolution:
     def prepare_solution_response(self, solution):
         ...
 
+
+def solve2d_newthon(f, MAX_ITERATIONS=40, eps=1e-12):
+    def solve(x, y, a=0, b=0):
+        err2 = None
+        for i in range(MAX_ITERATIONS):
+            p = f(a, b)
+            tx = p[0] - x
+            ty = p[1] - y
+            if abs(tx) < eps and abs(ty) < eps:
+                break
+
+            h = tx * tx + ty * ty
+            if err2 is not None:
+                if h > err2:
+                    a -= da / 2
+                    b -= db / 2
+                    continue
+            err2 = h
+
+            ea = -eps if a > 0 else eps
+            eb = -eps if b > 0 else eps
+
+            print(ea, eb)
+            pa = f(a + ea, b)
+            pb = f(a, b + eb)
+            print(a + ea, b, pa)
+            print(a, b + eb, pb)
+            dxa = (pa[0] - p[0]) / ea
+            dya = (pa[1] - p[1]) / ea
+            dxb = (pb[0] - p[0]) / eb
+            dyb = (pb[1] - p[1]) / eb
+
+            D = dyb * dxa - dya * dxb
+            l = (0.5 / D if abs(D) < 0.5 else 1 / D)
+            da = (ty * dxb - tx * dyb) * l
+            db = (tx * dya - ty * dxa) * l
+            a += da
+            b += db
+
+            if (abs(da) < eps) and (abs(db) < eps):
+                break
+
+        return [a, b]
+
+    return solve
+
+
+class CurveSolver2d:
+    def __init__(self, f1, f2, eps=1e-6):
+
+        self.eps = eps
+        self.f1, self.f2 = f1, f2
+        self.bounds = self.f1.bounds if hasattr(self.f1, 'bounds') else (0.0, 1.0), self.f2.bounds if hasattr(self.f2,
+                                                                                                              'bounds') else (
+        0.0, 1.0)
+
+    def f(self, x):
+        # print(x)
+        a, b = self.f1(x[0]), self.f2(x[1])
+        # print(a,b)
+
+        # print(ews)
+        return [a[0] - b[0], a[1] - b[1]]
+
+    def __call__(self, x0=(0.5, 0.5), return3d=False) -> CurvesIntersectSolution:
+        def fun(x):
+
+            return np.array(self.f(x))
+
+        t0, t1 = fsolve(fun, list(x0)).tolist()
+        pt = self.f1(t0)
+        if isinstance(pt, np.ndarray):
+            pt = pt.tolist()
+        if return3d:
+            return CurvesIntersectSolution(t0, t1, list(pt) + [0])
+        return CurvesIntersectSolution(t0, t1, pt)
 
 class ProximityPoints(MinimizeSolution, solution_response=ClosestPointSolution):
     """
@@ -589,6 +689,96 @@ def line_from_ends(start, end) -> LineTuple:
     return start, end - start
 
 
+def line_to_ends(line: LineTuple) -> np.ndarray:
+    start, direction = np.array(line)
+    end = start + direction
+    return np.array([start, end])
+
+
+def circle_line_intersection_2d(circle_center, circle_radius, pt1, pt2, full_line=True, tangent_tol=1e-9):
+    """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
+    :param circle_center: The (x, y) location of the circle center
+    :param circle_radius: The radius of the circle
+    :param pt1: The (x, y) location of the first point of the segment
+    :param pt2: The (x, y) location of the second point of the segment
+    :param full_line: True to find intersections along full line - not just in the segment.  False will just return intersections within the segment.
+    :param tangent_tol: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
+    :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
+    Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+    """
+    (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
+    (x1, y1), (x2, y2) = (p1x - cx, p1y - cy), (p2x - cx, p2y - cy)
+    dx, dy = (x2 - x1), (y2 - y1)
+    dr = (dx ** 2 + dy ** 2) ** .5
+    big_d = x1 * y2 - x2 * y1
+    discriminant = circle_radius ** 2 * dr ** 2 - big_d ** 2
+    if discriminant < 0:  # No intersection between circle and line
+        return []
+    else:  # There may be 0, 1, or 2 intersections with the segment
+        intersections = [
+            (cx + (big_d * dy + sign * (-1 if dy < 0 else 1) * dx * discriminant ** .5) / dr ** 2,
+             cy + (-big_d * dx + sign * abs(dy) * discriminant ** .5) / dr ** 2)
+            for sign in ((1, -1) if dy < 0 else (-1, 1))]  # This makes sure the order along the segment is correct
+        if not full_line:  # If only considering the segment, filter out intersections that do not fall within the segment
+            fraction_along_segment = [(xi - p1x) / dx if abs(dx) > abs(dy) else (yi - p1y) / dy for xi, yi in
+                                      intersections]
+            intersections = [pt for pt, frac in zip(intersections, fraction_along_segment) if 0 <= frac <= 1]
+        if len(intersections) == 2 and abs(
+                discriminant) <= tangent_tol:  # If line is tangent to circle, return just one point (as both intersections have same location)
+            return [intersections[0]]
+        else:
+            return intersections
+
+
+from math import sqrt, acos, atan2, sin, cos
+
+
+# Example values
+def tangents_lines(pt, circle: Circle2dTuple):
+    Px, Py = pt
+    a, Cx, Cy = circle
+
+    b = sqrt((Px - Cx) ** 2 + (Py - Cy) ** 2)  # hypot() also works here
+    th = acos(a / b)  # angle theta
+    d = atan2(Py - Cy, Px - Cx)  # direction angle of point P from C
+    d1 = d + th  # direction angle of point T1 from C
+    d2 = d - th  # direction angle of point T2 from C
+
+    T1x = Cx + a * cos(d1)
+    T1y = Cy + a * sin(d1)
+    T2x = Cx + a * cos(d2)
+    T2y = Cy + a * sin(d2)
+    return [T1x, T1y], [T2x, T2y]
+
+
+from mmcore.geom.vectors import unit
+
+
+def closest_point_on_circle_2d(pt, circle: Circle2dTuple):
+    r, ox, oy = circle
+    un = unit(np.array([pt[0] - ox, pt[1] - oy]))
+    return ClosestPointSolution(
+        [ox + (un[0] * r), oy + (un[1] * r)],
+        (1 / (2 * np.pi)) * np.arccos(un[0]), None)
+
+
+ArcTuple = namedtuple("ArcTuple", ['circle', 't0', 't1'])
+
+
+def fillet_lines(pts, r):
+    a, b, c = pts
+
+    ln1, ln2 = line_from_ends(a, b), line_from_ends(b, c)
+
+    ofl1, ofl2 = offset_line_2d(ln1, r), offset_line_2d(ln2, r)
+
+    ln11, ln12 = line_from_ends(ofl1(0), ofl1(1)), line_from_ends(ofl2(0), ofl2(1))
+
+    pt = line_line_intersection2d(ln11, ln12)
+
+    cpt1, cpt2 = closest_point_on_line(pt, ln1), closest_point_on_line(pt, ln2)
+
+    return LineStartEndTuple(a, cpt1.pt), Circle2dTuple(r, *pt), LineStartEndTuple(cpt2.pt, c)
 def offset_line_2d(line, distance):
     return offset_curve_2d(line_to_func(line), distance)
 

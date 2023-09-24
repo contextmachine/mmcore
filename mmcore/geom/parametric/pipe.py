@@ -10,7 +10,7 @@ from more_itertools import chunked
 from mmcore.base import AMesh
 from mmcore.base.models.gql import MeshBasicMaterial
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric import Circle, ParametricObject, PlaneLinear
+from mmcore.geom.parametric import Circle, Linear, ParametricObject, PlaneLinear
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
 from mmcore.geom.transform import WorldXY
 
@@ -33,9 +33,16 @@ class Pipe:
 
     def evalplane(self, t):
         #print(self,t)
-        pt = self.path.tan(t)
+        if isinstance(self.path, NurbsCurve):
 
-        return PlaneLinear(origin=pt.point, normal=pt.normal, yaxis=[0,0,1])
+            pt = self.path.tan(t)
+            point = pt.point
+            normal = pt.normal
+        elif isinstance(self.path, Linear):
+            point = self.path.evaluate(t)
+            normal = self.path.direction
+
+        return PlaneLinear(origin=point, normal=normal, yaxis=[0, 0, 1])
 
     def evaluate(self, t):
         u, v = t
@@ -52,6 +59,7 @@ class Pipe:
             return self.shape.transform(T)
         elif isinstance(self.shape, Circle):
             return Circle(r=self.shape.r, plane=self.evalplane(t))
+
         elif hasattr(self.shape, "evaluate"):
             # s=[self.shape.evaluate(i).tolist() for i in np.linspace(0,1,6)]
             # l = []
@@ -132,7 +140,8 @@ class NurbsPipe(Pipe):
 
 def spline_pipe_mesh(points, uuid, name=None, thickness=1, color=(0, 0, 0), u_count=16, degree=3, **kwargs):
     return AMesh(uuid=uuid, name=name if name is not None else uuid,
-                 geometry=NurbsPipe(NurbsCurve(points, degree=degree), Circle(r=thickness), u_count=u_count,
+                 geometry=NurbsPipe(NurbsCurve(points, degree=1 if len(points) <= 3 else degree), Circle(r=thickness),
+                                    u_count=u_count,
                                     v_count=4).mesh_data().to_buffer(),
                  material=MeshBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
 

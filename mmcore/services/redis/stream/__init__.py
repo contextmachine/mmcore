@@ -8,8 +8,6 @@ def ppp(s):
     if isinstance(s, bytes):
         return ppp(s.decode())
 
-
-
     elif isinstance(s, str) and "\\" in s:
         try:
             return ppp(ast.literal_eval(s))
@@ -18,8 +16,6 @@ def ppp(s):
 
     elif isinstance(s, str) and any(t in s for t in ["false", "true", "null"]):
         return encode_dict_with_bytes(json.loads(s))
-
-
 
     elif isinstance(s, (dict, list, tuple)):
         return encode_dict_with_bytes(s)

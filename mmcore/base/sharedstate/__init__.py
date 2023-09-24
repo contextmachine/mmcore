@@ -531,6 +531,21 @@ class SharedStateServer():
     def stop(self):
         self.thread.join(6)
 
+    def create_child(self, path, name=None, title=None, **kwargs):
+        if name is None:
+            name = path.split("/")[-1]
+        new_app = fastapi.FastAPI(name=name, title=self.header if title is None else title, **kwargs)
+
+        new_app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                               allow_methods=["GET", "POST", "PUT", "HEAD", "OPTIONS", "DELETE"],
+                               allow_headers=["*"],
+                               allow_credentials=["*"])
+        new_app.add_middleware(GZipMiddleware, minimum_size=500)
+
+        self.app.mount(path, new_app, name)
+        setattr(self, name, new_app)
+        return new_app
+
     def start(self):
         self.thread.start()
 

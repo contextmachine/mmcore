@@ -1,18 +1,12 @@
-import functools
+import abc
+import dataclasses
 import itertools
-import json
+import typing
 from collections import namedtuple
 
-import dataclasses
-
-import abc
 import numpy as np
-from hashlib import sha256
-import typing
 from scipy.spatial import distance
-from mmcore.base import AGeom
-from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import BufferGeometryObject
+
 from mmcore.geom.transform import Transform
 
 T = typing.TypeVar("T")
@@ -25,7 +19,7 @@ EvalPointTuple2D = namedtuple("EvalPointTuple2D", ["i", "j", "u", "v", "x", "y",
 EvalPointTuple2D.__doc__ = """Represent u,v like 2d evaluation result.\n 
  7e tuple[i: int, j: int, u: float, v: float, x: float, y: float, z: float]"""
 
-from mmcore.geom.parametric.algorithms import ClosestPoint, ProximityPoints, EvaluatedPoint
+from mmcore.geom.parametric.algorithms import ClosestPoint, ProximityPoints
 
 
 class transform_manager:

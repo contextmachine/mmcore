@@ -1,7 +1,9 @@
 import base64
+import base64
 import copy
 import dataclasses
 import functools
+import math
 import sys
 import typing
 from collections import namedtuple
@@ -16,7 +18,9 @@ from scipy.spatial.distance import euclidean
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.parametric.algorithms import ClosestPoint, CurveCurveIntersect, EvaluatedPoint, ProximityPoints, \
+from mmcore.geom.parametric.algorithms import Circle2dTuple, ClosestPoint, CurveCurveIntersect, EvaluatedPoint, \
+    LineStartEndTuple, \
+    ProximityPoints, \
     circle_intersection2d, global_to_custom
 from mmcore.geom.parametric.base import ParametricObject, transform_manager
 from mmcore.geom.parametric.nurbs import NurbsCurve, NurbsSurface
@@ -351,6 +355,7 @@ class PlaneLinear(ParametricObject):
 
     def __hash__(self):
         return hash(f'{self.origin, self.normal, self.xaxis, self.yaxis}')
+
     @property
     def x0(self):
         return self.origin[0]
@@ -462,6 +467,7 @@ class PlaneLinear(ParametricObject):
 class LinearIterable(Linear):
     def __iter__(self):
         return iter([self.start, self.end])
+
 
 from mmcore.geom.parametric.algorithms import project_point_onto_plane
 
@@ -825,9 +831,11 @@ def no_mp(dl):
 @dataclasses.dataclass(unsafe_hash=True)
 class Circle(ParametricObject):
     r: float
+
     plane: typing.Union[PlaneLinear, Plane] = WorldXY
 
     def __post_init__(self):
+
         if not isinstance(self.plane, PlaneLinear):
             self.plane = PlaneLinear(origin=self.plane.origin, normal=self.plane.normal, xaxis=self.plane.xaxis)
 
@@ -847,6 +855,22 @@ class Circle(ParametricObject):
         return prs
 
 
+@dataclasses.dataclass(unsafe_hash=True)
+class Arc(Circle):
+    bounds: dataclasses.InitVar[tuple[float, float]] = 0.0, math.pi * 2
+
+    def __post_init__(self, bounds=(0.0, math.pi * 2)):
+        self.bounds = bounds
+        self.parametric_bounds = [(1 / (2 * math.pi)) * bnd for bnd in self.bounds]
+        self.interval = self.parametric_bounds[1] - self.parametric_bounds[0]
+
+    r: float
+    origin: typing.Optional[list[float]] = None
+    plane: typing.Union[PlaneLinear, Plane] = WorldXY
+
+    def evaluate(self, t):
+        return super().evaluate(self.parametric_bounds[0] + self.interval * t)
+    
 _point_table = []
 _relay_table = dict()
 _attrs_table = []
@@ -980,3 +1004,20 @@ class Circle3D(Circle):
 
     def __hash__(self):
         return super(ParametricObject, self).__hash__()
+
+
+def fillet_helper(fillet_result):
+    r = fillet_result
+    objs = []
+
+    for item in r:
+        if isinstance(item, LineStartEndTuple):
+            pppp = np.array(item.start).tolist() + [0], np.array(item.end).tolist() + [0]
+
+            objs.append(Linear.from_two_points(*pppp))
+        elif isinstance(item, Circle2dTuple):
+            crc = Circle(item.radius, PlaneLinear(origin=[item.x, item.y, 0], normal=[0, 0, 1], xaxis=[1, 0, 0]))
+
+            objs.append(crc)
+
+    return objs

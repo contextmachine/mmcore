@@ -50,11 +50,12 @@ def __version__():
     with open("pyproject.toml", "r") as fl:
 
         data = fl.read()
-        with open("pyproject.toml", "w") as fll:
-            current = f"{new_main}.{new_major}.{new_minor}"
-            print(f'{prev}->{current}')
-            data.replace(prev, current)
-            fll.write(data)
+
+    with open("pyproject.toml", "w") as fll:
+        current = f"{new_main}.{new_major}.{new_minor}"
+        print(f'{prev}->{current}')
+
+        fll.write(data.replace(prev, current))
     with open(".version", "w") as s2:
         s2.write(current)
 
