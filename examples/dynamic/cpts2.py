@@ -4,7 +4,7 @@ import itertools
 import rich
 from dotenv import find_dotenv, load_dotenv
 
-from mmcore.base import AGroup, AMesh
+from mmcore.base import AMesh
 from mmcore.base.components import Component
 from mmcore.base.models.gql import MeshBasicMaterial
 from mmcore.geom.materials import ColorRGB
@@ -69,7 +69,7 @@ def uvshape(pts, thickness=1.0):
     return Shape(corners, holes=holes)
 
 
-# cgraph = ComponentGraph()
+
 initial_path = {"points": {
     "pt0_0": {
         "x": -100.85264610432489,
@@ -197,7 +197,74 @@ initial_path = {"points": {
         "z": 0.0
     }
 }}
-
+vals = {
+    "path": {
+        "points": {
+            "pt0": {
+                "x": 9,
+                "y": -3,
+                "z": 0
+            },
+            "pt1": {
+                "x": 13,
+                "y": -3,
+                "z": 0
+            },
+            "pt2": {
+                "x": 13,
+                "y": 0,
+                "z": 0
+            },
+            "pt3": {
+                "x": 10.980110404804643,
+                "y": 0,
+                "z": 0
+            },
+            "pt4": {
+                "x": 10.933087881805529,
+                "y": 4,
+                "z": 0
+            },
+            "pt5": {
+                "x": 16,
+                "y": 4,
+                "z": 0
+            },
+            "pt6": {
+                "x": 16,
+                "y": 6,
+                "z": 0
+            },
+            "pt7": {
+                "x": 7,
+                "y": 7,
+                "z": 0
+            },
+            "pt8": {
+                "x": 7,
+                "y": 4,
+                "z": 0
+            }
+        }
+    },
+    "thickness": 1,
+    "color": [
+        50,
+        120,
+        190
+    ],
+    "offsets": [
+        -0.1,
+        -0.1,
+        -0.6,
+        -0.3,
+        -0.1,
+        -0.1,
+        -0.4,
+        -0.1,
+        -0.6
+    ]
+}
 
 def md_to_spline_mesh(md, uuid, name, color=(0, 0, 0), **kwargs):
     return AMesh(uuid=uuid, name=name if name is not None else uuid, geometry=md.to_buffer(),
@@ -272,17 +339,19 @@ class TwstCell(Component):
         shps.sort(key=lambda x: shapely.Polygon(x).length, reverse=True)
         shape = Shape(shps[0], holes=[shps[1]])
         shape2 = Shape(shps[1])
-        self._repr3d = AGroup()
+
         md = md_to_spline_mesh(shape.mesh_data,
                                name=self.name,
                                uuid=self.uuid,
                                color=self.color, _endpoint=f"params/node/{self.param_node.uuid}",
+                               properties={"area": shape.shapely_polygon().area},
                                controls=self.param_node.todict())
         md.__setattr__("part2", md_to_spline_mesh(shape2.mesh_data,
                                                   name=self.name + "2",
                                                   uuid=self.uuid + "2",
                                                   color=self.color_fill,
                                                   _endpoint=f"params/node/{self.param_node.uuid}",
+                                                  properties={"area": shape2.shapely_polygon().area},
                                                   controls=self.param_node.todict()))
         self._repr3d = md
 
@@ -314,89 +383,11 @@ class TwstCell(Component):
         return self
 
 
-# @param_graph_node_native
-# def spline(path=path, color=(0, 0, 0)):
-#   return ALine(geometry=path.tessellate(), material=gql.LineBasicMaterial(color=ColorRGB(*color).decimal, uuid="spline-material"), uuid="spline",name="spline")
-
-serve.start()
 spln = Spline(uuid="test_spline", name="test_spline", path=copy.deepcopy(initial_path))
-cell_path = {"points": {'pt0': {'x': 9.0, 'y': -3.0, 'z': 0},
-                        'pt1': {'x': 13.0, 'y': -3.0, 'z': 0},
-                        'pt2': {'x': 13.0, 'y': 0.0, 'z': 0},
-                        'pt3': {'x': 17.0, 'y': 0.0, 'z': 0},
-                        'pt4': {'x': 17.0, 'y': 4.0, 'z': 0},
-                        'pt5': {'x': 11.0, 'y': 4.0, 'z': 0}}}
-
-vals = {
-    "path": {
-        "points": {
-            "pt0": {
-                "x": 9,
-                "y": -3,
-                "z": 0
-            },
-            "pt1": {
-                "x": 13,
-                "y": -3,
-                "z": 0
-            },
-            "pt2": {
-                "x": 13,
-                "y": 0,
-                "z": 0
-            },
-            "pt3": {
-                "x": 10.980110404804643,
-                "y": 0,
-                "z": 0
-            },
-            "pt4": {
-                "x": 10.933087881805529,
-                "y": 4,
-                "z": 0
-            },
-            "pt5": {
-                "x": 16,
-                "y": 4,
-                "z": 0
-            },
-            "pt6": {
-                "x": 16,
-                "y": 6,
-                "z": 0
-            },
-            "pt7": {
-                "x": 7,
-                "y": 7,
-                "z": 0
-            },
-            "pt8": {
-                "x": 7,
-                "y": 4,
-                "z": 0
-            }
-        }
-    },
-    "thickness": 1,
-    "color": [
-        50,
-        120,
-        190
-    ],
-    "offsets": [
-        -0.1,
-        -0.1,
-        -0.6,
-        -0.3,
-        -0.1,
-        -0.1,
-        -0.4,
-        -0.1,
-        -0.6
-    ]
-}
 
 cell = TwstCell(uuid="test_cell", name="test_cell",
                 path=vals['path'],
                 offsets=vals['offsets'],
                 color=vals['color'])
+
+serve.start()

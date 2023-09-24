@@ -22,6 +22,9 @@ def bootstrap_local(url="redis://localhost:6379/0"):
     return conn
 
 
+def get_local_connection(url="redis://localhost:6379/0"):
+    return bootstrap_local(url)
+
 def bootstrap_stack(url=os.getenv("REDIS_STACK_URL")):
     return bootstrap_local(url)
 
