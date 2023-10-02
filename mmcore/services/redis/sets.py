@@ -178,6 +178,13 @@ class Hset(Hdict):
         for k, v in value.items():
             self[k] = v
 
+    def get(self, key: str, __default=None):
+        if key in self.keys():
+            return self[key]
+        else:
+            return __default
+
+
     def __ior__(self, v):
         for k, v in dict(v).items():
             self[k] = v

@@ -3,7 +3,6 @@ import typing
 import uuid
 from collections import namedtuple
 
-import earcut
 import more_itertools
 import numpy as np
 import shapely
@@ -16,8 +15,10 @@ from mmcore.base.delegate import class_bind_delegate_method, delegate_method
 from mmcore.base.geom import MeshData
 from mmcore.base.models.gql import MeshPhongMaterial
 from mmcore.collections import DCLL
+from mmcore.geom import vectors
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear, point_to_plane_distance, project_point_onto_plane
+from mmcore.geom.parametric.algorithms import centroid
 from mmcore.geom.transform import Transform, WorldXY
 
 
@@ -34,6 +35,26 @@ def to_list_req(obj):
     else:
         return obj
 
+
+def polygon_area_3d(polygon):
+    polygon = np.array(polygon)
+    a = polygon[-1]
+    b = polygon[0]
+    o = centroid(polygon)
+    oa = a - o
+    ob = b - o
+    n0 = np.cross(oa, ob)
+    area = 0.5 * vectors.norm(n0)
+    for i in range(0, len(polygon) - 1):
+        oa = ob
+        b = polygon[i + 1]
+        ob = b - o
+        n = np.cross(oa, ob)
+        if np.dot(n, n0) > 0:
+            area += 0.5 * vectors.norm(n)
+        else:
+            area -= 0.5 * vectors.norm(n)
+    return area
 
 @class_bind_delegate_method
 def bind_poly_to_shape(self, other, delegate=None):
@@ -466,6 +487,13 @@ def offset_with_plane(bounds, plane, distance=1.0):
     return pts
 
 
+def area_with_plane(bounds, plane):
+    return shapely.Polygon([plane.in_plane_coords(pt).tolist() for pt in bounds]).area
+
+
+def area3d(points):
+    plane = PlaneLinear.from_tree_pt(points[1], points[0], points[2])
+    return area_with_plane(points, plane)
 def plane_dist(plane, point):
     project_point_onto_plane(np.array(point), np.array(plane.origin), point)
 
