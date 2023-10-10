@@ -1,8 +1,8 @@
 import typing
 from collections import namedtuple
 from dataclasses import dataclass
-import numpy as np
 
+import numpy as np
 import shapely
 from shapely.geometry import mapping
 
@@ -11,28 +11,10 @@ from mmcore.geom.parametric import algorithms
 
 SplitResult = namedtuple("SplitResult", ['shapes', 'mask'])
 
-
-def travpt(fun):
-    def wrapper(points, *args, **kwargs):
-        i = 0
-
-        def wrp(ptts):
-            nonlocal i
-            for pt in ptts:
-                if all([isinstance(x, float) for x in pt]):
-                    res = fun(pt, *args, **kwargs)
-
-                    yield res
-                else:
-
-                    yield list(wrp(pt))
-
-        return list(wrp(points))
-
-    return wrapper
+from mmcore.base import points_traverse
 
 
-@travpt
+@points_traverse
 def split3d_vec(point, plane=None):
     if plane:
         return algorithms.ray_plane_intersection(np.array(point), np.array([0.0, 0.0, 1.0]), plane).tolist()
