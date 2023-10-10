@@ -6,8 +6,9 @@ import numpy as np
 from scipy.spatial import distance as spdist
 from typing_extensions import runtime_checkable
 
-import mmcore.base
-from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
+import mmcore.base.models.gql as gql
+from mmcore.base.geom.utils import parse_attribute
+from mmcore.base import create_buffer_from_dict
 
 buffer_geometry_itemsize_map = {
     "position": 3,
@@ -22,16 +23,16 @@ S = typing.TypeVar("S")
 @runtime_checkable
 class BufferGeometryBuilder(typing.Protocol):
     choices = {
-        '000': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
-        '001': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes1),
-        '100': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes3),
-        '101':(mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes3),
-        '110': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes2),
-        '011': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2),
-        '111': (mmcore.base.gql_models.Data, mmcore.base.gql_models.Attributes2)
+        '000': (gql.Data1, gql.Attributes1),
+        '001': (gql.Data, gql.Attributes1),
+        '100': (gql.Data1, gql.Attributes3),
+        '101': (gql.Data, gql.Attributes3),
+        '110': (gql.Data1, gql.Attributes2),
+        '011': (gql.Data, gql.Attributes2),
+        '111': (gql.Data, gql.Attributes2)
     }
 
-    def create_buffer(self, uuid: typing.Optional[str] = None) -> mmcore.base.models.gql.BufferGeometry: ...
+    def create_buffer(self, uuid: typing.Optional[str] = None) -> gql.BufferGeometry: ...
 
 
 class MeshBufferGeometryBuilder(BufferGeometryBuilder):
@@ -44,9 +45,9 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
     def from_three(cls, dct: dict) -> 'MeshBufferGeometryBuilder':
         buff = create_buffer_from_dict(dct)
         return cls(indices=parse_attribute(buff.data.index),
-                   vertices=parse_attribute(buff.data.attributes.position),
-                   normals=parse_attribute(buff.data.attributes.normal),
-                   uv=parse_attribute(buff.data.attributes.uv),
+                   vertices=parse_attribute(gql.attributes.position),
+                   normals=parse_attribute(gql.attributes.normal),
+                   uv=parse_attribute(gql.attributes.uv),
                    uuid=buff.uuid
                    )
 
@@ -75,11 +76,11 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
     def indices(self):
         return self._indices
 
-    def create_buffer(self, uuid: str = None) -> mmcore.base.models.gql.BufferGeometry:
+    def create_buffer(self, uuid: str = None) -> gql.BufferGeometry:
 
         selector = ['0', '0', '0']  # norm,uv,index
         attributes = {
-            "position": mmcore.base.models.gql.Position(**{
+            "position": gql.Position(**{
                 "array": np.asarray(self.vertices, dtype=float).flatten().tolist(),
                 "itemSize": 3,
                 "type": "Float32Array",
@@ -90,7 +91,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
 
         if self.normals is not None:
             selector[0] = '1'
-            attributes["normal"] = mmcore.base.models.gql.Normal(**{
+            attributes["normal"] = gql.Normal(**{
                 "array": np.asarray(self.normals, dtype=float).flatten().tolist(),
                 "itemSize": 3,
                 "type": "Float32Array",
@@ -99,7 +100,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
 
         if self.uv is not None:
             selector[1] = '1'
-            attributes["uv"] = mmcore.base.models.gql.Uv(**{
+            attributes["uv"] = gql.Uv(**{
                 'itemSize': 2,
                 "array": np.array(self.uv, dtype=float).flatten().tolist(),
                 "type": "Float32Array",
@@ -112,7 +113,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
             selector[2] = '1'
 
             indices=list(more_itertools.flatten(self.indices))
-            data["index"] = mmcore.base.models.gql.Index(**dict(type='Uint16Array',
+            data["index"] = gql.Index(**dict(type='Uint16Array',
                                                                 array=np.array(indices,
                                                                                dtype=int).flatten().tolist()))
         _data, _attribs = self.choices["".join(selector)]
@@ -120,7 +121,7 @@ class MeshBufferGeometryBuilder(BufferGeometryBuilder):
 
 
         # ##print(selector)
-        return mmcore.base.gql_models.BufferGeometry(**{
+        return gql.BufferGeometry(**{
             "type": "BufferGeometry",
             "data": _data(**data)
         })
@@ -130,8 +131,8 @@ class PointsBufferGeometryBuilder(BufferGeometryBuilder):
     _points = None
     _colors = None
     choices = {
-        '0': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes1),
-        '1': (mmcore.base.gql_models.Data1, mmcore.base.gql_models.Attributes4),
+        '0': (gql.Data1, gql.Attributes1),
+        '1': (gql.Data1, gql.Attributes4),
     }
 
     def __init__(self, points=None, colors=None):
@@ -155,11 +156,11 @@ class PointsBufferGeometryBuilder(BufferGeometryBuilder):
     def points(self, v):
         self._points = v
 
-    def create_buffer(self, uuid: typing.Optional[str] = None) -> mmcore.base.models.gql.BufferGeometry:
+    def create_buffer(self, uuid: typing.Optional[str] = None) -> gql.BufferGeometry:
 
         selector = ['0']  # norm,uv,index
         attributes = {
-            "position": mmcore.base.models.gql.Position(**{
+            "position": gql.Position(**{
                 "array": np.asarray(self.points, dtype=float).flatten().tolist(),
                 "itemSize": 3,
                 "type": "Float32Array",
@@ -169,7 +170,7 @@ class PointsBufferGeometryBuilder(BufferGeometryBuilder):
         data = {}
         if self.colors is not None:
             selector[0] = '1'
-            attributes["colors"] = mmcore.base.models.gql.Uv(**{
+            attributes["colors"] = gql.Uv(**{
                 'itemSize': 1,
                 "array": np.array(self.colors, dtype=float).flatten().tolist(),
                 "type": 'Uint16Array',
@@ -180,7 +181,7 @@ class PointsBufferGeometryBuilder(BufferGeometryBuilder):
         data['attributes'] = _attribs(**attributes)
 
         # ##print(selector)
-        return mmcore.base.gql_models.BufferGeometry(**{
+        return gql.BufferGeometry(**{
 
             "type": "BufferGeometry",
             "data": _data(**data)
@@ -226,7 +227,7 @@ class RhinoMeshBufferGeometryBuilder(MeshBufferGeometryBuilder):
 
         return self._indices, self._verices, self._normals
 
-    def create_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
+    def create_buffer(self) -> gql.BufferGeometry:
 
         self.mesh_decomposition()
         self.calc_uv()

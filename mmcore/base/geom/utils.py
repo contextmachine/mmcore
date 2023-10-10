@@ -1,111 +1,19 @@
-import gzip
-
 import numpy as np
 
-import mmcore
-import mmcore.base.models.gql as mgql
 
-mapattrs = {
-    "normal": mgql.Normal,
-    "position": mgql.Position,
-    "uv": mgql.Uv
+def points_traverse(fun):
+    def wrapper(points, *args, **kwargs):
 
-}
+        def wrp(ptts):
+            for pt in ptts:
+                if all([isinstance(x, float) for x in pt]):
+                    yield fun(pt, *args, **kwargs)
+                else:
+                    yield list(wrp(pt))
 
-attributes = []
+        return list(wrp(points))
 
-
-def geom_attributes_from_dict(att):
-    ddct = {}
-    for k, v in att.items():
-        ddct[k] = mapattrs[k](**v)
-    if len(ddct.keys()) == 1:
-        return mmcore.base.models.gql.Attributes1(**ddct)
-    elif len(ddct.keys()) == 3:
-        return mmcore.base.models.gql.Attributes2(**ddct)
-    elif len(ddct.keys()) == 2:
-        return mmcore.base.models.gql.Attributes3(**ddct)
-    else:
-        return mmcore.base.models.gql.Attributes(**ddct)
-
-
-def create_buffer_from_dict(kwargs) -> mmcore.base.models.gql.BufferGeometry:
-    if "index" in kwargs["data"]:
-
-        dct = mmcore.base.models.gql.BufferGeometry(**{
-            "uuid": kwargs.get('uuid'),
-            "type": kwargs.get('type'),
-            "data": mmcore.base.models.gql.Data(**{
-                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
-                "index": mmcore.base.models.gql.Index(**kwargs.get('data').get("index"))
-
-            })
-
-        })
-
-
-    else:
-
-        dct = mmcore.base.models.gql.BufferGeometry(**{
-            "uuid": kwargs.get('uuid'),
-            "type": kwargs.get('type'),
-            "data": mmcore.base.models.gql.Data1(**{
-                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
-
-            })
-        })
-
-    return dct
-
-
-def create_buffer_from_occ(kwargs) -> mmcore.base.models.gql.BufferGeometry:
-    return mmcore.base.models.gql.BufferGeometry(**{
-        "uuid": kwargs.get('uuid'),
-        "type": kwargs.get('type'),
-        "data": mmcore.base.models.gql.Data(**{
-            "attributes": mmcore.base.models.gql.Attributes(**{
-
-                "normal": mmcore.base.models.gql.Normal(**kwargs.get('data').get('attributes').get("normal")),
-                "position": mmcore.base.models.gql.Position(**kwargs.get('data').get('attributes').get("position")),
-
-            })
-
-        })
-    })
-
-
-def create_buffer(uuid, normals, vertices, uv, indices) -> mmcore.base.models.gql.BufferGeometry:
-    return mmcore.base.models.gql.BufferGeometry(**{
-        "uuid": uuid,
-        "type": "BufferGeometry",
-        "data": mmcore.base.models.gql.Data(**{
-            "attributes": mmcore.base.models.gql.Attributes(**{
-
-                "normal": mmcore.base.models.gql.Normal(**{
-                    "array": np.asarray(normals, dtype=float).flatten().tolist(),
-                    "itemSize": 3,
-                    "type": "Float32Array",
-                    "normalized": False
-                }),
-                "position": mmcore.base.models.gql.Position(**{
-                    "array": np.asarray(vertices, dtype=float).flatten().tolist(),
-                    "itemSize": 3,
-                    "type": "Float32Array",
-                    "normalized": False
-                }),
-                "uv": mmcore.base.models.gql.Uv(**{
-                    'itemSize': 2,
-                    "array": np.asarray(uv, dtype=float).flatten().tolist(),
-                    "type": "Float32Array",
-                    "normalized": False
-
-                }),
-
-            }),
-            "index": mmcore.base.models.gql.Index(**dict(type='Uint16Array',
-                                                         array=np.asarray(indices, dtype=int).flatten().tolist()))
-        })
-    })
+    return wrapper
 
 
 def parse_attribute(attr):

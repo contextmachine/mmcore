@@ -15,6 +15,7 @@ from pyquaternion import Quaternion
 from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
 
+import mmcore.base.models.gql
 import mmcore.base.models.gql as gql_models
 from mmcore import typegen
 from mmcore.base.params import ParamGraphNode, TermParamGraphNode
@@ -967,9 +968,9 @@ class BBoxDescriptor:
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        arr = instance.geometry.data.attributes.position.array
+        arr = mmcore.base.models.gql.attributes.position.array
 
-        return BBox(np.array(instance.geometry.data.attributes.position.array, dtype=float).reshape((len(arr) // 3, 3)),
+        return BBox(np.array(mmcore.base.models.gql.attributes.position.array, dtype=float).reshape((len(arr) // 3, 3)),
                     owner=instance)
 
 

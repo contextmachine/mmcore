@@ -7,16 +7,16 @@ from operator import itemgetter
 
 import more_itertools
 import numpy as np
-
+import mmcore.base.models.gql as gql_models
 import mmcore.base.registry
 from mmcore.base.basic import AMesh
 from mmcore.base.geom.builder import Convertor, DataclassToDictConvertor, DictToAnyConvertor, \
     DictToAnyMeshDataConvertor, MeshBufferGeometryBuilder, RhinoBrepBufferGeometryBuilder, \
     RhinoMeshBufferGeometryBuilder
-from mmcore.base.geom.utils import create_buffer_from_dict, parse_attribute
-from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.base.geom.utils import parse_attribute, points_traverse
 from mmcore.node import node_eval
 
+MeshPhongMaterial, create_buffer_from_dict = gql_models.MeshPhongMaterial, gql_models.create_buffer_from_dict
 MODE = {"children": "parents"}
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.registry import matdict
@@ -52,18 +52,18 @@ def _buff_attr_checker(builder, name, attributes, cls):
 T = typing.TypeVar("T")
 S = typing.TypeVar("S")
 
-matdict["MeshPhongMaterial"] = mmcore.base.models.gql.MeshPhongMaterial(color=ColorRGB(50, 50, 50).decimal,
-                                                                        type=mmcore.base.models.gql.Materials.MeshPhongMaterial)
-matdict["PointsMaterial"] = mmcore.base.models.gql.PointsMaterial(color=ColorRGB(50, 50, 50).decimal)
-matdict["LineBasicMaterial"] = mmcore.base.models.gql.LineBasicMaterial(color=ColorRGB(50, 50, 50).decimal,
-                                                                        type=mmcore.base.models.gql.Materials.LineBasicMaterial)
+matdict["MeshPhongMaterial"] = gql_models.MeshPhongMaterial(color=ColorRGB(50, 50, 50).decimal,
+                                                            type=gql_models.Materials.MeshPhongMaterial)
+matdict["PointsMaterial"] = gql_models.PointsMaterial(color=ColorRGB(50, 50, 50).decimal)
+matdict["LineBasicMaterial"] = gql_models.LineBasicMaterial(color=ColorRGB(50, 50, 50).decimal,
+                                                            type=gql_models.Materials.LineBasicMaterial)
 
 from mmcore.geom.vectors import triangle_normal
 
 
 class BufferGeometryToMeshDataConvertor(Convertor):
     type_map = buffer_geometry_type_map
-    source: mmcore.base.models.gql.BufferGeometry
+    source: gql_models.BufferGeometry
 
     def __init__(self, source, **kwargs):
         super().__init__(source, **kwargs)
@@ -125,7 +125,7 @@ class MeshData:
                 dct[k] = v
         return dct
 
-    def create_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
+    def create_buffer(self) -> gql_models.BufferGeometry:
         if self._buf is None:
             self._buf = MeshBufferGeometryBuilder(**self.asdict()).create_buffer()
         return self._buf
@@ -197,17 +197,17 @@ class MeshData:
                                                 flatShading=flatShading), **kwargs)
 
     @classmethod
-    def from_buffer_geometry(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
+    def from_buffer_geometry(cls, geom: typing.Union[gql_models.BufferGeometry, dict]) -> 'MeshData':
 
         return cls.from_buffer(geom)
 
     @classmethod
-    def from_buffer(cls, geom: typing.Union[mmcore.base.models.gql.BufferGeometry, dict]) -> 'MeshData':
+    def from_buffer(cls, geom: typing.Union[gql_models.BufferGeometry, dict]) -> 'MeshData':
         if isinstance(geom, dict):
             return BufferGeometryDictToMeshDataConvertor(geom).convert()
         return BufferGeometryToMeshDataConvertor(geom).convert()
 
-    def to_buffer(self) -> mmcore.base.models.gql.BufferGeometry:
+    def to_buffer(self) -> gql_models.BufferGeometry:
         return self.create_buffer()
 
 

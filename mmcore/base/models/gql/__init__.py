@@ -6,9 +6,11 @@ import pprint
 import typing
 from enum import Enum
 
+import numpy as np
 import strawberry
 from strawberry.scalars import JSON
 
+import mmcore
 from mmcore.base.registry import ageomdict, objdict
 from mmcore.base.utils import getitemattr
 
@@ -566,3 +568,103 @@ AnyObject3D = strawberry.union("AnyObject3D", (GqlObject3D,
                                                GqlPoints,
                                                ),
                                description="All objects in one Union Type")
+mapattrs = {
+    "normal": Normal,
+    "position": Position,
+    "uv": Uv
+
+}
+attributes = []
+
+
+def geom_attributes_from_dict(att):
+    ddct = {}
+    for k, v in att.items():
+        ddct[k] = mapattrs[k](**v)
+    if len(ddct.keys()) == 1:
+        return Attributes1(**ddct)
+    elif len(ddct.keys()) == 3:
+        return Attributes2(**ddct)
+    elif len(ddct.keys()) == 2:
+        return Attributes3(**ddct)
+    else:
+        return Attributes(**ddct)
+
+
+def create_buffer_from_dict(kwargs) -> BufferGeometry:
+    if "index" in kwargs["data"]:
+
+        dct = BufferGeometry(**{
+            "uuid": kwargs.get('uuid'),
+            "type": kwargs.get('type'),
+            "data": Data(**{
+                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
+                "index": Index(**kwargs.get('data').get("index"))
+
+            })
+
+        })
+
+
+    else:
+
+        dct = BufferGeometry(**{
+            "uuid": kwargs.get('uuid'),
+            "type": kwargs.get('type'),
+            "data": Data1(**{
+                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
+
+            })
+        })
+
+    return dct
+
+
+def create_buffer_from_occ(kwargs) -> BufferGeometry:
+    return BufferGeometry(**{
+        "uuid": kwargs.get('uuid'),
+        "type": kwargs.get('type'),
+        "data": Data(**{
+            "attributes": Attributes(**{
+
+                "normal": Normal(**kwargs.get('data').get('attributes').get("normal")),
+                "position": Position(**kwargs.get('data').get('attributes').get("position")),
+
+            })
+
+        })
+    })
+
+
+def create_buffer(uuid, normals, vertices, uv, indices) -> BufferGeometry:
+    return BufferGeometry(**{
+        "uuid": uuid,
+        "type": "BufferGeometry",
+        "data": Data(**{
+            "attributes": Attributes(**{
+
+                "normal": Normal(**{
+                    "array": np.asarray(normals, dtype=float).flatten().tolist(),
+                    "itemSize": 3,
+                    "type": "Float32Array",
+                    "normalized": False
+                }),
+                "position": Position(**{
+                    "array": np.asarray(vertices, dtype=float).flatten().tolist(),
+                    "itemSize": 3,
+                    "type": "Float32Array",
+                    "normalized": False
+                }),
+                "uv": Uv(**{
+                    'itemSize': 2,
+                    "array": np.asarray(uv, dtype=float).flatten().tolist(),
+                    "type": "Float32Array",
+                    "normalized": False
+
+                }),
+
+            }),
+            "index": Index(**dict(type='Uint16Array',
+                                  array=np.asarray(indices, dtype=int).flatten().tolist()))
+        })
+    })

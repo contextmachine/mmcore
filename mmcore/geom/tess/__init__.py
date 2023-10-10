@@ -12,7 +12,7 @@ import numpy as np
 from mmcore.base.basic import AMesh
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.geom import MeshData
-from mmcore.base.geom.utils import create_buffer_from_dict
+from mmcore.base import create_buffer_from_dict
 from mmcore.base.registry import amatdict
 from mmcore.collections import ElementSequence
 from mmcore.base.models import gql as gql_models

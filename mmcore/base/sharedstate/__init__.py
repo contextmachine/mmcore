@@ -1,5 +1,8 @@
 import dataclasses
+import datetime
 import functools
+import threading
+import typing
 
 from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
@@ -405,6 +408,7 @@ class SharedStateServer():
 
             return "OK"
 
+
         @inst.app.post("/", response_model_exclude_none=True)
         async def mutate(data: dict = None):
             if "target" in debug_properties:
@@ -455,7 +459,7 @@ class SharedStateServer():
         inst.runtime_env = dict(inputs=dict(), out=dict())
         inst.resolvers = dict()
         inst.params_nodes = dict()
-
+        inst.loglevel = 'error'
         @inst.app.get("/ipykernel/connection_file")
         async def ipykernel_connection_file():
             data = inst.get_ipy_connection_file()
@@ -508,7 +512,8 @@ class SharedStateServer():
         uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
         print(f'running uvicorn {uvicorn_appname}')
 
-        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level="error", **kwargs)
+        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
+
 
     def production_run(self, name, api_prefix, mounts=(), middleware=None, app_kwargs=None, **kwargs):
         if app_kwargs is None:
@@ -550,7 +555,13 @@ class SharedStateServer():
         setattr(self, name, new_app)
         return new_app
 
-    def start(self):
+    def start(self, port=None, host=None, log_level=None, **kwargs):
+
+        for k, v in dict(port=port, host=host, log_level=log_level).items():
+            if v is not None:
+                setattr(self, k, v)
+
+        self.thread = threading.Thread(target=self.run, args=(), kwargs=kwargs)
         self.thread.start()
 
     def stop_rpyc(self):
