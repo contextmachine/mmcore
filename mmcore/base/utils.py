@@ -7,6 +7,8 @@ from mmcore.base.registry import matdict
 from mmcore.collections import ElementSequence
 
 
+def merge(list_of_dicts):
+    return {k: v for dictionary in list_of_dicts for k, v in dictionary.items()}
 def methods_owner(method):
     own = [k for k in method.__qualname__.split('.')[:-1]]
     if len(own) > 1:

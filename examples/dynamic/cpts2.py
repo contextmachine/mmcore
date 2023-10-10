@@ -1,10 +1,11 @@
 import copy
 import itertools
+import numpy as np
 
 import rich
 from dotenv import find_dotenv, load_dotenv
-
-from mmcore.base import AMesh
+from mmcore.geom.parametric.pipe import spline_pipe_mesh
+from mmcore.base import AMesh, AGroup, A
 from mmcore.base.components import Component
 from mmcore.base.models.gql import MeshBasicMaterial
 from mmcore.geom.materials import ColorRGB
@@ -12,7 +13,8 @@ from mmcore.geom.materials import ColorRGB
 dv = find_dotenv()
 print(dv)
 load_dotenv(dv)
-from mmcore.geom.parametric.algorithms import variable_line_offset_2d
+from mmcore.geom.parametric import NurbsCurve
+from mmcore.geom.parametric.algorithms import variable_line_offset_2d, offset_curve_2d, offset_curve_3d_np
 from mmcore.services.redis import connect, sets
 
 rconn = connect.get_cloud_connection(
@@ -22,7 +24,7 @@ sets.rconn = rconn
 from mmcore.base.sharedstate import serve
 import shapely
 
-from mmcore.geom.shapes import Shape
+from mmcore.geom.shapes import Shape, offset
 
 
 def get_row(pth, i):
@@ -50,6 +52,41 @@ def extract_corners(pts):
         if t not in corners:
             corners.append(t)
     return corners
+
+
+def make_nurbs_curve(points, degree):
+    def nurbs_curve_wrapper(t):
+        return NurbsCurve(points, degree=degree).evaluate(t)
+
+    return nurbs_curve_wrapper
+
+
+# ncurve, ncsetter,ncgetter=make_nurbs_curve([[0, 0, 200], [-47, -315, 20], [-785, -844, 2], [-1446.9613453661368, -1286, 20], [-969, -2316, 200]], degree=2)
+def moff(crv, var_off=((0, 1), (0.3, 0.5), (0.6, -0.5), (1, 0)
+                       )
+         ):
+    ss = intp.interp1d(*list(zip(*var_off)))
+
+    def wrap(t):
+        return offset_curve_3d(crv, ss(t).tolist())
+
+    return wrap
+
+
+from collections import deque
+from mmcore.geom.parametric.algorithms import offset_curve_3d
+
+
+def mesh_curve(crv, thickness=1.0, tess_range=100, tess_eps=0.01):
+    dq = deque()
+    offcrv = offset_curve_3d(crv, thickness)
+    for t in np.linspace(0. + tess_eps, 1 - tess_eps, tess_range).tolist():
+        # print(t)
+        dq.append(crv(t))
+
+        dq.appendleft(offcrv(t))
+    return Shape(list(dq)).mesh_data
+
 
 
 def uvshape(pts, thickness=1.0):
@@ -265,17 +302,159 @@ vals = {
         -0.6
     ]
 }
-
+spline_path = {"points": {"pt_0": {'x': 0, 'y': 0, 'z': 200},
+                          "pt_1": {'x': -47, 'y': -315, 'z': 200},
+                          "pt_2": {'x': -785, 'y': -844, 'z': 200},
+                          "pt_3": {'x': -704, 'y': -1286, 'z': 200},
+                          "pt_4": {'x': -969, 'y': -2316, 'z': 200}}}
 def md_to_spline_mesh(md, uuid, name, color=(0, 0, 0), **kwargs):
     return AMesh(uuid=uuid, name=name if name is not None else uuid, geometry=md.to_buffer(),
                  material=MeshBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
 
 
+from mmcore.geom.parametric.algorithms import offset_curve_2d
+
+
+def shape_to_mesh(pts, uuid, name, thickness=0.1, color=(0, 0, 0), **kwargs):
+    shape = Shape(pts, holes=[offset(pts, -thickness)])
+    shape.tessellate()
+    # print(shape, pts)
+    return md_to_spline_mesh(shape.mesh_data,
+                             uuid=uuid,
+                             name=name,
+                             color=color,
+                             **kwargs)
+
+
+def objs_to_repr3d(uuid, name, fillet_helper_result, color=(0, 0, 0), thickness=1, controls=None, endpoint=None):
+    r = fillet_helper_result.pop(0)
+    obj = md_to_spline_mesh(points=[r.evaluate(l).tolist() for l in np.linspace(0, 1, 6)],
+                            degree=1,
+                            thickness=thickness, color=color, uuid=uuid, name=name,
+                            _endpoint=endpoint,
+                            controls=controls)
+    for i, item in enumerate(fillet_helper_result):
+
+        if isinstance(item, Linear):
+
+            obj.__setattr__('part' + f'{i}',
+                            spline_pipe_mesh(points=[item.evaluate(l).tolist() for l in np.linspace(0, 1, 6)],
+                                             degree=1,
+
+                                             thickness=thickness, color=color, uuid=uuid + str(i), name=name + str(i),
+                                             _endpoint=endpoint,
+                                             controls=controls))
+
+        elif isinstance(item, Circle):
+
+            obj.__setattr__('part' + f'{i}',
+                            spline_pipe_mesh(points=[item.evaluate(l).tolist() for l in np.linspace(0, 1, 32)],
+                                             degree=1,
+                                             u_count=64,
+                                             thickness=thickness, color=color, uuid=uuid + str(i), name=name + str(i),
+                                             _endpoint=endpoint,
+                                             controls=controls))
+
+    return obj
 def spl(pt):
     return [pt['x'], pt['y'], pt['z']]
 
 
+class GeomComp(Component):
+    def __new__(cls, color=(0, 0, 0), **kwargs):
+        return super().__new__(cls, color=color, **kwargs)
+
+    def __call__(self, **kwargs):
+        print(kwargs)
+
+        super().__call__(**kwargs)
+
+        self.__repr3d__()
+        return self
+
 class Spline(Component):
+    path: dict
+    color: tuple = (0, 0, 0)
+    degree: int = 2
+    thickness: float = 50
+
+    def __new__(cls, path=copy.deepcopy(spline_path), thickness=40.0, degree: int = 3, color=(0, 0, 0),
+                **kwargs):
+        return super().__new__(cls, path=path, thickness=thickness, color=color, degree=degree, **kwargs)
+
+    def __call__(self, **kwargs):
+        # print(kwargs)
+
+        super().__call__(**kwargs)
+
+        self.__repr3d__()
+        return self
+
+    def __repr3d__(self):
+        ncurve = self.curve()
+        self._repr3d = spline_pipe_mesh(points=[ncurve(t).tolist() for t in np.linspace(0.01, 0.99, 100)],
+                                        thickness=self.thickness, color=self.color, uuid=self.uuid, name=self.name,
+                                        _endpoint=f"params/node/{self.param_node.uuid}",
+                                        controls=self.param_node.todict())
+
+        return self._repr3d
+
+    def curve(self):
+        nc = make_nurbs_curve(points=[[pt['x'], pt['y'], pt['z']] for pt in self.path['points'].values()],
+                              degree=self.degree)
+        return nc
+
+
+class OffCurve(Component):
+    path: dict
+    offset: int = 100
+    count: int = 5
+    thickness: float = 40
+
+    def __new__(cls, path, thickness=40.0, count: int = 5, color=(0, 0, 0),
+                **kwargs):
+
+        return super().__new__(cls, path=path, thickness=thickness, color=color, **kwargs)
+
+    def __call__(self, **kwargs):
+        # print(kwargs)
+
+        super().__call__(**kwargs)
+
+        self.__repr3d__()
+        return self
+
+    def __repr3d__(self):
+        crvs = self.curves()
+        crv1 = crvs[0]
+        self._repr3d = spline_pipe_mesh(points=[crv1(t).tolist() for t in np.linspace(0.01, 0.99, 100)],
+                                        thickness=self.thickness, color=self.color, uuid=self.uuid,
+                                        name=self.name,
+                                        _endpoint=f"params/node/{self.param_node.uuid}",
+                                        controls=self.param_node.todict())
+
+        for i, crv in enumerate(crvs[1:]):
+            self._repr3d.__setattr__(f"part{i}",
+                                     spline_pipe_mesh(points=[crv(t).tolist() for t in np.linspace(0.01, 0.99, 100)],
+                                                      thickness=self.thickness, color=self.color,
+                                                      uuid=self.uuid + str(i), name=self.name + str(i),
+                                                      _endpoint=f"params/node/{self.param_node.uuid}",
+                                                      controls=self.param_node.todict()))
+        return self._repr3d
+
+    def curves(self):
+
+        crv = make_nurbs_curve(points=[[pt['x'], pt['y'], pt['z']] for pt in self.path['points'].values()],
+                               degree=self.degree)
+
+        cc2 = []
+        for i in range(self.count):
+            cc2.append(offset_curve_3d_np(crv, self.offset[i] * i))
+        return cc2
+
+
+class Grid(Component):
+
     path: dict
     color: tuple = (0, 0, 0)
     degree: int = 2
@@ -294,9 +473,13 @@ class Spline(Component):
         return [list(get_row(self.path, i)) for i in range(u_count)]
 
     def __repr3d__(self):
+
         shape = uvshape(self.path_to_points(5), thickness=self.thickness)
 
-        self._repr3d = md_to_spline_mesh(shape.mesh_data, name=self.name, uuid=self.uuid, color=self.color,
+        self._repr3d = md_to_spline_mesh(shape.mesh_data,
+                                         name=self.name,
+                                         uuid=self.uuid,
+                                         color=self.color,
                                          _endpoint=f"params/node/{self.param_node.uuid}",
                                          controls=self.param_node.todict())
 
@@ -383,7 +566,38 @@ class TwstCell(Component):
         return self
 
 
-spln = Spline(uuid="test_spline", name="test_spline", path=copy.deepcopy(initial_path))
+class TangObj(Component):
+    path: dict
+    radius = 20
+    color: tuple = (0, 0, 0)
+
+    def __new__(cls, path={"points": {"a": {'x': -90, 'y': 190, 'z': 0},
+                                      "b": {'x': 10, 'y': 110, 'z': 0},
+                                      "c": {'x': -120, 'y': -140, 'z': 0}}}, radius=20, thickness=0.1, color=(0, 0, 0),
+                **kwargs):
+        return super().__new__(cls, path=path, thickness=thickness, color=color, radius=radius, **kwargs)
+
+    def __call__(self, **kwargs):
+        super().__call__(**kwargs)
+        self.__repr3d__()
+        return self
+
+    def __repr3d__(self):
+        self._repr3d = objs_to_repr3d(uuid=self.uuid, name=self.name, fillet_helper_result=fillet_helper(
+            fillet_lines([[pt['x'], pt['y']] for pt in self.path['points'].values()], self.radius)),
+                                      thickness=self.thickness, color=self.color, controls=self.param_node.todict(),
+                                      endpoint=f"params/node/{self.param_node.uuid}")
+        return self._repr3d
+
+
+spln = Spline(uuid="test_spline", name="test_spline", degree=3, path=copy.deepcopy(spline_path), thickness=30.1)
+
+# s#pln = Spline(uuid="test_spline", name="test_spline", degree=2,path=copy.deepcopy(spline_path), thickness=30.1)
+spln_off = OffCurve(path=spln().path, uuid="test_spline_offset", name="test_spline_offset", degree=3,
+                    offset=[100, 100, 100, 100, 100],
+                    thickness=40,
+                    count=5)
+grid = Grid(uuid="test_grid", name="test_grid", path=copy.deepcopy(initial_path), thickness=0.1)
 
 cell = TwstCell(uuid="test_cell", name="test_cell",
                 path=vals['path'],
@@ -391,3 +605,4 @@ cell = TwstCell(uuid="test_cell", name="test_cell",
                 color=vals['color'])
 
 serve.start()
+print(spln_off.todict())

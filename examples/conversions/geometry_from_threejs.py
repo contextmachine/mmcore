@@ -1,8 +1,7 @@
 import json
 
-from mmcore.base.geom.utils import create_buffer_from_dict
 from mmcore.base import AMesh
-from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial
+from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, create_buffer_from_dict
 from mmcore.geom.materials import ColorRGB
 from mmcore.base.sharedstate import serve
 
