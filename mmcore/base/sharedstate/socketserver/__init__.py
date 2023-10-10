@@ -1,9 +1,14 @@
 import base64
+import dataclasses
 import datetime
+import functools
 import json
 import pickle
 import socket
 import time
+import types
+import typing
+from enum import Enum
 from uuid import uuid4
 
 from mmcore.base.registry import adict
@@ -135,11 +140,13 @@ class StorableType(type):
 
 
 proto_decoders_resolvers = dict(
-    DEFAULT=lambda data: data, PICKLE=lambda data: pickle.loads(base64.b64decode(data.encode()))
+    DEFAULT=lambda data: data, PICKLE=lambda data: data,
+    PPICKLE=lambda data: pickle.loads(base64.b64decode(data.encode()))
 )
 
 proto_encoders_resolvers = dict(
-    DEFAULT=lambda data: data, PICKLE=lambda data: base64.b64encode(pickle.dumps(data)).decode())
+    DEFAULT=lambda data: data, PICKLE=lambda data: data,
+    PPICKLE=lambda data: base64.b64encode(pickle.dumps(data)).decode())
 
 
 class Msg(metaclass=StorableType, table=__messages__):
@@ -233,6 +240,117 @@ _v = __version__()
 from itertools import zip_longest
 
 
+class IOProtocolEnum(str, Enum):
+    default = "DEFAULT"
+    pickle = "DEFAULT"
+
+
+@dataclasses.dataclass
+class IOProtocol:
+    inp: IOProtocolEnum = IOProtocolEnum.default
+    out: IOProtocolEnum = IOProtocolEnum.default
+
+    def todict(self) -> dict:
+        return dataclasses.asdict(self)
+
+
+child_table = dict()
+
+
+@dataclasses.dataclass
+class Child:
+    parent: dataclasses.InitVar
+    overrides: dataclasses.InitVar[dict]
+
+    def __post_init__(self, parent, overrides=None):
+        self._parent = parent
+        if not overrides:
+            overrides = dict()
+        self.overrides = overrides
+
+    @property
+    def overrides(self):
+        return self._overrides
+
+    @overrides.setter
+    def overrides(self, v):
+        self.__dict__.update(v)
+
+    def __getattr__(self, item):
+        prnt = super().__getattribute__("_parent")
+        over = super().__getattribute__("overrides")
+        if item.startswith("_"):
+            return super().__getattribute__(item)
+        elif item not in over and hasattr(prnt, item):
+            return getattr(prnt, item)
+        elif item in over:
+            return over[item]
+        else:
+            super().__getattribute__(item)
+
+    def __setattr__(self, item, val):
+        prnt = super().__getattribute__("_parent")
+        if item.startswith("_"):
+            return super().__setattr__(item, val)
+        elif hasattr(prnt, item):
+            self.overrides[item] = val
+        else:
+            return super().__setattr__(item, val)
+
+
+@dataclasses.dataclass
+class MethodDescriptorProps:
+    name: typing.Optional[str] = None
+    protocol: IOProtocol = dataclasses.field(default_factory=IOProtocol)
+    fillvalue: typing.Any = None
+    spec: typing.Optional[dict] = None
+    method: typing.Optional[types.FunctionType] = None
+
+    def update(self, kwargs):
+        self.__dict__.update(kwargs)
+
+    def todict(self):
+        return dataclasses.asdict(self)
+
+
+class MmcoreServerMethodDescriptor:
+    props: MethodDescriptorProps
+
+    def __init__(self, default_props=None, /, **kwargs):
+        if default_props:
+            self.props = default_props
+            self.props.update(kwargs)
+        else:
+            self.props = MethodDescriptorProps(**kwargs)
+
+    def bind(self, method):
+        self.props.method = method
+        self.props.spec = _spec_from_func(method, fillvalue=self.props.fillvalue)
+        self._method = method
+        return method
+
+    def __get__(self, instance, owner):
+        if instance:
+            return self.wrap_method(ctx=instance)
+        else:
+            return self.wrap_method(ctx=owner)
+
+    def wrap_method(self, ctx=None):
+
+        @functools.wraps(ctx._descriptors[self.props.name])
+        def wrapper(*args, **kwargs):
+            return ctx._descriptors[self.props.name](ctx, *args, **kwargs)
+
+        return wrapper
+
+    def __set_name__(self, owner, name):
+        self._name = name
+        self._owner = owner
+        if self.props.name is None:
+            self.props.name = self._name
+        owner._descriptors[self.props.name] = MethodDescriptorProps(**self.props.todict())
+
+
 class MmcoreUpdServer:
     """
     >>>updserve=MmcoreUpdServer()
@@ -274,15 +392,18 @@ client.testjsn(uuid="group3",name='grp')
  'geometries': [],
  'materials': []}
     """
+    methods: dict = dict()
 
-    def __init__(self, host="0.0.0.0", port=7811, start=False, debug=False):
+    def __init__(self, host: str = "0.0.0.0", port: int = 7811, bufsize: int = 1024, debug: bool = False,
+                 start: bool = False):
         super().__init__()
+
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.host = host
         self.port = port
         self.server_socket.bind((self.host, self.port))
         self.debug = debug
-        self.methods = dict()
+        self.bufsize = bufsize
 
         @self(name='methods')
         def _get_methods(**kwargs):
@@ -317,7 +438,7 @@ client.testjsn(uuid="group3",name='grp')
 
         while True:
 
-            message, address = self.server_socket.recvfrom(1024)
+            message, address = self.server_socket.recvfrom(1024 * 16)
 
             r = RequestData(**ujson.loads(message.decode()))
 
@@ -414,7 +535,7 @@ class MmCoreUpdClient:
         data_enc = proto_encoders_resolvers[_protocol['proto']]
         self.client_socket.sendto(ujson.dumps(dict(data=data_enc(data), method=method, **_protocol)).encode(),
                                   self.addr)
-        data, server = self.client_socket.recvfrom(1024)
+        data, server = self.client_socket.recvfrom(1024 * 16)
         d = ujson.loads(data.decode())
         self.table[d['uuid']] = dict(response=d, server=server)
 

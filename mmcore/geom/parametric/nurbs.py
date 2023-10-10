@@ -74,11 +74,16 @@ class NurbsCurve(ProxyParametricObject):
         self._proxy.degree = self.degree
 
     def evaluate(self, t):
+        if t < 0:
+            t = 0
+        elif t > 1:
+            t = 1
         if hasattr(t, "__len__"):
             if hasattr(t, "tolist"):
                 t = t.tolist()
             else:
                 t = list(t)
+
             return np.asarray(self._proxy.evaluate_list(t))
         else:
             return np.asarray(self._proxy.evaluate_single(t))

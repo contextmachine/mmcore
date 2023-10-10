@@ -2,8 +2,7 @@
 import json
 
 from mmcore.base import AMesh
-from mmcore.base.geom.utils import create_buffer_from_dict
-from mmcore.base.models.gql import MeshPhongMaterial
+from mmcore.base.models.gql import MeshPhongMaterial, create_buffer_from_dict
 
 
 def mesh_from_threejs_json(path: str, material: MeshPhongMaterial = None) -> AMesh:

@@ -517,6 +517,7 @@ class Derivative:
         return getattr(self, self.method)(t)
 
     def central(self, t):
+
         return (self._f(t + self.h) - self._f(t - self.h)) / (2 * self.h)
 
     def forward(self, t):
@@ -560,6 +561,19 @@ def offset_curve_3d(c, d):
 
     return wrap
 
+
+def offset_curve_3d_np(c, d):
+    df = Derivative(c)
+
+    def wrap(t):
+        x, y, z = c(t)
+        dx, dy, dz = df(t)
+        ox = x + (d * dy / _ns2(dx, dy, dz))
+        oy = y - (d * dx / _ns2(dx, dy, dz))
+        oz = z + (d * dz / _ns2(dx, dy, dz))
+        return np.array([ox, oy, oz])
+
+    return wrap
 
 def line_to_func(line: LineTuple):
     return lambda t: np.array(line[1]) * t + np.array(line[0])

@@ -3,6 +3,8 @@ import dataclasses
 import typing
 
 import ujson
+
+import mmcore.base.models.gql
 from mmcore.base import ColorRGB, AGroup, AMesh
 import numpy as np
 from mmcore.base.models.gql import MeshPhongMaterial
@@ -43,18 +45,20 @@ polka_mat = MeshPhongMaterial(color=ColorRGB(*POLKA_COLOR).decimal)
 with open("tests/data/panel.json", "r") as f:
     geom = ujson.load(f)
 
-    pnl = utils.create_buffer_from_dict(geom["geometries"][0])
+    pnl = mmcore.base.models.gql.create_buffer_from_dict(geom["geometries"][0])
 with open("tests/data/polka.json", "r") as f:
     polka = ujson.load(f)
     pgrp = AGroup(name="Polka", uuid=uuid.uuid4().hex)
     for g in polka["geometries"]:
-        pgrp.add(AMesh(geometry=utils.create_buffer_from_dict(g), material=polka_mat, uuid=uuid.uuid4().hex))
+        pgrp.add(AMesh(geometry=mmcore.base.models.gql.create_buffer_from_dict(g), material=polka_mat,
+                       uuid=uuid.uuid4().hex))
 with open("tests/data/skb.json", "r") as f:
     skoba = ujson.load(f)
     sgrp1 = AGroup(name="Skoba-1", uuid=uuid.uuid4().hex)
     sgrp2 = AGroup(name="Skoba-2", uuid=uuid.uuid4().hex)
     for g in skoba["geometries"]:
-        msh = AMesh(geometry=utils.create_buffer_from_dict(g), material=skoba_mat, uuid=uuid.uuid4().hex)
+        msh = AMesh(geometry=mmcore.base.models.gql.create_buffer_from_dict(g), material=skoba_mat,
+                    uuid=uuid.uuid4().hex)
         sgrp1.add(msh)
         sgrp2.add(msh)
         sgrp1.translate((0.018, 0.021, 0.135))
@@ -62,9 +66,7 @@ with open("tests/data/skb.json", "r") as f:
 with open("tests/data/joint1-2.json", "r") as f:
     jnt = ujson.load(f)
 
-
-
-pnl = utils.create_buffer_from_dict(geom["geometries"][0])
+pnl = mmcore.base.models.gql.create_buffer_from_dict(geom["geometries"][0])
 
 from mmcore.base.registry import ageomdict
 
