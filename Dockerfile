@@ -23,10 +23,7 @@ FROM buildpack-deps as deps
 
 RUN apt update -y && apt install python3.11-full -y && apt install python3-pip -y
 
-FROM deps AS deps-codon
-
-RUN /bin/bash -c "$(curl -fsSL https://exaloop.io/install.sh)"
-FROM deps-codon
+FROM deps
 
 WORKDIR /mmcore
 COPY --link . .
