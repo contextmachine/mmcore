@@ -1,5 +1,6 @@
 #!/usr/local/env/python3
 import os
+
 import sys
 
 sys.path.extend(["/".join(os.getcwd().split("/")[:-1]) if os.getcwd().endswith("bin") else os.getcwd()])
@@ -11,7 +12,8 @@ import mmcore
 @click.option('--main', is_flag=True, default=0, help='Update main')
 @click.option('--major', is_flag=True, default=0, help='Update major')
 @click.option('--minor', is_flag=True, default=0, help='Update minor')
-def cli(main, major,minor):
+@click.option('--lock', is_flag=True, default=0, help='Run poetry lock after update version')
+def cli(main, major, minor, lock):
     prev = mmcore.__version__()
     _main, _major, _minor = prev.split(".")
     new_minor = int(_minor)
@@ -58,7 +60,10 @@ def __version__():
         fll.write(data.replace(prev, current))
     with open(".version", "w") as s2:
         s2.write(current)
-
+    if lock:
+        import subprocess as sp
+        proc = sp.Popen(['poetry', 'lock'], stdout=sys.stdout, stderr=sys.stdout)
+        proc.communicate()
 
 if __name__ == "__main__":
     cli()
