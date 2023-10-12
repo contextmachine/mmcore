@@ -7,9 +7,11 @@
 # -------+------------------------+----------------------------------+------------------------------------------------+
 # CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
+
 FROM buildpack-deps as deps
-
-
+LABEL org.opencontainers.image.source=https://github.com/contextmachine/mmcore
+LABEL org.opencontainers.image.description="mmcore"
+LABEL autor="Andrew Astakhov <aa@contextmachine.ru> <aw.astakhov@gmail.com>"
 # Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
 # 🐍 Setup micromamba.
 # ⚙️ Source: https://hub.docker.com/r/mambaorg/micromamba
