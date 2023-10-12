@@ -27,6 +27,10 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v3
+      - name: Extract branch name
+        shell: bash
+        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+        id: extract_branch
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -44,12 +48,11 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
 
           tags: |
-            ghcr.io/contextmachine/mmcore:latest
-            ghcr.io/contextmachine/mmcore:amd64
+            ghcr.io/contextmachine/mmcore:${{ steps.extract_branch.outputs.branch }}
       
 
 

@@ -1,20 +1,21 @@
 import copy
+
 import itertools
 import numpy as np
-
 import rich
 from dotenv import find_dotenv, load_dotenv
-from mmcore.geom.parametric.pipe import spline_pipe_mesh
-from mmcore.base import AMesh, AGroup, A
+
+from mmcore.base import AMesh
 from mmcore.base.components import Component
 from mmcore.base.models.gql import MeshBasicMaterial
 from mmcore.geom.materials import ColorRGB
+from mmcore.geom.parametric.pipe import spline_pipe_mesh
 
 dv = find_dotenv()
 print(dv)
 load_dotenv(dv)
 from mmcore.geom.parametric import NurbsCurve
-from mmcore.geom.parametric.algorithms import variable_line_offset_2d, offset_curve_2d, offset_curve_3d_np
+from mmcore.geom.parametric.algorithms import variable_line_offset_2d, offset_curve_3d_np
 from mmcore.services.redis import connect, sets
 
 rconn = connect.get_cloud_connection(
@@ -312,9 +313,6 @@ def md_to_spline_mesh(md, uuid, name, color=(0, 0, 0), **kwargs):
                  material=MeshBasicMaterial(color=ColorRGB(*color).decimal), **kwargs)
 
 
-from mmcore.geom.parametric.algorithms import offset_curve_2d
-
-
 def shape_to_mesh(pts, uuid, name, thickness=0.1, color=(0, 0, 0), **kwargs):
     shape = Shape(pts, holes=[offset(pts, -thickness)])
     shape.tessellate()
@@ -590,14 +588,14 @@ class TangObj(Component):
         return self._repr3d
 
 
-spln = Spline(uuid="test_spline", name="test_spline", degree=3, path=copy.deepcopy(spline_path), thickness=30.1)
+# spln = Spline(uuid="test_spline", name="test_spline", degree=3, path=copy.deepcopy(spline_path), thickness=30.1)
 
 # s#pln = Spline(uuid="test_spline", name="test_spline", degree=2,path=copy.deepcopy(spline_path), thickness=30.1)
-spln_off = OffCurve(path=spln().path, uuid="test_spline_offset", name="test_spline_offset", degree=3,
-                    offset=[100, 100, 100, 100, 100],
-                    thickness=40,
-                    count=5)
-grid = Grid(uuid="test_grid", name="test_grid", path=copy.deepcopy(initial_path), thickness=0.1)
+# spln_off = OffCurve(path=spln().path, uuid="test_spline_offset", name="test_spline_offset", degree=3,
+#                    offset=[100, 100, 100, 100, 100],
+#                    thickness=40,
+#                    count=5)
+#grid = Grid(uuid="test_grid", name="test_grid", path=copy.deepcopy(initial_path), thickness=0.1)
 
 cell = TwstCell(uuid="test_cell", name="test_cell",
                 path=vals['path'],
@@ -605,4 +603,3 @@ cell = TwstCell(uuid="test_cell", name="test_cell",
                 color=vals['color'])
 
 serve.start()
-print(spln_off.todict())
