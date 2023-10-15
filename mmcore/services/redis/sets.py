@@ -12,28 +12,29 @@ rconn = connect.get_cloud_connection()
 class Hdict:
     pk: str = 'api:mmcore:hsets:'
 
-    def __init__(self, key: str, pk: str = None):
+    def __init__(self, key: str, pk: str = None, conn=rconn):
         super().__init__()
         if pk is not None:
             self.pk = pk
         self.key = key
+        self.rconn = conn
 
     @property
     def full_key(self):
         return self.pk + self.key
 
     def __setitem__(self, key, value):
-        rconn.hset(self.full_key, key, json.dumps(value))
+        self.rconn.hset(self.full_key, key, json.dumps(value))
 
     def __getitem__(self, key):
 
-        return encode_dict_with_bytes(rconn.hget(self.full_key, key))
+        return encode_dict_with_bytes(self.rconn.hget(self.full_key, key))
 
     def __delitem__(self, key):
         self.hdel(key)
 
     def hdel(self, key) -> bool:
-        return bool(rconn.hdel(self.full_key, key))
+        return bool(self.rconn.hdel(self.full_key, key))
 
     def items(self):
         return zip(self.keys(), self.values())
@@ -45,22 +46,22 @@ class Hdict:
         return iter(encode_dict_with_bytes(rconn.hkeys(self.full_key)))
 
     def __contains__(self, value):
-        return rconn.hexists(self.full_key, value)
+        return self.rconn.hexists(self.full_key, value)
 
     def __len__(self):
-        return rconn.hlen(self.full_key)
+        return self.rconn.hlen(self.full_key)
 
     def scan(self, match=None, count=None):
         def wrapiter():
             cursor = "0"
             while cursor != 0:
-                cursor, data = rconn.hscan(self.full_key, cursor=cursor, match=match, count=count)
+                cursor, data = self.rconn.hscan(self.full_key, cursor=cursor, match=match, count=count)
                 yield from encode_dict_with_bytes(data).items()
 
         return wrapiter()
 
     def __iter__(self):
-        return rconn.hgetall(self.full_key)
+        return self.rconn.hgetall(self.full_key)
 
 
 import gzip, json

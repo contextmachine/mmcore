@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mmcore"
-version = "0.7.7"
+version = "0.8.1"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -22,7 +22,7 @@ shell = "^1.0.1"
 compas = "^1.17.5"
 pandas = "^2.0.3"
 python-dotenv = "^1.0.0"
-redis = "^4.6.0"
+redis = "^5.0.1"
 requests = "^2.31.0"
 scipy = "^1.11.1"
 dill = "^0.3.7"
