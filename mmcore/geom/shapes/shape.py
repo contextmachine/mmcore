@@ -64,9 +64,11 @@ class ShapeInterface:
 
     def to_world(self, plane=None):
         if plane is not None:
-            bounds = [plane.point_at(pt) for pt in self.bounds]
-            holes = [[plane.point_at(pt) for pt in hole] for hole in self.holes]
-            return ShapeInterface(bounds, holes=holes)
+            bounds = [plane.in_plane_coords(pt) for pt in self.bounds]
+            if self.holes:
+                holes = [[plane.point_at(pt) for pt in hole] for hole in self.holes]
+                return self.__class__(bounds=bounds, holes=holes)
+            return self.__class__(bounds=bounds)
 
         return self
 
@@ -85,14 +87,15 @@ class ShapeInterface:
 
 @dataclass
 class ContourShape(ShapeInterface):
+    ...
 
-    def to_world(self, plane=None):
-        if plane is not None:
-            bounds = [plane.in_plane_coords(pt) for pt in self.bounds]
-            holes = [[plane.in_plane_coords(pt) for pt in hole] for hole in self.holes]
-            return ContourShape(bounds, holes=holes)
-        return self
 
+def contour_from_dict(data: dict):
+    if data['plane']:
+        plane = PlaneLinear(**data['plane'])
+    else:
+        plane = data['plane']
+    return Contour([ContourShape(**shp) for shp in data['shapes']], plane=plane)
 
 @dataclass
 class Contour:
@@ -105,7 +108,7 @@ class Contour:
         if len(self.shapes) == 1:
             self.poly = self.shapes[0].to_poly()
         else:
-            self.poly = shapely.multipolygons(shape.to_poly() for shape in self.shapes)
+            self.poly = shapely.multipolygons(np.array(list(shape.to_poly() for shape in self.shapes)))
 
         # print(self.poly)
 
