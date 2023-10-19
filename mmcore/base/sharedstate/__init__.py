@@ -540,6 +540,9 @@ class SharedStateServer():
     def stop(self):
         self.thread.join(6)
 
+    def gltf_system(self):
+        ...
+
     def create_child(self, path, name=None, title=None, **kwargs):
         if name is None:
             name = path.split("/")[-1]

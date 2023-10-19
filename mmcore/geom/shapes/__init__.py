@@ -20,7 +20,7 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear, point_to_plane_distance, project_point_onto_plane
 from mmcore.geom.parametric.algorithms import centroid
 from mmcore.geom.transform import Transform, WorldXY
-
+from mmcore.geom.shapes.shape import ShapeInterface
 
 def to_list_req(obj):
     if not isinstance(obj, str):
@@ -472,7 +472,13 @@ class Shape:
     def buffer(self):
         return self.earcut.buffer
 
+    @classmethod
+    def from_shape_interface(cls, obj: ShapeInterface):
+        return cls(obj.bounds, holes=obj.holes)
 
+    @classmethod
+    def from_shape_interface_dict(cls, **kwargs):
+        return cls(kwargs.get('bounds'), holes=kwargs.get('holes'))
 def offset_with_plane(bounds, plane, distance=1.0):
     styles = dict(join_style=shapely.BufferJoinStyle.mitre)
     pts = []
@@ -552,11 +558,14 @@ class Earcut:
     def __init__(self, boundary, holes=None, solve=True):
         super().__init__()
         self.boundary = boundary
+        self.attributes = dict()
+        self.indices = None
         if not holes:
             holes = None
         self.holes = holes
         if solve:
             self.solve()
+
 
     def solve(self):
         if self.holes is None:
@@ -564,8 +573,10 @@ class Earcut:
         else:
             self.arguments = earcut.flatten([self.boundary] + self.holes)
         self.result = earcut.earcut(self.arguments['vertices'], self.arguments['holes'], self.arguments['dimensions'])
-        self.mesh_data = MeshData(vertices=list(chunked(self.arguments['vertices'], 3)),
-                                  indices=list(chunked(self.result, 3)))
+        self.attributes['position'] = list(chunked(self.arguments['vertices'], 3))
+        self.indices = list(chunked(self.result, 3))
+        self.mesh_data = MeshData(vertices=self.attributes['position'],
+                                  indices=self.indices)
         self.buffer = self.mesh_data.create_buffer()
 
 

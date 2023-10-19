@@ -143,3 +143,142 @@ class Table:
 
     def get(self, key, __default=None):
         return self.rows.get(key, __default)
+
+
+import copy
+
+import numpy as np
+
+
+class Index:
+
+    def __init__(self, keys1, keys2):
+
+        self.keys1, self.keys2 = dict(zip(keys1, range(len(keys1)))), dict(zip(keys2, range(len(keys2))))
+        self.tb = np.zeros((len(self.keys1), len(self.keys2)), dtype=int)
+
+    def first_keys(self):
+        return self.keys1.keys()
+
+    def second_keys(self):
+        return self.keys2.keys()
+
+    def remove_link(self, k1, k2):
+        self.tb[self.keys1[k1], self.keys2[k2]] = 0
+
+    def add_link(self, k1, k2):
+        self.tb[self.keys1[k1], self.keys2[k2]] = 1
+
+    def __getitem__(self, k):
+        if k in self.keys1:
+            return list(filter(lambda x: self.tb[self.keys1[k], self.keys2[x]], self.keys2.keys()))
+        else:
+            return list(filter(lambda x: self.tb[self.keys1[x], self.keys2[k]], self.keys1.keys()))
+
+    def __setitem__(self, k, v):
+        if all([k in self.keys1, v in self.keys2]):
+            self.tb[self.keys1[k], self.keys2[v]] = 1
+        elif k not in self.keys1:
+
+            self.add_key1(k)
+
+        elif v not in self.keys2:
+
+            self.add_key1(v)
+        else:
+            self.add_key1(k)
+            self.add_key2(v)
+            self[k] = v
+
+    def add_key1(self, k1):
+        n = len(self.keys1)
+        self.keys1[k1] = n
+
+    def add_key2(self, k2):
+        n = len(self.keys2)
+        self.keys2[k2] = n
+
+    def __delitem__(self, k):
+
+        if k in self.keys1:
+
+            self.tb[self.keys1[k], ...] = 0
+
+        else:
+
+            self.tb[..., self.keys2[k]] = 0
+
+    def __iter__(self):
+        return ((k, self[k]) for k in self.keys1)
+
+    @classmethod
+    def fromdict(cls, data=None, /, **kwargs):
+        if data is None:
+            data = dict()
+        data |= kwargs
+        keys1 = data.keys()
+        keys2 = set(data.values())
+        self = cls(keys1, keys2)
+        for key, val in data.items():
+            self[key] = val
+        return self
+
+    def find_link(self, *pair):
+        k1, k2 = pair
+        return self.tb[self.keys1[k1], self.keys2[k2]]
+
+    def transpose(self):
+        new = copy.copy(self)
+        new.keys1 = self.keys2
+        new.keys2 = self.keys1
+        new.tb = self.tb.T
+        return new
+
+    def __contains__(self, item):
+        return bool(self.find_link(*item))
+
+
+class IndexCounter(Index):
+    """
+    filter(lambda x: any((i.items[x].get('mount'), not i.items[x].get('stub'))), i.items)
+    filter(lambda x: all((i.items[x].get('mount'), not i.items[x].get('stub'))), i.items)
+    """
+
+    def __init__(self, keys1, keys2):
+        super().__init__(keys1, keys2)
+        self.items = dict()
+
+    def add_link(self, k1, k2):
+        super().add_link(k1, k2)
+
+    def remove_link(self, k1, k2):
+        super().remove_link(k1, k2)
+
+    def query(self, include=(), exclude=(), condition='all'):
+        conds = {'all': all, 'any': any}
+        return filter(lambda x: conds[condition]([self.items[x].get(inc[0]) == inc[1] for inc in include] + [
+            type(inc[1])(self.items[x].get(inc[0])) != inc[1] for inc in exclude]), self.items)
+
+    def add_link_item(self, k1, k2, item):
+        pair = k1, k2
+        if item not in self.items:
+            self.items[item] = dict()
+        if k1 in self.items[item]:
+            self.remove_link_item(k1, self.items[item][k1], item)
+
+        self.items[item][k1] = k2
+
+        if self.tb[self.keys1[pair[0]], self.keys2[pair[1]]] > 0:
+
+            self.tb[self.keys1[pair[0]], self.keys2[pair[1]]] += 1
+        else:
+            self.add_link(*pair)
+
+    def remove_link_item(self, k1, k2, item):
+        pair = k1, k2
+        del self.items[item][k1]
+        if self.tb[self.keys1[pair[0]], self.keys2[pair[1]]] > 0:
+
+            self.tb[self.keys1[pair[0]], self.keys2[pair[1]]] -= 1
+        else:
+            self.remove_link(*pair)
