@@ -7,6 +7,8 @@ __all__ = ["ElementSequence", "ParamContainer", "DoublyLinkedList", "DCLL", "Fun
            "DNode","DCNode","DLLNode","DLLIterator","DCLLIterator"
            ]
 
+from itertools import count
+
 
 def chain_split_list(iterable):
     ss = deque(iterable)
@@ -18,11 +20,43 @@ def chain_split_list(iterable):
     return l
 
 
+class IndexOrderedSet(set):
+    """An OrderedFrozenSet-like object
+       Allows constant time 'index'ing
+       But doesn't allow you to remove elements"""
+
+    def __init__(self, iterable=()):
+        self.num = count()
+        self.dict = dict(zip(iterable, self.num))
+
+    def add(self, elem):
+        if elem not in self:
+            self.dict[elem] = next(self.num)
+
+    def extend(self, iterable):
+
+        for i in iterable:
+            self.add(i)
+
+    def index(self, elem):
+        return self.dict[elem]
+
+    def __contains__(self, elem):
+        return elem in self.dict
+
+    def __len__(self):
+        return len(self.dict)
+
+    def __iter__(self):
+        return iter(self.dict)
+
+    def __repr__(self):
+        return 'IndexOrderedSet({})'.format(self.dict.keys())
 class OrderedSet(collections.abc.MutableSet):
     def __init__(self, iterable=None):
         self.end = end = []
         end += [None, end, end]  # sentinel node for doubly linked list
-        self.map = {}  # key --> [key, prev, next]
+        self.map = dict()  # key --> [key, prev, next]
         if iterable is not None:
             self |= iterable
 
