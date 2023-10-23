@@ -1,0 +1,7 @@
+POSITION,VEC3,float,Unitless XYZ vertex positions
+NORMAL,VEC3,float,Normalized XYZ vertex normals
+TANGENT,VEC4,float,XYZW vertex tangents where the XYZ portion is normalized and the W component is a sign value (-1 or +1) indicating handedness of the tangent basis
+TEXCOORD_n,VEC2,float;unsigned byte normalized;unsigned short normalized,ST texture coordinates
+COLOR_n,VEC3;VEC4,float;unsigned byte normalized;unsigned short normalized, RGB or RGBA vertex color linear multiplier
+JOINTS_n,VEC4,unsigned byte;unsigned short,See Skinned Mesh Attributes
+WEIGHTS_n,VEC4,float; unsigned byte normalized; unsigned short normalized,See Skinned Mesh Attributes

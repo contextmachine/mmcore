@@ -34,6 +34,7 @@ def remove_crd(pt):
 Plane = namedtuple("Plane", ["xaxis", "yaxis", "normal", "origin"])
 WorldXY = Plane([1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0])
 
+
 def transpose(matrix):
     """
     Transposes a 4x4 matrix.
@@ -45,7 +46,7 @@ def transpose(matrix):
     list: A list of lists representing the transposed matrix.
     """
     # Create an empty matrix to hold the result
-    result: List[List[float]] = [[0.0 for j in range(4)] for i in range(4)]
+    result: list[list[float]] = [[0.0 for j in range(4)] for i in range(4)]
 
     # Transpose the matrix
     for i in range(4):
@@ -54,11 +55,15 @@ def transpose(matrix):
             result[i][j] = matrix[j][i]
 
     return result
-def zero_transform() :
+
+
+def zero_transform():
     return [[0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0]]
+
+
 def matmul(t1, t2):
     def mr(m1, m2):
         mmm = zero_transform()
@@ -439,7 +444,7 @@ XY_TO_YZ = Transform(np.array([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1])
 YZ_TO_XY_V2 = TransformV2(np.array([1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1]).reshape((4, 4)))
 
 XY_TO_YZ_V2 = TransformV2(np.array([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]).reshape((4, 4)))
-from mmcore.geom.vectors.pure import dot, dist, norm
+
 
 def world_coords_to_plane_coords(point, plane):
     """Transforms a point from world coordinates to construction plane coordinates.
@@ -457,9 +462,11 @@ def world_coords_to_plane_coords(point, plane):
       XformCPlaneToWorld
     """
 
-    v= point - plane.origin
+    v = point - plane.origin
 
-    return v* plane.xaxis +v* plane.yaxis+ v* plane.normal
+    return v * plane.xaxis + v * plane.yaxis + v * plane.normal
+
+
 def plane_coords_to_world_coords(point, plane):
     """Transforms a point from world coordinates to construction plane coordinates.
     Parameters:
@@ -476,12 +483,14 @@ def plane_coords_to_world_coords(point, plane):
       XformCPlaneToWorld
     """
 
-    x,y,z=point
-    return plane.origin + (x*plane.xaxis) + (y*plane.yaxis) + (z*plane.normal)
+    x, y, z = point
+    return plane.origin + (x * plane.xaxis) + (y * plane.yaxis) + (z * plane.normal)
+
 
 def custom_to_global(point, origin, x_axis, y_axis, z_axis):
     # Compute the inverse of the transformation matrix from custom to global coordinate system
-    det = x_axis[0] * y_axis[1] * z_axis[2] + y_axis[0] * z_axis[1] * x_axis[2] + z_axis[0] * x_axis[1] * y_axis[2] - x_axis[0] * z_axis[1] * y_axis[2] - y_axis[0] * x_axis[1] * z_axis[2] - z_axis[0] * y_axis[1] * x_axis[2]
+    det = x_axis[0] * y_axis[1] * z_axis[2] + y_axis[0] * z_axis[1] * x_axis[2] + z_axis[0] * x_axis[1] * y_axis[2] - \
+          x_axis[0] * z_axis[1] * y_axis[2] - y_axis[0] * x_axis[1] * z_axis[2] - z_axis[0] * y_axis[1] * x_axis[2]
     if det == 0:
         raise ValueError("Transformation matrix is not invertible")
     inv_transform_matrix = [
@@ -504,13 +513,18 @@ def custom_to_global(point, origin, x_axis, y_axis, z_axis):
 
     # Subtract the origin from the point and transform the result using the inverse transformation matrix
     transformed_point = [
-        inv_transform_matrix[0][0] * (point[0] - origin[0]) + inv_transform_matrix[1][0] * (point[1] - origin[1]) + inv_transform_matrix[2][0] * (point[2] - origin[2]),
-        inv_transform_matrix[0][1] * (point[0] - origin[0]) + inv_transform_matrix[1][1] * (point[1] - origin[1]) + inv_transform_matrix[2][1] * (point[2] - origin[2]),
-        inv_transform_matrix[0][2] * (point[0] - origin[0]) + inv_transform_matrix[1][2] * (point[1] - origin[1]) + inv_transform_matrix[2][2] * (point[2] - origin[2])
+        inv_transform_matrix[0][0] * (point[0] - origin[0]) + inv_transform_matrix[1][0] * (point[1] - origin[1]) +
+        inv_transform_matrix[2][0] * (point[2] - origin[2]),
+        inv_transform_matrix[0][1] * (point[0] - origin[0]) + inv_transform_matrix[1][1] * (point[1] - origin[1]) +
+        inv_transform_matrix[2][1] * (point[2] - origin[2]),
+        inv_transform_matrix[0][2] * (point[0] - origin[0]) + inv_transform_matrix[1][2] * (point[1] - origin[1]) +
+        inv_transform_matrix[2][2] * (point[2] - origin[2])
     ]
 
     # Return the transformed point as a tuple of three numbers
     return tuple(transformed_point)
+
+
 def global_to_custom(point, origin, x_axis, y_axis, z_axis):
     """
     Convert a point from a global coordinate system to a custom coordinate system defined by an origin and three axes.
@@ -531,9 +545,12 @@ def global_to_custom(point, origin, x_axis, y_axis, z_axis):
 
     # Subtract the origin from the point and transform the result using the transformation matrix
     transformed_point = [
-        transform_matrix[0][0] * (point[0] - origin[0]) + transform_matrix[1][0] * (point[1] - origin[1]) + transform_matrix[2][0] * (point[2] - origin[2]),
-        transform_matrix[0][1] * (point[0] - origin[0]) + transform_matrix[1][1] * (point[1] - origin[1]) + transform_matrix[2][1] * (point[2] - origin[2]),
-        transform_matrix[0][2] * (point[0] - origin[0]) + transform_matrix[1][2] * (point[1] - origin[1]) + transform_matrix[2][2] * (point[2] - origin[2])
+        transform_matrix[0][0] * (point[0] - origin[0]) + transform_matrix[1][0] * (point[1] - origin[1]) +
+        transform_matrix[2][0] * (point[2] - origin[2]),
+        transform_matrix[0][1] * (point[0] - origin[0]) + transform_matrix[1][1] * (point[1] - origin[1]) +
+        transform_matrix[2][1] * (point[2] - origin[2]),
+        transform_matrix[0][2] * (point[0] - origin[0]) + transform_matrix[1][2] * (point[1] - origin[1]) +
+        transform_matrix[2][2] * (point[2] - origin[2])
     ]
 
     # Return the transformed point as a tuple of three numbers

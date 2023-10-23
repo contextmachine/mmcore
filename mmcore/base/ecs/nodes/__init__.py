@@ -41,7 +41,7 @@ def leaf_from_value(data, db=None):
 
 
 def node_from_list(lst, db=None):
-    return CompositeNode(data=[node_from_data(l, db=db) for l in lst], db=db)
+    return NodeContainer(data=[node_from_data(l, db=db) for l in lst], db=db)
 
 
 def node_from_dict(dct, db=None):
@@ -130,7 +130,7 @@ def node_from_spec(spec, db=None):
 @node_from_spec.next
 def node_from_spec_container(spec: NodeSpec, db=None):
     if isinstance(spec.data, ContainerLinkType):
-        return CompositeNode(uuid=spec.uuid,
+        return NodeContainer(uuid=spec.uuid,
                              data=[node_from_spec(l, db=db) for l in spec.data],
                              db=db)
 
@@ -215,8 +215,19 @@ class NodeFactory:
     def from_uuid(self, uuid):
         return Node(uuid=uuid, db=self.db)
 
-    def from_spec(self, uuid):
-        return Node(uuid=uuid, db=self.db)
+    def from_spec(self, spec):
+        if len(spec) == 1:
+            return self.from_uuid_unsafe(uuid=spec['uuid'])
+        if spec['leaf']:
+            return Node(uuid=spec['uuid'], data=spec['data'], db=self.db)
+        elif isinstance(spec['data'], list):
+            return NodeContainer(uuid=spec['uuid'], data=[self.from_spec(v) for v in spec['data']], db=self.db)
+        else:
+            return Node(
+                uuid=spec['uuid'],
+                data={k: self.from_spec(v) for k, v in spec['data'].items()}, db=self.db)
+
+
 
 
 class AbstractNode(metaclass=ABCMeta):
@@ -259,7 +270,7 @@ class AbstractNode(metaclass=ABCMeta):
 
 class Node(AbstractNode):
 
-    def __new__(cls, fr=None, data=None, db=DB):
+    def __new__(cls, uuid=None, data=None, db=DB):
         obj = super().__new__(cls, uuid=uuid, db=db)
         obj._data = data
 
@@ -334,10 +345,11 @@ class Node(AbstractNode):
         return ujson.dumps(self.todict(), indent=2)
 
 
-class CompositeNode(Node):
-    def __init__(self, data=(), uuid=None, db=DB):
-        super(Node, self).__init__(uuid=uuid, db=db)
+class NodeContainer(Node):
+    def __new__(cls, data=(), uuid=None, db=DB):
+        self = AbstractNode.__new__(cls, uuid=uuid, db=db)
         self._db['links'][self._uuid] = list(s.uuid for s in data)
+        return self
 
     def value(self):
         if self.leaf:
@@ -369,6 +381,9 @@ class CompositeNode(Node):
 
 node_factory = NodeFactory(db=DB)
 
+"""
+node_factory = NodeFactory(db=DB)
+
 res = node_factory(data=dict(foo=dict(bar=dict(
     x=7,
     y=-45,
@@ -390,3 +405,4 @@ res.update({
     "foo": {
         "bar": {
             "x": 17}}})
+"""

@@ -1,8 +1,6 @@
 import dataclasses
-import datetime
 import functools
 import threading
-import typing
 
 from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
@@ -24,7 +22,7 @@ from mmcore.base.tags import __databases__
 
 DBs = __databases__
 
-
+__node_resolvers__ = dict()
 def search_all_indices(lst, value):
     for i, v in enumerate(lst):
         if v == value:
@@ -267,7 +265,7 @@ class SharedStateServer():
                                 allow_credentials=["*"])
         inst.app.add_middleware(GZipMiddleware, minimum_size=500)
         inst.resolvers = dict()
-
+        inst.jobs = dict()
         @strawberry.type
         class Root(typing.Generic[T]):
             __annotations__ = {
@@ -416,6 +414,14 @@ class SharedStateServer():
                 return adict[debug_properties["target"]].root()
             else:
                 return {}
+
+        @inst.app.post("/jobs/{name}", response_model_exclude_none=True)
+        async def jobs_post(name: str, data: dict = None):
+            inst.jobs[name](data)
+            return {name: "OK"}
+
+
+
 
         @inst.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
@@ -603,6 +609,12 @@ class SharedStateServer():
         else:
             self.params_nodes[fun.__name__] = fun
         return fun
+
+    def bind(self, fun):
+        def wrap(node):
+            def call():
+                fun(node)
+
 
     def start_rpyc(self):
         self.rpyc_thread.start()
