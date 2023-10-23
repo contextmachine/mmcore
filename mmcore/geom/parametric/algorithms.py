@@ -669,7 +669,6 @@ def global_to_custom(point, origin, x_axis, y_axis, z_axis):
     # Return the transformed point as a tuple of three numbers
     return np.array([x_axis, y_axis, z_axis]) @ (np.array(point) - np.array(origin))
 
-
 def global_to_custom_old(point, origin, x_axis, y_axis, z_axis):
     """
     Convert a point from a global coordinate system to a custom coordinate system defined by an origin and three axes.

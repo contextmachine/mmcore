@@ -1,0 +1,92 @@
+{
+  "uuid": "176f811485174fc584209a078ba457c2",
+  "leaf": false,
+  "data": {
+    "foo": {
+      "uuid": "983527c4e64e4ecbb88fa9e53d1905ab",
+      "leaf": false,
+      "data": {
+        "bar": {
+          "uuid": "fd1208f8cd7746e2828d08de55f37935",
+          "leaf": false,
+          "data": {
+            "x": {
+              "uuid": "31f77f85a1534530947c408be0369b79",
+              "leaf": true,
+              "data": 17
+            },
+            "y": {
+              "uuid": "1d658c939c5040969f30553365144cf3",
+              "leaf": true,
+              "data": -45
+            },
+            "z": {
+              "uuid": "8cb94b3d43cd4870ad9ec47c37ea4a37",
+              "leaf": true,
+              "data": -7
+            }
+          }
+        }
+      }
+    },
+    "baz": {
+      "uuid": "c6a7e39a0eb442b4b5525e7960690176",
+      "leaf": false,
+      "data": {
+        "x": {
+          "uuid": "3126e168fec040e5bcf60584331841a0",
+          "leaf": true,
+          "data": 7
+        },
+        "y": {
+          "uuid": "14e4b2a7ad194f98883f96308b57a382",
+          "leaf": true,
+          "data": -65
+        },
+        "z": {
+          "uuid": "b89f003ff9cc4b5f8502ad9b932038da",
+          "leaf": true,
+          "data": 0
+        },
+        "w": {
+          "uuid": "860a68e662734596a8651b8c6b198408",
+          "leaf": false,
+          "data": [
+            {
+              "uuid": "65c3d0bdda5f49419ecbf949fc2c324d",
+              "leaf": false,
+              "data": {
+                "x": {
+                  "uuid": "4b89aec4227848d59163de61189df142",
+                  "leaf": true,
+                  "data": 4
+                },
+                "y": {
+                  "uuid": "bd3deb6c183c4e6a8f3d290e6dccf9c7",
+                  "leaf": true,
+                  "data": 0
+                }
+              }
+            },
+            {
+              "uuid": "6e4053babc0d4add93441211714a1e9a",
+              "leaf": false,
+              "data": {
+                "p": {
+                  "uuid": "26130440e91942fd89f51786f09c367f",
+                  "leaf": true,
+                  "data": 8
+                },
+                "g": {
+                  "uuid": "8cb94b3d43cd4870ad9ec47c37ea4a37"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+

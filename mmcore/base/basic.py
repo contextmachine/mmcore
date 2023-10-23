@@ -1,13 +1,13 @@
 import copy
 import dataclasses
 import hashlib
-import itertools
 import json
 import operator
 import typing
 import uuid
 from collections import namedtuple
 
+import itertools
 import numpy as np
 import strawberry
 import ujson
@@ -339,6 +339,7 @@ class A:
         "name",
         "matrix"
     }
+
     priority = 1.0
     controls = Controls()
     properties_keys = {
@@ -352,6 +353,7 @@ class A:
     _properties = dict()
     _controls = {}
     _endpoint = "/"
+
     RENDER_BBOX = False
 
     def __getstate__(self):
@@ -508,11 +510,13 @@ class A:
             self.__setattr__(k, v)
         # self.traverse_child_three()
 
-    def root(self, shapes=None):
+    def root(self, shapes=None, entries=None):
         geometries = set()
         materials = set()
 
         obj = self(materials=materials, geometries=geometries)
+        if entries is not None:
+            obj['userData']['entries'] = entries
         data = {
             "metadata": {
                 "version": 4.5,
@@ -522,6 +526,7 @@ class A:
             "object": obj,
             "geometries": [dataclasses.asdict(ageomdict[uid]) for uid in geometries],
             "materials": [dataclasses.asdict(amatdict[uid]) for uid in materials]}
+
         if shapes is not None:
             data["shapes"] = "shapes"
         return data

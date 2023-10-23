@@ -1,34 +1,40 @@
 import base64
-import dataclasses
 import functools
-from itertools import count
+import json
+from functools import reduce
 from uuid import uuid4
 
 import time
-from collections import deque
-from functools import reduce
+from itertools import count
 
-import numpy as np
-
-import mmcore.compat.gltf.utils
-from mmcore.base import AGroup
-from mmcore.compat.gltf import GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFComponent, GLTFMaterial, GLTFNode, \
-    GLTFPbrMetallicRoughness, \
-    GLTFScene, buffer_to_meshes, \
-    GLTFDocument
-from mmcore.compat.gltf.utils import appendBufferView, byte_stride, todict_nested
-
-with open('scene-7.gltf') as f:
-    import json
-
-    gltfdata = json.load(f)
-
-doc = GLTFDocument.from_gltf(gltfdata)
-group = AGroup(uuid='test_gltf2')
-for md in buffer_to_meshes(doc):
-    group.add(md.to_mesh())
+from mmcore.compat.gltf import GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial, GLTFNode, \
+    GLTFPbrMetallicRoughness, GLTFScene
+from mmcore.compat.gltf.utils import appendBufferView, byte_stride
 
 
+def fromnp(val):
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    else:
+        return list(val)
+
+
+from mmcore.base.geom import MeshData
+
+
+def sum_md(md, md2):
+    ixs1, ixs2 = np.array(md.indices), np.array(md2.indices)
+    ixs3 = ixs1.tolist() + (ixs2 + np.max(ixs1 + 1)).tolist()
+    dct = dict(indices=ixs3)
+    for attr in ['vertices', 'normals', 'uv']:
+        v1, v2 = getattr(md, attr), getattr(md2, attr)
+        if all([v1 is not None, v2 is not None]):
+            dct[attr] = fromnp(v1) + fromnp(v2)
+    return MeshData(**dct)
+
+
+def sum_mds(*mds):
+    return functools.reduce(sum_md, mds)
 class GLTFColor:
     def __init__(self, r=120, g=120, b=120, a=255):
         self._data = np.array([r, g, b, a]) * (1 / 255)
@@ -37,7 +43,7 @@ class GLTFColor:
         return iter(self._data.tolist())
 
 
-group.dump('testgltf2.json')
+
 DEFAULT_MATERIAL = GLTFMaterial(name='mmcore_default',
                                 doubleSided=True,
                                 pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorFactor=tuple(GLTFColor()))
@@ -52,39 +58,16 @@ views_to_accessors = dict()
 nodes = []
 from mmcore.compat.gltf.consts import *
 
-from typing import Any, Dict, TypedDict
+from typing import Any, TypedDict
 
 from mmcore.collections.basic import IndexOrderedSet
 
-
-@dataclasses.dataclass(slots=True, unsafe_hash=True)
-class GLTFSimpleMaterial(GLTFMaterial):
-    @classmethod
-    def from_rgba(cls, r=0.1, g=0.1, b=0.1, a=1.0):
-        return cls(name=f'simple-mat-{hex(int(r * 255))}-{hex(int(g * 255))}-{hex(int(b * 255))}-{hex(int(a * 100))}',
-                   doubleSided=True,
-                   pbrMetallicRoughness=GLTFPbrMetallicRoughness(
-                       baseColorFactor=(r, g, b, a)
-                   )
-
-                   )
-
-    def todict(self):
-        return todict_nested(self, GLTFComponent)
-
-    @classmethod
-    def random(cls, random_opacity=False):
-        res = np.random.random(4)
-        if not random_opacity:
-            res[-1] = 1.0
-
-        return cls.from_rgba(*res)
 
 
 component_registry = dict()
 component_instance_stack = []
 component_registry_counters = dict()
-
+component_extras_map = dict()
 
 def from_rgba(cls, r=0.4, g=0.4, b=0.4, a=1.0):
     return cls(name=f'simple-mat-{hex(int(r * 255))}-{hex(int(g * 255))}-{hex(int(b * 255))}-{hex(int(a * 100))}',
@@ -103,8 +86,6 @@ def random(cls, random_opacity=False):
 
     return from_rgba(cls, *res)
 
-
-from dill import pointers
 
 
 def component(key=None):
@@ -147,21 +128,19 @@ def relative_index(component, index_map=None):
     return index_map[component.__component_key__][component._ixs]
 
 
+
 def enm(lst):
     cnt = count()
     for i in lst:
         yield i, next(cnt)
 
 
-from mmcore.base.sharedstate import serve
-
-
-def scene(node: 'SceneNode', name=None, buffer=None, **kwargs):
+def asscene(node: 'SceneNode', name=None, buffer=None, **kwargs):
     if buffer is None:
         buffer = bytearray()
 
     index_map = {k: dict(enm(v)) for k, v in node.deps().items()}
-    print(index_map)
+    # print(index_map)
     local_registry = dict.fromkeys(component_registry.keys())
 
     local_registry['bufferViews'] = []
@@ -179,23 +158,6 @@ def scene(node: 'SceneNode', name=None, buffer=None, **kwargs):
     local_registry['buffers'] = [GLTFBuffer.from_bytes(buffer)]
     local_registry['scenes'] = [GLTFScene(nodes=[0], name=name, **kwargs)]
     return GLTFDocument(**local_registry)
-
-
-class Doc:
-    def __init__(self, root_node):
-        self.views = []
-        self.accessors = []
-        self.buffers = []
-        self.materials = [DEFAULT_MATERIAL]
-        self.nodes = []
-
-        self.root_node = root_node
-
-    def pack(self):
-        ...
-
-    def deps(self):
-        return dict(merge_list_values(dict(nodes=[self.root_node.global_index]), self.root_node.deps()))
 
 
 @component(key='nodes')
@@ -1049,7 +1011,7 @@ def case1():
     node0 = SceneNode(children=[node1, node2],
                       name="shapes"
                       )
-    _data = scene(node0)
+    _data = asscene(node0)
     with open('test44.gltf', 'w') as f:
         json.dump(_data.todict(), f, indent=2)
     return shapes, shapes2, shape1mesh, shape2mesh, node1, node2, node0, _data
@@ -1097,7 +1059,7 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2'], random_mat=False):
     print("create nodes", divmod(time.time() - s, 60))
     s = time.time()
 
-    scene2 = scene(node_test)
+    scene2 = asscene(node_test)
     print("create scene", divmod(time.time() - s, 60))
     s = time.time()
     with open('testsw.gltf', 'w') as f:

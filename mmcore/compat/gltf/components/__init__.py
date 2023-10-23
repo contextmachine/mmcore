@@ -1,8 +1,9 @@
 import base64
+import functools
 import typing
 from dataclasses import asdict, dataclass, field
 
-from mmcore.compat.gltf.consts import DEFAULT_ASSET, GLTFBufferDecoded, BUFFER_DEFAULT_HEADER
+from mmcore.compat.gltf.consts import BUFFER_DEFAULT_HEADER, DEFAULT_ASSET, GLTFBufferDecoded
 from mmcore.compat.gltf.utils import todict_minify, todict_nested
 
 ScalarType = (str, float, int, bool)
@@ -64,15 +65,25 @@ class GLTFBufferView(GLTFComponent):
         return todict_minify(self)
 
 
+__encoded_buffs__ = dict()
+
+
+@functools.lru_cache(None)
+def decode_buffer(buff: str):
+    headers, bts = buff.split(',')
+    return GLTFBufferDecoded(headers, base64.b64decode(bts))
 # @label('gltf', 'compat')
-@dataclass(slots=True)
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFBuffer(GLTFComponent):
-    byteLength: int
     uri: str
+    byteLength: int
+
 
     def decode(self):
-        headers, bts = self.uri.split(',')
-        return GLTFBufferDecoded(headers, base64.b64decode(bts))
+        if id(self) not in __encoded_buffs__:
+            __encoded_buffs__[id(self)] = decode_buffer(self.uri)
+
+        return __encoded_buffs__[id(self)]
 
     @staticmethod
     def encode(bts: typing.Union[bytes, bytearray]):
@@ -80,10 +91,33 @@ class GLTFBuffer(GLTFComponent):
 
     @classmethod
     def from_bytes(cls, bts: typing.Union[bytes, bytearray]):
+
         return GLTFBuffer(byteLength=len(bts), uri=cls.encode(bts))
 
     def todict(self):
+        for k in self.__slots__:
+            if not k.startswith('_'):
+                self._encoded
+
         return asdict(self)
+
+    def __post_init__(self):
+        if not self.uri.startswith(BUFFER_DEFAULT_HEADER):
+            with open(self.uri, 'rb') as f:
+                self.uri = ",".join([BUFFER_DEFAULT_HEADER, base64.b64encode(f.read()).decode()])
+
+    @classmethod
+    def from_gltf(cls, gltf: dict):
+
+        if not gltf['uri'].startswith(BUFFER_DEFAULT_HEADER):
+            with open(gltf['uri'], 'rb') as f:
+                return cls.from_bytes(f.read())
+
+
+        else:
+            return GLTFBuffer(**gltf)
+
+
 
 
 # @label('gltf', 'compat')
@@ -93,13 +127,13 @@ class GLTFAccessor(GLTFComponent):
     https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#schema-reference-accessor
     """
 
-    bufferView: int
     componentType: int
     count: int
-    max: list[typing.Union[int, float]]
-    min: list[typing.Union[int, float]]
     type: str
-    byteOffset: int = 0
+    bufferView: typing.Optional[int] = None
+    max: typing.Optional[list[typing.Union[int, float]]] = None
+    min: typing.Optional[list[typing.Union[int, float]]] = None
+    byteOffset: typing.Optional[int] = None
     normalized: bool = False
     name: typing.Optional[str] = None
     extensions: typing.Optional[typing.Any] = None
@@ -170,6 +204,7 @@ class GLTFPrimitive(GLTFComponent):
         return dict(gen())
 
     def todict(self):
+
         return todict_minify(self)
 
 
@@ -200,6 +235,9 @@ class GLTFNode(GLTFComponent):
     weights: typing.Optional[list[float]] = None
     extensions: typing.Optional[GLTFExtension] = None
     extras: typing.Optional[GLTFExtras] = None
+    translation: typing.Optional[list] = None
+    rotation: typing.Optional[list] = None
+    scale: typing.Optional[list] = None
 
     def todict(self):
         return todict_nested(self, GLTFComponent)

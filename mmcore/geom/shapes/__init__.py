@@ -19,8 +19,9 @@ from mmcore.geom import vectors
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear, point_to_plane_distance, project_point_onto_plane
 from mmcore.geom.parametric.algorithms import centroid
+from mmcore.geom.shapes.shape import ShapeInterface, extrude_shape, tess_extrusion
 from mmcore.geom.transform import Transform, WorldXY
-from mmcore.geom.shapes.shape import ShapeInterface
+
 
 def to_list_req(obj):
     if not isinstance(obj, str):
@@ -55,6 +56,7 @@ def polygon_area_3d(polygon):
         else:
             area -= 0.5 * vectors.norm(n)
     return area
+
 
 @class_bind_delegate_method
 def bind_poly_to_shape(self, other, delegate=None):
@@ -479,6 +481,8 @@ class Shape:
     @classmethod
     def from_shape_interface_dict(cls, **kwargs):
         return cls(kwargs.get('bounds'), holes=kwargs.get('holes'))
+
+
 def offset_with_plane(bounds, plane, distance=1.0):
     styles = dict(join_style=shapely.BufferJoinStyle.mitre)
     pts = []
@@ -500,6 +504,8 @@ def area_with_plane(bounds, plane):
 def area3d(points):
     plane = PlaneLinear.from_tree_pt(points[1], points[0], points[2])
     return area_with_plane(points, plane)
+
+
 def plane_dist(plane, point):
     project_point_onto_plane(np.array(point), np.array(plane.origin), point)
 
@@ -549,6 +555,7 @@ def offset(bounds, distance=1.0):
 
             return pts
 
+
 class Earcut:
     arguments = None
     result = None
@@ -565,7 +572,6 @@ class Earcut:
         self.holes = holes
         if solve:
             self.solve()
-
 
     def solve(self):
         if self.holes is None:
@@ -643,3 +649,38 @@ class Face(BrepComponent):
     @property
     def holes(self):
         return [self.brep.loops[hole] for hole in self._holes]
+
+
+class ShapeExtrusion:
+    def __init__(self, shape, h):
+        self.profile = shape
+        self.h = h
+
+    @property
+    def shape1(self):
+        return self.profile
+
+    @property
+    def shape2(self):
+        return extrude_shape(self.profile, self.h)
+
+    def tess(self):
+        return tess_extrusion(self.shape1, self.shape2)
+
+    @property
+    def meshdata(self):
+        pos, ixs = self.tess()
+
+        return MeshData(vertices=pos, indices=ixs)
+
+    def to_mesh(self, color=(100, 100, 100), **kwargs):
+        col = ColorRGB(*color).decimal
+        mesh = self.meshdata.to_mesh(color=col, **kwargs)
+        mesh.__setattr__("cap1",
+                         Shape(self.shape1.bounds, holes=self.shape1.holes).mesh_data.to_mesh(uuid=mesh.uuid + 'cap1',
+                                                                                              name=mesh.name + 'cap1',
+                                                                                              color=col))
+        mesh.__setattr__("cap2", Shape(self.shape2.bounds,
+                                       holes=self.shape2.holes).mesh_data.to_mesh(uuid=mesh.uuid + 'cap2',
+                                                                                  name=mesh.name + 'cap2', color=col))
+        return mesh

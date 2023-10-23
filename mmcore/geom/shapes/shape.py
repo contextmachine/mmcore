@@ -1,11 +1,16 @@
+import functools
 import typing
 from collections import namedtuple
 from dataclasses import dataclass
 
+import more_itertools
 import numpy as np
 import shapely
+from earcut import earcut
 from shapely.geometry import mapping
 
+from mmcore.base.geom import MeshData
+from mmcore.geom import vectors
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.parametric import algorithms
 
@@ -20,6 +25,13 @@ def split3d_vec(point, plane=None):
         return algorithms.ray_plane_intersection(np.array(point), np.array([0.0, 0.0, 1.0]), plane).tolist()
     else:
         return point
+
+
+def points_to_shapes(points):
+    if isinstance(points[0][0], float):
+        return [ShapeInterface(points[0], holes=points[1:])]
+    else:
+        return [ShapeInterface(crd[0], holes=crd[1:]) for crd in points]
 
 
 def poly_to_shapes(poly: typing.Union[shapely.Polygon, shapely.MultiPolygon]):
@@ -50,6 +62,20 @@ def split2d(poly1, cont):
         return SplitResult(poly_to_shapes(poly1), 2)
 
 
+def extend(*clss):
+    def wrapper(func):
+        for cls in clss:
+            setattr(cls, func.__name__, func)
+        return func
+
+    return wrapper
+
+
+class HashList(list):
+    def __hash__(self):
+        return hash(self.__repr__())
+
+
 @dataclass
 class ShapeInterface:
     bounds: list[list[float]]
@@ -72,6 +98,30 @@ class ShapeInterface:
 
         return self
 
+    def __iter__(self):
+        if self.holes:
+            return iter([self.bounds] + self.holes)
+        else:
+            return iter([self.bounds])
+
+    def __getitem__(self, item):
+        _l = len(item)
+        if _l > 1:
+
+            return self.get_by_tuple(item)
+        else:
+            if item == 0:
+                return self.bounds
+            else:
+                return self.holes[item - 1]
+
+    def get_by_pointer(self, item: 'ShapeVertexPointer'):
+        return self.get_by_tuple(item)
+
+    def get_by_tuple(self, item: tuple[int, int]):
+        a, b = item
+        return list(self)[a][b]
+
     def from_world(self, plane=None):
         if plane is not None:
             bounds = [plane.in_plane_coords(pt) for pt in self.bounds]
@@ -84,6 +134,15 @@ class ShapeInterface:
         self.split_result = split2d(self.to_poly(), cont.poly)
         return self.split_result
 
+    def __hash__(self):
+        return hash(repr((self.bounds, self.holes)))
+
+    def __eq__(self, other):
+        return all([self.bounds == other.bounds, self.holes == other.holes])
+
+    def astuple(self):
+        return self.bounds, self.holes
+
 
 @dataclass
 class ContourShape(ShapeInterface):
@@ -91,11 +150,12 @@ class ContourShape(ShapeInterface):
 
 
 def contour_from_dict(data: dict):
-    if data['plane']:
-        plane = PlaneLinear(**data['plane'])
-    else:
-        plane = data['plane']
+    plane = data.get('plane', None)
+    if plane:
+        plane = PlaneLinear(**plane)
+
     return Contour([ContourShape(**shp) for shp in data['shapes']], plane=plane)
+
 
 @dataclass
 class Contour:
@@ -119,3 +179,159 @@ class Contour:
     @property
     def has_local_plane(self):
         return self.plane is not None
+
+
+def move_shape(shp: ShapeInterface, xyz):
+    if shp.holes is not None:
+        return ShapeInterface((np.array(shp.bounds) + np.array(xyz)).tolist(),
+                              holes=(np.array(shp.holes) + np.array(xyz)).tolist())
+    else:
+        return ShapeInterface((np.array(shp.bounds) + np.array(xyz)).tolist())
+
+
+@functools.lru_cache(None)
+def points_at_local(plane: PlaneLinear, points: HashList):
+    return HashList(plane.point_at(point) for point in points)
+
+
+@functools.lru_cache(None)
+def points_at_global(plane: PlaneLinear, points: HashList):
+    return HashList(plane.in_plane_coords(point) for point in points)
+
+
+@functools.lru_cache(None)
+def shape_at_local(plane: PlaneLinear, shape: ShapeInterface):
+    return ShapeInterface([plane.point_at(point) for point in shape.bounds],
+                          [[plane.point_at(point) for point in points] for points in shape.holes])
+
+
+@functools.lru_cache(None)
+def shape_at_global(plane: PlaneLinear, shape: ShapeInterface):
+    if shape.holes:
+        return ShapeInterface([plane.point_at(point) for point in shape.bounds],
+                              [[plane.point_at(point) for point in points] for points in shape.holes])
+
+    else:
+        return ShapeInterface([plane.point_at(point) for point in shape.bounds])
+
+
+_worldxy = PlaneLinear(origin=[0, 0, 0], xaxis=[1, 0, 0], yaxis=[0, 1, 0])
+
+ShapeVertexPointer = namedtuple("ShapeVertexPointer", ['loop_index', 'point_index'])
+
+
+def chamfer(shape: ShapeInterface, value: float, indices: list[ShapeVertexPointer]):
+    ...
+
+
+def chamfer_pts(prev_point, origin, next_point, value: float):
+    pts = np.array([prev_point, origin, next_point])
+    return np.array(
+        [pts[0], pts[1] + value * vectors.unit(pts[0] - pts[1]), pts[1] + value * vectors.unit(pts[2] - pts[1]),
+         pts[2]])
+
+
+class PlaneShape:
+    _shape: ShapeInterface = None
+    _plane: PlaneLinear = _worldxy
+
+    def __init__(self, shape: ShapeInterface, plane: PlaneLinear = _worldxy):
+        self.plane = plane
+        self.shape = shape
+
+    @property
+    def plane(self):
+        return self._plane
+
+    @plane.setter
+    def plane(self, v):
+        self._plane = v
+
+    @property
+    def shape(self):
+        return shape_at_global(plane=self.plane, shape=self._shape)
+
+    @shape.setter
+    def shape(self, v):
+        self._shape = v
+
+
+@functools.lru_cache(None)
+def gen_tess(vln: int, start: int = 0):
+    faces = []
+    for i, j in zip(more_itertools.pairwise(range(vln)), more_itertools.pairwise(range(vln))):
+        ll = list(i + j)
+
+        for k in range(4):
+            if ll[k] == vln:
+                ll[k] = 0
+        ui, vi, uj, vj = ll
+        faces.extend(((start + ui, start + vj + vln, start + uj + vln), (start + vj + vln, start + ui, start + vi)))
+    return faces
+
+
+@functools.lru_cache(None)
+def gen_tess2d(u: int, v: int, start: int = 0):
+    faces = []
+    for vv in range(v):
+        faces.extend(gen_tess(u, start + vv))
+    return faces
+
+
+@functools.lru_cache(None)
+def extrude_shape(shape1, h: float):
+    return move_shape(shape1, [0, 0, h])
+
+
+class ShapeExtrusion:
+    def __init__(self, shape, h):
+        self.profile = shape
+        self.h = h
+
+    @property
+    def shape1(self):
+        return self.profile
+
+    @property
+    def shape2(self):
+        return extrude_shape(self.profile, self.h)
+
+    def tess(self):
+        return tess_extrusion(self.shape1, self.shape2)
+
+    def meshdata(self):
+        pos, ixs = self.tess()
+
+        return MeshData(vertices=pos, indices=ixs).merge2(ecut(self.shape1))
+
+
+@functools.lru_cache(None)
+def tess_extrusion(shape1: ShapeInterface, shape2: ShapeInterface):
+    cnts = list(shape1)
+    cnts2 = list(shape2)
+    start = 0
+    faces = []
+    position = []
+
+    for cnt, cnt1 in zip(cnts, cnts2):
+        l = len(cnt) + 1
+        faces.extend(gen_tess(l, start=start))
+        c = np.array(cnt).tolist()
+        c1 = np.array(cnt1).tolist()
+        c.append(c[0])
+        c1.append(c1[0])
+        position.extend(c + c1)
+
+        start += (l * 2)
+
+    return position, faces
+
+
+def ecut(self):
+    if self.holes is None:
+        arguments = earcut.flatten([self.boundary])
+    else:
+        arguments = earcut.flatten([self.boundary] + self.holes)
+
+    return MeshData(vertices=arguments['vertices'],
+                    indices=earcut.earcut(arguments['vertices'], arguments['holes'], arguments['dimensions']))
