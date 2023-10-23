@@ -5,7 +5,7 @@ import struct
 import numpy as np
 from more_itertools import chunked
 
-from mmcore.compat.gltf.consts import typeTargetsMap, TYPE_TABLE, componentTypeCodeTable
+from mmcore.compat.gltf.consts import TYPE_TABLE, componentTypeCodeTable, typeTargetsMap
 
 
 def finalize_gltf_buffer(data: tuple, typ_size: int):
@@ -15,6 +15,12 @@ def finalize_gltf_buffer(data: tuple, typ_size: int):
         return chunked(data, typ_size)
 
 
+def finalize_gltf_buffer_np(data: np.ndarray, typ_size: int):
+    if typ_size == 1:
+        return data
+    else:
+        _l = len(data)
+        return data.reshape((_l // typ_size, typ_size))
 def gltf_decode_buffer(buffers):
     _prefixes = []
     _buffers = []

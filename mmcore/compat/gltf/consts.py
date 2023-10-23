@@ -1,11 +1,9 @@
-import functools
-import operator
 from collections import namedtuple
 from enum import Enum
 
-from mmcore import __version__
 import numpy as np
 
+from mmcore import __version__
 from mmcore.base.table import Index, Table, TableProxy
 
 
@@ -197,6 +195,16 @@ attrmap = dict(
     TANGENT='tangent',
     TEXCOORD='uv',
     COLOR='colors',
+    JOINTS='joints',
+    WEIGHTS='weights'
+)
+
+attrmap2 = dict(
+    POSITION='position',
+    NORMAL='normal',
+    TANGENT='tangent',
+    TEXCOORD='uv',
+    COLOR='color',
     JOINTS='joints',
     WEIGHTS='weights'
 )
