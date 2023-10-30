@@ -61,9 +61,14 @@ Content-Type: application/json
 }
 
 ###
-GRAPHQL localhost:7711/graphql
+GRAPHQL https://hasura.contextmachine.online/v1/graphql
+x-hasura-admin-secret: mysecretkey
 
 {
-sw_wall
+  threejs_blobs_by_pk(id:62){
+    data
+  }
 }
+
+
 
