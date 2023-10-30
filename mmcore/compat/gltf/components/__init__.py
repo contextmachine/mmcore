@@ -23,6 +23,7 @@ class GLTFComponent:
     def from_gltf(cls, gltf: dict):
         return cls(**gltf)
 
+    """
     def todict(self):
         def gen(obj):
             if isinstance(obj, list):
@@ -38,7 +39,7 @@ class GLTFComponent:
             else:
                 return obj
 
-        return gen(self)
+        return gen(self)"""
 
 
 class GLTFRequiredComponent(GLTFComponent):
@@ -160,7 +161,8 @@ class GLTFPbrMetallicRoughness(GLTFComponent):
     def __eq__(self, other):
         return self.__hash__() == other.__hash__()
 
-
+    def todict(self):
+        return todict_minify(self)
 @dataclass(slots=True)
 class GLTFMaterial(GLTFComponent):
     name: typing.Optional[str] = None

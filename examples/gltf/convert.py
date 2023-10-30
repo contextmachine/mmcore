@@ -35,13 +35,14 @@ def sum_md(md, md2):
 
 def sum_mds(*mds):
     return functools.reduce(sum_md, mds)
+
+
 class GLTFColor:
     def __init__(self, r=120, g=120, b=120, a=255):
         self._data = np.array([r, g, b, a]) * (1 / 255)
 
     def __iter__(self):
         return iter(self._data.tolist())
-
 
 
 DEFAULT_MATERIAL = GLTFMaterial(name='mmcore_default',
@@ -62,12 +63,29 @@ from typing import Any, TypedDict
 
 from mmcore.collections.basic import IndexOrderedSet
 
+call_count_dict = dict()
+
+
+def call_counter(fun):
+    call_count = count()
+    call_count_dict[fun] = next(call_count)
+
+    @functools.wraps(fun)
+    def wrapper(*args, **kwargs):
+        nonlocal call_count
+
+        call_count_dict[fun] = next(call_count)
+
+        return fun(*args, **kwargs)
+
+    return wrapper
 
 
 component_registry = dict()
 component_instance_stack = []
 component_registry_counters = dict()
 component_extras_map = dict()
+
 
 def from_rgba(cls, r=0.4, g=0.4, b=0.4, a=1.0):
     return cls(name=f'simple-mat-{hex(int(r * 255))}-{hex(int(g * 255))}-{hex(int(b * 255))}-{hex(int(a * 100))}',
@@ -87,7 +105,6 @@ def random(cls, random_opacity=False):
     return from_rgba(cls, *res)
 
 
-
 def component(key=None):
     def wrapper(cls):
         nonlocal key
@@ -100,7 +117,8 @@ def component(key=None):
                                        fset=lambda self, v: component_registry.__setitem__(
                                            self.__class__.__component_key__,
                                            v))
-
+        if not hasattr(cls, "__hash__"):
+            cls.__hash__ = lambda slf: id(slf)
         @functools.wraps(cls)
         def initwrapper(*args, name=None, **kwargs):
             if name is None:
@@ -122,11 +140,19 @@ def component(key=None):
     return wrapper
 
 
-def relative_index(component, index_map=None):
-    if not index_map:
-        return component.global_index
-    return index_map[component.__component_key__][component._ixs]
+class HashableDict(dict):
 
+    def __hash__(self):
+        return id(self)
+
+
+# @functools.lru_cache(None)
+def relative_index(comp, index_map=None):
+
+    if not index_map:
+        return comp.global_index
+
+    return index_map[comp.__component_key__][comp._ixs]
 
 
 def enm(lst):
@@ -138,26 +164,41 @@ def enm(lst):
 def asscene(node: 'SceneNode', name=None, buffer=None, **kwargs):
     if buffer is None:
         buffer = bytearray()
-
-    index_map = {k: dict(enm(v)) for k, v in node.deps().items()}
+    s = time.time()
+    _deps = node.deps()
+    #
     # print(index_map)
+    print("\tsolve deps", divmod(time.time() - s, 60))
     local_registry = dict.fromkeys(component_registry.keys())
-
+    s = time.time()
+    # print(_deps)
+    _deps['bufferViews'] = []
     local_registry['bufferViews'] = []
-    for vv in index_map['bufferViews']:
-        r = component_registry['bufferViews'][vv]
-        local_registry['bufferViews'].append(r.pack(buffer))
+    for vv in component_registry['bufferViews']:
+        if not vv.isempty:
+            _deps['bufferViews'].append(vv.global_index)
+            local_registry['bufferViews'].append(vv.pack(buffer))
 
+    print("\tcreate buffer views", divmod(time.time() - s, 60))
+    s = time.time()
+    index_map = {k: dict(enm(v)) for k, v in _deps.items()}
+    print("\tcreate index_map", divmod(time.time() - s, 60))
+    s = time.time()
     for k, v in index_map.items():
-
+        s1 = time.time()
         if k != 'bufferViews':
             local_registry[k] = [component_registry[k][i].togltf(index_map=index_map) for i in v]
-
+        print(f"\t\t{k} step", divmod(time.time() - s1, 60))
+    print("\tmain loop", divmod(time.time() - s, 60))
+    s = time.time()
     if name is None:
         name = f'{node.name}-scene'
+
     local_registry['buffers'] = [GLTFBuffer.from_bytes(buffer)]
     local_registry['scenes'] = [GLTFScene(nodes=[0], name=name, **kwargs)]
-    return GLTFDocument(**local_registry)
+    _doc = GLTFDocument(**local_registry)
+    print("\tcreating doc", divmod(time.time() - s, 60))
+    return _doc
 
 
 @component(key='nodes')
@@ -172,6 +213,7 @@ class SceneNode:
         self.matrix = matrix
         self.extras = extras
 
+    @call_counter
     def deps(self):
         mesh = getattr(self, 'mesh', None)
 
@@ -224,6 +266,7 @@ class MeshMaterial:
     def togltf(self, index_map=None):
         return self._mat
 
+    @call_counter
     def deps(self):
         return dict(materials=[self.global_index])
 
@@ -314,6 +357,7 @@ class AccessorNode:
         if self.byteOffset > 0:
             res['byteOffset'] = self.byteOffset
 
+        relative_index(self.view, index_map=index_map)
         return GLTFAccessor(
             bufferView=relative_index(self.view, index_map=index_map), **res
 
@@ -334,6 +378,7 @@ class AccessorNode:
             res['byteOffset'] = self.byteOffset
         return res
 
+    @call_counter
     def deps(self):
         return dict(bufferViews=[self.view.global_index])
 
@@ -568,7 +613,7 @@ class BufferView:
         self._docindex = 0
         self.gltf_type, self.dtype = gltf_type, dtype
         # self.data =
-
+        self.isempty = True
         self.accessors = AccessorList()
 
     @property
@@ -576,6 +621,7 @@ class BufferView:
         return componentTypeCodeTable[self.dtype]['numpy']
 
     def new_accessor(self, data=(), name=None):
+        self.isempty = False
         return self.accessors.insertAtBegin(
             dict(view=self.global_index, data=np.array(data, dtype=self.np_dtype), name=name))
 
@@ -675,13 +721,13 @@ def merge_list_values(d1, d2=None):
     """
 
     for k in d1.keys() | d2.keys():
-        v2 = d2.get(k, None)
+        _v2 = d2.get(k, None)
         if k not in d1:
-            d1[k] = v2
+            d1[k] = _v2
         else:
             targ = d1[k]
-            if v2 is not None:
-                for c in v2:
+            if _v2 is not None:
+                for c in _v2:
                     if c not in targ:
                         targ.append(c)
 
@@ -706,11 +752,11 @@ class MeshAttributes:
         for k in self.__dict__.keys():
             yield attrTable[k]['gltf'], relative_index(self.__dict__[k], index_map=index_map)
 
-    def deps(self) -> dict[Any, IndexOrderedSet]:
-        return merge_dict_list_values_sequence(
-            [dict(accessors=[self.__dict__[k].global_index for k in self.__dict__.keys()])] + [self.__dict__[k].deps()
-                                                                                               for k in
-                                                                                               self.__dict__.keys()])
+    @call_counter
+    def deps(self) -> dict[str, list[Any]]:
+        dct = dict(accessors=[self.__dict__[k].global_index for k in self.__dict__.keys()])
+
+        return dct
 
     def togltf(self, index_map=None):
         return dict(self.gltf_mesh_primitive_attributes(index_map=index_map))
@@ -739,18 +785,14 @@ class MeshPart:
             self._indices = view_typemap["SCALAR"].new_accessor(indices)
         self.extras = kwargs
 
+    @call_counter
     def deps(self) -> dict[Any, IndexOrderedSet]:
-        if self._indices:
-            return dict(merge_dict_list_values_sequence(
-                [dict(accessors=[self._indices.global_index], materials=[self._material.global_index]),
-                 self._attrs.deps(),
-                 self._indices.deps()]
-            )
-            )
-        else:
-            return dict(merge_list_values(
-                dict(materials=[self._material.global_index]),
-                self._attrs.deps()))
+        _deps = self._attrs.deps()
+        if self._indices is not None:
+            _deps['accessors'].append(self._indices.global_index)
+        if self._material is not None:
+            _deps['materials'] = [self._material.global_index]
+        return _deps
 
     def togltf(self, index_map=None):
         return GLTFPrimitive(attributes=self._attrs.togltf(index_map=index_map),
@@ -775,8 +817,22 @@ class Mesh:
         self._parts = list(parts)
         self._name = name
 
+    @call_counter
     def deps(self) -> dict[Any, IndexOrderedSet]:
-        return merge_dict_list_values_sequence((part.deps() for part in self._parts))
+        dct = dict()
+        for part in self._parts:
+            for k, v in part.deps().items():
+
+                if k not in dct:
+                    dct[k] = v
+                elif k == 'materials':
+                    for item in v:
+                        if item not in dct[k]:
+                            dct[k].append(item)
+                else:
+                    dct[k].extend(v)
+
+        return dct
 
     def merge_inplace(self, other: 'Mesh'):
         self._parts.extend(other._parts)
@@ -1017,23 +1073,28 @@ def case1():
     return shapes, shapes2, shape1mesh, shape2mesh, node1, node2, node0, _data
 
 
-import requests
+import ujson
 
 
 def case2(parts=["w1", "w2", "w3", "w4", 'l2'], random_mat=False):
-    print(parts, "random mterial:", random_mat)
-    s = time.time()
-    resp = requests.post("https://viewer.contextmachine.online/cxm/api/v2/mfb_contour_server/sw/contours-merged",
-                         json=dict(names=parts))
-    resp2 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_w/stats"
-                         )
-    resp3 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/stats"
-                         )
-    coldata = {rr['name']: rr['tag'] for rr in resp2.json() + resp3.json()}
+    # print(parts, "random mterial:", random_mat)
+    # s = time.time()
+
+    with open('test_data.json', 'r') as f:
+        _ = ujson.load(f)
+        coldata = _['coldata']
+        ress = _['ress']
+    # resp = requests.post("https://viewer.contextmachine.online/cxm/api/v2/mfb_contour_server/sw/contours-merged",
+    #                     json=dict(names=parts))
+    # resp2 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_w/stats"
+    #                     )
+    # resp3 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/stats"
+    #                     )
+    #coldata = {rr['name']: rr['tag'] for rr in resp2.json() + resp3.json()}
     mats = {"A-0": DEFAULT_MATERIAL_COMPONENT}
 
-    ress = resp.json()
-    print("request", divmod(time.time() - s, 60))
+    # ress = resp.json()
+    #print("request", divmod(time.time() - s, 60))
     parts = []
     s = time.time()
     for i, t in enumerate(ress['shapes']):
@@ -1042,6 +1103,7 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2'], random_mat=False):
             if name in coldata:
                 tag = coldata[name]
                 if tag not in mats:
+                    #print(tag)
                     mats[tag] = MeshMaterial(random(GLTFMaterial))
                 col = mats[tag]
             else:
@@ -1062,12 +1124,15 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2'], random_mat=False):
     scene2 = asscene(node_test)
     print("create scene", divmod(time.time() - s, 60))
     s = time.time()
+    scene_dct = scene2.todict()
+    print("create dict", divmod(time.time() - s, 60))
+    s = time.time()
     with open('testsw.gltf', 'w') as f:
-        json.dump(scene2.todict(), f, indent=2)
-    print("create json", divmod(time.time() - s, 60))
+        ujson.dump(scene_dct, f, indent=2)
+    print("dump json", divmod(time.time() - s, 60))
+    #print(call_count_dict)
 
 
 case2()
-print("random mat")
-print("random mat")
+
 # case2(random_mat=True)
