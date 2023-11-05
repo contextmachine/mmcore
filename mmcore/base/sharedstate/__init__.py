@@ -378,13 +378,12 @@ class SharedStateServer():
 
         @inst.app.get("/", response_model_exclude_none=True)
         async def home():
-            from mmcore.base import AGroup
-            aa = AGroup(uuid="__")
-            for i in adict.values():
-                if not (i.uuid == "__"):
-                    aa.add(i)
 
-            return aa.root()
+            if "target" in debug_properties:
+
+                return adict[debug_properties["target"]].root()
+            else:
+                return {}
 
         @inst.app.post("/graphql")
         async def gql(data: dict):
@@ -475,11 +474,11 @@ class SharedStateServer():
 
         @inst.app.post("/resolver/{name}/{uid}")
         async def external_post(name: str, uid: str, data: dict):
-            return inst.resolvers[name](uid, data)
+            return UJSONResponse(inst.resolvers[name](uid, data))
 
         @inst.app.get("/resolver/{name}/{uid}")
         async def external_get(name: str, uid: str):
-            return inst.resolvers[name](uid)
+            return UJSONResponse(inst.resolvers[name](uid))
 
         @inst.app.post("/params/node/{uid}")
         async def params_post(uid: str, data: dict):
