@@ -1129,12 +1129,15 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
                            'normalized': False})})})})
 
 
+PointDefaultMaterial = gql_models.PointsMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="points-12020040")
+amatdict[PointDefaultMaterial.uuid] = PointDefaultMaterial
+
 class APoints(AGeom):
     material_type = gql_models.PointsMaterial
     geometry = APointsGeometryDescriptor(default=None)
 
-    material = AMaterialDescriptor(default=gql_models.PointsMaterial(color=ColorRGB(120, 200, 40).decimal))
-    _material = None
+    material = AMaterialDescriptor(default=PointDefaultMaterial)
+    _material = "points-12020040"
     _points = []
     kd = None
 

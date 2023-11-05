@@ -73,12 +73,13 @@ __encoded_buffs__ = dict()
 def decode_buffer(buff: str):
     headers, bts = buff.split(',')
     return GLTFBufferDecoded(headers, base64.b64decode(bts))
+
+
 # @label('gltf', 'compat')
 @dataclass(slots=True, unsafe_hash=True)
 class GLTFBuffer(GLTFComponent):
     uri: str
     byteLength: int
-
 
     def decode(self):
         if id(self) not in __encoded_buffs__:
@@ -117,8 +118,6 @@ class GLTFBuffer(GLTFComponent):
 
         else:
             return GLTFBuffer(**gltf)
-
-
 
 
 # @label('gltf', 'compat')
@@ -163,6 +162,8 @@ class GLTFPbrMetallicRoughness(GLTFComponent):
 
     def todict(self):
         return todict_minify(self)
+
+
 @dataclass(slots=True)
 class GLTFMaterial(GLTFComponent):
     name: typing.Optional[str] = None
