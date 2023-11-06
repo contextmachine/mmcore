@@ -9,6 +9,8 @@ __items__ = dict()
 
 import numpy as np
 
+_MMCORE_BASE_TAGS_UUID = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
+
 
 class TagDBItem:
     __slots__ = ["index", "dbid"]
@@ -261,7 +263,7 @@ class SoAField:
     @parent.setter
     def parent(self, v):
         if isinstance(v, SoA):
-            self._parent = v.name
+            self._parent = v.uuid
         else:
             self._parent = v
 
@@ -289,7 +291,6 @@ def soa_parent(self):
 
 
 class SoAItem:
-
     def __init__(self, uuid, parent_id):
         super().__init__()
         self._parent = parent_id
@@ -348,7 +349,7 @@ class SoAItem:
 
     def __getattr__(self, item):
         if item.startswith('_'):
-            return object.__getattribute__(self, '_parent')
+            return object.__getattribute__(self, item)
 
         elif item in soa_parent(self).fields.keys():
             return self[item]
@@ -372,7 +373,7 @@ class SoAItem:
         return list(super().__dir__()) + list(self.keys())
 
     def __repr__(self):
-        return f'component(name={self._parent} data={dict(self)})'
+        return f'{self.parent.type_name}({dict(self)}) at {self.uuid}'
 
 
 from dataclasses import dataclass
@@ -384,16 +385,21 @@ class SoAProps:
 
 
 class SoA:
-    def __init__(self, name: str, props: SoAProps = None, **fields):
-        assert name
-        self.name = name
+    def __init__(self, type_name: str, props: SoAProps = None, **fields):
+        assert type_name
+        self.type_name = type_name
 
         self.props = props if props else SoAProps()
         self.fields = dict()
         self.__items__ = dict()
-        __soas__[name] = self
+        self._mmcore_uuid = _uuid.uuid5(_MMCORE_BASE_TAGS_UUID, type_name)
+        __soas__[self._mmcore_uuid.hex] = self
         for k, v in fields.items():
             self.add_field(k, v)
+
+    @property
+    def uuid(self):
+        return self._mmcore_uuid.hex
 
     def add_field(self, key, fld):
         fld.parent = self
@@ -407,13 +413,17 @@ class SoA:
         return self.__items__[uuid]
 
     def __setitem__(self, uuid, v):
+
         if uuid not in self.__items__.keys():
-            self.__items__[uuid] = SoAItem(uuid, self.name)
+            self.__items__[uuid] = SoAItem(uuid, self.uuid)
 
         self.__items__[uuid].update(v)
 
     def __contains__(self, item):
         return self.__items__.__contains__(item)
+
+    def __repr__(self):
+        return f'SoA(type={self.type_name}, length={len(self.__items__)}) at {self.uuid}'
 
 
 def component(name=None):
@@ -480,6 +490,7 @@ def component(name=None):
                 return _soa[uuid]
             dct = dict(zip(keys[:len(args)], args))
             dct |= kwargs
+
             _soa[uuid] = dct
             return _soa[uuid]
 
@@ -488,9 +499,86 @@ def component(name=None):
     return wrapper
 
 
+"""     
+
+[1]:
+                        b (high1)               
+            +---------------------------------+ 
+            │                                 │ 
+     a      │                                 │     c    
+  (width1)  │                                 │  (width1)
+            +---------------------------------+      
+                        d (high1)     
+
+             
+[2]:   
+                        b (high1)                                   
+            +---------------------------------+                     
+     a      │                                 |                     
+  (width1)  │                                 |                     
+            │                                 |                     
+            +------------------------+        |   c  (high2)        
+                   f                 |        |                     
+            (high1 - width2)         |        |                     
+                                     |        |                     
+                                     |        |                     
+                (high2 - width1)  e  |        |                     
+                                     |        |                     
+                                     |        |                     
+                                     +────────+                     
+                                         d                          
+                                      (width2)   
+                     
+[3]:                                                            
+                        b (high1)                                   
+            +---------------------------------+                    
+            │                                 │                     
+     a      │                                 │     c               
+  (width1)  │                                 │  (width1)          
+            +----------------------+──────────+                 
+                        e                d                             
+                  (high1-width2)      (width2) 
+
+
+
+                                                      
+rom mmcore.base.tags import create_base_section, create_next_base_section,create_angle_section,create_next_angle_section
+bs1=create_base_section(10,15)
+bs2=create_next_base_section(bs1,20)
+as1=create_next_angle_section(bs2,40,30,17)
+as1.todict()
+Out[7]: 
+
+{'a': {'length': 10, 'leaf': False},
+ 'b': {'length': 20, 'leaf': True},
+ 'c': {'length': 10, 'leaf': False},
+ 'd': {'length': 20, 'leaf': True}}
+
+{'a': {'length': 30, 'leaf': False},
+ 'b': {'length': 17, 'leaf': True},
+ 'c': {'length': 40, 'leaf': True},
+ 'd': {'length': 10, 'leaf': False},
+ 'e': {'length': 10, 'leaf': True},
+ 'f': {'length': 7, 'leaf': True}}
+  
+                     
+                                                                    
+"""
+
+
+def apply(obj, data):
+    for k, v in data.items():
+        if isinstance(v, dict):
+            apply(getattr(obj, k), v)
+        else:
+            setattr(obj, k, v)
+
+
 def todict(obj):
     if hasattr(obj, 'items'):
         return {k: todict(v) for k, v in obj.items()}
+    elif hasattr(obj, 'todict'):
+        return obj.todict()
     elif isinstance(obj, (list, tuple)):
         return [todict(v) for v in obj]
     elif isinstance(obj, np.ndarray):
@@ -501,6 +589,128 @@ def todict(obj):
 
 def request_component(name, uuid):
     return __soas__[name][uuid]
+
+
+@component('side')
+class Side:
+    length: float
+    leaf: bool = True
+
+
+class CompSideField(SoAField):
+    def __getitem__(self, item):
+        return self.parent.fields['first'][item].length - self.parent.fields['second'][item].length
+
+
+@component('computed_side')
+class ComputedSide:
+    first: Side = None
+    second: Side = None
+    leaf: bool = True
+    length: float = CompSideField(0)
+
+
+import uuid as _uuid
+
+NS = '4cd91e6a-c3f3-45f8-9ac2-51549d5f4914'
+__e__ = dict(stack=dict(), map=dict())
+
+
+class E:
+    def __new__(cls, name=None):
+        if name is None:
+            name = _uuid.uuid4().hex
+        else:
+            name = _uuid.uuid5(_uuid.UUID(NS), name).hex
+            if name in __e__['stack'].keys():
+                return __e__['stack'][name]
+
+        self = super().__new__(cls)
+        __e__['stack'][name] = self
+        __e__['map'][name] = dict()
+        self._uuid = name
+        return self
+
+    def __getattr__(self, item):
+        if item.startswith('_'):
+            return super().__getattribute__(item)
+        elif item in __e__['map'][self._uuid].keys():
+            return __e__['map'][self._uuid][item]
+        else:
+            return super().__getattribute__(item)
+
+    def __setattr__(self, item, value):
+        if item.startswith('_'):
+            object.__setattr__(self, item, value)
+        else:
+
+            __e__['map'][self._uuid][item] = value
+
+    def todict(self):
+        return {k: todict(v) for k, v in __e__['map'][self._uuid].items()}
+
+
+def create_base_section_from_sides(entity, a, b):
+    entity.a = a
+    entity.b = b
+    entity.c = a
+    entity.d = b
+    return entity
+
+
+def create_base_section(width, high, ent=None):
+    if ent is None:
+        ent = E()
+    a = Side(width, False)
+    b = Side(high, True)
+    return create_base_section_from_sides(ent, a, b)
+
+
+def create_next_base_section(current, high, ent=None):
+    if ent is None:
+        ent = E()
+    b = Side(high, True)
+
+    return create_base_section_from_sides(ent, current.a, b)
+
+
+def create_angle_section_from_sides(entity, a, b, c, d):
+    entity.a = a
+    entity.b = b
+    entity.c = c
+    entity.d = d
+    entity.e = ComputedSide(c, a, True)
+    entity.f = ComputedSide(b, d, True)
+    return entity
+
+
+def create_angle_section(width2, high2, width1, high1, ent=None):
+    if ent is None:
+        ent = E()
+    return create_angle_section_from_sides(ent,
+                                           Side(width1, False),
+                                           Side(high1, True),
+                                           Side(high2, True),
+                                           Side(width2, False))
+
+
+def create_next_angle_section(current, high2, width1, high1, ent=None):
+    if ent is None:
+        ent = E()
+
+    return create_angle_section_from_sides(ent,
+                                           Side(width1, False),
+                                           Side(high1, True),
+                                           Side(high2, True),
+                                           current.a)
+
+
+def update_angle_section_length(ent, **kwargs):
+    for k, v in kwargs.items():
+        getattr(ent, k).__setattr__('length', v)
+
+    ent.e.length = ent.c.length - ent.a.length
+    ent.f.length = ent.c.length - ent.a.length
 
 
 import os
