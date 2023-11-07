@@ -862,6 +862,8 @@ foon._input.set_link(o3.key)
 
 
 o3.update(dict(b=44))
+
+
     """
 
     def __init__(self):
