@@ -335,3 +335,4 @@ def ecut(self):
 
     return MeshData(vertices=arguments['vertices'],
                     indices=earcut.earcut(arguments['vertices'], arguments['holes'], arguments['dimensions']))
+
