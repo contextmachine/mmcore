@@ -2,9 +2,9 @@ PERCISSION = 6
 import warnings
 from typing import Iterable, Iterator
 
-import numpy as np
-from mmcore.geom.vectors.pure import *
 from scipy.spatial import distance
+
+from mmcore.geom.vectors.pure import *
 
 
 class Vector(Iterable):
@@ -43,8 +43,6 @@ class Vector(Iterable):
 
     def sub(self, other):
         return self - other
-
-
 
 
 def unit(vec) -> np.ndarray:
@@ -975,3 +973,4 @@ def triangle_plane(p1, p2, p3):
     Ny = Az * Bx - Ax * Bz
     Nz = Ax * By - Ay * Bx
     return np.array([A, B, (Nx, Ny, Nz)])
+
