@@ -353,7 +353,7 @@ class A:
     _properties = dict()
     _controls = {}
     _endpoint = "/"
-
+    _user_data_extras = dict()
     RENDER_BBOX = False
 
     def __getstate__(self):
@@ -387,11 +387,13 @@ class A:
         adict[_ouuid] = inst
         idict[_ouuid] = dict()
         inst._uuid = _ouuid
+        inst._user_data_extras = dict()
         inst.child_keys = set()
         inst._children = ChildSet(inst)
         if "_endpoint" not in kwargs.keys():
             inst._endpoint = f"gui/{_ouuid}"
         inst.set_state(*args, **kwargs)
+
         return inst
 
     def traverse_child_three(self):
@@ -531,8 +533,23 @@ class A:
             data["shapes"] = "shapes"
         return data
 
+    def add_userdata_item(self, key, data):
+        self._user_data_extras[key] = data
     def __call__(self, *args, callback=lambda x: x, geometries: set = None, materials: set = None, **kwargs):
         self.set_state(*args, **kwargs)
+        ud = {
+
+            "properties": sumdicts({
+                "name": self.name
+            },
+                self.properties,
+            ),
+            "gui": [
+                self.controls.todict()
+            ]
+
+        }
+        ud |= self._user_data_extras
         data = {
             "name": self.name,
             "uuid": self.uuid,
@@ -542,18 +559,7 @@ class A:
             "castShadow": True,
             "receiveShadow": True,
 
-            "userData": {
-
-                "properties": sumdicts({
-                    "name": self.name
-                },
-                    self.properties,
-                ),
-                "gui": [
-                    self.controls.todict()
-                ]
-
-            }
+            "userData": ud
         }
 
         if geometries is not None:
@@ -713,6 +719,8 @@ class AGroup(A):
     def children(self):
         return [adict[child] for child in idict[self.uuid]["__children__"]]
 
+    def remove(self, obj):
+        idict[self.uuid]["__children__"].remove(obj.uuid)
 
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
@@ -1077,10 +1085,25 @@ class AGeom(A):
         return res
 
 
+MeshDefaultMaterial = gql_models.MeshPhongMaterial(color=ColorRGB(150, 150, 150).decimal,
+                                                   uuid="mesh-default")
+PointDefaultMaterial = gql_models.PointsMaterial(color=ColorRGB(200, 200, 200).decimal,
+                                                 uuid="points-default")
+LineDefaultMaterial = gql_models.LineBasicMaterial(color=ColorRGB(20, 20, 20).decimal,
+                                                   uuid="line-default")
+amatdict[LineDefaultMaterial.uuid] = LineDefaultMaterial
+amatdict[PointDefaultMaterial.uuid] = PointDefaultMaterial
+amatdict[MeshDefaultMaterial.uuid] = MeshDefaultMaterial
+
+
 class AMesh(AGeom):
     material_type = gql_models.MeshPhongMaterial
     geometry = AGeometryDescriptor(default=None)
-    material = AMaterialDescriptor(default=gql_models.MeshPhongMaterial(color=ColorRGB(120, 200, 40).decimal))
+    material = AMaterialDescriptor(default=MeshDefaultMaterial)
+    _material = "mesh-default"
+
+    def __new__(cls, *args, material=MeshDefaultMaterial, **kwargs):
+        return super().__new__(cls, *args, material=material, **kwargs)
 
     @property
     def threejs_type(self):
@@ -1129,17 +1152,17 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
                            'normalized': False})})})})
 
 
-PointDefaultMaterial = gql_models.PointsMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="points-12020040")
-amatdict[PointDefaultMaterial.uuid] = PointDefaultMaterial
-
 class APoints(AGeom):
     material_type = gql_models.PointsMaterial
     geometry = APointsGeometryDescriptor(default=None)
 
     material = AMaterialDescriptor(default=PointDefaultMaterial)
-    _material = "points-12020040"
+    _material = "points-default"
     _points = []
     kd = None
+
+    def __new__(cls, *args, material=PointDefaultMaterial, **kwargs):
+        return super().__new__(cls, *args, material=material, **kwargs)
 
     def solve_kd(self):
         self.kd = KDTree(self.points)
@@ -1196,16 +1219,15 @@ class APoint(APoints):
         return euclidean(self.points, other.points)
 
 
-LineDefaultMaterial = gql_models.LineBasicMaterial(color=ColorRGB(120, 200, 40).decimal, uuid="line-12020040")
-amatdict[LineDefaultMaterial.uuid] = LineDefaultMaterial
-
-
 class ALine(APoints):
     material_type = gql_models.LineBasicMaterial
     geometry = APointsGeometryDescriptor(default=None)
     material = AMaterialDescriptor(
         default=LineDefaultMaterial)
-    _material = 'line-12020040'
+    _material = 'line-default'
+
+    def __new__(cls, *args, material=LineDefaultMaterial, **kwargs):
+        return super().__new__(cls, *args, material=material, **kwargs)
 
     @property
     def start(self):

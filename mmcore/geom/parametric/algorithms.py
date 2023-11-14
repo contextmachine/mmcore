@@ -2,7 +2,7 @@ import abc
 import dataclasses
 import typing
 from collections import namedtuple
-
+from mmcore.func import vectorize
 import numpy as np
 
 from mmcore.collections import DCLL
@@ -17,13 +17,16 @@ try:
 except ModuleNotFoundError as err:
     SPEEDUPS = False
     print("no speedups")
+except ImportError as err:
+    SPEEDUPS = False
+    print("no speedups")
 
 TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
 from scipy.spatial.distance import euclidean
 
 ProxPointSolution = namedtuple("ProxPointSolution", ["pt1", "pt2", "t1", "t2"])
-ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"])
+ClosestPointSolution = namedtuple("ClosestPointSolution", ["pt", "t", "distance"], defaults=[None, None, None])
 IntersectSolution = namedtuple("IntersectSolution", ["pt", "t", "is_intersect"])
 IntersectFail = namedtuple("IntersectFail", ["pt", "t", "distance", "is_intersect"])
 MultiSolutionResponse = namedtuple("MultiSolutionResponse", ["pts", "roots"])
@@ -321,7 +324,7 @@ def closest_point_on_line(point, line):
     # Calculate closest point on line
     p_closest = p1 + t * v1
 
-    return ClosestPointSolution(p_closest, t=t, distance=euclidean(point, p1))
+    return ClosestPointSolution(p_closest, t=t)
 
 
 PointTuple = tuple[float, float, float]
@@ -418,6 +421,18 @@ def line_line_intersection2d(line1, line2):
 
     return [x, y]
 
+
+def bounded_line_intersection2d(line1, line2):
+    res = np.array(line_line_intersection2d(line1, line2))
+    if res is not None:
+        l1 = point_line_bounded_distance(res, line1[0], line1[1])
+        l2 = point_line_bounded_distance(res, line2[0], line2[1])
+
+        if (l1 is not None) and (l2 is not None):
+            d1, pt1, t1 = l1
+            d2, pt2, t2 = l2
+
+            return res, (t1, t2), (d1, d2)
 
 # Example usage
 
@@ -802,6 +817,7 @@ def offset_line_3d(line, distance):
     return lambda t: offset_curve_2d(line_to_func(ln), distance)(t) + [line_to_func(line)(t)[2]]
 
 
+from mmcore.geom.vectors import norm, unit
 def line_point_param(ln: LineTuple, pt: list[float]):
     """
     Pass line and point, return t param
@@ -814,8 +830,70 @@ def line_point_param(ln: LineTuple, pt: list[float]):
     -------
 
     """
-    w = np.array(pt) - np.array(ln[0])
-    return (0.5 * np.dot(w, ln[1])) / euclidean(np.array(ln[0]), np.array(ln[0]) + np.array(ln[1]))
+
+    w = np.array(pt) - ln[0]
+    n = norm(ln[1])
+    v1 = ln[1] / n
+    v2 = w / n
+    return 0.5 * np.dot(v2, v1)
+
+
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
+
+
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines_vectors(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0) - pln_points], axis=1)
+
+
+def vector_start_end(start, end):
+    return end - start
+
+
+def distance(p0, p1):
+    return norm(vector_start_end(p0, p1))
+
+
+def scale_vector(v, sc):
+    return v * sc
+
+
+def point_line_bounded_distance(pnt, start, line_vec):
+    pnt_vec = vector_start_end(start, pnt)
+    line_len = norm(line_vec)
+    line_unitvec = unit(line_vec)
+    pnt_vec_scaled = scale_vector(pnt_vec, 1.0 / line_len)
+    t = np.dot(line_unitvec, pnt_vec_scaled)
+
+    if t < 0.0:
+
+        pass
+    elif t > 1.0:
+        pass
+    else:
+
+        nearest = scale_vector(line_vec, t)
+        dist = distance(nearest, pnt_vec)
+
+        return (dist, nearest + dist, t)
+
+
+def intersect_polylines(pln1, pln2, closed=(False, False)):
+    lines1, lines2 = polyline_to_lines_vectors(pln1[..., :2]), polyline_to_lines_vectors(pln2[..., :2])
+    lines1 = lines1 if closed[0] else lines1[:-1]
+    lines2 = lines2 if closed[1] else lines2[:-1]
+
+    for i, line1 in enumerate(lines1):
+        for j, line2 in enumerate(lines2):
+            res = bounded_line_intersection2d(line1, line2)
+
+            if res is not None:
+                res2, (t1, t2), (d1, d2) = res
+
+                yield res2, (t1 + i, t2 + j), (d1, d2)
+
 
 
 def variable_line_offset_2d(bounds: list[PointUnion], distances: list[float]):

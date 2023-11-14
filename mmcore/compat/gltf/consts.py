@@ -15,7 +15,7 @@ class MediaTypes(str, Enum):
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
 BUFFER_DEFAULT_HEADER = "data:application/octet-stream;base64"
-MESH_PRIM_KEYS = 'POSITION', 'NORMAL', 'TANGENT', 'TEXCOORD_n', 'COLOR_n', 'JOINTS_n', 'WEIGHTS_n', '_SPECIFIC'
+MESH_PRIM_KEYS = 'POSITION', 'NORMAL', 'TANGENT', 'TEXCOORD_n', 'COLOR_0', 'JOINTS_n', 'WEIGHTS_n', '_SPECIFIC'
 DEFAULT_ASSET = {
     "generator": f"mmcore@{__version__()}",
     "version": "2.0"
@@ -194,7 +194,7 @@ attrmap = dict(
     NORMAL='normals',
     TANGENT='tangent',
     TEXCOORD='uv',
-    COLOR='colors',
+    COLOR_0='colors',
     JOINTS='joints',
     WEIGHTS='weights'
 )
@@ -204,7 +204,7 @@ attrmap2 = dict(
     NORMAL='normal',
     TANGENT='tangent',
     TEXCOORD='uv',
-    COLOR='color',
+    COLOR_0='color',
     JOINTS='joints',
     WEIGHTS='weights'
 )
@@ -212,17 +212,17 @@ attrTable = Table.from_lists(pk="mmcore", rows=[
     ["position", 'vertices', 'POSITION', 'VEC3'],
     ["normal", 'normals', 'NORMAL', 'VEC3'],
     ["tangent", None, 'TANGENT', 'VEC3'],
-    ["uv", 'uv', 'TEXCOORD', 'VEC2'],
-    ["color", None, 'COLOR', 'VEC3'],
-    ["joints", None, 'JOINTS', 'SCALAR'],
-    ["weights", None, 'WEIGHTS', 'SCALAR']], schema=dict(mmcore=str, meshdata=str, gltf=str, gltf_type=str))
+    ["uv", 'uv', 'TEXCOORD_0', 'VEC2'],
+    ["color", None, 'COLOR_0', 'VEC3'],
+    ["joints", None, 'JOINTS_0', 'SCALAR'],
+    ["weights", None, 'WEIGHTS_0', 'SCALAR']], schema=dict(mmcore=str, meshdata=str, gltf=str, gltf_type=str))
 
 attrmap_ext = dict(
     position='POSITION',
     normal='NORMAL',
     tangent='TANGENT',
     uv='TEXCOORD',
-    color='COLOR',
+    color='COLOR_0',
     joints='JOINTS',
     weights='WEIGHTS'
 )
@@ -231,7 +231,7 @@ typeAttrTable = dict(
     NORMAL='normals',
     TANGENT='tangent',
     TEXCOORD='uv',
-    COLOR='colors',
+    COLOR_0='colors',
     JOINTS='joints',
     WEIGHTS='weights'
 )
@@ -241,7 +241,7 @@ typeAttrTable3 = dict(
     NORMAL='normals',
     TANGENT='tangent',
     TEXCOORD='uv',
-    COLOR='colors',
+    COLOR_0='colors',
     JOINTS='joints',
     WEIGHTS='weights'
 )

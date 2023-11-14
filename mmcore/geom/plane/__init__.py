@@ -1,5 +1,5 @@
 from collections import namedtuple
-
+from mmcore.func import vectorize
 import numpy as np
 
 from mmcore.geom.vectors import unit
@@ -65,12 +65,9 @@ def rotate_from_origin(pt, origin, angle, axis=(0, 0, 1)):
         return transform_point2d(ppt - origin, q.transformation_matrix) + origin
 
 
-def vectorize(**kws):
-    def wrap(fun):
-        return np.vectorize(fun, **kws)
-
-    return wrap
-
+@vectorize(signature='(j),()->(i)')
+def append_np(arr, val):
+    return np.append(arr, val)
 
 def translate_plane(plane: Plane, vec: np.ndarray):
     return Plane(plane.origin + vec, plane.xaxis, plane.yaxis, plane.zaxis)
