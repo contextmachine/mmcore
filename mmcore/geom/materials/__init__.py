@@ -8,10 +8,11 @@ import numpy as np
 ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
 _ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
 
-
+cmap = dict()
 class ColorRGB(tuple):
 
     def __new__(cls, *iterable, **kwargs):
+
         if all(map(lambda x: isinstance(x, int), iterable)):
             inst = tuple.__new__(cls, iterable)
             inst.r, inst.g, inst.b = iterable[:3]
@@ -27,7 +28,9 @@ class ColorRGB(tuple):
 
     @property
     def decimal(self):
-        return int('%02x%02x%02x' % (self.r, self.g, self.b), 16)
+        if (self.r, self.g, self.b) not in cmap:
+            cmap[(self.r, self.g, self.b)] = int('%02x%02x%02x' % (self.r, self.g, self.b), 16)
+        return cmap[(self.r, self.g, self.b)]
 
     def __int__(self):
         return int(self.hex(), 16)

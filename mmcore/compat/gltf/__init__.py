@@ -91,7 +91,7 @@ def extract_meshes(doc: GLTFDocument, comp=(Mesh, MeshPart, MeshAttributes), att
 
             prims.append(_Part(**dct))
 
-        yield _Mesh(primitives=prims, **kwargs)
+        yield _Mesh(primitives=prims, extras=mesh.extras, **kwargs)
 
 
 def extract_meshes_dict(doc: GLTFDocument, accessors, attr_mapping=attrmap2, **kwargs):
