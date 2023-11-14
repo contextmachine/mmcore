@@ -3,6 +3,8 @@ import functools
 import typing
 from dataclasses import asdict, dataclass, field
 
+import ujson
+
 from mmcore.compat.gltf.consts import BUFFER_DEFAULT_HEADER, DEFAULT_ASSET, GLTFBufferDecoded
 from mmcore.compat.gltf.utils import todict_minify, todict_nested
 
@@ -222,7 +224,9 @@ class GLTFMesh(GLTFComponent):
 
     @classmethod
     def from_gltf(cls, gltf: dict):
-        return cls(primitives=[GLTFPrimitive(**p) for p in gltf['primitives']])
+        prims = gltf.pop('primitives')
+
+        return cls(primitives=[GLTFPrimitive(**p) for p in prims], **gltf)
 
     def todict(self):
         return todict_nested(self, GLTFComponent)
@@ -283,6 +287,9 @@ class GLTFDocument(GLTFComponent):
     def todict(self):
         return todict_nested(self, GLTFComponent)
 
+    def dump(self, fp):
+        with open(fp, 'w') as f:
+            ujson.dump(self.todict(), f)
 
 DOCUMENT_MAP = dict(
     scenes=GLTFScene,

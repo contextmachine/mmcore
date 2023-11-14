@@ -13,6 +13,7 @@ from mmcore.base.geom import MeshData
 from mmcore.geom import vectors
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.parametric import algorithms
+from mmcore.geom.shapes.area import polygon_area
 
 SplitResult = namedtuple("SplitResult", ['shapes', 'mask'])
 
@@ -142,6 +143,17 @@ class ShapeInterface:
 
     def astuple(self):
         return self.bounds, self.holes
+
+    def area(self):
+        return shape_area(self)
+
+
+def shape_area(shp: ShapeInterface):
+    result = polygon_area(np.array(shp.bounds + [shp.bounds[0]]), cast_to_numpy=False)
+    if shp.holes:
+        for hole in shp.holes:
+            result -= polygon_area(np.array(hole + [hole[0]]), cast_to_numpy=False)
+    return result
 
 
 @dataclass
@@ -336,3 +348,17 @@ def ecut(self):
     return MeshData(vertices=arguments['vertices'],
                     indices=earcut.earcut(arguments['vertices'], arguments['holes'], arguments['dimensions']))
 
+
+ShapeEarcutResult = namedtuple("ShapeEarcutResult", ['position', 'indices', 'arguments'])
+
+
+@functools.lru_cache(None)
+def shape_earcut(self: ShapeInterface) -> ShapeEarcutResult:
+    if self.holes is None:
+        arguments = earcut.flatten([self.bounds])
+    else:
+        arguments = earcut.flatten([self.bounds] + self.holes)
+
+    return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
+                                                                  arguments['holes'],
+                                                                  arguments['dimensions']), arguments)

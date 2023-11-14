@@ -1,7 +1,7 @@
 import base64
 import functools
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from functools import reduce
 from uuid import uuid4
 import numpy as np
@@ -12,6 +12,7 @@ from itertools import count
 from mmcore.compat.gltf import GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial, GLTFNode, \
     GLTFPbrMetallicRoughness, GLTFScene
 from mmcore.compat.gltf.utils import appendBufferView, byte_stride
+from mmcore.geom.mesh import MeshTuple
 
 
 def fromnp(val):
@@ -121,6 +122,7 @@ def component(key=None):
                                            v))
         if not hasattr(cls, "__hash__"):
             cls.__hash__ = lambda slf: id(slf)
+
         @functools.wraps(cls)
         def initwrapper(*args, name=None, **kwargs):
             if name is None:
@@ -150,7 +152,6 @@ class HashableDict(dict):
 
 # @functools.lru_cache(None)
 def relative_index(comp, index_map=None):
-
     if not index_map:
         return comp.global_index
 
@@ -797,9 +798,15 @@ class MeshPart:
         return _deps
 
     def togltf(self, index_map=None):
-        return GLTFPrimitive(attributes=self._attrs.togltf(index_map=index_map),
-                             indices=relative_index(self._indices, index_map=index_map),
-                             material=relative_index(self._material, index_map=index_map))
+        if self._indices:
+
+            return GLTFPrimitive(attributes=self._attrs.togltf(index_map=index_map),
+                                 indices=relative_index(self._indices, index_map=index_map),
+                                 material=relative_index(self._material, index_map=index_map))
+        else:
+            return GLTFPrimitive(attributes=self._attrs.togltf(index_map=index_map),
+
+                                 material=relative_index(self._material, index_map=index_map))
 
     def merge(self, other: 'MeshPart'):
         self._attrs = self._attrs.merge(other._attrs)
@@ -810,6 +817,7 @@ class MeshPart:
 
 
 meshes = []
+DEFAULT_MATERIAL_COMPONENT = MeshMaterial(DEFAULT_MATERIAL)
 
 
 @component(key="meshes")
@@ -900,248 +908,36 @@ class Mesh:
                         **kwargs)
 
 
-myshape = Shape(
-    [(-12.0, 7.0, 0.0), (-2.0, 19.0, 0.0), (18.0, 14.0, 0.0), (16.0, 1.0, 0.0), (4.0, -17.0, 0.0), (-3.0, -13.0, 0.0),
-     (4.0, -2.0, 0.0), (-3.0, 2.0, 0.0), (-5.0, -1.0, 0.0), (-2.0, -3.0, 0.0), (-4.0, -6.0, 0.0), (-20.0, -2.0, 0.0)],
-    holes=[[(4.0, 7.0, 0.0), (4.0, 13.0, 0.0), (11.0, 11.0, 0.0), (11.0, 7.0, 0.0)]])
-DEFAULT_MATERIAL_COMPONENT = MeshMaterial(DEFAULT_MATERIAL)
-
-
-def mesh_part_from_shape(shape, material=DEFAULT_MATERIAL_COMPONENT, **kwargs):
-    return MeshPart(shape.earcut.attributes, indices=reshape_indices(shape.earcut.indices), material=material, **kwargs)
-
-
-
-
-
-# res = go(myshape)
-# with open('test3.gltf', 'w') as f:
-#    json.dump(res, f, indent=2)
-def case1():
-    data = [{'bounds': [(7.0, 9.0, 15.0), (7.0, 9.0, 0.0), (24.0, 9.0, 0.0), (24.0, 9.0, 15.0), (7.0, 9.0, 15.0)],
-             'holes': None},
-            {'bounds': [(24.0, 24.0, 15.0), (24.0, 9.0, 15.0), (24.0, 9.0, 0.0), (24.0, 24.0, 0.0), (24.0, 24.0, 15.0)],
-             'holes': None},
-            {'bounds': [(7.0, 24.0, 15.0), (24.0, 24.0, 15.0), (24.0, 24.0, 0.0), (7.0, 24.0, 0.0), (7.0, 24.0, 15.0)],
-             'holes': None},
-            {'bounds': [(7.0, 24.0, 15.0), (7.0, 24.0, 0.0), (7.0, 9.0, 0.0), (7.0, 9.0, 15.0), (7.0, 24.0, 15.0)],
-             'holes': None},
-            {'bounds': [(7.0, 24.0, 0.0), (7.0, 9.0, 0.0), (24.0, 9.0, 0.0), (24.0, 24.0, 0.0), (7.0, 24.0, 0.0)],
-             'holes': None},
-            {'bounds': [(7.0, 24.0, 15.0), (7.0, 9.0, 15.0), (24.0, 9.0, 15.0), (24.0, 24.0, 15.0), (7.0, 24.0, 15.0)],
-             'holes': [
-                 [(20.0, 16.0, 15.0), (13.0, 16.0, 15.0), (13.0, 22.0, 15.0), (20.0, 22.0, 15.0), (20.0, 16.0, 15.0)]]},
-            {'bounds': [(13.0, 16.0, 15.0), (13.0, 16.0, 8.0), (13.0, 22.0, 8.0), (13.0, 22.0, 15.0),
-                        (13.0, 16.0, 15.0)],
-             'holes': None},
-            {'bounds': [(20.0, 22.0, 15.0), (13.0, 22.0, 15.0), (13.0, 22.0, 8.0), (20.0, 22.0, 8.0),
-                        (20.0, 22.0, 15.0)],
-             'holes': None},
-            {'bounds': [(20.0, 16.0, 15.0), (20.0, 22.0, 15.0), (20.0, 22.0, 8.0), (20.0, 16.0, 8.0),
-                        (20.0, 16.0, 15.0)],
-             'holes': None},
-            {'bounds': [(20.0, 16.0, 15.0), (20.0, 16.0, 8.0), (13.0, 16.0, 8.0), (13.0, 16.0, 15.0),
-                        (20.0, 16.0, 15.0)],
-             'holes': None},
-            {'bounds': [(20.0, 16.0, 8.0), (13.0, 16.0, 8.0), (13.0, 22.0, 8.0), (20.0, 22.0, 8.0), (20.0, 16.0, 8.0)],
-             'holes': None}]
-
-    data2 = [{'bounds': [(-2.4414586181062736, 6.643768432937762, 18.475367792037417),
-                         (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-                         (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-                         (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-                         (-2.4414586181062736, 6.643768432937762, 18.475367792037417)], 'holes': None}, {
-                 'bounds': [(5.914912265733953, 3.0, 12.74782122709649), (4.799810136790509, 3.0, 15.0),
-                            (5.914912265733953, 5.252178772903514, 15.0),
-                            (5.914912265733953, 7.685657498939348, 17.43347872603583),
-                            (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-                            (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-                            (5.914912265733953, 2.735910030633514, 12.483731257730003),
-                            (5.914912265733953, 3.0, 12.74782122709649)], 'holes': None}, {
-                 'bounds': [(5.914912265733953, 3.0, 12.74782122709649),
-                            (5.914912265733953, 2.735910030633514, 12.483731257730003),
-                            (5.381528096063782, 3.0, 12.219641288363519), (5.914912265733953, 3.0, 12.74782122709649)],
-                 'holes': None},
-             {'bounds': [(1.0, 10.119136224975179, 15.0), (1.0, 5.169388756669344, 10.05025253169417),
-                         (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-                         (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
-                         (1.0, 10.119136224975179, 15.0)], 'holes': None}, {
-                 'bounds': [(1.0, 2.9999999999999982, 12.219641288363519), (1.0, 5.169388756669344, 10.05025253169417),
-                            (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-                            (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-                            (5.914912265733953, 2.735910030633514, 12.483731257730003),
-                            (5.381528096063782, 3.0, 12.219641288363519),
-                            (1.0, 2.9999999999999982, 12.219641288363519)],
-                 'holes': None}, {
-                 'bounds': [(1.0, 10.119136224975179, 15.0),
-                            (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
-                            (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-                            (5.914912265733953, 7.685657498939348, 17.43347872603583), (1.0, 10.119136224975179, 15.0)],
-                 'holes': None},
-             {'bounds': [(4.799810136790509, 3.0, 15.0), (5.914912265733953, 3.0, 12.74782122709649),
-                         (5.381528096063782, 3.0, 12.219641288363519),
-                         (1.0, 2.9999999999999982, 12.219641288363519), (1.0, 3.0, 15.0),
-                         (4.799810136790509, 3.0, 15.0)], 'holes': None}, {
-                 'bounds': [(4.799810136790509, 3.0, 15.0), (5.914912265733953, 5.252178772903514, 15.0),
-                            (1.0, 10.119136224975179, 15.0), (1.0, 3.0, 15.0), (4.799810136790509, 3.0, 15.0)],
-                 'holes': None},
-             {'bounds': [(1.0, 10.119136224975179, 15.0), (5.914912265733953, 5.252178772903514, 15.0),
-                         (5.914912265733953, 7.685657498939348, 17.43347872603583),
-                         (1.0, 10.119136224975179, 15.0)], 'holes': None}, {
-                 'bounds': [(1.0, 5.169388756669344, 10.05025253169417), (1.0, 10.119136224975179, 15.0),
-                            (1.0, 3.0, 15.0),
-                            (1.0, 2.9999999999999982, 12.219641288363519), (1.0, 5.169388756669344, 10.05025253169417)],
-                 'holes': None}]
-
-    shapes = [Shape.from_shape_interface_dict(**item) for item in data]
-    shapes2 = [Shape.from_shape_interface_dict(**item) for item in data2]
-    shape1mesh = Mesh([mesh_part_from_shape(shp, material=random(GLTFMaterial)) for shp in shapes], name='shape1mesh')
-    shape2mesh = Mesh([mesh_part_from_shape(shp, material=DEFAULT_MATERIAL) for shp in shapes2],
-                      name='shape2mesh')
-
-    node1 = SceneNode(mesh=shape1mesh, name='shape1')
-    node2 = SceneNode(mesh=shape2mesh, name='shape2')
-
-    node0 = SceneNode(children=[node1, node2],
-                      name="shapes"
-                      )
-    _data = asscene(node0)
-    with open('test44.gltf', 'w') as f:
-        json.dump(_data.todict(), f, indent=2)
-    return shapes, shapes2, shape1mesh, shape2mesh, node1, node2, node0, _data
-
-
-import ujson
-
-
-def _gen(shapes, names, mask, tags):
-    cols = {'A-0': (0.5, 0.5, 0.5)}
-    for i, t in enumerate(shapes):
-        if mask[i] != 2:
-            name = names[i]
-            if name in tags:
-                tag = tags[name]
-                if tag not in cols:
-                    # print(tag)
-
-                    cols[tag] = tuple(np.random.random(3))
-                col = cols[tag]
-
-
-            else:
-                col = (0.5, 0.5, 0.5)
-
-            for tt in t:
-                if len(tt) > 3:
-
-                    if tt[0] == tt[-1]:
-                        tt = tt[:-1]
-                    yield ShapeInterface(tt), col
-                elif len(tt) == 3:
-
-                    yield ShapeInterface(tt), col
-
-
-from mmcore.geom.mesh import union_mesh, mesh_from_shapes
-
-
-def case2(parts=["w1", "w2", "w3", "w4", 'l2', 'f1', 'f2', 'f3', 'f5', 'sl1', 'sl3', 'sl1b', 'sl2b', 'sl3b', 'sl4b'],
-          random_mat=False):
-    # print(parts, "random mterial:", random_mat)
-    # s = time.time()
-
-    # with open('test_data.json', 'r') as f:
-    #    _ = ujson.load(f)
-    #    coldata = _['coldata']
-    #    ress = _['ress']
-    resp = requests.post("https://viewer.contextmachine.online/cxm/api/v2/mfb_contour_server/sw/contours-merged",
-                         json=dict(names=parts))
-    resp2 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_w/stats"
-                         )
-    resp3 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/stats"
-                         )
-    resp4 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_f/stats"
-                         )
-    coldata = {rr['name']: rr['tag'] for rr in resp2.json() + resp3.json() + resp4.json()}
-    mats = {"A-0": DEFAULT_MATERIAL_COMPONENT}
-    cols = {'A-0': (0.5, 0.5, 0.5)}
-    ress = resp.json()
-    #print("request", divmod(time.time() - s, 60))
-    parts = []
-    s = time.time()
-
-    shps, cols = list(zip(*_gen(ress['shapes'], ress['names'], ress['mask'], coldata)))
-    print(shps[:3], cols[:3])
-    m = union_mesh(mesh_from_shapes(shps, cols), ks=['position', 'color'])
-
-    print("creating parts", divmod(time.time() - s, 60))
-    s = time.time()
-
-    allshp = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
-                            indices=m.indices.reshape((len(m.indices), 1)),
-                            material=DEFAULT_MATERIAL_COMPONENT)],
-                  name='allshapes',
-                  extras={'parts': m.extras['parts'].tolist()})
-    print("create mesh", divmod(time.time() - s, 60))
-    s = time.time()
-    node_test = SceneNode(mesh=allshp,
-                          name="sw_node"
-                          )
-    print("create nodes", divmod(time.time() - s, 60))
-    s = time.time()
-
-    scene2 = asscene(node_test)
-    print("create scene", divmod(time.time() - s, 60))
-    s = time.time()
-    scene_dct = scene2.todict()
-    print("create dict", divmod(time.time() - s, 60))
-    s = time.time()
-    with open('testsw.gltf', 'w') as f:
-        ujson.dump(scene_dct, f, indent=2)
-    print("dump json", divmod(time.time() - s, 60))
-    #print(call_count_dict)
-
-
-from mmcore.geom.mesh import MeshTuple
-
-
-def create_union_mesh_node(m: MeshTuple, name="mesh"):
-    if m.indices:
+def create_union_mesh_node(m: MeshTuple, name="mesh", material=DEFAULT_MATERIAL_COMPONENT):
+    extras = dict()
+    for k, v in m.extras.items():
+        if isinstance(v, np.ndarray):
+            extras[k] = v.tolist()
+        else:
+            extras[k] = v
+    if m.indices is not None:
         gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
                                    indices=m.indices.reshape((len(m.indices), 1)),
-                                   material=DEFAULT_MATERIAL_COMPONENT)],
+                                   material=material)],
                          name=name,
-                         extras={'parts': m.extras['parts'].tolist()})
+
+                         extras=extras)
     else:
         gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
 
-                                   material=DEFAULT_MATERIAL_COMPONENT)],
+                                   material=material)],
                          name=name,
-                         extras={'parts': m.extras['parts'].tolist()})
+                         extras=extras)
 
     return SceneNode(mesh=gltf_mesh,
                      name=f"{name}_node"
                      )
 
 
-def get_mesh_wrap(mesh):
-    parts = mesh.extras['parts']
-    l = np.arange(len(parts))
-    u = np.unique(parts, return_index=True, return_inverse=True)
-    pc = Counter(parts)
-    pos = np.array(mesh.primitives[0].attributes.position)
-    cols = np.array(mesh.primitives[0].attributes.color)
-    ixsa = len(mesh.primitives[0].indices)
-    faces = np.array(mesh.primitives[0].indices).reshape((ixsa // 3, 3))
-
-    def get_mesh(i):
-        s = u[1][i]
-        fcs = faces[l[s:s + pc[i]]]
-        uniq, rv = np.unique(fcs.flatten(), return_inverse=True)
-
-        return {'attributes': {'position': pos[uniq], 'color': cols[uniq]}, 'indices': rv}
-
-    return get_mesh
-case2()
-
-# case2(random_mat=True)
+def create_scene_from_meshes(meshes: list[MeshTuple], names: list[str], mats: dict = None, name="root_node"):
+    if mats is None:
+        mats = defaultdict(lambda: DEFAULT_MATERIAL_COMPONENT)
+    root_node = SceneNode(children=[create_union_mesh_node(m, name=n, material=mats[n]) for m, n in zip(meshes, names)],
+                          name=name
+                          )
+    return asscene(root_node)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid as _uuid
 import dataclasses
 import hashlib
 import pprint
@@ -13,6 +14,7 @@ from strawberry.scalars import JSON
 import mmcore
 from mmcore.base.registry import ageomdict, objdict
 from mmcore.base.utils import getitemattr
+from mmcore.geom.materials import ColorRGB
 
 
 # noinspection PyProtectedMember
@@ -217,6 +219,8 @@ class BufferGeometryObject:
         ageomdict[self.uuid] = self
 
     def sha(self):
+        if isinstance(self.data, dict):
+            return hash(repr(self.data['attributes']['position']['array']))
         return hash(repr(self.data.attributes.position.array))
 
     def __hash__(self):
@@ -422,7 +426,7 @@ class BaseMaterial:
         if self.type is None:
             self.type = self.__class__.__name__
         if self.uuid is None:
-            self.uuid = str(self.color) + self.__class__.__name__.lower()
+            self.uuid = str(self.color) + str(self.opacity) + self.__class__.__name__.lower()
         if self.opacity < 1.0:
             self.transparent = True
 
@@ -431,7 +435,7 @@ class BaseMaterial:
         return self.color == other.color
 
     def __hash__(self):
-        return int(f'{self.color}{round(self.opacity * 100)}')
+        return hash(self.uuid)
 
 
 @strawberry.enum
@@ -463,6 +467,7 @@ class MeshBasicMaterial(BaseMaterial):
     stencilFail: int = 7680
     stencilZFail: int = 7680
     stencilZPass: int = 7680
+
 
 
 @strawberry.type
@@ -513,13 +518,14 @@ class PointsMaterial(BaseMaterial):
 class MeshPhongMaterial(BaseMaterial):
     name: str = "Default"
     color: int
+    vertexColors: bool = False
     type: Materials = Materials.MeshPhongMaterial
+
     emissive: int = 0
     specular: int = 1118481
     shininess: int = 30
     reflectivity: float = 0.1
     refractionRatio: float = 0.5
-
     side: int = 2
     depthFunc: int = 2
     depthTest: bool = True
@@ -620,6 +626,40 @@ def create_buffer_from_dict(kwargs) -> BufferGeometry:
     return dct
 
 
+def create_full_buffer(
+        uuid,
+        position=None,
+        uv=None,
+        index=None,
+        normal=None,
+        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+    attra = dict(position=create_buffer_position(position))
+    if color is not None:
+        attra['color'] = create_float32_buffer(color)
+    if normal is not None:
+        attra['normal'] = create_float32_buffer(normal)
+    if uv is not None:
+        attra['uv'] = create_buffer_uv(uv)
+    if index is not None:
+        ixs = create_buffer_index(index)
+        return BufferGeometry(**{
+            "uuid": uuid,
+            "type": threejs_type,
+            "data": {
+                "attributes": attra,
+                "index": ixs
+
+            }
+        })
+    else:
+        return BufferGeometry(**{
+            "uuid": uuid,
+            "type": threejs_type,
+            "data": {
+                "attributes": attra
+
+            }
+        })
 def create_buffer_from_occ(kwargs) -> BufferGeometry:
     return BufferGeometry(**{
         "uuid": kwargs.get('uuid'),
@@ -635,6 +675,207 @@ def create_buffer_from_occ(kwargs) -> BufferGeometry:
         })
     })
 
+
+def create_buffer_position(array, normalized=False):
+    return create_float32_buffer(array, normalized=normalized)
+
+
+def create_float32_buffer(array, normalized=False):
+    return {
+        'array': array,
+        'type': "Float32Array",
+        'itemSize': 3,
+        'normalized': normalized
+    }
+
+
+METERIAL_TYPE_MAP = dict(
+    MeshBasicMaterial=MeshBasicMaterial,
+    MeshPhongMaterial=MeshPhongMaterial,
+    PointsMaterial=PointsMaterial,
+    LineBasicMaterial=LineBasicMaterial
+
+)
+
+
+def create_material(store, uuid=None, color=(100, 100, 100), transparent=False, opacity: float = 1.0,
+                    vertexColors=False, material_type='MeshPhongMaterial', **kwargs):
+    if uuid is None:
+        uuid = _uuid.uuid4().hex
+    m = METERIAL_TYPE_MAP[material_type](uuid=uuid, color=ColorRGB(*color).decimal, vertexColors=vertexColors,
+                                         transparent=transparent, opacity=opacity, **kwargs)
+    store[uuid] = m
+    return m
+
+
+def update_material_color(store: dict, uuid, color: tuple[int, int, int]):
+    store[uuid].color = ColorRGB(color).decimal
+
+
+def update_material_opacity(store: dict, uuid, transparent=True, opacity: float = 1.0):
+    mat = store[uuid]
+    mat.transparent = transparent
+    mat.opacity = opacity
+
+
+def create_buffer_index(array):
+    return {
+        'type': 'Uint16Array',
+        "array": array
+    }
+
+
+def create_buffer_color(array, normalized=False):
+    return {
+        'array': array,
+        'type': "Float32Array",
+        'itemSize': 3,
+        'normalized': normalized
+    }
+
+
+def create_buffer_uv(array, normalized=False):
+    return {
+        'array': array,
+        'type': "Float32Array",
+        'itemSize': 2,
+        'normalized': normalized
+    }
+
+
+def create_buffer_normals(array, normalized=False):
+    return {
+        'array': array,
+        'type': "Float32Array",
+        'itemSize': 3,
+        'normalized': normalized
+    }
+
+
+from typing import TypedDict, Union
+
+
+class BufferAttr(TypedDict):
+    array: list[Union[float, int]]
+    normalized: typing.Optional[bool]
+
+
+def buffer_attr(array, normalized=None):
+    if normalized is not None:
+        return {
+            'array': array,
+            'normalized': normalized
+        }
+    else:
+        return {
+            'array': array
+        }
+
+
+def create_shape_buffer(uuid,
+                        position,
+                        index,
+                        color: typing.Optional[list[float]] = None,
+                        threejs_type="BufferGeometry") -> BufferGeometry:
+    if color:
+        return BufferGeometry(**{
+            "uuid": uuid,
+            "type": threejs_type,
+            "data": {
+                "attributes": {
+                    "position": create_buffer_position(position),
+                    'color': create_buffer_color(color)
+                },
+                "index": create_buffer_index(index)
+            }
+        }
+                              )
+    return BufferGeometry(**{
+        "uuid": uuid,
+        "type": threejs_type,
+        "data": {
+            "attributes": {
+                "position": create_buffer_position(position)
+            },
+            "index": create_buffer_index(index)
+        }
+    }
+                          )
+
+
+def update_shape_buffer(store: dict,
+                        uuid,
+                        position=None,
+                        index=None,
+                        color: typing.Optional[list[float]] = None) -> None:
+    buf = store[uuid]
+    for name, attr in (('position', position), ('color', color)):
+        if attr is not None:
+            buf.data["attributes"][name] = create_float32_buffer(array=attr)
+    if index is not None:
+        buf.index = create_buffer_index(index)
+
+
+def create_uvlike_buffer(store: dict,
+                         uuid,
+                         position=None,
+                         uv=None,
+
+                         normal=None,
+                         color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry") -> None:
+    attra = dict(position=create_buffer_position(position))
+    if color is not None:
+        attra['color'] = create_float32_buffer(color)
+    if normal is not None:
+        attra['normal'] = create_float32_buffer(normal)
+    if uv is not None:
+        attra['uv'] = create_buffer_uv(uv)
+
+    return BufferGeometry(**{
+        "uuid": uuid,
+        "type": threejs_type,
+        "data": {
+            "attributes": attra
+
+        }
+    }
+                          )
+
+
+def create_full_buffer(
+        uuid,
+        position=None,
+        uv=None,
+        index=None,
+        normal=None,
+        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+    attra = dict(position=create_buffer_position(position))
+    if color is not None:
+        attra['color'] = create_float32_buffer(color)
+    if normal is not None:
+        attra['normal'] = create_float32_buffer(normal)
+    if uv is not None:
+        attra['uv'] = create_buffer_uv(uv)
+    if index is not None:
+        ixs = create_buffer_index(index)
+        return BufferGeometry(**{
+            "uuid": uuid,
+            "type": threejs_type,
+            "data": {
+                "attributes": attra,
+                "index": ixs
+
+            }
+        })
+    else:
+        return BufferGeometry(**{
+            "uuid": uuid,
+            "type": threejs_type,
+            "data": {
+                "attributes": attra
+
+            }
+        })
 
 def create_buffer(uuid, normals, vertices, uv, indices) -> BufferGeometry:
     return BufferGeometry(**{

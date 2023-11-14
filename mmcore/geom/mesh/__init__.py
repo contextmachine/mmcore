@@ -1,9 +1,11 @@
 import typing
+from collections import namedtuple
 
 import numpy as np
 from msgspec import Struct, field
 
 from mmcore.base.geom import MeshData
+from mmcore.geom.shapes.shape import shape_earcut
 
 Vec3Union = tuple[float, float, float]
 Vec2Union = tuple[float, float]
@@ -24,7 +26,8 @@ class MeshAttributes(Struct, tag=True):
     position: list[Vec3Union]
     normal: typing.Optional[list[Vec3Union]] = None
     uv: typing.Optional[list[Vec2Union]] = None
-    color: typing.Optional[list[Vec4Union]] = None
+    color: typing.Optional[list[Vec3Union]] = None
+
 
     def __add__(self, other):
         dct = dict()
@@ -155,3 +158,78 @@ def mesh_to_md(mesh):
         for pp in mesh['primitives'][1:]:
             iadd_mesh_prims(p, pp)
     return mesh_prim_to_md(p)
+
+
+MeshTuple = namedtuple('MeshTuple', ['attributes', 'indices', 'extras'], defaults=[dict(), None, dict()])
+
+
+def colorize_mesh(mesh: MeshTuple, color: tuple[float, float, float]):
+    mesh.attributes['color'] = np.tile(color, len(mesh.attributes['position']) // 3)
+
+
+def create_mesh_tuple(attributes, indices=None, color=(0.5, 0.5, 0.5)):
+    if indices:
+        m = MeshTuple(attributes, np.array(indices, dtype=int), {'parts': np.zeros(len(indices), dtype=int)})
+    else:
+        m = MeshTuple(attributes, None, {})
+    colorize_mesh(m, color)
+    return m
+
+
+def sum_meshes(a: MeshTuple, b: MeshTuple):
+    attributes = dict()
+    for attr_name in a.attributes.keys():
+        attributes[attr_name] = np.append(np.array(a.attributes[attr_name]), b.attributes[attr_name])
+    if a.indices:
+
+        return MeshTuple(attributes,
+                         np.append(np.array(a.indices), np.array(b.indices) + (1 + np.max(a.indices))),
+                         {'parts': np.append(a.extras['parts'], a.extras['parts'][-1] + 1 + b.extras['parts'])})
+    else:
+        return MeshTuple(attributes,
+                         None,
+                         {})
+
+
+def mesh_from_shapes(shps, cols):
+    for shp, c in zip(shps, cols):
+        pos, ixs, _ = shape_earcut(shp)
+
+        yield create_mesh_tuple(dict(position=pos), ixs, c)
+
+
+def gen_indices_and_extras(meshes, ks):
+    max_index = -1
+
+    for j, m in enumerate(meshes):
+        ixs = None
+        if m.indices is not None:
+
+            ixs = m.indices + max_index + 1
+            face_cnt = len(m.indices) // 3
+            max_index = np.max(ixs)
+
+            yield *tuple(m.attributes[k] for k in ks), ixs, np.repeat(j, face_cnt)
+        else:
+            try:
+                yield *tuple(m.attributes[k] for k in ks), ixs, None
+            except Exception as err:
+                print(m, err)
+
+
+def union_mesh(meshes, ks=('position',)):
+    *zz, = zip(*gen_indices_and_extras(meshes, ks))
+    try:
+        if zz[-2][0] is not None:
+            return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                             np.concatenate(zz[-2]),
+                             extras=dict(
+                                 parts=np.concatenate(zz[-1])))
+        else:
+            return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                             None,
+                             extras={})
+    except IndexError:
+        return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                         None,
+                         extras={})

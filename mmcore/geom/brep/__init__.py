@@ -245,6 +245,8 @@ def extrude_vertex(v: BrepVertex, vec: tuple[float, float, float]):
     return v.brep.add_line_edge(v.point, tuple(np.array(v.point) + np.array(vec)))
 
 
+def regions():
+    ...
 def extrude_line_edge(edge: BrepEdge, vec: tuple[float, float, float]):
     v1, v2 = edge.bounds
     e1 = extrude_vertex(v1, vec)

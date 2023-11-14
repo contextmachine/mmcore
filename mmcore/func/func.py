@@ -1,5 +1,7 @@
 from operator import methodcaller
 
+import numpy as np
+
 
 class MapMethodDescriptor:
     def __init__(self, fun):
@@ -36,3 +38,10 @@ def even_filter(iterable, reverse=False):
         return reverse != ((iterable.index(item) % 2) == 0)
 
     return filter(even_filter_num, iterable)
+
+
+def vectorize(**kws):
+    def wrap(fun):
+        return np.vectorize(fun, **kws)
+
+    return wrap
