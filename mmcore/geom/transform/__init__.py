@@ -1,6 +1,4 @@
 #  Copyright (c) 2022. Computational Geometry, Digital Engineering and Optimizing your construction processe"
-import functools
-import operator
 import warnings
 from collections import namedtuple
 from typing import Any, ContextManager, Union
@@ -11,6 +9,7 @@ from compas.data import Data
 from compas.geometry import Transformation
 from numpy import ndarray
 
+from mmcore.func import vectorize
 from mmcore.geom.vectors import unit
 
 
@@ -64,18 +63,19 @@ def zero_transform():
             [0.0, 0.0, 0.0, 0.0]]
 
 
-def matmul(t1, t2):
-    def mr(m1, m2):
-        mmm = zero_transform()
+@vectorize(signature='(j)->(i)')
+def to_harmonic(arr):
+    return np.append(arr, 1)
 
-        for i in range(len(m1)):
 
-            for j in range(len(m2)):
-                mmm[i][j] = functools.reduce(operator.add, map(lambda k: m1[j][k[1]] * m2[i][k[0]],
-                                                               zip(range(len(m1[i])), range(len(m2[j])))))
-        return mmm
+@vectorize(signature='(i)->(j)')
+def from_harmonic(arr):
+    return arr[:-1]
 
-    return mr(transpose(t1), t2)
+
+@vectorize(signature='(i),(u,u)->(i)')
+def transform_points(pts, trx):
+    return transform_point2d(pts, trx) if len(pts) == 2 else transform_point3d(pts, trx)
 
 
 def mirror(right):
@@ -555,3 +555,58 @@ def global_to_custom(point, origin, x_axis, y_axis, z_axis):
 
     # Return the transformed point as a tuple of three numbers
     return tuple(transformed_point)
+
+
+def transform_point3d(pt, trx):
+    return (trx @ np.append(pt, [1]))[:3]
+
+
+def transform_point2d(pt, trx):
+    return (trx @ np.append(pt, [0, 1]))[:2]
+
+
+transform_point3d_vec = np.vectorize(transform_point3d, excluded=[1], signature='(i)->(i)')
+
+
+def move_matrix(vec):
+    trx = np.eye(4)
+    trx[0:len(vec), -1] = vec
+    return trx
+
+
+def compound_transforms(first, second):
+    return second @ first
+
+
+def matmul(a, b):
+    for row in a:
+        yield [np.dot(row, col) for col in b]
+
+
+def add_transforms(first, second):
+    return second @ first
+
+
+def reduce_transforms(trxs):
+    trx = np.eye(4)
+    for tr in trxs:
+        trx = tr @ trx
+    return trx
+
+
+def axis_rotation_transform(angle, origin=(0, 0, 0), axis=(0, 0, 1)):
+    return reduce_transforms([move_matrix(origin * -1),
+                              pq.Quaternion(axis=axis, angle=angle).transformation_matrix,
+                              move_matrix(origin)])
+
+
+def rotate_around_axis(pts, angle, origin=(0, 0, 0), axis=(0, 0, 1)):
+    return transform_points(pts, axis_rotation_transform(origin=origin, angle=angle, axis=axis))
+
+
+def multi_angle_rotate_around_axis(pts, angles, origin=(0, 0, 0), axis=(0, 0, 1)):
+    z = np.zeros(((len(angles),) + pts.shape))
+    for i, a in enumerate(angles):
+        z[i] = transform_points(pts, axis_rotation_transform(origin=origin, angle=a, axis=axis))
+
+    return z

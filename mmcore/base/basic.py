@@ -654,14 +654,21 @@ class A:
     def reset_transform(self):
         self.matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 
-    def dispose(self):
-
-        for k, obj, in adict.items():
-            v = idict[k]
-            if self.uuid in v.values():
-                obj.__delattr__(list(v.keys())[list(v.values()).index(self.uuid)])
+    def dispose(self, ignore_ref=False):
+        if hasattr(self, '_geometry'):
+            del ageomdict[self._geometry]
+        elif hasattr(self, '_material'):
+            del amatdict[self._material]
         del idict[self.uuid]
+        if not ignore_ref:
+            d = dict(idict.items())
+
+            for k, obj, in d:
+
+                if self.uuid in obj.values():
+                    del d[k]
         adict.__delitem__(self.uuid)
+        del self
 
     def dump(self, filename):
         with open(filename, "w") as f:

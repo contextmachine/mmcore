@@ -190,9 +190,9 @@ def sum_meshes(a: MeshTuple, b: MeshTuple):
                          None,
                          {})
 
-
 def mesh_from_shapes(shps, cols):
     for shp, c in zip(shps, cols):
+
         pos, ixs, _ = shape_earcut(shp)
 
         yield create_mesh_tuple(dict(position=pos), ixs, c)
@@ -215,7 +215,6 @@ def gen_indices_and_extras(meshes, ks):
                 yield *tuple(m.attributes[k] for k in ks), ixs, None
             except Exception as err:
                 print(m, err)
-
 
 def union_mesh(meshes, ks=('position',)):
     *zz, = zip(*gen_indices_and_extras(meshes, ks))

@@ -1,3 +1,5 @@
+import inspect
+
 components = dict()
 _components_type_name_map = dict()
 import functools
@@ -249,7 +251,7 @@ def component(name=None):
                     fields[k] = SoAField(default=val)
 
             else:
-                fields[k] = SoAField(default=v())
+                fields[k] = SoAField(default=None)
 
         _soa = SoA(name, **fields)
 
@@ -263,6 +265,12 @@ def component(name=None):
                 return _soa[uuid]
             dct = dict(zip(keys[:len(args)], args))
             dct |= kwargs
+            for fld in set.difference(set(fields), set(dct.keys())):
+                val = getattr(cls, fld)
+                if inspect.isfunction(getattr(cls, fld)):
+                    dct[fld] = val()
+
+
 
             _soa[uuid] = dct
             return _soa[uuid]
@@ -301,3 +309,7 @@ def request_component_type(name):
 
 def request_component(name, uuid):
     return request_component_type(name)[uuid]
+
+
+def default_value(comp, field: str):
+    return request_component_type(comp.component_type).fields['data'].default()

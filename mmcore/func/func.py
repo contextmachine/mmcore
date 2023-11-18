@@ -1,3 +1,4 @@
+import functools
 from operator import methodcaller
 
 import numpy as np
@@ -41,7 +42,15 @@ def even_filter(iterable, reverse=False):
 
 
 def vectorize(**kws):
-    def wrap(fun):
-        return np.vectorize(fun, **kws)
+    def decorate(fun):
+        if 'doc' not in kws:
+            kws['doc'] = doc = fun.__doc__
+        vecfun = np.vectorize(fun, **kws)
 
-    return wrap
+        @functools.wraps(fun)
+        def wrap(*args, **kwargs):
+            return vecfun(*args, **kwargs)
+
+        return wrap
+
+    return decorate
