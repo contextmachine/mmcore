@@ -2,11 +2,12 @@ import abc
 import dataclasses
 import typing
 from collections import namedtuple
-from mmcore.func import vectorize
+
 import numpy as np
 
 from mmcore.collections import DCLL
 from mmcore.exceptions import MmodelIntersectException
+from mmcore.func import vectorize
 from mmcore.geom.parametric.wrappers import AbstractParametricCurve
 
 SPEEDUPS = False
@@ -403,10 +404,11 @@ def line_line_intersection(line1, line2):
 
 
 def line_line_intersection2d(line1, line2):
-    x1, y1 = line1[0]
-    x2, y2 = x1 + line1[1][0], y1 + line1[1][1]
-    x3, y3 = line2[0]
-    x4, y4 = x3 + line2[1][0], y3 + line2[1][1]
+    line1, line2 = np.array([line1, line2])
+    x1, y1 = line1[0, :2]
+    x2, y2 = x1 + line1[1, 0], y1 + line1[1, 1]
+    x3, y3 = line2[0, :2]
+    x4, y4 = x3 + line2[1, 0], y3 + line2[1, 1]
 
     # Calculate the denominator
     denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
@@ -421,6 +423,47 @@ def line_line_intersection2d(line1, line2):
 
     return [x, y]
 
+
+def pts_line_line_intersection2d(line1, line2):
+    line1, line2 = np.array([line1, line2])
+    x1, y1 = line1[0, :2]
+    x2, y2 = line1[1, :2]
+    x3, y3 = line2[0, :2]
+    x4, y4 = line2[1, :2]
+
+    # Calculate the denominator
+    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+
+    # Check if the lines are parallel
+    if denominator == 0:
+        return None
+
+    # Calculate the intersection point
+    x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
+    y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
+
+    return [x, y]
+
+
+def pts_line_line_intersection2d_as_3d(line1, line2):
+    line1, line2 = np.array([line1, line2])
+    x1, y1 = line1[0, :2]
+    x2, y2 = line1[1, :2]
+    x3, y3 = line2[0, :2]
+    x4, y4 = line2[1, :2]
+
+    # Calculate the denominator
+    denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+
+    # Check if the lines are parallel
+    if denominator == 0:
+        return None
+
+    # Calculate the intersection point
+    x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
+    y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
+
+    return [x, y, 0.0]
 
 def bounded_line_intersection2d(line1, line2):
     res = np.array(line_line_intersection2d(line1, line2))
@@ -521,6 +564,71 @@ def project_point_onto_plane(point, plane_point, plane_normal):
     return projected_point
 
 
+@vectorize(excluded=[0, 1], signature='()->(i)')
+def pde_central(f, h, t):
+    return (f(t + h) - f(t - h)) / (2 * h)
+
+
+@vectorize(excluded=[0, 1], signature='()->(i)')
+def pde_forward(f, h, t):
+    return (f(t + h) - f(t)) / h
+
+
+@vectorize(excluded=[0, 1], signature='()->(i)')
+def pde_backward(f, h, t):
+    return (f(t) - f(t - h)) / h
+
+
+@vectorize(excluded=[0, 1], signature='()->(i)')
+def pde_central_s(f, h, t):
+    return (f(t + h) - f(t - h)) / (2 * h)
+
+
+PDE_METHODS = dict(central=pde_central, forward=pde_forward, backward=pde_backward)
+
+
+@vectorize(excluded=['func', 'method', 'h', 'transpose'], signature='(),()->(i)')
+def pde_offset_2d_as_3d(dist, t, func=None, method=pde_central, h=0.01):
+    m = method
+    xyz = func(t)
+    d = m(func, h, t)
+    norm = _ns(d[0], d[1])
+    res = np.array([xyz[0] + (dist * d[1] / norm), xyz[1] - (dist * d[0] / norm), xyz[2]])
+
+    return res.T
+
+
+def pde_offset2(dist, func=None, method="central", h=0.01):
+    m = pde_central_s
+
+    def ff(t):
+        xyz = func(t)
+        d = m(func, h, t)
+        norm = _ns(d[0], d[1])
+        return np.array([xyz[0] + (dist * d[1] / norm), xyz[1] - (dist * d[0] / norm), xyz[2]])
+
+    return ff
+
+
+@vectorize(excluded=['func', 'method', 'h', 'transpose'], signature='(),()->(i)')
+def pde_offset_2d(dist, t, func=None, method="central", h=0.01):
+    m = PDE_METHODS[method]
+    xyz = func(t)
+    dx, dy = m(func, h, t)
+    return np.array([xyz[0] + (dist * dy / _ns(dx, dy)), xyz[1] - (dist * dx / _ns(dx, dy))])
+
+
+@vectorize(excluded=['func', 'method', 'h'], signature='(),(j)->(i,j)')
+def pde_offset_3d(dist, t, func=None, method="central", h=0.01):
+    m = PDE_METHODS[method]
+
+    xyz = func(t)
+    dx, dy, dz = m(func, h, t)
+
+    return np.array([xyz[0] + (dist * d[1] / _ns2(dx, dy, dz)),
+                     xyz[1] - (dist * d[0] / _ns2(dx, dy, dz)),
+                     xyz[2] + (dist * d[2] / _ns2(dx, dy, dz))])
+
 class Derivative:
     def __init__(self, f, method="central", h=0.01):
         super().__init__()
@@ -562,6 +670,32 @@ def offset_curve_2d(c, d):
 
     return wrap
 
+
+def offset_curve_3d_as_2d(c, d):
+    df = Derivative(c)
+
+    def wrap(t):
+        x, y, z = c(t)
+        dx, dy = df(t)
+        ox = x + (d * dy / _ns(dx, dy))
+        oy = y - (d * dx / _ns(dx, dy))
+        return [ox, oy, z]
+
+    return wrap
+
+
+def variable_offset_curve_3d_as_2d(c):
+    df = Derivative(c)
+
+    def wrap(t, d):
+        x, y, z = c(t)
+        dxdy = df(t)
+        dst = _ns(dxdy[0], dxdy[1])
+        ox = x + (d * dxdy[1] / dst)
+        oy = y - (d * dxdy[0] / dst)
+        return [ox, oy, z]
+
+    return wrap
 
 def offset_curve_3d(c, d):
     df = Derivative(c)
@@ -779,9 +913,6 @@ def tangents_lines(pt, circle: Circle2dTuple):
     return [T1x, T1y], [T2x, T2y]
 
 
-from mmcore.geom.vectors import unit
-
-
 def closest_point_on_circle_2d(pt, circle: Circle2dTuple):
     r, ox, oy = circle
     un = unit(np.array([pt[0] - ox, pt[1] - oy]))
@@ -892,8 +1023,23 @@ def intersect_polylines(pln1, pln2, closed=(False, False)):
             if res is not None:
                 res2, (t1, t2), (d1, d2) = res
 
+                yield res2, (t1 + i, t2 + j), (i, j)
+
+
+def intersect_lines(lines):
+    for line1, line2 in itertools.pairwise(lines):
+
+        res = bounded_line_intersection2d(line1, line2)
+
+        if res is not None:
+            res2, (t1, t2), (d1, d2) = res
+
                 yield res2, (t1 + i, t2 + j), (d1, d2)
 
+
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 
 
 def variable_line_offset_2d(bounds: list[PointUnion], distances: list[float]):
@@ -919,3 +1065,29 @@ def variable_line_offset_2d(bounds: list[PointUnion], distances: list[float]):
             yield pt + [bounds[i][-1]]
         else:
             yield pt + [0]
+
+
+def ptline_to_func(start, end):
+    start, end = np.array(start), np.array(end)
+    direction = end - start
+
+    def wrap(t):
+        return direction * t + start
+
+    return np.vectorize(wrap, signature='()->(i)')
+
+
+def perp_vector2d(vec): ...
+
+
+def polygon_variable_offset(points, dists):
+    lines = polyline_to_lines(points)
+    sides = [variable_offset_curve_3d_as_2d(ptline_to_func(line[0], line[1])) for line in lines]
+    offset_lines = DCLL.from_list([(side(0.0, dists[i][0]), side(1.0, dists[i][1])) for i, side in enumerate(sides)])
+    current = offset_lines.head
+
+    for i in range(len(offset_lines)):
+        current.data
+        current.data, current.next.data
+        yield pts_line_line_intersection2d_as_3d(current.data, current.next.data)
+        current = current.next

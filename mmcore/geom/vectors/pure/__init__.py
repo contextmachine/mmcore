@@ -1,7 +1,9 @@
 import functools
-import math
 import typing
 from operator import add, sub
+
+import math
+
 try:
     import numpy as np
     from numpy import ndarray as _ndarray
@@ -16,21 +18,10 @@ def dot(u, v):
     @param v:
     @return: float
     """
-    if isvector(u):
-        res:float = 0.0
-        for (i,j) in zip(u, v):
-            res += i*j
-
-        return res
-
-    elif hasattr(u, "z") and hasattr(v, "z"):
-        return u.x * v.x + u.y * v.y + u.z * v.z
-    elif (not hasattr(u, "z")) and (not hasattr(v, "z")):
-
-        return u.x * v.x + u.y * v.y
-
-    else:
-        raise TypeError(f"You can apply the dot product to vectors of the same dimension. \n\t{u}, {v}")
+    res = 0
+    for x, y in zip(u, v):
+        res += (x * y)
+    return res
 
 
 def norm(v):
@@ -73,8 +64,12 @@ def ptruediv(self, other: float):
     return list(map(lambda x: x / other, list(self)))
 
 
-def pmatmul(self, other: float):
-    return list(map(lambda x: x / other, list(self)))
+def pmatmul(a, b):
+    return [[dot(col, row) for col in b] for row in a]
+
+
+
+
 class V2(typing.Iterable):
     """Pure implementation a vector 2D """
 

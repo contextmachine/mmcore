@@ -45,7 +45,7 @@ class Vector(Iterable):
         return self - other
 
 
-def unit(vec) -> np.ndarray:
+def _unit(vec) -> np.ndarray:
     return vec / np.linalg.norm(vec)
 
 
@@ -974,3 +974,5 @@ def triangle_plane(p1, p2, p3):
     Nz = Ax * By - Ay * Bx
     return np.array([A, B, (Nx, Ny, Nz)])
 
+
+unit = np.vectorize(_unit, signature='(i)->(i)')
