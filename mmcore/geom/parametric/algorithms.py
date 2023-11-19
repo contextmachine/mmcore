@@ -3,6 +3,7 @@ import dataclasses
 import typing
 from collections import namedtuple
 
+import itertools
 import numpy as np
 
 from mmcore.collections import DCLL
@@ -1027,14 +1028,14 @@ def intersect_polylines(pln1, pln2, closed=(False, False)):
 
 
 def intersect_lines(lines):
-    for line1, line2 in itertools.pairwise(lines):
+    for i, (line1, line2) in enumerate(itertools.pairwise(lines)):
 
         res = bounded_line_intersection2d(line1, line2)
 
         if res is not None:
             res2, (t1, t2), (d1, d2) = res
 
-                yield res2, (t1 + i, t2 + j), (d1, d2)
+            yield res2, (t1, t2), (i, i + 1)
 
 
 @vectorize(signature='(i,j)->(i,k,j)')

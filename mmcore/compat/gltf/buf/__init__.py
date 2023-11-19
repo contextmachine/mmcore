@@ -1,8 +1,20 @@
 import struct
+from enum import Enum
 
+import numpy as np
 from more_itertools import chunked
 
-DTYPES = dict(DOUBLE=('d', 8), FLOAT=('f', 4), INT=('i', 4), USHORT=('H', 2), CHAR=('c', 1))
+
+class BufferType(tuple, Enum):
+    double = ('d', 8, float)
+    float = ('f', 4, np.float32)
+    int = ('i', 4, int)
+    ushort = ('H', 2, np.uint8)
+    char = ('c', 1, np.char)
+
+
+DTYPES = dict(double=('d', 8, float), float=('f', 4, np.float32), int=('i', 4, int), ushort=('H', 2, np.uint8),
+              char=('c', 1, np.char))
 
 from itertools import count
 import base64
@@ -128,3 +140,27 @@ class BufferView:
             return self.chunked(dat)
         else:
             return dat
+
+    def __array__(self):
+        return np.frombuffer(self._buffer, dtype=self.dtype).reshape((self.length, self.shift))
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self.get(item)
+        else:
+            return self.get_many(*item)
+
+    def __setitem__(self, item, value):
+        if isinstance(item, int):
+            self.set(item, value)
+        else:
+            self.set_many(*item, value)
+
+    def __len__(self):
+        return self.length
+
+    def __iter__(self):
+        return iter(self.decode_all())
+
+    def __repr__(self):
+        return f'BufferView(length={self.length}, shift={self.shift}, size={self.size}, dtype={str(self.dtype)})'

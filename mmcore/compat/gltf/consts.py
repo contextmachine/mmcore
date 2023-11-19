@@ -15,7 +15,7 @@ class MediaTypes(str, Enum):
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
 BUFFER_DEFAULT_HEADER = "data:application/octet-stream;base64"
-MESH_PRIM_KEYS = 'POSITION', 'NORMAL', 'TANGENT', 'TEXCOORD_n', 'COLOR_0', 'JOINTS_n', 'WEIGHTS_n', '_SPECIFIC'
+MESH_PRIM_KEYS = 'POSITION', 'NORMAL', 'TANGENT', 'TEXCOORD_n', 'COLOR_0', 'JOINTS_n', 'WEIGHTS_n', '_SPECIFIC', '_OBJECTID'
 DEFAULT_ASSET = {
     "generator": f"mmcore@{__version__()}",
     "version": "2.0"
@@ -196,7 +196,8 @@ attrmap = dict(
     TEXCOORD='uv',
     COLOR_0='colors',
     JOINTS='joints',
-    WEIGHTS='weights'
+    WEIGHTS='weights',
+    _OBJECTID='_objectid'
 )
 
 attrmap2 = dict(
@@ -206,7 +207,8 @@ attrmap2 = dict(
     TEXCOORD='uv',
     COLOR_0='color',
     JOINTS='joints',
-    WEIGHTS='weights'
+    WEIGHTS='weights',
+    _OBJECTID='_objectid'
 )
 attrTable = Table.from_lists(pk="mmcore", rows=[
     ["position", 'vertices', 'POSITION', 'VEC3'],
@@ -215,7 +217,9 @@ attrTable = Table.from_lists(pk="mmcore", rows=[
     ["uv", 'uv', 'TEXCOORD_0', 'VEC2'],
     ["color", None, 'COLOR_0', 'VEC3'],
     ["joints", None, 'JOINTS_0', 'SCALAR'],
-    ["weights", None, 'WEIGHTS_0', 'SCALAR']], schema=dict(mmcore=str, meshdata=str, gltf=str, gltf_type=str))
+    ["weights", None, 'WEIGHTS_0', 'SCALAR'],
+    ["_objectid", "_objectid", "_OBJECTID", "SCALAR"]
+], schema=dict(mmcore=str, meshdata=str, gltf=str, gltf_type=str))
 
 attrmap_ext = dict(
     position='POSITION',
@@ -224,7 +228,8 @@ attrmap_ext = dict(
     uv='TEXCOORD',
     color='COLOR_0',
     joints='JOINTS',
-    weights='WEIGHTS'
+    weights='WEIGHTS',
+    _objectid="_OBJECTID"
 )
 typeAttrTable = dict(
     POSITION='vertices',
@@ -233,7 +238,8 @@ typeAttrTable = dict(
     TEXCOORD='uv',
     COLOR_0='colors',
     JOINTS='joints',
-    WEIGHTS='weights'
+    WEIGHTS='weights',
+    _OBJECTID='_objectid'
 )
 
 typeAttrTable3 = dict(
@@ -243,10 +249,11 @@ typeAttrTable3 = dict(
     TEXCOORD='uv',
     COLOR_0='colors',
     JOINTS='joints',
-    WEIGHTS='weights'
+    WEIGHTS='weights',
+    _OBJECTID='_objectid'
 )
 typeTargetsMap = Index.fromdict({
-    'SCALAR': ELEMENT_ARRAY_BUFFER,
+    'SCALAR': ARRAY_BUFFER,
     'VEC2': ARRAY_BUFFER,
     'VEC3': ARRAY_BUFFER,
     'VEC4': ARRAY_BUFFER,
@@ -261,7 +268,8 @@ componentAttrMap = Index.fromdict({
     attrTable["uv"]: componentTypeCodeTable[5126],
     attrTable["color"]: componentTypeCodeTable[5126],
     attrTable["joints"]: componentTypeCodeTable[5126],
-    attrTable["weights"]: componentTypeCodeTable[5126]
+    attrTable["weights"]: componentTypeCodeTable[5126],
+    attrTable["_objectid"]: componentTypesTable[5123]
 
 })
 meshPrimitiveAttrTable = Table(
