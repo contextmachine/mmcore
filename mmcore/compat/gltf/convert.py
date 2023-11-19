@@ -1,11 +1,8 @@
-import base64
 import functools
-import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from functools import reduce
 from uuid import uuid4
-import numpy as np
-import requests
+
 import time
 from itertools import count
 
@@ -661,13 +658,18 @@ class BufferView:
 v1 = BufferView('VEC3', 5126, name='vec3view')
 v2 = BufferView('VEC2', 5126, name='vec2view')
 v3 = BufferView('SCALAR', 5125, name='indices_view')
-
+v4 = BufferView('SCALAR', 5123, name='objectid_view')
 view_typemap = {
-    'VEC3': v1,
-    'VEC2': v2,
-    "SCALAR": v3
+    'position': v1,
+    'normal': v1,
+    'color': v1,
+    'uv': v2,
+    "_objectid": v4,
+    "indices": v3
+
+
 }
-from mmcore.geom.shapes import Shape, ShapeInterface
+from mmcore.geom.shapes import Shape
 
 from mmcore.compat.gltf import GLTFPrimitive, GLTFMesh
 
@@ -747,7 +749,7 @@ class MeshAttributes:
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
-            view = view_typemap[attrTable[k]['gltf_type']]
+            view = view_typemap[attrTable[k]['mmcore']]
 
             self.__dict__[k] = view.new_accessor(v)
 
@@ -785,7 +787,7 @@ class MeshPart:
         self._material = material
         self._indices = None
         if indices is not None:
-            self._indices = view_typemap["SCALAR"].new_accessor(indices)
+            self._indices = view_typemap['indices'].new_accessor(indices)
         self.extras = kwargs
 
     @call_counter
@@ -908,6 +910,14 @@ class Mesh:
                         **kwargs)
 
 
+ITEMSIZER = dict(
+    position=3,
+    normal=3,
+    uv=2,
+    color=3,
+    _objectid=1
+
+)
 def create_union_mesh_node(m: MeshTuple, name="mesh", material=DEFAULT_MATERIAL_COMPONENT):
     extras = dict()
     for k, v in m.extras.items():
@@ -916,14 +926,16 @@ def create_union_mesh_node(m: MeshTuple, name="mesh", material=DEFAULT_MATERIAL_
         else:
             extras[k] = v
     if m.indices is not None:
-        gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
+        gltf_mesh = Mesh(
+            [MeshPart({k: v.reshape((len(v) // ITEMSIZER[k], ITEMSIZER[k])) for k, v in m.attributes.items()},
                                    indices=m.indices.reshape((len(m.indices), 1)),
                                    material=material)],
                          name=name,
 
                          extras=extras)
     else:
-        gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
+        gltf_mesh = Mesh(
+            [MeshPart({k: v.reshape((len(v) // ITEMSIZER[k], ITEMSIZER[k])) for k, v in m.attributes.items()},
 
                                    material=material)],
                          name=name,
