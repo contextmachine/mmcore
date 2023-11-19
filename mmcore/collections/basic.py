@@ -791,11 +791,15 @@ class DCLL:
 
         return lst
 
-    def __init__(self):
-
+    def __init__(self, seq=None):
         self.head = None
         self.count = 0
         self._temp = self.head
+
+        if seq is not None:
+            for s in seq:
+                self.append(s)
+
 
     def reload(self):
         self._temp = self.head
