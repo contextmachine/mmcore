@@ -1,6 +1,7 @@
 import struct
 from enum import Enum
 
+import more_itertools
 import numpy as np
 from more_itertools import chunked
 

@@ -11,6 +11,7 @@ from shapely.geometry import mapping
 
 from mmcore.base.geom import MeshData
 from mmcore.geom import vectors
+from mmcore.geom.mesh import MeshTuple, create_mesh_tuple
 from mmcore.geom.parametric import PlaneLinear
 from mmcore.geom.parametric import algorithms
 from mmcore.geom.shapes.area import polygon_area
@@ -147,6 +148,14 @@ class ShapeInterface:
     def area(self):
         return shape_area(self)
 
+    def tessellate(self):
+        return shape_earcut(self)
+
+    def to_mesh(self) -> MeshTuple:
+        res = self.tessellate()
+        return create_mesh_tuple(attributes=dict(position=np.array(res.position).flatten()),
+                                 indices=np.array(res.indices,
+                                                  dtype=int).flatten())
 
 def shape_area(shp: ShapeInterface):
     result = polygon_area(np.array(shp.bounds + [shp.bounds[0]]), cast_to_numpy=False)
@@ -243,29 +252,7 @@ def chamfer_pts(prev_point, origin, next_point, value: float):
          pts[2]])
 
 
-class PlaneShape:
-    _shape: ShapeInterface = None
-    _plane: PlaneLinear = _worldxy
 
-    def __init__(self, shape: ShapeInterface, plane: PlaneLinear = _worldxy):
-        self.plane = plane
-        self.shape = shape
-
-    @property
-    def plane(self):
-        return self._plane
-
-    @plane.setter
-    def plane(self, v):
-        self._plane = v
-
-    @property
-    def shape(self):
-        return shape_at_global(plane=self.plane, shape=self._shape)
-
-    @shape.setter
-    def shape(self, v):
-        self._shape = v
 
 
 @functools.lru_cache(None)
@@ -356,9 +343,12 @@ ShapeEarcutResult = namedtuple("ShapeEarcutResult", ['position', 'indices', 'arg
 def shape_earcut(self: ShapeInterface) -> ShapeEarcutResult:
     if self.holes is None:
         arguments = earcut.flatten([self.bounds])
+        return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
+                                                                      arguments['holes'],
+                                                                      arguments['dimensions']), arguments)
+
     else:
         arguments = earcut.flatten([self.bounds] + self.holes)
-
-    return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
-                                                                  arguments['holes'],
-                                                                  arguments['dimensions']), arguments)
+        return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
+                                                                      arguments['holes'],
+                                                                      arguments['dimensions']), arguments)
