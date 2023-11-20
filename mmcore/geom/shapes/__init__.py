@@ -19,7 +19,7 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.parametric import PlaneLinear, point_to_plane_distance, project_point_onto_plane
 from mmcore.geom.parametric.algorithms import centroid
 from mmcore.geom.shapes.shape import ShapeInterface, extrude_shape, tess_extrusion
-from mmcore.geom.transform import Transform, WorldXY
+from mmcore.geom.transform import WorldXY
 
 
 def to_list_req(obj):
@@ -285,65 +285,6 @@ class TrxMng:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._obj.transform(self.from_world)
 
-
-@dataclasses.dataclass
-class Boundary:
-    bnds: dataclasses.InitVar[typing.Optional[list[tuple[float, float, float]]]]
-    hls: dataclasses.InitVar[typing.Optional[list[tuple[float, float, float]]]] = None
-    matrix: Transform = Transform()
-    uuid: typing.Optional[str] = None
-
-    color = (0, 0, 0)
-
-    def __post_init__(self, bnds, hls=None):
-        self._plane = PlaneLinear(origin=np.array(WorldXY.origin), xaxis=np.array(WorldXY.xaxis),
-                                  yaxis=np.array(WorldXY.yaxis))
-        if self.uuid is None:
-            self.uuid = uuid.uuid4().hex
-        self._holes = [] if hls is None else hls
-        self._boundary = bnds
-
-    @property
-    def boundary(self):
-        return np.array(self._boundary @ self.matrix).tolist()
-
-    @property
-    def holes(self):
-        l = []
-        for hole in self._holes:
-            l.append(np.array(self._holes @ self.matrix).tolist())
-        return l
-
-    def transform(self, m):
-        self.matrix = self.matrix @ m
-
-    def to_shape(self):
-        if self._holes is not None:
-            holes = (np.array(self._holes)[..., :2]).tolist()
-            return LegacyShape((np.array(self._boundary)[..., :2]).tolist(), holes=holes)
-        return LegacyShape((np.array(self._boundary)[..., :2]).tolist())
-
-    def to_mesh(self, *args, **kwargs):
-
-        msh = self.to_shape().mesh_data.to_mesh(uuid=self.uuid, *args, **kwargs)
-        msh @ self.plane.transform_from_other(WorldXY)
-        # msh.wires = ALine(uuid=self.uuid + "-wire", geometry=self.boundary, material=LineBasicMaterial(color=ColorRGB(*self.color).decimal))
-        return msh
-
-    def transform_as_new(self, t):
-        obj = Boundary(bnds=self.boundary, hls=self.holes)
-        obj.transform(t)
-        return obj
-
-    @property
-    def plane(self):
-        return PlaneLinear(self._plane.origin.tolist() @ self.matrix,
-                           normal=self._plane.normal.tolist() @ self.matrix,
-                           xaxis=self._plane.xaxis.tolist() @ self.matrix
-                           )
-
-    def __copy__(self):
-        return Boundary(self._boundary, self._holes, matrix=self.matrix)
 
 
 def earcut_poly(boundary, holes):

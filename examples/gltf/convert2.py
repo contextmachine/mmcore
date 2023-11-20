@@ -4,7 +4,8 @@ import time
 import ujson
 
 from mmcore.compat.gltf.convert import DEFAULT_MATERIAL_COMPONENT, asscene, create_union_mesh_node
-from mmcore.geom.mesh import build_mesh_with_buffer, mesh_from_shapes, union_mesh, union_mesh2, vertexMaterial
+from mmcore.geom.mesh import build_mesh_with_buffer, union_mesh, union_mesh2, vertexMaterial
+from mmcore.geom.mesh.shape_mesh import mesh_from_shapes
 from mmcore.geom.shapes import ShapeInterface
 
 

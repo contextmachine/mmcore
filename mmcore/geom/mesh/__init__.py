@@ -1,3 +1,4 @@
+
 import typing
 import uuid
 from collections import Counter, namedtuple
@@ -11,21 +12,6 @@ from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, create_buf
     create_buffer_uv, \
     create_float32_buffer
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.shapes.shape import shape_earcut
-import typing
-import uuid
-from collections import Counter, namedtuple
-
-import numpy as np
-from msgspec import Struct, field
-
-from mmcore.base import AMesh
-from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, create_buffer_index, create_buffer_position, \
-    create_buffer_uv, \
-    create_float32_buffer
-from mmcore.geom.materials import ColorRGB
-from mmcore.geom.shapes.shape import shape_earcut
 
 Vec3Union = tuple[float, float, float]
 Vec2Union = tuple[float, float]
@@ -286,11 +272,6 @@ def sum_meshes(a: MeshTuple, b: MeshTuple):
                          {})
 
 
-def mesh_from_shapes(shps, cols, stats):
-    for shp, c, props in zip(shps, cols, stats):
-        pos, ixs, _ = shape_earcut(shp)
-
-        yield create_mesh_tuple(dict(position=pos), ixs, c, extras=dict(properties=props))
 
 
 MESH_OBJECT_ATTRIBUTE_NAME = '_objectid'
