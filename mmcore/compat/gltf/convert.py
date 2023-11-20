@@ -6,8 +6,8 @@ from uuid import uuid4
 import time
 from itertools import count
 
-from mmcore.compat.gltf import GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial, GLTFNode, \
-    GLTFPbrMetallicRoughness, GLTFScene
+from mmcore.compat.gltf.components import (GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial,
+                                           GLTFMesh, GLTFNode, GLTFPbrMetallicRoughness, GLTFPrimitive, GLTFScene)
 from mmcore.compat.gltf.utils import appendBufferView, byte_stride
 from mmcore.geom.mesh import MeshTuple
 
@@ -670,8 +670,6 @@ view_typemap = {
 
 }
 from mmcore.geom.shapes import Shape
-
-from mmcore.compat.gltf import GLTFPrimitive, GLTFMesh
 
 
 def reshape_indices(indices):

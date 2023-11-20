@@ -47,7 +47,7 @@ pyvis = "^0.3.2"
 pygments = "^2.16.1"
 wheel = "^0.41.2"
 msgspec = "^0.18.4"
-
+multipledispatch = "*"
 
 [build-system]
 requires = ["poetry-core"]

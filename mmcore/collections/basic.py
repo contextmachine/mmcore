@@ -915,6 +915,11 @@ class DCLL:
             raise IndexError
         return val.data
 
+    def __setitem__(self, index, val):
+        val = self.get_node(index)
+        val.data = val
+
+
     def size(self):
         return self.count
 
