@@ -156,3 +156,10 @@ def gen_norms(spline, density=4, bounds=(0, 1)):
         y = np.cross(pt.normal, x)
 
         yield plane(origin=pt.point, xaxis=x, yaxis=y, zaxis=pt.normal)
+
+
+from mmcore.geom.parametric import algorithms as algo
+
+
+def ray_intersection(ray: algo.Ray, plane: Plane):
+    return algo.ray_plane_intersection(*ray, plane, full_return=True)

@@ -43,7 +43,7 @@ Circle3dTuple = namedtuple("Circle2dTuple", ["circle", "plane"])
 NormalPlane = namedtuple("NormalPlane", ["origin", "normal"])
 PointUnion = typing.Union[list[float], tuple[float, float, float], np.ndarray]
 CurvesIntersectSolution = namedtuple('CurvesIntersectSolution', ['t0', 't1', 'pt'])
-
+Ray = namedtuple('Ray', ['origin', 'normal'])
 
 def translate_point(origin, direction, distance):
     return [o + (n * distance) for o, n in zip(origin, direction)]
@@ -624,11 +624,11 @@ def pde_offset_3d(dist, t, func=None, method="central", h=0.01):
     m = PDE_METHODS[method]
 
     xyz = func(t)
-    dx, dy, dz = m(func, h, t)
+    d = m(func, h, t)
 
-    return np.array([xyz[0] + (dist * d[1] / _ns2(dx, dy, dz)),
-                     xyz[1] - (dist * d[0] / _ns2(dx, dy, dz)),
-                     xyz[2] + (dist * d[2] / _ns2(dx, dy, dz))])
+    return np.array([xyz[0] + (dist * d[1] / _ns2(*d)),
+                     xyz[1] - (dist * d[0] / _ns2(*d)),
+                     xyz[2] + (dist * d[2] / _ns2(*d))])
 
 class Derivative:
     def __init__(self, f, method="central", h=0.01):
