@@ -585,6 +585,7 @@ def pde_central_s(f, h, t):
     return (f(t + h) - f(t - h)) / (2 * h)
 
 
+
 PDE_METHODS = dict(central=pde_central, forward=pde_forward, backward=pde_backward)
 
 
@@ -630,6 +631,17 @@ def pde_offset_3d(dist, t, func=None, method="central", h=0.01):
                      xyz[1] - (dist * d[0] / _ns2(*d)),
                      xyz[2] + (dist * d[2] / _ns2(*d))])
 
+
+@vectorize(excluded=['func', 'method', 'h'], signature='(),(j)->(i,j)')
+def pde_offset_3d(dist, t, func=None, method="central", h=0.01):
+    m = PDE_METHODS[method]
+
+    xyz = func(t)
+    d = m(func, h, t)
+
+    return np.array([xyz[0] + (dist * d[1] / _ns2(*d)),
+                     xyz[1] - (dist * d[0] / _ns2(*d)),
+                     xyz[2] + (dist * d[2] / _ns2(*d))])
 class Derivative:
     def __init__(self, f, method="central", h=0.01):
         super().__init__()
