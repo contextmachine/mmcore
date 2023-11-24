@@ -5,10 +5,12 @@ from multipledispatch import dispatch
 from scipy.optimize import fsolve
 
 from mmcore.func import vectorize
+from mmcore.geom.circle import Circle
 from mmcore.geom.plane import Plane
 from mmcore.geom.sphere import Sphere
 
 Ray = namedtuple('Ray', ['origin', 'normal'])
+Line2Pt = namedtuple('Line2Pt', ['start', 'end'])
 
 
 @dispatch(Sphere, Ray)
@@ -44,14 +46,121 @@ def ray_intersection(sphere: Sphere, ray: Ray):
 
 @dispatch(Plane, Ray)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
-def ray_intersection(plane: Plane, ray: Ray, epsilon=1e-6):
+def ray_intersection(plane: Plane, ray: Ray, tol=1e-6):
     ray_origin, ray_direction = ray
     dotu = np.array(plane.normal).dot(ray_direction)
-    if abs(dotu) < epsilon:
+    if abs(dotu) < tol:
         return np.empty(6)
     w = ray_origin - plane.origin
     dotv = -np.array(plane.normal).dot(w)
     si = dotv / dotu
     Psi = w + si * ray_direction + plane.origin
-
     return np.array([*Psi, si, dotu, dotv])
+
+
+@dispatch(Circle, Ray)
+@vectorize(excluded=[0, 2], signature='(i,j)->(k)')
+def ray_intersection(circle: Circle, ray: Ray, tol=1e-9):
+    """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
+    :param circle: Circle with center and radius
+    :param ray: The (x, y) location of the first point of the ray,and the (x, y) direction  of the ray
+    :param tol: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
+    :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
+    Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+    """
+    pt1, vec = np.array(ray)[:, :2]
+    pt2 = pt1 + vec
+    circle_center, circle_radius = np.array([circle.origin, circle.r])[:, :2]
+    (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
+    (x1, y1), (x2, y2) = (p1x - cx, p1y - cy), (p2x - cx, p2y - cy)
+    dx, dy = (x2 - x1), (y2 - y1)
+    dr = (dx ** 2 + dy ** 2) ** .5
+    big_d = x1 * y2 - x2 * y1
+    discriminant = circle_radius ** 2 * dr ** 2 - big_d ** 2
+    if discriminant < 0:  # No intersection between circle and line
+        return []
+    else:  # There may be 0, 1, or 2 intersections with the segment
+        intersections = [
+            (cx + (big_d * dy + sign * (-1 if dy < 0 else 1) * dx * discriminant ** .5) / dr ** 2,
+             cy + (-big_d * dx + sign * abs(dy) * discriminant ** .5) / dr ** 2)
+            for sign in ((1, -1) if dy < 0 else (-1, 1))]  # This makes sure the order along the segment is correct
+
+        if len(intersections) == 2 and abs(
+                discriminant) <= tol:  # If line is tangent to circle, return just one point (as both intersections have same location)
+            return [intersections[0]]
+        else:
+            return intersections
+
+
+@dispatch(Circle, Line2Pt)
+@vectorize(excluded=[0, 2], signature='(i,j)->(k)')
+def line_intersection(circle: Circle, line: Line2Pt, tol=1e-9):
+    """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
+    :param circle: Circle with center and radius
+    :param line: The (x, y) location of the first point of the segment,and the (x, y) location of the second point of the segment
+    :param tangent: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
+    :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
+    Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+    """
+
+    pt1, pt2 = np.array(line)[:, :2]
+    circle_center, circle_radius = np.array([circle.origin, circle.r])[:, :2]
+    (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
+    (x1, y1), (x2, y2) = (p1x - cx, p1y - cy), (p2x - cx, p2y - cy)
+    dx, dy = (x2 - x1), (y2 - y1)
+    dr = (dx ** 2 + dy ** 2) ** .5
+    big_d = x1 * y2 - x2 * y1
+    discriminant = circle_radius ** 2 * dr ** 2 - big_d ** 2
+    if discriminant < 0:  # No intersection between circle and line
+        return []
+    else:  # There may be 0, 1, or 2 intersections with the segment
+        intersections = [
+            (cx + (big_d * dy + sign * (-1 if dy < 0 else 1) * dx * discriminant ** .5) / dr ** 2,
+             cy + (-big_d * dx + sign * abs(dy) * discriminant ** .5) / dr ** 2)
+            for sign in ((1, -1) if dy < 0 else (-1, 1))]  # This makes sure the order along the segment is correct
+
+        fraction_along_segment = [(xi - p1x) / dx if abs(dx) > abs(dy) else (yi - p1y) / dy for xi, yi in
+                                  intersections]
+        intersections = [pt for pt, frac in zip(intersections, fraction_along_segment) if 0 <= frac <= 1]
+        if len(intersections) == 2 and abs(
+                discriminant) <= tol:  # If line is tangent to circle, return just one point (as both intersections have same location)
+            return [intersections[0]]
+        else:
+            return intersections
+
+
+@dispatch(Line2Pt, Line2Pt)
+@vectorize(excluded=[0, 2], signature='(i,j)->(k)')
+def line_intersection(circle: Circle, line: Line2Pt, tol=1e-9):
+    """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
+    :param circle: Circle with center and radius
+    :param line: The (x, y) location of the first point of the segment,and the (x, y) location of the second point of the segment
+    :param tangent: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
+    :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
+    Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+    """
+
+    pt1, pt2 = np.array(line)[:, :2]
+    circle_center, circle_radius = np.array([circle.origin, circle.r])[:, :2]
+    (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
+    (x1, y1), (x2, y2) = (p1x - cx, p1y - cy), (p2x - cx, p2y - cy)
+    dx, dy = (x2 - x1), (y2 - y1)
+    dr = (dx ** 2 + dy ** 2) ** .5
+    big_d = x1 * y2 - x2 * y1
+    discriminant = circle_radius ** 2 * dr ** 2 - big_d ** 2
+    if discriminant < 0:  # No intersection between circle and line
+        return []
+    else:  # There may be 0, 1, or 2 intersections with the segment
+        intersections = [
+            (cx + (big_d * dy + sign * (-1 if dy < 0 else 1) * dx * discriminant ** .5) / dr ** 2,
+             cy + (-big_d * dx + sign * abs(dy) * discriminant ** .5) / dr ** 2)
+            for sign in ((1, -1) if dy < 0 else (-1, 1))]  # This makes sure the order along the segment is correct
+
+        fraction_along_segment = [(xi - p1x) / dx if abs(dx) > abs(dy) else (yi - p1y) / dy for xi, yi in
+                                  intersections]
+        intersections = [pt for pt, frac in zip(intersections, fraction_along_segment) if 0 <= frac <= 1]
+        if len(intersections) == 2 and abs(
+                discriminant) <= tol:  # If line is tangent to circle, return just one point (as both intersections have same location)
+            return [intersections[0]]
+        else:
+            return intersections

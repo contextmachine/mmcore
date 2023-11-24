@@ -1,17 +1,6 @@
 import numpy as np
 
-
-class ParametricSupport:
-    def __init_subclass__(cls, signature='()->(i)'):
-        cls.__np_vec_signature__ = signature
-
-    def __new__(cls):
-        self = super().__new__(cls)
-        self.__vevaluate__ = np.vectorize(self.evaluate, signature=cls.__np_vec_signature__)
-        return self
-
-    def evaluate(self, *args) -> np.ndarray:
-        return ...
+from mmcore.geom.parametric import ParametricSupport
 
 
 class Sphere(ParametricSupport, signature='(),()->(i)'):
@@ -19,7 +8,7 @@ class Sphere(ParametricSupport, signature='(),()->(i)'):
         self = super().__new__(cls)
         self.r = r
         self.origin = np.array(origin)
-        self.__vevaluate__ = np.vectorize(self.evaluate, signature='(),()->(i)')
+        self.__evaluate__ = np.vectorize(self.evaluate, signature='(),()->(i)')
         return self
 
     def evaluate_x(self, u, v):
@@ -35,10 +24,13 @@ class Sphere(ParametricSupport, signature='(),()->(i)'):
         return np.array([self.evaluate_x(u, v), self.evaluate_y(u, v), self.evaluate_z(u, v)])
 
     def divide(self, u_count, v_count):
-        return self(*np.meshgrid(np.linspace(0, np.pi, u_count), np.linspace(0, 2 * np.pi, v_count)))
+        return self(*np.meshgrid(np.linspace(0, np.pi, u_count),
+                                 np.linspace(0, 2 * np.pi, v_count)
+                                 )
+                    )
 
     def __call__(self, u, v):
-        return self.__vevaluate__(u, v)
+        return self.__evaluate__(u, v)
 
     def __iter__(self):
         return iter((self.r, self.origin))
