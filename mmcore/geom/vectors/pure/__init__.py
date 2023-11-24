@@ -9,6 +9,8 @@ try:
     from numpy import ndarray as _ndarray
 except Exception as err:
     _ndarray=list
+
+
 def isvector(obj):
     return isinstance(obj, (tuple, list, _ndarray))
 def dot(u, v):
