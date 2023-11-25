@@ -1,30 +1,23 @@
 """Grasshopper Script"""
 import abc
 import base64
-import dataclasses
-import math
 import operator
 import warnings
 from functools import reduce
 from uuid import uuid4
 
+import math
 import shapely
 from shapely.geometry import mapping
 
 from mmcore.geom.parametric import PlaneLinear, algorithms
+from mmcore.geom.shapes import area3d
 
 a = "Hello Python 3 in Grasshopper!"
 print(a)
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 import typing
-import struct
-from collections import namedtuple
-
-from more_itertools import chunked
-from dataclasses import dataclass, asdict
-import typing
-import struct
 from collections import namedtuple
 
 from more_itertools import chunked
@@ -377,102 +370,3 @@ class PlaneTransformNode(AbstractNode):
         return shape
 
 
-class CutNode(AbstractNode):
-
-    def split(self, shape: ShapeInterface, cont: Contour):
-        PlaneFromShapeNode(self.name + "_planeshape", data=shape)
-
-        poly1 = shape.to_poly()
-
-        if poly1.intersects(cont):
-
-            if poly1.within(cont):
-                # print("inside")
-                return shape
-
-
-
-            else:
-                # print("intersects")
-                poly3 = poly1.intersection(cont)
-
-                area = []
-
-                res = split3d(poly3, None)
-                PlaneTransformNode()
-                if cont.plane is not None:
-
-                    for part in res:
-                        poly = [self.cont_plane.point_at(pt).tolist() for pt in part]
-                        polys.append(poly)
-                        a = area3d(part)
-                        # print(0, poly, a)
-                        area.append({'area': a})
-                    return polys, 1, area
-                else:
-                    for part in res:
-                        a = area3d(part)
-                        # print(1,part, a)
-                        area.append({'area': a})
-                    return res, 1, area
-
-        else:
-            # print("outside")
-
-            return [self.transformed_points], 2, [{'area': self.area}]
-
-
-@dataclass
-class ShapeInterface2:
-    def __init__(self, points, name='test'):
-        super().__init__()
-        self.points = points
-        self.poly = shapely.Polygon(points)
-        # self.poly_off = shapely.Polygon(points).buffer(0.8, cap_style="flat", join_style="mitre")
-        self.name = name
-
-    def split(self, cont: Contour):
-
-        poly1 = self.poly
-
-        if poly1.intersects(cont):
-
-            if poly1.within(cont):
-                # print("inside")
-                if cont.plane is None:
-                    return ContourIntersectionResult(self.points, self.points, 0)
-                else:
-                    pts = [cont.plane.point_at(pt).tolist() for pt in self.points]
-
-
-            else:
-                # print("intersects")
-                poly3 = poly1.intersection(cont)
-
-                area = []
-                if self.plane:
-                    res = split3d(poly3, self.plane)
-                else:
-
-                if self.cont_plane is not None:
-                    for part in res:
-                        poly = [self.cont_plane.point_at(pt).tolist() for pt in part]
-                        polys.append(poly)
-                        a = area3d(part)
-                        # print(0, poly, a)
-                        area.append({'area': a})
-                    return polys, 1, area
-                else:
-                    for part in res:
-                        a = area3d(part)
-                        # print(1,part, a)
-                        area.append({'area': a})
-                    return res, 1, area
-
-        else:
-            # print("outside")
-
-            return [self.transformed_points], 2, [{'area': self.area}]
-
-    def __hash__(self):
-        return hash(repr(self.points))

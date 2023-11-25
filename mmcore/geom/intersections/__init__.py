@@ -1,52 +1,54 @@
-from collections import namedtuple
-
 import numpy as np
 from multipledispatch import dispatch
 from scipy.optimize import fsolve
 
 from mmcore.func import vectorize
 from mmcore.geom.circle import Circle
+from mmcore.geom.interfaces import Line2Pt, Ray
 from mmcore.geom.plane import Plane
 from mmcore.geom.sphere import Sphere
 
-Ray = namedtuple('Ray', ['origin', 'normal'])
-Line2Pt = namedtuple('Line2Pt', ['start', 'end'])
+INTERSECTION_TOLERANCE = 1e-6
 
 
 @dispatch(Sphere, Ray)
-@vectorize(excluded=[0], signature='(i,j)->(k)')
-def ray_intersection(sphere: Sphere, ray: Ray):
-    """
-
-    Parameters
-    ----------
-    sphere :
-    ray :
-
-    Returns
-    -------
-
-    type: np.ndarray((n, 5), dtype=float)
-    Array with shape: (n, [x, y, z, t, u, v]) where:
-    1. n is the number of rays.
-    2. x,y,z - intersection point cartesian coordinates.
-    3. t - ray intersection param.
-    4. u,v - sphere intersection params.
+@vectorize(excluded=[0, 2], signature='(i,j)->(k)')
+def intersect(sphere: Sphere, ray: Ray, tol=INTERSECTION_TOLERANCE):
 
     """
+
+        Parameters
+        ----------
+        tol :
+        sphere :
+        ray :
+
+        Returns
+        -------
+
+        type: np.ndarray((n, 5), dtype=float)
+        Array with shape: (n, [x, y, z, t, u, v]) where:
+        1. n is the number of rays.
+        2. x,y,z - intersection point cartesian coordinates.
+        3. t - ray intersection param.
+        4. u,v - sphere intersection params.
+
+        """
+
     ray_start, ray_vector = ray
 
     def wrap(x):
         t, (u, v) = x[0], x[1:]
         return ray_start + ray_vector * t - sphere(u, v)
 
-    t, u, v = fsolve(wrap, [0, 0, 0], full_output=False)
+    t, u, v = fsolve(wrap, [0, 0, 0], full_output=False, xtol=tol)
     return np.append(sphere.evaluate(u, v), [t, u, v])
+
 
 
 @dispatch(Plane, Ray)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
-def ray_intersection(plane: Plane, ray: Ray, tol=1e-6):
+def intersect(plane: Plane, ray: Ray, tol=INTERSECTION_TOLERANCE):
     ray_origin, ray_direction = ray
     dotu = np.array(plane.normal).dot(ray_direction)
     if abs(dotu) < tol:
@@ -60,7 +62,7 @@ def ray_intersection(plane: Plane, ray: Ray, tol=1e-6):
 
 @dispatch(Circle, Ray)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
-def ray_intersection(circle: Circle, ray: Ray, tol=1e-9):
+def intersect(circle: Circle, ray: Ray, tol=INTERSECTION_TOLERANCE):
     """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
     :param circle: Circle with center and radius
     :param ray: The (x, y) location of the first point of the ray,and the (x, y) direction  of the ray
@@ -94,13 +96,17 @@ def ray_intersection(circle: Circle, ray: Ray, tol=1e-9):
 
 @dispatch(Circle, Line2Pt)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
-def line_intersection(circle: Circle, line: Line2Pt, tol=1e-9):
+def intersect(circle: Circle, line: Line2Pt, tol=INTERSECTION_TOLERANCE):
     """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
     :param circle: Circle with center and radius
     :param line: The (x, y) location of the first point of the segment,and the (x, y) location of the second point of the segment
     :param tangent: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
     :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
     Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+
+    Parameters
+    ----------
+    tol :
     """
 
     pt1, pt2 = np.array(line)[:, :2]
@@ -131,13 +137,15 @@ def line_intersection(circle: Circle, line: Line2Pt, tol=1e-9):
 
 @dispatch(Line2Pt, Line2Pt)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
-def line_intersection(circle: Circle, line: Line2Pt, tol=1e-9):
+def intersect(circle: Circle, line: Line2Pt, tol=INTERSECTION_TOLERANCE):
     """ Find the points at which a circle intersects a line-segment.  This can happen at 0, 1, or 2 points.
-    :param circle: Circle with center and radius
-    :param line: The (x, y) location of the first point of the segment,and the (x, y) location of the second point of the segment
-    :param tangent: Numerical tolerance at which we decide the intersections are close enough to consider it a tangent
-    :return Sequence[Tuple[float, float]]: A list of length 0, 1, or 2, where each element is a point at which the circle intercepts a line segment.
     Note: We follow: http://mathworld.wolfram.com/Circle-LineIntersection.html
+
+    Parameters
+    ----------
+    circle: Circle with center and radius
+    line: The (x, y) location of the first point of the segment,and the (x, y) location of the second point of the segment
+    tol : tolerance
     """
 
     pt1, pt2 = np.array(line)[:, :2]

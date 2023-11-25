@@ -1,6 +1,7 @@
 import numpy as np
 
 from mmcore.geom.parametric import ParametricSupport
+from mmcore.geom.vec import unit
 
 
 class Sphere(ParametricSupport, signature='(),()->(i)'):
@@ -37,3 +38,6 @@ class Sphere(ParametricSupport, signature='(),()->(i)'):
 
     def __array__(self):
         return np.array((self.r, *self.origin))
+
+    def project(self, pt):
+        return unit(pt - self.origin) * self.r
