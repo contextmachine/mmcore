@@ -43,8 +43,9 @@ def even_filter(iterable, reverse=False):
 
 def vectorize(**kws):
     def decorate(fun):
+
         if 'doc' not in kws:
-            kws['doc'] = doc = fun.__doc__
+            kws['doc'] = fun.__doc__
         vecfun = np.vectorize(fun, **kws)
 
         @functools.wraps(fun)
