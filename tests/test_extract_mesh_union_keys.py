@@ -1,3 +1,5 @@
+from unittest import TestCase
+
 import numpy as np
 import time
 
@@ -29,28 +31,36 @@ def performance(count, cases, min_count=1):
     return res1, res2, divmod(time1, 60), divmod(time2, 60), message
 
 
-def test(count):
-    min_count = 2
+class TestExtractMeshUnionKeys(TestCase):
+    def test_10(self):
+        self.case(10)
 
-    result = tuple(MESH_ATTRIBUTE_NAME_CASES[:min_count]), set(MESH_ATTRIBUTE_NAME_CASES[:min_count])
+    def test_100(self):
+        self.case(100)
 
-    a, b, t1, t2, message = performance(count, MESH_ATTRIBUTE_NAME_CASES, min_count=min_count)
+    def test_500(self):
+        self.case(500)
 
-    print(f'performance: \n\tcase1: {t1}\n\tcase2: {t2}\n\t{message}')
-    print(f'result: \n\tcase1: {a}\n\tcase2: {b}')
+    def test_1000(self):
+        self.case(1000)
 
-    if (a, b) == result:
-        print("pass!")
-    else:
-        print(f'Fail: {result} != {(a, b)}')
-    assert a, b == result
+    def test_10_000(self):
+        self.case(10_000)
 
+    def test_100_000(self):
+        self.case(100_000)
 
-if __name__ == '__main__':
-    test(10)
-    test(100)
-    test(500)
-    test(1000)
-    test(10_000)
-    test(100_000)
-    test(1_000_000)
+    def test_1_000_000(self):
+        self.case(1_000_000)
+
+    def case(self, count):
+        min_count = 2
+
+        result = tuple(MESH_ATTRIBUTE_NAME_CASES[:min_count]), set(MESH_ATTRIBUTE_NAME_CASES[:min_count])
+
+        a, b, t1, t2, message = performance(count, MESH_ATTRIBUTE_NAME_CASES, min_count=min_count)
+
+        print(f'performance: \n\tcase1: {t1}\n\tcase2: {t2}\n\t{message}')
+        print(f'result: \n\tcase1: {a}\n\tcase2: {b}')
+
+        self.assertEqual((a, b), result)
