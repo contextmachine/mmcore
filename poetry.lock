@@ -84,32 +84,32 @@ tests-no-zope = ["cloudpickle", "hypothesis", "mypy (>=1.1.1)", "pympler", "pyte
 
 [[package]]
 name = "boto3"
-version = "1.29.6"
+version = "1.33.1"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">= 3.7"
 files = [
-    { file = "boto3-1.29.6-py3-none-any.whl", hash = "sha256:f4d19e01d176c3a5a05e4af733185ff1891b08a3c38d4a439800fa132aa6e9be" },
-    { file = "boto3-1.29.6.tar.gz", hash = "sha256:d1d0d979a70bf9b0b13ae3b017f8523708ad953f62d16f39a602d67ee9b25554" },
+    { file = "boto3-1.33.1-py3-none-any.whl", hash = "sha256:fa5aa92d16763cb906fb4a83d6eba887342202a980bea07862af5ba40827aa5a" },
+    { file = "boto3-1.33.1.tar.gz", hash = "sha256:1fe5fa75ff0f0c29a6f55e818d149d33571731e692a7b785ded7a28ac832cae8" },
 ]
 
 [package.dependencies]
-botocore = ">=1.32.6,<1.33.0"
+botocore = ">=1.33.1,<1.34.0"
 jmespath = ">=0.7.1,<2.0.0"
-s3transfer = ">=0.7.0,<0.8.0"
+s3transfer = ">=0.8.0,<0.9.0"
 
 [package.extras]
 crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.32.6"
+version = "1.33.1"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">= 3.7"
 files = [
-    { file = "botocore-1.32.6-py3-none-any.whl", hash = "sha256:4454f967a4d1a01e3e6205c070455bc4e8fd53b5b0753221581ae679c55a9dfd" },
-    { file = "botocore-1.32.6.tar.gz", hash = "sha256:ecec876103783b5efe6099762dda60c2af67e45f7c0ab4568e8265d11c6c449b" },
+    { file = "botocore-1.33.1-py3-none-any.whl", hash = "sha256:c744b90980786c610dd9ad9c50cf2cdde3f1c4634b954a33613f6f8a1865a1de" },
+    { file = "botocore-1.33.1.tar.gz", hash = "sha256:d22d29916905e5f0670b91f07688e92b2c4a2075f9a474d6edbe7d22040d8fbf" },
 ]
 
 [package.dependencies]
@@ -121,7 +121,7 @@ urllib3 = [
 ]
 
 [package.extras]
-crt = ["awscrt (==0.19.12)"]
+crt = ["awscrt (==0.19.17)"]
 
 [[package]]
 name = "certifi"
@@ -791,13 +791,13 @@ socks = ["socksio (==1.*)"]
 
 [[package]]
 name = "idna"
-version = "3.4"
+version = "3.6"
 description = "Internationalized Domain Names in Applications (IDNA)"
 optional = false
 python-versions = ">=3.5"
 files = [
-    {file = "idna-3.4-py3-none-any.whl", hash = "sha256:90b77e79eaa3eba6de819a0c442c0b4ceefc341a7a2ab77d7562bf49f425c5c2"},
-    {file = "idna-3.4.tar.gz", hash = "sha256:814f528e8dead7d329833b91c5faa87d60bf71824cd12a7530b5526063d02cb4"},
+    { file = "idna-3.6-py3-none-any.whl", hash = "sha256:c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f" },
+    { file = "idna-3.6.tar.gz", hash = "sha256:9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca" },
 ]
 
 [[package]]
@@ -852,13 +852,13 @@ testing = ["pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)",
 
 [[package]]
 name = "ipython"
-version = "8.18.0"
+version = "8.18.1"
 description = "IPython: Productive Interactive Computing"
 optional = false
 python-versions = ">=3.9"
 files = [
-    { file = "ipython-8.18.0-py3-none-any.whl", hash = "sha256:d538a7a98ad9b7e018926447a5f35856113a85d08fd68a165d7871ab5175f6e0" },
-    { file = "ipython-8.18.0.tar.gz", hash = "sha256:4feb61210160f75e229ce932dbf8b719bff37af123c0b985fd038b14233daa16" },
+    { file = "ipython-8.18.1-py3-none-any.whl", hash = "sha256:e8267419d72d81955ec1177f8a29aaa90ac80ad647499201119e2f05e99aa397" },
+    { file = "ipython-8.18.1.tar.gz", hash = "sha256:ca6f079bb33457c66e233e4580ebfc4128855b4cf6370dddd73842a9563e8a27" },
 ]
 
 [package.dependencies]
@@ -868,7 +868,7 @@ exceptiongroup = {version = "*", markers = "python_version < \"3.11\""}
 jedi = ">=0.16"
 matplotlib-inline = "*"
 pexpect = {version = ">4.3", markers = "sys_platform != \"win32\""}
-prompt-toolkit = ">=3.0.30,<3.0.37 || >3.0.37,<3.1.0"
+prompt-toolkit = ">=3.0.41,<3.1.0"
 pygments = ">=2.4.0"
 stack-data = "*"
 traitlets = ">=5"
@@ -1597,13 +1597,13 @@ testing = ["docopt", "pytest (<6.0.0)"]
 
 [[package]]
 name = "pexpect"
-version = "4.8.0"
+version = "4.9.0"
 description = "Pexpect allows easy control of interactive console applications."
 optional = false
 python-versions = "*"
 files = [
-    {file = "pexpect-4.8.0-py2.py3-none-any.whl", hash = "sha256:0b48a55dcb3c05f3329815901ea4fc1537514d6ba867a152b581d69ae3710937"},
-    {file = "pexpect-4.8.0.tar.gz", hash = "sha256:fc65a43959d153d0114afe13997d439c22823a27cefceb5ff35c2178c6784c0c"},
+    { file = "pexpect-4.9.0-py2.py3-none-any.whl", hash = "sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523" },
+    { file = "pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f" },
 ]
 
 [package.dependencies]
@@ -2112,20 +2112,20 @@ plumbum = "*"
 
 [[package]]
 name = "s3transfer"
-version = "0.7.0"
+version = "0.8.0"
 description = "An Amazon S3 Transfer Manager"
 optional = false
 python-versions = ">= 3.7"
 files = [
-    { file = "s3transfer-0.7.0-py3-none-any.whl", hash = "sha256:10d6923c6359175f264811ef4bf6161a3156ce8e350e705396a7557d6293c33a" },
-    { file = "s3transfer-0.7.0.tar.gz", hash = "sha256:fd3889a66f5fe17299fe75b82eae6cf722554edca744ca5d5fe308b104883d2e" },
+    { file = "s3transfer-0.8.0-py3-none-any.whl", hash = "sha256:baa479dc2e63e5c2ed51611b4d46cdf0295e2070d8d0b86b22f335ee5b954986" },
+    { file = "s3transfer-0.8.0.tar.gz", hash = "sha256:e8d6bd52ffd99841e3a57b34370a54841f12d3aab072af862cdcc50955288002" },
 ]
 
 [package.dependencies]
-botocore = ">=1.12.36,<2.0a.0"
+botocore = ">=1.32.7,<2.0a.0"
 
 [package.extras]
-crt = ["botocore[crt] (>=1.20.29,<2.0a.0)"]
+crt = ["botocore[crt] (>=1.32.7,<2.0a.0)"]
 
 [[package]]
 name = "schema"
@@ -2391,18 +2391,18 @@ tests = ["pytest", "pytest-cov"]
 
 [[package]]
 name = "traitlets"
-version = "5.13.0"
+version = "5.14.0"
 description = "Traitlets Python configuration system"
 optional = false
 python-versions = ">=3.8"
 files = [
-    { file = "traitlets-5.13.0-py3-none-any.whl", hash = "sha256:baf991e61542da48fe8aef8b779a9ea0aa38d8a54166ee250d5af5ecf4486619" },
-    { file = "traitlets-5.13.0.tar.gz", hash = "sha256:9b232b9430c8f57288c1024b34a8f0251ddcc47268927367a0dd3eeaca40deb5" },
+    { file = "traitlets-5.14.0-py3-none-any.whl", hash = "sha256:f14949d23829023013c47df20b4a76ccd1a85effb786dc060f34de7948361b33" },
+    { file = "traitlets-5.14.0.tar.gz", hash = "sha256:fcdaa8ac49c04dfa0ed3ee3384ef6dfdb5d6f3741502be247279407679296772" },
 ]
 
 [package.extras]
 docs = ["myst-parser", "pydata-sphinx-theme", "sphinx"]
-test = ["argcomplete (>=3.0.3)", "mypy (>=1.6.0)", "pre-commit", "pytest (>=7.0,<7.5)", "pytest-mock", "pytest-mypy-testing"]
+test = ["argcomplete (>=3.0.3)", "mypy (>=1.7.0)", "pre-commit", "pytest (>=7.0,<7.5)", "pytest-mock", "pytest-mypy-testing"]
 
 [[package]]
 name = "typing-extensions"
