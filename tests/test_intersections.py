@@ -57,3 +57,4 @@ class Test(TestCase):
                         )
 
         self.assertTrue(np.allclose(res, result))
+

@@ -1,20 +1,20 @@
 import functools
 
 import numpy as np
-from multipledispatch import dispatch
 
 from mmcore.geom.curves import ParametricPlanarCurve
 from mmcore.geom.vectors import norm
 
-__all__ = ['Ellipse', 'p', 'foci', 'vertices']
+__all__ = ['Ellipse', 'p']
 
 
-class Ellipse(ParametricPlanarCurve, match_args=('a', 'b',), signature='()->(i)'):
-    def __init__(self, a=1, b=1, origin=None, plane=None):
-        super().__init__(origin, plane)
+class Ellipse(ParametricPlanarCurve, match_args=('a', 'b',), signature='()->(i)', param_range=(0.0, np.pi * 2)):
+    def __new__(cls, a=1, b=1, origin=None, plane=None):
+        self = super().__new__(cls, origin=origin, plane=plane)
 
         self.a = a
         self.b = b
+        return self
 
     def x(self, t):
         return self.a * np.cos(t)
@@ -34,26 +34,20 @@ class Ellipse(ParametricPlanarCurve, match_args=('a', 'b',), signature='()->(i)'
     def c(self):
         return np.sqrt(self.a ** 2 - self.b ** 2)
 
+    def foci(self):
+        return self.to_world(self._ellipse_component('c'))
 
-def _ellipse_component(self: Ellipse, name: str):
-    h, k = self.origin[0], self.origin[1]
-    component = getattr(self, name)
-    if norm(self.xaxis) > norm(self.yaxis):
-        return np.array([(h - component, k), (h + component, k)])
-    else:
-        return np.array([(h, k - component), (h, k + component)])
+    def _ellipse_component(self, name: str):
+        h, k = self.origin[0], self.origin[1]
+        component = getattr(self, name)
+        if norm(self.xaxis) > norm(self.yaxis):
+            return np.array([(h - component, k, 0.), (h + component, k, 0.)])
+        else:
+            return np.array([(h, k - component, 0.), (h, k + component, 0.)])
+
+    def vertices(self):
+        return self._ellipse_component(self, 'a')
 
 
-@dispatch(Ellipse)
 def p(self: Ellipse, alpha):
     return self.a * np.cos(alpha), self.a * np.sin(alpha), 0.0
-
-
-@dispatch(Ellipse)
-def foci(self: Ellipse):
-    return self.to_world(_ellipse_component(self, 'c'))
-
-
-@dispatch(Ellipse)
-def vertices(self: Ellipse):
-    return _ellipse_component(self, 'a')
