@@ -3,22 +3,50 @@ from collections import namedtuple
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.vectors import unit
+from mmcore.geom import vec
+from mmcore.geom.vec import cross, dot, unit
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
 
 
 class Plane:
+    """
+    zaxis=cross(xaxis, yaxis)
+    yaxis=cross(zaxis,xaxis)
+    xaxis=cross( yaxis,zaxis)
+    """
+
     def __init__(self, arr=None):
+        self._bytes = None
         if arr is None:
             self._arr = np.zeros((4, 3))
         else:
             self._arr = np.array(arr)
 
+        self._dirty = True
+
+    def to_bytes(self):
+        self._solve_dirty()
+        return self._bytes
+
+    def _solve_dirty(self):
+        if self._dirty:
+            self._bytes = self._arr.tobytes()
+            self._hash = hash(self._bytes)
+
+    def __hash__(self):
+        self._solve_dirty()
+        return self._hash
     @property
     def normal(self):
         return self.zaxis
+
+    @normal.setter
+    def normal(self, v):
+        self.zaxis = v
+        self._dirty = True
+
 
     @property
     def xaxis(self):
@@ -38,19 +66,25 @@ class Plane:
 
     @origin.setter
     def origin(self, v):
-        self._arr[0:len(v)] = v
+
+        self._arr[0, np.arange(len(v))] = v
+        self._dirty = True
 
     @xaxis.setter
     def xaxis(self, v):
-        self._arr[1:len(v)] = v
+
+        self._arr[1, np.arange(len(v))] = v
+        self._dirty = True
 
     @yaxis.setter
     def yaxis(self, v):
-        self._arr[2:len(v)] = v
+        self._arr[2, np.arange(len(v))] = v
+        self._dirty = True
 
     @zaxis.setter
     def zaxis(self, v):
-        self._arr[3, :len(v)] = v
+        self._arr[3, np.arange(len(v))] = v
+        self._dirty = True
 
 
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
@@ -71,8 +105,23 @@ def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     return pln
 
 
+def create_plane_from_xaxis_and_normal(xaxis=(1, 0, 0), normal=(0, 0, 1), origin=(0, 0, 0)):
+    pln = Plane()
+    pln.origin = origin
+    pln.xaxis = vec.unit(xaxis)
+    pln.zaxis = vec.unit(normal)
+    pln.yaxis = cross(pln.zaxis, pln.xaxis)
+
+    return pln
+
+
 def plane(origin, xaxis, yaxis, zaxis):
     return Plane((origin, xaxis, yaxis, zaxis))
+
+
+@vectorize(excluded=[0], signature='(i)->(i)')
+def project(pln, pt):
+    return pt - (dot(pln.normal, pt - pln.origin) * pln.normal)
 
 
 WXY = create_plane()
@@ -80,20 +129,18 @@ WXY = create_plane()
 from mmcore.geom.transform import rotate_around_axis
 
 
-def rotate_plane(pln, angle=0.0, axis=None):
+def rotate_plane(pln, angle=0.0, axis=None, origin=None):
+    if origin is None:
+        origin = pln.origin
     if axis is None:
         axis = pln.normal
-
-        return plane(pln.origin,
-                     rotate_around_axis(pln.xaxis, angle, origin=pln.origin, axis=axis),
-                     rotate_around_axis(pln.yaxis, angle, origin=pln.origin, axis=axis),
-                     pln.zaxis)
     else:
         axis = unit(axis)
-        return plane(pln.origin,
-                     rotate_around_axis(pln.xaxis, angle, origin=pln.origin, axis=axis),
-                     rotate_around_axis(pln.yaxis, angle, origin=pln.origin, axis=axis),
-                     rotate_around_axis(pln.zaxis, angle, origin=pln.origin, axis=axis))
+
+    return plane(rotate_around_axis(pln.origin, angle, origin=origin, axis=axis),
+                 rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis),
+                 rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis),
+                 rotate_around_axis(pln.zaxis, angle, origin=origin, axis=axis))
 
 
 @vectorize(signature='(j),()->(i)')
@@ -109,26 +156,25 @@ def translate_plane_inplace(pln: Plane, vec: np.ndarray):
     pln.origin += vec
 
 
-def rotate_plane_inplace(pln: Plane, angle: float, axis: np.ndarray, ):
+def rotate_plane_inplace(pln: Plane, angle: float, axis: np.ndarray = None, origin=None):
+    if origin is None:
+        origin = pln.origin
     if axis is None:
         axis = pln.normal
 
-        pln._arr[1:3] = rotate_around_axis(pln.xaxis, angle, origin=pln.origin, axis=axis), rotate_around_axis(
-            pln.yaxis,
-            angle,
-            origin=pln.origin,
-
-            axis=axis),
+        pln.xaxis = rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis)
+        pln.yaxis = rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis)
 
 
     else:
         axis = unit(axis)
-        pln._arr[1:] = [rotate_around_axis(pln.xaxis, angle, origin=pln.origin, axis=axis),
-                        rotate_around_axis(pln.yaxis, angle, origin=pln.origin, axis=axis),
-                        rotate_around_axis(pln.zaxis, angle, origin=pln.origin, axis=axis)]
+        pln.xaxis = rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis)
+        pln.yaxis = rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis)
+
+        pln.zaxis = rotate_around_axis(pln.zaxis, angle, origin=origin, axis=axis)
 
 
-@vectorize(otypes=[float], excluded=['pln'], signature='(i)->(i)')
+@vectorize(otypes=[float], excluded=[1], signature='(i)->(i)')
 def local_to_world(pt, pln: Plane = WXY):
     z = np.zeros(3)
     z += pln.origin
@@ -138,14 +184,14 @@ def local_to_world(pt, pln: Plane = WXY):
     return z
 
 
-@vectorize(otypes=[float], excluded=['pln'], signature='(i)->(i)')
-def world_to_local(pt, pln: Plane = WXY):
+@vectorize(excluded=[1], signature='(i)->(i)')
+def world_to_local(pt, pln: Plane):
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
 
 
-@vectorize(otypes=[float], excluded=['plane_a', 'plane_b'], signature='(i)->(i)')
+@vectorize(excluded=[1, 2], signature='(i)->(i)')
 def plane_to_plane(pt, plane_a: Plane, plane_b: Plane):
-    return local_to_world(world_to_local(pt, pln=plane_b), pln=plane_a)
+    return local_to_world(world_to_local(pt, plane_b), plane_a)
 
 
 def gen_norms(spline, density=4, bounds=(0, 1)):

@@ -1,6 +1,6 @@
 
 import typing
-import uuid
+import uuid as _uuid
 from collections import Counter, namedtuple
 
 import numpy as np
@@ -412,13 +412,14 @@ vertexMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).d
 simpleMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).decimal, side=2)
 
 
-def build_mesh_with_buffer(mesh: MeshTuple, name: str = "Mesh", material=simpleMaterial):
-    uid = uuid.uuid4().hex
+def build_mesh_with_buffer(mesh: MeshTuple, uuid=None, name: str = "Mesh", material=simpleMaterial):
+    if uuid is None:
+        uuid = _uuid.uuid4().hex
     index = None if mesh.indices is None else mesh.indices.tolist()
-    a = AMesh(uuid=uid + 'mesh',
+    a = AMesh(uuid=uuid,
               name=name,
-              geometry=create_mesh_buffer(uid, **{k: attr.tolist() for k, attr in mesh.attributes.items()},
-                                          index=index))
+              geometry=create_mesh_buffer(uuid + 'geom', **{k: attr.tolist() for k, attr in mesh.attributes.items()},
+                                          index=index), material=material)
 
     # for k,v in mesh.extras.items():
 

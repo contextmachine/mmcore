@@ -9,6 +9,7 @@ from types import LambdaType
 import numpy as np
 
 from mmcore.func import vectorize
+from mmcore.geom.plane import create_plane
 from mmcore.geom.vec import cross, perp2d
 
 __all__ = ['PDE', 'Offset', 'forward', 'central', 'backward', 'PDEMethodEnum']
@@ -56,6 +57,9 @@ class PDE:
     def normal(self, t):
         return cross(self.func(t), self.tan(t))
 
+    def plane(self, t):
+        origin, xaxis, yaxis = self.func(t), self.tan(t), self.normal(t)
+        return create_plane(x=xaxis, y=yaxis, origin=origin)
 
 @vectorize(excluded=[0], signature='()->(i)')
 def _offset_curve(curve, t):

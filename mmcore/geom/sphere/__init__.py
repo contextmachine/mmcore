@@ -1,10 +1,13 @@
 import numpy as np
 
-from mmcore.geom.parametric import ParametricSupport
+from mmcore.func import vectorize
+from mmcore.geom.plane import create_plane_from_xaxis_and_normal
+from mmcore.geom.surfaces import ParametricSurface
 from mmcore.geom.vec import unit
 
 
-class Sphere(ParametricSupport, signature='(),()->(i)'):
+class Sphere(ParametricSurface, signature='(),()->(i)', match_args=('r',),
+             param_range=((0.0, np.pi), (0.0, 2 * np.pi))):
     def __new__(cls, r=1, origin=(0.0, 0.0, 0.0)):
         self = super().__new__(cls)
         self.r = r
@@ -12,26 +15,14 @@ class Sphere(ParametricSupport, signature='(),()->(i)'):
         self.__evaluate__ = np.vectorize(self.evaluate, signature='(),()->(i)')
         return self
 
-    def evaluate_x(self, u, v):
+    def x(self, u, v):
         return self.r * np.sin(u) * np.cos(v) + self.origin[0]
 
-    def evaluate_y(self, u, v):
+    def y(self, u, v):
         return self.r * np.sin(u) * np.sin(v) + self.origin[1]
 
-    def evaluate_z(self, u, v):
+    def z(self, u, v):
         return self.r * np.cos(u) + self.origin[2]
-
-    def evaluate(self, u, v):
-        return np.array([self.evaluate_x(u, v), self.evaluate_y(u, v), self.evaluate_z(u, v)])
-
-    def divide(self, u_count, v_count):
-        return self(*np.meshgrid(np.linspace(0, np.pi, u_count),
-                                 np.linspace(0, 2 * np.pi, v_count)
-                                 )
-                    )
-
-    def __call__(self, u, v):
-        return self.__evaluate__(u, v)
 
     def __iter__(self):
         return iter((self.r, self.origin))
@@ -40,4 +31,20 @@ class Sphere(ParametricSupport, signature='(),()->(i)'):
         return np.array((self.r, *self.origin))
 
     def project(self, pt):
-        return unit(pt - self.origin) * self.r
+        return unit(pt - self.origin) * self.r + self.origin
+
+
+@vectorize(excluded=[0], signature='(),()->()')
+def evaluate_plane(sphere: Sphere, u, v):
+    pt = sphere(u, v)
+
+    return create_plane_from_xaxis_and_normal(
+        xaxis=unit(sphere(u + 0.001, v) - sphere(u - 0.001, v)),
+        normal=unit(pt - sphere.origin),
+        origin=pt)
+
+
+@vectorize(excluded=[0], signature='(),()->()')
+def evaluate_normal(sphere: Sphere, u, v):
+    pt = sphere(u, v)
+    return unit(pt - sphere.origin)
