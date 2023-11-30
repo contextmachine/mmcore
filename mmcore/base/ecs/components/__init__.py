@@ -1,4 +1,5 @@
 import inspect
+import json
 
 components = dict()
 _components_type_name_map = dict()
@@ -10,6 +11,12 @@ import numpy as np
 NS = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
 
 
+class NpEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, np.ndarray):
+            return list(o.flat)
+        else:
+            return super().default(o)
 class SoAField:
     def __init__(self, default=None):
         self.default = default
@@ -57,6 +64,13 @@ class SoAItem:
         self._uuid = uuid
         self._component_type_name = self.parent.type_name
 
+    def get_field(self, k):
+        return {
+            int: lambda x: self.parent.fields[list(self.parent.fields.keys())[x]],
+            str: lambda x: self.parent.fields[x]
+        }[type(k)](k)
+
+
     @property
     def component_type(self):
         return self._component_type_name
@@ -67,14 +81,41 @@ class SoAItem:
 
     def update(self, val):
         for key, v in val.items():
-            self.parent.fields[key][self.uuid] = v
+            self.get_field(key)[self.uuid] = v
 
     def __setitem__(self, key, val):
-        self.parent.fields[key][self.uuid] = val
+
+        if isinstance(key, (str, int)):
+            self.get_field(key)[self.uuid] = val
+        else:
+            if len(key) > 0:
+                key1 = key[0]
+                self.get_field(key1)[self.uuid].__setitem__(key[1:], val)
+            elif len(key) == 1:
+                self[key[0]] = val
+
 
     def __getitem__(self, key):
-        return self.parent.fields[key][self.uuid]
+        if isinstance(key, (str, int)):
+            return self.get_field(key)[self.uuid]
+        else:
+            if len(key) > 1:
 
+                key1 = key[0]
+
+                return self.get_field(key1)[self.uuid].__getitem__(key[1:])
+            elif len(key) == 1:
+                return self[key[0]]
+
+    def get_index(self):
+        *ks, = self.keys()
+
+        vs = sorted(([v] if np.isscalar(v) else v for v in self.values()), key=lambda x: len(x), reverse=True)
+
+        return np.ndindex((len(ks), len(vs[0])))
+
+    def __len__(self):
+        return len([*self.keys()])
     @property
     def parent(self):
         return soa_parent(self)
@@ -141,6 +182,65 @@ class SoAItem:
         return f'{self.parent.type_name}({dict(self)}) at {self.uuid}'
 
 
+class SoArrayItem(SoAItem):
+    def __init__(self, uuid, parent_id, arr_index):
+        self._parent = parent_id
+        self._arr_index = arr_index
+        super().__init__(uuid, parent_id)
+
+    @property
+    def parent(self):
+        return soa_parent(self)
+
+    def __getitem__(self, item):
+
+        return soa_parent(self)._arr[self._arr_index][soa_parent(self).by_index(item)]
+
+    def __setitem__(self, item, v):
+        if np.isscalar(item):
+            soa_parent(self)._arr[self._arr_index][self.parent.by_index(item)] = v
+
+
+        else:
+            soa_parent(self)._arr[self._arr_index][item] = v
+
+        # if v.shape[0]> self.parent.item_shape[0]:
+        #    self.parent.item_shape=(v.shape[0], *self.parent.item_shape[1:])
+        #    self.parent._arr.resize(self.parent._arr.shape[0],self.parent.item_shape)
+
+        # self.parent.by_index(self._uuid, item[0])[item[1:]]=v
+
+    def __getattr__(self, item):
+        if item.startswith('_'):
+            return object.__getattribute__(self, item)
+
+        elif item in soa_parent(self).fields.keys():
+            return self[item]
+        else:
+            return super().__getattribute__(item)
+
+    def __setattr__(self, item, val):
+
+        if item.startswith('_'):
+            object.__setattr__(self, item, val)
+
+        elif item in soa_parent(self).fields.keys():
+
+            self[list(soa_parent(self).fields.keys()).index(item)] = val
+
+        else:
+
+            self.parent.add_field(item, SoAField())
+            self[item] = val
+
+    def __array__(self):
+        return self.parent._arr[self._arr_index]
+
+    def __repr__(self):
+        p = soa_parent(self)
+        a = np.array_str(p._arr[self._arr_index], precision=4).replace('\n', '').replace(" ", ", ")
+        return f'{self.component_type}({", ".join(p.fields.keys())}, {a}) at {self._uuid}'
+
 from dataclasses import dataclass
 
 
@@ -176,6 +276,7 @@ class SoA:
         fld.parent = self
         self.fields[key] = fld
 
+
     def remove_field(self, key):
         del self.fields[key]
 
@@ -197,11 +298,62 @@ class SoA:
         return f'SoA(type={self.type_name}, length={len(self.__items__)}) at {self.uuid}'
 
 
+class SoArray(SoA):
+
+    def __init__(self, *args, item_shape=(3,), **kwargs):
+        self.item_shape = item_shape
+        self._arr = np.empty((128, len(kwargs), *item_shape), dtype=object)
+        self.__arr_index__ = dict()
+        super().__init__(*args, **kwargs)
+
+    def add_field(self, key, fld):
+
+        super().add_field(key, fld)
+
+    def add_new_field(self, key, fld):
+        self.resize(fields_count=1)
+        super().add_field(key, fld)
+
+    def __setitem__(self, uuid, v):
+        v = np.array(v)
+        if uuid not in self.__items__.keys():
+            ixs = len(self.__items__)
+
+            if ixs >= self._arr.shape[0]:
+                self.resize(count=128)
+
+            self._arr[ixs] = v
+            self.__arr_index__[uuid] = ixs
+            self.__items__[uuid] = SoArrayItem(uuid=uuid, parent_id=self.uuid, arr_index=ixs)
+
+        self._arr[self.__arr_index__[uuid]] = v
+
+    def resize(self, count=0, fields_count=0, item_shape=0):
+        resize_shape = (count, fields_count, item_shape)
+        new = np.array(resize_shape, dtype=int) + np.array(self._arr.shape, dtype=int)
+        self.item_shape = tuple(new[2:])
+        a, b = np.divmod(new[0], 128)
+        if b > 0:
+            a += 1
+        self._arr.resize((a * 128, new[1], *self.item_shape), refcheck=False)
+
+    def by_index(self, ixs):
+
+        return {
+            int: lambda x: x,
+            str: lambda x: list(self.fields.keys()).index(x)
+        }[type(ixs)](ixs)
+
+    def by_uuid(self, uuid, key, ixs=()):
+
+        return self._arr[self.__arr_index__[uuid]][(self.by_index(key),) + ixs]
+
+
 Component = SoAItem
 ComponentType = SoA
 
 
-def component(name=None):
+def component(name=None, array_like=False, item_shape=()):
     """
     >>> import typing
     >>> from mmcore.base.tags import SoAField,component,todict
@@ -252,28 +404,44 @@ def component(name=None):
 
             else:
                 fields[k] = SoAField(default=None)
+        if array_like:
+            _soa = SoArray(name, item_shape=item_shape, **fields)
 
-        _soa = SoA(name, **fields)
+            @functools.wraps(cls)
+            def ctor(*args, uuid=None, **kwargs):
+                if uuid is None:
+                    uuid = _uuid.uuid4().hex
+                if uuid in _soa.__items__:
+                    return _soa[uuid]
+                _soa[uuid] = args + tuple(kwargs.values())
 
-        @functools.wraps(cls)
-        def ctor(*args, uuid=None, **kwargs):
-
-            *keys, = fields.keys()
-            if uuid is None:
-                uuid = _uuid.uuid4().hex
-            if uuid in _soa.__items__:
                 return _soa[uuid]
-            dct = dict(zip(keys[:len(args)], args))
-            dct |= kwargs
-            for fld in set.difference(set(fields), set(dct.keys())):
-                val = getattr(cls, fld)
-                if inspect.isfunction(getattr(cls, fld)):
-                    dct[fld] = val()
 
 
 
-            _soa[uuid] = dct
-            return _soa[uuid]
+
+        else:
+            _soa = SoA(name, **fields)
+
+            @functools.wraps(cls)
+            def ctor(*args, uuid=None, **kwargs):
+
+                *keys, = fields.keys()
+                if uuid is None:
+                    uuid = _uuid.uuid4().hex
+                if uuid in _soa.__items__:
+                    return _soa[uuid]
+                dct = dict(zip(keys[:len(args)], args))
+                dct |= kwargs
+                for fld in set.difference(set(fields), set(dct.keys())):
+                    val = getattr(cls, fld)
+
+                    if inspect.isfunction(getattr(cls, fld)):
+                        dct[fld] = val()
+
+                _soa[uuid] = dct
+                return _soa[uuid]
+
 
         ctor.component_type = name
         _soa.__component_ctor__ = ctor

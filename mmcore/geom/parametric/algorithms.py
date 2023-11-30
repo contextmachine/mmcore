@@ -405,6 +405,7 @@ def line_line_intersection(line1, line2):
 
 
 def line_line_intersection2d(line1, line2):
+    print(line1, line2)
     line1, line2 = np.array([line1, line2])
     x1, y1 = line1[0, :2]
     x2, y2 = x1 + line1[1, 0], y1 + line1[1, 1]
@@ -467,8 +468,10 @@ def pts_line_line_intersection2d_as_3d(line1, line2):
     return [x, y, 0.0]
 
 def bounded_line_intersection2d(line1, line2):
-    res = np.array(line_line_intersection2d(line1, line2))
-    if res is not None:
+    res = np.array(pts_line_line_intersection2d_as_3d(line1, line2))
+
+    try:
+
         l1 = point_line_bounded_distance(res, line1[0], line1[1])
         l2 = point_line_bounded_distance(res, line2[0], line2[1])
 
@@ -477,6 +480,8 @@ def bounded_line_intersection2d(line1, line2):
             d2, pt2, t2 = l2
 
             return res, (t1, t2), (d1, d2)
+    except TypeError:
+        pass
 
 # Example usage
 
@@ -987,12 +992,13 @@ def polyline_to_lines(pln_points):
     return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 
 
-@vectorize(signature='(i,j)->(i,k,j)')
+
 def polyline_to_lines_vectors(pln_points):
     return np.stack([pln_points, np.roll(pln_points, -1, axis=0) - pln_points], axis=1)
 
 
 def vector_start_end(start, end):
+    print(start, end)
     return end - start
 
 
@@ -1031,6 +1037,7 @@ def intersect_polylines(pln1, pln2, closed=(False, False)):
 
     for i, line1 in enumerate(lines1):
         for j, line2 in enumerate(lines2):
+            print(line1, line2)
             res = bounded_line_intersection2d(line1, line2)
 
             if res is not None:
@@ -1050,7 +1057,6 @@ def intersect_lines(lines):
             yield res2, (t1, t2), (i, i + 1)
 
 
-@vectorize(signature='(i,j)->(i,k,j)')
 def polyline_to_lines(pln_points):
     return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 

@@ -4,10 +4,10 @@ from mmcore.geom.curves import ParametricPlanarCurve
 
 
 class Circle(ParametricPlanarCurve, match_args=('r',), signature='()->(i)'):
-    def __init__(self, r=1, origin=None, plane=None):
-        super().__init__(origin, plane)
-
+    def __new__(cls, r=1, origin=None, plane=None):
+        self = super().__new__(cls, origin=origin, plane=plane)
         self.r = r
+        return self
 
     @property
     def a(self):

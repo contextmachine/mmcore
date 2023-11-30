@@ -8,7 +8,12 @@ from mmcore.geom.vec import cross, dot, unit
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
+from mmcore.base.ecs.components import component
 
+
+@component()
+class ArrayComponent:
+    arr: np.ndarray = None
 
 class Plane:
     """
@@ -20,10 +25,19 @@ class Plane:
     def __init__(self, arr=None):
         self._bytes = None
         if arr is None:
-            self._arr = np.zeros((4, 3))
+            self._arr_cmp = ArrayComponent(np.zeros((4, 3)))
         else:
-            self._arr = np.array(arr)
+            self._arr_cmp = ArrayComponent(np.array(arr))
 
+        self._dirty = True
+
+    @property
+    def _arr(self):
+        return self._arr_cmp.arr
+
+    @_arr.setter
+    def _arr(self, v):
+        self._arr_cmp.arr = np.array(v)
         self._dirty = True
 
     def to_bytes(self):
@@ -34,6 +48,7 @@ class Plane:
         if self._dirty:
             self._bytes = self._arr.tobytes()
             self._hash = hash(self._bytes)
+            self._dirty = False
 
     def __hash__(self):
         self._solve_dirty()
@@ -137,10 +152,13 @@ def rotate_plane(pln, angle=0.0, axis=None, origin=None):
     else:
         axis = unit(axis)
 
-    return plane(rotate_around_axis(pln.origin, angle, origin=origin, axis=axis),
-                 rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis),
-                 rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis),
-                 rotate_around_axis(pln.zaxis, angle, origin=origin, axis=axis))
+    xyz = rotate_around_axis(pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]), angle, origin=origin,
+                             axis=axis)
+    origin = rotate_around_axis(pln.origin, angle, origin=origin, axis=axis)
+    xaxis, yaxis, zaxis = unit(xyz - pln.origin)
+    return plane(origin, xaxis, yaxis, zaxis)
+
+
 
 
 @vectorize(signature='(j),()->(i)')
@@ -162,16 +180,15 @@ def rotate_plane_inplace(pln: Plane, angle: float, axis: np.ndarray = None, orig
     if axis is None:
         axis = pln.normal
 
-        pln.xaxis = rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis)
-        pln.yaxis = rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis)
 
 
     else:
         axis = unit(axis)
-        pln.xaxis = rotate_around_axis(pln.xaxis, angle, origin=origin, axis=axis)
-        pln.yaxis = rotate_around_axis(pln.yaxis, angle, origin=origin, axis=axis)
 
-        pln.zaxis = rotate_around_axis(pln.zaxis, angle, origin=origin, axis=axis)
+    xyz = rotate_around_axis(pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]), angle, origin=origin,
+                             axis=axis)
+    pln.origin = rotate_around_axis(pln.origin, angle, origin=origin, axis=axis)
+    pln.xaxis, pln.yaxis, pln.zaxis = unit(xyz - pln.origin)
 
 
 @vectorize(otypes=[float], excluded=[1], signature='(i)->(i)')
