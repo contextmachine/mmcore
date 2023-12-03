@@ -1,11 +1,17 @@
+import dataclasses
 import inspect
+import queue
+import types
+
+import itertools
 import json
 
 components = dict()
+components_ctors = dict()
 _components_type_name_map = dict()
 import functools
 import uuid as _uuid
-
+from dataclasses import dataclass, is_dataclass, asdict
 import numpy as np
 
 NS = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
@@ -17,6 +23,8 @@ class NpEncoder(json.JSONEncoder):
             return list(o.flat)
         else:
             return super().default(o)
+
+
 class SoAField:
     def __init__(self, default=None):
         self.default = default
@@ -70,6 +78,9 @@ class SoAItem:
             str: lambda x: self.parent.fields[x]
         }[type(k)](k)
 
+    @property
+    def component_class(self):
+        return components_ctors[self._component_type_name]
 
     @property
     def component_type(self):
@@ -94,7 +105,6 @@ class SoAItem:
             elif len(key) == 1:
                 self[key[0]] = val
 
-
     def __getitem__(self, key):
         if isinstance(key, (str, int)):
             return self.get_field(key)[self.uuid]
@@ -116,6 +126,7 @@ class SoAItem:
 
     def __len__(self):
         return len([*self.keys()])
+
     @property
     def parent(self):
         return soa_parent(self)
@@ -241,6 +252,7 @@ class SoArrayItem(SoAItem):
         a = np.array_str(p._arr[self._arr_index], precision=4).replace('\n', '').replace(" ", ", ")
         return f'{self.component_type}({", ".join(p.fields.keys())}, {a}) at {self._uuid}'
 
+
 from dataclasses import dataclass
 
 
@@ -275,7 +287,6 @@ class SoA:
     def add_field(self, key, fld):
         fld.parent = self
         self.fields[key] = fld
-
 
     def remove_field(self, key):
         del self.fields[key]
@@ -388,7 +399,7 @@ def component(name=None, array_like=False, item_shape=()):
     def wrapper(cls):
         nonlocal name
         if name is None:
-            name = cls.__name__.lower()
+            name = cls.__name__
         fields = dict()
 
         for k, v in cls.__annotations__.items():
@@ -419,7 +430,6 @@ def component(name=None, array_like=False, item_shape=()):
 
 
 
-
         else:
             _soa = SoA(name, **fields)
 
@@ -442,9 +452,10 @@ def component(name=None, array_like=False, item_shape=()):
                 _soa[uuid] = dct
                 return _soa[uuid]
 
-
         ctor.component_type = name
         _soa.__component_ctor__ = ctor
+        components_ctors[name] = ctor
+
         return ctor
 
     return wrapper
@@ -458,8 +469,17 @@ def apply(obj, data):
             setattr(obj, k, v)
 
 
+COMPONENT_TYPE_FIELD = 'component_type'
+
+
+def is_component(obj):
+    return hasattr(obj, COMPONENT_TYPE_FIELD)
+
+
 def todict(obj):
-    if hasattr(obj, 'items'):
+    if is_dataclass(obj):
+        return asdict(obj)
+    elif hasattr(obj, 'items'):
         return {k: todict(v) for k, v in obj.items()}
     elif hasattr(obj, 'todict'):
         return obj.todict()
@@ -475,9 +495,238 @@ def request_component_type(name):
     return components[_components_type_name_map[name]]
 
 
+def request_component_ctor(name):
+    return components_ctors[name]
+
+
 def request_component(name, uuid):
     return request_component_type(name)[uuid]
 
 
 def default_value(comp, field: str):
     return request_component_type(comp.component_type).fields['data'].default()
+
+
+def dumps(cmp, **kwargs):
+    return json.dumps(todict(cmp), cls=NpEncoder, **kwargs)
+
+
+def dump(cmp, f, **kwargs):
+    return json.dump(todict(cmp), f, cls=NpEncoder, **kwargs)
+
+
+def ref_to_fields(cmp, ref, fields):
+    return {k: ref[cmp[k]] for k in fields}
+
+
+from collections import defaultdict
+
+CASTS = defaultdict(lambda: lambda tp, x: x)
+from itertools import count
+from numpy import ndarray
+
+CASTS['ndarray'] = lambda tp, x: np.array(x)
+
+
+def from_spec(spec, refs: list, comps_queue: queue.Queue, comps: list):
+    if not isinstance(spec, dict):
+        return spec
+    sp = spec.get('spec')
+    if sp:
+        ref = sp.get('ref')
+        kind = sp.get('kind')
+
+        if kind == "LEAF":
+            nm = sp.get('type')
+
+            if 'ndarray' in nm:
+
+                shp, dtp = eval(nm).__args__
+                return np.array(spec.get('value'), dtp).reshape(shp)
+            else:
+                return spec.get('value')
+
+        elif kind == "COMP":
+
+            fields = dict()
+            for k, f in spec.get('fields').items():
+                obj = from_spec(f, refs, comps_queue, comps)
+                if inspect.isfunction(obj):
+                    fields[k] = obj(len(comps), k)
+                else:
+                    fields[k] = obj
+
+            if ref is not None:
+                fields['ref'] = from_spec(refs[ref], refs, comps_queue, comps)
+
+            _res = request_component_ctor(sp.get('type'))(**fields)
+
+            comps.append(_res)
+            return _res
+        elif kind == "COMP_REF":
+
+            val = spec.get('value')
+            cb = lambda index, field: comps_queue.put(lambda: setattr(comps[index], field, val))
+
+            return cb
+
+    else:
+        return spec
+
+
+from mmcore.func import extract_type
+import numpy
+from numpy import dtype
+
+
+@functools.lru_cache()
+def pretty_name(tp):
+    if hasattr(tp, "__qualname__") and not hasattr(tp, '__args__'):
+
+        return tp.__qualname__
+    else:
+        return repr(tp)
+
+
+def to_spec(cmp, refs: list, cnt: itertools.count, comps: list):
+    if not is_component(cmp):
+        return {
+
+            'value': cmp,
+            'spec': {
+                'kind': 'LEAF',
+                'type': pretty_name(extract_type(cmp))
+
+            }}
+
+    cnp_uuid_hash = hash(cmp.uuid)
+    if cnp_uuid_hash in comps:
+        cmp_index = comps.index(cnp_uuid_hash)
+
+        return {
+
+            'value': int(cmp_index),
+            'spec': {
+                'kind': 'COMP_REF',
+                'type': cmp.component_type
+
+            }}
+    else:
+        comps.append(cnp_uuid_hash)
+    *fields, = cmp.keys()
+
+    if 'ref' in fields:
+
+        fields.remove('ref')
+        ref = cmp.ref
+        res = np.arange(len(refs))[np.in1d([id(i['value']) for i in refs], [id(ref)])]
+
+        if len(res) > 0:
+            print(res)
+            l = int(res[0])
+
+        else:
+            refs.append(to_spec(ref, refs, cnt, comps))
+            l = next(cnt)
+        return {
+            'uuid': cmp.uuid,
+            'fields': {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
+            'spec': {
+                'kind': 'COMP',
+                'type': cmp.component_type,
+                'ref': l}
+        }
+    else:
+        return {
+            'uuid': cmp.uuid,
+            'fields': {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
+            'spec': {
+                'kind': 'COMP',
+                'type': cmp.component_type
+
+            }
+        }
+
+
+def components_to_spec(*cmp):
+    cnt = count()
+    refs = []
+    comps = []
+    specs = [to_spec(cm, refs, cnt, comps) for cm in cmp]
+    return dict(spec=specs, refs=refs)
+
+
+def components_from_spec(spec):
+    refs = spec['refs']
+
+    comps = []
+    que = queue.Queue()
+    [from_spec(cm, refs, que, comps) for cm in spec['spec']]
+    while not que.empty():
+        que.get()()
+
+    return comps
+
+
+ECS_CONTAINER_FIELD_NAME = 'ecs_components'
+
+
+class EcsContainer:
+
+    def __init__(self, field_name='ecs_components'):
+        self.field_name = field_name
+        self._data = dict()
+
+    def __set_name__(self, owner, name):
+        if hasattr(owner, 'ecs_map'):
+            owner.ecs_map = {self.field_name: name}
+        self._data[owner.__name__] = dict()
+        self._name = name
+
+    def __get__(self, instance, owner):
+
+        if instance:
+            return self._data[owner.__name__].get(id(instance), None)
+        else:
+            return self._data[owner.__name__]
+
+    def new_range(self, ecs_map):
+        return np.empty(len(ecs_map), dtype=object)
+
+    def self_index(self, ecs_map):
+        return ecs_map[self._name]
+
+    def __set__(self, instance, value):
+        self._data[instance.__class__.__name__][id(instance)] = value
+
+
+class EcsProperty:
+    def __init__(self, i=None):
+        self.i = i
+
+    def __set_name__(self, owner, name):
+        if not hasattr(owner, 'ecs_map'):
+            owner.ecs_map = dict()
+        if self.i is not None:
+            if self.i in owner.ecs_map.values():
+                raise IndexError(f'component {self.i} is already defined: {owner.ecs_map}')
+        else:
+            self.i = len(owner.ecs_map)
+        owner.ecs_map[name] = self.i
+
+        self._name = name
+
+    def __get__(self, instance, owner):
+        if instance:
+            return self.ecs_get(instance)
+        else:
+            return self
+
+    def __set__(self, instance, value):
+        self.ecs_set(instance, value)
+
+    def ecs_get(self, instance):
+        return instance.ecs_components[instance.ecs_map[self._name]]
+
+    def ecs_set(self, instance, value):
+        instance.ecs_components[instance.ecs_map[self._name]] = value
