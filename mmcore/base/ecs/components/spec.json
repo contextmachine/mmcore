@@ -1,0 +1,201 @@
+{
+  "spec": [
+    {
+      "uuid": "2b74fc2472b448eb96dd29109a5046ab",
+      "fields": {
+        "origin": {
+          "value": 0,
+          "spec": {
+            "kind": "LEAF",
+            "type": "int"
+          }
+        },
+        "xaxis": {
+          "value": 1,
+          "spec": {
+            "kind": "LEAF",
+            "type": "int"
+          }
+        },
+        "yaxis": {
+          "value": 2,
+          "spec": {
+            "kind": "LEAF",
+            "type": "int"
+          }
+        },
+        "zaxis": {
+          "value": 3,
+          "spec": {
+            "kind": "LEAF",
+            "type": "int"
+          }
+        }
+      },
+      "spec": {
+        "kind": "COMP",
+        "type": "PlaneComponent",
+        "ref": 0
+      }
+    },
+    {
+      "uuid": "bbb28b5a473b4c708c79eb877d8505e1",
+      "fields": {
+        "u": {
+          "uuid": "ac778045c2294a51857165b0966e5227",
+          "fields": {
+            "value": {
+              "value": 8,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            }
+          },
+          "spec": {
+            "kind": "COMP",
+            "type": "Length"
+          }
+        },
+        "v": {
+          "uuid": "2945fbc2468f413186112b40f2783f86",
+          "fields": {
+            "value": {
+              "value": 24,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            }
+          },
+          "spec": {
+            "kind": "COMP",
+            "type": "Length"
+          }
+        }
+      },
+      "spec": {
+        "kind": "COMP",
+        "type": "UV"
+      }
+    },
+    {
+      "uuid": "91bae0f947e94c9790a733bb56a758c2",
+      "fields": {
+        "plane": {
+          "uuid": "2b74fc2472b448eb96dd29109a5046ab",
+          "fields": {
+            "origin": {
+              "value": 0,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            },
+            "xaxis": {
+              "value": 1,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            },
+            "yaxis": {
+              "value": 2,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            },
+            "zaxis": {
+              "value": 3,
+              "spec": {
+                "kind": "LEAF",
+                "type": "int"
+              }
+            }
+          },
+          "spec": {
+            "kind": "COMP",
+            "type": "PlaneComponent",
+            "ref": 0
+          }
+        },
+        "uv": {
+          "uuid": "bbb28b5a473b4c708c79eb877d8505e1",
+          "fields": {
+            "u": {
+              "uuid": "ac778045c2294a51857165b0966e5227",
+              "fields": {
+                "value": {
+                  "value": 8,
+                  "spec": {
+                    "kind": "LEAF",
+                    "type": "int"
+                  }
+                }
+              },
+              "spec": {
+                "kind": "COMP",
+                "type": "Length"
+              }
+            },
+            "v": {
+              "uuid": "2945fbc2468f413186112b40f2783f86",
+              "fields": {
+                "value": {
+                  "value": 24,
+                  "spec": {
+                    "kind": "LEAF",
+                    "type": "int"
+                  }
+                }
+              },
+              "spec": {
+                "kind": "COMP",
+                "type": "Length"
+              }
+            }
+          },
+          "spec": {
+            "kind": "COMP",
+            "type": "UV"
+          }
+        }
+      },
+      "spec": {
+        "kind": "COMP",
+        "type": "RectangleComponent"
+      }
+    }
+  ],
+  "refs": [
+    {
+      "value": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "spec": {
+        "kind": "LEAF",
+        "type": "numpy.ndarray[(4, 3), dtype('float64')]"
+      }
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 import numpy as np
+from functools import total_ordering
 
 
+@total_ordering
 class AVLNode(object):
     """
     A node in an avl tree.
@@ -24,8 +26,31 @@ class AVLNode(object):
 
     def __repr__(self):
         "String representation."
-        return str(self.key)
+        return f"{self.__class__.__name__}(key={self.key}, data={self.data})"
 
+    def __hash__(self):
+        return self.key.__hash__()
+
+    def __eq__(self, other):
+        if isinstance(other, AVLNode):
+            return self.key == other.key
+        else:
+            return self.key == other
+
+    def __int__(self):
+        return self.key
+
+    def __gt__(self, other):
+        if isinstance(other, AVLNode):
+            return self.key > other.key
+        else:
+            return self.key > other
+
+    def __le__(self, other):
+        if isinstance(other, AVLNode):
+            return self.key <= other.key
+        else:
+            return self.key <= other
 
 class AVLPrinter:
     def __init__(self, tree: 'AVL', pos=None, buffer=None):
@@ -96,6 +121,7 @@ class AVL(object):
         # Balance factor of the tree.
         self.balance = 0
 
+
     def insert(self, key, data=None):
         """
         Insert new key into node
@@ -117,6 +143,9 @@ class AVL(object):
 
         # Rebalance tree if needed
         self.rebalance()
+
+    def append(self, data=None):
+        return self.insert(self.height + 1, data)
 
     def rebalance(self):
         """
@@ -328,7 +357,7 @@ class AVL(object):
             return result
 
         result.extend(self.node.left.inorder_traverse())
-        result.append(self.node.key)
+        result.append(self.node)
         result.extend(self.node.right.inorder_traverse())
 
         return result
@@ -338,6 +367,15 @@ class AVL(object):
 
     def __str__(self):
         return AVLPrinter(self)()
+
+    def __getitem__(self, item):
+        return self.search(item).data
+
+    def __setitem__(self, item, val):
+        return self.insert(item, data=val)
+
+    def __delitem__(self, item):
+        self.delete(item)
 
 
 """

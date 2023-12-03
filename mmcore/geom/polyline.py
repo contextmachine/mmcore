@@ -2,7 +2,10 @@ import itertools
 import numpy as np
 
 from mmcore.func import vectorize
+
 from mmcore.geom.line import evaluate_line
+from mmcore.geom.plane import WXY, world_to_local, local_to_world
+
 
 
 @vectorize(signature='(i,j),()->(j)')
@@ -11,6 +14,12 @@ def evaluate_polyline(corners, t: float):
     lines = polyline_to_lines(corners)
     return evaluate_line(lines[int(n), 0], lines[int(n), 1], m)
 
+
+@vectorize(signature='(i,j),()->(j)')
+def evaluate_polyline(corners, t: float):
+    n, m = np.divmod(t, 1)
+    lines = polyline_to_lines(corners)
+    return evaluate_line(lines[int(n), 0], lines[int(n), 1], m)
 
 @vectorize(signature='(i,j)->(i,k,j)')
 def polyline_to_lines(pln_points):
@@ -68,3 +77,22 @@ def split_polyline(pln, tss):
             yield bb[_p:_i + 1].tolist()
 
     return list(gen())
+
+
+from mmcore.geom.curves import ParametricPlanarCurve
+
+
+class PolyLine(ParametricPlanarCurve):
+
+    def __new__(cls, corners, plane=WXY):
+        self = super().__new__(cls)
+        self.plane = plane
+        self.corners = np.array(corners)
+
+        return self
+
+    def evaluate(self, t) -> np.ndarray:
+        return evaluate_polyline(self.corners, t)
+
+    def __call__(self, t) -> np.ndarray:
+        return local_to_world(evaluate_polyline(self.corners, t), self.plane)
