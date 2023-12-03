@@ -1,13 +1,14 @@
+import functools
 import uuid
 from collections import deque
-
+from mmcore.func import vectorize, dsp
 import numpy as np
 from more_itertools import flatten
-
+from mmcore.geom.mesh.shape_mesh import shape_earcut, to_mesh
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.shapes import LegacyShape
+from mmcore.geom.shapes import LegacyShape, ShapeInterface
 from mmcore.node import node_eval
 
 
@@ -156,3 +157,116 @@ def csg_extrusion(shape, h):
 
     return grp
 
+
+import numpy as np
+from multipledispatch import dispatch
+
+from mmcore.func import vectorize
+from mmcore.geom.mesh import union_mesh2
+from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
+from mmcore.geom.polyline import polyline_to_lines
+from mmcore.geom.rectangle import Rectangle
+
+
+@vectorize(signature='(i),(i),(i)->(j,i)')
+def extrude_line(start, end, vec):
+    return np.array([start, end, end + vec, start + vec])
+
+
+def extrude_cont(corners, vec):
+    corn = np.array(corners)
+    vec = np.array(vec)
+    lns = polyline_to_lines(corn)
+    return [corn.tolist()] + extrude_line(lns[:, 0, :], lns[:, 1, :], vec).tolist() + [(corn + vec).tolist()]
+
+
+from typing import Iterable
+
+
+def _base_extrusion_init(self, profile, path):
+    self.profile = profile
+    self.path = path
+    self.faces = extrude_cont(list(self.profile), self.path)
+
+
+from mmcore.tree.avl import AVL
+
+registry = AVL()
+
+
+class MultiMethodSpec:
+    __slots__ = ('fun', 'included', '_hashkey')
+
+    def __init__(self, fun, *tps, excluded=()):
+        tps = tuple(*tps)
+
+        *included, = range(len(excluded) + len(tps))
+        self.included = np.array(list(set(included).difference(set(excluded))), dtype=int)
+        self._hashkey = hash((fun.__name__, tps))
+
+    def __hash__(self):
+        return self._hashkey
+
+    def __call__(self, fun):
+        @functools.wraps(fun)
+        def wrapper(*args):
+            tuple(np.array(args, dtype=object)[self.included])
+
+            return fun(*tuple(np.array(args, dtype=object)[self.included]))
+
+
+class Extrusion:
+    """
+    @param: profile: Это любой геометрические 2D объект возвращающий итератор собственных точек при вызове __iter__.
+    Банальным примером является обычный список или numpy массив координат. Однако, также могут быть использованы
+    объекты таких классов как Rectangle, RectangleUnion etc.
+    @param: 3d вектор экструзии, при инициализации будет преобразован в numpy массив. Также в конструктор можно передать
+    float. В этом случае он будет умножен на World Z.
+    """
+    profile: object
+    path: 'np.ndarray(3, float)'
+    faces: 'list'
+
+    @dsp(float, excluded=[0, 1])
+    def __init__(self, shape, h: float):
+        _base_extrusion_init(self, shape, np.array([0, 0, h]))
+
+    @dsp(np.ndarray[('j', 'i'), np.dtype(float)], excluded=[0, 1])
+    def __init__(self, shape, h: "np.ndarray(3, float)"):
+        _base_extrusion_init(self, shape, h)
+
+    @property
+    def caps(self):
+        return self.faces[0], self.faces[-1]
+
+    @property
+    def sides(self):
+        return self.faces[1:-1]
+
+    def to_mesh(self, color=(0.7, 0.7, 0.7)):
+        return union_mesh2([mesh_from_bounds(face, color=color) for face in self.faces])
+
+
+class MultiExtrusion:
+    def __init__(self, shapes: list, h: float):
+        self.shells = [Extrusion(shp, h) for shp in shapes]
+        shp = ShapeInterface(shapes[0], holes=shapes[1:])
+        shp2 = ShapeInterface((np.array(shapes[0]) + np.array([0, 0, h])).tolist(),
+                              holes=[(np.array(sh) + np.array([0, 0, h])).tolist() for sh in shapes[1:]])
+        self.faces = [shp, *[sh.sides for sh in self.shells], shp2]
+
+    def to_mesh(self, color=(0.7, 0.7, 0)):
+        l = []
+        for s in self.shells:
+            l.extend([mesh_from_bounds(mm) for mm in s.sides])
+        um = union_mesh2([self.caps[0].to_mesh(), self.caps[1].to_mesh()] + l)
+
+        return um
+
+    @property
+    def caps(self):
+        return self.faces[0], self.faces[-1]
+
+    @property
+    def sides(self):
+        return self.faces[1:-1]

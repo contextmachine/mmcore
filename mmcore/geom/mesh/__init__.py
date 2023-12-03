@@ -2,21 +2,25 @@
 import typing
 import uuid as _uuid
 from collections import Counter, namedtuple
-
+from functools import lru_cache
 import numpy as np
 from msgspec import Struct, field
 
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
-from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, create_buffer_index, create_buffer_position, \
+from mmcore.base.registry import amatdict
+from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, MeshBasicMaterial, create_buffer_index, \
+    create_buffer_position, \
     create_buffer_uv, \
     create_float32_buffer
-from mmcore.geom.materials import ColorRGB
 
+from mmcore.geom.materials import ColorRGB
+from dataclasses import asdict
 Vec3Union = tuple[float, float, float]
 Vec2Union = tuple[float, float]
 Vec4Union = tuple[float, float, float, float]
-
+vertexMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).decimal, vertexColors=True, side=2)
+simpleMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).decimal, side=2)
 
 class StructComponent(Struct, tag=True):
     def todict(self):
@@ -177,6 +181,27 @@ class MeshTuple(_MeshTuple):
 
         return union_mesh2(a + b)
 
+    def __hash__(self):
+        return hash(self.attributes['position'].tobytes())
+
+    def amesh(self, uuid=None, name="Mesh", material=None, flatShading=True, props=dict(), controls=dict()):
+        if material is None:
+            material = extract_material(self, flatShading=flatShading)
+        return build_mesh_with_buffer(self, uuid=uuid, name=name, material=material, props=props, controls=controls)
+
+
+@lru_cache()
+def extract_material(mesh: MeshTuple, flatShading=True):
+    col = ColorRGB(*np.average(
+        mesh.attributes['color'].reshape(
+            (len(mesh.attributes['color']) // 3, 3)
+        ),
+        axis=0
+    )).decimal
+
+    return amatdict.get(f'{col}-mesh',
+                        MeshPhongMaterial(uuid=f'{col}-mesh', color=col, side=2, flatShading=flatShading))
+
 
 def union_extras(mesh: MeshTuple, other: MeshTuple):
     def one():
@@ -243,6 +268,7 @@ def explode(mesh: MeshTuple):
 
 
 def colorize_mesh(mesh: MeshTuple, color: tuple[float, float, float]):
+
     mesh.attributes['color'] = np.tile(color, len(mesh.attributes['position']) // 3)
 
 
@@ -321,7 +347,9 @@ def gen_indices_and_extras2(meshes, names):
         m.attributes[MESH_OBJECT_ATTRIBUTE_NAME] = np.repeat(j, length // 3)
 
         if m.indices is not None:
+
             ixs = m.indices + max_index + 1
+
             max_index = np.max(ixs)
 
             yield *tuple(m.attributes[name] for name in names), ixs, m.extras
@@ -350,7 +378,9 @@ def union_mesh(meshes, ks=('position',)):
 def union_mesh2(meshes, extras=None):
     if extras is None:
         extras = dict()
-    names = extract_mesh_attrs_union_keys(meshes) + (MESH_OBJECT_ATTRIBUTE_NAME,)
+    names = extract_mesh_attrs_union_keys(meshes)
+    if MESH_OBJECT_ATTRIBUTE_NAME not in names:
+        names = names + (MESH_OBJECT_ATTRIBUTE_NAME,)
     *zz, = zip(*gen_indices_and_extras2(meshes,
                                         names=names))
 
@@ -384,7 +414,7 @@ def create_mesh_buffer(
         attra['uv'] = create_buffer_uv(uv)
 
     if _objectid is not None:
-        attra['_objectid'] = create_buffer_objectid(index)
+        attra['_objectid'] = create_buffer_objectid(_objectid)
     if index is not None:
         ixs = create_buffer_index(index)
         return BufferGeometry(**{
@@ -408,18 +438,16 @@ def create_mesh_buffer(
         })
 
 
-vertexMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).decimal, vertexColors=True, side=2)
-simpleMaterial = MeshPhongMaterial(uuid='vxmat', color=ColorRGB(200, 200, 200).decimal, side=2)
-
-
-def build_mesh_with_buffer(mesh: MeshTuple, uuid=None, name: str = "Mesh", material=simpleMaterial):
+def build_mesh_with_buffer(mesh: MeshTuple, uuid=None, name: str = "Mesh", material=simpleMaterial, props=dict(),
+                           controls=dict()):
     if uuid is None:
         uuid = _uuid.uuid4().hex
     index = None if mesh.indices is None else mesh.indices.tolist()
     a = AMesh(uuid=uuid,
               name=name,
+
               geometry=create_mesh_buffer(uuid + 'geom', **{k: attr.tolist() for k, attr in mesh.attributes.items()},
-                                          index=index), material=material)
+                                          index=index), material=material, userData=mesh.extras)
 
     # for k,v in mesh.extras.items():
 

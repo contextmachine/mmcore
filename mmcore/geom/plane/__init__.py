@@ -1,43 +1,143 @@
+import dataclasses
 from collections import namedtuple
 
 import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom import vec
-from mmcore.geom.vec import cross, dot, unit
+from mmcore.geom.vec import cross, dot, norm, unit
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
-from mmcore.base.ecs.components import component
+from mmcore.base.ecs.components import component, EcsProperty
 
 
 @component()
-class ArrayComponent:
+class PlaneComponent:
+    ref: np.ndarray = None
+    origin: int = 0
+    xaxis: int = 1
+    yaxis: int = 2
+    zaxis: int = 3
+
+
+
+@component()
+class PlaneParamsArray:
     arr: np.ndarray = None
 
-class Plane:
+
+@dataclasses.dataclass(unsafe_hash=True)
+class PlaneParamsAccess:
+    arr: PlaneParamsArray = None
+    origin_ref: int = 0
+    xaxis_ref: int = 1
+    yaxis_ref: int = 2
+    zaxis_ref: int = 3
+
+    def __post_init__(self):
+        if not hasattr(self.arr, 'component_type'):
+            self.arr = PlaneParamsArray(np.array(self.arr))
+
+    @property
+    def xaxis(self):
+        return self.arr[self.xaxis_ref]
+
+    @property
+    def yaxis(self):
+        return self.arr[self.yaxis_ref]
+
+    @property
+    def zaxis(self):
+        return self.arr[self.zaxis_ref]
+
+    @property
+    def normal(self):
+        return self.zaxis
+
+    @property
+    def origin(self):
+        return self.arr[self.origin_ref]
+
+    @xaxis.setter
+    def xaxis(self, v):
+        self.arr[self.xaxis_ref] = unit(np.array(v))
+
+    @yaxis.setter
+    def yaxis(self, v):
+        self.arr[self.yaxis_ref] = unit(np.array(v))
+
+    @zaxis.setter
+    def zaxis(self, v):
+        self.arr[self.zaxis_ref] = unit(np.array(v))
+
+    @normal.setter
+    def normal(self, v):
+        self.zaxis = v
+
+    @origin.setter
+    def origin(self, v):
+        self.arr[self.origin_ref] = np.array(v)
+
+
+@component()
+class PlaneParams:
+    access: PlaneParamsAccess = None
+
+
+def createPlaneParams(arr=None):
+    if arr is None:
+        arr = np.zeros((4, 3))
+
+    return PlaneParamsAccess(arr)
+
+
+class EcsProto:
+    ecs_map = {}
+
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls)
+        self.ecs_components = np.empty(len(cls.ecs_map), dtype=object)
+        print(cls.ecs_map)
+        print(self.ecs_components)
+        self.__init__(*args, **kwargs)
+        return self
+
+
+class Plane(EcsProto):
     """
     zaxis=cross(xaxis, yaxis)
     yaxis=cross(zaxis,xaxis)
     xaxis=cross( yaxis,zaxis)
     """
 
+    ecs_plane = EcsProperty()
+
     def __init__(self, arr=None):
+        super().__init__()
         self._bytes = None
-        if arr is None:
-            self._arr_cmp = ArrayComponent(np.zeros((4, 3)))
-        else:
-            self._arr_cmp = ArrayComponent(np.array(arr))
+        self.ecs_plane = PlaneComponent(ref=np.append([0., 0., 0.],
+                                                      np.eye(3, 3)).reshape((4, 3)) if arr is None else arr)
 
         self._dirty = True
 
+    def replace_component(self, comp: PlaneComponent):
+        self.ecs_components[0] = comp
+
+    @property
+    def _arr_cmp(self):
+        return self.ecs_components[0]
+
+    @_arr_cmp.setter
+    def _arr_cmp(self, v):
+        self.ecs_components[0] = v
     @property
     def _arr(self):
-        return self._arr_cmp.arr
+        return self.ecs_components[0].ref
 
     @_arr.setter
     def _arr(self, v):
-        self._arr_cmp.arr = np.array(v)
+        self._arr_cmp.ref[:] = np.array(v)
         self._dirty = True
 
     def to_bytes(self):
@@ -65,43 +165,44 @@ class Plane:
 
     @property
     def xaxis(self):
-        return self._arr[1]
+        return self._arr[self._arr_cmp.xaxis]
 
     @property
     def yaxis(self):
-        return self._arr[2]
+        return self._arr[self._arr_cmp.yaxis]
 
     @property
     def zaxis(self):
-        return self._arr[3]
+        return self._arr[self._arr_cmp.zaxis]
 
     @property
     def origin(self):
-        return self._arr[0]
+        return self._arr[self._arr_cmp.origin]
 
     @origin.setter
     def origin(self, v):
-
-        self._arr[0, np.arange(len(v))] = v
+        self._arr[self._arr_cmp.origin, np.arange(len(v))] = v
         self._dirty = True
 
     @xaxis.setter
     def xaxis(self, v):
+        self._arr[self._arr_cmp.xaxis, np.arange(len(v))] = v
 
-        self._arr[1, np.arange(len(v))] = v
         self._dirty = True
 
     @yaxis.setter
     def yaxis(self, v):
-        self._arr[2, np.arange(len(v))] = v
+        self._arr[self._arr_cmp.yaxis, np.arange(len(v))] = v
         self._dirty = True
 
     @zaxis.setter
     def zaxis(self, v):
-        self._arr[3, np.arange(len(v))] = v
+        self._arr[self._arr_cmp.zaxis, np.arange(len(v))] = v
         self._dirty = True
 
-
+    def todict(self):
+        return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
+                    zaxis=self.zaxis.tolist())
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     pln = Plane()
     pln.origin = origin
@@ -226,3 +327,25 @@ from mmcore.geom.parametric import algorithms as algo
 
 def ray_intersection(ray: algo.Ray, plane: Plane):
     return algo.ray_plane_intersection(*ray, plane, full_return=True)
+
+
+def rotate_vectors_around_plane(vecs, plane_a, angle):
+    return norm(vecs) * rotate_around_axis(unit(vecs), angle, origin=(0., 0., 0.), axis=plane_a.normal)
+
+
+@vectorize(excluded=[0, 1], signature='()->()')
+def rotate_plane_around_plane(plane1, plane2, angle):
+    """
+    Parameters
+    ----------
+    :param plane1: Plane который планируется повернуть
+    :param plane2: Plane в системе которого происходит поворот
+    :param angle:  Угол поворота в радианах
+    :type angle: float
+    :returns new_plane: Новый Plane в глобальных координатах
+    :rtype: Plane
+    """
+    origin = rotate_around_axis(plane1.origin, angle, plane2.origin, plane2.normal)
+    xaxis, yaxis, zaxis = rotate_around_axis(np.array([plane1.xaxis, plane1.yaxis, plane1.zaxis]), angle,
+                                             origin=(0., 0., 0.), axis=plane2.normal)
+    return Plane(np.array([origin, xaxis, yaxis, zaxis], dtype=float))

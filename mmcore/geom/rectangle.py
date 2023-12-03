@@ -1,13 +1,16 @@
+import dataclasses
 import functools
+import itertools
 
 import numpy as np
 import shapely
 from multipledispatch import dispatch
-
+from mmcore.geom.mesh import union_mesh2
 from mmcore.base.ecs.components import component
 from mmcore.func import vectorize
 from mmcore.geom import offset
 from mmcore.geom import plane
+from mmcore.geom.plane import PlaneComponent
 from mmcore.geom.polyline import evaluate_polyline, polyline_to_lines
 from mmcore.geom.shapes.area import polygon_area
 from mmcore.geom.vec import cross, norm, unit
@@ -23,11 +26,60 @@ class UV:
     u: Length = None
     v: Length = None
 
+
+@component()
+class RectangleComponent:
+    plane: PlaneComponent = None
+    uv: UV = None
+
+
+@component()
+class RectangleUnionComponent:
+    planes: [PlaneComponent] = None
+    uvs: list[UV] = None
+
+
+@dataclasses.dataclass(unsafe_hash=True)
+class RectangleParmAccess(plane.PlaneParamsAccess):
+    uv: UV = None
+
+    def __post_init__(self):
+        plane.PlaneParamsAccess.__post_init__(self)
+
+        if not hasattr(self.uv, 'component_type'):
+            self.uv = UV(*[Length(i) if not hasattr(i, 'component_type') else i for i in self.uv])
+
+    @property
+    def u(self):
+        return self.uv.u.value
+
+    @property
+    def v(self):
+        return self.uv.u.value
+
+    @u.setter
+    def u(self, val):
+        self.uv.u.value = val
+
+    @v.setter
+    def v(self, val):
+        self.uv.v.value = val
+
+    @classmethod
+    def from_plane_pa(self, u, v, pa: plane.PlaneParamsAccess):
+        return RectangleParmAccess(arr=pa.arr, uv=(u, v))
+
+
+from mmcore.base.ecs.components import EcsProperty
+
 class Rectangle(plane.Plane):
+    ecs_uv = EcsProperty()
+    ecs_rectangle = EcsProperty()
 
-    def __init__(self, u: float = 1, v: float = 1, xaxis=np.array((1, 0, 0)), normal=np.array((0, 0, 1)),
+    def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=np.array((1, 0, 0)),
+                 normal=np.array((0, 0, 1)),
                  origin=np.array((0, 0, 0))):
-
+        super(plane.Plane, self).__init__()
         normal = unit(normal)
         xaxis = unit(xaxis)
         yaxis = unit(cross(normal, xaxis))
@@ -36,32 +88,37 @@ class Rectangle(plane.Plane):
             u = Length(u)
         if not hasattr(v, 'component_type'):
             v = Length(v)
-        self._uv_cmp = UV(u, v)
+
+        self.ecs_uv = UV(u, v)
+        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv)
+
+    def __iter__(self):
+        return iter(self.corners)
 
     @property
     def u(self):
-        return self._uv_cmp.u.value
+        return self.ecs_uv.u.value
 
     @u.setter
     def u(self, val):
         if not hasattr(val, 'component_type'):
 
-            self._uv_cmp.u.value = val
+            self.ecs_uv.u.value = val
         else:
-            self._uv_cmp.u = val
+            self.ecs_uv.u = val
         self._dirty = True
 
     @property
     def v(self):
-        return self._uv_cmp.v.value
+        return self.ecs_uv.v.value
 
     @v.setter
     def v(self, val):
         if not hasattr(val, 'component_type'):
 
-            self._uv_cmp.v.value = val
+            self.ecs_uv.v.value = val
         else:
-            self._uv_cmp.v = val
+            self.ecs_uv.v = val
         self._dirty = True
 
 
@@ -163,6 +220,8 @@ class Rectangle(plane.Plane):
     def __repr__(self):
         return f'{self.__class__.__name__}({self.corners})'
 
+    def todict(self):
+        return dict(u=self.u, v=self.v) | super().todict()
 
 
 @vectorize(signature='(j,i),()->()')
@@ -352,6 +411,9 @@ def composite(item_cls):
 RectangleComposite = composite(Rectangle)
 
 
+def rect_to_plane(rect: Rectangle, new_plane: plane.Plane):
+    rect.ecs_plane = new_plane.ecs_plane
+
 class RectangleUnion(RectangleComposite):
 
 
@@ -362,9 +424,14 @@ class RectangleUnion(RectangleComposite):
     def poly(self):
         return cached_poly(tuple(self._items))
 
+    def rotate_item(self, item: int, angle: float, axis=None, origin: tuple = None):
+        self._items[item].rotate(angle, axis=axis, origin=origin)
+
+    def translate_item(self, item, vector=(0.0, 0.0, 0.0)):
+        self._items[item].translate(vector)
     @property
     def corners(self):
-        return shapely.geometry.mapping(self.poly)['coordinates'][0]
+        return shapely.geometry.mapping(self.poly)['coordinates'][0][:-1]
 
     def to_shape(self):
         return self.corners
@@ -375,6 +442,9 @@ class RectangleUnion(RectangleComposite):
     @property
     def area(self):
         return self.poly.area
+
+    def __iter__(self):
+        return iter(shapely.geometry.mapping(self.poly)['coordinates'][0][:-1])
 
 @dispatch(RectangleUnion, tuple, dict)
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
@@ -414,38 +484,7 @@ class RectangleCollection(composite(Rectangle)):
         return shapely.geometry.mapping(self.poly)['coordinates'][0]
 
 
-class Graph:
-    def __init__(self, root_data=None):
-        self.counter = itertools.count()
-        self.edges = []
-        self.nodes = []
 
-    def push(self, data):
-        i = next(self.counter)
-        edges = []
-        self.edges.append(edges)
-        node = Node(i, data=data, edges=edges)
-        self.nodes.append(node)
-        return node
-
-
-class Node:
-    def __init__(self, uuid, data=None, edges=None):
-        self.uuid = uuid
-        self.edges = edges
-        self.data
-
-    def execute(self):
-        ...
-
-    def is_leaf(self):
-        return self.childs is None
-
-    def assign_data(self, node):
-        return self.childs is None
-
-    def append(self, node):
-        return self.childs is None
 
 
 @dispatch(ShapeNode, float, int, int)
