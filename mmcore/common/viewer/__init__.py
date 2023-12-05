@@ -14,10 +14,6 @@ class ViewerGroup(AGroup):
         add_props_update_support(obj)
         return obj
 
-    @property
-    def object_url(self):
-
-        return self.__class__.__gui_controls__.config.address + self.__class__.__gui_controls__.config.api_prefix
 
     def add_entry(self, entry: Entry):
         add_entry_safe(self._user_data_extras['entries'], entry)
