@@ -1,4 +1,4 @@
-
+import dataclasses
 from operator import attrgetter, itemgetter, methodcaller
 
 import mmcore.base
@@ -128,3 +128,14 @@ def deep_merge(dct, dct2):
         if not (k in dct.keys()):
             dct[k] = v2
     return dct
+
+
+def asdict(obj):
+    if dataclasses.is_dataclass(obj):
+        return dataclasses.asdict(obj)
+    elif isinstance(obj, (list, tuple, set)):
+        return [asdict(o) for o in obj]
+    elif isinstance(obj, dict):
+        return {k: asdict(o) for k, o in obj.items()}
+    else:
+        return obj

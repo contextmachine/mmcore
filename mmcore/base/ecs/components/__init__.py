@@ -1,17 +1,16 @@
-import dataclasses
+import copy
 import inspect
+import json
 import queue
-import types
 
 import itertools
-import json
 
 components = dict()
 components_ctors = dict()
 _components_type_name_map = dict()
 import functools
 import uuid as _uuid
-from dataclasses import dataclass, is_dataclass, asdict
+from dataclasses import is_dataclass, asdict
 import numpy as np
 
 NS = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
@@ -26,6 +25,32 @@ class NpEncoder(json.JSONEncoder):
 
 
 class SoAField:
+    """
+    Copy:
+    ----
+
+>>> from mmcore.geom.rectangle import Rectangle,to_mesh
+>>> import copy
+>>> r1=Rectangle(10,20)
+>>> a=copy.deepcopy(r1)
+>>> a
+Rectangle([[ 0.  0.  0.]
+ [10.  0.  0.]
+ [10. 20.  0.]
+ [ 0. 20.  0.]])
+>>> a.ecs_rectangle
+RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
+       [1., 0., 0.],
+       [0., 1., 0.],
+       [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 7e40fc49f42843ca8bfa29d6d8fd7511, 'uv': UV({'u': Length({'value': 10}) at b0e3951fdd654dd296dd7e474128803b, 'v': Length({'value': 20}) at ad105e2814254394b551b26d238a9af2}) at 7487ff2dac4d413da67999d4d46b324b}) at a30d188f1bb1400888da10982088972b
+>>> r1.ecs_rectangle
+RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
+       [1., 0., 0.],
+       [0., 1., 0.],
+       [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 1426df91b19f42459f35d04306c43538, 'uv': UV({'u': Length({'value': 10}) at 424d0b8cd21d4034b734f756e94700be, 'v': Length({'value': 20}) at 88797284c9984353bb0be9e295bd834c}) at 9bc79b28188c4096acf50ebfe78f8f87}) at 7955f77c6a094f3295ff8ce32072b81e
+
+
+    """
     def __init__(self, default=None):
         self.default = default
         self.data = dict()
@@ -71,6 +96,23 @@ class SoAItem:
         self._parent = parent_id
         self._uuid = uuid
         self._component_type_name = self.parent.type_name
+
+    def __copy__(self):
+        uu = _uuid.uuid4().hex
+        self._parent[uu] = dict(self.items())
+        return self._parent[uu]
+
+    def __deepcopy__(self, memodict={}):
+        return components_from_spec(
+            copy.deepcopy(
+                components_to_spec(self),
+                memodict
+            ),
+            return_root_only=True
+        )
+
+
+
 
     def get_field(self, k):
         return {
@@ -523,7 +565,6 @@ from collections import defaultdict
 
 CASTS = defaultdict(lambda: lambda tp, x: x)
 from itertools import count
-from numpy import ndarray
 
 CASTS['ndarray'] = lambda tp, x: np.array(x)
 
@@ -575,8 +616,6 @@ def from_spec(spec, refs: list, comps_queue: queue.Queue, comps: list):
 
 
 from mmcore.func import extract_type
-import numpy
-from numpy import dtype
 
 
 @functools.lru_cache()
@@ -656,7 +695,7 @@ def components_to_spec(*cmp):
     return dict(spec=specs, refs=refs)
 
 
-def components_from_spec(spec):
+def components_from_spec(spec, return_root_only=False):
     refs = spec['refs']
 
     comps = []
@@ -664,7 +703,8 @@ def components_from_spec(spec):
     [from_spec(cm, refs, que, comps) for cm in spec['spec']]
     while not que.empty():
         que.get()()
-
+    if return_root_only:
+        return comps[-1]
     return comps
 
 
@@ -701,8 +741,9 @@ class EcsContainer:
 
 
 class EcsProperty:
-    def __init__(self, i=None):
+    def __init__(self, i=None, type=None):
         self.i = i
+        self.typ = type
 
     def __set_name__(self, owner, name):
         if not hasattr(owner, 'ecs_map'):
@@ -712,7 +753,7 @@ class EcsProperty:
                 raise IndexError(f'component {self.i} is already defined: {owner.ecs_map}')
         else:
             self.i = len(owner.ecs_map)
-        owner.ecs_map[name] = self.i
+        owner.ecs_map[name] = dict(n=self.i, component_type=self.typ)
 
         self._name = name
 
@@ -726,7 +767,33 @@ class EcsProperty:
         self.ecs_set(instance, value)
 
     def ecs_get(self, instance):
-        return instance.ecs_components[instance.ecs_map[self._name]]
+        return instance.ecs_components[instance.ecs_map[self._name]['n']]
 
     def ecs_set(self, instance, value):
-        instance.ecs_components[instance.ecs_map[self._name]] = value
+        instance.ecs_components[instance.ecs_map[self._name]['n']] = value
+
+
+def deepcopy_components(cmps, memo={}, return_root_only=False):
+    return components_from_spec(
+        copy.deepcopy(
+            components_to_spec(*cmps),
+            memo
+        ),
+        return_root_only=return_root_only
+    )
+
+
+class EcsProto:
+    ecs_map = {}
+
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls)
+        self.ecs_components = np.empty(len(cls.ecs_map), dtype=object)
+
+        # print(cls.ecs_map)
+        # print(self.ecs_components)
+        self.__init__(*args, **kwargs)
+        return self
+
+    def ecs_component_types(self):
+        return ((e['component_type'].component_type, e['n']) for e in self.ecs_map.values())

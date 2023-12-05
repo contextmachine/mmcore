@@ -2,6 +2,7 @@ import dataclasses
 from collections import namedtuple
 
 import numpy as np
+from multipledispatch import dispatch
 
 from mmcore.func import vectorize
 from mmcore.geom import vec
@@ -9,7 +10,7 @@ from mmcore.geom.vec import cross, dot, norm, unit
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
-from mmcore.base.ecs.components import component, EcsProperty
+from mmcore.base.ecs.components import EcsProto, component, EcsProperty
 
 
 @component()
@@ -80,28 +81,32 @@ class PlaneParamsAccess:
         self.arr[self.origin_ref] = np.array(v)
 
 
-@component()
-class PlaneParams:
-    access: PlaneParamsAccess = None
+NpPlane = np.void(0, dtype=np.dtype(
+    [('origin', float, (3,)), ('xaxis', float, (3,)), ('yaxis', float, (3,)), ('zaxis', float, (3,))]))
 
 
-def createPlaneParams(arr=None):
-    if arr is None:
-        arr = np.zeros((4, 3))
+@dispatch(object, object)
+def np_plane(xaxis, yaxis):
+    xaxis, yaxis = unit([xaxis, yaxis])
+    zaxis = cross(xaxis, yaxis)
+    pln = np.array(0, dtype=NpPlane)
+    pln[1] = xaxis
+    pln[2] = yaxis
+    pln[3] = zaxis
+    return pln
 
-    return PlaneParamsAccess(arr)
 
+@dispatch(object, object, object)
+def np_plane(xaxis, yaxis, origin):
+    xaxis, yaxis = unit([xaxis, yaxis])
+    zaxis = cross(xaxis, yaxis)
+    pln = np.array(0, dtype=NpPlane)
+    pln[0] = origin
+    pln[1] = xaxis
+    pln[2] = yaxis
+    pln[3] = zaxis
+    return pln
 
-class EcsProto:
-    ecs_map = {}
-
-    def __new__(cls, *args, **kwargs):
-        self = super().__new__(cls)
-        self.ecs_components = np.empty(len(cls.ecs_map), dtype=object)
-        print(cls.ecs_map)
-        print(self.ecs_components)
-        self.__init__(*args, **kwargs)
-        return self
 
 
 class Plane(EcsProto):
@@ -111,14 +116,13 @@ class Plane(EcsProto):
     xaxis=cross( yaxis,zaxis)
     """
 
-    ecs_plane = EcsProperty()
+    ecs_plane = EcsProperty(type=PlaneComponent)
 
     def __init__(self, arr=None):
         super().__init__()
         self._bytes = None
         self.ecs_plane = PlaneComponent(ref=np.append([0., 0., 0.],
                                                       np.eye(3, 3)).reshape((4, 3)) if arr is None else arr)
-
         self._dirty = True
 
     def replace_component(self, comp: PlaneComponent):
@@ -133,11 +137,11 @@ class Plane(EcsProto):
         self.ecs_components[0] = v
     @property
     def _arr(self):
-        return self.ecs_components[0].ref
+        return self.ecs_plane.ref
 
     @_arr.setter
     def _arr(self, v):
-        self._arr_cmp.ref[:] = np.array(v)
+        self.ecs_plane.ref[:] = np.array(v)
         self._dirty = True
 
     def to_bytes(self):
@@ -165,39 +169,39 @@ class Plane(EcsProto):
 
     @property
     def xaxis(self):
-        return self._arr[self._arr_cmp.xaxis]
+        return self._arr[self.ecs_plane.xaxis]
 
     @property
     def yaxis(self):
-        return self._arr[self._arr_cmp.yaxis]
+        return self._arr[self.ecs_plane.yaxis]
 
     @property
     def zaxis(self):
-        return self._arr[self._arr_cmp.zaxis]
+        return self._arr[self.ecs_plane.zaxis]
 
     @property
     def origin(self):
-        return self._arr[self._arr_cmp.origin]
+        return self._arr[self.ecs_plane.origin]
 
     @origin.setter
     def origin(self, v):
-        self._arr[self._arr_cmp.origin, np.arange(len(v))] = v
+        self._arr[self.ecs_plane.origin, np.arange(len(v))] = v
         self._dirty = True
 
     @xaxis.setter
     def xaxis(self, v):
-        self._arr[self._arr_cmp.xaxis, np.arange(len(v))] = v
+        self._arr[self.ecs_plane.xaxis, np.arange(len(v))] = v
 
         self._dirty = True
 
     @yaxis.setter
     def yaxis(self, v):
-        self._arr[self._arr_cmp.yaxis, np.arange(len(v))] = v
+        self._arr[self.ecs_plane.yaxis, np.arange(len(v))] = v
         self._dirty = True
 
     @zaxis.setter
     def zaxis(self, v):
-        self._arr[self._arr_cmp.zaxis, np.arange(len(v))] = v
+        self._arr[self.ecs_plane.zaxis, np.arange(len(v))] = v
         self._dirty = True
 
     def todict(self):

@@ -3,10 +3,14 @@ import dataclasses
 import hashlib
 import json
 import operator
+import os
 import typing
 import uuid
 from collections import namedtuple
 
+from dotenv import load_dotenv
+
+MMCORE_IS_DOTENV_LOADED = load_dotenv('../.env')
 import itertools
 import numpy as np
 import strawberry
@@ -14,6 +18,7 @@ import ujson
 from pyquaternion import Quaternion
 from scipy.spatial.distance import euclidean
 from strawberry.scalars import JSON
+from mmcore.base.utils import asdict
 
 import mmcore.base.models.gql
 import mmcore.base.models.gql as gql_models
@@ -26,7 +31,8 @@ from mmcore.geom.vectors import unit
 NAMESPACE_MMCOREBASE = uuid.UUID('5901d0eb-61fb-4e8c-8fd3-a7ed8c7b3981')
 Link = namedtuple("Link", ["name", "parent", "child"])
 LOG_UUIDS = False
-
+MMCORE_ADDRESS = os.getenv('MMCORE_ADDRESS', 'http://localhost:7711')
+MMCORE_PREFIX = os.getenv('MMCORE_API_PREFIX', '/')
 
 class ExEncoder(json.JSONEncoder):
     def default(self, ob):
@@ -253,8 +259,8 @@ class UserDataItem:
 
 @dataclasses.dataclass
 class GuiConnectConfig:
-    address: str = "http://localhost:7711"
-    api_prefix: str = "/"
+    address: str = MMCORE_ADDRESS
+    api_prefix: str = MMCORE_PREFIX
 
     def update(self, dct):
         self.__dict__ |= dct
@@ -356,6 +362,7 @@ class A:
     _user_data_extras = dict()
     RENDER_BBOX = False
 
+
     def __getstate__(self):
         dct = dict(self.__dict__)
 
@@ -391,7 +398,7 @@ class A:
         inst.child_keys = set()
         inst._children = ChildSet(inst)
         if "_endpoint" not in kwargs.keys():
-            inst._endpoint = f"gui/{_ouuid}"
+            inst._endpoint = f"controls/{_ouuid}"
         inst.set_state(*args, **kwargs)
 
         return inst
@@ -535,6 +542,41 @@ class A:
 
     def add_userdata_item(self, key, data):
         self._user_data_extras[key] = data
+
+    @property
+    def object_url(self):
+        return self.__class__.__gui_controls__.config.address + self.__class__.__gui_controls__.config.api_prefix
+
+    @property
+    def has_entries(self):
+        return 'entries' in self._user_data_extras
+
+    def add_entries_support(self):
+        if not self.has_entries:
+            self.add_user_data_extra("entries", [])
+
+    def add_user_data_extra(self, key, value):
+        if key not in self._user_data_extras:
+            self._user_data_extras[key] = value
+        else:
+            pass
+
+    @property
+    def entries(self):
+        return self._user_data_extras.get('entries', None)
+
+    @entries.setter
+    def entries(self, v):
+        self._user_data_extras['entries'] = v
+
+    def update_entries(self, v):
+        if 'entries' not in self._user_data_extras:
+
+            self.entries = v
+        else:
+            self._user_data_extras['entries'] |= v
+
+
     def __call__(self, *args, callback=lambda x: x, geometries: set = None, materials: set = None, **kwargs):
         self.set_state(*args, **kwargs)
         ud = {
@@ -549,7 +591,7 @@ class A:
             ]
 
         }
-        ud |= self._user_data_extras
+        ud |= asdict(self._user_data_extras)
         data = {
             "name": self.name,
             "uuid": self.uuid,
@@ -692,11 +734,65 @@ class A:
         return dict()
 
 
-class AGroup(A):
+class ACacheSupport(A):
+    cache = None
+
+    def make_dirty(self):
+        self._dirty = True
+
+    def make_cache(self):
+        sup = super()
+
+        def asyncache():
+            # print("caching...")
+            self._dirty = False
+            self.cache = sup.root()
+            # print("done")
+
+        asyncache()
+        # self._th=Thread(target=asyncache)
+        # self._th.start()
+
+    def __setattr__(self, key, value):
+        if key == "_dirty":
+            self.__dict__['_dirty'] = value
+        else:
+            super().__setattr__(key, value)
+
+            self.make_dirty()
+
+    @property
+    def dirty(self) -> bool:
+        return self._dirty
+
+    def root(self, shapes=None, dumps=False):
+        if self.cache is None or self.dirty:
+            self.make_cache()
+        # if self._th.is_alive():
+        # self._th.join(0.5)
+
+        return self.cache
+
+    @property
+    def matrix(self):
+        return super().matrix
+
+    @matrix.setter
+    def matrix(self, v):
+        self._matrix = v
+        self.make_dirty()
+
+    @matrix.deleter
+    def matrix(self):
+        self._matrix = list(DEFAULT_MATRIX)
+        self.make_dirty()
+
+
+class AGroup(ACacheSupport):
 
     def __new__(cls, seq=(), **kwargs):
         inst = super().__new__(cls, **kwargs)
-
+        inst._dirty=True
         idict[inst.uuid]["__children__"] = set()
         if len(seq) > 0:
             idict[inst.uuid]["__children__"] = set([s.uuid for s in seq])
@@ -707,15 +803,32 @@ class AGroup(A):
     def threejs_type(self):
         return "Group"
 
+
     def add(self, obj):
         idict[self.uuid]["__children__"].add(obj.uuid)
+        self.make_dirty()
 
+    def intersection(self, obj):
+        childs = set.intersection(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
+        return AGroup(uuid='x-' + self.uuid + "-" + obj.uuid,
+                      name=f'{self.name} x {obj.name}',
+                      seq=childs)
+
+    def difference(self, obj):
+        childs = set.difference(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
+        return AGroup(uuid='d-' + self.uuid + "-" + obj.uuid,
+                      name=f'{self.name} d {obj.name}',
+                      seq=childs)
+
+    def union(self, obj):
+        childs = set.union(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
+        return AGroup(uuid='u-' + self.uuid + "-" + obj.uuid,
+                      name=f'{self.name} u {obj.name}',
+                      seq=childs)
     def update(self, items):
-        set.update(idict[self.uuid]["__children__"], set(s.uuid for s in items))
+        idict[self.uuid]["__children__"].update([i.uuid for i in items])
 
-    def union(self, items):
-        set.union(idict[self.uuid]["__children__"], set(s.uuid for s in items))
-
+        self.make_dirty()
     def __contains__(self, item):
         return set.__contains__(idict[self.uuid]["__children__"], item.uuid)
 
@@ -728,7 +841,7 @@ class AGroup(A):
 
     def remove(self, obj):
         idict[self.uuid]["__children__"].remove(obj.uuid)
-
+        self.make_dirty()
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)
@@ -1023,7 +1136,7 @@ class AMaterialDescriptor:
         setattr(instance, self._name, value.uuid)
 
 
-class AGeom(A):
+class AGeom(ACacheSupport):
     material_type = gql_models.BaseMaterial
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()

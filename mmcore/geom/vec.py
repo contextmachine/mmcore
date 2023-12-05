@@ -28,6 +28,9 @@ def dot(a, b):
     return np.dot(a, b)
 
 
+@vectorize(signature='(i),(i)->()')
+def angle(a, b):
+    return np.arccos(np.dot(a, b))
 @vectorize(signature='(i)->(i)')
 def perp2d(vec):
     v2 = np.copy(vec)
