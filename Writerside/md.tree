@@ -7,4 +7,7 @@
                   start-page="starter-topic.md">
 
     <toc-element topic="starter-topic.md"/>
+    <toc-element topic="Geometry.md">
+        <toc-element topic="Rectangle.md"/>
+    </toc-element>
 </instance-profile>
