@@ -12,7 +12,10 @@ import functools
 import uuid as _uuid
 from dataclasses import is_dataclass, asdict
 import numpy as np
+import numpy
+from numpy import ndarray, dtype
 
+ndarray, dtype, numpy = ndarray, dtype, numpy
 NS = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
 
 
@@ -73,6 +76,8 @@ RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
     def __setitem__(self, key, value):
         self.data[key] = value
 
+    def __delitem__(self, key):
+        self.data.__delitem__(key)
     def get(self, key, __default=None):
         return self.data.get(key, __default)
 
@@ -90,6 +95,10 @@ def soa_parent(self):
     return components[self._parent]
 
 
+def safe_get_field(self, key):
+    if key not in self.parent.fields.keys():
+        self.parent.add_field(key)
+    return self.parent.fields[key]
 class SoAItem:
     def __init__(self, uuid, parent_id):
         super().__init__()
@@ -115,9 +124,10 @@ class SoAItem:
 
 
     def get_field(self, k):
+
         return {
             int: lambda x: self.parent.fields[list(self.parent.fields.keys())[x]],
-            str: lambda x: self.parent.fields[x]
+            str: lambda x: safe_get_field(self, x)
         }[type(k)](k)
 
     @property
@@ -136,9 +146,13 @@ class SoAItem:
         for key, v in val.items():
             self.get_field(key)[self.uuid] = v
 
+    def clear(self):
+        for key in self.keys():
+            del self.parent.fields[key][self.uuid]
     def __setitem__(self, key, val):
 
         if isinstance(key, (str, int)):
+
             self.get_field(key)[self.uuid] = val
         else:
             if len(key) > 0:
@@ -174,13 +188,11 @@ class SoAItem:
         return soa_parent(self)
 
     def values(self):
-
         for field in soa_parent(self).fields.values():
             if field[self.uuid] is not None:
                 yield field[self.uuid]
 
     def keys(self):
-
         for key, field in soa_parent(self).fields.items():
             if field[self.uuid] is not None:
                 yield key
@@ -232,7 +244,8 @@ class SoAItem:
         return list(super().__dir__()) + list(self.keys())
 
     def __repr__(self):
-        return f'{self.parent.type_name}({dict(self)}) at {self.uuid}'
+        kws = dict(self)
+        return f'{self.parent.type_name}({kws}) at <{self.uuid}>'
 
 
 class SoArrayItem(SoAItem):
@@ -292,7 +305,7 @@ class SoArrayItem(SoAItem):
     def __repr__(self):
         p = soa_parent(self)
         a = np.array_str(p._arr[self._arr_index], precision=4).replace('\n', '').replace(" ", ", ")
-        return f'{self.component_type}({", ".join(p.fields.keys())}, {a}) at {self._uuid}'
+        return f'{self.component_type}({", ".join(p.fields.keys())}, {a}) at <{self._uuid}>'
 
 
 from dataclasses import dataclass
@@ -326,8 +339,11 @@ class SoA:
     def uuid(self):
         return self._mmcore_uuid.hex
 
-    def add_field(self, key, fld):
+    def add_field(self, key, fld=None):
+        if fld is None:
+            fld = SoAField()
         fld.parent = self
+
         self.fields[key] = fld
 
     def remove_field(self, key):
@@ -506,9 +522,10 @@ def component(name=None, array_like=False, item_shape=()):
 def apply(obj, data):
     for k, v in data.items():
         if isinstance(v, dict):
+
             apply(getattr(obj, k), v)
         else:
-            setattr(obj, k, v)
+            obj.__setitem__(k, v)
 
 
 COMPONENT_TYPE_FIELD = 'component_type'

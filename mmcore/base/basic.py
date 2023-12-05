@@ -1,5 +1,4 @@
 import copy
-import dataclasses
 import hashlib
 import json
 import operator
@@ -9,6 +8,9 @@ import uuid
 from collections import namedtuple
 
 from dotenv import load_dotenv
+
+from mmcore.base.userdata.entry import *
+from mmcore.base.userdata.props import Props, props_to_dict
 
 MMCORE_IS_DOTENV_LOADED = load_dotenv('../.env')
 import itertools
@@ -24,7 +26,7 @@ import mmcore.base.models.gql
 import mmcore.base.models.gql as gql_models
 from mmcore import typegen
 from mmcore.base.params import ParamGraphNode, TermParamGraphNode
-from mmcore.base.registry import adict, ageomdict, amatdict, idict
+from mmcore.base.registry import adict, ageomdict, amatdict, idict, propsdict
 from mmcore.collections.multi_description import ElementSequence
 from mmcore.geom.vectors import unit
 
@@ -396,9 +398,11 @@ class A:
         inst._uuid = _ouuid
         inst._user_data_extras = dict()
         inst.child_keys = set()
-        inst._children = ChildSet(inst)
+        inst._children = set()
+
         if "_endpoint" not in kwargs.keys():
             inst._endpoint = f"controls/{_ouuid}"
+
         inst.set_state(*args, **kwargs)
 
         return inst
@@ -437,6 +441,10 @@ class A:
                 return dct
 
         return childthree(self)
+
+    @property
+    def object_url(self):
+        return self.__class__.__gui_controls__.config.address + self.__class__.__gui_controls__.config.api_prefix
 
     @property
     def state_keys(self):
@@ -543,9 +551,6 @@ class A:
     def add_userdata_item(self, key, data):
         self._user_data_extras[key] = data
 
-    @property
-    def object_url(self):
-        return self.__class__.__gui_controls__.config.address + self.__class__.__gui_controls__.config.api_prefix
 
     @property
     def has_entries(self):
@@ -581,11 +586,8 @@ class A:
         self.set_state(*args, **kwargs)
         ud = {
 
-            "properties": sumdicts({
-                "name": self.name
-            },
-                self.properties,
-            ),
+            "properties": props_to_dict(self.properties),
+
             "gui": [
                 self.controls.todict()
             ]
@@ -734,8 +736,58 @@ class A:
         return dict()
 
 
-class ACacheSupport(A):
+import uuid as _uuid
+
+
+class PropsSupport(A):
+    def __new__(cls, uuid=None, name="Object", properties=None, **kwargs):
+        if uuid is None:
+            uuid = _uuid.uuid4().hex
+        obj = super().__new__(cls, uuid=uuid,
+                              name=name,
+                              **kwargs)
+
+        if uuid not in propsdict:
+            propsdict[uuid] = Props(name=uuid, uuid=uuid)
+
+        if properties is not None:
+            propsdict[uuid].update(properties)
+
+        obj.properties = propsdict[uuid]
+        obj._properties = properties
+        return obj
+
+    def apply_props(self, data: dict):
+        print(self, self.properties, data)
+        propsdict[self.uuid].update(data)
+
+    def clear_props(self):
+        return self.properties.clear()
+
+
+class ACacheSupport(PropsSupport):
     cache = None
+
+    def __new__(cls, uuid=None, name="Object",
+                user_data_extras=None,
+                entries_support=True,
+                props_update_support=False,
+                **kwargs):
+        if user_data_extras is None:
+            user_data_extras = dict()
+
+        obj = super().__new__(cls,
+                              uuid=uuid,
+                              name=name,
+                              _user_data_extras=user_data_extras,
+                              **kwargs)
+
+        if props_update_support:
+            add_props_update_support(obj)
+        elif entries_support:
+            obj.add_entries_support()
+
+        return obj
 
     def make_dirty(self):
         self._dirty = True
@@ -760,6 +812,24 @@ class ACacheSupport(A):
             super().__setattr__(key, value)
 
             self.make_dirty()
+
+    @property
+    def children(self):
+        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
+
+    @children.setter
+    def children(self, v):
+        idict[self.uuid]["__children__"] = {i.uuid for i in v}
+        self.make_dirty()
+
+    @property
+    def children_uuids(self):
+        return idict[self.uuid]["__children__"]
+
+    @children_uuids.setter
+    def children_uuids(self, v):
+        idict[self.uuid]["__children__"] = set(v)
+        self.make_dirty()
 
     @property
     def dirty(self) -> bool:
@@ -787,6 +857,42 @@ class ACacheSupport(A):
         self._matrix = list(DEFAULT_MATRIX)
         self.make_dirty()
 
+    def add_entry(self, entry: Entry):
+        add_entry_safe(self._user_data_extras['entries'], entry)
+
+    def add_entries_support(self):
+        if not self.has_entries:
+            self.add_user_data_extra("entries", [])
+
+    def add_user_data_extra(self, key, value):
+        if key not in self._user_data_extras:
+            self._user_data_extras[key] = value
+        else:
+            pass
+
+    @property
+    def entries(self):
+        return self._user_data_extras.get('entries', None)
+
+    @entries.setter
+    def entries(self, v):
+        self._user_data_extras['entries'] = v
+
+    @property
+    def properties(self):
+        return propsdict[self.uuid]
+
+    @properties.setter
+    def properties(self, v):
+        propsdict[self.uuid].update(v)
+
+    def add_props_update_support(self):
+        if not self.has_entries:
+            self.add_entries_support()
+
+        self.add_entry(Entry(name="update-props",
+                             endpoint=EntryEndpoint(protocol=EntryProtocol.REST,
+                                                    url=self.object_url + f"props-update/{self.uuid}")))
 
 class AGroup(ACacheSupport):
 
@@ -835,13 +941,15 @@ class AGroup(ACacheSupport):
     def __iter__(self):
         return iter(idict[self.uuid]["__children__"])
 
-    @property
-    def children(self):
-        return [adict[child] for child in idict[self.uuid]["__children__"]]
 
     def remove(self, obj):
         idict[self.uuid]["__children__"].remove(obj.uuid)
         self.make_dirty()
+
+    def clear(self):
+        idict[self.uuid]["__children__"].clear()
+        self.make_dirty()
+
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)
@@ -873,7 +981,7 @@ class AGeometryDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance: ACacheSupport, owner):
         if instance is None:
 
             return ageomdict.get(self._default)
@@ -883,11 +991,11 @@ class AGeometryDescriptor:
             #    setattr(geom.data, "boundingSphere", instance.boundingSphere)
             return ageomdict.get(getattr(instance, self._name))
 
-    def __set__(self, instance, value):
+    def __set__(self, instance: ACacheSupport, value):
 
         ageomdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
-
+        instance.make_dirty()
 
 from mmcore.geom.materials import ColorRGB
 
@@ -903,16 +1011,16 @@ class ADynamicGeometryDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance: ACacheSupport, owner):
         if instance is None:
 
             return self
         else:
             return self.resolve(instance)
 
-    def __set__(self, instance, value):
+    def __set__(self, instance: ACacheSupport, value):
         self.resolver = value
-
+        instance.make_dirty()
     def resolve(self, instance):
         def wrap(*args, **kwargs):
             res = self.resolver(instance, *args, **kwargs)
@@ -1123,17 +1231,18 @@ class AMaterialDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance: ACacheSupport, owner):
         if instance is None:
 
             return self._default
         else:
             return amatdict.get(getattr(instance, self._name, self._default))
 
-    def __set__(self, instance, value):
+    def __set__(self, instance: ACacheSupport, value):
 
         amatdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
+        instance.make_dirty()
 
 
 class AGeom(ACacheSupport):
@@ -1154,6 +1263,7 @@ class AGeom(ACacheSupport):
         ageomdict[state["_geometry"]] = state["geometry"]
         amatdict[state["_material"]] = state["material"]
         super().__setstate__(state)
+        self.make_dirty()
 
     """
     @property
