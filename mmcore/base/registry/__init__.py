@@ -10,6 +10,7 @@ adict = dict()
 ageomdict = dict()
 amatdict = dict()
 idict = dict()
+propsdict = dict()
 # Usage example:
 # from mmcore.base.registry.fcpickle import FSDB
 # from mmcore.base.basic import Object3D
