@@ -1,11 +1,11 @@
-import dataclasses
+import copy
+import copy
 import functools
-import itertools
 
 import numpy as np
 import shapely
 from multipledispatch import dispatch
-from mmcore.geom.mesh import union_mesh2
+
 from mmcore.base.ecs.components import component
 from mmcore.func import vectorize
 from mmcore.geom import offset
@@ -13,7 +13,7 @@ from mmcore.geom import plane
 from mmcore.geom.plane import PlaneComponent
 from mmcore.geom.polyline import evaluate_polyline, polyline_to_lines
 from mmcore.geom.shapes.area import polygon_area
-from mmcore.geom.vec import cross, norm, unit
+from mmcore.geom.vec import angle, cross, dist, norm, unit
 
 
 @component()
@@ -39,47 +39,18 @@ class RectangleUnionComponent:
     uvs: list[UV] = None
 
 
-@dataclasses.dataclass(unsafe_hash=True)
-class RectangleParmAccess(plane.PlaneParamsAccess):
-    uv: UV = None
-
-    def __post_init__(self):
-        plane.PlaneParamsAccess.__post_init__(self)
-
-        if not hasattr(self.uv, 'component_type'):
-            self.uv = UV(*[Length(i) if not hasattr(i, 'component_type') else i for i in self.uv])
-
-    @property
-    def u(self):
-        return self.uv.u.value
-
-    @property
-    def v(self):
-        return self.uv.u.value
-
-    @u.setter
-    def u(self, val):
-        self.uv.u.value = val
-
-    @v.setter
-    def v(self, val):
-        self.uv.v.value = val
-
-    @classmethod
-    def from_plane_pa(self, u, v, pa: plane.PlaneParamsAccess):
-        return RectangleParmAccess(arr=pa.arr, uv=(u, v))
 
 
 from mmcore.base.ecs.components import EcsProperty
 
 class Rectangle(plane.Plane):
-    ecs_uv = EcsProperty()
-    ecs_rectangle = EcsProperty()
+    ecs_uv = EcsProperty(type=UV)
+    ecs_rectangle = EcsProperty(type=RectangleComponent)
 
     def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=np.array((1, 0, 0)),
                  normal=np.array((0, 0, 1)),
                  origin=np.array((0, 0, 0))):
-        super(plane.Plane, self).__init__()
+
         normal = unit(normal)
         xaxis = unit(xaxis)
         yaxis = unit(cross(normal, xaxis))
@@ -199,8 +170,8 @@ class Rectangle(plane.Plane):
             pl = plane.translate_plane(self, translation)
             return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
 
-
-
+    def to_mesh(self, uuid=None, **kwargs):
+        return mesh.build_mesh_with_buffer(to_mesh(self), uuid=uuid, **kwargs)
     def inplace_offset(self, dist):
         if np.isscalar(dist):
             dist = np.ones((2, 4), dtype=float) * dist
@@ -222,6 +193,10 @@ class Rectangle(plane.Plane):
 
     def todict(self):
         return dict(u=self.u, v=self.v) | super().todict()
+
+    def side_lengths(self):
+        segms = polyline_to_lines(self.corners)
+        return dist(segms[:, 0, :], segms[:, 1, :])
 
 
 @vectorize(signature='(j,i),()->()')
@@ -329,7 +304,7 @@ def to_mesh(obj: Rectangle, color=(0.3, 0.3, 0.3), props=dict()):
 
 @dispatch(Rectangle)
 def to_mesh(obj: Rectangle, color=(0.3, 0.3, 0.3), props=dict()):
-    return mesh_from_bounds(obj.corners, color, props)
+    return mesh_from_bounds(obj.corners.tolist(), color, props)
 
 
 @functools.lru_cache()
@@ -412,13 +387,24 @@ RectangleComposite = composite(Rectangle)
 
 
 def rect_to_plane(rect: Rectangle, new_plane: plane.Plane):
-    rect.ecs_plane = new_plane.ecs_plane
+    rect.ecs_plane = copy.deepcopy(new_plane.ecs_plane)
+
 
 class RectangleUnion(RectangleComposite):
 
 
     def __hash__(self):
         return hash(tuple(self._items))
+    @property
+    def angle(self):
+        return self._angle
+
+    @angle.setter
+    def angle(self, v):
+        max_angle = self.max_angle()
+
+        self.rotate_item(1, angle=max_angle if max_angle < v else v, origin=self._items[0].origin,
+                         axis=self._items[0].normal)
 
     @property
     def poly(self):
@@ -436,7 +422,8 @@ class RectangleUnion(RectangleComposite):
     def to_shape(self):
         return self.corners
 
-    def to_mesh(self, uuid, **kwargs):
+    def to_mesh(self, uuid=None, **kwargs):
+
         return mesh.build_mesh_with_buffer(to_mesh(self), uuid=uuid, **kwargs)
 
     @property
@@ -445,6 +432,13 @@ class RectangleUnion(RectangleComposite):
 
     def __iter__(self):
         return iter(shapely.geometry.mapping(self.poly)['coordinates'][0][:-1])
+
+    def max_angle(self):
+        a, c = sorted([self._items[0].v, self._items[1].v])
+        b = np.sqrt(c ** 2 - a ** 2)
+        return angle(unit([a, 0]), unit([b, a])) + np.pi / 2
+
+
 
 @dispatch(RectangleUnion, tuple, dict)
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
