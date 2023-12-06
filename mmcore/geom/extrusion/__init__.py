@@ -1,13 +1,13 @@
 import functools
 import uuid
 from collections import deque
-from mmcore.func import vectorize, dsp
-import numpy as np
+
 from more_itertools import flatten
-from mmcore.geom.mesh.shape_mesh import shape_earcut, to_mesh
+
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
 from mmcore.geom.materials import ColorRGB
+from mmcore.geom.mesh.shape_mesh import to_mesh
 from mmcore.geom.shapes import LegacyShape, ShapeInterface
 from mmcore.node import node_eval
 
@@ -165,7 +165,6 @@ from mmcore.func import vectorize
 from mmcore.geom.mesh import union_mesh2
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.polyline import polyline_to_lines
-from mmcore.geom.rectangle import Rectangle
 
 
 @vectorize(signature='(i),(i),(i)->(j,i)')
@@ -178,9 +177,6 @@ def extrude_cont(corners, vec):
     vec = np.array(vec)
     lns = polyline_to_lines(corn)
     return [corn.tolist()] + extrude_line(lns[:, 0, :], lns[:, 1, :], vec).tolist() + [(corn + vec).tolist()]
-
-
-from typing import Iterable
 
 
 def _base_extrusion_init(self, profile, path):
@@ -227,13 +223,9 @@ class Extrusion:
     path: 'np.ndarray(3, float)'
     faces: 'list'
 
-    @dsp(float, excluded=[0, 1])
+
     def __init__(self, shape, h: float):
         _base_extrusion_init(self, shape, np.array([0, 0, h]))
-
-    @dsp(np.ndarray[('j', 'i'), np.dtype(float)], excluded=[0, 1])
-    def __init__(self, shape, h: "np.ndarray(3, float)"):
-        _base_extrusion_init(self, shape, h)
 
     @property
     def caps(self):
@@ -244,7 +236,13 @@ class Extrusion:
         return self.faces[1:-1]
 
     def to_mesh(self, color=(0.7, 0.7, 0.7)):
-        return union_mesh2([mesh_from_bounds(face, color=color) for face in self.faces])
+        return to_mesh(self, color)
+
+
+@dispatch(Extrusion, tuple)
+def to_mesh(ext: Extrusion, color=(0.3, 0.3, 0.3)):
+    return union_mesh2([mesh_from_bounds(face, color=color) for face in ext.faces])
+
 
 
 class MultiExtrusion:
@@ -270,3 +268,6 @@ class MultiExtrusion:
     @property
     def sides(self):
         return self.faces[1:-1]
+
+
+class ExtrusionUnion(MultiExtrusion): ...

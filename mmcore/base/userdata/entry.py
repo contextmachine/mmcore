@@ -31,7 +31,7 @@ import dataclasses
 from enum import Enum
 
 
-class EntryProtocol(str, Enum):
+class EntryApiProtocol(str, Enum):
     """
     Перечисление веб-протоколов которые мы планируем использовать
     """
@@ -40,12 +40,19 @@ class EntryProtocol(str, Enum):
     GRAPHQL = "GRAPHQL"
 
 
+class EntryProtocol(str, Enum):
+    """
+    Перечисление веб-протоколов которые мы планируем использовать
+    """
+    update_props = "update_props"
+
+
 @dataclasses.dataclass
 class EntryEndpoint:
     """
     Спецификация определяющая эндпоинт бекенда для данной механики. url и протокол, не более.
     """
-    protocol: EntryProtocol
+    protocol: EntryApiProtocol
     url: str
 
 
@@ -83,7 +90,7 @@ class Entry:
        }```
 
     """
-    name: str
+    name: EntryProtocol
     endpoint: EntryEndpoint
 
     def __eq__(self, other):
@@ -116,6 +123,6 @@ def add_props_update_support(viewer_object):
     if not viewer_object.has_entries:
         viewer_object.add_entries_support()
 
-    viewer_object.add_entry(Entry(name="update-props",
-                                  endpoint=EntryEndpoint(protocol=EntryProtocol.REST,
+    viewer_object.add_entry(Entry(name=EntryProtocol.update_props,
+                                  endpoint=EntryEndpoint(protocol=EntryApiProtocol.REST,
                                                          url=viewer_object.object_url + f"props-update/{viewer_object.uuid}")))

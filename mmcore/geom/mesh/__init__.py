@@ -3,19 +3,19 @@ import typing
 import uuid as _uuid
 from collections import Counter, namedtuple
 from functools import lru_cache
+
 import numpy as np
 from msgspec import Struct, field
 
 from mmcore.base import AMesh
 from mmcore.base.geom import MeshData
-from mmcore.base.registry import amatdict
-from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, MeshBasicMaterial, create_buffer_index, \
+from mmcore.base.models.gql import BufferGeometry, MeshPhongMaterial, create_buffer_index, \
     create_buffer_position, \
     create_buffer_uv, \
     create_float32_buffer
-
+from mmcore.base.registry import amatdict
 from mmcore.geom.materials import ColorRGB
-from dataclasses import asdict
+
 Vec3Union = tuple[float, float, float]
 Vec2Union = tuple[float, float]
 Vec4Union = tuple[float, float, float, float]
@@ -184,7 +184,7 @@ class MeshTuple(_MeshTuple):
     def __hash__(self):
         return hash(self.attributes['position'].tobytes())
 
-    def amesh(self, uuid=None, name="Mesh", material=None, flatShading=True, props=dict(), controls=dict()):
+    def amesh(self, uuid=None, name="Mesh", material=simpleMaterial, flatShading=True, props=dict(), controls=dict()):
         if material is None:
             material = extract_material(self, flatShading=flatShading)
         return build_mesh_with_buffer(self, uuid=uuid, name=name, material=material, props=props, controls=controls)
@@ -338,6 +338,9 @@ def gen_indices_and_extras(meshes, ks):
             except Exception as err:
                 print(m, err)
 
+
+def to_amesh(mesh: MeshTuple, uuid=None, **kwargs) -> AMesh:
+    return build_mesh_with_buffer(mesh, uuid=uuid, **kwargs)
 
 def gen_indices_and_extras2(meshes, names):
     max_index = -1

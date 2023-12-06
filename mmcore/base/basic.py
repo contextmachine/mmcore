@@ -10,7 +10,7 @@ from collections import namedtuple
 from dotenv import load_dotenv
 
 from mmcore.base.userdata.entry import *
-from mmcore.base.userdata.props import Props, props_to_dict
+from mmcore.base.userdata.props import props_to_dict
 
 MMCORE_IS_DOTENV_LOADED = load_dotenv('../.env')
 import itertools
@@ -133,6 +133,8 @@ def getattr_(obj):
 
 
 ROOT_DOC = """"""
+
+from mmcore.base.userdata.props import Props
 
 
 @strawberry.interface(description=ROOT_DOC)
@@ -747,13 +749,13 @@ class PropsSupport(A):
                               name=name,
                               **kwargs)
 
-        if uuid not in propsdict:
-            propsdict[uuid] = Props(name=uuid, uuid=uuid)
+        if obj.uuid not in propsdict:
+            propsdict[obj.uuid] = Props(name=obj.uuid, uuid=obj.uuid)
 
         if properties is not None:
-            propsdict[uuid].update(properties)
+            propsdict[obj.uuid].update(properties)
 
-        obj.properties = propsdict[uuid]
+        obj.properties = propsdict[obj.uuid]
         obj._properties = properties
         return obj
 
@@ -765,7 +767,7 @@ class PropsSupport(A):
         return self.properties.clear()
 
 
-class ACacheSupport(PropsSupport):
+class Object3D(PropsSupport):
     cache = None
 
     def __new__(cls, uuid=None, name="Object",
@@ -813,29 +815,15 @@ class ACacheSupport(PropsSupport):
 
             self.make_dirty()
 
-    @property
-    def children(self):
-        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
 
-    @children.setter
-    def children(self, v):
-        idict[self.uuid]["__children__"] = {i.uuid for i in v}
-        self.make_dirty()
-
-    @property
-    def children_uuids(self):
-        return idict[self.uuid]["__children__"]
-
-    @children_uuids.setter
-    def children_uuids(self, v):
-        idict[self.uuid]["__children__"] = set(v)
-        self.make_dirty()
 
     @property
     def dirty(self) -> bool:
         return self._dirty
 
-    def root(self, shapes=None, dumps=False):
+    def root(self, no_cache=False, shapes=None, dumps=False):
+        if no_cache:
+            return super().root()
         if self.cache is None or self.dirty:
             self.make_cache()
         # if self._th.is_alive():
@@ -884,17 +872,19 @@ class ACacheSupport(PropsSupport):
 
     @properties.setter
     def properties(self, v):
+
         propsdict[self.uuid].update(v)
 
     def add_props_update_support(self):
         if not self.has_entries:
             self.add_entries_support()
 
-        self.add_entry(Entry(name="update-props",
-                             endpoint=EntryEndpoint(protocol=EntryProtocol.REST,
+        self.add_entry(Entry(name="update_props",
+                             endpoint=EntryEndpoint(protocol=EntryApiProtocol.REST,
                                                     url=self.object_url + f"props-update/{self.uuid}")))
 
-class AGroup(ACacheSupport):
+
+class AGroup(Object3D):
 
     def __new__(cls, seq=(), **kwargs):
         inst = super().__new__(cls, **kwargs)
@@ -950,6 +940,24 @@ class AGroup(ACacheSupport):
         idict[self.uuid]["__children__"].clear()
         self.make_dirty()
 
+    @property
+    def children(self):
+        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
+
+    @children.setter
+    def children(self, v):
+        idict[self.uuid]["__children__"] = {i.uuid for i in v}
+        self.make_dirty()
+
+    @property
+    def children_uuids(self):
+        return idict[self.uuid]["__children__"]
+
+    @children_uuids.setter
+    def children_uuids(self, v):
+        idict[self.uuid]["__children__"] = set(v)
+        self.make_dirty()
+
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)
@@ -981,7 +989,7 @@ class AGeometryDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance: ACacheSupport, owner):
+    def __get__(self, instance: Object3D, owner):
         if instance is None:
 
             return ageomdict.get(self._default)
@@ -991,7 +999,7 @@ class AGeometryDescriptor:
             #    setattr(geom.data, "boundingSphere", instance.boundingSphere)
             return ageomdict.get(getattr(instance, self._name))
 
-    def __set__(self, instance: ACacheSupport, value):
+    def __set__(self, instance: Object3D, value):
 
         ageomdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
@@ -1011,14 +1019,14 @@ class ADynamicGeometryDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance: ACacheSupport, owner):
+    def __get__(self, instance: Object3D, owner):
         if instance is None:
 
             return self
         else:
             return self.resolve(instance)
 
-    def __set__(self, instance: ACacheSupport, value):
+    def __set__(self, instance: Object3D, value):
         self.resolver = value
         instance.make_dirty()
     def resolve(self, instance):
@@ -1231,21 +1239,21 @@ class AMaterialDescriptor:
             raise
         self._name = "_" + name
 
-    def __get__(self, instance: ACacheSupport, owner):
+    def __get__(self, instance: Object3D, owner):
         if instance is None:
 
             return self._default
         else:
             return amatdict.get(getattr(instance, self._name, self._default))
 
-    def __set__(self, instance: ACacheSupport, value):
+    def __set__(self, instance: Object3D, value):
 
         amatdict[value.uuid] = value
         setattr(instance, self._name, value.uuid)
         instance.make_dirty()
 
 
-class AGeom(ACacheSupport):
+class AGeom(Object3D):
     material_type = gql_models.BaseMaterial
     geometry = AGeometryDescriptor()
     material = AMaterialDescriptor()

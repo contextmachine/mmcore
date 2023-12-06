@@ -1,5 +1,4 @@
 import copy
-import copy
 import functools
 
 import numpy as np
@@ -168,7 +167,8 @@ class Rectangle(plane.Plane):
             plane.translate_plane_inplace(self, translation)
         else:
             pl = plane.translate_plane(self, translation)
-            return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
+            return Rectangle(self.ecs_uv.u, self.ecs_uv.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal),
+                             origin=pl.origin)
 
     def to_mesh(self, uuid=None, **kwargs):
         return mesh.build_mesh_with_buffer(to_mesh(self), uuid=uuid, **kwargs)
