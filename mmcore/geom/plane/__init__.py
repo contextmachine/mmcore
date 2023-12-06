@@ -207,6 +207,19 @@ class Plane(EcsProto):
     def todict(self):
         return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
                     zaxis=self.zaxis.tolist())
+
+    @property
+    def dirty(self):
+        return self._dirty
+
+    @dirty.setter
+    def dirty(self, v: bool):
+        self._dirty = v
+
+    def make_dirty(self):
+        self._dirty = True
+
+
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     pln = Plane()
     pln.origin = origin

@@ -1,4 +1,3 @@
-import inspect
 import typing
 from dataclasses import dataclass
 from typing import Callable, Type
@@ -42,14 +41,15 @@ class EntityComponentSystem:
         Кидает KeyError если сущность не существует или не имеет такого компонента
         """
 
-        return self._components[component_class][entity_id]
+        return self._components[component_class.component_type][entity_id]
 
     def init_component(self, component_class: Type[Component]) -> None:
         """
         Инициализация класса компонента. Следует вызвать до создания сущностей
         """
 
-        self._components[component_class] = {}
+        self._components[component_class.component_type] = {}
+        return component_class
 
     def add_variable(self, variable_name: str, variable_value: typing.Any) -> None:
         """
@@ -79,7 +79,7 @@ class EntityComponentSystem:
 
         # Через сигнатуру функции системы узнаем какие данные и компоненты она запрашивает.
         # Сохраним в StoredSystem чтобы не перепроверять сигнатуру каждый кадр.
-        system_params = inspect.signature(system).parameters
+        system_params = system.ecs_params
         for param_name, param in system_params.items():
             if param_name == 'entity_id':  # Система может требовать конкретный entity_id для переданных компонентов
                 stored_system.has_entity_id_argument = True
@@ -97,6 +97,7 @@ class EntityComponentSystem:
                 raise Exception(f'Wrong argument: {param_name}')
 
         self._systems[system] = stored_system
+        return system
 
     def create_entity(self, components: list[Component]) -> EntityId:
         """
@@ -106,7 +107,7 @@ class EntityComponentSystem:
 
         entity_id = create_entity()
         for component in components:
-            self._components[component.__class__][entity_id] = component
+            self._components[component.component_type][entity_id] = component
         self._entities.append(entity_id)
 
         if self.on_create:
@@ -124,7 +125,7 @@ class EntityComponentSystem:
 
         # Если запрошено несколько компонентов - то следует вернуть сущности, обладающие каждым из них
         # Это достигается пересечением множеств entity_id по классу компонента
-        entities = set.intersection(*[set(self._components[component_class].keys())
+        entities = set.intersection(*[set(self._components[component_class.component_type].keys())
                                       for component_class in component_classes])
         return entities
 
@@ -177,7 +178,7 @@ class EntityComponentSystem:
         Возвращает None если сущность не существует или не имеет такого компонента
         """
 
-        return self._components[component_class].get(entity_id, None)
+        return self._components[component_class.component_type].get(entity_id, None)
 
     def get_components(self, entity_id: EntityId, component_classes):
         """
