@@ -143,9 +143,9 @@ class SoAItem:
         return self._uuid
 
     def update(self, val):
-
         for key, v in val.items():
             self.get_field(key)[self.uuid] = v
+
     def clear(self):
         for key in self.keys():
             del self.parent.fields[key][self.uuid]
@@ -163,7 +163,6 @@ class SoAItem:
 
     def __getitem__(self, key):
         if isinstance(key, (str, int)):
-
             return self.get_field(key)[self.uuid]
         else:
             if len(key) > 1:
@@ -539,8 +538,6 @@ def is_component(obj):
 def todict(obj):
     if is_dataclass(obj):
         return asdict(obj)
-    if hasattr(obj, 'component_type') and 'value' in obj.keys():
-        return todict(obj.value)
     elif hasattr(obj, 'items'):
         return {k: todict(v) for k, v in obj.items()}
     elif hasattr(obj, 'todict'):

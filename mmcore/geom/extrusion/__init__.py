@@ -6,8 +6,8 @@ from more_itertools import flatten
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
+from mmcore.func import dsp
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.mesh.shape_mesh import to_mesh
 from mmcore.geom.shapes import LegacyShape, ShapeInterface
 from mmcore.node import node_eval
 
@@ -159,7 +159,6 @@ def csg_extrusion(shape, h):
 
 
 import numpy as np
-from multipledispatch import dispatch
 
 from mmcore.func import vectorize
 from mmcore.geom.mesh import union_mesh2
@@ -223,9 +222,13 @@ class Extrusion:
     path: 'np.ndarray(3, float)'
     faces: 'list'
 
-
+    @dsp(float, excluded=[0, 1])
     def __init__(self, shape, h: float):
         _base_extrusion_init(self, shape, np.array([0, 0, h]))
+
+    @dsp(np.ndarray[('j', 'i'), np.dtype(float)], excluded=[0, 1])
+    def __init__(self, shape, h: "np.ndarray(3, float)"):
+        _base_extrusion_init(self, shape, h)
 
     @property
     def caps(self):
@@ -236,13 +239,7 @@ class Extrusion:
         return self.faces[1:-1]
 
     def to_mesh(self, color=(0.7, 0.7, 0.7)):
-        return to_mesh(self, color)
-
-
-@dispatch(Extrusion, tuple)
-def to_mesh(ext: Extrusion, color=(0.3, 0.3, 0.3)):
-    return union_mesh2([mesh_from_bounds(face, color=color) for face in ext.faces])
-
+        return union_mesh2([mesh_from_bounds(face, color=color) for face in self.faces])
 
 
 class MultiExtrusion:
@@ -268,6 +265,3 @@ class MultiExtrusion:
     @property
     def sides(self):
         return self.faces[1:-1]
-
-
-class ExtrusionUnion(MultiExtrusion): ...

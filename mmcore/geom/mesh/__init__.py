@@ -184,7 +184,7 @@ class MeshTuple(_MeshTuple):
     def __hash__(self):
         return hash(self.attributes['position'].tobytes())
 
-    def amesh(self, uuid=None, name="Mesh", material=simpleMaterial, flatShading=True, props=dict(), controls=dict()):
+    def amesh(self, uuid=None, name="Mesh", material=None, flatShading=True, props=dict(), controls=dict()):
         if material is None:
             material = extract_material(self, flatShading=flatShading)
         return build_mesh_with_buffer(self, uuid=uuid, name=name, material=material, props=props, controls=controls)
@@ -338,9 +338,6 @@ def gen_indices_and_extras(meshes, ks):
             except Exception as err:
                 print(m, err)
 
-
-def to_amesh(mesh: MeshTuple, uuid=None, **kwargs) -> AMesh:
-    return build_mesh_with_buffer(mesh, uuid=uuid, **kwargs)
 
 def gen_indices_and_extras2(meshes, names):
     max_index = -1
