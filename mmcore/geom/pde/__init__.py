@@ -16,6 +16,16 @@ __all__ = ['PDE', 'Offset', 'forward', 'central', 'backward', 'PDEMethodEnum']
 
 
 class PDEMethodEnum(Enum):
+    """
+    PDEMethodEnum
+
+    Enum class representing different methods for solving partial differential equations (PDEs).
+
+    Methods:
+    - central: A method that calculates the central difference approximation for the derivative of a function.
+    - backward: A method that calculates the backward difference approximation for the derivative of a function.
+    - forward: A method that calculates the forward difference approximation for the derivative of a function.
+    """
     central: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t - h)) / (2 * h), excluded=[0, 1],
                                        signature='()->(i)')
     backward: LambdaType = np.vectorize(lambda f, h, t: (f(t) - f(t - h)) / h, excluded=[0, 1], signature='()->(i)')
@@ -26,10 +36,28 @@ __instances__ = dict()
 
 central = PDEMethodEnum.central.value
 backward = PDEMethodEnum.backward.value
-forward = PDEMethodEnum.backward.value
+forward = PDEMethodEnum.forward.value
 
 
 class PDE:
+    """
+
+    The `PDE` class represents a partial differential equation. It is used to define and solve PDEs numerically.
+
+    Attributes:
+        - `func` (function): The function representing the PDE.
+        - `method` (PDEMethodEnum): The numerical method used to solve the PDE. Default is `central`.
+        - `h` (float): The step size used in the numerical method. Default is 0.001.
+        - `kwargs` (dict): Additional keyword arguments to be passed to the PDE function.
+
+    Methods:
+        - `__new__(func, method, h, **kwargs)`: Constructor method. It creates a new instance of the `PDE` class. If an instance with the same parameters already exists, it returns that
+    * instance instead.
+        - `__call__(t)`: Method that evaluates the PDE at a given value of `t`.
+        - `tan(t)`: Method that returns the tangent vector to the PDE at a given value of `t`.
+        - `normal(t)`: Method that returns the normal vector to the PDE at a given value of `t`.
+        - `plane(t)`: Method that returns the plane defined by the PDE at a given value of `t`.
+    """
     def __new__(cls, func, method: PDEMethodEnum = central, h=0.001, **kwargs):
         hs = hash((id(func), method, h, frozenset(kwargs.keys()), tuple(kwargs.values())))
         dfunc = __instances__.get(hs, None)
