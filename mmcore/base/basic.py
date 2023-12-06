@@ -813,23 +813,7 @@ class ACacheSupport(PropsSupport):
 
             self.make_dirty()
 
-    @property
-    def children(self):
-        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
 
-    @children.setter
-    def children(self, v):
-        idict[self.uuid]["__children__"] = {i.uuid for i in v}
-        self.make_dirty()
-
-    @property
-    def children_uuids(self):
-        return idict[self.uuid]["__children__"]
-
-    @children_uuids.setter
-    def children_uuids(self, v):
-        idict[self.uuid]["__children__"] = set(v)
-        self.make_dirty()
 
     @property
     def dirty(self) -> bool:
@@ -878,6 +862,9 @@ class ACacheSupport(PropsSupport):
     def entries(self, v):
         self._user_data_extras['entries'] = v
 
+    @property
+    def properties_keys(self):
+        return list(self.properties.keys())
     @property
     def properties(self):
         return propsdict[self.uuid]
@@ -951,6 +938,23 @@ class AGroup(ACacheSupport):
         idict[self.uuid]["__children__"].clear()
         self.make_dirty()
 
+    @property
+    def children(self):
+        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
+
+    @children.setter
+    def children(self, v):
+        idict[self.uuid]["__children__"] = {i.uuid for i in v}
+        self.make_dirty()
+
+    @property
+    def children_uuids(self):
+        return idict[self.uuid]["__children__"]
+
+    @children_uuids.setter
+    def children_uuids(self, v):
+        idict[self.uuid]["__children__"] = set(v)
+        self.make_dirty()
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)

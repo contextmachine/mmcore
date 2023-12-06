@@ -76,7 +76,7 @@ class ViewerGroup(AGroup):
         for uid in uuids:
             print(uid, props)
             propsdict[uid].update(props)
-            solver(uid)
+
             update_queue.put((uid, props))
         m, sec = divmod(time.time() - s, 60)
         print(f'updated at {m} min, {sec} sec')
