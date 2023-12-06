@@ -152,9 +152,11 @@ class Offset(PDE):
         distance (function): The distance between the original curve and the offset curve.
     """
 
-    def __new__(cls, func, distance, evaluate_range=(0, 1), *args, **kwargs):
-        self = super().__new__(cls, func, distance=distance if isinstance(distance, float) else tuple(distance),
-                               evaluate_range=tuple(evaluate_range), *args,
+    def __new__(cls, func, distance, evaluate_range=(0, 1), **kwargs):
+        self = super().__new__(cls,
+                               func,
+                               distance=distance if isinstance(distance, float) else tuple(distance),
+                               evaluate_range=tuple(evaluate_range),
                                **kwargs)
 
         self.distance = _create_distance_function(distance, param_range=evaluate_range)
