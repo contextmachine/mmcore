@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "mmcore"
-version = "0.14.1"
+version = "0.15.0"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.9,<4.0"
 graphene = { version = "^3.0.0" }
 pydantic = { version = "1.10.7" }
 starlette = "0.22.0"
