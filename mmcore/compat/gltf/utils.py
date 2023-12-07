@@ -128,7 +128,6 @@ from mmcore.compat.gltf.components import *
 from mmcore.compat.gltf.consts import MESH_PRIM_KEYS, TYPE_TABLE, _create_mesh_prim_data, attrmap, \
     attrmap2, componentTypeCodeTable, \
     meshPrimitiveAttrTable
-from mmcore.compat.gltf.utils import finalize_gltf_buffer, finalize_gltf_buffer_np, gltf_decode_buffer
 
 
 # componentTypeTable = {comp_type['const']: GLTFComponentType(**comp_type) for comp_type in componentTypes}
@@ -183,7 +182,7 @@ def extract_accessors_data(doc: GLTFDocument):
         yield accessor_to_data(accessor, doc)
 
 
-from mmcore.geom.mesh import Mesh, MeshAttributes, MeshPart
+from mmcore.geom.mesh import MeshTuple, union_mesh2
 
 
 def remap_keys(dct, keymap, default='MISSING_KEY'):
@@ -194,22 +193,24 @@ def mesh_attrs(dct, keymap, accessors_data):
     return {keymap[k]: accessors_data[dct[k]].tolist() for k in dct.keys()}
 
 
-def extract_meshes(doc: GLTFDocument, comp=(Mesh, MeshPart, MeshAttributes), attr_mapping=attrmap2, **kwargs):
-    _Mesh, _Part, _Attrs = comp
+def extract_meshes(doc: GLTFDocument, attr_mapping=attrmap2):
+
     *data, = extract_accessors_data(doc)
     for mesh in doc.meshes:
         prims = []
+
         for mp in mesh.primitives:
             dct = mp.todict()
 
             # dct['attributes']=remap_keys(dct['attributes'],keymap=attr_mapping)
-            dct['attributes'] = _Attrs(**mesh_attrs(dct['attributes'], keymap=attr_mapping, accessors_data=data))
+            dct['attributes'] = mesh_attrs(dct['attributes'], keymap=attr_mapping, accessors_data=data)
             if 'indices' in dct:
                 dct['indices'] = data[dct['indices']]
 
-            prims.append(_Part(**dct))
+            prims.append(MeshTuple(**dct, extras=dct.get('extras', None)))
 
-        yield _Mesh(primitives=prims, extras=mesh.extras, **kwargs)
+        yield union_mesh2(prims, extras=mesh.extras)
+
 
 
 def extract_meshes_dict(doc: GLTFDocument, accessors, attr_mapping=attrmap2, **kwargs):
@@ -250,17 +251,17 @@ class ExNode:
         return [self._table['nodes'][ch] for ch in self._children]
 
 
-def extract_nodes(doc: GLTFDocument, table):
+def extract_nodes(doc: GLTFDocument):
     *accessors, = extract_accessors_data(doc)
     *meshes, = extract_meshes_dict(doc, accessors)
-    table = {
+    tab = {
         'accessors': accessors,
         'nodes': [],
         'meshes': meshes
     }
     for node in doc.nodes:
-        table['nodes'].append(node.todict())
-    return table
+        tab['nodes'].append(node.todict())
+    return tab
 
 
 def buffer_to_array(accessor: GLTFAccessor, bufferView: GLTFBufferView, buffer: GLTFBuffer):
