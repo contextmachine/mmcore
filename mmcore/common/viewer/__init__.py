@@ -25,21 +25,6 @@ def props_update_support_warning(cls):
         raise UserWarning(f"{cls} instance support this property by default . The user argument will be ignored!")
 
 
-class ViewerModel(ACacheSupport):
-    def __new__(cls, items=None, /,
-                uuid=None,
-                name="ViewerGroup",
-                user_data_extras=None,
-                entries_support=True,
-                props_update_support=True,
-                **kwargs):
-        return super().__new__(cls, items, uuid=uuid, name=name,
-                               _user_data_extras=user_data_extras,
-                               entries_support=entries_support,
-                               props_update_support=props_update_support,
-                               **kwargs
-                               )
-
 
 def solver(uid):
     props = request_component(Props.component_type, uid)
