@@ -1,10 +1,10 @@
-import base64
+import functools
 import functools
 import json
 from collections import Counter
 from functools import reduce
 from uuid import uuid4
-import numpy as np
+
 import requests
 import time
 from itertools import count
@@ -1042,7 +1042,7 @@ def _gen(shapes, names, mask, tags):
                     yield ShapeInterface(tt), col
 
 
-from mmcore.geom.mesh import union_mesh, mesh_from_shapes
+from mmcore.geom.mesh import union_mesh_old, mesh_from_shapes
 
 
 def case2(parts=["w1", "w2", "w3", "w4", 'l2', 'f1', 'f2', 'f3', 'f5', 'sl1', 'sl3', 'sl1b', 'sl2b', 'sl3b', 'sl4b'],
@@ -1072,7 +1072,7 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2', 'f1', 'f2', 'f3', 'f5', 'sl1', 's
 
     shps, cols = list(zip(*_gen(ress['shapes'], ress['names'], ress['mask'], coldata)))
     print(shps[:3], cols[:3])
-    m = union_mesh(mesh_from_shapes(shps, cols), ks=['position', 'color'])
+    m = union_mesh_old(mesh_from_shapes(shps, cols), ks=['position', 'color'])
 
     print("creating parts", divmod(time.time() - s, 60))
     s = time.time()

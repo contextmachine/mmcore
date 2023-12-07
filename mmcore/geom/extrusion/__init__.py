@@ -161,7 +161,7 @@ def csg_extrusion(shape, h):
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.mesh import union_mesh2
+from mmcore.geom.mesh import union_mesh
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.polyline import polyline_to_lines
 
@@ -239,7 +239,7 @@ class Extrusion:
         return self.faces[1:-1]
 
     def to_mesh(self, color=(0.7, 0.7, 0.7)):
-        return union_mesh2([mesh_from_bounds(face, color=color) for face in self.faces])
+        return union_mesh([mesh_from_bounds(face, color=color) for face in self.faces])
 
 
 class MultiExtrusion:
@@ -254,7 +254,7 @@ class MultiExtrusion:
         l = []
         for s in self.shells:
             l.extend([mesh_from_bounds(mm) for mm in s.sides])
-        um = union_mesh2([self.caps[0].to_mesh(), self.caps[1].to_mesh()] + l)
+        um = union_mesh([self.caps[0].to_mesh(), self.caps[1].to_mesh()] + l)
 
         return um
 
