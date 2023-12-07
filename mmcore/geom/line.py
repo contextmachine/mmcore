@@ -7,6 +7,18 @@ def evaluate_line(start, end, t):
 
 evaluate_line = np.vectorize(evaluate_line, signature='(i),(i),()->(i)')
 
+from gmk_units.geom.closest_point import LineClosestPointSolution
+
+StartEndLine = type(np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=float))
+PointVecLine = type(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=float))
+
+
+def perp2d(vec):
+    v2 = np.array(vec)
+    v2[0] = -vec[1]
+    v2[1] = vec[0]
+    return v2
+
 
 class Line:
     """
