@@ -1,4 +1,6 @@
-import numpy as np
+import mmcore.geom.parametric.algorithms as algo
+from mmcore.geom.closest_point import ClosestPointSolution1D
+from mmcore.geom.vec import *
 
 
 def evaluate_line(start, end, t):
@@ -7,7 +9,7 @@ def evaluate_line(start, end, t):
 
 evaluate_line = np.vectorize(evaluate_line, signature='(i),(i),()->(i)')
 
-from gmk_units.geom.closest_point import LineClosestPointSolution
+
 
 StartEndLine = type(np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=float))
 PointVecLine = type(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=float))
@@ -197,6 +199,16 @@ class Line:
         return f'Line(start={self.start}, end={self.end}, direction={self.direction})'
 
     def offset(self, dist):
+        """
+        Offset the line segment by a specified distance.
+
+        :param dist: The distance to offset the line segment.
+        :type dist: float
+
+        :return: The offset line segment.
+        :rtype: Line
+
+        """
         (start, vec1), (end, vec2) = self.normal([0.0, 1.0])
         return Line.from_ends(start + vec1 * dist, end + vec2 * dist)
 
@@ -208,6 +220,16 @@ class Line:
         return np.vectorize(fun, signature='()->(i)')
 
     def variable_offset(self, d1, d2):
+        """Calculate the offset of a line defined by two distances.
+
+        :param d1: The distance from the start point of the line.
+        :type d1: float
+        :param d2: The distance from the end point of the line.
+        :type d2: float
+        :return: A new line object with the offset positions.
+        :rtype: Line
+
+        """
         (start, vec1), (end, vec2) = self.normal([0.0, 1.0])
         return Line.from_ends(start + vec1 * d1, end + vec2 * d2)
 
@@ -248,28 +270,49 @@ class Line:
             return self.evaluate(t), t
         return self.evaluate(t)
 
-    def closest_parameter(self, pt):
+    def closest_parameter(self, pt: 'tuple|list|np.ndarray'):
+        """
+        :param pt: The point to which the closest parameter is to be found.
+        :type pt: list, tuple or numpy array
+
+        :return: The closest parameter value along the line to the given point.
+        :rtype: float
+        """
         vec = np.array(pt) - self.start
 
         return np.dot(self.unit, vec / self.length())
 
-    def closest_distance(self, pt):
+    def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]'):
+        """
+        :param pt: The point for which the closest distance needs to be calculated.
+        :type pt: list, tuple or numpy array
+
+        :return: The closest distance between the given point `pt` and the curve.
+        :rtype: float
+
+        """
         pt1 = np.array(pt)
         t = self.closest_parameter(pt)
         pt2 = self.evaluate(t)
-        return norm(pt2 - pt1)
+        return dist(pt2, pt)
 
-    def closest_point_full(self, pt) -> LineClosestPointSolution:
+    def closest_point_full(self, pt: 'tuple|list|np.ndarray[3, float]') -> ClosestPointSolution1D:
         pt = np.array(pt)
         t = self.closest_parameter(pt)
 
         pt2 = self.evaluate(t)
-        dist = norm(pt2 - pt)
 
-        return LineClosestPointSolution(pt2, t, dist, 0 <= t <= 1)
+        return ClosestPointSolution1D(pt2,
+                                      dist(pt2, pt),
+                                      0 <= t <= 1,
+                                      t)
 
     def __getitem__(self, item):
         return self._array[item]
 
     def __setitem__(self, item, val):
         self._array[item] = val
+
+
+X_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([1, 0, 0]))
+Y_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([0, 1, 0]))

@@ -190,6 +190,8 @@ class MeshTuple(_MeshTuple):
         return build_mesh_with_buffer(self, uuid=uuid, name=name, material=material, props=props, controls=controls)
 
 
+MeshCollection = namedtuple('MeshCollection', ['primitives', 'extras'], defaults=[[], dict()])
+
 @lru_cache()
 def extract_material(mesh: MeshTuple, flatShading=True):
     col = ColorRGB(*np.average(

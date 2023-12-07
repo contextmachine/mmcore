@@ -448,6 +448,17 @@ def pts_line_line_intersection2d(line1, line2):
 
 
 def pts_line_line_intersection2d_as_3d(line1, line2):
+    """
+    Given two 2D lines as input, this method calculates the intersection point in 3D space.
+
+    :param line1: The first line represented as a 2D numpy array with shape (2,n), start& end points. Each row represents a point in the line.
+    :type line1: numpy.ndarray
+    :param line2: The second line represented as a 2D numpy array with shape (2,n). Each row represents a point in the line.
+    :type line2: numpy.ndarray
+    :return: The intersection point represented as a 3D numpy array with shape (3,). The z-coordinate is always 0.0.
+    :rtype: numpy.ndarray
+
+    """
     line1, line2 = np.array([line1, line2])
     x1, y1 = line1[0, :2]
     x2, y2 = line1[1, :2]
@@ -459,13 +470,13 @@ def pts_line_line_intersection2d_as_3d(line1, line2):
 
     # Check if the lines are parallel
     if denominator == 0:
-        return None
+        return np.nan
 
     # Calculate the intersection point
     x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator
     y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator
 
-    return [x, y, 0.0]
+    return np.array([x, y, 0.0], float)
 
 def bounded_line_intersection2d(line1, line2):
     res = np.array(pts_line_line_intersection2d_as_3d(line1, line2))
