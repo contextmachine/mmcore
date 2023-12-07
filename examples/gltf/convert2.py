@@ -4,7 +4,7 @@ import time
 import ujson
 
 from mmcore.compat.gltf.convert import DEFAULT_MATERIAL_COMPONENT, asscene, create_union_mesh_node
-from mmcore.geom.mesh import build_mesh_with_buffer, union_mesh, union_mesh2, vertexMaterial
+from mmcore.geom.mesh import build_mesh_with_buffer, union_mesh, union_mesh_old, vertexMaterial
 from mmcore.geom.mesh.shape_mesh import mesh_from_shapes
 from mmcore.geom.shapes import ShapeInterface
 
@@ -61,7 +61,7 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2'],
 
     shps, cols = list(zip(*_gen(ress['shapes'], ress['names'], ress['mask'], coldata)))
     print(shps[:3], cols[:3])
-    m = union_mesh(mesh_from_shapes(shps, cols), ks=['position', 'color'])
+    m = union_mesh_old(mesh_from_shapes(shps, cols), ks=['position', 'color'])
 
     print("creating parts", divmod(time.time() - s, 60))
     s = time.time()
@@ -109,7 +109,7 @@ def create_union(
     shps, cols = list(zip(*_gen(ress['shapes'], ress['names'], ress['mask'], coldata)))
     *meshes, = mesh_from_shapes(shps, cols, stats)
     s = time.time()
-    RES = union_mesh(meshes, ks=['position', 'color'])
+    RES = union_mesh_old(meshes, ks=['position', 'color'])
     print("union", divmod(time.time() - s, 60))
     return RES
 
@@ -144,7 +144,7 @@ def create_union2(
     shps, cols = list(zip(*_gen(ress['shapes'], ress['names'], ress['mask'], coldata)))
     *meshes, = mesh_from_shapes(shps, cols, stats)
     s = time.time()
-    RES = union_mesh2(meshes)
+    RES = union_mesh(meshes)
     print("union", divmod(time.time() - s, 60))
     return RES
 

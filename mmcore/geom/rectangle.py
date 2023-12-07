@@ -206,7 +206,7 @@ def create_line_extrusion(lnn, h):
 
 
 def create_rect_extrusion(lnn, h, color=(0.3, 0.3, 0.3), props=dict()):
-    m = mesh.union_mesh2(
+    m = mesh.union_mesh(
         [mesh_from_bounds(lnn), *(to_mesh(r) for r in create_line_extrusion(polyline_to_lines(lnn), h)),
          mesh_from_bounds(lnn + np.array([0, 0, h]))], props
     )

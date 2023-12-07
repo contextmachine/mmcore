@@ -182,7 +182,7 @@ def extract_accessors_data(doc: GLTFDocument):
         yield accessor_to_data(accessor, doc)
 
 
-from mmcore.geom.mesh import MeshTuple, union_mesh2
+from mmcore.geom.mesh import MeshTuple, union_mesh
 
 
 def remap_keys(dct, keymap, default='MISSING_KEY'):
@@ -209,7 +209,7 @@ def extract_meshes(doc: GLTFDocument, attr_mapping=attrmap2):
 
             prims.append(MeshTuple(**dct, extras=dct.get('extras', None)))
 
-        yield union_mesh2(prims, extras=mesh.extras)
+        yield union_mesh(prims, extras=mesh.extras)
 
 
 
