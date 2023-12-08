@@ -1,8 +1,17 @@
 import operator
+import struct
+from functools import reduce
 
 import numpy as np
 from more_itertools import chunked
 
+from mmcore.base.geom import MeshData
+from mmcore.base.table import Table
+from mmcore.compat.gltf.components import *
+from mmcore.compat.gltf.components import GLTFAccessor
+from mmcore.compat.gltf.consts import MESH_PRIM_KEYS, TYPE_TABLE, _create_mesh_prim_data, attrmap, \
+    attrmap2, componentTypeCodeTable, \
+    meshPrimitiveAttrTable
 from mmcore.compat.gltf.consts import typeTargetsMap
 
 
@@ -27,36 +36,6 @@ def gltf_decode_buffer(buffers):
         _buffers.append(buff)
         _prefixes.append(pref)
     return _prefixes, _buffers
-
-
-def todict_minify(self):
-    def gen(obj):
-        for k in obj.__slots__:
-            v = getattr(obj, k)
-            if v is not None:
-                yield k, v
-
-    return dict(gen(self))
-
-
-def todict_nested(self, base_cls):
-    def gen(obj):
-        if isinstance(obj, (list, tuple)):
-            if len(obj) > 0:
-                return [gen(o) for o in obj]
-        elif isinstance(obj, base_cls):
-            dct = dict()
-            for k in obj.__slots__:
-                v = getattr(obj, k)
-                val = gen(v)
-                if val is not None:
-                    dct[k] = val
-            return dct
-        else:
-
-            return obj
-
-    return gen(self)
 
 
 def array_flatlen(arr):
@@ -116,18 +95,22 @@ def appendBufferView(arr, buffer: bytearray, gltf_type="VEC3", dtype=5126, name=
     return res
 
 
-"""Grasshopper Script"""
-import struct
-from functools import reduce
+def appendBufferView2(view, length, buffer: bytearray, gltf_type="VEC3", dtype=5126, name=None, use_stride=False):
+    # flatview = np.array(arr, dtype=componentTypeCodeTable[dtype]['numpy']).flatten()
 
-import numpy as np
+    res = {
+        "buffer": 0,
+        "byteLength": length,
+        "byteOffset": len(buffer),
 
-from mmcore.base.geom import MeshData
-from mmcore.base.table import Table
-from mmcore.compat.gltf.components import *
-from mmcore.compat.gltf.consts import MESH_PRIM_KEYS, TYPE_TABLE, _create_mesh_prim_data, attrmap, \
-    attrmap2, componentTypeCodeTable, \
-    meshPrimitiveAttrTable
+        "name": name,
+        "target": typeTargetsMap[gltf_type][0]
+    }
+    if all([use_stride, (gltf_type != 'SCALAR')]):
+        res["byteStride"] = byte_stride(gltf_type, dtype)
+    buffer.extend(view)
+    return res
+
 
 
 # componentTypeTable = {comp_type['const']: GLTFComponentType(**comp_type) for comp_type in componentTypes}
