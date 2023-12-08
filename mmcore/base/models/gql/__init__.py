@@ -444,7 +444,7 @@ class Materials(str, Enum):
     LineBasicMaterial = 'LineBasicMaterial'
     MeshPhongMaterial = 'MeshPhongMaterial'
     MeshBasicMaterial = 'MeshBasicMaterial'
-
+    MeshStandardMaterial = 'MeshStandardMaterial'
 
 @strawberry.type
 class MeshBasicMaterial(BaseMaterial):
@@ -524,7 +524,7 @@ class MeshPhongMaterial(BaseMaterial):
     emissive: int = 0
     specular: int = 1118481
     shininess: int = 30
-    reflectivity: float = 0.1
+    reflectivity: float = 0.5
     refractionRatio: float = 0.5
     side: int = 2
     depthFunc: int = 2
@@ -542,6 +542,37 @@ class MeshPhongMaterial(BaseMaterial):
     flatShading: bool = True
     uuid: typing.Optional[str] = None
 
+
+@strawberry.type
+class MeshStandardMaterial(BaseMaterial):
+    name: str = "Default"
+    color: int
+    vertexColors: bool = False
+    type: Materials = Materials.MeshStandardMaterial
+    side: int = 2
+    emissive: int = 0
+    roughness: float = 0.68
+    metalness: float = 0.46
+    envMapIntensity: 1
+    blendColor: float = 0
+    flatShading: bool = True
+    uuid: typing.Optional[str] = None
+
+
+@strawberry.type
+class MeshStandardVertexMaterial(BaseMaterial):
+    name: str = "VertexStandardDefault"
+    color: int = 15461355
+    vertexColors: bool = True
+    type: Materials = Materials.MeshStandardMaterial
+    side: int = 2
+    emissive: int = 0
+    roughness: float = 0.68
+    metalness: float = 0.46
+    envMapIntensity: float = 1
+    blendColor: float = 0
+    flatShading: bool = True
+    uuid: typing.Optional[str] = None
 
 @strawberry.type
 class GqlChart:

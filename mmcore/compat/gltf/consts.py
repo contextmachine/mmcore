@@ -12,6 +12,7 @@ class MediaTypes(str, Enum):
     GLB = "model/gltf-binary"
 
 
+ALIGN = 4
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
 BUFFER_DEFAULT_HEADER = "data:application/octet-stream;base64"

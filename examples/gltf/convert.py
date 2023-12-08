@@ -1042,7 +1042,7 @@ def _gen(shapes, names, mask, tags):
                     yield ShapeInterface(tt), col
 
 
-from mmcore.geom.mesh import union_mesh_old, mesh_from_shapes
+from mmcore.geom.mesh import MeshTuple, union_mesh_old, mesh_from_shapes
 
 
 def case2(parts=["w1", "w2", "w3", "w4", 'l2', 'f1', 'f2', 'f3', 'f5', 'sl1', 'sl3', 'sl1b', 'sl2b', 'sl3b', 'sl4b'],
@@ -1100,9 +1100,6 @@ def case2(parts=["w1", "w2", "w3", "w4", 'l2', 'f1', 'f2', 'f3', 'f5', 'sl1', 's
         ujson.dump(scene_dct, f, indent=2)
     print("dump json", divmod(time.time() - s, 60))
     #print(call_count_dict)
-
-
-from mmcore.geom.mesh import MeshTuple
 
 
 def create_union_mesh_node(m: MeshTuple, name="mesh"):
