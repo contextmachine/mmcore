@@ -1,4 +1,4 @@
-from mmcore.geom.mesh.consts import EXTRACT_MESH_ATTRS_PERFORMANCE_METHOD_LIMIT, MESH_OBJECT_ATTRIBUTE_NAME
+from mmcore.geom.mesh.consts import EXTRACT_MESH_ATTRS_PERFORMANCE_METHOD_LIMIT
 
 from mmcore.geom.mesh.mesh_tuple import *
 
@@ -120,3 +120,40 @@ def union_mesh2(meshes, extras=None):
     return MeshTuple(attributes={names[j]: np.concatenate(k) for j, k in enumerate(zz[:len(names)])},
                      indices=np.concatenate(zz[-2]) if zz[-2][0] is not None else None,
                      extras=extras | dict(children=zz[-1]))
+
+
+def gen_indices_and_extras(meshes, ks):
+    max_index = -1
+
+    for j, m in enumerate(meshes):
+
+        if m.indices is not None:
+
+            ixs = m.indices + max_index + 1
+            face_cnt = len(m.indices) // 3
+            max_index = np.max(ixs)
+
+            yield *tuple(m.attributes[k] for k in ks), ixs, np.repeat(j, face_cnt)
+        else:
+            try:
+                yield *tuple(m.attributes[k] for k in ks), None, None
+            except Exception as err:
+                print(m, err)
+
+
+def union_mesh_simple(meshes):
+    ks = extract_mesh_attrs_union_keys(meshes)
+    *zz, = zip(*gen_indices_and_extras(meshes, ks))
+    try:
+        if zz[-2][0] is not None:
+            return create_mesh_tuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                                     np.concatenate(zz[-2]),
+                                     extras=dict())
+        else:
+            return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                             None,
+                             extras={})
+    except IndexError:
+        return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
+                         None,
+                         extras={})

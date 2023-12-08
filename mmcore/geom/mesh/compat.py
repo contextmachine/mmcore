@@ -1,6 +1,8 @@
 import typing
 import uuid as _uuid
 
+import numpy as np
+
 from mmcore.base import AMesh
 from mmcore.base.models.gql import (BufferGeometry,
                                     create_buffer_index,
@@ -86,6 +88,12 @@ def create_mesh_buffer(
         })
 
 
+def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
+    if uuid is None:
+        uuid = _uuid.uuid4().hex
+    return create_mesh_buffer(uuid + 'geom',
+                              **{k: attr.tolist() for k, attr in mesh.attributes.items()},
+                              index=mesh.indices.tolist() if isinstance(mesh.indices, np.ndarray) else mesh.indices)
 def build_mesh_with_buffer(mesh,
                            uuid=None,
                            name: str = "Mesh",
@@ -122,7 +130,7 @@ def build_mesh_with_buffer(mesh,
               name=name,
               geometry=create_mesh_buffer(uuid + 'geom',
                                           **{k: attr.tolist() for k, attr in mesh.attributes.items()},
-                                          index=index
+                                          index=index.tolist() if isinstance(index, np.ndarray) else index
                                           ),
               material=material,
 
