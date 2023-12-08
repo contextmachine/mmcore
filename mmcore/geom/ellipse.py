@@ -9,6 +9,18 @@ __all__ = ['Ellipse', 'p']
 
 
 class Ellipse(ParametricPlanarCurve, match_args=('a', 'b',), signature='()->(i)', param_range=(0.0, np.pi * 2)):
+    """
+    Create a new instance of the Ellipse class.
+
+    Parameters:
+    - a (float): The major radius of the ellipse. Defaults to 1.
+    - b (float): The minor radius of the ellipse. Defaults to 1.
+    - origin (tuple or None): The origin point of the ellipse in the form (x, y). Defaults to None.
+    - plane (Plane or None): The plane in which the ellipse lies. Defaults to None.
+
+    Returns:
+    - Ellipse: The newly created Ellipse object.
+    """
     def __new__(cls, a=1, b=1, origin=None, plane=None):
         self = super().__new__(cls, origin=origin, plane=plane)
 
@@ -50,4 +62,12 @@ class Ellipse(ParametricPlanarCurve, match_args=('a', 'b',), signature='()->(i)'
 
 
 def p(self: Ellipse, alpha):
+    """
+    :param self: The Ellipse object on which the method is called.
+    :type self: Ellipse
+    :param alpha: The angle parameter.
+    :type alpha: float
+    :return: The x, y, z coordinates of a point on the ellipse for a given angle alpha.
+    :rtype: tuple
+    """
     return self.a * np.cos(alpha), self.a * np.sin(alpha), 0.0

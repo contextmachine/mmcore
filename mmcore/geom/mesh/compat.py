@@ -1,16 +1,23 @@
 import typing
 import uuid as _uuid
+
+from mmcore.base import AMesh
 from mmcore.base.models.gql import (BufferGeometry,
-                                    MeshPhongMaterial,
                                     create_buffer_index,
                                     create_buffer_position,
                                     create_buffer_uv,
                                     create_float32_buffer)
-from mmcore.geom.mesh.consts import simpleMaterial, vertexMaterial
-from mmcore.base import AMesh
+from mmcore.geom.mesh.consts import simpleMaterial
 
 
 def create_buffer_objectid(array):
+    """
+    :param array: the array of object ids to be stored in the buffer object
+    :type array: list
+    :return: a buffer object with the provided array of object ids
+    :rtype: dict
+
+    """
     return {
         'type': 'Uint16Array',
         "itemSize": 1,
@@ -26,6 +33,26 @@ def create_mesh_buffer(
         normal=None,
         _objectid=None,
         color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+    """
+    :param uuid: The unique identifier for the mesh buffer
+    :type uuid: str
+    :param position: The position data for the mesh buffer
+    :type position: list[float]
+    :param uv: The UV data for the mesh buffer
+    :type uv: list[float]
+    :param index: The index data for the mesh buffer
+    :type index: list[int]
+    :param normal: The normal data for the mesh buffer
+    :type normal: list[float]
+    :param _objectid: The object ID data for the mesh buffer
+    :type _objectid: list[int]
+    :param color: The color data for the mesh buffer
+    :type color: list[float]
+    :param threejs_type: The type of the mesh buffer (default is "BufferGeometry")
+    :type threejs_type: str
+    :return: A BufferGeometry object representing the mesh buffer
+    :rtype: BufferGeometry
+    """
     attra = dict(position=create_buffer_position(position))
     if color is not None:
         attra['color'] = create_float32_buffer(color)
@@ -65,6 +92,26 @@ def build_mesh_with_buffer(mesh,
                            material=simpleMaterial,
                            props=None, controls=None,
                            **kwargs):
+    """
+    Builds a mesh with buffer.
+
+    :param mesh: The mesh object.
+    :type mesh: <class 'Mesh'>
+    :param uuid: The UUID of the mesh. Defaults to None.
+    :type uuid: Optional[str]
+    :param name: The name of the mesh. Defaults to "Mesh".
+    :type name: str
+    :param material: The material of the mesh. Defaults to simpleMaterial.
+    :type material: <class 'Material'>
+    :param props: The properties of the mesh. Defaults to None.
+    :type props: Optional[dict]
+    :param controls: The controls of the mesh. Defaults to None.
+    :type controls: Optional[Any]
+    :param kwargs: Additional keyword arguments.
+    :type kwargs: Any
+    :return: The mesh with buffer.
+    :rtype: <class 'AMesh'>
+    """
     if uuid is None:
         uuid = _uuid.uuid4().hex
     index = None if mesh.indices is None else mesh.indices.tolist()
