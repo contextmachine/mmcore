@@ -7,7 +7,7 @@ from more_itertools import flatten
 from mmcore.base import A as AA
 from mmcore.base import ALine
 from mmcore.collections import DoublyLinkedList
-from mmcore.geom.parametric import HypPar4ptGrid, PlaneLinear, Linear
+from mmcore.geom.parametric import HypPar4ptGrid, Linear, PlaneLinear
 from mmcore.geom.parametric.algorithms import ClosestPoint
 from mmcore.geom.transform import Transform
 

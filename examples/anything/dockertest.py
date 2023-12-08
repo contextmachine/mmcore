@@ -1,4 +1,4 @@
-import os,sys;
+import sys;
 if __name__=="__main__":
     try:
         import mmcore

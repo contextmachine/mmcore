@@ -3,8 +3,8 @@ from unittest import TestCase
 import numpy as np
 import time
 
-from mmcore.geom.mesh import MeshTuple, extract_mesh_attrs_union_keys_with_counter, \
-    extract_mesh_attrs_union_keys_with_set
+from mmcore.geom.mesh import MeshTuple
+from mmcore.geom.mesh.union import extract_mesh_attrs_union_keys_with_counter, extract_mesh_attrs_union_keys_with_set
 
 MESH_ATTRIBUTE_NAME_CASES = 'position', 'normal', 'uv', 'color'
 
