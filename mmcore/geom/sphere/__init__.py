@@ -8,6 +8,14 @@ from mmcore.geom.vec import unit
 
 class Sphere(ParametricSurface, signature='(),()->(i)', match_args=('r',),
              param_range=((0.0, np.pi), (0.0, 2 * np.pi))):
+    """
+    A class representing a sphere in 3D space.
+
+    :param r: The radius of the sphere.
+    :type r: float
+    :param origin: The coordinates of the origin of the sphere.
+    :type origin: tuple(float, float, float)
+    """
     def __new__(cls, r=1, origin=(0.0, 0.0, 0.0)):
         self = super().__new__(cls)
         self.r = r
@@ -36,6 +44,17 @@ class Sphere(ParametricSurface, signature='(),()->(i)', match_args=('r',),
 
 @vectorize(excluded=[0], signature='(),()->()')
 def evaluate_plane(sphere: Sphere, u, v):
+    """
+    :param sphere: The sphere object to evaluate the plane on.
+    :type sphere: Sphere
+    :param u: The parameter representing the u-coordinate.
+    :type u: float
+    :param v: The parameter representing the v-coordinate.
+    :type v: float
+    :return: The plane calculated based on the given sphere, u, and v parameters.
+    :rtype: Plane
+
+    """
     pt = sphere(u, v)
 
     return create_plane_from_xaxis_and_normal(
@@ -46,5 +65,20 @@ def evaluate_plane(sphere: Sphere, u, v):
 
 @vectorize(excluded=[0], signature='(),()->()')
 def evaluate_normal(sphere: Sphere, u, v):
+    """
+    Evaluate the normal vector at a given point on the surface of a sphere.
+
+    :param sphere: The sphere object on which to evaluate the normal.
+    :type sphere: Sphere
+
+    :param u: The u-coordinate of the point on the surface of the sphere.
+    :type u: float
+
+    :param v: The v-coordinate of the point on the surface of the sphere.
+    :type v: float
+
+    :return: The normal vector at the specified point on the surface of the sphere.
+    :rtype: Vector
+    """
     pt = sphere(u, v)
     return unit(pt - sphere.origin)
