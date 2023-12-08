@@ -7,12 +7,41 @@ import sys
 import ujson
 
 from mmcore.compat.gltf.consts import BUFFER_DEFAULT_HEADER, DEFAULT_ASSET, GLTFBufferDecoded
-from mmcore.compat.gltf.utils import todict_minify, todict_nested
+
 
 ScalarType = (str, float, int, bool)
 JSONType = typing.Dict[str, typing.Any]
 GLTFExtras = JSONType
 
+
+def todict_minify(self):
+    def gen(obj):
+        for k in obj.__slots__:
+            v = getattr(obj, k)
+            if v is not None:
+                yield k, v
+
+    return dict(gen(self))
+
+
+def todict_nested(self, base_cls):
+    def gen(obj):
+        if isinstance(obj, (list, tuple)):
+            if len(obj) > 0:
+                return [gen(o) for o in obj]
+        elif isinstance(obj, base_cls):
+            dct = dict()
+            for k in obj.__slots__:
+                v = getattr(obj, k)
+                val = gen(v)
+                if val is not None:
+                    dct[k] = val
+            return dct
+        else:
+
+            return obj
+
+    return gen(self)
 
 def dataclass_compat(cls=None, /, *, init=True, repr=True, eq=True, order=False,
                      unsafe_hash=False, frozen=False, match_args=True,
@@ -64,7 +93,7 @@ class GLTFExtension(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True)
 class GLTFBufferView(GLTFComponent):
     byteOffset: int
     byteLength: int
@@ -87,7 +116,7 @@ def decode_buffer(buff: str):
 
 
 # @label('gltf', 'compat')
-@dataclass_compat(slots=True, unsafe_hash=True)
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFBuffer(GLTFComponent):
     uri: str
     byteLength: int
@@ -132,7 +161,7 @@ class GLTFBuffer(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFAccessor(GLTFComponent):
     """
     https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#schema-reference-accessor
@@ -155,7 +184,7 @@ class GLTFAccessor(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True)
 class GLTFPbrMetallicRoughness(GLTFComponent):
     baseColorFactor: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
     metallicFactor: float = 0.5
@@ -175,7 +204,7 @@ class GLTFPbrMetallicRoughness(GLTFComponent):
         return todict_minify(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class GLTFMaterial(GLTFComponent):
     name: typing.Optional[str] = None
     extensions: typing.Optional[GLTFExtension] = None
@@ -199,7 +228,7 @@ class GLTFMaterial(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFPrimitive(GLTFComponent):
     mode: int = 4
     attributes: dict = field(default_factory=dict)
@@ -223,7 +252,7 @@ class GLTFPrimitive(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFMesh(GLTFComponent):
     primitives: list[GLTFPrimitive]
     name: typing.Optional[str] = None
@@ -242,7 +271,7 @@ class GLTFMesh(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFNode(GLTFComponent):
     children: typing.Optional[list[int]] = None
     mesh: typing.Optional[int] = None
@@ -260,7 +289,7 @@ class GLTFNode(GLTFComponent):
 
 
 # @label('gltf', 'compat')
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFScene(GLTFComponent):
     nodes: list[int]
     name: typing.Optional[str] = None
@@ -271,7 +300,7 @@ class GLTFScene(GLTFComponent):
         return todict_minify(self)
 
 
-@dataclass
+@dataclass(slots=True, unsafe_hash=True)
 class GLTFDocument(GLTFComponent):
     scenes: list[GLTFScene] = field(default_factory=lambda: [GLTFScene([])])
     scene: int = 0

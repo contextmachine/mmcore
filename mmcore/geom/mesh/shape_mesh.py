@@ -1,7 +1,7 @@
 import numpy as np
 from multipledispatch import dispatch
 
-from mmcore.geom.mesh import create_mesh_tuple
+from mmcore.geom.mesh.mesh_tuple import create_mesh_tuple
 from mmcore.geom.shapes.shape import ShapeInterface, bounds_earcut, shape_earcut
 
 
@@ -44,4 +44,4 @@ def mesh_from_shapes(shps, cols, stats):
     for shp, c, props in zip(shps, cols, stats):
         pos, ixs, _ = shape_earcut(shp)
 
-        yield create_mesh_tuple(dict(position=pos), indices=ixs, color=c, extras=dict(properties=props))
+        yield create_mesh_tuple(dict(position=np.array(pos)), indices=ixs, color=c, extras=dict(properties=props))

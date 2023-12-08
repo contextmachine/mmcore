@@ -1,7 +1,6 @@
-import numpy as np
+from mmcore.geom.mesh.consts import EXTRACT_MESH_ATTRS_PERFORMANCE_METHOD_LIMIT, MESH_OBJECT_ATTRIBUTE_NAME
 
-from mmcore.geom.mesh import MESH_OBJECT_ATTRIBUTE_NAME, MeshTuple, extract_mesh_attrs_union_keys, \
-    gen_indices_and_extras2
+from mmcore.geom.mesh.mesh_tuple import *
 
 
 def union_mesh(meshes, extras=None):
@@ -58,3 +57,66 @@ def _get_indices(indices_and_extras):
 def _get_children(indices_and_extras):
     """Get children (last values) from indices_and_extras."""
     return indices_and_extras[-1]
+
+
+def sum_meshes(a: MeshTuple, b: MeshTuple):
+    return union_mesh([a, b])
+
+
+MeshTuple.__add__ = sum_meshes
+
+
+def extract_mesh_attrs_union_keys_with_counter(meshes):
+    return sorted(list(Counter([tuple(mesh.attributes.keys()) for mesh in meshes]).keys()))[0]
+
+
+def extract_mesh_attrs_union_keys_with_set(meshes):
+    return set.intersection(*(set(mesh.attributes.keys()) for mesh in meshes))
+
+
+def extract_mesh_attrs_union_keys(meshes):
+    if len(meshes) <= EXTRACT_MESH_ATTRS_PERFORMANCE_METHOD_LIMIT:
+        return tuple(extract_mesh_attrs_union_keys_with_set(meshes))
+    return tuple(extract_mesh_attrs_union_keys_with_counter(meshes))
+
+
+def gen_indices_and_extras2(meshes, names):
+    """
+    Generate indices and extras for a list of meshes.
+
+    :param meshes: List of Mesh objects.
+    :type meshes: List[Mesh]
+    :param names: List of attribute names to extract from each Mesh object's attributes dictionary.
+    :type names: List[str]
+    :return: Generator that yields tuples containing extracted attribute values, indices, and extras for each Mesh object.
+    :rtype: Generator[Tuple[Any, ...], None, None]
+    """
+    max_index = -1
+    for j, m in enumerate(meshes):
+
+        length = len(m.attributes['position'])
+        m.attributes[MESH_OBJECT_ATTRIBUTE_NAME] = np.repeat(j, length // 3)
+
+        if m.indices is not None:
+
+            ixs = m.indices + max_index + 1
+
+            max_index = np.max(ixs)
+
+            yield *tuple(m.attributes[name] for name in names), ixs, m.extras
+        else:
+            yield *tuple(m.attributes[name] for name in names), None, m.extras
+
+
+def union_mesh2(meshes, extras=None):
+    if extras is None:
+        extras = dict()
+    names = extract_mesh_attrs_union_keys(meshes)
+    if MESH_OBJECT_ATTRIBUTE_NAME not in names:
+        names = names + (MESH_OBJECT_ATTRIBUTE_NAME,)
+    *zz, = zip(*gen_indices_and_extras2(meshes,
+                                        names=names))
+
+    return MeshTuple(attributes={names[j]: np.concatenate(k) for j, k in enumerate(zz[:len(names)])},
+                     indices=np.concatenate(zz[-2]) if zz[-2][0] is not None else None,
+                     extras=extras | dict(children=zz[-1]))

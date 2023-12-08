@@ -52,7 +52,7 @@ if USE_OCC:
         from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Solid
         from OCC.Extend.TopologyUtils import TopologyExplorer
     except Exception as err:
-        print("OCC is not provide")
+        # print("OCC is not provide")
         HAS_OCC = False
         USE_OCC = False
 
