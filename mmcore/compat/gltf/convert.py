@@ -2,16 +2,16 @@ import functools
 from collections import defaultdict
 from functools import reduce
 from uuid import uuid4
-
+import numpy as np
 import time
 from itertools import count
 
 from mmcore.compat.gltf.components import (GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial,
                                            GLTFMesh, GLTFNode, GLTFPbrMetallicRoughness, GLTFPrimitive, GLTFScene)
-from mmcore.compat.gltf.utils import appendBufferView, byte_stride
+from mmcore.compat.gltf.utils import appendBufferView, appendBufferView2, byte_stride
 from mmcore.geom.mesh import MeshTuple
 
-
+from mmcore.compat.gltf.consts import ALIGN
 def fromnp(val):
     if isinstance(val, np.ndarray):
         return val.tolist()
@@ -605,6 +605,18 @@ class AccessorListIterator:
             raise StopIteration()
 
 
+def align(seq, dtype, c=4):
+    real_length = len(seq) * dtype().nbytes
+    a, b = divmod(real_length, c)
+
+    if b != 0:
+        al = (a + 1) * c
+        btc = bytearray(al)
+        btc[:al - (c - b)] = np.array(seq, dtype).tobytes()
+    else:
+        btc = np.array(seq, dtype).tobytes()
+
+    return btc, real_length
 @component(key="bufferViews")
 class BufferView:
     def __init__(self, gltf_type, dtype, name="view"):
@@ -637,6 +649,11 @@ class BufferView:
         r.reverse()
         return np.concatenate(r)
 
+    def align(self):
+        self._aligned = align(self.buffer_data.flatten(),
+                              componentTypeCodeTable[self.dtype]['numpy'],
+                              ALIGN)
+        return self._aligned
     def to_bytes(self):
         ba = bytearray()
         for part in self.buffer_data:

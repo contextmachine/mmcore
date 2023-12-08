@@ -339,14 +339,19 @@ def ecut(self):
 ShapeEarcutResult = namedtuple("ShapeEarcutResult", ['position', 'indices', 'arguments'])
 
 
-@functools.lru_cache(None)
+
 def shape_earcut(self: ShapeInterface) -> ShapeEarcutResult:
     if self.holes is None:
         arguments = earcut.flatten([self.bounds])
         return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
-                                                                      arguments['holes'],
-                                                                      arguments['dimensions']), arguments)
+                                                                      None,
 
+                                                                      arguments['dimensions']), arguments)
+    elif len(self.holes) == 0:
+        arguments = earcut.flatten([self.bounds])
+        return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
+                                                                      None,
+                                                                      arguments['dimensions']), arguments)
     else:
         arguments = earcut.flatten([self.bounds] + self.holes)
         return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],

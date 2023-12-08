@@ -18,10 +18,9 @@ try:
     SPEEDUPS = True
 except ModuleNotFoundError as err:
     SPEEDUPS = False
-    print("no speedups")
+
 except ImportError as err:
     SPEEDUPS = False
-    print("no speedups")
 
 TOLERANCE = 1e-8
 from scipy.optimize import minimize, fsolve
