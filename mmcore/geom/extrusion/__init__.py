@@ -1,14 +1,16 @@
-import functools
 import uuid
 from collections import deque
 
 from more_itertools import flatten
+from multipledispatch import dispatch
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
-from mmcore.func import dsp
 from mmcore.geom.materials import ColorRGB
-from mmcore.geom.shapes import LegacyShape, ShapeInterface
+from mmcore.geom.mesh.compat import build_mesh_with_buffer
+from mmcore.geom.mesh.consts import simpleMaterial
+from mmcore.geom.shapes import LegacyShape
+from mmcore.geom.vec import unit
 from mmcore.node import node_eval
 
 
@@ -161,7 +163,7 @@ def csg_extrusion(shape, h):
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.mesh import union_mesh
+from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.polyline import polyline_to_lines
 
@@ -181,33 +183,8 @@ def extrude_cont(corners, vec):
 def _base_extrusion_init(self, profile, path):
     self.profile = profile
     self.path = path
-    self.faces = extrude_cont(list(self.profile), self.path)
 
 
-from mmcore.tree.avl import AVL
-
-registry = AVL()
-
-
-class MultiMethodSpec:
-    __slots__ = ('fun', 'included', '_hashkey')
-
-    def __init__(self, fun, *tps, excluded=()):
-        tps = tuple(*tps)
-
-        *included, = range(len(excluded) + len(tps))
-        self.included = np.array(list(set(included).difference(set(excluded))), dtype=int)
-        self._hashkey = hash((fun.__name__, tps))
-
-    def __hash__(self):
-        return self._hashkey
-
-    def __call__(self, fun):
-        @functools.wraps(fun)
-        def wrapper(*args):
-            tuple(np.array(args, dtype=object)[self.included])
-
-            return fun(*tuple(np.array(args, dtype=object)[self.included]))
 
 
 class Extrusion:
@@ -222,13 +199,35 @@ class Extrusion:
     path: 'np.ndarray(3, float)'
     faces: 'list'
 
-    @dsp(float, excluded=[0, 1])
-    def __init__(self, shape, h: float):
-        _base_extrusion_init(self, shape, np.array([0, 0, h]))
+    def __init__(self, shape, h: float, vec=(0., 0., 1.0)):
+        self._h = h
+        self.shape = shape
+        self.profile = list(shape)
+        self._vec = unit(np.array(vec))
+        self.path = unit(np.array(vec)) * h
 
-    @dsp(np.ndarray[('j', 'i'), np.dtype(float)], excluded=[0, 1])
-    def __init__(self, shape, h: "np.ndarray(3, float)"):
-        _base_extrusion_init(self, shape, h)
+    @property
+    def h(self):
+        return self._h
+
+    @h.setter
+    def h(self, v):
+        self._h = v
+        self.path = self._vec * self._h
+
+    @property
+    def vec(self):
+        return self._vec
+
+    @vec.setter
+    def vec(self, v):
+        self._vec = unit(np.array(v))
+        self.path = self._vec * self._h
+
+    @property
+    def faces(self):
+        return extrude_cont(self.profile, self.path)
+
 
     @property
     def caps(self):
@@ -238,30 +237,20 @@ class Extrusion:
     def sides(self):
         return self.faces[1:-1]
 
-    def to_mesh(self, color=(0.7, 0.7, 0.7)):
-        return union_mesh([mesh_from_bounds(face, color=color) for face in self.faces])
+    def to_mesh(self, uuid=None, material=simpleMaterial, props=None, **kwargs):
+        return build_mesh_with_buffer(to_mesh(self),
+                                      uuid=uuid,
+                                      material=material,
+                                      props=props,
+                                      **kwargs
+                                      )
 
 
-class MultiExtrusion:
-    def __init__(self, shapes: list, h: float):
-        self.shells = [Extrusion(shp, h) for shp in shapes]
-        shp = ShapeInterface(shapes[0], holes=shapes[1:])
-        shp2 = ShapeInterface((np.array(shapes[0]) + np.array([0, 0, h])).tolist(),
-                              holes=[(np.array(sh) + np.array([0, 0, h])).tolist() for sh in shapes[1:]])
-        self.faces = [shp, *[sh.sides for sh in self.shells], shp2]
+@dispatch(Extrusion, tuple)
+def to_mesh(obj: Extrusion, color=(0.3, 0.3, 0.3)):
+    return union_mesh_simple([mesh_from_bounds(face, color=color) for face in obj.faces])
 
-    def to_mesh(self, color=(0.7, 0.7, 0)):
-        l = []
-        for s in self.shells:
-            l.extend([mesh_from_bounds(mm) for mm in s.sides])
-        um = union_mesh([self.caps[0].to_mesh(), self.caps[1].to_mesh()] + l)
 
-        return um
-
-    @property
-    def caps(self):
-        return self.faces[0], self.faces[-1]
-
-    @property
-    def sides(self):
-        return self.faces[1:-1]
+@dispatch(Extrusion)
+def to_mesh(obj: Extrusion):
+    return union_mesh_simple([mesh_from_bounds(face, color=(0.3, 0.3, 0.3)) for face in obj.faces])

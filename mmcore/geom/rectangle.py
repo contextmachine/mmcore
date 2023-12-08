@@ -169,8 +169,14 @@ class Rectangle(plane.Plane):
             pl = plane.translate_plane(self, translation)
             return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
 
+    @property
+    def uuid(self):
+        return self.ecs_rectangle.uuid
     def to_mesh(self, uuid=None, **kwargs):
+        if uuid is None:
+            uuid = self.uuid
         return mesh.build_mesh_with_buffer(to_mesh(self), uuid=uuid, **kwargs)
+
     def inplace_offset(self, dist):
         if np.isscalar(dist):
             dist = np.ones((2, 4), dtype=float) * dist

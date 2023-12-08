@@ -5,7 +5,6 @@ from mmcore.base.ecs.components import apply, component, todict
 class Props:
     ...
 
-
 def apply_props(props: Props, val: dict):
     apply(props, val)
 

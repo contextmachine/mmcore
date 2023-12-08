@@ -2,10 +2,11 @@ from queue import Queue
 
 import time
 
-from mmcore.base import ACacheSupport, AGroup
+from mmcore.base import AGroup
 from mmcore.base.ecs.components import request_component
-from mmcore.base.registry import propsdict
+from mmcore.base.registry import adict, propsdict
 from mmcore.base.userdata.props import Props
+from mmcore.common.models.observer import Observable, Observer, observation, observe
 
 ENABLE_WARNINGS = True
 
@@ -41,7 +42,7 @@ update_queue = Queue()
 
 class ViewerGroup(AGroup):
 
-    def __new__(cls, items=None, /,
+    def __new__(cls, items=(), /,
                 uuid=None,
                 name="ViewerGroup",
                 entries_support=True,
@@ -49,7 +50,7 @@ class ViewerGroup(AGroup):
         if 'props_update_support' in kwargs:
             del kwargs['props_update_support']
             props_update_support_warning(cls)
-        return super().__new__(cls, items, uuid=uuid, name=name,
+        return super().__new__(cls, seq=items, uuid=uuid, name=name,
                                entries_support=entries_support,
                                props_update_support=True,
                                **kwargs
@@ -61,9 +62,38 @@ class ViewerGroup(AGroup):
         for uid in uuids:
             print(uid, props)
             propsdict[uid].update(props)
-
-            update_queue.put((uid, props))
         m, sec = divmod(time.time() - s, 60)
         print(f'updated at {m} min, {sec} sec')
 
         return True
+
+
+@observe
+class ObservableViewerGroup(ViewerGroup, Observable):
+    """
+
+    """
+
+    def __new__(cls, i, *args, **kwargs):
+        self = super().__new__(cls, *args, **kwargs)
+        self.i = i
+        return self
+
+    def __init__(self, i, *args, **kwargs):
+        super().__init__(i)
+
+    def props_update(self, uuids: list[str], props: dict):
+        if super().props_update(uuids, props):
+            self.notify_observers(uuids=uuids, props=props)
+            return True
+
+
+class ViewerGroupObserver(Observer):
+    def notify(self, observable: 'ObservableViewerGroup', uuids: list = None, props: list = None):
+        for uid in uuids:
+            mesh = adict[uid]
+            if hasattr(mesh, 'owner'):
+                mesh.owner.update_mesh()
+
+
+BaseViewerGroupObserver = observation.init_observer(ViewerGroupObserver)
