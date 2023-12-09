@@ -92,8 +92,8 @@ def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
     if uuid is None:
         uuid = _uuid.uuid4().hex
     return create_mesh_buffer(uuid + 'geom',
-                              **{k: attr.tolist() for k, attr in mesh.attributes.items()},
-                              index=mesh.indices.tolist() if isinstance(mesh.indices, np.ndarray) else mesh.indices)
+                              **{k: attr.tolist() for k, attr in mesh[0].items()},
+                              index=mesh[1].tolist() if isinstance(mesh[1], np.ndarray) else mesh[1])
 def build_mesh_with_buffer(mesh,
                            uuid=None,
                            name: str = "Mesh",
@@ -122,14 +122,14 @@ def build_mesh_with_buffer(mesh,
     """
     if uuid is None:
         uuid = _uuid.uuid4().hex
-    index = None if mesh.indices is None else mesh.indices.tolist()
+    index = None if mesh[1] is None else mesh[1].tolist()
     if props is None:
-        props = mesh.extras.get('properties', {})
+        props = mesh[2].get('properties', {})
 
     m = AMesh(uuid=uuid,
               name=name,
               geometry=create_mesh_buffer(uuid + 'geom',
-                                          **{k: attr.tolist() for k, attr in mesh.attributes.items()},
+                                          **{k: attr.tolist() for k, attr in mesh[0].items()},
                                           index=index.tolist() if isinstance(index, np.ndarray) else index
                                           ),
               material=material,
@@ -138,7 +138,7 @@ def build_mesh_with_buffer(mesh,
               controls=controls,
               **kwargs)
 
-    if 'children' in mesh.extras:
-        m.add_userdata_item('children', mesh.extras['children'])
+    if 'children' in mesh[2]:
+        m.add_userdata_item('children', mesh[2]['children'])
 
     return m
