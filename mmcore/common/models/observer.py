@@ -95,9 +95,9 @@ import functools
 
 def observe(cls):
     @functools.wraps(cls)
-    def wrapper(observer, items=(), uuid=None, /, **kwargs):
+    def wrapper(observer, *args, **kwargs):
         return observation.init_observable(observer,
-                                           cls=lambda x: cls(x, items=items, uuid=uuid, **kwargs)
+                                           cls=lambda x: cls(x, *args, **kwargs)
                                            )
 
     return wrapper
