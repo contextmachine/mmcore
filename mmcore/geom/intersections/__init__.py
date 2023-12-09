@@ -26,6 +26,7 @@ Here's a brief overview of each of the intersect methods:
 
 All methods are decorated with vectorize from mmcore.func which allows parallelized operations on NumPy arrays.
 """
+import os
 
 import numpy as np
 from multipledispatch import dispatch
@@ -34,12 +35,13 @@ from scipy.optimize import fsolve
 from mmcore.func import vectorize
 from mmcore.geom.circle import Circle
 from mmcore.geom.interfaces import Line2Pt, Ray
-from mmcore.geom.plane import Plane
+from mmcore.geom.plane import Plane, is_parallel
 from mmcore.geom.sphere import Sphere
+from mmcore.geom.vec import cross, unit
 
 INTERSECTION_TOLERANCE = 1e-6
 
-
+DEBUG_MODE = os.getenv("DEBUG_MODE")
 @dispatch(Sphere, Ray)
 @vectorize(excluded=[0, 2], signature='(i,j)->(k)')
 def intersect(sphere: Sphere, ray: Ray, tol=INTERSECTION_TOLERANCE):
@@ -246,3 +248,24 @@ def intersect(circle: Circle, line: Line2Pt, tol=INTERSECTION_TOLERANCE):
             return [intersections[0]]
         else:
             return intersections
+
+
+@dispatch(Plane, Plane)
+@vectorize(signature='(),()->(j, i)')
+def intersect(plane1: Plane, plane2: Plane):
+    """
+    :param plane1: First plane
+    :type plane1: Plane
+    :param plane2: Second plane
+    :type plane2: Plane
+    :return: Array containing two points that represent the intersection line of the two planes
+    :rtype: numpy.ndarray
+    """
+    if DEBUG_MODE:
+        if is_parallel(plane1, plane2):
+            raise ValueError("Can't intersect. Planes are parallel.")
+    cross_vector = cross(unit(plane1.normal), unit(plane2.normal))
+    A = np.array([plane1.normal, plane2.normal, cross_vector])
+    d = np.array([-plane1.d, -plane2.d, 0.]).reshape(3, 1)
+    intersection_point = np.linalg.solve(A, d).T
+    return np.array([intersection_point[0], (intersection_point + cross_vector)[0]], dtype=float)

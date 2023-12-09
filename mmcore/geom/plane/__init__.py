@@ -204,6 +204,11 @@ class Plane(EcsProto):
         self._arr[self.ecs_plane.zaxis, np.arange(len(v))] = v
         self._dirty = True
 
+    @property
+    def d(self):
+        return -1 * (
+                self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
+
     def todict(self):
         return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
                     zaxis=self.zaxis.tolist())
@@ -373,3 +378,9 @@ def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
 def test_plane_num(pln):
     X, Y, Z = pln[1:]
     return np.allclose([dot(X, Y), dot(Y, Z), dot(Z, X)], 0)
+
+
+def is_parallel(self, other):
+    _cross = cross(unit(self.normal), unit(other.normal))
+    A = np.array([self.normal, other.normal, _cross])
+    return np.linalg.det(A) == 0

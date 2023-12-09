@@ -193,10 +193,11 @@ class Line:
     def unit(self):
         return self._array[3]
 
+    @vectorize(excluded=[0], signature='()->(i)')
     def evaluate(self, t):
         return self.direction * t + self.start
 
-    __call__ = np.vectorize(evaluate, excluded=[0], signature='()->(i)')
+    __call__ = evaluate
 
     def __iter__(self):
         return iter([self.start, self.end])
@@ -304,12 +305,14 @@ class Line:
         z[:2] = -y, x
         return unit(z)
 
+    @vectorize(excluded=[0, 2], signature='(i)->(i)')
     def closest_point(self, pt, return_parameter=False):
         t = self.closest_parameter(pt)
         if return_parameter:
             return self.evaluate(t), t
         return self.evaluate(t)
 
+    @vectorize(excluded=[0], signature='(i)->()')
     def closest_parameter(self, pt: 'tuple|list|np.ndarray'):
         """
         :param pt: The point to which the closest parameter is to be found.
@@ -322,6 +325,7 @@ class Line:
 
         return np.dot(self.unit, vec / self.length())
 
+    @vectorize(excluded=[0], signature='(i)->()')
     def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]'):
         """
         :param pt: The point for which the closest distance needs to be calculated.
@@ -340,13 +344,16 @@ class Line:
         pt = np.array(pt)
         t = self.closest_parameter(pt)
 
-        pt2 = self.evaluate(t)
+        pt2 = self(t)
 
         return ClosestPointSolution1D(pt2,
                                       dist(pt2, pt),
-                                      0 <= t <= 1,
+                                      0 <= t or t <= 1,
                                       t)
 
+    @vectorize(excluded=[0], signature='()->(i)')
+    def evaluate_distance(self, t: float):
+        return self.start + (self.unit * t)
     def __getitem__(self, item):
         return self._array[item]
 
