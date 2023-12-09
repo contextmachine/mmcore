@@ -553,7 +553,7 @@ class MeshStandardMaterial(BaseMaterial):
     emissive: int = 0
     roughness: float = 0.68
     metalness: float = 0.46
-    envMapIntensity: 1
+    envMapIntensity: float = 1
     blendColor: float = 0
     flatShading: bool = True
     uuid: typing.Optional[str] = None
