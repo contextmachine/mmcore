@@ -85,6 +85,9 @@ def np_plane(xaxis, yaxis, origin):
     return pln
 
 
+@vectorize(excluded=[0], signature='(i)->()')
+def distance(self, pt):
+    return point_to_plane_distance(pt, self.origin, self.normal)
 
 class Plane(EcsProto):
     """
@@ -106,6 +109,11 @@ class Plane(EcsProto):
     def replace_component(self, comp: PlaneComponent):
         self.ecs_components[0] = comp
 
+    def distance(self, pt):
+        return distance(self, pt)
+
+    def project(self, pt):
+        return project(self, pt)
     @property
     def _arr_cmp(self):
         return self.ecs_components[0]
@@ -191,7 +199,50 @@ class Plane(EcsProto):
         return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
                     zaxis=self.zaxis.tolist())
 
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def point_from_local_to_world(self, pt: np.ndarray):
+        """
 
+             :param pts: Points in local coordinates
+             :type pts: np.ndarray
+             :return: Points in world coordinates
+             :rtype: np.ndarray
+             """
+        return self._array[0] + self._array[1] * pt[0] + self._array[2] * pt[1] + self._array[3] * pt[2]
+
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def point_from_world_to_plane(self, pts: np.ndarray):
+        """
+
+              :param pts: Points in world coordinates
+              :type pts: np.ndarray
+              :return: Points in local coordinates
+              :rtype: np.ndarray
+              """
+        return dot(pts - self._array[0], self._array[1:])
+
+    def to_slim_plane(self) -> 'SlimPlane':
+        return SlimPlane(arr=self._arr)
+
+    def point_at(self, pts):
+        """
+
+        :param pts: Points in local coordinates
+        :type pts: np.ndarray
+        :return: Points in world coordinates
+        :rtype: np.ndarray
+        """
+        return self.point_from_local_to_world(pts)
+
+    def in_plane_coordinates(self, pts):
+        """
+
+        :param pts: Points in world coordinates
+        :type pts: np.ndarray
+        :return: Points in local coordinates
+        :rtype: np.ndarray
+        """
+        return self.point_from_world_to_plane(pts)
 class SlimPlane:
     """
     SlimPlane
@@ -349,26 +400,55 @@ class SlimPlane:
 
         return cls.from_normal(normal=normal, origin=origin)
 
+    def distance(self, pt):
+        return distance(self, pt)
     def project(self, pts: np.ndarray):
         return project(self, pts)
 
     @vectorize(excluded=[0], signature='(i)->(i)')
     def point_from_local_to_world(self, pt: np.ndarray):
+        """
+
+             :param pts: Points in local coordinates
+             :type pts: np.ndarray
+             :return: Points in world coordinates
+             :rtype: np.ndarray
+             """
         return self._array[0] + self._array[1] * pt[0] + self._array[2] * pt[1] + self._array[3] * pt[2]
 
     @vectorize(excluded=[0], signature='(i)->(i)')
-    def point_from_world_to_plane(self, pt: np.ndarray):
-        return dot(pt - self._array[0], self._array[1:])
-
-    def point_at(self, pt):
+    def point_from_world_to_plane(self, pts: np.ndarray):
         """
 
-        :param pt:
-        :type pt:
-        :return:
-        :rtype:
+              :param pts: Points in world coordinates
+              :type pts: np.ndarray
+              :return: Points in local coordinates
+              :rtype: np.ndarray
+              """
+        return dot(pts - self._array[0], self._array[1:])
+
+    def to_plane(self) -> Plane:
+        return Plane(arr=self._array)
+
+    def point_at(self, pts):
         """
-        return self.point_from_local_to_world(pt)
+
+        :param pts: Points in local coordinates
+        :type pts: np.ndarray
+        :return: Points in world coordinates
+        :rtype: np.ndarray
+        """
+        return self.point_from_local_to_world(pts)
+
+    def in_plane_coordinates(self, pts):
+        """
+
+        :param pts: Points in world coordinates
+        :type pts: np.ndarray
+        :return: Points in local coordinates
+        :rtype: np.ndarray
+        """
+        return self.point_from_world_to_plane(pts)
 
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     """
@@ -417,7 +497,7 @@ def project(pln, pt):
     Calculate the projection of a point onto a plane.
 
     :param pln: The plane to project the point onto.
-    :type pln: Plane
+    :type pln: Plane|SlimPlane
     :param pt: The point to be projected onto the plane.
     :type pt: ndarray (shape: (3,))
     :return: The projected point.
@@ -476,7 +556,7 @@ def translate_plane_inplace(pln: Plane, vec: np.ndarray):
     Translate the given plane by the given vector, inplace.
 
     :param pln: The plane object to be translated.
-    :type pln: Plane
+    :type pln: Plane|SlimPlane
     :param vec: The vector used for translation.
     :type vec: numpy.ndarray
     :return: None
@@ -514,7 +594,7 @@ def local_to_world(pt, pln: 'Plane|SlimPlane' = WXY):
 
     :param pln: The reference plane in the world coordinate system that defines the transformation.
                 It can be either a Plane or a SlimPlane object.
-    :type pln: Plane or SlimPlane
+    :type pln: Plane or SlimPlane.
 
     :return: The transformed point in the world coordinate system.
     :rtype: numpy.ndarray
@@ -556,7 +636,7 @@ def gen_norms(spline, density=4, bounds=(0, 1)):
         yield plane(origin=pt.point, xaxis=x, yaxis=y, zaxis=pt.normal)
 
 
-from mmcore.geom.parametric import algorithms as algo
+from mmcore.geom.parametric import algorithms as algo, point_to_plane_distance
 
 
 def ray_intersection(ray: algo.Ray, pln: Plane):
@@ -565,9 +645,9 @@ def ray_intersection(ray: algo.Ray, pln: Plane):
     :param ray: The ray for which to find the intersection point.
     :type ray: algo.Ray
     :param pln: The plane with which to intersect the ray.
-    :type pln: Plane
+    :type pln: Plane|SlimPlane
     :return: The intersection point between the ray and the plane.
-    :rtype: algo.Point
+    :rtype: np.ndarray|tuple
     """
     return algo.ray_plane_intersection(*ray, pln, full_return=True)
 
@@ -579,7 +659,7 @@ def rotate_vectors_around_plane(vecs, plane_a, angle):
     :param vecs: The vectors to rotate.
     :type vecs: list or numpy.array
     :param plane_a: The plane around which to rotate the vectors.
-    :type plane_a: Plane object
+    :type plane_a: Plane|SlimPlane
     :param angle: The angle in radians by which to rotate the vectors.
     :type angle: float
     :return: The rotated vectors.
@@ -588,33 +668,36 @@ def rotate_vectors_around_plane(vecs, plane_a, angle):
     return norm(vecs) * rotate_around_axis(unit(vecs), angle, origin=(0., 0., 0.), axis=plane_a.normal)
 
 
-@vectorize(excluded=[0, 1], signature='()->()')
-def rotate_plane_around_plane(plane1, plane2, angle):
+@vectorize(excluded=[0, 1, 2], signature='()->()')
+def rotate_plane_around_plane(plane1, plane2, angle, return_cls=Plane):
     """
     Rotate a plane around another plane.
 
     :param plane1: The plane to be rotated. Plane который планируется повернуть.
-    :type plane1: Plane
+    :type plane1: Plane|SlimPlane
     :param plane2: The plane around which plane1 should be rotated. Plane в системе которого происходит поворот.
-    :type plane2: Plane
+    :type plane2: Plane|SlimPlane
     :param angle: The angle of rotation in radians. Угол поворота в радианах.
     :type angle: float
+    :param return_cls: The class to return
+    :type return_cls: type[Plane]|type[SlimPlane] or other plane-like primitive.
     :return: The rotated plane. Новый Plane в глобальных координатах.
-    :rtype: Plane
+    :rtype: Plane|SlimPlane
+
     """
     origin = rotate_around_axis(plane1.origin, angle, plane2.origin, plane2.normal)
     xaxis, yaxis, zaxis = rotate_around_axis(np.array([plane1.xaxis, plane1.yaxis, plane1.zaxis]), angle,
                                              origin=(0., 0., 0.), axis=plane2.normal)
-    return Plane(np.array([origin, xaxis, yaxis, zaxis], dtype=float))
+    return return_cls(np.array([origin, xaxis, yaxis, zaxis], dtype=float))
 
 
 @vectorize(signature='(i),(i)->(j,i)')
-def plane_from_normal_numeric(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
+def plane_from_normal_numeric(vector=(2., 33., 1.), origin=(0., 0.0, 0.)):
     """
     :param vector: The normal vector of the plane
-    :type vector: tuple of ints
+    :type vector: tuple of floats or ndarray of floats
     :param origin: The origin point of the plane
-    :type origin: tuple of floats
+    :type origin: tuple of floats or ndarray of floats
     :return: The plane defined by the normal vector and origin point
     :rtype: numpy array
 

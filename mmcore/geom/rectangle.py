@@ -9,12 +9,13 @@ from mmcore.base.ecs.components import component
 from mmcore.func import vectorize
 from mmcore.geom import offset
 from mmcore.geom import plane
-from mmcore.geom.plane import PlaneComponent
+from mmcore.geom.parametric import point_to_plane_distance
+from mmcore.geom.plane import Plane, PlaneComponent, WXY, rotate_plane_around_plane
 from mmcore.geom.polyline import evaluate_polyline, polyline_to_lines
 from mmcore.geom.shapes.area import polygon_area
-from mmcore.geom.vec import angle, cross, dist, norm, unit
+from mmcore.geom.vec import cross, dist, norm, unit
 
-
+from mmcore.geom.vec import angle as _angle
 @component()
 class Length:
     value: float = None
@@ -172,6 +173,7 @@ class Rectangle(plane.Plane):
             pl = plane.translate_plane(self, translation)
             return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
 
+
     @property
     def uuid(self):
         return self.ecs_rectangle.uuid
@@ -205,6 +207,25 @@ class Rectangle(plane.Plane):
     def side_lengths(self):
         segms = polyline_to_lines(self.corners)
         return dist(segms[:, 0, :], segms[:, 1, :])
+
+    def orient(self, pln, inplace=True):
+        if not inplace:
+            other = copy.deepcopy(self)
+            return rect_to_plane(other, pln)
+        else:
+
+            rect_to_plane(self, pln)
+
+    def rotate_in_plane(self, angle, pln=WXY, inplace=True):
+        # pln=rotate_plane_around_plane(self, plane, angle)
+        # self.origin=pln.origin
+        # self.xaxis=pln.yaxis
+        # self.yaxis = pln.xaxis
+        # self.zaxis = pln.zaxis
+
+        return self.orient(rotate_plane_around_plane(self, pln, angle), inplace=inplace)
+
+
 
 
 @vectorize(signature='(j,i),()->()')
@@ -380,7 +401,7 @@ class RectangleUnion(RectangleComposite):
     def max_angle(self):
         a, c = sorted([self._items[0].v, self._items[1].v])
         b = np.sqrt(c ** 2 - a ** 2)
-        return angle(unit([a, 0]), unit([b, a])) + np.pi / 2
+        return _angle(unit([a, 0]), unit([b, a])) + np.pi / 2
 
 
 @dispatch(Rectangle, object, object)

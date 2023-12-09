@@ -9,8 +9,8 @@ from mmcore.geom.extrusion import extrude_polyline
 from mmcore.geom.intersections import intersect
 from mmcore.geom.line import Line
 from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, union_mesh_simple
-from mmcore.geom.plane import Plane
-from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec
+from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane, project
+from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane
 from mmcore.geom.vec import cross, dist, unit
 
 
@@ -59,6 +59,20 @@ class Box(Rectangle):
             self.update_mesh()
         else:
             return res
+
+    def orient(self, plane):
+        rect_to_plane(self, plane)
+        self.update_mesh()
+
+    def rotate_in_plane(self, angle, plane=WXY):
+        # pln=rotate_plane_around_plane(self, plane, angle)
+        # self.origin=pln.origin
+        # self.xaxis=pln.yaxis
+        # self.yaxis = pln.xaxis
+        # self.zaxis = pln.zaxis
+
+        rect_to_plane(self, rotate_plane_around_plane(self, plane, angle))
+        self.update_mesh()
 
     def translate(self, translation, inplace=True):
         res = super().translate(translation, inplace=inplace)
@@ -233,6 +247,24 @@ class Box(Rectangle):
         # Calculate the bounding box of the intersect points and return the corresponding Box
 
         return intersect_points
+
+    @classmethod
+    def from_rectangle(cls, rect: Rectangle, h=3.0):
+        return Box(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)
+
+    @classmethod
+    def from_corners(cls, corners):
+        corners = np.array(corners)
+        if (corners.ndim == 2) and (len(corners) <= 4):
+            return cls.from_rectangle(super().from_corners(corners), h=1.0)
+        else:
+            fc = corners.flatten()
+            fc = fc.reshape((len(fc) // 3, 3))
+            rect = super().from_corners(fc[:4])
+            return cls.from_rectangle(rect, h=rect.distance(fc[-1]).tolist())
+
+
+
 
 
 def unpack_trim_details(res):
