@@ -187,6 +187,25 @@ componentTypeCodeTable = Table.from_lists(pk='gltf',
                                               'py': type
                                           }
                                           )
+print(componentTypeCodeTable.keys())
+componentTypeCodeTableNp = Table.from_lists(pk='numpy',
+                                            rows=[('b', 1, componentTypesTable[5120], "Int8Array", np.int8, int),
+                                                  ('B', 1, componentTypesTable[5121], "Uint8Array", np.uint8, int),
+                                                  ('h', 2, componentTypesTable[5122], "Int16Array", np.int16, int),
+                                                  ('H', 2, componentTypesTable[5123], "Uint16Array", np.uint16, int),
+                                                  ('L', 4, componentTypesTable[5125], "Uint32Array", np.uint32, int),
+                                                  ('f', 4, componentTypesTable[5126], "Float32Array", np.float32,
+                                                   float)],
+                                            name='numpy_typecode_table',
+                                            schema={
+                                                'typecode': str,
+                                                'size': int,
+                                                'gltf': TableProxy,
+                                                'js': str,
+                                                'numpy': type,
+                                                'py': type
+                                            }
+                                            )
 
 TYPE_TABLE = typeTable
 

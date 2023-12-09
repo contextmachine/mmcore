@@ -66,7 +66,7 @@ def dist(a, b):
 
 
 @vectorize(signature='(i)->(i)')
-def unit(v):
+def unit(v: 'list|tuple|np.ndarray'):
     """
     :param v: The input vector
     :type v: numpy.ndarray
