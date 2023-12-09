@@ -46,14 +46,17 @@ class Rectangle(plane.Plane):
     ecs_uv = EcsProperty(type=UV)
     ecs_rectangle = EcsProperty(type=RectangleComponent)
 
-    def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=np.array((1, 0, 0)),
+    def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=None,
                  normal=np.array((0, 0, 1)),
                  origin=np.array((0, 0, 0))):
+        if xaxis is None:
+            super().__init__(plane.plane_from_normal_numeric(normal, origin))
+        else:
 
-        normal = unit(normal)
-        xaxis = unit(xaxis)
-        yaxis = unit(cross(normal, xaxis))
-        super().__init__(np.array([origin, xaxis, yaxis, normal]))
+            normal = unit(normal)
+            xaxis = unit(xaxis)
+            yaxis = unit(cross(normal, xaxis))
+            super().__init__(np.array([origin, xaxis, yaxis, normal]))
         if not hasattr(u, 'component_type'):
             u = Length(u)
         if not hasattr(v, 'component_type'):

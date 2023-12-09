@@ -1,10 +1,14 @@
 import numpy as np
+from multipledispatch import dispatch
 
 from mmcore.base import ageomdict
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.extrusion import extrude_polyline
+from mmcore.geom.line import Line
 from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, union_mesh_simple
+from mmcore.geom.plane import Plane
 from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec
+from mmcore.geom.vec import cross, dist, unit
 
 
 class Box(Rectangle):
@@ -108,3 +112,60 @@ class Box(Rectangle):
             uuid=self._mesh.uuid)
 
         self.apply_forward(self._mesh.properties)
+
+    def transpose(self) -> 'Box':
+        """transpose the box. Это сделвет продольными противоположные ребра"""
+        return Box(self.u, self.h, h=self.v, xaxis=self.xaxis, normal=self.yaxis,
+                   origin=self.origin + (self.normal * self.h))
+
+    def elongate_ribs(self):
+        return (Line.from_ends(pt, pt + (self.normal * self.h)) for pt in self.corners)
+
+    @dispatch(Plane)
+    def thickness_trim(self, plane: Plane) -> 'Box':
+        """
+        Подрезка с толщиной означает что бокс будет образан под самую короткую из подрезающихся сторон.
+        Иными словами ни одна точка бокса не выйдет за подрезающую плоскость.
+        :param plane: Trimming plane
+        :type plane: <Plane>
+        :return: Trimmed box
+        :rtype: <Box>
+        """
+        intersection = False
+        *res, = sorted(((i, r.plane_intersection(plane), r) for i, r in enumerate(self.elongate_ribs())),
+                       key=lambda x: x[1][1])
+        ixs, (w, t, point), line = res[0]
+        if 1. >= t >= 0.:
+            intersection = True
+
+        line2 = Line.from_ends(line.start, point)
+
+        return Box(self.ecs_uv.u, self.ecs_uv.v, h=dist(point, line2.start), xaxis=self.xaxis, origin=self.origin,
+                   normal=self.normal), intersection, res
+
+    @dispatch(Line)
+    def thickness_trim(self, line: Line) -> 'Box':
+        """
+        Эта версия метода принимает линию, которая будет преобразована в вертикальную плоскость подрезки.
+
+        Подрезка с толщиной означает что бокс будет образан под самую короткую из подрезающихся сторон.
+        Иными словами ни одна точка бокса не выйдет за подрезающую плоскость.
+        :param line: Cut line
+        :type line: <Line>
+        :return: Trimmed box
+        :rtype: <Box>
+        """
+        z = np.zeros(3)
+        z[:2] = line.direction[:2]
+
+        origin = line.start
+        xaxis = unit(z)
+        yaxis = np.array([0., 0., 1.])
+        zaxis = cross(xaxis, yaxis)
+
+        return self.thickness_trim(Plane(np.array([origin, xaxis, yaxis, zaxis])))
+
+
+def unpack_trim_details(res):
+    w, t, pts = list(zip(*list(zip(*sorted(res, key=lambda x: x[0])))[1]))
+    return np.array(w), np.array(t), np.array(pts)
