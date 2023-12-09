@@ -101,7 +101,7 @@ def mesh_from_bounds(bounds, color=(0.3, 0.3, 0), props=None):
     """
     if bounds[0] == bounds[-1]:
         bounds = bounds[:-1]
-    pos, ixs, _ = bounds_earcut(bounds)
+    pos, ixs, _ = bounds_earcut(bounds.tolist() if isinstance(bounds, np.ndarray) else bounds)
     return create_mesh_tuple(dict(position=np.array(pos)), indices=np.array(ixs), color=color,
                              extras=dict(properties=props))
 

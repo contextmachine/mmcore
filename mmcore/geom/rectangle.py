@@ -230,71 +230,7 @@ def _evaluate_rect(rect, u, v):
     return rect.origin + x + y
 
 
-class ShapeNode:
-    def __init__(self, unions=(), diffs=()):
-        super().__init__()
-        self.unions = list(set(unions))
-        self.diffs = list(set(diffs))
-        self._dirty = True
-        self._hss = None
-        self.solve_hash()
 
-    def solve_hash(self):
-        if self._dirty:
-            self._hss = tuple(hash(u) for u in self.unions), tuple(hash(u) for u in self.diffs)
-        self._dirty = False
-
-    def __hash__(self):
-
-        return hash(self.get_hashes())
-
-    def get_hashes(self):
-        if self._dirty:
-            self.solve_hash()
-        return tuple(self._hss)
-
-    def compare(self, unions, diffs):
-        u, d = self.get_hashes()
-        u, d = np.array(u, int), np.array(d, int)
-        u1, d1 = unions, diffs
-        u1, d1 = np.array(u1, int), np.array(d1, int)
-        return np.in1d(u1, u), np.in1d(d1, d)
-
-    @property
-    def area(self):
-        return self.poly.area
-
-    def merge(self, u, d):
-
-        u1, d1 = self.compare([hash(i) for i in u], [hash(i) for i in d])
-        return ShapeNode(np.append(self.unions, np.array(u, dtype=object)[not u1]),
-                         np.append(self.diffs, np.array(d, dtype=object)[not d1]))
-
-    def __add__(self, other):
-
-        return self.merge(other.unions, other.diffs)
-
-    def __sub__(self, other):
-        return self.merge(other.diffs, other.unions)
-
-    @property
-    def corners(self):
-        return shapely.geometry.mapping(self.poly)['coordinates']
-
-    @property
-    def poly(self):
-        return cached_poly_full(tuple(self.unions), tuple(self.diffs))
-
-    @property
-    def union_poly(self):
-        return cached_poly(tuple(self.unions))
-
-    @property
-    def diffs_poly(self):
-        return cached_poly(tuple(self.diffs))
-
-    def rotate(self, angle, axis=None, origin=None):
-        ...
 
 
 @dispatch(Rectangle, tuple, dict)
@@ -444,6 +380,9 @@ class RectangleUnion(RectangleComposite):
         return angle(unit([a, 0]), unit([b, a])) + np.pi / 2
 
 
+@dispatch(Rectangle, object, object)
+def to_mesh(obj: Rectangle, color=(0.3, 0.3, 0.3), props: dict = None):
+    return mesh_from_bounds(obj.corners.tolist(), color, props)
 
 @dispatch(RectangleUnion, tuple, dict)
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
@@ -458,6 +397,10 @@ def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props=dict()):
     return mesh_from_bounds(obj.corners, color, props)
 
+
+@vectorize(excluded=['color', 'props'], signature='(j,i)->(i)')
+def rect_to_mesh_vec(bounds: np.ndarray, color=(0.3, 0.3, 0.3), props=None):
+    return np.array(mesh_from_bounds(bounds.tolist(), color=color, props=props), dtype=object)
 
 class RectangleCollection(composite(Rectangle)):
     def translate(self, translation, inplace=True):
@@ -484,10 +427,3 @@ class RectangleCollection(composite(Rectangle)):
 
 
 
-
-
-@dispatch(ShapeNode, float, int, int)
-def rotate(node: ShapeNode, angle: float, origin_index: int):
-    origin_node = (node.unions + node.diffs)[origin_index]
-    origin, axis = origin_node.origin, origin_node.normal
-    plane.r
