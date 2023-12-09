@@ -67,11 +67,11 @@ MeshTuple.__add__ = sum_meshes
 
 
 def extract_mesh_attrs_union_keys_with_counter(meshes):
-    return sorted(list(Counter([tuple(mesh.attributes.keys()) for mesh in meshes]).keys()))[0]
+    return sorted(list(Counter([tuple(mesh[0].keys()) for mesh in meshes]).keys()))[0]
 
 
 def extract_mesh_attrs_union_keys_with_set(meshes):
-    return set.intersection(*(set(mesh.attributes.keys()) for mesh in meshes))
+    return set.intersection(*(set(mesh[0].keys()) for mesh in meshes))
 
 
 def extract_mesh_attrs_union_keys(meshes):
@@ -94,18 +94,18 @@ def gen_indices_and_extras2(meshes, names):
     max_index = -1
     for j, m in enumerate(meshes):
 
-        length = len(m.attributes['position'])
-        m.attributes[MESH_OBJECT_ATTRIBUTE_NAME] = np.repeat(j, length // 3)
+        length = len(m[0]['position'])
+        m[0][MESH_OBJECT_ATTRIBUTE_NAME] = np.repeat(j, length // 3)
 
-        if m.indices is not None:
+        if m[1] is not None:
 
-            ixs = m.indices + max_index + 1
+            ixs = m[1] + max_index + 1
 
             max_index = np.max(ixs)
 
-            yield *tuple(m.attributes[name] for name in names), ixs, m.extras
+            yield *tuple(m[0][name] for name in names), ixs, m[2]
         else:
-            yield *tuple(m.attributes[name] for name in names), None, m.extras
+            yield *tuple(m[0][name] for name in names), None, m[2]
 
 
 def union_mesh2(meshes, extras=None):
@@ -127,16 +127,16 @@ def gen_indices_and_extras(meshes, ks):
 
     for j, m in enumerate(meshes):
 
-        if m.indices is not None:
+        if m[1] is not None:
 
-            ixs = m.indices + max_index + 1
-            face_cnt = len(m.indices) // 3
+            ixs = m[1] + max_index + 1
+            face_cnt = len(m[1]) // 3
             max_index = np.max(ixs)
 
-            yield *tuple(m.attributes[k] for k in ks), ixs, np.repeat(j, face_cnt)
+            yield *tuple(m[0][k] for k in ks), ixs, np.repeat(j, face_cnt)
         else:
             try:
-                yield *tuple(m.attributes[k] for k in ks), None, None
+                yield *tuple(m[0][k] for k in ks), None, None
             except Exception as err:
                 print(m, err)
 

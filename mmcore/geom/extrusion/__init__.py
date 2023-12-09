@@ -172,7 +172,7 @@ def extrude_line(start, end, vec):
     return np.array([start, end, end + vec, start + vec])
 
 
-def extrude_cont(corners, vec):
+def extrude_polyline(corners, vec):
     corn = np.array(corners)
     vec = np.array(vec)
     lns = polyline_to_lines(corn)
@@ -225,7 +225,7 @@ class Extrusion:
 
     @property
     def faces(self):
-        return extrude_cont(self.profile, self.path)
+        return extrude_polyline(self.profile, self.path)
 
 
     @property
