@@ -6,7 +6,7 @@ from mmcore.base import AGroup
 from mmcore.base.ecs.components import request_component
 from mmcore.base.registry import adict, propsdict
 from mmcore.base.userdata.props import Props
-from mmcore.common.models.observer import Observable, Observer, observation, observe
+from mmcore.common.models.observer import Observable, Observer, observation
 
 ENABLE_WARNINGS = True
 
@@ -68,32 +68,42 @@ class ViewerGroup(AGroup):
         return True
 
 
-@observe
-class ObservableViewerGroup(ViewerGroup, Observable):
+class ViewerObservableGroup(ViewerGroup, Observable):
     """
-
+    >>> group_observer=observation.init_observer(ViewerGroupObserver)
+    >>> group=observation.init_observable(group_observer,
+    ...                                   cls=lambda x:ViewerObservableGroup(x, items=(),uuid='fff'))
     """
 
     def __new__(cls, i, *args, **kwargs):
         self = super().__new__(cls, *args, **kwargs)
-        self.i = i
+
         return self
 
     def __init__(self, i, *args, **kwargs):
         super().__init__(i)
 
     def props_update(self, uuids: list[str], props: dict):
-        if super().props_update(uuids, props):
-            self.notify_observers(uuids=uuids, props=props)
-            return True
+        super().props_update(uuids, props)
+        self.notify_observers(uuids=uuids, props=props)
+
+        return True
 
 
 class ViewerGroupObserver(Observer):
-    def notify(self, observable: 'ObservableViewerGroup', uuids: list = None, props: list = None):
+    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None):
         for uid in uuids:
+            print(uid, uuids)
             mesh = adict[uid]
+            print(mesh)
             if hasattr(mesh, 'owner'):
+                print(mesh.owner)
                 mesh.owner.update_mesh()
 
 
-BaseViewerGroupObserver = observation.init_observer(ViewerGroupObserver)
+group_observer = observation.init_observer(ViewerGroupObserver)
+
+
+def create_group(uuid: str):
+    return observation.init_observable(group_observer,
+                                       cls=lambda x: ViewerObservableGroup(x, items=(), uuid=uuid))

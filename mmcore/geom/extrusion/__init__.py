@@ -1,14 +1,18 @@
-import uuid
 from collections import deque
+from uuid import uuid4
 
+import numpy as np
 from more_itertools import flatten
 from multipledispatch import dispatch
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
+from mmcore.func import vectorize
 from mmcore.geom.materials import ColorRGB
+from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.compat import build_mesh_with_buffer
-from mmcore.geom.mesh.consts import simpleMaterial
+from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
+from mmcore.geom.polyline import polyline_to_lines
 from mmcore.geom.shapes import LegacyShape
 from mmcore.geom.vec import unit
 from mmcore.node import node_eval
@@ -87,7 +91,7 @@ def bnd(shp, h, color=ColorRGB(100,100,100).decimal):
     md = MeshData(vertices=list(vrtx), indices=l)
     md.calc_indices()
     buf = md.create_buffer()
-    return AMesh(geometry=buf, uuid=uuid.uuid4().hex, material=material)
+    return AMesh(geometry=buf, uuid=uuid4().hex, material=material)
 
 def tess(shp, h):
     a2 = np.array(shp.mesh_data.vertices)
@@ -160,12 +164,7 @@ def csg_extrusion(shape, h):
     return grp
 
 
-import numpy as np
 
-from mmcore.func import vectorize
-from mmcore.geom.mesh import union_mesh_simple
-from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
-from mmcore.geom.polyline import polyline_to_lines
 
 
 @vectorize(signature='(i),(i),(i)->(j,i)')
@@ -237,11 +236,11 @@ class Extrusion:
     def sides(self):
         return self.faces[1:-1]
 
-    def to_mesh(self, uuid=None, material=simpleMaterial, props=None, **kwargs):
+    def to_mesh(self, uuid=None, **kwargs):
+        if uuid is None:
+            uuid = uuid4().hex
         return build_mesh_with_buffer(to_mesh(self),
                                       uuid=uuid,
-                                      material=material,
-                                      props=props,
                                       **kwargs
                                       )
 
