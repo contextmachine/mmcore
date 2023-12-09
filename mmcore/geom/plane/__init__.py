@@ -353,3 +353,23 @@ def rotate_plane_around_plane(plane1, plane2, angle):
     xaxis, yaxis, zaxis = rotate_around_axis(np.array([plane1.xaxis, plane1.yaxis, plane1.zaxis]), angle,
                                              origin=(0., 0., 0.), axis=plane2.normal)
     return Plane(np.array([origin, xaxis, yaxis, zaxis], dtype=float))
+
+
+@vectorize(signature='(i),(i)->(j,i)')
+def plane_from_normal_numeric(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
+    Z = unit(vector)
+
+    axises = cross(Z, sorted(np.eye(3), key=lambda x: dot(Z, x)))
+    Y = axises[0]
+    X = cross(Y, Z)
+    return np.array([origin, X, Y, Z])
+
+
+def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
+    return Plane(plane_from_normal_numeric(vector, origin))
+
+
+@vectorize(signature='(j,i)->()')
+def test_plane_num(pln):
+    X, Y, Z = pln[1:]
+    return np.allclose([dot(X, Y), dot(Y, Z), dot(Z, X)], 0)

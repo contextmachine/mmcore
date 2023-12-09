@@ -1,7 +1,6 @@
-import numpy as np
-
 import mmcore.geom.parametric.algorithms as algo
 from mmcore.geom.closest_point import ClosestPointSolution1D
+from mmcore.geom.plane import Plane
 from mmcore.geom.vec import *
 from mmcore.geom.vec import dist, unit
 
@@ -353,6 +352,19 @@ class Line:
 
     def __setitem__(self, item, val):
         self._array[item] = val
+
+    def plane_intersection(self, plane: Plane, epsilon=1e-6):
+
+        ndotu = dot(plane.normal, self.direction)
+        if abs(ndotu) < epsilon:
+            return None, None, None
+
+        w = self.start - plane.origin
+        si = -np.array(plane.normal).dot(w) / ndotu
+        Psi = w + si * self.direction + plane.origin
+
+        return w, si, Psi
+
 
 
 X_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([1, 0, 0]))

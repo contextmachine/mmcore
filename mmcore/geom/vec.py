@@ -159,3 +159,23 @@ def add_multiply_vectors(a, b):
             raise ValueError("Both input vectors must have the same dimensions.")
 
     return a + b
+
+
+@vectorize(excluded=[0], signature='()->(i,i)')
+def rotate_matrix(a):
+    """
+        This method adds two vectors element-wise and returns the result.
+
+        :param a: The first vector.
+        :type a: numpy.ndarray
+
+        :param b: The second vector.
+        :type b: numpy.ndarray
+
+        :return: The resulting vector after adding the two input vectors.
+        :rtype: numpy.ndarray
+    """
+
+    r = np.eye(3)
+    r[:2, :2] = [np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]
+    return r
