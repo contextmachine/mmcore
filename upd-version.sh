@@ -1,2 +1,2 @@
-python ./bin/upd-version.py --major "$@"
-poetry lock
+python ./bin/upd-version.py --minor "$@"
+#poetry lock
