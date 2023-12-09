@@ -1,6 +1,7 @@
 import mmcore.geom.parametric.algorithms as algo
 from mmcore.geom.closest_point import ClosestPointSolution1D
 from mmcore.geom.plane import Plane
+from mmcore.geom.proto import object_from_bytes, object_to_buffer, object_to_bytes
 from mmcore.geom.vec import *
 from mmcore.geom.vec import dist, unit
 
@@ -142,11 +143,14 @@ class Line:
             Sets an item in the internal array.
     """
     __slots__ = ('_array')
+    _shape = (3, 3)
+    _dtype = float
 
-    def __init__(self, start, direction, end=None):
+    def __init__(self, start=None, direction=None, end=None):
         if end is None:
             end = start + direction
-        self._array = np.zeros((4, 3))
+        self._array = np.zeros((self._shape[0] + 1, self._shape[1]), self._dtype)
+
         self._array[0] = start
         self._array[1] = end
         self._array[2] = direction
@@ -230,11 +234,16 @@ class Line:
 
     @classmethod
     def from_ends(cls, start: np.ndarray, end: np.ndarray):
-        return Line(start=start, direction=end - start, end=end)
+
+        if not all([isinstance(start, np.ndarray) or isinstance(end, np.ndarray)]):
+            start, end = np.array([start, end], dtype=cls._dtype)
+        return cls(start=start, direction=end - start, end=end)
 
     @classmethod
     def from_point_vec(cls, start: np.ndarray, direction: np.ndarray):
-        return Line(start=start, direction=direction)
+        if not all([isinstance(start, np.ndarray) or isinstance(direction, np.ndarray)]):
+            start, end = np.array([start, direction], dtype=cls._dtype)
+        return cls(start=start, direction=direction)
 
     def __repr__(self):
         return f'Line(start={self.start}, end={self.end}, direction={self.direction})'
@@ -354,6 +363,7 @@ class Line:
     @vectorize(excluded=[0], signature='()->(i)')
     def evaluate_distance(self, t: float):
         return self.start + (self.unit * t)
+
     def __getitem__(self, item):
         return self._array[item]
 
@@ -371,6 +381,24 @@ class Line:
         Psi = w + si * self.direction + plane.origin
 
         return w, si, Psi
+
+    @classmethod
+    def from_buffer(cls,
+                    btc: bytearray,
+                    dtype=None,
+                    **kwargs):
+        start, end, direction = object_from_bytes(cls, btc, dtype, **kwargs)
+        return cls(start=start, end=end, direction=direction)
+
+    def to_bytes(self, **kwargs) -> bytes:
+
+        return object_to_bytes(self, **kwargs)
+
+    def to_buffer(self, buffer: bytearray, **kwargs) -> dict:
+        return object_to_buffer(self, buffer=buffer, dtype=self._dtype, **kwargs)
+
+
+
 
 
 

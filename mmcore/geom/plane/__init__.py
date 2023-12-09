@@ -1,4 +1,3 @@
-import dataclasses
 from collections import namedtuple
 
 import numpy as np
@@ -28,61 +27,10 @@ class PlaneParamsArray:
     arr: np.ndarray = None
 
 
-@dataclasses.dataclass(unsafe_hash=True)
-class PlaneParamsAccess:
-    arr: PlaneParamsArray = None
-    origin_ref: int = 0
-    xaxis_ref: int = 1
-    yaxis_ref: int = 2
-    zaxis_ref: int = 3
-
-    def __post_init__(self):
-        if not hasattr(self.arr, 'component_type'):
-            self.arr = PlaneParamsArray(np.array(self.arr))
-
-    @property
-    def xaxis(self):
-        return self.arr[self.xaxis_ref]
-
-    @property
-    def yaxis(self):
-        return self.arr[self.yaxis_ref]
-
-    @property
-    def zaxis(self):
-        return self.arr[self.zaxis_ref]
-
-    @property
-    def normal(self):
-        return self.zaxis
-
-    @property
-    def origin(self):
-        return self.arr[self.origin_ref]
-
-    @xaxis.setter
-    def xaxis(self, v):
-        self.arr[self.xaxis_ref] = unit(np.array(v))
-
-    @yaxis.setter
-    def yaxis(self, v):
-        self.arr[self.yaxis_ref] = unit(np.array(v))
-
-    @zaxis.setter
-    def zaxis(self, v):
-        self.arr[self.zaxis_ref] = unit(np.array(v))
-
-    @normal.setter
-    def normal(self, v):
-        self.zaxis = v
-
-    @origin.setter
-    def origin(self, v):
-        self.arr[self.origin_ref] = np.array(v)
-
-
-NpPlane = np.void(0, dtype=np.dtype(
-    [('origin', float, (3,)), ('xaxis', float, (3,)), ('yaxis', float, (3,)), ('zaxis', float, (3,))]))
+NpPlane = np.void(0, dtype=np.dtype([('origin', float, (3,)),
+                                     ('xaxis', float, (3,)),
+                                     ('yaxis', float, (3,)),
+                                     ('zaxis', float, (3,))]))
 
 
 @dispatch(object, object)
@@ -119,6 +67,7 @@ class Plane(EcsProto):
     ecs_plane = EcsProperty(type=PlaneComponent)
 
     def __init__(self, arr=None):
+
         super().__init__()
         self._bytes = None
         self.ecs_plane = PlaneComponent(ref=np.append([0., 0., 0.],
@@ -212,6 +161,97 @@ class Plane(EcsProto):
     def todict(self):
         return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
                     zaxis=self.zaxis.tolist())
+
+
+class SlimPlane:
+    def __init__(self, arr: np.ndarray = None):
+        if arr is None:
+            arr = np.zeros((4, 3))
+            arr[1:, :] = np.eye(3)
+
+        self._array = arr if isinstance(arr, np.ndarray) else np.array(arr, dtype=float)
+
+    @property
+    def origin(self):
+        return self._array[0]
+
+    @origin.setter
+    def origin(self, v):
+        self._array[0] = v
+
+    @property
+    def xaxis(self):
+        return self._array[1]
+
+    @xaxis.setter
+    def xaxis(self, v):
+        self._array[1] = v
+
+    @property
+    def yaxis(self):
+        return self._array[2]
+
+    @yaxis.setter
+    def yaxis(self, v):
+        self._array[2] = v
+
+    @property
+    def zaxis(self):
+        return self._array[3]
+
+    @zaxis.setter
+    def zaxis(self, v):
+        self._array[3] = v
+
+    @property
+    def normal(self):
+        return self._array[3]
+
+    @normal.setter
+    def normal(self, v):
+        self._array[3] = v
+
+    def __hash__(self):
+        return hash(self._array.tobytes())
+
+    @property
+    def d(self):
+        return -1 * (
+                self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
+
+    def todict(self):
+        return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
+                    zaxis=self.zaxis.tolist())
+
+    @classmethod
+    def from_normal(cls, normal: np.ndarray, origin: np.ndarray = np.zeros(3, float)):
+        return cls(plane_from_normal_numeric(normal, origin))
+
+    @classmethod
+    def from_3pt(cls, origin: np.ndarray, pt1: np.ndarray, pt2: np.ndarray):
+        normal = unit(
+            cross(
+                *unit(
+                    (np.array(pt1) - np.array(origin),
+                     np.array(pt2) - np.array(origin))
+                )
+            )
+        )
+
+        return cls.from_normal(normal=normal, origin=origin)
+
+    def project(self, pts: np.ndarray):
+        return project(self, pts)
+
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def point_from_local_to_world(self, pt: np.ndarray):
+        return self._array[0] + self._array[1] * pt[0] + self._array[2] * pt[1] + self._array[3] * pt[2]
+
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def point_from_world_to_plane(self, pt: np.ndarray):
+        return dot(pt - self._array[0], self._array[1:])
+
+
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     pln = Plane()
     pln.origin = origin
@@ -302,7 +342,7 @@ def rotate_plane_inplace(pln: Plane, angle: float, axis: np.ndarray = None, orig
 
 
 @vectorize(otypes=[float], excluded=[1], signature='(i)->(i)')
-def local_to_world(pt, pln: Plane = WXY):
+def local_to_world(pt, pln: 'Plane|SlimPlane' = WXY):
     z = np.zeros(3)
     z += pln.origin
     z += pt[0] * pln.xaxis
