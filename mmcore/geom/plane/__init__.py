@@ -208,7 +208,7 @@ class Plane(EcsProto):
              :return: Points in world coordinates
              :rtype: np.ndarray
              """
-        return self._array[0] + self._array[1] * pt[0] + self._array[2] * pt[1] + self._array[3] * pt[2]
+        return self._arr[0] + self._arr[1] * pt[0] + self._arr[2] * pt[1] + self._arr[3] * pt[2]
 
     @vectorize(excluded=[0], signature='(i)->(i)')
     def point_from_world_to_plane(self, pts: np.ndarray):
@@ -319,6 +319,15 @@ class SlimPlane:
             arr[1:, :] = np.eye(3)
 
         self._array = arr if isinstance(arr, np.ndarray) else np.array(arr, dtype=float)
+
+    def translate(self, vec: np.ndarray):
+        arr = np.copy(self._array)
+        arr[0] += np.array(vec)
+        return SlimPlane(arr=arr)
+
+    def rotate(self, angle):
+        return rotate_plane_around_plane(self, self, angle, return_cls=SlimPlane).tolist()
+
 
     @property
     def origin(self):
@@ -450,6 +459,71 @@ class SlimPlane:
         """
         return self.point_from_world_to_plane(pts)
 
+    def orient(self, p2):
+        return orient_plane(p2, self)
+
+
+SWXY = SlimPlane()
+
+
+class ConstrainedPlane(SlimPlane):
+    def __init__(self, arr: np.ndarray = None, parent: SlimPlane = SWXY):
+        super().__init__(arr)
+        self.parent = parent
+
+    @property
+    def _array(self):
+        super()._array[0] + self.parent._array[0],
+
+    def translate(self, vec: np.ndarray):
+        return ConstrainedPlane(arr=np.array([self.origin + vec, self.xaxis, self.yaxis, self.zaxis]), parent=self)
+
+    def rotate(self, angle: float):
+        return rotate_plane_around_plane(self, self, angle,
+                                         return_cls=lambda x: ConstrainedPlane(x, parent=self)).tolist()
+
+    @property
+    def origin(self):
+        return self.parent.point_at(super().origin)
+
+    @property
+    def zaxis(self):
+        return self.parent.point_at(super().zaxis)
+
+    @property
+    def yaxis(self):
+        return self.parent.point_at(super().yaxis)
+
+    @property
+    def xaxis(self):
+        return self.parent.point_at(super().xaxis)
+
+    @property
+    def normal(self):
+        return self.parent.point_at(super().normal)
+
+    @origin.setter
+    def origin(self, v):
+        super().origin = self.parent.in_plane_coordinates(v)
+
+    @zaxis.setter
+    def zaxis(self, v):
+        super().zaxis = self.parent.in_plane_coordinates(v)
+
+    @yaxis.setter
+    def yaxis(self, v):
+        super().yaxis = self.parent.in_plane_coordinates(v)
+
+    @xaxis.setter
+    def xaxis(self, v):
+        super().xaxis = self.parent.in_plane_coordinates(v)
+
+    @normal.setter
+    def normal(self, v):
+        super().normal = self.parent.in_plane_coordinates(v)
+
+    def orient(self, p2):
+        return orient_plane(p2, self)
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     """
 
@@ -527,6 +601,7 @@ def rotate_plane(pln, angle=0.0, axis=None, origin=None):
     origin = rotate_around_axis(pln.origin, angle, origin=origin, axis=axis)
     xaxis, yaxis, zaxis = unit(xyz - pln.origin)
     return plane(origin, xaxis, yaxis, zaxis)
+
 
 
 
@@ -613,6 +688,11 @@ def world_to_local(pt, pln: Plane):
 
     """
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
+
+
+def orient_plane(pln1: SlimPlane, pln2: SlimPlane):
+    return SlimPlane(np.vstack([pln2._array[0] - pln1._array[0], pln1._array[1:] @ pln2._array[1:].T]))
+
 
 
 @vectorize(excluded=[1, 2], signature='(i)->(i)')
@@ -713,7 +793,7 @@ def plane_from_normal_numeric(vector=(2., 33., 1.), origin=(0., 0.0, 0.)):
     return np.array([origin, X, Y, Z])
 
 
-def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
+def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.), return_cls: 'Plane|SlimPlane' = Plane):
     """
     Create a Plane object from a normal vector and origin point.
 
@@ -722,10 +802,10 @@ def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.)):
     :param origin: The origin point of the plane.
     :type origin: tuple, optional
     :return: The Plane object.
-    :rtype: Plane
+    :rtype: Plane|SlimPlane
 
     """
-    return Plane(plane_from_normal_numeric(vector, origin))
+    return return_cls(plane_from_normal_numeric(vector, origin))
 
 
 
@@ -746,3 +826,13 @@ def is_parallel(self, other):
     _cross = cross(unit(self.normal), unit(other.normal))
     A = np.array([self.normal, other.normal, _cross])
     return np.linalg.det(A) == 0
+
+
+import pyquaternion as pq
+
+
+def orient_matrix(p1, p2):
+    trx = np.eye(4)
+    trx[:3, :3] = p1._array[1:] @ p2._array[1:].T
+    trx[-1, :-1] = p2._array[0] - p1._array[0]
+    return trx

@@ -460,7 +460,7 @@ def component(name=None, array_like=False, item_shape=()):
             name = cls.__name__
         fields = dict()
 
-        for k, v in cls.__annotations__.items():
+        for k, v in cls.__dict__.items():
 
             if k in cls.__dict__:
                 val = cls.__dict__[k]
