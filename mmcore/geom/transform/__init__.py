@@ -10,6 +10,7 @@ from compas.geometry import Transformation
 from numpy import ndarray
 
 from mmcore.func import vectorize
+from mmcore.geom.transform.cs import uniform_scale_3D
 from mmcore.geom.vectors import unit
 
 
@@ -594,6 +595,8 @@ def reduce_transforms(trxs):
     return trx
 
 
+def rotation_matrix(angle=0.0, axis=(0, 0, 1)):
+    return pq.Quaternion(axis=axis, angle=angle).transformation_matrix
 def axis_rotation_transform(angle, origin=(0, 0, 0), axis=(0, 0, 1)):
     return reduce_transforms([move_matrix(origin * -1),
                               pq.Quaternion(axis=axis, angle=angle).transformation_matrix,
@@ -610,3 +613,197 @@ def multi_angle_rotate_around_axis(pts, angles, origin=(0, 0, 0), axis=(0, 0, 1)
         z[i] = transform_points(pts, axis_rotation_transform(origin=origin, angle=a, axis=axis))
 
     return z
+
+
+class Trx:
+    def __init__(self, trx=np.eye(4), parent=None):
+        self.trx = np.eye(4)
+        self.trx[:] = trx
+        self._initial = trx
+        self.parent = parent
+        self.children = []
+        self.update_trx()
+
+    def update_trx(self):
+        if not self.leaf:
+            self.trx = add_transforms(self._initial, self.parent.trx)
+        for ch in self.children:
+            ch.update_trx()
+
+    def __repr__(self):
+        return "Trx(" + np.round(self.trx, 4).__repr__() + ")"
+
+    @property
+    def leaf(self):
+        return self.parent is None
+
+    def translate(self, vec):
+        t = Trx(move_matrix(vec), parent=self)
+        self.children.append(t)
+
+        return t
+
+    def rotate(self, angle, axis=(0, 0, 1)):
+        t = Trx(rotation_matrix(angle, axis=axis), parent=self)
+        self.children.append(t)
+
+        return t
+
+    def transform(self, trx):
+        t = Trx(trx, parent=self)
+        self.children.append(t)
+        return t
+
+    def itranslate(self, vec):
+        self._initial = add_transforms(self._initial, move_matrix(vec))
+        self.update_trx()
+
+    def irotate(self, angle, axis=(0, 0, 1)):
+        self._initial = add_transforms(self._initial, rotation_matrix(angle, axis=axis))
+        self.update_trx()
+
+    def itransform(self, trx):
+        self._initial = add_transforms(self._initial, trx)
+        self.update_trx()
+
+    def homogeneous(self, other):
+        return to_harmonic(other)
+
+    def __array__(self):
+        return self.trx
+
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def __matmul__(self, other):
+        return transform_points(other, self.trx)
+
+    def __rmatmul__(self, other):
+        return add_transforms(self._initial, other.trx)
+
+    def __imatmul__(self, other):
+        self.trx = add_transforms(self._initial, other.trx)
+        self.update_trx()
+
+    @classmethod
+    def from_scale(cls, x: float = 1, y: float = 1, z: float = 1):
+        matrix = np.array([[x, 0, 0, 0],
+                           [0, y, 0, 0],
+                           [0, 0, z, 0],
+                           [0, 0, 0, 1]], dtype=float)
+        return cls(matrix)
+
+    @classmethod
+    def from_translate(cls, direction):
+        m = cls()
+        m.translate(direction)
+        return m
+
+    @classmethod
+    def from_rotate(cls, axis, angle):
+        m = cls()
+        m.rotate(axis, angle)
+        return m
+
+
+class TrxTree:
+    def __init__(self):
+        self.head = Trx()
+
+    def __iter__(self):
+
+        def gen(node):
+            if len(node.children) > 0:
+                for ch in node.children:
+                    yield from gen(ch)
+            else:
+                yield node
+
+        return gen(self.head)
+
+    def insert_before(self, trx, item):
+        p = trx.parent
+        p.children.remove(trx)
+        p.children.append(item)
+        trx.parent = item
+
+        item.children.append(trx)
+        p.update_trx()
+
+    def insert_after(self, trx, item):
+
+        for child in trx.children:
+            child.parent = item
+            item.children.append(child)
+            trx.children.remove(child)
+
+        item.parent = trx
+
+        trx.children.append(item)
+
+        trx.update_trx()
+
+    def remove_item(self, trx):
+        P = trx.parent
+        P.children.remove(trx)
+        for ch in list(trx.children):
+            ch.parent = P
+            P.children.append(ch)
+            trx.children.remove(ch)
+
+    def chain_transform(self, item, initial_trx):
+        yield initial_trx @ item
+        if len(initial_trx.children) > 0:
+            for ch in initial_trx.children:
+                yield from self.chain_transform(item, ch)
+
+    def __call__(self, item, start=None):
+        if start is None:
+            start = self.head
+        return self.chain_transform(item, start)
+
+    def __getitem__(self, item):
+        node = self.head
+        for i in range(item):
+            node = node.children[0]
+        return node
+
+    def insert_rotate_after(self, trx, angle, axis=(0.0, 0.0, 1.0)):
+
+        angle_trx = Trx(add_transforms(
+            rotation_matrix(angle, axis=axis),
+            trx._initial
+        ))
+        self.insert_after(trx, angle_trx)
+
+
+from mmcore.geom.transform.cs import *
+
+
+def cs_transform_matrix(from_cs, to_cs):
+    """returns a transform matrix from from_cs to to_cs"""
+
+    return add_transforms(to_cs, np.invert(from_cs))
+
+
+def pivot_scale_3D(pivot, scale):
+    x = pivot[0]
+    y = pivot[1]
+    z = pivot[2]
+    return add_transforms(translate_3D(x, y, z),
+                          add_transforms(uniform_scale_3D(scale),
+                                         translate_3D(-x, -y, -z)
+                                         )
+                          )
+
+
+def case():
+    trxTree = TrxTree()
+    trxTree.head.translate((7.0, 0.0, 0.0)).translate((7., 0.0, 0.0)).translate((7., 0.0, 0.0)).transform(
+        add_transforms(rotation_matrix(np.pi / 2), move_matrix((7., 0., 0.)))).translate((7, 0, 0.0)).translate(
+        (7, 0, 0.0)).transform(add_transforms(rotation_matrix(np.pi / 2), move_matrix((7., 0., 0.)))).translate(
+        (7, 0, 0.0))
+    obj = np.array([[7, 0, 0], [7, 2, 0], [0, 2, 0], [0, 0, 0]])
+    *aa1, = trxTree.chain_transform(obj, trxTree.head)
+    a1 = np.array(aa1).tolist()
+    trxTree.insert_rotate_after(trxTree.head.children[0].children[0], np.pi / 2)
+    *aa2, = trxTree.chain_transform(obj, trxTree.head)
+    a2 = np.array(aa2).tolist()

@@ -43,7 +43,7 @@ class Box(Rectangle):
 
         ])
 
-        self._init_mesh()
+
 
     @property
     def faces(self):
@@ -176,12 +176,14 @@ class Box(Rectangle):
     def _init_mesh(self):
         self.create_mesh()
 
-    def update_mesh(self):
-        self.apply_backward(self._mesh.properties)
+    def update_mesh(self, no_back=False):
+        if not no_back:
+            self.apply_backward(self._mesh.properties)
         fcs = self.faces
         ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(
             union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist()),
             uuid=self._mesh.uuid)
+
         self.apply_forward(self._mesh.properties)
 
     def to_mesh(self, **kwargs):
@@ -250,7 +252,7 @@ class Box(Rectangle):
 
     @classmethod
     def from_rectangle(cls, rect: Rectangle, h=3.0):
-        return Box(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)
+        return cls(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)
 
     @classmethod
     def from_corners(cls, corners):
