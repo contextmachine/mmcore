@@ -1,4 +1,8 @@
-import mmcore.geom.parametric.algorithms as algo
+from typing import Iterable
+
+from scipy.linalg import solve
+
+from mmcore.geom.parametric import algorithms as algo
 from mmcore.geom.closest_point import ClosestPointSolution1D
 from mmcore.geom.plane import Plane
 from mmcore.geom.proto import object_from_bytes, object_to_buffer, object_to_bytes
@@ -141,6 +145,14 @@ class Line:
 
         __setitem__(self, item, val)
             Sets an item in the internal array.
+
+
+
+        a,      x0,        z1
+    x0  x2-x1    x1          0
+    y0  y2-y1    y1
+    z0  z2-z1    z1
+
     """
     __slots__ = ('_array')
     _shape = (3, 3)
@@ -156,11 +168,6 @@ class Line:
         self._array[2] = direction
         self._array[3] = unit(direction)
 
-    @property
-    def c(self):
-        line = Line.from_ends(np.array(self.unbounded_intersect(X_AXIS_LINE)),
-                              np.array(self.unbounded_intersect(Y_AXIS_LINE)))
-        return 1, -1, 294933
 
     @property
     def direction(self):
@@ -190,6 +197,10 @@ class Line:
     def replace_ends(self, start, end):
         self._array[0] = start
         self._array[1] = end
+        self.solve()
+
+    def solve(self):
+
         self._array[2] = self._array[1] - self._array[0]
         self._array[3] = unit(self._array[2])
 
@@ -203,8 +214,7 @@ class Line:
 
     __call__ = evaluate
 
-    def __iter__(self):
-        return iter([self.start, self.end])
+
 
     def __array__(self):
         return self._array
@@ -221,10 +231,11 @@ class Line:
         self._array[1] += self.unit * end
         self._array[2] = self._array[1] - self._array[0]
 
+    @vectorize(excluded=[0], signature='()->(j,i)')
     def _normal(self, t):
-        return np.array(self.evaluate(t), perp2d(self.unit))
+        return np.array([self.evaluate(t), perp2d(self.unit)])
 
-    normal = np.vectorize(evaluate, excluded=[0], signature='()->(i)')
+    # normal = evaluate
 
     def to_startend(self) -> StartEndLine:
         return self._array[:2]
@@ -248,7 +259,7 @@ class Line:
     def __repr__(self):
         return f'Line(start={self.start}, end={self.end}, direction={self.direction})'
 
-    def offset(self, dist):
+    def offset(self, d):
         """
         Offset the line segment by a specified distance.
 
@@ -259,13 +270,20 @@ class Line:
         :rtype: Line
 
         """
-        (start, vec1), (end, vec2) = self.normal([0.0, 1.0])
-        return Line.from_ends(start + vec1 * dist, end + vec2 * dist)
+        start, end = self.evaluate(np.array([0, 1]))
+        if np.isscalar(d):
+            vec1 = vec2 = perp2d(self.unit) * d
+        else:
+            p = perp2d(self.unit)
+            vec1 = p * d[0]
+            vec2 = p * d[1]
 
-    def pde_offset(self, dist):
+        return Line.from_ends(self.start + vec1, end + vec2)
+
+    def pde_offset(self, d):
         def fun(t):
             start, vec1 = self._normal(t)
-            return start + vec1 * dist
+            return start + vec1 * d
 
         return np.vectorize(fun, signature='()->(i)')
 
@@ -280,7 +298,7 @@ class Line:
         :rtype: Line
 
         """
-        (start, vec1), (end, vec2) = self.normal([0.0, 1.0])
+        (start, vec1), (end, vec2) = self._normal([0.0, 1.0])
         return Line.from_ends(start + vec1 * d1, end + vec2 * d2)
 
     def pde_variable_offset(self, d1, d2):
@@ -305,7 +323,21 @@ class Line:
         return algo.pts_line_line_intersection2d_as_3d(self.to_startend(), other.to_startend())
 
     def bounded_intersect(self, other: 'Line'):
-        return algo.bounded_line_intersection2d(self.to_pointvec(), other.to_pointvec())
+
+        (x1, y1, z1), (x2, y2, z2) = self.start, self.end
+        (x3, y3, z3), (x4, y4, z4) = other.start, other.end
+        if z1 == z2:
+            dr = z1
+        else:
+            z = np.zeros(3, float)
+            z[:] = np.nan
+            # raise ValueError('Lines not intersection in (0.0 <= t <= 1.0) bounds')
+            return z
+
+        A = np.array([[x2 - x1, x4 - x3], [y2 - y1, y4 - y3]])
+        b = np.array([x3 - x1, y3 - y1])
+
+        return np.append(solve(A, b), dr)
 
     def perpendicular_vector(self):
         z = np.zeros(self.direction.shape, dtype=float)
@@ -397,10 +429,64 @@ class Line:
     def to_buffer(self, buffer: bytearray, **kwargs) -> dict:
         return object_to_buffer(self, buffer=buffer, dtype=self._dtype, **kwargs)
 
+    def __iter__(self):
+        return iter((self.start, self.end))
 
 
+class IntersectionPoint:
+    def __init__(self, first: Line, second: Line):
+        self.first = first
+        self.second = second
+        self._array = np.zeros(3, float)
+        self._array[:] = np.nan
 
+
+class ReferenceLine(Line):
+    ...
 
 
 X_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([1, 0, 0]))
 Y_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([0, 1, 0]))
+
+
+def lines_from_ends(points: Iterable):
+    for point in points:
+        yield Line.from_ends(*point)
+
+
+def grid_intersection(u_lines, v_lines):
+    first, second = u_lines, v_lines
+    res = np.zeros((3, len(first), len(second)))
+    res1 = np.zeros((len(first), len(second), 3))
+    res2 = np.zeros((len(second), len(first), 3))
+
+    for i, f in enumerate(first):
+        for j, s in enumerate(second):
+            res[:, i, j] = f.bounded_intersect(s)
+            res1[i, j] = f.evaluate(res[0, i, j])
+            res2[j, i] = s.evaluate(np.abs(res[1, i, j]))
+
+    return res, res1, res2
+
+
+def permutate_intersection(lines):
+    u = v = len(lines)
+
+    res = np.empty((3, u, v))
+    aj = np.zeros((u, v))
+    res1 = np.zeros((u, v, 3))
+    res2 = np.zeros((v, u, 3))
+
+    for i in range(u):
+        for j in range(v):
+            if i != j:
+                t = lines[i].bounded_intersect(lines[j])
+                if not all(np.isnan(t)):
+                    aj[i, j] = 1.0
+                    print(t)
+
+                    res[:, i, j] = t
+                    res1[i, j] = lines[i].evaluate(res[0, i, j])
+                    res2[j, i] = lines[j].evaluate(np.abs(res[1, i, j]))
+
+    return res, res1, res2, aj
