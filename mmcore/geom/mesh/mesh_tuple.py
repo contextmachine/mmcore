@@ -107,7 +107,6 @@ def create_mesh_tuple(attributes, indices=None, color=DEFAULT_COLOR, extras: dic
     return m
 
 
-@lru_cache()
 def extract_material(mesh: MeshTuple, flatShading=True):
     col = ColorRGB(*np.average(
         mesh.attributes['color'].reshape(
