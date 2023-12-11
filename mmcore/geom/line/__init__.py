@@ -861,3 +861,46 @@ def lines_to_box(lls, maxes=(44, 18, 44, 18)):
 
         return
     return prms
+
+
+def case():
+    """
+    r = Rectangle(100, 150)
+
+    from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
+
+    def place_boxes(a, d1, d2, boxes):
+        for i, aa, in enumerate(a):
+            dd = dot(d1[i].unit, d2[i].unit)
+            h = 20.0 if np.isclose(aa, np.pi / 2) else 0.1
+
+            if aa < np.pi / 2:
+
+                b1 = Box(25 + 14, 17, h=h, xaxis=d1[i].unit, origin=d1[i].start)
+                b2 = Box(18, 14, h=h, xaxis=-d2[i].unit, origin=d2[i].end + d1[i].unit * 14 - d2[i].unit * dd * 14)
+            elif aa >= np.pi / 2:
+                b1 = Box(25, 17, h=h, xaxis=d1[i].unit, origin=d1[i].start + (14 * d1[i].unit))
+                b2 = Box(18, 14, h=h, xaxis=-d2[i].unit, origin=d2[i].end + d1[i].unit * 14)
+
+            boxes.append([b1, b2]
+                         )
+    r = Rectangle(100, 150)
+    corners = r.corners
+    corners[-1] += np.array([10., 0., 0.])
+    lns = [Line.from_ends(*l) for l in polyline_to_lines(corners)]
+
+    a, b, c = line_angles(lns)
+    boxes = []
+    place_boxes(a, b, c, boxes)
+    from mmcore.common.viewer import ViewerGroup
+    poly = mesh_from_bounds(corners.tolist()).amesh()
+    vgg = ViewerGroup((), 'ygtp')
+    vgg.add(poly)
+    for bx in boxes:
+        aa, bb = bx
+        vgg.add(aa.to_mesh())
+        vgg.add(
+            bb.to_mesh())
+
+    vgg.dump('iii.json')"""
+    ...
