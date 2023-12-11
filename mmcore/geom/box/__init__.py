@@ -6,7 +6,7 @@ from multipledispatch import dispatch
 from mmcore.base import ageomdict
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.extrusion import extrude_polyline
-from mmcore.geom.intersections import intersect
+
 from mmcore.geom.line import Line
 from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, union_mesh_simple
 from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane, project
@@ -216,40 +216,40 @@ class Box(Rectangle):
 
         return self.thickness_trim(Plane(np.array([origin, xaxis, yaxis, zaxis])))
 
-    def intersect_with_other_box(self, other_box: 'Box') -> 'Box':
-        """
-        Intersect this box with another box.
-
-        Returns the resulting intersection box or None if no intersection found.
-
-        :param other_box: Other box
-        :type other_box: <Box>
-        :return: Box resulting from intersection or None
-        :rtype: <Box>
-        """
-        # Get the faces (corners) of the current box and the other box
-        faces_current = np.array(self.faces)
-        faces_other = np.array(other_box.faces)
-
-        # Initialize an empty list to store intersection points
-        intersect_points = []
-
-        for face_current in faces_current:
-            for face_other in faces_other:
-                intersect_pts, _ = intersect(face_current, face_other)
-                if intersect_pts is not None:
-                    intersect_points.append(intersect_pts)
-
-        # If no intersection points were found, there is no intersection and return None
-        if not intersect_points:
-            return None
-
-        intersect_points = np.array(intersect_points)
-
-        # Calculate the bounding box of the intersect points and return the corresponding Box
-
-        return intersect_points
-
+    # def intersect_with_other_box(self, other_box: 'Box') -> 'Box':
+    #    """
+    #    Intersect this box with another box.
+    #
+    #    Returns the resulting intersection box or None if no intersection found.
+    #
+    #    :param other_box: Other box
+    #    :type other_box: <Box>
+    #    :return: Box resulting from intersection or None
+    #    :rtype: <Box>
+    #    """
+    #    # Get the faces (corners) of the current box and the other box
+    #    faces_current = np.array(self.faces)
+    #    faces_other = np.array(other_box.faces)
+    #
+    #    # Initialize an empty list to store intersection points
+    #    intersect_points = []
+    #
+    #    for face_current in faces_current:
+    #        for face_other in faces_other:
+    #            #intersect_pts, _ = intersect(face_current, face_other)
+    #            #if intersect_pts is not None:
+    #            #    intersect_points.append(intersect_pts)
+    #
+    #    # If no intersection points were found, there is no intersection and return None
+    #    if not intersect_points:
+    #        return None
+    #
+    #    intersect_points = np.array(intersect_points)
+    #
+    #    # Calculate the bounding box of the intersect points and return the corresponding Box
+    #
+    #    return intersect_points
+    #
     @classmethod
     def from_rectangle(cls, rect: Rectangle, h=3.0):
         return cls(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)

@@ -459,20 +459,21 @@ def component(name=None, array_like=False, item_shape=()):
         if name is None:
             name = cls.__name__
         fields = dict()
+        if hasattr(cls, '__annotations__'):
+            for k, v in cls.__annotations__.items():
 
-        for k, v in cls.__dict__.items():
+                if k in cls.__dict__:
+                    val = cls.__dict__[k]
+                    if isinstance(val, SoAField):
+                        fields[k] = val
 
-            if k in cls.__dict__:
-                val = cls.__dict__[k]
-                if isinstance(val, SoAField):
-                    fields[k] = val
+                    else:
+
+                        fields[k] = SoAField(default=val)
 
                 else:
+                    fields[k] = SoAField(default=None)
 
-                    fields[k] = SoAField(default=val)
-
-            else:
-                fields[k] = SoAField(default=None)
         if array_like:
             _soa = SoArray(name, item_shape=item_shape, **fields)
 

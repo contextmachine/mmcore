@@ -79,7 +79,7 @@ class PDE:
             self.method = method
             self.h = h
             self._hs = hs
-            self._pde = functools.lru_cache(maxsize=None)(lambda t: self.method(self.func, self.h, t))
+            self._pde = functools.lru_cache(maxsize=None)(lambda t: self.method.value(self.func, self.h, t))
             cls.__instances__[hs] = self
             dfunc = self
         return dfunc
@@ -111,7 +111,7 @@ def _offset_curve(curve, t):
     :rtype: float
 
     """
-    return curve.func(t) + curve._pde(t) * curve.distance(t)
+    return curve.func(t) + curve._pde(t) * curve.distance
 
 
 def _create_distance_function(distance, param_range=(0, 1)):
@@ -159,7 +159,7 @@ class Offset(PDE):
                                evaluate_range=tuple(evaluate_range),
                                **kwargs)
 
-        self.distance = _create_distance_function(distance, param_range=evaluate_range)
+        self.distance = distance
 
         return self
 

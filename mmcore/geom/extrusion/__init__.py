@@ -12,10 +12,16 @@ from mmcore.geom.materials import ColorRGB
 from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.compat import build_mesh_with_buffer
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
-from mmcore.geom.polyline import polyline_to_lines
+
 from mmcore.geom.shapes import LegacyShape
 from mmcore.geom.vec import unit
 from mmcore.node import node_eval
+
+
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
+
 
 
 @node_eval
