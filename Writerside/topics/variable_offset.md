@@ -45,6 +45,7 @@ Below is the description of parameters:
 Let's assume we have a polygon defined by 5 points and we want each side to be offset by a specific distance. Here is
 how you could use the `polygon_variable_offset` function:
 
+
 ```python
 import numpy as np
 from mmcore.geom.parametric.algorithms import polygon_variable_offset
@@ -68,6 +69,10 @@ dists[-1] = 2  # We want the last side to be offset by 2 units
 # Print the result as a numpy array
 print(np.array(res))
 ```
+
+<img alt="Offset and input polygons" height="500" src="img.svg" title="Variable Offset result"/>
+
+
 
 The results are the points on the offset polygon.
 

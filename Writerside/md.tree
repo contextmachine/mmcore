@@ -11,4 +11,5 @@
         <toc-element topic="variable_offset.md"/>
         <toc-element topic="Rectangle.md"/>
     </toc-element>
+    <toc-element topic="Test-Snippets.topic"/>
 </instance-profile>
