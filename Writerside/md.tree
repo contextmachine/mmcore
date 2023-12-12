@@ -8,6 +8,7 @@
 
     <toc-element topic="starter-topic.md"/>
     <toc-element topic="Geometry.md">
+        <toc-element topic="variable_offset.md"/>
         <toc-element topic="Rectangle.md"/>
     </toc-element>
 </instance-profile>
