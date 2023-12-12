@@ -71,6 +71,7 @@ print(np.array(res))
 
 The results are the points on the offset polygon.
 
+![img.png](/Users/andrewastakhov/PycharmProjects/mmcore/Writerside/images/img_2.png)
 ## Error Handling
 
 If the `points` parameter is empty, contains non-2D points, or if the `dists` parameter is not of the same length
