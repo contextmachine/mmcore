@@ -5,11 +5,7 @@ B1
 gen
 build
 .run
-docs
 node_modules
-build
 lib
-.pkl
-.idea
 mmcore.egg-info
 
