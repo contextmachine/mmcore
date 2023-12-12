@@ -1067,8 +1067,6 @@ def intersect_lines(lines):
             yield res2, (t1, t2), (i, i + 1)
 
 
-def polyline_to_lines(pln_points):
-    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 
 
 def variable_line_offset_2d(bounds: list[PointUnion], distances: list[float]):
@@ -1109,14 +1107,72 @@ def ptline_to_func(start, end):
 def perp_vector2d(vec): ...
 
 
-def polygon_variable_offset(points, dists):
+def polygon_variable_offset(points: np.ndarray, dists: np.ndarray):
+    """
+    :param points: List of 2D points representing the polygon.
+    :type points: np.ndarray[(n,3), float]
+    :param dists: List of distances for offsetting each side of the polygon.
+    :type dists: np.ndarray[(n,2), float]
+    :return: Generator that yields 3D points representing the intersections of the offset lines.
+    :rtype: Generator[np.ndarray[3, float]]
+
+    Example:
+    ----
+    >>> from mmcore.geom.parametric.algorithms import polygon_variable_offset
+    >>> pts=np.array([[33.049793, -229.883303, 0],
+    ...               [132.290583, -165.409427, 0],
+    ...               [48.220282, 27.548631, 0],
+    ...               [-115.077733, -43.599024, 0],
+    ...               [-44.627307, -205.296759, 0]])
+    >>> dists=np.zeros((5,2))
+    >>> dists[0]=4  # Set negative values for the offset to the inside of the polygon.
+    >>> dists[2]=1
+    >>> dists[-1]=2
+    >>> dists
+    array([[4., 4.],
+           [0., 0.],
+           [1., 1.],
+           [0., 0.],
+           [2., 2.]])
+    >>> *res,=polygon_variable_offset(pts, dists)
+    >>> np.array(res)
+    array([[ 133.91035821, -169.12713319,    0.        ],
+           [  47.82085478,   28.46539591,    0.        ],
+           [-115.47716023,  -42.6822591 ,    0.        ],
+           [ -43.56710562, -207.73013197,    0.        ],
+           [  35.81552448, -232.85651449,    0.        ]])
+    >>> dists[-1,0]= 0. # To set a variable offset per side change one of the values.
+    >>> dists
+    array([[4., 4.],
+           [0., 0.],
+           [1., 1.],
+           [0., 0.],
+           [0., 2.]])
+    >>> *res,=polygon_variable_offset(pts, dists)
+    >>> np.array(res)
+    array([[ 133.91035821, -169.12713319,    0.        ],
+           [  47.82085478,   28.46539591,    0.        ],
+           [-115.47716023,  -42.6822591 ,    0.        ],
+           [ -44.627307  , -205.296759  ,    0.        ],
+           [  35.72321132, -232.91648768,    0.        ]])
+    """
+
+    if points.shape[0] == 0:
+        raise ValueError("points parameter cannot be empty")
+
+        # check if all points are 2D
+    if points.shape[1] != 3:
+        raise ValueError("All points must be 3-dimensional")
+
+        # check if dists is of the same length as points and is a 2D array
+    if dists.shape[0] != points.shape[0] or len(dists.shape) != 2:
+        raise ValueError("dists must be a 2D array with the same number of rows as the number of points")
+
     lines = polyline_to_lines(points)
     sides = [variable_offset_curve_3d_as_2d(ptline_to_func(line[0], line[1])) for line in lines]
     offset_lines = DCLL.from_list([(side(0.0, dists[i][0]), side(1.0, dists[i][1])) for i, side in enumerate(sides)])
     current = offset_lines.head
 
     for i in range(len(offset_lines)):
-        current.data
-        current.data, current.next.data
         yield pts_line_line_intersection2d_as_3d(current.data, current.next.data)
         current = current.next
