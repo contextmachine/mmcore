@@ -413,9 +413,10 @@ class Line:
     def __setitem__(self, item, val):
         self._array[item] = val
 
-    def plane_intersection(self, plane: Plane, epsilon=1e-6):
+    def plane_intersection(self, plane: Plane, epsilon=1e-3):
 
-        ndotu = dot(plane.normal, self.direction)
+        ndotu = dot(unit(plane.normal), self.unit)
+        print(ndotu, epsilon)
         if abs(ndotu) < epsilon:
             return None, None, None
 
