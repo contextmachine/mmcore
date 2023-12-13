@@ -1002,6 +1002,9 @@ def polyline_to_lines(pln_points):
     return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 
 
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines_forward(pln_points):
+    return np.stack([np.roll(pln_points, -1, axis=0), pln_points], axis=1)
 
 def polyline_to_lines_vectors(pln_points):
     return np.stack([pln_points, np.roll(pln_points, -1, axis=0) - pln_points], axis=1)
@@ -1136,11 +1139,11 @@ def polygon_variable_offset(points: np.ndarray, dists: np.ndarray):
            [2., 2.]])
     >>> *res,=polygon_variable_offset(pts, dists)
     >>> np.array(res)
-    array([[ 133.91035821, -169.12713319,    0.        ],
-           [  47.82085478,   28.46539591,    0.        ],
-           [-115.47716023,  -42.6822591 ,    0.        ],
-           [ -43.56710562, -207.73013197,    0.        ],
-           [  35.81552448, -232.85651449,    0.        ]])
+    array([[  30.28406152, -226.91009151,    0.        ],
+           [ 130.67080779, -161.69172081,    0.        ],
+           [  48.61970922,   26.63186609,    0.        ],
+           [-114.67830577,  -44.5157889 ,    0.        ],
+           [ -45.68750838, -202.86338603,    0.        ]])
     >>> dists[-1,0]= 0. # To set a variable offset per side change one of the values.
     >>> dists
     array([[4., 4.],
@@ -1150,11 +1153,11 @@ def polygon_variable_offset(points: np.ndarray, dists: np.ndarray):
            [0., 2.]])
     >>> *res,=polygon_variable_offset(pts, dists)
     >>> np.array(res)
-    array([[ 133.91035821, -169.12713319,    0.        ],
-           [  47.82085478,   28.46539591,    0.        ],
-           [-115.47716023,  -42.6822591 ,    0.        ],
-           [ -44.627307  , -205.296759  ,    0.        ],
-           [  35.72321132, -232.91648768,    0.        ]])
+    array([[  30.26926633, -226.9054085 ,    0.        ],
+           [ 131.48297158, -163.55579819,    0.        ],
+           [  48.61970922,   26.63186609,    0.        ],
+           [-114.67830577,  -44.5157889 ,    0.        ],
+           [ -45.68750838, -202.86338603,    0.        ]])
     """
 
     if points.shape[0] == 0:
@@ -1174,5 +1177,5 @@ def polygon_variable_offset(points: np.ndarray, dists: np.ndarray):
     current = offset_lines.head
 
     for i in range(len(offset_lines)):
-        yield pts_line_line_intersection2d_as_3d(current.data, current.next.data)
+        yield pts_line_line_intersection2d_as_3d(current.prev.data, current.data)
         current = current.next

@@ -12,29 +12,34 @@ class TestPolygonVariableOffset(unittest.TestCase):
                              [-115.077733, -43.599024, 0],
                              [-44.627307, -205.296759, 0]])
         self.dists = np.zeros((5, 2))
-        self.dists[0] = 4
-        self.dists[2] = 1
-        self.dists[-1] = 2
+        self.dists[0] = -4
+        self.dists[2] = -1
+        self.dists[-1] = -2
 
     def test_polygon_variable_offset(self):
         *res, = polygon_variable_offset(self.pts, self.dists)
         np_result = np.array(res)
-        expected_result = np.array([[133.91035821, -169.12713319, 0.],
-                                    [47.82085478, 28.46539591, 0.],
-                                    [-115.47716023, -42.6822591, 0.],
-                                    [-43.56710562, -207.73013197, 0.],
-                                    [35.81552448, -232.85651449, 0.]])
+
+        expected_result = np.array([[30.28406152, -226.91009151, 0.],
+                                    [130.67080779, -161.69172081, 0.],
+                                    [48.61970922, 26.63186609, 0.],
+                                    [-114.67830577, -44.5157889, 0.],
+                                    [-45.68750838, -202.86338603, 0.]])
         np.testing.assert_almost_equal(np_result, expected_result, decimal=5)
 
     def test_polygon_variable_offset_with_variable_value(self):
-        self.dists[-1, 0] = 0.  # To set a variable offset per side change one of the values.
-        *res, = polygon_variable_offset(self.pts, self.dists)
+        dists = np.array([[-4., -2.],
+                          [0., 0.],
+                          [-1., -1.],
+                          [0., 0.],
+                          [-2., -2.]])  # To set a variable offset per side change one of the values.
+        *res, = polygon_variable_offset(self.pts, dists)
         np_result = np.array(res)
-        expected_result = np.array([[133.91035821, -169.12713319, 0.],
-                                    [47.82085478, 28.46539591, 0.],
-                                    [-115.47716023, -42.6822591, 0.],
-                                    [-44.627307, -205.296759, 0.],
-                                    [35.72321132, -232.91648768, 0.]])
+        expected_result = np.array([[30.26926633, -226.9054085, 0.],
+                                    [131.48297158, -163.55579819, 0.],
+                                    [48.61970922, 26.63186609, 0.],
+                                    [-114.67830577, -44.5157889, 0.],
+                                    [-45.68750838, -202.86338603, 0.]])
         np.testing.assert_almost_equal(np_result, expected_result, decimal=5)
 
     def test_empty_points(self):

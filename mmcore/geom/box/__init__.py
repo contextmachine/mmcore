@@ -136,7 +136,7 @@ class Box(Rectangle):
     def elongate_ribs(self):
         return (Line.from_ends(pt, pt + (self.normal * self.h)) for pt in self.corners)
 
-    @dispatch(Plane)
+
     def thickness_trim(self, plane: Plane) -> 'tuple[Box, bool, Any]':
         """
         Trim with thickness means that the box will be trimmed to the shortest trimmed side.
@@ -189,8 +189,8 @@ class Box(Rectangle):
     def to_mesh(self, **kwargs):
         self.create_mesh() if self._mesh is None else self.update_mesh()
         return self._mesh
-    @dispatch(Line)
-    def thickness_trim(self, line: Line) -> 'tuple[Box, bool, Any]':
+
+    def thickness_trim_line(self, line: Line) -> 'tuple[Box, bool, Any]':
         """
         This version of the method takes a line that will be converted to a vertical trim plane.
 

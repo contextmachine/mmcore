@@ -13,8 +13,8 @@ from mmcore.geom.parametric import point_to_plane_distance
 from mmcore.geom.plane import Plane, PlaneComponent, WXY, rotate_plane_around_plane
 from mmcore.geom.polyline import evaluate_polyline, polyline_to_lines
 from mmcore.geom.shapes.area import polygon_area
-from mmcore.geom.vec import cross, dist, norm, unit
-
+from mmcore.geom.vec import cross, dist, norm, unit, dot
+from mmcore.geom.line import Line
 from mmcore.geom.vec import angle as _angle
 @component()
 class Length:
@@ -39,9 +39,10 @@ class RectangleUnionComponent:
     uvs: list[UV] = None
 
 
-
-
+from mmcore.collections import DCLL
 from mmcore.base.ecs.components import EcsProperty
+
+_RECT_INDICES = DCLL.from_list([0, 1, 2, 3])
 
 class Rectangle(plane.Plane):
     ecs_uv = EcsProperty(type=UV)
@@ -68,6 +69,15 @@ class Rectangle(plane.Plane):
 
     def __iter__(self):
         return iter(self.corners)
+
+    @vectorize(excluded=[0], signature='(i)->()')
+    def inside(self, pt: np.ndarray) -> bool:
+        ox, oy, x, y = self.origin[0], self.origin[1], pt[0], pt[1]
+
+        return all([ox <= x <= (ox + self.u),
+                    oy <= y <= (oy + self.v)])
+
+
 
     @property
     def u(self):
@@ -224,6 +234,48 @@ class Rectangle(plane.Plane):
         # self.zaxis = pln.zaxis
 
         return self.orient(rotate_plane_around_plane(self, pln, angle), inplace=inplace)
+
+    def intersects(self, other):
+        if isinstance(other, np.ndarray):
+            return np.any(self.inside(other))
+        elif isinstance(other, Line):
+            return self.intersects(np.array([other.start, other.end]))
+        elif isinstance(other, Rectangle):
+            return self.intersects(np.array(other.corners))
+
+    def intersects_indices(self, other):
+        if isinstance(other, np.ndarray):
+            return np.arange(len(other))[self.inside(other)]
+        elif isinstance(other, Line):
+            return self.intersects_indices(np.array([other.start, other.end]))
+        elif isinstance(other, Rectangle):
+            return self.intersects_indices(np.array(other.corners))
+
+    def intersection(self, other: 'Rectangle'):
+        global _RECT_INDICES
+        ixs1 = []
+        ixs2 = []
+        pts = []
+        for i, l1 in enumerate(polyline_to_lines(self.corners)):
+            for j, l2 in enumerate(polyline_to_lines(other.corners)):
+
+                il, jl = Line.from_ends(*l1), Line.from_ends(*l2)
+                if np.abs(dot(il.unit, jl.unit)) < 1.0:
+                    t1, t2, _ = il.bounded_intersect(jl)
+
+                    if all([0. <= t1 <= 1., 0. <= (-t2) <= 1.]):
+                        ixs1.append(i)
+                        ixs2.append(j)
+                        pts.append(il(t1))
+
+        print([pts[0], ixs1[0], ixs1[-1], ixs2[0], ixs2[-1], pts[1]])
+
+        return np.array([
+            *other.corners[np.arange(ixs2[0] + 1, ixs2[-1] - ixs2[0], 1, dtype=int)],
+            *pts,
+            *self.corners[np.arange(ixs1[0] + 1, ixs1[-1] - ixs1[0], 1, dtype=int)]]
+
+        )
 
 
 

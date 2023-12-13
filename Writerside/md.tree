@@ -6,10 +6,16 @@
                   name="mmcore doc"
                   start-page="starter-topic.md">
 
-    <toc-element topic="starter-topic.md"/>
+    <toc-element topic="starter-topic.md">
+        <toc-element topic="Installation.md"/>
+        <toc-element topic="2d_cases.md"/>
+    </toc-element>
     <toc-element topic="Geometry.md">
         <toc-element topic="variable_offset.md"/>
+        <toc-element toc-title="Circle Interaction" topic="circles.md"/>
         <toc-element topic="Rectangle.md"/>
+    </toc-element>
+    <toc-element topic="User-Guides.md">
     </toc-element>
     <toc-element topic="Test-Snippets.topic"/>
 </instance-profile>
