@@ -4,7 +4,7 @@ import itertools
 
 
 class Observable:
-    def __init__(self, i):
+    def __init__(self, i=0):
         self._observers = []
 
         self.i = i
@@ -22,7 +22,7 @@ class Observable:
 
 
 class Observer:
-    def __init__(self, i):
+    def __init__(self, i=0):
         self.observe = []
 
         self.i = i
@@ -73,10 +73,25 @@ class Observation:
 
         return obj
 
+    def _postinit_observable(self, observable, *observers):
+
+        i = next(self.observable_counter)
+        observable.i = i
+
+        self.observable.append(obj)
+        for obs in observers:
+            obj.register_observer(obs)
+
     def init_observer(self, cls=Observer):
         i = next(self.observers_counter)
         self.observers.append(cls(i))
         return self.observers[i]
+
+    def _postinit_observer(self, observer):
+
+        i = next(self.observers_counter)
+        observer.i = i
+        self.observers.append(observer)
 
     def get_observables(self, observer: 'Observer'):
 
@@ -101,3 +116,18 @@ def observe(cls):
                                            )
 
     return wrapper
+
+
+class Listener(Observer):
+    def __init__(self):
+        super().__init__()
+        observation._postinit_observer(self)
+
+    @abc.abstractmethod
+    def notify(self, observable, **kwargs): ...
+
+
+class Notifier(Observable):
+    def __init__(self, *observers):
+        super().__init__()
+        observation._postinit_observable(self, *observers)

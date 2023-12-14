@@ -17,14 +17,14 @@ from mmcore.geom.vec import cross, dist, unit
 
 
 class ViewSupport(metaclass=ABCMeta):
-    __field_map__: list[FieldMap] = [FieldMap('lock', 'lock'), ]
+    __field_map__: list[FieldMap] = []
     field_map = list[FieldMap]
     _uuid = None
 
     @abstractmethod
     def __init_support__(self, uuid=None, field_map=None):
         self._dirty = True
-        self.lock = False
+        self._lock = False
         if uuid is not None:
             self.uuid = uuid
         if not field_map:
@@ -36,6 +36,12 @@ class ViewSupport(metaclass=ABCMeta):
         for m in self.field_map:
             m.forward(self, data)
 
+    def describe(self):
+        data = dict()
+        self.apply_forward(data)
+        return data
+
+        return data
     def apply_backward(self, data):
         for m in self.field_map:
             m.backward(self, data)
@@ -59,17 +65,19 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     @abstractmethod
     def to_mesh_view(self) -> MeshTuple: ...
 
-    def create_mesh(self):
+    def create_mesh(self, forward=True, **kwargs):
         _props = dict()
-        self.apply_forward(_props)
+        if forward:
+            self.apply_forward(_props)
         self._mesh = build_mesh_with_buffer(self.to_mesh_view(),
                                             uuid=self.uuid,
-                                            props=_props
+                                            props=_props,
+                                            **kwargs
                                             )
         self._mesh.owner = self
 
     def _init_mesh(self):
-        self.create_mesh()
+        self.create_mesh(forward=False)
 
     def update_mesh(self, no_back=False):
         if not no_back:
@@ -103,15 +111,23 @@ class Box(Rectangle, MeshViewSupport):
             FieldMap('y', 'y'),
             FieldMap('z', 'z'),
             FieldMap('area', 'area', backward_support=False),
-            FieldMap('lock', 'lock'),
+
 
     ]
 
     def __init__(self, *args, h=3.0, **kwargs):
         super(Box, self).__init__(*args, **kwargs)
-        self.lock = False
+        #
         self.__init_support__()
         self.h = h
+
+    @property
+    def lock(self):
+        return self._lock
+
+    @lock.setter
+    def lock(self, val: bool):
+        self._lock = val
 
     @property
     def faces(self):

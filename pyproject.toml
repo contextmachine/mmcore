@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mmcore"
-version = "0.17.37"
+version = "0.17.39"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
