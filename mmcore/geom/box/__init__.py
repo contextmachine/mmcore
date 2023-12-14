@@ -1,20 +1,92 @@
+from abc import ABC, ABCMeta, abstractmethod
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
-from multipledispatch import dispatch
 
 from mmcore.base import ageomdict
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.extrusion import extrude_polyline
 
 from mmcore.geom.line import Line
-from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, union_mesh_simple
-from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane, project
-from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane
+from mmcore.geom.mesh import MeshTuple, build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, union_mesh_simple
+from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
+from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane
+from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane, polygon_area
 from mmcore.geom.vec import cross, dist, unit
 
 
-class Box(Rectangle):
+class ViewSupport(metaclass=ABCMeta):
+    __field_map__: list[FieldMap] = [FieldMap('lock', 'lock'), ]
+    field_map = list[FieldMap]
+    _uuid = None
+
+    @abstractmethod
+    def __init_support__(self, uuid=None, field_map=None):
+        self._dirty = True
+        self.lock = False
+        if uuid is not None:
+            self.uuid = uuid
+        if not field_map:
+            self.field_map = list(sorted(list(self.__class__.__field_map__)))
+        else:
+            self.field_map = sorted(list(self.__class__.__field_map__) + list(field_map))
+
+    def apply_forward(self, data):
+        for m in self.field_map:
+            m.forward(self, data)
+
+    def apply_backward(self, data):
+        for m in self.field_map:
+            m.backward(self, data)
+        self._dirty = True
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, v):
+        self._uuid = v
+
+
+class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
+
+    def __init_support__(self, uuid=None, field_map=None):
+        super().__init_support__(uuid, field_map)
+        self._mesh = None
+
+    @abstractmethod
+    def to_mesh_view(self) -> MeshTuple: ...
+
+    def create_mesh(self):
+        _props = dict()
+        self.apply_forward(_props)
+        self._mesh = build_mesh_with_buffer(self.to_mesh_view(),
+                                            uuid=self.uuid,
+                                            props=_props
+                                            )
+        self._mesh.owner = self
+
+    def _init_mesh(self):
+        self.create_mesh()
+
+    def update_mesh(self, no_back=False):
+        if not no_back:
+            self.apply_backward(self._mesh.properties)
+
+        ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(
+            self.to_mesh_view(),
+            uuid=self._mesh.uuid)
+
+        self.apply_forward(self._mesh.properties)
+
+    def to_mesh(self, **kwargs):
+        self.create_mesh() if self._mesh is None else self.update_mesh()
+        return self._mesh
+
+
+class Box(Rectangle, MeshViewSupport):
     """A class representing a box.
 
     Inherits from Rectangle.
@@ -23,27 +95,23 @@ class Box(Rectangle):
         h (float): The height of the box.
         lock (bool): A flag indicating if the box is locked.
     """
-
-    def __init__(self, *args, h=3.0, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.h = h
-        self.lock = False
-        self._mesh = None
-
-        self.field_map = sorted([
+    __field_map__ = [
             FieldMap('u', 'u1'),
             FieldMap('v', 'v1'),
             FieldMap('h', 'h'),
             FieldMap('x', 'x'),
             FieldMap('y', 'y'),
             FieldMap('z', 'z'),
-
             FieldMap('area', 'area', backward_support=False),
             FieldMap('lock', 'lock'),
 
-        ])
+    ]
 
-
+    def __init__(self, *args, h=3.0, **kwargs):
+        super(Box, self).__init__(*args, **kwargs)
+        self.lock = False
+        self.__init_support__()
+        self.h = h
 
     @property
     def faces(self):
@@ -60,6 +128,9 @@ class Box(Rectangle):
         else:
             return res
 
+    def to_mesh(self, **kwargs):
+        self.create_mesh() if self._mesh is None else self.update_mesh()
+        return self._mesh
     def orient(self, plane):
         rect_to_plane(self, plane)
         self.update_mesh()
@@ -91,16 +162,6 @@ class Box(Rectangle):
     @property
     def sides(self):
         return self.faces[1:-1]
-
-
-    def apply_forward(self, data):
-        for m in self.field_map:
-            m.forward(self, data)
-
-    def apply_backward(self, data):
-        for m in self.field_map:
-            m.backward(self, data)
-        self._dirty = True
 
     @property
     def x(self):
@@ -162,33 +223,12 @@ class Box(Rectangle):
         return Box(self.ecs_uv.u, self.ecs_uv.v, h=dist(point, line2.start), xaxis=self.xaxis, origin=self.origin,
                    normal=self.normal), intersection, res
 
-    def create_mesh(self):
-        _props = dict()
-        self.apply_forward(_props)
+    def to_mesh_view(self):
         fcs = self.faces
-        self._mesh = build_mesh_with_buffer(
-            union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist()),
-            uuid=self.uuid,
-            props=_props
-        )
-        self._mesh.owner = self
+        return union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist())
 
-    def _init_mesh(self):
-        self.create_mesh()
 
-    def update_mesh(self, no_back=False):
-        if not no_back:
-            self.apply_backward(self._mesh.properties)
-        fcs = self.faces
-        ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(
-            union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist()),
-            uuid=self._mesh.uuid)
 
-        self.apply_forward(self._mesh.properties)
-
-    def to_mesh(self, **kwargs):
-        self.create_mesh() if self._mesh is None else self.update_mesh()
-        return self._mesh
 
     def thickness_trim_line(self, line: Line) -> 'tuple[Box, bool, Any]':
         """
@@ -255,10 +295,10 @@ class Box(Rectangle):
         return cls(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)
 
     @classmethod
-    def from_corners(cls, corners):
+    def from_corners(cls, corners, h=1.0):
         corners = np.array(corners)
         if (corners.ndim == 2) and (len(corners) <= 4):
-            return cls.from_rectangle(super().from_corners(corners), h=1.0)
+            return cls.from_rectangle(super().from_corners(corners), h=h)
         else:
             fc = corners.flatten()
             fc = fc.reshape((len(fc) // 3, 3))
@@ -266,7 +306,22 @@ class Box(Rectangle):
             return cls.from_rectangle(rect, h=rect.distance(fc[-1]).tolist())
 
 
+class Boundary(MeshViewSupport):
+    __field_map__ = sorted(MeshViewSupport.__field_map__ + [FieldMap('area', 'area', backward_support=False), ])
 
+    def __init__(self, boundary: np.ndarray = None, count=4, **kwargs):
+        if boundary is None:
+            boundary = np.zeros((count, 3))
+
+        self.boundary = boundary
+        self.__init_support__(**kwargs)
+
+    def to_mesh_view(self):
+        return mesh_from_bounds(self.boundary.tolist())
+
+    @property
+    def area(self):
+        return polygon_area(np.array([*self.boundary, self.boundary[0]]))
 
 
 def unpack_trim_details(res):
