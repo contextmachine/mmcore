@@ -84,6 +84,7 @@ class ViewerObservableGroup(ViewerGroup, Observable):
         super().__init__(i)
 
     def props_update(self, uuids: list[str], props: dict):
+        self.make_dirty()
         super().props_update(uuids, props)
         self.notify_observers(uuids=uuids, props=props)
 
