@@ -104,6 +104,6 @@ class ViewerGroupObserver(Observer):
 group_observer = observation.init_observer(ViewerGroupObserver)
 
 
-def create_group(uuid: str):
-    return observation.init_observable(group_observer,
-                                       cls=lambda x: ViewerObservableGroup(x, items=(), uuid=uuid))
+def create_group(uuid: str, obs=group_observer, cls=ViewerObservableGroup):
+    return observation.init_observable(obs,
+                                       cls=lambda x: cls(x, items=(), uuid=uuid))
