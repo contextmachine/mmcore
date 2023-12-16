@@ -1,3 +1,0 @@
-# Geometry Examples
-
-Start typing here...
