@@ -1,10 +1,10 @@
 #Generated with ./bin/upd-version.py
-import dotenv
+from mmcore.utils.env import load_dotenv_from_path, load_dotenv_from_stream
 
-dotenv.load_dotenv(".env")
+load_dotenv_from_path(".env")
 
 TOLERANCE = 0.000_001
 
 
 def __version__():
-    return "0.17.42"
+    return "0.17.48"
