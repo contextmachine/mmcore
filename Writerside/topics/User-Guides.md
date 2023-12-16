@@ -1,3 +1,0 @@
-# User Guides
-
-Start typing here...

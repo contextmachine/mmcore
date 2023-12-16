@@ -133,3 +133,99 @@ def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
             # store the new current point
             curr, curr_eval = candidate, candidate_eval
     return best, best_eval, scores
+
+
+# Initialize Adam moments
+def initialize_adam(dims=2):
+    s = np.zeros(dims)
+    v = np.zeros(dims)
+    return s, v
+
+
+# Update parameters using Adam
+def update_parameters_with_adam(x, grads, s, v, t, learning_rate=0.01, average_factor=0.9, average_square_factor=0.999,
+                                epsilon=1e-8):
+    s = average_factor * s + (1.0 - average_factor) * grads
+    v = average_square_factor * v + (1.0 - average_square_factor) * grads ** 2
+    s_hat = s / (1.0 - average_factor ** (t + 1))
+    v_hat = v / (1.0 - average_square_factor ** (t + 1))
+    x = x - learning_rate * s_hat / (np.sqrt(v_hat) + epsilon)
+    return x, s, v
+
+
+# Adam optimization algorithm
+def adam(objective, derivative, bounds, n_iterations, step_size, average_factor, average_square_factor, eps=1e-8):
+    """
+
+    :param objective: The objective function to be minimized
+    :type objective: function
+    :param derivative: The derivative function of the objective function
+    :type derivative: function
+    :param bounds: The bounds of the search space for each dimension
+    :type bounds: numpy array
+    :param n_iterations: The number of iterations for the optimization
+    :type n_iterations: int
+    :param step_size: The step size or learning rate of the Adam algorithm
+    :type step_size: float
+    :param average_factor: The decay rate for the moving average of the gradient
+    :type average_factor: float
+    :param average_square_factor: The decay rate for the moving average of the squared gradient
+    :type average_square_factor: float
+    :param eps: The small constant added to avoid division by zero
+    :type eps: float
+    :return: The optimized solution and the score of the objective function
+    :rtype: list
+
+    Usage Example
+    -------------
+>>> # Objective function
+>>> def objective(x):
+...     return x ** 2.0
+>>> # Derivative of the objective function
+>>> def objective_derivative(x):
+...     return 2.0 * x
+>>> # Set the random seed
+>>> np.random.seed(1)
+
+>>> # Define the range for input
+>>> bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
+
+>>> # Define the total number of iterations
+>>> n_iterations = 60
+>>> # Set the step size
+>>> step_size = 0.02
+
+>>> # Set the factor for average gradient
+>>> average_factor = 0.8
+
+>>> # Set the factor for average squared gradient
+>>> average_square_factor = 0.999
+
+>>> # Perform the gradient descent search with Adam
+>>> best, score = adam(objective, derivative,
+>>>                 bounds, n_iterations, step_size,
+>>>                 average_factor, average_square_factor)
+>>>
+
+    """
+    # Generate an initial point
+    x = bounds[:, 0] + np.random.rand(len(bounds)) * (bounds[:, 1] - bounds[:, 0])
+    score = objective(x)
+
+    # Initialize Adam moments
+    s, v = initialize_adam(len(x))
+
+    # Run the gradient descent updates
+    for t in range(n_iterations):
+        # Calculate gradient g(t)
+        g = derivative(x)
+
+        # Update parameters using Adam
+        x, s, v = update_parameters_with_adam(x, g, s, v, t, step_size, average_factor, average_square_factor, eps)
+
+        # Evaluate candidate point
+        score = objective(x)
+
+        # Report progress  # print('>%d f(%s) = %.5f' % (t, x, score))
+
+    return [x, score]

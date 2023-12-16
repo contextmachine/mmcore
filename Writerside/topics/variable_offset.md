@@ -1,4 +1,4 @@
-# User Guide for variable offset Function
+# Variable Offset Function
 
 The ```polygon_variable_offset``` is a function that calculates the offset of a polygon with variable distances for each
 side. This function resides under the `mmcore.geom.parametric.algorithms` module.
