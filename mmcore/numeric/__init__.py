@@ -62,9 +62,6 @@ def offset_curve_2d(c, d):
     y d ( t ) = y ( t ) − d x ′ ( t ) x ′ ( t ) 2 + y ′ ( t ) 2
     . {\displaystyle y_{d}(t)=y(t)-{\frac {d\;x'(t)}{\sqrt {x'(t)^{2}+y'(t)^{2}}}}\ .}"""
 # simulated annealing search of a one-dimensional objective function
-from numpy import exp
-from numpy.random import randn
-from numpy.random import rand
 
 
 # simulated annealing algorithm
