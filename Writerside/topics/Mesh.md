@@ -1,3 +1,0 @@
-# Mesh
-
-Start typing here...
