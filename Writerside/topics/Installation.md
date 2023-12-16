@@ -18,9 +18,8 @@ production.
 The second fine way of installing it, assuming you're using poetry.
 To do this, add this line to your `pyproject.toml`.
 
-```toml
+```
 [tool.poetry.dependencies]
-...
 mmcore = { path = "../mmcore" }
 ```
 

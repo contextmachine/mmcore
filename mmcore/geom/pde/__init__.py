@@ -10,10 +10,11 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.plane import create_plane
-from mmcore.geom.vec import cross, perp2d
+from mmcore.geom.vec import cross, perp2d, unit
 
 __all__ = ['PDE', 'Offset', 'forward', 'central', 'backward', 'PDEMethodEnum']
 
+from mmcore.geom.transform.rotations import ypr_matrix, Z90
 
 class PDEMethodEnum(Enum):
     """
@@ -36,7 +37,9 @@ class PDEMethodEnum(Enum):
                                        signature='()->(i)')
     backward: LambdaType = np.vectorize(lambda f, h, t: (f(t) - f(t - h)) / h, excluded=[0, 1], signature='()->(i)')
     forward: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t)) / h, excluded=[0, 1], signature='()->(i)')
-
+    centralNd: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t - h)) / (2 * h), excluded=[0, 1],
+                                         signature='(j)->(i)'
+                                         )
 
 central = PDEMethodEnum.central.value
 backward = PDEMethodEnum.backward.value
@@ -67,6 +70,43 @@ class PDE:
 
         plane(t)
             Constructs a plane defined by the PDE at the given time t.
+
+    Examples:
+    * Evaluate Tangent Planes on a NURBS Curve using PDE.
+    >>> from mmcore.geom.parametric import NurbsCurve
+    >>> from mmcore.func import vectorize
+    >>> nc1=NurbsCurve([[0.0,1.0,0.0],[1.,0.5,0.0],[2.0,0.0,0.0],[3.0,-1.5,0.0],[4.0,-3.0,0.0],[5.0,-6,0.0]])
+    >>> nc2=NurbsCurve([[0.0,0.0,0.0],[1.0,1.0,0.0],[2.0,0.5,0.0],[3.0,0.0,0.0],[4.0,0.5,0.0],[5.0,1,0.0]])
+
+    >>> @vectorize(excluded=[0],signature='()->(i)')
+    >>> def evaluate_nurbs(n, t):
+    ...     return n.evaluate(t)
+
+    >>> from mmcore.geom.pde import PDE
+    >>> p=PDE(lambda t:evaluate_nurbs(nc1, t))
+    >>> p(np.linspace(0,1,10))
+    array([[  4.49325563,  -2.24663006,   0.        ],
+           [  6.41667792,  -3.37501012,   0.        ],
+           [  4.66667792,  -3.00001012,   0.        ],
+           [  3.75000787,  -3.37500506,   0.        ],
+           [  3.41667117,  -4.125     ,   0.        ],
+           [  3.41667117,  -4.875     ,   0.        ],
+           [  3.75000787,  -5.62502869,   0.        ],
+           [  4.66667792,  -8.50005738,   0.        ],
+           [  6.41667792, -15.62505738,   0.        ],
+           [  4.49325562, -13.46965369,   0.        ]])
+    >>> tangent_planes=p.plane(np.linspace(0,1,10))
+    >>> tangent_planes.shape
+    Out[4]: (4, 10, 3)
+    >>> tangent_planes=np.swapaxes(tangent_planes, 0,1)
+    >>> tangent_planes[0]
+    array([[ 0.        ,  1.        ,  0.        ],
+           [ 0.89442701, -0.44721395,  0.        ],
+           [ 0.44721395,  0.89442701,  0.        ],
+           [-0.        ,  0.        ,  1.        ]])
+    >>> from mmcore.geom.vec import dot
+    >>> np.allclose(dot(tangent_planes[0][[1,2]]), 0.)
+    True
     """
     __instances__ = {}
 
@@ -79,7 +119,7 @@ class PDE:
             self.method = method
             self.h = h
             self._hs = hs
-            self._pde = functools.lru_cache(maxsize=None)(lambda t: self.method.value(self.func, self.h, t))
+            self._pde = lambda t: self.method.value(self.func, self.h, t)
             cls.__instances__[hs] = self
             dfunc = self
         return dfunc
@@ -88,14 +128,18 @@ class PDE:
         return self._pde(t)
 
     def tan(self, t):
-        return perp2d(self.__call__(t))
+
+        return self.__call__(t)
 
     def normal(self, t):
-        return cross(self.__call__(t), self.tan(t))
+        return Z90.dot(unit(self(t)).T).T
 
     def plane(self, t):
-        origin, xaxis, yaxis = self.__call__(t), self.tan(t), self.normal(t)
-        return create_plane(x=xaxis, y=yaxis, origin=origin)
+        a, b = unit(self(t)), self.normal(t)
+        z = cross(a, b)
+        orig = self.func(t)
+        return np.array([orig, a, b, z])
+
 
 
 @vectorize(excluded=[0], signature='()->(i)')

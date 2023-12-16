@@ -12,7 +12,9 @@ class StateManager:
     """
 
     def __init__(self, procs, sleep_time=10):
+
         super().__init__()
+
         self.procs = procs
         self.update_flag = False
         self.stop_flag = False

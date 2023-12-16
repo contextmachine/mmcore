@@ -5,13 +5,55 @@ from mmcore.geom.mesh.mesh_tuple import *
 
 def union_mesh(meshes, extras=None):
     """
-    Union multiple meshes into a single mesh.
-    :param meshes: A list of mesh objects to be unioned.
-    :type meshes: list
-    :param extras: Additional attributes for the resulting mesh. (default is None)
-    :type extras: dict
-    :return: The unioned mesh object.
-    :rtype: MeshTuple
+
+    Unions multiple meshes into a single mesh (a process known as "mesh fusion"). This is especially
+    useful when preparing large 3D models for rendering in a web browser as it requires only a single
+    draw call.
+
+    Parameters
+    ----------
+    meshes : list
+        A list of Mesh objects that are to be unified into a single Mesh object.
+    extras : dict, (optional)
+        Additional attribute fields for the resulting Mesh object. If not specified, an empty dictionary,
+        will be used as a default.
+
+    Returns
+    -------
+    Mesh namedtuple
+        The object consisting of combined attributes, indices and extras from input meshes.
+
+    Performance Considerations
+    --------------------------
+    The main function `union_mesh` under the hood calls `gen_indices_and_extras2` and `_combine_attributes`
+    functions. The `gen_indices_and_extras2` function traverses through each mesh's attributes resulting in
+    time complexity of O(m*n), where m is the number of meshes and n is the attribute count of a mesh.
+    The `_combine_attributes` function concatenates same attribute fields of all meshes, thus it has linear
+    time complexity of O(n), where n is the count of attribute names.
+
+    Consequently, the overall time complexity of the union operation of meshes is O(m*n),
+    where m is the number of meshes and n is the count of attribute names in a mesh.
+
+    Usage Example
+    -------------
+
+    >>> from mmcore.geom.mesh.union import union_mesh
+    >>> from mmcore.compat.gltf.convert import  create_union_mesh_node, asscene
+    >>> import time
+    >>> import ujson
+    >>> import pickle
+
+    >>> # Load test data (a collection of 18140 Mesh objects)
+    >>> with open("tests/data/test_union_gltf_data.pkl", 'rb') as f:
+    >>>     meshes = pickle.load(f)
+
+    >>> # Union the list of meshes into a single mesh
+    >>> single_mesh = union_mesh(meshes)
+
+    >>> # Create a GLTF SceneNode from the fused mesh
+    >>> scene=asscene(create_union_mesh_node(single_mesh,"mesh_node"))
+    >>>  with open('single_mesh.gltf', 'w') as f: # dump gltf file
+    >>>     ujson.dump(scene.todict(), f)
     """
     extras = dict() if extras is None else extras
     attribute_names = _get_attribute_names(meshes)
