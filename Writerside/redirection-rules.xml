@@ -10,4 +10,9 @@
         <description>Created after removal of "Circle" from mmcore doc</description>
         <accepts>Circle.html</accepts>
     </rule>
+    <rule id="569973a4">
+        <description>
+            <![CDATA[Created after removal of "<Performance-Considerations.md>" from mmcore doc]]></description>
+        <accepts>Performance-Considerations.html</accepts>
+    </rule>
 </rules>
