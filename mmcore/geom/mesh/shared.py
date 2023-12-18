@@ -6,4 +6,4 @@ class MeshWorker(Listener):
         super().__init__()
         self.shm_name = shm_name
 
-    def notify(self, observable, **kwargs):
+    def notify(self, observable, **kwargs): ...

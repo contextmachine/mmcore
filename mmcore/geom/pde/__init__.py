@@ -9,7 +9,7 @@ from types import LambdaType
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.plane import create_plane
+
 from mmcore.geom.vec import cross, perp2d, unit
 
 __all__ = ['PDE', 'Offset', 'forward', 'central', 'backward', 'PDEMethodEnum']
