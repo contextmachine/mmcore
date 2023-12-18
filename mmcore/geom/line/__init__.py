@@ -230,17 +230,19 @@ class Line:
     def __array__(self):
         return self._array
 
+
     def length(self):
         return norm(self.direction)
 
     def scale(self, x: float) -> None:
         self._array[2] *= x
         self._array[1] = self._array[0] + self._array[2]
+        self.solve()
 
     def extend(self, start: float, end: float) -> None:
         self._array[0] -= self.unit * start
         self._array[1] += self.unit * end
-        self._array[2] = self._array[1] - self._array[0]
+        self.solve()
 
     @vectorize(excluded=[0], signature='()->(j,i)')
     def _normal(self, t):

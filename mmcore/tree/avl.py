@@ -378,58 +378,6 @@ class AVL(object):
         self.delete(item)
 
 
-"""
-
-
-/Users/andrewastakhov/Library/Caches/pypoetry/virtualenvs/mmcore-Q3H73Dvg-py3.11/bin/python /Applications/PyCharm Professional Edition.app/Contents/plugins/python/helpers/pydev/pydevconsole.py --mode=client --host=127.0.0.1 --port=64578 
-import sys; print('Python %s on %s' % (sys.version, sys.platform))
-import numpy as np
-import  json
-import  os, dotenv
-sys.path.extend(['/Users/andrewastakhov/PycharmProjects/mmcore', '/Users/andrewastakhov/PycharmProjects/dxfgrids', '/Users/andrewastakhov/PycharmProjects/mmcore/bin', '/Users/andrewastakhov/PycharmProjects/mmcore/examples', '/Users/andrewastakhov/PycharmProjects/mmcore/tests'])
-dotenv.load_dotenv('.env')
-from mmcore.base.sharedstate import serve
-Python 3.11.6 (main, Oct  2 2023, 13:45:54) [Clang 15.0.0 (clang-1500.0.40.1)]
-Type 'copyright', 'credits' or 'license' for more information
-IPython 8.17.2 -- An enhanced Interactive Python. Type '?' for help.
-PyDev console: using IPython 8.17.2
-Python 3.11.6 (main, Oct  2 2023, 13:45:54) [Clang 15.0.0 (clang-1500.0.40.1)] on darwin
-no speedups
-from mmcore.tree.avl import AVL
-tree = AVL()
-data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-tree.insert(1,"U")
-tree.insert(2,"P")
-tree.insert(3,"R")
-tree.insert(4,"R")
-tree.insert(5,'P')
-tree.insert(6,'R')
-tree.insert(7,'U')
-tree.insert(8,'R')
-tree.insert(9,'R')
-tree.insert(10,'R')
-tree.insert(11,'U')
-tree.insert(12,'U')
-tree
-Out[3]: 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                8                  
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               / \                 
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              /   \                
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             /     \               
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            /       \              
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           /         \             
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          /           \            
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         /             \           
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        /               \          
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       /                 \         
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      4                   10       
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     / \                 / \       
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    /   \               /   \      
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   /     \             /     \     
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  /       \           /       \    
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 2         6         9         11  
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                / \       / \                   \  
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               1   3     5   7                   12
 
 
 
@@ -448,9 +396,3 @@ Out[3]:
 
 
 
-
-
-
-
-
-"""
