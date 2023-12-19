@@ -337,6 +337,9 @@ class Controls:
         setattr(instance, self._name, value)
 
 
+from multipledispatch import dispatch
+
+
 class A:
     idict = idict
     args_keys = ["name"]
@@ -736,6 +739,18 @@ class A:
         return dict()
 
 
+@dispatch(str)
+def find_parents(uid):
+    for k, v in idict.items():
+        if uid in v.values():
+            yield adict[k]
+
+
+@dispatch(A)
+def find_parents(obj):
+    for k, v in idict.items():
+        if obj.uuid in v.values():
+            yield adict[k]
 import uuid as _uuid
 
 
