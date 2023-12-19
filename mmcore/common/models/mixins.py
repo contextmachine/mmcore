@@ -1,13 +1,14 @@
 import typing
 from abc import ABCMeta, abstractmethod
 
-from mmcore.base import ageomdict, AMesh
+from mmcore.base import ageomdict, amatdict, AMesh
 from mmcore.common.models.fields import FieldMap
-from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple
-
+from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial
+from mmcore.base.models.gql import ColorRGB, BaseMaterial
+from mmcore.base.userdata.controls import encode_control_points
 
 class ViewSupport(metaclass=ABCMeta):
-    __field_map__: list[FieldMap] = ()
+    __field_map__: tuple[FieldMap] = ()
     field_map: list[FieldMap]
     _uuid = None
 
@@ -34,6 +35,13 @@ class ViewSupport(metaclass=ABCMeta):
 
 
     def apply_backward(self, data):
+        """
+
+        :param data: dict with updated values
+        :type data: dict
+        :return: None
+        :rtype: None
+        """
         for m in self.field_map:
             m.backward(self, data)
         self._dirty = True
@@ -47,6 +55,7 @@ class ViewSupport(metaclass=ABCMeta):
         self._uuid = v
 
 
+
 class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     _mesh: typing.Optional[AMesh] = None
 
@@ -58,25 +67,46 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     def to_mesh_view(self) -> MeshTuple:
         ...
 
-    def create_mesh(self, forward=True, **kwargs):
+    def to_mesh_material(self) -> BaseMaterial:
+        """
+        Override this method so that it returns vertexColor Material
+        if you want to define the color of the geometry with the color attribute.
+        """
+        return simpleMaterial
+
+    def create_mesh(self, forward=True, controls=None, **kwargs):
+        if controls is None:
+            controls = dict()
+
         _props = dict()
         if forward:
             self.apply_forward(_props)
-        self._mesh = build_mesh_with_buffer(self.to_mesh_view(), uuid=self.uuid, props=_props, **kwargs
+        self._mesh = build_mesh_with_buffer(self.to_mesh_view(), uuid=self.uuid, props=_props, _controls=controls,
+                                            **kwargs
                                             )
         self._mesh.owner = self
+        if hasattr(self, 'control_points'):
+
+            self._mesh._controls['path'] = dict(points=encode_control_points(self.control_points))
 
     def _init_mesh(self):
         self.create_mesh(forward=False)
 
+    def update_mesh_geometry(self):
+        ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(self.to_mesh_view(), uuid=self._mesh.uuid
+                                                                             )
+
+    def update_mesh_material(self):
+        amatdict[self._mesh._material] = self.to_mesh_material()
+
     def update_mesh(self, no_back=False):
         if self._mesh is not None:
             if not no_back:
+                # это плохое место
                 self.apply_backward(self._mesh.properties)
 
-            ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(self.to_mesh_view(),
-                                                                                 uuid=self._mesh.uuid
-                                                                                 )
+            self.update_mesh_geometry()
+            self.update_mesh_material()
 
             self.apply_forward(self._mesh.properties)
         else:

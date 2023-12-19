@@ -6,6 +6,8 @@ from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
 
 from mmcore.base.params import pgraph
+from mmcore.base.userdata.controls import find_points_in_controls
+from mmcore.common.viewer import control_points_observer
 from mmcore.gql.lang.parse import parse_simple_query
 
 TYPE_CHECKING = False
@@ -371,6 +373,17 @@ class SharedStateServer():
         def gui_post_item(uid: str, data: dict):
 
             return adict[uid].gui_post(data)
+
+        @inst.app.post("/controls/{uid}")
+        def controls_post_item(uid: str, data: dict):
+
+            control_points_observer.notify(uid, find_points_in_controls(data))
+            return adict[uid].controls.todict()
+
+        @inst.app.post("/controls/{uid}")
+        def controls_get_item(uid: str):
+
+            return adict[uid].controls.data.todict()
 
         @inst.app.get("/keys", response_model_exclude_none=True)
         async def keys():
