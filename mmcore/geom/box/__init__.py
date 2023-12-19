@@ -11,7 +11,7 @@ from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane
 from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane, polygon_area
-from mmcore.geom.vec import cross, dist, unit
+from mmcore.geom.vec import cross, dist, unit, norm
 
 
 class Box(Rectangle, MeshViewSupport):
@@ -23,7 +23,7 @@ class Box(Rectangle, MeshViewSupport):
         h (float): The height of the box.
         lock (bool): A flag indicating if the box is locked.
     """
-    __field_map__ = [
+    __field_map__ = (
             FieldMap('u', 'u1'),
             FieldMap('v', 'v1'),
             FieldMap('h', 'h'),
@@ -32,13 +32,12 @@ class Box(Rectangle, MeshViewSupport):
             FieldMap('z', 'z'),
             FieldMap('area', 'area', backward_support=False),
 
-
-    ]
+        )
 
     def __init__(self, *args, h=3.0, **kwargs):
         super(Box, self).__init__(*args, **kwargs)
         #
-        self.__init_support__()
+        self.__init_support__(uuid=self.uuid)
         self.h = h
 
     @property
@@ -122,6 +121,29 @@ class Box(Rectangle, MeshViewSupport):
     @z.setter
     def z(self, val) -> None:
         self.origin[2] = val
+
+    # @property
+    # def control_points(self):
+    #    return np.array([self.origin,
+    #     self.origin+self.xaxis*self.u,
+    #     self.origin+self.yaxis*self.v]
+    #     )
+    #
+    # @control_points.setter
+    # def control_points(self, val):
+    #    origin,x,y=np.array(val,float)
+    #    xaxis=x-origin
+    #    yaxis=y-origin
+    #
+    #    zaxis=cross(unit(xaxis), unit(yaxis))
+    #    yaxis=cross(zaxis,unit(xaxis))
+    #
+    #
+    #    self.xaxis=unit(xaxis)
+    #
+    #    self.yaxis=unit(yaxis)
+    #
+    #    self.zaxis=zaxis
 
 
 
@@ -243,7 +265,7 @@ class Box(Rectangle, MeshViewSupport):
 
 
 class Boundary(MeshViewSupport):
-    __field_map__ = sorted(MeshViewSupport.__field_map__ + [FieldMap('area', 'area', backward_support=False), ])
+    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
 
     def __init__(self, boundary: np.ndarray = None, count=4, **kwargs):
         if boundary is None:
@@ -259,7 +281,13 @@ class Boundary(MeshViewSupport):
     def area(self):
         return polygon_area(np.array([*self.boundary, self.boundary[0]]))
 
+    @property
+    def control_points(self):
+        return self.boundary
 
+    @control_points.setter
+    def control_points(self, v):
+        self.boundary = np.array(v, float)
 def unpack_trim_details(res):
     """
     Unpacks the trim details.
