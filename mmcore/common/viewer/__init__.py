@@ -88,14 +88,17 @@ class ViewerObservableGroup(ViewerGroup, Observable):
         super().props_update(uuids, props)
         self.notify_observers(uuids=uuids, props=props)
 
+
         return True
 
 
 class ViewerGroupObserver(Observer):
     def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None):
+        # Здесь все пропсы уже обновлены
         for uid in uuids:
             print(uid, uuids)
             mesh = adict[uid]
+
             print(mesh)
             if hasattr(mesh, 'owner'):
                 print(mesh.owner)
