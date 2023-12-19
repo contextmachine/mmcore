@@ -1,13 +1,14 @@
+import typing
 from abc import ABCMeta, abstractmethod
 
-from mmcore.base import ageomdict
+from mmcore.base import ageomdict, AMesh
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple
 
 
 class ViewSupport(metaclass=ABCMeta):
-    __field_map__: list[FieldMap] = []
-    field_map = list[FieldMap]
+    __field_map__: list[FieldMap] = ()
+    field_map: list[FieldMap]
     _uuid = None
 
     @abstractmethod
@@ -15,7 +16,7 @@ class ViewSupport(metaclass=ABCMeta):
         self._dirty = True
         self._lock = False
         if uuid is not None:
-            self.uuid = uuid
+            self._uuid = uuid
         if not field_map:
             self.field_map = list(sorted(list(self.__class__.__field_map__)))
         else:
@@ -30,7 +31,7 @@ class ViewSupport(metaclass=ABCMeta):
         self.apply_forward(data)
         return data
 
-        return data
+
 
     def apply_backward(self, data):
         for m in self.field_map:
@@ -47,6 +48,7 @@ class ViewSupport(metaclass=ABCMeta):
 
 
 class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
+    _mesh: typing.Optional[AMesh] = None
 
     def __init_support__(self, uuid=None, field_map=None):
         super().__init_support__(uuid, field_map)
@@ -68,12 +70,17 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         self.create_mesh(forward=False)
 
     def update_mesh(self, no_back=False):
-        if not no_back:
-            self.apply_backward(self._mesh.properties)
+        if self._mesh is not None:
+            if not no_back:
+                self.apply_backward(self._mesh.properties)
 
-        ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(self.to_mesh_view(), uuid=self._mesh.uuid)
+            ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(self.to_mesh_view(),
+                                                                                 uuid=self._mesh.uuid
+                                                                                 )
 
-        self.apply_forward(self._mesh.properties)
+            self.apply_forward(self._mesh.properties)
+        else:
+            return ValueError("Mesh not initialized")
 
     def to_mesh(self, **kwargs):
         self.create_mesh() if self._mesh is None else self.update_mesh()
