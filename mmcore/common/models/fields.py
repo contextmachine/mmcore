@@ -46,11 +46,12 @@ Out: 30
         target[self.target_field_name] = self.getter(source)
 
     def backward(self, source, target: dict):
+        if self.target_field_name in target:
+            if self.update_equal:
+                self._backward_update(source, target)
+            elif self.getter(source) != target[self.target_field_name]:
 
-        if self.update_equal:
-            self._backward_update(source, target)
-        elif self.getter(source) != target[self.target_field_name]:
-            self._backward_update(source, target)
+                self._backward_update(source, target)
 
     def __eq__(self, other):
         return other.backward_support.__eq__(self.backward_support)

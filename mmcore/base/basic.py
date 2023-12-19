@@ -9,6 +9,7 @@ from collections import namedtuple
 
 from dotenv import load_dotenv
 
+from mmcore.base.userdata.controls import Controls
 from mmcore.base.userdata.entry import *
 from mmcore.base.userdata.props import Props, props_to_dict
 
@@ -308,7 +309,7 @@ class GuiItem(UserDataItem):
             self.data = {}
 
 
-class Controls:
+class ControlsDescriptor:
     def __init__(self, config=None, default=None):
         self.default = {}
         if isinstance(default, dict):
@@ -326,8 +327,7 @@ class Controls:
         if instance is not None:
             return GuiItem(type="controls",
                            target=instance._endpoint,
-                           config=self.config,
-                           data=getattr(instance, self._name, self.default),
+                           config=self.config, data=getattr(instance, self._name, Controls(uuid=instance._uuid)),
 
                            )
         else:
@@ -352,7 +352,7 @@ class A:
     }
 
     priority = 1.0
-    controls = Controls()
+    controls = ControlsDescriptor()
     properties_keys = {
         "priority",
         "name"

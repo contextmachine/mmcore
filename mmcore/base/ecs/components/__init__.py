@@ -247,7 +247,8 @@ class SoAItem:
         kws = dict(self)
         return f'{self.parent.type_name}({kws}) at <{self.uuid}>'
 
-
+    def todict(self):
+        return todict(self)
 class SoArrayItem(SoAItem):
     def __init__(self, uuid, parent_id, arr_index):
         self._parent = parent_id

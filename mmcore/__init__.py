@@ -7,4 +7,4 @@ TOLERANCE = 0.000_001
 
 
 def __version__():
-    return "0.17.51"
+    return "0.18.0"
