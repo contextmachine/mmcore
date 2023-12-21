@@ -20,6 +20,10 @@
         </toc-element>
     </toc-element>
     <toc-element topic="GeometryExamples.topic">
+        <toc-element topic="Polyline.md">
+            <toc-element topic="PolyCurve.md"/>
+        </toc-element>
+        <toc-element topic="Usage.md"/>
         <toc-element topic="Rectangle.md"/>
         <toc-element topic="PDE.md">
             <toc-element topic="Overview.md"/>

@@ -27,4 +27,8 @@
         <description>Created after removal of "Starter" from mmcore doc</description>
         <accepts>Starter.html</accepts>
     </rule>
+    <rule id="5c8c1c23">
+        <description>Created after removal of "PolyLine" from mmcore doc</description>
+        <accepts>PolyLine-Usage.html</accepts>
+    </rule>
 </rules>

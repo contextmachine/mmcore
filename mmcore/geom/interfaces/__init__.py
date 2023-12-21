@@ -46,6 +46,7 @@ from collections import namedtuple
 from enum import Enum
 from typing import Sequence, Type, TypeVar
 
+import numpy
 import numpy as np
 
 T = TypeVar('T')
@@ -95,3 +96,20 @@ class CollectionDispatchType(type):
 
     def __eq__(cls, other):
         return cls.typ_hash == hash(getattr(other, 'typ', other))
+
+
+class ArrayInterface:
+    def __add__(self, other):
+        return np.array(self).__add__(other)
+
+    def __sub__(self, other):
+        return np.array(self).__sub__(other)
+
+    def __mul__(self, other):
+        return np.array(self).__mul__(other)
+
+    def __divmod__(self, other):
+        return np.array(self).__divmod__(other)
+
+    def __matmul__(self, other):
+        return np.array(self).__matmul__(other)
