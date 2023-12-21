@@ -740,6 +740,7 @@ class DCLLIterator(Iterator):
             return self._temp.prev.data
         elif self._temp != self._dcll.head:
             self._temp = self._temp.next
+
             return self._temp.prev.data
 
         else:
@@ -1020,6 +1021,8 @@ class DCLL:
 
     def __contains__(self, item):
         return self.index(item) is not None
+
+
 def rrange(start, end, count):
     rng = range(0, count)
     step = (end - start) * (1 / ((count - 0) - 1))

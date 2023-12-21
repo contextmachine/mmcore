@@ -2,7 +2,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.plane import create_plane_from_xaxis_and_normal
-from mmcore.geom.surfaces import ParametricSurface
+from mmcore.geom.base_surfaces import ParametricSurface
 from mmcore.geom.vec import unit
 
 

@@ -58,13 +58,6 @@ def offset_curve_2d(c, d):
     return wrap
 
 
-"""    {\displaystyle x_{d}(t)=x(t)+{\frac {d\;y'(t)}{\sqrt {x'(t)^{2}+y'(t)^{2}}}}}
-    y d ( t ) = y ( t ) − d x ′ ( t ) x ′ ( t ) 2 + y ′ ( t ) 2
-    . {\displaystyle y_{d}(t)=y(t)-{\frac {d\;x'(t)}{\sqrt {x'(t)^{2}+y'(t)^{2}}}}\ .}"""
-# simulated annealing search of a one-dimensional objective function
-
-
-# simulated annealing algorithm
 def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
     """
     # objective function
@@ -154,7 +147,8 @@ def update_parameters_with_adam(x, grads, s, v, t, learning_rate=0.01, average_f
 
 
 # Adam optimization algorithm
-def adam(objective, derivative, bounds, n_iterations, step_size, average_factor, average_square_factor, eps=1e-8):
+def adam(objective, derivative, bounds, n_iterations=1000, step_size=0.01, average_factor=0.8,
+         average_square_factor=0.999, eps=1e-8):
     """
 
     :param objective: The objective function to be minimized
@@ -228,4 +222,36 @@ def adam(objective, derivative, bounds, n_iterations, step_size, average_factor,
 
         # Report progress  # print('>%d f(%s) = %.5f' % (t, x, score))
 
-    return [x, score]
+    return x, score
+
+
+from mmcore.geom.vec import norm
+from mmcore.geom.pde import PDE
+
+
+class AdamCurvesIntersection:
+    def __init__(self, bounds=np.array([[0., 1.], [0., 1.]]), n_iterations=1000, step_size=0.01, average_factor=0.8,
+                 average_square_factor=0.999, eps=1e-8):
+        self.bounds = bounds
+        self.n_iterations = n_iterations
+        self.step_size = step_size
+        self.average_factor = average_factor
+        self.average_square_factor = average_square_factor
+        self.eps = eps
+
+    def __call__(self, curve_a, curve_b, **kwargs):
+        self.__dict__ |= kwargs
+
+        def objective(x):
+            return norm(curve_a(x) - curve_b(x))
+
+        pa, pb = PDE(curve_a), PDE(curve_b)
+
+        def der(x):
+            pa(x[0]), pb([x[1]])
+
+        res, score = adam(objective, PDE(objective), bounds=self.bounds, n_iterations=self.n_iterations,
+                          step_size=self.step_size, average_factor=self.average_factor,
+                          average_square_factor=self.average_square_factor, eps=self.eps
+                          )
+        return res
