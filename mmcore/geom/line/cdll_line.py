@@ -1,29 +1,12 @@
 import functools
 import itertools
-
-import numpy as np
+from typing import Any
 
 from mmcore.ds.cdll import CDLL, Node
+from mmcore.geom.interfaces import ArrayInterface
 
 from mmcore.geom.line import Line
 from mmcore.geom.vec import *
-
-
-class ArrayInterface:
-    def __add__(self, other):
-        return np.array(self).__add__(other)
-
-    def __sub__(self, other):
-        return np.array(self).__sub__(other)
-
-    def __mul__(self, other):
-        return np.array(self).__mul__(other)
-
-    def __divmod__(self, other):
-        return np.array(self).__divmod__(other)
-
-    def __matmul__(self, other):
-        return np.array(self).__matmul__(other)
 
 
 class LineNode(Node):
@@ -98,10 +81,10 @@ class LineNode(Node):
         if np.isscalar(dists):
             dists = np.zeros(2, float) + dists
         print(dists)
-        return OffsetLineNode(dists, offset_previous=self)
+        return LineOffset(dists, offset_previous=self)
 
 
-class OffsetLineNode(LineNode):
+class LineOffset(LineNode):
     def __init__(self, dists, offset_previous: LineNode = None):
         super().__init__(dists)
         self._offset_previous = offset_previous
@@ -147,17 +130,16 @@ class PointsOnCurveCollection(ArrayInterface):
         self.owner = owner
 
     def __array__(self, dtype=float):
-        return np.array(self.owner.data(self.t), dtype=dtype)
+        return np.array(self.owner.evaluate(self.t), dtype=dtype)
 
     def __iter__(self):
-        return iter(self.owner.data(self.t))
+        return iter(self.owner.evaluate(self.t))
 
     def __getitem__(self, item):
         return PointOnCurve(item, self)
 
     def __repr__(self):
-        return (f'{self.__class__.__name__}([t0, t1, ..., tn, tn+1] = {np.round(self.t, 4)}, [p0, p1, ..., pn, '
-                f'pn+1] ={np.round(np.array(self), 4)}, owner={self.owner})')
+        return f'{self.__class__.__name__}(length={len(self.t)})'
 
 
 class PointOnCurve(ArrayInterface):
@@ -167,15 +149,15 @@ class PointOnCurve(ArrayInterface):
 
     @property
     def p(self):
-        return self.owner.owner(self.owner[self.ixs])
+        return self.owner.owner(self.owner.t[self.ixs])
 
     @property
     def t(self):
-        return self.owner[self.ixs]
+        return self.owner.t[self.ixs]
 
     @t.setter
     def t(self, v):
-        self.owner[self.ixs] = v
+        self.owner.t[self.ixs] = v
 
     def __array__(self, dtype=float):
         return np.array(self.p, dtype=dtype)
@@ -246,9 +228,9 @@ class IntersectionPoint(Node, ArrayInterface):
         return f'{self.__class__.__name__}({self.line1} x {self.line2})'
 
 
-class LCDLL(CDLL):
+class LineCDLL(CDLL):
     """
-    Class LCDLL
+    Class LineCDLL
 
     A class representing a doubly linked circular list of line segments
 
@@ -266,11 +248,11 @@ class LCDLL(CDLL):
     - corners: Returns an array of the corner points from intersecting lines
 
     Methods:
-    - from_cdll(cls, cdll: CDLL): Returns an instance of LCDLL converted from a CDLL
+    - from_cdll(cls, cdll: CDLL): Returns an instance of LineCDLL converted from a CDLL
     - close(): Closes the circular list by connecting the last node with the first node
     - evaluate(t): Returns the position of the line at time t
     - evaluate_node(t): Returns the position of the line at time t as a PointsOnCurveCollection object
-    - offset(dists): Returns an LCDLL instance offset by the given distance(s)
+    - offset(dists): Returns an LineCDLL instance offset by the given distance(s)
     - get_intersects(): Returns a CDLL instance containing all intersection points between line segments
     - gen_intersects(): Yields intersection points between line segments
 
@@ -282,10 +264,22 @@ class LCDLL(CDLL):
 
     @property
     def lengths(self):
+        """
+        Returns an array of lengths for each node in the graph.
+
+        :return: An array of lengths.
+        :rtype: numpy.ndarray
+        """
         return np.array([i.length for i in self.iter_nodes()])
 
     @property
     def starts(self):
+        """
+        Returns the starting positions of nodes as a NumPy array.
+
+        :return: An array of starting positions.
+        :rtype: numpy.ndarray
+        """
         return np.array([i.start for i in self.iter_nodes()])
 
     @property
@@ -338,15 +332,41 @@ class LCDLL(CDLL):
 
     @vectorize(excluded=[0], signature='()->(i)')
     def evaluate(self, t):
+        """
+        Evaluate the value of the function at time 't'.
+
+        :param t: The time at which to evaluate the function.
+        :type t: float
+        :return: The evaluated value of the function.
+        :rtype: int
+        """
         d, m = np.divmod(t, 1)
 
         return self.get(int(np.mod(d, self.count)))(m)
 
     def __call__(self, t):
+        """
+        .. method:: __call__(t)
+
+            This method is used to call the `evaluate` method.
+
+            :param t: The input parameter for the `evaluate` method.
+            :type t: Any
+            :return: The result of the `evaluate` method.
+            :rtype: Any
+
+        """
         return self.evaluate(t)
 
-    def evaluate_node(self, t):
-        return PointsOnCurveCollection(self.evaluate(t), self)
+    def evaluate_node(self, t: 'float|np.ndarray[Any, np.dtype[float]]') -> PointsOnCurveCollection:
+        """
+        :param t: The parameter value at which to evaluate the node.
+        :type t: float
+
+        :return: The collection of points on the curve obtained by evaluating the node at the given parameter value.
+        :rtype: PointsOnCurveCollection.
+        """
+        return PointsOnCurveCollection(t, self)
 
     @property
     def corners(self):
@@ -355,12 +375,78 @@ class LCDLL(CDLL):
 
     @corners.setter
     def corners(self, corners):
-        for corner, node in zip(corners, self.iter_nodes()):
-            node.start = np.array(corner)
-            node.previous.end = np.array(corner)
+        for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None):
+            if corner is None:
+                break
+            elif node is None:
+                self.append_corner(corner)
+            else:
+                node.start = np.array(corner)
+                node.previous.end = np.array(corner)
+
+    def append_corner(self, value: 'np.ndarray | list[float] | tuple[float,float,float]'):
+        """
+        :param value: The value to append to the corner.
+        :type value:  ndarray | List[float] | tuple[float,float,float]
+
+        :return: None
+        :rtype: None
+
+        """
+        self.append(Line(np.array(value, float), np.array([1.0, 0.0, 0.0])))
+        node = self.head.previous
+        node.end = self.head.start
+        node.previous.end = node.start
+
+    def set_corner(self, index: int, value: 'np.ndarray | list[float] | tuple[float,float,float]'):
+        node = self.get_node(index)
+        node.start = np.array(value)
+        node.previous.end = node.start
+
+    def insert_corner(self, value: 'np.ndarray | list[float] | tuple[float,float,float]', index: int):
+        """
+
+
+        :param value: The value to be inserted as the corner of the line.
+        :type value: ndarray | List[float] | tuple[float,float,float]
+        :param index: The index at which the corner should be inserted.
+        :type index: int
+        :return: None
+        :rtype: None
+
+        """
+        self.insert(Line(np.array(value, float), np.array([1.0, 0.0, 0.0])), index)
+        node = self.get_node(index)
+        node.end = node.next.start
+        node.previous.end = node.start
 
     def offset(self, dists):
-        lst = LCDLL()
+        """
+        :param dists: The distances to offset each node by. Can be a single value or an array-like object.
+        :type dists: Union[Number, Sequence[Number]]
+        :return: A new LineCDLL object with each node offset by the corresponding distance.
+        :rtype: LineCDLL
+
+        This method takes a LineCDLL object and offsets each node by the corresponding value in the `dists`
+        parameter. If `dists` is a single value, all nodes will be offset by that distance
+        *. If `dists` is an array-like object, each node will be offset by the corresponding value in the array.
+
+        Example usage:
+        ```python
+        line = LineCDLL()
+        line.append_node(Node(0))
+        line.append_node(Node(1))
+        line.append_node(Node(2))
+
+        offsets = [1, 2, 3]
+
+        result = line.offset(offsets)
+        ```
+        In this example, the `offsets` array specifies the distances to offset each node. The resulting `result`
+        LineCDLL object will have nodes at positions (1, 2, 3), (3, 4, 5), and (6, 7
+        *, 8), respectively.
+        """
+        lst = LineCDLL()
         for node, offset_dist in itertools.zip_longest(self.iter_nodes(), np.atleast_1d(dists),
                                                        fillvalue=0. if not np.isscalar(dists) else dists
                                                        ):
@@ -369,6 +455,12 @@ class LCDLL(CDLL):
         return lst
 
     def get_intersects(self):
+        """
+        Returns a list of intersection points.
+
+        :return: The list of intersection points.
+        :rtype: CDLL
+        """
         lst = CDLL()
         for node in self.iter_nodes():
             lst.append_node(IntersectionPoint((node.previous, node)))
@@ -376,6 +468,11 @@ class LCDLL(CDLL):
         return lst
 
     def gen_intersects(self):
+        """
+        Returns a generator that yields IntersectionPoint objects for each node.
 
+        :return: A generator that yields IntersectionPoint objects.
+        :rtype: Generator[IntersectionPoint, None, None]
+        """
         for node in self.iter_nodes():
             yield IntersectionPoint((node.previous, node))
