@@ -2,8 +2,8 @@ import itertools
 import numpy as np
 
 from mmcore.func import vectorize
-
-from mmcore.geom.line import evaluate_line
+from mmcore.geom.line.cdll_line import LCDLL, LineNode
+from mmcore.geom.line import evaluate_line, Line
 from mmcore.geom.plane import WXY, world_to_local, local_to_world
 
 
@@ -11,15 +11,11 @@ from mmcore.geom.plane import WXY, world_to_local, local_to_world
 @vectorize(signature='(i,j),()->(j)')
 def evaluate_polyline(corners, t: float):
     n, m = np.divmod(t, 1)
-    lines = polyline_to_lines(corners)
-    return evaluate_line(lines[int(n), 0], lines[int(n), 1], m)
 
-
-@vectorize(signature='(i,j),()->(j)')
-def evaluate_polyline(corners, t: float):
-    n, m = np.divmod(t, 1)
     lines = polyline_to_lines(corners)
-    return evaluate_line(lines[int(n), 0], lines[int(n), 1], m)
+
+    return evaluate_line(lines[int(np.mod(n, len(lines))), 0], lines[int(np.mod(n, len(lines))), 1], m)
+
 
 @vectorize(signature='(i,j)->(i,k,j)')
 def polyline_to_lines(pln_points):
@@ -82,6 +78,26 @@ def split_polyline(pln, tss):
 from mmcore.geom.curves import ParametricPlanarCurve
 
 
+class CDLLPolyLine(LCDLL):
+    nodetype = LineNode
+
+    def __init__(self, pts=None):
+        super().__init__()
+        if pts is not None:
+            lines = polyline_to_lines(np.array(pts, float))
+            for line in lines:
+                self.append((Line.from_ends(*line)))
+
+    @classmethod
+    def from_points(cls, pts):
+        lcdll = cls()
+
+        lines = polyline_to_lines(np.array(pts, float))
+        for line in lines:
+
+            lcdll.append((Line.from_ends(*line)))
+
+        return lcdll
 class PolyLine(ParametricPlanarCurve):
 
     def __new__(cls, corners, plane=WXY):
@@ -96,3 +112,16 @@ class PolyLine(ParametricPlanarCurve):
 
     def __call__(self, t) -> np.ndarray:
         return local_to_world(evaluate_polyline(self.corners, t), self.plane)
+
+    def chamfer(self, value: 'float|np.ndarray'):
+        if np.isscalar(value):
+            value = np.zeros(len(self), float) + value
+
+        dists = np.array([value, 1 - value]) + np.tile(np.arange(len(self)), (2, 1))
+        res = self(dists.T).flatten()
+        lr = len(res)
+
+        return PolyLine(res.reshape((lr // 3, 3)), plane=self.plane)
+
+    def __len__(self):
+        return len(self.corners)

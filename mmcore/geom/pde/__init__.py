@@ -41,9 +41,47 @@ class PDEMethodEnum(Enum):
                                          signature='(j)->(i)'
                                          )
 
+
+class PDE2DMethodEnum(Enum):
+    """
+
+    The `PDEMethodEnum` class is an enumeration that represents different methods for solving partial differential
+    equations.
+
+    Methods:
+
+    * `central`: Method that computes the derivative of a function using central differencing. It uses a lambda
+    function that takes the function, step size, and time as inputs and returns
+    * the derivative. The lambda function uses `np.vectorize` to ensure element-wise computation and supports a
+    custom signature `(i)` to indicate the return type.
+    * `backward`: Method that computes the derivative of a function using backward differencing. It uses a lambda
+    function that takes the function, step size, and time as inputs and returns
+    * the derivative. The lambda function uses `np.vectorize` to ensure element-wise computation and supports a
+    custom signature `(i)` to indicate the return type.
+    * `forward`: Method that computes the derivative of a function using forward differencing. It uses a lambda
+    function that takes the function, step size, and time as inputs and returns
+    * the derivative. The lambda function uses `np.vectorize` to ensure element-wise computation and supports a
+    custom signature `(i)` to indicate the return type.
+
+    Note: The methods in this class are implemented using `np.vectorize` from the NumPy library for efficient
+    element-wise array computations.
+
+    """
+    central: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t - h)) / (2 * h), excluded=[0, 1],
+                                       signature='()->(i)'
+                                       )
+    backward: LambdaType = np.vectorize(lambda f, h, t: (f(t) - f(t - h)) / h, excluded=[0, 1], signature='()->(i)')
+    forward: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t)) / h, excluded=[0, 1], signature='()->(i)')
+    centralNd: LambdaType = np.vectorize(lambda f, h, t: (f(t + h) - f(t - h)) / (2 * h), excluded=[0, 1],
+                                         signature='(j)->(i)'
+                                         )
 central = PDEMethodEnum.central.value
 backward = PDEMethodEnum.backward.value
 forward = PDEMethodEnum.forward.value
+
+
+def uv(f, h, u, v):
+    return np.array([(f(u + h, v) - f(u - h, v)) / (2 * h), (f(u, v + h) - f(u, v - h)) / (2 * h)])
 
 
 class PDE:
@@ -125,18 +163,20 @@ class PDE:
         return dfunc
 
     def __call__(self, t):
-        return self._pde(t)
+        return self._pde(np.atleast_1d(t))
 
     def tan(self, t):
 
         return self.__call__(t)
 
     def normal(self, t):
-        return Z90.dot(unit(self(t)).T).T
+
+        return unit(Z90.dot(unit(self._pde(t)).T).T)
 
     def plane(self, t):
-        a, b = unit(self(t)), self.normal(t)
+        a, b = unit(self._pde(t)), self.normal(t)
         z = cross(a, b)
+
         orig = self.func(t)
         return np.array([orig, a, b, z])
 
@@ -208,4 +248,39 @@ class Offset(PDE):
         return self
 
     def __call__(self, t):
-        return _offset_curve(self, t)
+        return self.func(t) + unit(self.normal(t)) * self.distance
+
+    def plane(self, t):
+        pln = super().plane(t)
+        pln[0] = self(t)
+        return pln
+
+
+class PDE2D:
+    __instances__ = dict()
+
+    def __new__(cls, func, method: PDEMethodEnum = PDEMethodEnum.centralNd, h=0.001, **kwargs):
+        hs = hash((id(func), method, h, frozenset(kwargs.keys()), tuple(kwargs.values())))
+        dfunc = cls.__instances__.get(hs, None)
+        if dfunc is None:
+            self = object.__new__(cls)
+            self.func = func
+            self.method = method
+            self.h = h
+            self._hs = hs
+            self._pde = np.vectorize(lambda u, v: uv(func, self.h, u, v), signature='(),()->(j,i)')
+            cls.__instances__[hs] = self
+            dfunc = self
+        return dfunc
+
+    def __call__(self, u, v):
+
+        return self._pde(u, v)
+
+    def normal(self, u, v):
+        xy = unit(self(u, v))
+        return cross(xy[..., 0, :], xy[..., 1, :])
+
+    def plane(self, u, v):
+        xy = unit(self(u, v))
+        return np.stack([self.func(u, v), xy[..., 0, :], xy[..., 1, :], cross(xy[..., 0, :], xy[..., 1, :])], axis=-1)

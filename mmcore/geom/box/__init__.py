@@ -288,6 +288,8 @@ class Boundary(MeshViewSupport):
     @control_points.setter
     def control_points(self, v):
         self.boundary = np.array(v, float)
+
+
 def unpack_trim_details(res):
     """
     Unpacks the trim details.
@@ -301,3 +303,4 @@ def unpack_trim_details(res):
     """
     w, t, pts = list(zip(*list(zip(*sorted(res, key=lambda x: x[0])))[1]))
     return np.array(w), np.array(t), np.array(pts)
+
