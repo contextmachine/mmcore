@@ -247,6 +247,34 @@ class IntersectionPoint(Node, ArrayInterface):
 
 
 class LCDLL(CDLL):
+    """
+    Class LCDLL
+
+    A class representing a doubly linked circular list of line segments
+
+    Properties:
+    - nodetype (class attribute): The class of the nodes in the list
+    - lengths: Returns an array of the lengths of all line segments in the list
+    - starts: Returns an array of the starting points of all line segments in the list
+    - ends: Returns an array of the ending points of all line segments in the list
+    - angles: Returns an array of the angles between each line segment and its successor
+    - dots: Returns an array of the dot products between each line segment and its successor
+    - units: Returns an array of the unit vectors of each line segment
+    - dot_matrix: Returns the dot product matrix of the unit vectors of each line segment
+    - dist_matrix: Returns an array of the closest distances between the line segments and their midpoints
+    - orient_dots: Returns an array of the dot products between each line segment's unit vector and [0., 1., 0.]
+    - corners: Returns an array of the corner points from intersecting lines
+
+    Methods:
+    - from_cdll(cls, cdll: CDLL): Returns an instance of LCDLL converted from a CDLL
+    - close(): Closes the circular list by connecting the last node with the first node
+    - evaluate(t): Returns the position of the line at time t
+    - evaluate_node(t): Returns the position of the line at time t as a PointsOnCurveCollection object
+    - offset(dists): Returns an LCDLL instance offset by the given distance(s)
+    - get_intersects(): Returns a CDLL instance containing all intersection points between line segments
+    - gen_intersects(): Yields intersection points between line segments
+
+    """
     nodetype = LineNode
 
     def __repr__(self):
