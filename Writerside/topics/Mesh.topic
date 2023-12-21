@@ -40,7 +40,7 @@
         <secondary>
             <title>Explore advanced features</title>
             <a href="Mesh-Fusion-Overview.topic">Increase FPS with fusing </a>
-            <a href="performance-considerations" summary="With a custom card summary"/>
+            <a href="Mesh-Fusion-Perfomance.topic" summary="With a custom card summary"/>
             <a href="">Custom card title</a>
             <a href="" summary="With a custom card summary">Custom card title</a>
         </secondary>
