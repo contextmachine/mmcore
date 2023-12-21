@@ -331,18 +331,11 @@ class Line:
 
         (x1, y1, z1), (x2, y2, z2) = self.start, self.end
         (x3, y3, z3), (x4, y4, z4) = other.start, other.end
-        if z1 == z2:
-            dr = z1
-        else:
-            z = np.zeros(3, float)
-            z[:] = np.nan
-            # raise ValueError('Lines not intersection in (0.0 <= t <= 1.0) bounds')
-            return z
 
         A = np.array([[x2 - x1, x4 - x3], [y2 - y1, y4 - y3]])
         b = np.array([x3 - x1, y3 - y1])
 
-        return np.append(solve(A, b), dr)
+        return np.append(solve(A, b), z1)
 
     def perpendicular_vector(self):
         z = np.zeros(self.direction.shape, dtype=float)

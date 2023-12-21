@@ -1,26 +1,208 @@
 import numpy as np
 
-from mmcore.geom.parametric import ParametricSupport
+from mmcore.base.models.gql import MeshPhongMaterial, MeshStandardVertexMaterial
+from mmcore.geom.line import Line
+from mmcore.geom.materials import ColorRGB
+from mmcore.geom.pde import PDE2D
+from mmcore.geom.vec import unit, cross
+from mmcore.geom.mesh.mesh_tuple import create_mesh_tuple
+from mmcore.func import vectorize
 
 
-class ParametricSurface(ParametricSupport, signature='(),()->(i)', param_range=((0.0, 1.0), (0.0, 1.0))):
-    def x(self, u, v) -> float:
-        return ...
+def ixs(u, v):
+    """
+     0     1
+   0 b --  a
+    |  \  |
+  1 c --  d
 
-    def y(self, u, v) -> float:
-        return ...
 
-    def z(self, u, v) -> float:
-        return 0
+    :param u:
+    :type u:
+    :param v:
+    :type v:
+    :return:
+    :rtype:
+    """
+    for i in range(u):
 
-    def evaluate(self, u, v) -> np.ndarray:
-        return np.array([self.x(u, v), self.y(u, v), self.z(u, v)])
+        for j in range(v):
 
-    def divide(self, u_count, v_count):
-        return self(*np.meshgrid(self.range[0].divide(u_count),
-                                 self.range[1].divide(v_count)
-                                 )
-                    )
+            a = i * (u + 1) + (j + 1)
+            b = i * (v + 1) + j
+            c = (i + 1) * (u + 1) + j
+            d = (i + 1) * (v + 1) + (j + 1)
+
+            # generate two faces (triangles) per iteration
+            yield [a, b, d]
+            yield [b, c, d]
+
+
+class Surface2D:
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.derivative = PDE2D(self)
+
+    def tangent(self, u, v):
+        return unit(self.derivative(u, v))
+
+    def tan(self, u, v):
+        return unit(self.derivative(u, v))
+
+    def normal(self, u, v):
+        return self.derivative.normal(u, v)
+
+    def evaluate(self, u, v):
+        ...
+
+    def plane(self, u, v):
+        return self.derivative.plane(u, v)
+
+    def to_mesh_tuple(self, u=10, v=10, color=np.array([0.7, 0.3, 1.])):
+        uv = np.meshgrid(np.linspace(0., 1.0, u), np.linspace(0., 1., v), indexing='ij')
+        n = self.normal(*uv)
+        print(n.shape)
+
+        return create_mesh_tuple(
+                attributes=dict(position=self(*uv).flatten(), normal=n.flatten(), uv=np.stack(uv, axis=-1).flatten()
+
+                        ), indices=np.array(list(ixs(u - 1, v - 1)), int).flatten(), color=color
+                )
+
+    def amesh(self, uuid=None, u=10, v=10, color=np.array([0.7, 0.3, 1.]), name=None):
+        return self.to_mesh_tuple(u, v, color=color).amesh(uuid, name=name, material=MeshStandardVertexMaterial(
+            color=ColorRGB(*color).decimal, flatShading=False
+            )
+                                                           )
+
+    def __call__(self, u, v): ...
+
+
+class OffsetSurface2D(Surface2D):
+    parent: 'Surface2D|OffsetSurface2D'
+    distance: float
+
+    def __init__(self, distance, parent):
+        super().__init__()
+        self.distance = distance
+        self.parent = parent
+
+    @vectorize(excluded=[0], signature='(),()->(i)')
+    def evaluate(self, u, v):
+        return self.parent.evaluate(u, v) + self.parent.normal(u, v) * self.distance
 
     def __call__(self, u, v):
-        return self.to_world(self.__evaluate__(u, v))
+        return self.evaluate(u, v)
+
+
+class PlaneSurface(Surface2D):
+    origin: np.ndarray
+    u_direction: np.ndarray
+    v_direction: np.ndarray
+
+    @np.vectorize(excluded=[0], signature='(),()->(i)')
+    def evaluate(self, u, v):
+        return self.origin + self.u_direction * u + self.v_direction * v
+
+    def __call__(self, u, v):
+        return self.evaluate(u, v)
+
+
+class PlaneLinePointSurface(PlaneSurface):
+
+    def __init__(self, line, point):
+        super().__init__()
+        self._line = None
+        self._point = np.array(point)
+        self.line = line
+
+    def solve(self):
+        print(f'[solve] {self}')
+        self.line2 = Line.from_ends(self.line.closest_point(self.point), self.point)
+
+    @property
+    def u_direction(self):
+        return self._line.direction
+
+    @property
+    def v_direction(self):
+        return self.line2.direction
+
+    @property
+    def origin(self):
+        return self.line.start
+
+    @property
+    def point(self):
+        return self._point
+
+    @point.setter
+    def point(self, v):
+        self._point = np.array(v)
+        self.solve()
+
+    @property
+    def line(self):
+        return self._line
+
+    @line.setter
+    def line(self, v):
+        self._line = v
+        self.solve()
+
+
+class PlaneLineDirectionSurface(PlaneSurface):
+    def __init__(self, line, direction):
+        super().__init__()
+        self._v_direction = direction
+        self._line = line
+
+    @property
+    def u_direction(self):
+        return self._line.direction
+
+    @property
+    def v_direction(self):
+        return self._v_direction
+
+    @property
+    def line(self):
+        return self._line
+
+    @line.setter
+    def line(self, v):
+        self._line = v
+
+
+class LineLineSurface2D(Surface2D):
+
+    def __init__(self, line1, line2):
+        super().__init__()
+        self._line1 = line1
+        self._line2 = line2
+
+    @property
+    def line1(self):
+        return self._line1
+
+    @line1.setter
+    def line1(self, v):
+        self._line1 = v
+
+    @property
+    def line2(self):
+        return self._line2
+
+    @line2.setter
+    def line2(self, v):
+        self._line2 = v
+
+    @vectorize(excluded=[0], signature='(),()->(i)')
+    def evaluate(self, u, v):
+        p = self.line1(u)
+
+        return p + (self.line2(u) - p) * v
+
+    def __call__(self, u, v):
+        return self.evaluate(u, v)
