@@ -13,6 +13,11 @@ class LineNode(Node):
     def __init__(self, data):
         super().__init__(data)
 
+    def __hash__(self):
+        return hash(self.data)
+
+    def __eq__(self, other):
+        return self.__hash__() == other.__hash__()
     def __repr__(self):
         return f'{self.__class__}({self.start}, {self.end})'
 
@@ -377,7 +382,7 @@ class LineCDLL(CDLL):
     def corners(self, corners):
         for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None):
             if corner is None:
-                break
+                self.remove(node.data)
             elif node is None:
                 self.append_corner(corner)
             else:
