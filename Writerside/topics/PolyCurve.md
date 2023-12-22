@@ -1,10 +1,12 @@
-# PolyCurve User Guide
+# PolyCurve
 
 The `PolyCurve` class represents a sequence of connected curves segments, extending a circular
 doubly-linked list (CDLL) of curve segments. In the simplest case where each segment is represented by a line
 PolyCurve is a polyline.
 However, PolyCurve can be composed of any parametric curve segment objects.
 
+
+---
 
 > **Parametric Curve Segment Protocol** - protocol that have the evaluate method in the range (0., 1.)` and provide
 > `start` and `end` descriptors with getter and setter allowing to assign the start and end point of the segment.
@@ -20,6 +22,9 @@ class PolyCurve(LineCDLL):
     Provides methods for manipulating and querying the polyline.
     """
 ```
+
+{
+src="../mmcore/geom/polycurve.py" include-lines="117-133" collapsible="true"}
 
 ## Attributes
 
@@ -37,9 +42,9 @@ For example:
 
 ```python
 import numpy as np
-from polyline import PolyCurve
+from mmcore.geom.polycurve import PolyCurve
 
-pts = np.array([[0, 0], [1, 1], [2, 2]], dtype=np.int)
+pts = np.array([[0, 0, 0], [1, 1, 0], [2, 2, 0]], dtype=float)
 poly = PolyCurve(pts)
 ```
 
@@ -48,7 +53,7 @@ poly = PolyCurve(pts)
 ### `from_points(cls, pts)`
 
 Creates a new instance of PolyCurve from a list of points. This is a class method.
-
+src="../tests/test_polygon_variable_offset.py"}
 ```python
 @classmethod
 def from_points(cls, pts):
@@ -57,7 +62,7 @@ def from_points(cls, pts):
 Example:
 
 ```python
-pts = np.array([[0, 0], [1, 1], [2, 2]], dtype=np.int)
+pts = np.array([[0, 0, 0], [1, 1, 0], [2, 2, 0]], dtype=float)
 poly = PolyCurve.from_points(pts)
 ```
 
@@ -92,13 +97,13 @@ Parameters:
 Example:
 
 ```python
-pt = np.array([0.5, 0.5])
+pt = np.array([0.5, 0.5, 0.0])
 poly.insert_corner(pt)
 ```
 
 ### `corners(self)`
 
-Returns a numpy array of the corners of the polyline.
+Returns a numpy array of the corners of the polycurve.
 
 
 
