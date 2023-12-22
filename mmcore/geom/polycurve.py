@@ -1,43 +1,5 @@
-import functools
-import itertools
-
-import numpy as np
-from scipy.spatial import KDTree
-
-from mmcore.geom.extrusion import polyline_to_lines
-from mmcore.geom.line import Line
-from mmcore.geom.line.cdll_line import LineCDLL, LineNode
-from mmcore.geom.rectangle import Rectangle
-
-
-@functools.lru_cache(maxsize=None)
-def _cached_mbr(self: 'PolyCurve'):
-    corns = self.corners
-    return Rectangle.from_mbr(corns, closest_origin=corns[0])
-
-
-@functools.lru_cache(maxsize=None)
-def _cached_solve_kd(self: 'PolyCurve'):
-    return KDTree(self.corners)
-
-
-class PolyCurve(LineCDLL):
-    """
-    PolyCurve Class
-
-    This class represents a circular doubly linked list (CDLL) of line segments that form a polyline.
-
-    Attributes:
-        nodetype (LineNode): The type of node used in the CDLL.
-
-    Methods:
-        __init__(self, pts=None): Initializes a PolyCurve object.
-        from_points(cls, pts): Creates a new PolyCurve object from a list of points.
-        solve_kd(self): Solves the KDTree for the corners of the polyline.
-        insert_corner(self, value, index=None): Inserts a corner at a specified index or at the nearest index.
-        corners(self): Returns an array of the corners of the polyline.
-        corners(self, corners): Sets the corners of the polyline.
-    Example:
+"""
+PolyCurve Example:
     >>> # Creating PolyCurve with points
     >>> from mmcore.geom.polycurve import PolyCurve
     >>> pts=np.array([(-22.047791358681653, -0.8324885498102903, 0.0),
@@ -126,6 +88,48 @@ array([[-15.        ,   0.        ,   0.        ],
        [ 25.97256027, -24.99737032,   0.        ],
        [ 19.7938404 , -36.87542663,   0.        ]])
 
+
+"""
+
+import functools
+import itertools
+
+import numpy as np
+from scipy.spatial import KDTree
+
+from mmcore.geom.extrusion import polyline_to_lines
+from mmcore.geom.line import Line
+from mmcore.geom.line.cdll_line import LineCDLL, LineNode
+from mmcore.geom.rectangle import Rectangle
+
+
+@functools.lru_cache(maxsize=None)
+def _cached_mbr(self: 'PolyCurve'):
+    corns = self.corners
+    return Rectangle.from_mbr(corns, closest_origin=corns[0])
+
+
+@functools.lru_cache(maxsize=None)
+def _cached_solve_kd(self: 'PolyCurve'):
+    return KDTree(self.corners)
+
+
+class PolyCurve(LineCDLL):
+    """
+    PolyCurve Class
+
+    This class represents a circular doubly linked list (CDLL) of line segments that form a polyline.
+
+    Attributes:
+        nodetype (LineNode): The type of node used in the CDLL.
+
+    Methods:
+        __init__(self, pts=None): Initializes a PolyCurve object.
+        from_points(cls, pts): Creates a new PolyCurve object from a list of points.
+        solve_kd(self): Solves the KDTree for the corners of the polyline.
+        insert_corner(self, value, index=None): Inserts a corner at a specified index or at the nearest index.
+        corners(self): Returns an array of the corners of the polyline.
+        corners(self, corners): Sets the corners of the polyline.
     """
     nodetype = LineNode
 

@@ -1,4 +1,4 @@
-# PolyLines and PolyCurves
+# PolyLine
 
 This doc provides a detailed explanation of the `mmcore.geom.polyline` module, which contains several
 functions and classes for handling and manipulating polylines. The module contains several functions and classes, which
@@ -61,7 +61,4 @@ segment <code>3</code> will be evaluated with <code> t = 0.1</code>.
 1. `PolyLine`: Represents a polyline in a 3D space. Provides methods for evaluating the polyline at specific
    parameter values, adding chamfers to corners of the polyline, and accessing the corners of the polyline.
 
-2. `PolyCurve`: Represents a sequence of connected curve segments. Allows operations like evaluating
-   points along its length, inserting new corners, and accessing the corners of the polyline.
 
----
