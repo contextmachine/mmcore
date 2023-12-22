@@ -32,12 +32,7 @@ def angle_3p(p1, p2, p3):
     return angle
 
 
-def is_clockwise(p1, p2, p3):
-    """ returns True iff triangle p1,p2,p3 is clockwise oriented"""
-    u = p2 - p1
-    v = p3 - p2
-    perp_u = np.array([-u[1], u[0]])
-    return tol_lt(dot(perp_u, v), 0)
+
 
 
 def is_counterclockwise(p1, p2, p3):
@@ -90,3 +85,19 @@ def is_right_handed(p1, p2, p3, p4):
     uv = cross(u, v)
     w = p4 - p1
     return dot(uv, w) > 0
+
+
+def is_clockwise(polygon: list) -> bool:
+    """
+    Determine if a polygon is clockwise or counterclockwise.
+    :param polygon: A list of points representing the polygon.
+    :type polygon: list
+    :return: True if the polygon is clockwise, False otherwise.
+    :rtype: bool
+    """
+    sum_ = 0
+    for i in range(len(polygon) - 1):
+        cur = polygon[i]
+        next_ = polygon[i + 1]
+        sum_ += (next_[0] - cur[0]) * (next_[1] + cur[1])
+    return sum_ < 0

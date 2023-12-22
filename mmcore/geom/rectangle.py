@@ -4,6 +4,7 @@ import functools
 import numpy as np
 import shapely
 from multipledispatch import dispatch
+from scipy.spatial import ConvexHull
 
 from mmcore.base.ecs.components import component
 from mmcore.func import vectorize
@@ -12,6 +13,7 @@ from mmcore.geom import plane
 from mmcore.geom.parametric import point_to_plane_distance
 from mmcore.geom.plane import Plane, PlaneComponent, WXY, rotate_plane_around_plane
 from mmcore.geom.polyline import evaluate_polyline, polyline_to_lines
+from mmcore.geom.shapes import reverse_vertices
 from mmcore.geom.shapes.area import polygon_area
 from mmcore.geom.vec import cross, dist, norm, unit, dot
 from mmcore.geom.line import Line
@@ -43,7 +45,7 @@ from mmcore.collections import DCLL
 from mmcore.base.ecs.components import EcsProperty
 
 _RECT_INDICES = DCLL.from_list([0, 1, 2, 3])
-
+from mmcore.geom.utils.num import roll_to_index, min_index
 class Rectangle(plane.Plane):
     ecs_uv = EcsProperty(type=UV)
     ecs_rectangle = EcsProperty(type=RectangleComponent)
@@ -277,8 +279,12 @@ class Rectangle(plane.Plane):
 
         )
 
-
-
+    @classmethod
+    def from_mbr(cls, points: 'np.ndarray | list | tuple', closest_origin=None):
+        r = mbr(points, ctor=cls.from_corners)
+        if closest_origin is not None:
+            return make_rect_origin_closest(r, closest_origin)
+        return r
 
 @vectorize(signature='(j,i),()->()')
 def create_line_extrusion(lnn, h):
@@ -502,4 +508,78 @@ class RectangleCollection(composite(Rectangle)):
         return shapely.geometry.mapping(self.poly)['coordinates'][0]
 
 
+def minimum_bounding_rectangle(points):
+    """
+    Find the smallest bounding rectangle for a set of points.
+    Returns a set of points representing the corners of the bounding box.
 
+    :param points: an nx2 matrix of coordinates
+    :rval: an nx2 matrix of coordinates
+    """
+
+    pi2 = np.pi / 2.
+
+    # get the convex hull for the points
+    hull_points = points[ConvexHull(points).vertices]
+
+    # calculate edge angles
+    edges = np.zeros((len(hull_points) - 1, 2))
+    edges = hull_points[1:] - hull_points[:-1]
+
+    angles = np.zeros((len(edges)))
+    angles = np.arctan2(edges[:, 1], edges[:, 0])
+
+    angles = np.abs(np.mod(angles, pi2))
+    angles = np.unique(angles)
+
+    # find rotation matrices
+    # XXX both work
+    rotations = np.vstack([np.cos(angles), np.cos(angles - pi2), np.cos(angles + pi2), np.cos(angles)]).T
+    #     rotations = np.vstack([
+    #         np.cos(angles),
+    #         -np.sin(angles),
+    #         np.sin(angles),
+    #         np.cos(angles)]).T
+    rotations = rotations.reshape((-1, 2, 2))
+
+    # apply rotations to the hull
+    rot_points = np.dot(rotations, hull_points.T)
+
+    # find the bounding points
+    min_x = np.nanmin(rot_points[:, 0], axis=1)
+    max_x = np.nanmax(rot_points[:, 0], axis=1)
+    min_y = np.nanmin(rot_points[:, 1], axis=1)
+    max_y = np.nanmax(rot_points[:, 1], axis=1)
+
+    # find the box with the best area
+    areas = (max_x - min_x) * (max_y - min_y)
+    best_idx = np.argmin(areas)
+
+    # return the best box
+    x1 = max_x[best_idx]
+    x2 = min_x[best_idx]
+    y1 = max_y[best_idx]
+    y2 = min_y[best_idx]
+    r = rotations[best_idx]
+
+    rval = np.zeros((4, 2))
+    rval[0] = np.dot([x1, y2], r)
+    rval[1] = np.dot([x2, y2], r)
+    rval[2] = np.dot([x2, y1], r)
+    rval[3] = np.dot([x1, y1], r)
+
+    return rval
+
+
+def make_rect_origin_closest(rect, point=np.array([0., 0., 0.])):
+    d = dist(np.array(point), rect.corners)
+    m = min_index(d)
+    print(m)
+    return rect.__class__.from_corners(roll_to_index(rect.corners, m))
+
+
+def mbr(pts, ctor=Rectangle.from_corners):
+    z = np.zeros((4, 3), pts.dtype)
+    z[..., :2] = minimum_bounding_rectangle(pts[..., :2])
+
+    return ctor(np.array(reverse_vertices(z.tolist())))

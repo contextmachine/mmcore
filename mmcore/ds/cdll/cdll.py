@@ -71,6 +71,32 @@ class CDLL:
         self.insert(data, self.count)
         return
 
+    def __getitem__(self, item):
+        return self.get(item)
+
+    def __setitem__(self, key, value):
+        self.get_node(key).data = value
+
+    def __delitem__(self, key):
+        self.remove_by_index(key)
+
+    def __iter__(self):
+        if self.head is not None:
+
+            yield self.head.data
+            temp = self.head.next
+            while (temp != self.head):
+                yield temp.data
+                temp = temp.next
+        else:
+            yield
+
+    def __len__(self):
+        return self.count
+
+    def __contains__(self, item):
+        return self.index(item) is not None
+
     def append_node(self, node):
         if self.head is None:
             self.head = node
@@ -112,7 +138,7 @@ class CDLL:
                 yield temp
                 temp = temp.next
 
-    def remove(self, index):
+    def remove_by_index(self, index):
         if (index >= self.count) | (index < 0):
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
         if self.count == 1:
@@ -127,16 +153,33 @@ class CDLL:
         target.previous.next, target.next.previous = target.next, target.previous
         self.count -= 1
 
+    def remove(self, data):
+        temp = self.head
+        for i in range(self.count):
+            if (temp.data == data):
+                if temp is self.head:
+                    self.head = self.head.next
+                temp.previous.next, temp.next.previous = temp.next, temp.previous
+                del temp.next
+                del temp.previous
+                del temp
+                self.count -= 1
+                break
+
+            temp = temp.next
+
     def index(self, data):
         temp = self.head
         for i in range(self.count):
             if (temp.data == data):
                 return i
             temp = temp.next
-        return None
 
     def get(self, index):
-        if (index >= self.count) | (index < 0):
+        if index < 0:
+            index = self.count + index
+
+        elif (index >= self.count):
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
         temp = self.head
         for _ in range(index):

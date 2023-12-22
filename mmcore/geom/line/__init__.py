@@ -69,6 +69,7 @@ def perp2d(vec):
     return v2
 
 
+from mmcore.geom.tolerance import hash_ndarray_float
 class Line:
     """
     Represents a line in 3D space defined by a start point, direction, and end point.
@@ -171,7 +172,8 @@ class Line:
         self._array[3] = unit(direction)
 
     def __hash__(self):
-        return hash((tuple(self.start), tuple(self.end)))
+
+        return hash((hash_ndarray_float(self.start), hash_ndarray_float(self.end)))
     @property
     def direction(self):
         return self._array[2]

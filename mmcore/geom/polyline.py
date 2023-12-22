@@ -1,15 +1,17 @@
+import functools
 import itertools
+from typing import Any
+
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.line.cdll_line import LineCDLL, LineNode
-from mmcore.geom.line import evaluate_line, Line
+from mmcore.geom.line import evaluate_line
 from mmcore.geom.plane import WXY, world_to_local, local_to_world
 
 
 
 @vectorize(signature='(i,j),()->(j)')
-def evaluate_polyline(corners, t: float):
+def evaluate_polyline(corners, t: float) -> np.ndarray[Any, np.dtype[float]]:
     """
     Evaluate the position on a polyline at a given parametric value.
 
@@ -148,7 +150,19 @@ def _line_line_intersection(self: np.ndarray[(2, 3), float], other: np.ndarray[(
         return np.array([np.nan, np.nan])
 
 
-def polyline_intersection(a, b):
+def polyline_intersection(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+        Find the intersection points between two polylines.
+
+        :param a: The first polyline.
+        :type a: ndarray of shape (num_points, 2)
+
+        :param b: The second polyline.
+        :type b: ndarray of shape (num_points, 2)
+
+        :return: An array of intersection points.
+        :rtype: ndarray of shape (num_intersections, 2)
+    """
     pln, pln2 = polyline_to_lines(a), polyline_to_lines(b)
     l = []
     for i in range(len(pln)):
@@ -216,204 +230,7 @@ from scipy.spatial import KDTree
 from mmcore.geom.curves import ParametricPlanarCurve
 
 
-class PolyCurve(LineCDLL):
-    """
-    PolyCurve Class
 
-    This class represents a circular doubly linked list (CDLL) of line segments that form a polyline.
-
-    Attributes:
-        nodetype (LineNode): The type of node used in the CDLL.
-
-    Methods:
-        __init__(self, pts=None): Initializes a PolyCurve object.
-        from_points(cls, pts): Creates a new PolyCurve object from a list of points.
-        solve_kd(self): Solves the KDTree for the corners of the polyline.
-        insert_corner(self, value, index=None): Inserts a corner at a specified index or at the nearest index.
-        corners(self): Returns an array of the corners of the polyline.
-        corners(self, corners): Sets the corners of the polyline.
-    Example:
-    >>> # Creating PolyCurve with points
-    >>> from mmcore.geom.polyline import PolyCurve
-    >>> pts=np.array([(-22.047791358681653, -0.8324885498102903, 0.0),
-    ...                (-9.3805108456226147, -28.660718210796471, 0.0),
-    ...                (22.846252925543098, -27.408177802862003, 0.0),
-    ...                (15.166676249569946, 2.5182225098112045, 0.0)])
-    >>> poly=PolyCurve(pts)
-    >>> poly
-    Out: PolyCurve[LineNode](length=4) at 00000000000
-    >>> # Inserting a single corner
-    >>> pt=np.array((24.707457249539218, -8.0614698399460814, 0.0))
-    >>> poly.insert_corner(pt)
-    >>> poly.corners
-    Out:
-    array([[-22.04779136,  -0.83248855,   0.        ],
-           [ -9.38051085, -28.66071821,   0.        ],
-           [ 22.84625293, -27.4081778 ,   0.        ],
-           [ 24.70745725,  -8.06146984,   0.        ],
-           [ 15.16667625,   2.51822251,   0.        ]])
-
-    >>> # Inserting a multiple corners
-    >>> for i in [(-8.7294742050094118, 9.9843044974317401, 0.0), (-31.500187542229803, -6.5544241369704661, 0.0),
-    ...           (-21.792672908993747, -25.849607543773036, 0.0), (33.695960118022263, -10.149799927057904, 0.0),
-    ...           (19.793840396350852, -36.875426633374516, 0.0), (7.3298709907144382, 9.6247669184230027, 0.0),
-    ...           (26.625054397516983, -0.44228529382181825, 0.0), (-34.376488174299752, -18.778701823267753, 0.0),
-    ...           (0.85819456855706555, 14.418601305206250, 0.0)]:
-    ...      poly.insert_corner(i)
-    >>> poly
-    Out: PolyCurve[LineNode](length=14) at 0x16f3633d0
-    >>>  poly.corners
-    Out:
-    array([[-22.04779136,  -0.83248855,   0.        ],
-           [ -9.38051085, -28.66071821,   0.        ],
-           [ 22.84625293, -27.4081778 ,   0.        ],
-           [ 33.69596012, -10.14979993,   0.        ],
-           [ 19.7938404 , -36.87542663,   0.        ],
-           [ 24.70745725,  -8.06146984,   0.        ],
-           [-21.79267291, -25.84960754,   0.        ],
-           [-34.37648817, -18.77870182,   0.        ],
-           [-31.50018754,  -6.55442414,   0.        ],
-           [ -8.72947421,   9.9843045 ,   0.        ],
-           [  0.85819457,  14.41860131,   0.        ],
-           [  7.32987099,   9.62476692,   0.        ],
-           [ 26.6250544 ,  -0.44228529,   0.        ],
-           [ 15.16667625,   2.51822251,   0.        ]])
-
-    >>> # Evaluate
-    >>> poly(np.linspace(0,4,10))
-    Out:
-    array([[-22.04779136,  -0.83248855,   0.        ],
-           [-16.41788891, -13.20059062,   0.        ],
-           [-10.78798646, -25.56869269,   0.        ],
-           [  1.36174374, -28.24320474,   0.        ],
-           [ 15.68474987, -27.68652012,   0.        ],
-           [ 12.92649163, -27.06182886,   0.        ],
-           [ -6.91303096, -26.36913096,   0.        ],
-           [-23.19087461, -25.06395135,   0.        ],
-           [-28.78368139, -21.92132659,   0.        ],
-           [-34.37648817, -18.77870182,   0.        ]])
-
-    >>> points=poly.evaluate_node(np.linspace(0,4,10))
-    PointsOnCurveCollection(length=10)
-    >>> np.array(points)
-Out:
-array([[-22.04779136,  -0.83248855,   0.        ],
-       [-16.41788891, -13.20059062,   0.        ],
-       [-10.78798646, -25.56869269,   0.        ],
-       [  1.36174374, -28.24320474,   0.        ],
-       [ 15.68474987, -27.68652012,   0.        ],
-       [ 25.25729897, -23.57298272,   0.        ],
-       [ 30.07939105, -15.90259255,   0.        ],
-       [ 32.15128015, -13.11931401,   0.        ],
-       [ 25.97256027, -24.99737032,   0.        ],
-       [ 19.7938404 , -36.87542663,   0.        ]])
-
->>> poly.set_corner(0,[-15.,  0.,   0.        ])
->>> np.array(pts) # strong linking
-array([[-15.        ,   0.        ,   0.        ],
-       [ -9.37009755, -12.36810207,   0.        ],
-       [ -3.7401951 , -24.73620414,   0.        ],
-       [  1.36174374, -28.24320474,   0.        ],
-       [ 15.68474987, -27.68652012,   0.        ],
-       [ 25.25729897, -23.57298272,   0.        ],
-       [ 30.07939105, -15.90259255,   0.        ],
-       [ 32.15128015, -13.11931401,   0.        ],
-       [ 25.97256027, -24.99737032,   0.        ],
-       [ 19.7938404 , -36.87542663,   0.        ]])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-poly.insert_corner(pt)
-poly.corners
-    """
-    nodetype = LineNode
-
-    def __init__(self, pts=None):
-        super().__init__()
-        self._kd = None
-        if pts is not None:
-            lines = polyline_to_lines(np.array(pts, float))
-            for line in lines:
-                self.append((Line.from_ends(*line)))
-
-    @classmethod
-    def from_points(cls, pts):
-        lcdll = cls()
-
-        lines = polyline_to_lines(np.array(pts, float))
-        for line in lines:
-
-            lcdll.append(Line.from_ends(*line))
-
-        return lcdll
-
-    def solve_kd(self):
-        return KDTree(self.corners)
-
-    def insert_corner(self, value, index=None):
-        """
-        Inserts a corner into the KDTree.
-
-        :param value: The value to be inserted as a corner.
-        :type value: numpy array or list
-        :param index: The index where the corner should be inserted. If not specified, the method calculates the
-        appropriate index based on the KDTree.
-        :type index: int or None
-        :return: None
-        :rtype: None
-        """
-        value = np.array(value, float)
-        if index is None:
-            kd = self.solve_kd()
-            dists, indices = kd.query(value, 2)
-            indices = np.sort(np.abs(indices))
-            delta = indices[0] - indices[1]
-            if delta == 1:
-                index = indices[0]
-
-            else:
-
-                index = indices[-1]
-        super().insert_corner(value, index)
-
-    @property
-    def corners(self):
-
-        return np.array([list(i) for i in self.gen_intersects()])
-
-    @corners.setter
-    def corners(self, corners):
-        for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None):
-
-            if corner is None:
-                break
-            elif node is None:
-
-                self.insert_corner(corner)
-            elif np.allclose(corner, node.start):
-                pass
-            else:
-                node.start = np.array(corner)
-                node.previous.end = np.array(corner)
 
 
 class PolyLine(ParametricPlanarCurve):
@@ -468,7 +285,7 @@ class PolyLine(ParametricPlanarCurve):
 
         return self
 
-    def evaluate(self, t) -> np.ndarray:
+    def evaluate(self, t) -> np.ndarray[Any, np.dtype[float]]:
         return evaluate_polyline(self.corners, t)
 
     def __call__(self, t) -> np.ndarray:

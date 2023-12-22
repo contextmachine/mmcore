@@ -482,3 +482,13 @@ class ShapeExtrusion:
                                                                                   name=mesh.name + 'cap2', color=col))
         return mesh
 
+
+def reverse_vertices(polygon: list) -> list:
+    """
+    Reverse the order of vertices in a polygon.
+    :param polygon: The polygon represented as a list of vertices.
+    :type polygon: list
+    :return: The polygon with the order of vertices reversed.
+    :rtype: list
+    """
+    return polygon[::-1]
