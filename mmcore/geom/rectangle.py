@@ -574,12 +574,12 @@ def minimum_bounding_rectangle(points):
 def make_rect_origin_closest(rect, point=np.array([0., 0., 0.])):
     d = dist(np.array(point), rect.corners)
     m = min_index(d)
-    print(m)
+
     return rect.__class__.from_corners(roll_to_index(rect.corners, m))
 
 
 def mbr(pts, ctor=Rectangle.from_corners):
     z = np.zeros((4, 3), pts.dtype)
     z[..., :2] = minimum_bounding_rectangle(pts[..., :2])
-
-    return ctor(np.array(reverse_vertices(z.tolist())))
+    v = np.array(reverse_vertices(z.tolist()))
+    return ctor(v)
