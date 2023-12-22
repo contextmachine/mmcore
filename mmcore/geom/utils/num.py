@@ -25,4 +25,4 @@ def similar_index(values, value, return_first=False):
 
 
 def roll_to_index(value: np.ndarray, i: int):
-    return value[np.roll(np.arange(len(value)), i, axis=0)]
+    return value[np.roll(np.arange(len(value)), -i, axis=0)]
