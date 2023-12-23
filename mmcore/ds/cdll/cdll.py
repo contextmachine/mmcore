@@ -51,9 +51,14 @@ class CDLL:
     """
     nodetype = Node
 
-    def __init__(self):
+    def __init__(self, seq=None):
         self.head = None
         self.count = 0
+
+        if seq is not None:
+            for i in seq:
+                self.append(i)
+
 
     def __repr__(self):
         string = ""
@@ -199,3 +204,4 @@ class CDLL:
         for _ in range(index):
             temp = temp.next
         return temp
+

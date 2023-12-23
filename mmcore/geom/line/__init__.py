@@ -1,6 +1,6 @@
 from collections import deque
 
-from typing import Iterable
+from typing import Any, Iterable
 
 from scipy.linalg import solve
 
@@ -347,14 +347,14 @@ class Line:
         return unit(z)
 
     @vectorize(excluded=[0, 2], signature='(i)->(i)')
-    def closest_point(self, pt, return_parameter=False):
+    def closest_point(self, pt)->np.ndarray[Any, np.dtype[float]]:
         t = self.closest_parameter(pt)
-        if return_parameter:
-            return self.evaluate(t), t
+
+
         return self.evaluate(t)
 
     @vectorize(excluded=[0], signature='(i)->()')
-    def closest_parameter(self, pt: 'tuple|list|np.ndarray'):
+    def closest_parameter(self, pt: 'tuple|list|np.ndarray')->np.ndarray[Any, np.dtype[float]]:
         """
         :param pt: The point to which the closest parameter is to be found.
         :type pt: list, tuple or numpy array
@@ -367,7 +367,7 @@ class Line:
         return np.dot(self.unit, vec / self.length())
 
     @vectorize(excluded=[0], signature='(i)->()')
-    def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]'):
+    def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]')->np.ndarray[Any, np.dtype[float]]:
         """
         :param pt: The point for which the closest distance needs to be calculated.
         :type pt: list, tuple or numpy array
