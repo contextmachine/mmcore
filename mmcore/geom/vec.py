@@ -18,7 +18,7 @@ def angle(a, b):
     :param b: Second vector
     :type b: numpy array
     :return: Angle between the two vectors
-    :rtype: float
+    :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
     """
     if DEBUG_MODE:
         if (not 0.9999 <= np.linalg.norm(a) <= 1.0001) or (not 0.9999 <= np.linalg.norm(b) <= 1.0001):
@@ -38,10 +38,10 @@ def norm(v):
         This method calculates the norm of a vector.
 
         :param v: The input vector.
-        :type v: numpy.ndarray
+        :type v: numpy.ndarray[Any, numpy.dtype[float]]
 
         :return: The norm of the input vector.
-        :rtype: float
+        :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
 
     """
     return np.sqrt(np.sum(v ** 2))
@@ -51,11 +51,11 @@ def norm(v):
 def dist(a, b):
     """
     :param a: a vector representing the first point
-    :type a: numpy.ndarray
+    :type a: numpy.ndarray[Any, numpy.dtype[float]]
     :param b: a vector representing the second point
-    :type b: numpy.ndarray
+    :type b: numpy.ndarray[Any, numpy.dtype[float]]
     :return: the distance between the two points
-    :rtype: float
+    :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
 
     """
     if DEBUG_MODE:
@@ -69,9 +69,9 @@ def dist(a, b):
 def unit(v: 'list|tuple|np.ndarray'):
     """
     :param v: The input vector
-    :type v: numpy.ndarray
+    :type v: numpy.ndarray[Any, numpy.dtype[float]]
     :return: The normalized vector
-    :rtype: numpy.ndarray
+    :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
     if DEBUG_MODE:
         if np.isclose(np.linalg.norm(v), 0):
@@ -84,11 +84,11 @@ def unit(v: 'list|tuple|np.ndarray'):
 def cross(a, b):
     """
     :param a: The first vector a
-    :type a: numpy.ndarray or array-like
+    :type a: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     :param b: The second vector b
-    :type b: numpy.ndarray or array-like
+    :type b: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     :return: The cross product of vectors a and b
-    :rtype: numpy.ndarray or array-like
+    :rtype: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     """
     return np.cross(a, b)
 
@@ -97,11 +97,11 @@ def cross(a, b):
 def dot(a, b):
     """
     :param a: First input array.
-    :type a: numpy.ndarray
+    :type a: numpy.ndarray[Any, numpy.dtype[float]]
     :param b: Second input array.
-    :type b: numpy.ndarray
+    :type b: numpy.ndarray[Any, numpy.dtype[float]]
     :return: The dot product of `a` and `b`.
-    :rtype: numpy.ndarray
+    :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
     return np.dot(a, b)
 
@@ -113,9 +113,9 @@ def perp2d(vec):
     Calculate the perpendicular vector to the given 2D vector.
 
     :param vec: The input 2D vector.
-    :type vec: numpy.ndarray
+    :type vec: numpy.ndarray[Any, numpy.dtype[float]]
     :return: The perpendicular vector to the input vector.
-    :rtype: numpy.ndarray
+    :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
     if DEBUG_MODE:
         if len(vec) != 2:
@@ -135,7 +135,7 @@ def scale_vector(vec, length):
     :param length: The scaling factor.
     :type length: float or int
     :return: The scaled vector.
-    :rtype: numpy.array
+    :rtype: numpy.ndarray
     """
     return vec * length
 
@@ -146,13 +146,13 @@ def add_multiply_vectors(a, b):
         This method adds two vectors element-wise and returns the result.
 
         :param a: The first vector.
-        :type a: numpy.ndarray
+        :type a: numpy.ndarray[Any, numpy.dtype[float]]
 
         :param b: The second vector.
-        :type b: numpy.ndarray
+        :type b: numpy.ndarray[Any, numpy.dtype[float]]
 
         :return: The resulting vector after adding the two input vectors.
-        :rtype: numpy.ndarray
+        :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
     if DEBUG_MODE:
         if len(a) != len(b):
@@ -167,13 +167,13 @@ def rotate_matrix(a):
         This method adds two vectors element-wise and returns the result.
 
         :param a: The first vector.
-        :type a: numpy.ndarray
+        :type a: numpy.ndarray[Any, numpy.dtype[float]]
 
         :param b: The second vector.
-        :type b: numpy.ndarray
+        :type b: numpy.ndarray[Any, numpy.dtype[float]]
 
         :return: The resulting vector after adding the two input vectors.
-        :rtype: numpy.ndarray
+        :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
 
     r = np.eye(3)

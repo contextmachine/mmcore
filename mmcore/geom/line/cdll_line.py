@@ -1,6 +1,11 @@
 import functools
 import itertools
-from typing import Any
+from typing import Any, Protocol, Type, TypeVar
+import numpy as np
+T=TypeVar("T")
+
+
+from scipy.spatial import KDTree
 
 from mmcore.ds.cdll import CDLL, Node
 from mmcore.geom.interfaces import ArrayInterface
@@ -10,11 +15,38 @@ from mmcore.geom.vec import *
 
 
 class LineNode(Node):
-    def __init__(self, data):
+    """A class representing a node on a line.
+
+    Inherits from Node class.
+
+    Attributes:
+        _next_offset: A LineOffset object representing the next offset of the line node.
+        start: A tuple representing the start point of the line node.
+        end: A tuple representing the end point of the line node.
+    """
+    def __init__(self, data:Line):
+        self._next_offset = None
         super().__init__(data)
 
+    def closest_point(self, pts):
+        return self.data.closest_point(pts)
+    def closest_distance(self, pts):
+        return self.data.closest_distance(pts)
+
+    def closest_parameter(self, pts):
+        return self.data.closest_parameter(pts)
+    def closest_point_full(self, pts):
+        return self.data.closest_point_full(pts)
+    def evaluate_distance(self, d):
+        return self.data.evaluate_distance(d)
+    def evaluate_node(self, t):
+        return PointsOnCurveCollection(self.data(t),self.data)
+    def closest_point_node(self, closest_points):
+        return ClosestPointsOnCurveCollection(closest_points,self.data)
+
     def __hash__(self):
-        return hash(self.data)
+
+            return hash(self.data)
 
     def __eq__(self, other):
         return self.__hash__() == other.__hash__()
@@ -53,16 +85,6 @@ class LineNode(Node):
     def __call__(self, t):
         return self.start + self.direction * t
 
-    @vectorize(excluded=[0], signature='(i)->()')
-    def closest_parametr(self, point):
-        vec = np.array(point) - self.start
-        return np.dot(self.unit, vec / self.length)
-
-    def closest_point(self, point):
-        return self(self.closest_parametr(point))
-
-    def closest_distance(self, point):
-        return dist(point, self(self.closest_parametr(point)))
 
     def intersect_lstsq(self, other: 'LineNode'):
         (x1, y1, z1), (x2, y2, z2) = self.start, self.end
@@ -85,16 +107,28 @@ class LineNode(Node):
     def offset(self, dists: 'float|np.ndarray'):
         if np.isscalar(dists):
             dists = np.zeros(2, float) + dists
-        print(dists)
-        return LineOffset(dists, offset_previous=self)
+
+        self._next_offset=LineOffset(dists, offset_previous=self)
+        return self._next_offset
 
 
 class LineOffset(LineNode):
-    def __init__(self, dists, offset_previous: LineNode = None):
-        super().__init__(dists)
-        self._offset_previous = offset_previous
-        self.data = dists
+    """
+    A class representing a line segment with an offset from a previous line node.
 
+    Attributes:
+        _offset_previous (LineNode): The previous line node.
+        _distance (numpy.ndarray): The distance between the start and end points.
+
+    """
+    def __init__(self, dists, offset_previous: LineNode = None):
+        super().__init__( offset_previous.data)
+        self._offset_previous = offset_previous
+        self._distance=dists
+    def __iter__(self):
+        return iter((self.start,self.end))
+    def __hash__(self):
+        return hash((hash(self._offset_previous),hash(self.distance.tobytes())))
     @property
     def offset_previous(self):
         return self._offset_previous
@@ -122,47 +156,138 @@ class LineOffset(LineNode):
 
     @property
     def distance(self):
-        return self.data
+        return self._distance
+
+
 
     @property
     def offset_unit_direction(self):
         return cross(self.offset_previous.unit, [0., 0., 1.])
 
+from mmcore.geom.tolerance import hash_ndarray_float,HashNdArrayMethod
+P=TypeVar("P")
+class ExecutableNodeProtocol(Protocol[P, T]):
+    """A protocol for executable nodes.
 
-class PointsOnCurveCollection(ArrayInterface):
-    def __init__(self, t, owner):
-        self.t = t
+    This protocol defines the behavior of executable nodes in a graph.
+
+    Args:
+        P: The type of the inputs for the node.
+        T: The type of the output of the node.
+
+    Attributes:
+
+        owner (Any): The owner of the node.
+
+    """
+
+    owner:'Any'
+
+
+    def __hash__(self)->int:...
+    def solve(self)->T:...
+
+    @property
+    def output(self)->T:
+        return self.solve()
+
+class PointsOnCurveCollection(ExecutableNodeProtocol[np.ndarray[Any, np.dtype[float]],np.ndarray[Any, np.dtype[float]]],
+                              ArrayInterface):
+    """
+    :class: `PointsOnCurveCollection`
+
+    A class that represents a collection of points on a curve.
+
+    :param params: An array of parameters representing the points on the curve.
+    :type params: numpy.ndarray
+
+    :param owner: The owner object of the collection.
+    :type owner: Any
+
+    Properties:
+        - `t`: The array of parameters representing the points on the curve.
+
+    Methods:
+        - `solve()`: Solves the curve equation and returns an array of points.
+        - `__array__(dtype: Type[T] = float) -> numpy.ndarray`: Converts the collection to a numpy array.
+        - `__hash__()`: Returns the hash value of the collection.
+        - `__iter__()`: Returns an iterator over the points on the curve collection.
+        - `__getitem__(item) -> PointOnCurve`: Returns the point on the curve at the specified index.
+        - `__repr__()`: Returns a string representation of the PointsOnCurveCollection object.
+
+    Note:
+        - This class implements the ExecutableNodeProtocol and ArrayInterface protocols.
+    """
+    def __init__(self, t: np.ndarray[Any, np.dtype[float]], owner):
+        self._t = np.array(t,float)
         self.owner = owner
+        self._output=None
+    @property
+    def params(self):
+        return {'t': self._t}
+    @property
+    def p(self):
+        return self._output
 
-    def __array__(self, dtype=float):
-        return np.array(self.owner.evaluate(self.t), dtype=dtype)
+    @property
+    def t(self):
+        return self._t
 
+    @t.setter
+    def t(self,v):
+        self._t=np.array(np.atleast_1d(v),float)
+
+    def solve(self)->np.ndarray[Any,np.dtype[float]]:
+        self._output=self.owner.evaluate(self.t)
+        return self._output
+    def __array__(self, dtype:Type[T]=float)->np.ndarray[Any,np.dtype[T]]:
+        return np.array(self.solve(), dtype=dtype)
+    def __hash__(self):
+        return hash((hash(self.owner), hash_ndarray_float(self.t, method=HashNdArrayMethod.full)))
     def __iter__(self):
-        return iter(self.owner.evaluate(self.t))
+        return iter(self.solve())
 
-    def __getitem__(self, item):
+    def __getitem__(self, item)->'PointOnCurve':
         return PointOnCurve(item, self)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(length={len(self.t)})'
+        return f'{self.__class__.__name__}(length={len(np.atleast_1d(self.t))})'
 
-
+    @property
+    def output(self)->np.ndarray[Any,np.dtype[float]]:
+        return self._output
 class PointOnCurve(ArrayInterface):
-    def __init__(self, ixs, owner):
+    """A class representing a point on a curve.
+
+    This class is used to represent a point on a curve. It provides properties and methods to access and manipulate
+    the coordinates of the point.
+
+    Attributes:
+        ixs (int): The index of the point on the curve.
+        owner (PointsOnCurveCollection): The parent collection that contains the point.
+
+    """
+    ixs:int
+    owner: 'PointsOnCurveCollection'
+    def __init__(self, ixs:int, owner:PointsOnCurveCollection):
         self.ixs = ixs
         self.owner = owner
 
     @property
-    def p(self):
-        return self.owner.owner(self.owner.t[self.ixs])
+    def params(self):
+        return {'i': self.ixs}
+    @property
+    def p(self)->np.ndarray[Any,np.dtype[float]]:
+        return self.owner.owner(self.t)
 
     @property
-    def t(self):
-        return self.owner.t[self.ixs]
+    def t(self)->float:
+        return float(self.owner.t[self.ixs])
 
     @t.setter
-    def t(self, v):
+    def t(self, v:float):
         self.owner.t[self.ixs] = v
+
 
     def __array__(self, dtype=float):
         return np.array(self.p, dtype=dtype)
@@ -179,9 +304,218 @@ class PointOnCurve(ArrayInterface):
                 f'={np.round(self.p, 4)})')
 
 
+class ClosestPointsOnCurveCollection(PointsOnCurveCollection):
+    """
+    Class ClosestPointsOnCurveCollection
+
+    Class representing a collection of closest points on a curve.
+    Inherits from PointsOnCurveCollection.
+
+    Attributes:
+        closest_points (list): List of closest points on the curve
+        _t (float): Parameter value of the closest point
+
+    Methods:
+        __init__(closest_points, owner)
+            Initialize the ClosestPointsOnCurveCollection object
+
+            Parameters:
+                closest_points (list): List of closest points on the curve
+                owner (Line): Line object representing the curve
+
+            Returns:
+                None
+
+        solve()
+            Solve for the closest point on the curve
+
+            Parameters:
+                None
+
+            Returns:
+                None
+
+        __setitem__(key, value)
+            Set a value in closest_points using key
+
+            Parameters:
+                key: Position of the value in closest_points list
+                value: Value to set in closest_points list
+
+            Returns:
+                None
+
+        __getitem__(item)
+            Get a ClosestPointOnCurve object from closest_points at the given position
+
+            Parameters:
+                item: Position of the ClosestPointOnCurve object in closest_points list
+
+            Returns:
+                ClosestPointOnCurve: ClosestPointOnCurve object
+
+        t()
+            Get the parameter value of the closest point
+
+            Parameters:
+                None
+
+            Returns:
+                float: Parameter value of the closest point
+    """
+    def __init__(self, closest_points, owner: Line):
+        self.closest_points = closest_points
+
+        super().__init__(owner.closest_parameter(np.array(self.closest_points)), owner)
+
+
+    @property
+    def params(self):
+        return {'closest_points': self.closest_points}|super().params
+    def solve(self):
+        self._t=self.owner.closest_parameter(np.array(self.closest_points))
+        return self._t
+    def __setitem__(self, key, value):
+
+        self.closest_points.__setitem__(key, value)
+    def __getitem__(self, item):
+        return ClosestPointOnCurve(item,self)
+    @property
+    def t(self):
+
+        return self._t
+
+class ClosestPointOnCurve(PointOnCurve):
+    """
+    Represents a closest point on a curve.
+
+    This class extends the `PointOnCurve` class and adds additional functionality to calculate the closest point on a curve.
+
+    Args:
+        ixs (int): The index of the closest point on the curve.
+        owner (ClosestPointsOnCurveCollection): The parent collection that manages the closest points.
+
+    Attributes:
+        ixs (int): The index of the closest point on the curve.
+        owner (ClosestPointsOnCurveCollection): The parent collection that manages the closest points.
+
+    Properties:
+        p: Property representing the closest point on the curve.
+        t: Property representing the parameter value of the closest point on the curve.
+
+    """
+    def __init__(self, ixs, owner:ClosestPointsOnCurveCollection):
+        super().__init__(ixs, owner)
+
+    @property
+    def closest_point(self):
+        return self.owner.closest_points[self.ixs]
+
+    @closest_point.setter
+    def closest_point(self, v):
+        self.owner.closest_points[self.ixs] = v
+
+    @property
+    def p(self):
+        return self.owner.owner(self.t)
+    @property
+    def t(self):
+        return self.owner.solve()[self.ixs]
+
+    @t.setter
+    def t(self,v):
+        raise AttributeError("t readonly")
+
+
+
 class IntersectionPoint(Node, ArrayInterface):
-    def __init__(self, lines: tuple[LineNode, LineNode]):
-        super().__init__(lines)
+    """
+
+    :class:`IntersectionPoint` class represents the intersection point between two lines.
+
+    .. attribute:: data
+       :type: tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]
+       :readonly:
+
+       A tuple containing the two lines that intersect.
+
+    .. method:: __init__(lines: 'tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]') -> None
+
+       Initializes a new instance of the :class:`IntersectionPoint` class.
+       It takes a tuple of two lines as input.
+
+    .. property:: line1
+       :type: Node|LineNode|LineOffset
+       :readonly:
+
+       Represents the first line of the intersection point.
+
+    .. property:: line2
+       :type: Node|LineNode|LineOffset
+       :readonly:
+
+       Represents the second line of the intersection point.
+
+    .. method:: line2.setter
+
+       Setter method for the second line.
+
+    .. method:: line1.setter
+
+       Setter method for the first line.
+
+    .. method:: solve() -> Tuple[float, float]
+
+       Solves for the intersection point between the two lines.
+       Returns a tuple of two floats representing the parameters of the intersection point on the first line.
+
+    .. method:: __getitem__(item) -> Any
+
+       Retrieves the value of the intersection point at the given index.
+       Returns the value at the specified index.
+
+    .. method:: __hash__() -> int
+
+       Calculates the hash value of the intersection point.
+       Returns an integer representing the hash value.
+
+    .. method:: __len__() -> int
+
+       Returns the length of the intersection point, which is always 3.
+
+    .. property:: p
+       :type: Any
+       :readonly:
+
+       Returns the actual coordinates of the intersection point.
+       Returns the coordinates as a tuple of two floats.
+
+    .. property:: bounded
+       :type: numpy.ndarray[bool]
+       :readonly:
+
+       Checks if the intersection point is within the bounds of both lines.
+       Returns a numpy array of boolean values indicating if the intersection point is within bounds.
+
+    .. method:: __array__(dtype=float) -> numpy.ndarray
+
+       Converts the intersection point to a numpy array of specified data type.
+       Returns a numpy array representing the intersection point.
+
+    .. method:: __iter__() -> Iterator
+
+       Returns an iterator for the intersection point.
+       Returns an"""
+    data:'tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]'
+
+    def __init__(self, lines: 'tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]'):
+        super().__init__([lines[0],lines[1]])
+        self.prev_curve_node=lines[0]
+        self.next_curve_node=lines[1]
+
+        lines[0].next_intersection_node=self
+        lines[1].prev_intersection_node=self
+        self.solve()
 
     @property
     def line1(self):
@@ -232,40 +566,116 @@ class IntersectionPoint(Node, ArrayInterface):
     def __repr__(self):
         return f'{self.__class__.__name__}({self.line1} x {self.line2})'
 
-
+@functools.lru_cache(maxsize=None)
+def _cached_solve_kd(self: 'LineCDLL'):
+    """
+    :param self: The instance of the LineCDLL class.
+    :type self: LineCDLL
+    :return: The KDTree object created using the corners of the LineCDLL instance.
+    :rtype: KDTree
+    """
+    return KDTree(self.corners)
 class LineCDLL(CDLL):
     """
-    Class LineCDLL
+    :class:`LineCDLL`
 
-    A class representing a doubly linked circular list of line segments
+    Subclass of :class:`CDLL` with node type :class:`LineNode`.
 
-    Properties:
-    - nodetype (class attribute): The class of the nodes in the list
-    - lengths: Returns an array of the lengths of all line segments in the list
-    - starts: Returns an array of the starting points of all line segments in the list
-    - ends: Returns an array of the ending points of all line segments in the list
-    - angles: Returns an array of the angles between each line segment and its successor
-    - dots: Returns an array of the dot products between each line segment and its successor
-    - units: Returns an array of the unit vectors of each line segment
-    - dot_matrix: Returns the dot product matrix of the unit vectors of each line segment
-    - dist_matrix: Returns an array of the closest distances between the line segments and their midpoints
-    - orient_dots: Returns an array of the dot products between each line segment's unit vector and [0., 1., 0.]
-    - corners: Returns an array of the corner points from intersecting lines
+    .. method:: __repr__()
 
-    Methods:
-    - from_cdll(cls, cdll: CDLL): Returns an instance of LineCDLL converted from a CDLL
-    - close(): Closes the circular list by connecting the last node with the first node
-    - evaluate(t): Returns the position of the line at time t
-    - evaluate_node(t): Returns the position of the line at time t as a PointsOnCurveCollection object
-    - offset(dists): Returns an LineCDLL instance offset by the given distance(s)
-    - get_intersects(): Returns a CDLL instance containing all intersection points between line segments
-    - gen_intersects(): Yields intersection points between line segments
+        Return a string representation of the object.
 
-    """
+        :return: The string representation of the object.
+        :rtype: str
+
+    .. method:: closest_parametr(point: np.ndarray)
+
+        Find the closest parameter on the line to a given point.
+
+        :param point: The point to find the closest parameter to.
+        :type point: numpy.ndarray
+        :return: The closest parameter on the line to the given point.
+        :rtype: float
+
+    .. attribute:: lengths
+
+        An array of lengths for each node in the graph.
+
+        :type: numpy.ndarray
+
+    .. attribute:: starts
+
+        The starting positions of nodes as a NumPy array.
+
+        :type: numpy.ndarray
+
+    .. attribute:: ends
+
+        The ending positions of nodes as a NumPy array.
+
+        :type: numpy.ndarray
+
+    .. attribute:: angles
+
+        An array of angles for each node in the graph.
+
+        :type: numpy.ndarray
+
+    .. attribute:: dots
+
+        An array of dot products for each node in the graph.
+
+        :type: numpy.ndarray
+
+    .. attribute:: units
+
+        An array of unit vectors for each node in the graph.
+
+        :type: numpy.ndarray
+
+    .. method:: from_cdll(cdll: CDLL)
+
+        Create a new LineCDLL from an existing CDLL.
+
+        :param cdll: The CDLL to create LineCDLL from.
+        :type cdll: CDLL
+        :return: The new LineCDLL object.
+        :rtype: LineCDLL
+
+    .. method:: close()
+
+        Close the line by connecting the last node to the first node.
+
+    .. attribute:: dot_matrix
+
+        The dot product matrix of the units of each node.
+
+        :type: numpy.ndarray
+
+    .. attribute:: dist_matrix
+
+        An array of closest distances for each node in the graph.
+
+        :type: numpy.ndarray
+
+    .. attribute:: orient_dots
+
+        An array of dot products between the unit vectors of each node and the vector [0., 1., 0.].
+
+        :type: numpy.ndarray
+
+    .. method:: evaluate(t)
+
+        Evaluate the value of the function at time 't'.
+
+        :param t: The time at"""
     nodetype = LineNode
 
     def __repr__(self):
         return f'{self.__class__.__name__}[{self.nodetype.__name__}](length={self.count}) at {hex(id(self))}'
+
+    def closest_parametr(self, point:np.ndarray):
+        ...
 
     @property
     def lengths(self):
@@ -377,7 +787,8 @@ class LineCDLL(CDLL):
     def corners(self):
 
         return np.array([list(i) for i in self.gen_intersects()])
-
+    def solve_kd(self):
+        return _cached_solve_kd(self)
     @corners.setter
     def corners(self, corners):
         for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None):
@@ -451,7 +862,7 @@ class LineCDLL(CDLL):
         LineCDLL object will have nodes at positions (1, 2, 3), (3, 4, 5), and (6, 7
         *, 8), respectively.
         """
-        lst = LineCDLL()
+        lst = self.__class__()
         for node, offset_dist in itertools.zip_longest(self.iter_nodes(), np.atleast_1d(dists),
                                                        fillvalue=0. if not np.isscalar(dists) else dists
                                                        ):
@@ -468,6 +879,8 @@ class LineCDLL(CDLL):
         """
         lst = CDLL()
         for node in self.iter_nodes():
+            node.previous, node
+
             lst.append_node(IntersectionPoint((node.previous, node)))
 
         return lst
