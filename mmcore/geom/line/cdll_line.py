@@ -105,11 +105,13 @@ class LineNode(Node):
         return np.append(np.linalg.solve(A, b), z1)
 
     def offset(self, dists: 'float|np.ndarray'):
+
         if np.isscalar(dists):
             dists = np.zeros(2, float) + dists
 
         self._next_offset=LineOffset(dists, offset_previous=self)
         return self._next_offset
+
 
 
 class LineOffset(LineNode):
@@ -121,10 +123,11 @@ class LineOffset(LineNode):
         _distance (numpy.ndarray): The distance between the start and end points.
 
     """
+    _distance = None
     def __init__(self, dists, offset_previous: LineNode = None):
         super().__init__( offset_previous.data)
         self._offset_previous = offset_previous
-        self._distance=dists
+        self.distance=dists
     def __iter__(self):
         return iter((self.start,self.end))
     def __hash__(self):
@@ -158,7 +161,15 @@ class LineOffset(LineNode):
     def distance(self):
         return self._distance
 
+    @distance.setter
+    def distance(self, val):
 
+        if np.isscalar(val):
+            value = np.zeros(2)+val
+        else:
+            value=np.array(val)
+
+        self._distance =value
 
     @property
     def offset_unit_direction(self):
