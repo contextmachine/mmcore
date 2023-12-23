@@ -5,7 +5,7 @@ import operator
 import warnings
 from functools import reduce
 from uuid import uuid4
-
+import struct
 import math
 import shapely
 from shapely.geometry import mapping

@@ -109,9 +109,7 @@ def _cached_mbr(self: 'PolyCurve'):
     return Rectangle.from_mbr(corns, closest_origin=corns[0])
 
 
-@functools.lru_cache(maxsize=None)
-def _cached_solve_kd(self: 'PolyCurve'):
-    return KDTree(self.corners)
+
 
 
 class PolyCurve(LineCDLL):
@@ -159,8 +157,7 @@ class PolyCurve(LineCDLL):
 
         return lcdll
 
-    def solve_kd(self):
-        return _cached_solve_kd(self)
+
 
     def insert_corner(self, value, index=None):
         """

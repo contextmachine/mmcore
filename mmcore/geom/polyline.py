@@ -136,7 +136,9 @@ def split_polyline_by_point(pln, i):
     """
     return pln[i:], pln[:i + 1]
 
-
+def bounds_comparsion(t:np.ndarray[(2,), np.dtype[float]], bounds=(0.,1.), rtol=1e-5, atol=1e-5, equal_nan=False)->bool:
+    return np.all(np.logical_or(np.isclose(t, bounds[0], rtol, atol, equal_nan=equal_nan),
+                                np.isclose(t, bounds[1], rtol, atol, equal_nan=equal_nan)))
 @vectorize(excluded='bounded', signature='(j,i),(j,i)->(j)')
 def _line_line_intersection(self: np.ndarray[(2, 3), float], other: np.ndarray[(2, 3), float]):
     (x1, y1, z1), (x2, y2, z2) = self[0], self[1]
