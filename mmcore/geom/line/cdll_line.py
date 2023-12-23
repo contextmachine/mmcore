@@ -516,7 +516,13 @@ class IntersectionPoint(Node, ArrayInterface):
         lines[0].next_intersection_node=self
         lines[1].prev_intersection_node=self
         self.solve()
+    @property
+    def angle(self):
+        return angle(self.line1.unit,self.line2.unit)
 
+    @property
+    def dot(self):
+        return dot(self.line1.unit, self.line2.unit)
     @property
     def line1(self):
         return self.data[0]
