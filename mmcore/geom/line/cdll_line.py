@@ -691,8 +691,11 @@ class LineCDLL(CDLL):
     def __repr__(self):
         return f'{self.__class__.__name__}[{self.nodetype.__name__}](length={self.count}) at {hex(id(self))}'
 
-    def closest_parametr(self, point:np.ndarray):
-        ...
+    def closest_point_node(self, point):
+        return self.closest_segment(point).closest_point_node(point)
+
+    def closest_segment(self, point:np.ndarray)->LineNode:
+        return sorted(self.iter_nodes(), key=lambda node: node.closest_distance(point))[0]
 
     @property
     def lengths(self):

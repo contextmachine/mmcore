@@ -159,6 +159,8 @@ class PolyCurve(LineCDLL):
 
 
 
+
+
     def insert_corner(self, value, index=None):
         """
         Inserts a corner into the KDTree.
