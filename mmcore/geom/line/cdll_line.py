@@ -28,22 +28,53 @@ class LineNode(Node):
         self._next_offset = None
         super().__init__(data)
 
-    def closest_point(self, pts):
-        return self.data.closest_point(pts)
-    def closest_distance(self, pts):
-        return self.data.closest_distance(pts)
 
-    def closest_parameter(self, pts):
-        return self.data.closest_parameter(pts)
-    def closest_point_full(self, pts):
-        return self.data.closest_point_full(pts)
-    def evaluate_distance(self, d):
-        return self.data.evaluate_distance(d)
-    def evaluate_node(self, t):
-        return PointsOnCurveCollection(self.data(t),self.data)
-    def closest_point_node(self, closest_points):
-        return ClosestPointsOnCurveCollection(closest_points,self.data)
+    @vectorize(excluded=[0, 2], signature='(i)->(i)')
+    def closest_point(self, pt)->np.ndarray[Any, np.dtype[float]]:
+        t = self.closest_parameter(pt)
 
+
+        return self.evaluate(t)
+
+    @vectorize(excluded=[0], signature='(i)->()')
+    def closest_parameter(self, pt: 'tuple|list|np.ndarray')->np.ndarray[Any, np.dtype[float]]:
+        """
+        :param pt: The point to which the closest parameter is to be found.
+        :type pt: list, tuple or numpy array
+
+        :return: The closest parameter value along the line to the given point.
+        :rtype: float
+        """
+        vec = np.array(pt) - self.start
+
+        return np.dot(self.unit, vec / norm(self.direction))
+
+    @vectorize(excluded=[0], signature='(i)->()')
+    def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]')->np.ndarray[Any, np.dtype[float]]:
+        """
+        :param pt: The point for which the closest distance needs to be calculated.
+        :type pt: list, tuple or numpy array
+
+        :return: The closest distance between the given point `pt` and the curve.
+        :rtype: float
+
+        """
+        pt = np.array(pt)
+        t = self.closest_parameter(pt)
+        pt2 = self.evaluate(t)
+        return dist(pt2, pt)
+
+
+
+    @vectorize(excluded=[0], signature='()->(i)')
+    def evaluate_distance(self, t: float):
+        return self.start + (self.unit * t)
+
+    def closest_point_node(self, pt):
+        return ClosestPointsOnCurveCollection(pt, self)
+    @vectorize(excluded=[0], signature='()->(i)')
+    def evaluate(self, t):
+        return  self.start + self.direction * t
     def __hash__(self):
 
             return hash(self.data)
@@ -81,9 +112,9 @@ class LineNode(Node):
     def length(self):
         return norm(self.direction)
 
-    @vectorize(excluded=[0], signature='()->(i)')
+
     def __call__(self, t):
-        return self.start + self.direction * t
+        return self.evaluate(t)
 
 
     def intersect_lstsq(self, other: 'LineNode'):
@@ -125,13 +156,17 @@ class LineOffset(LineNode):
     """
     _distance = None
     def __init__(self, dists, offset_previous: LineNode = None):
-        super().__init__( offset_previous.data)
+        super().__init__(offset_previous.data)
         self._offset_previous = offset_previous
         self.distance=dists
     def __iter__(self):
         return iter((self.start,self.end))
     def __hash__(self):
         return hash((hash(self._offset_previous),hash(self.distance.tobytes())))
+
+
+
+
     @property
     def offset_previous(self):
         return self._offset_previous
@@ -139,6 +174,7 @@ class LineOffset(LineNode):
     @offset_previous.setter
     def offset_previous(self, v: LineNode):
         self._offset_previous = v
+
 
     @property
     def length(self):
@@ -395,6 +431,13 @@ class ClosestPointsOnCurveCollection(PointsOnCurveCollection):
     def t(self):
 
         return self._t
+    def __array__(self, dtype:Type[T]=float) ->np.ndarray[Any,np.dtype[T]]:
+        return np.array(self.owner(self.solve()),dtype=dtype)
+    def __iter__(self):
+        for i in range(len(self.closest_points)):
+            yield self[i]
+
+
 
 class ClosestPointOnCurve(PointOnCurve):
     """
@@ -524,8 +567,7 @@ class IntersectionPoint(Node, ArrayInterface):
         self.prev_curve_node=lines[0]
         self.next_curve_node=lines[1]
 
-        lines[0].next_intersection_node=self
-        lines[1].prev_intersection_node=self
+
         self.solve()
     @property
     def angle(self):
