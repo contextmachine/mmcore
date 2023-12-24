@@ -71,7 +71,29 @@ class CDLL:
             string += f" -> {temp.data}"
             temp = temp.next
         return string
-
+    def insert_hook(self,node:nodetype):
+        """
+        This method is called whenever a new node is added to the Doubly Circular Linked List.
+            * self.insert
+            * self.append
+            * self.append_node
+        :param node: Node to insert or append
+        :type node: self.__class__.nodetype
+        :return: None
+        :rtype: NoneType
+        """
+        ...
+    def remove_hook(self, node:nodetype):
+        """
+        This method is called whenever a new node is removed from the Doubly Circular Linked List.
+            * self.remove
+            * self.remove_by_index
+        :param node: Node to remove
+        :type node: self.__class__.nodetype
+        :return: None
+        :rtype: NoneType
+        """
+        ...
     def append(self, data):
         self.insert(data, self.count)
         return
@@ -113,6 +135,7 @@ class CDLL:
             node.next = self.head
 
             self.count += 1
+        self.insert_hook(node)
         return
 
     def insert(self, data, index):
@@ -132,6 +155,7 @@ class CDLL:
             temp.next = node
             if index == 0:
                 self.head = node
+        self.insert_hook(node)
         self.count += 1
 
     def iter_nodes(self):
@@ -153,25 +177,35 @@ class CDLL:
         target = self.head
         for _ in range(index):
             target = target.next
+
         if target is self.head:
             self.head = self.head.next
+
+
         target.previous.next, target.next.previous = target.next, target.previous
+        self.remove_hook(target)
         self.count -= 1
+
+
 
     def remove(self, data):
         temp = self.head
         for i in range(self.count):
             if (temp.data == data):
+
                 if temp is self.head:
                     self.head = self.head.next
                 temp.previous.next, temp.next.previous = temp.next, temp.previous
-                del temp.next
-                del temp.previous
-                del temp
+
                 self.count -= 1
                 break
 
             temp = temp.next
+        self.remove_hook(temp)
+        del temp.next
+        del temp.previous
+
+        del temp
 
     def index(self, data):
         temp = self.head
