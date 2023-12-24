@@ -7,25 +7,103 @@ import itertools
 @total_ordering
 class FieldMap:
     """
->>> from mmcore.geom.rectangle import Rectangle
->>> r=Rectangle(10,20)
->>> target=dict()
->>> target
-Out: {}
->>> mappings=(FieldMap('area', 'area', backward_support=False),
-...                  FieldMap('u', 'width'),
-...                  FieldMap('v', 'height'))
->>> for mapping in mappings:
-...     mapping.forward(r, target)
->>> target
-Out: {'width': 10, 'height': 20, 'area': 200.0}
->>> target['width']=30
->>> for mapping in sorted(mappings):
-...     mapping.backward(r, target)
->>> target
-Out: {'width': 30, 'height': 20, 'area': 600.0}
->>> r.u
-Out: 30
+
+    FieldMap
+    ========
+
+    Class representing a mapping between a source field and a target field.
+
+
+    Subclassing
+    -----------
+    This class is decorated with the ``@total_ordering`` decorator, which provides the default comparison methods (
+    __eq__ and __lt__) based on the backward_support attribute.
+
+    Example:
+    ----------------
+
+
+    >>> from mmcore.geom.rectangle import Rectangle
+    >>> r=Rectangle(10,20)
+    >>> target=dict()
+    >>> target
+    Out: {}
+    >>> mappings=(FieldMap('area', 'area', backward_support=False),
+    ...                  FieldMap('u', 'width'),
+    ...                  FieldMap('v', 'height'))
+    >>> for mapping in mappings:
+    ...     mapping.forward(r, target)
+    >>> target
+    Out: {'width': 10, 'height': 20, 'area': 200.0}
+    >>> target['width']=30
+    >>> for mapping in sorted(mappings):
+    ...     mapping.backward(r, target)
+    >>> target
+    Out: {'width': 30, 'height': 20, 'area': 600.0}
+    >>> r.u
+    Out: 30
+
+
+
+    Methods
+    -----------
+        __init__(self, getter, target_field_name, backward_support=True, update_equal=False)
+            Constructs a new FieldMap object.
+
+            Parameters:
+                getter (str): The source field in dot notation.
+                target_field_name (str): The target field name.
+                backward_support (bool): If True, the backward method will update the source field if the target
+                field has changed. Defaults to True.
+                update_equal (bool): If True, the backward method will update the source field even it is equal to
+                the target field. Defaults to False.
+
+        forward(self, source, target: dict)
+            Maps the value from the source field to the target dictionary.
+
+            Parameters:
+                source (Any): The source object.
+                target (dict): The target dictionary.
+
+        backward(self, source, target: dict)
+            Maps the value from the target field back to the source object if the target field has changed.
+
+            Parameters:
+                source (Any): The source object.
+                target (dict): The target dictionary.
+
+        __eq__(self, other)
+            Compares two FieldMap objects based on the backward_support attribute.
+
+            Parameters:
+                other (FieldMap): The other FieldMap object.
+
+            Returns:
+                bool: True if the backward_support attributes are equal, False otherwise.
+
+        __lt__(self, other)
+            Compares two FieldMap objects based on the backward_support attribute.
+
+            Parameters:
+                other (FieldMap): The other FieldMap object.
+
+            Returns:
+                bool: True if the backward_support attribute is less than the other FieldMap's backward_support
+                attribute, False otherwise.
+
+        __hash__(self)
+            Calculates the hash value of the FieldMap object.
+
+            Returns:
+                int: The hash value.
+
+        __repr__(self)
+            Returns a string representation of the FieldMap object.
+
+            Returns:
+                str: The string representation.
+
+
     """
 
     def __init__(self, getter, target_field_name, backward_support=True, update_equal=False):
@@ -74,6 +152,42 @@ Out: 30
 
 
 class Observable:
+    """
+    Observable
+
+    A class that represents an observable object. Observers can register themselves with
+    the observable to receive notifications when the state of the observable object changes.
+
+    Attributes:
+        _observers (list): A list of registered observers
+        i (int): An integer representing the state of the observable object
+
+    Methods:
+        __init__(self, i)
+            Initializes a new instance of the Observable class.
+
+        register_observer(self, observer: Observer)
+            Registers an observer with the observable object and adds the observable
+            object to the observer's list of observables.
+
+        unsafe_register_observer(self, observer)
+            Registers an observer with the observable object. The observer's list
+            of observables is not updated.
+
+        notify_observers(self, **kwargs)
+            Notifies all registered observers about the change in the observable object's state.
+            Optional keyword arguments can be provided to be passed to the observers.
+
+    Example:
+        observable = Observable(10)
+        observer = Observer()
+
+        # Register the observer with the observable object
+        observable.register_observer(observer)
+
+        # Notify the observers about the change in the observable object's state
+        observable.notify_observers()
+    """
     def __init__(self, i):
         self._observers = []
         self.i = i
@@ -91,6 +205,12 @@ class Observable:
 
 
 class Observer:
+    """
+    Initializes an Observer object.
+
+    :param i: The unique identifier for the Observer.
+    :type i: int
+    """
     def __init__(self, i):
         self.observe = []
 
@@ -111,6 +231,18 @@ class Observer:
 
 
 class Observation:
+    """Class to manage observations and observers.
+
+    This class provides methods for registering and unregistering observers, managing observables, and retrieving
+    observables and observers.
+
+    Attributes:
+        observers (list): List of registered observers.
+        observers_counter (itertools.count): Counter to assign unique IDs to observers.
+        observable_counter (itertools.count): Counter to assign unique IDs to observables.
+        observable (list): List of available observables.
+
+    """
     def __init__(self):
         self.observers = []
         self.observers_counter = itertools.count()
