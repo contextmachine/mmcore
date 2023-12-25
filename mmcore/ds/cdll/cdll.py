@@ -51,7 +51,7 @@ class CDLL:
     """
     nodetype = Node
 
-    def __init__(self, seq=None):
+    def __init__(self, seq=None,*args,**kwargs):
         self.head = None
         self.count = 0
 
@@ -108,6 +108,7 @@ class CDLL:
         self.remove_by_index(key)
 
     def __iter__(self):
+
         if self.head is not None:
 
             yield self.head.data
@@ -238,4 +239,33 @@ class CDLL:
         for _ in range(index):
             temp = temp.next
         return temp
+
+    def replace_node(self, index, node):
+        if (index >= self.count) | (index < 0):
+            raise ValueError(f"Index out of range: {index}, size: {self.count}")
+        if self.count == 1:
+            self.head =  node
+
+            return
+        target = self.head
+        for _ in range(index):
+            target = target.next
+
+
+        if target is self.head:
+            node.next = self.head.next
+            node.prev = self.head.previous
+            self.head.previous.next=node
+            self.head.next.previous=node
+            self.head = node
+        node.next = target.next
+        node.prev = target.previous
+
+        target.previous.next = node
+        target.next.previous = node
+        target.previous.next=node
+
+
+
+
 

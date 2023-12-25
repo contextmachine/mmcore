@@ -2,7 +2,7 @@ import numpy as np
 from multipledispatch import dispatch
 
 from mmcore.geom.mesh.mesh_tuple import create_mesh_tuple
-from mmcore.geom.shapes.shape import ShapeInterface, bounds_earcut, shape_earcut
+from mmcore.geom.shapes.shape import ShapeInterface, bounds_earcut, shape_earcut,bounds_holes_earcut
 
 
 @dispatch(ShapeInterface, tuple)
@@ -123,3 +123,27 @@ def mesh_from_shapes(shps, cols, stats):
         pos, ixs, _ = shape_earcut(shp)
 
         yield create_mesh_tuple(dict(position=np.array(pos)), indices=ixs, color=c, extras=dict(properties=props))
+
+
+def mesh_from_bounds_and_holes( bounds,holes,color=(0.3, 0.3, 0), props=None):
+    """
+    Generates a mesh from given shapes.
+
+    :param shps: List of shapes.
+    :type shps: list
+    :param cols: List of colors for each shape.
+    :type cols: list
+    :param stats: List of properties for each shape.
+    :type stats: list
+    :return: Generator that yields mesh tuples.
+    :rtype: generator
+    """
+
+
+
+    pos, ixs, _ = bounds_holes_earcut(bounds=bounds.tolist() if isinstance(bounds, np.ndarray) else bounds,
+                                      holes=holes.tolist() if isinstance(holes, np.ndarray) else holes)
+    return create_mesh_tuple(dict(position=np.array(pos)), indices=np.array(ixs), color=color,
+                             extras=dict(properties=props))
+
+

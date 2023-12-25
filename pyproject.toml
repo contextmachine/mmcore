@@ -46,8 +46,8 @@ docker = "^6.1.3"
 pyvis = "^0.3.2"
 pygments = "^2.16.1"
 wheel = "^0.41.2"
-msgspec = "^0.18.13"
 multipledispatch = "*"
+autograd="*"
 
 [build-system]
 requires = ["poetry-core"]
