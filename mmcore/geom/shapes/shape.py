@@ -358,6 +358,14 @@ def shape_earcut(self: ShapeInterface) -> ShapeEarcutResult:
                                                                       arguments['holes'],
                                                                       arguments['dimensions']), arguments)
 
+def bounds_holes_earcut(bounds, holes) -> ShapeEarcutResult:
+
+
+        arguments = earcut.flatten([bounds] + holes)
+        return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
+                                                                      arguments['holes'],
+                                                                      arguments['dimensions']), arguments)
+
 
 def bounds_earcut(bounds) -> ShapeEarcutResult:
     arguments = earcut.flatten([bounds])

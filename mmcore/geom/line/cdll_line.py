@@ -106,7 +106,7 @@ class LineNode(Node):
 
     @property
     def unit(self):
-        return unit(self.direction)
+        return  unit(self.data.end-self.data.start )
 
     @property
     def length(self):

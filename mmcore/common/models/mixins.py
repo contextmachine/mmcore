@@ -198,6 +198,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     def update_mesh(self, no_back=False):
         if self._mesh is not None:
             if not no_back:
+                print('Мы ТУТ')
                 # это плохое место
                 self.apply_backward(self._mesh.properties)
             self.update_mesh_geometry()
