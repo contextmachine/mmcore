@@ -304,3 +304,5 @@ def unpack_trim_details(res):
     w, t, pts = list(zip(*list(zip(*sorted(res, key=lambda x: x[0])))[1]))
     return np.array(w), np.array(t), np.array(pts)
 
+def to_mesh_view(self):
+        return mesh_from_bounds(self.boundary.tolist())
