@@ -132,7 +132,9 @@ class PolyCurve(LineCDLL):
     nodetype = LineNode
 
     def __init__(self, segments=None):
+
         super().__init__()
+
         self._kd = None
         if segments is not None:
 
