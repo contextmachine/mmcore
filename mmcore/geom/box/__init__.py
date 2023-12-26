@@ -187,7 +187,6 @@ class Box(Rectangle, MeshViewSupport):
 
 
 
-
     def thickness_trim_line(self, line: Line) -> 'tuple[Box, bool, Any]':
         """
         This version of the method takes a line that will be converted to a vertical trim plane.
