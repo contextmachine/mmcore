@@ -19,7 +19,7 @@ class TestPolyCurve(TestCase):
                  [24.70745725, -8.06146984, 0.], [15.16667625, 2.51822251, 0.]]
                 )
 
-        self.poly = PolyCurve(self.pts)
+        self.poly = PolyCurve.from_points(self.pts)
 
     def test_init(self):
         self.assertTrue(np.allclose(self.poly.corners, self.pts))
