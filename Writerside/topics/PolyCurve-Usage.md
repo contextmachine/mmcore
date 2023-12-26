@@ -11,18 +11,72 @@ from mmcore.geom.polycurve import PolyCurve
 import numpy as np
 ```
 
+#### Create the `PolyCurve`
+
+> By default, the constructor accepts a set of segments, in case you want to create an object from complex curves.
+> If you just want to create a polyline, look at the `PolyCurve.from_points` method (next example).
+
+Import classes for segments objects:
+
+```python
+from mmcore.geom.line import Line
+```
+
+Create polycurve segments
+
+```python
+a, b, c, d = np.array([[(-293.90192934239769, 552.79553618743603, 0.0), (-38.355428662402574, 559.56153315045117, 0.0)],
+                       [(-101.33124654891867, 382.60468950238948, 0.0), (-98.728940024682473, 632.94657713391121, 0.0)],
+                       [(-237.64193845280525, 484.77128576271491, 0.0), (-38.355428662402574, 465.35803697309967, 0.0)],
+                       [(-292.34054542785589, 382.60468950238948, 0.0), (-115.90416308464137, 643.98494013701122, 0.0)]]
+                      )
+l1 = Line.from_ends(*a)
+l2 = Line.from_ends(*b)
+l3 = Line.from_ends(*c)
+l4 = Line.from_ends(*d)
+
+```
+
+```python
+pcurve = PolyCurve([l1, l2, l3, l4])
+print(pcurve)
+``` 
+
+Output will like:
+
+```
+PolyCurve[LineNode](length=4) at 0x170061390
+```
+
+Corners will estimate by segment intersections
+
+```python
+print(pcurve.corners)
+```
+
+Output will like:
+
+```
+array([[-175.33969084,  555.93465859,    0.        ],
+       [ -99.50860916,  557.94240617,    0.        ],
+       [-100.40818896,  471.40282984,    0.        ],
+       [-224.25642889,  483.46735291,    0.        ]])
+```
+
+#### Create the `PolyCurve` from points
+
 Then provide points for the `PolyCurve` in a numpy array:
 
 ```python
 points = np.array([(-22.047791358681653, -0.8324885498102903, 0.0), (-9.3805108456226147, -28.660718210796471, 0.0),
-    (22.846252925543098, -27.408177802862003, 0.0), (15.166676249569946, 2.5182225098112045, 0.0)]
-        )
+                   (22.846252925543098, -27.408177802862003, 0.0), (15.166676249569946, 2.5182225098112045, 0.0)]
+                  )
+
 ```
 
-Now create the `PolyCurve`:
-
 ```python
-polycurve = PolyCurve(points)
+polycurve = PolyCurve.from_points(points)
+
 ```
 
 ### Step 2: Inserting a single corner

@@ -131,13 +131,13 @@ class PolyCurve(LineCDLL):
     """
     nodetype = LineNode
 
-    def __init__(self, pts=None):
+    def __init__(self, segments=None):
         super().__init__()
         self._kd = None
-        if pts is not None:
-            lines = polyline_to_lines(np.array(pts, float))
-            for line in lines:
-                self.append((Line.from_ends(*line)))
+        if segments is not None:
+
+            for i in segments:
+                self.append(i)
 
     def __hash__(self):
         return hash(tuple(hash(i) for i in self.gen_intersects()))
