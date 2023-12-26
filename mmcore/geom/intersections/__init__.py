@@ -491,3 +491,4 @@ def ray_ray(p1, v1, p2, v2):
         return s
     else:
         return bad_solution
+
