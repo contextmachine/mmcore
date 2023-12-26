@@ -16,24 +16,46 @@ However, PolyCurve can be composed of any parametric curve segment objects.
 ## Class Definition
 
 ```python
+
 class PolyCurve(LineCDLL):
     """
-    A PolyCurve represents a polyline as a circular doubly linked list (CDLL) of line segments.
-    Provides methods for manipulating and querying the polyline.
+    PolyCurve Class
+
+    This class represents a circular doubly linked list (CDLL) of line segments that form a polyline.
+
+    Attributes:
+        nodetype (LineNode): The type of node used in the CDLL.
+
+    Methods:
+        __init__(self, pts=None): Initializes a PolyCurve object.
+        from_points(cls, pts): Creates a new PolyCurve object from a list of points.
+        solve_kd(self): Solves the KDTree for the corners of the polyline.
+        insert_corner(self, value, index=None): Inserts a corner at a specified index or at the nearest index.
+        corners(self): Returns an array of the corners of the polyline.
+        corners(self, corners): Sets the corners of the polyline.
     """
+    nodetype = LineNode
 ```
 
 {
-src="../mmcore/geom/polycurve.py" include-lines="117-133" collapsible="true"}
+src="../mmcore/geom/polycurve.py" include-lines="110-133" collapsible="true"}
 
-## Attributes
+## Class Attributes
 
 - `nodetype`: Specifies the type of node used in the CDLL. It's typically set to `LineNode`.
 
 ## Initialization
+```python
+polycurve_object = PolyCurve(segments)
+
+```
+
+Where `segments` is a list or an ndarray of parametric curves that compose PolyCurve.
+
+Or you can create PolyCurve from points:
 
 ```python
-polycurve_object = PolyCurve(pts)
+polycurve_object = PolyCurve.from_points(pts)
 ```
 
 Where `pts` is a list or an ndarray of points that define the PolyCurve.
@@ -45,7 +67,7 @@ import numpy as np
 from mmcore.geom.polycurve import PolyCurve
 
 pts = np.array([[0, 0, 0], [1, 1, 0], [2, 2, 0]], dtype=float)
-poly = PolyCurve(pts)
+poly = PolyCurve.from_points(pts)
 ```
 
 ## Methods
