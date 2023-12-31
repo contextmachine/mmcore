@@ -1,6 +1,8 @@
 import numpy as np
 from earcut import earcut
 
+from mmcore.func import vectorize
+
 
 def ecut(self) -> tuple:
     if self.holes is None:
@@ -90,3 +92,14 @@ polygon_area_vectorized = np.vectorize(polygon_area,
                                        otypes=[float],
                                        excluded=['cast_to_numpy'],
                                        signature='(i,n)->()')
+
+@vectorize(signature='(i,j)->(k,j)')
+def to_polygon_area(boundary: np.ndarray):
+    """
+    Добавляет первую точку контура в конец чтобы соответствовать требованиям polygon_area
+    :param boundary:
+    :type boundary:
+    :return:
+    :rtype:
+    """
+    return np.array([*boundary, boundary[0]],dtype=boundary.dtype)

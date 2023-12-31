@@ -86,15 +86,18 @@ class LineNode(Node):
 
     @property
     def start(self):
-        return self.data.start
+
+        return self.data.unbounded_intersect(self.previous.data)
 
     @property
     def end(self):
-        return self.data.end
+        return self.data.unbounded_intersect(self.next.data)
 
     @end.setter
     def end(self, v):
         self.data.end = v
+
+
 
     @start.setter
     def start(self, v):
@@ -106,13 +109,26 @@ class LineNode(Node):
 
     @property
     def unit(self):
-        return  unit(self.data.end-self.data.start )
+        return  unit(self.direction )
 
     @property
     def length(self):
         return norm(self.direction)
+    @property
+    def start_angle(self):
+        return angle(self.data.unit,-self.previous.data.unit)
 
+    @property
+    def end_angle(self):
+        return angle(-self.data.unit, self.next.data.unit)
 
+    @property
+    def start_angle_dot(self):
+        return dot(self.data.unit, self.previous.data.unit)
+
+    @property
+    def end_angle_dot(self):
+        return dot(self.data.unit, self.next.data.unit)
     def __call__(self, t):
         return self.evaluate(t)
 
@@ -139,9 +155,11 @@ class LineNode(Node):
 
         if np.isscalar(dists):
             dists = np.zeros(2, float) + dists
+        v=cross(self.data.unit, [0., 0., 1.])
+        return self.__class__(Line.from_ends(self.data.start + v * dists[0], self.data.end + v * dists[1]))
 
-        self._next_offset=LineOffset(dists, offset_previous=self)
-        return self._next_offset
+
+
 
 
 
@@ -765,11 +783,11 @@ class LineCDLL(CDLL):
 
     @property
     def angles(self):
-        return np.array([angle(i.unit, i.next.unit) for i in self.iter_nodes()])
+        return np.array([angle( i.previous.unit,i.unit) for i in self.iter_nodes()])
 
     @property
     def dots(self):
-        return np.array([dot(i.unit, i.next.unit) for i in self.iter_nodes()])
+        return np.array([dot( i.previous.unit,i.unit) for i in self.iter_nodes()])
 
     @property
     def units(self):
@@ -941,8 +959,6 @@ class LineCDLL(CDLL):
         """
         lst = CDLL()
         for node in self.iter_nodes():
-            node.previous, node
-
             lst.append_node(IntersectionPoint((node.previous, node)))
 
         return lst
