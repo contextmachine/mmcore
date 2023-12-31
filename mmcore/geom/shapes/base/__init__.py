@@ -5,6 +5,7 @@ import earcut
 import numpy as np
 from earcut import earcut
 
+
 from mmcore.base import ALine, AMesh
 from mmcore.base.geom import MeshData
 from mmcore.collections import DCLL
@@ -478,7 +479,7 @@ class Triangle:
     def make_occ_prizm(self):
         if HAS_OCC:
             self._occ_prism = OccPrism(
-                BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(self.make_occ_wire()).Face(),
+                BRepPrimAPI_MakePrism(mmcore.geom.boundary.Face(),
                                       gp_Vec(*self.plane.normal * self.width)),
                 uuid=f'{id(self)}')
             return self._occ_prism
@@ -497,7 +498,7 @@ class Triangle:
 
     def make_occ_face(self):
         if HAS_OCC:
-            return BRepBuilderAPI_MakeFace(self.make_occ_wire()).Face()
+            return mmcore.geom.boundary.Face()
 
     def make_occ_shape(self):
         if HAS_OCC:

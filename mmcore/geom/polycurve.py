@@ -128,6 +128,8 @@ class PolyCurve(LineCDLL):
         insert_corner(self, value, index=None): Inserts a corner at a specified index or at the nearest index.
         corners(self): Returns an array of the corners of the polyline.
         corners(self, corners): Sets the corners of the polyline.
+    
+
     """
     nodetype = LineNode
 
@@ -158,8 +160,6 @@ class PolyCurve(LineCDLL):
             lcdll.append(Line.from_ends(*line))
 
         return lcdll
-
-
 
 
 
@@ -217,3 +217,4 @@ class PolyCurve(LineCDLL):
             else:
                 node.start = np.array(corner)
                 node.previous.end = np.array(corner)
+
