@@ -5,13 +5,13 @@ import numpy as np
 from mmcore.common.models.fields import FieldMap
 from mmcore.common.models.mixins import MeshViewSupport
 from mmcore.geom.extrusion import extrude_polyline
-
+from mmcore.geom.boundary import Boundary
 from mmcore.geom.line import Line
 from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane
-from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane, polygon_area
-from mmcore.geom.vec import cross, dist, unit, norm
+from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane
+from mmcore.geom.vec import cross, dist, unit
 
 
 class Box(Rectangle, MeshViewSupport):
@@ -261,32 +261,6 @@ class Box(Rectangle, MeshViewSupport):
             fc = fc.reshape((len(fc) // 3, 3))
             rect = super().from_corners(fc[:4])
             return cls.from_rectangle(rect, h=rect.distance(fc[-1]).tolist())
-
-
-class Boundary(MeshViewSupport):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
-
-    def __init__(self, boundary: np.ndarray = None, count=4, **kwargs):
-        if boundary is None:
-            boundary = np.zeros((count, 3))
-
-        self.boundary = boundary
-        self.__init_support__(**kwargs)
-
-    def to_mesh_view(self):
-        return mesh_from_bounds(self.boundary.tolist())
-
-    @property
-    def area(self):
-        return polygon_area(np.array([*self.boundary, self.boundary[0]]))
-
-    @property
-    def control_points(self):
-        return self.boundary
-
-    @control_points.setter
-    def control_points(self, v):
-        self.boundary = np.array(v, float)
 
 
 def unpack_trim_details(res):

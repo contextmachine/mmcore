@@ -99,7 +99,7 @@ from mmcore.base.userdata.controls import decode_control_points, encode_control_
 
 class ViewerControlPointsObserver(Observer):
 
-    def notify(self, uuid: A, control_points: dict = None):
+    def notify(self, uuid: A, control_points: dict = None, **kwargs):
         self.notify_backward(uuid=uuid, control_points=control_points)
         self.notify_forward(uuid=uuid)
 
