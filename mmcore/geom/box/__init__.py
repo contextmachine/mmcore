@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 
@@ -34,10 +35,11 @@ class Box(Rectangle, MeshViewSupport):
 
         )
 
-    def __init__(self, *args, h=3.0, **kwargs):
-        super(Box, self).__init__(*args, **kwargs)
+    def __init__(self, *args, h=3.0, color=(0.5, 0.5, 0.5), uuid=None, **kwargs):
+
+        super().__init__(*args, **kwargs, uuid=uuid4().hex if uuid is None else uuid)
         #
-        self.__init_support__(uuid=self.uuid)
+        self.__init_support__(uuid=self.uuid, color=color)
         self.h = h
 
     @property
