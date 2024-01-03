@@ -412,6 +412,13 @@ def compare_content(self, other, verbose=False):
     return dict(zip(ks, r))
 
 
+def create_material_uuid(self: BaseMaterial, postfix=None):
+    if postfix is None:
+        return '-'.join(
+                [hex(self.color), str(round(self.opacity, 1)).replace('.', '_'), self.__class__.__name__.lower()]
+                )
+    else:
+        return '-'.join([hex(self.color), str(round(self.opacity, 1)).replace('.', '_'), f'{postfix}'.lower()])
 @dataclasses.dataclass
 class BaseMaterial:
     color: int
@@ -426,7 +433,8 @@ class BaseMaterial:
         if self.type is None:
             self.type = self.__class__.__name__
         if self.uuid is None:
-            self.uuid = str(self.color) + str(self.opacity) + self.__class__.__name__.lower()
+            self.uuid = hex(self.color) + str(round(self.opacity, 1)).replace('.', '_'
+                                                                              ) + self.__class__.__name__.lower()
         if self.opacity < 1.0:
             self.transparent = True
 

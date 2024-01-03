@@ -1,4 +1,5 @@
 import abc
+import copy
 
 import itertools
 
@@ -20,7 +21,14 @@ class Observable:
         for obs in self._observers:
             obs.notify(self, **kwargs)
 
+    def notify_observers_backward(self, **kwargs):
+        for obs in self._observers:
+            obs.notify_backward(self, **kwargs)
 
+    def notify_observers_forward(self, **kwargs):
+
+        for obs in self._observers:
+            obs.notify_forward(self, **kwargs)
 class Observer:
     def __init__(self, i=0):
         self.observe = []
@@ -73,14 +81,23 @@ class Observation:
 
         return obj
 
+    def init_observable_obj(self, *observers, obj):
+
+        obj.i = next(self.observable_counter)
+        self.observable.append(obj)
+        for obs in observers:
+            obj.register_observer(obs)
+
+        return obj
     def _postinit_observable(self, observable, *observers):
 
         i = next(self.observable_counter)
         observable.i = i
 
-        self.observable.append(obj)
+        self.observable.append(observable)
         for obs in observers:
-            obj.register_observer(obs)
+
+            observable.register_observer(obs)
 
     def init_observer(self, cls=Observer):
         i = next(self.observers_counter)
@@ -131,3 +148,13 @@ class Notifier(Observable):
     def __init__(self, *observers):
         super().__init__()
         observation._postinit_observable(self, *observers)
+
+
+class MeshObserver(Notifier):
+    def __init__(self, *observers, mesh=None):
+        super().__init__(*observers)
+        self.mesh = mesh
+
+    def notify_observers(self, props=None, control_points=None, controls=None, **kwargs):
+        for obs in self._observers:
+            obs.notify(self.mesh, props=props, controls_points=control_points, controls=controls, **kwargs)

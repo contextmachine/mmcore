@@ -516,6 +516,7 @@ def component(name=None, array_like=False, item_shape=()):
         _soa.__component_ctor__ = ctor
         components_ctors[name] = ctor
 
+        ctor.__view_name__ = name
         return ctor
 
     return wrapper
