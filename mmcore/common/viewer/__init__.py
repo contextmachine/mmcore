@@ -24,16 +24,15 @@ def enable_warnings():
 
 def props_update_support_warning(cls):
     if ENABLE_WARNINGS:
-        raise UserWarning(f"{cls} instance support this property by default . The user argument will be ignored!")
-
+        raise UserWarning(f"{cls} instance support this property by default . The user argument will be ignored!"
+                )
 
 
 def solver(uid):
     props = request_component(Props.component_type, uid)
-    if 'u' in props.keys():
-
-        props['u'] = 'BEBEBEBEBEBEBEBE'
-        props['reviewer'] = 'Sofiya'
+    if "u" in props.keys():
+        props["u"] = "BEBEBEBEBEBEBEBE"
+        props["reviewer"] = "Sofiya"
     else:
         print("Sofiya miss u :(")
 
@@ -42,20 +41,12 @@ update_queue = Queue()
 
 
 class ViewerGroup(AGroup):
-
-    def __new__(cls, items=(), /,
-                uuid=None,
-                name="ViewerGroup",
-                entries_support=True,
-                **kwargs):
-        if 'props_update_support' in kwargs:
-            del kwargs['props_update_support']
+    def __new__(cls, items=(), /, uuid=None, name="ViewerGroup", entries_support=True, **kwargs):
+        if "props_update_support" in kwargs:
+            del kwargs["props_update_support"]
             props_update_support_warning(cls)
-        return super().__new__(cls, seq=items, uuid=uuid, name=name,
-                               entries_support=entries_support,
-                               props_update_support=True,
-                               **kwargs
-                               )
+        return super().__new__(cls, seq=items, uuid=uuid, name=name, entries_support=entries_support,
+                props_update_support=True, **kwargs, )
 
     def props_update(self, uuids: list[str], props: dict):
         s = time.time()
@@ -64,7 +55,7 @@ class ViewerGroup(AGroup):
             print(uid, props)
             propsdict[uid].update(props)
         m, sec = divmod(time.time() - s, 60)
-        print(f'updated at {m} min, {sec} sec')
+        print(f"updated at {m} min, {sec} sec")
 
         return True
 
@@ -90,7 +81,7 @@ class ViewerObservableGroup(ViewerGroup, Observable):
         self.notify_observers(uuids=uuids, props=props)
         # self.notify_observers_backward(uuids=uuids, props=props)
 
-        #self.notify_observers_forward(uuids=uuids, props=props)
+        # self.notify_observers_forward(uuids=uuids, props=props)
 
         return True
 
@@ -98,7 +89,6 @@ class ViewerObservableGroup(ViewerGroup, Observable):
 class Group(ViewerObservableGroup):
     def __new__(cls, items=(), *args, i=None, observers=(), grp_owner=None, **kwargs):
         if isinstance(items, int):
-
             items = ()
         self = ViewerObservableGroup.__new__(cls, items, *args, **kwargs)
 
@@ -107,13 +97,12 @@ class Group(ViewerObservableGroup):
         return self
 
 
-
-from mmcore.base.userdata.controls import decode_control_points, encode_control_points, CONTROL_POINTS_ATTRIBUTE_NAME, \
-    set_points_in_controls
+from mmcore.base.userdata.controls import (decode_control_points, encode_control_points, CONTROL_POINTS_ATTRIBUTE_NAME,
+                                           set_points_in_controls,
+    )
 
 
 class ViewerControlPointsObserver(Observer):
-
     def notify(self, observable: A, control_points: dict = None, **kwargs):
         self.notify_backward(uuid=observable, control_points=control_points)
 
@@ -122,36 +111,24 @@ class ViewerControlPointsObserver(Observer):
     def notify_backward(self, uuid, control_points: dict = None, **kwargs):
         mesh = adict.get(uuid) if isinstance(uuid, str) else uuid
         print(mesh)
-        if hasattr(mesh, 'owner'):
-
-
+        if hasattr(mesh, "owner"):
             mesh.owner.control_points = decode_control_points(control_points)
 
     def notify_forward(self, uuid, **kwargs):
-
         mesh = adict.get(uuid) if isinstance(uuid, str) else uuid
         print(mesh)
-        if hasattr(mesh, 'owner'):
+        if hasattr(mesh, "owner"):
             print(mesh)
-            set_points_in_controls(mesh._controls, encode_control_points(mesh.owner.control_points))
-            if hasattr(mesh.owner, 'parent'):
-
+            set_points_in_controls(mesh._controls, encode_control_points(mesh.owner.control_points)
+                    )
+            if hasattr(mesh.owner, "parent"):
                 mesh.owner.parent.solve()
-
-
-
-
 
             mesh.owner.update_mesh(no_back=True)
 
 
-
-
-
-
 class ViewerGroupObserver(Observer):
-    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs):
-
+    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
         # Также это единственное место где мы знаем весь пулл обновлений
         # Нам нужно:
         # 1. Обновить значения атрибутов от представлений к родителям
@@ -162,21 +139,21 @@ class ViewerGroupObserver(Observer):
         # TODO: Вероятно нужен какой-то крючок оповещающий о том что все обновления получены
 
         # 2. Обновить значения атрибутов от родителей к их представлениям
-        self.notify_forward(observable=observable, uuids=uuids)  # Здесь все представления и значения обновлены
+        self.notify_forward(observable=observable, uuids=uuids
+                )  # Здесь все представления и значения обновлены
 
-    def notify_backward(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs):
+    def notify_backward(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
         """
-               Здесь мы итерируемся строго по uuids чтобы не обновлять того что не должно было обновиться
-               :param observable:
-               :type observable:
-               :return:
-               :rtype:
+        Здесь мы итерируемся строго по uuids чтобы не обновлять того что не должно было обновиться
+        :param observable:
+        :type observable:
+        :return:
+        :rtype:
         """
         for uid in uuids:
-
             mesh = adict.get(uid, None)
             print(mesh)
-            if hasattr(mesh, 'owner'):
+            if hasattr(mesh, "owner"):
                 print(mesh.owner)
                 mesh.owner.apply_backward(props)
 
@@ -189,7 +166,7 @@ class ViewerGroupObserver(Observer):
         :return:
         :rtype:
         """
-        if hasattr(observable, 'owner'):
+        if hasattr(observable, "owner"):
             observable.owner.solve()
 
         for u in uuids:
@@ -197,23 +174,19 @@ class ViewerGroupObserver(Observer):
 
             mesh = adict[u]
             if isinstance(mesh, AGroup):
-                if hasattr(mesh, 'owner'):
+                if hasattr(mesh, "owner"):
                     mesh.owner.solve()
 
-
-
             elif isinstance(mesh, AMesh):
-
-                if hasattr(mesh, 'owner'):
-
+                if hasattr(mesh, "owner"):
                     # print(mesh.owner)
-                    if hasattr(mesh.owner, 'solve'):
+                    if hasattr(mesh.owner, "solve"):
                         mesh.owner.solve()
 
                     mesh.owner.update_mesh(no_back=True)
 
             else:
-                print(mesh, 'pass')
+                print(mesh, "pass")
 
 
 group_observer = observation.init_observer(ViewerGroupObserver)
@@ -221,5 +194,4 @@ control_points_observer = observation.init_observer(ViewerControlPointsObserver)
 
 
 def create_group(uuid: str, obs=group_observer, cls=ViewerObservableGroup):
-    return observation.init_observable(obs,
-                                       cls=lambda x: cls(x, items=(), uuid=uuid))
+    return observation.init_observable(obs, cls=lambda x: cls(x, items=(), uuid=uuid))
