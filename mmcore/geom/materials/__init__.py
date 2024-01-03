@@ -63,7 +63,9 @@ class ColorRGB(tuple):
     def hex(self):
         return "%02x%02x%02x" % (self.r, self.g, self.b)
 
-    def index(self, __value: Any, __start: SupportsIndex = ..., __stop: SupportsIndex = ...) -> int:
+    def index(
+        self, __value: Any, __start: SupportsIndex = ..., __stop: SupportsIndex = ...
+    ) -> int:
         return tuple.index(self, __value, __start, __stop)
 
     def __getitem__(self, item):
@@ -86,7 +88,9 @@ class ColorRGB(tuple):
         if size == 1:
             return ColorRGB(*np.random.randint(0, 255, 3) / 255)
         else:
-            return [ColorRGB(*col) for col in (np.random.randint(0, 255, (size, 3)) / 255)]
+            return [
+                ColorRGB(*col) for col in (np.random.randint(0, 255, (size, 3)) / 255)
+            ]
 
     def __array__(self, dtype=float):
         if np.dtype(dtype).kind in ["i", "u"]:
@@ -99,7 +103,7 @@ class ColorRGB(tuple):
     @classmethod
     def from_hex(cls, h: str):
         h = h.lstrip("#")
-        return cls(*tuple(int(h[i: i + 2], 16) for i in (0, 2, 4)))
+        return cls(*tuple(int(h[i : i + 2], 16) for i in (0, 2, 4)))
 
 
 def rgb_to_three_decimal(color: typing.Union[ColorRGB, ColorRGBA]) -> int:
