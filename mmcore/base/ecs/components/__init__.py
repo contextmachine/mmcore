@@ -16,7 +16,7 @@ import numpy
 from numpy import ndarray, dtype
 
 ndarray, dtype, numpy = ndarray, dtype, numpy
-NS = _uuid.UUID('eecf16e3-726f-49e4-9fc3-73d22f8c81ff')
+NS = _uuid.UUID("eecf16e3-726f-49e4-9fc3-73d22f8c81ff")
 
 
 class NpEncoder(json.JSONEncoder):
@@ -29,31 +29,36 @@ class NpEncoder(json.JSONEncoder):
 
 class SoAField:
     """
-    Copy:
-    ----
+        Copy:
+        ----
 
->>> from mmcore.geom.rectangle import Rectangle,to_mesh
->>> import copy
->>> r1=Rectangle(10,20)
->>> a=copy.deepcopy(r1)
->>> a
-Rectangle([[ 0.  0.  0.]
- [10.  0.  0.]
- [10. 20.  0.]
- [ 0. 20.  0.]])
->>> a.ecs_rectangle
-RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
-       [1., 0., 0.],
-       [0., 1., 0.],
-       [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 7e40fc49f42843ca8bfa29d6d8fd7511, 'uv': UV({'u': Length({'value': 10}) at b0e3951fdd654dd296dd7e474128803b, 'v': Length({'value': 20}) at ad105e2814254394b551b26d238a9af2}) at 7487ff2dac4d413da67999d4d46b324b}) at a30d188f1bb1400888da10982088972b
->>> r1.ecs_rectangle
-RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
-       [1., 0., 0.],
-       [0., 1., 0.],
-       [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 1426df91b19f42459f35d04306c43538, 'uv': UV({'u': Length({'value': 10}) at 424d0b8cd21d4034b734f756e94700be, 'v': Length({'value': 20}) at 88797284c9984353bb0be9e295bd834c}) at 9bc79b28188c4096acf50ebfe78f8f87}) at 7955f77c6a094f3295ff8ce32072b81e
+    >>> from mmcore.geom.rectangle import Rectangle,to_mesh
+    >>> import copy
+    >>> r1=Rectangle(10,20)
+    >>> a=copy.deepcopy(r1)
+    >>> a
+    Rectangle([[ 0.  0.  0.]
+     [10.  0.  0.]
+     [10. 20.  0.]
+     [ 0. 20.  0.]])
+    >>> a.ecs_rectangle
+    RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
+           [1., 0., 0.],
+           [0., 1., 0.],
+           [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 7e40fc49f42843ca8bfa29d6d8fd7511, 
+           'uv': UV({'u': Length({'value': 10}) at b0e3951fdd654dd296dd7e474128803b, 'v': Length({'value': 20}) at 
+           ad105e2814254394b551b26d238a9af2}) at 7487ff2dac4d413da67999d4d46b324b}) at a30d188f1bb1400888da10982088972b
+    >>> r1.ecs_rectangle
+    RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
+           [1., 0., 0.],
+           [0., 1., 0.],
+           [0., 0., 1.]]), 'origin': 0, 'xaxis': 1, 'yaxis': 2, 'zaxis': 3}) at 1426df91b19f42459f35d04306c43538, 
+           'uv': UV({'u': Length({'value': 10}) at 424d0b8cd21d4034b734f756e94700be, 'v': Length({'value': 20}) at 
+           88797284c9984353bb0be9e295bd834c}) at 9bc79b28188c4096acf50ebfe78f8f87}) at 7955f77c6a094f3295ff8ce32072b81e
 
 
     """
+
     def __init__(self, default=None):
         self.default = default
         self.data = dict()
@@ -78,6 +83,7 @@ RectangleComponent({'plane': PlaneComponent({'ref': array([[0., 0., 0.],
 
     def __delitem__(self, key):
         self.data.__delitem__(key)
+
     def get(self, key, __default=None):
         return self.data.get(key, __default)
 
@@ -99,6 +105,8 @@ def safe_get_field(self, key):
     if key not in self.parent.fields.keys():
         self.parent.add_field(key)
     return self.parent.fields[key]
+
+
 class SoAItem:
     def __init__(self, uuid, parent_id):
         super().__init__()
@@ -112,22 +120,13 @@ class SoAItem:
         return self._parent[uu]
 
     def __deepcopy__(self, memodict={}):
-        return components_from_spec(
-            copy.deepcopy(
-                components_to_spec(self),
-                memodict
-            ),
-            return_root_only=True
+        return components_from_spec(copy.deepcopy(components_to_spec(self), memodict), return_root_only=True
         )
 
-
-
-
     def get_field(self, k):
-
         return {
             int: lambda x: self.parent.fields[list(self.parent.fields.keys())[x]],
-            str: lambda x: safe_get_field(self, x)
+            str: lambda x: safe_get_field(self, x),
         }[type(k)](k)
 
     @property
@@ -149,10 +148,9 @@ class SoAItem:
     def clear(self):
         for key in self.keys():
             del self.parent.fields[key][self.uuid]
+
     def __setitem__(self, key, val):
-
         if isinstance(key, (str, int)):
-
             self.get_field(key)[self.uuid] = val
         else:
             if len(key) > 0:
@@ -166,7 +164,6 @@ class SoAItem:
             return self.get_field(key)[self.uuid]
         else:
             if len(key) > 1:
-
                 key1 = key[0]
 
                 return self.get_field(key1)[self.uuid].__getitem__(key[1:])
@@ -174,9 +171,9 @@ class SoAItem:
                 return self[key[0]]
 
     def get_index(self):
-        *ks, = self.keys()
+        (*ks,) = self.keys()
 
-        vs = sorted(([v] if np.isscalar(v) else v for v in self.values()), key=lambda x: len(x), reverse=True)
+        vs = sorted(([v] if np.isscalar(v) else v for v in self.values()), key=lambda x: len(x), reverse=True, )
 
         return np.ndindex((len(ks), len(vs[0])))
 
@@ -198,13 +195,11 @@ class SoAItem:
                 yield key
 
     def __iter__(self):
-
         for key, field in self.parent.fields.items():
             if field[self.uuid] is not None:
                 yield key, field[self.uuid]
 
     def items(self):
-
         for key, field in self.parent.fields.items():
             if field[self.uuid] is not None:
                 yield key, field[self.uuid]
@@ -219,7 +214,7 @@ class SoAItem:
                 self[k] = v
 
     def __getattr__(self, item):
-        if item.startswith('_'):
+        if item.startswith("_"):
             return object.__getattribute__(self, item)
 
         elif item in soa_parent(self).fields.keys():
@@ -228,15 +223,13 @@ class SoAItem:
             return super().__getattribute__(item)
 
     def __setattr__(self, item, val):
-        if item.startswith('_'):
+        if item.startswith("_"):
             object.__setattr__(self, item, val)
 
         elif item in soa_parent(self).fields.keys():
-
             self[item] = val
 
         else:
-
             self.parent.add_field(item, SoAField())
             self[item] = val
 
@@ -245,10 +238,12 @@ class SoAItem:
 
     def __repr__(self):
         kws = dict(self)
-        return f'{self.parent.type_name}({kws}) at <{self.uuid}>'
+        return f"{self.parent.type_name}({kws}) at <{self.uuid}>"
 
     def todict(self):
         return todict(self)
+
+
 class SoArrayItem(SoAItem):
     def __init__(self, uuid, parent_id, arr_index):
         self._parent = parent_id
@@ -260,13 +255,11 @@ class SoArrayItem(SoAItem):
         return soa_parent(self)
 
     def __getitem__(self, item):
-
         return soa_parent(self)._arr[self._arr_index][soa_parent(self).by_index(item)]
 
     def __setitem__(self, item, v):
         if np.isscalar(item):
             soa_parent(self)._arr[self._arr_index][self.parent.by_index(item)] = v
-
 
         else:
             soa_parent(self)._arr[self._arr_index][item] = v
@@ -278,7 +271,7 @@ class SoArrayItem(SoAItem):
         # self.parent.by_index(self._uuid, item[0])[item[1:]]=v
 
     def __getattr__(self, item):
-        if item.startswith('_'):
+        if item.startswith("_"):
             return object.__getattribute__(self, item)
 
         elif item in soa_parent(self).fields.keys():
@@ -287,16 +280,13 @@ class SoArrayItem(SoAItem):
             return super().__getattribute__(item)
 
     def __setattr__(self, item, val):
-
-        if item.startswith('_'):
+        if item.startswith("_"):
             object.__setattr__(self, item, val)
 
         elif item in soa_parent(self).fields.keys():
-
             self[list(soa_parent(self).fields.keys()).index(item)] = val
 
         else:
-
             self.parent.add_field(item, SoAField())
             self[item] = val
 
@@ -305,7 +295,7 @@ class SoArrayItem(SoAItem):
 
     def __repr__(self):
         p = soa_parent(self)
-        a = np.array_str(p._arr[self._arr_index], precision=4).replace('\n', '').replace(" ", ", ")
+        a = (np.array_str(p._arr[self._arr_index], precision=4).replace("\n", "").replace(" ", ", "))
         return f'{self.component_type}({", ".join(p.fields.keys())}, {a}) at <{self._uuid}>'
 
 
@@ -351,11 +341,9 @@ class SoA:
         del self.fields[key]
 
     def __getitem__(self, uuid):
-
         return self.__items__[uuid]
 
     def __setitem__(self, uuid, v):
-
         if uuid not in self.__items__.keys():
             self.__items__[uuid] = SoAItem(uuid, self.uuid)
 
@@ -365,11 +353,10 @@ class SoA:
         return self.__items__.__contains__(item)
 
     def __repr__(self):
-        return f'SoA(type={self.type_name}, length={len(self.__items__)}) at {self.uuid}'
+        return (f"SoA(type={self.type_name}, length={len(self.__items__)}) at {self.uuid}")
 
 
 class SoArray(SoA):
-
     def __init__(self, *args, item_shape=(3,), **kwargs):
         self.item_shape = item_shape
         self._arr = np.empty((128, len(kwargs), *item_shape), dtype=object)
@@ -377,7 +364,6 @@ class SoArray(SoA):
         super().__init__(*args, **kwargs)
 
     def add_field(self, key, fld):
-
         super().add_field(key, fld)
 
     def add_new_field(self, key, fld):
@@ -394,7 +380,8 @@ class SoArray(SoA):
 
             self._arr[ixs] = v
             self.__arr_index__[uuid] = ixs
-            self.__items__[uuid] = SoArrayItem(uuid=uuid, parent_id=self.uuid, arr_index=ixs)
+            self.__items__[uuid] = SoArrayItem(uuid=uuid, parent_id=self.uuid, arr_index=ixs
+                    )
 
         self._arr[self.__arr_index__[uuid]] = v
 
@@ -408,14 +395,9 @@ class SoArray(SoA):
         self._arr.resize((a * 128, new[1], *self.item_shape), refcheck=False)
 
     def by_index(self, ixs):
-
-        return {
-            int: lambda x: x,
-            str: lambda x: list(self.fields.keys()).index(x)
-        }[type(ixs)](ixs)
+        return {int: lambda x: x, str: lambda x: list(self.fields.keys()).index(x)}[type(ixs)](ixs)
 
     def by_uuid(self, uuid, key, ixs=()):
-
         return self._arr[self.__arr_index__[uuid]][(self.by_index(key),) + ixs]
 
 
@@ -460,16 +442,14 @@ def component(name=None, array_like=False, item_shape=()):
         if name is None:
             name = cls.__name__
         fields = dict()
-        if hasattr(cls, '__annotations__'):
+        if hasattr(cls, "__annotations__"):
             for k, v in cls.__annotations__.items():
-
                 if k in cls.__dict__:
                     val = cls.__dict__[k]
                     if isinstance(val, SoAField):
                         fields[k] = val
 
                     else:
-
                         fields[k] = SoAField(default=val)
 
                 else:
@@ -488,20 +468,17 @@ def component(name=None, array_like=False, item_shape=()):
 
                 return _soa[uuid]
 
-
-
         else:
             _soa = SoA(name, **fields)
 
             @functools.wraps(cls)
             def ctor(*args, uuid=None, **kwargs):
-
-                *keys, = fields.keys()
+                (*keys,) = fields.keys()
                 if uuid is None:
                     uuid = _uuid.uuid4().hex
                 if uuid in _soa.__items__:
                     return _soa[uuid]
-                dct = dict(zip(keys[:len(args)], args))
+                dct = dict(zip(keys[: len(args)], args))
                 dct |= kwargs
                 for fld in set.difference(set(fields), set(dct.keys())):
                     val = getattr(cls, fld)
@@ -525,13 +502,12 @@ def component(name=None, array_like=False, item_shape=()):
 def apply(obj, data):
     for k, v in data.items():
         if isinstance(v, dict):
-
             apply(getattr(obj, k), v)
         else:
             obj.__setitem__(k, v)
 
 
-COMPONENT_TYPE_FIELD = 'component_type'
+COMPONENT_TYPE_FIELD = "component_type"
 
 
 def is_component(obj):
@@ -541,9 +517,9 @@ def is_component(obj):
 def todict(obj):
     if is_dataclass(obj):
         return asdict(obj)
-    elif hasattr(obj, 'items'):
+    elif hasattr(obj, "items"):
         return {k: todict(v) for k, v in obj.items()}
-    elif hasattr(obj, 'todict'):
+    elif hasattr(obj, "todict"):
         return obj.todict()
     elif isinstance(obj, (list, tuple)):
         return [todict(v) for v in obj]
@@ -566,7 +542,7 @@ def request_component(name, uuid):
 
 
 def default_value(comp, field: str):
-    return request_component_type(comp.component_type).fields['data'].default()
+    return request_component_type(comp.component_type).fields["data"].default()
 
 
 def dumps(cmp, **kwargs):
@@ -586,31 +562,29 @@ from collections import defaultdict
 CASTS = defaultdict(lambda: lambda tp, x: x)
 from itertools import count
 
-CASTS['ndarray'] = lambda tp, x: np.array(x)
+CASTS["ndarray"] = lambda tp, x: np.array(x)
 
 
 def from_spec(spec, refs: list, comps_queue: queue.Queue, comps: list):
     if not isinstance(spec, dict):
         return spec
-    sp = spec.get('spec')
+    sp = spec.get("spec")
     if sp:
-        ref = sp.get('ref')
-        kind = sp.get('kind')
+        ref = sp.get("ref")
+        kind = sp.get("kind")
 
         if kind == "LEAF":
-            nm = sp.get('type')
+            nm = sp.get("type")
 
-            if 'ndarray' in nm:
-
+            if "ndarray" in nm:
                 shp, dtp = eval(nm).__args__
-                return np.array(spec.get('value'), dtp).reshape(shp)
+                return np.array(spec.get("value"), dtp).reshape(shp)
             else:
-                return spec.get('value')
+                return spec.get("value")
 
         elif kind == "COMP":
-
             fields = dict()
-            for k, f in spec.get('fields').items():
+            for k, f in spec.get("fields").items():
                 obj = from_spec(f, refs, comps_queue, comps)
                 if inspect.isfunction(obj):
                     fields[k] = obj(len(comps), k)
@@ -618,16 +592,16 @@ def from_spec(spec, refs: list, comps_queue: queue.Queue, comps: list):
                     fields[k] = obj
 
             if ref is not None:
-                fields['ref'] = from_spec(refs[ref], refs, comps_queue, comps)
+                fields["ref"] = from_spec(refs[ref], refs, comps_queue, comps)
 
-            _res = request_component_ctor(sp.get('type'))(**fields)
+            _res = request_component_ctor(sp.get("type"))(**fields)
 
             comps.append(_res)
             return _res
         elif kind == "COMP_REF":
-
-            val = spec.get('value')
-            cb = lambda index, field: comps_queue.put(lambda: setattr(comps[index], field, val))
+            val = spec.get("value")
+            cb = lambda index, field: comps_queue.put(lambda: setattr(comps[index], field, val)
+                    )
 
             return cb
 
@@ -640,8 +614,7 @@ from mmcore.func import extract_type
 
 @functools.lru_cache()
 def pretty_name(tp):
-    if hasattr(tp, "__qualname__") and not hasattr(tp, '__args__'):
-
+    if hasattr(tp, "__qualname__") and not hasattr(tp, "__args__"):
         return tp.__qualname__
     else:
         return repr(tp)
@@ -650,35 +623,24 @@ def pretty_name(tp):
 def to_spec(cmp, refs: list, cnt: itertools.count, comps: list):
     if not is_component(cmp):
         return {
-
-            'value': cmp,
-            'spec': {
-                'kind': 'LEAF',
-                'type': pretty_name(extract_type(cmp))
-
-            }}
+            "value": cmp, "spec": {"kind": "LEAF", "type": pretty_name(extract_type(cmp))},
+            }
 
     cnp_uuid_hash = hash(cmp.uuid)
     if cnp_uuid_hash in comps:
         cmp_index = comps.index(cnp_uuid_hash)
 
         return {
-
-            'value': int(cmp_index),
-            'spec': {
-                'kind': 'COMP_REF',
-                'type': cmp.component_type
-
-            }}
+            "value": int(cmp_index), "spec": {"kind": "COMP_REF", "type": cmp.component_type},
+            }
     else:
         comps.append(cnp_uuid_hash)
-    *fields, = cmp.keys()
+    (*fields,) = cmp.keys()
 
-    if 'ref' in fields:
-
-        fields.remove('ref')
+    if "ref" in fields:
+        fields.remove("ref")
         ref = cmp.ref
-        res = np.arange(len(refs))[np.in1d([id(i['value']) for i in refs], [id(ref)])]
+        res = np.arange(len(refs))[np.in1d([id(i["value"]) for i in refs], [id(ref)])]
 
         if len(res) > 0:
             print(res)
@@ -688,22 +650,13 @@ def to_spec(cmp, refs: list, cnt: itertools.count, comps: list):
             refs.append(to_spec(ref, refs, cnt, comps))
             l = next(cnt)
         return {
-            'uuid': cmp.uuid,
-            'fields': {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
-            'spec': {
-                'kind': 'COMP',
-                'type': cmp.component_type,
-                'ref': l}
+            "uuid": cmp.uuid, "fields": {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
+            "spec": {"kind": "COMP", "type": cmp.component_type, "ref": l},
         }
     else:
         return {
-            'uuid': cmp.uuid,
-            'fields': {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
-            'spec': {
-                'kind': 'COMP',
-                'type': cmp.component_type
-
-            }
+            "uuid": cmp.uuid, "fields": {k: to_spec(cmp[k], refs, cnt, comps) for k in fields},
+            "spec": {"kind": "COMP", "type": cmp.component_type},
         }
 
 
@@ -716,11 +669,11 @@ def components_to_spec(*cmp):
 
 
 def components_from_spec(spec, return_root_only=False):
-    refs = spec['refs']
+    refs = spec["refs"]
 
     comps = []
     que = queue.Queue()
-    [from_spec(cm, refs, que, comps) for cm in spec['spec']]
+    [from_spec(cm, refs, que, comps) for cm in spec["spec"]]
     while not que.empty():
         que.get()()
     if return_root_only:
@@ -728,23 +681,21 @@ def components_from_spec(spec, return_root_only=False):
     return comps
 
 
-ECS_CONTAINER_FIELD_NAME = 'ecs_components'
+ECS_CONTAINER_FIELD_NAME = "ecs_components"
 
 
 class EcsContainer:
-
-    def __init__(self, field_name='ecs_components'):
+    def __init__(self, field_name="ecs_components"):
         self.field_name = field_name
         self._data = dict()
 
     def __set_name__(self, owner, name):
-        if hasattr(owner, 'ecs_map'):
+        if hasattr(owner, "ecs_map"):
             owner.ecs_map = {self.field_name: name}
         self._data[owner.__name__] = dict()
         self._name = name
 
     def __get__(self, instance, owner):
-
         if instance:
             return self._data[owner.__name__].get(id(instance), None)
         else:
@@ -766,11 +717,12 @@ class EcsProperty:
         self.typ = type
 
     def __set_name__(self, owner, name):
-        if not hasattr(owner, 'ecs_map'):
+        if not hasattr(owner, "ecs_map"):
             owner.ecs_map = dict()
         if self.i is not None:
             if self.i in owner.ecs_map.values():
-                raise IndexError(f'component {self.i} is already defined: {owner.ecs_map}')
+                raise IndexError(f"component {self.i} is already defined: {owner.ecs_map}"
+                        )
         else:
             self.i = len(owner.ecs_map)
         owner.ecs_map[name] = dict(n=self.i, component_type=self.typ)
@@ -787,19 +739,14 @@ class EcsProperty:
         self.ecs_set(instance, value)
 
     def ecs_get(self, instance):
-        return instance.ecs_components[instance.ecs_map[self._name]['n']]
+        return instance.ecs_components[instance.ecs_map[self._name]["n"]]
 
     def ecs_set(self, instance, value):
-        instance.ecs_components[instance.ecs_map[self._name]['n']] = value
+        instance.ecs_components[instance.ecs_map[self._name]["n"]] = value
 
 
 def deepcopy_components(cmps, memo={}, return_root_only=False):
-    return components_from_spec(
-        copy.deepcopy(
-            components_to_spec(*cmps),
-            memo
-        ),
-        return_root_only=return_root_only
+    return components_from_spec(copy.deepcopy(components_to_spec(*cmps), memo), return_root_only=return_root_only,
     )
 
 
@@ -816,4 +763,4 @@ class EcsProto:
         return self
 
     def ecs_component_types(self):
-        return ((e['component_type'].component_type, e['n']) for e in self.ecs_map.values())
+        return ((e["component_type"].component_type, e["n"]) for e in self.ecs_map.values())

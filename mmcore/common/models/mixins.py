@@ -6,10 +6,15 @@ from uuid import uuid4
 
 from mmcore.base import ageomdict, amatdict, AMesh, AGroup
 from mmcore.common.models.fields import FieldMap
-from mmcore.geom.mesh import build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial
-from mmcore.base.models.gql import ColorRGB, BaseMaterial, MeshPhongMaterial, create_material_uuid
+from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,
+    )
+from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, create_material_uuid,
+    )
 from mmcore.base.userdata.controls import encode_control_points
-from mmcore.common.viewer import ViewerGroupObserver, ViewerObservableGroup, create_group, group_observer
+from mmcore.common.viewer import (ViewerGroupObserver, ViewerObservableGroup, create_group, group_observer,
+    )
+
+
 class ViewSupport(metaclass=ABCMeta):
     """
 
@@ -74,10 +79,12 @@ class ViewSupport(metaclass=ABCMeta):
                 None
 
     """
+
     __field_map__: tuple[FieldMap] = ()
     field_map: list[FieldMap]
     _uuid = None
-    __view_name__ = 'base'
+    __view_name__ = "base"
+
     @abstractmethod
     def __init_support__(self, uuid=None, field_map=None, hooks=()):
         self._dirty = True
@@ -88,13 +95,12 @@ class ViewSupport(metaclass=ABCMeta):
         if not field_map:
             self.field_map = list(sorted(list(self.__class__.__field_map__)))
         else:
-            self.field_map = sorted(list(self.__class__.__field_map__) + list(field_map))
+            self.field_map = sorted(list(self.__class__.__field_map__) + list(field_map)
+                    )
 
     def apply_forward(self, data):
         for m in self.field_map:
-
             m.forward(self, data)
-
 
     def describe(self):
         data = dict()
@@ -110,7 +116,6 @@ class ViewSupport(metaclass=ABCMeta):
             self.apply_backward(data)
         self.hook()
         self.apply_forward(data)
-
 
     def apply_backward(self, data):
         """
@@ -133,7 +138,6 @@ class ViewSupport(metaclass=ABCMeta):
     @uuid.setter
     def uuid(self, v):
         self._uuid = v
-
 
 
 class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
@@ -170,15 +174,16 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     ...         # Implement this method to return a valid MeshTuple
     ...         return MeshTuple(vertices=[], faces=[], lines=[], color=ColorRGB(r=255, g=255, b=255))
     """
+
     _mesh: typing.Optional[AMesh] = None
     __view_default_material = simpleMaterial
     _material_color = None
     _material_prototype = None
     _material = None
-    __view_name__ = 'mesh'
+    __view_name__ = "mesh"
 
     def __init_support__(self, uuid=None, field_map=None, hooks=(), color=None,
-                         material_prototype: BaseMaterial = None):
+            material_prototype: BaseMaterial = None, ):
         super().__init_support__(uuid, field_map, hooks=hooks)
         self._mesh = None
         self._material_prototype = material_prototype
@@ -203,34 +208,32 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         return self._material_color
 
     @material_color.setter
-    def material_color(self, v: 'tuple | list | np.ndarray | ColorRGB'):
+    def material_color(self, v: "tuple | list | np.ndarray | ColorRGB"):
         self._material_color = v if isinstance(v, ColorRGB) else ColorRGB(*v)
         self._material.color = self._material_color.decimal
-        self._material.uuid = create_material_uuid(self._material, self.material_prototype.uuid)
+        self._material.uuid = create_material_uuid(self._material, self.material_prototype.uuid
+                )
 
         if self._mesh is not None:
             self.update_mesh_material()
 
     @property
     def material(self, v: BaseMaterial):
-
         return self._material
 
     @material.setter
     def material(self, v: BaseMaterial):
-
         self._material = v
         if self._mesh is not None:
             self.update_mesh_material()
 
     @property
     def material_prototype(self):
-        return self._material_prototype if self._material_prototype is not None else (
-            self.__class__.__view_default_material)
+        return (self._material_prototype if self._material_prototype is not None else (
+            self.__class__.__view_default_material))
 
     @material_prototype.setter
     def material_prototype(self, v: BaseMaterial):
-
         self._material_prototype = v
 
     @abstractmethod
@@ -252,14 +255,11 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         if forward:
             self.apply_forward(_props)
         self._mesh = build_mesh_with_buffer(self.to_mesh_view(), uuid=self.uuid, props=_props, _controls=controls,
-                                            material=self.to_mesh_material(),
-                                            **kwargs
-                                            )
+                material=self.to_mesh_material(), **kwargs, )
         self._mesh.owner = self
-        if hasattr(self, 'control_points'):
-
-            self._mesh._controls['path'] = dict(points=encode_control_points(self.control_points))
-
+        if hasattr(self, "control_points"):
+            self._mesh._controls["path"] = dict(points=encode_control_points(self.control_points)
+                    )
 
     def _init_mesh(self):
         self.create_mesh(forward=False)
@@ -267,14 +267,12 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
 
     def update_mesh_geometry(self):
         ageomdict[self._mesh._geometry] = create_mesh_buffer_from_mesh_tuple(self.to_mesh_view(), uuid=self._mesh.uuid
-                                                                             )
+                )
 
     def update_mesh_material(self):
         mat = self.to_mesh_material()
         amatdict[mat.uuid] = mat
         self._mesh._material = mat.uuid
-
-
 
     def update_mesh(self, no_back=False):
         if self._mesh is not None:
@@ -284,7 +282,6 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
             self.apply_forward(self._mesh.properties)
 
         else:
-
             return ValueError("Mesh not initialized")
 
     def to_mesh(self, **kwargs):
@@ -298,20 +295,20 @@ _group_view_classes = dict()
 class GroupViewSupport(ViewSupport):
     __group_class__ = AGroup
     __observer__ = group_observer
-    __view_name__ = 'group'
+    __view_name__ = "group"
 
     def __class_getitem__(cls, item):
         grp_cls, observer = item
         if _group_view_classes.get((grp_cls, id(observer))) is None:
             _group_view_classes[(grp_cls, id(observer))] = type(
-                f'GroupViewSupport[{item[0].__name__},{observer.__class__.__name__}]', (cls,),
-                dict(__group_class__=grp_cls, __observer__=observer)
-                )
+                    f"GroupViewSupport[{item[0].__name__},{observer.__class__.__name__}]", (cls,),
+                    dict(__group_class__=grp_cls, __observer__=observer), )
         return _group_view_classes[item]
 
     def __init_support__(self, uuid=None, field_map=None, items=None):
         super(GroupViewSupport, self).__init_support__(uuid=uuid, field_map=field_map)
-        self._group = create_group(self.uuid, obs=self.__observer__, cls=self.__group_class__)
+        self._group = create_group(self.uuid, obs=self.__observer__, cls=self.__group_class__
+                )
         self._items = dict()
         if items is not None:
             self._items |= {item.uuid: item for item in items}
@@ -319,22 +316,22 @@ class GroupViewSupport(ViewSupport):
     def update_group(self):
         self._group.children_uuids = self._items.keys()
 
-    def add(self, item: 'MeshViewSupport|GroupViewSupport'):
+    def add(self, item: "MeshViewSupport|GroupViewSupport"):
         self._items[item.uuid] = item
         self.update_group()
 
-    def remove(self, item: 'MeshViewSupport|GroupViewSupport'):
+    def remove(self, item: "MeshViewSupport|GroupViewSupport"):
         del self._items[item.uuid]
         self.update_group()
 
-    def __contains__(self, item: 'MeshViewSupport|GroupViewSupport'):
+    def __contains__(self, item: "MeshViewSupport|GroupViewSupport"):
         return self._items.__contains__(item.uuid)
 
-    def update(self, items: 'list[MeshViewSupport|GroupViewSupport]'):
+    def update(self, items: "list[MeshViewSupport|GroupViewSupport]"):
         self._items |= {item.uuid: item for item in items}
         self.update_group()
 
-    def index(self, item: 'MeshViewSupport|GroupViewSupport'):
+    def index(self, item: "MeshViewSupport|GroupViewSupport"):
         return list(self._items.keys()).index(item)
 
     def __getitem__(self, item):

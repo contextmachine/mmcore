@@ -2,7 +2,8 @@ import functools
 import itertools
 from typing import Any, Protocol, Type, TypeVar
 import numpy as np
-T=TypeVar("T")
+
+T = TypeVar("T")
 
 
 from scipy.spatial import KDTree
@@ -24,20 +25,19 @@ class LineNode(Node):
         start: A tuple representing the start point of the line node.
         end: A tuple representing the end point of the line node.
     """
-    def __init__(self, data:Line):
+
+    def __init__(self, data: Line):
         self._next_offset = None
         super().__init__(data)
 
-
-    @vectorize(excluded=[0, 2], signature='(i)->(i)')
-    def closest_point(self, pt)->np.ndarray[Any, np.dtype[float]]:
+    @vectorize(excluded=[0, 2], signature="(i)->(i)")
+    def closest_point(self, pt) -> np.ndarray[Any, np.dtype[float]]:
         t = self.closest_parameter(pt)
-
 
         return self.evaluate(t)
 
-    @vectorize(excluded=[0], signature='(i)->()')
-    def closest_parameter(self, pt: 'tuple|list|np.ndarray')->np.ndarray[Any, np.dtype[float]]:
+    @vectorize(excluded=[0], signature="(i)->()")
+    def closest_parameter(self, pt: "tuple|list|np.ndarray") -> np.ndarray[Any, np.dtype[float]]:
         """
         :param pt: The point to which the closest parameter is to be found.
         :type pt: list, tuple or numpy array
@@ -49,8 +49,8 @@ class LineNode(Node):
 
         return np.dot(self.unit, vec / norm(self.direction))
 
-    @vectorize(excluded=[0], signature='(i)->()')
-    def closest_distance(self, pt: 'tuple|list|np.ndarray[3, float]')->np.ndarray[Any, np.dtype[float]]:
+    @vectorize(excluded=[0], signature="(i)->()")
+    def closest_distance(self, pt: "tuple|list|np.ndarray[3, float]") -> np.ndarray[Any, np.dtype[float]]:
         """
         :param pt: The point for which the closest distance needs to be calculated.
         :type pt: list, tuple or numpy array
@@ -64,29 +64,28 @@ class LineNode(Node):
         pt2 = self.evaluate(t)
         return dist(pt2, pt)
 
-
-
-    @vectorize(excluded=[0], signature='()->(i)')
+    @vectorize(excluded=[0], signature="()->(i)")
     def evaluate_distance(self, t: float):
         return self.start + (self.unit * t)
 
     def closest_point_node(self, pt):
         return ClosestPointsOnCurveCollection(pt, self)
-    @vectorize(excluded=[0], signature='()->(i)')
-    def evaluate(self, t):
-        return  self.start + self.direction * t
-    def __hash__(self):
 
-            return hash(self.data)
+    @vectorize(excluded=[0], signature="()->(i)")
+    def evaluate(self, t):
+        return self.start + self.direction * t
+
+    def __hash__(self):
+        return hash(self.data)
 
     def __eq__(self, other):
         return self.__hash__() == other.__hash__()
+
     def __repr__(self):
-        return f'{self.__class__}({self.start}, {self.end})'
+        return f"{self.__class__}({self.start}, {self.end})"
 
     @property
     def start(self):
-
         return self.data.unbounded_intersect(self.previous.data)
 
     @property
@@ -96,8 +95,6 @@ class LineNode(Node):
     @end.setter
     def end(self, v):
         self.data.end = v
-
-
 
     @start.setter
     def start(self, v):
@@ -109,14 +106,15 @@ class LineNode(Node):
 
     @property
     def unit(self):
-        return  unit(self.direction )
+        return unit(self.direction)
 
     @property
     def length(self):
         return norm(self.direction)
+
     @property
     def start_angle(self):
-        return angle(self.data.unit,-self.previous.data.unit)
+        return angle(self.data.unit, -self.previous.data.unit)
 
     @property
     def end_angle(self):
@@ -129,11 +127,11 @@ class LineNode(Node):
     @property
     def end_angle_dot(self):
         return dot(self.data.unit, self.next.data.unit)
+
     def __call__(self, t):
         return self.evaluate(t)
 
-
-    def intersect_lstsq(self, other: 'LineNode'):
+    def intersect_lstsq(self, other: "LineNode"):
         (x1, y1, z1), (x2, y2, z2) = self.start, self.end
         (x3, y3, z3), (x4, y4, z4) = other.start, other.end
 
@@ -142,7 +140,7 @@ class LineNode(Node):
 
         return np.append(np.linalg.lstsq(A, b), z1)
 
-    def intersect(self, other: 'LineNode'):
+    def intersect(self, other: "LineNode"):
         (x1, y1, z1), (x2, y2, z2) = self.start, self.end
         (x3, y3, z3), (x4, y4, z4) = other.start, other.end
 
@@ -151,16 +149,12 @@ class LineNode(Node):
 
         return np.append(np.linalg.solve(A, b), z1)
 
-    def offset(self, dists: 'float|np.ndarray'):
-
+    def offset(self, dists: "float|np.ndarray"):
         if np.isscalar(dists):
             dists = np.zeros(2, float) + dists
-        v=cross(self.data.unit, [0., 0., 1.])
-        return self.__class__(Line.from_ends(self.data.start + v * dists[0], self.data.end + v * dists[1]))
-
-
-
-
+        v = cross(self.data.unit, [0.0, 0.0, 1.0])
+        return self.__class__(Line.from_ends(self.data.start + v * dists[0], self.data.end + v * dists[1])
+                )
 
 
 class LineOffset(LineNode):
@@ -172,18 +166,19 @@ class LineOffset(LineNode):
         _distance (numpy.ndarray): The distance between the start and end points.
 
     """
+
     _distance = None
+
     def __init__(self, dists, offset_previous: LineNode = None):
         super().__init__(offset_previous.data)
         self._offset_previous = offset_previous
-        self.distance=dists
+        self.distance = dists
+
     def __iter__(self):
-        return iter((self.start,self.end))
+        return iter((self.start, self.end))
+
     def __hash__(self):
-        return hash((hash(self._offset_previous),hash(self.distance.tobytes())))
-
-
-
+        return hash((hash(self._offset_previous), hash(self.distance.tobytes())))
 
     @property
     def offset_previous(self):
@@ -193,19 +188,17 @@ class LineOffset(LineNode):
     def offset_previous(self, v: LineNode):
         self._offset_previous = v
 
-
     @property
     def length(self):
-        return dist(IntersectionPoint((self.previous, self)).p, IntersectionPoint((self, self.next)).p)
+        return dist(IntersectionPoint((self.previous, self)).p, IntersectionPoint((self, self.next)).p, )
 
     def offset_pts(self):
-        return IntersectionPoint((self.previous.offset_previous, self)), IntersectionPoint(
-                (self, self.next.offset_previous)
-                )
+        return IntersectionPoint((self.previous.offset_previous, self)
+                ), IntersectionPoint((self, self.next.offset_previous))
 
     @property
     def start(self):
-        return self.offset_previous.start + self.offset_unit_direction * self.distance[0]
+        return (self.offset_previous.start + self.offset_unit_direction * self.distance[0])
 
     @property
     def end(self):
@@ -217,20 +210,23 @@ class LineOffset(LineNode):
 
     @distance.setter
     def distance(self, val):
-
         if np.isscalar(val):
-            value = np.zeros(2)+val
+            value = np.zeros(2) + val
         else:
-            value=np.array(val)
+            value = np.array(val)
 
-        self._distance =value
+        self._distance = value
 
     @property
     def offset_unit_direction(self):
-        return cross(self.offset_previous.unit, [0., 0., 1.])
+        return cross(self.offset_previous.unit, [0.0, 0.0, 1.0])
 
-from mmcore.geom.tolerance import hash_ndarray_float,HashNdArrayMethod
-P=TypeVar("P")
+
+from mmcore.geom.tolerance import hash_ndarray_float, HashNdArrayMethod
+
+P = TypeVar("P")
+
+
 class ExecutableNodeProtocol(Protocol[P, T]):
     """A protocol for executable nodes.
 
@@ -246,18 +242,21 @@ class ExecutableNodeProtocol(Protocol[P, T]):
 
     """
 
-    owner:'Any'
+    owner: "Any"
 
+    def __hash__(self) -> int:
+        ...
 
-    def __hash__(self)->int:...
-    def solve(self)->T:...
+    def solve(self) -> T:
+        ...
 
     @property
-    def output(self)->T:
+    def output(self) -> T:
         return self.solve()
 
-class PointsOnCurveCollection(ExecutableNodeProtocol[np.ndarray[Any, np.dtype[float]],np.ndarray[Any, np.dtype[float]]],
-                              ArrayInterface):
+
+class PointsOnCurveCollection(
+        ExecutableNodeProtocol[np.ndarray[Any, np.dtype[float]], np.ndarray[Any, np.dtype[float]]], ArrayInterface, ):
     """
     :class: `PointsOnCurveCollection`
 
@@ -283,13 +282,16 @@ class PointsOnCurveCollection(ExecutableNodeProtocol[np.ndarray[Any, np.dtype[fl
     Note:
         - This class implements the ExecutableNodeProtocol and ArrayInterface protocols.
     """
+
     def __init__(self, t: np.ndarray[Any, np.dtype[float]], owner):
-        self._t = np.array(t,float)
+        self._t = np.array(t, float)
         self.owner = owner
-        self._output=None
+        self._output = None
+
     @property
     def params(self):
-        return {'t': self._t}
+        return {"t": self._t}
+
     @property
     def p(self):
         return self._output
@@ -299,28 +301,34 @@ class PointsOnCurveCollection(ExecutableNodeProtocol[np.ndarray[Any, np.dtype[fl
         return self._t
 
     @t.setter
-    def t(self,v):
-        self._t=np.array(np.atleast_1d(v),float)
+    def t(self, v):
+        self._t = np.array(np.atleast_1d(v), float)
 
-    def solve(self)->np.ndarray[Any,np.dtype[float]]:
-        self._output=self.owner.evaluate(self.t)
+    def solve(self) -> np.ndarray[Any, np.dtype[float]]:
+        self._output = self.owner.evaluate(self.t)
         return self._output
-    def __array__(self, dtype:Type[T]=float)->np.ndarray[Any,np.dtype[T]]:
+
+    def __array__(self, dtype: Type[T] = float) -> np.ndarray[Any, np.dtype[T]]:
         return np.array(self.solve(), dtype=dtype)
+
     def __hash__(self):
-        return hash((hash(self.owner), hash_ndarray_float(self.t, method=HashNdArrayMethod.full)))
+        return hash((hash(self.owner), hash_ndarray_float(self.t, method=HashNdArrayMethod.full),)
+                )
+
     def __iter__(self):
         return iter(self.solve())
 
-    def __getitem__(self, item)->'PointOnCurve':
+    def __getitem__(self, item) -> "PointOnCurve":
         return PointOnCurve(item, self)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(length={len(np.atleast_1d(self.t))})'
+        return f"{self.__class__.__name__}(length={len(np.atleast_1d(self.t))})"
 
     @property
-    def output(self)->np.ndarray[Any,np.dtype[float]]:
+    def output(self) -> np.ndarray[Any, np.dtype[float]]:
         return self._output
+
+
 class PointOnCurve(ArrayInterface):
     """A class representing a point on a curve.
 
@@ -332,27 +340,29 @@ class PointOnCurve(ArrayInterface):
         owner (PointsOnCurveCollection): The parent collection that contains the point.
 
     """
-    ixs:int
-    owner: 'PointsOnCurveCollection'
-    def __init__(self, ixs:int, owner:PointsOnCurveCollection):
+
+    ixs: int
+    owner: "PointsOnCurveCollection"
+
+    def __init__(self, ixs: int, owner: PointsOnCurveCollection):
         self.ixs = ixs
         self.owner = owner
 
     @property
     def params(self):
-        return {'i': self.ixs}
+        return {"i": self.ixs}
+
     @property
-    def p(self)->np.ndarray[Any,np.dtype[float]]:
+    def p(self) -> np.ndarray[Any, np.dtype[float]]:
         return self.owner.owner(self.t)
 
     @property
-    def t(self)->float:
+    def t(self) -> float:
         return float(self.owner.t[self.ixs])
 
     @t.setter
-    def t(self, v:float):
+    def t(self, v: float):
         self.owner.t[self.ixs] = v
-
 
     def __array__(self, dtype=float):
         return np.array(self.p, dtype=dtype)
@@ -365,8 +375,8 @@ class PointOnCurve(ArrayInterface):
         return a[item]
 
     def __repr__(self):
-        return (f'{self.__class__.__name__}(t{self.ixs} = {np.round(self.t, 4)}, p{self.ixs} '
-                f'={np.round(self.p, 4)})')
+        return (f"{self.__class__.__name__}(t{self.ixs} = {np.round(self.t, 4)}, p{self.ixs} "
+                f"={np.round(self.p, 4)})")
 
 
 class ClosestPointsOnCurveCollection(PointsOnCurveCollection):
@@ -428,33 +438,36 @@ class ClosestPointsOnCurveCollection(PointsOnCurveCollection):
             Returns:
                 float: Parameter value of the closest point
     """
+
     def __init__(self, closest_points, owner: Line):
         self.closest_points = closest_points
 
         super().__init__(owner.closest_parameter(np.array(self.closest_points)), owner)
 
-
     @property
     def params(self):
-        return {'closest_points': self.closest_points}|super().params
-    def solve(self):
-        self._t=self.owner.closest_parameter(np.array(self.closest_points))
-        return self._t
-    def __setitem__(self, key, value):
+        return {"closest_points": self.closest_points} | super().params
 
+    def solve(self):
+        self._t = self.owner.closest_parameter(np.array(self.closest_points))
+        return self._t
+
+    def __setitem__(self, key, value):
         self.closest_points.__setitem__(key, value)
+
     def __getitem__(self, item):
-        return ClosestPointOnCurve(item,self)
+        return ClosestPointOnCurve(item, self)
+
     @property
     def t(self):
-
         return self._t
-    def __array__(self, dtype:Type[T]=float) ->np.ndarray[Any,np.dtype[T]]:
-        return np.array(self.owner(self.solve()),dtype=dtype)
+
+    def __array__(self, dtype: Type[T] = float) -> np.ndarray[Any, np.dtype[T]]:
+        return np.array(self.owner(self.solve()), dtype=dtype)
+
     def __iter__(self):
         for i in range(len(self.closest_points)):
             yield self[i]
-
 
 
 class ClosestPointOnCurve(PointOnCurve):
@@ -476,7 +489,8 @@ class ClosestPointOnCurve(PointOnCurve):
         t: Property representing the parameter value of the closest point on the curve.
 
     """
-    def __init__(self, ixs, owner:ClosestPointsOnCurveCollection):
+
+    def __init__(self, ixs, owner: ClosestPointsOnCurveCollection):
         super().__init__(ixs, owner)
 
     @property
@@ -490,14 +504,14 @@ class ClosestPointOnCurve(PointOnCurve):
     @property
     def p(self):
         return self.owner.owner(self.t)
+
     @property
     def t(self):
         return self.owner.solve()[self.ixs]
 
     @t.setter
-    def t(self,v):
+    def t(self, v):
         raise AttributeError("t readonly")
-
 
 
 class IntersectionPoint(Node, ArrayInterface):
@@ -578,22 +592,24 @@ class IntersectionPoint(Node, ArrayInterface):
 
        Returns an iterator for the intersection point.
        Returns an"""
-    data:'tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]'
 
-    def __init__(self, lines: 'tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]'):
-        super().__init__([lines[0],lines[1]])
-        self.prev_curve_node=lines[0]
-        self.next_curve_node=lines[1]
+    data: "tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]"
 
+    def __init__(self, lines: "tuple[Node|LineNode|LineOffset, Node|LineNode|LineOffset]"):
+        super().__init__([lines[0], lines[1]])
+        self.prev_curve_node = lines[0]
+        self.next_curve_node = lines[1]
 
         self.solve()
+
     @property
     def angle(self):
-        return angle(self.line1.unit,self.line2.unit)
+        return angle(self.line1.unit, self.line2.unit)
 
     @property
     def dot(self):
         return dot(self.line1.unit, self.line2.unit)
+
     @property
     def line1(self):
         return self.data[0]
@@ -641,10 +657,11 @@ class IntersectionPoint(Node, ArrayInterface):
         return iter(self.p)
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.line1} x {self.line2})'
+        return f"{self.__class__.__name__}({self.line1} x {self.line2})"
+
 
 @functools.lru_cache(maxsize=None)
-def _cached_solve_kd(self: 'LineCDLL'):
+def _cached_solve_kd(self: "LineCDLL"):
     """
     :param self: The instance of the LineCDLL class.
     :type self: LineCDLL
@@ -652,6 +669,8 @@ def _cached_solve_kd(self: 'LineCDLL'):
     :rtype: KDTree
     """
     return KDTree(self.corners)
+
+
 class LineCDLL(CDLL):
     """
     :class:`LineCDLL`
@@ -746,15 +765,19 @@ class LineCDLL(CDLL):
         Evaluate the value of the function at time 't'.
 
         :param t: The time at"""
+
     nodetype = LineNode
 
     def __repr__(self):
-        return f'{self.__class__.__name__}[{self.nodetype.__name__}](length={self.count}) at {hex(id(self))}'
+        return f"{self.__class__.__name__}[{self.nodetype.__name__}](length={self.count}) at {hex(id(self))}"
+
+    def __hash__(self):
+        return hash(tuple(hash(l) for l in self))
 
     def closest_point_node(self, point):
         return self.closest_segment(point).closest_point_node(point)
 
-    def closest_segment(self, point:np.ndarray)->LineNode:
+    def closest_segment(self, point: np.ndarray) -> LineNode:
         return sorted(self.iter_nodes(), key=lambda node: node.closest_distance(point))[0]
 
     @property
@@ -783,11 +806,11 @@ class LineCDLL(CDLL):
 
     @property
     def angles(self):
-        return np.array([angle( i.previous.unit,i.unit) for i in self.iter_nodes()])
+        return np.array([angle(i.previous.unit, i.unit) for i in self.iter_nodes()])
 
     @property
     def dots(self):
-        return np.array([dot( i.previous.unit,i.unit) for i in self.iter_nodes()])
+        return np.array([dot(i.previous.unit, i.unit) for i in self.iter_nodes()])
 
     @property
     def units(self):
@@ -800,7 +823,7 @@ class LineCDLL(CDLL):
         lcdll.count = cdll.count
 
         temp = cdll.head.next
-        while (temp != cdll.head):
+        while temp != cdll.head:
             lcdll.append((temp.previous, temp))
             temp = temp.next
 
@@ -819,13 +842,14 @@ class LineCDLL(CDLL):
 
     @property
     def dist_matrix(self):
-        return np.array([i.closest_distance(self.starts + (self.starts - self.ends) / 2) for i in self.iter_nodes()])
+        return np.array([i.closest_distance(self.starts + (self.starts - self.ends) / 2) for i in self.iter_nodes()]
+                )
 
     @property
     def orient_dots(self):
-        return np.array([dot(i.unit, [0., 1., 0.]) for i in self.iter_nodes()])
+        return np.array([dot(i.unit, [0.0, 1.0, 0.0]) for i in self.iter_nodes()])
 
-    @vectorize(excluded=[0], signature='()->(i)')
+    @vectorize(excluded=[0], signature="()->(i)")
     def evaluate(self, t):
         """
         Evaluate the value of the function at time 't'.
@@ -853,7 +877,7 @@ class LineCDLL(CDLL):
         """
         return self.evaluate(t)
 
-    def evaluate_node(self, t: 'float|np.ndarray[Any, np.dtype[float]]') -> PointsOnCurveCollection:
+    def evaluate_node(self, t: "float|np.ndarray[Any, np.dtype[float]]") -> PointsOnCurveCollection:
         """
         :param t: The parameter value at which to evaluate the node.
         :type t: float
@@ -865,13 +889,15 @@ class LineCDLL(CDLL):
 
     @property
     def corners(self):
-
         return np.array([list(i) for i in self.gen_intersects()])
+
     def solve_kd(self):
         return _cached_solve_kd(self)
+
     @corners.setter
     def corners(self, corners):
-        for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None):
+        for corner, node in itertools.zip_longest(corners, self.iter_nodes(), fillvalue=None
+                ):
             if corner is None:
                 self.remove(node.data)
             elif node is None:
@@ -880,7 +906,7 @@ class LineCDLL(CDLL):
                 node.start = np.array(corner)
                 node.previous.end = np.array(corner)
 
-    def append_corner(self, value: 'np.ndarray | list[float] | tuple[float,float,float]'):
+    def append_corner(self, value: "np.ndarray | list[float] | tuple[float,float,float]"):
         """
         :param value: The value to append to the corner.
         :type value:  ndarray | List[float] | tuple[float,float,float]
@@ -894,12 +920,12 @@ class LineCDLL(CDLL):
         node.end = self.head.start
         node.previous.end = node.start
 
-    def set_corner(self, index: int, value: 'np.ndarray | list[float] | tuple[float,float,float]'):
+    def set_corner(self, index: int, value: "np.ndarray | list[float] | tuple[float,float,float]"):
         node = self.get_node(index)
         node.start = np.array(value)
         node.previous.end = node.start
 
-    def insert_corner(self, value: 'np.ndarray | list[float] | tuple[float,float,float]', index: int):
+    def insert_corner(self, value: "np.ndarray | list[float] | tuple[float,float,float]", index: int):
         """
 
 
@@ -913,8 +939,8 @@ class LineCDLL(CDLL):
         """
         self.insert(Line(np.array(value, float), np.array([1.0, 0.0, 0.0])), index)
         node = self.get_node(index)
-        node.end = node.next.start
-        node.previous.end = node.start
+        node.data.end = node.next.data.start
+        node.previous.data.end = node.data.start
 
     def offset(self, dists):
         """
@@ -944,8 +970,7 @@ class LineCDLL(CDLL):
         """
         lst = self.__class__()
         for node, offset_dist in itertools.zip_longest(self.iter_nodes(), np.atleast_1d(dists),
-                                                       fillvalue=0. if not np.isscalar(dists) else dists
-                                                       ):
+                fillvalue=0.0 if not np.isscalar(dists) else dists, ):
             lst.append_node(node.offset(offset_dist))
 
         return lst

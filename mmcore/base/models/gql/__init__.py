@@ -19,7 +19,6 @@ from mmcore.geom.materials import ColorRGB
 
 # noinspection PyProtectedMember
 class ChildrenDesc:
-
     def __set_name__(self, owner, name):
         self._name = "_" + name
 
@@ -39,7 +38,6 @@ class ChildrenDesc:
                 pass
 
     def __set__(self, instance, value):
-
         if isinstance(value, (set, list, tuple)):
             instance._children = set()
             for val in value:
@@ -48,7 +46,6 @@ class ChildrenDesc:
                 else:
                     instance._children.add(getitemattr("uuid")(val))
         else:
-
             pass
 
 
@@ -75,7 +72,6 @@ class ItemSize:
 
     def __get__(self, instance, owner):
         if instance is None:
-
             return self._size
         else:
             return getattr(instance, self._name, __default=self._size)
@@ -203,7 +199,8 @@ class HashUUID:
         return self._default
 
     def __set__(self, instance, value):
-        return DeprecationWarning(f"UUID set of {instance} is deprecated and not supported!")
+        return DeprecationWarning(f"UUID set of {instance} is deprecated and not supported!"
+                )
 
 
 @dataclasses.dataclass
@@ -220,7 +217,7 @@ class BufferGeometryObject:
 
     def sha(self):
         if isinstance(self.data, dict):
-            return hash(repr(self.data['attributes']['position']['array']))
+            return hash(repr(self.data["attributes"]["position"]["array"]))
         return hash(repr(self.data.attributes.position.array))
 
     def __hash__(self):
@@ -310,7 +307,7 @@ class GqlObject3D(GqlBaseObject):
     name: str
     uuid: str
     userData: GqlUserData
-    matrix: list[float] = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+    matrix: list[float] = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,)
     layers: int = 1
     type: str = "Object3D"
     castShadow: bool = True
@@ -343,13 +340,14 @@ class GqlPoints(GqlGeometry):
     children: typing.Optional[list[GQLObject3DUnion]] = ChildrenDesc(default=None)
 
 
-GQLGeometryUnion = strawberry.union("GQLObject3DUnion", types=[GqlGeometry, GqlMesh, GqlLine, GqlPoints])
+GQLGeometryUnion = strawberry.union("GQLObject3DUnion", types=[GqlGeometry, GqlMesh, GqlLine, GqlPoints]
+        )
 GQLObject3DUnion = strawberry.union("GQLObject3DUnion",
-                                    types=[GqlObject3D, GqlGroup, GqlGeometry, GqlMesh, GqlLine, GqlPoints])
+        types=[GqlObject3D, GqlGroup, GqlGeometry, GqlMesh, GqlLine, GqlPoints], )
 
 
 class UidSha256:
-    def __init__(self, default='', concrete_override: str = None):
+    def __init__(self, default="", concrete_override: str = None):
         self.concrete_override = concrete_override
         self._default = default
 
@@ -367,28 +365,27 @@ class UidSha256:
         self.name = name
 
     def to_bytes(self, inst):
-
         d = dict(inst.__dict__)
-        if 'uuid' in d.keys():
-            del d['uuid']
+        if "uuid" in d.keys():
+            del d["uuid"]
         if self.name in d.keys():
             del d[self.name]
         s = []
         for k, v in d.items():
             if hasattr(v, self.name):
-
-                s.append(f'{k}:{getattr(v, self.name)}')
-            elif v.__class__.__name__ in ['str', 'int', 'bytes', 'float', 'bool']:
-                s.append(f'{k}:{v}')
+                s.append(f"{k}:{getattr(v, self.name)}")
+            elif v.__class__.__name__ in ["str", "int", "bytes", "float", "bool"]:
+                s.append(f"{k}:{v}")
             elif isinstance(v, str):
-                s.append(f'{k}:{v}')
+                s.append(f"{k}:{v}")
             elif isinstance(v, typing.Iterable):
                 s.append(f'{k}:{",".join([self.to_bytes(vv).decode() for vv in v])}')
             elif isinstance(v, dict):
-                s.append(",".join([f'{k}={self.to_bytes(v)}' for k, v in v.items()]).encode())
+                s.append(",".join([f"{k}={self.to_bytes(v)}" for k, v in v.items()]).encode()
+                        )
             else:
-                s.append(f'{k}:{v.__repr__()}')
-        return ','.join(s).encode()
+                s.append(f"{k}:{v.__repr__()}")
+        return ",".join(s).encode()
 
     def __set__(self, instance, value):
         ...
@@ -403,7 +400,7 @@ def compare_content(self, other, verbose=False):
     ks = []
     vls = []
     for k in d.keys():
-        if not (k == 'uuid') and not (k == 'hash'):
+        if not (k == "uuid") and not (k == "hash"):
             r.append(d.get(k) == d2.get(k))
             ks.append(k)
             vls.append((d.get(k), d2.get(k)))
@@ -414,11 +411,14 @@ def compare_content(self, other, verbose=False):
 
 def create_material_uuid(self: BaseMaterial, postfix=None):
     if postfix is None:
-        return '-'.join(
-                [hex(self.color), str(round(self.opacity, 1)).replace('.', '_'), self.__class__.__name__.lower()]
+        return "-".join(
+                [hex(self.color), str(round(self.opacity, 1)).replace(".", "_"), self.__class__.__name__.lower(), ]
                 )
     else:
-        return '-'.join([hex(self.color), str(round(self.opacity, 1)).replace('.', '_'), f'{postfix}'.lower()])
+        return "-".join([hex(self.color), str(round(self.opacity, 1)).replace(".", "_"), f"{postfix}".lower(), ]
+                )
+
+
 @dataclasses.dataclass
 class BaseMaterial:
     color: int
@@ -433,13 +433,12 @@ class BaseMaterial:
         if self.type is None:
             self.type = self.__class__.__name__
         if self.uuid is None:
-            self.uuid = hex(self.color) + str(round(self.opacity, 1)).replace('.', '_'
-                                                                              ) + self.__class__.__name__.lower()
+            self.uuid = (
+                    hex(self.color) + str(round(self.opacity, 1)).replace(".", "_") + self.__class__.__name__.lower())
         if self.opacity < 1.0:
             self.transparent = True
 
     def __eq__(self, other):
-
         return self.color == other.color
 
     def __hash__(self):
@@ -448,11 +447,12 @@ class BaseMaterial:
 
 @strawberry.enum
 class Materials(str, Enum):
-    PointsMaterial = 'PointsMaterial'
-    LineBasicMaterial = 'LineBasicMaterial'
-    MeshPhongMaterial = 'MeshPhongMaterial'
-    MeshBasicMaterial = 'MeshBasicMaterial'
-    MeshStandardMaterial = 'MeshStandardMaterial'
+    PointsMaterial = "PointsMaterial"
+    LineBasicMaterial = "LineBasicMaterial"
+    MeshPhongMaterial = "MeshPhongMaterial"
+    MeshBasicMaterial = "MeshBasicMaterial"
+    MeshStandardMaterial = "MeshStandardMaterial"
+
 
 @strawberry.type
 class MeshBasicMaterial(BaseMaterial):
@@ -475,7 +475,6 @@ class MeshBasicMaterial(BaseMaterial):
     stencilFail: int = 7680
     stencilZFail: int = 7680
     stencilZPass: int = 7680
-
 
 
 @strawberry.type
@@ -582,13 +581,14 @@ class MeshStandardVertexMaterial(BaseMaterial):
     flatShading: bool = True
     uuid: typing.Optional[str] = None
 
+
 @strawberry.type
 class GqlChart:
     key: str
     id: str = "chart"
     name: str = "Chart"
     colors: str = "default"
-    require: tuple[str] = ('linechart', 'piechart')
+    require: tuple[str] = ("linechart", "piechart")
 
     def __post_init__(self):
         self.name = self.key.capitalize() + " " + self.name
@@ -598,27 +598,12 @@ class GqlChart:
         return strawberry.asdict(self)
 
 
-AnyMaterial = strawberry.union("AnyMaterial", (MeshPhongMaterial,
-                                               PointsMaterial,
-                                               LineBasicMaterial,
+AnyMaterial = strawberry.union("AnyMaterial", (MeshPhongMaterial, PointsMaterial, LineBasicMaterial,),
+        description="All materials in one Union Type", )
 
-                                               ),
-                               description="All materials in one Union Type")
-
-AnyObject3D = strawberry.union("AnyObject3D", (GqlObject3D,
-                                               GqlGroup,
-                                               GqlGeometry,
-                                               GqlMesh,
-                                               GqlLine,
-                                               GqlPoints,
-                                               ),
-                               description="All objects in one Union Type")
-mapattrs = {
-    "normal": Normal,
-    "position": Position,
-    "uv": Uv
-
-}
+AnyObject3D = strawberry.union("AnyObject3D", (GqlObject3D, GqlGroup, GqlGeometry, GqlMesh, GqlLine, GqlPoints,),
+        description="All objects in one Union Type", )
+mapattrs = {"normal": Normal, "position": Position, "uv": Uv}
 attributes = []
 
 
@@ -638,81 +623,61 @@ def geom_attributes_from_dict(att):
 
 def create_buffer_from_dict(kwargs) -> BufferGeometry:
     if "index" in kwargs["data"]:
-
         dct = BufferGeometry(**{
-            "uuid": kwargs.get('uuid'),
-            "type": kwargs.get('type'),
-            "data": Data(**{
-                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
-                "index": Index(**kwargs.get('data').get("index"))
-
-            })
-
-        })
-
+            "uuid": kwargs.get("uuid"), "type": kwargs.get("type"), "data": Data(**{
+                "attributes": geom_attributes_from_dict(kwargs["data"]["attributes"]
+                        ), "index": Index(**kwargs.get("data").get("index")),
+                }
+                    ),
+            }
+                )
 
     else:
-
         dct = BufferGeometry(**{
-            "uuid": kwargs.get('uuid'),
-            "type": kwargs.get('type'),
-            "data": Data1(**{
-                "attributes": geom_attributes_from_dict(kwargs['data']['attributes']),
-
-            })
-        })
+            "uuid": kwargs.get("uuid"), "type": kwargs.get("type"), "data": Data1(**{
+                "attributes": geom_attributes_from_dict(kwargs["data"]["attributes"]
+                        ),
+                }
+                    ),
+            }
+                )
 
     return dct
 
 
-def create_full_buffer(
-        uuid,
-        position=None,
-        uv=None,
-        index=None,
-        normal=None,
-        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+def create_full_buffer(uuid, position=None, uv=None, index=None, normal=None,
+        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry", ):
     attra = dict(position=create_buffer_position(position))
     if color is not None:
-        attra['color'] = create_float32_buffer(color)
+        attra["color"] = create_float32_buffer(color)
     if normal is not None:
-        attra['normal'] = create_float32_buffer(normal)
+        attra["normal"] = create_float32_buffer(normal)
     if uv is not None:
-        attra['uv'] = create_buffer_uv(uv)
+        attra["uv"] = create_buffer_uv(uv)
     if index is not None:
         ixs = create_buffer_index(index)
         return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra,
-                "index": ixs
-
+            "uuid": uuid, "type": threejs_type, "data": {"attributes": attra, "index": ixs},
             }
-        })
+                )
     else:
-        return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra
+        return BufferGeometry(**{"uuid": uuid, "type": threejs_type, "data": {"attributes": attra}}
+                )
 
-            }
-        })
+
 def create_buffer_from_occ(kwargs) -> BufferGeometry:
     return BufferGeometry(**{
-        "uuid": kwargs.get('uuid'),
-        "type": kwargs.get('type'),
-        "data": Data(**{
+        "uuid": kwargs.get("uuid"), "type": kwargs.get("type"), "data": Data(**{
             "attributes": Attributes(**{
-
-                "normal": Normal(**kwargs.get('data').get('attributes').get("normal")),
-                "position": Position(**kwargs.get('data').get('attributes').get("position")),
-
-            })
-
-        })
-    })
+                "normal": Normal(**kwargs.get("data").get("attributes").get("normal")
+                        ), "position": Position(**kwargs.get("data").get("attributes").get("position")
+                        ),
+                }
+                    )
+            }
+                ),
+        }
+            )
 
 
 def create_buffer_position(array, normalized=False):
@@ -721,28 +686,23 @@ def create_buffer_position(array, normalized=False):
 
 def create_float32_buffer(array, normalized=False):
     return {
-        'array': array,
-        'type': "Float32Array",
-        'itemSize': 3,
-        'normalized': normalized
+        "array": array, "type": "Float32Array", "itemSize": 3, "normalized": normalized,
     }
 
 
 METERIAL_TYPE_MAP = dict(
     MeshBasicMaterial=MeshBasicMaterial,
     MeshPhongMaterial=MeshPhongMaterial,
-    PointsMaterial=PointsMaterial,
-    LineBasicMaterial=LineBasicMaterial
-
+    PointsMaterial=PointsMaterial, LineBasicMaterial=LineBasicMaterial,
 )
 
 
 def create_material(store, uuid=None, color=(100, 100, 100), transparent=False, opacity: float = 1.0,
-                    vertexColors=False, material_type='MeshPhongMaterial', **kwargs):
+        vertexColors=False, material_type="MeshPhongMaterial", **kwargs, ):
     if uuid is None:
         uuid = _uuid.uuid4().hex
     m = METERIAL_TYPE_MAP[material_type](uuid=uuid, color=ColorRGB(*color).decimal, vertexColors=vertexColors,
-                                         transparent=transparent, opacity=opacity, **kwargs)
+            transparent=transparent, opacity=opacity, **kwargs, )
     store[uuid] = m
     return m
 
@@ -758,36 +718,24 @@ def update_material_opacity(store: dict, uuid, transparent=True, opacity: float 
 
 
 def create_buffer_index(array):
-    return {
-        'type': 'Uint16Array',
-        "array": array
-    }
+    return {"type": "Uint16Array", "array": array}
 
 
 def create_buffer_color(array, normalized=False):
     return {
-        'array': array,
-        'type': "Float32Array",
-        'itemSize': 3,
-        'normalized': normalized
+        "array": array, "type": "Float32Array", "itemSize": 3, "normalized": normalized,
     }
 
 
 def create_buffer_uv(array, normalized=False):
     return {
-        'array': array,
-        'type': "Float32Array",
-        'itemSize': 2,
-        'normalized': normalized
+        "array": array, "type": "Float32Array", "itemSize": 2, "normalized": normalized,
     }
 
 
 def create_buffer_normals(array, normalized=False):
     return {
-        'array': array,
-        'type': "Float32Array",
-        'itemSize': 3,
-        'normalized': normalized
+        "array": array, "type": "Float32Array", "itemSize": 3, "normalized": normalized,
     }
 
 
@@ -801,150 +749,96 @@ class BufferAttr(TypedDict):
 
 def buffer_attr(array, normalized=None):
     if normalized is not None:
-        return {
-            'array': array,
-            'normalized': normalized
-        }
+        return {"array": array, "normalized": normalized}
     else:
-        return {
-            'array': array
-        }
+        return {"array": array}
 
 
-def create_shape_buffer(uuid,
-                        position,
-                        index,
-                        color: typing.Optional[list[float]] = None,
-                        threejs_type="BufferGeometry") -> BufferGeometry:
+def create_shape_buffer(uuid, position, index, color: typing.Optional[list[float]] = None,
+        threejs_type="BufferGeometry", ) -> BufferGeometry:
     if color:
         return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
+            "uuid": uuid, "type": threejs_type, "data": {
                 "attributes": {
-                    "position": create_buffer_position(position),
-                    'color': create_buffer_color(color)
+                    "position": create_buffer_position(position), "color": create_buffer_color(color),
+                    }, "index": create_buffer_index(index),
                 },
-                "index": create_buffer_index(index)
             }
-        }
-                              )
+                )
     return BufferGeometry(**{
-        "uuid": uuid,
-        "type": threejs_type,
-        "data": {
-            "attributes": {
-                "position": create_buffer_position(position)
+        "uuid": uuid, "type": threejs_type, "data": {
+            "attributes": {"position": create_buffer_position(position)}, "index": create_buffer_index(index),
             },
-            "index": create_buffer_index(index)
         }
-    }
-                          )
+            )
 
 
-def update_shape_buffer(store: dict,
-                        uuid,
-                        position=None,
-                        index=None,
-                        color: typing.Optional[list[float]] = None) -> None:
+def update_shape_buffer(store: dict, uuid, position=None, index=None,
+        color: typing.Optional[list[float]] = None, ) -> None:
     buf = store[uuid]
-    for name, attr in (('position', position), ('color', color)):
+    for name, attr in (("position", position), ("color", color)):
         if attr is not None:
             buf.data["attributes"][name] = create_float32_buffer(array=attr)
     if index is not None:
         buf.index = create_buffer_index(index)
 
 
-def create_uvlike_buffer(store: dict,
-                         uuid,
-                         position=None,
-                         uv=None,
-
-                         normal=None,
-                         color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry") -> None:
+def create_uvlike_buffer(store: dict, uuid, position=None, uv=None, normal=None,
+        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry", ) -> None:
     attra = dict(position=create_buffer_position(position))
     if color is not None:
-        attra['color'] = create_float32_buffer(color)
+        attra["color"] = create_float32_buffer(color)
     if normal is not None:
-        attra['normal'] = create_float32_buffer(normal)
+        attra["normal"] = create_float32_buffer(normal)
     if uv is not None:
-        attra['uv'] = create_buffer_uv(uv)
+        attra["uv"] = create_buffer_uv(uv)
 
-    return BufferGeometry(**{
-        "uuid": uuid,
-        "type": threejs_type,
-        "data": {
-            "attributes": attra
-
-        }
-    }
-                          )
+    return BufferGeometry(**{"uuid": uuid, "type": threejs_type, "data": {"attributes": attra}}
+            )
 
 
-def create_full_buffer(
-        uuid,
-        position=None,
-        uv=None,
-        index=None,
-        normal=None,
-        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+def create_full_buffer(uuid, position=None, uv=None, index=None, normal=None,
+        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry", ):
     attra = dict(position=create_buffer_position(position))
     if color is not None:
-        attra['color'] = create_float32_buffer(color)
+        attra["color"] = create_float32_buffer(color)
     if normal is not None:
-        attra['normal'] = create_float32_buffer(normal)
+        attra["normal"] = create_float32_buffer(normal)
     if uv is not None:
-        attra['uv'] = create_buffer_uv(uv)
+        attra["uv"] = create_buffer_uv(uv)
     if index is not None:
         ixs = create_buffer_index(index)
         return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra,
-                "index": ixs
-
+            "uuid": uuid, "type": threejs_type, "data": {"attributes": attra, "index": ixs},
             }
-        })
+                )
     else:
-        return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra
+        return BufferGeometry(**{"uuid": uuid, "type": threejs_type, "data": {"attributes": attra}}
+                )
 
-            }
-        })
 
 def create_buffer(uuid, normals, vertices, uv, indices) -> BufferGeometry:
     return BufferGeometry(**{
-        "uuid": uuid,
-        "type": "BufferGeometry",
-        "data": Data(**{
+        "uuid": uuid, "type": "BufferGeometry", "data": Data(**{
             "attributes": Attributes(**{
-
                 "normal": Normal(**{
-                    "array": np.asarray(normals, dtype=float).flatten().tolist(),
-                    "itemSize": 3,
-                    "type": "Float32Array",
-                    "normalized": False
-                }),
-                "position": Position(**{
-                    "array": np.asarray(vertices, dtype=float).flatten().tolist(),
-                    "itemSize": 3,
-                    "type": "Float32Array",
-                    "normalized": False
-                }),
-                "uv": Uv(**{
-                    'itemSize': 2,
-                    "array": np.asarray(uv, dtype=float).flatten().tolist(),
-                    "type": "Float32Array",
-                    "normalized": False
-
-                }),
-
-            }),
-            "index": Index(**dict(type='Uint16Array',
-                                  array=np.asarray(indices, dtype=int).flatten().tolist()))
-        })
-    })
+                    "array": np.asarray(normals, dtype=float).flatten().tolist(), "itemSize": 3, "type": "Float32Array",
+                    "normalized": False,
+                    }
+                        ), "position": Position(**{
+                    "array": np.asarray(vertices, dtype=float).flatten().tolist(), "itemSize": 3,
+                    "type": "Float32Array", "normalized": False,
+                    }
+                        ), "uv": Uv(**{
+                    "itemSize": 2, "array": np.asarray(uv, dtype=float).flatten().tolist(), "type": "Float32Array",
+                    "normalized": False,
+                    }
+                        ),
+                }
+                    ),
+            "index": Index(**dict(type="Uint16Array", array=np.asarray(indices, dtype=int).flatten().tolist(), )
+                    ),
+            }
+                ),
+        }
+            )

@@ -7,11 +7,12 @@ from mmcore.common.models.fields import FieldMap
 from mmcore.common.models.mixins import MeshViewSupport
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds, mesh_from_bounds_and_holes
 from mmcore.geom.polycurve import PolyCurve
-from mmcore.geom.shapes.area import polygon_area, polygon_area_vectorized, to_polygon_area
+from mmcore.geom.shapes.area import (polygon_area, polygon_area_vectorized, to_polygon_area,
+    )
 
 
 class Boundary(MeshViewSupport):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
+    __field_map__ = (FieldMap("area", "area", backward_support=False),)
 
     def __init__(self, boundary: np.ndarray = None, count=4, color=(0.3, 0.3, 0.3), **kwargs):
         if boundary is None:
@@ -22,7 +23,6 @@ class Boundary(MeshViewSupport):
 
     def to_mesh_view(self):
         return mesh_from_bounds(self.boundary.tolist())
-
 
     @property
     def area(self):
@@ -38,31 +38,38 @@ class Boundary(MeshViewSupport):
 
 
 class Face(Boundary):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
-    def __init__(self,boundary: np.ndarray = None, holes=None, count=4, **kwargs):
-        self.holes = np.array(holes,float) if holes is not None else holes
-        super().__init__(boundary,count=count,**kwargs)
+    __field_map__ = (FieldMap("area", "area", backward_support=False),)
+
+    def __init__(self, boundary: np.ndarray = None, holes=None, count=4, **kwargs):
+        self.holes = np.array(holes, float) if holes is not None else holes
+        super().__init__(boundary, count=count, **kwargs)
+
     def to_mesh_view(self):
         if self.holes is not None:
-            return mesh_from_bounds_and_holes(self.boundary.tolist(), holes=[hole.tolist() for hole in self.holes])
+            return mesh_from_bounds_and_holes(self.boundary.tolist(), holes=[hole.tolist() for hole in self.holes]
+                    )
         else:
             return super().to_mesh_view()
 
     @property
     def area(self):
         if self.holes is not None:
-            return Boundary.area.fget(self) - np.sum([polygon_area(to_polygon_area(h)) for h in self.holes])
+            return Boundary.area.fget(self) - np.sum([polygon_area(to_polygon_area(h)) for h in self.holes]
+                    )
         return Boundary.area.fget(self)
 
+
 class PolyCurveBoundary(Boundary):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
-    def __init__(self,boundary: np.ndarray = None, count=4, **kwargs):
+    __field_map__ = (FieldMap("area", "area", backward_support=False),)
+
+    def __init__(self, boundary: np.ndarray = None, count=4, **kwargs):
         if boundary is not None:
             self._contour = PolyCurve.from_points(boundary)
         else:
             self._contour = PolyCurve()
 
-        super().__init__(boundary,count=count,**kwargs)
+        super().__init__(boundary, count=count, **kwargs)
+
     @property
     def boundary(self):
         return self._contour.corners
@@ -70,11 +77,11 @@ class PolyCurveBoundary(Boundary):
     @boundary.setter
     def boundary(self, v):
         if v is not None:
-            self._contour.corners = np.array(v, float) if not isinstance(v, np.ndarray) else v
+            self._contour.corners = (np.array(v, float) if not isinstance(v, np.ndarray) else v)
 
 
 class PolyCurveFace(Face):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
+    __field_map__ = (FieldMap("area", "area", backward_support=False),)
 
     def __init__(self, boundary: np.ndarray = None, holes=None, count=4, **kwargs):
         self._contour = PolyCurve.from_points(boundary)
@@ -122,11 +129,10 @@ class PolyCurveFace(Face):
 
     @boundary.setter
     def boundary(self, v):
-        self._contour.corners = np.array(v, float) if not isinstance(v, np.ndarray) else v
+        self._contour.corners = (np.array(v, float) if not isinstance(v, np.ndarray) else v)
 
     @property
     def holes(self):
-
         if self._holes is None:
             return self._holes
         elif len(self._holes) == 0:
@@ -136,58 +142,55 @@ class PolyCurveFace(Face):
 
     @holes.setter
     def holes(self, v):
-        if hasattr(v, '__length__'):
+        if hasattr(v, "__length__"):
             if len(v) > 0:
                 if self._holes is None:
-
                     self._holes = [PolyCurve.from_points(hole) for hole in v]
 
                 else:
-                    for new, current in list(zip_longest(v, self._holes, fillvalue=None)):
+                    for new, current in list(zip_longest(v, self._holes, fillvalue=None)
+                            ):
                         if current is None:
                             current = PolyCurve.from_points(np.array(new, float))
                             self._holes.append(current)
                         elif new is None:
                             self._holes.remove(current)
                         else:
-                            current.corners = np.array(new, float) if not isinstance(new, np.ndarray) else new
-
-
-
-
+                            current.corners = (np.array(new, float) if not isinstance(new, np.ndarray) else new)
 
 
 class OffsetFace(PolyCurveBoundary):
-    __field_map__ = (FieldMap('area', 'area', backward_support=False),)
-    def __init__(self,boundary: np.ndarray = None, distance=0.1, count=4, **kwargs):
+    __field_map__ = (FieldMap("area", "area", backward_support=False),)
 
+    def __init__(self, boundary: np.ndarray = None, distance=0.1, count=4, **kwargs):
         self._offset_distance = distance
-        super().__init__(boundary,count=count,**kwargs)
-
-
+        super().__init__(boundary, count=count, **kwargs)
 
     def to_mesh_view(self):
         if self.holes is not None:
-            return mesh_from_bounds_and_holes(self.boundary.tolist(), holes=self.holes.tolist())
+            return mesh_from_bounds_and_holes(self.boundary.tolist(), holes=self.holes.tolist()
+                    )
         else:
             return super().to_mesh_view()
 
     @property
     def area(self):
         if self.holes is not None:
-            return Boundary.area.fget(self)-np.sum(polygon_area_vectorized(to_polygon_area(self.holes)))
+            return Boundary.area.fget(self) - np.sum(polygon_area_vectorized(to_polygon_area(self.holes))
+                    )
         return Boundary.area.fget(self)
 
     @property
     def holes(self):
-        if not hasattr(self,'_contour_hole'):
-            self._contour_hole=self._contour.offset(self._offset_distance)
-        return np.array([self._contour_hole.corners],float)
+        if not hasattr(self, "_contour_hole"):
+            self._contour_hole = self._contour.offset(self._offset_distance)
+        return np.array([self._contour_hole.corners], float)
 
     @property
     def distance(self):
         return self._offset_distance
+
     @distance.setter
     def distance(self, v):
-        self._offset_distance=v
-        self._contour_hole=self._contour.offset(self._offset_distance)
+        self._offset_distance = v
+        self._contour_hole = self._contour.offset(self._offset_distance)
