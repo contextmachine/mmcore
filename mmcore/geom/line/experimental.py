@@ -1,7 +1,7 @@
 import itertools
 import weakref
 
-import numpy
+import numpy as np
 
 from mmcore.base.ecs.components import component
 from mmcore.geom.line import Line
@@ -15,13 +15,13 @@ class Outputs:
 
 class ParamIterator:
     def __init__(self, param):
-        self._p = weakref.WeakValueDictionary({'p': param})
+        self._p = weakref.WeakValueDictionary({"p": param})
         self._end = False
 
     def __next__(self):
         if not self._end:
             self._end = False
-            return self._p.get('p')
+            return self._p.get("p")
         else:
             raise StopIteration()
 
@@ -129,11 +129,10 @@ class PointOnLine(ElementInterface):
         super().execute()
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(inputs={self._inputs},outputs={self._outputs})'
+        return (f"{self.__class__.__name__}(inputs={self._inputs},outputs={self._outputs})")
 
 
 class Intersection(ElementInterface):
-
     def __init__(self, line1: Param, line2: Param):
         super().__init__()
         self._inputs = IntersectionInputs(line1=line1, line2=line2)
@@ -181,7 +180,8 @@ class ReferenceLine(ElementInterface):
     def __init__(self, start: Param, end: Param):
         super().__init__()
         self._inputs = ReferenceLineInputs(start=start, end=end)
-        self._outputs = ReferenceLineOutputs(line=Param(value=Line.from_ends(start.value, end.value)))
+        self._outputs = ReferenceLineOutputs(line=Param(value=Line.from_ends(start.value, end.value))
+                )
 
     def length(self):
         return self._outputs.line.value.length()
@@ -211,7 +211,8 @@ class OffsetLine(ElementInterface):
         self._outputs = ReferenceLineOutputs(line=Param())
 
     def execute(self):
-        self._outputs.line.value = self._inputs.line.value.offset(self._inputs.distance.value)
+        self._outputs.line.value = self._inputs.line.value.offset(self._inputs.distance.value
+                )
         super().execute()
 
 
@@ -251,14 +252,15 @@ class LineOffset(Line):
 
     @property
     def _array(self):
-        return np.array([self._owner._array[0] + self.d * self.perp, *self._owner._array[1:]])
+        return np.array([self._owner._array[0] + self.d * self.perp, *self._owner._array[1:]]
+                )
 
     @_array.setter
     def _array(self, v):
         self._owner._array[:] = v
 
 
-def clust(lns, ds=(-17., -14., -17., -14.)):
+def clust(lns, ds=(-17.0, -14.0, -17.0, -14.0)):
     prms = []
     for l, d in zip(lns, ds):
         prms.append(Param(LineOffset(l, d)))
@@ -322,7 +324,7 @@ class Inputs:
     ...
 
 
-def offsets_from_lines(lns, dists=(-17., -14., -17., -14.)):
+def offsets_from_lines(lns, dists=(-17.0, -14.0, -17.0, -14.0)):
     prms = []
     for l, d in zip(lns, dists):
         prms.append(Param(LineOffset(l, d)))

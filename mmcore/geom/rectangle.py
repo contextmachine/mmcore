@@ -51,8 +51,7 @@ class Rectangle(plane.Plane):
     ecs_rectangle = EcsProperty(type=RectangleComponent)
 
     def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=None,
-                 normal=np.array((0, 0, 1)),
-                 origin=np.array((0, 0, 0))):
+                 normal=np.array((0, 0, 1)), origin=np.array((0, 0, 0)), uuid=None):
         if xaxis is None:
             super().__init__(plane.plane_from_normal_numeric(normal, origin))
         else:
@@ -67,7 +66,7 @@ class Rectangle(plane.Plane):
             v = Length(v)
 
         self.ecs_uv = UV(u, v)
-        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv)
+        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv, uuid=uuid)
 
     def __iter__(self):
         return iter(self.corners)
