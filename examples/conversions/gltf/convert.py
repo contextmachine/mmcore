@@ -231,8 +231,8 @@ class SceneNode:
 
     def togltf(self, index_map=None):
         return GLTFNode(children=[relative_index(child, index_map=index_map) for child in self.children],
-                mesh=None if self.mesh is None else relative_index(self.mesh, index_map=index_map),
-            name=self.name, matrix=self.matrix, extras=self.extras,
+                mesh=None if self.mesh is None else relative_index(self.mesh, index_map=index_map), name=self.name,
+                matrix=self.matrix, extras=self.extras,
         )
 
     def child_tree(self):
@@ -337,8 +337,7 @@ class AccessorNode:
     def togltf(self, index_map=None):
         res = {
             "componentType": self.view.dtype,
-            "count": self.count,
-            "max": self.max, "min": self.min, "type": self.view.gltf_type,
+            "count": self.count, "max": self.max, "min": self.min, "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
             res["byteOffset"] = self.byteOffset
@@ -352,8 +351,7 @@ class AccessorNode:
         res = {
             "bufferView": self.view.doc_index,
             "componentType": self.view.dtype,
-            "count": self.count,
-            "max": self.max, "min": self.min, "type": self.view.gltf_type,
+            "count": self.count, "max": self.max, "min": self.min, "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
             res["byteOffset"] = self.byteOffset
