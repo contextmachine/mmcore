@@ -24,19 +24,12 @@ class Box(Rectangle, MeshViewSupport):
         h (float): The height of the box.
         lock (bool): A flag indicating if the box is locked.
     """
-    __field_map__ = (
-            FieldMap('u', 'u1'),
-            FieldMap('v', 'v1'),
-            FieldMap('h', 'h'),
-            FieldMap('x', 'x'),
-            FieldMap('y', 'y'),
-            FieldMap('z', 'z'),
-            FieldMap('area', 'area', backward_support=False),
 
-        )
+    __field_map__ = (
+        FieldMap("u", "u1"), FieldMap("v", "v1"), FieldMap("h", "h"), FieldMap("x", "x"), FieldMap("y", "y"),
+        FieldMap("z", "z"), FieldMap("area", "area", backward_support=False),)
 
     def __init__(self, *args, h=3.0, color=(0.5, 0.5, 0.5), uuid=None, **kwargs):
-
         super().__init__(*args, **kwargs, uuid=uuid4().hex if uuid is None else uuid)
         #
         self.__init_support__(uuid=self.uuid, color=color)
@@ -68,6 +61,7 @@ class Box(Rectangle, MeshViewSupport):
     def to_mesh(self, **kwargs):
         self.create_mesh() if self._mesh is None else self.update_mesh()
         return self._mesh
+
     def orient(self, plane):
         rect_to_plane(self, plane)
         self.update_mesh()
@@ -147,18 +141,15 @@ class Box(Rectangle, MeshViewSupport):
     #
     #    self.zaxis=zaxis
 
-
-
-    def transpose(self) -> 'Box':
+    def transpose(self) -> "Box":
         """transpose the box. Это сделвет продольными противоположные ребра"""
         return Box(float(self.u), float(self.h), h=float(self.v), xaxis=self.xaxis, normal=self.yaxis,
-                   origin=self.origin + (self.normal * self.h))
+                origin=self.origin + (self.normal * self.h), )
 
     def elongate_ribs(self):
         return (Line.from_ends(pt, pt + (self.normal * self.h)) for pt in self.corners)
 
-
-    def thickness_trim(self, plane: Plane) -> 'tuple[Box, bool, Any]':
+    def thickness_trim(self, plane: Plane) -> "tuple[Box, bool, Any]":
         """
         Trim with thickness means that the box will be trimmed to the shortest trimmed side.
         In other words, no point of the box will extend beyond the trim plane.
@@ -172,24 +163,23 @@ class Box(Rectangle, MeshViewSupport):
         :rtype: <Box>
         """
         intersection = False
-        *res, = sorted(((i, r.plane_intersection(plane), r) for i, r in enumerate(self.elongate_ribs())),
-                       key=lambda x: x[1][1])
+        (*res,) = sorted(((i, r.plane_intersection(plane), r) for i, r in enumerate(self.elongate_ribs())),
+                key=lambda x: x[1][1], )
         ixs, (w, t, point), line = res[0]
-        if 1. >= t >= 0.:
+        if 1.0 >= t >= 0.0:
             intersection = True
 
         line2 = Line.from_ends(line.start, point)
 
-        return Box(self.ecs_uv.u, self.ecs_uv.v, h=dist(point, line2.start), xaxis=self.xaxis, origin=self.origin,
-                   normal=self.normal), intersection, res
+        return (Box(self.ecs_uv.u, self.ecs_uv.v, h=dist(point, line2.start), xaxis=self.xaxis, origin=self.origin,
+                normal=self.normal, ), intersection, res,)
 
     def to_mesh_view(self):
         fcs = self.faces
-        return union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist())
+        return union_mesh_simple(rect_to_mesh_vec(np.array(fcs)).reshape((len(fcs), 3)).tolist()
+                )
 
-
-
-    def thickness_trim_line(self, line: Line) -> 'tuple[Box, bool, Any]':
+    def thickness_trim_line(self, line: Line) -> "tuple[Box, bool, Any]":
         """
         This version of the method takes a line that will be converted to a vertical trim plane.
 
@@ -210,7 +200,7 @@ class Box(Rectangle, MeshViewSupport):
 
         origin = line.start
         xaxis = unit(z)
-        yaxis = np.array([0., 0., 1.])
+        yaxis = np.array([0.0, 0.0, 1.0])
         zaxis = cross(xaxis, yaxis)
 
         return self.thickness_trim(Plane(np.array([origin, xaxis, yaxis, zaxis])))
@@ -251,7 +241,7 @@ class Box(Rectangle, MeshViewSupport):
     #
     @classmethod
     def from_rectangle(cls, rect: Rectangle, h=3.0):
-        return cls(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis)
+        return cls(u=rect.u, v=rect.v, h=h, origin=rect.origin, xaxis=rect.xaxis, normal=rect.zaxis, )
 
     @classmethod
     def from_corners(cls, corners, h=1.0):
@@ -279,5 +269,6 @@ def unpack_trim_details(res):
     w, t, pts = list(zip(*list(zip(*sorted(res, key=lambda x: x[0])))[1]))
     return np.array(w), np.array(t), np.array(pts)
 
+
 def to_mesh_view(self):
-        return mesh_from_bounds(self.boundary.tolist())
+    return mesh_from_bounds(self.boundary.tolist())

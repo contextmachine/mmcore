@@ -18,6 +18,8 @@ from mmcore.geom.shapes.area import polygon_area
 from mmcore.geom.vec import cross, dist, norm, unit, dot
 from mmcore.geom.line import Line
 from mmcore.geom.vec import angle as _angle
+
+
 @component()
 class Length:
     value: float = None
@@ -46,39 +48,38 @@ from mmcore.base.ecs.components import EcsProperty
 
 _RECT_INDICES = DCLL.from_list([0, 1, 2, 3])
 from mmcore.geom.utils.num import roll_to_index, min_index
+
+
 class Rectangle(plane.Plane):
     ecs_uv = EcsProperty(type=UV)
     ecs_rectangle = EcsProperty(type=RectangleComponent)
 
-    def __init__(self, u: 'float|Length' = 1, v: 'float|Length' = 1, xaxis=None,
-                 normal=np.array((0, 0, 1)), origin=np.array((0, 0, 0)), uuid=None):
+    def __init__(self, u: "float|Length" = 1, v: "float|Length" = 1, xaxis=None, normal=np.array((0, 0, 1)),
+            origin=np.array((0, 0, 0)), uuid=None, ):
         if xaxis is None:
             super().__init__(plane.plane_from_normal_numeric(normal, origin))
         else:
-
             normal = unit(normal)
             xaxis = unit(xaxis)
             yaxis = unit(cross(normal, xaxis))
             super().__init__(np.array([origin, xaxis, yaxis, normal]))
-        if not hasattr(u, 'component_type'):
+        if not hasattr(u, "component_type"):
             u = Length(u)
-        if not hasattr(v, 'component_type'):
+        if not hasattr(v, "component_type"):
             v = Length(v)
 
         self.ecs_uv = UV(u, v)
-        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv, uuid=uuid)
+        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv, uuid=uuid
+                )
 
     def __iter__(self):
         return iter(self.corners)
 
-    @vectorize(excluded=[0], signature='(i)->()')
+    @vectorize(excluded=[0], signature="(i)->()")
     def inside(self, pt: np.ndarray) -> bool:
         ox, oy, x, y = self.origin[0], self.origin[1], pt[0], pt[1]
 
-        return all([ox <= x <= (ox + self.u),
-                    oy <= y <= (oy + self.v)])
-
-
+        return all([ox <= x <= (ox + self.u), oy <= y <= (oy + self.v)])
 
     @property
     def u(self):
@@ -86,8 +87,7 @@ class Rectangle(plane.Plane):
 
     @u.setter
     def u(self, val):
-        if not hasattr(val, 'component_type'):
-
+        if not hasattr(val, "component_type"):
             self.ecs_uv.u.value = val
         else:
             self.ecs_uv.u = val
@@ -99,26 +99,24 @@ class Rectangle(plane.Plane):
 
     @v.setter
     def v(self, val):
-        if not hasattr(val, 'component_type'):
-
+        if not hasattr(val, "component_type"):
             self.ecs_uv.v.value = val
         else:
             self.ecs_uv.v = val
         self._dirty = True
 
-
     @classmethod
     def from_corners(cls, points):
         a, b, c, d = points
         return Rectangle(norm(a - b), norm(a - d), xaxis=unit(b - a), normal=unit(cross(unit(b - a), unit(c - a))),
-                         origin=a)
+                origin=a, )
 
     @property
     def corners(self):
         x = self.xaxis * self.u
         y = self.yaxis * self.v
-        return np.array(
-            [self.origin, self.origin + x, self.origin + x + y, self.origin + y])
+        return np.array([self.origin, self.origin + x, self.origin + x + y, self.origin + y]
+                )
 
     @property
     def segments(self):
@@ -161,11 +159,13 @@ class Rectangle(plane.Plane):
 
     @dispatch(float)
     def offset(self, dist: float):
-        return self.__class__.from_corners(offset.offset(self.corners, np.ones((2, 4), dtype=float) * dist))
+        return self.__class__.from_corners(offset.offset(self.corners, np.ones((2, 4), dtype=float) * dist)
+                )
 
     @dispatch(np.ndarray)
     def offset(self, dist: np.ndarray):
-        return self.__class__.from_corners(offset.offset(self.corners, np.append(dist, dist).reshape((2, len(dist)))))
+        return self.__class__.from_corners(offset.offset(self.corners, np.append(dist, dist).reshape((2, len(dist))))
+                )
 
     def rotate(self, angle, axis=None, origin=None, inplace=True):
         if origin is None:
@@ -175,19 +175,19 @@ class Rectangle(plane.Plane):
         else:
             pl = plane.rotate_plane(self, angle, np.array([0, 0, 1]), origin=origin)
             print(pl._arr, angle, axis, origin, inplace)
-            return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
+            return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin, )
 
     def translate(self, translation, inplace=True):
         if inplace:
             plane.translate_plane_inplace(self, translation)
         else:
             pl = plane.translate_plane(self, translation)
-            return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin)
-
+            return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin, )
 
     @property
     def uuid(self):
         return self.ecs_rectangle.uuid
+
     def to_mesh(self, uuid=None, **kwargs):
         if uuid is None:
             uuid = self.uuid
@@ -210,7 +210,7 @@ class Rectangle(plane.Plane):
         self.zaxis = normal
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.corners})'
+        return f"{self.__class__.__name__}({self.corners})"
 
     def todict(self):
         return dict(u=self.u, v=self.v) | super().todict()
@@ -224,7 +224,6 @@ class Rectangle(plane.Plane):
             other = copy.deepcopy(self)
             return rect_to_plane(other, pln)
         else:
-
             rect_to_plane(self, pln)
 
     def rotate_in_plane(self, angle, pln=WXY, inplace=True):
@@ -252,50 +251,47 @@ class Rectangle(plane.Plane):
         elif isinstance(other, Rectangle):
             return self.intersects_indices(np.array(other.corners))
 
-    def intersection(self, other: 'Rectangle'):
+    def intersection(self, other: "Rectangle"):
         global _RECT_INDICES
         ixs1 = []
         ixs2 = []
         pts = []
         for i, l1 in enumerate(polyline_to_lines(self.corners)):
             for j, l2 in enumerate(polyline_to_lines(other.corners)):
-
                 il, jl = Line.from_ends(*l1), Line.from_ends(*l2)
                 if np.abs(dot(il.unit, jl.unit)) < 1.0:
                     t1, t2, _ = il.bounded_intersect(jl)
 
-                    if all([0. <= t1 <= 1., 0. <= (-t2) <= 1.]):
+                    if all([0.0 <= t1 <= 1.0, 0.0 <= (-t2) <= 1.0]):
                         ixs1.append(i)
                         ixs2.append(j)
                         pts.append(il(t1))
 
         print([pts[0], ixs1[0], ixs1[-1], ixs2[0], ixs2[-1], pts[1]])
 
-        return np.array([
-            *other.corners[np.arange(ixs2[0] + 1, ixs2[-1] - ixs2[0], 1, dtype=int)],
-            *pts,
-            *self.corners[np.arange(ixs1[0] + 1, ixs1[-1] - ixs1[0], 1, dtype=int)]]
-
+        return np.array([*other.corners[np.arange(ixs2[0] + 1, ixs2[-1] - ixs2[0], 1, dtype=int)], *pts,
+            *self.corners[np.arange(ixs1[0] + 1, ixs1[-1] - ixs1[0], 1, dtype=int)], ]
         )
 
     @classmethod
-    def from_mbr(cls, points: 'np.ndarray | list | tuple', closest_origin=None):
+    def from_mbr(cls, points: "np.ndarray | list | tuple", closest_origin=None):
         r = mbr(points, ctor=cls.from_corners)
         if closest_origin is not None:
             return make_rect_origin_closest(r, closest_origin)
         return r
 
-@vectorize(signature='(j,i),()->()')
+
+@vectorize(signature="(j,i),()->()")
 def create_line_extrusion(lnn, h):
     start, end = lnn
 
-    return Rectangle.from_corners(np.array((start, start + np.array([0, 0, h]), end + np.array([0, 0, h]), end)))
+    return Rectangle.from_corners(np.array((start, start + np.array([0, 0, h]), end + np.array([0, 0, h]), end))
+            )
 
 
 def create_rect_extrusion(lnn, h, color=(0.3, 0.3, 0.3), props=dict()):
-    m = mesh.union_mesh(
-        [mesh_from_bounds(lnn), *(to_mesh(r) for r in create_line_extrusion(polyline_to_lines(lnn), h)),
-         mesh_from_bounds(lnn + np.array([0, 0, h]))], props
+    m = mesh.union_mesh([mesh_from_bounds(lnn), *(to_mesh(r) for r in create_line_extrusion(polyline_to_lines(lnn), h)),
+        mesh_from_bounds(lnn + np.array([0, 0, h])), ], props,
     )
     mesh.colorize_mesh(m, color)
     return m
@@ -305,13 +301,10 @@ from mmcore.geom import mesh
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 
 
-@vectorize(excluded=[0], signature='(),()->(i)')
+@vectorize(excluded=[0], signature="(),()->(i)")
 def _evaluate_rect(rect, u, v):
     x, y = rect.xaxis * u, rect.yaxis * v
     return rect.origin + x + y
-
-
-
 
 
 @dispatch(Rectangle, tuple, dict)
@@ -388,21 +381,18 @@ def composite(item_cls):
         return f"{self.__class__.__name__}({', '.join(repr(item) for item in self._items)})"
 
     item_attrs = inspect.classify_class_attrs(item_cls)
-    attrs = {'__init__': init,
-             '__getitem__': getitem,
-             '__setitem__': setitem,
-             '__iter__': _iter,
-             "__len__": _len,
-             "__repr__": _repr,
-             '__contains__': lambda self, other: other in self._items}
+    attrs = {
+        "__init__": init, "__getitem__": getitem, "__setitem__": setitem, "__iter__": _iter, "__len__": _len,
+        "__repr__": _repr, "__contains__": lambda self, other: other in self._items,
+        }
     for attr in item_attrs:
-        if not attr.name.startswith('_'):
-            if attr.kind == 'property':
+        if not attr.name.startswith("_"):
+            if attr.kind == "property":
                 attrs[attr.name] = process_property(attr)
-            elif attr.kind == 'method':
+            elif attr.kind == "method":
                 attrs[attr.name] = process_method(attr)
 
-    return type(f'{item_cls.__name__}Composite', (object,), attrs)
+    return type(f"{item_cls.__name__}Composite", (object,), attrs)
 
 
 RectangleComposite = composite(Rectangle)
@@ -413,10 +403,9 @@ def rect_to_plane(rect: Rectangle, new_plane: plane.Plane):
 
 
 class RectangleUnion(RectangleComposite):
-
-
     def __hash__(self):
         return hash(tuple(self._items))
+
     @property
     def angle(self):
         return self._angle
@@ -426,7 +415,7 @@ class RectangleUnion(RectangleComposite):
         max_angle = self.max_angle()
 
         self.rotate_item(1, angle=max_angle if max_angle < v else v, origin=self._items[0].origin,
-                         axis=self._items[0].normal)
+                axis=self._items[0].normal, )
 
     @property
     def poly(self):
@@ -437,15 +426,15 @@ class RectangleUnion(RectangleComposite):
 
     def translate_item(self, item, vector=(0.0, 0.0, 0.0)):
         self._items[item].translate(vector)
+
     @property
     def corners(self):
-        return shapely.geometry.mapping(self.poly)['coordinates'][0][:-1]
+        return shapely.geometry.mapping(self.poly)["coordinates"][0][:-1]
 
     def to_shape(self):
         return self.corners
 
     def to_mesh(self, uuid=None, **kwargs):
-
         return mesh.build_mesh_with_buffer(to_mesh(self), uuid=uuid, **kwargs)
 
     @property
@@ -453,7 +442,7 @@ class RectangleUnion(RectangleComposite):
         return self.poly.area
 
     def __iter__(self):
-        return iter(shapely.geometry.mapping(self.poly)['coordinates'][0][:-1])
+        return iter(shapely.geometry.mapping(self.poly)["coordinates"][0][:-1])
 
     def max_angle(self):
         a, c = sorted([self._items[0].v, self._items[1].v])
@@ -465,6 +454,7 @@ class RectangleUnion(RectangleComposite):
 def to_mesh(obj: Rectangle, color=(0.3, 0.3, 0.3), props: dict = None):
     return mesh_from_bounds(obj.corners.tolist(), color, props)
 
+
 @dispatch(RectangleUnion, tuple, dict)
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
     return mesh_from_bounds(obj.corners, color, props)
@@ -474,14 +464,17 @@ def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props: dict = None):
     return mesh_from_bounds(obj.corners, color, props)
 
+
 @dispatch(RectangleUnion)
 def to_mesh(obj: RectangleUnion, color=(0.3, 0.3, 0.3), props=dict()):
     return mesh_from_bounds(obj.corners, color, props)
 
 
-@vectorize(excluded=['color', 'props'], signature='(j,i)->(i)')
+@vectorize(excluded=["color", "props"], signature="(j,i)->(i)")
 def rect_to_mesh_vec(bounds: np.ndarray, color=(0.3, 0.3, 0.3), props=None):
-    return np.array(mesh_from_bounds(bounds.tolist(), color=color, props=props), dtype=object)
+    return np.array(mesh_from_bounds(bounds.tolist(), color=color, props=props), dtype=object
+            )
+
 
 class RectangleCollection(composite(Rectangle)):
     def translate(self, translation, inplace=True):
@@ -504,7 +497,7 @@ class RectangleCollection(composite(Rectangle)):
 
     @property
     def corners_poly(self):
-        return shapely.geometry.mapping(self.poly)['coordinates'][0]
+        return shapely.geometry.mapping(self.poly)["coordinates"][0]
 
 
 def minimum_bounding_rectangle(points):
@@ -516,7 +509,7 @@ def minimum_bounding_rectangle(points):
     :rval: an nx2 matrix of coordinates
     """
 
-    pi2 = np.pi / 2.
+    pi2 = np.pi / 2.0
 
     # get the convex hull for the points
     hull_points = points[ConvexHull(points).vertices]
@@ -533,7 +526,8 @@ def minimum_bounding_rectangle(points):
 
     # find rotation matrices
     # XXX both work
-    rotations = np.vstack([np.cos(angles), np.cos(angles - pi2), np.cos(angles + pi2), np.cos(angles)]).T
+    rotations = np.vstack([np.cos(angles), np.cos(angles - pi2), np.cos(angles + pi2), np.cos(angles)]
+            ).T
     #     rotations = np.vstack([
     #         np.cos(angles),
     #         -np.sin(angles),
@@ -570,7 +564,7 @@ def minimum_bounding_rectangle(points):
     return rval
 
 
-def make_rect_origin_closest(rect, point=np.array([0., 0., 0.])):
+def make_rect_origin_closest(rect, point=np.array([0.0, 0.0, 0.0])):
     d = dist(np.array(point), rect.corners)
     m = min_index(d)
 
