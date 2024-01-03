@@ -336,8 +336,8 @@ class AccessorNode:
 
     def togltf(self, index_map=None):
         res = {
-            "componentType": self.view.dtype,
-            "count": self.count, "max": self.max, "min": self.min, "type": self.view.gltf_type,
+            "componentType": self.view.dtype, "count": self.count, "max": self.max, "min": self.min,
+            "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
             res["byteOffset"] = self.byteOffset
@@ -350,8 +350,8 @@ class AccessorNode:
     def todict(self):
         res = {
             "bufferView": self.view.doc_index,
-            "componentType": self.view.dtype,
-            "count": self.count, "max": self.max, "min": self.min, "type": self.view.gltf_type,
+            "componentType": self.view.dtype, "count": self.count, "max": self.max, "min": self.min,
+            "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
             res["byteOffset"] = self.byteOffset
