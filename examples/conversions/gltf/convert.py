@@ -9,9 +9,16 @@ import requests
 import time
 from itertools import count
 
-from mmcore.compat.gltf.components import (GLTFAccessor, GLTFBuffer, GLTFBufferView, GLTFDocument, GLTFMaterial,
-                                           GLTFNode, GLTFPbrMetallicRoughness, GLTFScene,
-    )
+from mmcore.compat.gltf.components import (
+    GLTFAccessor,
+    GLTFBuffer,
+    GLTFBufferView,
+    GLTFDocument,
+    GLTFMaterial,
+    GLTFNode,
+    GLTFPbrMetallicRoughness,
+    GLTFScene,
+)
 from mmcore.compat.gltf.utils import appendBufferView, byte_stride
 
 
@@ -48,8 +55,11 @@ class GLTFColor:
         return iter(self._data.tolist())
 
 
-DEFAULT_MATERIAL = GLTFMaterial(name="mmcore_default", doubleSided=True,
-        pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorFactor=tuple(GLTFColor())), )
+DEFAULT_MATERIAL = GLTFMaterial(
+    name="mmcore_default",
+    doubleSided=True,
+    pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorFactor=tuple(GLTFColor())),
+)
 
 views = []
 accessors = []
@@ -89,8 +99,11 @@ component_extras_map = dict()
 
 
 def from_rgba(cls, r=0.4, g=0.4, b=0.4, a=1.0):
-    return cls(name=f"simple-mat-{hex(int(r * 255))}-{hex(int(g * 255))}-{hex(int(b * 255))}-{hex(int(a * 100))}",
-            doubleSided=True, pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorFactor=(r, g, b, a)), )
+    return cls(
+        name=f"simple-mat-{hex(int(r * 255))}-{hex(int(g * 255))}-{hex(int(b * 255))}-{hex(int(a * 100))}",
+        doubleSided=True,
+        pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorFactor=(r, g, b, a)),
+    )
 
 
 def random(cls, random_opacity=False):
@@ -109,9 +122,12 @@ def component(key=None):
         cls.__component_key__ = key
         component_registry[key] = []
         component_registry_counters[key] = count()
-        cls.global_registry = property(fget=lambda self: component_registry[self.__class__.__component_key__],
-                fset=lambda self, v: component_registry.__setitem__(self.__class__.__component_key__, v
-                        ), )
+        cls.global_registry = property(
+            fget=lambda self: component_registry[self.__class__.__component_key__],
+            fset=lambda self, v: component_registry.__setitem__(
+                self.__class__.__component_key__, v
+            ),
+        )
         if not hasattr(cls, "__hash__"):
             cls.__hash__ = lambda slf: id(slf)
 
@@ -181,7 +197,9 @@ def asscene(node: "SceneNode", name=None, buffer=None, **kwargs):
     for k, v in index_map.items():
         s1 = time.time()
         if k != "bufferViews":
-            local_registry[k] = [component_registry[k][i].togltf(index_map=index_map) for i in v]
+            local_registry[k] = [
+                component_registry[k][i].togltf(index_map=index_map) for i in v
+            ]
         print(f"\t\t{k} step", divmod(time.time() - s1, 60))
     print("\tmain loop", divmod(time.time() - s, 60))
     s = time.time()
@@ -212,11 +230,13 @@ class SceneNode:
 
         dps = dict(nodes=[self.global_index])
         if mesh:
-            dps |= dict(merge_list_values(dict(meshes=[mesh.global_index]), mesh.deps())
-                    )
+            dps |= dict(
+                merge_list_values(dict(meshes=[mesh.global_index]), mesh.deps())
+            )
 
-        return merge_dict_list_values_sequence([dps] + [child.deps() for child in self.children]
-                )
+        return merge_dict_list_values_sequence(
+            [dps] + [child.deps() for child in self.children]
+        )
 
     def add_child(self, child):
         if child not in self.children:
@@ -230,9 +250,16 @@ class SceneNode:
         ...
 
     def togltf(self, index_map=None):
-        return GLTFNode(children=[relative_index(child, index_map=index_map) for child in self.children],
-                mesh=None if self.mesh is None else relative_index(self.mesh, index_map=index_map), name=self.name,
-                matrix=self.matrix, extras=self.extras,
+        return GLTFNode(
+            children=[
+                relative_index(child, index_map=index_map) for child in self.children
+            ],
+            mesh=None
+            if self.mesh is None
+            else relative_index(self.mesh, index_map=index_map),
+            name=self.name,
+            matrix=self.matrix,
+            extras=self.extras,
         )
 
     def child_tree(self):
@@ -336,7 +363,10 @@ class AccessorNode:
 
     def togltf(self, index_map=None):
         res = {
-            "componentType": self.view.dtype, "count": self.count, "max": self.max, "min": self.min,
+            "componentType": self.view.dtype,
+            "count": self.count,
+            "max": self.max,
+            "min": self.min,
             "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
@@ -349,7 +379,10 @@ class AccessorNode:
 
     def todict(self):
         res = {
-            "bufferView": self.view.doc_index, "componentType": self.view.dtype, "count": self.count, "max": self.max,
+            "bufferView": self.view.doc_index,
+            "componentType": self.view.dtype,
+            "count": self.count,
+            "max": self.max,
             "min": self.min,
             "type": self.view.gltf_type,
         }
@@ -500,7 +533,9 @@ class AccessorList:
     def remove_node(self, node):
         current_node = self.head
 
-        while (current_node != None and current_node.next.global_index != node.global_index):
+        while (
+            current_node != None and current_node.next.global_index != node.global_index
+        ):
             current_node = current_node.next
 
         if current_node == None:
@@ -511,7 +546,9 @@ class AccessorList:
     def index(self, node):
         current_node = self.head
         i = 0
-        while (current_node != None and current_node.next.global_index != node.global_index):
+        while (
+            current_node != None and current_node.next.global_index != node.global_index
+        ):
             current_node = current_node.next
             i += 1
         if current_node == None:
@@ -600,8 +637,12 @@ class BufferView:
     def new_accessor(self, data=(), name=None):
         self.isempty = False
         return self.accessors.insertAtBegin(
-                dict(view=self.global_index, data=np.array(data, dtype=self.np_dtype), name=name, )
-                )
+            dict(
+                view=self.global_index,
+                data=np.array(data, dtype=self.np_dtype),
+                name=name,
+            )
+        )
 
     @property
     def doc_index(self):
@@ -609,8 +650,12 @@ class BufferView:
 
     @property
     def buffer_data(self):
-        r = [np.array(accessor.buffer_data, dtype=componentTypeCodeTable[self.dtype]["numpy"]
-                ) for accessor in self.accessors]
+        r = [
+            np.array(
+                accessor.buffer_data, dtype=componentTypeCodeTable[self.dtype]["numpy"]
+            )
+            for accessor in self.accessors
+        ]
         r.reverse()
         return np.concatenate(r)
 
@@ -623,14 +668,26 @@ class BufferView:
     def pack(self, buffer):
         if len(list(self.accessors)) > 1:
             return GLTFBufferView(
-                    **appendBufferView(self.buffer_data, buffer, self.gltf_type, self.dtype, name=self.name,
-                            use_stride=True, )
-                    )
+                **appendBufferView(
+                    self.buffer_data,
+                    buffer,
+                    self.gltf_type,
+                    self.dtype,
+                    name=self.name,
+                    use_stride=True,
+                )
+            )
         else:
             return GLTFBufferView(
-                    **appendBufferView(self.buffer_data, buffer, self.gltf_type, self.dtype, name=self.name,
-                            use_stride=False, )
-                    )
+                **appendBufferView(
+                    self.buffer_data,
+                    buffer,
+                    self.gltf_type,
+                    self.dtype,
+                    name=self.name,
+                    use_stride=False,
+                )
+            )
 
 
 v1 = BufferView("VEC3", 5126, name="vec3view")
@@ -714,8 +771,14 @@ def merge_dict_list_values_sequence(dicts):
 
 class MeshAttributes:
     __annotations__ = {
-        "position": list, "normal": list, "tangent": list, "uv": list, "color": list, "joints": list, "weights": list,
-        }
+        "position": list,
+        "normal": list,
+        "tangent": list,
+        "uv": list,
+        "color": list,
+        "joints": list,
+        "weights": list,
+    }
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -725,13 +788,15 @@ class MeshAttributes:
 
     def gltf_mesh_primitive_attributes(self, index_map=None):
         for k in self.__dict__.keys():
-            yield attrTable[k]["gltf"], relative_index(self.__dict__[k], index_map=index_map
-                    )
+            yield attrTable[k]["gltf"], relative_index(
+                self.__dict__[k], index_map=index_map
+            )
 
     @call_counter
     def deps(self) -> dict[str, list[Any]]:
-        dct = dict(accessors=[self.__dict__[k].global_index for k in self.__dict__.keys()]
-                )
+        dct = dict(
+            accessors=[self.__dict__[k].global_index for k in self.__dict__.keys()]
+        )
 
         return dct
 
@@ -771,9 +836,11 @@ class MeshPart:
         return _deps
 
     def togltf(self, index_map=None):
-        return GLTFPrimitive(attributes=self._attrs.togltf(index_map=index_map),
-                indices=relative_index(self._indices, index_map=index_map),
-                material=relative_index(self._material, index_map=index_map), )
+        return GLTFPrimitive(
+            attributes=self._attrs.togltf(index_map=index_map),
+            indices=relative_index(self._indices, index_map=index_map),
+            material=relative_index(self._material, index_map=index_map),
+        )
 
     def merge(self, other: "MeshPart"):
         self._attrs = self._attrs.merge(other._attrs)
@@ -837,7 +904,8 @@ class Mesh:
         self.merge_inplace(other).merge_parts()
         return self
 
-    __merge_modes__ = dict(shallow=merge_shallow, inplace=merge_inplace, deep=deep_merge
+    __merge_modes__ = dict(
+        shallow=merge_shallow, inplace=merge_inplace, deep=deep_merge
     )
 
     def merge(self, other: "Mesh", mode="shallow"):
@@ -863,115 +931,285 @@ class Mesh:
         return self.__class__.__merge_modes__[mode](self, other)
 
     def togltf(self, index_map=None, **kwargs):
-        return GLTFMesh(primitives=[part.togltf(index_map=index_map) for part in self._parts], name=self._name,
-                extras=self.extras, **kwargs, )
+        return GLTFMesh(
+            primitives=[part.togltf(index_map=index_map) for part in self._parts],
+            name=self._name,
+            extras=self.extras,
+            **kwargs,
+        )
 
 
-myshape = Shape([(-12.0, 7.0, 0.0), (-2.0, 19.0, 0.0), (18.0, 14.0, 0.0), (16.0, 1.0, 0.0), (4.0, -17.0, 0.0),
-    (-3.0, -13.0, 0.0), (4.0, -2.0, 0.0), (-3.0, 2.0, 0.0), (-5.0, -1.0, 0.0), (-2.0, -3.0, 0.0), (-4.0, -6.0, 0.0),
-    (-20.0, -2.0, 0.0), ], holes=[[(4.0, 7.0, 0.0), (4.0, 13.0, 0.0), (11.0, 11.0, 0.0), (11.0, 7.0, 0.0)]], )
+myshape = Shape(
+    [
+        (-12.0, 7.0, 0.0),
+        (-2.0, 19.0, 0.0),
+        (18.0, 14.0, 0.0),
+        (16.0, 1.0, 0.0),
+        (4.0, -17.0, 0.0),
+        (-3.0, -13.0, 0.0),
+        (4.0, -2.0, 0.0),
+        (-3.0, 2.0, 0.0),
+        (-5.0, -1.0, 0.0),
+        (-2.0, -3.0, 0.0),
+        (-4.0, -6.0, 0.0),
+        (-20.0, -2.0, 0.0),
+    ],
+    holes=[[(4.0, 7.0, 0.0), (4.0, 13.0, 0.0), (11.0, 11.0, 0.0), (11.0, 7.0, 0.0)]],
+)
 DEFAULT_MATERIAL_COMPONENT = MeshMaterial(DEFAULT_MATERIAL)
 
 
 def mesh_part_from_shape(shape, material=DEFAULT_MATERIAL_COMPONENT, **kwargs):
-    return MeshPart(shape.earcut.attributes, indices=reshape_indices(shape.earcut.indices), material=material,
-            **kwargs, )
+    return MeshPart(
+        shape.earcut.attributes,
+        indices=reshape_indices(shape.earcut.indices),
+        material=material,
+        **kwargs,
+    )
 
 
 # res = go(myshape)
 # with open('test3.gltf', 'w') as f:
 #    json.dump(res, f, indent=2)
 def case1():
-    data = [{
-        "bounds": [(7.0, 9.0, 15.0), (7.0, 9.0, 0.0), (24.0, 9.0, 0.0), (24.0, 9.0, 15.0), (7.0, 9.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(24.0, 24.0, 15.0), (24.0, 9.0, 15.0), (24.0, 9.0, 0.0), (24.0, 24.0, 0.0), (24.0, 24.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(7.0, 24.0, 15.0), (24.0, 24.0, 15.0), (24.0, 24.0, 0.0), (7.0, 24.0, 0.0), (7.0, 24.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(7.0, 24.0, 15.0), (7.0, 24.0, 0.0), (7.0, 9.0, 0.0), (7.0, 9.0, 15.0), (7.0, 24.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(7.0, 24.0, 0.0), (7.0, 9.0, 0.0), (24.0, 9.0, 0.0), (24.0, 24.0, 0.0), (7.0, 24.0, 0.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(7.0, 24.0, 15.0), (7.0, 9.0, 15.0), (24.0, 9.0, 15.0), (24.0, 24.0, 15.0), (7.0, 24.0, 15.0), ],
-        "holes": [
-            [(20.0, 16.0, 15.0), (13.0, 16.0, 15.0), (13.0, 22.0, 15.0), (20.0, 22.0, 15.0), (20.0, 16.0, 15.0), ]],
-        }, {
-        "bounds": [(13.0, 16.0, 15.0), (13.0, 16.0, 8.0), (13.0, 22.0, 8.0), (13.0, 22.0, 15.0), (13.0, 16.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(20.0, 22.0, 15.0), (13.0, 22.0, 15.0), (13.0, 22.0, 8.0), (20.0, 22.0, 8.0), (20.0, 22.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(20.0, 16.0, 15.0), (20.0, 22.0, 15.0), (20.0, 22.0, 8.0), (20.0, 16.0, 8.0), (20.0, 16.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(20.0, 16.0, 15.0), (20.0, 16.0, 8.0), (13.0, 16.0, 8.0), (13.0, 16.0, 15.0), (20.0, 16.0, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(20.0, 16.0, 8.0), (13.0, 16.0, 8.0), (13.0, 22.0, 8.0), (20.0, 22.0, 8.0), (20.0, 16.0, 8.0), ],
-        "holes": None,
-        }, ]
+    data = [
+        {
+            "bounds": [
+                (7.0, 9.0, 15.0),
+                (7.0, 9.0, 0.0),
+                (24.0, 9.0, 0.0),
+                (24.0, 9.0, 15.0),
+                (7.0, 9.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (24.0, 24.0, 15.0),
+                (24.0, 9.0, 15.0),
+                (24.0, 9.0, 0.0),
+                (24.0, 24.0, 0.0),
+                (24.0, 24.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (7.0, 24.0, 15.0),
+                (24.0, 24.0, 15.0),
+                (24.0, 24.0, 0.0),
+                (7.0, 24.0, 0.0),
+                (7.0, 24.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (7.0, 24.0, 15.0),
+                (7.0, 24.0, 0.0),
+                (7.0, 9.0, 0.0),
+                (7.0, 9.0, 15.0),
+                (7.0, 24.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (7.0, 24.0, 0.0),
+                (7.0, 9.0, 0.0),
+                (24.0, 9.0, 0.0),
+                (24.0, 24.0, 0.0),
+                (7.0, 24.0, 0.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (7.0, 24.0, 15.0),
+                (7.0, 9.0, 15.0),
+                (24.0, 9.0, 15.0),
+                (24.0, 24.0, 15.0),
+                (7.0, 24.0, 15.0),
+            ],
+            "holes": [
+                [
+                    (20.0, 16.0, 15.0),
+                    (13.0, 16.0, 15.0),
+                    (13.0, 22.0, 15.0),
+                    (20.0, 22.0, 15.0),
+                    (20.0, 16.0, 15.0),
+                ]
+            ],
+        },
+        {
+            "bounds": [
+                (13.0, 16.0, 15.0),
+                (13.0, 16.0, 8.0),
+                (13.0, 22.0, 8.0),
+                (13.0, 22.0, 15.0),
+                (13.0, 16.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (20.0, 22.0, 15.0),
+                (13.0, 22.0, 15.0),
+                (13.0, 22.0, 8.0),
+                (20.0, 22.0, 8.0),
+                (20.0, 22.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (20.0, 16.0, 15.0),
+                (20.0, 22.0, 15.0),
+                (20.0, 22.0, 8.0),
+                (20.0, 16.0, 8.0),
+                (20.0, 16.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (20.0, 16.0, 15.0),
+                (20.0, 16.0, 8.0),
+                (13.0, 16.0, 8.0),
+                (13.0, 16.0, 15.0),
+                (20.0, 16.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (20.0, 16.0, 8.0),
+                (13.0, 16.0, 8.0),
+                (13.0, 22.0, 8.0),
+                (20.0, 22.0, 8.0),
+                (20.0, 16.0, 8.0),
+            ],
+            "holes": None,
+        },
+    ]
 
-    data2 = [{
-        "bounds": [(-2.4414586181062736, 6.643768432937762, 18.475367792037417),
-            (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-            (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-            (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-            (-2.4414586181062736, 6.643768432937762, 18.475367792037417), ], "holes": None,
-        }, {
-        "bounds": [(5.914912265733953, 3.0, 12.74782122709649), (4.799810136790509, 3.0, 15.0),
-            (5.914912265733953, 5.252178772903514, 15.0), (5.914912265733953, 7.685657498939348, 17.43347872603583),
-            (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-            (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-            (5.914912265733953, 2.735910030633514, 12.483731257730003), (5.914912265733953, 3.0, 12.74782122709649), ],
-        "holes": None,
-        }, {
-        "bounds": [(5.914912265733953, 3.0, 12.74782122709649),
-            (5.914912265733953, 2.735910030633514, 12.483731257730003), (5.381528096063782, 3.0, 12.219641288363519),
-            (5.914912265733953, 3.0, 12.74782122709649), ], "holes": None,
-        }, {
-        "bounds": [(1.0, 10.119136224975179, 15.0), (1.0, 5.169388756669344, 10.05025253169417),
-            (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-            (-2.4414586181062736, 6.643768432937762, 18.475367792037417), (1.0, 10.119136224975179, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(1.0, 2.9999999999999982, 12.219641288363519), (1.0, 5.169388756669344, 10.05025253169417),
-            (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
-            (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
-            (5.914912265733953, 2.735910030633514, 12.483731257730003), (5.381528096063782, 3.0, 12.219641288363519),
-            (1.0, 2.9999999999999982, 12.219641288363519), ], "holes": None,
-        }, {
-        "bounds": [(1.0, 10.119136224975179, 15.0), (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
-            (2.4734536476276787, 4.210289706901932, 20.90884651807325),
-            (5.914912265733953, 7.685657498939348, 17.43347872603583), (1.0, 10.119136224975179, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(4.799810136790509, 3.0, 15.0), (5.914912265733953, 3.0, 12.74782122709649),
-            (5.381528096063782, 3.0, 12.219641288363519), (1.0, 2.9999999999999982, 12.219641288363519),
-            (1.0, 3.0, 15.0), (4.799810136790509, 3.0, 15.0), ], "holes": None,
-        }, {
-        "bounds": [(4.799810136790509, 3.0, 15.0), (5.914912265733953, 5.252178772903514, 15.0),
-            (1.0, 10.119136224975179, 15.0), (1.0, 3.0, 15.0), (4.799810136790509, 3.0, 15.0), ], "holes": None,
-        }, {
-        "bounds": [(1.0, 10.119136224975179, 15.0), (5.914912265733953, 5.252178772903514, 15.0),
-            (5.914912265733953, 7.685657498939348, 17.43347872603583), (1.0, 10.119136224975179, 15.0), ],
-        "holes": None,
-        }, {
-        "bounds": [(1.0, 5.169388756669344, 10.05025253169417), (1.0, 10.119136224975179, 15.0), (1.0, 3.0, 15.0),
-            (1.0, 2.9999999999999982, 12.219641288363519), (1.0, 5.169388756669344, 10.05025253169417), ],
-        "holes": None,
-        }, ]
+    data2 = [
+        {
+            "bounds": [
+                (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
+                (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
+                (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
+                (2.4734536476276787, 4.210289706901932, 20.90884651807325),
+                (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (5.914912265733953, 3.0, 12.74782122709649),
+                (4.799810136790509, 3.0, 15.0),
+                (5.914912265733953, 5.252178772903514, 15.0),
+                (5.914912265733953, 7.685657498939348, 17.43347872603583),
+                (2.4734536476276787, 4.210289706901932, 20.90884651807325),
+                (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
+                (5.914912265733953, 2.735910030633514, 12.483731257730003),
+                (5.914912265733953, 3.0, 12.74782122709649),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (5.914912265733953, 3.0, 12.74782122709649),
+                (5.914912265733953, 2.735910030633514, 12.483731257730003),
+                (5.381528096063782, 3.0, 12.219641288363519),
+                (5.914912265733953, 3.0, 12.74782122709649),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (1.0, 10.119136224975179, 15.0),
+                (1.0, 5.169388756669344, 10.05025253169417),
+                (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
+                (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
+                (1.0, 10.119136224975179, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (1.0, 2.9999999999999982, 12.219641288363519),
+                (1.0, 5.169388756669344, 10.05025253169417),
+                (-2.4414586181062736, 1.6940209646319282, 13.525620323731589),
+                (2.4734536476276787, -0.7394577614039015, 15.95909904976742),
+                (5.914912265733953, 2.735910030633514, 12.483731257730003),
+                (5.381528096063782, 3.0, 12.219641288363519),
+                (1.0, 2.9999999999999982, 12.219641288363519),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (1.0, 10.119136224975179, 15.0),
+                (-2.4414586181062736, 6.643768432937762, 18.475367792037417),
+                (2.4734536476276787, 4.210289706901932, 20.90884651807325),
+                (5.914912265733953, 7.685657498939348, 17.43347872603583),
+                (1.0, 10.119136224975179, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (4.799810136790509, 3.0, 15.0),
+                (5.914912265733953, 3.0, 12.74782122709649),
+                (5.381528096063782, 3.0, 12.219641288363519),
+                (1.0, 2.9999999999999982, 12.219641288363519),
+                (1.0, 3.0, 15.0),
+                (4.799810136790509, 3.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (4.799810136790509, 3.0, 15.0),
+                (5.914912265733953, 5.252178772903514, 15.0),
+                (1.0, 10.119136224975179, 15.0),
+                (1.0, 3.0, 15.0),
+                (4.799810136790509, 3.0, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (1.0, 10.119136224975179, 15.0),
+                (5.914912265733953, 5.252178772903514, 15.0),
+                (5.914912265733953, 7.685657498939348, 17.43347872603583),
+                (1.0, 10.119136224975179, 15.0),
+            ],
+            "holes": None,
+        },
+        {
+            "bounds": [
+                (1.0, 5.169388756669344, 10.05025253169417),
+                (1.0, 10.119136224975179, 15.0),
+                (1.0, 3.0, 15.0),
+                (1.0, 2.9999999999999982, 12.219641288363519),
+                (1.0, 5.169388756669344, 10.05025253169417),
+            ],
+            "holes": None,
+        },
+    ]
 
     shapes = [Shape.from_shape_interface_dict(**item) for item in data]
     shapes2 = [Shape.from_shape_interface_dict(**item) for item in data2]
-    shape1mesh = Mesh([mesh_part_from_shape(shp, material=random(GLTFMaterial)) for shp in shapes], name="shape1mesh", )
-    shape2mesh = Mesh([mesh_part_from_shape(shp, material=DEFAULT_MATERIAL) for shp in shapes2], name="shape2mesh", )
+    shape1mesh = Mesh(
+        [mesh_part_from_shape(shp, material=random(GLTFMaterial)) for shp in shapes],
+        name="shape1mesh",
+    )
+    shape2mesh = Mesh(
+        [mesh_part_from_shape(shp, material=DEFAULT_MATERIAL) for shp in shapes2],
+        name="shape2mesh",
+    )
 
     node1 = SceneNode(mesh=shape1mesh, name="shape1")
     node2 = SceneNode(mesh=shape2mesh, name="shape2")
@@ -1014,8 +1252,26 @@ def _gen(shapes, names, mask, tags):
 from mmcore.geom.mesh import MeshTuple, union_mesh_old, mesh_from_shapes
 
 
-def case2(parts=["w1", "w2", "w3", "w4", "l2", "f1", "f2", "f3", "f5", "sl1", "sl3", "sl1b", "sl2b", "sl3b", "sl4b", ],
-        random_mat=False, ):
+def case2(
+    parts=[
+        "w1",
+        "w2",
+        "w3",
+        "w4",
+        "l2",
+        "f1",
+        "f2",
+        "f3",
+        "f5",
+        "sl1",
+        "sl3",
+        "sl1b",
+        "sl2b",
+        "sl3b",
+        "sl4b",
+    ],
+    random_mat=False,
+):
     # print(parts, "random mterial:", random_mat)
     # s = time.time()
 
@@ -1023,15 +1279,22 @@ def case2(parts=["w1", "w2", "w3", "w4", "l2", "f1", "f2", "f3", "f5", "sl1", "s
     #    _ = ujson.load(f)
     #    coldata = _['coldata']
     #    ress = _['ress']
-    resp = requests.post("https://viewer.contextmachine.online/cxm/api/v2/mfb_contour_server/sw/contours-merged",
-            json=dict(names=parts), )
-    resp2 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_w/stats"
-            )
-    resp3 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/stats"
-            )
-    resp4 = requests.get("https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_f/stats"
-            )
-    coldata = {rr["name"]: rr["tag"] for rr in resp2.json() + resp3.json() + resp4.json()}
+    resp = requests.post(
+        "https://viewer.contextmachine.online/cxm/api/v2/mfb_contour_server/sw/contours-merged",
+        json=dict(names=parts),
+    )
+    resp2 = requests.get(
+        "https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_w/stats"
+    )
+    resp3 = requests.get(
+        "https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_l2/stats"
+    )
+    resp4 = requests.get(
+        "https://viewer.contextmachine.online/cxm/api/v2/mfb_sw_f/stats"
+    )
+    coldata = {
+        rr["name"]: rr["tag"] for rr in resp2.json() + resp3.json() + resp4.json()
+    }
     mats = {"A-0": DEFAULT_MATERIAL_COMPONENT}
     cols = {"A-0": (0.5, 0.5, 0.5)}
     ress = resp.json()
@@ -1046,9 +1309,17 @@ def case2(parts=["w1", "w2", "w3", "w4", "l2", "f1", "f2", "f3", "f5", "sl1", "s
     print("creating parts", divmod(time.time() - s, 60))
     s = time.time()
 
-    allshp = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
-            indices=m.indices.reshape((len(m.indices), 1)), material=DEFAULT_MATERIAL_COMPONENT, )], name="allshapes",
-            extras={"parts": m.extras["parts"].tolist()}, )
+    allshp = Mesh(
+        [
+            MeshPart(
+                {k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
+                indices=m.indices.reshape((len(m.indices), 1)),
+                material=DEFAULT_MATERIAL_COMPONENT,
+            )
+        ],
+        name="allshapes",
+        extras={"parts": m.extras["parts"].tolist()},
+    )
     print("create mesh", divmod(time.time() - s, 60))
     s = time.time()
     node_test = SceneNode(mesh=allshp, name="sw_node")
@@ -1068,12 +1339,28 @@ def case2(parts=["w1", "w2", "w3", "w4", "l2", "f1", "f2", "f3", "f5", "sl1", "s
 
 def create_union_mesh_node(m: MeshTuple, name="mesh"):
     if m.indices:
-        gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
-                indices=m.indices.reshape((len(m.indices), 1)), material=DEFAULT_MATERIAL_COMPONENT, )], name=name,
-                extras={"parts": m.extras["parts"].tolist()}, )
+        gltf_mesh = Mesh(
+            [
+                MeshPart(
+                    {k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
+                    indices=m.indices.reshape((len(m.indices), 1)),
+                    material=DEFAULT_MATERIAL_COMPONENT,
+                )
+            ],
+            name=name,
+            extras={"parts": m.extras["parts"].tolist()},
+        )
     else:
-        gltf_mesh = Mesh([MeshPart({k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
-                material=DEFAULT_MATERIAL_COMPONENT, )], name=name, extras={"parts": m.extras["parts"].tolist()}, )
+        gltf_mesh = Mesh(
+            [
+                MeshPart(
+                    {k: v.reshape((len(v) // 3, 3)) for k, v in m.attributes.items()},
+                    material=DEFAULT_MATERIAL_COMPONENT,
+                )
+            ],
+            name=name,
+            extras={"parts": m.extras["parts"].tolist()},
+        )
 
     return SceneNode(mesh=gltf_mesh, name=f"{name}_node")
 
@@ -1090,12 +1377,13 @@ def get_mesh_wrap(mesh):
 
     def get_mesh(i):
         s = u[1][i]
-        fcs = faces[l[s: s + pc[i]]]
+        fcs = faces[l[s : s + pc[i]]]
         uniq, rv = np.unique(fcs.flatten(), return_inverse=True)
 
         return {
-            "attributes": {"position": pos[uniq], "color": cols[uniq]}, "indices": rv,
-            }
+            "attributes": {"position": pos[uniq], "color": cols[uniq]},
+            "indices": rv,
+        }
 
     return get_mesh
 
