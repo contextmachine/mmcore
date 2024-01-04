@@ -349,8 +349,8 @@ class AccessorNode:
 
     def todict(self):
         res = {
-            "bufferView": self.view.doc_index,
-            "componentType": self.view.dtype, "count": self.count, "max": self.max, "min": self.min,
+            "bufferView": self.view.doc_index, "componentType": self.view.dtype, "count": self.count, "max": self.max,
+            "min": self.min,
             "type": self.view.gltf_type,
         }
         if self.byteOffset > 0:
