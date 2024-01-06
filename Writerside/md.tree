@@ -7,6 +7,15 @@
                   start-page="starter-topic.md">
 
     <toc-element topic="starter-topic.md">
+        <toc-element id="nd-objects" topic="Nd-Objects.md">
+            <toc-element topic="Nd-Objects-Implementation.md"/>
+            <toc-element topic="Point-Data-Type.md"/>
+            <toc-element topic="AABB-Example.md"/>
+        </toc-element>
+        <toc-element topic="Vectorization.md">
+
+
+        </toc-element>
         <toc-element topic="Installation.md"/>
         <toc-element topic="2d_cases.md"/>
     </toc-element>
@@ -20,11 +29,14 @@
         </toc-element>
     </toc-element>
     <toc-element topic="GeometryExamples.topic">
-        <toc-element topic="PolyCurve.md">
-            <toc-element topic="PolyCurve-Usage.md"/>
+        <toc-element topic="Plane.md">
+            <toc-element topic="Refiment.md"/>
         </toc-element>
         <toc-element topic="Polyline.md">
             <toc-element topic="Usage.md"/>
+        </toc-element>
+        <toc-element topic="PolyCurve.md">
+            <toc-element topic="PolyCurve-Usage.md"/>
         </toc-element>
         <toc-element topic="Rectangle.md"/>
         <toc-element topic="PDE.md">

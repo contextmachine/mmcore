@@ -79,9 +79,8 @@ def translate_2D(dx, dy):
 
 
 def rotate_2D(angl):
-    mat = np.array([
+    mat = np.array([[np.cos(angl), -np.sin(angl), 0.0],
         [np.sin(angl), np.cos(angl), 0.0],
-        [np.sin(angl), -np.sin(angl), 0.0],
         [0.0, 0.0, 1.0]])
     return mat
 
