@@ -339,6 +339,16 @@ class Line:
 
         return np.append(solve(A, b), z1)
 
+    @vectorize(excluded=[0], signature='()->()')
+    def intersect(self, other: 'Line'):
+
+        (x1, y1, z1), (x2, y2, z2) = self.start, self.end
+        (x3, y3, z3), (x4, y4, z4) = other.start, other.end
+
+        A = np.array([[x2 - x1, x4 - x3], [y2 - y1, y4 - y3]])
+        b = np.array([x3 - x1, y3 - y1])
+
+        return solve(A, b)[0]
     def perpendicular_vector(self):
         z = np.zeros(self.direction.shape, dtype=float)
         z[:] = self.direction
@@ -363,7 +373,7 @@ class Line:
         :rtype: float
         """
         vec = np.array(pt) - self.start
-
+        np.array(pt) - self.start
         return np.dot(self.unit, vec / self.length())
 
     @vectorize(excluded=[0], signature='(i)->()')
@@ -377,9 +387,9 @@ class Line:
 
         """
         pt1 = np.array(pt)
-        t = self.closest_parameter(pt)
+        t = self.closest_parameter(pt1)
         pt2 = self.evaluate(t)
-        return dist(pt2, pt)
+        return dist(pt2, pt1)
 
     def closest_point_full(self, pt: 'tuple|list|np.ndarray[3, float]') -> ClosestPointSolution1D:
         pt = np.array(pt)

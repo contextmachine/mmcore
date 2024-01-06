@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 from multipledispatch import dispatch
 
@@ -5,7 +7,7 @@ from mmcore.func import vectorize
 
 
 @vectorize(signature='(i),(i),(i)->()')
-def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> bool:
+def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray[Any, np.dtype[np.bool_]]:
 
     return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
@@ -24,3 +26,10 @@ def intersects_segments(ab, cd) -> bool:
     a, b = ab.start, ab.end
     c, d = cd.start, cd.end
     return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
+
+from mmcore.geom.polyline import polyline_to_lines
+
+
+def point_in_polygon(point: np.ndarray, polygon: np.ndarray):
+    polyline_to_lines(polygon)

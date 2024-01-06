@@ -3,4 +3,6 @@
         SYSTEM "https://resources.jetbrains.com/writerside/1.0/categories.dtd">
 <categories>
     <category id="wrs" name="Writerside documentation" order="1"/>
+    <category id="external" name="External links" order="2"/>
+    <category id="motivation" name="Autor motivation" order="3"/>
 </categories>
