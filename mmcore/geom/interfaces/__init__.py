@@ -99,17 +99,28 @@ class CollectionDispatchType(type):
 
 
 class ArrayInterface:
+    @classmethod
+    def __new_array_hook__(cls, arr):
+        return arr
     def __add__(self, other):
-        return np.array(self).__add__(other)
+        return self.__class__.__new_array_hook__(np.array(self).__add__(other))
 
     def __sub__(self, other):
-        return np.array(self).__sub__(other)
+        return self.__class__.__new_array_hook__(np.array(self).__sub__(other))
 
     def __mul__(self, other):
-        return np.array(self).__mul__(other)
+        return self.__class__.__new_array_hook__(np.array(self).__mul__(other))
 
+    def __truediv__(self, other):
+        return self.__class__.__new_array_hook__(np.array(self).__truediv__(other))
     def __divmod__(self, other):
-        return np.array(self).__divmod__(other)
+        return self.__class__.__new_array_hook__(np.array(self).__divmod__(other))
 
     def __matmul__(self, other):
-        return np.array(self).__matmul__(other)
+        return self.__class__.__new_array_hook__(np.array(self).__matmul__(other))
+
+    def __getitem__(self, item):
+        ...
+
+    def __setitem__(self, item):
+        ...

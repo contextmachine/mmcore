@@ -5,7 +5,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 
-DEBUG_MODE = os.getenv('DEBUG_MODE')
+DEBUG_MODE = os.getenv('PRODUCTION', True)
 
 
 @vectorize(signature='(i),(i)->()')
@@ -161,7 +161,7 @@ def add_multiply_vectors(a, b):
     return a + b
 
 
-@vectorize(excluded=[0], signature='()->(i,i)')
+@vectorize(signature='()->(i,i)')
 def rotate_matrix(a):
     """
         This method adds two vectors element-wise and returns the result.
