@@ -2,7 +2,6 @@
 
 from functools import wraps
 
-import compas.geometry as cg
 import numpy as np
 
 from mmcore.geom.parametric.algorithms import *
@@ -12,12 +11,6 @@ from mmcore.geom.plane import local_to_world, rotate_plane_inplace, translate_pl
 from mmcore.ranges import Range, Range2D
 
 
-def to_cmp_point(func):
-    @wraps(func)
-    def wrp(*a, **kw):
-        return cg.Point(*func(*a, **kw))
-
-    return wrp
 
 
 class ParametricSupport:
