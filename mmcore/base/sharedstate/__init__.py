@@ -1,10 +1,12 @@
 import dataclasses
 import functools
 import threading
+import typing
 
 from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
-
+from termcolor import colored
+import mmcore
 from mmcore.base.params import pgraph
 from mmcore.base.userdata.controls import find_points_in_controls
 from mmcore.common.viewer import control_points_observer
@@ -131,6 +133,14 @@ debug_properties = {}
 
 
 @dataclasses.dataclass
+class ConsoleStartMessage:
+    text: str = f"\n    \u002B\u00D7  mmcore {mmcore.__version__()}\n"
+    color: str = 'light_magenta'
+    on_color: typing.Optional[str] = None
+    attrs: typing.Optional[tuple[str]] = ('bold',)
+
+
+@dataclasses.dataclass
 class PropsUpdate:
     uuids: list[str]
     props: dict[str, typing.Any]
@@ -217,13 +227,14 @@ class VDict(dict):
 
 
 class SharedStateServer():
+
     port: int = 7711
     rpyc_port: int = 7799
     host: str = "0.0.0.0"
     appname: str = "serve_app"
     prodapp = None
     _is_production = False
-
+    console_start_message: ConsoleStartMessage = ConsoleStartMessage()
     @property
     def is_production(self):
         return self._is_production
@@ -232,7 +243,7 @@ class SharedStateServer():
     def is_production(self, v):
         self._is_production = v
 
-    def __new__(cls, *args, header="[mmcore] SharedStateApi", **kwargs):
+    def __new__(cls, *args, header="mmcore api", **kwargs):
         global serve_app, DBs
 
         import threading as th
@@ -391,12 +402,9 @@ class SharedStateServer():
 
         @inst.app.get("/", response_model_exclude_none=True)
         async def home():
-
-            if "target" in debug_properties:
-
-                return adict[debug_properties["target"]].root()
-            else:
-                return {}
+            return {
+                'app': 'mmcore', 'version': str(mmcore.__version__())
+                }
 
         @inst.app.post("/graphql")
         async def gql(data: dict):
@@ -523,15 +531,29 @@ class SharedStateServer():
                 inst.thread.start()
             except OSError as err:
                 print("Shared State server is already to startup. Shutdown...")
+                raise err
 
         return inst
 
     def run(self, **kwargs):
         uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
-        print(f'running uvicorn {uvicorn_appname}')
 
-        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
-
+        use_ssl = False
+        for k in kwargs.keys():
+            if k.startswith("ssl"):
+                use_ssl = True
+                break
+        _prefix = 'https' if use_ssl else 'http'
+        _print_host = self.host if self.host != '0.0.0.0' else 'localhost'
+        print(colored(f"\n    \u002B\u00D7  mmcore {mmcore.__version__()}\n", 'light_magenta', None, ('bold',)))
+        print(f'        server: uvicorn\n        app: {uvicorn_appname}\n        local: {_prefix}://{_print_host}'
+              f':{self.port}/\n        openapi ui: {_prefix}://{_print_host}'
+              f':{self.port}/docs\n'
+              )
+        try:
+            uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
+        except KeyboardInterrupt as err:
+            raise err
 
     def production_run(self, name, api_prefix, mounts=(), middleware=None, app_kwargs=None, **kwargs):
         if app_kwargs is None:
@@ -581,9 +603,11 @@ class SharedStateServer():
         for k, v in dict(port=port, host=host, log_level=log_level).items():
             if v is not None:
                 setattr(self, k, v)
-
-        self.thread = threading.Thread(target=self.run, args=(), kwargs=kwargs)
-        self.thread.start()
+        try:
+            self.thread = threading.Thread(target=self.run, args=(), kwargs=kwargs)
+            self.thread.start()
+        except KeyboardInterrupt as err:
+            raise err
 
     def stop_rpyc(self):
         self.rpyc_thread.join(6)

@@ -5,8 +5,7 @@ from typing import Any, ContextManager, Union
 
 import numpy as np
 import pyquaternion as pq
-from compas.data import Data
-from compas.geometry import Transformation
+
 from numpy import ndarray
 
 from mmcore.func import vectorize
@@ -155,8 +154,7 @@ class Transform:
         elif hasattr(other, 'matrix'):
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
-            if issubclass(other.__class__, Data):
-                T = Transformation(self.matrix[:3, :3])
+            T = self.matrix[:3, :3]
                 other.transform(T)
                 return other
         elif isinstance(other, Transform):
