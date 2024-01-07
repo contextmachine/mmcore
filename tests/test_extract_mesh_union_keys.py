@@ -6,7 +6,7 @@ import time
 from mmcore.geom.mesh import MeshTuple
 from mmcore.geom.mesh.union import extract_mesh_attrs_union_keys_with_counter, extract_mesh_attrs_union_keys_with_set
 
-MESH_ATTRIBUTE_NAME_CASES = 'position', 'normal', 'uv', 'color'
+MESH_ATTRIBUTE_NAME_CASES = 'position', 'normal', 'color', 'uv'
 
 
 def attr_match_test_data(count, cases, min_count=1):
