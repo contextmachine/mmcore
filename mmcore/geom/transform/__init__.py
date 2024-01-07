@@ -155,8 +155,8 @@ class Transform:
             other.transform(self.matrix)
         elif hasattr(other, "transform"):
             T = self.matrix[:3, :3]
-                other.transform(T)
-                return other
+            other.transform(T)
+            return other
         elif isinstance(other, Transform):
             return Transform(other.__array__() @ self.matrix)
 
