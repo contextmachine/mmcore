@@ -3,8 +3,6 @@ import numpy as np
 
 from mmcore.geom.vec import *
 
-DEBUG_MODE = os.getenv('PRODUCTION', True)
-
 
 class PlaneRefine:
     """

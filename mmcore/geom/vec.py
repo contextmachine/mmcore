@@ -5,7 +5,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 
-DEBUG_MODE = os.getenv('PRODUCTION', True)
+DEBUG_MODE = os.getenv('DEBUG_MODE')
 
 
 @vectorize(signature='(i),(i)->()')
