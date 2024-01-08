@@ -29,11 +29,15 @@ class Box(Rectangle, MeshViewSupport):
         FieldMap("u", "u1"), FieldMap("v", "v1"), FieldMap("h", "h"), FieldMap("x", "x"), FieldMap("y", "y"),
         FieldMap("z", "z"), FieldMap("area", "area", backward_support=False),)
 
-    def __init__(self, *args, h=3.0, color=(0.5, 0.5, 0.5), uuid=None, **kwargs):
-        super().__init__(*args, **kwargs, uuid=uuid4().hex if uuid is None else uuid)
+    def __init__(self, u, v, h=3.0, color=(0.5, 0.5, 0.5), xaxis=np.array([1.0, 0.0, 0.0]),
+                 normal=np.array([0.0, 0.0, 1.0]), uuid=None, **kwargs):
+        super().__init__(u, v, xaxis=xaxis, normal=normal, uuid=uuid)
         #
-        self.__init_support__(uuid=self.uuid, color=color)
+
         self.h = h
+
+        self.__init_support__(self.uuid, color=color, **kwargs)
+
 
     @property
     def lock(self):
@@ -46,10 +50,6 @@ class Box(Rectangle, MeshViewSupport):
     @property
     def faces(self):
         return extrude_polyline(super().corners, self.normal * self.h)
-
-    @property
-    def uuid(self):
-        return self.ecs_rectangle.uuid
 
     def rotate(self, angle, axis=None, origin=None, inplace=True):
         res = super().rotate(angle=angle, axis=axis, origin=origin, inplace=inplace)
