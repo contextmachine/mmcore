@@ -1,10 +1,12 @@
 from collections import namedtuple
+from uuid import uuid4
 
 import numpy as np
 from multipledispatch import dispatch
 
 from mmcore.func import vectorize
 from mmcore.geom import vec
+from mmcore.geom.plane.refine import PlaneRefine
 from mmcore.geom.vec import cross, dot, norm, perp2d, unit
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
@@ -89,45 +91,89 @@ def np_plane(xaxis, yaxis, origin):
 def distance(self, pt):
     return point_to_plane_distance(pt, self.origin, self.normal)
 
-class Plane(EcsProto):
+
+class Entity:
+    def __init__(self, uuid=None):
+
+        super().__init__()
+        if uuid is None:
+            uuid = uuid4().hex
+
+        self._uuid = uuid
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, v):
+        self._uuid = v
+
+
+class Plane(Entity):
     """
     zaxis=cross(xaxis, yaxis)
     yaxis=cross(zaxis,xaxis)
     xaxis=cross( yaxis,zaxis)
     """
 
-    ecs_plane = EcsProperty(type=PlaneComponent)
+    def __init__(self, arr=None, xaxis=None, yaxis=None, normal=None, uuid=None):
+        super().__init__(uuid=uuid)
+        if (xaxis is not None) and (normal is not None):
+            xaxis = unit(xaxis)
+            zaxis = unit(normal)
+            yaxis = unit(cross(normal, xaxis))
+            self._array = np.array([xaxis, yaxis, zaxis])
 
-    def __init__(self, arr=None):
+        elif (xaxis is not None) and (yaxis is not None):
+            xaxis = unit(xaxis)
+            yaxis = unit(yaxis)
+            zaxis = unit(cross(xaxis, yaxis))
 
-        super().__init__()
+            self._array = np.array([xaxis, yaxis, zaxis])
+            self.refine(('y',))
+        elif (normal is not None) and (yaxis is not None):
+            yaxis = unit(yaxis)
+            zaxis = unit(normal)
+            xaxis = unit(cross(yaxis, zaxis))
+            self._array = np.array([xaxis, yaxis, zaxis])
+
+        else:
+            if arr is None:
+
+                self._array = np.append([0., 0., 0.], np.eye(3, 3)).reshape((4, 3))
+            else:
+                arr[1:] = unit(arr[1:])
+                self._array = arr
+
         self._bytes = None
-        self.ecs_plane = PlaneComponent(ref=np.append([0., 0., 0.],
-                                                      np.eye(3, 3)).reshape((4, 3)) if arr is None else arr)
         self._dirty = True
 
-    def replace_component(self, comp: PlaneComponent):
-        self.ecs_components[0] = comp
+    @property
+    def local_axis(self):
+        return self._array[1:]
 
+    @local_axis.setter
+    def local_axis(self, v):
+        self._array[1:] = v
+
+    def refine(self, proprity_axis=('y', 'x')):
+        refine = PlaneRefine(*proprity_axis)
+        refine(self._array, inplace=True)
     def distance(self, pt):
         return distance(self, pt)
 
     def project(self, pt):
         return project(self, pt)
-    @property
-    def _arr_cmp(self):
-        return self.ecs_components[0]
 
-    @_arr_cmp.setter
-    def _arr_cmp(self, v):
-        self.ecs_components[0] = v
+
     @property
     def _arr(self):
-        return self.ecs_plane.ref
+        return self._array
 
     @_arr.setter
     def _arr(self, v):
-        self.ecs_plane.ref[:] = np.array(v)
+        self._array[:] = np.array(v)
         self._dirty = True
 
     def to_bytes(self):
@@ -143,6 +189,65 @@ class Plane(EcsProto):
     def __hash__(self):
         self._solve_dirty()
         return self._hash
+
+
+
+    @property
+    def origin(self):
+        return self.local_origin
+
+    @origin.setter
+    def origin(self, v):
+        self.local_origin = v
+
+    @property
+    def local_origin(self):
+        return self._arr[0]
+
+    @local_origin.setter
+    def local_origin(self, v):
+        self._arr[0, np.arange(len(v))] = v
+        self._dirty = True
+
+    @property
+    def axis(self):
+        return self.local_axis
+
+    @axis.setter
+    def axis(self, v):
+        self.local_axis = v
+
+    def _get_axis(self, i):
+        return self.axis[i]
+
+    def _set_axis(self, i, v):
+        self.axis[i] = v
+
+    @property
+    def xaxis(self):
+        return self._get_axis(0)
+
+    @property
+    def yaxis(self):
+        return self._get_axis(1)
+
+    @xaxis.setter
+    def xaxis(self, v):
+        self._set_axis(0, v)
+
+
+    @yaxis.setter
+    def yaxis(self, v):
+        self._set_axis(1, v)
+
+    @property
+    def zaxis(self):
+        return self._get_axis(2)
+
+    @zaxis.setter
+    def zaxis(self, v):
+        self._set_axis(2, v)
+
     @property
     def normal(self):
         return self.zaxis
@@ -150,45 +255,11 @@ class Plane(EcsProto):
     @normal.setter
     def normal(self, v):
         self.zaxis = v
-        self._dirty = True
 
 
-    @property
-    def xaxis(self):
-        return self._arr[self.ecs_plane.xaxis]
 
-    @property
-    def yaxis(self):
-        return self._arr[self.ecs_plane.yaxis]
 
-    @property
-    def zaxis(self):
-        return self._arr[self.ecs_plane.zaxis]
 
-    @property
-    def origin(self):
-        return self._arr[self.ecs_plane.origin]
-
-    @origin.setter
-    def origin(self, v):
-        self._arr[self.ecs_plane.origin, np.arange(len(v))] = v
-        self._dirty = True
-
-    @xaxis.setter
-    def xaxis(self, v):
-        self._arr[self.ecs_plane.xaxis, np.arange(len(v))] = v
-
-        self._dirty = True
-
-    @yaxis.setter
-    def yaxis(self, v):
-        self._arr[self.ecs_plane.yaxis, np.arange(len(v))] = v
-        self._dirty = True
-
-    @zaxis.setter
-    def zaxis(self, v):
-        self._arr[self.ecs_plane.zaxis, np.arange(len(v))] = v
-        self._dirty = True
 
     @property
     def d(self):
@@ -221,223 +292,21 @@ class Plane(EcsProto):
               """
         return dot(pts - self._array[0], self._array[1:])
 
-    def to_slim_plane(self) -> 'SlimPlane':
-        return SlimPlane(arr=self._arr)
-
-    def point_at(self, pts):
-        """
-
-        :param pts: Points in local coordinates
-        :type pts: np.ndarray
-        :return: Points in world coordinates
-        :rtype: np.ndarray
-        """
-        return self.point_from_local_to_world(pts)
-
-    def in_plane_coordinates(self, pts):
-        """
-
-        :param pts: Points in world coordinates
-        :type pts: np.ndarray
-        :return: Points in local coordinates
-        :rtype: np.ndarray
-        """
-        return self.point_from_world_to_plane(pts)
-class SlimPlane:
-    """
-    SlimPlane
-
-    Class representing a slim plane in 3D.
-
-    Attributes:
-        _array (numpy.ndarray): The array representing the slim plane.
-
-    Methods:
-        __init__(self, arr: np.ndarray = None):
-            Initializes a SlimPlane object.
-
-        origin:
-            A property representing the origin of the slim plane.
-
-        origin.setter:
-            A property setter for the origin of the slim plane.
-
-        xaxis:
-            A property representing the x-axis of the slim plane.
-
-        xaxis.setter:
-            A property setter for the x-axis of the slim plane.
-
-        yaxis:
-            A property representing the y-axis of the slim plane.
-
-        yaxis.setter:
-            A property setter for the y-axis of the slim plane.
-
-        zaxis:
-            A property representing the z-axis of the slim plane.
-
-        zaxis.setter:
-            A property setter for the z-axis of the slim plane.
-
-        normal:
-            A property representing the normal vector of the slim plane.
-
-        normal.setter:
-            A property setter for the normal vector of the slim plane.
-
-        __hash__(self):
-            Returns the hash value of the slim plane.
-
-        d:
-            A property representing the 'd' value of the slim plane equation.
-
-        todict(self):
-            Returns a dictionary representation of the slim plane.
-
-        from_normal(cls, normal: np.ndarray, origin: np.ndarray = np.zeros(3, float)):
-            Creates a SlimPlane object from a normal vector and an origin point.
-
-        from_3pt(cls, origin: np.ndarray, pt1: np.ndarray, pt2: np.ndarray):
-            Creates a SlimPlane object from 3 points.
-
-        project(self, pts: np.ndarray):
-            Projects the given points onto the slim plane.
-
-        point_from_local_to_world(self, pt: np.ndarray):
-            Transforms a point from local coordinates to world coordinates.
-
-        point_from_world_to_plane(self, pt: np.ndarray):
-            Transforms a point from world coordinates to the slim plane coordinates.
-
-        point_at(self, pt):
-            Returns the world coordinates of a given point on the slim plane.
-    """
-    def __init__(self, arr: np.ndarray = None):
-        if arr is None:
-            arr = np.zeros((4, 3))
-            arr[1:, :] = np.eye(3)
-
-        self._array = arr if isinstance(arr, np.ndarray) else np.array(arr, dtype=float)
-
-    def translate(self, vec: np.ndarray):
-        arr = np.copy(self._array)
-        arr[0] += np.array(vec)
-        return SlimPlane(arr=arr)
-
-    def rotate(self, angle):
-        return rotate_plane_around_plane(self, self, angle, return_cls=SlimPlane).tolist()
-
-
-    @property
-    def origin(self):
-        return self._array[0]
-
-    @origin.setter
-    def origin(self, v):
-        self._array[0] = v
-
-    @property
-    def xaxis(self):
-        return self._array[1]
-
-    @xaxis.setter
-    def xaxis(self, v):
-        self._array[1] = v
-
-    @property
-    def yaxis(self):
-        return self._array[2]
-
-    @yaxis.setter
-    def yaxis(self, v):
-        self._array[2] = v
-
-    @property
-    def zaxis(self):
-        return self._array[3]
-
-    @zaxis.setter
-    def zaxis(self, v):
-        self._array[3] = v
-
-    @property
-    def normal(self):
-        return self._array[3]
-
-    @normal.setter
-    def normal(self, v):
-        self._array[3] = v
-
-    def __hash__(self):
-        return hash(self._array.tobytes())
-
-    @property
-    def d(self):
-        return -1 * (
-                self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
-
-    def todict(self):
-        return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
-                    zaxis=self.zaxis.tolist())
-
-    @classmethod
-    def from_normal(cls, normal: np.ndarray, origin: np.ndarray = np.zeros(3, float)):
-        return cls(plane_from_normal_numeric(normal, origin))
-
-    @classmethod
-    def from_3pt(cls, origin: np.ndarray, pt1: np.ndarray, pt2: np.ndarray):
-        """Creates an instance of SlimPlane from 3 points.
-
-        :param origin: The origin point.
-        :type origin: numpy.ndarray
-        :param pt1: The first point.
-        :type pt1: numpy.ndarray
-        :param pt2: The second point.
-        :type pt2: numpy.ndarray
-        :return: An instance of SlimPlane.
-        :rtype: SlimPlane
-        """
-        normal = unit(
-            cross(
-                *unit(
-                    (np.array(pt1) - np.array(origin),
-                     np.array(pt2) - np.array(origin))
-                )
-            )
-        )
-
-        return cls.from_normal(normal=normal, origin=origin)
-
-    def distance(self, pt):
-        return distance(self, pt)
-    def project(self, pts: np.ndarray):
-        return project(self, pts)
+    @vectorize(excluded=[0], signature='(i)->(i)')
+    def __call__(self, uvh):
+        return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
 
     @vectorize(excluded=[0], signature='(i)->(i)')
-    def point_from_local_to_world(self, pt: np.ndarray):
-        """
+    def at_local(self, pt):
+        return dot(self.axis, pt - self.origin)
 
-             :param pts: Points in local coordinates
-             :type pts: np.ndarray
-             :return: Points in world coordinates
-             :rtype: np.ndarray
-             """
-        return self._array[0] + self._array[1] * pt[0] + self._array[2] * pt[1] + self._array[3] * pt[2]
+    def create_relative(self, arr, **kwargs) -> 'ChildPln':
+        return RelativePlane(self, arr, parent=self, **kwargs)
 
-    @vectorize(excluded=[0], signature='(i)->(i)')
-    def point_from_world_to_plane(self, pts: np.ndarray):
-        """
-
-              :param pts: Points in world coordinates
-              :type pts: np.ndarray
-              :return: Points in local coordinates
-              :rtype: np.ndarray
-              """
-        return dot(pts - self._array[0], self._array[1:])
-
-    def to_plane(self) -> Plane:
-        return Plane(arr=self._array)
+    def add_parent(self, parent) -> 'RelativePlane':
+        pln = RelativePlane(parent=parent)
+        pln._array = self._array
+        return pln
 
     def point_at(self, pts):
         """
@@ -459,71 +328,31 @@ class SlimPlane:
         """
         return self.point_from_world_to_plane(pts)
 
-    def orient(self, p2):
-        return orient_plane(p2, self)
 
-
-SWXY = SlimPlane()
-
-
-class ConstrainedPlane(SlimPlane):
-    def __init__(self, arr: np.ndarray = None, parent: SlimPlane = SWXY):
-        super().__init__(arr)
+class RelativePlane(Plane):
+    def __init__(self, arr=None, parent: Plane = None, **kwargs):
+        super().__init__(arr, **kwargs)
         self.parent = parent
 
     @property
-    def _array(self):
-        super()._array[0] + self.parent._array[0],
-
-    def translate(self, vec: np.ndarray):
-        return ConstrainedPlane(arr=np.array([self.origin + vec, self.xaxis, self.yaxis, self.zaxis]), parent=self)
-
-    def rotate(self, angle: float):
-        return rotate_plane_around_plane(self, self, angle,
-                                         return_cls=lambda x: ConstrainedPlane(x, parent=self)).tolist()
-
-    @property
     def origin(self):
-        return self.parent.point_at(super().origin)
-
-    @property
-    def zaxis(self):
-        return self.parent.point_at(super().zaxis)
-
-    @property
-    def yaxis(self):
-        return self.parent.point_at(super().yaxis)
-
-    @property
-    def xaxis(self):
-        return self.parent.point_at(super().xaxis)
-
-    @property
-    def normal(self):
-        return self.parent.point_at(super().normal)
+        return self.parent(self.local_origin)
 
     @origin.setter
     def origin(self, v):
-        super().origin = self.parent.in_plane_coordinates(v)
+        self.local_origin = self.parent.at_local(np.array(v))
 
-    @zaxis.setter
-    def zaxis(self, v):
-        super().zaxis = self.parent.in_plane_coordinates(v)
+    @property
+    def axis(self):
+        return self.parent(self.local_axis)
+    @origin.setter
+    def axis(self, v):
+        self.local_axis = self.parent.at_local(v + self.origin)
 
-    @yaxis.setter
-    def yaxis(self, v):
-        super().yaxis = self.parent.in_plane_coordinates(v)
+    def _set_axis(self, i, v):
+        self.local_axis[i] = self.parent.at_local(np.array(v) + self.origin)
 
-    @xaxis.setter
-    def xaxis(self, v):
-        super().xaxis = self.parent.in_plane_coordinates(v)
 
-    @normal.setter
-    def normal(self, v):
-        super().normal = self.parent.in_plane_coordinates(v)
-
-    def orient(self, p2):
-        return orient_plane(p2, self)
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     """
 
@@ -690,8 +519,8 @@ def world_to_local(pt, pln: Plane):
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
 
 
-def orient_plane(pln1: SlimPlane, pln2: SlimPlane):
-    return SlimPlane(np.vstack([pln2._array[0] - pln1._array[0], pln1._array[1:] @ pln2._array[1:].T]))
+def orient_plane(pln1: np.ndarray, pln2: np.ndarray):
+    return np.vstack([pln2[0] - pln1[0], pln1[1:] @ pln2[1:].T])
 
 
 
