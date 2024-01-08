@@ -244,7 +244,7 @@ class Rectangle(plane.Plane):
 
     @v.setter
     def v(self, val):
-        self.v.set(val)
+        self._v.set(val)
 
     @classmethod
     def from_corners(cls, points):
