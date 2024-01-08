@@ -233,6 +233,7 @@ class CDLL:
         print(self)
 
     def get_node(self, index):
+
         if (index >= self.count) | (index < 0):
             raise ValueError(f"Index out of range: {index}, size: {self.count}")
         temp = self.head
