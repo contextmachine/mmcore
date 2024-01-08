@@ -550,10 +550,9 @@ class SharedStateServer():
               f':{self.port}/\n        openapi ui: {_prefix}://{_print_host}'
               f':{self.port}/docs\n'
               )
-        try:
-            uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
-        except KeyboardInterrupt as err:
-            raise err
+
+        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
+
 
     def production_run(self, name, api_prefix, mounts=(), middleware=None, app_kwargs=None, **kwargs):
         if app_kwargs is None:
@@ -603,11 +602,9 @@ class SharedStateServer():
         for k, v in dict(port=port, host=host, log_level=log_level).items():
             if v is not None:
                 setattr(self, k, v)
-        try:
-            self.thread = threading.Thread(target=self.run, args=(), kwargs=kwargs)
-            self.thread.start()
-        except KeyboardInterrupt as err:
-            raise err
+        self.thread = threading.Thread(target=self.run, args=(), kwargs=kwargs)
+        self.thread.start()
+
 
     def stop_rpyc(self):
         self.rpyc_thread.join(6)
