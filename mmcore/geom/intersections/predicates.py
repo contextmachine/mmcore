@@ -31,5 +31,10 @@ def intersects_segments(ab, cd) -> bool:
 from mmcore.geom.polyline import polyline_to_lines
 
 
+def aabb(points: np.ndarray):
+
+    return np.array([np.min(points, axis=0), np.max(points, axis=0)])
+
+
 def point_in_polygon(point: np.ndarray, polygon: np.ndarray):
     polyline_to_lines(polygon)
