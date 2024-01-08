@@ -30,6 +30,21 @@ def angle(a, b):
 
     return np.arccos(np.dot(a, b))
 
+
+@vectorize(signature='(i),(i),(i)->()')
+def angle3pt(a, b, c):
+    ba = unit(a - b)
+    bc = unit(c - b)
+    return angle(ba, bc)
+
+
+@vectorize(signature='(i),(i),(i)->()')
+def dot3pt(a, b, c):
+    ba = unit(a - b)
+    bc = unit(c - b)
+    return dot(ba, bc)
+
+
 @vectorize(signature='(i)->()')
 def norm(v):
     """

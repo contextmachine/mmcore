@@ -97,7 +97,9 @@ import itertools
 import numpy as np
 from scipy.spatial import KDTree
 
+from mmcore.func import vectorize
 from mmcore.geom.extrusion import polyline_to_lines
+from mmcore.geom.intersections.predicates import intersects_segments
 from mmcore.geom.line import Line
 from mmcore.geom.line.cdll_line import LineCDLL, LineNode
 from mmcore.geom.rectangle import Rectangle
@@ -145,6 +147,7 @@ class PolyCurve(LineCDLL):
 
     def __hash__(self):
         return hash(tuple(hash(i) for i in self.gen_intersects()))
+
 
     @property
     def mbr(self):
@@ -218,3 +221,15 @@ class PolyCurve(LineCDLL):
                 node.start = np.array(corner)
                 node.previous.end = np.array(corner)
 
+    def outside_point(self):
+        mbr = self.mbr
+        corner = self.corners
+        return mbr.corners[0] + mbr.corners[0] - np.average(corner, axis=0)
+
+    @vectorize(excluded=[0], signature='(n)->()')
+    def point_inside(self, pt):
+        res = np.sum(
+            np.array(intersects_segments(np.array([pt, self.outside_point()]), polyline_to_lines(self.corners)), int)
+            )
+
+        return bool(res % 2)
