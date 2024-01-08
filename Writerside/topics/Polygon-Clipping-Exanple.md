@@ -71,7 +71,7 @@ The union of two or more polygons includes all the points in the involved polygo
 perform the union operation on polygons:
 
 ```python
-figure1 = polygons[1] + polygons[2]  # Here, figure1 is the union of the 2nd and 3rd polygons in the list.
+figure1 = polygons[1] + polygons[2]  
 ```
 
 <img alt="Right 3d Plane" height="400"  src="clipping2.svg"/>
@@ -82,8 +82,7 @@ The intersection includes only the points common to all the involved polygons. I
 intersection:
 
 ```python
-figure2 = figure1[0] | polygons[
-    0]  # Here, figure2 is the intersection of first polygon and the previously created union, figure1.
+figure2 = figure1[0] | polygons[0]  
 ```
 
 <img alt="Right 3d Plane" height="400"  src="clipping3.svg"/>
