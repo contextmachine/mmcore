@@ -20,27 +20,6 @@ from mmcore.geom.line import Line
 from mmcore.geom.vec import angle as _angle
 
 
-@component()
-class Length:
-    value: float = None
-
-
-@component()
-class UV:
-    u: Length = None
-    v: Length = None
-
-
-@component()
-class RectangleComponent:
-    plane: PlaneComponent = None
-    uv: UV = None
-
-
-@component()
-class RectangleUnionComponent:
-    planes: [PlaneComponent] = None
-    uvs: list[UV] = None
 
 
 from mmcore.collections import DCLL
@@ -48,29 +27,197 @@ from mmcore.base.ecs.components import EcsProperty
 
 _RECT_INDICES = DCLL.from_list([0, 1, 2, 3])
 from mmcore.geom.utils.num import roll_to_index, min_index
+from typing import TypeVar, Generic, Type, Union, Any
 
+T = TypeVar('T')
+
+
+class Parameter(Generic[T]):
+    value: T
+    cast_type = Union[Type[T], np.dtype, str, Any]
+
+    def __init__(self, value):
+        super().__init__()
+
+        self.value = self.cast(value)
+
+    def cast(self, val, typ=None):
+
+        if np.isscalar(val):
+            if isinstance(val, Parameter):
+                return self.cast(val.value, typ=typ)
+            else:
+                if typ is not None:
+                    return self.cast(val, typ=typ)
+                else:
+                    return self.cast_type(val)
+
+        else:
+            if typ is None:
+                typ = self.cast_type
+
+            if isinstance(val, (list, tuple)):
+
+                return np.array(val.__class__((self.cast(i, typ=typ) for i in val)), dtype=typ)
+            else:
+                return np.array(val, dtype=typ)
+
+    def __repr__(self):
+        return f'{self.__class__}(value={self.value})'
+
+    def __float__(self):
+        return self.cast(self.value, float)
+
+    def __int__(self):
+        return self.cast(self.value, int)
+
+    def __bool__(self):
+        return self.cast(self.value, bool)
+
+    def __str__(self):
+        return str(self.value)
+
+    @property
+    def is_scalar(self):
+        return np.isscalar(self.value)
+
+    def __array__(self, dtype=None):
+        return np.array(self.value, dtype=dtype if dtype else self.cast_type)
+
+    def __iter__(self):
+        if self.is_scalar:
+            raise TypeError('Scalar Parameter object is not iterable')
+        else:
+            return iter(self.value)
+
+    def set(self, val: 'P|T'):
+        if isinstance(val, Parameter):
+            self.value = self.cast(val.value)
+        else:
+            self.value = self.cast(val)
+
+    def get(self):
+        return self.value
+
+
+P = TypeVar('P', bound=Parameter)
+
+
+@functools.total_ordering
+class NumericParameter(Parameter):
+
+    value: float
+    cast_type = float
+
+    def __init__(self, value):
+        super().__init__(value)
+
+    def __add__(self, other):
+        return self.__class__(self.value + self.cast(other))
+
+    def __iadd__(self, other):
+        self.value += self.cast(other)
+        return self
+
+    def __radd__(self, other):
+        return other + self.value
+
+    def __sub__(self, other):
+        return self.__class__(self.value - self.cast(other))
+
+    def __isub__(self, other):
+        self.value -= self.cast(other)
+        return self
+
+    def __rsub__(self, other):
+        return other.__sub__(self.value)
+
+    def __mul__(self, other):
+        return self.__class__(self.value * self.cast(other))
+
+    def __imul__(self, other):
+        self.value *= self.cast(other)
+        return self
+
+    def __round__(self, n=None):
+        self.__class__(self.value.__round__(n))
+
+    def __divmod__(self, other):
+        return self.value, self.cast(other)
+
+    def __truediv__(self, other):
+        return self.__class__(self.value / self.cast(other))
+
+    def __pow__(self, other):
+        return self.value ** self.cast(other)
+
+    def __mod__(self, other):
+        return self.value.__mod__(other)
+
+    def __eq__(self, other):
+        return self.value == getattr(other, 'value', other)
+
+    def __le__(self, other):
+        return self.value.__le__(getattr(other, 'value', other))
+
+    def __lt__(self, other):
+        return self.value.__lt__(getattr(other, 'value', other))
+
+    def __ge__(self, other):
+        return self.value.__ge__(getattr(other, 'value', other))
+
+    def __gt__(self, other):
+        return self.value.__gt__(getattr(other, 'value', other))
+
+    def scalar_iterator(self):
+        return ScalarParameterIterator(self)
+
+
+class ScalarParameterIterator:
+    def __init__(self, val: Parameter):
+        self._cls = val.__class__
+        self._val = iter((val,)) if val.is_scalar else np.nditer(val)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        val = self._val.__next__()
+        if isinstance(val, Parameter):
+            return val
+        else:
+            return self._cls(val)
+
+
+def cast_to_parameter(val: Any | P, parameter_type: Type[P]) -> P:
+    if isinstance(val, Parameter):
+        return val
+    else:
+        return parameter_type(val)
+
+
+class Length(NumericParameter):
+    value: float
+    cast_type = float
 
 class Rectangle(plane.Plane):
-    ecs_uv = EcsProperty(type=UV)
-    ecs_rectangle = EcsProperty(type=RectangleComponent)
 
-    def __init__(self, u: "float|Length" = 1, v: "float|Length" = 1, xaxis=None, normal=np.array((0, 0, 1)),
-            origin=np.array((0, 0, 0)), uuid=None, ):
+    def __init__(self, u: float = 1, v: float = 1, xaxis=None, normal=np.array((0, 0, 1)), origin=np.array((0, 0, 0)),
+                 uuid=None):
         if xaxis is None:
-            super().__init__(plane.plane_from_normal_numeric(normal, origin))
+            super().__init__(xaxis=np.array([1.0, 0.0, 0.0]), normal=unit(normal), uuid=uuid)
+
+            self.refine(('y', 'x'))
         else:
             normal = unit(normal)
             xaxis = unit(xaxis)
             yaxis = unit(cross(normal, xaxis))
-            super().__init__(np.array([origin, xaxis, yaxis, normal]))
-        if not hasattr(u, "component_type"):
-            u = Length(u)
-        if not hasattr(v, "component_type"):
-            v = Length(v)
+            super().__init__(arr=np.array([origin, xaxis, yaxis, normal]), uuid=uuid)
 
-        self.ecs_uv = UV(u, v)
-        self.ecs_rectangle = RectangleComponent(plane=self._arr_cmp, uv=self.ecs_uv, uuid=uuid
-                )
+        self._u = cast_to_parameter(u, Length)
+        self._v = cast_to_parameter(v, Length)
+
+
 
     def __iter__(self):
         return iter(self.corners)
@@ -83,27 +230,21 @@ class Rectangle(plane.Plane):
 
     @property
     def u(self):
-        return self.ecs_uv.u.value
+        return self._u.get()
 
     @u.setter
     def u(self, val):
-        if not hasattr(val, "component_type"):
-            self.ecs_uv.u.value = val
-        else:
-            self.ecs_uv.u = val
-        self._dirty = True
+
+        self._u.set(val)
+
 
     @property
     def v(self):
-        return self.ecs_uv.v.value
+        return self._v.get()
 
     @v.setter
     def v(self, val):
-        if not hasattr(val, "component_type"):
-            self.ecs_uv.v.value = val
-        else:
-            self.ecs_uv.v = val
-        self._dirty = True
+        self.v.set(val)
 
     @classmethod
     def from_corners(cls, points):
@@ -122,33 +263,14 @@ class Rectangle(plane.Plane):
     def segments(self):
         return polyline_to_lines(self.corners)
 
-    @dispatch(np.ndarray, np.ndarray)
+    @dispatch(object, object)
     def evaluate(self, u, v):
         return _evaluate_rect(self, u, v)
 
-    @dispatch(float, float)
-    def evaluate(self, u, v):
-        return _evaluate_rect(self, u, v)
-
-    @dispatch(int, float)
-    def evaluate(self, u, v):
-        return _evaluate_rect(self, u, v)
-
-    @dispatch(int, int)
-    def evaluate(self, u, v):
-        return _evaluate_rect(self, u, v)
-
-    @dispatch(float, int)
-    def evaluate(self, u, v):
-        return _evaluate_rect(self, u, v)
-
-    @dispatch(float)
+    @dispatch(object)
     def evaluate(self, t):
         return evaluate_polyline(self.corners, t)
 
-    @dispatch(np.ndarray)
-    def evaluate(self, t):
-        return evaluate_polyline(self.corners, t)
 
     def __call__(self, *args):
         return self.evaluate(*args)
@@ -183,10 +305,6 @@ class Rectangle(plane.Plane):
         else:
             pl = plane.translate_plane(self, translation)
             return Rectangle(self.u, self.v, xaxis=unit(pl.xaxis), normal=unit(pl.normal), origin=pl.origin, )
-
-    @property
-    def uuid(self):
-        return self.ecs_rectangle.uuid
 
     def to_mesh(self, uuid=None, **kwargs):
         if uuid is None:
