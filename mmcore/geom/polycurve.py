@@ -102,6 +102,7 @@ from mmcore.geom.extrusion import polyline_to_lines
 from mmcore.geom.intersections.predicates import intersects_segments
 from mmcore.geom.line import Line
 from mmcore.geom.line.cdll_line import LineCDLL, LineNode
+from mmcore.geom.polygon import Polygon
 from mmcore.geom.rectangle import Rectangle
 
 
@@ -233,3 +234,57 @@ class PolyCurve(LineCDLL):
             )
 
         return bool(res % 2)
+
+    @classmethod
+    def from_polygon(cls, poly: Polygon):
+        if np.allclose(poly.corners[0], poly.corners[-1]):
+            return cls.from_points(poly.corners[:-1])
+        else:
+            return cls.from_points(poly.corners[:-1])
+
+
+from mmcore.geom.shapes.shape import loops_earcut
+from typing import Any
+
+
+class PolyCurveShape:
+    loops: list[PolyCurve]
+
+    def __init__(self, loops=()):
+        self.loops = []
+        for loop in loops:
+            if isinstance(loop, PolyCurveShape):
+                self.loops.extend(loop.loops)
+            else:
+                self.loops.append(loop if isinstance(loop, PolyCurve) else PolyCurve.from_points(np.array(loop, float)))
+
+    @property
+    def holes(self):
+        return self.loops[1:]
+
+    @property
+    def boundary(self):
+        return self.loops[0]
+
+    @boundary.setter
+    def boundary(self, v):
+        self.loops[0] = v
+
+    @holes.setter
+    def holes(self, v):
+        self.loops[1:] = v
+
+    def add_hole(self, v):
+        self.loops.append(v if isinstance(v, PolyCurve) else PolyCurve.from_points(np.array(v, float)))
+
+    def earcut(self):
+        return loops_earcut([loop.corners.tolist() for loop in self.loops])
+
+    def __hash__(self):
+        return hash(tuple(hash(loop) for loop in self.loops))
+
+    def set_corners(self, i, corners: np.ndarray[Any, np.dtype[float]]):
+        self.loops[i].corners = corners
+
+    def __iter__(self):
+        return iter(self.loops)

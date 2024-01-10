@@ -184,18 +184,13 @@ def gen_indices_and_extras(meshes, ks):
 
 
 def union_mesh_simple(meshes):
-    ks = extract_mesh_attrs_union_keys(meshes)
-    *zz, = zip(*gen_indices_and_extras(meshes, ks))
-    try:
-        if zz[-2][0] is not None:
-            return create_mesh_tuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
-                                     np.concatenate(zz[-2]),
-                                     extras=dict())
-        else:
-            return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
-                             None,
-                             extras={})
-    except IndexError:
-        return MeshTuple({ks[j]: np.concatenate(k) for j, k in enumerate(zz[:len(ks)])},
-                         None,
-                         extras={})
+
+    attribute_names = _get_attribute_names(meshes)
+
+    # Generate indices and extra attributes for all meshes
+    indices_and_extras = list(zip(*gen_indices_and_extras2(meshes, names=attribute_names)))
+
+    attributes = _combine_attributes(indices_and_extras, attribute_names)
+    indices = _get_indices(indices_and_extras)
+
+    return MeshTuple(attributes=attributes, indices=indices, extras={})
