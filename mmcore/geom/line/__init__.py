@@ -219,10 +219,8 @@ class Line:
 
     __call__ = evaluate
 
-
-
-    def __array__(self):
-        return self._array
+    def __array__(self, dtype=None):
+        return np.array(self._array, dtype) if dtype is None else self._array
 
 
     def length(self):
@@ -339,11 +337,11 @@ class Line:
 
         return np.append(solve(A, b), z1)
 
-    @vectorize(excluded=[0], signature='()->()')
+
     def intersect(self, other: 'Line'):
 
-        (x1, y1, z1), (x2, y2, z2) = self.start, self.end
-        (x3, y3, z3), (x4, y4, z4) = other.start, other.end
+        (x1, y1), (x2, y2) = self.start[:2], self.end[:2]
+        (x3, y3), (x4, y4) = other.start[:2], other.end[:2]
 
         A = np.array([[x2 - x1, x4 - x3], [y2 - y1, y4 - y3]])
         b = np.array([x3 - x1, y3 - y1])
@@ -453,6 +451,7 @@ Y_AXIS_LINE = Line(start=np.array([0.0, 0.0, 0.0]), direction=np.array([0, 1, 0]
 
 
 def lines_from_ends(points: Iterable):
+
     for point in points:
         yield Line.from_ends(*point)
 
