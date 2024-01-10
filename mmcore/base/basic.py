@@ -25,7 +25,7 @@ from mmcore.base.utils import asdict
 
 import mmcore.base.models.gql
 import mmcore.base.models.gql as gql_models
-from mmcore import typegen
+from mmcore import typegen, __version__
 from mmcore.base.params import ParamGraphNode, TermParamGraphNode
 from mmcore.base.registry import adict, ageomdict, amatdict, idict, propsdict
 from mmcore.collections.multi_description import ElementSequence
@@ -540,8 +540,7 @@ class A:
         data = {
             "metadata": {
                 "version": 4.5,
-                "type": "Object",
-                "generator": "Object3D.toJSON"
+                "type": "Object", "generator": f"mmcore@{__version__()}"
             },
             "object": obj,
             "geometries": [dataclasses.asdict(ageomdict[uid]) for uid in geometries],
