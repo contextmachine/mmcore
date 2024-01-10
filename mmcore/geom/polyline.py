@@ -1,7 +1,7 @@
 import functools
 import itertools
 from typing import Any
-
+from scipy.spatial import ConvexHull
 import numpy as np
 
 from mmcore.func import vectorize
@@ -9,6 +9,33 @@ from mmcore.geom.line import evaluate_line
 from mmcore.geom.plane import WXY, world_to_local, local_to_world
 
 
+class BorderConvexHull(ConvexHull):
+    def __init__(self, arr, *args, **kwargs):
+        self._pts = arr
+        if np.allclose(arr[..., -1], 0):
+
+            arr = arr[..., :-1]
+        super().__init__(arr, *args, **kwargs)
+
+    _pts = None,
+
+    @property
+    def pts(self):
+        return self._pts
+
+    @property
+    def bounds(self):
+        return self._pts[self.vertices]
+
+    def __repr__(self):
+        return f'ConvexHull({self.bounds})'
+
+
+def convex_hull_2d(pts):
+    if len(pts.shape) > 2:
+        return np.array([convex_hull_2d(grp) for grp in pts], object)
+    else:
+        return pts[ConvexHull(np.copy(pts)[..., :2]).vertices]
 
 @vectorize(signature='(i,j),()->(j)')
 def evaluate_polyline(corners, t: float) -> np.ndarray[Any, np.dtype[float]]:
@@ -227,7 +254,7 @@ def split_polyline(pln, tss):
     return list(gen())
 
 
-from scipy.spatial import KDTree
+from scipy.spatial import ConvexHull, KDTree
 
 from mmcore.geom.curves import ParametricPlanarCurve
 

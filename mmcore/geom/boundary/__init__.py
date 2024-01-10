@@ -37,6 +37,15 @@ class Boundary(MeshViewSupport):
         self.boundary = np.array(v, float)
 
 
+class BoundaryIterator:
+    def __init__(self, boundary):
+        self._obj = iter(boundary.boundary)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._obj)
 class Face(Boundary):
     __field_map__ = (FieldMap("area", "area", backward_support=False),)
 

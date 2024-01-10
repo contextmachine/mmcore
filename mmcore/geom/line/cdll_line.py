@@ -695,6 +695,7 @@ def _cached_solve_kd(self: "LineCDLL"):
     return KDTree(self.corners)
 
 
+from mmcore.geom.polygon import Polygon
 class LineCDLL(CDLL):
     """
     :class:`LineCDLL`
@@ -1039,3 +1040,22 @@ class LineCDLL(CDLL):
         """
         for node in self.iter_nodes():
             yield IntersectionPoint((node.previous, node))
+
+    def difference(self, other: 'LineCDLL'):
+        return [self.__class__.from_polygon(p) for p in self.to_polygon().difference(other.to_polygon())]
+
+    def union(self, other: 'LineCDLL'):
+        return [self.__class__.from_polygon(p) for p in self.to_polygon().union(other.to_polygon())]
+
+    def intersection(self, other: 'LineCDLL'):
+        return [self.__class__.from_polygon(p) for p in self.to_polygon().intersection(other.to_polygon())]
+
+    def to_polygon(self):
+        return Polygon(self.corners)
+
+    @classmethod
+    def from_polygon(cls, poly: Polygon):
+        return cls(seq=poly.corners[:-1])
+
+    def update_from_polygon(self, poly: Polygon):
+        self.corners = poly.corners[:-1]

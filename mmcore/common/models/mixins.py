@@ -7,14 +7,16 @@ from uuid import uuid4
 from mmcore.base import ageomdict, amatdict, AMesh, AGroup
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,
-    )
-from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, create_material_uuid,
+                              vertexMaterial,
+                              )
+from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, MeshStandardMaterial,
+                                    create_material_uuid
     )
 from mmcore.base.userdata.controls import encode_control_points
 from mmcore.common.viewer import (ViewerGroupObserver, ViewerObservableGroup, create_group, group_observer,
     )
 
-
+vertexMaterial
 class ViewSupport(metaclass=ABCMeta):
     """
 
@@ -188,6 +190,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         self._mesh = None
         self._material_prototype = material_prototype
         self._material = copy.copy(self.material_prototype)
+
         self.material_color = color
 
     def hook(self):
@@ -209,6 +212,8 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
 
     @material_color.setter
     def material_color(self, v: "tuple | list | np.ndarray | ColorRGB"):
+        if v is None:
+            v = (0.5, 0.5, 0.5)
         self._material_color = v if isinstance(v, ColorRGB) else ColorRGB(*v)
         self._material.color = self._material_color.decimal
         self._material.uuid = create_material_uuid(self._material, self.material_prototype.uuid
@@ -218,7 +223,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
             self.update_mesh_material()
 
     @property
-    def material(self, v: BaseMaterial):
+    def material(self):
         return self._material
 
     @material.setter
@@ -271,6 +276,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
 
     def update_mesh_material(self):
         mat = self.to_mesh_material()
+
         amatdict[mat.uuid] = mat
         self._mesh._material = mat.uuid
 
@@ -288,6 +294,14 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         self.create_mesh() if self._mesh is None else self.update_mesh()
         return self._mesh
 
+
+class UnionMeshViewSupport(MeshViewSupport):
+    def __init_support__(self, *args, material_prototype: BaseMaterial = vertexMaterial, color=(1.0, 1.0, 1.0),
+                         **kwargs):
+        super().__init_support__(*args, material_prototype=material_prototype, **kwargs)
+
+    def to_mesh_material(self) -> MeshStandardMaterial:
+        return MeshStandardMaterial(**{**asdict(self.material_prototype), **dict(color=self.material_color.decimal)})
 
 _group_view_classes = dict()
 

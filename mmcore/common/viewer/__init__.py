@@ -1,4 +1,4 @@
-import uuid
+from uuid import uuid4
 from queue import Queue
 
 import time
@@ -86,15 +86,8 @@ class ViewerObservableGroup(ViewerGroup, Observable):
         return True
 
 
-class Group(ViewerObservableGroup):
-    def __new__(cls, items=(), *args, i=None, observers=(), grp_owner=None, **kwargs):
-        if isinstance(items, int):
-            items = ()
-        self = ViewerObservableGroup.__new__(cls, items, *args, **kwargs)
-
-        observation._postinit_observable(self, *observers)
-        self._grp_owner = grp_owner
-        return self
+def Group(*args, **kwargs):
+    return create_group(*args, **kwargs)
 
 
 from mmcore.base.userdata.controls import (decode_control_points, encode_control_points, CONTROL_POINTS_ATTRIBUTE_NAME,
@@ -193,5 +186,10 @@ group_observer = observation.init_observer(ViewerGroupObserver)
 control_points_observer = observation.init_observer(ViewerControlPointsObserver)
 
 
-def create_group(uuid: str, obs=group_observer, cls=ViewerObservableGroup):
-    return observation.init_observable(obs, cls=lambda x: cls(x, items=(), uuid=uuid))
+def create_group(uuid: str, *args, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
+    return observation.init_observable(obs, cls=lambda x: cls(x, *args, uuid=uuid, **kwargs))
+
+
+def group(*args, uuid: str = None, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
+    uuid = uuid4().hex if uuid is None else uuid
+    return create_group(uuid, *args, obs=obs, cls=cls, **kwargs)

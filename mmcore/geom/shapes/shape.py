@@ -44,6 +44,10 @@ def poly_to_shapes(poly: typing.Union[shapely.Polygon, shapely.MultiPolygon]):
         return [ShapeInterface(crds[0], holes=crds[1:])]
 
 
+def poly_to_points(poly: shapely.Polygon):
+    return list(mapping(poly)['coordinates'])
+
+
 def split2d(poly1, cont):
     if poly1.intersects(cont):
 
@@ -372,3 +376,11 @@ def bounds_earcut(bounds) -> ShapeEarcutResult:
     return ShapeEarcutResult(arguments['vertices'], earcut.earcut(arguments['vertices'],
                                                                   arguments['holes'],
                                                                   arguments['dimensions']), arguments)
+
+
+def loops_earcut(loops) -> ShapeEarcutResult:
+    arguments = earcut.flatten(loops)
+    return ShapeEarcutResult(arguments['vertices'],
+                             earcut.earcut(arguments['vertices'], arguments['holes'], arguments['dimensions']),
+                             arguments
+                             )

@@ -7,6 +7,7 @@ from multipledispatch import dispatch
 
 from mmcore.base import AGroup, AMesh
 from mmcore.base.geom import MeshData
+from mmcore.common.models.mixins import MeshViewSupport
 from mmcore.func import vectorize
 from mmcore.geom.materials import ColorRGB
 from mmcore.geom.mesh import union_mesh_simple
@@ -190,9 +191,7 @@ def _base_extrusion_init(self, profile, path):
     self.path = path
 
 
-
-
-class Extrusion:
+class Extrusion(MeshViewSupport):
     """
     @param: profile: Это любой геометрические 2D объект возвращающий итератор собственных точек при вызове __iter__.
     Банальным примером является обычный список или numpy массив координат. Однако, также могут быть использованы
@@ -204,12 +203,13 @@ class Extrusion:
     path: 'np.ndarray(3, float)'
     faces: 'list'
 
-    def __init__(self, shape, h: float, vec=(0., 0., 1.0)):
+    def __init__(self, shape, h: float, vec=(0., 0., 1.0), **kwargs):
         self._h = h
         self.shape = shape
         self.profile = list(shape)
         self._vec = unit(np.array(vec))
         self.path = unit(np.array(vec)) * h
+        self.__init_support__(**kwargs)
 
     @property
     def h(self):
@@ -242,13 +242,9 @@ class Extrusion:
     def sides(self):
         return self.faces[1:-1]
 
-    def to_mesh(self, uuid=None, **kwargs):
-        if uuid is None:
-            uuid = uuid4().hex
-        return build_mesh_with_buffer(to_mesh(self),
-                                      uuid=uuid,
-                                      **kwargs
-                                      )
+    def to_mesh_view(self):
+        return union_mesh_simple([mesh_from_bounds(face, color=self.color) for face in self.faces])
+
 
 
 @dispatch(Extrusion, tuple)

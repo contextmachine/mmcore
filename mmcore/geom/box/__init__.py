@@ -29,9 +29,10 @@ class Box(Rectangle, MeshViewSupport):
         FieldMap("u", "u1"), FieldMap("v", "v1"), FieldMap("h", "h"), FieldMap("x", "x"), FieldMap("y", "y"),
         FieldMap("z", "z"), FieldMap("area", "area", backward_support=False),)
 
-    def __init__(self, u, v, h=3.0, color=(0.5, 0.5, 0.5), xaxis=np.array([1.0, 0.0, 0.0]),
+    def __init__(self, u, v, h=3.0, color=(0.5, 0.5, 0.5), origin=np.array([0.0, 0.0, 0.0]),
+                 xaxis=np.array([1.0, 0.0, 0.0]),
                  normal=np.array([0.0, 0.0, 1.0]), uuid=None, **kwargs):
-        super().__init__(u, v, xaxis=xaxis, normal=normal, uuid=uuid)
+        super().__init__(u, v, origin=origin, xaxis=xaxis, normal=normal, uuid=uuid)
         #
 
         self.h = h
