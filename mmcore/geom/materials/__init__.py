@@ -27,6 +27,9 @@ class ColorRGB(tuple):
     """
 
     def __new__(cls, *iterable, **kwargs):
+
+        if len(iterable) == 1:
+            iterable, = iterable
         if all(map(lambda x: isinstance(x, int), iterable)):
             inst = tuple.__new__(cls, iterable)
             inst.r, inst.g, inst.b = iterable[:3]
