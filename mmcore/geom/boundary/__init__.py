@@ -1,14 +1,19 @@
 from itertools import zip_longest
 
+import more_itertools
 import numpy as np
 
 from mmcore.base.models import BaseMaterial
 from mmcore.common.models.fields import FieldMap
 from mmcore.common.models.mixins import MeshViewSupport
+from mmcore.geom.extrusion import extrude_line, extrude_line2, extrude_polyline, polyline_to_lines
+from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds, mesh_from_bounds_and_holes
 from mmcore.geom.polycurve import PolyCurve
 from mmcore.geom.shapes.area import (polygon_area, polygon_area_vectorized, to_polygon_area,
     )
+from mmcore.geom.vec import unit
+from mmcore.numeric import split_by_parts
 
 
 class Boundary(MeshViewSupport):
@@ -50,6 +55,7 @@ class Face(Boundary):
     __field_map__ = (FieldMap("area", "area", backward_support=False),)
 
     def __init__(self, boundary: np.ndarray = None, holes=None, count=4, **kwargs):
+
         self.holes = np.array(holes, float) if holes is not None else holes
         super().__init__(boundary, count=count, **kwargs)
 
@@ -66,6 +72,58 @@ class Face(Boundary):
             return Boundary.area.fget(self) - np.sum([polygon_area(to_polygon_area(h)) for h in self.holes]
                     )
         return Boundary.area.fget(self)
+
+
+class ShapeFace(Boundary):
+    def __init__(self, boundary: np.ndarray = None, h=1, normal=np.array([0., 0., 1]), **kwargs):
+        self._structure = [len(i) for i in boundary]
+        self.h = h
+        self.normal = normal
+
+        super().__init__(np.array([*more_itertools.value_chain(*boundary)]), **kwargs)
+
+    @property
+    def holes(self):
+
+        if len(self._structure) > 1:
+            return np.vsplit(self.boundary, np.cumsum(self._structure)[:-1])[1:]
+
+    @property
+    def loops(self):
+        return split_by_parts(self.boundary, self._structure[:-1])
+
+    @property
+    def faces(self):
+        lns = []
+        for l in self.loops:
+            lns.extend(extrude_line2(polyline_to_lines(l), self.normal * self.h))
+
+        return [self.boundary, *lns, self.boundary + self.normal * self.h]
+
+    @property
+    def sides(self):
+        return np.array(self.faces[1:][:-1])
+
+    @property
+    def caps(self):
+        f = self.faces
+        if self.holes is None:
+            return f[0], f[1]
+        else:
+            return split_by_parts(f[0], self._structure[:-1]), split_by_parts(f[-1], self._structure[:-1])
+
+    def to_mesh_view(self):
+        if self.holes is not None:
+            return union_mesh_simple([mesh_from_bounds_and_holes(cap[0].tolist(), cap[1:]) for cap in self.caps] + [
+                mesh_from_bounds(side.tolist()) for side in self.sides]
+                    )
+
+        else:
+            return union_mesh_simple(
+                    [mesh_from_bounds(cap.tolist()) for cap in self.caps] + [mesh_from_bounds(side.tolist()) for side in
+                                                                             self.sides]
+                    )
+
 
 
 class PolyCurveBoundary(Boundary):
