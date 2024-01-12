@@ -11,9 +11,8 @@ def cartesian_product(*arrays):
 
 
 def split_by_shapes(arr, target_shapes):
-
-    np.vsplit(np.arange((7 + 4 + 5) * 3).reshape((7 + 5 + 4, 3)),
-              np.cumsum(np.array([np.array(a).shape[0] for a in aa], int)[:-1])
+    s = np.sum(target_shapes[:-1])
+    np.vsplit(np.arange(s * 3).reshape((s, 3)), np.cumsum(np.array([np.array(a).shape[0] for a in arr], int)[:-1])
               )
 
 
