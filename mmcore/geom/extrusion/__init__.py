@@ -179,6 +179,10 @@ def extrude_line(start, end, vec):
     return np.array([start, end, end + vec, start + vec])
 
 
+@vectorize(signature='(j,i),(i)->(k,i)')
+def extrude_line2(startend, vec):
+    return np.array([startend[0], startend[1], startend[1] + vec, startend[0] + vec])
+
 def extrude_polyline(corners, vec):
     corn = np.array(corners)
     vec = np.array(vec)
@@ -243,7 +247,7 @@ class Extrusion(MeshViewSupport):
         return self.faces[1:-1]
 
     def to_mesh_view(self):
-        return union_mesh_simple([mesh_from_bounds(face, color=self.color) for face in self.faces])
+        return union_mesh_simple([mesh_from_bounds(np.array(face).tolist(), color=self.color) for face in self.faces])
 
 
 
