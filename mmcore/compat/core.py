@@ -1,3 +1,4 @@
+import inspect
 from types import FunctionType, LambdaType
 
 import numpy as np
@@ -27,6 +28,7 @@ class NdArrayGeneric:
             shp = meta.shape
 
             if shp == ...:
+                # print(x)
                 return np.array(x, meta.cast_type)
 
             if isinstance(shp, int):
@@ -49,8 +51,10 @@ class AutoCastMeta(type):
     container_type: type = list
 
     def __class_getitem__(cls, item):
-        if issubclass(item, AutoCastMeta):
-            return item
+        if isinstance(item, type):
+            if issubclass(item, AutoCastMeta):
+                return item
+
 
         attrs = dict(cast_type=None, container=False, container_type=list)
 
@@ -112,7 +116,9 @@ class AutoCastMeta(type):
                 data = data.tolist()
             return cls.container_type([cls.cast(i) for i in data])
 
+        elif inspect.isfunction(cls.cast_type) or inspect.ismethod(cls.cast_type):
 
+            return cls.cast_type(data) if data is not None else cls.cast_type()
         elif isinstance(data, cls.cast_type):
             return data
         else:

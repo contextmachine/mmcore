@@ -11,6 +11,10 @@ class CompatEncoder(json.JSONEncoder):
             return list(o)
         elif isinstance(o, np.ndarray):
             return o.tolist()
+        elif isinstance(o, type):
+            return o.__name__
+
+
         elif hasattr(o, 'to_dict'):
             return o.to_dict()
         elif is_dataclass(o):
