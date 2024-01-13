@@ -303,7 +303,7 @@ class Plane(Entity):
     def create_relative(self, arr, **kwargs) -> 'ChildPln':
         return RelativePlane(self, arr, parent=self, **kwargs)
 
-    def add_parent(self, parent) -> 'RelativePlane':
+    def to_relative(self, parent) -> 'RelativePlane':
         pln = RelativePlane(parent=parent)
         pln._array = self._array
         return pln
