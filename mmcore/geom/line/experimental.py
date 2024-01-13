@@ -305,9 +305,9 @@ def case():
     a, b, c = line_angles(lns)
     boxes = []
     place_boxes(a, b, c, boxes)
-    from mmcore.common.viewer import ViewerGroup
+    from mmcore.common.viewer import ViewerBaseGroup
     poly = mesh_from_bounds(corners.tolist()).amesh()
-    vgg = ViewerGroup((), 'ygtp')
+    vgg = ViewerBaseGroup((), 'ygtp')
     vgg.add(poly)
     for bx in boxes:
         aa, bb = bx
