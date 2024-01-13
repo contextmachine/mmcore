@@ -225,9 +225,15 @@ group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
 
 DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,))
 
+group_fabric = DefaultGroupFabric
 
 def create_group(uuid: str, *args, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
-    return observation.init_observable(obs, cls=lambda x: cls(x, *args, uuid=uuid, **kwargs))
+    def ctor(x):
+        obj = cls(*args, uuid=uuid, **kwargs)
+        obj.i = x
+        return obj
+
+    return observation.init_observable(obs, cls=lambda x: ctor(x))
 
 
 def group(*args, uuid: str = None, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
