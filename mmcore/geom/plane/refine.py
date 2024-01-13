@@ -142,7 +142,7 @@ class PlaneRefine:
 
             if isinstance(xyz, np.ndarray):
                 if xyz.shape != (3, 3):
-                    raise ValueError(f"xyz should be a numpy ndarray, with shape {(3, 3)}")
+                    raise ValueError(f"xyz should be a numpy ndarray, with shape {(3, 3)} exist: {xyz}")
 
         if inplace:
 

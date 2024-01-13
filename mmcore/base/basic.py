@@ -898,12 +898,12 @@ class ACacheSupport(PropsSupport):
 
 class AGroup(ACacheSupport):
 
-    def __new__(cls, seq=(), **kwargs):
+    def __new__(cls, items=(), **kwargs):
         inst = super().__new__(cls, **kwargs)
         inst._dirty=True
         idict[inst.uuid]["__children__"] = set()
-        if len(seq) > 0:
-            idict[inst.uuid]["__children__"] = set([s.uuid for s in seq])
+        if len(items) > 0:
+            idict[inst.uuid]["__children__"] = set([s.uuid for s in items])
 
         return inst
 

@@ -1,3 +1,4 @@
+from typing import Type
 from uuid import uuid4
 from queue import Queue
 
@@ -7,7 +8,7 @@ from mmcore.base import A, AGeom, AGroup, AMesh
 from mmcore.base.ecs.components import request_component
 from mmcore.base.registry import adict, propsdict
 from mmcore.base.userdata.props import Props
-from mmcore.common.models.observer import Observable, Observer, observation
+from mmcore.common.models.observer import Observable, Observer, observation, Observation
 
 ENABLE_WARNINGS = True
 
@@ -40,13 +41,14 @@ def solver(uid):
 update_queue = Queue()
 
 
-class ViewerGroup(AGroup):
-    def __new__(cls, items=(), /, uuid=None, name="ViewerGroup", entries_support=True, **kwargs):
+class ViewerBaseGroup(AGroup):
+    def __new__(cls, items=(), /, uuid=None, name="ViewerBaseGroup", entries_support=True, **kwargs):
         if "props_update_support" in kwargs:
             del kwargs["props_update_support"]
             props_update_support_warning(cls)
-        return super().__new__(cls, seq=items, uuid=uuid, name=name, entries_support=entries_support,
-                props_update_support=True, **kwargs, )
+        return super().__new__(cls, items, uuid=uuid, name=name, entries_support=entries_support,
+                               props_update_support=True, **kwargs
+                               )
 
     def props_update(self, uuids: list[str], props: dict):
         s = time.time()
@@ -60,15 +62,16 @@ class ViewerGroup(AGroup):
         return True
 
 
-class ViewerObservableGroup(ViewerGroup, Observable):
+class ViewerObservableGroup(ViewerBaseGroup, Observable):
     """
     >>> group_observer=observation.init_observer(ViewerGroupObserver)
     >>> group=observation.init_observable(group_observer,
     ...                                   cls=lambda x:ViewerObservableGroup(x, items=(),uuid='fff'))
     """
+    i = 0
 
-    def __new__(cls, i, *args, **kwargs):
-        self = super().__new__(cls, *args, **kwargs)
+    def __new__(cls, items=(), uuid=None, name="ViewerGroup", **kwargs):
+        self = super().__new__(cls, items, uuid=uuid, name=name, **kwargs)
 
         return self
 
@@ -84,10 +87,6 @@ class ViewerObservableGroup(ViewerGroup, Observable):
         # self.notify_observers_forward(uuids=uuids, props=props)
 
         return True
-
-
-def Group(*args, **kwargs):
-    return create_group(*args, **kwargs)
 
 
 from mmcore.base.userdata.controls import (decode_control_points, encode_control_points, CONTROL_POINTS_ATTRIBUTE_NAME,
@@ -184,6 +183,47 @@ class ViewerGroupObserver(Observer):
 
 group_observer = observation.init_observer(ViewerGroupObserver)
 control_points_observer = observation.init_observer(ViewerControlPointsObserver)
+Group = ViewerObservableGroup
+
+
+class GroupFabric:
+    """
+    >>> from mmcore.common.viewer import DefaultGroupFabric
+    >>> vecs = unit(np.random.random((2, 4, 3)))
+    >>> boxes = [Box(10, 20, 10), Box(5, 5, 5), Box(15, 5, 5), Box(25, 20, 2)]
+    >>> for i in range(4):
+    boxes[i].xaxis = vecs[0, i, :]
+    boxes[i].origin = vecs[1, i, :] * np.random.randint(0, 20)
+    boxes[i].refine(('y','z'))
+from mmcore.common.viewer import DefaultGroupFabric
+group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
+    """
+
+    def __init__(self, observer_fabric: Observation, default_group_cls: Type[ViewerBaseGroup] = ViewerObservableGroup,
+                 observers: tuple[Observer] = ()):
+        self.observer_fabric = observer_fabric
+        self.default_group_cls = default_group_cls
+        self.observers = list(observers)
+
+    def __call__(self, items=(), *args, **kwargs):
+        return self.observer_fabric.init_observable_obj(*self.observers,
+
+                obj=self.prepare_group_ctor(items=items, *args, **kwargs
+                                            )
+                )
+
+    def prepare_group_ctor(self, items=(), *args, uuid=None, **kwargs):
+
+        return self.default_group_cls(items=items, uuid=self.uuid_generator(uuid), *args, **kwargs)
+
+    def uuid_generator(self, value=None):
+        if value is None:
+            return uuid4().hex
+        else:
+            return value
+
+
+DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,))
 
 
 def create_group(uuid: str, *args, obs=group_observer, cls=ViewerObservableGroup, **kwargs):

@@ -159,7 +159,7 @@ class Plane(Entity):
 
     def refine(self, proprity_axis=('y', 'x')):
         refine = PlaneRefine(*proprity_axis)
-        refine(self._array, inplace=True)
+        refine(self._array[1:], inplace=True)
     def distance(self, pt):
         return distance(self, pt)
 
