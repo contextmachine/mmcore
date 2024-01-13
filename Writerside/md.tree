@@ -56,5 +56,6 @@
         <toc-element toc-title="Circle Interaction" topic="circles.md"/>
         <toc-element topic="variable_offset.md"/>
     </toc-element>
+    <toc-element topic="GroupFabric.md"/>
     <toc-element topic="Test-Snippets.topic"/>
 </instance-profile>
