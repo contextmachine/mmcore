@@ -1,3 +1,7 @@
+import sys
+
+import typing
+
 import inspect
 from types import FunctionType, LambdaType
 
@@ -126,6 +130,128 @@ class AutoCastMeta(type):
             return cls.cast_type(data) if data is not None else cls.cast_type()
 
 
+class ComparsionResultItem:
+    class Operands:
+        left: typing.Any
+        right: typing.Any
+
+        def __init__(self, left: typing.Any, right: typing.Any):
+            self.left = left
+            self.right = right
+
+        def __iter__(self):
+            return iter((self.left, self.right))
+
+        def __repr__(self):
+            return (f'(left={self.left}, right={self.right})')
+
+        def to_dict(self):
+            return dict(right=self.right, left=self.left)
+
+    def __init__(self, result: bool, left, right, method='__eq__'):
+        self.operands = self.Operands(left, right)
+        self.result = result
+
+    def __bool__(self):
+        return bool(self.result)
+
+    def __iter__(self):
+        return iter((self.result, self.operands))
+
+    def to_dict(self):
+        return dict(result=self.result, operands=self.operands.to_dict())
+
+    def __repr__(self):
+        return f'({self.result}, operands={self.operands})'
+
+
+from typing import Union
+
+_lrdicr = dict(left='right', right='left')
+
+
+class ComparsionResult(dict):
+
+    def __bool__(self):
+        return all(list(self.values()))
+
+    def __eq__(self, other):
+        return [bool(self[k]) == bool(v) for k, v in other.items()]
+
+    def to_dict(self):
+        return {key: value.to_dict() for key, value in self.items()}
+
+    @property
+    def operands(self):
+        return {key: value.operands for key, value in self.items()}
+
+    def different_operands(self):
+        return {key: value.operands for key, value in self.items()}
+
+    @property
+    def result(self):
+
+        return bool(self)
+
+    def __repr__(self):
+
+        return f'ComparsionResult({self.result}, operands={self.operands})'
+
+    def get_diffs(self):
+        for key, value in self.items():
+
+            if not value:
+
+                yield key, value
+
+    def get_diffs_recursieve(self):
+        for key, value in self.get_diffs():
+            if isinstance(value, ComparsionResult):
+                yield key, dict(value.get_diffs_recursieve())
+            else:
+                yield key, value
+
+    def update_logger(self, use=False, file=sys.stdout):
+
+        def logger(item, key=None, value=None):
+            if use:
+                if value is not None:
+                    print(f'.{key}: {getattr(item, key, None)} -> {value}\n\t', end='', file=file)
+                elif key is not None:
+                    print(f'.{key}', end='', file=file)
+                else:
+
+                    print(f'\n\t', end='', file=file)
+
+        return logger
+
+    def update_other(self, other, side='left', logger=lambda *args: ...):
+
+        for key, value in (self.get_diffs()):
+
+            if isinstance(value, ComparsionResult):
+
+                logger(other, key)
+
+                next_other = getattr(other, key)
+                value.update_other(next_other, side=side, logger=logger)
+            else:
+                _vl = getattr(value.operands, _lrdicr[side])
+                logger(other, key, _vl)
+
+                setattr(other, key, _vl)
+
+    def update_right(self, right, logger=False):
+        _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
+        _logger(right)
+        self.update_other(right, side='right', logger=_logger)
+
+    def update_left(self, left, logger=False):
+        _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
+        _logger(left)
+        self.update_other(left, side='left', logger=_logger)
+
+
 @dataclass
 class AutoData(metaclass=AutoCastMeta):
 
@@ -135,3 +261,19 @@ class AutoData(metaclass=AutoCastMeta):
 
     def to_dict(self):
         return asdict(self)
+
+    def compare(self, other):
+
+        comparsion_result = ComparsionResult()
+        for k in self.__dict__.keys():
+            first = getattr(self, k, None)
+            second = getattr(other, k, None)
+            if hasattr(first, 'compare'):
+                comparsion_result[k] = first.compare(second)
+            elif isinstance(first, np.ndarray):
+                comparsion_result[k] = ComparsionResultItem(np.allclose(first, second), first, second)
+            else:
+
+                comparsion_result[k] = ComparsionResultItem(first == second, first, second)
+
+        return comparsion_result

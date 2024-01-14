@@ -943,9 +943,11 @@ class AGroup(ACacheSupport):
     def __iter__(self):
         return iter(idict[self.uuid]["__children__"])
 
-
+    def remove_by_uuid(self, uid: str):
+        idict[self.uuid]["__children__"].remove(uid)
+        self.make_dirty()
     def remove(self, obj):
-        idict[self.uuid]["__children__"].remove(obj.uuid)
+        self.remove_by_uuid(obj.uuid)
         self.make_dirty()
 
     def clear(self):
