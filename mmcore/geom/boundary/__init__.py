@@ -56,7 +56,7 @@ class Face(Boundary):
 
     def __init__(self, boundary: np.ndarray = None, holes=None, count=4, **kwargs):
 
-        self.holes = np.array(holes, float) if holes is not None else holes
+        self.holes = holes if holes is not None else holes
         super().__init__(boundary, count=count, **kwargs)
 
     def to_mesh_view(self):
