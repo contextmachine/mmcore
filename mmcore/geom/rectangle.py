@@ -230,7 +230,7 @@ class Rectangle(plane.Plane):
 
     @property
     def u(self):
-        return self._u.get()
+        return float(self._u.get())
 
     @u.setter
     def u(self, val):
@@ -240,7 +240,7 @@ class Rectangle(plane.Plane):
 
     @property
     def v(self):
-        return self._v.get()
+        return float(self._v.get())
 
     @v.setter
     def v(self, val):
