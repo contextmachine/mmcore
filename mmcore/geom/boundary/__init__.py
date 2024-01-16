@@ -31,7 +31,7 @@ class Boundary(MeshViewSupport):
 
     @property
     def area(self):
-        return polygon_area(np.array([*self.boundary, self.boundary[0]]))
+        return float(polygon_area(np.array([*self.boundary, self.boundary[0]])))
 
     @property
     def control_points(self):

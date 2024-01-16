@@ -971,6 +971,11 @@ class AGroup(ACacheSupport):
     def children_uuids(self, v):
         idict[self.uuid]["__children__"] = set(v)
         self.make_dirty()
+
+    def __len__(self):
+        return len(idict[self.uuid]["__children__"])
+
+
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
         _ = A.__call__(self, *args, **kwargs)
