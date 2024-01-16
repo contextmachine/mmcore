@@ -1,3 +1,4 @@
+import numpy as np
 from functools import total_ordering
 from operator import attrgetter
 
@@ -125,11 +126,19 @@ class FieldMap:
 
     def backward(self, source, target: dict):
         if self.target_field_name in target:
+
             if self.update_equal:
                 self._backward_update(source, target)
-            elif self.getter(source) != target[self.target_field_name]:
+            else:
+                first = self.getter(source)
+                second = target[self.target_field_name]
+                if isinstance(first, np.ndarray) or isinstance(second, np.ndarray):
+                    self._backward_update(source, target)
+                else:
+                    comparsion = lambda x, y: x == y
+                    if not comparsion(first, second):
 
-                self._backward_update(source, target)
+                        self._backward_update(source, target)
 
     def __eq__(self, other):
         return other.backward_support.__eq__(self.backward_support)

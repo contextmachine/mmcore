@@ -268,12 +268,16 @@ class AutoData(metaclass=AutoCastMeta):
         for k in self.__dict__.keys():
             first = getattr(self, k, None)
             second = getattr(other, k, None)
-            if hasattr(first, 'compare'):
-                comparsion_result[k] = first.compare(second)
-            elif isinstance(first, np.ndarray):
-                comparsion_result[k] = ComparsionResultItem(np.allclose(first, second), first, second)
-            else:
+            try:
+                if hasattr(first, 'compare'):
+                    comparsion_result[k] = first.compare(second)
+                elif isinstance(first, np.ndarray):
 
-                comparsion_result[k] = ComparsionResultItem(first == second, first, second)
+                    comparsion_result[k] = ComparsionResultItem(np.allclose(first, second), first, second)
+                else:
 
+                    comparsion_result[k] = ComparsionResultItem(first == second, first, second)
+            except Exception as err:
+                print(k, first, second)
+                raise err.__class__("{}, {}, {}, {}".format(k, first, second, err))
         return comparsion_result

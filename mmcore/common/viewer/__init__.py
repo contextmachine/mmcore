@@ -223,6 +223,8 @@ group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
             return value
 
 
+ViewerGroup = ViewerObservableGroup
+
 DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,))
 
 group_fabric = DefaultGroupFabric
