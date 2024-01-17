@@ -35,6 +35,7 @@ def remove_dim(arr, count=1):
 
 def split_by_parts(arr, parts):
     ixs = np.cumsum(parts)
+
     if parts[-1] > len(arr):
         parts = parts[:-1]
     return np.vsplit(arr, np.cumsum(parts))
