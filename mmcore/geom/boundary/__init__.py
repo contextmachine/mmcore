@@ -17,7 +17,7 @@ from mmcore.numeric import split_by_parts
 
 
 class Boundary(MeshViewSupport):
-    __field_map__ = (FieldMap("area", "area", backward_support=False),)
+    __field_map__ = ()
 
     def __init__(self, boundary: np.ndarray = None, count=4, color=(0.3, 0.3, 0.3), **kwargs):
         if boundary is None:
@@ -52,7 +52,7 @@ class BoundaryIterator:
     def __next__(self):
         return next(self._obj)
 class Face(Boundary):
-    __field_map__ = (FieldMap("area", "area", backward_support=False),)
+    __field_map__ = ()
 
     def __init__(self, boundary: np.ndarray = None, holes=None, count=4, **kwargs):
 
@@ -90,7 +90,11 @@ class ShapeFace(Boundary):
 
     @property
     def loops(self):
-        return split_by_parts(self.boundary, self._structure[:-1])
+        if len(self._structure) > 1:
+
+            return split_by_parts(self.boundary, self._structure[:-1])
+        else:
+            return [self.boundary]
 
     @property
     def faces(self):
@@ -108,7 +112,7 @@ class ShapeFace(Boundary):
     def caps(self):
         f = self.faces
         if self.holes is None:
-            return f[0], f[1]
+            return f[0], f[-1]
         else:
             return split_by_parts(f[0], self._structure[:-1]), split_by_parts(f[-1], self._structure[:-1])
 
