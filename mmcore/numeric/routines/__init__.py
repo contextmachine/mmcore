@@ -30,7 +30,7 @@ def add_dim(arr, val):
 
 def remove_dim(arr, count=1):
 
-    return arr.reshape((np.prod(arr.shape[:count]), *arr.shape[count:]))
+    return arr.reshape((np.prod(arr.shape[:count + 1]), *arr.shape[count + 1:]))
 
 
 def split_by_parts(arr, parts):
