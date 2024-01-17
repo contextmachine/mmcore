@@ -107,7 +107,7 @@ class FieldMap:
 
     """
 
-    def __init__(self, getter, target_field_name, backward_support=True, update_equal=False):
+    def __init__(self, getter, target_field_name, backward_support=True, update_equal=False, callbacks=(None, None)):
         self._source_field_name = getter
         self.update_equal = update_equal
         self.backward_support = backward_support
@@ -116,13 +116,25 @@ class FieldMap:
             self._back = attrgetter('.'.join(self._back_tuple[:-1]))
         else:
             self._back = lambda x: x
-
+        self.callbacks = callbacks
         self._last_field = self._back_tuple[-1]
         self.getter = attrgetter(getter)
         self.target_field_name = target_field_name
 
+    @property
+    def forward_callback(self):
+        return self.callbacks[0]
+
+    @property
+    def backward_callback(self):
+        return self.callbacks[1]
     def forward(self, source, target: dict):
-        target[self.target_field_name] = self.getter(source)
+        val = self.getter(source)
+        if self.forward_callback:
+
+            val = self.forward_callback(val)
+
+        target[self.target_field_name] = val
 
     def backward(self, source, target: dict):
         if self.target_field_name in target:
@@ -140,6 +152,7 @@ class FieldMap:
 
                         self._backward_update(source, target)
 
+
     def __eq__(self, other):
         return other.backward_support.__eq__(self.backward_support)
 
@@ -148,8 +161,11 @@ class FieldMap:
 
     def _backward_update(self, source, target):
         if self.backward_support:
+            val = target[self.target_field_name]
+            if self.backward_callback:
+                val = self.backward_callback(val)
 
-            setattr(self._back(source), self._last_field, target[self.target_field_name])
+            setattr(self._back(source), self._last_field, val)
         else:
             self.forward(source, target)
 
