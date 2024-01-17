@@ -34,7 +34,10 @@ def search_all_indices(lst, value):
 
 
 def generate_uvicorn_app_name(fpath, appname="app"):
-    r = list(fpath.split("/"))
+    if "\\" in fpath:
+        r = list(fpath.split("\\"))
+    else:
+        r = list(fpath.split("/"))
     if r[-1].startswith("__"):
         r = r[:-1]
 
