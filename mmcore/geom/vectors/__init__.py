@@ -1,3 +1,5 @@
+import mmcore.params
+
 PERCISSION = 6
 import warnings
 from typing import Iterable, Iterator
@@ -382,10 +384,10 @@ def scaleTo(u, l):
         Or the same input vector `u`, if it is `(0, 0, 0)`.
     """
     typecheck([(u, Vector), (l, (int, int, float))], "scaleTo")
-    if u.Length == 0:
+    if mmcore.params.Length == 0:
         return Vector(u, u, u)
     else:
-        a = l / u.Length
+        a = l / mmcore.params.Length
         return Vector(u.x * a, u.y * a, u.z * a)
 
 
@@ -505,7 +507,7 @@ def rotate(u, angle, axis=Vector(0, 0, 1)):
         return u
 
     # Unit components, so that x**2 + y**2 + z**2 = 1
-    L = axis.Length
+    L = mmcore.params.Length
     x = axis.x / L
     y = axis.y / L
     z = axis.z / L
@@ -564,7 +566,7 @@ def getRotation(vector, reference=Vector(1, 0, 0)):
         return (0, 0, 0, 1.0)
     c.normalize()
 
-    q1 = math.sqrt((vector.Length ** 2) * (reference.Length ** 2))
+    q1 = math.sqrt((mmcore.params.Length ** 2) * (mmcore.params.Length ** 2))
     q2 = vector.dot(reference)
     Q = q1 + q2
 
@@ -663,7 +665,7 @@ def closest(vector, vlist, return_length=False):
     dist = 9999999999999999
     index = None
     for i, v in enumerate(vlist):
-        d = (vector - v).Length
+        d = mmcore.params.Length
         if d < dist:
             dist = d
             index = i
