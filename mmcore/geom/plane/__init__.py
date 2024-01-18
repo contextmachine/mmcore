@@ -131,7 +131,7 @@ class Plane(Entity):
             zaxis = unit(cross(xaxis, yaxis))
 
             self._array = np.array([xaxis, yaxis, zaxis])
-            self.refine(('y',))
+
         elif (normal is not None) and (yaxis is not None):
             yaxis = unit(yaxis)
             zaxis = unit(normal)
