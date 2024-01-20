@@ -3,6 +3,7 @@
 ![image_3.png](image_3.png)
 
 ```python
+from mmcore.geom.vec import *
 from mmcore.geom.box import Box
 from mmcore.common.viewer import DefaultGroupFabric
 

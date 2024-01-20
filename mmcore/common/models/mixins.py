@@ -4,7 +4,7 @@ from abc import ABCMeta, abstractmethod
 from dataclasses import asdict
 from uuid import uuid4
 
-from mmcore.base import ageomdict, amatdict, AMesh, AGroup
+from mmcore.base import ageomdict, amatdict, AMesh, AGroup, Props
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,
                               vertexMaterial,
@@ -13,10 +13,10 @@ from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, M
                                     create_material_uuid
     )
 from mmcore.base.userdata.controls import encode_control_points
-from mmcore.common.viewer import (ViewerGroupObserver, ViewerObservableGroup, create_group, group_observer,
+from mmcore.common.viewer import (ViewerGroupObserver, ViewerObservableGroup, create_group, group_observer, propsdict
     )
 
-vertexMaterial
+
 class ViewSupport(metaclass=ABCMeta):
     """
 
@@ -104,6 +104,15 @@ class ViewSupport(metaclass=ABCMeta):
         for m in self.field_map:
             m.forward(self, data)
 
+    @property
+    def props(self):
+        return propsdict.get(self.uuid, Props(uuid=self.uuid))
+
+    @props.setter
+    def props(self, v):
+        propsdict.get(self.uuid, Props(uuid=self.uuid)).update(dict(v))
+
+
     def describe(self):
         data = dict()
         self.apply_forward(data)
@@ -118,6 +127,22 @@ class ViewSupport(metaclass=ABCMeta):
             self.apply_backward(data)
         self.hook()
         self.apply_forward(data)
+
+    def add_field(self, source_field_name, target_field_name=None, backward_support=True, callbacks=(None, None),
+                  sort=False):
+        self.field_map.append(
+            FieldMap(source_field_name, target_field_name if target_field_name is not None else source_field_name,
+                     backward_support=backward_support, callbacks=callbacks
+                     )
+            )
+        if sort:
+            self.field_map.sort()
+
+    def source_fields_dict(self):
+        return {field.source_field_name: field for field in self.field_map}
+
+    def target_fields_dict(self):
+        return {field.target_field_name: field for field in self.field_map}
 
     def apply_backward(self, data):
         """
@@ -262,6 +287,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
         self._mesh = build_mesh_with_buffer(self.to_mesh_view(), uuid=self.uuid, props=_props, _controls=controls,
                 material=self.to_mesh_material(), **kwargs, )
         self._mesh.owner = self
+
         if hasattr(self, "control_points"):
             self._mesh._controls["path"] = dict(points=encode_control_points(self.control_points)
                     )
