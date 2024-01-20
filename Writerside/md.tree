@@ -49,6 +49,7 @@
     </toc-element>
     <toc-element topic="User-Guides.topic">
 
+        <toc-element topic="GroupFabric.md"/>
         <toc-element topic="Polygon-Clipping.md">
             <toc-element topic="Polygon-Clipping-Exanple.md"/>
         </toc-element>
@@ -56,6 +57,5 @@
         <toc-element toc-title="Circle Interaction" topic="circles.md"/>
         <toc-element topic="variable_offset.md"/>
     </toc-element>
-    <toc-element topic="GroupFabric.md"/>
     <toc-element topic="Test-Snippets.topic"/>
 </instance-profile>
