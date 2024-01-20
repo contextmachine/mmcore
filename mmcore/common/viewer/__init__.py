@@ -145,6 +145,7 @@ class ViewerGroupObserver(Observer):
         for uid in uuids:
             mesh = adict.get(uid, None)
             print(mesh)
+            mesh.properties.update(props)
             if hasattr(mesh, "owner"):
                 print(mesh.owner)
                 mesh.owner.apply_backward(props)
