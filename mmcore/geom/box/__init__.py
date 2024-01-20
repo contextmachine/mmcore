@@ -25,9 +25,8 @@ class Box(Rectangle, MeshViewSupport):
         lock (bool): A flag indicating if the box is locked.
     """
 
-    __field_map__ = (
-        FieldMap("u", "u1"), FieldMap("v", "v1"), FieldMap("h", "h"), FieldMap("x", "x"), FieldMap("y", "y"),
-        FieldMap("z", "z"), FieldMap("area", "area", backward_support=False),)
+    __field_map__ = (FieldMap("u", "u"), FieldMap("v", "v"), FieldMap("h", "h"), FieldMap("x", "x"), FieldMap("y", "y"),
+                     FieldMap("z", "z"), FieldMap("area", "area", backward_support=False),)
 
     def __init__(self, u, v, h=3.0, color=(0.5, 0.5, 0.5), origin=np.array([0.0, 0.0, 0.0]),
                  xaxis=np.array([1.0, 0.0, 0.0]),
