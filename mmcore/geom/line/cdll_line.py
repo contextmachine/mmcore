@@ -929,16 +929,20 @@ class LineCDLL(CDLL):
 
     @corners.setter
     def corners(self, corners):
-        for corner, node in itertools.zip_longest(
+
+        for i, (corner, node) in enumerate(itertools.zip_longest(
             corners, self.iter_nodes(), fillvalue=None
-        ):
+                )
+                ):
             if corner is None:
                 self.remove(node.data)
+
             elif node is None:
+
                 self.append_corner(corner)
             else:
-                node.start = np.array(corner)
-                node.previous.end = np.array(corner)
+                self.set_corner(i, corner)
+
 
     def append_corner(
         self, value: "np.ndarray | list[float] | tuple[float,float,float]"
@@ -961,7 +965,7 @@ class LineCDLL(CDLL):
     ):
         node = self.get_node(index)
         node.start = np.array(value)
-        node.previous.end = node.start
+        node.previous.end = np.array(value)
 
     def insert_corner(
         self, value: "np.ndarray | list[float] | tuple[float,float,float]", index: int

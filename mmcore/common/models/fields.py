@@ -107,20 +107,24 @@ class FieldMap:
 
     """
 
-    def __init__(self, getter, target_field_name, backward_support=True, update_equal=False, callbacks=(None, None)):
-        self._source_field_name = getter
+    def __init__(self, source_field_name, target_field_name, backward_support=True, update_equal=False,
+                 callbacks=(None, None)):
+        self._source_field_name = source_field_name
         self.update_equal = update_equal
         self.backward_support = backward_support
-        self._back_tuple = getter.split('.')
+        self._back_tuple = source_field_name.split('.')
         if len(self._back_tuple) > 1:
             self._back = attrgetter('.'.join(self._back_tuple[:-1]))
         else:
             self._back = lambda x: x
         self.callbacks = callbacks
         self._last_field = self._back_tuple[-1]
-        self.getter = attrgetter(getter)
+        self.getter = attrgetter(source_field_name)
         self.target_field_name = target_field_name
 
+    @property
+    def source_field_name(self):
+        return self._source_field_name
     @property
     def forward_callback(self):
         return self.callbacks[0]
@@ -141,6 +145,8 @@ class FieldMap:
 
             if self.update_equal:
                 self._backward_update(source, target)
+
+
             else:
                 first = self.getter(source)
                 second = target[self.target_field_name]

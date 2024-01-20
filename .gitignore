@@ -4,6 +4,9 @@ B1
 .idea
 gen
 build
+build.sh
+push.sh
+run.sh
 .run
 node_modules
 lib
