@@ -60,8 +60,8 @@ jobs:
           push: true
 
           tags: |
-            ghcr.io/contextmachine/mmcore:${{ steps.extract_branch.outputs.branch }}
-            cr.yandex/${{ secrets.YC_REGISTRY_ID }}/mmcore:${{ steps.extract_branch.outputs.branch }}
+            ghcr.io/contextmachine/mmcore:${{ steps.extract_branch.outputs.branch }} 
+            cr.yandex/${{ vars.YC_REGISTRY_ID }}/mmcore:master
       
 
 
