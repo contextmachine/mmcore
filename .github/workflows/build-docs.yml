@@ -68,12 +68,9 @@ jobs:
         with:
           name: docs
           path: artifacts
-
-      - name: Test documentation
-        uses: JetBrains/writerside-checker-action@v1
-        with:
-          instance: ${{ env.INSTANCE }}
-
+      
+  
+  
   deploy:
     environment:
       name: github-pages

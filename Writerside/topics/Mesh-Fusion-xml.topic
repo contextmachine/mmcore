@@ -16,10 +16,9 @@
 
             </a></secondary>
 
-        <spotlight><a href="Mesh-Fusion-Overview.topic" type="development"></a>
+        <spotlight><a href="Mesh-Fusion-Overview.topic" type="development"> x</a>
 
-            <a href="Mesh-Fusing-User-Guide.topic" type="academy"
-            ></a></spotlight>
+            <a href="Mesh-Fusion-Perfomance.topic" type="academy">x</a></spotlight>
 
     </section-starting-page>
 
