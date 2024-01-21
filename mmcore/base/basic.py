@@ -569,6 +569,10 @@ class A:
             pass
 
     @property
+    def children_uuids(self):
+        return set(idict[self.uuid].values())
+
+    @property
     def entries(self):
         return self._user_data_extras.get('entries', None)
 
@@ -737,6 +741,8 @@ class A:
     def gui_post(self, data: dict):
         return dict()
 
+    def __repr__(self):
+        return f'<{self.__class__.__module__}.{self.__class__.__name__} object at {self.uuid}>'
 
 @dispatch(str)
 def find_parents(uid):
@@ -913,54 +919,50 @@ class AGroup(ACacheSupport):
 
 
     def add(self, obj):
-        idict[self.uuid]["__children__"].add(obj.uuid)
+        self.children_uuids.add(obj.uuid)
         self.make_dirty()
 
     def intersection(self, obj):
-        childs = set.intersection(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
-        return AGroup(uuid='x-' + self.uuid + "-" + obj.uuid,
-                      name=f'{self.name} x {obj.name}',
-                      seq=childs)
+        childs = set.intersection(self.children_uuids, obj.children_uuids)
+        return self.__class__(childs, uuid='x-' + self.uuid + "-" + obj.uuid, name=f'{self.name} x {obj.name}')
 
     def difference(self, obj):
-        childs = set.difference(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
-        return AGroup(uuid='d-' + self.uuid + "-" + obj.uuid,
-                      name=f'{self.name} d {obj.name}',
-                      seq=childs)
+        childs = set.difference(self.children_uuids, obj.children_uuids)
+        return self.__class__(childs, uuid='d-' + self.uuid + "-" + obj.uuid, name=f'{self.name} d {obj.name}'
+                              )
 
     def union(self, obj):
-        childs = set.union(idict[self.uuid]["__children__"], idict[obj.uuid]["__children__"])
-        return AGroup(uuid='u-' + self.uuid + "-" + obj.uuid,
-                      name=f'{self.name} u {obj.name}',
-                      seq=childs)
+        childs = set.union(self.children_uuids, obj.children_uuids)
+        return self.__class__(childs, uuid='u-' + self.uuid + "-" + obj.uuid, name=f'{self.name} u {obj.name}'
+                              )
     def update(self, items):
-        idict[self.uuid]["__children__"].update([i.uuid for i in items])
+        self.children_uuids.update([i.uuid for i in items])
 
         self.make_dirty()
     def __contains__(self, item):
-        return set.__contains__(idict[self.uuid]["__children__"], item.uuid)
+        return set.__contains__(self.children_uuids, item.uuid)
 
     def __iter__(self):
-        return iter(idict[self.uuid]["__children__"])
+        return iter(self.children)
 
     def remove_by_uuid(self, uid: str):
-        idict[self.uuid]["__children__"].remove(uid)
+        self.children_uuids.remove(uid)
         self.make_dirty()
     def remove(self, obj):
         self.remove_by_uuid(obj.uuid)
         self.make_dirty()
 
     def clear(self):
-        idict[self.uuid]["__children__"].clear()
+        self.children_uuids.clear()
         self.make_dirty()
 
     @property
     def children(self):
-        return tuple(adict[i] for i in idict[self.uuid]["__children__"])
+        return tuple(adict[i] for i in self.children_uuids)
 
     @children.setter
     def children(self, v):
-        idict[self.uuid]["__children__"] = {i.uuid for i in v}
+        self.children_uuids = {i.uuid for i in v}
         self.make_dirty()
 
     @property
@@ -973,8 +975,10 @@ class AGroup(ACacheSupport):
         self.make_dirty()
 
     def __len__(self):
-        return len(idict[self.uuid]["__children__"])
+        return len(self.children_uuids)
 
+    def __repr__(self):
+        return f'<{self.__class__.__module__}.{self.__class__.__qualname__}(length={len(self)}) object at {self.uuid}>'
 
 class RootForm(A):
     def __call__(self, res=None, *args, **kwargs):
@@ -1375,6 +1379,7 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
         if instance is None:
             return self._default
         else:
+
             if hasattr(instance, self._name):
                 return gql_models.BufferGeometryObject(**{
                     'data': gql_models.Data1(
@@ -1393,10 +1398,20 @@ class APointsGeometryDescriptor(AGeometryDescriptor):
                 return None
 
     def __set__(self, instance, value):
+        if isinstance(value, (list, tuple, np.ndarray)):
+            instance._points = value
+            uid = position_hash(value)
+        elif isinstance(value, gql_models.BufferGeometryObject):
+            val = value.data.attributes.position.array
+            instance._points = np.array(val).reshape((len(val) // 3, 3))
+            uid = value.uuid
+        elif isinstance(value, dict):
+            val = value['data']['attributes']['position']['array']
+            instance._points = np.array(val).reshape((len(val) // 3, 3))
+            uid = value['uuid']
+        else:
+            raise ValueError('Unsupported geometry type')
 
-        instance.points = value
-
-        uid = position_hash(value)
         setattr(instance, self._name, uid)
         ageomdict[uid] = gql_models.BufferGeometryObject(**{
             'data': gql_models.Data1(
@@ -1426,7 +1441,7 @@ class APoints(AGeom):
 
     @property
     def points(self):
-        return list(self._points)
+        return self._points
 
     @points.setter
     def points(self, v):
