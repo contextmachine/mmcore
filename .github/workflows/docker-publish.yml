@@ -61,7 +61,7 @@ jobs:
 
           tags: |
             ghcr.io/contextmachine/mmcore:${{ steps.extract_branch.outputs.branch }} 
-            cr.yandex/${{ vars.YC_REGISTRY_ID }}/mmcore:master
+            cr.yandex/${{ vars.PRODUCTION_REGISTRY_ID }}/mmcore:master
       
 
 
