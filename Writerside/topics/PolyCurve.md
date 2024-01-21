@@ -38,7 +38,9 @@ class PolyCurve(LineCDLL):
 ```
 
 {
-src="../mmcore/geom/polycurve.py" include-symbol="PolyCurve" collapsible="true"}
+src="../mmcore/geom/polycurve.py"
+include-symbol="PolyCurve" collapsible="true" validate="false"
+}
 
 ## Class Attributes
 
