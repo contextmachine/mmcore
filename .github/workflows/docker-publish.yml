@@ -52,6 +52,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
@@ -61,7 +62,6 @@ jobs:
 
           tags: |
             ghcr.io/contextmachine/mmcore:${{ steps.extract_branch.outputs.branch }}
-            cr.yandex/${{ secrets.YC_REGISTRY_ID }}/mmcore:${{ steps.extract_branch.outputs.branch }}
       
 
 
