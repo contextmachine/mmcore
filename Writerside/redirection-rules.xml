@@ -31,4 +31,20 @@
         <description>Created after removal of "PolyLine" from mmcore doc</description>
         <accepts>PolyLine-Usage.html</accepts>
     </rule>
+    <rule id="19e0285f">
+        <description>Created after removal of "Implementation" from mmcore doc</description>
+        <accepts>Nd-Objects-Implementation.html</accepts>
+    </rule>
+    <rule id="43ee750d">
+        <description>Created after removal of "Vector (Point)" from mmcore doc</description>
+        <accepts>Point-Data-Type.html</accepts>
+    </rule>
+    <rule id="41079202">
+        <description><![CDATA[Created after removal of "Intervals & AABB" from mmcore doc]]></description>
+        <accepts>AABB-Example.html</accepts>
+    </rule>
+    <rule id="556c897d">
+        <description>Created after removal of "Nd Objects" from mmcore doc</description>
+        <accepts>Nd-Objects.html</accepts>
+    </rule>
 </rules>
