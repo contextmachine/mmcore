@@ -14,27 +14,6 @@ _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
 from mmcore.base.ecs.components import EcsProto, component, EcsProperty
 
 
-@component()
-class PlaneComponent:
-    """
-
-    The `PlaneComponent` class represents a component in a plane. It is used to describe the reference, origin, and axes of the plane.
-
-    Attributes:
-        ref (numpy.ndarray): The reference array of the plane component.
-        origin (int): The index of the origin axis.
-        xaxis (int): The index of the x-axis.
-        yaxis (int): The index of the y-axis.
-        zaxis (int): The index of the z-axis.
-
-    """
-    ref: np.ndarray = None
-    origin: int = 0
-    xaxis: int = 1
-    yaxis: int = 2
-    zaxis: int = 3
-
-
 
 
 

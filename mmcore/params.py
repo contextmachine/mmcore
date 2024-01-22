@@ -170,7 +170,7 @@ class Length(NumericParameter):
     cast_type = float
 
 
-def cast_to_parameter(val: Any | P, parameter_type: Type[P]) -> P:
+def cast_to_parameter(val: 'Any | P', parameter_type: Type[P]) -> P:
     if isinstance(val, Parameter):
         return val
     else:

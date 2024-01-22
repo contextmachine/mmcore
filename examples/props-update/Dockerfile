@@ -5,4 +5,4 @@ COPY . .
 EXPOSE 7711
 ENV MMCORE_API_PREFIX="/"
 ENV MMCORE_ADDRESS="http://localhost:7712"
-ENTRYPOINT ["python3", "boxes.py"]
+ENTRYPOINT ["python3", "main.py"]

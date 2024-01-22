@@ -4,6 +4,7 @@ import numpy as np
 from multipledispatch import dispatch
 
 from mmcore.func import vectorize
+from mmcore.geom.vec import unit
 
 
 @vectorize(signature='(i),(i),(i)->()')
@@ -36,5 +37,9 @@ def aabb(points: np.ndarray):
     return np.array([np.min(points, axis=0), np.max(points, axis=0)])
 
 
-def point_in_polygon(point: np.ndarray, polygon: np.ndarray):
-    polyline_to_lines(polygon)
+@vectorize(signature='(j,i),(i)->()')
+def point_in_polygon(polygon: np.ndarray, point: np.ndarray):
+    inside = polygon[1] + unit((polygon[0] - polygon[1]) + (polygon[2] - polygon[1]))
+    cnt = len(np.arange(len(polygon))[intersects_segments(polyline_to_lines(polygon), np.array([point, inside]))]
+            )
+    return cnt % 2 == 0

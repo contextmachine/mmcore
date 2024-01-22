@@ -3,6 +3,8 @@ import itertools
 from typing import Any, Protocol, Type, TypeVar
 import numpy as np
 
+from mmcore.geom.extrusion import polyline_to_lines
+
 T = TypeVar("T")
 
 
@@ -793,6 +795,16 @@ class LineCDLL(CDLL):
 
     nodetype = LineNode
 
+    @classmethod
+    def from_points(cls, pts):
+        lcdll = cls()
+
+        lines = polyline_to_lines(np.array(pts, float))
+        for line in lines:
+
+            lcdll.append(Line.from_ends(*line))
+
+        return lcdll
     def __repr__(self):
         return f"{self.__class__.__name__}[{self.nodetype.__name__}](length={self.count}) at {hex(id(self))}"
 
@@ -1063,3 +1075,17 @@ class LineCDLL(CDLL):
 
     def update_from_polygon(self, poly: Polygon):
         self.corners = poly.corners[:-1]
+
+    def split_by_corners(self, start: int, end: int):
+
+        node = self.get_node(start)
+        end_node = self.get_node(end)
+        pts = []
+        while True:
+            if node is end_node:
+                pts.append(node.start)
+                break
+            else:
+                pts.append(node.start)
+                node = node.next
+        self.__class__.f
