@@ -194,3 +194,43 @@ def rotate_matrix(a):
     r = np.eye(3)
     r[:2, :2] = [np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]
     return r
+
+
+# clamp( min, max ) {
+#
+# 		// assumes min < max, componentwise
+#
+# 		this.x = Math.max( min.x, Math.min( max.x, this.x ) );
+# 		this.y = Math.max( min.y, Math.min( max.y, this.y ) );
+#
+# 		return this;
+#
+# 	}
+
+
+@vectorize(signature='(i),(i)->(i)')
+def gram_schmidt(v1, v2):
+    """
+    Applies the Gram-Schmidt process to the given vectors v1 and v2.
+
+    :param v1: The first vector.
+    :type v1: numpy.ndarray
+    :param v2: The second vector.
+    :type v2: numpy.ndarray
+    :return: The orthogonalized vector obtained by applying the Gram-Schmidt process.
+    :rtype: numpy.ndarray
+    """
+    v1, v2 = unit(v1), unit(v2)
+    return v2 - v1 * dot(v2, v1)
+
+
+def clamp(self, min, max):
+    # assumes min < max, componentwise
+
+    return np.array([np.max([min[0], np.min([max[0], self[0]])]), np.max([min[1], np.min([max[1], self[1]])])])
+
+
+def expand(self, pt):
+    # assumes min < max, componentwise
+
+    return np.array([np.min([self[0], pt[0]]), np.max([self[1], pt[1]])])
