@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 import numpy as np
 
 
@@ -16,6 +18,9 @@ def split_by_shapes(arr, target_shapes):
               )
 
 
+def insert_in_tuple(tpl, i, val):
+    return *tpl[:i], val, *tpl[i:]
+
 def add_dim(arr, val):
     first, *other = arr.shape
     if isinstance(val, int):
@@ -28,6 +33,40 @@ def add_dim(arr, val):
         return add_dim(arrnew, val[:-1])
 
 
+def insert_after_in_shape(tpl, i, val):
+    if i < 0:
+        i = len(tpl) + i
+
+    return *tpl[:i], tpl[i] // val, val, *tpl[i + 1:]
+
+
+def insert_before_in_shape(tpl, i, val):
+    if i < 0:
+        i = len(tpl) + i
+    return *tpl[:i], val, tpl[i] // val, *tpl[i + 1:]
+
+
+_shape_insertion_method = dict(before=insert_before_in_shape, after=insert_after_in_shape)
+
+
+def split_dim(arr, index: int, val: int, insert_at='before'):
+    '''
+
+    :param arr:
+    :type arr:
+    :param index:
+    :type index:
+    :param val:
+    :type val: int
+    :param insert_at: 'before' or 'after'
+    :type insert_at: str
+    :return:
+    :rtype:
+    '''
+
+    method = _shape_insertion_method[insert_at]
+
+    return arr.reshape(method(arr.shape, index, val))
 def remove_dim(arr, count=1):
 
     return arr.reshape((np.prod(arr.shape[:count + 1]), *arr.shape[count + 1:]))
