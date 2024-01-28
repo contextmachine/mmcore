@@ -123,7 +123,7 @@ def dot(a, b):
 
 
 @vectorize(signature='(i)->(i)')
-def perp2d(vec):
+def perp2d(v):
     """
     Calculate the perpendicular vector to the given 2D vector.
 
@@ -132,13 +132,10 @@ def perp2d(vec):
     :return: The perpendicular vector to the input vector.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    if DEBUG_MODE:
-        if len(vec) != 2:
-            raise ValueError("Input vector should have 2 dimensions.")
 
-    v2 = np.copy(vec)
-    v2[0] = -vec[1]
-    v2[1] = vec[0]
+    v2 = np.copy(v)
+    v2[0] = -v[1]
+    v2[1] = v[0]
     return v2
 
 

@@ -2,6 +2,7 @@ from typing import Any
 
 import numpy as np
 from multipledispatch import dispatch
+from scipy.spatial import KDTree
 
 from mmcore.func import vectorize
 from mmcore.geom.vec import dist, unit
@@ -14,7 +15,7 @@ def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray[Any, np.dtype
     return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
 
-@dispatch(np.ndarray, np.ndarray)
+
 @vectorize(signature='(j, i),(j, i)->()')
 def intersects_segments(ab: np.ndarray, cd: np.ndarray) -> bool:
     a, b = ab
@@ -22,39 +23,38 @@ def intersects_segments(ab: np.ndarray, cd: np.ndarray) -> bool:
     return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
 
 
-@dispatch(object, object)
-@vectorize(excluded=[0], signature='(j, i)->()')
-def intersects_segments(ab, cd) -> bool:
-    a, b = ab.start, ab.end
-    c, d = cd.start, cd.end
-    return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
 
 
 from mmcore.geom.polyline import polyline_to_lines
 
 
+
 def aabb(points: np.ndarray):
-
-    return np.array([np.min(points, axis=0), np.max(points, axis=0)])
-
-
-def point_indices(unq, other):
-
-    return np.array([np.where(np.isclose(dist(unq, o), 0.0))[0][0] for o in remove_dim(other)], int).reshape(
-            other.shape[:-1]
-            )
+    return np.array((np.min(points, axis=len(points.shape) - 2), np.max(points, axis=len(points.shape) - 2)))
 
 
+aabb_vectorized = np.vectorize(aabb, signature='(i,j)->(k,j)')
+
+
+def point_indices(unq, other, eps=1e-6, dist_upper_bound=None, return_distance=True):
+    kd = KDTree(unq)
+    dists, ixs = kd.query(other, eps=eps, distance_upper_bound=dist_upper_bound)
+    if return_distance:
+        return dists, ixs
+    else:
+        return ixs
+
+
+@vectorize(signature='(j,i),(i)->()')
 def point_in_polygon(polygon: np.ndarray, point: np.ndarray):
-    pgn = np.array(polygon)[..., :2]
-    tree = IntervalTree(pgn, point_indices(pgn, polyline_to_lines(pgn)), BBox2(pgn))
-    tree.build()
+    inside = polygon[1] + unit((polygon[0] - polygon[1]) + (polygon[2] - polygon[1]))
 
-    return tree.pointInPolygon(point)
-
+    cnt = len(np.arange(len(polygon))[intersects_segments(polyline_to_lines(polygon), [point, inside])]
+              )
+    return cnt % 2 == 0
 
 import numpy as np
-from shapely.geometry import Polygon, Point
 
 
 @vectorize(signature='(i),(i),(i)->(i)')
