@@ -124,7 +124,7 @@ class ViewerGroupObserver(Observer):
         # Также это единственное место где мы знаем весь пулл обновлений
         # Нам нужно:
         # 1. Обновить значения атрибутов от представлений к родителям
-
+        print(self, observable, uuids, props, kwargs)
         self.notify_backward(observable=observable, uuids=uuids, props=props)
 
         # Здесь значения атрибутов обновлены и родители могут произвести нужные вычисления
@@ -169,6 +169,7 @@ class ViewerGroupObserver(Observer):
             if isinstance(mesh, AGroup):
                 if hasattr(mesh, "owner"):
                     mesh.owner.solve()
+
 
             elif isinstance(mesh, AMesh):
                 if hasattr(mesh, "owner"):
