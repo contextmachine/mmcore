@@ -8,7 +8,7 @@
 
 ```
 {
-src="../mmcore/geom/rectangle.py"
+src="mmcore/geom/rectangle.py"
 validate="false"  include-symbol="Rectangle" collapsible="true"}
 
         

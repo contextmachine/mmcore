@@ -31,7 +31,7 @@ class PlaneRefine:
 ```
 
 {
-src="../mmcore/geom/plane/refine.py" validate="false"   include-symbol="PlaneRefine" collapsible="true"
+src="mmcore/geom/plane/refine.py" validate="false"   include-symbol="PlaneRefine" collapsible="true"
 }
 
 ## How the Class Works
