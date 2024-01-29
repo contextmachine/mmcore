@@ -7,8 +7,8 @@
 ```Python
 
 ```
-
 {
-src="../tests/test_polygon_variable_offset.py"}
+src="../mmcore/geom/rectangle.py"
+validate="false"  include-symbol="Rectangle" collapsible="true"}
 
         
