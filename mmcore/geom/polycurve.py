@@ -112,9 +112,6 @@ def _cached_mbr(self: 'PolyCurve'):
     return Rectangle.from_mbr(corns, closest_origin=corns[0])
 
 
-
-
-
 class PolyCurve(LineCDLL):
     """
     PolyCurve Class
@@ -149,7 +146,6 @@ class PolyCurve(LineCDLL):
     def __hash__(self):
         return hash(tuple(hash(i) for i in self.gen_intersects()))
 
-
     @property
     def mbr(self):
         return _cached_mbr(self)
@@ -164,8 +160,6 @@ class PolyCurve(LineCDLL):
             lcdll.append(Line.from_ends(*line))
 
         return lcdll
-
-
 
     def insert_corner(self, value, index=None):
         """
@@ -230,8 +224,10 @@ class PolyCurve(LineCDLL):
     @vectorize(excluded=[0], signature='(n)->()')
     def point_inside(self, pt):
         res = np.sum(
-            np.array(intersects_segments(np.array([pt, self.outside_point()]), polyline_to_lines(self.corners)), int)
-            )
+                np.array(intersects_segments(np.array([pt, self.outside_point()]), polyline_to_lines(self.corners)),
+                         int
+                         )
+                )
 
         return bool(res % 2)
 
