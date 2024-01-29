@@ -105,5 +105,5 @@ Returns all intersections of the two polylines (if any).
 
 ```
 
-![Polylines Intersection](../../docs/polyline-intersection.svg "Polylines Intersection")
+![Polylines Intersection](../images/polyline-intersection.svg "Polylines Intersection")
 
