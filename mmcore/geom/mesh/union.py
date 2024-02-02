@@ -3,7 +3,7 @@ from mmcore.geom.mesh.consts import EXTRACT_MESH_ATTRS_PERFORMANCE_METHOD_LIMIT
 from mmcore.geom.mesh.mesh_tuple import *
 
 
-def union_mesh(meshes, extras=None):
+def union_mesh(meshes, extras=None, keys=None):
     """
 
     Unions multiple meshes into a single mesh (a process known as "mesh fusion"). This is especially
@@ -55,8 +55,9 @@ def union_mesh(meshes, extras=None):
     >>>  with open('single_mesh.gltf', 'w') as f: # dump gltf file
     >>>     ujson.dump(scene.todict(), f)
     """
+    print(extras)
     extras = dict() if extras is None else extras
-    attribute_names = _get_attribute_names(meshes)
+    attribute_names = keys if keys else _get_attribute_names(meshes)
 
     # Generate indices and extra attributes for all meshes
     indices_and_extras = list(zip(*gen_indices_and_extras2(meshes, names=attribute_names)))
@@ -150,10 +151,10 @@ def gen_indices_and_extras2(meshes, names):
             yield *tuple(m[0][name] for name in names), None, m[2]
 
 
-def union_mesh2(meshes, extras=None):
+def union_mesh2(meshes, extras=None, keys=None):
     if extras is None:
         extras = dict()
-    names = extract_mesh_attrs_union_keys(meshes)
+    names = keys if keys else extract_mesh_attrs_union_keys(meshes)
     if MESH_OBJECT_ATTRIBUTE_NAME not in names:
         names = names + (MESH_OBJECT_ATTRIBUTE_NAME,)
     *zz, = zip(*gen_indices_and_extras2(meshes,
