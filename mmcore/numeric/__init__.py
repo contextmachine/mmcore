@@ -9,7 +9,7 @@ class PDMethods(str, Enum):
     backward = 'backward'
 
 
-def derivative(f, method: PDMethods = PDMethods.central, h=0.01):
+def deriv(f, method: PDMethods = PDMethods.central, h=0.01):
     '''Compute the difference formula for f'(t) with step size h.
 
     Parameters
@@ -45,7 +45,7 @@ def _ns(dx, dy):
 
 
 def offset_curve_2d(c, d):
-    df = derivative(c)
+    df = deriv(c)
 
     def wrap(t):
         x, y = c(t)
@@ -227,6 +227,38 @@ def adam(objective, derivative, bounds, n_iterations=1000, step_size=0.01, avera
 
 from mmcore.geom.vec import norm
 from mmcore.geom.pde import PDE
+from autograd import grad, elementwise_grad
+from collections import namedtuple
+
+AdamOutput = namedtuple("AdamOutput", ['x', 'f'])
+
+
+class AdamOutputOptions(str, Enum):
+    x = 'x'
+    f = 'f'
+    all = ''
+
+
+class Adam:
+    def __init__(self, n_iterations=1000, step_size=0.01, average_factor=0.8,
+                 average_square_factor=0.999, eps=1e-8):
+        self.n_iterations = n_iterations
+        self.step_size = step_size
+        self.average_factor = average_factor
+        self.average_square_factor = average_square_factor
+        self.eps = eps
+
+    def __call__(self, fun, bounds=np.array([0., 1.]), derivative=None, output=AdamOutputOptions.all, **kwargs):
+        props = {**self.__dict__, **kwargs}
+
+        derivative = PDE(fun) if derivative is None else derivative
+
+        out = AdamOutput(*adam(fun, derivative, bounds=bounds, **props))
+
+        if output:
+            return getattr(out, output)
+        return out
+
 
 
 class AdamCurvesIntersection:

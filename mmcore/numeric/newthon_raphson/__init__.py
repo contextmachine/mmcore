@@ -2,6 +2,10 @@ from typing import List, Tuple, Callable
 import numpy as np
 
 from autograd import grad,hessian
+
+from mmcore.func import vectorize
+
+
 def _newton(x: np.ndarray, f: Callable, gf: Callable, hf: Callable, lr=0.01, lr_decr=0.999, maxiter=100, tol=0.001) -> \
 Tuple[np.ndarray, List[np.ndarray], int]:
     """
@@ -68,31 +72,31 @@ class NewtonRaphson:
     maxiter:float=100
     tol:float=0.001
 
-
-    def __init__(self, fun, gradient_fun=None, hessian_fun=None,**kwargs):
+    def __init__(self, fun, gradient_fun=None, hessian_fun=None, **kwargs):
         super().__init__()
 
-
-
-
         self.fun=fun
-        self.lr=0.01
-        self.lr_decr=0.999
-        self.maxiter=100
-        self.tol=0.001
-        self.__dict__|=kwargs
-        if hessian_fun is not None:
+        self.props = {**dict(lr=0.01,
+                             lr_decr=0.999,
+                             maxiter=100,
+                             tol=0.001), **kwargs}
+
+        if hessian_fun is None:
             self.hessian_fun = hessian(fun)
-        if gradient_fun is not None:
+        if gradient_fun is None:
             self.gradient_fun = grad(fun)
 
-    def __call__(self, x,full_return=False):
+    def __call__(self, x=0, full_return=False):
 
 
         result, intermediate_points, iterations=_newton(x, self.fun, self.gradient_fun, self.hessian_fun,
-                                                        **self.__dict__)
+                                                        self.props)
         if full_return:
             return result, intermediate_points, iterations
         else:
             return result
 
+
+def newthon(x, fun, gradient_fun=None, hessian_fun=None):
+    optimizer = NewtonRaphson(fun, gradient_fun, hessian_fun)
+    return optimizer(x=x, full_return=False)
