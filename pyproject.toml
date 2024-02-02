@@ -1,12 +1,19 @@
+[build-system]
+requires = ["poetry-core", "cython", "numpy", "setuptools"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
 name = "mmcore"
-version = "0.19.52"
+version = "0.20.2"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
 readme = "README.md"
+packages = [{ include = "./mmcore" }]
+
 
 [tool.poetry.dependencies]
+numpy = { version = "^1.24.1" }
 python = ">=3.9,<4.0"
 graphene = { version = "^3.0.0" }
 pydantic = { version = "1.10.7" }
@@ -16,10 +23,8 @@ termcolor = { version = "^2.3.0" }
 setuptools = { version = "^67.8.0" }
 fastapi = { version = "*", extras = ["all"] }
 earcut = { version = "^1.1.5" }
-numpy = { version = "^1.24.1" }
 shapely = "^2.0.1"
 shell = "^1.0.1"
-pandas = "^2.0.3"
 python-dotenv = "^1.0.0"
 redis = "^5.0.1"
 requests = "^2.31.0"
@@ -47,7 +52,12 @@ pygments = "^2.16.1"
 wheel = "^0.41.2"
 multipledispatch = "*"
 autograd="*"
+cython = "*"
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.build]
+generate-setup-file = false
+script = 'build.py'
+
+

@@ -2,6 +2,7 @@ import sys
 from typing import Any
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 
 from mmcore.geom.vec import dot
 from mmcore.func import vectorize
@@ -47,3 +48,28 @@ def support_vector(vertices: np.ndarray[Any, np.dtype[float]], d: np.ndarray[Any
             support = v
 
     return support
+
+
+def curve_support_vector(curve, bounds=np.array([0, 1]), **props):
+    """
+
+    :param curve:
+    :type curve:
+    :param bounds:
+    :type bounds:
+    :param props: Additional properties. see
+    :type props:
+    :return:
+    :rtype:
+    """
+
+    @vectorize(signature='(i)->()')
+    def wrap(vector):
+        def objective(t):
+            return -1 * dot(vector, curve(t))
+
+        return minimize_scalar(objective,
+                               method='Bounded',
+                               bounds=bounds, **props).x
+
+    return wrap

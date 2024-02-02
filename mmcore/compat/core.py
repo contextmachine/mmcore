@@ -1,8 +1,12 @@
+import abc
+import functools
+import itertools
 import sys
 
 import typing
 
 import inspect
+from abc import ABC
 from types import FunctionType, LambdaType
 
 import numpy as np
@@ -49,6 +53,14 @@ class NdArrayGeneric:
 
 
 class AutoCastMeta(type):
+    """
+    >>> ListOfStrings=AutoCastMeta[list[str]]
+    >>> ListOfStrings
+    mmcore.compat.core.TypeCastAlias[<class 'list'>]
+    >>> ListOfStrings.cast((3,4,5))
+    ['3', '4', '5']
+
+    """
     __autocast_aliases__ = dict()
     cast_type: type | FunctionType | LambdaType = lambda *args: args[0] if args else None
     container: bool = False
@@ -170,20 +182,118 @@ from typing import Union
 _lrdicr = dict(left='right', right='left')
 
 
+class ComparsionCollectionResult(list):
+    @property
+    def operands(self):
+        return {key: value.operands for key, value in self.items()}
+
+    def __bool__(self):
+        return all(self)
+
+    def __eq__(self, other):
+        if isinstance(other, ComparsionCollectionResult):
+
+            return all([bool(self[k]) == bool(v) for k, v in other])
+        else:
+            return False
+
+    def to_dict(self):
+        return [value.to_dict() for key, value in self]
+
+    @property
+    def operands(self):
+        return [value.operands for value in self]
+
+    def different_operands(self):
+        return [value.operands for value in self]
+
+    def get_diffs(self):
+        for value in self:
+
+            if not value:
+                yield value
+
+    def get_diffs_recursieve(self):
+        for value in self.get_diffs():
+            if isinstance(value, ComparsionResult):
+                yield dict(value.get_diffs_recursieve())
+            elif isinstance(value, ComparsionCollectionResult):
+                yield list(value.get_diffs_recursieve())
+            else:
+                yield value
+
+    def __repr__(self):
+
+        return f'ComparsionCollectionResult({self.result}, operands={self.operands})'
+
+    def update_other(self, other, side='left', logger=lambda *args: ...):
+        _other = []
+        _other.extend(itertools.repeat(None, len(self)))
+        for j, v in enumerate(other):
+            _other[j] = v
+
+        for i, value in enumerate(self.get_diffs()):
+
+            if isinstance(value, (ComparsionResult, ComparsionCollectionResult)):
+
+                logger(other, i)
+
+                next_other = _other[i]
+                value.update_other(next_other, side=side, logger=logger)
+
+
+
+            else:
+                _vl = getattr(value.operands, _lrdicr[side])
+                logger(other, i, _vl)
+
+                _other[i] = _vl
+
+        other[:] = _other
+
+    def update_right(self, right, logger=False):
+        _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
+        _logger(right)
+        self.update_other(right, side='right', logger=_logger)
+
+    def update_left(self, left, logger=False):
+        _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
+        _logger(left)
+        self.update_other(left, side='left', logger=_logger)
+
+    def update_logger(self, use=False, file=sys.stdout):
+
+        def logger(item, key=None, value=None):
+            if use:
+                if value is not None:
+                    print(f'.{key}: {getattr(item, key, None)} -> {value}\n\t', end='', file=file)
+                elif key is not None:
+                    print(f'.{key}', end='', file=file)
+                else:
+
+                    print(f'\n\t', end='', file=file)
+
+        return logger
 class ComparsionResult(dict):
 
     def __bool__(self):
         return all(list(self.values()))
 
     def __eq__(self, other):
-        return [bool(self[k]) == bool(v) for k, v in other.items()]
+
+        return [bool(self[k]) == bool(v) for k, v in other]
+
+    @property
+    def result(self):
+
+        return bool(self)
 
     def to_dict(self):
         return {key: value.to_dict() for key, value in self.items()}
 
     @property
     def operands(self):
-        return {key: value.operands for key, value in self.items()}
+        return {key: value.operands if value is not None else value for key, value in self.items()}
 
     def different_operands(self):
         return {key: value.operands for key, value in self.items()}
@@ -208,6 +318,8 @@ class ComparsionResult(dict):
         for key, value in self.get_diffs():
             if isinstance(value, ComparsionResult):
                 yield key, dict(value.get_diffs_recursieve())
+            elif isinstance(value, ComparsionCollectionResult):
+                yield key, list(key.get_diffs_recursieve())
             else:
                 yield key, value
 
@@ -237,9 +349,11 @@ class ComparsionResult(dict):
                 value.update_other(next_other, side=side, logger=logger)
             else:
                 _vl = getattr(value.operands, _lrdicr[side])
+
                 logger(other, key, _vl)
 
                 setattr(other, key, _vl)
+
 
     def update_right(self, right, logger=False):
         _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
@@ -250,6 +364,334 @@ class ComparsionResult(dict):
         _logger = logger if isinstance(logger, FunctionType) else self.update_logger(logger)
         _logger(left)
         self.update_other(left, side='left', logger=_logger)
+
+
+from typing import Optional, Any, Union
+
+
+class ChainHandler:
+    """
+    The default chaining behavior can be implemented inside a base handler
+    class.
+    """
+    _next_handler: 'Optional[AbstractHandler]' = None
+
+    def __init__(self, next_handle=None):
+        self._next_handler = next_handle
+
+    def __call__(self, request: Any) -> Any:
+
+        try:
+            if self._next_handler:
+                return self._next_handler(request)
+            return None
+        except Exception as err:
+            raise RuntimeError(err, f'Error {repr(err)} \n\n\tin {self._next_handler.__class__.__name__} \n\n\tafter'
+                                    f' {self.__class__.__name__} '
+                                    f'\n\n\twith {request}'
+                               )
+
+
+class ChainSwitch(ChainHandler):
+    def __init__(self, next_handle: ChainHandler = None, /, *switch_handles, ):
+
+        super().__init__(next_handle)
+        self._switch_handles = switch_handles
+
+    def __call__(self, request: Any) -> Any:
+
+        """
+        def __call__(request: Any) :
+            if <condition(request)>:
+                return self._right_next_handle.__call__(request)
+            else:
+                return super().__call__(request)
+        :param request: Chain of Responsibility Requests
+        :type request: Any
+        :return: Chain of Responsibility Result
+        :rtype: Any
+        """
+
+        for h in self._switch_handles:
+            r = h(request)
+            if r is not None:
+                return r
+
+        return super().__call__(request)
+
+    def derive_handler(self, request):
+        res = self.switch(request)
+
+        return self._switch_handles[int(res)]
+
+    @abc.abstractmethod
+    def switch(self, request: Any) -> int:
+        """
+        return int from 1+<switch handle i to <switch handlers count>+1 if one of condition success
+        :param self:
+        :type self:
+        :param request:
+        :type request:
+        :return:
+        :rtype:
+        """
+        return 0
+
+
+@dataclass
+class CompareRequest:
+    left: Any
+    right: Any
+
+    origin: 'Optional[CompareHandler]' = None
+    prev: 'Optional[CompareHandler]' = None
+
+
+def prepare_request(m):
+    @functools.wraps(m)
+    def wrapper(self, request: CompareRequest):
+        if request.origin is None:
+            request.origin = self
+        request.prev = self
+        print(self, m)
+        res = m(self, request)
+        print(res)
+
+        return res
+
+    return wrapper
+
+
+def root_provider(cls: ChainHandler):
+    def wrapper(next_handle_wrapper=None, root=None):
+        if root is None:
+            next_handle_wrapper(
+
+            )
+
+
+class CompareHandler(ChainHandler):
+
+    def __call__(self, request: CompareRequest) -> Union[
+        ComparsionResult, ComparsionCollectionResult, ComparsionResultItem, None]:
+        return super().__call__(request)
+
+
+from collections.abc import Collection, Container, Sequence, Iterator, Mapping, Set, Sized
+from typing import AnyStr
+
+
+def starmap_longest(fun, iterable, *iterables):
+    return itertools.starmap(fun, itertools.zip_longest(iterable, *iterables))
+
+
+def _cast_if_need(val, typ):
+    return val if isinstance(val, typ) else typ(val)
+
+
+class CompareDefault(ChainSwitch):
+    def switch(self, request: CompareRequest) -> int:
+
+        if not issubclass(request.left.__class__, Container):
+            return 1
+        elif isinstance(request.left, (str, bytes)):
+            return 2
+
+        else:
+            return super().switch(request)
+
+
+class CompareScalar(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if isinstance(request.left, (int, bool, float, str, bytes)):
+
+            return ComparsionResultItem(request.left == request.right, left=request.left, right=request.right)
+        else:
+            return super().__call__(request)
+
+
+class CompareAnyScalar(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+        return ComparsionResultItem(request.left == request.right, left=request.left, right=request.right)
+
+
+class CompareHashable(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if hasattr(request.left, '__hash__'):
+            return ComparsionResultItem(request.left.__hash__() == request.right.__hash__(), left=request.left,
+                                        right=request.right, method='__hash__')
+        else:
+            return super().__call__(request)
+
+
+class CompareStr(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+        if issubclass(request.left.__class__, str):
+            return ComparsionResultItem(request.left == _cast_if_need(request.right), left=request.left,
+                                        right=request.right)
+        else:
+            return super().__call__(request)
+
+
+class CompareBytes(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if issubclass(request.left.__class__, bytes):
+            return ComparsionResultItem(request.left == request.right if isinstance(request.right, bytes) else
+                                        request.right.encode(),
+                                        left=request.left,
+                                        right=request.right
+
+                                        )
+        else:
+            return super().__call__(request)
+
+
+class CompareSequence(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if issubclass(request.left.__class__, (list, tuple, Set)) and not isinstance(request.left, (str, bytes)):
+            return ComparsionCollectionResult(self.equal_longest(request))
+        else:
+            return super().__call__(request)
+
+    def equal_longest(self, request: CompareRequest):
+        return starmap_longest(lambda x, y:
+                               request.origin(CompareRequest(x, y, origin=None, prev=self)),
+                               request.left,
+                               request.right
+                               )
+
+
+class CompareMapping(CompareHandler):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if issubclass(request.left.__class__, Mapping):
+            return ComparsionResult(self.equal_longest(request))
+        else:
+            return super().__call__(request)
+
+    def equal_longest(self, request: CompareRequest):
+        for k, v in request.left.items():
+            r = request.right.get(k, None)
+            yield k, request.origin(CompareRequest(request.left, r, origin=None, prev=self))
+
+
+class CompareNDArray(CompareSequence):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if isinstance(request.left, np.ndarray):
+            left = np.atleast_1d(request.left)
+            right = np.atleast_1d(request.right) if isinstance(request.right, np.ndarray) else np.array(
+                np.atleast_1d(request.right),
+                dtype=request.left.dtype
+            )
+
+            if left.dtype == object:
+                return super().__call__(CompareRequest(left.tolist(), right.tolist(),
+                                                       origin=request.origin, prev=request.prev))
+
+            else:
+
+                if request.left.shape == request.right.shape:
+                    return ComparsionResultItem(np.allclose(left, right), left=left, right=right)
+                else:
+                    return ComparsionResultItem(False, left=request.left, right=right)
+
+
+        else:
+            return CompareHandler.__call__(self, request)
+
+
+class CompareObject(CompareMapping):
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+        if request.origin is None:
+            request.origin = self
+        if hasattr(request.left, '__dict__'):
+            return super().__call__(CompareRequest(left=request.left.__dict__,
+                                                   right=request.right.__dict__,
+                                                   origin=request.origin,
+                                                   prev=request.prev))
+
+        else:
+            return CompareHandler.__call__(self, request)
+
+
+class CompareObjectSwitch(ChainSwitch):
+
+    def switch(self, request: CompareRequest) -> int:
+        if isinstance(request.left, (int, bool, float, str, bytes)):
+            return 1
+        elif hasattr(request.left, '__dict__'):
+            return 2
+        elif hasattr(request.left, '__hash__'):
+            return 3
+        elif hasattr(request.left, '__slots__'):
+            return 4
+        else:
+            return super().switch(request)
+
+
+class CompareSlots(CompareMapping):
+
+    @prepare_request
+    def __call__(self, request: CompareRequest):
+
+        if hasattr(request.left, '__slots__'):
+            return super().__call__(
+                CompareRequest(left=self.prepare_slots(request.left),
+                               right=self.prepare_slots(request.right),
+                               origin=request.origin,
+                               prev=request.prev
+                               )
+            )
+
+        else:
+            return CompareHandler.__call__(self, request)
+
+    def prepare_slots(self, obj):
+        return {k: getattr(obj, k, None) for k in obj.__slots__}
+
+
+scalarComparsionChain = CompareScalar(CompareObject(CompareSlots()))
+
+comparsionHandler = CompareDefault(CompareNDArray(
+    CompareSequence(
+        CompareMapping(
+        )
+    )
+),
+    CompareObjectSwitch(CompareAnyScalar(),
+                        CompareScalar(),
+                        CompareObject(),
+                        CompareHashable(),
+                        CompareSlots()
+                        ),
+    CompareStr()
+
+)
+
+
+
+
+
+
+
+
+
+
+
 
 
 @dataclass
@@ -281,3 +723,39 @@ class AutoData(metaclass=AutoCastMeta):
                 print(k, first, second)
                 raise err.__class__("{}, {}, {}, {}".format(k, first, second, err))
         return comparsion_result
+
+
+from dataclasses import Field, make_dataclass
+
+
+def make_autodata(name, dct):
+    """
+    Make AutoData instance from a dictionary with name
+
+    :param name:
+    :type name:
+    :param dct:
+    :type dct:
+    :return:
+    :rtype:
+
+    >>> FooData=make_autodata("FooData",{
+    ...   "foo":{
+    ...       "foo":int,
+    ...       "bar":list[str]
+    ...   },
+    ...   "baz": list[float] })
+
+    >>> FooData
+    mmcore.compat.core.FooData
+    >>>FooData.from_dict({ "foo":{"foo":3,"bar":['d','d']},"baz": [1,3.0]})
+        FooData(foo=FooDataFoo(foo=3, bar=['d', 'd']), baz=[1.0, 3.0])
+
+    """
+    if isinstance(dct, dict):
+        return make_dataclass(name, [(k, make_autodata(name + k.capitalize(), v)) for k, v in dct.items()],
+                              bases=(AutoData,))
+    elif isinstance(dct, list):
+        return AutoCastMeta[list[[make_autodata(name, v) for v in dct]]]
+    else:
+        return AutoCastMeta[dct]
