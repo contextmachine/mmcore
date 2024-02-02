@@ -159,7 +159,6 @@ def intersect(circle: Circle, ray: Ray, tol=INTERSECTION_TOLERANCE):
 
 
 @dispatch(Circle, Line)
-@vectorize(excluded=[0, 2], signature='(i,j)->(k)')
 def intersect(circle: Circle, line: Line, tol=INTERSECTION_TOLERANCE):
     """
     :param circle: Circle object representing a circle
@@ -187,8 +186,9 @@ def intersect(circle: Circle, line: Line, tol=INTERSECTION_TOLERANCE):
     ```
     """
 
-    pt1, pt2 = np.array(line)[:, :2]
-    circle_center, circle_radius = np.array([circle.origin, circle.r])[:, :2]
+    pt1, pt2 = line
+    pt1, pt2 = pt1[:2], pt2[:2]
+    circle_center, circle_radius = circle.origin[:2], circle.r
     (p1x, p1y), (p2x, p2y), (cx, cy) = pt1, pt2, circle_center
     (x1, y1), (x2, y2) = (p1x - cx, p1y - cy), (p2x - cx, p2y - cy)
     dx, dy = (x2 - x1), (y2 - y1)
