@@ -58,7 +58,7 @@ def dot(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
         item = 0.0
         for j in range(vec_a.shape[1]):
             item += vec_a[i, j] * vec_b[i, j]
-        res[i] += item
+        res[i] = item
     return res
 
 @cython.boundscheck(False)
