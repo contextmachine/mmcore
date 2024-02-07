@@ -58,7 +58,7 @@ def offset_curve_2d(c, d):
     return wrap
 
 
-def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
+def simulated_annealing(objective, bounds, n_iterations, step_size, temp, record=False):
     """
     # objective function
     def objective(x):
@@ -100,7 +100,8 @@ def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
     best_eval = objective(best)
     # current working solution
     curr, curr_eval = best, best_eval
-    scores = np.zeros([n_iterations, len(bounds)])
+    if record:
+        scores = np.zeros([n_iterations, len(bounds)])
     # run the algorithm
     for i in range(n_iterations):
         # take a step
@@ -112,11 +113,13 @@ def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
             # store new best point
             best, best_eval = candidate, candidate_eval
             # keep track of scores
-            scores[i] = best_eval
+            if record:
+                scores[i] = best_eval
             # report progress
             print('>%d f(%s) = %.5f' % (i, best, best_eval))
         # difference between candidate and current point evaluation
         diff = candidate_eval - curr_eval
+
         # calculate temperature for current epoch
         t = temp / float(i + 1)
         # calculate metropolis acceptance criterion
@@ -125,7 +128,8 @@ def simulated_annealing(objective, bounds, n_iterations, step_size, temp):
         if diff < 0 or np.random.random() < metropolis:
             # store the new current point
             curr, curr_eval = candidate, candidate_eval
-    return best, best_eval, scores
+
+    return best, best_eval
 
 
 # Initialize Adam moments
@@ -275,7 +279,7 @@ class AdamCurvesIntersection:
         self.__dict__ |= kwargs
 
         def objective(x):
-            return norm(curve_a(x) - curve_b(x))
+            return norm(curve_a(x[0]) - curve_b(x[1]))
 
         pa, pb = PDE(curve_a), PDE(curve_b)
 

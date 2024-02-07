@@ -96,8 +96,9 @@ class Plane(Entity):
     xaxis=cross( yaxis,zaxis)
     """
 
-    def __init__(self, arr=None, xaxis=None, yaxis=None, normal=None, uuid=None):
+    def __init__(self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None):
         super().__init__(uuid=uuid)
+
         if (xaxis is not None) and (normal is not None):
             xaxis = unit(xaxis)
             zaxis = unit(normal)
@@ -124,6 +125,8 @@ class Plane(Entity):
             else:
                 arr[1:] = unit(arr[1:])
                 self._array = arr
+        if origin is not None:
+            self.origin = origin
 
         self._bytes = None
         self._dirty = True

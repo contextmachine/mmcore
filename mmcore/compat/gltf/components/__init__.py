@@ -6,8 +6,9 @@ from dataclasses import asdict, dataclass, field
 import sys
 import ujson
 
+from mmcore.base import amatdict
 from mmcore.compat.gltf.consts import BUFFER_DEFAULT_HEADER, DEFAULT_ASSET, GLTFBufferDecoded
-
+from mmcore.geom.materials import ColorRGB
 
 ScalarType = (str, float, int, bool)
 JSONType = typing.Dict[str, typing.Any]
@@ -183,6 +184,7 @@ class GLTFAccessor(GLTFComponent):
         return todict_minify(self)
 
 
+from mmcore.base.models.gql import MeshStandardMaterial
 # @label('gltf', 'compat')
 @dataclass(slots=True)
 class GLTFPbrMetallicRoughness(GLTFComponent):
@@ -202,6 +204,14 @@ class GLTFPbrMetallicRoughness(GLTFComponent):
 
     def todict(self):
         return todict_minify(self)
+
+    def to_three(self):
+        mat = MeshStandardMaterial(color=ColorRGB(*self.baseColorFactor[:-1]).decimal,
+                                   roughness=self.roughnessFactor,
+                                   metalness=self.metallicFactor)
+        amatdict[mat.uuid] = mat
+        return mat
+
 
 
 @dataclass(slots=True)
