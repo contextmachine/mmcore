@@ -10,11 +10,18 @@ include_dirs = [numpy.get_include(), '/']
 
 extensions = [
     Extension(
-        "mmcore.geom.vec.spherical",
-        ["mmcore/geom/vec/spherical.pyx"],
+        "mmcore.geom.vec.vec_speedups",
+        ["mmcore/geom/vec/vec_speedups.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs
+
+    ), Extension(
+        "mmcore.geom.mesh.mesh",
+        ["mmcore/geom/mesh/mesh.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
 
     )
 ]

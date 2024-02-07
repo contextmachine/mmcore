@@ -588,7 +588,7 @@ class MeshPhongMaterial(BaseMaterial):
     uuid: typing.Optional[str] = None
 
 
-@strawberry.type
+@dataclasses.dataclass
 class MeshStandardMaterial(BaseMaterial):
     name: str = "Default"
     color: int
