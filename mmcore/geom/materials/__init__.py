@@ -6,8 +6,8 @@ from typing import Any, SupportsIndex
 
 import numpy as np
 
-ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
-_ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
+# ColorRGBA = namedtuple("ColorRGBA", ["r", "g", "b", "a"])
+# _ColorRGB = namedtuple("ColorRGB", ["r", "g", "b"])
 
 cmap = dict()
 
@@ -109,5 +109,14 @@ class ColorRGB(tuple):
         return cls(*tuple(int(h[i : i + 2], 16) for i in (0, 2, 4)))
 
 
+class ColorRGBA(ColorRGB):
+    def __new__(cls, r=0, g=0, b=0, a=1.0, **kwargs):
+        obj = super().__new__(cls, r, g, b, **kwargs)
+        obj.a = a
+        return obj
+
+    def todict(self):
+        self.s
+        return {"r": self.r, "g": self.g, "b": self.b, "a": 255}
 def rgb_to_three_decimal(color: typing.Union[ColorRGB, ColorRGBA]) -> int:
     return int("%02x%02x%02x" % (color.r, color.g, color.b), 16)

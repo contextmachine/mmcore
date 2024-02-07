@@ -2,7 +2,7 @@ import sys
 from typing import Any
 
 import numpy as np
-from scipy.optimize import minimize_scalar
+from scipy.optimize._minimize import minimize_scalar, _minimize_scalar_bounded
 
 from mmcore.geom.vec import dot
 from mmcore.func import vectorize
@@ -73,3 +73,4 @@ def curve_support_vector(curve, bounds=np.array([0, 1]), **props):
                                bounds=bounds, **props).x
 
     return wrap
+

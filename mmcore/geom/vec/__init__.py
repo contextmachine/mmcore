@@ -1,4 +1,30 @@
+"""
+Using vec.speedups module
+-------------------------
 
+Benchmarks:
+
+- func: dot
+    speedups (0.0, 0.0033109188079833984)
+    python (0.0, 1.171842098236084)
+    speedups 353.9325988334414 x faster on (1_000_000,3) ndarray
+
+- func: norm
+    speedups (0.0, 0.0027971267700195312)
+    python (0.0, 2.9127328395843506)
+    speedups 1041.330293215138 x faster on (1_000_000,3) ndarray
+
+- func: unit
+    speedups (0.0, 0.00701904296875)
+    python (0.0, 30.24796986579895)
+    speedups 4309.415115489131 x faster on (1_000_000,3) ndarray
+
+- func: cross
+    speedups (0.0, 0.005728960037231445)
+    python (0.0, 11.41274905204773)
+    speedups 1992.1153189895542 x faster on (1_000_000,3) ndarray
+
+"""
 import os
 
 import numpy as np
