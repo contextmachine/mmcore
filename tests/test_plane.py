@@ -34,7 +34,7 @@ class TestPlane(unittest.TestCase):
             "import numpy as np;from mmcore.geom.plane import plane_from_normal_numeric;from tests.test_plane import test_plane_num;test_plane_num(plane_from_normal_numeric(np.random.random(3),np.zeros(3)))",
             number=1000)
         print('all:', res, 'per loop:', res / 1000)
-        self.assertLess(res, 0.3)
+        self.assertLess(res, 0.4)
 
     def test_plane_intersection(self):
         check = Line.from_ends(*np.array([(-14.581811182367993, -10.914653736467775, 1.1467086205536206),

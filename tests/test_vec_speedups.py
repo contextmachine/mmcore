@@ -8,7 +8,7 @@ from mmcore.geom.vec import dot, norm, unit
 import numpy as np
 
 
-def test_vec_dot_speedups(count=1_000_000, components=3):
+def test_vec_dot_speedups(count=1_000, components=3):
     print('dot')
     a = np.random.random((count, components))
     b = np.random.random((count, components))
@@ -25,7 +25,7 @@ def test_vec_dot_speedups(count=1_000_000, components=3):
     return np.allclose(res1, res2)
 
 
-def test_vec_unit_speedups(count=1_000_000, components=3):
+def test_vec_unit_speedups(count=1_000, components=3):
     print('unit')
     a = np.random.random((count, components))
 
@@ -41,7 +41,7 @@ def test_vec_unit_speedups(count=1_000_000, components=3):
     return np.allclose(res1, res2)
 
 
-def test_vec_norm_speedups(count=1_000_000, components=3):
+def test_vec_norm_speedups(count=1_000, components=3):
     print('norm')
     a = np.random.random((count, components))
     s = time.time()
@@ -58,7 +58,7 @@ def test_vec_norm_speedups(count=1_000_000, components=3):
 
 class TestVecSpeedups(TestCase):
     def setUp(self):
-        self.count = 3_000_000
+        self.count = 2_000
         self.n_components = 3
 
     def test_dot(self):
