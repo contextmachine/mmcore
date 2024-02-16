@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core", "cython", "numpy", "setuptools", "unicodedata"]
+requires = ["poetry-core"]
 
 
 [tool.poetry]
