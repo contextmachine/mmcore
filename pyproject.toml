@@ -1,9 +1,11 @@
 [build-system]
 build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core", "cython", "numpy", "setuptools", "unicodedata"]
+
 
 [tool.poetry]
 name = "mmcore"
-version = "0.20.18"
+version = "0.20.17"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
