@@ -93,7 +93,8 @@ def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
         uuid = _uuid.uuid4().hex
     return create_mesh_buffer(uuid + 'geom',
                               **{k: attr.tolist() for k, attr in mesh[0].items()},
-                              index=mesh[1].tolist() if isinstance(mesh[1], np.ndarray) else mesh[1])
+                              index=mesh.indices.tolist() if isinstance(mesh.indices[1], np.ndarray) else mesh.indices[
+                                  1])
 def build_mesh_with_buffer(mesh,
                            uuid=None,
                            name: str = "Mesh",

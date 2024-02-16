@@ -61,10 +61,7 @@ from mmcore.func import vectorize
 
 def ixs(u, v):
     """
-     0     1
-   0 b --  a
-    |  \  |
-  1 c --  d
+
 
 
     :param u:

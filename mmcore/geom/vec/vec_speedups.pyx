@@ -189,7 +189,7 @@ def cartesian_to_spherical(np.ndarray[DTYPE_t, ndim=2] xyz):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def cylindrical_to_courtesan(np.ndarray[DTYPE_t, ndim=2] rpz):
+def cylindrical_to_xyz(np.ndarray[DTYPE_t, ndim=2] rpz):
     cdef np.ndarray[DTYPE_t, ndim=2] pts = np.empty((rpz.shape[0], 3))
     cdef long double XsqPlusYsq
     for i in range(rpz.shape[0]):

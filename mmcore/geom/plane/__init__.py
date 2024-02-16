@@ -14,6 +14,24 @@ _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
 from mmcore.base.ecs.components import EcsProto, component, EcsProperty
 
 
+def pln_eq_3pt(p0, p1, p2):
+    matrix_a = np.array([[p0[1], p0[2], 1],
+                         [p1[1], p1[2], 1],
+                         [p2[1], p2[2], 1]])
+    matrix_b = np.array([[-p0[0], p0[2], 1],
+                         [-p1[0], p1[2], 1],
+                         [-p2[0], p2[2], 1]])
+    matrix_c = np.array([[p0[0], p0[1], 1],
+                         [p1[0], p1[1], 1],
+                         [p2[0], p2[1], 1]])
+    matrix_d = np.array([[-p0[0], -p0[1], p0[2]],
+                         [-p1[0], -p1[1], p1[2]],
+                         [-p2[0], -p2[1], p2[2]]])
+    det_a = np.linalg.det(matrix_a)
+    det_b = np.linalg.det(matrix_b)
+    det_c = np.linalg.det(matrix_c)
+    det_d = -np.linalg.det(matrix_d)
+    return np.array([det_a, det_b, det_c, det_d])
 
 
 
@@ -130,6 +148,9 @@ class Plane(Entity):
 
         self._bytes = None
         self._dirty = True
+        self._multiple = False
+        if len(self._array.shape) > 2:
+            self._multiple = True
 
     @property
     def local_axis(self):
@@ -140,8 +161,11 @@ class Plane(Entity):
         self._array[1:] = v
 
     def refine(self, proprity_axis=('y', 'x')):
+
         refine = PlaneRefine(*proprity_axis)
-        refine(self._array[1:], inplace=True)
+
+        self._array[1:, ...] = np.swapaxes(refine(np.swapaxes(self._array, 0, 1)[:, 1:, ...], inplace=False), 0, 1)
+
     def distance(self, pt):
         return distance(self, pt)
 
@@ -274,8 +298,17 @@ class Plane(Entity):
               """
         return dot(pts - self._array[0], self._array[1:])
 
-    @vectorize(excluded=[0], signature='(i)->(i)')
+    @vectorize(excluded=[0], signature='(i)->( i)')
+    def _evaluate(self, uvh):
+        return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
     def __call__(self, uvh):
+        if self._multiple:
+            return self._evaluate_multi(uvh)
+        else:
+            return self._evaluate(uvh)
+
+    @vectorize(excluded=[0], signature='(i)->( k, i)')
+    def _evaluate_multi(self, uvh):
         return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
 
     @vectorize(excluded=[0], signature='(i)->(i)')
@@ -310,6 +343,20 @@ class Plane(Entity):
         """
         return self.point_from_world_to_plane(pts)
 
+    def rotate(self, angle, axis=2, pln=None) -> 'Plane':
+        if pln is None:
+            pln = self
+        return Plane(arr=np.array([
+            rotate_around_axis(self.origin, angle, origin=pln.origin,
+                               axis=pln.axis),
+            *rotate_vectors_around_plane(self.axis, pln, angle, axis)
+        ]))
+
+    def translate(self, vector: np.ndarray) -> 'Plane':
+
+        pln = Plane(self._array)
+        pln.origin = self.origin + self.point_at(vector)
+        return pln
 
 class RelativePlane(Plane):
     def __init__(self, arr=None, parent: Plane = None, **kwargs):
@@ -393,7 +440,7 @@ def project(pln, pt):
 
 WXY = create_plane()
 
-from mmcore.geom.transform import rotate_around_axis
+from mmcore.geom.transform import rotate_around_axis, axis_rotation_transform
 
 
 def rotate_plane(pln, angle=0.0, axis=None, origin=None):
@@ -543,7 +590,7 @@ def ray_intersection(ray: algo.Ray, pln: Plane):
     return algo.ray_plane_intersection(*ray, pln, full_return=True)
 
 
-def rotate_vectors_around_plane(vecs, plane_a, angle):
+def rotate_vectors_around_plane(vecs, plane_a, angle, axis=2):
     """
     Rotate vectors around a plane.
 
@@ -556,7 +603,7 @@ def rotate_vectors_around_plane(vecs, plane_a, angle):
     :return: The rotated vectors.
     :rtype: numpy.array
     """
-    return norm(vecs) * rotate_around_axis(unit(vecs), angle, origin=(0., 0., 0.), axis=plane_a.normal)
+    return norm(vecs) * rotate_around_axis(unit(vecs), angle, origin=(0., 0., 0.), axis=plane_a.axis[axis])
 
 
 @vectorize(excluded=[0, 1, 2], signature='()->()')

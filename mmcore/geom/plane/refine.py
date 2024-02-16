@@ -117,6 +117,7 @@ class PlaneRefine:
         else:
             return self.next._chain_call(xyz)
 
+    @vectorize(excluded=[0, 'inplace'], signature='(i,i)->(i,i)')
     def __call__(self, xyz: np.ndarray, inplace: bool = False) -> np.ndarray:
         """
         Perform operations on the given 3D coordinates 'xyz'.
@@ -141,7 +142,7 @@ class PlaneRefine:
                 raise TypeError(f"xyz should be a numpy ndarray to use inplace option")
 
             if isinstance(xyz, np.ndarray):
-                if xyz.shape != (3, 3):
+                if (xyz.shape[0], xyz.shape[-1]) != (3, 3):
                     raise ValueError(f"xyz should be a numpy ndarray, with shape {(3, 3)} exist: {xyz}")
 
         if inplace:

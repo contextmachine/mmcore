@@ -386,3 +386,4 @@ class GroupViewSupport(ViewSupport):
         else:
             self._items[item] = it
         self.update_group()
+
