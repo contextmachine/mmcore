@@ -78,3 +78,42 @@ def split_by_parts(arr, parts):
     if parts[-1] > len(arr):
         parts = parts[:-1]
     return np.vsplit(arr, np.cumsum(parts))
+
+
+# Дана 2d кривая в параметрическом виде, представленная в виде следующей функции python:
+import numpy
+
+
+def cubic_spline(control_points: np.ndarray[(4, 2), np.dtype[float]]
+                 ):
+    """
+    >>> spline=cubic_spline(np.array([(-313.8, 56.1), (-469.2, 870.1), (549.4, 855.2), (527.9, -230.7)]))
+    >>> spline(0.5)
+    array([ 56.8375, 625.1625])
+    >>> spline(np.linspace(0,1,10))
+    array([[-313.8       ,   56.1       ],
+           [-325.15569273,  296.40123457],
+           [-267.77146776,  473.30987654],
+           [-159.87037037,  584.83333333],
+           [ -19.67544582,  628.97901235],
+           [ 134.59026063,  603.75432099],
+           [ 284.7037037 ,  507.16666667],
+           [ 412.44183813,  337.22345679],
+           [ 499.58161866,   91.93209877],
+           [ 527.9       , -230.7       ]])
+
+
+    :param control_points:
+    :type control_points:
+    :return:
+    :rtype:
+    """
+    p0, c0, c1, p1 = np.array(control_points)
+
+    def inner(t):
+        return ((p0 * ((1 - t) ** 3)
+                 + 3 * c0 * t * ((1 - t) ** 2)
+                 + 3 * c1 * (t ** 2) * (1 - t))
+                + p1 * (t ** 3))
+
+    return np.vectorize(inner, signature='()->(i)')
