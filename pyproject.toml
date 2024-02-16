@@ -1,15 +1,15 @@
 [build-system]
+requires = ["poetry-core", "cython", "numpy", "setuptools"]
 build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core"]
-
 
 [tool.poetry]
 name = "mmcore"
-version = "0.20.17"
+version = "0.20.15"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
 readme = "README.md"
+packages = [{ include = "./mmcore" }]
 
 
 [tool.poetry.dependencies]
@@ -54,7 +54,12 @@ multipledispatch = "*"
 autograd="*"
 cython = "*"
 cython-lint = "*"
-unicodedata = "*"
+
+[tool.poetry.build]
+generate-setup-file = false
+script = 'build.py'
 
 
-
+[tool.cython-lint]
+max-line-length = 140
+ignore = ['E503', 'E504']

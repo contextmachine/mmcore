@@ -605,6 +605,9 @@ def rotate_around_axis(pts, angle, origin=(0, 0, 0), axis=(0, 0, 1)):
     return transform_points(pts, axis_rotation_transform(origin=origin, angle=angle, axis=axis))
 
 
+def rotate_vecs_around_axis(pts, angle, axis=(0, 0, 1)):
+    return transform_points(pts, axis_rotation_transform(origin=np.array([0, 0, 0]), angle=angle, axis=axis))
+
 def multi_angle_rotate_around_axis(pts, angles, origin=(0, 0, 0), axis=(0, 0, 1)):
     z = np.zeros(((len(angles),) + pts.shape))
     for i, a in enumerate(angles):
