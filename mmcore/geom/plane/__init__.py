@@ -14,6 +14,25 @@ _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
 from mmcore.base.ecs.components import EcsProto, component, EcsProperty
 
 
+def plane_eq_from_pts(p1, p2, p3):
+    return [p1[1] * p2[2] - p1[1] * p3[2] - p1[2] * p2[1] + p1[2] * p3[1] + p2[1] * p3[2] - p2[2] * p3[1],
+            - p1[0] * p2[2] + p1[0] * p3[2] + p1[2] * p2[0] - p1[2] * p3[0] - p2[0] * p3[2] + p2[2] * p3[0],
+            p1[0] * p2[1] - p1[0] * p3[1] - p1[1] * p2[0] + p1[1] * p3[0] + p2[0] * p3[1] - p2[1] * p3[0],
+            -p1[0] * p2[1] * p3[2] + p1[0] * p2[2] * p3[1] + p1[1] * p2[0] * p3[2] - p1[1] * p2[2] * p3[0] - p1[2] * p2[
+                0] * p3[1] + p1[2] * p2[1] * p3[0]]
+
+
+def plane_origin_vectors(pt0, pt1, pt2):
+    pt0, pt1, pt2 = np.array(pt0), np.array(pt1), np.array(pt2)
+    a, b, c, d = plane_eq_from_pts(pt0, pt1, pt2)
+    # Normal vector to the plane
+    n = np.array([a, b, c])
+    N = unit(n)
+    # Choose an arbitrary point on the plane
+    xax = unit(pt1 - pt0)
+    yax = cross(N, xax)
+    # Generate a vector on the plane
+    return np.array([pt0, xax, yax, N]), [a, b, c, d]
 def pln_eq_3pt(p0, p1, p2):
     matrix_a = np.array([[p0[1], p0[2], 1],
                          [p1[1], p1[2], 1],
@@ -112,6 +131,11 @@ class Plane(Entity):
     zaxis=cross(xaxis, yaxis)
     yaxis=cross(zaxis,xaxis)
     xaxis=cross( yaxis,zaxis)
+
+XAxis_X, YAxis_X, ZAxis_X, X
+XAxis_Y, YAxis_Y, ZAxis_Y, Y
+XAxis_Z, YAxis_Z, ZAxis_Z, Z
+0,       0,       0,       1
     """
 
     def __init__(self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None):
@@ -148,9 +172,6 @@ class Plane(Entity):
 
         self._bytes = None
         self._dirty = True
-        self._multiple = False
-        if len(self._array.shape) > 2:
-            self._multiple = True
 
     @property
     def local_axis(self):
@@ -163,9 +184,7 @@ class Plane(Entity):
     def refine(self, proprity_axis=('y', 'x')):
 
         refine = PlaneRefine(*proprity_axis)
-
-        self._array[1:, ...] = np.swapaxes(refine(np.swapaxes(self._array, 0, 1)[:, 1:, ...], inplace=False), 0, 1)
-
+        refine(self._array[1:], inplace=True)
     def distance(self, pt):
         return distance(self, pt)
 
@@ -299,16 +318,7 @@ class Plane(Entity):
         return dot(pts - self._array[0], self._array[1:])
 
     @vectorize(excluded=[0], signature='(i)->( i)')
-    def _evaluate(self, uvh):
-        return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
     def __call__(self, uvh):
-        if self._multiple:
-            return self._evaluate_multi(uvh)
-        else:
-            return self._evaluate(uvh)
-
-    @vectorize(excluded=[0], signature='(i)->( k, i)')
-    def _evaluate_multi(self, uvh):
         return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
 
     @vectorize(excluded=[0], signature='(i)->(i)')
@@ -316,7 +326,7 @@ class Plane(Entity):
         return dot(self.axis, pt - self.origin)
 
     def create_relative(self, arr, **kwargs) -> 'ChildPln':
-        return RelativePlane(self, arr, parent=self, **kwargs)
+        return RelativePlane(arr, parent=self, **kwargs)
 
     def to_relative(self, parent) -> 'RelativePlane':
         pln = RelativePlane(parent=parent)
@@ -357,6 +367,31 @@ class Plane(Entity):
         pln = Plane(self._array)
         pln.origin = self.origin + self.point_at(vector)
         return pln
+
+    def matrix(self) -> np.ndarray:
+        """
+
+        XAxis_X, YAxis_X, ZAxis_X, X
+        XAxis_Y, YAxis_Y, ZAxis_Y, Y
+        XAxis_Z, YAxis_Z, ZAxis_Z, Z
+        0,       0,       0,       1
+        :return:
+        :rtype:
+        """
+
+        return np.array([
+            [self.xaxis[0], self.yaxis[0], self.zaxis[0], self.origin[0]],
+            [self.xaxis[1], self.yaxis[1], self.zaxis[1], self.origin[1]],
+            [self.xaxis[2], self.yaxis[2], self.zaxis[2], self.origin[2]],
+            [0, 0, 0, 1]])
+
+
+
+
+
+
+
+
 
 class RelativePlane(Plane):
     def __init__(self, arr=None, parent: Plane = None, **kwargs):
