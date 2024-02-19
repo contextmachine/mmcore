@@ -26,7 +26,3 @@ def curry(func):
         return new_curried
 
     return curried
-
-
-
-
