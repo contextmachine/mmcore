@@ -72,6 +72,9 @@ def dot3pt(a, b, c):
 
 
 @vectorize(signature='(i)->()')
+def norm_sq(v):
+    return np.sum(v ** 2)
+@vectorize(signature='(i)->()')
 def norm(v):
     """
     .. function:: norm(v)
@@ -131,6 +134,7 @@ def cross(a, b):
     :return: The cross product of vectors a and b
     :rtype: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     """
+
     return np.cross(a, b)
 
 

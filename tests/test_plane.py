@@ -1,10 +1,62 @@
-import timeit
 import unittest
+
+import numpy as np
 
 from mmcore.geom.intersections import intersect
 from mmcore.geom.line import Line
-from mmcore.geom.plane import Plane, plane_from_normal_numeric
+from mmcore.geom.plane import Plane, plane_from_normal_numeric, plane_from_3pt, plane_from_normal2
 from mmcore.geom.vec import *
+from mmcore.testlib import CaseFileTest
+
+
+def make_householder(a):
+    v = a / (a[0] + np.copysign(np.linalg.norm(a), a[0]))
+    v[0] = 1
+    H = np.eye(a.shape[0])
+    H -= (2 / np.dot(v, v)) * np.dot(v[:, None], v[None, :])
+    return H
+
+
+def ortho_plane_check(pln):
+    X, Y, Z = pln[1:]
+    return np.allclose(np.array([dot(X, Y), dot(Y, Z), dot(Z, X), dot(Z, X)]), 0, rtol=1e-5, atol=1e-5)
+
+
+class PlaneNumericCase(CaseFileTest):
+    def check(self, outputs, result) -> bool:
+        return ortho_plane_check(result) and ortho_plane_check(outputs)
+
+
+class PlaneFrom3PtTest(PlaneNumericCase):
+    def case(self, inputs):
+        inputs = np.array(inputs)
+        pln, equation = plane_from_3pt(inputs[0], inputs[1], inputs[2])
+
+        return pln
+
+    def check(self, outputs, result):
+
+        if super().check(outputs, result):
+            return np.allclose(np.array(result), outputs, rtol=1e-5, atol=1e-5)
+        else:
+            print('\n\nFail first rule\n\n')
+            return False
+
+
+class PlaneFromNormalTest(PlaneNumericCase):
+    def case(self, inputs):
+        inputs = np.array(inputs)
+        return plane_from_normal2(inputs[0], inputs[1])
+
+    def check(self, outputs, result):
+        if super().check(outputs, result):
+            return np.allclose(np.array(result), np.array(outputs), rtol=1e-5, atol=1e-5)
+        else:
+            print('\n\nFail first rule\n\n')
+            return False
+
+
+
 
 
 @vectorize(signature='(j,i)->()')
@@ -20,14 +72,25 @@ def test_plane_num(pln):
     :rtype: bool
     """
     X, Y, Z = pln[1:]
-    return np.allclose([dot(X, Y), dot(Y, Z), dot(Z, X)], 0)
+
+    return np.allclose([dot(X, Y), dot(Y, Z), dot(Z, X), dot(Z, X)], 0)
 
 class TestPlane(unittest.TestCase):
 
     def test_from_normal(self):
-        res = test_plane_num(plane_from_normal_numeric(np.random.random((1000, 3)), np.zeros(3)))
+        res = test_plane_num(plane_from_normal2(np.zeros(3), np.random.random(3)))
         print(res)
-        self.assertTrue(all(res))
+        self.assertTrue(res)
+
+    def test_from_normal2(self):
+        cases = PlaneFromNormalTest()
+        self.assertTrue(all(cases('../tests/data/plane_from_normal.json')))
+
+    def test_plane_from_3pt(self):
+        cases = PlaneFrom3PtTest()
+        self.assertTrue(all(cases('../tests/data/plane_from_3pt.json')))
+
+
 
 
     def test_plane_intersection(self):

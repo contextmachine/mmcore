@@ -1,4 +1,3 @@
-import os
 
 from mmcore.geom.box import Box
 from mmcore.common.viewer import DefaultGroupFabric
@@ -28,4 +27,3 @@ group = DefaultGroupFabric([bx.to_mesh() for bx in random_box_grid()], uuid='pro
 rich.print("\nEntries:")
 rich.print([asdict(entry) for entry in group.entries])
 rich.print(f"\nlink: {os.getenv('MMCORE_ADDRESS')}{os.getenv('MMCORE_API_PREFIX')}fetch/{group.uuid}")
-
