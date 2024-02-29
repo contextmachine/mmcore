@@ -261,3 +261,46 @@ def expand(self, pt):
     # assumes min < max, componentwise
 
     return np.array([np.min([self[0], pt[0]]), np.max([self[1], pt[1]])])
+
+
+import numpy as np
+
+
+def orthonormalize(u, v, w):
+    """
+    Preserves the first vector , and leads the other two vectors to orthogonal state.
+
+    :param u:
+    :param v:
+    :param w:
+    :return:
+
+    >>> u = np.array([0.483475, -0.855379, 0.185952])
+    >>> v = np.array([-0.999987, 0.005068, 0])
+    >>> w = np.array([0., 0., -1.])
+    >>> orthonormalize(u, v, w)
+Out:
+(array([ 0.48347513, -0.85537923,  0.18595205]),
+ array([-0.87535743, -0.47217812,  0.10390953]),
+ array([-0.00107956, -0.21301218, -0.97704895]))
+    """
+    u = u / np.linalg.norm(u)  # Ensure u is a unit vector
+    v -= u * np.dot(u, v)  # Make v orthogonal to u
+
+    # Re-normalize v in case it's very close to zero
+    if (np.linalg.norm(v) > 1e-10):
+        v /= np.linalg.norm(v)
+    else:
+        raise ValueError('Vectors u and v are parallel')
+
+    # w vector
+    w -= u * np.dot(u, w)
+    w -= v * np.dot(v, w)
+
+    # Re-normalize w
+    if (np.linalg.norm(w) > 1e-10):
+        w /= np.linalg.norm(w)
+    else:
+        raise ValueError('Vector w is in the plane of vectors u and v')
+
+    return (u, v, w)

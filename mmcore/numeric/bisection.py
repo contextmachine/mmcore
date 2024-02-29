@@ -1,11 +1,19 @@
+import numpy as np
+
+from mmcore.geom.vec import norm_sq
+
+
 def bisection1d(f, step=0.00001, start=-1, stop=3):
     # Smaller step values produce more accurate and precise results
 
     sign = f(start) > 0
     x = start
     roots = []
+    minimum = np.inf
     while x <= stop:
         value = f(x)
+        if value < minimum:
+            minimum = value
         if value == 0:
             # We hit a root
             roots.append((x, value))
@@ -17,4 +25,30 @@ def bisection1d(f, step=0.00001, start=-1, stop=3):
         # Update our sign
         sign = value > 0
         x += step
-    return roots
+    return roots, minimum
+
+
+def scalar_min_1d(f, start, end, step=0.001, divs=32):
+    def wrap(start, end):
+
+        t = np.linspace(start, end, divs)
+
+        res = f(t)
+        m = res.min()
+        i = np.where(np.isclose(res, m))[0][0]
+
+        if abs(t[0] - t[1]) <= step:
+            return t[i]
+        else:
+            ixs = np.array([i - 1, i + 1], int)
+
+            return wrap(t[ixs[0]], t[ixs[1]])
+
+    return wrap(start, end)
+
+
+def closest_point_on_curve(curve, point, step=0.001, divs=32):
+    def objective(t):
+        return norm_sq(curve(t) - point)
+
+    return scalar_min_1d(objective, *curve.interval(), step=step, divs=divs)
