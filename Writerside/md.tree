@@ -6,6 +6,12 @@
                   name="mmcore doc"
                   start-page="starter-topic.md">
 
+
+    <toc-element topic="mmcore_api_curves.md"/>
+    <toc-element topic="mmcore_api_vectors.md"/>
+    <toc-element topic="mmcore_api_surface3.md"/>
+    <toc-element topic="mmcore_api_base.md"/>
+    <toc-element topic="mmcore_api_bbox.md"/>
     <toc-element topic="starter-topic.md">
         <toc-element topic="Vectorization.md">
 

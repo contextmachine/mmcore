@@ -15,6 +15,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
 
+import mmcore.api.surface
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
@@ -440,10 +441,12 @@ class PlaneLinear(ParametricObject):
     def torhino(self):
         try:
             import Rhino.Geometry as rg
-            return rg.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis), rg.Vector3d(*self.yaxis))
+            return mmcore.api.surface.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis),
+                                            rg.Vector3d(*self.yaxis))
         except ModuleNotFoundError:
             import rhino3dm as rg
-            return rg.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis), rg.Vector3d(*self.yaxis))
+            return mmcore.api.surface.Plane(rg.Point3d(*self.origin), rg.Vector3d(*self.xaxis),
+                                            rg.Vector3d(*self.yaxis))
 
         except Exception:
 
