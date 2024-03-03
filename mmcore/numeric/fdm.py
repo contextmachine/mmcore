@@ -1,4 +1,4 @@
-def FDM(f, method='central', h=0.001):
+def FDM(f, method='central', h=1e-6):
     '''Compute the FDM formula for f'(t) with step size h.
 
     Parameters

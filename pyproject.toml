@@ -54,6 +54,7 @@ multipledispatch = "*"
 autograd="*"
 cython = "*"
 cython-lint = "*"
+jax = "^0.4.25"
 
 [tool.poetry.build]
 generate-setup-file = false

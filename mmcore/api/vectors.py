@@ -3,110 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from mmcore.api._base import Base
-from mmcore.geom.vec import angle, cross, dot, unit, dist
-from typing import Self, Type, TypeAlias, TypeVar, Union, SupportsInt, SupportsFloat
-from typing_extensions import Buffer
-
-Numeric = Union[SupportsInt, SupportsFloat, Buffer]
-
-
-class BaseVector(Base):
-    __dim__: int
-
-    def __init__(self, arr=None):
-        super().__init__()
-        if arr is None:
-            self._array = np.zeros(self.__class__.__dim__, float)
-        else:
-            self._array = np.array(arr, float)
-
-    def __add__(self, other: SupportVector):
-        if isinstance(other, self.__class__):
-            return self.__class__(self._array + other._array)
-        else:
-            return self.__class__(self._array + other)
-
-    def __iadd__(self, other: SupportVector):
-        if isinstance(other, self.__class__):
-            self._array += other._array
-        else:
-            self._array += other
-
-    def __mul__(self, other: SupportVector):
-
-        if isinstance(other, self.__class__):
-            return self.__class__(self._array * other._array)
-        else:
-            return self.__class__(self._array * other)
-
-    def __imul__(self, other: SupportVector):
-        if isinstance(other, self.__class__):
-            self._array *= other._array
-        else:
-            self._array *= other
-
-    def __sub__(self, other: SupportVector):
-
-        if isinstance(other, self.__class__):
-            return self.__class__(self._array - other._array)
-        else:
-            return self.__class__(self._array - other)
-
-    def __isub__(self, other: SupportVector):
-        if isinstance(other, self.__class__):
-            self._array -= other._array
-        else:
-            self._array -= other
-
-    def __eq__(self, other: V):
-        return np.allclose(self._array, other._array)
-
-    def __array__(self, dtype=float):
-        return np.array(self._array, dtype=dtype)
-
-    def scale(self, scale: float) -> bool:
-        """
-        Scales the vector by specifying a scaling factor.
-        scale : The scale factor to multiple the vector by (i.e. 1.5).
-        Returns true if successful.
-        """
-        self._array *= scale
-        return True
-
-    @property
-    def length(self) -> float:
-        """
-        Get the length of this vector.
-        """
-        return dist(self._array)
-
-    def angle_to(self, vector: V) -> float:
-        """
-        Determines the angle between this vector and the specified vector.
-        vector : The vector to measure the angle to.
-        The angle in radians between this vector and the specified vector.
-        """
-        return angle(self._array, vector._array)
-
-    def normalize(self) -> bool:
-        """
-        Makes this vector of unit length.
-        This vector should not be zero length.
-        Returns true if successful.
-        """
-        self._array[:] = unit(self._array)
-        return True
-
-    def copy(self) -> V:
-        """
-        Creates and returns an independent copy of this Vector2D object.
-        Returns a new Vector2D object that is a copy of this Vector2D object.
-        """
-        return self.__class__(np.copy(self._array))
-
-
-V = TypeVar("V", bound=BaseVector)
-SupportVector = Union[V, Numeric]
+from mmcore.api._base_vectors import BaseVector
+from mmcore.geom.vec import angle, cross, unit, dist
 
 
 class Vector2D(BaseVector):
@@ -117,9 +15,7 @@ class Vector2D(BaseVector):
     """
     __dim__: int = 2
 
-    @classmethod
-    def cast(cls, arg) -> Vector2D:
-        return Vector2D()
+
 
     @classmethod
     def create(cls, x: float, y: float) -> Vector2D:
@@ -129,7 +25,7 @@ class Vector2D(BaseVector):
         y : The y coordinate of the vector.
         Returns the new Vector2D object or null if the creation failed.
         """
-        return Vector2D()
+        return Vector2D(np.array([x, y]))
 
     def dot(self, vector: Vector2D) -> float:
         """
@@ -137,22 +33,11 @@ class Vector2D(BaseVector):
         vector : The vector to use in the dot product calculation.
         Returns the dot product of the two vectors.
         """
-        return float()
+        return np.dot(self._array, vector._array)
 
-    def as_array(self) -> list[float]:
-        """
-        Returns the vector values as an array [x, y].
-        Returns an array of the vector's values [x, y].
-        """
-        return [float()]
 
-    def is_equal(self, vector: Vector2D) -> bool:
-        """
-        Compare this vector with another to check for equality.
-        vector : The vector to compare with for equality.
-        Returns true if the vectors are equal.
-        """
-        return bool()
+
+
 
     def is_parallel(self, vector: Vector2D) -> bool:
         """
@@ -160,7 +45,8 @@ class Vector2D(BaseVector):
         vector : The vector to compare with for parallelism.
         Returns true if the vectors are parallel.
         """
-        return bool()
+        return np.isclose(np.dot(self._array, vector._array), 1)
+
 
     def is_perpendicular(self, vector: Vector2D) -> bool:
         """
@@ -168,7 +54,7 @@ class Vector2D(BaseVector):
         vector : The vector to compare with for perpendicularity.
         Returns true if the vectors are perpendicular.
         """
-        return bool()
+        return np.isclose(np.dot(self._array, vector._array), 0)
 
     def normalize(self) -> bool:
         """
@@ -177,7 +63,7 @@ class Vector2D(BaseVector):
         The vector should not be zero length.
         Returns true if successful.
         """
-        return bool()
+        self._array = unit(self._array)
 
     def set_with_array(self, coordinates: list[float]) -> bool:
         """
@@ -185,7 +71,8 @@ class Vector2D(BaseVector):
         coordinates : An array that specifies the values for the x and y coordinates of the vector.
         Returns true if successful
         """
-        return bool()
+        self._array[:] = coordinates
+
 
     def subtract(self, vector: Vector2D) -> bool:
         """
@@ -238,6 +125,8 @@ class Vector2D(BaseVector):
         """
         self._array[1] = value
 
+    def to_vector3d(self) -> Vector3D:
+        return Vector3D(np.append(self._array, 0))
 
 class Vector3D(BaseVector):
     """
@@ -286,62 +175,9 @@ class Vector3D(BaseVector):
         """
         return Vector3D(cross(self._array, vector._array))
 
-    def dot(self, vector: Vector3D) -> float:
-        """
-        Returns the dot product between this vector and the specified vector.
-        vector : The vector to take the dot product to.
-        Returns the dot product value.
-        """
-        return float(dot(self._array, vector._array))
+    def to_vector2d(self) -> Vector2D:
+        return Vector2D(self._array[:-1])
 
-    def as_array(self) -> list[float]:
-        """
-        Returns the vector coordinates as an array [x, y, z].
-        Returns the array of vector coordinates [x, y, z].
-        """
-        return self._array.tolist()
-
-    def is_equal(self, vector: Vector3D) -> bool:
-        """
-        Determines if this vector is equal to the specified vector.
-        vector : The vector to test equality to.
-        Returns true if the vectors are equal.
-        """
-        return np.all(self._array == vector._array)
-
-    def is_parallel(self, vector: Vector3D) -> bool:
-        """
-        Determines if the input vector is parallel with this vector.
-        vector : The vector to test parallelism to.
-        Returns true if the vectors are parallel.
-        """
-        return np.isclose(abs(self.dot(vector)), 1.)
-
-    def is_perpendicular(self, vector: Vector3D) -> bool:
-        """
-        Determines if the input vector is perpendicular to this vector.
-        vector : The vector to test perpendicularity to.
-        Returns true if the vectors are perpendicular.
-        """
-        return np.isclose(self.dot(vector), 0.)
-
-    def set_with_array(self, coordinates: list[float]) -> bool:
-        """
-        Reset this vector with the coordinate values in an array [x, y, z].
-        coordinates : The array of coordinate values.
-        Returns true if successful.
-        """
-        self._array = coordinates
-        return True
-
-    def subtract(self, vector: Vector3D) -> bool:
-        """
-        Subtract a vector from this vector.
-        vector : The vector to subtract.
-        Returns true if successful.
-        """
-        self._array -= vector._array
-        return True
 
     def transform(self, matrix: Matrix3D) -> bool:
         """
@@ -738,3 +574,6 @@ class Matrix3D(Base):
         Gets and sets the translation component of the matrix.
         """
         pass
+
+
+__all__ = ['Vector2D', 'Vector3D', 'Point2D', 'Point3D', 'Matrix2D', 'Matrix3D']

@@ -1,9 +1,7 @@
 from typing import List, Tuple, Callable
+
 import numpy as np
 
-from autograd import grad,hessian
-
-from mmcore.func import vectorize
 
 
 def _newton(x: np.ndarray, f: Callable, gf: Callable, hf: Callable, lr=0.01, lr_decr=0.999, maxiter=100, tol=0.001) -> \
@@ -80,13 +78,14 @@ class NewtonRaphson:
                              lr_decr=0.999,
                              maxiter=100,
                              tol=0.001), **kwargs}
-
+        self.gradient_fun = gradient_fun
+        self.hessian_fun = hessian_fun
         if hessian_fun is None:
-            self.hessian_fun = hessian(fun)
+            self.hessian_fun = jax.hessian(fun)
         if gradient_fun is None:
-            self.gradient_fun = FDM(lambda x: fun)
+            self.gradient_fun = jax.grad(fun)
 
-    def __call__(self, x=0, full_return=False):
+    def __call__(self, x=0.0, full_return=False):
 
 
         result, intermediate_points, iterations=_newton(x, self.fun, self.gradient_fun, self.hessian_fun,

@@ -40,7 +40,7 @@ class Cone(Surface):
         """
         return Cone()
 
-    def get_data(self) -> tuple[bool, Point3D, Vector3D, float, float]:
+    def to_data(self) -> tuple[bool, Point3D, Vector3D, float, float]:
         """
         Gets the data that defines the cone.
         origin : The output origin point (center) of the base of the cone.
@@ -144,7 +144,7 @@ class Cylinder(Surface):
         """
         return Cylinder()
 
-    def get_data(self) -> tuple[bool, Point3D, Vector3D, float]:
+    def to_data(self) -> tuple[bool, Point3D, Vector3D, float]:
         """
         Gets the data that defines the cylinder.
         origin : The output origin point (center) of the base of the cylinder.
@@ -256,7 +256,7 @@ class EllipticalCone(Surface):
         """
         return bool()
 
-    def get_data(self) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float, float]:
+    def to_data(self) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float, float]:
         """
         Gets the data that defines the Elliptical Cone.
         origin : The output origin point (center) of the base of the cone.
@@ -368,7 +368,7 @@ class EllipticalCylinder(Surface):
         """
         return EllipticalCylinder()
 
-    def get_data(self) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float]:
+    def to_data(self) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float]:
         """
         Gets the data defining the elliptical cylinder.
         origin : The output origin point (center) of the base of the cylinder.
@@ -495,7 +495,7 @@ class NurbsSurface(Surface):
         """
         return NurbsSurface()
 
-    def get_data(self) -> tuple[bool, int, int, int, int, list[Point3D], list[float], list[float], list[
+    def to_data(self) -> tuple[bool, int, int, int, int, list[Point3D], list[float], list[float], list[
         float], NurbsSurfaceProperties, NurbsSurfaceProperties]:
         """
         Gets the data that defines the NURBS surface.
@@ -797,6 +797,8 @@ class Plane(Surface):
         """
         return self._v_direction
 
+    def to_data(self):
+        self.origin.to_data()
 
 class Sphere(Surface):
     """
@@ -823,7 +825,7 @@ class Sphere(Surface):
         """
         return Sphere()
 
-    def get_data(self) -> tuple[bool, Point3D, float]:
+    def to_data(self) -> tuple[bool, Point3D, float]:
         """
         Gets all of the data defining the sphere.
         origin : The output origin point (center) of the sphere.
@@ -898,7 +900,7 @@ class Torus(Surface):
         """
         return Torus()
 
-    def get_data(self) -> tuple[bool, Point3D, Vector3D, float, float]:
+    def to_data(self) -> tuple[bool, Point3D, Vector3D, float, float]:
         """
         Gets all of the data defining the torus.
         origin : The output origin point (center) of the torus.
