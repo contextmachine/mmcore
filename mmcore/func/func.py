@@ -7,11 +7,15 @@ import numpy as np
 from mmcore.tree.avl import AVL
 
 
-def vectorize(**kws):
+def vectorize(signature=None, excluded=None, **kws):
+
     def decorate(fun):
         if 'doc' not in kws:
             kws['doc'] = fun.__doc__
-
+        if excluded is not None:
+            kws['excluded'] = excluded
+        if signature is not None:
+            kws['signature'] = signature
         vecfun = np.vectorize(fun, **kws)
 
         @functools.wraps(fun)
@@ -21,6 +25,8 @@ def vectorize(**kws):
         return wrap
 
     return decorate
+
+
 class MapMethodDescriptor:
     def __init__(self, fun):
         super().__init__()

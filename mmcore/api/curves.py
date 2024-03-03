@@ -161,7 +161,7 @@ class InfiniteLine3D(Curve3D):
         or NurbsCurve3D.
         Returns a collection of the intersection points.
         """
-        ...
+        return super().intersect_with_curve(curve)
 
     def intersect_with_surface(self, surface: Surface) -> ObjectCollection:
         """
@@ -237,6 +237,9 @@ class InfiniteLine3D(Curve3D):
         """
         return self.origin
 
+    @vectorize(excluded=[0], signature='()->(i)')
+    def __call__(self, t):
+        return self.start_point._array + self.direction._array * t
 
 def line_line_intersection(line1: Union[Line2D, InfiniteLine3D, Line3D],
                            line2: Union[Line2D, InfiniteLine3D, Line3D]) -> tuple[bool, float, float]:
@@ -329,11 +332,7 @@ class Line3D(Curve3D):
         or NurbsCurve3D.
         Returns a collection of the intersection points
         """
-        if isinstance(curve, (Line3D, InfiniteLine3D)):
-
-            return self.intersect_with_line(curve)
-        else:
-            raise NotImplementedError
+        return super().intersect_with_curve(curve)
 
     def intersect_with_surface(self, surface: Surface) -> list[Point3D]:
         """
@@ -402,6 +401,9 @@ class Line3D(Curve3D):
         """
         ...
 
+    @vectorize(excluded=[0], signature='()->(i)')
+    def __call__(self, t):
+        return self.start_point._array + self.direction._array * t
 
 ILine = Union[Line2D, Line3D, InfiniteLine3D]
 

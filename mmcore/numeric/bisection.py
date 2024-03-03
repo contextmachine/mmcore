@@ -28,6 +28,41 @@ def bisection1d(f, step=0.00001, start=-1, stop=3):
     return roots, minimum
 
 
+def bisection2d(f, step=0.00001, start=(0., 0.), stop=(1., 1.)):
+    signx, signy = np.array(f(start[0], start[1])) > 0
+
+    x, y = start
+
+    rootsx = []
+    rootsy = []
+    minimum = []
+
+    while x <= stop[0]:
+        while y <= stop[1]:
+
+            valuex, valuey = f(x, y)
+
+            if valuex == 0 and valuey == 0:
+                # We hit a root
+
+                rootsx.append((x, valuex))
+                rootsy.append((y, valuey))
+
+
+            elif ((valuex > 0) != signx) and ((valuey > 0) != signy):
+                # We passed a root
+                rootsx.append((x, valuex))
+                rootsy.append((y, valuey))
+            # Update our sign
+
+            signy = valuey > 0
+            signx = valuex > 0
+            y += step
+
+        x += step
+    return rootsx, rootsy
+
+
 def scalar_min_1d(f, start, end, step=0.001, divs=32):
     def wrap(start, end):
 
