@@ -167,6 +167,8 @@ class BaseVector(Base):
         self._array -= vector._array
         return True
 
+    def __repr__(self):
+        return f'{self.__class__.__name__}() at {hex(id(self))}'
 
 V = TypeVar("V", bound=BaseVector)
 SupportVector = Union[V, Numeric]
