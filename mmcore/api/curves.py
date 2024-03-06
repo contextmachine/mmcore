@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Union, Tuple
+from abc import ABCMeta, abstractmethod
+from typing import Union
 
-import numpy as np
-
+from mmcore.api import Base, Point3D, Curve3D
 from mmcore.api.base import Curve2D, Curve3D, Surface
 from mmcore.api._base import ObjectCollection
 
 from mmcore.api.vectors import Point2D, Point3D, Vector3D, Vector2D
+from mmcore.func import vectorize
 from mmcore.geom.vec import *
 
 
@@ -113,16 +114,101 @@ class Line2D(Curve2D):
         return NurbsCurve2D()
 
 
-class InfiniteLine3D(Curve3D):
+INFINITY_LINE_BOUNDS = (-1e+9, 1e+9)
+
+
+class BaseLine3D(Curve3D, metaclass=ABCMeta):
+    def __init__(self, origin: Point3D):
+        super().__init__()
+
+        self._origin = origin
+
+    def is_colinear(self, line: InfiniteLine3D) -> bool:
+        """
+        Compare this line with another to check for collinearity.
+        line : The line to compare with for collinearity.
+        Returns true if the two lines are collinear.
+        """
+
+        return bool()
+
+    def intersect_with_line(self, line: Union[Line3D, InfiniteLine3D], rtol=1e-5, atol=1e-5) -> tuple[
+        bool, float, float]:
+        t1, t2, z = line_line_tsz((self.start_point._array, self.end_point._array),
+                                  (line.start_point._array, line.end_point._array))
+
+        if isinstance(line, InfiniteLine3D):
+            return all([np.allclose(z, 0, rtol=rtol, atol=atol), (0 <= t1 <= 1)]), t1, t2
+        else:
+            return all([np.allclose(z, 0, rtol=rtol, atol=atol), (0 <= t1 <= 1), (0 <= t2 <= 1)]), t1, t2
+
+    def intersect_with_curve(self, curve: Curve3D):
+        """
+        Intersect this line with a curve to get the intersection point(s).
+        curve : The intersecting curve.
+        The curve can be a Line3D, InfininteLine3D, Circle3D, Arc3D, EllipticalArc3D, Ellipse3D,
+        or NurbsCurve3D.
+        Returns a collection of the intersection points
+        """
+        if isinstance(curve, Line3D):
+            success, t = self.intersect_with_line(curve)
+            if not success:
+
+                return []
+            else:
+                return [(Point3D(self(tt[0])), tt) for tt in t]
+        return super().intersect_with_curve(curve)
+
+    @abstractmethod
+    def intersect_with_surface(self, surface):
+        """
+        Intersect this line with a surface to get the intersection point(s).
+        surface : The intersecting surface.
+        The surface can be a Plane, Cone, Cylinder, EllipticalCone, EllipticalCylinder, Sphere,
+        Torus, or a NurbsSurface.
+        Returns a collection of the intersection points.
+        """
+        pass
+
+    @vectorize(excluded=[0], signature='()->(i)')
+    def __call__(self, t):
+        return self.start_point._array + self.direction._array * t
+
+    @property
+    def origin(self) -> Point3D:
+        """
+        Gets and sets the origin point of the line.
+        """
+        return self._origin
+
+    @origin.setter
+    def origin(self, value: Point3D):
+        """
+        Gets and sets the origin point of the line.
+        """
+        self._origin = value
+
+    @property
+    def start_point(self) -> Point3D:
+        """
+
+
+        """
+        return self.origin
+
+
+class InfiniteLine3D(BaseLine3D):
     """
     3D infinite line. An infinite line is defined by a position and direction in space
     and has no start or end points.
     They are created statically using the create method of the InfiniteLine3D class.
     """
 
+    def interval(self) -> tuple[float, float]:
+        return INFINITY_LINE_BOUNDS
+
     def __init__(self, origin: Point3D = Point3D((0, 0, 0)), direction: Vector3D = Vector3D((1, 0, 0))):
-        super().__init__()
-        self._origin = origin
+        super().__init__(origin)
         self._direction = direction
 
     @classmethod
@@ -135,33 +221,12 @@ class InfiniteLine3D(Curve3D):
         """
         return InfiniteLine3D(origin, direction)
 
-    def is_colinear(self, line: InfiniteLine3D) -> bool:
-        """
-        Compare this line with another to check for collinearity.
-        line : The line to compare with for collinearity.
-        Returns true if the two lines are collinear.
-        """
-
-        return bool()
-
     def copy(self) -> InfiniteLine3D:
         """
         Creates and returns a copy of this line object.
         Returns an independent copy of this line object.
         """
         return InfiniteLine3D(self.origin.copy(), self.direction.copy())
-
-    def intersection_with_line(self, line: Union[InfiniteLine3D, Line3D]) -> bool: ...
-
-    def intersect_with_curve(self, curve: Curve3D) -> ObjectCollection:
-        """
-        Intersect this line with a curve to get the intersection point(s).
-        curve : The intersecting curve.
-        The curve can be a Line3D, InfininteLine3D, Circle3D, Arc3D, EllipticalArc3D, Ellipse3D,
-        or NurbsCurve3D.
-        Returns a collection of the intersection points.
-        """
-        return super().intersect_with_curve(curve)
 
     def intersect_with_surface(self, surface: Surface) -> ObjectCollection:
         """
@@ -194,20 +259,6 @@ class InfiniteLine3D(Curve3D):
         return True
 
     @property
-    def origin(self) -> Point3D:
-        """
-        Gets and sets the origin point of the line.
-        """
-        return self._origin
-
-    @origin.setter
-    def origin(self, value: Point3D):
-        """
-        Gets and sets the origin point of the line.
-        """
-        self._origin = value
-
-    @property
     def direction(self) -> Vector3D:
         """
         Gets and sets the direction of the line.
@@ -229,17 +280,6 @@ class InfiniteLine3D(Curve3D):
         """
         return self.origin + self._direction
 
-    @property
-    def start_point(self) -> Point3D:
-        """
-
-
-        """
-        return self.origin
-
-    @vectorize(excluded=[0], signature='()->(i)')
-    def __call__(self, t):
-        return self.start_point._array + self.direction._array * t
 
 def line_line_intersection(line1: Union[Line2D, InfiniteLine3D, Line3D],
                            line2: Union[Line2D, InfiniteLine3D, Line3D]) -> tuple[bool, float, float]:
@@ -261,15 +301,21 @@ def line_line_intersection(line1: Union[Line2D, InfiniteLine3D, Line3D],
         return True, s1, s2
 
 
-class Line3D(Curve3D):
+class Line3D(BaseLine3D):
     """
     3D line. A line is not displayed or saved in a document.
     3D lines are used as a wrapper to work with raw 3D line information.
     They are created statically using the create method of the Line3D class.
     """
 
+    def interval(self) -> tuple[float, float]:
+        return (0.0, 1.0)
+
+    @classmethod
+    def cast(cls, arg) -> Base:
+        return Line3D(Point3D.cast(arg[0]), Point3D.cast(arg[1]))
     def __init__(self, start_point: Point3D, end_point: Point3D):
-        super().__init__()
+        super().__init__(start_point)
         self._start_point = start_point
         self._end_point = end_point
 
@@ -301,6 +347,9 @@ class Line3D(Curve3D):
         """
         return InfiniteLine3D(self._start_point, self.direction)
 
+    def as_line_2d(self):
+        return Line2D(self._start_point, self.direction)
+
     def is_colinear(self, line: Line3D) -> bool:
         """
         Compare this line with another to check for collinearity
@@ -315,24 +364,14 @@ class Line3D(Curve3D):
                                   (line.start_point._array, line.end_point._array))
 
         if isinstance(line, InfiniteLine3D):
-            return all([np.allclose(z, 0, rtol=1e-5, atol=1e-5), (0 <= t1 <= 1)]), t1, t2
+            return all([np.allclose(z, 0, rtol=rtol, atol=atol), (0 <= t1 <= 1)]), t1, t2
         else:
-            return all([np.allclose(z, 0, rtol=1e-5, atol=1e-5), (0 <= t1 <= 1), (0 <= t2 <= 1)]), t1, t2
+            return all([np.allclose(z, 0, rtol=rtol, atol=atol), (0 <= t1 <= 1), (0 <= t2 <= 1)]), t1, t2
 
     def evaluate_param(self, t: float) -> Point3D:
         return self._start_point + self.direction * t
 
     evaluate_params = np.vectorize(evaluate_param, excluded=[0], signature='()->()')
-
-    def intersect_with_curve(self, curve: Curve3D) -> tuple[bool, float, float]:
-        """
-        Intersect this line with a curve to get the intersection point(s).
-        curve : The intersecting curve.
-        The curve can be a Line3D, InfininteLine3D, Circle3D, Arc3D, EllipticalArc3D, Ellipse3D,
-        or NurbsCurve3D.
-        Returns a collection of the intersection points
-        """
-        return super().intersect_with_curve(curve)
 
     def intersect_with_surface(self, surface: Surface) -> list[Point3D]:
         """
@@ -404,6 +443,7 @@ class Line3D(Curve3D):
     @vectorize(excluded=[0], signature='()->(i)')
     def __call__(self, t):
         return self.start_point._array + self.direction._array * t
+
 
 ILine = Union[Line2D, Line3D, InfiniteLine3D]
 

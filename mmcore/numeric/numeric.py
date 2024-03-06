@@ -1,8 +1,5 @@
 from scipy.optimize import minimize, fsolve
-from scipy.optimize._minpack_py import _root_hybr
 
-from mmcore.numeric.bisection import bisection1d, bisection2d
-from mmcore.numeric.fdm import FDM
 from mmcore.geom.vec import norm_sq, cross, norm
 
 import numpy as np

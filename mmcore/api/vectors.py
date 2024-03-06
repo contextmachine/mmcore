@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from argparse import ArgumentTypeError
+
 import numpy as np
 
 from mmcore.api._base import Base
@@ -15,8 +17,8 @@ class Vector2D(BaseVector):
     """
     __dim__: int = 2
 
-
-
+    def __repr__(self):
+        return f'{self.__class__.__name__}(x={self.x}, y={self.y}) at {hex(id(self))}'
     @classmethod
     def create(cls, x: float, y: float) -> Vector2D:
         """
@@ -35,8 +37,20 @@ class Vector2D(BaseVector):
         """
         return np.dot(self._array, vector._array)
 
+    @classmethod
+    def cast(cls, arg) -> Vector2D:
+        if isinstance(arg, (tuple, np.ndarray, list)):
+            if len(arg) == 2:
+                return cls(arg)
+            else:
+                return cls.cast(arg[:2])
 
-
+        elif isinstance(arg, (Point3D, Vector3D)):
+            return cls.cast(arg.as_array()[:2])
+        elif isinstance(arg, (Point2D, Vector2D)):
+            return cls.cast(arg._array)
+        else:
+            raise ValueError(f'{arg}')
 
 
     def is_parallel(self, vector: Vector2D) -> bool:
@@ -136,9 +150,22 @@ class Vector3D(BaseVector):
     """
     __dim__: int = 3
 
+    def __repr__(self):
+        return f'{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z}) at {hex(id(self))}'
     @classmethod
     def cast(cls, arg) -> Vector3D:
-        return Vector3D(arg)
+        if isinstance(arg, (tuple, np.ndarray, list)):
+            if len(arg) == 3:
+                return cls(arg)
+            else:
+                return cls.cast(np.append(arg, np.zeros((3,), float))[:3])
+
+        elif isinstance(arg, (Point3D, Vector3D)):
+            return cls.cast(arg.as_array())
+        elif isinstance(arg, (Point2D, Vector2D)):
+            return cls.cast((*arg._array, 0.0))
+        else:
+            raise ValueError(f'{arg}')
 
     @classmethod
     def create(cls, x: float, y: float, z: float) -> Vector3D:
