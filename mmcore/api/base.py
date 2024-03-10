@@ -231,6 +231,7 @@ class CurveEvaluator3D(Base):
         The length of this array will be equal to the length of the points array specified.
         Returns true if the parameters were successfully returned.
         """
+
         return (bool(), [float()])
 
     def get_parameter_at_points(self, point: Point3D) -> tuple[bool, float]:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import adsk.core
 from argparse import ArgumentTypeError
 
 import numpy as np
