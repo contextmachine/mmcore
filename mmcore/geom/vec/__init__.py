@@ -27,6 +27,7 @@ Benchmarks:
 """
 import os
 
+
 import numpy as np
 
 from mmcore.func import vectorize
@@ -74,6 +75,8 @@ def dot3pt(a, b, c):
 @vectorize(signature='(i)->()')
 def norm_sq(v):
     return np.sum(v ** 2)
+
+
 @vectorize(signature='(i)->()')
 def norm(v):
     """
@@ -138,7 +141,6 @@ def cross(a, b):
     return np.cross(a, b)
 
 
-@vectorize(signature='(i),(i)->()')
 def dot(a, b):
     """
     :param a: First input array.
@@ -148,8 +150,7 @@ def dot(a, b):
     :return: The dot product of `a` and `b`.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    return np.dot(a, b)
-
+    return np.vdot(a, b)
 
 
 @vectorize(signature='(i)->(i)')

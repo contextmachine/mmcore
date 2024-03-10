@@ -1,8 +1,21 @@
 from scipy.optimize import minimize, fsolve
 
-from mmcore.geom.vec import norm_sq, cross, norm
+from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 
 import numpy as np
+
+from mmcore.numeric.fdm import FDM
+
+
+def plane_on_curve(O, T, D2):
+    N = unit(gram_schmidt(T, D2))
+    B = cross(T, N)
+    return np.array([O, T, N, B])
+
+
+def normal_at(D1, D2):
+    N = unit(gram_schmidt(unit(D1), D2))
+    return N
 
 
 def minimize_all(fun, bounds: tuple, tol=1e-5, step=0.001, **kwargs):

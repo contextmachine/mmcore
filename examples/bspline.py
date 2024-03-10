@@ -4,7 +4,7 @@ Certainly! Here's the code for the `BSpline` class with the `generate_knots` and
 import functools
 
 from mmcore.func import vectorize
-from mmcore.geom.vec import unit, cross
+from mmcore.geom.vec import unit, cross, dot, norm
 from mmcore.numeric.fdm import FDM
 
 
@@ -97,22 +97,88 @@ class RationalBSpline(BSpline):
 
 import numpy as np
 
-from typing import Protocol, TypeVar, Union, SupportsIndex, Sequence
+from typing import Protocol, TypeVar, Union, SupportsIndex, Sequence, Callable, Any
 
 ShapeLike = Union[SupportsIndex, Sequence[SupportsIndex]]
 D = TypeVar("D", bound=SupportsIndex)
 
 from numpy.typing import ArrayLike
 
-from mmcore.numeric.numeric import evaluate_tangent, evaluate_curvature, evaluate_normal
+from mmcore.numeric.numeric import evaluate_tangent, evaluate_curvature, evaluate_normal, normal_at, plane_on_curve
 
 
 class BaseCurve:
     def __init__(self):
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)")
+        self._derivatives = [self]
+        self.add_derivative()
+        self.add_derivative()
+
+    def normal(self, t):
+        return normal_at(self.derivative(t), self.second_derivative(t))
+
+    def tangent(self, t):
+        return evaluate_tangent(self.derivative(t), self.second_derivative(t))[0]
+
+    def curvature(self, t):
+        return evaluate_curvature(self.derivative(t), self.second_derivative(t))[1]
+
+    def plane_at(self, t):
+        return plane_on_curve(self(t), self.tangent(t), self.second_derivative(t))
+
+    @property
+    def derivative(self):
+        return self._derivatives[1]
+
+    @property
+    def second_derivative(self):
+        return self._derivatives[2]
+
+    def add_derivative(self):
+        self._derivatives.append(FDM(self._derivatives[-1]))
+        return len(self._derivatives)
+
+    def __call__(self, t: Union[np.ndarray[Any, float], float]) -> np.ndarray[Any, np.dtype[float]]:
+        return self.evaluate_multi(t)
 
     def evaluate(self, t: float) -> ArrayLike: ...
+
+
+class Circle(BaseCurve):
+    def __init__(self, radius, origin=np.array([0., 0.0, 0.])):
+        super().__init__()
+        self.r = radius
+        self.origin = origin
+
+    @property
+    def a(self):
+        return self.r
+
+    @property
+    def b(self):
+        return self.origin[0]
+
+    @property
+    def c(self):
+        return self.origin[1]
+
+    def fx(self, x):
+        _ = np.sqrt(self.a ** 2 - (x - self.b) ** 2)
+        return np.array([self.c + _, self.c - _])
+
+    def fy(self, y):
+        _ = np.sqrt(self.a ** 2 - (y - self.c) ** 2)
+        return np.array([self.b + _, self.b - _])
+
+    def implict(self, xy):
+        return (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r ** 2
+
+    def intersect_with_circle(self, circle):
+        ...
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return np.array([self.r * np.cos(t) + self.origin[0], self.r * np.sin(t) + self.origin[1]])
 
 
 class BSpline(BaseCurve):
@@ -129,9 +195,6 @@ class BSpline(BaseCurve):
 
         self.degree = degree
         self.knots = self.generate_knots() if knots is None else knots
-
-        self.derivative = FDM(self)
-        self.second_derivative = FDM(self.derivative)
 
     def generate_knots(self):
         """
@@ -175,7 +238,7 @@ class BSpline(BaseCurve):
         """
         self._control_points_count = n = len(self.control_points)
         assert n > self.degree, "Expected the number of control points to be greater than the degree of the spline"
-        return self.evaluate_multi(t)
+        return super().__call__(t)
 
 
 """
@@ -218,7 +281,7 @@ class NURBSpline(BSpline):
         self._control_points_count = len(self.control_points)
         assert self._control_points_count > self.degree, "Expected the number of control points to be greater than the degree of the spline"
         assert len(self.weights) == self._control_points_count, "Expected to have a weight for every control point"
-        return self.evaluate_multi(t)
+        return BaseCurve.__call__(self, t)
 
 
 from math import ceil
@@ -253,8 +316,40 @@ spl = NURBSpline(np.array([(-26030.187675027133, 5601.3871095975337, 31638.84109
                           ))
 
 
+def product_func(curve, point: np.ndarray[3, np.dtype[float]]) -> Callable[[float], float]:
+    return lambda u: dot(curve.derivative(u), curve(u) - point)
+
+
+def edist(a, b):
+    return norm(a - b)
+
+
+def pc(u, curve, point):
+    cp = curve(u)
+    return abs(cp - point) <= edist(cp, point)
+
+
+def zcos(u, curve, point):
+    cp = curve(u)
+    dc = curve.derivative(u) * (cp - point)
+
+    return abs(cp - point) <= edist(cp, point)
+
+
+def cos_sim(a, b): return dot(a, b) / (norm(a) * norm(b))
+
+
 def closest_point_on_curve(point: tuple[float, float, float], crv: NURBSpline) -> tuple[
     float, tuple[float, float, float]]:
+    """
+
+    :param point:
+    :param crv:
+    :return:
+    .. math::
+        C'(u_{i})
+    """
+
     def objective_function(t):
         curve_point = crv(t)
         return np.linalg.norm(curve_point - point)
@@ -290,31 +385,31 @@ def closest_point_on_curve(point: tuple[float, float, float], crv: NURBSpline) -
     return t, tuple(closest_point.tolist())
 
 
-class BaseCurve:
-    def __init__(self):
+class SubCurve(BaseCurve):
+    def __init__(self, crv, start, end):
         super().__init__()
-        self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)")
-        self.derivative = FDM(self.evaluate_multi)
-        self.second_derivative = FDM(self.derivative)
+        self.crv = crv
+        self.start = start
+        self.end = end
 
-    def tangent(self, t):
-        return evaluate_tangent(self.derivative(t), self.second_derivative(t))
+    def interval(self):
+        return (0.0, 1.0)
 
-    def curvature(self, t):
-        return evaluate_curvature(self.derivative(t), self.second_derivative(t))
-
-    def plane(self, t):
-        T, K, success = self.curvature(t)
-        N = unit(K)
-        B = np.cross(T, N)
-        return np.array([self.evaluate(t), T, N, B])
-
-    def evaluate(self, t: float) -> ArrayLike: ...
+    def evaluate(self, t):
+        return self.crv(np.interp(t, self.interval(), (self.start, self.end)))
 
 
-class CubicSpline(BaseCurve):
+class Offset(BaseCurve):
+    def __init__(self, crv, distance):
+        super().__init__()
+        self.crv = crv
+        self.distance = distance
 
-    def interval(self): ...
+    def interval(self):
+        return self.crv.interval()
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.crv(t) + self.crv.normal(t) * self.distance
 
 
 '''
@@ -420,3 +515,24 @@ class NURBSpline(BSpline):
 
         return self.evaluate_multi(t)
 '''
+spl = NURBSpline(np.array([(-26030.187675027133, 5601.3871095975337, 31638.841094491760),
+                           (14918.717302595671, -25257.061306278192, 14455.443462719517),
+                           (19188.604482326708, 17583.891501540096, 6065.9078795798523),
+                           (-18663.729281923122, 5703.1869371495322, 0.0),
+                           (20028.126297559378, -20024.715164607202, 2591.0893519960955),
+                           (4735.5467668945130, 25720.651181520021, -6587.2644037490491),
+                           (-20484.795362315021, -11668.741154421798, -14201.431195298581),
+                           (18434.653814767291, -4810.2095985021788, -14052.951382291201),
+                           (612.94310080525793, 24446.695569574043, -24080.735343204549),
+                           (-7503.6320665111089, 2896.2190847052334, -31178.971042788111)]
+                          ))
+
+
+def product_func(curve, point: np.ndarray[3, np.dtype[float]]):
+    return lambda u: dot(unit(curve.derivative(u)), unit(curve(u) - point))
+
+
+from scipy.optimize import minimize_scalar
+
+f = product_func(spl, np.array([500, 500, 10000]))
+minimize_scalar(lambda u: abs(f(u)), bounds=spl.interval())

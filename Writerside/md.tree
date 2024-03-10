@@ -7,6 +7,8 @@
                   start-page="starter-topic.md">
 
 
+    <toc-element topic="closest.md"/>
+    <toc-element topic="closest-pt.topic"/>
     <toc-element topic="mmcore_api_curves.md"/>
     <toc-element topic="mmcore_api_vectors.md"/>
     <toc-element topic="mmcore_api_surface3.md"/>
