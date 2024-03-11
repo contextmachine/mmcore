@@ -45,11 +45,6 @@ def minimize_all(fun, bounds: tuple, tol=1e-5, step=0.001, **kwargs):
     return np.array(ress), np.array(funs)
 
 
-def closest_point(crv, point):
-    def fun(t):
-        return np.atleast_1d(norm_sq(crv.evaluate(t[0]) - point))
-
-    return fsolve(fun, np.array([0.001]), xtol=1e-6)
 
 
 def intersectiont_point(crv1, crv2, tol=1e-4, step=0.001):
