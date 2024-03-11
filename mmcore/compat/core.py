@@ -7,6 +7,7 @@ import sys
 import typing
 
 import inspect
+import warnings
 from abc import ABC
 from types import FunctionType, LambdaType, ModuleType
 
@@ -198,10 +199,14 @@ class AutoCastMeta(type):
 
         elif isinstance(data, cls.cast_type):
             return data
+
         else:
-
-            return cls.cast_type(data) if data is not None else cls.cast_type()
-
+            try:
+                return cls.cast_type(data) if data is not None else cls.cast_type()
+            except ValueError:
+                msg = f'Could not cast {data}, returning {cls.cast_type}()'
+                warnings.warn(msg)
+                return cls.cast_type()
 
 class ComparsionResultItem:
     class Operands:
