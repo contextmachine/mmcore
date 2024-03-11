@@ -228,6 +228,7 @@ class Curve2D(BaseCurve):
         """
         return (0, 1)
 
+    @property
     def evaluator(self) -> CurveEvaluator2D:
         return CurveEvaluator2D(self)
 
@@ -356,6 +357,32 @@ class CurveEvaluator3D(Base):
         _get_first_derivative (FDM): The function for getting the first derivative of the curve.
         _get_second_derivative (FDM): The function for getting the second derivative of the curve.
         _get_third_derivative (FDM): The function for getting the third derivative of the curve.
+
+    Example:
+        >>> from mmcore.api.curves import NurbsCurve3D
+        >>> spl2=NurbsCurve3D(np.array([(-26030.187675027133, 5601.3871095975337, 31638.841094491760),
+        ...                             (14918.717302595671, -25257.061306278192, 14455.443462719517),
+        ...                             (19188.604482326708, 17583.891501540096, 6065.9078795798523),
+        ...                             (-18663.729281923122, 5703.1869371495322, 0.0),
+        ...                             (20028.126297559378, -20024.715164607202, 2591.0893519960955),
+        ...                             (4735.5467668945130, 25720.651181520021, -6587.2644037490491),
+        ...                             (-20484.795362315021, -11668.741154421798, -14201.431195298581),
+        ...                             (18434.653814767291, -4810.2095985021788, -14052.951382291201),
+        ...                             (612.94310080525793, 24446.695569574043, -24080.735343204549),
+        ...                             (-7503.6320665111089, 2896.2190847052334, -31178.971042788111)]),degree=3)
+        ...
+        >>> evaluator=spl2.evaluator
+        >>> success,point_at_param = evaluator.get_point_at_parameter(0.4)
+        >>> print(f"Point at parameter {0.4}: {point_at_param}")
+        Point at parameter 0.4: Point3D(x=6489.8139391188415, y=-10492.901024701423, z=16491.56350183732) at 0x3063358b0
+
+        >>> success,(param_value, err) = evaluator.get_parameter_at_point(point_at_param)
+        >>> print(f"Parameter at point {point_at_param}: ", param_value, err)
+        Parameter at point Point3D(x=6489.8139391188415, y=-10492.901024701423, z=16491.56350183732) at 0x3063358b0:  0.4 1.8446678830370784e-06
+
+        >>> 0.4==param_value
+        True
+
     """
 
     def __init__(self, curve: Curve3D):
@@ -574,7 +601,7 @@ class CurveEvaluator2D(Base):
         super().__init__()
         self._curve = curve
         self._get_first_derivative = FDM(self._curve)
-        self._get_second_derivative = FDM(self.get_first_derivative)
+        self._get_second_derivative = FDM(self._get_first_derivative)
         self._get_third_derivative = FDM(self._get_second_derivative)
 
     @classmethod
@@ -672,9 +699,9 @@ class CurveEvaluator2D(Base):
         parameter : The output parameter position corresponding to the point.
         Returns parameter and distance
         """
-
-        return True, closest_point_on_curve(self._curve, point._array, tol=TOLERANCE)
-
+        t, dst = closest_point_on_curve(self._curve, point._array, tol=TOLERANCE)
+        t = round(t, int(abs(math.log10(TOLERANCE))))
+        return True, (t, dst)
 
     def get_parameter_extents(self) -> tuple[bool, float, float]:
         """
