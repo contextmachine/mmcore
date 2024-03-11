@@ -1,10 +1,10 @@
 [build-system]
-requires = ["poetry-core", "cython", "numpy", "setuptools"]
+requires = ["poetry-core", "cython", "numpy", "setuptools", "pyMSVC;sys_platform=='win32'"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.21.0"
+version = "0.22.4"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -17,7 +17,7 @@ numpy = { version = "^1.24.1" }
 python = ">=3.9,<4.0"
 graphene = { version = "^3.0.0" }
 pydantic = { version = "1.10.7" }
-starlette = "0.22.0"
+starlette = "*"
 ipython = { version = "^8.14.0" }
 termcolor = { version = "^2.3.0" }
 setuptools = { version = "^67.8.0" }
@@ -51,10 +51,9 @@ pyvis = "^0.3.2"
 pygments = "^2.16.1"
 wheel = "^0.41.2"
 multipledispatch = "*"
-autograd="*"
 cython = "*"
 cython-lint = "*"
-jax = "^0.4.25"
+click = "*"
 
 [tool.poetry.build]
 generate-setup-file = false
