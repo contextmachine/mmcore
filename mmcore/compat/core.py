@@ -1,4 +1,5 @@
 import abc
+import dataclasses
 import functools
 import itertools
 import sys
@@ -7,15 +8,24 @@ import typing
 
 import inspect
 from abc import ABC
-from types import FunctionType, LambdaType
+from types import FunctionType, LambdaType, ModuleType
 
-import numpy as np
+
+
 import json
 
+NUMPY_AVAILABLE = True
+MMCORE_AVAILABLE = True
 from dataclasses import dataclass, asdict, is_dataclass
+
+import numpy as np
+from numpy import ndarray
+
+
+
+
 from mmcore.numeric.routines import add_dim
 
-from more_itertools import flatten
 
 
 class NdArrayGeneric:
@@ -52,6 +62,32 @@ class NdArrayGeneric:
         return meta
 
 
+class Dict:
+    @classmethod
+    def cast_pair(cls, kt, vt, k, v):
+        # print( kt, vt, k, v)
+        return kt.cast(k), vt.cast(v)
+
+    def __class_getitem__(cls, ktvt):
+        meta = AutoCastMeta[dict[ktvt[0], ktvt[1]]]
+        meta.key_caster = AutoCastMeta[ktvt[0]]
+
+        meta.value_caster = AutoCastMeta[ktvt[1]]
+
+        def cast_p(kv=None):
+            if kv is not None:
+                return cls.cast_pair(meta.key_caster, meta.value_caster, kv[0], kv[1])
+
+        meta.cast_type = cast_p
+
+        def container_type(x):
+            return {k: v for k, v in x}
+
+        meta.container_type = container_type
+        meta.is_mapping = True
+        meta.container = True
+        return meta
+
 class AutoCastMeta(type):
     """
     >>> ListOfStrings=AutoCastMeta[list[str]]
@@ -65,8 +101,10 @@ class AutoCastMeta(type):
     cast_type: type | FunctionType | LambdaType = lambda *args: args[0] if args else None
     container: bool = False
     container_type: type = list
+    default: typing.Any = None
+    is_mapping = False
 
-    def __class_getitem__(cls, item):
+    def __class_getitem__(cls, item, /, cast_type=None):
         if isinstance(item, type):
             if issubclass(item, AutoCastMeta):
                 return item
@@ -84,6 +122,14 @@ class AutoCastMeta(type):
                 attrs['cast_type'] = _args[0]
             else:
                 raise TypeError(f'Container type {_origin} has no arguments: {item} ')
+        elif _origin in [dict]:
+            if _args:
+                attrs['container'] = True
+                attrs['container_type'] = _origin
+                attrs['cast_type'] = _origin
+                attrs['is_mapping'] = True
+            else:
+                raise TypeError(f'Container type {_origin} has no arguments: {item} ')
 
         else:
 
@@ -93,6 +139,9 @@ class AutoCastMeta(type):
     def __new__(metacls, name, bases, attrs, **kwargs):
         annotations = attrs.get('__annotations__', {})
         attrs['__autocast_aliases__'] = {}
+
+        for base in reversed(bases):
+            attrs['__autocast_aliases__'] |= getattr(base, '__autocast_aliases__', {})
         for k, v in annotations.items():
             if not k.startswith('__'):
                 attrs['__autocast_aliases__'][k] = AutoCastMeta[v]
@@ -124,8 +173,19 @@ class AutoCastMeta(type):
     def cast(cls, data):
 
         if isinstance(data, dict):
-            if hasattr(cls.cast_type, 'from_dict'):
+            if cls.container and cls.is_mapping:
+                return cls.container_type((cls.cast_type(i) for i in data.items()))
+
+            elif hasattr(cls.cast_type, 'from_dict'):
                 return cls.cast_type.from_dict(data)
+
+
+        elif isinstance(data, dataclasses.Field) and (data.default is not dataclasses.MISSING):
+            # print(data,data.default_factory )
+
+            return cls.cast_type(data.default)
+        elif isinstance(data, dataclasses.Field) and data.default_factory is not dataclasses.MISSING:
+            return cls.cast_type(data.default_factory())
 
         elif isinstance(data, (list, tuple, np.ndarray)):
             if isinstance(data, np.ndarray):
@@ -135,6 +195,7 @@ class AutoCastMeta(type):
         elif inspect.isfunction(cls.cast_type) or inspect.ismethod(cls.cast_type):
 
             return cls.cast_type(data) if data is not None else cls.cast_type()
+
         elif isinstance(data, cls.cast_type):
             return data
         else:
@@ -453,9 +514,9 @@ def prepare_request(m):
         if request.origin is None:
             request.origin = self
         request.prev = self
-        print(self, m)
+        #print(self, m)
         res = m(self, request)
-        print(res)
+        #print(res)
 
         return res
 
@@ -699,10 +760,15 @@ class AutoData(metaclass=AutoCastMeta):
 
     @classmethod
     def from_dict(cls, data: dict):
-        return cls(**{k: v.cast(data.get(k, None)) for k, v in cls.__autocast_aliases__.items()})
+        dct = {}
+        for k, v in cls.__autocast_aliases__.items():
+            dct[k] = v.cast(data.get(k, getattr(cls, '__dataclass_fields__', {}).get(k)))
+
+        return cls(**dct)
 
     def to_dict(self):
-        return asdict(self)
+
+        return asdict(self, dict_factory=getattr(self, 'dict_factory', dict))
 
     def compare(self, other):
 
@@ -720,7 +786,7 @@ class AutoData(metaclass=AutoCastMeta):
 
                     comparsion_result[k] = ComparsionResultItem(first == second, first, second)
             except Exception as err:
-                print(k, first, second)
+                #print(k, first, second)
                 raise err.__class__("{}, {}, {}, {}".format(k, first, second, err))
         return comparsion_result
 
@@ -728,7 +794,7 @@ class AutoData(metaclass=AutoCastMeta):
 from dataclasses import Field, make_dataclass
 
 
-def make_autodata(name, dct):
+def make_autodata(name, dct, bases=()):
     """
     Make AutoData instance from a dictionary with name
 
@@ -754,7 +820,7 @@ def make_autodata(name, dct):
     """
     if isinstance(dct, dict):
         return make_dataclass(name, [(k, make_autodata(name + k.capitalize(), v)) for k, v in dct.items()],
-                              bases=(AutoData,))
+                              bases=(*bases, AutoData))
     elif isinstance(dct, list):
         return AutoCastMeta[list[[make_autodata(name, v) for v in dct]]]
     else:
