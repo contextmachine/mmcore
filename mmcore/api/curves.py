@@ -3,6 +3,9 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from typing import Union
 
+import numpy as np
+from numpy._typing import ArrayLike
+
 from mmcore.api import Base, Point3D, Curve3D
 from mmcore.api.base import Curve2D, Curve3D, Surface
 from mmcore.api._base import ObjectCollection
@@ -1616,6 +1619,7 @@ class EllipticalArc3D(Curve3D):
         return NurbsCurve3D()
 
 
+from mmcore.geom.bspline import NURBSpline
 class NurbsCurve2D(Curve2D):
     """
     2D NURBS curve. A NURBS curve is not displayed or saved in a document.
@@ -1776,6 +1780,27 @@ class NurbsCurve2D(Curve2D):
         return [float()]
 
 
+class NurbsCurveApiProxy(NURBSpline):
+
+    def evaluate(self, t: float):
+        arr = np.zeros((3,), dtype=float)
+        sum_of_weights = 0  # sum of weight * basis function
+        for i in range(self._control_points_count):
+            b = self.basis_function(t, i, self.degree)
+
+            if b > 0:
+                arr[0] += b * self.weights[i] * self.control_points[i].x
+                arr[1] += b * self.weights[i] * self.control_points[i].y
+                arr[2] += b * self.weights[i] * self.control_points[i].z
+                sum_of_weights += b * self.weights[i]
+        # normalizing with the sum of weights to get rational B-spline
+
+        arr[0] /= sum_of_weights
+        arr[1] /= sum_of_weights
+        arr[2] /= sum_of_weights
+        return arr
+
+
 class NurbsCurve3D(Curve3D):
     """
     3D NURBS curve. A NURBS curve is not displayed or saved in a document.
@@ -1783,12 +1808,27 @@ class NurbsCurve3D(Curve3D):
     They are created statically using one of the create methods of the NurbsCurve3D class.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, control_points, weights=None, degree=3, knots=None):
+
+        super().__init__()
+        cpts = []
+        for i in range(len(control_points)):
+            item = control_points[i]
+            if isinstance(item, Point3D):
+                pass
+            else:
+                p = Point3D()
+                p._array = item
+                cpts.append(p)
+
+        self._proxy = NurbsCurveApiProxy(cpts, weights, degree, knots)
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return self._proxy.evaluate(t)
 
     @classmethod
     def cast(cls, arg) -> NurbsCurve3D:
-        return NurbsCurve3D()
+        raise NotImplementedError
 
     @classmethod
     def create_non_rational(cls, control_points: list[Point3D], degree: int, knots: list[float],
@@ -1802,7 +1842,7 @@ class NurbsCurve3D(Curve3D):
         end point that meet forming a closed loop.
         Returns the new NurbsCurve3D object or null if the creation failed.
         """
-        return NurbsCurve3D()
+        return NurbsCurve3D(control_points, None, degree, knots)
 
     @classmethod
     def create_rational(cls, control_points: list[Point3D], degree: int, knots: list[float], weights: list[float],
@@ -1817,7 +1857,7 @@ class NurbsCurve3D(Curve3D):
         end point that meet (with curvature continuity) forming a closed loop.
         Returns the new NurbsCurve3D object or null if the creation failed.
         """
-        return NurbsCurve3D()
+        return NurbsCurve3D(control_points, weights, degree, knots)
 
     def get_data(self) -> tuple[bool, list[Point3D], int, list[float], bool, list[float], bool]:
         """
@@ -1832,7 +1872,15 @@ class NurbsCurve3D(Curve3D):
         end point that meet (with curvature continuity) forming a closed loop.
         Returns true if successful.
         """
-        return (bool(), [Point3D()], int(), [float()], bool(), [float()], bool())
+        return True, self.control_points, self.degree, self.knots, self.is_rational, self.weights, self.is_periodic
+
+    @property
+    def weights(self):
+        return self._proxy.weights
+
+    @weights.setter
+    def weights(self, v):
+        self._proxy.weights[:] = v
 
     def set(self, control_points: list[Point3D], degree: int, knots: list[float], is_rational: bool,
             weights: list[float], is_periodic: bool) -> bool:
@@ -1848,7 +1896,10 @@ class NurbsCurve3D(Curve3D):
         end point that meet (with curvature continuity) forming a closed loop.
         Returns true if successful.
         """
-        return bool()
+
+        self._proxy.set(control_points=control_points, degree=degree, knots=knots, weights=weights)
+
+        return True
 
     def extract(self, startParam: float, endParam: float) -> NurbsCurve3D:
         """
@@ -1858,7 +1909,8 @@ class NurbsCurve3D(Curve3D):
         endParam : The parameter position that defines the end of the subset.
         Returns a new NurbsCurve3D object.
         """
-        return NurbsCurve3D()
+
+        raise NotImplementedError
 
     def merge(self, nurbsCurve: NurbsCurve3D) -> NurbsCurve3D:
         """
@@ -1867,67 +1919,67 @@ class NurbsCurve3D(Curve3D):
         nurbsCurve : The NURBS curve to combine with.
         Returns a new NurbsCurve3D object.
         """
-        return NurbsCurve3D()
+        raise NotImplementedError
 
     def copy(self) -> NurbsCurve3D:
         """
         Creates and returns an independent copy of this NurbsCurve3D object.
         Returns an independent copy of this NurbsCurve3D.
         """
-        return NurbsCurve3D()
+        raise NotImplementedError
 
     @property
     def controlPointCount(self) -> int:
         """
         Gets the number of control points that define the curve.
         """
-        return int()
+        return len(self._proxy.control_points)
 
     @property
     def degree(self) -> int:
         """
         Returns the degree of the curve.
         """
-        return int()
+        return self._proxy.degree
 
     @property
     def knot_count(self) -> int:
         """
         Returns the knot count of the curve.
         """
-        return int()
+        return len(self._proxy.knots)
 
     @property
     def is_rational(self) -> bool:
         """
         Indicates if the curve is rational or non-rational type.
         """
-        return bool()
+        return not np.allclose(self.weights, 1)
 
     @property
     def is_closed(self) -> bool:
         """
         Indicates if the curve is closed.
         """
-        return bool()
+        return False
 
     @property
     def is_periodic(self) -> bool:
         """
         Indicates if the curve is periodic.
         """
-        return bool()
+        raise NotImplementedError
 
     @property
     def control_points(self) -> list[Point3D]:
         """
         Returns an array of Point3D objects that define the control points of the curve.
         """
-        return [Point3D()]
+        return self._proxy.control_points
 
     @property
     def knots(self) -> list[float]:
         """
         Returns an array of numbers that define the knot vector of the curve.
         """
-        return [float()]
+        return self._proxy.knots
