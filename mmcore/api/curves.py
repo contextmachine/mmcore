@@ -1620,6 +1620,29 @@ class EllipticalArc3D(Curve3D):
 
 
 from mmcore.geom.bspline import NURBSpline
+
+
+class NurbsCurveApiProxy(NURBSpline):
+
+    def evaluate(self, t: float):
+        arr = np.zeros((3,), dtype=float)
+        sum_of_weights = 0  # sum of weight * basis function
+        for i in range(self._control_points_count):
+            b = self.basis_function(t, i, self.degree)
+
+            if b > 0:
+                arr[0] += b * self.weights[i] * self.control_points[i].x
+                arr[1] += b * self.weights[i] * self.control_points[i].y
+                arr[2] += b * self.weights[i] * self.control_points[i].z
+                sum_of_weights += b * self.weights[i]
+        # normalizing with the sum of weights to get rational B-spline
+
+        arr[0] /= sum_of_weights
+        arr[1] /= sum_of_weights
+        arr[2] /= sum_of_weights
+        return arr
+
+
 class NurbsCurve2D(Curve2D):
     """
     2D NURBS curve. A NURBS curve is not displayed or saved in a document.
@@ -1778,28 +1801,6 @@ class NurbsCurve2D(Curve2D):
         Returns an array of numbers that define the Knots of the curve.
         """
         return [float()]
-
-
-class NurbsCurveApiProxy(NURBSpline):
-
-    def evaluate(self, t: float):
-        arr = np.zeros((3,), dtype=float)
-        sum_of_weights = 0  # sum of weight * basis function
-        for i in range(self._control_points_count):
-            b = self.basis_function(t, i, self.degree)
-
-            if b > 0:
-                arr[0] += b * self.weights[i] * self.control_points[i].x
-                arr[1] += b * self.weights[i] * self.control_points[i].y
-                arr[2] += b * self.weights[i] * self.control_points[i].z
-                sum_of_weights += b * self.weights[i]
-        # normalizing with the sum of weights to get rational B-spline
-
-        arr[0] /= sum_of_weights
-        arr[1] /= sum_of_weights
-        arr[2] /= sum_of_weights
-        return arr
-
 
 class NurbsCurve3D(Curve3D):
     """
