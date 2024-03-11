@@ -1,4 +1,14 @@
+import sys
+
+if sys.platform.startswith('win'):
+    import pyMSVC
+
+    environment = pyMSVC.setup_environment()
+    print(environment)
+
+import setuptools
 import numpy
+# rest of setup code here
 from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
