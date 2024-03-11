@@ -120,9 +120,7 @@ def unit(v: 'list|tuple|np.ndarray'):
     :return: The normalized vector
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    if DEBUG_MODE:
-        if np.isclose(np.linalg.norm(v), 0):
-            raise ValueError("Input vector must not be a zero vector.")
+
 
     return v / norm(v)
 
@@ -141,6 +139,7 @@ def cross(a, b):
     return np.cross(a, b)
 
 
+@vectorize(signature='(i),(i)->()')
 def dot(a, b):
     """
     :param a: First input array.
@@ -150,7 +149,7 @@ def dot(a, b):
     :return: The dot product of `a` and `b`.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    return np.vdot(a, b)
+    return np.dot(a, b)
 
 
 @vectorize(signature='(i)->(i)')

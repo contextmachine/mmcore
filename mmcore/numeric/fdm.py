@@ -1,4 +1,7 @@
-def fdm(f, method='central', h=1e-6):
+DEFAULT_H = 1e-6
+
+
+def fdm(f, method='central', h=DEFAULT_H):
     '''Compute the FDM formula for f'(t) with step size h.
 
     Parameters
@@ -28,7 +31,6 @@ def fdm(f, method='central', h=1e-6):
     else:
         raise ValueError("Method must be 'central', 'forward' or 'backward'.")
 
-
 class FDM:
 
     def __init__(self, fun):
@@ -41,14 +43,14 @@ class FDM:
     def interval(self):
         return getattr(self._fun, 'interval', lambda: (0., 1.))()
 
-    def central(self, t, h=1e-6):
+    def central(self, t, h=DEFAULT_H):
         return (self._fun(t + h) - self._fun(t - h)) / (2 * h)
 
-    def forward(self, t, h=1e-6):
+    def forward(self, t, h=DEFAULT_H):
         return (self._fun(t + h) - self._fun(t)) / h
 
-    def backward(self, t, h=1e-6):
+    def backward(self, t, h=DEFAULT_H):
         return (self._fun(t) - self._fun(t - h)) / h
 
-    def __call__(self, t, h=1e-6, method="central"):
+    def __call__(self, t, h=DEFAULT_H, method="central"):
         return getattr(self, method)(t, h=h)
