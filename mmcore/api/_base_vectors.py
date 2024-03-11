@@ -117,7 +117,8 @@ class BaseVector(Base):
 
     @classmethod
     def cast(cls, arg) -> Type[Self]:
-        return cls(arg)
+        return arg if isinstance(arg, cls) else cls(arg)
+
 
     def as_array(self) -> np.ndarray:
         return np.asarray(self._array)
