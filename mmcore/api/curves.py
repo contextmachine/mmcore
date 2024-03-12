@@ -1644,10 +1644,10 @@ class NurbsCurveApiProxy3D(NURBSpline):
                 arr[2] += b * self.weights[i] * self.control_points[i].z
                 sum_of_weights += b * self.weights[i]
         # normalizing with the sum of weights to get rational B-spline
-
-        arr[0] /= sum_of_weights
-        arr[1] /= sum_of_weights
-        arr[2] /= sum_of_weights
+        if sum_of_weights > 0:
+            arr[0] /= sum_of_weights
+            arr[1] /= sum_of_weights
+            arr[2] /= sum_of_weights
         return arr
 
 

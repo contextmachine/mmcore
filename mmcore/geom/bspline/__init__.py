@@ -191,7 +191,7 @@ def find_span(n, degree, u, knots):
 
 import bisect
 
-
+from .utils import calc_b_spline_point, calcNURBSDerivatives, calc_bspline_derivatives, calc_rational_curve_derivatives
 class BSpline(BaseCurve):
     """
     """
@@ -204,8 +204,16 @@ class BSpline(BaseCurve):
 
     def __init__(self, control_points, degree=3, knots=None):
         super().__init__()
-        self.set(control_points, degree=degree, knots=knots)
 
+        self.set(control_points, degree=degree, knots=knots)
+        self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
+        self._wcontrol_points[:, :-1] = self.control_points
+
+    def derivative(self, t):
+        return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 1)[1][:-1]
+
+    def second_derivative(self, t):
+        return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 2)[2][:-1]
     def set(self, control_points=None, degree=None, knots=None):
         if control_points is not None:
             self.control_points = control_points
@@ -219,7 +227,8 @@ class BSpline(BaseCurve):
         :return: A list of knots
         """
         n = len(self.control_points)
-        knots = [0] * (self.degree + 1) + list(range(1, n - self.degree)) + ([n - self.degree] * (self.degree + 1))
+        knots = [0] * (self.degree + 1) + list(range(1, n - self.degree)) + [n - self.degree] * (self.degree + 1)
+
         return np.array(knots, float)
 
     def find_span(self, t, i):
@@ -248,6 +257,10 @@ class BSpline(BaseCurve):
 
     def evaluate(self, t: float):
         result = np.zeros((3,), dtype=float)
+        if t == 0.:
+            t += 1e-8
+        elif t == 1.:
+            t -= 1e-8
 
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
