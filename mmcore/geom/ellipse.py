@@ -1,6 +1,6 @@
 import functools
 
-import autograd.numpy as np
+import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.curves import ParametricPlanarCurve
