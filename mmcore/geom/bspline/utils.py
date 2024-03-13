@@ -70,7 +70,7 @@ def calc_b_spline_point(p, U, P, u):
     for j in range(p + 1):
         point = P[span - p + j]
         Nj = N[j]
-        print(point[3], Nj)
+
         wNj = point[3] * Nj
         C[0] += point[0] * wNj
         C[1] += point[1] * wNj
@@ -179,7 +179,6 @@ def calc_bspline_derivatives(p, U, P, u, nd):
     for k in range(du + 1):
         tmp = np.zeros((4,), dtype=float)
         for j in range(p + 1):
-            print(j, p, nders[k][j])
             tmp += Pw[int(span - int(p) + int(j))] * nders[k][j]
         CK.append(tmp)
 
