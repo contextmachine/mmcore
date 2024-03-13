@@ -231,7 +231,6 @@ def adam(objective, derivative, bounds, n_iterations=1000, step_size=0.01, avera
 
 from mmcore.geom.vec import norm
 from mmcore.geom.pde import PDE
-from autograd import grad, elementwise_grad
 from collections import namedtuple
 
 AdamOutput = namedtuple("AdamOutput", ['x', 'f'])
