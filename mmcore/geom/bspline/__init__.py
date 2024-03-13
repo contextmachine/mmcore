@@ -6,6 +6,7 @@ import math
 from mmcore.geom.vec import unit, cross, dot
 from mmcore.numeric.fdm import FDM
 from mmcore.numeric.divide_and_conquer import recursive_divide_and_conquer_min
+from ...func import vectorize
 
 '''
 class BSpline:
@@ -209,11 +210,28 @@ class BSpline(BaseCurve):
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
 
+    @vectorize(excluded=[0], signature='()->(i)')
     def derivative(self, t):
         return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 1)[1][:-1]
 
+    @vectorize(excluded=[0], signature='()->(i)')
     def second_derivative(self, t):
         return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 2)[2][:-1]
+
+    @vectorize(excluded=[0, 'n', 'return_projective'], signature='()->(j,i)')
+    def n_derivative(self, t, n=3, return_projective=False):
+        """
+
+        :param t: Параметр на кривой
+        :param n: Количество производных которые требуется оценить.  Нулевая производная ( n=0 ) это точка на кривой, последняя производная всегда==[0,0,0,1]
+
+        :param return_projective: Если True вернет вектора в виде [x,y,z,w] вместо [x,y,z] по умолчанию False
+        :return:
+        """
+        res = np.array(calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, n))
+        if return_projective:
+            return res
+        return res[..., :-1]
     def set(self, control_points=None, degree=None, knots=None):
         if control_points is not None:
             self.control_points = control_points
