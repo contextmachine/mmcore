@@ -1,4 +1,5 @@
 from enum import Enum
+from mmcore.numeric.numeric import *
 from mmcore.numeric.routines import *
 import numpy as np
 

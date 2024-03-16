@@ -22,7 +22,8 @@ from mmcore.numeric.closest_point import closest_point_on_curve
 TOLERANCE = 1e-9
 
 from mmcore.numeric.numeric import evaluate_curvature, evaluate_tangent, evaluate_length, evaluate_curvature_vec, \
-    evaluate_tangent_vec, intersectiont_point, normal_at, plane_on_curve
+    evaluate_tangent_vec, normal_at, plane_on_curve
+from mmcore.numeric.minimize_all import intersectiont_point
 
 
 class Surface(Base):
