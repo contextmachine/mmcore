@@ -1,10 +1,11 @@
-from scipy.optimize import minimize, fsolve
+from __future__ import annotations
 
 from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
-
+from scipy.integrate import quad
 import numpy as np
 
-from mmcore.numeric.fdm import FDM
+from mmcore.numeric.routines import divide_interval
+from mmcore.numeric.divide_and_conquer import recursive_divide_and_conquer_min, recursive_divide_and_conquer_max
 
 
 def plane_on_curve(O, T, D2):
@@ -18,42 +19,6 @@ def normal_at(D1, D2):
     return N
 
 
-def minimize_all(fun, bounds: tuple, tol=1e-5, step=0.001, **kwargs):
-    bounds = np.array(bounds)
-    ress = []
-    funs = []
-
-    def bb(bnds):
-        nonlocal ress
-        ends = bnds[:, -1]
-        starts = bnds[:, 0]
-        if (np.abs(ends[0] - starts[0])) <= step:
-            return
-        else:
-
-            res = minimize(fun, x0=starts, bounds=bnds, **kwargs)
-            print(res)
-            if res.fun <= tol:
-                ress.append(res.x)
-                funs.append(res.fun)
-
-            bnds[0, 0] = res.x[0] + (bnds[0, 1] - res.x[0]) / 2
-
-            bb(bnds)
-
-    bb(np.copy(bounds))
-    return np.array(ress), np.array(funs)
-
-
-
-
-def intersectiont_point(crv1, crv2, tol=1e-4, step=0.001):
-    def fun(t):
-        return norm(crv1(t[0]) - crv2(t[1]))
-
-    return minimize_all(fun, bounds=(crv1.interval(), crv2.interval()), tol=tol, step=step)
-
-
 def evaluate_tangent(D1, D2):
     d1 = np.linalg.norm(D1)
     if d1 == 0.0:
@@ -65,8 +30,6 @@ def evaluate_tangent(D1, D2):
 
 
 evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature='(i),(i)->(i),()')
-
-from scipy.integrate import quad
 
 
 def evaluate_length(first_der, t0: float, t1: float, **kwargs):
@@ -123,124 +86,9 @@ def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
 
 
 def evaluate_normal(Du, Dv, Duu, Duv, Dvv, limit_dir=None):
-    r"""
+    DuoDu = norm_sq(Du)
 
-bool
-ON_EvNormal(int limit_dir,
-                const ON_3dVector& Du, const ON_3dVector& Dv,
-                const ON_3dVector& Duu, const ON_3dVector& Duv, const ON_3dVector& Dvv,
-                ON_3dVector& N)
-{
-  const double DuoDu = Du.LengthSquared();
-  const double DuoDv = Du*Dv;
-  const double DvoDv = Dv.LengthSquared();
-  if ( ON_EvJacobian(DuoDu,DuoDv,DvoDv,nullptr) ) {
-    N = ON_CrossProduct(Du,Dv);
-  }
-  else {
-    /* degenerate jacobian - try to compute normal using limit
-     *
-     * P,Du,Dv,Duu,Duv,Dvv = srf and partials evaluated at (u0,v0).
-     * Su,Sv,Suu,Suv,Svv = partials evaluated at (u,v).
-     * Assume that srf : R^2 -> R^3 is analytic near (u0,v0).
-     *
-     * srf(u0+u,v0+v) = srf(u0,v0) + u*Du + v*Dv
-     *                  + (1/2)*u^2*Duu + u*v*Duv + (1/2)v^2*Dvv
-     *                  + cubic and higher order terms.
-     *
-     * Su X Sv = Du X Dv + u*(Du X Duv + Duu X Dv) + v*(Du X Dvv + Duv X Dv)
-     *           + quadratic and higher order terms
-     *
-     * Set
-     * (1) A = (Du X Duv + Duu X Dv),
-     * (2) B = (Du X Dvv + Duv X Dv) and assume
-     * Du X Dv = 0.  Then
-     *
-     * |Su X Sv|^2 = u^2*AoA + 2uv*AoB + v^2*BoB + cubic and higher order terms
-     *
-     * If u = a*t, v = b*t and (a^2*AoA + 2ab*AoB + b^2*BoB) != 0, then
-     *
-     *        Su X Sv                   a*A + b*B
-     * lim   ---------  =  ----------------------------------
-     * t->0  |Su X Sv|      sqrt(a^2*AoA + 2ab*AoB + b^2*BoB)
-     *
-     * All I need is the direction, so I just need to compute a*A + b*B as carefully
-     * as possible.  Note that
-     * (3)  a*A + b*B = Du X (a*Duv + b*Dvv)  - Dv X (a*Duu + b*Duv).
-     * Formaula (3) requires fewer flops than using formulae (1) and (2) to
-     * compute a*A + b*B.  In addition, when |Du| << |Dv| or |Du| >> |Dv|,
-     * formula (3) reduces the number of subtractions between numbers of
-     * similar size.  Since the (nearly) zero first partial is the most common
-     * is more common than the (nearly) (anti) parallel case, I'll use
-     * formula (3).  If you're reading this because you're not getting
-     * the right answer and you can't find any bugs, you might want to
-     * try using formulae (1) and (2).
-     *
-     * The limit_dir argument determines which direction is used to compute the
-     * limit.
-     *                  |
-     *   limit_dir == 2 |  limit_dir == 1
-     *           \      |      /
-     *            \     |     /
-     *             \    |    /
-     *              \   |   /
-     *               \  |  /
-     *                \ | /
-     *                 \|/
-     *   ---------------*--------------
-     *                 /|\
-     *                / | \
-     *               /  |  \
-     *              /   |   \
-     *             /    |    \
-     *            /     |     \
-     *           /      |      \
-     *   limit_dir == 3 |  limit_dir == 4
-     *                  |
-     *
-     */
-
-    double a,b;
-    ON_3dVector V, Au, Av;
-
-    switch(limit_dir) {
-    case  2: /* from 2nd  quadrant to point */
-      a = -1.0; b =  1.0; break;
-    case  3: /* from 3rd  quadrant to point */
-      a = -1.0; b = -1.0; break;
-    case  4: /* from 4rth quadrant to point */
-      a =  1.0; b = -1.0; break;
-    default: /* from 1rst quadrant to point */
-      a =  1.0; b =  1.0; break;
-    }
-
-    V = a*Duv + b*Dvv;
-    Av.x = Du.y*V.z - Du.z*V.y;
-    Av.y = Du.z*V.x - Du.x*V.z;
-    Av.z = Du.x*V.y - Du.y*V.x;
-
-    V = a*Duu + b*Duv;
-    Au.x = V.y*Dv.z - V.z*Dv.y;
-    Au.y = V.z*Dv.x - V.x*Dv.z;
-    Au.z = V.x*Dv.y - V.y*Dv.x;
-
-    N = Av + Au;
-  }
-
-  return N.Unitize();
-}
-
-    :param limit_dir:
-    :param Du:
-    :param Dv:
-    :param Duu:
-    :param Duv:
-    :param Dvv:
-    :return:
-    """
-    DuoDu = norm_sq(Du);
-
-    DuoDv = Du * Dv;
+    DuoDv = Du * Dv
 
     DvoDv = norm_sq(Dv)
     det, success = evaluate_jacobian(DuoDu, DuoDv, DvoDv)
@@ -259,3 +107,36 @@ ON_EvNormal(int limit_dir,
         N = Av + Au
         N = N / np.linalg.norm(N)
         return N
+
+
+def nurbs_bound_points(curve, tol=1e-5):
+    """
+    Returns a array of parameters whose evaluation gives you a set of points at least sufficient
+    for correct estimation of the AABB(Axis-Aligned Bounding Box) of the curve.
+    Also the set contains parameters of all extrema of the curve,
+    but does not guarantee that the curve is extreme in all parameters.
+    """
+
+    def t_x(t):
+        return -curve(t)[0]
+
+    def t_y(t):
+        return -curve(t)[1]
+
+    def t_z(t):
+        return -curve(t)[2]
+
+    t_values = []
+
+    def solve_interval(f, bounds):
+        f_min, _ = recursive_divide_and_conquer_min(f, bounds, tol)
+        f_max, _ = recursive_divide_and_conquer_max(f, bounds, tol)
+        return f_min, f_max
+
+    curve_start, curve_end = curve.interval()
+    for start, end in divide_interval(curve_start, curve_end, step=1.):
+        t_values.extend(solve_interval(t_x, (start, end)))
+        t_values.extend(solve_interval(t_y, (start, end)))
+        t_values.extend(solve_interval(t_z, (start, end)))
+
+    return np.unique(np.array([curve_start, *t_values, curve_end]))

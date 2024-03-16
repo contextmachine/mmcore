@@ -2,12 +2,8 @@ import math
 
 import numpy as np
 
+from mmcore.numeric import divide_interval
 from mmcore.numeric.divide_and_conquer import recursive_divide_and_conquer_min
-
-
-def _divide_interval(start, end, step=1.):
-    a = np.arange(start, end, step)
-    return np.c_[a, a + step]
 
 
 def closest_point_on_curve(curve, point: np.ndarray[3, np.dtype[float]], tol=1e-5):
@@ -21,7 +17,7 @@ def closest_point_on_curve(curve, point: np.ndarray[3, np.dtype[float]], tol=1e-
 
     def gen():
         s, e = curve.interval()
-        for start, end in _divide_interval(s, e, step=1.0):
+        for start, end in divide_interval(s, e, step=1.0):
             x, fval = recursive_divide_and_conquer_min(lambda u: sum((curve(u) - point) ** 2),
                                                        (start, end),
                                                        tol)

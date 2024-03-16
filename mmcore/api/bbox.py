@@ -10,15 +10,12 @@ from mmcore.api._base_vectors import BaseVector
 from mmcore.api.vectors import Point2D, Point3D
 from mmcore.func import vectorize
 from mmcore.numeric import cartesian_product
+from mmcore.numeric.aabb import aabb
 
 
 @vectorize(signature='(i),(i)->(j,i)')
 def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
-
-
-def aabb(points: np.ndarray):
-    return np.array((np.min(points, axis=len(points.shape) - 2), np.max(points, axis=len(points.shape) - 2)))
 
 
 class BaseBoundingBox(Base, metaclass=ABCMeta):

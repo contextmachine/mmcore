@@ -160,9 +160,6 @@ def calc_basis_function_derivatives(span, u, p, n, U):
     return ders
 
 
-import numpy as np
-
-
 def calc_bspline_derivatives(p, U, P, u, nd):
     du = min(nd, p)
     CK = []
@@ -214,9 +211,6 @@ def calc_surface_point(p, q, U, V, P, u, v):
     Sw = Sw / Sw[3]
     target = Sw[:3]
     return target
-
-
-import numpy as np
 
 
 def calc_rational_curve_derivatives(Pders):

@@ -117,3 +117,8 @@ def cubic_spline(control_points: np.ndarray[(4, 2), np.dtype[float]]
                 + p1 * (t ** 3))
 
     return np.vectorize(inner, signature='()->(i)')
+
+
+def divide_interval(start, end, step=1.):
+    a = np.arange(start, end, step)
+    return np.c_[a, a + step]
