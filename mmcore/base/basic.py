@@ -373,18 +373,19 @@ class A:
 
         dct |= {
 
-            "_self_idict": copy.deepcopy(self.idict[self.uuid])
-
+            "_self_idict": copy.deepcopy(self.idict[self.uuid]),
+            "_self_propsdict": copy.deepcopy(propsdict[self.uuid].todict())
         }
         return dct
 
     def __setstate__(self, state):
         _self_idict = state.pop("_self_idict")
+        _self_propsdict = state.pop("_self_propsdict")
         _self_uuid = state["_uuid"]
 
         adict[_self_uuid] = self
         idict[_self_uuid] = _self_idict
-
+        propsdict[_self_uuid] = Props(uuid=self._uuid, **_self_propsdict)
         for k, v in state.items():
             setattr(self, k, v)
 
