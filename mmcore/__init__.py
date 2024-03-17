@@ -5,5 +5,6 @@ load_dotenv_from_path(".env")
 
 TOLERANCE = 0.000_001
 
+
 def __version__():
-    return "0.22.5"
+    return "0.22.6"
