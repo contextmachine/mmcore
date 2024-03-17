@@ -86,3 +86,26 @@ def recursive_divide_and_conquer_max(fun, bounds, tol):
             return recursive_divide_and_conquer_max(fun, (low, m2), tol)
         else:
             return recursive_divide_and_conquer_max(fun, (m1, high), tol)
+
+
+def recursive_divide_and_conquer_roots(fun, bounds, tol=1e-5):
+    low, high = bounds
+    roots = []
+    # Check if the precision level is achieved.
+    if abs((high - low)) < tol:
+
+        x_root = (low + high) / 2
+        roots.append([x_root, fun(x_root)])
+        return roots
+    else:
+        # Divide the range into four parts.
+        m1 = low + (high - low) / 2
+        m2 = high - (high - low) / 2
+
+        # Recurse on the half where the function value is lower.
+        if abs(fun(m1)) < abs(fun(m2)):
+            roots.extend(recursive_divide_and_conquer_roots(fun, (low, m2), tol))
+        else:
+            roots.extend(recursive_divide_and_conquer_roots(fun, (m1, high), tol))
+
+        return roots

@@ -1,14 +1,11 @@
-import numpy as np
-from scipy.optimize import minimize
+
 
 from mmcore.geom.bspline import SubCurve, NURBSpline
-from mmcore.geom.vec import norm_sq
+
 from mmcore.numeric.aabb import nurbs_curve_aabb, aabb_overlap
 
-import multiprocess as mp
 
-
-def nurbs_curve_intersect(curve1: NURBSpline, curve2: NURBSpline, tol: float = 1., workers=4) -> list[
+def nurbs_curve_intersect(curve1: NURBSpline, curve2: NURBSpline, tol: float = 1.) -> list[
     tuple[float, float] | None]:
     """
     Finds the intersections between two NURBS curves using a divide-and-conquer approach.
