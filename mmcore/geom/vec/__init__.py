@@ -125,6 +125,10 @@ def unit(v: 'list|tuple|np.ndarray'):
     return v / norm(v)
 
 
+def projection_length(a, b):
+    nb = norm(b)
+    return dot(a, b) / nb
+
 @vectorize(signature='(i),(i)->(i)')
 def cross(a, b):
     """
