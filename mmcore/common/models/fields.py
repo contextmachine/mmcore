@@ -132,6 +132,7 @@ class FieldMap:
     @property
     def backward_callback(self):
         return self.callbacks[1]
+
     def forward(self, source, target: dict):
         val = self.getter(source)
         if self.forward_callback:

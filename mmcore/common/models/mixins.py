@@ -209,14 +209,31 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     _material = None
     __view_name__ = "mesh"
 
+
     def __init_support__(self, uuid=None, field_map=None, hooks=(), color=None,
-            material_prototype: BaseMaterial = None, ):
+                         material_prototype: BaseMaterial = None, allow_control_points=True):
         super().__init_support__(uuid, field_map, hooks=hooks)
         self._mesh = None
         self._material_prototype = material_prototype
         self._material = copy.copy(self.material_prototype)
-
+        self._allow_control_points = allow_control_points
         self.material_color = color
+
+    @property
+    def allow_control_points(self):
+        return self._allow_control_points
+
+    @allow_control_points.setter
+    def allow_control_points(self, v: bool):
+        self._allow_control_points = v
+        self.to_mesh()._controls.clear()
+        self.update_mesh()
+
+    def disable_control_points(self):
+        self.allow_control_points = False
+
+    def enable_control_points(self):
+        self.allow_control_points = True
 
     def hook(self):
         super().hook()
@@ -288,7 +305,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
                 material=self.to_mesh_material(), **kwargs, )
         self._mesh.owner = self
 
-        if hasattr(self, "control_points"):
+        if hasattr(self, "control_points") and self.allow_control_points:
             self._mesh._controls["path"] = dict(points=encode_control_points(self.control_points)
                     )
 

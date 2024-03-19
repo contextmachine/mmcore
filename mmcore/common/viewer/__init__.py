@@ -125,6 +125,7 @@ class ViewerGroupObserver(Observer):
         # Нам нужно:
         # 1. Обновить значения атрибутов от представлений к родителям
         print(self, observable, uuids, props, kwargs)
+
         self.notify_backward(observable=observable, uuids=uuids, props=props)
 
         # Здесь значения атрибутов обновлены и родители могут произвести нужные вычисления
@@ -144,10 +145,8 @@ class ViewerGroupObserver(Observer):
         """
         for uid in uuids:
             mesh = adict.get(uid, None)
-            print(mesh)
             mesh.properties.update(props)
             if hasattr(mesh, "owner"):
-                print(mesh.owner)
                 mesh.owner.apply_backward(props)
 
     def notify_forward(self, observable: AGroup, uuids=None, **kwargs):
@@ -178,6 +177,7 @@ class ViewerGroupObserver(Observer):
                         mesh.owner.solve()
 
                     mesh.owner.update_mesh(no_back=True)
+
 
             else:
                 print(mesh, "pass")
