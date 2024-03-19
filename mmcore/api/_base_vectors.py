@@ -1,6 +1,11 @@
 from __future__ import annotations
+import sys
+from typing import Type
 
-from typing import Type, Self
+if sys.version_info.minor < 10:
+    Self = object
+else:
+    from typing import Self
 
 import numpy as np
 
