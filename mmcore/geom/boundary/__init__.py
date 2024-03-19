@@ -41,6 +41,13 @@ class Boundary(MeshViewSupport):
     def control_points(self, v):
         self.boundary = np.array(v, float)
 
+    @property
+    def corners(self):
+        return self.boundary
+
+    @corners.setter
+    def corners(self, v):
+        self.boundary[:] = v
 
 class BoundaryIterator:
     def __init__(self, boundary):
