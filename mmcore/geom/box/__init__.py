@@ -12,7 +12,7 @@ from mmcore.geom.mesh import union_mesh_simple
 from mmcore.geom.mesh.shape_mesh import mesh_from_bounds
 from mmcore.geom.plane import Plane, WXY, rotate_plane_around_plane
 from mmcore.geom.rectangle import Rectangle, rect_to_mesh_vec, rect_to_plane
-from mmcore.geom.vec import cross, dist, unit
+from mmcore.geom.vec import cross, dist, unit, norm, projection_length, dot
 
 
 class Box(Rectangle, MeshViewSupport):
@@ -37,6 +37,21 @@ class Box(Rectangle, MeshViewSupport):
         self.h = h
 
         self.__init_support__(self.uuid, color=color, **kwargs)
+
+    @classmethod
+    def from_3pt(cls, pt1, pt2, pt3, **kwargs):
+        p1, p2, p3 = np.array([pt1, pt2, pt3])
+        u_vec = p2 - p1
+        v_vec = p3 - p1
+        u = norm(u_vec)
+        p4 = p3 - (unit(u_vec) * projection_length(v_vec, u_vec))
+        v = norm(p4 - p1)
+
+        _obj = super().from_3pt(p1, p2, p4)
+
+        obj = cls(u, v, **kwargs)
+        obj._array = _obj._array
+        return obj
 
 
     @property
