@@ -55,7 +55,7 @@ def union_mesh(meshes, extras=None, keys=None):
     >>>  with open('single_mesh.gltf', 'w') as f: # dump gltf file
     >>>     ujson.dump(scene.todict(), f)
     """
-    print(extras)
+
     extras = dict() if extras is None else extras
     attribute_names = keys if keys else _get_attribute_names(meshes)
 
