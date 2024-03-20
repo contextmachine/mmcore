@@ -20,7 +20,7 @@ pydantic = { version = "1.10.7" }
 starlette = "*"
 ipython = { version = "^8.14.0" }
 termcolor = { version = "^2.3.0" }
-setuptools = { version = "^67.8.0" }
+setuptools = { version = "^69.0.0" }
 fastapi = { version = "*", extras = ["all"] }
 earcut = { version = "^1.1.5" }
 shapely = "^2.0.1"
