@@ -58,16 +58,10 @@ jobs:
         id: artifactname
         run: |
           cd dist
-          echo "tarfile=$(ls *.tar.gz| head -1)" >> $GITHUB_OUTPUT
           echo "wheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
       - name: artifact wheels
         uses: actions/upload-artifact@v4.3.1
         with:
           path: dist
           name: ${{ steps.artifactname.outputs.wheelfile }}
-      - name: artifact tgz
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          path: dist
-          name: ${{ steps.artifactname.outputs.tarfile }}
           overwrite: true
