@@ -60,6 +60,9 @@ generate-setup-file = false
 script = 'build.py'
 
 
+[tool.poetry.group.dev.dependencies]
+mypy = { version = "^1.9.0", optional = true }
+
 [tool.cython-lint]
 max-line-length = 140
 ignore = ['E503', 'E504']

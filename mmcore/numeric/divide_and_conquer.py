@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def recursive_divide_and_conquer_min(fun, bounds, tol):
     """
     Find the minimum value of a function within a given range using a recursive divide and conquer approach.
@@ -103,7 +106,7 @@ def recursive_divide_and_conquer_roots(fun, bounds, tol=1e-5):
         m2 = high - (high - low) / 2
 
         # Recurse on the half where the function value is lower.
-        if abs(fun(m1)) < abs(fun(m2)):
+        if np.all(abs(fun(m1)) < abs(fun(m2))):
             roots.extend(recursive_divide_and_conquer_roots(fun, (low, m2), tol))
         else:
             roots.extend(recursive_divide_and_conquer_roots(fun, (m1, high), tol))

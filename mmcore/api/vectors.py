@@ -16,7 +16,7 @@ class Vector2D(BaseVector):
     __dim__: int = 2
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(x={self.x}, y={self.y}) at {hex(id(self))}'
+        return f'{self.__class__.__name__}(x={self.x}, y={self.y})'
     @classmethod
     def create(cls, x: float, y: float) -> Vector2D:
         """
@@ -149,7 +149,7 @@ class Vector3D(BaseVector):
     __dim__: int = 3
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z}) at {hex(id(self))}'
+        return f'{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z})'
     @classmethod
     def cast(cls, arg) -> Vector3D:
         if isinstance(arg, (tuple, np.ndarray, list)):
