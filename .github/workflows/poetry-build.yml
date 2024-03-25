@@ -1,0 +1,78 @@
+name: poetry-build
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ "ubuntu-latest", "macos-latest", "windows-latest", "macos-14" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        exclude:
+          - os: macos-14
+            python-version: "3.9"
+
+    defaults:
+      run:
+        shell: bash
+    runs-on: ${{ matrix.os }}
+    environment:
+      name: pypy
+      url: https://pypi.org/p/mmcore
+
+    permissions:
+      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+    
+
+    steps:
+      #----------------------------------------------
+      #       check-out repo and set-up python
+      #----------------------------------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Extract branch name
+        shell: bash
+        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+        id: extract_branch
+
+      - name: Set up python ${{ matrix.python-version }}
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          continue-on-error: true
+
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - name: Load cached venv
+        id: cached-pip-wheels
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Install library
+        run: poetry install --no-interaction
+      - name: Poetry build
+        run: |
+          source $VENV
+          poetry build
+      - name: artifactname
+        id: artifactname
+        run: |
+          cd dist
+          echo "wheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
+      - name: artifact wheels
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          path: dist
+          name: ${{ steps.artifactname.outputs.wheelfile }}
+          overwrite: true
+
