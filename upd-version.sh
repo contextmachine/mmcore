@@ -1,2 +1,4 @@
-python3 ./bin/upd-version.py --minor "$@"
+poetry version patch
+python3 updversion.py
+
 #poetry lock
