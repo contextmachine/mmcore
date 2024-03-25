@@ -42,7 +42,7 @@ pyquaternion = "^0.9.9"
 multiprocess = "^0.70.15"
 cloudpickle = "^2.2.1"
 more-itertools = "~10.1.0"
-uvicorn = { version = "^0.23.2", extras = ["standard"] }
+uvicorn = { version = "^0.23.3", extras = ["standard"] }
 randomname = "^0.2.1"
 geomdl = "^5.3.1"
 rich = "^13.5.2"
