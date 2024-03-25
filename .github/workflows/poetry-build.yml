@@ -50,19 +50,23 @@ jobs:
         run: poetry install --no-interaction --no-root
       - name: Install library
         run: poetry install --no-interaction
-
       - name: Poetry build
         run: |
           source $VENV
           poetry build
-      - name: artifact name
+      - name: artifactname
         id: artifactname
         run: |
           cd dist
-          echo "file=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
-      - name: artifacts
+          echo "tarfile=$(ls *.tar.gz| head -1)\nwheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
+      - name: artifact wheels
         uses: actions/upload-artifact@v4.3.1
         with:
           path: dist
-          name: ${{ steps.artifactname.outputs.file }}
-
+          name: ${{ steps.artifactname.outputs.wheelfile }}
+      - name: artifact tgz
+        uses: actions/upload-artifact@v4.3.1
+        with:
+          path: dist
+          name: ${{ steps.artifactname.outputs.tarfile }}
+          overwrite: true
