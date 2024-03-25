@@ -11,6 +11,7 @@ import numpy
 # rest of setup code here
 from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
+
 from setuptools.command.build_py import build_py
 from Cython.Build import cythonize
 
