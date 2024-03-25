@@ -22,7 +22,7 @@ jobs:
 
     permissions:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-    if: ${{ !((matrix.python-version == "3.9")&&(matrix.os=="macos-14") )}}
+    if: ${{ !((${{matrix.python-version}} == "3.9")&&(${{matrix.os}}=="macos-14") )}}
 
     steps:
       #----------------------------------------------
