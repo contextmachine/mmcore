@@ -1,5 +1,6 @@
 [![Docker](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml)
 [![Build documentation](https://github.com/contextmachine/mmcore/actions/workflows/build-docs.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/build-docs.yml)
+[![poetry-build](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml/badge.svg?branch=master)](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml)
 # mmcore
 
 
