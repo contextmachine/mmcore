@@ -59,7 +59,7 @@ jobs:
         id: artifactname
         run: |
           cd dist
-          echo "file=$(ls *.tar.gz| head -1)" >> $GITHUB_OUTPUT
+          echo "file=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
       - name: artifacts
         uses: actions/upload-artifact@v4.3.1
         with:
