@@ -52,7 +52,8 @@ jobs:
         run: poetry install --no-interaction
       - name: Extract mmcore version
         shell: bash
-        run: echo "version=${poetry version --short}" >> $GITHUB_OUTPUT
+        run: echo "version=$(poetry version --short)" >> GITHUB_OUTPUT
+
         id: extract_version
       - name: Poetry build
         run: |
