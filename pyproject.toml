@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.23.10"
+version = "0.23.11"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -53,6 +53,7 @@ multipledispatch = "*"
 cython = "*"
 cython-lint = "*"
 click = "*"
+toml = "^0.10.2"
 
 [tool.poetry.build]
 generate-setup-file = false

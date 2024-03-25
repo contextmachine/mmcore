@@ -94,7 +94,7 @@ def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
         uuid = _uuid.uuid4().hex
     return create_mesh_buffer(uuid + 'geom',
                               **{k: attr.tolist() for k, attr in mesh[0].items()},
-                              index=mesh.indices.tolist() if isinstance(mesh.indices, np.ndarray) else mesh.indices)
+                              index=mesh.indices.tolist() if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None) else mesh.indices)
 def build_mesh_with_buffer(mesh,
                            uuid=None,
                            name: str = "Mesh",
@@ -132,8 +132,8 @@ def build_mesh_with_buffer(mesh,
     m = AMesh(uuid=uuid,
               name=name,
               geometry=create_mesh_buffer(uuid + 'geom',
-                                          **{k: attr.tolist() for k, attr in mesh[0].items()},
-                                          index=index.tolist() if isinstance(index, np.ndarray) else index
+                                          **{k: np.array(attr,dtype=float).tolist() for k, attr in mesh[0].items()},
+                                          index=index.tolist()  if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None) else index
                                           ),
               material=material,
 
