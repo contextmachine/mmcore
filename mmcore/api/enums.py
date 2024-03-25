@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 
 class Curve2DTypes(IntEnum):
@@ -72,3 +72,25 @@ class TextureTypes(IntEnum):
     TileTexture = 7
     WaveTexture = 8
     WoodTexture = 9
+
+
+class IntersectionType(str, Enum):
+    """
+    The different types of intersections.
+    Syntax:
+    Type defined from string[4]
+    string[0]: View type od first member
+    string[1] {Geometry type of first member}
+    string[2] {View type od second member}
+    string[3] {Geometry type of second member}
+    P - Parametric
+    I - Implicit
+
+    """
+
+    PCPC = "PCPC"
+    ICPC = "ICPC"
+    ICIC = "ICIC"
+    PSPS = "PSPS"
+    ISPS = "ISPS"
+    ISIS = "ISIS"

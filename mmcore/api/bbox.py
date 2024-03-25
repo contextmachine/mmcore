@@ -13,7 +13,7 @@ from mmcore.numeric import cartesian_product
 from mmcore.numeric.aabb import aabb
 
 
-@vectorize(signature='(i),(i)->(j,i)')
+@vectorize(signature="(i),(i)->(j,i)")
 def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
 
@@ -29,7 +29,7 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         cls.__point_class__ = point_class
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(min={self.min}, max={self.max})'
+        return f"{self.__class__.__name__}(min={self.min}, max={self.max})"
 
     def to_vertices(self):
         return box_from_intervals(self.min._array, self.max._array)
@@ -45,7 +45,9 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         return np.array([self.max._array, self.min._array], dtype=dtype)
 
     def union(self, other: BaseBoundingBox):
-        return self.__class__.create_from_array(np.concatenate([np.array(self), np.array(other)]))
+        return self.__class__.create_from_array(
+            np.concatenate([np.array(self), np.array(other)])
+        )
 
     @abstractmethod
     def set_from_array(self, pts):
@@ -63,10 +65,14 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         elif isinstance(arg, (np.ndarray, list, tuple)):
             return cls.create_from_array(np.array(arg))
         else:
-            raise ValueError(f'Unsupported argument type {type(arg).__name__}, arg={arg}.')
+            raise ValueError(
+                f"Unsupported argument type {type(arg).__name__}, arg={arg}."
+            )
 
     @classmethod
-    def create_from_min_max_points(cls, min_point: __point_class__, max_point: __point_class__):
+    def create_from_min_max_points(
+        cls, min_point: __point_class__, max_point: __point_class__
+    ):
         """
         Creates a bounding box object.
         min_point : The minimum point of the box.
@@ -135,7 +141,9 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         Create a copy of this bounding box.
         Returns the new bounding box copy.
         """
-        return self.__class__.create_from_min_max_points(self.min.copy(), self.max.copy())
+        return self.__class__.create_from_min_max_points(
+            self.min.copy(), self.max.copy()
+        )
 
     @abstractmethod
     def combine(self, boundingBox):
@@ -201,7 +209,9 @@ class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
         Returns true if the point lies within the bounding box.
         """
 
-        return self.max.x >= point.x >= self.min.x and self.max.y >= point.y >= self.min.y
+        return (
+            self.max.x >= point.x >= self.min.x and self.max.y >= point.y >= self.min.y
+        )
 
     def expand(self, point: Point2D) -> bool:
         """
@@ -222,8 +232,9 @@ class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
         boundingBox : The bounding box to test intersection with.
         Returns true if the bounding boxes intersect.
         """
-        if ((self.max.x < other.min.x or other.max.x < self.min.x) or
-                (self.max.y < other.min.y or other.max.y < self.min.y)):
+        if (self.max.x < other.min.x or other.max.x < self.min.x) or (
+            self.max.y < other.min.y or other.max.y < self.min.y
+        ):
             return False
         return True
 
@@ -245,7 +256,6 @@ class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
         return True
 
     def overlap(self, other: BoundingBox2D) -> bool:
-
         d1x = other.min.x - self.max.x
         d1y = other.min.y - self.max.y
         d2x = self.min.x - other.max.x
@@ -255,6 +265,16 @@ class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
         if d2x > 0.0 or d2y > 0.0:
             return False
         return True
+
+    def intersection(self, other: BoundingBox2D):
+        pts = []
+        for pt in self.to_vertices():
+            if other.contains(Point2D.cast(pt)):
+                pts.append(pt)
+        for pt in other.to_vertices():
+            if self.contains(Point2D.cast(pt)):
+                pts.append(pt)
+        return BoundingBox2D.create_from_array(np.array(pts))
 
 
 class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
@@ -270,10 +290,13 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
 
     def set_from_array(self, pts: np.ndarray):
         print(pts.shape, aabb(pts))
-        (self.min.x, self.min.y, self.min.z), (self.max.x, self.max.y, self.max.z) = aabb(pts)
+        (self.min.x, self.min.y, self.min.z), (
+            self.max.x,
+            self.max.y,
+            self.max.z,
+        ) = aabb(pts)
 
     def volume(self):
-
         u, v, h = self.sizes()
         return u * v * h
 
@@ -284,7 +307,9 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
         Returns true if the point is within the bounding box.
         """
 
-        return self.max.x >= point.x >= self.min.x and self.max.y >= point.y >= self.min.y
+        return (
+            self.max.x >= point.x >= self.min.x and self.max.y >= point.y >= self.min.y
+        )
 
     def expand(self, point: Point3D) -> bool:
         """
@@ -297,8 +322,37 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
         self.min.x = min(self.min.x, point.x)
         self.max.y = max(self.max.y, point.y)
         self.min.y = min(self.min.y, point.y)
-
+        self.max.z = max(self.max.z, point.z)
+        self.min.z = min(self.min.z, point.z)
         return True
+
+    def intersection(self, other: BoundingBox3D) -> BoundingBox3D:
+        """
+        This function intersects two 3D Axis Aligned Bounding Boxes and returns a new
+        bounding box as the result.
+        :param bbox1: First bounding box. Tuple of two points: ((min_x1, min_y1, min_z1), (max_x1, max_y1, max_z1))
+        :param bbox2: Second bounding box. Tuple of two points: ((min_x2, min_y2, min_z2), (max_x2, max_y2, max_z2))
+        :return: Intersected bounding box. Tuple of two points: ((min_x, min_y, min_z), (max_x, max_y, max_z))
+        """
+
+        # If the bounding boxes do not intersect, return None.
+        if not self.intersects(other):
+            return None
+        pt1 = Point3D()
+        pt2 = Point3D()
+        b = BoundingBox3D()
+        b.min = pt1
+        b.max = pt2
+        min_point1, max_point1 = self.min, self.max
+        min_point2, max_point2 = other.min, other.max
+        pt1.x = max(min_point1.x, min_point2.x)
+        pt1.y = max(min_point1.y, min_point2.y)
+        pt1.z = max(min_point1.z, min_point2.z)
+        pt2.x = min(max_point1.x, max_point2.x)
+        pt2.y = min(max_point1.y, max_point2.y)
+        pt2.z = min(max_point1.z, max_point2.z)
+
+        return b
 
     def intersects(self, other: BoundingBox3D) -> bool:
         """
@@ -306,9 +360,11 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
         boundingBox : The other bounding box to check for intersection with.
         Returns true if the two boxes intersect.
         """
-        if (self.max.x < other.min.x or other.max.x < self.min.x) or \
-                (self.max.y < other.min.y or other.max.y < self.min.y) or \
-                (self.max.z < other.min.z or other.max.z < self.min.z):
+        if (
+            (self.max.x < other.min.x or other.max.x < self.min.x)
+            or (self.max.y < other.min.y or other.max.y < self.min.y)
+            or (self.max.z < other.min.z or other.max.z < self.min.z)
+        ):
             return False
         return True
 
@@ -330,7 +386,7 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
 
         return True
 
-    def overlap(self, other: BoundingBox2D) -> bool:
+    def overlap(self, other: BoundingBox3D) -> bool:
         d1x = other.min.x - self.max.x
         d1y = other.min.y - self.max.y
         d1z = other.min.z - self.max.z
@@ -400,8 +456,8 @@ class IntervalTree:
                 remaining_node_edges.append(node.node_edges[i])
 
             if boxPtr is not None:
-                boxPtr.expand_by_point(self.pts[e[0]])
-                boxPtr.expand_by_point(self.pts[e[1]])
+                boxPtr.expand(self.pts[e[0]])
+                boxPtr.expand(self.pts[e[1]])
 
         node.node_edges = remaining_node_edges
 
@@ -424,13 +480,15 @@ class IntervalTree:
                 e = self.edges[node.node_edges[i]]
 
                 p1 = self.pts[e[0]]
-                yflag0 = (p1[1] >= y)
+                yflag0 = p1[1] >= y
 
                 p2 = self.pts[e[1]]
-                yflag1 = (p2[1] >= y)
+                yflag1 = p2[1] >= y
 
                 if yflag0 != yflag1:
-                    if (((p2[1] - y) * (p1[0] - p2[0]) >= (p2[0] - x) * (p1[1] - p2[1])) == yflag1):
+                    if (
+                        (p2[1] - y) * (p1[0] - p2[0]) >= (p2[0] - x) * (p1[1] - p2[1])
+                    ) == yflag1:
                         self.pipResult = not self.pipResult
         # (nl && nl.bbox.min.y <= y && nl.bbox.max.y >= y
         if node.left and node.left.bbox.min.y <= y and node.left.bbox.max.y >= y:
@@ -439,7 +497,7 @@ class IntervalTree:
         if node.right and node.right.bbox.min.y <= y and node.right.bbox.max.y >= y:
             self.pointInPolygonRec(node.right, x, y)
 
-    @vectorize(excluded=[0], signature='(i)->()')
+    @vectorize(excluded=[0], signature="(i)->()")
     def pointInPolygon(self, pt):
         self.pipResult = False
         self.pointInPolygonRec(self.root, pt[0], pt[1])
