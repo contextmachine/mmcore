@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import TypeVar, Type
 
-class Base():
+
+class Base:
     """
     The base class that all other classes are derived from.
     """
@@ -40,20 +42,43 @@ class Base():
         return bool()
 
 
-class ObjectCollection(Base, list):
+TB = TypeVar("TB", bound=Base)
+
+__collection_classes__ = dict()
+
+
+class ObjectCollection(list, Base):
     """
     Generic collection used to handle lists of any object type.
-    """
 
-    def __init__(self):
-        pass
+    >>> from mmcore.api import ObjectCollection,Point3D
+    >>> import numpy as np
+    >>> ObjectCollection[Point3D].cast(np.array([[8., 9., 6.], [7., 4., 9.], [7., 1., 3.], [0., 6., 8.], [1., 3., 3.]]))
+    ObjectCollection[Point3D]([Point3D(x=8.0, y=9.0, z=6.0), Point3D(x=7.0, y=4.0, z=9.0), Point3D(x=7.0, y=1.0, z=3.0), Point3D(x=0.0, y=6.0, z=8.0), Point3D(x=1.0, y=3.0, z=3.0)])
+    """
+    def __repr__(self):
+        return f"{type(self).__name__}({super().__repr__()})"
+    def __class_getitem__(cls, item: Type[TB]):
+        name = f"{cls.__name__}[{item.__name__}]"
+        if name not in __collection_classes__:
+            new_cls = type(
+                f"{cls.__name__}[{item.__name__}]", (cls,), {"item_type": item}
+            )
+            new_cls.item_type = item
+            __collection_classes__[name]=new_cls
+        return __collection_classes__[name]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     @classmethod
     def cast(cls, arg) -> ObjectCollection:
-        return ObjectCollection()
+        return cls(cls.item_type.cast(item) for item in arg)
 
     @classmethod
-    def create(cls, ) -> ObjectCollection:
+    def create(
+        cls,
+    ) -> ObjectCollection:
         """
         Creates a new ObjectCollection object.
         Returns the newly created ObjectCollection.

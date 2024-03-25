@@ -1,4 +1,4 @@
-from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any
+from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any, Protocol
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -14,6 +14,14 @@ ShapeLike = Union[SupportsIndex, Sequence[SupportsIndex]]
 D = TypeVar("D", bound=SupportsIndex)
 
 
+class CurveProtocol(Protocol):
+    def interval(self) -> tuple[float, float]:
+        ...
+
+    def __call__(self, t: Union[ArrayLike, float]) -> D:
+        ...
+
+
 class BaseCurve:
     def __init__(self):
         super().__init__()
@@ -24,6 +32,7 @@ class BaseCurve:
 
     def split(self, t):
         return SubCurve(self, self.interval()[0], t), SubCurve(self, t, self.interval()[1])
+
     def normal(self, t):
         return normal_at(self.derivative(t), self.second_derivative(t))
 
@@ -221,8 +230,6 @@ class BSpline(BaseCurve):
         return super().__call__(t)
 
 
-
-
 class NURBSpline(BSpline):
     """
     Non-Uniform Rational BSpline (NURBS)
@@ -254,22 +261,24 @@ class NURBSpline(BSpline):
         self._control_points_count = len(self.control_points)
 
     def evaluate(self, t: float):
-        arr = np.zeros((3,), dtype=float)
+        x=0.
+        y=0.
+        z=0.
         sum_of_weights = 0  # sum of weight * basis function
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
 
             if b > 0:
-                arr[0] += b * self.weights[i] * self.control_points[i][0]
-                arr[1] += b * self.weights[i] * self.control_points[i][1]
-                arr[2] += b * self.weights[i] * self.control_points[i][2]
+                x += b * self.weights[i] * self.control_points[i][0]
+                y += b * self.weights[i] * self.control_points[i][1]
+                z += b * self.weights[i] * self.control_points[i][2]
                 sum_of_weights += b * self.weights[i]
         # normalizing with the sum of weights to get rational B-spline
 
-        arr[0] /= sum_of_weights
-        arr[1] /= sum_of_weights
-        arr[2] /= sum_of_weights
-        return arr
+        x /= sum_of_weights
+        y /= sum_of_weights
+        z /= sum_of_weights
+        return np.asarray((x,y,z))
 
     def __call__(self, t: float) -> tuple[float, float, float]:
         """

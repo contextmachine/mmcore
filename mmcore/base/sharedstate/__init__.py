@@ -539,22 +539,25 @@ class SharedStateServer():
         return inst
 
     def run(self, **kwargs):
-        uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
+        self.uvicorn_appname = generate_uvicorn_app_name(__file__, appname=self.appname)
 
-        use_ssl = False
+        self.use_ssl = False
         for k in kwargs.keys():
             if k.startswith("ssl"):
-                use_ssl = True
+                self.use_ssl = True
                 break
-        _prefix = 'https' if use_ssl else 'http'
+
+        self.print()
+        uvicorn.run(self.uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
+
+    def print(self):
+        _prefix = 'https' if    self.use_ssl else 'http'
         _print_host = self.host if self.host != '0.0.0.0' else 'localhost'
         print(colored(f"\n    \u002B\u00D7  mmcore {mmcore.__version__()}\n", 'light_magenta', None, ('bold',)))
-        print(f'        server: uvicorn\n        app: {uvicorn_appname}\n        local: {_prefix}://{_print_host}'
+        print(f'        server: uvicorn\n        app: {self.uvicorn_appname}\n        local: {_prefix}://{_print_host}'
               f':{self.port}/\n        openapi ui: {_prefix}://{_print_host}'
               f':{self.port}/docs\n'
               )
-
-        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, log_level=self.loglevel, **kwargs)
 
 
     def production_run(self, name, api_prefix, mounts=(), middleware=None, app_kwargs=None, **kwargs):
@@ -574,10 +577,10 @@ class SharedStateServer():
                                            *mounts],
                                        mws=middleware, **app_kwargs
                                        )
-        uvicorn_appname = generate_uvicorn_app_name(__file__, appname=name)
-        print(f'running uvicorn {uvicorn_appname}')
+        self.uvicorn_appname = generate_uvicorn_app_name(__file__, appname=name)
+        print(f'running uvicorn {  self.uvicorn_appname}')
         self.is_production = True
-        uvicorn.run(uvicorn_appname, port=self.port, host=self.host, **kwargs)
+        uvicorn.run(  self.uvicorn_appname, port=self.port, host=self.host, **kwargs)
 
     def stop(self):
         self.thread.join(6)
@@ -668,10 +671,12 @@ class SharedStateServer():
         return self.rpyc_thread.is_alive()
 
     def start_as_main(self, on_start=None, **kwargs):
+
         self.__dict__ |= kwargs
         if on_start:
             on_start()
         self.is_production = True
+
         self.run()
 
     def mount(self, path, other_app, name: str):

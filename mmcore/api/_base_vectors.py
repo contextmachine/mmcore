@@ -174,7 +174,7 @@ class BaseVector(Base):
         return True
 
     def __repr__(self):
-        return f'{self.__class__.__name__}() at {hex(id(self))}'
+        return f'{self.__class__.__name__}()'
 
 V = TypeVar("V", bound=BaseVector)
 SupportVector = Union[V, Numeric]

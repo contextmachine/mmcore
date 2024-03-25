@@ -3,7 +3,7 @@ import click
 import dill
 import requests
 import rich
-
+from mmcore.base.sharedstate import serve
 
 @click.group("assets")
 def mmcli():
@@ -31,7 +31,7 @@ def load(source, ipy):
     return asset
 
 
-if __name__ == "__main__":
-    from IPython import embed
 
-    asset = load()
+
+serve.run()
+

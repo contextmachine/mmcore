@@ -44,6 +44,14 @@ def evaluate_length(first_der, t0: float, t1: float, **kwargs):
 
 evaluate_length_vec = np.vectorize(evaluate_length, excluded=[0], signature='(),()->(),()')
 
+import math
+
+
+def calculate_curvature2d( dx, dy, ddx, ddy):
+    numerator = abs(dx * ddy - dy * ddx)
+    denominator = math.pow((dx**2 + dy**2), 1.5)
+    curvature = numerator / denominator
+    return numerator, denominator, curvature
 
 def evaluate_curvature(D1, D2) -> tuple[np.ndarray, np.ndarray, bool]:
     d1 = np.linalg.norm(D1)
