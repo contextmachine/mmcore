@@ -7,13 +7,11 @@
                   start-page="starter-topic.md">
 
 
-    <toc-element topic="closest.md"/>
-    <toc-element topic="closest-pt.topic"/>
-    <toc-element topic="mmcore_api_curves.md"/>
-    <toc-element topic="mmcore_api_vectors.md"/>
-    <toc-element topic="mmcore_api_surface3.md"/>
-    <toc-element topic="mmcore_api_base.md"/>
-    <toc-element topic="mmcore_api_bbox.md"/>
+    <toc-element topic="mmcore_api_curves1.md"/>
+    <toc-element topic="mmcore_api_vectors1.md"/>
+    <toc-element topic="mmcore_api_surface1.md"/>
+    <toc-element topic="mmcore_api_base1.md"/>
+    <toc-element topic="mmcore_api_bbox1.md"/>
     <toc-element topic="starter-topic.md">
         <toc-element topic="Vectorization.md">
 

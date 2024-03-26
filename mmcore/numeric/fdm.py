@@ -165,7 +165,7 @@ class Grad(FDM):
     def backward(self, t, h=DEFAULT_H):
         t = np.atleast_1d(t)
         H = np.eye(len(t)) * h
-        print(H, t)
+        #print(H, t)
         return np.array([(self._fun(t) - self._fun(t - h)) / h for h in H])
 
 
