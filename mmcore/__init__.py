@@ -1,9 +1,10 @@
 from mmcore.utils.env import load_dotenv_from_path, load_dotenv_from_stream
-load_dotenv_from_path('.env')
+
+load_dotenv_from_path(".env")
 TOLERANCE = 1e-06
 
-class VersionInfo(str):
 
+class VersionInfo(str):
     def __new__(cls, val):
         self = super().__new__(cls)
         self._value = val
@@ -17,4 +18,6 @@ class VersionInfo(str):
 
     def __call__(self):
         return self._value
-__version__ = VersionInfo('0.23.14')
+
+
+__version__ = VersionInfo("0.23.14")
