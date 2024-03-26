@@ -184,9 +184,11 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         Gets and sets the maximum point of the box.
         """
         self.max = value
+
     @property
     def centroid(self):
-        return np.average(np.array([self.min,self.max]),axis=0)
+        return np.average(np.array([self.min, self.max]), axis=0)
+
 
 class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
     """
@@ -404,5 +406,3 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
             return False
 
         return True
-
-
