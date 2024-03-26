@@ -133,7 +133,7 @@ def build_mesh_with_buffer(mesh,
               name=name,
               geometry=create_mesh_buffer(uuid + 'geom',
                                           **{k: np.array(attr,dtype=float).tolist() for k, attr in mesh[0].items()},
-                                          index=index.tolist()  if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None) else index
+                                          index=index
                                           ),
               material=material,
 

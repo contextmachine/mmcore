@@ -4,10 +4,20 @@ from numpy.typing import ArrayLike
 
 from mmcore.geom.vec import unit, cross
 from mmcore.numeric.fdm import FDM
-from mmcore.numeric.numeric import evaluate_tangent, evaluate_curvature, normal_at, plane_on_curve
+from mmcore.numeric.numeric import (
+    evaluate_tangent,
+    evaluate_curvature,
+    normal_at,
+    plane_on_curve,
+)
 from mmcore.func import vectorize
 
-from .utils import calc_b_spline_point, calcNURBSDerivatives, calc_bspline_derivatives, calc_rational_curve_derivatives
+from .utils import (
+    calc_b_spline_point,
+    calcNURBSDerivatives,
+    calc_bspline_derivatives,
+    calc_rational_curve_derivatives,
+)
 
 ShapeLike = Union[SupportsIndex, Sequence[SupportsIndex]]
 
@@ -31,7 +41,9 @@ class BaseCurve:
         self.add_derivative()
 
     def split(self, t):
-        return SubCurve(self, self.interval()[0], t), SubCurve(self, t, self.interval()[1])
+        return SubCurve(self, self.interval()[0], t), SubCurve(
+            self, t, self.interval()[1]
+        )
 
     def normal(self, t):
         return normal_at(self.derivative(t), self.second_derivative(t))
@@ -57,14 +69,17 @@ class BaseCurve:
         self._derivatives.append(FDM(self._derivatives[-1]))
         return len(self._derivatives)
 
-    def __call__(self, t: Union[np.ndarray[Any, float], float]) -> np.ndarray[Any, np.dtype[float]]:
+    def __call__(
+        self, t: Union[np.ndarray[Any, float], float]
+    ) -> np.ndarray[Any, np.dtype[float]]:
         return self.evaluate_multi(t)
 
-    def evaluate(self, t: float) -> ArrayLike: ...
+    def evaluate(self, t: float) -> ArrayLike:
+        ...
 
 
 class Circle(BaseCurve):
-    def __init__(self, radius, origin=np.array([0., 0.0, 0.])):
+    def __init__(self, radius, origin=np.array([0.0, 0.0, 0.0])):
         super().__init__()
         self.r = radius
         self.origin = origin
@@ -82,50 +97,63 @@ class Circle(BaseCurve):
         return self.origin[1]
 
     def fx(self, x):
-        _ = np.sqrt(self.a ** 2 - (x - self.b) ** 2)
+        _ = np.sqrt(self.a**2 - (x - self.b) ** 2)
         return np.array([self.c + _, self.c - _])
 
     def fy(self, y):
-        _ = np.sqrt(self.a ** 2 - (y - self.c) ** 2)
+        _ = np.sqrt(self.a**2 - (y - self.c) ** 2)
         return np.array([self.b + _, self.b - _])
 
     def implict(self, xy):
-        return (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r ** 2
+        return (
+            (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r**2
+        )
 
     def intersect_with_circle(self, circle):
         ...
 
     def evaluate(self, t: float) -> ArrayLike:
-        return np.array([self.r * np.cos(t) + self.origin[0], self.r * np.sin(t) + self.origin[1]])
+        return np.array(
+            [self.r * np.cos(t) + self.origin[0], self.r * np.sin(t) + self.origin[1]]
+        )
 
 
 class BSpline(BaseCurve):
-    """
-    """
+    """ """
+
     control_points = None
     degree = 3
     knots = None
 
     def interval(self):
-
-        return (0., float(self.knots.max()))
+        return (0.0, float(self.knots.max()))
 
     def __init__(self, control_points, degree=3, knots=None):
+        """
+        Initializes a new instance of the B-Spline curve
+        """
         super().__init__()
 
-        self.set(control_points, degree=degree, knots=knots)
+        self.control_points = control_points
+        self.degree = degree
+        self.knots = self.generate_knots() if knots is None else knots
+
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
 
-    @vectorize(excluded=[0], signature='()->(i)')
+    @vectorize(excluded=[0], signature="()->(i)")
     def derivative(self, t):
-        return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 1)[1][:-1]
+        return calc_bspline_derivatives(
+            self.degree, self.knots, self._wcontrol_points, t, 1
+        )[1][:-1]
 
-    @vectorize(excluded=[0], signature='()->(i)')
+    @vectorize(excluded=[0], signature="()->(i)")
     def second_derivative(self, t):
-        return calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, 2)[2][:-1]
+        return calc_bspline_derivatives(
+            self.degree, self.knots, self._wcontrol_points, t, 2
+        )[2][:-1]
 
-    @vectorize(excluded=[0, 'n', 'return_projective'], signature='()->(j,i)')
+    @vectorize(excluded=[0, "n", "return_projective"], signature="()->(j,i)")
     def n_derivative(self, t, n=3, return_projective=False):
         """
         :param t: Parameter on the curve
@@ -135,12 +163,19 @@ class BSpline(BaseCurve):
         :param return_projective: If True will return vectors as [x,y,z,w] instead of [x,y,z] default False
         :return:
         """
-        res = np.array(calc_bspline_derivatives(self.degree, self.knots, self._wcontrol_points, t, n))
+        res = np.array(
+            calc_bspline_derivatives(
+                self.degree, self.knots, self._wcontrol_points, t, n
+            )
+        )
         if return_projective:
             return res
         return res[..., :-1]
 
     def set(self, control_points=None, degree=None, knots=None):
+        """
+        Sets the B-Spline curve parameters
+        """
         if control_points is not None:
             self.control_points = control_points
         if degree is not None:
@@ -177,40 +212,42 @@ class BSpline(BaseCurve):
 
         """
         n = len(self.control_points)
-        knots = [0] * (self.degree + 1) + list(range(1, n - self.degree)) + [n - self.degree] * (self.degree + 1)
+        knots = (
+            [0] * (self.degree + 1)
+            + list(range(1, n - self.degree))
+            + [n - self.degree] * (self.degree + 1)
+        )
 
         return np.array(knots, float)
 
     def find_span(self, t, i):
-
         return self.basis_function(t, i, self.degree)
 
     def basis_function(self, t, i, k):
         """
-        Calculating basis function with de Boor algorithm
+        Calculates basis function with de Boor algorithm
         """
-        T = self.knots
-
+        knots = self.knots
         if k == 0:
-            return 1.0 if T[i] <= t <= T[i + 1] else 0.0
-        if T[i + k] == T[i]:
-
-            c1 = 0.0
-        else:
-            c1 = (t - T[i]) / (T[i + k] - T[i]) * self.basis_function(t, i, k - 1)
-
-        if T[i + k + 1] == T[i + 1]:
-            c2 = 0.0
-        else:
-            c2 = (T[i + k + 1] - t) / (T[i + k + 1] - T[i + 1]) * self.basis_function(t, i + 1, k - 1)
+            return 1.0 if knots[i] <= t <= knots[i + 1] else 0.0
+        c1 = (
+            0.0
+            if knots[i + k] == knots[i]
+            else (t - knots[i])
+            / (knots[i + k] - knots[i])
+            * self.basis_function(t, i, k - 1)
+        )
+        c2 = (
+            0.0
+            if knots[i + k + 1] == knots[i + 1]
+            else (knots[i + k + 1] - t)
+            / (knots[i + k + 1] - knots[i + 1])
+            * self.basis_function(t, i + 1, k - 1)
+        )
         return c1 + c2
 
     def evaluate(self, t: float):
         result = np.zeros((3,), dtype=float)
-        if t == 0.:
-            t += 1e-8
-        elif t == 1.:
-            t -= 1e-8
 
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
@@ -226,7 +263,9 @@ class BSpline(BaseCurve):
         The function should return three numbers (x,y,z)
         """
         self._control_points_count = n = len(self.control_points)
-        assert n > self.degree, "Expected the number of control points to be greater than the degree of the spline"
+        assert (
+            n > self.degree
+        ), "Expected the number of control points to be greater than the degree of the spline"
         return super().__call__(t)
 
 
@@ -247,11 +286,16 @@ class NURBSpline(BSpline):
         ...                  ))
 
     """
+
     weights: np.ndarray
 
     def __init__(self, control_points, weights=None, degree=3, knots=None):
         super().__init__(control_points, degree, knots)
-        self.weights = np.ones((len(self.control_points),), dtype=float) if weights is None else np.array(weights)
+        self.weights = (
+            np.ones((len(self.control_points),), dtype=float)
+            if weights is None
+            else np.array(weights)
+        )
 
     def set(self, control_points=None, weights=None, degree=3, knots=None):
         super().set(control_points, degree=degree, knots=knots)
@@ -261,9 +305,9 @@ class NURBSpline(BSpline):
         self._control_points_count = len(self.control_points)
 
     def evaluate(self, t: float):
-        x=0.
-        y=0.
-        z=0.
+        x = 0.0
+        y = 0.0
+        z = 0.0
         sum_of_weights = 0  # sum of weight * basis function
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
@@ -278,7 +322,7 @@ class NURBSpline(BSpline):
         x /= sum_of_weights
         y /= sum_of_weights
         z /= sum_of_weights
-        return np.asarray((x,y,z))
+        return np.asarray((x, y, z))
 
     def __call__(self, t: float) -> tuple[float, float, float]:
         """
@@ -286,8 +330,12 @@ class NURBSpline(BSpline):
         to the parameter t. The function should return three numbers (x,y,z)
         """
         self._control_points_count = len(self.control_points)
-        assert self._control_points_count > self.degree, "Expected the number of control points to be greater than the degree of the spline"
-        assert len(self.weights) == self._control_points_count, "Expected to have a weight for every control point"
+        assert (
+            self._control_points_count > self.degree
+        ), "Expected the number of control points to be greater than the degree of the spline"
+        assert (
+            len(self.weights) == self._control_points_count
+        ), "Expected to have a weight for every control point"
         return BaseCurve.__call__(self, t)
 
 
@@ -299,7 +347,10 @@ def circle_of_curvature(curve: BaseCurve, t: float):
     B = cross(T, N)
     k = np.linalg.norm(K)
     R = 1 / k
-    return np.array([origin + K * R, T, N, B]), R  # Plane of curvature circle, Radius of curvature circle
+    return (
+        np.array([origin + K * R, T, N, B]),
+        R,
+    )  # Plane of curvature circle, Radius of curvature circle
 
 
 class SubCurve(BaseCurve):

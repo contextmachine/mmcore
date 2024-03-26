@@ -3,15 +3,7 @@ import numpy as np
 from mmcore.geom.bspline import SubCurve, CurveProtocol
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap
 from mmcore.api.bbox import BoundingBox3D
-
-
-def bbsize(self):
-    return self[1] - self[2]
-
-
-def intersect_bb(self, other):
-    self
-    return self[1] - self[2]
+from mmcore.numeric.closest_point import closest_point_on_curve
 
 
 def curve_intersect(
@@ -52,11 +44,12 @@ def curve_intersect(
         box1.expand(box2.min)
         box1.expand(box2.max)
         # Check if the curves are small enough to be considered as intersecting
-        if np.all( box1.sizes() <= tol):
+
+        if np.all(box1.sizes() <= tol):
             t1 = (t1_start + t1_end) / 2
             t2 = (t2_start + t2_end) / 2
 
-            return [(t1, t2,  box1)]
+            return [(t1, t2, box1)]
 
         # Split the curves and recursively intersect the sub-curves
         t1_mid = (t1_start + t1_end) / 2

@@ -184,7 +184,9 @@ class BaseBoundingBox(Base, metaclass=ABCMeta):
         Gets and sets the maximum point of the box.
         """
         self.max = value
-
+    @property
+    def centroid(self):
+        return np.average(np.array([self.min,self.max]),axis=0)
 
 class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
     """
@@ -289,7 +291,7 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
     """
 
     def set_from_array(self, pts: np.ndarray):
-        print(pts.shape, aabb(pts))
+        # print(pts.shape, aabb(pts))
         (self.min.x, self.min.y, self.min.z), (
             self.max.x,
             self.max.y,
@@ -404,101 +406,3 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
         return True
 
 
-class IntervalNode:
-    def __init__(self):
-        self.bbox = BoundingBox2D()
-        self.left = None
-        self.right = None
-        self.node_edges = []
-
-
-class IntervalTree:
-    def __init__(self, pts, edges, bbox):
-        self.pts = pts
-        self.edges = edges
-        self.bbox = bbox
-        self.pipResult = False
-        self.root = None
-
-    def splitNode(self, node):
-        if node.bbox.min.y >= node.bbox.max.y:
-            return
-
-        if len(node.node_edges) < 3:
-            return
-
-        split = 0.5 * (node.bbox.min.y + node.bbox.max.y)
-
-        node.left = IntervalNode()
-        node.right = IntervalNode()
-
-        remaining_node_edges = []
-        tmpPt = Point2D()
-
-        for i in range(len(node.node_edges)):
-            e = self.edges[node.node_edges[i]]
-
-            p1y = self.pts[e[0]][1]
-            p2y = self.pts[e[1]][1]
-
-            if p1y > p2y:
-                p1y, p2y = p2y, p1y
-
-            boxPtr = None
-
-            if p2y < split:
-                node.left.node_edges.append(node.node_edges[i])
-                boxPtr = node.left.bbox
-            elif p1y > split:
-                node.right.node_edges.append(node.node_edges[i])
-                boxPtr = node.right.bbox
-            else:
-                remaining_node_edges.append(node.node_edges[i])
-
-            if boxPtr is not None:
-                boxPtr.expand(self.pts[e[0]])
-                boxPtr.expand(self.pts[e[1]])
-
-        node.node_edges = remaining_node_edges
-
-        if len(node.left.node_edges):
-            self.splitNode(node.left)
-        if len(node.right.node_edges):
-            self.splitNode(node.right)
-
-    def build(self):
-        self.root = IntervalNode()
-        self.root.node_edges = list(range(len(self.edges)))
-        self.root.bbox = self.bbox.copy()
-
-        self.splitNode(self.root)
-
-    def pointInPolygonRec(self, node, x, y):
-        # node.bbox.min.y <= y & & node.bbox.max.y
-        if node.bbox.min.y <= y and node.bbox.max.y >= y:
-            for i in range(len(node.node_edges)):
-                e = self.edges[node.node_edges[i]]
-
-                p1 = self.pts[e[0]]
-                yflag0 = p1[1] >= y
-
-                p2 = self.pts[e[1]]
-                yflag1 = p2[1] >= y
-
-                if yflag0 != yflag1:
-                    if (
-                        (p2[1] - y) * (p1[0] - p2[0]) >= (p2[0] - x) * (p1[1] - p2[1])
-                    ) == yflag1:
-                        self.pipResult = not self.pipResult
-        # (nl && nl.bbox.min.y <= y && nl.bbox.max.y >= y
-        if node.left and node.left.bbox.min.y <= y and node.left.bbox.max.y >= y:
-            self.pointInPolygonRec(node.left, x, y)
-
-        if node.right and node.right.bbox.min.y <= y and node.right.bbox.max.y >= y:
-            self.pointInPolygonRec(node.right, x, y)
-
-    @vectorize(excluded=[0], signature="(i)->()")
-    def pointInPolygon(self, pt):
-        self.pipResult = False
-        self.pointInPolygonRec(self.root, pt[0], pt[1])
-        return self.pipResult
