@@ -151,8 +151,6 @@ class Grad(FDM):
 
         return z
 
-
-
     def __call__(self, t, h=DEFAULT_H, method="auto"):
         return super().__call__(t, h, method)
 
@@ -165,9 +163,8 @@ class Grad(FDM):
     def backward(self, t, h=DEFAULT_H):
         t = np.atleast_1d(t)
         H = np.eye(len(t)) * h
-        #print(H, t)
+        # print(H, t)
         return np.array([(self._fun(t) - self._fun(t - h)) / h for h in H])
-
 
 
 class Hess(Grad):
@@ -186,4 +183,3 @@ class Hess(Grad):
             z[i, ...] = (self._grad(t + o) - self._grad(t - o)) / (2 * h)
 
         return z
-

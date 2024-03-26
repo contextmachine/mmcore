@@ -4,11 +4,13 @@ import uuid as _uuid
 import numpy as np
 
 from mmcore.base import AMesh
-from mmcore.base.models.gql import (BufferGeometry,
-                                    create_buffer_index,
-                                    create_buffer_position,
-                                    create_buffer_uv,
-                                    create_float32_buffer)
+from mmcore.base.models.gql import (
+    BufferGeometry,
+    create_buffer_index,
+    create_buffer_position,
+    create_buffer_uv,
+    create_float32_buffer,
+)
 from mmcore.geom.mesh.consts import simpleMaterial
 
 
@@ -20,21 +22,19 @@ def create_buffer_objectid(array):
     :rtype: dict
 
     """
-    return {
-        'type': 'Uint16Array',
-        "itemSize": 1,
-        "array": array
-    }
+    return {"type": "Uint16Array", "itemSize": 1, "array": array}
 
 
 def create_mesh_buffer(
-        uuid,
-        position=None,
-        uv=None,
-        index=None,
-        normal=None,
-        _objectid=None,
-        color: typing.Optional[list[float]] = None, threejs_type="BufferGeometry"):
+    uuid,
+    position=None,
+    uv=None,
+    index=None,
+    normal=None,
+    _objectid=None,
+    color: typing.Optional[list[float]] = None,
+    threejs_type="BufferGeometry",
+):
     """
     :param uuid: The unique identifier for the mesh buffer
     :type uuid: str
@@ -58,49 +58,51 @@ def create_mesh_buffer(
 
     attra = dict(position=create_buffer_position(position))
     if color is not None:
-        attra['color'] = create_float32_buffer(color)
+        attra["color"] = create_float32_buffer(color)
     if normal is not None:
-        attra['normal'] = create_float32_buffer(normal)
+        attra["normal"] = create_float32_buffer(normal)
     if uv is not None:
-        attra['uv'] = create_buffer_uv(uv)
+        attra["uv"] = create_buffer_uv(uv)
 
     if _objectid is not None:
-        attra['_objectid'] = create_buffer_objectid(_objectid)
+        attra["_objectid"] = create_buffer_objectid(_objectid)
     if index is not None:
         ixs = create_buffer_index(index)
-        return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra,
-                "index": ixs
-
+        return BufferGeometry(
+            **{
+                "uuid": uuid,
+                "type": threejs_type,
+                "data": {"attributes": attra, "index": ixs},
             }
-        })
+        )
 
     else:
-        return BufferGeometry(**{
-            "uuid": uuid,
-            "type": threejs_type,
-            "data": {
-                "attributes": attra
-
-            }
-        })
+        return BufferGeometry(
+            **{"uuid": uuid, "type": threejs_type, "data": {"attributes": attra}}
+        )
 
 
 def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
     if uuid is None:
         uuid = _uuid.uuid4().hex
-    return create_mesh_buffer(uuid + 'geom',
-                              **{k: attr.tolist() for k, attr in mesh[0].items()},
-                              index=mesh.indices.tolist() if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None) else mesh.indices)
-def build_mesh_with_buffer(mesh,
-                           uuid=None,
-                           name: str = "Mesh",
-                           material=simpleMaterial,
-                           props=None, controls=None,
-                           **kwargs):
+    return create_mesh_buffer(
+        uuid + "geom",
+        **{k: attr.tolist() for k, attr in mesh[0].items()},
+        index=mesh.indices.tolist()
+        if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None)
+        else mesh.indices
+    )
+
+
+def build_mesh_with_buffer(
+    mesh,
+    uuid=None,
+    name: str = "Mesh",
+    material=simpleMaterial,
+    props=None,
+    controls=None,
+    **kwargs
+):
     """
     Builds a mesh with buffer.
 
@@ -127,21 +129,23 @@ def build_mesh_with_buffer(mesh,
     index = None if mesh[1] is None else mesh[1].tolist()
 
     if props is None:
-        props = mesh[2].get('properties', {})
+        props = mesh[2].get("properties", {})
 
-    m = AMesh(uuid=uuid,
-              name=name,
-              geometry=create_mesh_buffer(uuid + 'geom',
-                                          **{k: np.array(attr,dtype=float).tolist() for k, attr in mesh[0].items()},
-                                          index=index
-                                          ),
-              material=material,
+    m = AMesh(
+        uuid=uuid,
+        name=name,
+        geometry=create_mesh_buffer(
+            uuid + "geom",
+            **{k: np.array(attr, dtype=float).tolist() for k, attr in mesh[0].items()},
+            index=index
+        ),
+        material=material,
+        properties=props,
+        controls=controls,
+        **kwargs
+    )
 
-              properties=props,
-              controls=controls,
-              **kwargs)
-
-    if 'children' in mesh[2]:
-        m.add_userdata_item('children', mesh[2]['children'])
+    if "children" in mesh[2]:
+        m.add_userdata_item("children", mesh[2]["children"])
 
     return m
