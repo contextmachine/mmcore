@@ -1,6 +1,16 @@
 import numpy as np
+from scipy.optimize import minimize
 
 from mmcore.geom.vec import norm_sq
+from .fdm import Grad
+
+
+def closest_local_minimum(func, x0, full_output=False):
+    res = minimize(func, x0, method="BFGS", jac=Grad(func))
+    if full_output:
+        return res
+    else:
+        return res.x, res.fun
 
 
 def bisection1d(f, step=0.00001, start=-1, stop=3):
@@ -28,11 +38,8 @@ def bisection1d(f, step=0.00001, start=-1, stop=3):
     return roots, minimum
 
 
-
-
 def scalar_min_1d(f, start, end, step=0.001, divs=32):
     def wrap(start, end):
-
         t = np.linspace(start, end, divs)
 
         res = f(t)

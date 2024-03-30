@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from scipy.spatial.transform import Rotation as R
+
 from mmcore.api._base import Base
-from mmcore.api._base_vectors import BaseVector
+from mmcore.api._base_vectors import BaseVector, BaseMatrix
 from mmcore.geom.vec import angle, cross, unit, dist
 
 
@@ -13,10 +15,12 @@ class Vector2D(BaseVector):
     pass vector data in and out of the API.
     They are created statically using the create method of the Vector2D class.
     """
+
     __dim__: int = 2
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(x={self.x}, y={self.y})'
+        return f"{self.__class__.__name__}(x={self.x}, y={self.y})"
+
     @classmethod
     def create(cls, x: float, y: float) -> Vector2D:
         """
@@ -48,8 +52,7 @@ class Vector2D(BaseVector):
         elif isinstance(arg, (Point2D, Vector2D)):
             return cls.cast(arg._array)
         else:
-            raise ValueError(f'{arg}')
-
+            raise ValueError(f"{arg}")
 
     def is_parallel(self, vector: Vector2D) -> bool:
         """
@@ -58,7 +61,6 @@ class Vector2D(BaseVector):
         Returns true if the vectors are parallel.
         """
         return np.isclose(np.dot(self._array, vector._array), 1)
-
 
     def is_perpendicular(self, vector: Vector2D) -> bool:
         """
@@ -75,7 +77,8 @@ class Vector2D(BaseVector):
         The vector should not be zero length.
         Returns true if successful.
         """
-        self._array = unit(self._array)
+        self._array[:] = unit(self._array)
+        return True
 
     def set_with_array(self, coordinates: list[float]) -> bool:
         """
@@ -84,7 +87,7 @@ class Vector2D(BaseVector):
         Returns true if successful
         """
         self._array[:] = coordinates
-
+        return True
 
     def subtract(self, vector: Vector2D) -> bool:
         """
@@ -92,7 +95,9 @@ class Vector2D(BaseVector):
         vector : The vector to subtract from this vector.
         Returns true if successful.
         """
-        return bool()
+
+        self._array -= vector._array
+        return True
 
     def transform(self, matrix: Matrix2D) -> bool:
         """
@@ -100,14 +105,16 @@ class Vector2D(BaseVector):
         matrix : The Matrix2D object that defines the transformation.
         Returns true if successful.
         """
-        return bool()
+        self._array[:] = matrix._array.dot(self._array)
+
+        return True
 
     def as_point(self) -> Point2D:
         """
         Return a point with the same x and y values as this vector.
         Returns the new point.
         """
-        return Point2D()
+        return Point2D.cast(self._array)
 
     @property
     def x(self) -> float:
@@ -140,16 +147,25 @@ class Vector2D(BaseVector):
     def to_vector3d(self) -> Vector3D:
         return Vector3D(np.append(self._array, 0))
 
+
+    def to_translation(self) -> Matrix2D:
+        m = Matrix2D()
+        m.translation = self
+        return m
+
+
 class Vector3D(BaseVector):
     """
     3D vector. This object is a wrapper over 3D vector data and is used as way to pass vector data
     in and out of the API and as a convenience when operating on vector data.
     They are created statically using the create method of the Vector3D class.
     """
+
     __dim__: int = 3
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z})'
+        return f"{self.__class__.__name__}(x={self.x}, y={self.y}, z={self.z})"
+
     @classmethod
     def cast(cls, arg) -> Vector3D:
         if isinstance(arg, (tuple, np.ndarray, list)):
@@ -163,10 +179,10 @@ class Vector3D(BaseVector):
         elif isinstance(arg, (Point2D, Vector2D)):
             return cls.cast((*arg._array, 0.0))
         else:
-            raise ValueError(f'{arg}')
+            raise ValueError(f"{arg}")
 
     @classmethod
-    def create(cls, x: float, y: float, z: float) -> Vector3D:
+    def create(cls, x: float, y: float, z: float, **kwargs) -> Vector3D:
         """
         Creates a 3D vector object. This object is created statically using the Vector3D.create method.
         x : The optional x value.
@@ -203,7 +219,6 @@ class Vector3D(BaseVector):
     def to_vector2d(self) -> Vector2D:
         return Vector2D(self._array[:-1])
 
-
     def transform(self, matrix: Matrix3D) -> bool:
         """
         Transform this vector by the specified matrix.
@@ -215,6 +230,11 @@ class Vector3D(BaseVector):
 
     def __array__(self, dtype=float):
         return np.array(self._array, dtype=dtype)
+
+    def to_translation(self) -> Matrix3D:
+        m = Matrix3D()
+        m.translation = self
+        return m
 
     @property
     def length(self) -> float:
@@ -266,25 +286,72 @@ class Vector3D(BaseVector):
         self._array[2] = value
 
 
-class Point2D(Vector2D): ...
+class Point2D(Vector2D):
+    @classmethod
+    def create(cls, x: float, y: float, **kwargs) -> Point2D:
+        return cls((x, y))
 
 
-class Point3D(Vector3D): ...
+class Point3D(Vector3D):
+    @classmethod
+    def create(cls, x: float, y: float, z:float,**kwargs) -> Point3D:
+        return cls((x, y, z))
 
 
-class Matrix2D(Base):
+def _construct_affine2d(origin, xaxis, yaxis):
+    import numpy as np
+
+    # Define the vectors for rotation and scaling
+    x = np.array([xaxis[0], xaxis[1]])  # x-axis components
+    y = np.array([yaxis[0], yaxis[1]])  # y-axis components
+
+    # Define the translation vector
+    t = np.array(origin)  # translation along x, y and z axis
+
+    # Construct the 4x4 affine matrix
+    affine_matrix = np.array([np.append(x, 0), np.append(y, 0), np.append(t, 1)])
+
+    return affine_matrix
+
+
+def _construct_affine3d(origin, xaxis, yaxis, zaxis):
+    import numpy as np
+
+    # Define the vectors for rotation and scaling
+    x = np.array([xaxis[0], xaxis[1], xaxis[2]])  # x-axis components
+    y = np.array([yaxis[0], yaxis[1], yaxis[2]])  # y-axis components
+    z = np.array([zaxis[0], zaxis[1], zaxis[2]])  # z-axis components
+
+    # Define the translation vector
+    t = np.array(origin)  # translation along x, y and z axis
+
+    # Construct the 4x4 affine matrix
+    affine_matrix = np.array(
+        [np.append(x, 0), np.append(y, 0), np.append(z, 0), np.append(t, 1)]
+    )
+
+    return affine_matrix
+
+
+class Matrix2D(BaseMatrix):
     """
     2D 3x3 matrix. This object is a wrapper over 2D matrix data and is used as way to pass matrix data
     in and out of the API and as a convenience when operating on matrix data.
     They are created statically using the create method of the Matrix2D class.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, arr=None):
+        super().__init__()
+        self._array = (
+            np.zeros([3, 3])
+            if not arr
+            else (arr if isinstance(arr, np.ndarray) else np.array(arr))
+        )
+        self.set_to_identity()
 
     @staticmethod
     def cast(arg) -> Matrix2D:
-        return Matrix2D()
+        return Matrix2D(arg)
 
     @staticmethod
     def create() -> Matrix2D:
@@ -294,71 +361,20 @@ class Matrix2D(Base):
         """
         return Matrix2D()
 
-    def set_to_identity(self) -> bool:
-        """
-        Resets this matrix to be an identity matrix.
-        Returns true if successful.
-        """
-        return bool()
-
-    def invert(self) -> bool:
-        """
-        Invert this matrix.
-        Returns true if successful.
-        """
-        return bool()
-
-    def copy(self) -> Matrix2D:
-        """
-        Creates an independent copy of this matrix.
-        Returns the new matrix copy.
-        """
-        return Matrix2D()
-
-    def transform_by(self, matrix: Matrix2D) -> bool:
-        """
-        Transforms this matrix using the input matrix.
-        matrix : The transformation matrix.
-        Returns true if successful.
-        """
-        return bool()
+    def set_with_array(self, cells: list[float]) -> bool:
+        self._array[:] = np.array(cells).reshape((3, 3))
+        return True
 
     def get_cell(self, row: int, column: int) -> float:
-        """
-        Gets the value of the specified cell in the 3x3 matrix.
-        row : The index of the row. The first row has in index of 0
-        column : The index of the column. The first column has an index of 0
-        Returns the value at [row][column].
-        """
-        return float()
+        return float(self._array[row, column])
 
     def set_cell(self, row: int, column: int, value: float) -> bool:
-        """
-        Sets the specified cell in the 3x3 matrix to the specified value.
-        row : The index of the row. The first row has in index of 0
-        column : The index of the column. The first column has an index of 0
-        value : The new value of the cell.
-        Returns true if successful.
-        """
-        return bool()
+        self._array[row, column] = value
+        return True
 
-    def get_as_coordinate_system(self) -> tuple[Point2D, Vector2D, Vector2D]:
-        """
-        Gets the matrix data as the components that define a coordinate system.
-        origin : The output origin point of the coordinate system.
-        xAxis : The output x axis direction of the coordinate system.
-        yAxis : The output y axis direction of the coordinate system.
-        """
-        return (Point2D(), Vector2D(), Vector2D())
-
-    def as_array(self) -> list[float]:
-        """
-        Returns the contents of the matrix as a 9 element array.
-        Returns the array of matrix values.
-        """
-        return [float()]
-
-    def set_with_coordinate_system(self, origin: Point2D, xAxis: Vector2D, yAxis: Vector2D) -> bool:
+    def set_with_coordinate_system(
+        self, origin: Point2D, xAxis: Vector2D, yAxis: Vector2D
+    ) -> bool:
         """
         Reset this matrix to align with a specific coordinate system.
         origin : The origin point of the coordinate system.
@@ -366,78 +382,106 @@ class Matrix2D(Base):
         yAxis : The y axis direction of the coordinate system.
         Returns true if successful.
         """
-        return bool()
+        self._array[:] = _construct_affine2d(
+            origin.as_array(), xAxis.as_array(), yAxis.as_array()
+        )
+        return True
 
-    def set_with_array(self, cells: list[float]) -> bool:
-        """
-        Sets the contents of the array using a 9 element array.
-        cells : The array of cell values.
-        Returns true if successful.
-        """
-        return bool()
-
-    def is_equal_to(self, matrix: Matrix2D) -> bool:
-        """
-        Compares this matrix with another matrix and returns True if they're identical.
-        matrix : The matrix to compare to.
-        Returns true if the matrix is equal to this matrix.
-        """
-        return bool()
-
-    def set_to_align_coordinate_systems(self, fromOrigin: Point2D, fromXAxis: Vector2D, fromYAxis: Vector2D,
-                                        toOrigin: Point2D, toXAxis: Vector2D, toYAxis: Vector2D) -> bool:
+    def set_to_align_coordinate_systems(
+        self,
+        fromOrigin: Point2D,
+        fromXAxis: Vector2D,
+        fromYAxis: Vector2D,
+        toOrigin: Point2D,
+        toXAxis: Vector2D,
+        toYAxis: Vector2D,
+    ) -> bool:
         """
         Sets this matrix to be the matrix that maps from the 'from' coordinate system to the 'to' coordinate system.
-        fromOrigin : The origin point of the from coordinate system.
-        fromXAxis : The x axis direction of the from coordinate system.
-        fromYAxis : The y axis direction of the from coordinate system.
-        toOrigin : The origin point of the to coordinate system.
-        toXAxis : The x axis direction of the to coordinate system.
-        toYAxis : The y axis direction of the to coordinate system.
-        Returns true if successful.
         """
-        return bool()
+        from_ = self.set_with_coordinate_system(fromOrigin, fromXAxis, fromYAxis)
+        to_ = self.set_with_coordinate_system(toOrigin, toXAxis, toYAxis)
+
+        self._array = np.linalg.inv(from_).dot(to_)
+        return True
 
     def set_to_rotate_to(self, _from: Vector2D, to: Vector2D) -> bool:
         """
-        Sets to the matrix of rotation that would align the 'from' vector with the 'to' vector.
-        from : The from vector.
-        to : The to vector.
-        Returns true if successful.
+        Sets this matrix so that _from vector will be rotationally aligned with to vector.
         """
-        return bool()
+        dot = _from.dot(to)
+        det = np.linalg.det([_from, to])
+        theta = np.arctan2(det, dot)  # Angle between _from and to
+        self.set_to_rotation(theta, np.array([0.0, 0.0]))
+        return True
 
-    def set_to_rotation(self, angle: float, origin: Point2D) -> bool:
+    def set_to_rotation(self, angle: float, origin: Point2D = None) -> bool:
         """
         Sets this matrix to the matrix of rotation by the specified angle, through the specified origin.
-        angle : The rotation angle in radians.
-        origin : The origin point of the rotation.
-        Returns true if successful.
         """
-        return bool()
+        self._array[:2, :2] = np.array(
+            [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
+        )
+
+        if origin is not None:
+            # If the rotation center is not at the origin, translate
+            self._array[:2, 2] = origin - origin @ self._array[:2, :2]
+        return True
+
+    def get_as_coordinate_system(self) -> tuple[Point2D, Vector2D, Vector2D]:
+        """
+        Gets the matrix data as the components that define a coordinate system.
+        origin : The output origin point of the coordinate system.
+        xAxis : The output x axis direction of the coordinate system.
+        yAxis : The output y axis direction of the coordinate system.
+        zAxis : The output z axis direction of the coordinate system.
+        """
+
+        origin = np.copy(self._array[:2, 2])
+        xAxis = np.copy(self._array[:2, 0])
+        yAxis = np.copy(self._array[:2, 1])
+
+        return (
+            Point2D(origin),
+            Vector2D(xAxis),
+            Vector2D(yAxis),
+        )
 
     @property
-    def determinant(self) -> float:
+    def translation(self) -> Vector2D:
         """
-        Returns the determinant of the matrix.
-        Returns the determinant value of this matrix.
+        Gets and sets the translation component of the matrix.
         """
-        return float()
+        return Vector2D(self._array[:2, 2])
+
+    @translation.setter
+    def translation(self, value: Vector2D):
+        """
+        Gets and sets the translation component of the matrix.
+        """
+        if not isinstance(value, Vector2D):
+            raise ValueError("Translation must be Vector3D instance")
+        self._array[:2, 2] = value.as_array()
 
 
-class Matrix3D(Base):
+from ._typing import Self
+
+
+class Matrix3D(BaseMatrix):
     """
     3D 4x4 matrix. This object is a wrapper over 3D matrix data and is used as way to pass matrix data
     in and out of the API and as a convenience when operating on matrix data.
     They are created statically using the create method of the Matrix3D class.
     """
 
-    def __init__(self):
-        self.m = np.eye(3, float)
-
-    @classmethod
-    def cast(cls, arg) -> Matrix3D:
-        return Matrix3D()
+    def __init__(self, arr=None):
+        super().__init__()
+        self._array = (
+            np.zeros([4, 4])
+            if not arr
+            else (arr if isinstance(arr, np.ndarray) else np.array(arr))
+        )
+        self.set_to_identity()
 
     @classmethod
     def create(cls) -> Matrix3D:
@@ -448,34 +492,9 @@ class Matrix3D(Base):
         """
         return Matrix3D()
 
-    def set_to_identity(self) -> bool:
-        """
-        Resets this matrix to an identify matrix.
-        Returns true if successful.
-        """
-        return bool()
-
-    def invert(self) -> bool:
-        """
-        Inverts this matrix.
-        Returns true if successful.
-        """
-        return bool()
-
-    def copy(self) -> Matrix3D:
-        """
-        Creates an independent copy of this matrix.
-        Returns the new matrix copy.
-        """
-        return Matrix3D()
-
-    def transform(self, matrix: Matrix3D) -> bool:
-        """
-        Transforms this matrix using the input matrix.
-        matrix : The transformation matrix.
-        Returns true if successful.
-        """
-        return bool()
+    @classmethod
+    def cast(cls, arg) -> Matrix3D:
+        return Matrix3D(arg)
 
     def get_as_coordinate_system(self) -> tuple[Point3D, Vector3D, Vector3D, Vector3D]:
         """
@@ -485,9 +504,22 @@ class Matrix3D(Base):
         yAxis : The output y axis direction of the coordinate system.
         zAxis : The output z axis direction of the coordinate system.
         """
-        return (Point3D(), Vector3D(), Vector3D(), Vector3D())
 
-    def set_with_coordinate_system(self, origin: Point3D, xAxis: Vector3D, yAxis: Vector3D, zAxis: Vector3D) -> bool:
+        origin = np.copy(self._array[:3, 3])
+        xAxis = np.copy(self._array[:3, 0])
+        yAxis = np.copy(self._array[:3, 1])
+        zAxis = np.copy(self._array[:3, 2])
+
+        return (
+            Point3D(origin),
+            Vector3D(xAxis),
+            Vector3D(yAxis),
+            Vector3D(zAxis),
+        )
+
+    def set_with_coordinate_system(
+        self, origin: Point3D, xAxis: Vector3D, yAxis: Vector3D, zAxis: Vector3D
+    ) -> bool:
         """
         Sets the matrix based on the components of a coordinate system.
         origin : The origin point of the coordinate system.
@@ -496,109 +528,84 @@ class Matrix3D(Base):
         zAxis : The z axis direction of the coordinate system.
         Returns true if successful.
         """
-        return bool()
 
-    def get_cell(self, row: int, column: int) -> float:
-        """
-        Gets the value of the specified cell in the 4x4 matrix.
-        row : The index of the row. The first row has in index of 0
-        column : The index of the column. The first column has an index of 0
-        The cell value at [row][column].
-        """
-        return float()
+        self._array[:] = _construct_affine3d(
+            origin.as_array(), xAxis.as_array(), yAxis.as_array(), zAxis.as_array()
+        )
 
-    def set_cell(self, row: int, column: int, value: float) -> bool:
-        """
-        Sets the specified cell in the 4x4 matrix to the specified value.
-        row : The index of the row. The first row has in index of 0
-        column : The index of the column. The first column has an index of 0
-        value : The new cell value.
-        Returns true if successful.
-        """
-        return bool()
+        return True
 
-    def as_array(self) -> list[float]:
-        """
-        Returns the contents of the matrix as a 16 element array.
-        Returns the array of cell values.
-        """
-        return [float()]
-
-    def set_with_array(self, cells: list[float]) -> bool:
-        """
-        Sets the contents of the array using a 16 element array.
-        cells : The array of cell values.
-        Returns true if successful.
-        """
-        return bool()
-
-    def is_equal_to(self, matrix: Matrix3D) -> bool:
-        """
-        Compares this matrix with another matrix and returns True if they're identical.
-        matrix : The matrix to compare this matrix to.
-        Returns true if the matrices are equal.
-        """
-        return bool()
-
-    def set_to_align_coordinate_systems(self, fromOrigin: Point3D, fromXAxis: Vector3D, fromYAxis: Vector3D,
-                                        fromZAxis: Vector3D, toOrigin: Point3D, toXAxis: Vector3D, toYAxis: Vector3D,
-                                        toZAxis: Vector3D) -> bool:
+    def set_to_align_coordinate_systems(
+        self,
+        fromOrigin: Point3D,
+        fromXAxis: Vector3D,
+        fromYAxis: Vector3D,
+        fromZAxis: Vector3D,
+        toOrigin: Point3D,
+        toXAxis: Vector3D,
+        toYAxis: Vector3D,
+        toZAxis: Vector3D,
+    ) -> bool:
         """
         Sets this matrix to be the matrix that maps from the 'from' coordinate system to the 'to' coordinate system.
-        fromOrigin : The origin point of the from coordinate system.
-        fromXAxis : The x axis direction of the from coordinate system.
-        fromYAxis : The y axis direction of the from coordinate system.
-        fromZAxis : The z axis direction of the from coordinate system.
-        toOrigin : The origin point of the to coordinate system.
-        toXAxis : The x axis direction of the to coordinate system.
-        toYAxis : The y axis direction of the to coordinate system.
-        toZAxis : The z axis direction of the to coordinate system.
-        Returns true if successful.
         """
-        return bool()
+        from_ = self.set_with_coordinate_system(
+            fromOrigin, fromXAxis, fromYAxis, fromZAxis
+        )
+        to_ = self.set_with_coordinate_system(toOrigin, toXAxis, toYAxis, toZAxis)
 
-    def set_to_rotate_to(self, _from: Vector3D, to: Vector3D, axis: Vector3D) -> bool:
+        self._array = np.linalg.inv(from_).dot(to_)
+        return True
+
+    def set_to_rotate_to(
+        self, _from: Vector3D, to: Vector3D, axis: Vector3D = None
+    ) -> bool:
         """
-        Sets to the matrix of rotation that would align the 'from' vector with the 'to' vector. The optional
-        axis argument may be used when the two vectors are perpendicular and in opposite directions to
-        specify a specific solution, but is otherwise ignored
-        from : The vector to rotate from.
-        to : The vector to rotate to.
-        axis : The optional axis vector to disambiguate the rotation axis.
-        Returns true if successful.
+        Sets to the matrix of rotation that would align the 'from' vector with the 'to' vector.
         """
-        return bool()
+        rotvec = _from.cross(to)
+        if np.allclose(rotvec, 0):
+            # Vectors are either parallel or opposite
+            if _from.dot(to) < 0 and axis is not None:
+                # Vectors are opposite, use given axis for rotation
+                rotvec = axis
+        else:
+            return False
+
+        ang = np.arccos(np.clip(_from.dot(to), -1.0, 1.0))
+        r = R.from_rotvec(ang * rotvec.as_array())
+        self._array[:3, :3] = r.as_matrix()
+        return True
 
     def set_to_rotation(self, angle: float, axis: Vector3D, origin: Point3D) -> bool:
         """
-        Sets this matrix to the matrix of rotation by the specified angle, through the specified origin, around the specified axis
-        angle : The rotation angle in radians.
-        axis : The axis of rotation.
-        origin : The origin point of the axis of rotation.
-        Returns true if successful.
+        Sets this matrix to the matrix of rotation by the specified angle, through the specified origin, around the specified axis.
         """
-        return bool()
+        if not isinstance(axis, Vector3D) or not isinstance(origin, Point3D):
+            raise ValueError(
+                "Axis and origin must be Vector3D and Point3D instances respectively"
+            )
 
-    @property
-    def determinant(self) -> float:
-        """
-        Returns the determinant of the matrix.
-        """
-        return float()
+        r = R.from_rotvec(np.radians(angle) * axis)
+        self._array[:3, :3] = r.as_matrix()
+        self._array[:3, 3] = origin
+        return True
 
     @property
     def translation(self) -> Vector3D:
         """
         Gets and sets the translation component of the matrix.
         """
-        return Vector3D()
+        return Vector3D(self._array[:3, 3])
 
     @translation.setter
     def translation(self, value: Vector3D):
         """
         Gets and sets the translation component of the matrix.
         """
-        pass
+        if not isinstance(value, Vector3D):
+            raise ValueError("Translation must be Vector3D instance")
+        self._array[:3, 3] = value
 
 
-__all__ = ['Vector2D', 'Vector3D', 'Point2D', 'Point3D', 'Matrix2D', 'Matrix3D']
+__all__ = ["Vector2D", "Vector3D", "Point2D", "Point3D", "Matrix2D", "Matrix3D"]

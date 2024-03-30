@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union
+from ._typing import Union
 
 from mmcore.api.base import Surface, Curve3D
 from mmcore.api._base import ObjectCollection
@@ -29,7 +29,9 @@ class Cone(Surface):
         return Cone()
 
     @classmethod
-    def create(cls, origin: Point3D, axis: Vector3D, radius: float, half_angle: float) -> Cone:
+    def create(
+        cls, origin: Point3D, axis: Vector3D, radius: float, half_angle: float
+    ) -> Cone:
         """
         Creates a cone object.
         origin : The origin point (center) of the base of the cone.
@@ -51,7 +53,9 @@ class Cone(Surface):
         """
         return (bool(), Point3D(), Vector3D(), float(), float())
 
-    def set(self, origin: Point3D, axis: Vector3D, radius: float, half_angle: float) -> bool:
+    def set(
+        self, origin: Point3D, axis: Vector3D, radius: float, half_angle: float
+    ) -> bool:
         """
         Sets the data that defines the cone.
         origin : The origin point (center) of the base of the cone.
@@ -223,9 +227,15 @@ class EllipticalCone(Surface):
         return EllipticalCone()
 
     @classmethod
-    def create(cls, origin: Point3D, axis: Vector3D, major_axisDirection: Vector3D, major_radius: float,
-               minor_radius: float,
-               half_angle: float) -> EllipticalCone:
+    def create(
+        cls,
+        origin: Point3D,
+        axis: Vector3D,
+        major_axisDirection: Vector3D,
+        major_radius: float,
+        minor_radius: float,
+        half_angle: float,
+    ) -> EllipticalCone:
         """
         Creates a elliptical cone object.
         origin : The origin point (center) of the base of the cone.
@@ -269,8 +279,15 @@ class EllipticalCone(Surface):
         """
         return (bool(), Point3D(), Vector3D(), Vector3D(), float(), float(), float())
 
-    def set(self, origin: Point3D, axis: Vector3D, major_axisDirection: Vector3D, major_radius: float,
-            minor_radius: float, half_angle: float) -> bool:
+    def set(
+        self,
+        origin: Point3D,
+        axis: Vector3D,
+        major_axisDirection: Vector3D,
+        major_radius: float,
+        minor_radius: float,
+        half_angle: float,
+    ) -> bool:
         """
         Sets the data that defines the Elliptical Cone.
         origin : The origin point (center) of the base of the cone.
@@ -355,8 +372,14 @@ class EllipticalCylinder(Surface):
         return EllipticalCylinder()
 
     @classmethod
-    def create(cls, origin: Point3D, axis: Vector3D, major_axis: Vector3D, major_radius: float,
-               minor_radius: float) -> EllipticalCylinder:
+    def create(
+        cls,
+        origin: Point3D,
+        axis: Vector3D,
+        major_axis: Vector3D,
+        major_radius: float,
+        minor_radius: float,
+    ) -> EllipticalCylinder:
         """
         Creates a 3D elliptical cylinder object.
         origin : The origin point (center) of the base of the cylinder.
@@ -380,8 +403,14 @@ class EllipticalCylinder(Surface):
         """
         return (bool(), Point3D(), Vector3D(), Vector3D(), float(), float())
 
-    def set(self, origin: Point3D, axis: Vector3D, major_axis: Vector3D, major_radius: float,
-            minor_radius: float) -> bool:
+    def set(
+        self,
+        origin: Point3D,
+        axis: Vector3D,
+        major_axis: Vector3D,
+        major_radius: float,
+        minor_radius: float,
+    ) -> bool:
         """
         Sets the data defining the elliptical cylinder.
         origin : The origin point (center) of the base of the cylinder.
@@ -475,9 +504,19 @@ class NurbsSurface(Surface):
         return NurbsSurface()
 
     @classmethod
-    def create(cls, degree_u: int, degree_v: int, control_point_count_u: int, control_point_count_v: int,
-               control_points: list[Point3D], knots_u: list[float], knots_v: list[float], weights: list[float],
-               properties_u: NurbsSurfaceProperties, properties_v: NurbsSurfaceProperties) -> NurbsSurface:
+    def create(
+        cls,
+        degree_u: int,
+        degree_v: int,
+        control_point_count_u: int,
+        control_point_count_v: int,
+        control_points: list[Point3D],
+        knots_u: list[float],
+        knots_v: list[float],
+        weights: list[float],
+        properties_u: NurbsSurfaceProperties,
+        properties_v: NurbsSurfaceProperties,
+    ) -> NurbsSurface:
         """
         Creates a NURBS surface object.
         degree_u : The degree in the U direction.
@@ -495,8 +534,21 @@ class NurbsSurface(Surface):
         """
         return NurbsSurface()
 
-    def to_data(self) -> tuple[bool, int, int, int, int, list[Point3D], list[float], list[float], list[
-        float], NurbsSurfaceProperties, NurbsSurfaceProperties]:
+    def to_data(
+        self,
+    ) -> tuple[
+        bool,
+        int,
+        int,
+        int,
+        int,
+        list[Point3D],
+        list[float],
+        list[float],
+        list[float],
+        NurbsSurfaceProperties,
+        NurbsSurfaceProperties,
+    ]:
         """
         Gets the data that defines the NURBS surface.
         degree_u : The output degree in the U direction.
@@ -512,12 +564,32 @@ class NurbsSurface(Surface):
         Returns true if successful.
         """
         return (
-            bool(), int(), int(), int(), int(), [Point3D()], [float()], [float()], [float()], NurbsSurfaceProperties,
-            NurbsSurfaceProperties)
+            bool(),
+            int(),
+            int(),
+            int(),
+            int(),
+            [Point3D()],
+            [float()],
+            [float()],
+            [float()],
+            NurbsSurfaceProperties,
+            NurbsSurfaceProperties,
+        )
 
-    def set(self, degree_u: int, degree_v: int, control_point_count_u: int, control_point_count_v: int,
-            control_points: list[Point3D], knots_u: list[float], knots_v: list[float], weights: list[float],
-            properties_u: NurbsSurfaceProperties, properties_v: NurbsSurfaceProperties) -> bool:
+    def set(
+        self,
+        degree_u: int,
+        degree_v: int,
+        control_point_count_u: int,
+        control_point_count_v: int,
+        control_points: list[Point3D],
+        knots_u: list[float],
+        knots_v: list[float],
+        weights: list[float],
+        properties_u: NurbsSurfaceProperties,
+        properties_v: NurbsSurfaceProperties,
+    ) -> bool:
         """
         Sets the data that defines the NURBS surface.
         degree_u : The degree in the U direction.
@@ -628,10 +700,13 @@ class Plane(Surface):
     They are created statically using the create method of the Plane class.
     """
 
-    def __init__(self, origin: Point3D = Point3D((0.0, 0.0, 0.0)),
-                 u_direction: Vector3D = Vector3D((1, 0, 0)),
-                 v_direction: Vector3D = Vector3D((0, 1, 0)),
-                 normal: Vector3D = Vector3D((0, 0, 1))):
+    def __init__(
+        self,
+        origin: Point3D = Point3D((0.0, 0.0, 0.0)),
+        u_direction: Vector3D = Vector3D((1, 0, 0)),
+        v_direction: Vector3D = Vector3D((0, 1, 0)),
+        normal: Vector3D = Vector3D((0, 0, 1)),
+    ):
         super().__init__()
         self._origin = origin
         self._u_direction = u_direction
@@ -642,6 +717,12 @@ class Plane(Surface):
     def cast(cls, arg: tuple) -> Plane:
         return Plane(*arg)
 
+    @classmethod
+    def create_from_array(cls, arr):
+        p = Plane()
+
+        p.origin,p._u_direction,p._v_direction,p._normal=Point3D(arr[0]),Vector3D(arr[1]),  Vector3D(arr[2]),  Vector3D(arr[3])
+        return p
     @classmethod
     def create(cls, origin: Point3D, normal: Vector3D) -> Plane:
         """
@@ -656,7 +737,9 @@ class Plane(Surface):
         return Plane(origin, Vector3D(u), Vector3D(v), normal)
 
     @classmethod
-    def create_using_directions(cls, origin: Point3D, u_direction: Vector3D, v_direction: Vector3D) -> Plane:
+    def create_using_directions(
+        cls, origin: Point3D, u_direction: Vector3D, v_direction: Vector3D
+    ) -> Plane:
         """
         Creates a plane object by specifying an origin along with U and V directions.
         origin : The origin point of the plane.
@@ -702,7 +785,10 @@ class Plane(Surface):
         # here we calculate the distance from the plane to the origin point of the other plane
         # this can be done by taking the dot product of the other plane's origin
         # with this plane's normal and subtracting this plane's distance to the origin
-        return abs(plane._origin.dot(self._normal) - self._origin.dot(self._normal)) < 1e-10
+        return (
+            abs(plane._origin.dot(self._normal) - self._origin.dot(self._normal))
+            < 1e-10
+        )
 
     def intersect_with_plane(self, plane: Plane) -> InfiniteLine3D:
         # two planes intersect in a line if they are not parallel
@@ -752,7 +838,12 @@ class Plane(Surface):
         Creates and returns an independent copy of this Plane object.
         Returns a new Plane object that is a copy of this Plane object.
         """
-        return Plane(self.origin.copy(), self.u_direction.copy(), self.v_direction.copy(), self.normal.copy())
+        return Plane(
+            self.origin.copy(),
+            self.u_direction.copy(),
+            self.v_direction.copy(),
+            self.normal.copy(),
+        )
 
     @property
     def origin(self) -> Point3D:
@@ -776,11 +867,12 @@ class Plane(Surface):
     @normal.setter
     def normal(self, value: Vector3D):
         self._normal = value
-        self._normal._array, self._u_direction._array, self._v_direction._array = (
-            orthonormalize(self._normal._array,
-                           self._u_direction._array,
-                           self._v_direction._array
-                           )
+        (
+            self._normal._array,
+            self._u_direction._array,
+            self._v_direction._array,
+        ) = orthonormalize(
+            self._normal._array, self._u_direction._array, self._v_direction._array
         )
 
     @property
@@ -799,6 +891,7 @@ class Plane(Surface):
 
     def to_data(self):
         self.origin.to_data()
+
 
 class Sphere(Surface):
     """
@@ -889,7 +982,9 @@ class Torus(Surface):
         return Torus()
 
     @classmethod
-    def create(cls, origin: Point3D, axis: Vector3D, major_radius: float, minor_radius: float) -> Torus:
+    def create(
+        cls, origin: Point3D, axis: Vector3D, major_radius: float, minor_radius: float
+    ) -> Torus:
         """
         Creates a torus object.
         origin : The origin point (center) of the torus.
@@ -911,7 +1006,9 @@ class Torus(Surface):
         """
         return (bool(), Point3D(), Vector3D(), float(), float())
 
-    def set(self, origin: Point3D, axis: Vector3D, major_radius: float, minor_radius: float) -> bool:
+    def set(
+        self, origin: Point3D, axis: Vector3D, major_radius: float, minor_radius: float
+    ) -> bool:
         """
         Sets all of the data defining the torus.
         origin : The origin point (center) of the torus.

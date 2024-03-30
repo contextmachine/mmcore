@@ -9,7 +9,7 @@ from mmcore.geom import vec
 from mmcore.geom.plane.refine import PlaneRefine
 from mmcore.geom.vec import cross, dot, norm, perp2d, unit, norm_sq
 
-_Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", 'zaxis'])
+_Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", "zaxis"])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
 from mmcore.base.ecs.components import EcsProto, component, EcsProperty
 from math import sqrt
@@ -25,8 +25,11 @@ def distance(pln, point2):
     a, b, c = pln[-1]
     x0, y0, z0 = pln[0]
     x, y, z = point2
-    return abs(a * (x - x0) / sqrt(a ** 2 + b ** 2 + c ** 2) + b * (y - y0) / sqrt(a ** 2 + b ** 2 + c ** 2) + c * (
-            z - z0) / sqrt(a ** 2 + b ** 2 + c ** 2))
+    return abs(
+        a * (x - x0) / sqrt(a**2 + b**2 + c**2)
+        + b * (y - y0) / sqrt(a**2 + b**2 + c**2)
+        + c * (z - z0) / sqrt(a**2 + b**2 + c**2)
+    )
 
 
 def arbitrary(t, normal, origin):
@@ -34,15 +37,30 @@ def arbitrary(t, normal, origin):
     x0, y0, z0 = origin
 
     return np.array(
-        ((-a * c * np.sin(t) / np.sqrt(a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2) - b * np.cos(
-            t) / np.sqrt(
-            a ** 2 + b ** 2) + x0,
-          a * np.cos(t) / np.sqrt(a ** 2 + b ** 2) - b * c * np.sin(t) / np.sqrt(
-              a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2) + y0,
-          z0 + (a ** 2 + b ** 2) * np.sin(t) / np.sqrt(a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2))))
+        (
+            (
+                -a
+                * c
+                * np.sin(t)
+                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2)
+                - b * np.cos(t) / np.sqrt(a**2 + b**2)
+                + x0,
+                a * np.cos(t) / np.sqrt(a**2 + b**2)
+                - b
+                * c
+                * np.sin(t)
+                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2)
+                + y0,
+                z0
+                + (a**2 + b**2)
+                * np.sin(t)
+                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2),
+            )
+        )
+    )
 
 
-@vectorize(excluded=[1], signature='(i)->(i)')
+@vectorize(excluded=[1], signature="(i)->(i)")
 def perp_to_vector(v, tol=1e-5):
     if norm_sq(v) >= tol:
         if (abs(v[0]) >= tol) or (abs(v[1]) >= tol):
@@ -70,16 +88,39 @@ def project_point_by_normal(point, normal, origin):
 
 
 def plane_from_normal_origin(normal, origin):
-    projected = project_point_by_normal(np.array([0., 0., 0.]), normal, origin)
+    projected = project_point_by_normal(np.array([0.0, 0.0, 0.0]), normal, origin)
     xaxis = unit(projected - origin)
     yaxis = cross(normal, xaxis)
     return np.array([origin, xaxis, yaxis, normal])
+
+
 def plane_eq_from_pts(p1, p2, p3):
-    return [p1[1] * p2[2] - p1[1] * p3[2] - p1[2] * p2[1] + p1[2] * p3[1] + p2[1] * p3[2] - p2[2] * p3[1],
-            - p1[0] * p2[2] + p1[0] * p3[2] + p1[2] * p2[0] - p1[2] * p3[0] - p2[0] * p3[2] + p2[2] * p3[0],
-            p1[0] * p2[1] - p1[0] * p3[1] - p1[1] * p2[0] + p1[1] * p3[0] + p2[0] * p3[1] - p2[1] * p3[0],
-            -p1[0] * p2[1] * p3[2] + p1[0] * p2[2] * p3[1] + p1[1] * p2[0] * p3[2] - p1[1] * p2[2] * p3[0] - p1[2] * p2[
-                0] * p3[1] + p1[2] * p2[1] * p3[0]]
+    return [
+        p1[1] * p2[2]
+        - p1[1] * p3[2]
+        - p1[2] * p2[1]
+        + p1[2] * p3[1]
+        + p2[1] * p3[2]
+        - p2[2] * p3[1],
+        -p1[0] * p2[2]
+        + p1[0] * p3[2]
+        + p1[2] * p2[0]
+        - p1[2] * p3[0]
+        - p2[0] * p3[2]
+        + p2[2] * p3[0],
+        p1[0] * p2[1]
+        - p1[0] * p3[1]
+        - p1[1] * p2[0]
+        + p1[1] * p3[0]
+        + p2[0] * p3[1]
+        - p2[1] * p3[0],
+        -p1[0] * p2[1] * p3[2]
+        + p1[0] * p2[2] * p3[1]
+        + p1[1] * p2[0] * p3[2]
+        - p1[1] * p2[2] * p3[0]
+        - p1[2] * p2[0] * p3[1]
+        + p1[2] * p2[1] * p3[0],
+    ]
 
 
 def plane_from_3pt(pt0, pt1, pt2):
@@ -93,19 +134,15 @@ def plane_from_3pt(pt0, pt1, pt2):
     yax = cross(N, xax)
     # Generate a vector on the plane
     return np.array([pt0, xax, yax, N]), [a, b, c, d]
+
+
 def pln_eq_3pt(p0, p1, p2):
-    matrix_a = np.array([[p0[1], p0[2], 1],
-                         [p1[1], p1[2], 1],
-                         [p2[1], p2[2], 1]])
-    matrix_b = np.array([[-p0[0], p0[2], 1],
-                         [-p1[0], p1[2], 1],
-                         [-p2[0], p2[2], 1]])
-    matrix_c = np.array([[p0[0], p0[1], 1],
-                         [p1[0], p1[1], 1],
-                         [p2[0], p2[1], 1]])
-    matrix_d = np.array([[-p0[0], -p0[1], p0[2]],
-                         [-p1[0], -p1[1], p1[2]],
-                         [-p2[0], -p2[1], p2[2]]])
+    matrix_a = np.array([[p0[1], p0[2], 1], [p1[1], p1[2], 1], [p2[1], p2[2], 1]])
+    matrix_b = np.array([[-p0[0], p0[2], 1], [-p1[0], p1[2], 1], [-p2[0], p2[2], 1]])
+    matrix_c = np.array([[p0[0], p0[1], 1], [p1[0], p1[1], 1], [p2[0], p2[1], 1]])
+    matrix_d = np.array(
+        [[-p0[0], -p0[1], p0[2]], [-p1[0], -p1[1], p1[2]], [-p2[0], -p2[1], p2[2]]]
+    )
     det_a = np.linalg.det(matrix_a)
     det_b = np.linalg.det(matrix_b)
     det_c = np.linalg.det(matrix_c)
@@ -113,11 +150,17 @@ def pln_eq_3pt(p0, p1, p2):
     return np.array([det_a, det_b, det_c, det_d])
 
 
-
-NpPlane = np.void(0, dtype=np.dtype([('origin', float, (3,)),
-                                     ('xaxis', float, (3,)),
-                                     ('yaxis', float, (3,)),
-                                     ('zaxis', float, (3,))]))
+NpPlane = np.void(
+    0,
+    dtype=np.dtype(
+        [
+            ("origin", float, (3,)),
+            ("xaxis", float, (3,)),
+            ("yaxis", float, (3,)),
+            ("zaxis", float, (3,)),
+        ]
+    ),
+)
 
 
 @dispatch(object, object)
@@ -163,14 +206,13 @@ def np_plane(xaxis, yaxis, origin):
     return pln
 
 
-@vectorize(excluded=[0], signature='(i)->()')
+@vectorize(excluded=[0], signature="(i)->()")
 def distance(self, pt):
     return point_to_plane_distance(pt, self.origin, self.normal)
 
 
 class Entity:
     def __init__(self, uuid=None):
-
         super().__init__()
         if uuid is None:
             uuid = uuid4().hex
@@ -188,17 +230,19 @@ class Entity:
 
 class Plane(Entity):
     """
-    zaxis=cross(xaxis, yaxis)
-    yaxis=cross(zaxis,xaxis)
-    xaxis=cross( yaxis,zaxis)
+        zaxis=cross(xaxis, yaxis)
+        yaxis=cross(zaxis,xaxis)
+        xaxis=cross( yaxis,zaxis)
 
-XAxis_X, YAxis_X, ZAxis_X, X
-XAxis_Y, YAxis_Y, ZAxis_Y, Y
-XAxis_Z, YAxis_Z, ZAxis_Z, Z
-0,       0,       0,       1
+    XAxis_X, YAxis_X, ZAxis_X, X
+    XAxis_Y, YAxis_Y, ZAxis_Y, Y
+    XAxis_Z, YAxis_Z, ZAxis_Z, Z
+    0,       0,       0,       1
     """
 
-    def __init__(self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None):
+    def __init__(
+        self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None
+    ):
         super().__init__(uuid=uuid)
 
         if (xaxis is not None) and (normal is not None):
@@ -222,8 +266,7 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
 
         else:
             if arr is None:
-
-                self._array = np.append([0., 0., 0.], np.eye(3, 3)).reshape((4, 3))
+                self._array = np.append([0.0, 0.0, 0.0], np.eye(3, 3)).reshape((4, 3))
             else:
                 arr[1:] = unit(arr[1:])
                 self._array = arr
@@ -246,16 +289,15 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
     def local_axis(self, v):
         self._array[1:] = v
 
-    def refine(self, proprity_axis=('y', 'x')):
-
+    def refine(self, proprity_axis=("y", "x")):
         refine = PlaneRefine(*proprity_axis)
         refine(self._array[1:], inplace=True)
+
     def distance(self, pt):
         return distance(self, pt)
 
     def project(self, pt):
         return project(self, pt)
-
 
     @property
     def _arr(self):
@@ -279,8 +321,6 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
     def __hash__(self):
         self._solve_dirty()
         return self._hash
-
-
 
     @property
     def origin(self):
@@ -325,7 +365,6 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
     def xaxis(self, v):
         self._set_axis(0, v)
 
-
     @yaxis.setter
     def yaxis(self, v):
         self._set_axis(1, v)
@@ -346,54 +385,66 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
     def normal(self, v):
         self.zaxis = v
 
-
-
-
-
-
     @property
     def d(self):
         return -1 * (
-                self.normal[0] * self.origin[0] + self.normal[1] * self.origin[1] + self.normal[2] * self.origin[2])
+            self.normal[0] * self.origin[0]
+            + self.normal[1] * self.origin[1]
+            + self.normal[2] * self.origin[2]
+        )
 
     def todict(self):
-        return dict(origin=self.origin.tolist(), xaxis=self.xaxis.tolist(), yaxis=self.yaxis.tolist(),
-                    zaxis=self.zaxis.tolist())
+        return dict(
+            origin=self.origin.tolist(),
+            xaxis=self.xaxis.tolist(),
+            yaxis=self.yaxis.tolist(),
+            zaxis=self.zaxis.tolist(),
+        )
 
-    @vectorize(excluded=[0], signature='(i)->(i)')
+    @vectorize(excluded=[0], signature="(i)->(i)")
     def point_from_local_to_world(self, pt: np.ndarray):
         """
 
-             :param pts: Points in local coordinates
-             :type pts: np.ndarray
-             :return: Points in world coordinates
-             :rtype: np.ndarray
-             """
-        return self._arr[0] + self._arr[1] * pt[0] + self._arr[2] * pt[1] + self._arr[3] * pt[2]
+        :param pts: Points in local coordinates
+        :type pts: np.ndarray
+        :return: Points in world coordinates
+        :rtype: np.ndarray
+        """
+        return (
+            self._arr[0]
+            + self._arr[1] * pt[0]
+            + self._arr[2] * pt[1]
+            + self._arr[3] * pt[2]
+        )
 
-    @vectorize(excluded=[0], signature='(i)->(i)')
+    @vectorize(excluded=[0], signature="(i)->(i)")
     def point_from_world_to_plane(self, pts: np.ndarray):
         """
 
-              :param pts: Points in world coordinates
-              :type pts: np.ndarray
-              :return: Points in local coordinates
-              :rtype: np.ndarray
-              """
+        :param pts: Points in world coordinates
+        :type pts: np.ndarray
+        :return: Points in local coordinates
+        :rtype: np.ndarray
+        """
         return dot(pts - self._array[0], self._array[1:])
 
-    @vectorize(excluded=[0], signature='(i)->( i)')
+    @vectorize(excluded=[0], signature="(i)->( i)")
     def __call__(self, uvh):
-        return self.origin + self.axis[0] * uvh[0] + self.axis[1] * uvh[1] + self.axis[2] * uvh[2]
+        return (
+            self.origin
+            + self.axis[0] * uvh[0]
+            + self.axis[1] * uvh[1]
+            + self.axis[2] * uvh[2]
+        )
 
-    @vectorize(excluded=[0], signature='(i)->(i)')
+    @vectorize(excluded=[0], signature="(i)->(i)")
     def at_local(self, pt):
         return dot(self.axis, pt - self.origin)
 
-    def create_relative(self, arr, **kwargs) -> 'ChildPln':
+    def create_relative(self, arr, **kwargs) -> "ChildPln":
         return RelativePlane(arr, parent=self, **kwargs)
 
-    def to_relative(self, parent) -> 'RelativePlane':
+    def to_relative(self, parent) -> "RelativePlane":
         pln = RelativePlane(parent=parent)
         pln._array = self._array
         return pln
@@ -418,17 +469,21 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
         """
         return self.point_from_world_to_plane(pts)
 
-    def rotate(self, angle, axis=2, pln=None) -> 'Plane':
+    def rotate(self, angle, axis=2, pln=None) -> "Plane":
         if pln is None:
             pln = self
-        return Plane(arr=np.array([
-            rotate_around_axis(self.origin, angle, origin=pln.origin,
-                               axis=pln.axis),
-            *rotate_vectors_around_plane(self.axis, pln, angle, axis)
-        ]))
+        return Plane(
+            arr=np.array(
+                [
+                    rotate_around_axis(
+                        self.origin, angle, origin=pln.origin, axis=pln.axis
+                    ),
+                    *rotate_vectors_around_plane(self.axis, pln, angle, axis),
+                ]
+            )
+        )
 
-    def translate(self, vector: np.ndarray) -> 'Plane':
-
+    def translate(self, vector: np.ndarray) -> "Plane":
         pln = Plane(self._array)
         pln.origin = self.origin + self.point_at(vector)
         return pln
@@ -444,18 +499,14 @@ XAxis_Z, YAxis_Z, ZAxis_Z, Z
         :rtype:
         """
 
-        return np.array([
-            [self.xaxis[0], self.yaxis[0], self.zaxis[0], self.origin[0]],
-            [self.xaxis[1], self.yaxis[1], self.zaxis[1], self.origin[1]],
-            [self.xaxis[2], self.yaxis[2], self.zaxis[2], self.origin[2]],
-            [0, 0, 0, 1]])
-
-
-
-
-
-
-
+        return np.array(
+            [
+                [self.xaxis[0], self.yaxis[0], self.zaxis[0], self.origin[0]],
+                [self.xaxis[1], self.yaxis[1], self.zaxis[1], self.origin[1]],
+                [self.xaxis[2], self.yaxis[2], self.zaxis[2], self.origin[2]],
+                [0, 0, 0, 1],
+            ]
+        )
 
 
 class RelativePlane(Plane):
@@ -474,6 +525,7 @@ class RelativePlane(Plane):
     @property
     def axis(self):
         return self.parent(self.local_axis)
+
     @origin.setter
     def axis(self, v):
         self.local_axis = self.parent.at_local(v + self.origin)
@@ -483,17 +535,13 @@ class RelativePlane(Plane):
 
 
 def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
-    """
-
-    """
+    """ """
     pln = Plane()
     pln.origin = origin
 
     if y is None:
-
         x, y = axis = unit([x, [-x[1], x[0], 0]])
         pln._arr[1:] = x, y, (0, 0, 1)
-
 
     else:
         x, y = unit([x, y])
@@ -503,10 +551,10 @@ def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
     return pln
 
 
-def create_plane_from_xaxis_and_normal(xaxis=(1, 0, 0), normal=(0, 0, 1), origin=(0, 0, 0)):
-    """
-
-    """
+def create_plane_from_xaxis_and_normal(
+    xaxis=(1, 0, 0), normal=(0, 0, 1), origin=(0, 0, 0)
+):
+    """ """
     pln = Plane()
     pln.origin = origin
     pln.xaxis = vec.unit(xaxis)
@@ -517,13 +565,11 @@ def create_plane_from_xaxis_and_normal(xaxis=(1, 0, 0), normal=(0, 0, 1), origin
 
 
 def plane(origin, xaxis, yaxis, zaxis):
-    """
-
-    """
+    """ """
     return Plane((origin, xaxis, yaxis, zaxis))
 
 
-@vectorize(excluded=[0], signature='(i)->(i)')
+@vectorize(excluded=[0], signature="(i)->(i)")
 def project(pln, pt):
     """
     Calculate the projection of a point onto a plane.
@@ -544,9 +590,7 @@ from mmcore.geom.transform import rotate_around_axis, axis_rotation_transform
 
 
 def rotate_plane(pln, angle=0.0, axis=None, origin=None):
-    """
-
-    """
+    """ """
     if origin is None:
         origin = pln.origin
     if axis is None:
@@ -554,17 +598,18 @@ def rotate_plane(pln, angle=0.0, axis=None, origin=None):
     else:
         axis = unit(axis)
 
-    xyz = rotate_around_axis(pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]), angle, origin=origin,
-                             axis=axis)
+    xyz = rotate_around_axis(
+        pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]),
+        angle,
+        origin=origin,
+        axis=axis,
+    )
     origin = rotate_around_axis(pln.origin, angle, origin=origin, axis=axis)
     xaxis, yaxis, zaxis = unit(xyz - pln.origin)
     return plane(origin, xaxis, yaxis, zaxis)
 
 
-
-
-
-@vectorize(signature='(j),()->(i)')
+@vectorize(signature="(j),()->(i)")
 def append_np(arr, val):
     """
     :param arr: numpy array
@@ -578,9 +623,7 @@ def append_np(arr, val):
 
 
 def translate_plane(pln: Plane, vec: np.ndarray):
-    """
-
-    """
+    """ """
     return Plane(np.array([pln.origin + vec, pln.xaxis, pln.yaxis, pln.zaxis]))
 
 
@@ -599,28 +642,30 @@ def translate_plane_inplace(pln: Plane, vec: np.ndarray):
     pln.origin += vec
 
 
-def rotate_plane_inplace(pln: Plane, angle: float, axis: np.ndarray = None, origin=None):
-    """
-
-    """
+def rotate_plane_inplace(
+    pln: Plane, angle: float, axis: np.ndarray = None, origin=None
+):
+    """ """
     if origin is None:
         origin = pln.origin
     if axis is None:
         axis = pln.normal
 
-
-
     else:
         axis = unit(axis)
 
-    xyz = rotate_around_axis(pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]), angle, origin=origin,
-                             axis=axis)
+    xyz = rotate_around_axis(
+        pln.origin + np.array([pln.xaxis, pln.yaxis, pln.zaxis]),
+        angle,
+        origin=origin,
+        axis=axis,
+    )
     pln.origin = rotate_around_axis(pln.origin, angle, origin=origin, axis=axis)
     pln.xaxis, pln.yaxis, pln.zaxis = unit(xyz - pln.origin)
 
 
-@vectorize(otypes=[float], excluded=[1], signature='(i)->(i)')
-def local_to_world(pt, pln: 'Plane|SlimPlane' = WXY):
+@vectorize(otypes=[float], excluded=[1], signature="(i)->(i)")
+def local_to_world(pt, pln: "Plane|SlimPlane" = WXY):
     """
     :param pt: The point in the local coordinate system that needs to be transformed to the world coordinate system.
     :type pt: numpy.ndarray
@@ -640,11 +685,9 @@ def local_to_world(pt, pln: 'Plane|SlimPlane' = WXY):
     return z
 
 
-@vectorize(excluded=[1], signature='(i)->(i)')
+@vectorize(excluded=[1], signature="(i)->(i)")
 def world_to_local(pt, pln: Plane):
-    """
-
-    """
+    """ """
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
 
 
@@ -652,19 +695,14 @@ def orient_plane(pln1: np.ndarray, pln2: np.ndarray):
     return np.vstack([pln2[0] - pln1[0], pln1[1:] @ pln2[1:].T])
 
 
-
-@vectorize(excluded=[1, 2], signature='(i)->(i)')
+@vectorize(excluded=[1, 2], signature="(i)->(i)")
 def plane_to_plane(pt, plane_a: Plane, plane_b: Plane):
-    """
-
-    """
+    """ """
     return local_to_world(world_to_local(pt, plane_b), plane_a)
 
 
 def gen_norms(spline, density=4, bounds=(0, 1)):
-    """
-
-    """
+    """ """
     for t in np.linspace(*bounds, len(spline.control_points) * density):
         pt = spline.tan(t)
 
@@ -703,10 +741,12 @@ def rotate_vectors_around_plane(vecs, plane_a, angle, axis=2):
     :return: The rotated vectors.
     :rtype: numpy.array
     """
-    return norm(vecs) * rotate_around_axis(unit(vecs), angle, origin=(0., 0., 0.), axis=plane_a.axis[axis])
+    return norm(vecs) * rotate_around_axis(
+        unit(vecs), angle, origin=(0.0, 0.0, 0.0), axis=plane_a.axis[axis]
+    )
 
 
-@vectorize(excluded=[0, 1, 2], signature='()->()')
+@vectorize(excluded=[0, 1, 2], signature="()->()")
 def rotate_plane_around_plane(plane1, plane2, angle, return_cls=Plane):
     """
     Rotate a plane around another plane.
@@ -724,13 +764,17 @@ def rotate_plane_around_plane(plane1, plane2, angle, return_cls=Plane):
 
     """
     origin = rotate_around_axis(plane1.origin, angle, plane2.origin, plane2.normal)
-    xaxis, yaxis, zaxis = rotate_around_axis(np.array([plane1.xaxis, plane1.yaxis, plane1.zaxis]), angle,
-                                             origin=(0., 0., 0.), axis=plane2.normal)
+    xaxis, yaxis, zaxis = rotate_around_axis(
+        np.array([plane1.xaxis, plane1.yaxis, plane1.zaxis]),
+        angle,
+        origin=(0.0, 0.0, 0.0),
+        axis=plane2.normal,
+    )
     return return_cls(np.array([origin, xaxis, yaxis, zaxis], dtype=float))
 
 
-@vectorize(signature='(i),(i)->(j,i)')
-def plane_from_normal_numeric(vector=(2., 33., 1.), origin=(0., 0.0, 0.)):
+@vectorize(signature="(i),(i)->(j,i)")
+def plane_from_normal_numeric(vector=(2.0, 33.0, 1.0), origin=(0.0, 0.0, 0.0)):
     """
     :param vector: The normal vector of the plane
     :type vector: tuple of floats or ndarray of floats
@@ -751,7 +795,9 @@ def plane_from_normal_numeric(vector=(2., 33., 1.), origin=(0., 0.0, 0.)):
     return np.array([origin, X, Y, Z])
 
 
-def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.), return_cls: 'Plane|SlimPlane' = Plane):
+def plane_from_normal(
+    vector=(2, 33, 1), origin=(0.0, 0.0, 0.0), return_cls: "Plane|SlimPlane" = Plane
+):
     """
     Create a Plane object from a normal vector and origin point.
 
@@ -764,8 +810,6 @@ def plane_from_normal(vector=(2, 33, 1), origin=(0., 0.0, 0.), return_cls: 'Plan
 
     """
     return return_cls(plane_from_normal_numeric(vector, origin))
-
-
 
 
 def is_parallel(self, other):

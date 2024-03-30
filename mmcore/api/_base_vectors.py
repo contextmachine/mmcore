@@ -1,16 +1,9 @@
 from __future__ import annotations
-import sys
-from typing import Type
 
-if sys.version_info.minor < 10:
-    Self = object
-else:
-    from typing import Self
-
+from ._typing import Type, TypeVar, Union, SupportsInt, SupportsFloat
 import numpy as np
-
 from mmcore.api._base import Base
-from typing import TypeVar, Union, SupportsInt, SupportsFloat
+
 from typing_extensions import Buffer
 
 Numeric = Union[SupportsInt, SupportsFloat, Buffer]
@@ -41,7 +34,6 @@ class BaseVector(Base):
             self._array += other
 
     def __mul__(self, other: SupportVector):
-
         if isinstance(other, self.__class__):
             return self.__class__(self._array * other._array)
         else:
@@ -54,7 +46,6 @@ class BaseVector(Base):
             self._array *= other
 
     def __sub__(self, other: SupportVector):
-
         if isinstance(other, self.__class__):
             return self.__class__(self._array - other._array)
         else:
@@ -124,7 +115,6 @@ class BaseVector(Base):
     def cast(cls, arg) -> Type[Self]:
         return arg if isinstance(arg, cls) else cls(arg)
 
-
     def as_array(self) -> np.ndarray:
         return np.asarray(self._array)
 
@@ -145,7 +135,7 @@ class BaseVector(Base):
         vector : The vector to test parallelism to.
         Returns true if the vectors are parallel.
         """
-        return np.isclose(abs(self.dot(vector)), 1.)
+        return np.isclose(abs(self.dot(vector)), 1.0)
 
     def is_perpendicular(self, vector: Type[Self]) -> bool:
         """
@@ -153,7 +143,7 @@ class BaseVector(Base):
         vector : The vector to test perpendicularity to.
         Returns true if the vectors are perpendicular.
         """
-        return np.isclose(self.dot(vector), 0.)
+        return np.isclose(self.dot(vector), 0.0)
 
     def set_with_array(self, coordinates: list[float]) -> bool:
         """
@@ -174,7 +164,109 @@ class BaseVector(Base):
         return True
 
     def __repr__(self):
-        return f'{self.__class__.__name__}()'
+        return f"{self.__class__.__name__}()"
+
 
 V = TypeVar("V", bound=BaseVector)
 SupportVector = Union[V, Numeric]
+
+
+class BaseMatrix(Base):
+    _array: np.ndarray
+
+    def invert(self) -> bool:
+        """
+        Inverts this matrix.
+        Returns true if successful.
+        """
+        self._array[:] = np.linalg.inv(self._array)
+        return True
+
+    def copy(self) -> Self:
+        """
+        Creates an independent copy of this matrix.
+        Returns the new matrix copy.
+        """
+        m = self.__class__()
+        m._array[:] = self._array
+        return m
+
+    def get_cell(self, row: int, column: int) -> float:
+        """
+        Gets the value of the specified cell in the 4x4 matrix.
+        row : The index of the row. The first row has in index of 0
+        column : The index of the column. The first column has an index of 0
+        The cell value at [row][column].
+        """
+
+        return float(self._array[row, column])
+
+    def set_cell(self, row: int, column: int, value: float) -> bool:
+        """
+        Sets the specified cell in the 4x4 matrix to the specified value.
+        row : The index of the row. The first row has in index of 0
+        column : The index of the column. The first column has an index of 0
+        value : The new cell value.
+        Returns true if successful.
+        """
+        self._array[row, column] = value
+        return True
+
+    def as_array(self) -> np.ndarray:
+        """
+        Returns the contents of the matrix as a 16 element array.
+        Returns the array of cell values.
+        """
+        return np.asarray(self._array)
+
+    def set_with_array(self, cells: list[float]) -> bool:
+        """
+        Sets the contents of the array using a 16 element array.
+        cells : The array of cell values.
+        Returns true if successful.
+        """
+        self._array[:] = np.array(cells).reshape((4, 4))
+        return True
+
+    def is_equal_to(self, matrix: Self) -> bool:
+        """
+        Compares this matrix with another matrix and returns True if they're identical.
+        matrix : The matrix to compare this matrix to.
+        Returns true if the matrices are equal.
+        """
+
+        return np.allclose(self._array, matrix._array)
+
+    @property
+    def determinant(self) -> float:
+        """
+        Returns the determinant of the matrix.
+        """
+        return np.linalg.det(self._array)
+
+    def set_to_identity(self) -> bool:
+        """
+        Resets this matrix to an identify matrix.
+        Returns true if successful.
+        """
+        self._array[:] = np.eye(self._array.shape[0], dtype=float)
+        return True
+
+    def transform(self, matrix: "Self") -> bool:
+        """
+        Transforms this matrix using the input matrix.
+        matrix : The transformation matrix.
+        Returns true if successful.
+        """
+        self._array = self._array.dot(matrix.as_array())
+        return True
+
+    def __matmul__(self, other):
+        if isinstance(other, BaseVector):
+            return other.__class__.cast(
+                self._array.dot(np.append(other.as_array(), 1.0))
+            )
+        else:
+            m = self.copy()
+            m.transform(other)
+            return m

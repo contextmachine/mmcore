@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from abc import ABCMeta, abstractmethod
-from typing import Union, Generic, TypeVar, List, Any
+from ._typing import Union, Generic, TypeVar, List, Any
 
 from numpy._typing import ArrayLike
 
@@ -69,7 +69,9 @@ class Intersection(Base):
 
     def get_parametric(self) -> ArrayLike:
         ...
-    def get_geometry(self)-> ObjectCollection:...
+
+    def get_geometry(self) -> ObjectCollection:
+        ...
 
 
 class BaseCurve(Base, metaclass=ABCMeta):

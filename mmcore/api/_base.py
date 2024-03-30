@@ -1,19 +1,57 @@
 from __future__ import annotations
 
-from typing import TypeVar, Type
+import inspect
+from abc import ABCMeta
+from collections import namedtuple
+
+from ._typing import TypeVar, Type
+from types import FunctionType, MethodType
+
+CreateAcceptArgs = namedtuple("CreateAcceptArgs", ["names", "varkw", "spec"])
 
 
-class Base:
+class BaseType(ABCMeta):
+    def __new__(mcs, name, bases, attrs, **kws):
+        res: MethodType = attrs.get("create")
+        res = res if res else classmethod(lambda cls, **kwargs: cls())
+
+        spec = inspect.getfullargspec(res.__func__)
+
+        attrs["__create_accept_args__"] = CreateAcceptArgs(
+            spec.args[1:], bool(spec.varkw), spec
+        )
+
+        attrs["create_accept_args"] = property(
+            fget=lambda self: self.__class__.__create_accept_args__
+        )
+        return super().__new__(mcs, name, bases, attrs, **kws)
+
+
+class Base(metaclass=BaseType):
     """
     The base class that all other classes are derived from.
     """
+
+    __create_accept_args__: CreateAcceptArgs
+
+    @classmethod
+    def create(cls, *args, **kwargs):
+        ...
+
+    @classmethod
+    def from_data(cls, data):
+        spec = cls.__create_accept_args__
+        if spec.varkw:
+            return cls.create(**data)
+        else:
+            return cls.create(**{k: data.get(k, None) for k in spec.names})
 
     def __init__(self) -> None:
         pass
 
     @classmethod
     def cast(cls, arg) -> Base:
-        return cls(*arg)
+        return cls(arg)
 
     @classmethod
     def class_type(cls) -> str:
@@ -56,8 +94,10 @@ class ObjectCollection(list, Base):
     >>> ObjectCollection[Point3D].cast(np.array([[8., 9., 6.], [7., 4., 9.], [7., 1., 3.], [0., 6., 8.], [1., 3., 3.]]))
     ObjectCollection[Point3D]([Point3D(x=8.0, y=9.0, z=6.0), Point3D(x=7.0, y=4.0, z=9.0), Point3D(x=7.0, y=1.0, z=3.0), Point3D(x=0.0, y=6.0, z=8.0), Point3D(x=1.0, y=3.0, z=3.0)])
     """
+
     def __repr__(self):
         return f"{type(self).__name__}({super().__repr__()})"
+
     def __class_getitem__(cls, item: Type[TB]):
         name = f"{cls.__name__}[{item.__name__}]"
         if name not in __collection_classes__:
@@ -65,7 +105,7 @@ class ObjectCollection(list, Base):
                 f"{cls.__name__}[{item.__name__}]", (cls,), {"item_type": item}
             )
             new_cls.item_type = item
-            __collection_classes__[name]=new_cls
+            __collection_classes__[name] = new_cls
         return __collection_classes__[name]
 
     def __init__(self, *args, **kwargs):
