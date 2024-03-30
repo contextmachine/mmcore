@@ -1,6 +1,13 @@
+import dataclasses
+import functools
+import math
+import sys
+from typing import Callable, Optional, Iterable
+
 import numpy as np
 
-DEFAULT_H = 1e-20
+DEFAULT_H = 10 ** (-((sys.float_info.dig) - 1) // 2)
+_DECIMALS = abs(int(math.log10(DEFAULT_H)))
 
 
 def fdm(f, method="central", h=DEFAULT_H):
@@ -24,19 +31,32 @@ def fdm(f, method="central", h=DEFAULT_H):
             forward: f(a+h) - f(a))/h
             backward: f(a) - f(a-h))/h
     """
+    _decimals = abs(int(math.log10(h)))
+
     if method == "central":
-        return lambda t: (f(t + h) - f(t - h)) / (2 * h)
+        return lambda t: np.round((f(t + h) - f(t - h)) / (2 * h), _decimals)
     elif method == "forward":
-        return lambda t: (f(t + h) - f(t)) / h
+        return lambda t: np.round((f(t + h) - f(t)) / h, _decimals)
     elif method == "backward":
-        return lambda t: (f(t) - f(t - h)) / h
+        return lambda t: np.round((f(t) - f(t - h)) / h, _decimals)
     else:
         raise ValueError("Method must be 'central', 'forward' or 'backward'.")
 
 
 class FDM:
-    def __init__(self, fun):
-        self._fun = fun
+    def __new__(cls, fun):
+        record = Memo.get_or_create_record(fun)
+
+        rec = getattr(record, cls.__name__.lower(), None)
+        if rec:
+            return rec
+
+        obj = super().__new__(cls)
+
+        obj._fun = fun
+
+        Memo.update_record(fun, {cls.__name__.lower(): obj})
+        return obj
 
     def dydx(self, t):
         """
@@ -115,71 +135,178 @@ class FDM:
         return (self._fun(t) - self._fun(t - h)) / h
 
     def __call__(self, t, h=DEFAULT_H, method="central"):
-        return getattr(self, method)(t, h=h)
+        _decimals = abs(int(math.log10(h)))
+        return np.round(getattr(self, method)(t, h=h), _decimals)
 
 
-class PartialFDM(FDM):
-    def central(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        H = np.eye(len(t)) * h
+from mmcore.numeric.routines import remove_dim
 
-        return np.array(
-            [(self._fun(t + vh) - self._fun(t - vh)) / (2 * vh) for vh in H]
-        )
 
-    def forward(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        H = np.eye(len(t)) * h
+def _prepare_memo_record_args(*args, **kwargs):
+    keys = list(MemoRecord.__dataclass_fields__.keys())
+    return {**{keys[i]: val for i, val in enumerate(args)}, **kwargs}
 
-        return np.array([(self._fun(t + h) - self._fun(t)) / h for h in H])
 
-    def backward(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        H = np.eye(len(t)) * h
+@dataclasses.dataclass
+class MemoRecord:
+    func: Callable
+    fdm: Optional[Callable] = None
+    grad: Optional[Callable] = None
+    hess: Optional[Callable] = None
 
-        return np.array([(self._fun(t) - self._fun(t - h)) / h for h in H])
+    __match_args__ = ("func_hash",)
+
+    @property
+    def func_hash(self):
+        return getattr(self.func, "__hash__", lambda: id(self.func))()
+
+
+class Memo:
+    _data = dict()
+
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("Cannot instantiate")
+
+    @classmethod
+    def get_record(cls, fun, default=None) -> MemoRecord:
+        return cls._data.get(fun, default)
+
+    @classmethod
+    def get_or_create_record(cls, func) -> MemoRecord:
+        if func not in cls._data:
+            cls.create_or_update_record(func)
+
+        return cls.get_record(func)
+
+    @classmethod
+    def create_record(cls, func, *args, **kwargs):
+        cls._data[func] = MemoRecord(func, **_prepare_memo_record_args(*args, **kwargs))
+
+    @classmethod
+    def update_record(cls, func, *args, **kwargs):
+        cls._data[func].__dict__.update(**_prepare_memo_record_args(*args, **kwargs))
+
+    @classmethod
+    def create_or_update_record(cls, func, *args, **kwargs) -> None:
+        if func not in cls._data:
+            cls.create_record(func, *args, **kwargs)
+        cls.update_record(
+            func, *args, **kwargs
+        ) if func not in cls._data else cls.create_record(func, *args, **kwargs)
+
+    @classmethod
+    def __contains__(cls, item) -> bool:
+        return cls._data.__contains__(item)
+
+    @classmethod
+    def __len__(cls) -> int:
+        return cls._data.__len__()
+
+    @classmethod
+    def records(cls) -> Iterable[MemoRecord]:
+        return cls._data.values()
+
+
+__memo__ = Memo
 
 
 class Grad(FDM):
     def central(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        z = np.zeros(len(t), dtype=float)
-        for i in range(len(t)):
-            o = np.zeros(len(t), dtype=float)
-            o[i] = h
-            z[i] = (self._fun(t + o) - self._fun(t - o)) / (2 * h)
+        _t = np.atleast_2d(t)
 
-        return z
+        shp = np.broadcast_shapes(_t.shape, tuple(np.ones(len(_t.shape), dtype=int)))
 
-    def __call__(self, t, h=DEFAULT_H, method="auto"):
-        return super().__call__(t, h, method)
+        z = np.zeros(shp, dtype=float)
+        T = _t.reshape(shp)
+
+        for i in range(shp[0]):
+            o = np.zeros(shp[1:], dtype=float)
+            for j in range(shp[1]):
+                o[j, ...] = h
+
+            z[i, ...] = (self._fun(T[i] + o) - self._fun(T[i] - o)) / (2 * h)
+        return self.finalize(z, t)
+
+    def finalize(self, arr, t):
+        shp = arr.shape
+        cnt = 0
+        for i in shp:
+            if i != 1:
+                break
+            else:
+                cnt += 1
+
+        zz = remove_dim(arr, cnt) if cnt > 0 else arr
+        if zz.shape == (1,) and np.isscalar(t):
+            return zz[0]
+        else:
+            return zz
+
+    def __call__(self, t, h=DEFAULT_H, method="central"):
+        return super().__call__(t, h=h, method=method)
 
     def forward(self, t, h=DEFAULT_H):
         t = np.atleast_1d(t)
-        H = np.eye(len(t)) * h
+        z = np.zeros(t.shape, dtype=float)
+        for i in range(len(t)):
+            o = np.zeros(len(t), dtype=float)
+            o[i] = h
+            z[i] = (self._fun(t + o) - self._fun(t)) / h
 
-        return np.array([(self._fun(t + h) - self._fun(t)) / h for h in H])
+        return z
 
     def backward(self, t, h=DEFAULT_H):
         t = np.atleast_1d(t)
-        H = np.eye(len(t)) * h
-        # print(H, t)
-        return np.array([(self._fun(t) - self._fun(t - h)) / h for h in H])
+        z = np.zeros(t.shape, dtype=float)
+        for i in range(len(t)):
+            o = np.zeros(len(t), dtype=float)
+            o[i] = h
+            z[i] = (self._fun(t) - self._fun(t - o)) / h
+
+        return z
 
 
 class Hess(Grad):
-    def __init__(self, fun):
-        super().__init__(fun)
-        self._grad = Grad(self._fun)
-
     def central(self, t, h=DEFAULT_H):
         t = np.atleast_1d(t)
-        lx, ly = len(t), len(t)
-        z = np.zeros((lx, ly), dtype=float)
+        lx, ly = t.shape[0], t.shape[0]
+        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+
+        t = np.atleast_1d(t)
+        lx, ly = t.shape[0], t.shape[0]
+        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
 
         for i in range(lx):
             o = np.zeros(ly, dtype=float)
             o[i] = h
-            z[i, ...] = (self._grad(t + o) - self._grad(t - o)) / (2 * h)
+            z[i] = (self._grad(t + o) - self._grad(t - o)) / (2 * h)
+
+        return z
+
+    def backward(self, t, h=DEFAULT_H):
+        t = np.atleast_1d(t)
+        lx, ly = t.shape[0], t.shape[0]
+        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+
+        for i in range(lx):
+            o = np.zeros(ly, dtype=float)
+            o[i] = h
+            z[i, ...] = (self._grad.backward(t + o) - self._grad.backward(t - o)) / (
+                2 * h
+            )
+
+        return z
+
+    def forward(self, t, h=DEFAULT_H):
+        t = np.atleast_1d(t)
+        lx, ly = t.shape[0], t.shape[0]
+        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+
+        for i in range(lx):
+            o = np.zeros(ly, dtype=float)
+            o[i] = h
+            z[i, ...] = (self._grad.forward(t + o) - self._grad.forward(t - o)) / (
+                2 * h
+            )
 
         return z

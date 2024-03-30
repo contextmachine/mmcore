@@ -1,4 +1,4 @@
-from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any, Protocol
+from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -19,17 +19,7 @@ from .utils import (
     calc_rational_curve_derivatives,
 )
 
-ShapeLike = Union[SupportsIndex, Sequence[SupportsIndex]]
-
-D = TypeVar("D", bound=SupportsIndex)
-
-
-class CurveProtocol(Protocol):
-    def interval(self) -> tuple[float, float]:
-        ...
-
-    def __call__(self, t: Union[ArrayLike, float]) -> D:
-        ...
+from ._proto import *
 
 
 class BaseCurve:
@@ -129,15 +119,9 @@ class BSpline(BaseCurve):
         return (0.0, float(self.knots.max()))
 
     def __init__(self, control_points, degree=3, knots=None):
-        """
-        Initializes a new instance of the B-Spline curve
-        """
         super().__init__()
 
-        self.control_points = control_points
-        self.degree = degree
-        self.knots = self.generate_knots() if knots is None else knots
-
+        self.set(control_points, degree=degree, knots=knots)
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
 
@@ -173,9 +157,6 @@ class BSpline(BaseCurve):
         return res[..., :-1]
 
     def set(self, control_points=None, degree=None, knots=None):
-        """
-        Sets the B-Spline curve parameters
-        """
         if control_points is not None:
             self.control_points = control_points
         if degree is not None:
@@ -225,29 +206,33 @@ class BSpline(BaseCurve):
 
     def basis_function(self, t, i, k):
         """
-        Calculates basis function with de Boor algorithm
+        Calculating basis function with de Boor algorithm
         """
-        knots = self.knots
+        T = self.knots
+
         if k == 0:
-            return 1.0 if knots[i] <= t <= knots[i + 1] else 0.0
-        c1 = (
-            0.0
-            if knots[i + k] == knots[i]
-            else (t - knots[i])
-            / (knots[i + k] - knots[i])
-            * self.basis_function(t, i, k - 1)
-        )
-        c2 = (
-            0.0
-            if knots[i + k + 1] == knots[i + 1]
-            else (knots[i + k + 1] - t)
-            / (knots[i + k + 1] - knots[i + 1])
-            * self.basis_function(t, i + 1, k - 1)
-        )
+            return 1.0 if T[i] <= t <= T[i + 1] else 0.0
+        if T[i + k] == T[i]:
+            c1 = 0.0
+        else:
+            c1 = (t - T[i]) / (T[i + k] - T[i]) * self.basis_function(t, i, k - 1)
+
+        if T[i + k + 1] == T[i + 1]:
+            c2 = 0.0
+        else:
+            c2 = (
+                (T[i + k + 1] - t)
+                / (T[i + k + 1] - T[i + 1])
+                * self.basis_function(t, i + 1, k - 1)
+            )
         return c1 + c2
 
     def evaluate(self, t: float):
         result = np.zeros((3,), dtype=float)
+        if t == 0.0:
+            t += 1e-8
+        elif t == 1.0:
+            t -= 1e-8
 
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
@@ -305,24 +290,22 @@ class NURBSpline(BSpline):
         self._control_points_count = len(self.control_points)
 
     def evaluate(self, t: float):
-        x = 0.0
-        y = 0.0
-        z = 0.0
+        arr = np.zeros((3,), dtype=float)
         sum_of_weights = 0  # sum of weight * basis function
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
 
             if b > 0:
-                x += b * self.weights[i] * self.control_points[i][0]
-                y += b * self.weights[i] * self.control_points[i][1]
-                z += b * self.weights[i] * self.control_points[i][2]
+                arr[0] += b * self.weights[i] * self.control_points[i][0]
+                arr[1] += b * self.weights[i] * self.control_points[i][1]
+                arr[2] += b * self.weights[i] * self.control_points[i][2]
                 sum_of_weights += b * self.weights[i]
         # normalizing with the sum of weights to get rational B-spline
 
-        x /= sum_of_weights
-        y /= sum_of_weights
-        z /= sum_of_weights
-        return np.asarray((x, y, z))
+        arr[0] /= sum_of_weights
+        arr[1] /= sum_of_weights
+        arr[2] /= sum_of_weights
+        return arr
 
     def __call__(self, t: float) -> tuple[float, float, float]:
         """

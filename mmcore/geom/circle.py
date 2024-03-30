@@ -4,7 +4,8 @@ from mmcore.func import vectorize
 from mmcore.geom.curves import ParametricPlanarCurve
 from mmcore.geom.vec import unit
 
-class Circle(ParametricPlanarCurve, match_args=('r',), signature='()->(i)'):
+
+class Circle(ParametricPlanarCurve, match_args=("r",), signature="()->(i)"):
     def __new__(cls, r=1, origin=None, plane=None):
         self = super().__new__(cls, origin=origin, plane=plane)
         self.r = r
@@ -68,8 +69,8 @@ def circle_intersection2d(c1: Circle, c2: Circle):
         raise ValueError("Circles do not intersect")
 
     # Compute the coordinates of the intersection points
-    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
-    h = np.sqrt(r1 ** 2 - a ** 2)
+    a = (r1**2 - r2**2 + d**2) / (2 * d)
+    h = np.sqrt(r1**2 - a**2)
     xm = x1 + a * (x2 - x1) / d
     ym = y1 + a * (y2 - y1) / d
     xs1 = xm - h * (y2 - y1) / d
