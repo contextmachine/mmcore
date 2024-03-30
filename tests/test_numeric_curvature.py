@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from mmcore.numeric.numeric import  evaluate_curvature
+from mmcore.numeric.numeric import evaluate_curvature
 
 
 class TestEvaluateCurvature2(unittest.TestCase):
@@ -40,23 +40,20 @@ class TestEvaluateCurvature2(unittest.TestCase):
         norm_curvature_vector = np.linalg.norm(result[1])
         self.assertAlmostEqual(norm_curvature_vector, 1.0)
 
-
     def test_with_old(self):
         try:
             from mmcore.numeric import evaluate_curvature2
+
             derivative = np.random.random(3)
 
-            second_derivative = np.random.random(3)*2
+            second_derivative = np.random.random(3) * 2
             self.compromiser(
-                evaluate_curvature2(derivative, second_derivative), evaluate_curvature(derivative, second_derivative)
+                evaluate_curvature2(derivative, second_derivative),
+                evaluate_curvature(derivative, second_derivative),
             )
 
         except ImportError:
             pass
-
-
-
-
 
 
 if __name__ == "__main__":
