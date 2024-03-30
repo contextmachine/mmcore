@@ -199,6 +199,13 @@ class BoundingBox2D(BaseBoundingBox, point_class=Point2D):
     They are created statically using the create method of the BoundingBox2D class.
     """
 
+    @classmethod
+    def create(cls, min_point: Point2D, max_point: Point2D, **kwargs):
+        inst = BoundingBox2D()
+        inst.min = min_point.copy()
+        inst.max = max_point.copy()
+        return inst
+
     def area(self):
         u, v = self.sizes()
         return u * v
@@ -291,6 +298,13 @@ class BoundingBox3D(BaseBoundingBox, point_class=Point3D):
     It also provides some convenience function when working with the bounding box data.
     They are created statically using the create method of the BoundingBox3D class.
     """
+
+    @classmethod
+    def create(cls, min_point: Point3D, max_point: Point3D, **kwargs):
+        inst = BoundingBox3D()
+        inst.min = min_point.copy()
+        inst.max = max_point.copy()
+        return inst
 
     def set_from_array(self, pts: np.ndarray):
         # print(pts.shape, aabb(pts))
