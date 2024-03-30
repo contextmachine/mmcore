@@ -147,7 +147,6 @@ class Vector2D(BaseVector):
     def to_vector3d(self) -> Vector3D:
         return Vector3D(np.append(self._array, 0))
 
-
     def to_translation(self) -> Matrix2D:
         m = Matrix2D()
         m.translation = self
@@ -294,7 +293,7 @@ class Point2D(Vector2D):
 
 class Point3D(Vector3D):
     @classmethod
-    def create(cls, x: float, y: float, z:float,**kwargs) -> Point3D:
+    def create(cls, x: float, y: float, z: float, **kwargs) -> Point3D:
         return cls((x, y, z))
 
 

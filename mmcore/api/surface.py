@@ -721,8 +721,14 @@ class Plane(Surface):
     def create_from_array(cls, arr):
         p = Plane()
 
-        p.origin,p._u_direction,p._v_direction,p._normal=Point3D(arr[0]),Vector3D(arr[1]),  Vector3D(arr[2]),  Vector3D(arr[3])
+        p.origin, p._u_direction, p._v_direction, p._normal = (
+            Point3D(arr[0]),
+            Vector3D(arr[1]),
+            Vector3D(arr[2]),
+            Vector3D(arr[3]),
+        )
         return p
+
     @classmethod
     def create(cls, origin: Point3D, normal: Vector3D) -> Plane:
         """
