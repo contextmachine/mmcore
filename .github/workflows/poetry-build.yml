@@ -19,7 +19,7 @@ jobs:
         shell: bash
     runs-on: ${{ matrix.os }}
     environment:
-      name: pypy
+      name: poetry
       url: https://pypi.org/p/mmcore
 
     permissions:
