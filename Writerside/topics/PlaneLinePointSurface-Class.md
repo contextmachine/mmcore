@@ -58,8 +58,8 @@ point = np.array([0, 1, 0], float)
 plps = PlaneLinePointSurface(line, point)
 
 # Access properties
-print(plps.u_direction)
-print(plps.v_direction)
+print(plps.xaxis)
+print(plps.yaxis)
 print(plps.origin)
 print(plps.point)
 print(plps.line)

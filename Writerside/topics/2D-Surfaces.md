@@ -35,8 +35,8 @@ offsetSurface = OffsetSurface2D(distance=2.5, parent=someOtherSurface2Dobject)
 # 3. PlaneSurface
 planeSurface = PlaneSurface2D()
 planeSurface.origin = np.array([0, 0, 0])
-planeSurface.u_direction = np.array([1, 0, 0])
-planeSurface.v_direction = np.array([0, 1, 0])
+planeSurface.xaxis = np.array([1, 0, 0])
+planeSurface.yaxis = np.array([0, 1, 0])
 
 # 4. PlaneLinePointSurface
 planeLinePointSurface = PlaneLinePointSurface(line1, point)

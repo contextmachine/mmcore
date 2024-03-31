@@ -7,6 +7,7 @@ from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
 from termcolor import colored
 import mmcore
+from mmcore.base import AGroup
 from mmcore.base.params import pgraph
 from mmcore.base.userdata.controls import find_points_in_controls
 from mmcore.common.viewer import control_points_observer
@@ -229,6 +230,19 @@ class VDict(dict):
             return dict.__getitem__(self, item)
 
 
+@functools.lru_cache(maxsize=None)
+def find_parent_groups(obj):
+    vv = []
+    for k, v in adict.items():
+        if isinstance(v, AGroup):
+            if obj in v:
+                if v.uuid not in vv:
+                    vv.append(v.uuid)
+
+            elif obj in v.children:
+                vv.extend(find_parent_groups(v))
+    return [adict[i] for i in vv]
+
 class SharedStateServer():
 
     port: int = 7711
@@ -366,6 +380,8 @@ class SharedStateServer():
 
             except KeyError as errr:
                 return HTTPException(401, detail=f"KeyError. Trace: {errr}")
+            print(uid, data, target)
+
             target.props_update(data.uuids, data.props)
             return {"uuid": target.uuid}
 
@@ -428,6 +444,7 @@ class SharedStateServer():
         async def gql():
 
             return "OK"
+
 
 
         @inst.app.post("/", response_model_exclude_none=True)

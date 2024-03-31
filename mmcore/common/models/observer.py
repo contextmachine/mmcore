@@ -99,7 +99,7 @@ class Observation:
     def init_observer(self, cls=Observer):
         i = next(self.observers_counter)
         self.observers.append(cls(i))
-        return self.observers[i]
+        return self.observers[-1]
 
     def _postinit_observer(self, observer):
         i = next(self.observers_counter)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 from ._typing import Union
 
 from mmcore.api.base import Surface, Curve3D
@@ -8,7 +10,7 @@ from mmcore.api.curves import Line3D, InfiniteLine3D
 from mmcore.api.enums import NurbsSurfaceProperties
 from mmcore.api.vectors import Vector3D, Point3D
 from mmcore.geom.plane import plane_from_normal2
-from mmcore.geom.vec import orthonormalize
+from mmcore.geom.vec import orthonormalize, unit, cross
 
 
 class Cone(Surface):
@@ -700,18 +702,27 @@ class Plane(Surface):
     They are created statically using the create method of the Plane class.
     """
 
-    def __init__(
-        self,
-        origin: Point3D = Point3D((0.0, 0.0, 0.0)),
-        u_direction: Vector3D = Vector3D((1, 0, 0)),
-        v_direction: Vector3D = Vector3D((0, 1, 0)),
-        normal: Vector3D = Vector3D((0, 0, 1)),
-    ):
+    def __init__(self, arr=None):
         super().__init__()
-        self._origin = origin
-        self._u_direction = u_direction
-        self._v_direction = v_direction
-        self._normal = normal
+        self._array = (
+            np.r_[np.zeros((1, 3), dtype=float), np.eye(3, dtype=float)]
+            if arr is None
+            else np.array(arr)
+            if not isinstance(arr, np.ndarray)
+            else arr
+        )
+        self._origin = Point3D()
+        self._xaxis = Vector3D()
+        self._yaxis = Vector3D()
+        self._normal = Vector3D()
+
+        self._set_by_array()
+
+    def _set_by_array(self):
+        self._origin._array = self._array[0]
+        self._xaxis._array = self._array[1]
+        self._yaxis._array = self._array[2]
+        self._normal._array = self._array[3]
 
     @classmethod
     def cast(cls, arg: tuple) -> Plane:
@@ -719,55 +730,52 @@ class Plane(Surface):
 
     @classmethod
     def create_from_array(cls, arr):
-        p = Plane()
-
-        p.origin, p._u_direction, p._v_direction, p._normal = (
-            Point3D(arr[0]),
-            Vector3D(arr[1]),
-            Vector3D(arr[2]),
-            Vector3D(arr[3]),
-        )
-        return p
+        return Plane(arr=arr)
 
     @classmethod
-    def create(cls, origin: Point3D, normal: Vector3D) -> Plane:
+    def create(cls, origin: Point3D, xaxis: Vector3D, yaxis: Vector3D) -> Plane:
         """
         Creates a plane object by specifying an origin and a normal direction.
         origin : The origin point of the plane.
         normal : The normal direction of the plane.
         Returns the new plane object or null if the creation failed.
         """
-        normal.normalize()
-        origin, u, v, z = plane_from_normal2(origin._array, normal._array)
 
-        return Plane(origin, Vector3D(u), Vector3D(v), normal)
+
+        xaxis, yaxis = unit(xaxis._array), unit(yaxis._array)
+        normal = cross(xaxis, yaxis)
+
+
+
+        return Plane(np.array([origin._array, xaxis, yaxis, normal]))
 
     @classmethod
+    @classmethod
     def create_using_directions(
-        cls, origin: Point3D, u_direction: Vector3D, v_direction: Vector3D
+        cls, origin: Point3D, xaxis: Vector3D, yaxis: Vector3D
     ) -> Plane:
         """
         Creates a plane object by specifying an origin along with U and V directions.
         origin : The origin point of the plane.
-        u_direction : The U direction for the plane.
-        v_direction : The V direction for the plane.
+        xaxis : The U direction for the plane.
+        yaxis : The V direction for the plane.
         Returns the new plane object or null if the creation failed.
         """
-        u_direction.normalize()
-        v_direction.normalize()
-        return Plane(origin, u_direction, v_direction, u_direction.cross(v_direction))
+        xaxis.normalize()
+        yaxis.normalize()
+        return Plane(origin, xaxis, yaxis, xaxis.cross(yaxis))
 
-    def set_uv_directions(self, u_direction: Vector3D, v_direction: Vector3D) -> bool:
+    def set_xy_directions(self, xaxis: Vector3D, yaxis: Vector3D) -> bool:
         """
         Sets the U and V directions of the plane.
-        u_direction : The U direction for the plane.
-        v_direction : The V direction for the plane.
+        xaxis : The U direction for the plane.
+        yaxis : The V direction for the plane.
         Returns true if successful.
         """
 
-        self._u_direction = u_direction
-        self._v_direction = v_direction
-        self._normal = u_direction.cross(v_direction)._array
+        self.xaxis._array[:] = xaxis._array
+        self._yaxis._array[:] = yaxis._array
+        self._normal._array[:] = xaxis.cross(yaxis)._array
         return True
 
     def is_parallel_plane(self, plane: Plane) -> bool:
@@ -804,6 +812,7 @@ class Plane(Surface):
             # we also need a point on the line, which can be found by solving a system of linear equations
             # for simplicity, we will just use (0, 0, 0) as the point for this demo code
             origin = Point3D((0, 0, 0))
+
             return InfiniteLine3D(origin, direction)
         else:
             return None  # planes are parallel and do not intersect
@@ -844,11 +853,8 @@ class Plane(Surface):
         Creates and returns an independent copy of this Plane object.
         Returns a new Plane object that is a copy of this Plane object.
         """
-        return Plane(
-            self.origin.copy(),
-            self.u_direction.copy(),
-            self.v_direction.copy(),
-            self.normal.copy(),
+        return Plane(np.copy(self._array)
+
         )
 
     @property
@@ -872,28 +878,28 @@ class Plane(Surface):
 
     @normal.setter
     def normal(self, value: Vector3D):
-        self._normal = value
+        self._normal[:] = value._array
         (
             self._normal._array,
-            self._u_direction._array,
-            self._v_direction._array,
+            self._xaxis._array,
+            self._yaxis._array,
         ) = orthonormalize(
-            self._normal._array, self._u_direction._array, self._v_direction._array
+            self._normal._array, self._xaxis._array, self._yaxis._array
         )
 
     @property
-    def u_direction(self) -> Vector3D:
+    def xaxis(self) -> Vector3D:
         """
         Gets the U Direction of the plane.
         """
-        return self._u_direction
+        return self._xaxis
 
     @property
-    def v_direction(self) -> Vector3D:
+    def yaxis(self) -> Vector3D:
         """
         Gets the V Direction of the plane.
         """
-        return self._v_direction
+        return self._yaxis
 
     def to_data(self):
         self.origin.to_data()
