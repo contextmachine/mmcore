@@ -20,8 +20,26 @@ jobs:
         # macos-13 is an intel runner, macos-14 is apple silicon
         os: [ ubuntu-latest, windows-latest, macos-13, macos-14 ]
 
+
     steps:
-      - uses: actions/checkout@v4
+      #----------------------------------------------
+      #       check-out repo and set-up python
+      #----------------------------------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Extract branch name
+        shell: bash
+        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+        id: extract_branch
+
+      - name: Set up python ${{ matrix.python-version }}
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          continue-on-error: true
+
+
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
