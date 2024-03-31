@@ -5,7 +5,7 @@ on:
   pull_request:
   push:
     branches:
-      - master
+
       - dev
   release:
     types:
@@ -22,14 +22,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.17.0
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - name: Load cached venv
+        id: cached-pip-wheels
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Install library
+        run: poetry install --no-interaction
+      - name: Poetry build
+        run: |
+          source $VENV
+          poetry build
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
+          name: mmcore-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: dist/*.whl
+
+
 
   build_sdist:
     name: Build source distribution
@@ -42,7 +60,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
+          name: mmcore-sdist
           path: dist/*.tar.gz
 
   upload_pypi:
