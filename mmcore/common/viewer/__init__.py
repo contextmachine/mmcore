@@ -118,13 +118,16 @@ class ViewerControlPointsObserver(Observer):
 
             mesh.owner.update_mesh(no_back=True)
 
+class ViewerGroupObserver2(Observer):
+    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
+        print(self, observable, uuids, props, kwargs)
 
 class ViewerGroupObserver(Observer):
     def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
         # Также это единственное место где мы знаем весь пулл обновлений
         # Нам нужно:
         # 1. Обновить значения атрибутов от представлений к родителям
-        print(self, observable, uuids, props, kwargs)
+
 
         self.notify_backward(observable=observable, uuids=uuids, props=props)
 
@@ -135,7 +138,7 @@ class ViewerGroupObserver(Observer):
         self.notify_forward(observable=observable, uuids=uuids
                 )  # Здесь все представления и значения обновлены
 
-    def notify_backward(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
+    def notify_backward(self, observable: ViewerObservableGroup, uuids: list = (), props: list = None, **kwargs, ):
         """
         Здесь мы итерируемся строго по uuids чтобы не обновлять того что не должно было обновиться
         :param observable:
@@ -144,10 +147,12 @@ class ViewerGroupObserver(Observer):
         :rtype:
         """
         for uid in uuids:
+
             mesh = adict.get(uid, None)
             mesh.properties.update(props)
             if hasattr(mesh, "owner"):
                 mesh.owner.apply_backward(props)
+
 
     def notify_forward(self, observable: AGroup, uuids=None, **kwargs):
         """
@@ -184,6 +189,7 @@ class ViewerGroupObserver(Observer):
 
 
 group_observer = observation.init_observer(ViewerGroupObserver)
+group_observer2 = observation.init_observer(ViewerGroupObserver2)
 control_points_observer = observation.init_observer(ViewerControlPointsObserver)
 Group = ViewerObservableGroup
 
@@ -227,19 +233,19 @@ group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
 
 ViewerGroup = ViewerObservableGroup
 
-DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,))
+DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,group_observer2))
 
 group_fabric = DefaultGroupFabric
 
-def create_group(uuid: str, *args, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
+def create_group(uuid: str, *args, obs=(group_observer,group_observer2), cls=ViewerObservableGroup, **kwargs):
     def ctor(x):
         obj = cls(*args, uuid=uuid, **kwargs)
         obj.i = x
         return obj
 
-    return observation.init_observable(obs, cls=lambda x: ctor(x))
+    return observation.init_observable(*obs if isinstance(obs,tuple) else obs, cls=lambda x: ctor(x))
 
 
-def group(*args, uuid: str = None, obs=group_observer, cls=ViewerObservableGroup, **kwargs):
+def group(*args, uuid: str = None, obs=(group_observer,group_observer2), cls=ViewerObservableGroup, **kwargs):
     uuid = uuid4().hex if uuid is None else uuid
     return create_group(uuid, *args, obs=obs, cls=cls, **kwargs)
