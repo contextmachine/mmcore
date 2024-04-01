@@ -25,8 +25,9 @@ def enable_warnings():
 
 def props_update_support_warning(cls):
     if ENABLE_WARNINGS:
-        raise UserWarning(f"{cls} instance support this property by default . The user argument will be ignored!"
-                )
+        raise UserWarning(
+            f"{cls} instance support this property by default . The user argument will be ignored!"
+        )
 
 
 def solver(uid):
@@ -42,13 +43,27 @@ update_queue = Queue()
 
 
 class ViewerBaseGroup(AGroup):
-    def __new__(cls, items=(), /, uuid=None, name="ViewerBaseGroup", entries_support=True, **kwargs):
+    def __new__(
+        cls,
+        items=(),
+        /,
+        uuid=None,
+        name="ViewerBaseGroup",
+        entries_support=True,
+        **kwargs,
+    ):
         if "props_update_support" in kwargs:
             del kwargs["props_update_support"]
             props_update_support_warning(cls)
-        return super().__new__(cls, items, uuid=uuid, name=name, entries_support=entries_support,
-                               props_update_support=True, **kwargs
-                               )
+        return super().__new__(
+            cls,
+            items,
+            uuid=uuid,
+            name=name,
+            entries_support=entries_support,
+            props_update_support=True,
+            **kwargs,
+        )
 
     def props_update(self, uuids: list[str], props: dict):
         s = time.time()
@@ -68,6 +83,7 @@ class ViewerObservableGroup(ViewerBaseGroup, Observable):
     >>> group=observation.init_observable(group_observer,
     ...                                   cls=lambda x:ViewerObservableGroup(x, items=(),uuid='fff'))
     """
+
     i = 0
 
     def __new__(cls, items=(), uuid=None, name="ViewerGroup", **kwargs):
@@ -89,9 +105,12 @@ class ViewerObservableGroup(ViewerBaseGroup, Observable):
         return True
 
 
-from mmcore.base.userdata.controls import (decode_control_points, encode_control_points, CONTROL_POINTS_ATTRIBUTE_NAME,
-                                           set_points_in_controls,
-    )
+from mmcore.base.userdata.controls import (
+    decode_control_points,
+    encode_control_points,
+    CONTROL_POINTS_ATTRIBUTE_NAME,
+    set_points_in_controls,
+)
 
 
 class ViewerControlPointsObserver(Observer):
@@ -111,21 +130,26 @@ class ViewerControlPointsObserver(Observer):
         print(mesh)
         if hasattr(mesh, "owner"):
             print(mesh)
-            set_points_in_controls(mesh._controls, encode_control_points(mesh.owner.control_points)
-                    )
+            set_points_in_controls(
+                mesh._controls, encode_control_points(mesh.owner.control_points)
+            )
             if hasattr(mesh.owner, "parent"):
                 mesh.owner.parent.solve()
 
             mesh.owner.update_mesh(no_back=True)
 
 
-
 class ViewerGroupObserver(Observer):
-    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
+    def notify(
+        self,
+        observable: ViewerObservableGroup,
+        uuids: list = None,
+        props: list = None,
+        **kwargs,
+    ):
         # Также это единственное место где мы знаем весь пулл обновлений
         # Нам нужно:
         # 1. Обновить значения атрибутов от представлений к родителям
-
 
         self.notify_backward(observable=observable, uuids=uuids, props=props)
 
@@ -133,10 +157,17 @@ class ViewerGroupObserver(Observer):
         # TODO: Вероятно нужен какой-то крючок оповещающий о том что все обновления получены
 
         # 2. Обновить значения атрибутов от родителей к их представлениям
-        self.notify_forward(observable=observable, uuids=uuids
-                )  # Здесь все представления и значения обновлены
+        self.notify_forward(
+            observable=observable, uuids=uuids
+        )  # Здесь все представления и значения обновлены
 
-    def notify_backward(self, observable: ViewerObservableGroup, uuids: list = (), props: list = None, **kwargs, ):
+    def notify_backward(
+        self,
+        observable: ViewerObservableGroup,
+        uuids: list = (),
+        props: list = None,
+        **kwargs,
+    ):
         """
         Здесь мы итерируемся строго по uuids чтобы не обновлять того что не должно было обновиться
         :param observable:
@@ -145,12 +176,10 @@ class ViewerGroupObserver(Observer):
         :rtype:
         """
         for uid in uuids:
-
             mesh = adict.get(uid, None)
             mesh.properties.update(props)
             if hasattr(mesh, "owner"):
                 mesh.owner.apply_backward(props)
-
 
     def notify_forward(self, observable: AGroup, uuids=None, **kwargs):
         """
@@ -172,7 +201,6 @@ class ViewerGroupObserver(Observer):
                 if hasattr(mesh, "owner"):
                     mesh.owner.solve()
 
-
             elif isinstance(mesh, AMesh):
                 if hasattr(mesh, "owner"):
                     # print(mesh.owner)
@@ -180,7 +208,6 @@ class ViewerGroupObserver(Observer):
                         mesh.owner.solve()
 
                     mesh.owner.update_mesh(no_back=True)
-
 
             else:
                 print(mesh, "pass")
@@ -194,33 +221,36 @@ Group = ViewerObservableGroup
 
 class GroupFabric:
     """
-    >>> from mmcore.common.viewer import DefaultGroupFabric
-    >>> vecs = unit(np.random.random((2, 4, 3)))
-    >>> boxes = [Box(10, 20, 10), Box(5, 5, 5), Box(15, 5, 5), Box(25, 20, 2)]
-    >>> for i in range(4):
-    boxes[i].xaxis = vecs[0, i, :]
-    boxes[i].origin = vecs[1, i, :] * np.random.randint(0, 20)
-    boxes[i].refine(('y','z'))
-from mmcore.common.viewer import DefaultGroupFabric
-group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
+        >>> from mmcore.common.viewer import DefaultGroupFabric
+        >>> vecs = unit(np.random.random((2, 4, 3)))
+        >>> boxes = [Box(10, 20, 10), Box(5, 5, 5), Box(15, 5, 5), Box(25, 20, 2)]
+        >>> for i in range(4):
+        boxes[i].xaxis = vecs[0, i, :]
+        boxes[i].origin = vecs[1, i, :] * np.random.randint(0, 20)
+        boxes[i].refine(('y','z'))
+    from mmcore.common.viewer import DefaultGroupFabric
+    group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
     """
 
-    def __init__(self, observer_fabric: Observation, default_group_cls: Type[ViewerBaseGroup] = ViewerObservableGroup,
-                 observers: tuple[Observer] = ()):
+    def __init__(
+        self,
+        observer_fabric: Observation,
+        default_group_cls: Type[ViewerBaseGroup] = ViewerObservableGroup,
+        observers: tuple[Observer] = (),
+    ):
         self.observer_fabric = observer_fabric
         self.default_group_cls = default_group_cls
         self.observers = list(observers)
 
     def __call__(self, items=(), *args, **kwargs):
-        return self.observer_fabric.init_observable_obj(*self.observers,
-
-                obj=self.prepare_group_ctor(items=items, *args, **kwargs
-                                            )
-                )
+        return self.observer_fabric.init_observable_obj(
+            *self.observers, obj=self.prepare_group_ctor(items=items, *args, **kwargs)
+        )
 
     def prepare_group_ctor(self, items=(), *args, uuid=None, **kwargs):
-
-        return self.default_group_cls(items=items, uuid=self.uuid_generator(uuid), *args, **kwargs)
+        return self.default_group_cls(
+            items=items, uuid=self.uuid_generator(uuid), *args, **kwargs
+        )
 
     def uuid_generator(self, value=None):
         if value is None:
@@ -231,19 +261,36 @@ group = DefaultGroupFabric([bx.to_mesh() for bx in boxes], uuid='fabric-group')
 
 ViewerGroup = ViewerObservableGroup
 
-DefaultGroupFabric = GroupFabric(observation, ViewerObservableGroup, observers=(group_observer,group_observer2))
+DefaultGroupFabric = GroupFabric(
+    observation, ViewerObservableGroup, observers=(group_observer, group_observer2)
+)
 
 group_fabric = DefaultGroupFabric
 
-def create_group(uuid: str, *args, obs=(group_observer,group_observer2), cls=ViewerObservableGroup, **kwargs):
+
+def create_group(
+    uuid: str,
+    *args,
+    obs=(group_observer, group_observer2),
+    cls=ViewerObservableGroup,
+    **kwargs,
+):
     def ctor(x):
         obj = cls(*args, uuid=uuid, **kwargs)
         obj.i = x
         return obj
 
-    return observation.init_observable(*obs if isinstance(obs,tuple) else obs, cls=lambda x: ctor(x))
+    return observation.init_observable(
+        *obs if isinstance(obs, tuple) else obs, cls=lambda x: ctor(x)
+    )
 
 
-def group(*args, uuid: str = None, obs=(group_observer,group_observer2), cls=ViewerObservableGroup, **kwargs):
+def group(
+    *args,
+    uuid: str = None,
+    obs=(group_observer, group_observer2),
+    cls=ViewerObservableGroup,
+    **kwargs,
+):
     uuid = uuid4().hex if uuid is None else uuid
     return create_group(uuid, *args, obs=obs, cls=cls, **kwargs)
