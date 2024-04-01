@@ -118,9 +118,7 @@ class ViewerControlPointsObserver(Observer):
 
             mesh.owner.update_mesh(no_back=True)
 
-class ViewerGroupObserver2(Observer):
-    def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
-        print(self, observable, uuids, props, kwargs)
+
 
 class ViewerGroupObserver(Observer):
     def notify(self, observable: ViewerObservableGroup, uuids: list = None, props: list = None, **kwargs, ):
@@ -189,7 +187,7 @@ class ViewerGroupObserver(Observer):
 
 
 group_observer = observation.init_observer(ViewerGroupObserver)
-group_observer2 = observation.init_observer(ViewerGroupObserver2)
+
 control_points_observer = observation.init_observer(ViewerControlPointsObserver)
 Group = ViewerObservableGroup
 
