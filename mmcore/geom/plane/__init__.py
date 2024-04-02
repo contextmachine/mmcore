@@ -26,9 +26,9 @@ def distance(pln, point2):
     x0, y0, z0 = pln[0]
     x, y, z = point2
     return abs(
-        a * (x - x0) / sqrt(a**2 + b**2 + c**2)
-        + b * (y - y0) / sqrt(a**2 + b**2 + c**2)
-        + c * (z - z0) / sqrt(a**2 + b**2 + c**2)
+        a * (x - x0) / sqrt(a ** 2 + b ** 2 + c ** 2)
+        + b * (y - y0) / sqrt(a ** 2 + b ** 2 + c ** 2)
+        + c * (z - z0) / sqrt(a ** 2 + b ** 2 + c ** 2)
     )
 
 
@@ -42,19 +42,19 @@ def arbitrary(t, normal, origin):
                 -a
                 * c
                 * np.sin(t)
-                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2)
-                - b * np.cos(t) / np.sqrt(a**2 + b**2)
+                / np.sqrt(a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2)
+                - b * np.cos(t) / np.sqrt(a ** 2 + b ** 2)
                 + x0,
-                a * np.cos(t) / np.sqrt(a**2 + b**2)
+                a * np.cos(t) / np.sqrt(a ** 2 + b ** 2)
                 - b
                 * c
                 * np.sin(t)
-                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2)
+                / np.sqrt(a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2)
                 + y0,
                 z0
-                + (a**2 + b**2)
+                + (a ** 2 + b ** 2)
                 * np.sin(t)
-                / np.sqrt(a**2 * c**2 + b**2 * c**2 + (a**2 + b**2) ** 2),
+                / np.sqrt(a ** 2 * c ** 2 + b ** 2 * c ** 2 + (a ** 2 + b ** 2) ** 2),
             )
         )
     )
@@ -228,6 +228,16 @@ class Entity:
         self._uuid = v
 
 
+def evaluate_plane(pln, point):
+    return (
+            pln[0]
+            + pln[1] * point[0]
+            + pln[2] * point[1]
+            + pln[3] * point[2]
+
+    )
+
+
 class Plane(Entity):
     """
         zaxis=cross(xaxis, yaxis)
@@ -241,7 +251,7 @@ class Plane(Entity):
     """
 
     def __init__(
-        self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None
+            self, arr=None, origin=None, xaxis=None, yaxis=None, normal=None, uuid=None
     ):
         super().__init__(uuid=uuid)
 
@@ -388,9 +398,9 @@ class Plane(Entity):
     @property
     def d(self):
         return -1 * (
-            self.normal[0] * self.origin[0]
-            + self.normal[1] * self.origin[1]
-            + self.normal[2] * self.origin[2]
+                self.normal[0] * self.origin[0]
+                + self.normal[1] * self.origin[1]
+                + self.normal[2] * self.origin[2]
         )
 
     def todict(self):
@@ -411,10 +421,10 @@ class Plane(Entity):
         :rtype: np.ndarray
         """
         return (
-            self._arr[0]
-            + self._arr[1] * pt[0]
-            + self._arr[2] * pt[1]
-            + self._arr[3] * pt[2]
+                self._arr[0]
+                + self._arr[1] * pt[0]
+                + self._arr[2] * pt[1]
+                + self._arr[3] * pt[2]
         )
 
     @vectorize(excluded=[0], signature="(i)->(i)")
@@ -431,10 +441,10 @@ class Plane(Entity):
     @vectorize(excluded=[0], signature="(i)->( i)")
     def __call__(self, uvh):
         return (
-            self.origin
-            + self.axis[0] * uvh[0]
-            + self.axis[1] * uvh[1]
-            + self.axis[2] * uvh[2]
+                self.origin
+                + self.axis[0] * uvh[0]
+                + self.axis[1] * uvh[1]
+                + self.axis[2] * uvh[2]
         )
 
     @vectorize(excluded=[0], signature="(i)->(i)")
@@ -552,7 +562,7 @@ def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
 
 
 def create_plane_from_xaxis_and_normal(
-    xaxis=(1, 0, 0), normal=(0, 0, 1), origin=(0, 0, 0)
+        xaxis=(1, 0, 0), normal=(0, 0, 1), origin=(0, 0, 0)
 ):
     """ """
     pln = Plane()
@@ -643,7 +653,7 @@ def translate_plane_inplace(pln: Plane, vec: np.ndarray):
 
 
 def rotate_plane_inplace(
-    pln: Plane, angle: float, axis: np.ndarray = None, origin=None
+        pln: Plane, angle: float, axis: np.ndarray = None, origin=None
 ):
     """ """
     if origin is None:
@@ -796,7 +806,7 @@ def plane_from_normal_numeric(vector=(2.0, 33.0, 1.0), origin=(0.0, 0.0, 0.0)):
 
 
 def plane_from_normal(
-    vector=(2, 33, 1), origin=(0.0, 0.0, 0.0), return_cls: "Plane|SlimPlane" = Plane
+        vector=(2, 33, 1), origin=(0.0, 0.0, 0.0), return_cls: "Plane|SlimPlane" = Plane
 ):
     """
     Create a Plane object from a normal vector and origin point.

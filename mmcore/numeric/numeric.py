@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
+from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt, dot
 from scipy.integrate import quad
 import numpy as np
 
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
-    recursive_divide_and_conquer_max,
+    recursive_divide_and_conquer_max, test_all_roots,
 )
 
 
@@ -76,13 +76,13 @@ import math
 
 def calculate_curvature2d(dx, dy, ddx, ddy):
     numerator = abs(dx * ddy - dy * ddx)
-    denominator = math.pow((dx**2 + dy**2), 1.5)
+    denominator = math.pow((dx ** 2 + dy ** 2), 1.5)
     curvature = numerator / denominator
     return numerator, denominator, curvature
 
 
 def evaluate_curvature(
-    derivative, second_derivative
+        derivative, second_derivative
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """
     Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and
@@ -126,8 +126,8 @@ def evaluate_curvature(
 
         # Calculate curvature vector
         curvature_vector = inverse_norm_derivative_squared * (
-            second_derivative
-            + negative_second_derivative_dot_tangent * unit_tangent_vector
+                second_derivative
+                + negative_second_derivative_dot_tangent * unit_tangent_vector
         )
 
         # We will recalculate
@@ -168,8 +168,8 @@ def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
     b = ds_o_dt * ds_o_dt
     det = a - b
     if (
-        ds_o_ds <= dt_o_dt * np.finfo(float).eps
-        or dt_o_dt <= ds_o_ds * np.finfo(float).eps
+            ds_o_ds <= dt_o_dt * np.finfo(float).eps
+            or dt_o_dt <= ds_o_ds * np.finfo(float).eps
     ):
         # One of the partials is (numerically) zero w.r.t. the other partial - value of det is unreliable
         rc = False
@@ -183,12 +183,12 @@ def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
 
 
 def evaluate_normal(
-    gradient_u,
-    gradient_v,
-    second_derivative_uu,
-    second_derivative_uv,
-    second_derivative_vv,
-    limit_direction=None,
+        gradient_u,
+        gradient_v,
+        second_derivative_uu,
+        second_derivative_uv,
+        second_derivative_vv,
+        limit_direction=None,
 ):
     """
     :param gradient_u: The gradient vector in the u direction.
@@ -281,3 +281,52 @@ def nurbs_bound_points(curve, tol=1e-5):
         t_values.extend(solve_interval(t_z, (start, end)))
 
     return np.unique(np.array([curve_start, *t_values, curve_end]))
+
+
+def evaluate_plane(pln, point):
+    return (
+            pln[0]
+            + pln[1] * point[0]
+            + pln[2] * point[1]
+            + pln[3] * point[2]
+
+    )
+
+
+def inverse_evaluate_plane(pln, point):
+    return dot(point - pln[0], pln[1:])
+
+
+def curve_roots(curve, axis=1):
+    _curve_fun = getattr(curve, 'evaluate', curve)
+
+    def f(t):
+        xyz = _curve_fun(t)
+        return xyz[axis]
+
+    if hasattr(curve, 'degree'):
+        tol = 10 ** (-curve.degree)
+    else:
+        tol = 0.01
+    roots = []
+    for start, end in divide_interval(*curve.interval(), step=0.5):
+        roots.extend(test_all_roots(f, (start, end), tol))
+    return roots
+
+
+def curve_x_plane(curve, plane):
+    _curve_fun = getattr(curve, 'evaluate', curve)
+
+    def f(t):
+        xyz = _curve_fun(t)
+        return inverse_evaluate_plane(plane, xyz)[2]
+
+    if hasattr(curve, 'degree'):
+        tol = 10 ** (-curve.degree)
+    else:
+        tol = 0.01
+    roots = []
+    for start, end in divide_interval(*curve.interval(), step=0.5):
+        roots.extend(test_all_roots(f, (start, end), tol))
+    return roots
+
