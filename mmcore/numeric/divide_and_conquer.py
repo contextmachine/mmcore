@@ -1,4 +1,7 @@
+import math
+
 import numpy as np
+from scipy.optimize import bisect
 
 from mmcore.numeric.fdm import Grad
 
@@ -134,7 +137,7 @@ from mmcore.numeric.bisection import closest_local_minimum
 
 def find_best(fun, bounds, jac=None, tol=1e-6):
     """
-        import numpy as np
+    import numpy as np
     import matplotlib.pyplot as plt
     from mmcore.numeric.fdm import Grad
 
@@ -182,7 +185,7 @@ def find_best(fun, bounds, jac=None, tol=1e-6):
     return sorted(branches, key=lambda x: x[1])[0]
 
 
-def recursive_divide_and_conquer_roots(fun, bounds, tol=1e-5):
+def recursive_divide_and_conquer_roots(fun, bounds, tol=0.01):
     low, high = bounds
     roots = []
     # Check if the precision level is achieved.
@@ -202,3 +205,39 @@ def recursive_divide_and_conquer_roots(fun, bounds, tol=1e-5):
             roots.extend(recursive_divide_and_conquer_roots(fun, (m1, high), tol))
 
         return roots
+
+def sign(val):
+    return math.copysign(1, val)
+
+
+def test_all_roots(fun, bounds, tol):
+    t0, t1 = bounds
+    if t1 - t0 <= tol:
+        return []
+
+
+    t_max, y_max = iterative_divide_and_conquer_min(lambda t: -fun(t), (t0, t1), tol)
+
+    t_min, y_min = iterative_divide_and_conquer_min(fun, (t0, t1), tol)
+    (t11, y11, typ11), (t21, y21, typ21) = sorted([(t_min, y_min, 0), (t_max, -y_max, 1)], key=lambda x: x[0])
+
+    if sign(y11) != sign(y21):
+
+        bs = bisect(fun, t11, t21)
+
+
+        if t21 - t11 <= tol:
+            return [bs]
+
+        return [*test_all_roots(fun, (t0, t11-tol), tol), bs, *test_all_roots(fun, (t21+tol, t1), tol)]
+
+    else:
+
+        if t21 - t11 <= tol:
+            return []
+        return [*test_all_roots(fun, (t21 + tol, t1), tol)]
+
+
+
+
+
