@@ -6,6 +6,7 @@ from collections import namedtuple
 import itertools
 import numpy as np
 
+import mmcore.numeric.plane
 from mmcore.collections import DCLL
 from mmcore.exceptions import MmodelIntersectException
 from mmcore.func import vectorize
@@ -268,12 +269,12 @@ class CurveCurveIntersect(ProximityPoints, solution_response=ClosestPointSolutio
 
     def __call__(self, *args, tolerance=TOLERANCE, **kwargs):
         r = super().__call__(*args, **kwargs)
-        is_intersect = np.allclose(r.distance, 0.0, atol=tolerance)
+        is_intersect = np.allclose(mmcore.numeric.plane.distance, 0.0, atol=tolerance)
         if is_intersect:
             return IntersectSolution(np.mean(r.pt, axis=0), r.t, is_intersect)
 
         else:
-            return IntersectFail(r.pt, r.t, r.distance, is_intersect)
+            return IntersectFail(r.pt, r.t, mmcore.numeric.plane.distance, is_intersect)
 
 
 def proximity_points(line1, line2):

@@ -41,7 +41,7 @@ def dist(P, Q):
     @param P: vector
     @param Q: vector
     @return: float
-    >>> from scipy.spatial.distance import euclidean
+import mmcore.numeric.plane    >>> from mmcore.numeric.plane.distance import euclidean
     >>> import numpy as np
     >>> p1, p2 = np.random.random((2,3))
     >>> np.allclose(d(p1,p2), euclidean(p1,p2) )

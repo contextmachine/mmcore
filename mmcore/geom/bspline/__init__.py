@@ -116,7 +116,7 @@ class BSpline(BaseCurve):
     knots = None
 
     def interval(self):
-        return (0.0, float(self.knots.max()))
+        return (0.0, float(max(self.knots)))
 
     def __init__(self, control_points, degree=3, knots=None):
         super().__init__()
@@ -124,6 +124,7 @@ class BSpline(BaseCurve):
         self.set(control_points, degree=degree, knots=knots)
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
+
 
     @vectorize(excluded=[0], signature="()->(i)")
     def derivative(self, t):
@@ -161,7 +162,8 @@ class BSpline(BaseCurve):
             self.control_points = control_points
         if degree is not None:
             self.degree = degree
-        self.knots = self.generate_knots() if knots is None else knots
+        self.knots = self.generate_knots() if knots is None else np.array(knots)
+
 
     def generate_knots(self):
         """

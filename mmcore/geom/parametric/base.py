@@ -7,6 +7,7 @@ from collections import namedtuple
 import numpy as np
 from scipy.spatial import distance
 
+import mmcore.numeric.plane
 from mmcore.geom.transform import Transform
 
 T = typing.TypeVar("T")
@@ -75,7 +76,7 @@ class ParametricObject(typing.Protocol[T]):
         return distance.euclidean(point, self.evaluate(t))
 
     def distance(self, point):
-        return self.closest_point(point).distance
+        return mmcore.numeric.plane.distance
 
     def proximity(self, other: 'ParametricObject'):
         return ProximityPoints(self, other)(x0=np.array(list(itertools.repeat(0.5, self.dim + other.dim))),
