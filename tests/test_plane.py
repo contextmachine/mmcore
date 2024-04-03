@@ -4,7 +4,8 @@ import numpy as np
 
 from mmcore.geom.intersections import intersect
 from mmcore.geom.line import Line
-from mmcore.geom.plane import Plane, plane_from_normal_numeric, plane_from_3pt, plane_from_normal2
+from mmcore.geom.plane import Plane, plane_from_normal_numeric
+from mmcore.numeric.plane import plane_from_normal2, plane_from_3pt
 from mmcore.geom.vec import *
 from mmcore.testlib import CaseFileTest
 

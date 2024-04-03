@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt, dot
+from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
 
+from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
-    recursive_divide_and_conquer_max, test_all_roots,
+    recursive_divide_and_conquer_max, test_all_roots,iterative_divide_and_conquer_min
 )
 
 
@@ -30,6 +31,7 @@ def plane_on_curve(O, T, D2):
 
 
 def normal_at(D1, D2):
+
     N = unit(gram_schmidt(unit(D1), D2))
     return N
 
@@ -259,19 +261,19 @@ def nurbs_bound_points(curve, tol=1e-5):
     """
 
     def t_x(t):
-        return -curve(t)[0]
+        return curve.evaluate(t)[0]
 
     def t_y(t):
-        return -curve(t)[1]
+        return curve.evaluate(t)[1]
 
     def t_z(t):
-        return -curve(t)[2]
+        return curve.evaluate(t)[2]
 
     t_values = []
 
     def solve_interval(f, bounds):
-        f_min, _ = recursive_divide_and_conquer_min(f, bounds, tol)
-        f_max, _ = recursive_divide_and_conquer_max(f, bounds, tol)
+        f_min, _ = iterative_divide_and_conquer_min(f, bounds, tol)
+        f_max, _ = iterative_divide_and_conquer_min(lambda t: -f(t), bounds, tol)
         return f_min, f_max
 
     curve_start, curve_end = curve.interval()
@@ -281,20 +283,6 @@ def nurbs_bound_points(curve, tol=1e-5):
         t_values.extend(solve_interval(t_z, (start, end)))
 
     return np.unique(np.array([curve_start, *t_values, curve_end]))
-
-
-def evaluate_plane(pln, point):
-    return (
-            pln[0]
-            + pln[1] * point[0]
-            + pln[2] * point[1]
-            + pln[3] * point[2]
-
-    )
-
-
-def inverse_evaluate_plane(pln, point):
-    return dot(point - pln[0], pln[1:])
 
 
 def curve_roots(curve, axis=1):
@@ -329,4 +317,5 @@ def curve_x_plane(curve, plane):
     for start, end in divide_interval(*curve.interval(), step=0.5):
         roots.extend(test_all_roots(f, (start, end), tol))
     return roots
+
 

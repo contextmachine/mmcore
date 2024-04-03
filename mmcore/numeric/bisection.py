@@ -12,12 +12,8 @@ def closest_local_minimum(func, x0, full_output=False):
     else:
         return res.x, res.fun
 
-def closest_bounded_local_minimum(func, x0, full_output=False):
-    res = minimize(func, x0, method="SLSQP", jac=Grad(func), )
-    if full_output:
-        return res
-    else:
-        return res.x, res.fun
+
+
 
 def bisection1d(f, step=0.00001, start=-1, stop=3):
     # Smaller step values produce more accurate and precise results
