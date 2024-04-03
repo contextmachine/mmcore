@@ -240,4 +240,3 @@ def test_all_roots(fun, bounds, tol):
 
 
 
-

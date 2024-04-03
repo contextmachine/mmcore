@@ -3,10 +3,10 @@ import math
 import numpy as np
 
 from mmcore.numeric import divide_interval
-from mmcore.numeric.divide_and_conquer import recursive_divide_and_conquer_min
+from mmcore.numeric.divide_and_conquer import recursive_divide_and_conquer_min, iterative_divide_and_conquer_min
 
 
-def closest_point_on_curve(curve, point: np.ndarray[3, np.dtype[float]], tol=1e-5):
+def closest_point_on_curve(curve, point, tol=1e-3):
     """
     :param curve: The curve on which to find the closest point.
     :param point: The point for which to find the closest point on the curve.
@@ -15,13 +15,17 @@ def closest_point_on_curve(curve, point: np.ndarray[3, np.dtype[float]], tol=1e-
 
     """
 
-    def gen():
-        s, e = curve.interval()
-        for start, end in divide_interval(s, e, step=1.0):
-            x, fval = recursive_divide_and_conquer_min(lambda u: sum((curve(u) - point) ** 2),
-                                                       (start, end),
-                                                       tol)
+    def distance_func(t):
+        return np.linalg.norm(point - curve.evaluate(t))
 
-            yield x, math.sqrt(fval)
+    t_best = None
+    d_best= np.inf
 
-    return sorted(gen(), key=lambda x: x[1])[0]
+    for bnds in divide_interval(*curve.interval(), step=0.5):
+        # t,d=find_best(distance_func, bnds, tol=tol)
+        t, d = iterative_divide_and_conquer_min(distance_func, bnds, tol=tol)
+        if d < d_best:
+            t_best = t
+            d_best = d
+
+    return t_best, d_best

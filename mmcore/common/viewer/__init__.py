@@ -262,7 +262,7 @@ class GroupFabric:
 ViewerGroup = ViewerObservableGroup
 
 DefaultGroupFabric = GroupFabric(
-    observation, ViewerObservableGroup, observers=(group_observer, group_observer2)
+    observation, ViewerObservableGroup, observers=(group_observer, )
 )
 
 group_fabric = DefaultGroupFabric
@@ -271,7 +271,7 @@ group_fabric = DefaultGroupFabric
 def create_group(
     uuid: str,
     *args,
-    obs=(group_observer, group_observer2),
+    obs=(group_observer, ),
     cls=ViewerObservableGroup,
     **kwargs,
 ):
@@ -288,7 +288,7 @@ def create_group(
 def group(
     *args,
     uuid: str = None,
-    obs=(group_observer, group_observer2),
+    obs=(group_observer,),
     cls=ViewerObservableGroup,
     **kwargs,
 ):

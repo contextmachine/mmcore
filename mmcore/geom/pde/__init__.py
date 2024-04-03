@@ -8,6 +8,7 @@ from types import LambdaType
 
 import numpy as np
 
+import mmcore.numeric.plane
 from mmcore.func import vectorize
 
 from mmcore.geom.vec import cross, perp2d, unit
@@ -195,7 +196,7 @@ def _offset_curve(curve, t):
     :rtype: float
 
     """
-    return curve.func(t) + curve._pde(t) * curve.distance
+    return curve.func(t) + curve._pde(t) * mmcore.numeric.plane.distance
 
 
 def _create_distance_function(distance, param_range=(0, 1)):

@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import numpy as np
 
+import mmcore.numeric.plane
 from mmcore.common.models.fields import FieldMap
 from mmcore.common.models.mixins import MeshViewSupport
 from mmcore.geom.extrusion import extrude_polyline
@@ -267,7 +268,7 @@ class Box(Rectangle, MeshViewSupport):
             fc = corners.flatten()
             fc = fc.reshape((len(fc) // 3, 3))
             rect = super().from_corners(fc[:4])
-            return cls.from_rectangle(rect, h=rect.distance(fc[-1]).tolist())
+            return cls.from_rectangle(rect, h=mmcore.numeric.plane.distance(fc[-1]).tolist())
 
 
 def unpack_trim_details(res):

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, ABC
+from typing import TypeVar
+
 from ._typing import Union
 
 import numpy as np
 from numpy._typing import ArrayLike
 
 from mmcore.api import Base, Point3D, Curve3D
-from mmcore.api.base import Curve2D, Curve3D, Surface
+from mmcore.api.base import Curve2D, Curve3D, Surface, BaseCurve
 from mmcore.api._base import ObjectCollection
 
 from mmcore.api.vectors import Point2D, Point3D, Vector3D, Vector2D
@@ -35,24 +37,24 @@ def line_line_tsz(la, lb):
 
     t = -(x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2) / c1
     z0 = -(
-        x1 * y2 * z3
-        - x1 * y2 * z4
-        - x1 * y3 * z2
-        + x1 * y3 * z4
-        + x1 * y4 * z2
-        - x1 * y4 * z3
-        - x2 * y1 * z3
-        + x2 * y1 * z4
-        - x2 * y3 * z4
-        + x2 * y4 * z3
-        + x3 * y1 * z2
-        - x3 * y1 * z4
-        + x3 * y2 * z4
-        - x3 * y4 * z2
-        - x4 * y1 * z2
-        + x4 * y1 * z3
-        - x4 * y2 * z3
-        + x4 * y3 * z2
+            x1 * y2 * z3
+            - x1 * y2 * z4
+            - x1 * y3 * z2
+            + x1 * y3 * z4
+            + x1 * y4 * z2
+            - x1 * y4 * z3
+            - x2 * y1 * z3
+            + x2 * y1 * z4
+            - x2 * y3 * z4
+            + x2 * y4 * z3
+            + x3 * y1 * z2
+            - x3 * y1 * z4
+            + x3 * y2 * z4
+            - x3 * y4 * z2
+            - x4 * y1 * z2
+            + x4 * y1 * z3
+            - x4 * y2 * z3
+            + x4 * y3 * z2
     ) / (x2 * y3 - x2 * y4 - x3 * y2 + x3 * y4 + x4 * y2 - x4 * y3)
     return t, s, z0
 
@@ -161,7 +163,7 @@ class BaseLine3D(Curve3D, metaclass=ABCMeta):
         return bool()
 
     def intersect_with_line(
-        self, line: Union[Line3D, InfiniteLine3D], rtol=1e-5, atol=1e-5
+            self, line: Union[Line3D, InfiniteLine3D], rtol=1e-5, atol=1e-5
     ) -> tuple[bool, float, float]:
         t1, t2, z = line_line_tsz(
             (self.start_point._array, self.end_point._array),
@@ -253,9 +255,9 @@ class InfiniteLine3D(BaseLine3D):
         return INFINITY_LINE_BOUNDS
 
     def __init__(
-        self,
-        origin: Point3D = Point3D((0, 0, 0)),
-        direction: Vector3D = Vector3D((1, 0, 0)),
+            self,
+            origin: Point3D = Point3D((0, 0, 0)),
+            direction: Vector3D = Vector3D((1, 0, 0)),
     ):
         super().__init__(origin)
         self._direction = direction
@@ -328,8 +330,8 @@ class InfiniteLine3D(BaseLine3D):
 
 
 def line_line_intersection(
-    line1: Union[Line2D, InfiniteLine3D, Line3D],
-    line2: Union[Line2D, InfiniteLine3D, Line3D],
+        line1: Union[Line2D, InfiniteLine3D, Line3D],
+        line2: Union[Line2D, InfiniteLine3D, Line3D],
 ) -> tuple[bool, float, float]:
     # Extract points and directions from input lines
     start1, end1 = line1.start_point, line1.end_point
@@ -345,12 +347,12 @@ def line_line_intersection(
         w = start1 - start2
         # Calculate parameters for point of intersection
         s1 = (
-            dot(cross(w._array, vec2._array), cross_product)
-            / np.linalg.norm(cross_product) ** 2
+                dot(cross(w._array, vec2._array), cross_product)
+                / np.linalg.norm(cross_product) ** 2
         )
         s2 = (
-            dot(cross(w._array, vec1._array), cross_product)
-            / np.linalg.norm(cross_product) ** 2
+                dot(cross(w._array, vec1._array), cross_product)
+                / np.linalg.norm(cross_product) ** 2
         )
         return True, s1, s2
 
@@ -414,7 +416,7 @@ class Line3D(BaseLine3D):
         return self.direction.is_parallel(line.direction)
 
     def intersect_with_line(
-        self, line: Union[Line3D, InfiniteLine3D], rtol=1e-5, atol=1e-5
+            self, line: Union[Line3D, InfiniteLine3D], rtol=1e-5, atol=1e-5
     ) -> tuple[bool, float, float]:
         t1, t2, z = line_line_tsz(
             (self.start_point._array, self.end_point._array),
@@ -545,76 +547,76 @@ def vector_from_local_to_world(self, pt: np.ndarray):
 
 def circle2d_from_3pt(x1, y1, x2, y2, x3, y3):
     x = (
-        0.5
-        * (
-            pow(x1, 2) * y2
-            - pow(x1, 2) * y3
-            - pow(x2, 2) * y1
-            + pow(x2, 2) * y3
-            + pow(x3, 2) * y1
-            - pow(x3, 2) * y2
-            + pow(y1, 2) * y2
-            - pow(y1, 2) * y3
-            - y1 * pow(y2, 2)
-            + y1 * pow(y3, 2)
-            + pow(y2, 2) * y3
-            - y2 * pow(y3, 2)
-        )
-        / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
+            0.5
+            * (
+                    pow(x1, 2) * y2
+                    - pow(x1, 2) * y3
+                    - pow(x2, 2) * y1
+                    + pow(x2, 2) * y3
+                    + pow(x3, 2) * y1
+                    - pow(x3, 2) * y2
+                    + pow(y1, 2) * y2
+                    - pow(y1, 2) * y3
+                    - y1 * pow(y2, 2)
+                    + y1 * pow(y3, 2)
+                    + pow(y2, 2) * y3
+                    - y2 * pow(y3, 2)
+            )
+            / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
     )
     y = (
-        -0.5
-        * (
-            pow(x1, 2) * x2
-            - pow(x1, 2) * x3
-            - x1 * pow(x2, 2)
-            + x1 * pow(x3, 2)
-            - x1 * pow(y2, 2)
-            + x1 * pow(y3, 2)
-            + pow(x2, 2) * x3
-            - x2 * pow(x3, 2)
-            + x2 * pow(y1, 2)
-            - x2 * pow(y3, 2)
-            - x3 * pow(y1, 2)
-            + x3 * pow(y2, 2)
-        )
-        / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
+            -0.5
+            * (
+                    pow(x1, 2) * x2
+                    - pow(x1, 2) * x3
+                    - x1 * pow(x2, 2)
+                    + x1 * pow(x3, 2)
+                    - x1 * pow(y2, 2)
+                    + x1 * pow(y3, 2)
+                    + pow(x2, 2) * x3
+                    - x2 * pow(x3, 2)
+                    + x2 * pow(y1, 2)
+                    - x2 * pow(y3, 2)
+                    - x3 * pow(y1, 2)
+                    + x3 * pow(y2, 2)
+            )
+            / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
     )
     radius = (
-        0.5
-        * sqrt(
-            (
+            0.5
+            * sqrt(
+        (
                 pow(x1, 2)
                 - 2 * x1 * x2
                 + pow(x2, 2)
                 + pow(y1, 2)
                 - 2 * y1 * y2
                 + pow(y2, 2)
-            )
-            * (
+        )
+        * (
                 pow(x1, 2)
                 - 2 * x1 * x3
                 + pow(x3, 2)
                 + pow(y1, 2)
                 - 2 * y1 * y3
                 + pow(y3, 2)
-            )
-            * (
+        )
+        * (
                 pow(x2, 2)
                 - 2 * x2 * x3
                 + pow(x3, 2)
                 + pow(y2, 2)
                 - 2 * y2 * y3
                 + pow(y3, 2)
-            )
         )
-        / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
+    )
+            / (x1 * y2 - x1 * y3 - x2 * y1 + x2 * y3 + x3 * y1 - x3 * y2)
     )
 
     return x, y, fabs(radius)
 
 
-from mmcore.geom.plane import plane_from_3pt
+from ..numeric.plane import plane_from_3pt
 
 
 class Circle2D(Curve2D):
@@ -659,7 +661,7 @@ class Circle2D(Curve2D):
 
     @classmethod
     def create_by_three_points(
-        cls, pointOne: Point2D, pointTwo: Point2D, pointThree: Point2D
+            cls, pointOne: Point2D, pointTwo: Point2D, pointThree: Point2D
     ) -> Circle2D:
         """
         Creates a 2D circle through three points.
@@ -755,12 +757,12 @@ class Circle3D(Curve3D):
     They are created statically using one of the create methods of the Circle3D class.
     """
 
-    def __init__(self, center=None, radius: float = 1.0):
+    def __init__(self, center: Point3D = None, radius: float = 1.0, plane: np.ndarray = None):
         super().__init__()
         self._center = center if center is not None else Point3D()
         self._radius = radius
         arr = self._center._array
-        self._plane = np.array([arr, [1.0, 0, 0], [0.0, 1, 0], [0.0, 0, 1]])
+        self._plane = np.array([arr, [1.0, 0, 0], [0.0, 1, 0], [0.0, 0, 1]]) if plane is None else np.array(plane)
 
         self._center._array = self._plane[0]
 
@@ -774,7 +776,7 @@ class Circle3D(Curve3D):
 
     @classmethod
     def create_by_center(
-        cls, center: Point3D, normal: Vector3D, radius: float
+            cls, center: Point3D, normal: Vector3D, radius: float
     ) -> Circle3D:
         """
         Creates a 3D circle object by specifying a center and radius.
@@ -789,7 +791,7 @@ class Circle3D(Curve3D):
 
     @classmethod
     def create_by_three_points(
-        cls, pointOne: Point3D, pointTwo: Point3D, pointThree: Point3D
+            cls, pointOne: Point3D, pointTwo: Point3D, pointThree: Point3D
     ) -> Circle3D:
         """
         Creates a 3D circle through three points.
@@ -906,15 +908,18 @@ class Circle3D(Curve3D):
             ),
         )
 
+    def interval(self) -> tuple[float, float]:
+        return 0.0, 2 * np.pi
 
-class Arc2D(Curve2D):
+
+class Arc2D(Circle2D):
     """
     2D arc. A arc is not displayed or saved in a document.
     arcs are used as a wrapper to work with raw 2D arc information. They
     are created statically using one of the create methods supported by the Arc2D class.
     """
 
-    def __init__(self):
+    def __init__(self, center: tuple[float, float], radius: float):
         pass
 
     @classmethod
@@ -923,12 +928,12 @@ class Arc2D(Curve2D):
 
     @classmethod
     def create_by_center(
-        cls,
-        center: Point2D,
-        radius: float,
-        start_angle: float,
-        end_angle: float,
-        is_clockwise: bool,
+            cls,
+            center: Point2D,
+            radius: float,
+            start_angle: float,
+            end_angle: float,
+            is_clockwise: bool,
     ) -> Arc2D:
         """
         Creates a 2D arc object specifying the center, radius and start and end angles.
@@ -945,7 +950,7 @@ class Arc2D(Curve2D):
 
     @classmethod
     def create_by_three_points(
-        cls, start_point: Point2D, point: Point2D, end_point: Point2D
+            cls, start_point: Point2D, point: Point2D, end_point: Point2D
     ) -> Arc2D:
         """
         Creates a 2D arc by specifying 3 points.
@@ -978,12 +983,12 @@ class Arc2D(Curve2D):
         return (bool(), Point2D(), float(), float(), float(), bool())
 
     def set(
-        self,
-        center: Point2D,
-        radius: float,
-        start_angle: float,
-        end_angle: float,
-        is_clockwise: bool,
+            self,
+            center: Point2D,
+            radius: float,
+            start_angle: float,
+            end_angle: float,
+            is_clockwise: bool,
     ) -> bool:
         """
         Sets all of the data defining the arc.
@@ -1081,15 +1086,23 @@ class Arc2D(Curve2D):
         return NurbsCurve2D()
 
 
-class Arc3D(Curve3D):
+class Arc3D(Circle3D):
     """
     3D arc. A arc is not displayed or saved in a document.
     3D arcs are used as a wrapper to work with raw 3D arc information.
     They are created statically using one of the create methods of the Arc3D class.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, center: Point3D = None, radius: float = 1.0, start_angle=0.0, end_angle=np.pi / 2,
+                 plane: np.ndarray = None) -> None:
+        super().__init__(center, radius=radius, plane=plane)
+        self._start_angle = start_angle
+
+        self._end_angle = end_angle
+        self._reference_vector = Vector3D()
+        self._reference_vector._array = self._plane[1]
+        self._normal = Vector3D()
+        self._normal._array = self._plane[-1]
 
     @classmethod
     def cast(cls, arg) -> Arc3D:
@@ -1097,14 +1110,13 @@ class Arc3D(Curve3D):
 
     @classmethod
     def create_by_center(
-        cls,
-        center: Point3D,
-        normal: Vector3D,
-        referenceVector: Vector3D,
-        radius: float,
-        start_angle: float,
-        end_angle: float,
-    ) -> Arc3D:
+            cls,
+            center: Point3D,
+            normal: Vector3D,
+            referenceVector: Vector3D,
+            radius: float,
+            start_angle: float,
+            end_angle: float) -> Arc3D:
         """
         Creates a 3D arc object by specifying a center point and radius.
         center : The center point of the arc.
@@ -1119,11 +1131,17 @@ class Arc3D(Curve3D):
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         Returns the newly created arc or null if the creation failed.
         """
-        return Arc3D()
+        yaxis = normal.cross(referenceVector)
+
+        return Arc3D(center, radius, start_angle, end_angle, plane=np.array([
+            center._array,
+            referenceVector._array,
+            yaxis._array,
+            normal._array]))
 
     @classmethod
     def create_by_three_points(
-        cls, pointOne: Point3D, pointTwo: Point3D, pointThree: Point3D
+            cls, pointOne: Point3D, pointTwo: Point3D, pointThree: Point3D
     ) -> Arc3D:
         """
         Creates a 3D arc by specifying 3 points.
@@ -1137,7 +1155,22 @@ class Arc3D(Curve3D):
         This point must not be coincident with the first or second points.
         Returns the newly created arc or null if the creation failed.
         """
-        return Arc3D()
+
+        res = super().create_by_three_points(pointOne, pointTwo, pointThree)
+
+        return Arc3D(res.center,
+                     res.radius,
+                     *sorted(
+                         (pointTwo.angle_to(
+                             Vector3D(res._plane[1])
+                         ),
+                          pointThree.angle_to(
+                              Vector3D(res._plane[1])
+                          )
+                         )
+                     ),
+                     plane=res._plane
+                     )
 
     def set_axes(self, normal: Vector3D, referenceVector: Vector3D) -> bool:
         """
@@ -1147,14 +1180,16 @@ class Arc3D(Curve3D):
         The reference vector must be perpendicular to the normal vector.
         Returns true if successful
         """
-        return bool()
+        self._normal._array[:] = normal.as_array()
+        self._reference_vector[:] = referenceVector.as_array()
+        return True
 
     def copy(self) -> Arc3D:
         """
         Creates and returns an independent copy of this Arc3D object.
         Returns a new Arc3D object that is a copy of this Arc3D object.
         """
-        return Arc3D()
+        return Arc3D(self.center.copy(), self.radius, self.start_angle, self.end_angle, plane=np.copy(self._plane))
 
     def get_data(self) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float, float]:
         """
@@ -1169,16 +1204,16 @@ class Arc3D(Curve3D):
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         Returns true if successful
         """
-        return (bool(), Point3D(), Vector3D(), Vector3D(), float(), float(), float())
+        return True, self.center, self.referenceVector, self.normal, self.radius, self.start_angle, self.end_angle
 
     def set(
-        self,
-        center: Point3D,
-        normal: Vector3D,
-        referenceVector: Vector3D,
-        radius: float,
-        start_angle: float,
-        end_angle: float,
+            self,
+            center: Point3D,
+            normal: Vector3D,
+            referenceVector: Vector3D,
+            radius: float,
+            start_angle: float,
+            end_angle: float,
     ) -> bool:
         """
         Sets all of the data defining the arc.
@@ -1194,49 +1229,27 @@ class Arc3D(Curve3D):
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         Returns true if successful
         """
+        self._center._array[:] = center.as_array()
+        self._normal._array[:] = normal.as_array()
+        self._reference_vector._array[:] = referenceVector.as_array()
+        self.radius = radius
+        self.start_angle = start_angle
+        self.end_angle = end_angle
         return bool()
-
-    @property
-    def center(self) -> Point3D:
-        """
-        Gets and sets the center position of the arc.
-        """
-        return Point3D()
-
-    @center.setter
-    def center(self, value: Point3D):
-        """
-        Gets and sets the center position of the arc.
-        """
-        pass
 
     @property
     def normal(self) -> Vector3D:
         """
         Gets and sets the normal of the arc.
         """
-        return Vector3D()
+        return self._normal
 
     @property
     def referenceVector(self) -> Vector3D:
         """
         Gets and sets the reference vector of the arc.
         """
-        return Vector3D()
-
-    @property
-    def radius(self) -> float:
-        """
-        Gets and sets the radius of the arc.
-        """
-        return float()
-
-    @radius.setter
-    def radius(self, value: float):
-        """
-        Gets and sets the radius of the arc.
-        """
-        pass
+        return self._reference_vector
 
     @property
     def start_angle(self) -> float:
@@ -1244,7 +1257,7 @@ class Arc3D(Curve3D):
         Gets and sets the start angle of the arc in radians.
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         """
-        return float()
+        return self._start_angle
 
     @start_angle.setter
     def start_angle(self, value: float):
@@ -1252,7 +1265,7 @@ class Arc3D(Curve3D):
         Gets and sets the start angle of the arc in radians.
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         """
-        pass
+        self._start_angle = value
 
     @property
     def end_angle(self) -> float:
@@ -1260,7 +1273,7 @@ class Arc3D(Curve3D):
         Gets and sets the end angle of the arc in radians.
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         """
-        return float()
+        return self._end_angle
 
     @end_angle.setter
     def end_angle(self, value: float):
@@ -1268,21 +1281,21 @@ class Arc3D(Curve3D):
         Gets and sets the end angle of the arc in radians.
         This angle is measured from the reference vector using the right hand rule around the normal vector.
         """
-        pass
+        self._end_angle = value
 
     @property
     def start_point(self) -> Point3D:
         """
         Gets the start point of the arc.
         """
-        return Point3D()
+        return Point3D(self.evaluate(self.start_angle))
 
     @property
     def end_point(self) -> Point3D:
         """
         Gets the end point of the arc.
         """
-        return Point3D()
+        return Point3D(self.evaluate(self.end_angle))
 
     @property
     def as_nurbs_curve(self) -> NurbsCurve3D:
@@ -1290,6 +1303,9 @@ class Arc3D(Curve3D):
         Returns a NURBS curve that is geometrically identical to the arc.
         """
         return NurbsCurve3D()
+
+    def interval(self) -> tuple[float, float]:
+        return self.start_angle, self.end_angle
 
 
 class Ellipse2D(Curve2D):
@@ -1308,11 +1324,11 @@ class Ellipse2D(Curve2D):
 
     @classmethod
     def create(
-        cls,
-        center: Point2D,
-        major_axis: Vector2D,
-        major_radius: float,
-        minor_radius: float,
+            cls,
+            center: Point2D,
+            major_axis: Vector2D,
+            major_radius: float,
+            minor_radius: float,
     ) -> Ellipse2D:
         """
         Creates a 2D ellipse by specifying a center position, major and minor axes,
@@ -1344,11 +1360,11 @@ class Ellipse2D(Curve2D):
         return (bool(), Point2D(), Vector2D(), float(), float())
 
     def set(
-        self,
-        center: Point2D,
-        major_axis: Vector2D,
-        major_radius: float,
-        minor_radius: float,
+            self,
+            center: Point2D,
+            major_axis: Vector2D,
+            major_radius: float,
+            minor_radius: float,
     ) -> bool:
         """
         Sets all of the data defining the ellipse.
@@ -1440,12 +1456,12 @@ class Ellipse3D(Curve3D):
 
     @classmethod
     def create(
-        cls,
-        center: Point3D,
-        normal: Vector3D,
-        major_axis: Vector3D,
-        major_radius: float,
-        minor_radius: float,
+            cls,
+            center: Point3D,
+            normal: Vector3D,
+            major_axis: Vector3D,
+            major_radius: float,
+            minor_radius: float,
     ) -> Ellipse3D:
         """
         Creates a 3D ellipse object.
@@ -1479,12 +1495,12 @@ class Ellipse3D(Curve3D):
         return (bool(), Point3D(), Vector3D(), Vector3D(), float(), float())
 
     def set(
-        self,
-        center: Point3D,
-        normal: Vector3D,
-        major_axis: Vector3D,
-        major_radius: float,
-        minor_radius: float,
+            self,
+            center: Point3D,
+            normal: Vector3D,
+            major_axis: Vector3D,
+            major_radius: float,
+            minor_radius: float,
     ) -> bool:
         """
         Sets all of the data defining the ellipse.
@@ -1585,13 +1601,13 @@ class EllipticalArc2D(Curve2D):
 
     @classmethod
     def create(
-        cls,
-        center: Point2D,
-        major_axis: Vector2D,
-        major_radius: float,
-        minor_radius: float,
-        start_angle: float,
-        end_angle: float,
+            cls,
+            center: Point2D,
+            major_axis: Vector2D,
+            major_radius: float,
+            minor_radius: float,
+            start_angle: float,
+            end_angle: float,
     ) -> EllipticalArc2D:
         """
         Creates a 2D elliptical arc
@@ -1626,13 +1642,13 @@ class EllipticalArc2D(Curve2D):
         return (bool(), Point2D(), Vector2D(), float(), float(), float(), float())
 
     def set(
-        self,
-        center: Point2D,
-        major_axis: Vector2D,
-        major_radius: float,
-        minor_radius: float,
-        start_angle: float,
-        end_angle: float,
+            self,
+            center: Point2D,
+            major_axis: Vector2D,
+            major_radius: float,
+            minor_radius: float,
+            start_angle: float,
+            end_angle: float,
     ) -> bool:
         """
         center : A Point2D object that defines the center of the elliptical arc.
@@ -1781,14 +1797,14 @@ class EllipticalArc3D(Curve3D):
 
     @classmethod
     def create(
-        cls,
-        center: Point3D,
-        normal: Vector3D,
-        major_axis: Vector3D,
-        major_radius: float,
-        minor_radius: float,
-        start_angle: float,
-        end_angle: float,
+            cls,
+            center: Point3D,
+            normal: Vector3D,
+            major_axis: Vector3D,
+            major_radius: float,
+            minor_radius: float,
+            start_angle: float,
+            end_angle: float,
     ) -> EllipticalArc3D:
         """
         Creates a 3D elliptical arc.
@@ -1811,7 +1827,7 @@ class EllipticalArc3D(Curve3D):
         return EllipticalArc3D()
 
     def get_data(
-        self,
+            self,
     ) -> tuple[bool, Point3D, Vector3D, Vector3D, float, float, float, float]:
         """
         Gets all of the data defining the elliptical arc.
@@ -1836,14 +1852,14 @@ class EllipticalArc3D(Curve3D):
         )
 
     def set(
-        self,
-        center: Point3D,
-        normal: Vector3D,
-        major_axis: Vector3D,
-        major_radius: float,
-        minor_radius: float,
-        start_angle: float,
-        end_angle: float,
+            self,
+            center: Point3D,
+            normal: Vector3D,
+            major_axis: Vector3D,
+            major_radius: float,
+            minor_radius: float,
+            start_angle: float,
+            end_angle: float,
     ) -> bool:
         """
         Sets all of the data defining the elliptical arc.
@@ -2032,11 +2048,11 @@ class NurbsCurve2D(Curve2D):
 
     @classmethod
     def create_non_rational(
-        cls,
-        control_points: list[Point2D],
-        degree: int,
-        knots: list[float],
-        is_periodic: bool,
+            cls,
+            control_points: list[Point2D],
+            degree: int,
+            knots: list[float],
+            is_periodic: bool,
     ) -> NurbsCurve2D:
         """
         Creates a 2D NURBS non-rational b-spline object.
@@ -2051,12 +2067,12 @@ class NurbsCurve2D(Curve2D):
 
     @classmethod
     def create_rational(
-        cls,
-        control_points: list[Point2D],
-        degree: int,
-        knots: list[float],
-        weights: list[float],
-        is_periodic: bool,
+            cls,
+            control_points: list[Point2D],
+            degree: int,
+            knots: list[float],
+            weights: list[float],
+            is_periodic: bool,
     ) -> NurbsCurve2D:
         """
         Creates a 2D NURBS rational b-spline object.
@@ -2078,7 +2094,7 @@ class NurbsCurve2D(Curve2D):
         return NurbsCurve2D()
 
     def get_data(
-        self,
+            self,
     ) -> tuple[bool, list[Point2D], int, list[float], bool, list[float], bool]:
         """
         Gets the data that defines a 2D NURBS rational b-spline object.
@@ -2111,13 +2127,13 @@ class NurbsCurve2D(Curve2D):
         self._proxy.weights[:] = v
 
     def set(
-        self,
-        control_points: list[Point3D],
-        degree: int,
-        knots: list[float],
-        is_rational: bool,
-        weights: list[float],
-        is_periodic: bool,
+            self,
+            control_points: list[Point3D],
+            degree: int,
+            knots: list[float],
+            is_rational: bool,
+            weights: list[float],
+            is_periodic: bool,
     ) -> bool:
         """
         Sets the data that defines a 2D NURBS rational b-spline object.
@@ -2226,21 +2242,33 @@ class NurbsCurve3D(Curve3D):
 
     def __init__(self, control_points, weights=None, degree=3, knots=None):
         super().__init__()
-        cpts = []
-        for i in range(len(control_points)):
-            item = control_points[i]
-            if isinstance(item, Point3D):
-                pass
-            else:
-                p = Point3D()
-                p._array = item
-                cpts.append(p)
 
-        self._proxy = NurbsCurveApiProxy3D(cpts, weights, degree, knots)
 
+        self._proxy = NURBSpline(control_points, weights, degree, knots)
+        self._control_points=[]
+        for i in range(len(self._proxy.control_points)):
+            pt=Point3D()
+            pt._array = control_points[i]
+            self._control_points.append(pt)
+
+
+    @property
+    def derivative(self):
+        return self._proxy.derivative
+
+    @property
+    def second_derivative(self):
+        return self._proxy.second_derivative
     def evaluate(self, t: float) -> ArrayLike:
         return self._proxy.evaluate(t)
 
+    def normal(self, t):
+        return self._proxy.normal(t)
+    def tangent(self, t):
+        return self._proxy.tangent(t)
+
+    def curvature(self, t):
+        return self._proxy.curvature(t)
     def interval(self):
         return self._proxy.interval()
 
@@ -2250,11 +2278,11 @@ class NurbsCurve3D(Curve3D):
 
     @classmethod
     def create_non_rational(
-        cls,
-        control_points: list[Point3D],
-        degree: int,
-        knots: list[float],
-        is_periodic: bool,
+            cls,
+            control_points: list[Point3D],
+            degree: int,
+            knots: list[float],
+            is_periodic: bool,
     ) -> NurbsCurve3D:
         """
         Creates a 3D NURBS non-rational b-spline object.
@@ -2269,12 +2297,12 @@ class NurbsCurve3D(Curve3D):
 
     @classmethod
     def create_rational(
-        cls,
-        control_points: list[Point3D],
-        degree: int,
-        knots: list[float],
-        weights: list[float],
-        is_periodic: bool,
+            cls,
+            control_points: list[Point3D],
+            degree: int,
+            knots: list[float],
+            weights: list[float],
+            is_periodic: bool,
     ) -> NurbsCurve3D:
         """
         Creates a 3D NURBS rational b-spline object.
@@ -2289,7 +2317,7 @@ class NurbsCurve3D(Curve3D):
         return NurbsCurve3D(control_points, weights, degree, knots)
 
     def get_data(
-        self,
+            self,
     ) -> tuple[bool, list[Point3D], int, list[float], bool, list[float], bool]:
         """
         Gets the data that defines a 3D NURBS rational b-spline object.
@@ -2322,13 +2350,13 @@ class NurbsCurve3D(Curve3D):
         self._proxy.weights[:] = v
 
     def set(
-        self,
-        control_points: list[Point3D],
-        degree: int,
-        knots: list[float],
-        is_rational: bool,
-        weights: list[float],
-        is_periodic: bool,
+            self,
+            control_points: list[Point3D],
+            degree: int,
+            knots: list[float],
+            is_rational: bool,
+            weights: list[float],
+            is_periodic: bool,
     ) -> bool:
         """
         Sets the data that defines a 3D NURBS rational b-spline object.
@@ -2423,7 +2451,7 @@ class NurbsCurve3D(Curve3D):
         """
         Returns an array of Point3D objects that define the control points of the curve.
         """
-        return self._proxy.control_points
+        return self._control_points
 
     @property
     def knots(self) -> list[float]:
@@ -2431,3 +2459,50 @@ class NurbsCurve3D(Curve3D):
         Returns an array of numbers that define the knot vector of the curve.
         """
         return self._proxy.knots
+
+
+CT = TypeVar("CT", bound=BaseCurve)
+
+
+class OffsetCurve[CT](BaseCurve):
+    parent: CT
+    distance: float
+
+    def __init__(self, curve: CT, distance: float = 0.0):
+        super().__init__()
+        if isinstance(curve, OffsetCurve):
+            distance = curve.distance + distance
+            curve = curve.parent
+        self.distance = distance
+        self.parent = curve
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.parent.evaluate(t) + self.parent.normal(t) * self.distance
+
+    def interval(self) -> tuple[float, float]:
+        return self.parent.interval()
+
+    def transform(self, matrix):
+        return False
+
+
+class SubCurve[CT](BaseCurve):
+    parent: CT
+    start: float
+    end = float
+
+    def __init__(self, curve: CT, start: float = None, end: float = None):
+        super().__init__()
+        self.parent = curve
+        self.start = start if start is not None else self.parent.interval()[0]
+        self.end = end if end is not None else self.parent.interval()[1]
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.parent.evaluate(t)
+
+    def interval(self) -> tuple[float, float]:
+        return self.start,self.end
+
+    def transform(self, matrix):
+        return False
+
