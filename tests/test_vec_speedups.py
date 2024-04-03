@@ -58,7 +58,7 @@ def test_vec_norm_speedups(count=1_000, components=3):
 
 class TestVecSpeedups(TestCase):
     def setUp(self):
-        self.count = 2_000
+        self.count = 20_000
         self.n_components = 3
 
     def test_dot(self):
