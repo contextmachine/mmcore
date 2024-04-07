@@ -210,8 +210,24 @@ class Memo:
 __memo__ = Memo
 
 
+def pde(fun, x, h=DEFAULT_H):
+    b = x.shape[-1]
+    z = np.eye(b)
+    forw = z * h
+
+    z = np.zeros(x.shape)
+    for i in range(b):
+        z[..., i] = (fun(x + forw[i]) - fun(x - forw[i])) / 2 / h
+
+    return z
+
+
 class Grad(FDM):
     def central(self, t, h=DEFAULT_H):
+        if np.isscalar(t):
+            return pde(self._fun, np.atleast_1d(t), h=h)[0]
+        return pde(self._fun, t, h=h)
+    def oldcentral(self, t, h=DEFAULT_H):
         _t = np.atleast_2d(t)
 
         shp = np.broadcast_shapes(_t.shape, tuple(np.ones(len(_t.shape), dtype=int)))
@@ -292,7 +308,7 @@ class Hess(Grad):
             o = np.zeros(ly, dtype=float)
             o[i] = h
             z[i, ...] = (self._grad.backward(t + o) - self._grad.backward(t - o)) / (
-                2 * h
+                    2 * h
             )
 
         return z
@@ -306,7 +322,7 @@ class Hess(Grad):
             o = np.zeros(ly, dtype=float)
             o[i] = h
             z[i, ...] = (self._grad.forward(t + o) - self._grad.forward(t - o)) / (
-                2 * h
+                    2 * h
             )
 
         return z
