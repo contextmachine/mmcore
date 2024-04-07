@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from mmcore.numeric import nurbs_bound_points
+from mmcore.numeric import curve_bound_points
 
 
 def aabb_overlap(box1: np.ndarray[Any, np.dtype[float]], box2: np.ndarray[Any, np.dtype[float]]) -> bool:
@@ -59,4 +59,4 @@ def curve_aabb(curve, tol=1e-5):
     :return: AABB (Axis-Aligned Bounding Box) of curve object
     :rtype np.ndarray with shape (2, K).
     """
-    return aabb(curve(nurbs_bound_points(curve, tol)))
+    return aabb(curve(curve_bound_points(curve, tol)))

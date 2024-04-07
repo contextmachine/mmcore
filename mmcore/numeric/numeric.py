@@ -8,7 +8,9 @@ from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
-    recursive_divide_and_conquer_max, test_all_roots,iterative_divide_and_conquer_min
+    recursive_divide_and_conquer_max,
+    test_all_roots,
+    iterative_divide_and_conquer_min,
 )
 
 
@@ -249,10 +251,7 @@ def evaluate_normal(
     return normal_vector
 
 
-"Explane "
-
-
-def nurbs_bound_points(curve, tol=1e-5):
+def curve_bound_points(curve, tol=1e-5):
     """
     Returns a array of parameters whose evaluation gives you a set of points at least sufficient
     for correct estimation of the AABB(Axis-Aligned Bounding Box) of the curve.
@@ -272,8 +271,8 @@ def nurbs_bound_points(curve, tol=1e-5):
     t_values = []
 
     def solve_interval(f, bounds):
-        f_min, _ = iterative_divide_and_conquer_min(f, bounds, tol)
-        f_max, _ = iterative_divide_and_conquer_min(lambda t: -f(t), bounds, tol)
+        f_min, _ = iterative_divide_and_conquer_min(f, bounds, tol=tol)
+        f_max, _ = iterative_divide_and_conquer_min(lambda t: -f(t), bounds, tol=tol)
         return f_min, f_max
 
     curve_start, curve_end = curve.interval()
@@ -286,13 +285,13 @@ def nurbs_bound_points(curve, tol=1e-5):
 
 
 def curve_roots(curve, axis=1):
-    _curve_fun = getattr(curve, 'evaluate', curve)
+    _curve_fun = getattr(curve, "evaluate", curve)
 
     def f(t):
         xyz = _curve_fun(t)
         return xyz[axis]
 
-    if hasattr(curve, 'degree'):
+    if hasattr(curve, "degree"):
         tol = 10 ** (-curve.degree)
     else:
         tol = 0.01
