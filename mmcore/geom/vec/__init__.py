@@ -27,7 +27,6 @@ Benchmarks:
 """
 import os
 
-
 import numpy as np
 
 from mmcore.func import vectorize
@@ -113,7 +112,7 @@ def dist(a, b):
 
 
 @vectorize(signature='(i)->(i)')
-def unit(v: 'list|tuple|np.ndarray'):
+def unit(v: 'list|tuple|np.ndarray') -> np.ndarray:
     """
     :param v: The input vector
     :type v: numpy.ndarray[Any, numpy.dtype[float]]
@@ -121,13 +120,13 @@ def unit(v: 'list|tuple|np.ndarray'):
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
 
-
     return v / norm(v)
 
 
 def projection_length(a, b):
     nb = norm(b)
     return dot(a, b) / nb
+
 
 @vectorize(signature='(i),(i)->(i)')
 def cross(a, b):
@@ -240,7 +239,7 @@ def rotate_matrix(a):
 
 
 @vectorize(signature='(i),(i)->(i)')
-def gram_schmidt(v1, v2):
+def gram_schmidt(v1: np.ndarray, v2: np.ndarray):
     """
     Applies the Gram-Schmidt process to the given vectors v1 and v2.
 
@@ -251,8 +250,17 @@ def gram_schmidt(v1, v2):
     :return: The orthogonalized vector obtained by applying the Gram-Schmidt process.
     :rtype: numpy.ndarray
     """
+
     v1, v2 = unit(v1), unit(v2)
     return v2 - v1 * dot(v2, v1)
+
+
+@vectorize(signature='(i),(i)->(i)')
+def make_perpendicular(v1, v2):
+    if v1.shape[-1] == 2:
+        return np.array([-v1[1], v1[0]])
+    else:
+        return gram_schmidt(v1, v2)
 
 
 def clamp(self, min, max):
