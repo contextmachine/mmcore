@@ -3,7 +3,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from mmcore.geom.vec import unit, cross
-from mmcore.numeric.fdm import FDM
+from mmcore.numeric.fdm import FDM, fdm
 from mmcore.numeric.numeric import (
     evaluate_tangent,
     evaluate_curvature,
@@ -56,7 +56,7 @@ class BaseCurve:
         return self._derivatives[2]
 
     def add_derivative(self):
-        self._derivatives.append(FDM(self._derivatives[-1]))
+        self._derivatives.append(fdm(self._derivatives[-1]))
         return len(self._derivatives)
 
     def __call__(
@@ -125,7 +125,6 @@ class BSpline(BaseCurve):
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
 
-
     @vectorize(excluded=[0], signature="()->(i)")
     def derivative(self, t):
         return calc_bspline_derivatives(
@@ -163,7 +162,6 @@ class BSpline(BaseCurve):
         if degree is not None:
             self.degree = degree
         self.knots = self.generate_knots() if knots is None else np.array(knots)
-
 
     def generate_knots(self):
         """
@@ -292,22 +290,22 @@ class NURBSpline(BSpline):
         self._control_points_count = len(self.control_points)
 
     def evaluate(self, t: float):
-        arr = np.zeros((3,), dtype=float)
+        x, y, z = 0.0, 0.0, 0.0
         sum_of_weights = 0  # sum of weight * basis function
         for i in range(self._control_points_count):
             b = self.basis_function(t, i, self.degree)
 
             if b > 0:
-                arr[0] += b * self.weights[i] * self.control_points[i][0]
-                arr[1] += b * self.weights[i] * self.control_points[i][1]
-                arr[2] += b * self.weights[i] * self.control_points[i][2]
+                x += b * self.weights[i] * self.control_points[i][0]
+                y += b * self.weights[i] * self.control_points[i][1]
+                z += b * self.weights[i] * self.control_points[i][2]
                 sum_of_weights += b * self.weights[i]
         # normalizing with the sum of weights to get rational B-spline
 
-        arr[0] /= sum_of_weights
-        arr[1] /= sum_of_weights
-        arr[2] /= sum_of_weights
-        return arr
+        x /= sum_of_weights
+        y /= sum_of_weights
+        z /= sum_of_weights
+        return np.array((x, y, z))
 
     def __call__(self, t: float) -> tuple[float, float, float]:
         """
