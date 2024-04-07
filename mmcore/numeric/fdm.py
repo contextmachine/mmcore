@@ -45,17 +45,17 @@ def fdm(f, method="central", h=DEFAULT_H):
 
 class FDM:
     def __new__(cls, fun):
-        record = Memo.get_or_create_record(fun)
+        #record = Memo.get_or_create_record(fun)
 
-        rec = getattr(record, cls.__name__.lower(), None)
-        if rec:
-            return rec
+        #rec = getattr(record, cls.__name__.lower(), None)
+        #if rec:
+        #    return rec
 
         obj = super().__new__(cls)
 
         obj._fun = fun
 
-        Memo.update_record(fun, {cls.__name__.lower(): obj})
+        #Memo.update_record(fun, {cls.__name__.lower(): obj})
         return obj
 
     def dydx(self, t):
@@ -227,6 +227,7 @@ class Grad(FDM):
         if np.isscalar(t):
             return pde(self._fun, np.atleast_1d(t), h=h)[0]
         return pde(self._fun, t, h=h)
+
     def oldcentral(self, t, h=DEFAULT_H):
         _t = np.atleast_2d(t)
 
