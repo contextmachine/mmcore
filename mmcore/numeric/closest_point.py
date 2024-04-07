@@ -14,12 +14,18 @@ def closest_point_on_curve(curve, point, tol=1e-3):
     :return: The closest point on the curve to the given point, distance.
 
     """
-
+    _fn=getattr(curve,"evaluate",curve)
     def distance_func(t):
-        return np.linalg.norm(point - curve.evaluate(t))
 
-    t_best = None
-    d_best= np.inf
+        return np.linalg.norm(point - _fn(t))
+
+    t0,t1=curve.interval()
+
+    t_best, d_best = t0, distance_func(t0)
+    t, d =t1,distance_func(t1)
+    if d < d_best:
+        t_best = t
+        d_best = d
 
     for bnds in divide_interval(*curve.interval(), step=0.5):
         # t,d=find_best(distance_func, bnds, tol=tol)
@@ -27,5 +33,6 @@ def closest_point_on_curve(curve, point, tol=1e-3):
         if d < d_best:
             t_best = t
             d_best = d
+
 
     return t_best, d_best
