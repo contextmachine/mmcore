@@ -33,7 +33,6 @@ def plane_on_curve(O, T, D2):
 
 
 def normal_at(D1, D2):
-
     N = unit(gram_schmidt(unit(D1), D2))
     return N
 
@@ -301,20 +300,123 @@ def curve_roots(curve, axis=1):
     return roots
 
 
-def curve_x_plane(curve, plane):
-    _curve_fun = getattr(curve, 'evaluate', curve)
+from typing import Callable, Any
+from numpy.typing import ArrayLike
 
-    def f(t):
-        xyz = _curve_fun(t)
-        return inverse_evaluate_plane(plane, xyz)[2]
 
-    if hasattr(curve, 'degree'):
-        tol = 10 ** (-curve.degree)
+def calculate_spline_tolerance(spline, default_tol=1e-3):
+    if hasattr(spline, "degree"):
+        return 10 ** (-spline.degree)
     else:
-        tol = 0.01
+        return default_tol
+
+
+def parametric_curve_x_implicit(
+        curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
+) -> list[float]:
+    """
+        The function finds the parameters where the parametric curve intersects some implicit form. It can be a curve, surface, ..., anything that has the form f(x)=0 where x is a vector denoting a point in space.
+
+
+        :param curve: the curve in parametric form
+
+        :param implicit: the implicit function like `f(x) = 0` where x is a vector denoting a point in space.
+        :type implicit: callable
+        :param step: Step with which the range of the curve parameter is initially split for estimation. defaults to 0.5
+        :param default_tol: The error for computing the intersection in the parametric space of a curve.
+        If the curve is a spline, the error is calculated automatically and the default_tolerance value is ignored.
+        :type default_tol: float
+        :return: list of parameters that implicit function is intersects
+        :rtype: list[float]
+
+        This algorithm is the preferred algorithm for curve crossing problems.
+        Its solution is simpler and faster than the general case for PP (parametric-parametric) or II (implict-implict)
+        intersection. You should use this algorithm if you can make one of the forms parametric and the other implicit.
+
+
+    Intersection with implicit curve.
+    -----------------
+
+
+        >>> import numpy as np
+        >>> from mmcore.numeric import parametric_curve_x_implicit
+        >>> from mmcore.geom.bspline import NURBSpline
+
+
+    1. Define the implict curve.
+
+        >>> def cassini(x, a=1.1, c=1.0):
+        ...     return ((x[0] ** 2 + x[1] ** 2) * (x[0] ** 2 + x[1] ** 2)
+        ...              - 2 * c * c * (x[0] ** 2 - x[1] ** 2)
+        ...              - (a ** 4 - c ** 4))
+
+
+     2. Сreate the parametric curve:
+
+        >>> spline = NURBSpline(np.array([(-2.3815177882733494, 2.2254910228438045, 0.0),
+        ...                               (-1.1536662710614194, 1.3922103249454953, 0.0),
+        ...                               (-1.2404122859674858, 0.37403957301406443, 0.0),
+        ...                               (-0.82957856158065857, -0.24797333823516698, 0.0),
+        ...                               (-0.059146886557566614, -0.78757517340047745, 0.0),
+        ...                               (1.4312784414267623, -1.2933712167625511, 0.0),
+        ...                               (1.023775628607696, -0.58571247602345811, 0.0),
+        ...                               (-0.40751426943615976, 0.43200382009529514, 0.0),
+        ...                               (-0.091810780095197053, 2.0713419737806906, 0.0)]
+        ...                           ),
+        ...                           degree=3)
+
+    3. Calculate the parameters in which the parametric curve intersects the implicit curve.
+
+        >>> t = parametric_curve_x_implicit(spline,cassini)
+        >>> t
+        [0.9994211794774993, 2.5383824909241675, 4.858054223961756, 5.551602752306095]
+
+        4. Now you can evaluate the points by passing a list of parameters to a given parametric curve.
+
+        >>> spline(t)
+        array([[-1.15033465,  0.52553561,  0.        ],
+           [-0.39017002, -0.53625519,  0.        ],
+           [ 0.89756699, -0.59935844,  0.        ],
+           [-0.01352083,  0.45838774,  0.        ]])
+
+
+    Intersection with implicit surface.
+    -----
+    1. Define the implicit surface.
+
+        >>> def genus2(x):
+        ...     return 2 * x[1] * (x[1] ** 2 - 3 * x[0] ** 2) * (1 - x[2] ** 2) + (x[0] ** 2 + x[1] ** 2) ** 2 - (
+        ...         9 * x[2] ** 2 - 1) * (1 - x[2] ** 2)
+
+    2. Repeat the items from the previous example
+
+        >>> t = parametric_curve_x_implicit(spline, genus2)
+        >>> t
+        [0.6522415161474464, 1.090339012572083]
+
+        >>> spline(t)
+        array([[-1.22360866,  0.96065424,  0.        ],
+           [-1.13538864,  0.43142482,  0.        ]])
+
+    """
+
+    evaluate_parametric_form = getattr(curve, "evaluate", curve)
+    tol = calculate_spline_tolerance(curve, default_tol)
     roots = []
-    for start, end in divide_interval(*curve.interval(), step=0.5):
-        roots.extend(test_all_roots(f, (start, end), tol))
+    for start, end in divide_interval(*curve.interval(), step=step):
+        roots.extend(
+            test_all_roots(
+                lambda t: implicit(evaluate_parametric_form(t)), (start, end), tol=tol
+            )
+        )
     return roots
 
 
+def curve_x_axis(curve, axis=1, step=0.5):
+    return parametric_curve_x_implicit(curve, lambda xyz: xyz[axis], step=step)
+
+
+def curve_x_plane(curve, plane, axis=2, step=0.5):
+    return parametric_curve_x_implicit(
+        curve, lambda xyz: inverse_evaluate_plane(plane, xyz)[axis], step=step
+    )
