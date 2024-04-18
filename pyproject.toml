@@ -54,6 +54,8 @@ cython = "*"
 cython-lint = "*"
 click = "*"
 toml = "^0.10.2"
+mpld3 = "^0.5.10"
+platformdirs = "^4.2.0"
 
 [tool.poetry.build]
 generate-setup-file = false
