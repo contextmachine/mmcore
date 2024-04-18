@@ -1,9 +1,13 @@
+import inspect
+import itertools
+from collections import defaultdict
+from functools import lru_cache
 from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any
 import numpy as np
 from numpy.typing import ArrayLike
-
+import operator
 from mmcore.geom.vec import unit, cross
-from mmcore.numeric.fdm import FDM, fdm
+from mmcore.numeric.fdm import FDM, fdm, DEFAULT_H
 from mmcore.numeric.numeric import (
     evaluate_tangent,
     evaluate_curvature,
@@ -26,9 +30,12 @@ class BaseCurve:
     def __init__(self):
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)")
-        self._derivatives = [self]
+        self._derivatives = [self, self.derivative]
+
         self.add_derivative()
-        self.add_derivative()
+
+    def interval(self):
+        return 0.0, 1.0
 
     def split(self, t):
         return SubCurve(self, self.interval()[0], t), SubCurve(
@@ -47,9 +54,17 @@ class BaseCurve:
     def plane_at(self, t):
         return plane_on_curve(self(t), self.tangent(t), self.second_derivative(t))
 
-    @property
-    def derivative(self):
-        return self._derivatives[1]
+    def derivative(self, t):
+        if (1 - DEFAULT_H) >= t >= DEFAULT_H:
+            return (
+                    (self.evaluate(t + DEFAULT_H) - self.evaluate(t - DEFAULT_H))
+                    / 2
+                    / DEFAULT_H
+            )
+        elif t <= DEFAULT_H:
+            return (self.evaluate(t + DEFAULT_H) - self.evaluate(t)) / DEFAULT_H
+        else:
+            return (self.evaluate(t) - self.evaluate(t - DEFAULT_H)) / DEFAULT_H
 
     @property
     def second_derivative(self):
@@ -60,12 +75,94 @@ class BaseCurve:
         return len(self._derivatives)
 
     def __call__(
-        self, t: Union[np.ndarray[Any, float], float]
+            self, t: Union[np.ndarray[Any, float], float]
     ) -> np.ndarray[Any, np.dtype[float]]:
         return self.evaluate_multi(t)
 
     def evaluate(self, t: float) -> ArrayLike:
         ...
+
+    def apply_operator(self, other, op: Callable):
+        if isinstance(other, BaseCurve):
+            return CurveCurveNode(self, other, op)
+        elif inspect.isfunction(other):
+            return CurveCallableNode(self, other, op)
+        else:
+            return CurveValueNode(self, other, op)
+
+    def __add__(self, other):
+        return self.apply_operator(other, operator.add)
+
+    def __sub__(self, other):
+        return self.apply_operator(other, operator.sub)
+
+    def __mul__(self, other):
+        return self.apply_operator(other, operator.mul)
+
+    def __truediv__(self, other):
+        return self.apply_operator(other, operator.truediv)
+
+    def normalize_param(self, t):
+        return np.interp(t, self.interval(), (0.0, 1.0))
+
+    def remap_param(self, t, domain=(0.0, 1.0)):
+        return np.interp(t, domain, self.interval())
+
+
+class CurveWrapper(BaseCurve):
+    def __init__(self, func):
+        self.func = func
+        self._interval = (0.0, 1.0)
+        super().__init__()
+
+    def interval(self):
+        return self._interval
+
+    def set_interval(self, t: tuple[float, float]):
+        self._interval = t
+
+    def evaluate(self, t):
+        return self.func(t)
+
+
+def parametric_curve(interval: tuple[float, float]):
+    def wrapper(func):
+        crv = CurveWrapper(func)
+        crv._interval = interval
+        return crv
+
+    return wrapper
+
+
+class CurveValueNode(BaseCurve):
+    def __init__(self, first: BaseCurve, second: Any, operator=lambda x, y: x + y):
+        self.first = first
+        self.second = second
+        self.operator = operator
+
+        super().__init__()
+
+    def interval(self):
+        return self.first.interval()
+
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.operator(self.first.evaluate(t), self.second)
+
+
+class CurveCallableNode(CurveValueNode):
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.operator(self.first.evaluate(t), self.second(t))
+
+
+class CurveCurveNode(CurveCallableNode):
+    def evaluate(self, t: float) -> ArrayLike:
+        return self.operator(self.first.evaluate(t), self.second.evaluate(t))
+
+    def interval(self):
+        f = self.first.interval()
+        s = self.second.interval()
+
+        return max(f[0], s[0]), min(f[1], s[1])
 
 
 class Circle(BaseCurve):
@@ -87,16 +184,16 @@ class Circle(BaseCurve):
         return self.origin[1]
 
     def fx(self, x):
-        _ = np.sqrt(self.a**2 - (x - self.b) ** 2)
+        _ = np.sqrt(self.a ** 2 - (x - self.b) ** 2)
         return np.array([self.c + _, self.c - _])
 
     def fy(self, y):
-        _ = np.sqrt(self.a**2 - (y - self.c) ** 2)
+        _ = np.sqrt(self.a ** 2 - (y - self.c) ** 2)
         return np.array([self.b + _, self.b - _])
 
     def implict(self, xy):
         return (
-            (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r**2
+                (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r ** 2
         )
 
     def intersect_with_circle(self, circle):
@@ -108,19 +205,39 @@ class Circle(BaseCurve):
         )
 
 
+bscache_stats = dict()
+
+from mmcore.geom.bspline.deboor import deboor
+
+
+def bscache(obj):
+    cnt = itertools.count()
+    bscache_stats[id(obj)] = dict(calls=next(cnt))
+    stats = bscache_stats[id(obj)]
+
+    @lru_cache(maxsize=None)
+    def wrapper(a, b, c):
+        stats["calls"] = next(cnt)
+        return obj.basis_function(a, b, c)
+
+    return wrapper, stats
+
+
 class BSpline(BaseCurve):
     """ """
 
-    control_points = None
+    _control_points = None
     degree = 3
     knots = None
 
     def interval(self):
-        return (0.0, float(max(self.knots)))
+        return (float(min(self.knots)), float(max(self.knots)))
 
     def __init__(self, control_points, degree=3, knots=None):
         super().__init__()
-
+        self._control_points_count = None
+        self.basis_cache = dict()
+        self._cached_basis_func = lru_cache(maxsize=None)(self.basis_function)
         self.set(control_points, degree=degree, knots=knots)
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
@@ -159,8 +276,10 @@ class BSpline(BaseCurve):
     def set(self, control_points=None, degree=None, knots=None):
         if control_points is not None:
             self.control_points = control_points
+
         if degree is not None:
             self.degree = degree
+        self._control_points_count = len(self.control_points)
         self.knots = self.generate_knots() if knots is None else np.array(knots)
 
     def generate_knots(self):
@@ -194,9 +313,9 @@ class BSpline(BaseCurve):
         """
         n = len(self.control_points)
         knots = (
-            [0] * (self.degree + 1)
-            + list(range(1, n - self.degree))
-            + [n - self.degree] * (self.degree + 1)
+                [0] * (self.degree + 1)
+                + list(range(1, n - self.degree))
+                + [n - self.degree] * (self.degree + 1)
         )
 
         return np.array(knots, float)
@@ -204,52 +323,49 @@ class BSpline(BaseCurve):
     def find_span(self, t, i):
         return self.basis_function(t, i, self.degree)
 
+
     def basis_function(self, t, i, k):
         """
         Calculating basis function with de Boor algorithm
         """
-        T = self.knots
+        # print(t,i,k)
 
-        if k == 0:
-            return 1.0 if T[i] <= t <= T[i + 1] else 0.0
-        if T[i + k] == T[i]:
-            c1 = 0.0
-        else:
-            c1 = (t - T[i]) / (T[i + k] - T[i]) * self.basis_function(t, i, k - 1)
+        return deboor(self.knots, t, i, k)
 
-        if T[i + k + 1] == T[i + 1]:
-            c2 = 0.0
-        else:
-            c2 = (
-                (T[i + k + 1] - t)
-                / (T[i + k + 1] - T[i + 1])
-                * self.basis_function(t, i + 1, k - 1)
-            )
-        return c1 + c2
 
     def evaluate(self, t: float):
-        result = np.zeros((3,), dtype=float)
+        result = np.zeros(3, dtype=float)
         if t == 0.0:
             t += 1e-8
         elif t == 1.0:
             t -= 1e-8
 
         for i in range(self._control_points_count):
-            b = self.basis_function(t, i, self.degree)
+            b = self._cached_basis_func(t, i, self.degree)
 
             result[0] += b * self.control_points[i][0]
             result[1] += b * self.control_points[i][1]
             result[2] += b * self.control_points[i][2]
         return result
 
+    @property
+    def control_points(self):
+        return self._control_points
+
+    @control_points.setter
+    def control_points(self, value):
+        self._control_points = np.array(value, dtype=float)
+        self.basis_cache.clear()
+
     def __call__(self, t: float) -> tuple[float, float, float]:
         """
         Here write a solution to the parametric equation bspline at the point corresponding to the parameter t.
         The function should return three numbers (x,y,z)
         """
+
         self._control_points_count = n = len(self.control_points)
         assert (
-            n > self.degree
+                n > self.degree
         ), "Expected the number of control points to be greater than the degree of the spline"
         return super().__call__(t)
 
@@ -275,33 +391,34 @@ class NURBSpline(BSpline):
     weights: np.ndarray
 
     def __init__(self, control_points, weights=None, degree=3, knots=None):
-        super().__init__(control_points, degree, knots)
-        self.weights = (
-            np.ones((len(self.control_points),), dtype=float)
-            if weights is None
-            else np.array(weights)
-        )
+        self.weights = np.ones((len(control_points),), dtype=float)
+        super().__init__(control_points, degree=degree, knots=knots)
+        self.set_weights(weights)
 
-    def set(self, control_points=None, weights=None, degree=3, knots=None):
-        super().set(control_points, degree=degree, knots=knots)
+    def set_weights(self, weights=None):
         if weights is not None:
-            self.weights[:] = weights
-
-        self._control_points_count = len(self.control_points)
+            if len(weights) == len(self.control_points):
+                self.weights[:] = weights
+            else:
+                raise ValueError(
+                    f"Weights must have the same length as the control points! Passed weights: {weights}, control_points size: {self._control_points_count}, control_points :{self.control_points}, weights : {weights}")
 
     def evaluate(self, t: float):
         x, y, z = 0.0, 0.0, 0.0
-        sum_of_weights = 0  # sum of weight * basis function
+        sum_of_weights = 0.0  # sum of weight * basis function
+
+        if abs(t - 0.0) <= 1e-8:
+            t = 0.0
+        elif abs(t - 1.0) <= 1e-8:
+            t = 1.
+
         for i in range(self._control_points_count):
-            b = self.basis_function(t, i, self.degree)
-
-            if b > 0:
-                x += b * self.weights[i] * self.control_points[i][0]
-                y += b * self.weights[i] * self.control_points[i][1]
-                z += b * self.weights[i] * self.control_points[i][2]
-                sum_of_weights += b * self.weights[i]
+            b = self._cached_basis_func(t, i, self.degree)
+            x += b * self.weights[i] * self.control_points[i][0]
+            y += b * self.weights[i] * self.control_points[i][1]
+            z += b * self.weights[i] * self.control_points[i][2]
+            sum_of_weights += b * self.weights[i]
         # normalizing with the sum of weights to get rational B-spline
-
         x /= sum_of_weights
         y /= sum_of_weights
         z /= sum_of_weights
@@ -314,10 +431,10 @@ class NURBSpline(BSpline):
         """
         self._control_points_count = len(self.control_points)
         assert (
-            self._control_points_count > self.degree
+                self._control_points_count > self.degree
         ), "Expected the number of control points to be greater than the degree of the spline"
         assert (
-            len(self.weights) == self._control_points_count
+                len(self.weights) == self._control_points_count
         ), "Expected to have a weight for every control point"
         return BaseCurve.__call__(self, t)
 

@@ -16,12 +16,12 @@ def newton_step(func: callable, x: np.ndarray, grad: callable):
     if cc > 0:
         t = -fi / cc
     else:
-        t = 0.0
+        return x
 
     return x + t * g
 
 
-def curve_point(func, x0,  tol=1e-5,grad=None):
+def curve_point2(func, x0,  tol=1e-5,grad=None):
     grad=_resolve_grad(func, grad)
     x0 = np.copy(x0)
     delta = 1.0
@@ -33,7 +33,6 @@ def curve_point(func, x0,  tol=1e-5,grad=None):
     return x0
 
 
-'''
 
 def curve_point(func, initial_point: np.ndarray = None, delta=0.001, grad=None):
     """
@@ -71,7 +70,7 @@ def curve_point(func, initial_point: np.ndarray = None, delta=0.001, grad=None):
         new_point = initial_point + f * g
         d = np.linalg.norm(initial_point - new_point)
     return new_point
-'''
+
 
 def implicit_tangent(d1, d2):
     return unit(make_perpendicular(d1, d2))

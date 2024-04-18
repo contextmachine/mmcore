@@ -8,14 +8,13 @@ from mmcore.tree.avl import AVL
 
 
 def vectorize(signature=None, excluded=None, **kws):
-
     def decorate(fun):
-        if 'doc' not in kws:
-            kws['doc'] = fun.__doc__
+        if "doc" not in kws:
+            kws["doc"] = fun.__doc__
         if excluded is not None:
-            kws['excluded'] = excluded
+            kws["excluded"] = excluded
         if signature is not None:
-            kws['signature'] = signature
+            kws["signature"] = signature
         vecfun = np.vectorize(fun, **kws)
 
         @functools.wraps(fun)
@@ -64,7 +63,7 @@ def even_filter(iterable, reverse=False):
     return filter(even_filter_num, iterable)
 
 
-SIGN = 'ijklmnopqrstuvwxyzabcdefgh'
+SIGN = "ijklmnopqrstuvwxyzabcdefgh"
 
 
 def _extract_shape_sign(arg, sign, cnt):
@@ -96,18 +95,14 @@ def npextracttp(arg, sign=None, cnt=None):
 
         return tpp
 
-
-
     else:
-
         return type(arg)
 
 
 from types import GenericAlias
 
 
-def extract_type(arg, sign=None,
-                 cnt=None):
+def extract_type(arg, sign=None, cnt=None):
     """
 
     Parameters
@@ -123,7 +118,7 @@ def extract_type(arg, sign=None,
     >>> from mmcore.func import dsp,vectorize,extract_type
     >>> from mmcore.geom.mesh import simpleMaterial,union_mesh
     >>> from mmcore.geom.mesh.shape_mesh import mesh_from_bounds, mesh_from_shapes
-    >>> from mmcore.geom.extrusion import Extrusion,MultiExtrusion
+    >>> from mmcore.geom.extrusion import Extrusion
     >>> ext=MultiExtrusion([[(33.918146530459282, 9.7709589114110127, 0.0), (39.047486045598042, -0.86767119406203452, 0.0), (53.177523693468643, 5.9450255290184026, 0.0), (48.048184178329883, 16.583655634491450, 0.0)], [(40.992682917195808, 10.961570234677605, 0.0), (39.860231578544713, 8.0495525067176406, 0.0), (47.787390949102402, 5.6228710667510029, 0.0), (49.162510431750164, 9.6673401333620692, 0.0)], [(37.514439519910297, 6.9171011680665426, 0.0), (39.698452815880266, 2.3872958134621438, 0.0), (42.367802399843569, 2.9535214827876981, 0.0), (40.830904154531368, 6.1890967360765430, 0.0)]],h=10.0)
     >>> um2=union_mesh(list(mesh_from_shapes(ext.caps,[(0.3, 0.3, 0),(0.3, 0.3, 0)],(dict(),dict()))))
     >>> aa=dict()
@@ -142,13 +137,16 @@ def extract_type(arg, sign=None,
         else:
             return npextracttp(arg, sign=sign, cnt=cnt)
 
-    if not isinstance(arg, (str, bytes, bytearray)) and hasattr(arg, '__iter__'):
-
+    if not isinstance(arg, (str, bytes, bytearray)) and hasattr(arg, "__iter__"):
         if isinstance(arg, (tuple, set)):
-
-            return GenericAlias(type(arg), [*tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)])
+            return GenericAlias(
+                type(arg), [*tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)]
+            )
         elif isinstance(arg, list):
-            return GenericAlias(type(arg), [*tuple(set(tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)))])
+            return GenericAlias(
+                type(arg),
+                [*tuple(set(tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)))],
+            )
         elif isinstance(arg, dict):
             kt = tuple(set(extract_type(i, sign=sign, cnt=cnt) for i in arg.keys()))
             vt = tuple(set(extract_type(i, sign=sign, cnt=cnt) for i in arg.values()))
@@ -164,9 +162,10 @@ def extract_type(arg, sign=None,
                 vt = GenericAlias(typing.Union, vt)
             return dict[kt, vt]
         else:
-            return GenericAlias(type(arg), [*tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)])
+            return GenericAlias(
+                type(arg), [*tuple(extract_type(i, sign=sign, cnt=cnt) for i in arg)]
+            )
     else:
-
         return type(arg)
 
 
@@ -194,9 +193,38 @@ def dsp(*types, excluded=()):
 
             sign = dict()
             cnt = itertools.count()
-            return registry[name].search(hash(str(
-                extract_type(l, sign=sign, cnt=cnt)))).data(*args)
+            return (
+                registry[name]
+                .search(hash(str(extract_type(l, sign=sign, cnt=cnt))))
+                .data(*args)
+            )
 
         return wrapper
 
     return wrap
+
+
+__dispatch_table__ = dict()
+
+
+def _dispatch_outer(default):
+    @functools.wraps(default)
+    def _dispatch_wrap(*args, **kwargs):
+        f = __dispatch_table__.get(
+            tuple(type(arg) for arg in args)
+            + tuple(type(arg) for arg in kwargs.keys()),
+            default,
+        )
+
+        return f(*args, **kwargs)
+
+    return _dispatch_wrap
+
+
+class dispatch:
+    def __init__(self, fun):
+        self.func = fun
+        self.__call__ = _dispatch_outer(self.func)
+
+    def option(self, *types):
+        __dispatch_table__[types] = self.func

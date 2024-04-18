@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from mmcore.base import ageomdict, amatdict, AMesh, AGroup, Props
 from mmcore.common.models.fields import FieldMap
-from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,
-                              vertexMaterial,
+from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,defaultFlatPbrMaterial,
+                              vertexMaterial,defaultPbrMaterial
                               )
 from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, MeshStandardMaterial,
                                     create_material_uuid
@@ -203,7 +203,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     """
 
     _mesh: typing.Optional[AMesh] = None
-    __view_default_material = simpleMaterial
+    __view_default_material = defaultFlatPbrMaterial
     _material_color = None
     _material_prototype = None
     _material = None
