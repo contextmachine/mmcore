@@ -2,6 +2,10 @@ from enum import IntEnum
 
 import numpy as np
 
+def find_similar(value, values):
+    r=np.abs(values - value)
+    return np.where(r==np.min(r))[0]
+
 
 def cartesian_product(*arrays):
     la = len(arrays)

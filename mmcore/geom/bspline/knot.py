@@ -189,6 +189,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     mult = 0  # initial multiplicity
 
     for kv in knot_vector:
+
         if abs(knot - kv) <= tol:
             mult += 1
 
@@ -214,7 +215,7 @@ def knot_insertion_alpha(u, knotvector, span, idx, leg):
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 
 
-def knot_insertion(degree, knotvector, ctrlpts, u, **kwargs):
+def knot_insertion(degree, knotvector, ctrlpts, u, num=1, **kwargs)->tuple:
     """ Computes the control points of the rational/non-rational spline after knot insertion.
 
     Part of Algorithm A5.1 of The NURBS Book by Piegl & Tiller, 2nd Edition.
@@ -230,35 +231,34 @@ def knot_insertion(degree, knotvector, ctrlpts, u, **kwargs):
     :type knotvector: list, tuple
     :param ctrlpts: control points
     :type ctrlpts: list
-    :param u: knot to be inserted
+    :param u: knot to be inserted (parameter to be inserted)
     :type u: float
     :return: updated control points
     :rtype: list
     """
     # Get keyword arguments
-    num = kwargs.get('num', 1)  # number of knot insertions
-    s = kwargs.get('s', find_multiplicity(u, knotvector))  # multiplicity
-    k = kwargs.get('span', find_span_linear(degree, knotvector, len(ctrlpts), u))  # knot span
+
+    s = find_multiplicity(u, knotvector)
+    k = find_span_binsearch(degree, knotvector, len(ctrlpts), u)
 
     # Initialize variables
-    np = len(ctrlpts)
-    nq = np + num
+    cpt_length = len(ctrlpts)
+    cpt_length_new = cpt_length + num
 
     # Initialize new control points array (control points may be weighted or not)
-    ctrlpts_new = [[] for _ in range(nq)]
-
+    ctrlpts_new = np.zeros((cpt_length_new,ctrlpts.shape[1]),dtype=float)
     # Initialize a local array of length p + 1
     temp = [[] for _ in range(degree + 1)]
 
     # Save unaltered control points
     for i in range(0, k - degree + 1):
         ctrlpts_new[i] = ctrlpts[i]
-    for i in range(k - s, np):
+    for i in range(k - s, cpt_length):
         ctrlpts_new[i + num] = ctrlpts[i]
 
     # Start filling the temporary local array which will be used to update control points during knot insertion
     for i in range(0, degree - s + 1):
-        temp[i] = deepcopy(ctrlpts[k - degree + i])
+        temp[i] = [*ctrlpts[k - degree + i]]
 
     # Insert knot "num" times
     for j in range(1, num + 1):
@@ -271,16 +271,48 @@ def knot_insertion(degree, knotvector, ctrlpts, u, **kwargs):
                 for idx in range(len(temp[i])):
                     temp[i][idx][:] = [alpha * elem2 + (1.0 - alpha) * elem1 for elem1, elem2 in
                                        zip(temp[i][idx], temp[i + 1][idx])]
-        ctrlpts_new[L] = deepcopy(temp[0])
-        ctrlpts_new[k + num - j - s] = deepcopy(temp[degree - j - s])
+        ctrlpts_new[L] = [*(temp[0])]
+        ctrlpts_new[k + num - j - s] = [*(temp[degree - j - s])]
 
     # Load remaining control points
     L = k - degree + num
     for i in range(L + 1, k - s):
-        ctrlpts_new[i] = deepcopy(temp[i - L])
+        ctrlpts_new[i] = [*(temp[i - L])]
 
     # Return control points after knot insertion
-    return ctrlpts_new
+    return ctrlpts_new, knot_insertion_kv(knotvector,span=k,u=u,r=num)
+
+
+def knot_insertion_kv(knotvector, u, span, r):
+    """ Computes the knot vector of the rational/non-rational spline after knot insertion.
+
+    Part of Algorithm A5.1 of The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    :param knotvector: knot vector
+    :type knotvector: list, tuple
+    :param u: knot
+    :type u: float
+    :param span: knot span
+    :type span: int
+    :param r: number of knot insertions
+    :type r: int
+    :return: updated knot vector
+    :rtype: list
+    """
+    # Initialize variables
+    kv_size = len(knotvector)
+    kv_updated = [0.0 for _ in range(kv_size + r)]
+
+    # Compute new knot vector
+    for i in range(0, span + 1):
+        kv_updated[i] = knotvector[i]
+    for i in range(1, r + 1):
+        kv_updated[span + i] = u
+    for i in range(span + 1, kv_size):
+        kv_updated[i + r] = knotvector[i]
+
+    # Return the new knot vector
+    return kv_updated
 
 
 def curve_deriv_cpts(dim, degree, kv, cpts, rs, deriv_order=0):

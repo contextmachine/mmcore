@@ -43,7 +43,7 @@ def aabb(points: np.ndarray):
     return np.array((np.min(points, axis=len(points.shape) - 2), np.max(points, axis=len(points.shape) - 2)))
 
 
-def curve_aabb(curve, tol=1e-5):
+def curve_aabb(curve, bounds=None, tol=1e-5):
     """
     >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
     >>> from mmcore.geom.bspline import NURBSpline
@@ -59,4 +59,4 @@ def curve_aabb(curve, tol=1e-5):
     :return: AABB (Axis-Aligned Bounding Box) of curve object
     :rtype np.ndarray with shape (2, K).
     """
-    return aabb(curve(curve_bound_points(curve, tol)))
+    return aabb(curve(curve_bound_points(curve, bounds=bounds,tol=tol)))

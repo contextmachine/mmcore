@@ -34,7 +34,15 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
 
+    ), Extension(
+        "mmcore.geom.bspline.deboor",
+        ["mmcore/geom/bspline/deboor.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=[numpy.get_include(), 'mmcore/geom/bspline']
+
     )
+
 
 ]
 
