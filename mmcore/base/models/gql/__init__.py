@@ -494,6 +494,8 @@ class Materials(str, Enum):
 
 @strawberry.type
 class MeshBasicMaterial(BaseMaterial):
+    from mmcore.base.registry import amatdict
+
     uuid: typing.Optional[str] = None
     type: Materials = Materials.MeshBasicMaterial
     name: str = "DefaultBasicMaterial"
@@ -778,11 +780,61 @@ def create_float32_buffer(array, normalized=False):
     }
 
 
+@dataclasses.dataclass
+class MeshPhysicalMaterial:
+    from mmcore.base.registry import amatdict
+
+    uuid: typing.Optional[str] = None
+    type: str = "MeshPhysicalMaterial"
+    color: int = 4473924
+    roughness: float = 0.48
+    metalness: float = 0.62
+    sheen: float = 0.24
+    sheenColor: int = 6316128
+    sheenRoughness: float = 0.22
+    emissive: int = 0
+    emissiveIntensity: float = 0.92
+    specularIntensity: float = 0.5
+    specularColor: int = 16777215
+    clearcoat: int = 0
+    clearcoatRoughness: float = 0.96
+    iridescence: int = 0
+    iridescenceIOR: float = 1.55
+    iridescenceThicknessRange: list = dataclasses.field(
+        default_factory=lambda: [100, 185]
+    )
+    anisotropy: int = 0
+    anisotropyRotation: int = 0
+    envMapRotation: list = dataclasses.field(default_factory=lambda: [0, 0, 0, "XYZ"])
+    envMapIntensity: int = 1
+    reflectivity: float = 0.4
+    transmission: float = 0.82
+    thickness: float = 96.6
+    attenuationDistance: float = 9.72
+    attenuationColor: int = 19813
+    blending: int = 0
+    blendColor: int = 0
+    opacity: float = 1.0
+    transparent: bool = False
+    side: int = 2
+    flatShading: bool = False
+    vertexColors: bool = False
+    store: typing.ClassVar[dict]=   amatdict
+
+    def __post_init__(self):
+        if self.uuid is None:
+            self.uuid = _uuid.uuid4().hex
+        self.__class__.store[self.uuid] = self
+
+
+defaultPbrMaterial = MeshPhysicalMaterial(uuid="default-pbr")
+defaultFlatPbrMaterial = MeshPhysicalMaterial(uuid="default-pbr-flat", flatShading=True)
 METERIAL_TYPE_MAP = dict(
     MeshBasicMaterial=MeshBasicMaterial,
     MeshPhongMaterial=MeshPhongMaterial,
     PointsMaterial=PointsMaterial,
     LineBasicMaterial=LineBasicMaterial,
+    MeshPhysicalMaterial=MeshPhysicalMaterial
 )
 
 
@@ -793,7 +845,7 @@ def create_material(
     transparent=False,
     opacity: float = 1.0,
     vertexColors=False,
-    material_type="MeshPhongMaterial",
+    material_type="MeshPhysicalMaterial",
     **kwargs,
 ):
     if uuid is None:
