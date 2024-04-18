@@ -1,17 +1,19 @@
+import dataclasses
 import typing
 import uuid as _uuid
 
 import numpy as np
 
-from mmcore.base import AMesh
+from mmcore.base.basic import AMesh
 from mmcore.base.models.gql import (
     BufferGeometry,
     create_buffer_index,
     create_buffer_position,
     create_buffer_uv,
-    create_float32_buffer,
+    create_float32_buffer,create_material,defaultPbrMaterial,defaultFlatPbrMaterial
 )
 from mmcore.geom.mesh.consts import simpleMaterial
+
 
 
 def create_buffer_objectid(array):
@@ -98,7 +100,7 @@ def build_mesh_with_buffer(
     mesh,
     uuid=None,
     name: str = "Mesh",
-    material=simpleMaterial,
+    material=defaultPbrMaterial,
     props=None,
     controls=None,
     **kwargs
