@@ -17,4 +17,4 @@ class VersionInfo(str):
 
     def __call__(self):
         return self._value
-__version__ = VersionInfo('0.25.0')
+__version__ = VersionInfo('0.25.1')
