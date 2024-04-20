@@ -12,3 +12,4 @@ node_modules
 lib
 mmcore.egg-info
 mmcore/numeric/optimize/
+mmcore/numeric/optimize/__init__.py
