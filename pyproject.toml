@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.25.2"
+version = "0.25.3"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -35,12 +35,10 @@ rpyc = "^6.0.0"
 typing-extensions = "^4.7.1"
 jinja2 = "^3.1.2"
 colored = "^2.2.3"
-boto3 = "^1.28.16"
 strawberry-graphql = { extras = ["fastapi"], version = "^0.198.0" }
 ujson = "^5.8.0"
 pyquaternion = "^0.9.9"
 multiprocess = "^0.70.15"
-cloudpickle = "^2.2.1"
 more-itertools = "^10.1.0"
 uvicorn = { version = "^0.29.0", extras = ["standard"] }
 randomname = "^0.2.1"
@@ -56,6 +54,8 @@ click = "*"
 toml = "^0.10.2"
 mpld3 = "^0.5.10"
 platformdirs = "^4.2.0"
+
+
 
 [tool.poetry.build]
 generate-setup-file = false

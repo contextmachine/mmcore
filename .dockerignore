@@ -1,6 +1,5 @@
 .idea/
 data/
-mmcore.egg-info/
 docs/
 build/
 Writerside/
@@ -15,8 +14,11 @@ docker/
 env.json
 node_modules
 .env
-bin/.env
-build
+.github
+.fleet
+.devcontainer
+examples
+pydoc
 build.sh
 push.sh
 run.sh
