@@ -23,7 +23,7 @@ LABEL autor="Andrew Astakhov <aa@contextmachine.ru> <aw.astakhov@gmail.com>"
 # ⚙️ Please set you environment globals :)
 
 
-RUN apt update -y && apt install python3.11-full -y && apt install python3-pip -y
+RUN apt update -y && apt install python3.12-full -y && apt install python3-pip -y
 
 FROM deps
 
