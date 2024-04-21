@@ -7,7 +7,7 @@ from uuid import uuid4
 from mmcore.base import ageomdict, amatdict, AMesh, AGroup, Props
 from mmcore.common.models.fields import FieldMap
 from mmcore.geom.mesh import (build_mesh_with_buffer, create_mesh_buffer_from_mesh_tuple, MeshTuple, simpleMaterial,defaultFlatPbrMaterial,
-                              vertexMaterial,defaultPbrMaterial
+                              vertexMaterial
                               )
 from mmcore.base.models.gql import (ColorRGB, BaseMaterial, MeshPhongMaterial, MeshStandardMaterial,
                                     create_material_uuid
@@ -131,8 +131,10 @@ class ViewSupport(metaclass=ABCMeta):
     def add_field(self, source_field_name, target_field_name=None, backward_support=True, callbacks=(None, None),
                   sort=False):
         self.field_map.append(
-            FieldMap(source_field_name, target_field_name if target_field_name is not None else source_field_name,
-                     backward_support=backward_support, callbacks=callbacks
+            FieldMap(source_field_name,
+                     target_field_name if target_field_name is not None else source_field_name,
+                     backward_support=backward_support,
+                     callbacks=callbacks
                      )
             )
         if sort:
@@ -203,7 +205,7 @@ class MeshViewSupport(ViewSupport, metaclass=ABCMeta):
     """
 
     _mesh: typing.Optional[AMesh] = None
-    __view_default_material = defaultFlatPbrMaterial
+    __view_default_material = simpleMaterial
     _material_color = None
     _material_prototype = None
     _material = None
