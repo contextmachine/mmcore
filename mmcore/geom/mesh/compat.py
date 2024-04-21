@@ -10,10 +10,12 @@ from mmcore.base.models.gql import (
     create_buffer_index,
     create_buffer_position,
     create_buffer_uv,
-    create_float32_buffer,create_material,defaultPbrMaterial,defaultFlatPbrMaterial
+    create_float32_buffer,
+    create_material,
+    defaultPbrMaterial,
+    defaultFlatPbrMaterial,
 )
 from mmcore.geom.mesh.consts import simpleMaterial
-
 
 
 def create_buffer_objectid(array):
@@ -92,7 +94,7 @@ def create_mesh_buffer_from_mesh_tuple(mesh, uuid=None):
         **{k: attr.tolist() for k, attr in mesh[0].items()},
         index=mesh.indices.tolist()
         if (isinstance(mesh.indices, np.ndarray) and mesh.indices is not None)
-        else mesh.indices
+        else mesh.indices,
     )
 
 
@@ -100,10 +102,10 @@ def build_mesh_with_buffer(
     mesh,
     uuid=None,
     name: str = "Mesh",
-    material=defaultPbrMaterial,
+    material=simpleMaterial,
     props=None,
     controls=None,
-    **kwargs
+    **kwargs,
 ):
     """
     Builds a mesh with buffer.
@@ -139,15 +141,71 @@ def build_mesh_with_buffer(
         geometry=create_mesh_buffer(
             uuid + "geom",
             **{k: np.array(attr, dtype=float).tolist() for k, attr in mesh[0].items()},
-            index=index
+            index=index,
         ),
         material=material,
         properties=props,
         controls=controls,
-        **kwargs
+        **kwargs,
     )
 
     if "children" in mesh[2]:
         m.add_userdata_item("children", mesh[2]["children"])
 
     return m
+
+
+import io
+
+
+def cull_spaces(st, fmt=str):
+    i = 0
+    vals = []
+    prev = " "
+    part = ""
+    for char in st:
+        if char == " " and prev == " ":
+            pass
+        elif char == " ":
+            vals.append(fmt(part))
+            part = ""
+
+        else:
+            part += char
+        prev = char
+    if part:
+        vals.append(fmt(part))
+
+    return vals
+
+
+
+def read_off(stream: io.FileIO):
+    from .mesh_tuple import create_mesh_tuple
+    line0 = stream.readline()
+    if not line0.startswith("OFF"):
+        raise ValueError(f"Miss format header {line0}")
+    line1 = stream.readline()
+    v_count, face_count, lines_count = cull_spaces(line1, fmt=int)
+    vertices = []
+    faces = []
+
+    for i in range(lines_count):
+        l = stream.readline()
+        try:
+            if l.startswith("#"):
+
+                pass
+
+            else:
+                if i < v_count:
+                    vertices.extend(cull_spaces(l, fmt=float))
+                else:
+                    cnt,*ixs=cull_spaces(l, fmt=int)
+
+                    faces.extend(ixs)
+        except Exception as err:
+            print(l)
+            raise err.__class__(err.args+(l,))
+
+    return create_mesh_tuple(attributes=dict(position=vertices), indices=faces)

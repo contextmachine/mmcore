@@ -1,17 +1,15 @@
 from __future__ import annotations
-import numpy as np
-from numpy._typing import ArrayLike
+
+from functools import lru_cache
 from typing import Callable
 
-from mmcore.geom.vec import unit, norm, orthonormalize, cross
-from mmcore.numeric.fdm import pde, Grad, fdm, DEFAULT_H
-from mmcore.geom.bspline import (
-    BaseCurve,
-    CurveCurveNode,
-    CurveValueNode,
-    CurveCallableNode,
-)
-from mmcore.numeric.numeric import evaluate_jacobian, evaluate_normal2
+import numpy as np
+from numpy.typing import NDArray
+
+from mmcore.geom.bspline import Curve
+from mmcore.geom.vec import unit, norm, cross
+from mmcore.numeric.fdm import Grad, DEFAULT_H
+from mmcore.numeric.numeric import evaluate_normal2
 
 
 class TwoPointForm:
@@ -40,49 +38,36 @@ class TwoPointForm:
         return np.linalg.det(self.det_form(x, y))
 
 
-class CurveWrapper(BaseCurve):
-    def __init__(self, func):
-        self.func = func
-        super().__init__()
-
-    def evaluate(self, t):
-        return self.func(t)
-
-
-class CurveOnSurface(BaseCurve):
-    def __init__(self, surf: "BaseSurface", curve: "BaseCurve|Callable"):
+class CurveOnSurface(Curve):
+    def __init__(self, surf: "Surface", curve: "Curve|Callable"):
         super().__init__()
         self.surf = surf
         self.curve = curve
+        self._eval_crv_func = getattr(self.curve, "evaluate", self.curve)
 
     def plane_at(self, t):
         O = self.evaluate(t)
         T = unit(self.tangent(t))
-        uv = self._eval_crv(t)
+        uv = self.evaluate_curve(t)
         B = unit(self.surf.normal(uv))
         N = cross(B, T)
         return np.array([O, T, N, B])
 
     def normal(self, t):
-        uv = self._eval_crv(t)
+        uv = self.evaluate_curve(t)
         return cross(*unit([self.surf.normal(uv), self.tangent(t)]))
 
-    def evaluate(self, t: float) -> ArrayLike:
-        return self.surf.evaluate(self._eval_crv(t))
+    def evaluate(self, t: float):
+        return self.surf.evaluate(self.evaluate_curve(t))
 
-    def _eval_crv(self, t):
-        return getattr(self.curve, "evaluate", self.curve)(t)[..., :2]
+    def evaluate_curve(self, t):
+        return self._eval_crv_func(t)[..., :2]
 
     def interval(self):
         return self.curve.interval()
 
 
-class PartialEvaluator:
-    def __init__(self, obj: BaseSurface):
-        self.obj = obj
-
-
-class BaseSurface:
+class Surface:
     def __init__(self):
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
@@ -91,7 +76,7 @@ class BaseSurface:
         max_norm = norm(self._interval[:, 1])
         self._uh = np.array([DEFAULT_H, 0.0])
         self._vh = np.array([0.0, DEFAULT_H])
-        self._plane_at_multi=np.vectorize(self.plane_at, signature="(i)->(j)")
+        self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
 
     def derivative_u(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
@@ -212,10 +197,10 @@ class BaseSurface:
         crv = lambda t: origin + direction * t
         return CurveOnSurface(self, crv)
 
-    def evaluate(self, uv) -> ArrayLike:
+    def evaluate(self, uv) -> NDArray[float]:
         ...
 
-    def __call__(self, uv):
+    def __call__(self, uv) -> NDArray[float]:
         if uv.ndim == 1:
             return self.evaluate(uv)
         else:
@@ -237,7 +222,7 @@ def evaluate_bilinear(uv, b00, b01, b10, b11):
     )
 
 
-class BiLinear(BaseSurface):
+class BiLinear(Surface):
     def __init__(self, a, b, c, d):
         super().__init__()
         self.b00, self.b01, self.b11, self.b10 = np.array([a, b, c, d], dtype=float)
@@ -250,28 +235,29 @@ class BiLinear(BaseSurface):
         )
 
 
-class Ruled(BaseSurface):
+class Ruled(Surface):
     def __init__(self, c1, c2):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self._intervals = np.array([c1.interval(), c2.interval()])
 
     def _remap_param(self, t):
-
-        return np.interp(t, (0.0, 1.0),self.c1.interval() ), np.interp(
+        return np.interp(t, (0.0, 1.0), self.c1.interval()), np.interp(
             t, (0.0, 1.0), self.c2.interval()
         )
 
     def evaluate(self, uv):
-        uc1,uc2 = self._remap_param(uv[0])
+        uc1, uc2 = self._remap_param(uv[0])
 
         return (1 - uv[1]) * self.c1(uc1) + uv[1] * self.c2(uc2)
 
-def _remap_param(self, t, c1,c2):
 
-        return np.interp(t, (0.0, 1.0),self.c1.interval() ), np.interp(
-            t, (0.0, 1.0), self.c2.interval()
-        )
+def _remap_param(self, t, c1, c2):
+    return np.interp(t, (0.0, 1.0), self.c1.interval()), np.interp(
+        t, (0.0, 1.0), self.c2.interval()
+    )
+
+
 def _remap_interval_ruled(uv, c1, c2):
     return np.interp(uv[0], (0.0, 1.0), c1), np.interp(uv[1], (0.0, 1.0), c2)
 
@@ -288,7 +274,7 @@ def ruled(c1, c2):
     return inner
 
 
-class Coons(BaseSurface):
+class Coons(Surface):
     """
         import numpy as np
     def cubic_spline(p0, c0, c1, p1):
@@ -348,12 +334,16 @@ class Coons(BaseSurface):
         self._rcd = BiLinear(self.xu0(0), self.xu0(1), self.xu1(1), self.x1v(1))
 
     def evaluate(self, uv):
-
         return self._rc(uv) + self._rd(np.array([uv[1], uv[0]])) - self._rcd(uv)
 
 
 def _bl(c1, c2, d1, d2):
-    return lambda u: c1(np.interp(u,(0.,1.),c1.interval())), lambda u: c2(np.interp(u,(0.,1.), c2.interval())) , lambda v: d1(np.interp(v,(0.,1.),d1.interval())), lambda v: d2(np.interp(v,(0.,1.),d2.interval()))
+    return (
+        lambda u: c1(np.interp(u, (0.0, 1.0), c1.interval())),
+        lambda u: c2(np.interp(u, (0.0, 1.0), c2.interval())),
+        lambda v: d1(np.interp(v, (0.0, 1.0), d1.interval())),
+        lambda v: d2(np.interp(v, (0.0, 1.0), d2.interval())),
+    )
 
 
 """
