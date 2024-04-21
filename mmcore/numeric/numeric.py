@@ -49,6 +49,17 @@ def swap_z_to_first_der(pln):
 
 
 def evaluate_tangent(D1, D2):
+    """
+    D1 - first derivative vector
+    D2 - second derivative vector
+
+    :math:`\\dfrac{D2}{||D1||}}  \\cos(\\omega x)f(x)dx` or
+    :math:`\\int^b_a \\sin(\\omega x)f(x)dx`
+    :param D1:
+    :param D2:
+    :return:
+
+    """
     d1 = np.linalg.norm(D1)
     if np.isclose(d1, 0.0):
         d1 = np.linalg.norm(D2)
