@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.geom.bspline import CurveProtocol, NURBSpline
+from mmcore.geom.bspline import Curve, NURBSpline
 from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap
-from mmcore.api.bbox import BoundingBox3D
 
 from typing import Callable, Any
 from numpy.typing import ArrayLike
@@ -131,7 +130,7 @@ def curve_x_plane(curve, plane, axis=2, step=0.5):
     )
 
 
-def curve_intersect(curve1: CurveProtocol, curve2: CurveProtocol, tol: float = 0.01):
+def curve_intersect(curve1: Curve, curve2: Curve, tol: float = 0.01):
     if hasattr(curve1, 'implicit') and hasattr(curve2, 'evaluate'):
         return curve_pii(curve2, curve1)
     elif hasattr(curve2, 'implicit') and hasattr(curve1, 'evaluate'):
@@ -146,7 +145,7 @@ def curve_intersect(curve1: CurveProtocol, curve2: CurveProtocol, tol: float = 0
 
 
 def curve_intersect_old(
-        curve1: CurveProtocol, curve2: CurveProtocol, tol: float = 0.01
+        curve1: Curve, curve2: Curve, tol: float = 0.01
 ) -> list[tuple[float, float]]:
     """
     Finds the intersections between two NURBS curves using a divide-and-conquer approach.
@@ -166,17 +165,16 @@ def curve_intersect_old(
     """
 
     def intersect_recursive(
-            c1: CurveProtocol,
-            c2: CurveProtocol,
+            c1: Curve,
+            c2: Curve,
             t1_start: float,
             t1_end: float,
             t2_start: float,
             t2_end: float,
     ):
         # Check if the bounding boxes of the curves overlap
-        box1 = BoundingBox3D(curve_aabb(c1, (t1_start, t1_end), tol))
-        box2 = BoundingBox3D(curve_aabb(c2, (t2_start, t2_end), tol))
-
+        box1 = curve_aabb(c1, (t1_start, t1_end), tol)
+        box2 = curve_aabb(c2, (t2_start, t2_end), tol)
         if not box1.intersects(box2):
             return []
 

@@ -99,7 +99,7 @@ class AutoCastMeta(type):
 
     """
     __autocast_aliases__ = dict()
-    cast_type: type | FunctionType | LambdaType = lambda *args: args[0] if args else None
+    cast_type: 'type | FunctionType | LambdaType' = lambda *args: args[0] if args else None
     container: bool = False
     container_type: type = list
     default: typing.Any = None
