@@ -16,18 +16,19 @@ from mmcore.numeric.numeric import (
     evaluate_length,
     evaluate_parameter_from_length,
 )
+from mmcore.numeric.curve_intersection import curve_intersect
 from mmcore.func import vectorize
 
 TOLERANCE = 1e-4
 
-from .utils import (
+from mmcore.geom.bspline.utils import (
     calc_b_spline_point,
     calcNURBSDerivatives,
     calc_bspline_derivatives,
     calc_rational_curve_derivatives,
 )
 
-from ._proto import *
+from mmcore.geom.bspline._proto import *
 
 import copy
 import math
@@ -141,57 +142,6 @@ The function returns a list of tuples representing the parameter values of the i
 Note that the `nurbs_curve_aabb` function from document 10 is used to compute the AABB of the NURBS curves for the intersection algorithm."""
 
 
-if __name__ == "__main__":
-    import numpy as np
-    from mmcore.geom.bspline import NURBSpline
-
-    a, b, c, d = np.array(
-        [
-            [
-                (-25.632193861977559, -25.887792238151487, 0.0),
-                (-7.6507873591044131, -28.580781837412534, 0.0),
-                (3.1180460594601840, -31.620627096247443, 0.0),
-                (35.586827711309354, -35.550809492847861, 0.0),
-            ],
-            [
-                (33.586827711309354, -30.550809492847861, 0.0),
-                (23.712213781367616, -20.477792480394431, 0.0),
-                (23.624609526477588, -7.8543655761938815, 0.0),
-                (27.082667168033424, 5.5380493986617410, 0.0),
-            ],
-            [
-                (27.082667168033424, 5.5380493986617410, 0.0),
-                (8.6853191615639460, -2.1121318577726527, 0.0),
-                (-3.6677924590213919, -2.9387254504549816, 0.0),
-                (-20.330418684651349, 3.931006353774948, 0.0),
-            ],
-            [
-                (-20.330418684651349, 3.931006353774948, 0.0),
-                (-22.086936165417491, -5.8423256715423690, 0.0),
-                (-23.428753995169622, -15.855467779623531, 0.0),
-                (-25.632193861977559, -25.887792238151487, 0.0),
-            ],
-        ]
-    )
-
-    spl = NURBSpline(
-        np.array(
-            [
-                [-1, -3, 0.0],
-                [-0.1, -2.1, 0.0],
-                [-0.4, -1, 0.0],
-                [0.0, 0.5, 0.0],
-                [0.4, 1.0, 0.0],
-                [5.4, -2.1, 0.0],
-                [8.0, -3.0, 0.0],
-            ]
-        ),
-        degree=3,
-    )
-    print(spl.interval())
-    res1 = split(spl, 1.5)
-
-
 class Curve:
     def __init__(self):
         super().__init__()
@@ -199,6 +149,71 @@ class Curve:
         self._derivatives = [self, self.derivative]
         self._evaluate_cached = lru_cache(self.evaluate)
         self.add_derivative()
+
+    def intersect_with_curve(
+        self, other: "Curve", tol=TOLERANCE
+    ) -> list[tuple[float, float]]:
+        """
+        PPI & PII
+        ------
+
+        PPI (Parametric Parametric Intersection) for the curves.
+        curve1 and curve2 can be any object with a parametric curve interface.
+        However, in practice it is worth using only if both curves do not have implicit representation,
+        most likely they are two B-splines or something similar.
+        Otherwise it is much more efficient to use PII (Parametric Implict Intersection).
+
+        The function uses a recursive divide-and-conquer approach to find intersections between two curves.
+        It checks the AABB overlap of the curves and recursively splits them until the distance between the curves is within
+        the specified tolerance or there is no overlap. The function returns a list of tuples
+        representing the parameter values of the intersections on each curve.
+
+        Обратите внимание! Этот метод продолжает "Разделяй и властвуй" пока расстояние не станет меньше погрешности.
+        Вы можете значительно ускорить поиск, начиная метод ньютона с того момента где для вас это приемлимо.
+        Однако имейте ввиду что для правильной сходимости вы уже должны быть в "низине" с одним единственым минимумом.
+
+        :param curve1: first curve
+        :param curve2: second curve
+        :param bounds1: [Optional] custom bounds for first NURBS curve. By default, the first NURBS curve interval.
+        :param bounds2: [Optional] custom bounds for first NURBS curve. By default, the second NURBS curve interval.
+        :param tol: A pair of points on a pair of Euclidean curves whose Euclidean distance between them is less than tol will be considered an intersection point
+        :return: List containing all intersections, or empty list if there are no intersections. Where intersection
+        is the tuple of the parameter values of the intersections on each curve.
+        :rtype: list[tuple[float, float]] | list
+
+        Example
+        --------
+        >>> first = NURBSpline(
+        ...    np.array(
+        ...        [
+        ...            (-13.654958030023677, -19.907874497194975, 0.0),
+        ...            (3.7576433265207765, -39.948793039632903, 0.0),
+        ...            (16.324284871574083, -18.018771519834026, 0.0),
+        ...            (44.907234268165922, -38.223959886390297, 0.0),
+        ...            (49.260384607302036, -13.419216444520401, 0.0),
+        ...        ]
+        ...    )
+        ... )
+        >>> second= NURBSpline(
+        ...     np.array(
+        ...         [
+        ...             (40.964758489325661, -3.8915666456564679, 0.0),
+        ...             (-9.5482124270650726, -28.039230791052990, 0.0),
+        ...             (4.1683178868166371, -58.264878428828240, 0.0),
+        ...             (37.268687446662931, -58.100608604709883, 0.0),
+        ...         ]
+        ...     )
+        ... )
+
+
+
+        >>> intersections = curve_ppi(first, second, 0.001)
+        >>> print(intersections)
+        [(0.600738525390625, 0.371673583984375)]
+
+
+        """
+        return curve_intersect(self, other, tol=tol)
 
     def interval(self):
         return 0.0, 1.0
@@ -657,7 +672,6 @@ class SubCurve(Curve):
     def derivative(self, t: float):
         return self.parent.derivative(t)
 
-
     def second_derivative(self, t: float):
         return self.parent.second_derivative(t)
 
@@ -687,3 +701,42 @@ class Offset(Curve):
 
     def evaluate(self, t: float) -> ArrayLike:
         return self.crv(t) + self.crv.normal(t) * self.distance
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    a1 = NURBSpline(
+        np.array(
+            [
+                (30.184638404201344, -18.216164837439184, 0.0),
+                (15.325025552531345, -49.500456857454566, 0.0),
+                (0.33619867606420506, -38.000408650509947, 0.0),
+                (2.2915627545368258, -10.800856430713994, 0.0),
+                (34.577915247303785, -29.924532100689298, 0.0),
+                (24.771126815705877, -44.396502877967905, 0.0),
+                (8.7351102878776850, -27.081823555152429, 0.0),
+                (0.60796701514639295, -28.615956860732620, 0.0),
+            ]
+        )
+    )
+    a2 = NURBSpline(
+        np.array(
+            [
+                (7.2648314876233702, -17.952160046548514, 0.0),
+                (2.1216889176987861, -39.948793039632903, 0.0),
+                (15.124018315255334, -10.507711766165173, 0.0),
+                (44.907234268165922, -36.066799609839038, 0.0),
+                (-6.5507389082519225, -35.613653473099788, 0.0),
+            ]
+        )
+    )
+
+    import time
+
+    s = time.time()
+
+    print(a1.intersect_with_curve(
+        a2
+    ))
+    print(divmod(time.time() - s, 60))
