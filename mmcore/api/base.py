@@ -19,8 +19,8 @@ from mmcore.geom.vec import norm, norm_sq
 from mmcore.numeric.fdm import FDM
 from mmcore.numeric.closest_point import closest_point_on_curve
 
-TOLERANCE = 1e-9
-
+TOLERANCE = 1e-5
+ROUND_FACTOR = int(abs(math.log10(TOLERANCE)))
 from mmcore.numeric.numeric import (
     evaluate_curvature,
     evaluate_tangent,
@@ -29,7 +29,9 @@ from mmcore.numeric.numeric import (
     evaluate_tangent_vec,
     normal_at,
     plane_on_curve,
+    evaluate_parameter_from_length,
 )
+from mmcore.numeric.aabb import curve_aabb
 from mmcore.numeric.curve_intersection import curve_intersect
 
 
@@ -203,7 +205,7 @@ class BaseCurve(Base):
         return len(self._derivatives)
 
     def __call__(
-            self, t: Union[np.ndarray[Any, float], float]
+        self, t: Union[np.ndarray[Any, float], float]
     ) -> np.ndarray[Any, np.dtype[float]]:
         return self.evaluate_multi(t)
 
@@ -381,7 +383,7 @@ class Curve3D(BaseCurve):
             return [(self.evaluate(i[0]), i) for i in res]
 
     def interval(self) -> tuple[float, float]:
-        return (0, 1)
+        return (0.0, 1.0)
 
     @property
     def evaluator(self) -> CurveEvaluator3D:
@@ -439,7 +441,7 @@ class CurveEvaluator3D(Base):
         self._get_third_derivative = FDM(self._get_second_derivative)
 
     def get_curvatures(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector3D], np.ndarray[float]]:
         """
         :param parameters: A list of float values representing the input parameters.
@@ -483,7 +485,7 @@ class CurveEvaluator3D(Base):
         )
 
     def get_length_at_parameter(
-            self, fromParameter: float, toParameter: float
+        self, fromParameter: float, toParameter: float
     ) -> tuple[bool, float]:
         """
         :param fromParameter: The starting parameter value.
@@ -497,7 +499,7 @@ class CurveEvaluator3D(Base):
         return True, res
 
     def get_parameter_at_length(
-            self, fromParameter: float, length: float
+        self, fromParameter: float, length: float
     ) -> tuple[bool, float]:
         """
         Get the parameter at a specified length along a given parameter axis.
@@ -509,18 +511,32 @@ class CurveEvaluator3D(Base):
         :return: A tuple containing a boolean indicating whether the operation was successful and the parameter value at the specified length.
         :rtype: tuple[bool, float]
         """
-        raise NotImplemented
+
+        start, end = self._curve.interval()
+        return round(
+            evaluate_parameter_from_length(
+                self._get_first_derivative,
+                length,
+                t0=fromParameter,
+                t1_limit=end,
+                tol=TOLERANCE,
+            ),
+            ROUND_FACTOR,
+        )
 
     def get_parameters_at_points(self, points: list[Point3D]) -> list[float]:
         """
         :param points: A list of Point3D objects representing the points at which to retrieve the parameters.
         :return: A list of float values representing the parameters corresponding to the given points.
         """
-
-        return [self.get_parameter_at_point(i)[1] for i in points]
+        result = np.zeros(len(points), dtype=float)
+        for i, point in enumerate(points):
+            t, dst = closest_point_on_curve(self._curve, point._array, tol=TOLERANCE)
+            result[i] = t
+        return np.round(result, ROUND_FACTOR)
 
     def get_parameter_at_point(
-            self, point: Point3D
+        self, point: Point3D
     ) -> tuple[bool, tuple[float, float]]:
         """
         Get the parameter position that correspond to a point on the curve.
@@ -531,7 +547,7 @@ class CurveEvaluator3D(Base):
         Returns parameter and distance
         """
         t, dst = closest_point_on_curve(self._curve, point._array, tol=TOLERANCE)
-        t = round(t, int(abs(math.log10(1e-5))))
+        t = round(t, ROUND_FACTOR)
         return True, (t, dst)
 
     def get_parameter_extents(self) -> tuple[bool, float, float]:
@@ -547,7 +563,7 @@ class CurveEvaluator3D(Base):
         return True, start, end
 
     def get_point_at_parameters(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Point3D]]:
         """
         Get the points on the curve at the given parameters.
@@ -568,7 +584,7 @@ class CurveEvaluator3D(Base):
         return True, Point3D(self._curve(parameter))
 
     def get_first_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector3D]]:
         """
         :param parameters: The list of float values representing the parameters for which first derivatives need to be computed.
@@ -586,7 +602,7 @@ class CurveEvaluator3D(Base):
         return True, Vector3D(self._get_first_derivative(parameter))
 
     def get_second_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector3D]]:
         """
         Calculate the second derivatives based on the given parameters.
@@ -606,7 +622,7 @@ class CurveEvaluator3D(Base):
         return True, Vector3D(self._get_second_derivative(parameter))
 
     def get_third_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector3D]]:
         """
         :param parameters: The list of float values representing the parameters for computing the third derivatives.
@@ -623,7 +639,7 @@ class CurveEvaluator3D(Base):
         return True, Vector3D(self._get_third_derivative(parameter))
 
     def get_strokes(
-            self, fromParameter: float, toParameter: float, count: int
+        self, fromParameter: float, toParameter: float, count: int
     ) -> tuple[bool, list[Point3D]]:
         """
         :param fromParameter: The starting parameter value for generating the strokes.
@@ -668,7 +684,7 @@ class CurveEvaluator3D(Base):
         return success, Vector3D(T)
 
     def get_aabb(self) -> BoundingBox3D:
-        return
+        return BoundingBox3D.create_from_array(curve_aabb(self._curve, self._curve.interval(), TOLERANCE))
 
 
 class CurveEvaluator2D(Base):
@@ -688,7 +704,7 @@ class CurveEvaluator2D(Base):
         return CurveEvaluator2D()
 
     def get_curvatures(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector2D], list[float]]:
         """
         Get the curvature values at a number of parameter positions on the curve.
@@ -736,7 +752,7 @@ class CurveEvaluator2D(Base):
         )
 
     def get_length_at_parameter(
-            self, fromParameter: float, toParameter: float
+        self, fromParameter: float, toParameter: float
     ) -> tuple[bool, float]:
         """
         Get the length of the curve between two parameter positions on the curve.
@@ -753,7 +769,7 @@ class CurveEvaluator2D(Base):
         return True, res
 
     def get_parameter_at_length(
-            self, fromParameter: float, length: float
+        self, fromParameter: float, length: float
     ) -> tuple[bool, float]:
         """
         Get the parameter position on the curve that is the specified curve length from the specified starting parameter position.
@@ -767,7 +783,7 @@ class CurveEvaluator2D(Base):
         raise NotImplemented
 
     def get_parameters_at_points(
-            self, points: list[Point2D]
+        self, points: list[Point2D]
     ) -> tuple[bool, list[float]]:
         """
         Get the parameter positions that correspond to a set of points on the curve.
@@ -782,7 +798,7 @@ class CurveEvaluator2D(Base):
         return [self.get_parameter_at_point(i)[1] for i in points]
 
     def get_parameter_at_point(
-            self, point: Point2D
+        self, point: Point2D
     ) -> tuple[bool, tuple[float, float]]:
         """
         Get the parameter position that correspond to a point on the curve.
@@ -807,7 +823,7 @@ class CurveEvaluator2D(Base):
         return True, start, end
 
     def get_points_at_parameters(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Point2D]]:
         """
         Get the points on the curve that correspond to evaluating a set of parameter positions on the curve.
@@ -830,7 +846,7 @@ class CurveEvaluator2D(Base):
         return True, Point2D(self._curve(parameter))
 
     def get_first_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector2D]]:
         """
         Get the first derivatives of the curve at the specified parameter positions.
@@ -853,7 +869,7 @@ class CurveEvaluator2D(Base):
         return True, Vector2D(self._get_first_derivative(parameter))
 
     def get_second_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector2D]]:
         """
         Get the second derivatives of the curve at the specified parameter positions.
@@ -877,7 +893,7 @@ class CurveEvaluator2D(Base):
         return True, Vector2D(self._get_second_derivative(parameter))
 
     def get_third_derivatives(
-            self, parameters: list[float]
+        self, parameters: list[float]
     ) -> tuple[bool, list[Vector2D]]:
         """
         Get the third derivatives of the curve at the specified parameter positions.
@@ -900,7 +916,7 @@ class CurveEvaluator2D(Base):
         return True, Vector2D(self._get_third_derivative(parameter))
 
     def get_strokes(
-            self, fromParameter: float, toParameter: float, count: int
+        self, fromParameter: float, toParameter: float, count: int
     ) -> tuple[bool, list[Point2D]]:
         """
         Get a sequence of points between two curve parameter positions.
@@ -965,7 +981,7 @@ class SurfaceEvaluator(Base):
         return SurfaceEvaluator()
 
     def get_model_curve_from_parametric_curve(
-            self, parametricCurve: Curve2D
+        self, parametricCurve: Curve2D
     ) -> ObjectCollection:
         """
         Creates the 3D equivalent curve in model space, of a 2D curve defined in the
@@ -1001,7 +1017,7 @@ class SurfaceEvaluator(Base):
         return ObjectCollection()
 
     def get_curvatures(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Vector3D], list[float], list[float]]:
         """
         Get the curvature values at a number of parameter positions on the surface.
@@ -1031,7 +1047,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Vector3D(), float(), float())
 
     def get_normals_at_parameters(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Vector3D]]:
         """
         Gets the surface normal at a number of parameter positions on the surface.
@@ -1054,7 +1070,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Vector3D())
 
     def get_normals_at_points(
-            self, points: list[Point3D]
+        self, points: list[Point3D]
     ) -> tuple[bool, list[Vector3D]]:
         """
         Gets the surface normal at a number of positions on the surface.
@@ -1077,7 +1093,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Vector3D())
 
     def get_parameters_at_points(
-            self, points: list[Point3D]
+        self, points: list[Point3D]
     ) -> tuple[bool, list[Point2D]]:
         """
         Get the parameter positions that correspond to a set of points on the surface.
@@ -1102,7 +1118,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Point2D())
 
     def get_points_at_parameters(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Point3D]]:
         """
         Get the points on the surface that correspond to evaluating a set of parameter positions on the surface.
@@ -1125,7 +1141,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Point3D())
 
     def get_param_anomaly(
-            self,
+        self,
     ) -> tuple[bool, list[float], list[float], list[float], list[float], list[bool]]:
         """
         Gets details about anomalies in parameter space of the surface.
@@ -1150,7 +1166,7 @@ class SurfaceEvaluator(Base):
         return (bool(), [float()], [float()], [float()], [float()], [bool()])
 
     def get_first_derivatives(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Vector3D], list[Vector3D]]:
         """
         Get the first derivatives of the surface at the specified parameter positions.
@@ -1165,7 +1181,7 @@ class SurfaceEvaluator(Base):
         return (bool(), [Vector3D()], [Vector3D()])
 
     def get_first_derivative(
-            self, parameter: Point2D
+        self, parameter: Point2D
     ) -> tuple[bool, Vector3D, Vector3D]:
         """
         Get the first derivative of the surface at the specified parameter position.
@@ -1178,7 +1194,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Vector3D(), Vector3D())
 
     def get_second_derivatives(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Vector3D], list[Vector3D], list[Vector3D]]:
         """
         Get the second derivatives of the surface at the specified parameter positions.
@@ -1195,7 +1211,7 @@ class SurfaceEvaluator(Base):
         return (bool(), [Vector3D()], [Vector3D()], [Vector3D()])
 
     def get_second_derivative(
-            self, parameter: Point2D
+        self, parameter: Point2D
     ) -> tuple[bool, Vector3D, Vector3D, Vector3D]:
         """
         Get the second derivative of the surface at the specified parameter position.
@@ -1209,7 +1225,7 @@ class SurfaceEvaluator(Base):
         return (bool(), Vector3D(), Vector3D(), Vector3D())
 
     def get_third_derivatives(
-            self, parameters: list[Point2D]
+        self, parameters: list[Point2D]
     ) -> tuple[bool, list[Vector3D], list[Vector3D]]:
         """
         Get the third derivatives of the surface at the specified parameter positions.
@@ -1224,7 +1240,7 @@ class SurfaceEvaluator(Base):
         return (bool(), [Vector3D()], [Vector3D()])
 
     def get_third_derivative(
-            self, parameter: Point2D
+        self, parameter: Point2D
     ) -> tuple[bool, Vector3D, Vector3D]:
         """
         Get the third derivative of the surface at the specified parameter position.

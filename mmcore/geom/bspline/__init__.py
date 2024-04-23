@@ -14,9 +14,11 @@ from mmcore.numeric.numeric import (
     normal_at,
     plane_on_curve,
     evaluate_length,
+    evaluate_parameter_from_length,
 )
 from mmcore.func import vectorize
 
+TOLERANCE = 1e-4
 
 from .utils import (
     calc_b_spline_point,
@@ -29,7 +31,6 @@ from ._proto import *
 
 import copy
 import math
-
 
 
 """
@@ -196,7 +197,7 @@ class Curve:
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)")
         self._derivatives = [self, self.derivative]
-        self._evaluate_cached=lru_cache(self.evaluate)
+        self._evaluate_cached = lru_cache(self.evaluate)
         self.add_derivative()
 
     def interval(self):
@@ -217,7 +218,9 @@ class Curve:
         return evaluate_curvature(self.derivative(t), self.second_derivative(t))[1]
 
     def plane_at(self, t):
-        return plane_on_curve(self.evaluate(t), self.tangent(t), self.second_derivative(t))
+        return plane_on_curve(
+            self.evaluate(t), self.tangent(t), self.second_derivative(t)
+        )
 
     def derivative(self, t):
         if (1 - DEFAULT_H) >= t >= DEFAULT_H:
@@ -251,7 +254,26 @@ class Curve:
         return circle_of_curvature(self, t)
 
     def evaluate_length(self, bounds):
-        return evaluate_length(self, bounds[0], bounds[1])[0]
+        return evaluate_length(self.derivative, bounds[0], bounds[1])[0]
+
+    def evaluate_parameter_at_length(self, length, t0=None, tol=TOLERANCE, **kwargs):
+        """
+        Evaluates the parameter at a specific length.
+
+        :param length: The specific length at which the parameter is to be evaluated.
+        :param t0: The start time for evaluating the parameter. If not provided, it defaults to the start time of the interval.
+        :param kwargs: Additional keyword arguments to be passed.
+        :return: The parameter value at the specified length.
+        """
+        start, end = self.interval()
+        t0 = t0 if t0 is not None else start
+        t1_limit = end
+        return round(
+            evaluate_parameter_from_length(
+                self.derivative, l=length, t0=t0, t1_limit=t1_limit, tol=tol, **kwargs
+            ),
+            int(abs(np.log10(tol))),
+        )
 
     def apply_operator(self, other, op: Callable):
         if isinstance(other, Curve):
@@ -395,8 +417,7 @@ def bscache(obj):
 
 
 class BSpline(Curve):
-    """
-    """
+    """ """
 
     _control_points = None
     degree = 3
@@ -636,12 +657,9 @@ class SubCurve(Curve):
     def derivative(self, t: float):
         return self.parent.derivative(t)
 
-    def second_derivative(self, t: float):
-        return self.parent.derivative(t)
 
     def second_derivative(self, t: float):
         return self.parent.second_derivative(t)
-
 
     def plane_at(self, t: float):
         return self.parent.plane_at(t)
@@ -657,13 +675,12 @@ class SubCurve(Curve):
 
 
 class Offset(Curve):
-    def __init__(self, crv:Curve, distance:float):
+    def __init__(self, crv: Curve, distance: float):
         super().__init__()
         self.crv = crv
-        self._is_uniform=None
-        self._distance=None
-        self.distance=distance
-
+        self._is_uniform = None
+        self._distance = None
+        self.distance = distance
 
     def interval(self):
         return self.crv.interval()

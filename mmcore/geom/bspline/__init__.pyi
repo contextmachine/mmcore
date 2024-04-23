@@ -100,6 +100,16 @@ class Curve:
 
 
         """
+    def evaluate_parameter_at_length(self, length, t0=None,**kwargs)->float:
+        """
+        Evaluates the parameter at a specific length.
+
+        :param length: The specific length at which the parameter is to be evaluated.
+        :param t0: The start time for evaluating the parameter. If not provided, it defaults to the start time of the interval.
+        :param kwargs: Additional keyword arguments to be passed.
+        :return: The parameter value at the specified length.
+        """
+        ...
     def intersect_with_curve(self, curve: Curve) -> list[tuple[float, float]]:
         """
         PPI
