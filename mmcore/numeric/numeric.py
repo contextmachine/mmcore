@@ -71,7 +71,7 @@ def evaluate_tangent(D1, D2):
 
 evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()")
 
-
+from scipy.integrate import quadrature
 def evaluate_length(first_der, t0: float, t1: float, **kwargs):
     """ """
 
@@ -79,6 +79,52 @@ def evaluate_length(first_der, t0: float, t1: float, **kwargs):
         return norm(first_der(t))
 
     return quad(ds, t0, t1, **kwargs)
+
+
+from scipy.optimize import newton,bisect
+
+
+def evaluate_parameter_from_length(
+    first_der,
+    l: float,
+    t0: float = 0.0,
+    fprime=None,
+    fprime2=None,
+    t1_limit=None,
+    tol=1e-8,
+    maxiter=50,
+    **kwargs,
+):
+    """
+    Evaluate the parameter 't' from the given length 'l'.
+
+    :param first_der: The first derivative function.
+    :param l: The target length value.
+    :param t0: The initial estimate of the parameter 't'. Default is 0.0.
+    :param fprime: The first derivative of the function. None by default.
+    :param fprime2: The second derivative of the function. None by default.
+    :param t1_limit: The limit for the parameter 't'. None by default.
+    :param tol: The tolerance for the parameter 't'. Default is 1e-8.
+    :param maxiter: The maximum number of iterations. Default is 50.
+    :param kwargs: Additional keyword arguments.
+    :return: The parameter 't' that corresponds to the target length 'l'.
+    """
+
+
+    def func_to_bisect(t):
+        return l - evaluate_length(first_der, t0, t, **kwargs)[0]
+    def func(t):
+        return abs(func_to_bisect(t))
+
+
+    #return newton(
+    #    func, t0, tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
+    #)
+    res=iterative_divide_and_conquer_min(func, (t0,t1_limit), t1_limit*2)
+
+    return newton(
+       func, res[0], tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
+    )
 
 
 evaluate_length_vec = np.vectorize(
@@ -362,10 +408,9 @@ def curve_bound_points(curve, bounds=None, tol=1e-5):
             t_values.extend(solve_interval(t_y, (start, end)))
             t_values.extend(solve_interval(t_z, (start, end)))
     else:
-
-            t_values.extend(solve_interval(t_x, (curve_start, curve_end)))
-            t_values.extend(solve_interval(t_y, (curve_start, curve_end)))
-            t_values.extend(solve_interval(t_z, (curve_start, curve_end)))
+        t_values.extend(solve_interval(t_x, (curve_start, curve_end)))
+        t_values.extend(solve_interval(t_y, (curve_start, curve_end)))
+        t_values.extend(solve_interval(t_z, (curve_start, curve_end)))
     return np.unique(np.array([curve_start, *t_values, curve_end]))
 
 
@@ -384,4 +429,3 @@ def curve_roots(curve, axis=1):
     for start, end in divide_interval(*curve.interval(), step=0.5):
         roots.extend(test_all_roots(f, (start, end), tol))
     return roots
-
