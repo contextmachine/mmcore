@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.geom.bspline import Curve, NURBSpline
 from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
-from mmcore.numeric.aabb import curve_aabb, aabb_overlap
+from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 
 from typing import Callable, Any
 from numpy.typing import ArrayLike
@@ -20,7 +19,7 @@ def _calculate_spline_tolerance(spline, default_tol=1e-3):
 
 
 def curve_pii(
-        curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
+    curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
 ) -> list[float]:
     """
         The function finds the parameters where the parametric curve intersects some implicit form. It can be a curve, surface, ..., anything that has the form f(x)=0 where x is a vector denoting a point in space.
@@ -130,23 +129,23 @@ def curve_x_plane(curve, plane, axis=2, step=0.5):
     )
 
 
-def curve_intersect(curve1: Curve, curve2: Curve, tol: float = 0.01):
-    if hasattr(curve1, 'implicit') and hasattr(curve2, 'evaluate'):
+def curve_intersect(curve1, curve2, tol: float = 0.01):
+    if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
         return curve_pii(curve2, curve1)
-    elif hasattr(curve2, 'implicit') and hasattr(curve1, 'evaluate'):
+    elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):
         return curve_pii(curve1, curve2)
-    elif hasattr(curve2, 'evaluate') and hasattr(curve1, 'evaluate'):
+    elif hasattr(curve2, "evaluate") and hasattr(curve1, "evaluate"):
         return curve_ppi(curve1, curve2, tol=tol)
-    elif hasattr(curve2, 'implicit') and hasattr(curve1, 'implicit'):
+    elif hasattr(curve2, "implicit") and hasattr(curve1, "implicit"):
         raise NotImplemented("III has not been implemented yet.")
     else:
-        raise ValueError("curves must have parametric or implicit form - evaluate(t) and implicit(xyz) methods. "
-                         "If you want intersect a simple callables, use curve_pii, or curve_ppi function.")
+        raise ValueError(
+            "curves must have parametric or implicit form - evaluate(t) and implicit(xyz) methods. "
+            "If you want intersect a simple callables, use curve_pii, or curve_ppi function."
+        )
 
 
-def curve_intersect_old(
-        curve1: Curve, curve2: Curve, tol: float = 0.01
-) -> list[tuple[float, float]]:
+def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, float]]:
     """
     Finds the intersections between two NURBS curves using a divide-and-conquer approach.
 
@@ -165,12 +164,12 @@ def curve_intersect_old(
     """
 
     def intersect_recursive(
-            c1: Curve,
-            c2: Curve,
-            t1_start: float,
-            t1_end: float,
-            t2_start: float,
-            t2_end: float,
+        c1,
+        c2,
+        t1_start: float,
+        t1_end: float,
+        t2_start: float,
+        t2_end: float,
     ):
         # Check if the bounding boxes of the curves overlap
         box1 = curve_aabb(c1, (t1_start, t1_end), tol)
@@ -220,12 +219,13 @@ def curve_intersect_old(
 
 
 def curve_ppi(
-        curve1: NURBSpline,
-        curve2: NURBSpline,
-        tol: float = 0.001,
-        tol_bbox=0.1,
-        bounds1=None,
-        bounds2=None,
+    curve1,
+    curve2,
+    tol: float = 0.001,
+    tol_bbox=0.1,
+    bounds1=None,
+    bounds2=None,
+    eager=True,
 ) -> list[tuple[float, float]]:
     """
     PPI
@@ -288,13 +288,20 @@ def curve_ppi(
 
     """
 
-    def recursive_intersect(c1: NURBSpline, c2: NURBSpline, t1_range, t2_range, tol):
+    def recursive_intersect(c1, c2, t1_range, t2_range, tol):
         # print(c1.interval(), t1_range, c2.interval(), t2_range)
-        if not aabb_overlap(
-                curve_aabb(c1, bounds=t1_range, tol=tol_bbox),
-                curve_aabb(c2, bounds=t2_range, tol=tol_bbox),
-        ):
-            return []
+        if eager:
+            if not aabb_overlap(
+                curve_aabb_eager(c1, bounds=t1_range, cnt=3),
+                curve_aabb_eager(c2, bounds=t2_range, cnt=3),
+            ):
+                return []
+        else:
+            if not aabb_overlap(
+            curve_aabb(c1, bounds=t1_range, tol=tol_bbox),
+            curve_aabb(c2, bounds=t2_range, tol=tol_bbox)):
+                return []
+
 
         t1_mid = t1_range[0] + (t1_range[1] - t1_range[0]) / 2
         t2_mid = t2_range[0] + (t2_range[1] - t2_range[0]) / 2
@@ -358,6 +365,8 @@ def curve_ppi(
 
 if __name__ == "__main__":
     # print(res[0].control_points, res[1].control_points)
+    from mmcore.geom.bspline import NURBSpline
+
     aa, bb = NURBSpline(
         np.array(
             [
@@ -381,6 +390,6 @@ if __name__ == "__main__":
     import time
 
     s = time.time()
-    res = curve_ppi(aa, bb, 0.001, tol_bbox=0.1)
+    res = curve_ppi(aa, bb, 0.01, tol_bbox=0.1)
     print(time.time() - s)
     print(res)
