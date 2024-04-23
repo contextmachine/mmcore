@@ -1,7 +1,6 @@
 .idea/
 data/
 docs/
-build/
 Writerside/
 docker-compose.yml
 masks.cxm
@@ -25,4 +24,4 @@ run.sh
 test.sh
 .pkl
 docs
-lib
+
