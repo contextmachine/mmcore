@@ -28,13 +28,6 @@ extensions = [
         include_dirs=include_dirs
 
     ), Extension(
-        "mmcore.geom.mesh.mesh",
-        ["mmcore/geom/mesh/mesh.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
-
-    ), Extension(
         "mmcore.geom.bspline.deboor",
         ["mmcore/geom/bspline/deboor.pyx"],
         extra_compile_args=compile_args,
@@ -45,7 +38,14 @@ extensions = [
 
 
 ]
+#Extension(
+#        "mmcore.geom.mesh.mesh",
+#        ["mmcore/geom/mesh/mesh.pyx"],
+#        extra_compile_args=compile_args,
+#        extra_link_args=link_args,
+#        include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
 
+#    ),
 ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
 dist = Distribution({"ext_modules": ext_modules})
 cmd = build_ext(dist)
