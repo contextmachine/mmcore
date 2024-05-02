@@ -2,6 +2,39 @@ from enum import IntEnum
 
 import numpy as np
 
+
+def nd_min(a, b):
+    a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
+    if a_cond and b_cond:
+        a[a > b] = b[a > b]
+        return a
+    elif a_cond:
+        a[a > b] = b
+        return a
+    elif b_cond:
+        b[b > a] = a
+        return b
+    else:
+        return min(a, b)
+
+
+def nd_max(a, b):
+
+    a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
+    if a_cond and b_cond:
+        a[a < b] = b[a < b]
+        return a
+    elif a_cond:
+        a[a < b] = b
+        return a
+    elif b_cond:
+        b[b < a] = a
+        return b
+    else:
+        return max(a, b)
+
+
+
 def find_similar(value, values):
     r=np.abs(values - value)
     return np.where(r==np.min(r))[0]

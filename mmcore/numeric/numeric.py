@@ -88,12 +88,15 @@ def evaluate_parameter_from_length(
     first_der,
     l: float,
     t0: float = 0.0,
+
+
     fprime=None,
     fprime2=None,
     t1_limit=None,
     tol=1e-8,
     maxiter=50,
-    **kwargs,
+            **kwargs
+
 ):
     """
     Evaluate the parameter 't' from the given length 'l'.
@@ -112,9 +115,9 @@ def evaluate_parameter_from_length(
 
 
     def func_to_bisect(t):
-        return l - evaluate_length(first_der, t0, t, **kwargs)[0]
+        return evaluate_length(first_der, t0, t, **kwargs)[0] - l
     def func(t):
-        return abs(func_to_bisect(t))
+        return abs(evaluate_length(first_der, t0, t, **kwargs)[0] - l)
 
 
     #return newton(
@@ -429,3 +432,24 @@ def curve_roots(curve, axis=1):
     for start, end in divide_interval(*curve.interval(), step=0.5):
         roots.extend(test_all_roots(f, (start, end), tol))
     return roots
+if __name__ == '__main__':
+    from mmcore.geom.bspline import NURBSpline
+    bb = NURBSpline(
+        np.random.random((25,3))
+    )
+    import time
+    s=time.time()
+    rr=bb.evaluate_length((0., 0.23))
+    print(divmod(time.time()-s,60))
+    s = time.time()
+    rrr=bb.evaluate_length((0.0, (bb.interval()[1]-bb.interval()[0])*0.9))
+    print(divmod(time.time() - s, 60))
+
+    s = time.time()
+    print(bb.evaluate_parameter_at_length(rrr), (bb.interval()[1] - bb.interval()[0]) * 0.9)
+    print(divmod(time.time() - s, 60))
+    s = time.time()
+
+    print(
+        bb.evaluate_parameter_at_length(rr),0.23)
+    print(divmod(time.time() - s, 60))

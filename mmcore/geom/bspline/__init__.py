@@ -6,7 +6,11 @@ from typing import TypeVar, Union, SupportsIndex, Sequence, Callable, Any
 import numpy as np
 from numpy.typing import ArrayLike
 import operator
+
+from scipy.optimize import newton
+
 from mmcore.geom.vec import unit, cross
+from mmcore.numeric import divide_interval, iterative_divide_and_conquer_min
 from mmcore.numeric.fdm import FDM, fdm, DEFAULT_H
 from mmcore.numeric.numeric import (
     evaluate_tangent,
@@ -147,8 +151,9 @@ class Curve:
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)")
         self._derivatives = [self, self.derivative]
-        self._evaluate_cached = lru_cache(self.evaluate)
+        self._evaluate_cached = lru_cache(maxsize=None)(self.evaluate)
         self.add_derivative()
+        self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
 
     def intersect_with_curve(
         self, other: "Curve", tol=TOLERANCE
@@ -268,8 +273,19 @@ class Curve:
     def circle_of_curvature(self, t):
         return circle_of_curvature(self, t)
 
-    def evaluate_length(self, bounds):
-        return evaluate_length(self.derivative, bounds[0], bounds[1])[0]
+    def _evaluate_length(self, bounds, tol=1e-3):
+        if abs(bounds[1]-bounds[0])>4:
+            s1, e1 = math.ceil(bounds[0]), math.floor(bounds[1])
+            res=0.
+
+            for start,end in [bounds[0],s1],*divide_interval(s1,e1, 1).tolist(), [e1,bounds[1]]:
+                res+=evaluate_length(self.derivative, start,end , epsabs= tol, epsrel= tol)[0]
+            return res
+
+        return evaluate_length(self.derivative, bounds[0], bounds[1], epsabs= tol,epsrel= tol)[0]
+    def evaluate_length(self, bounds, tol=1e-3):
+
+        return self._evaluate_length_cached( bounds, tol)
 
     def evaluate_parameter_at_length(self, length, t0=None, tol=TOLERANCE, **kwargs):
         """
@@ -283,12 +299,19 @@ class Curve:
         start, end = self.interval()
         t0 = t0 if t0 is not None else start
         t1_limit = end
-        return round(
-            evaluate_parameter_from_length(
-                self.derivative, l=length, t0=t0, t1_limit=t1_limit, tol=tol, **kwargs
-            ),
-            int(abs(np.log10(tol))),
-        )
+
+        def func(t):
+            return self.evaluate_length((t0, t))-length
+
+
+        res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
+
+
+
+        return round(newton(
+            func, res[0], tol=1e-3,  x1=t1_limit, **kwargs
+        ), int(abs(np.log10(tol))))
+
 
     def apply_operator(self, other, op: Callable):
         if isinstance(other, Curve):
