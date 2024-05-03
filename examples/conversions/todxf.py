@@ -18,6 +18,7 @@ import sys
 import shapely
 from shapely.geometry import mapping
 
+import mmcore.geom.curves.bspline
 from mmcore.geom.parametric import PlaneLinear, algorithms
 
 
@@ -285,7 +286,7 @@ class Panel(ShapeInterface):
 
             for sh in self.hatch_shape:
 
-                r = sh.split(cont)
+                r = mmcore.geom.curves.bspline.split(cont)
                 if r.mask != 2:
                     self.hatch_split.extend(r.shapes)
 

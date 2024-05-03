@@ -47,7 +47,7 @@ def curve_pii(
 
         >>> import numpy as np
         >>> from mmcore.numeric.curve_intersection import curve_pii
-        >>> from mmcore.geom.bspline import NURBSpline
+        >>> from mmcore.geom.curves import NURBSpline
 
 
     1. Define the implict curve.
@@ -365,7 +365,7 @@ def curve_ppi(
 
 if __name__ == "__main__":
     # print(res[0].control_points, res[1].control_points)
-    from mmcore.geom.bspline import NURBSpline
+    from mmcore.geom.curves import NURBSpline
 
     aa, bb = NURBSpline(
         np.array(

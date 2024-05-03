@@ -4,6 +4,8 @@ from operator import attrgetter
 
 import itertools
 
+import mmcore.geom.curves.bspline
+
 
 @total_ordering
 class FieldMap:
@@ -112,7 +114,7 @@ class FieldMap:
         self._source_field_name = source_field_name
         self.update_equal = update_equal
         self.backward_support = backward_support
-        self._back_tuple = source_field_name.split('.')
+        self._back_tuple = mmcore.geom.curves.bspline.split('.')
         if len(self._back_tuple) > 1:
             self._back = attrgetter('.'.join(self._back_tuple[:-1]))
         else:

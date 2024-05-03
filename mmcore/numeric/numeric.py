@@ -433,7 +433,7 @@ def curve_roots(curve, axis=1):
         roots.extend(test_all_roots(f, (start, end), tol))
     return roots
 if __name__ == '__main__':
-    from mmcore.geom.bspline import NURBSpline
+    from mmcore.geom.curves import NURBSpline
     bb = NURBSpline(
         np.random.random((25,3))
     )

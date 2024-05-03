@@ -28,11 +28,11 @@ extensions = [
         include_dirs=include_dirs
 
     ), Extension(
-        "mmcore.geom.bspline.deboor",
-        ["mmcore/geom/bspline/deboor.pyx"],
+        "mmcore.geom.curves.deboor",
+        ["mmcore/geom/curves/deboor.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
-        include_dirs=[numpy.get_include(), 'mmcore/geom/bspline']
+        include_dirs=[numpy.get_include(), 'mmcore/geom/curves']
 
     )
 

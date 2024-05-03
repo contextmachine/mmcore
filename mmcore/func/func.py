@@ -4,7 +4,7 @@ from operator import methodcaller
 import itertools
 import numpy as np
 
-from mmcore.tree.avl import AVL
+from mmcore.ds.tree.avl import AVL
 
 
 def vectorize(signature=None, excluded=None, **kws):

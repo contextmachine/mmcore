@@ -9,7 +9,7 @@ then
   cd ..
 fi
 echo "[install_to_rhinocode.sh]" "Starting in" "$(pwd)"
-"$HOME/.rhinocode/py39-rh8/python3.9" -m pip install "$(pwd)"
+"$HOME/.rhinocode/py39-rh8/python3.9" -m pip install -e "$(pwd)"
 echo "[install_to_rhinocode.sh] Running tests ... "
 "$HOME/.rhinocode/py39-rh8/python3.9" "$(pwd)/tests/test_intersections.py"
 "$HOME/.rhinocode/py39-rh8/python3.9" "$(pwd)/tests/test_vec_speedups.py"

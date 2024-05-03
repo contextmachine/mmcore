@@ -1,10 +1,33 @@
-from typing import Callable, Protocol
+from __future__ import annotations
+from typing import Protocol,Union,Optional
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy._typing import NDArray
 
-# Base Class
+
+
+class ImplicitCurveProtocol(Protocol):
+    def interval(self) -> tuple[float, float]: ...
+    def implicit(self, pt: NDArray[float]) -> float: ...
+
+
+class ParametricCurveProtocol(Protocol):
+    def interval(self) -> tuple[float, float]: ...
+    def evaluate(self, t:float) ->  NDArray[float]: ...
+
+    def intersect_with_curve(self, other: Union[ImplicitCurveProtocol, ParametricCurveProtocol]) -> list[
+        tuple[float, Optional[float]]]: ...
+
+
+
 class Curve:
+    def invalidate_cache(self)->None:
+        """
+        Invalidates the cache.
+
+        :return: None
+        """
+        ...
     def interval(self) -> tuple[float, float]:
         """
          Parametric domain of the curve.
@@ -110,6 +133,8 @@ class Curve:
         :return: The parameter value at the specified length.
         """
         ...
+    def circle_of_curvature(self, t:float)->tuple[NDArray[float],float,NDArray[float]]:...
+
     def intersect_with_curve(self, curve: Curve) -> list[tuple[float, float]]:
         """
         PPI
@@ -141,6 +166,9 @@ class Curve:
 
         Example
         --------
+        >>> import numpy as np
+        >>> from mmcore.geom.curves.bspline import NURBSpline
+        >>> from mmcore.numeric.curve_intersection import curve_ppi
         >>> first = NURBSpline(
         ...    np.array(
         ...        [
@@ -152,7 +180,7 @@ class Curve:
         ...        ]
         ...    )
         ... )
-        >>> second= NURBSpline(
+        >>> second = NURBSpline(
         ...     np.array(
         ...         [
         ...             (40.964758489325661, -3.8915666456564679, 0.0),
@@ -163,8 +191,6 @@ class Curve:
         ...     )
         ... )
 
-
-
         >>> intersections = curve_ppi(first, second, 0.001)
         >>> print(intersections)
         [(0.600738525390625, 0.371673583984375)]
@@ -173,48 +199,35 @@ class Curve:
         """
         ...
 
-# Splines
+    def split(self, t:float)->tuple[TrimmedCurve, TrimmedCurve]:
+        """
+        Split Method
+        --------------
+        Split method splits a curve into two trimmed curves at a specified parameter value.
 
-class BSpline(Curve):
-    knots: NDArray[float]
-    @property
-    def control_points(self) -> NDArray[float]:
-        """Control Points array in shape (N, M)
-        where
-        N -- count of points, M= count of coordinate components
+        :param t: The parameter value at which to split the curve. Should be a float.
+        :return: A tuple containing two TrimmedCurve objects representing the divided parts of the curve.
+
+        Example Usage:
+        --------------
+        >>> curve = TrimmedCurve()
+        >>> left_curve, right_curve = curve.split(0.5)
         """
         ...
-    def generate_knots(self)->NDArray[float]: ...
-
-class NURBSpline(BSpline):
-    """
-    Non-Uniform Rational BSpline (NURBS)
-    Example:
-        >>> spl = NURBSpline(np.array([(-26030.187675027133, 5601.3871095975337, 31638.841094491760),
-        ...                   (14918.717302595671, -25257.061306278192, 14455.443462719517),
-        ...                   (19188.604482326708, 17583.891501540096, 6065.9078795798523),
-        ...                   (-18663.729281923122, 5703.1869371495322, 0.0),
-        ...                   (20028.126297559378, -20024.715164607202, 2591.0893519960955),
-        ...                   (4735.5467668945130, 25720.651181520021, -6587.2644037490491),
-        ...                   (-20484.795362315021, -11668.741154421798, -14201.431195298581),
-        ...                   (18434.653814767291, -4810.2095985021788, -14052.951382291201),
-        ...                   (612.94310080525793, 24446.695569574043, -24080.735343204549),
-        ...                   (-7503.6320665111089, 2896.2190847052334, -31178.971042788111)]
-        ...                  ))
-
-    """
-    weights: NDArray[float]
 
 
 
-# Other
-
-class SubCurve(Curve):
-    parent: Curve
-    start: float
-    end: float
 
 
-class Offset(Curve):
-    parent: Curve
-    distance: float
+class TrimmedCurve(Curve):
+    trim:tuple[float,float]
+    curve:Curve
+
+    @property
+    def end(self) -> float: ...
+
+    @property
+    def start(self) -> float: ...
+
+
+SubCurve=TrimmedCurve

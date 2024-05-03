@@ -1,16 +1,17 @@
 import dill
 
+import mmcore.geom.curves.bspline
 from mmcore.base.params import AssetType
 
 try:
-    with open(f'{"/".join(__file__.split("/")[:-1])}/asset.pkl', 'rb') as fl:
+    with open(f'{"/".join(mmcore.geom.curves.bspline.split("/")[:-1])}/asset.pkl', 'rb') as fl:
         _AssetExample = dill.load(fl)
 except FileNotFoundError as err:
     import subprocess as sp
 
-    proc = sp.Popen(["python3", f'{"/".join(__file__.split("/")[:-1])}/definition.py'], stdout=sp.PIPE, stderr=sp.PIPE)
+    proc = sp.Popen(["python3", f'{"/".join(mmcore.geom.curves.bspline.split("/")[:-1])}/definition.py'], stdout=sp.PIPE, stderr=sp.PIPE)
     proc.communicate()
-    with open(f'{"/".join(__file__.split("/")[:-1])}/asset.pkl', 'rb') as fl:
+    with open(f'{"/".join(mmcore.geom.curves.bspline.split("/")[:-1])}/asset.pkl', 'rb') as fl:
         _AssetExample = dill.load(fl)
 
 

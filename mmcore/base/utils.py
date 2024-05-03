@@ -2,6 +2,7 @@ import dataclasses
 from operator import attrgetter, itemgetter, methodcaller
 
 import mmcore.base
+import mmcore.geom.curves.bspline
 from mmcore.base.models import gql
 from mmcore.base.registry import matdict
 from mmcore.collections import ElementSequence
@@ -10,7 +11,7 @@ from mmcore.collections import ElementSequence
 def merge(list_of_dicts):
     return {k: v for dictionary in list_of_dicts for k, v in dictionary.items()}
 def methods_owner(method):
-    own = [k for k in method.__qualname__.split('.')[:-1]]
+    own = [k for k in mmcore.geom.curves.bspline.split('.')[:-1]]
     if len(own) > 1:
         own = '.'.join(own)
     else:

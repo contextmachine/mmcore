@@ -57,7 +57,7 @@ class BSpline:
     @vectorize(excluded=[0], signature='()->(i)')
     def __call__(self, t: float) -> tuple[float, float, float]:
         """
-        Here write a solution to the parametric equation bspline at the point corresponding to the parameter t. The function should return three numbers (x,y,z)
+        Here write a solution to the parametric equation curves at the point corresponding to the parameter t. The function should return three numbers (x,y,z)
         """
         n = len(self.control_points)
         assert n > self.degree, "Expected the number of control points to be greater than the degree of the spline"

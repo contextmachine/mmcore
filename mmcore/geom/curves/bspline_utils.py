@@ -1,4 +1,4 @@
-"""Utility functions for bspline module
+"""Utility functions for curves module
 
     Naming conventions:
     ------------------
@@ -7,7 +7,14 @@
     :param U, V: knots (knot vector)
     :param span: span (result of find_span)
 """
+from __future__ import annotations
+
+import itertools
+from functools import lru_cache
+
 import numpy as np
+
+from mmcore.geom.curves.knot import knot_insertion
 
 
 def find_span(p, u, U):
@@ -228,3 +235,27 @@ def calc_rational_curve_derivatives(Pders):
             v -= CK[k - i] * calcKoverI(k, i) * wders[i]
         CK.append(v / wders[0])
     return CK
+
+
+def insert_knot(self, t, num=1):
+    cpts, knots = knot_insertion(
+        self.degree, self.knots.tolist(), self.control_points, t, num=num
+    )
+    self.set(control_points=np.array(cpts), knots=np.array(knots))
+    return True
+
+
+bscache_stats = dict()
+
+
+def bscache(obj):
+    cnt = itertools.count()
+    bscache_stats[id(obj)] = dict(calls=next(cnt))
+    stats = bscache_stats[id(obj)]
+
+    @lru_cache(maxsize=None)
+    def wrapper(a, b, c):
+        stats["calls"] = next(cnt)
+        return obj.basis_function(a, b, c)
+
+    return wrapper, stats
