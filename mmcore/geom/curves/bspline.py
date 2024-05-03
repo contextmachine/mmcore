@@ -6,7 +6,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.curves.curve import Curve
-from mmcore.geom.curves.deboor import deboor
+from mmcore.geom.curves.deboor import deboor,evaluate_nurbs_multi,evaluate_nurbs
 
 from mmcore.geom.curves.knot import find_span_binsearch, find_multiplicity
 from mmcore.geom.curves.bspline_utils import calc_bspline_derivatives, insert_knot
@@ -88,11 +88,13 @@ class BSpline(Curve):
         self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
         self._wcontrol_points[:, :-1] = self.control_points
 
+
     def invalidate_cache(self):
         super().invalidate_cache()
 
 
         self._cached_basis_func = lru_cache(maxsize=None)(self.basis_function)
+
 
     @vectorize(excluded=[0], signature="()->(i)")
     def derivative(self, t):
@@ -240,9 +242,10 @@ class NURBSpline(BSpline):
     weights: np.ndarray
 
     def __init__(self, control_points, weights=None, degree=3, knots=None):
-        self.weights = np.ones((len(control_points),), dtype=float)
+        self.weights = np.ones((len(control_points),), dtype=float) if weights is None else weights
         super().__init__(control_points, degree=degree, knots=knots)
 
+        self.evaluate_multi = self._evaluate_multi
     def set_weights(self, weights=None):
         if weights is not None:
             if len(weights) == len(self.control_points):
@@ -252,11 +255,20 @@ class NURBSpline(BSpline):
                 raise ValueError(
                     f"Weights must have the same length as the control points! Passed weights: {weights}, control_points size: {self._control_points_count}, control_points :{self.control_points}, weights : {weights}"
                 )
+    def invalidate_cache(self):
+        super().invalidate_cache()
 
+        self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
     def split(self, t):
         return nurbs_split(self, t)
+    def _evaluate(self, t:float):
+        return evaluate_nurbs(t, self.control_points,self.knots,self.weights,self.degree)
+
+    def _evaluate_multi(self, t: np.ndarray[float]):
+        return evaluate_nurbs_multi(t, self.control_points, self.knots, self.weights, self.degree)
 
     def evaluate(self, t: float):
+        """
         x, y, z = 0.0, 0.0, 0.0
         sum_of_weights = 0.0  # sum of weight * basis function
 
@@ -274,19 +286,30 @@ class NURBSpline(BSpline):
         # normalizing with the sum of weights to get rational B-spline
         x /= sum_of_weights
         y /= sum_of_weights
-        z /= sum_of_weights
-        return np.array((x, y, z))
+        z /= sum_of_weights"""
 
-    def __call__(self, t: float) -> tuple[float, float, float]:
+        return self._cached_eval_func(t)
+
+
+    def __call__(self, t):
         """
         Here write a solution to the parametric equation Rational BSpline at the point corresponding
         to the parameter t. The function should return three numbers (x,y,z)
         """
-        self._control_points_count = len(self.control_points)
-        assert (
-                self._control_points_count > self.degree
-        ), "Expected the number of control points to be greater than the degree of the spline"
-        assert (
-                len(self.weights) == self._control_points_count
-        ), "Expected to have a weight for every control point"
-        return Curve.__call__(self, t)
+        #self._control_points_count = len(self.control_points)
+        #assert (
+        #        self._control_points_count > self.degree
+        #), "Expected the number of control points to be greater than the degree of the spline"
+        #assert (
+        #        len(self.weights) == self._control_points_count
+        #), "Expected to have a weight for every control point"
+        if isinstance(t, (float,int)):
+            return self.evaluate(t)
+        else:
+            t=np.array(t)
+            if t.ndim == 1:
+                return np.array(self.evaluate_multi(t))
+            else:
+                return np.array(self.evaluate_multi(t.flatten())).reshape((*t.shape, 3))
+
+
