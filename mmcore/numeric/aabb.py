@@ -11,8 +11,7 @@ def aabb_overlap(
     box1: np.ndarray[Any, np.dtype[float]], box2: np.ndarray[Any, np.dtype[float]]
 ) -> bool:
     """
-    >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
-    >>> from mmcore.geom.bspline import NURBSpline
+    >>> from mmcore.geom.curves.bspline import NURBSpline    >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
     >>> pts1=np.array([(-41.0, 143.0, 0.0), (563.0, -184.0, 0.0), (876.0, 594.0, 0.0), (1272.0, -104.0, 0.0), (1580.0, 604.0, 0.0), (2048.0, -462.0, 0.0)])
     >>> pts2=np.array([(211.0, -321.0, 0.0), (391.0, 632.0, 0.0), (942.0, -297.0, 0.0), (1183.0, 753.0, 0.0), (1507.0, -301.0, 0.0), (1921.0, 755.0, 0.0), (1921.0, -546.0, 0.0)])
     >>> n1,n2=NURBSpline(pts1),NURBSpline(pts2)
@@ -57,8 +56,7 @@ def aabb(points: np.ndarray):
 
 def curve_aabb(curve, bounds=None, tol=1e-5):
     """
-    >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
-    >>> from mmcore.geom.bspline import NURBSpline
+    >>> from mmcore.geom.curves.bspline import NURBSpline    >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
     >>> pts1=np.array([(-41.0, 143.0, 0.0), (563.0, -184.0, 0.0), (876.0, 594.0, 0.0), (1272.0, -104.0, 0.0), (1580.0, 604.0, 0.0), (2048.0, -462.0, 0.0)])
     >>> pts2=np.array([(211.0, -321.0, 0.0), (391.0, 632.0, 0.0), (942.0, -297.0, 0.0), (1183.0, 753.0, 0.0), (1507.0, -301.0, 0.0), (1921.0, 755.0, 0.0), (1921.0, -546.0, 0.0)])
     >>> n1,n2=NURBSpline(pts1),NURBSpline(pts2)

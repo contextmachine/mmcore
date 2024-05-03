@@ -2008,7 +2008,7 @@ class EllipticalArc3D(Curve3D):
         return NurbsCurve3D()
 
 
-from mmcore.geom.bspline import NURBSpline
+from mmcore.geom.curves import NURBSpline
 
 
 class NurbsCurveApiProxy3D(NURBSpline):

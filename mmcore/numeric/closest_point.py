@@ -54,6 +54,7 @@ def closest_points_on_curve_mp(curve, points, tol=1e-3, workers=1):
         ))
 
 
+
 def closest_point_on_curve(curve, pts, tol=1e-3, workers=1):
     pts = pts if isinstance(pts, np.ndarray) else np.array(pts)
 

@@ -10,11 +10,9 @@ from mmcore.numeric.closest_point import closest_point_on_curve
 
 class MyTestCase(unittest.TestCase):
     def setUp(self):
-        tests_data_dir = Path(__file__).parent.resolve()
-        with open(tests_data_dir / "data/closest_points_dataset.json") as f:
-            import json
-
-            self.data = json.load(f)
+        bb = NURBSpline(
+            np.random.random((25, 3))
+        )
 
     def test_closest_point(self):
         vals = []
