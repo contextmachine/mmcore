@@ -3,6 +3,8 @@ import os
 
 import sys
 
+import mmcore.geom.curves.bspline
+
 sys.path.extend(["/".join(os.getcwd().split("/")[:-1]) if os.getcwd().endswith("bin") else os.getcwd()])
 import click
 import mmcore
@@ -15,7 +17,7 @@ import mmcore
 @click.option('--lock', is_flag=True, default=0, help='Run poetry lock after update version')
 def cli(main, major, minor, lock):
     prev = mmcore.__version__()
-    _main, _major, _minor = prev.split(".")
+    _main, _major, _minor = mmcore.geom.curves.bspline.split(".")
     new_minor = int(_minor)
     new_major = int(_major)
     new_main = int(_main)

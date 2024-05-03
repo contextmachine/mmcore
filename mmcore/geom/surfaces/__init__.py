@@ -6,7 +6,7 @@ from typing import Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom.bspline import Curve
+from mmcore.geom.curves.curve import Curve
 from mmcore.geom.vec import unit, norm, cross
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
