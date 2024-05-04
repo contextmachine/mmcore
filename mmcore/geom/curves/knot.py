@@ -1,8 +1,12 @@
 from copy import deepcopy
 
+from scipy.linalg import lu_solve,lu_factor
+
+from mmcore.geom.vec import *
 import numpy as np
 
-
+import geomdl
+import geomdl.helpers
 def generate_knot(degree, num_ctrlpts, clamped=True):
     """ Generates an equally spaced knot vector.
 
@@ -52,6 +56,118 @@ def generate_knot(degree, num_ctrlpts, clamped=True):
 
     # Return auto-generated knot vector
     return knot_vector
+
+def compute_knot_vector(degree, num_points, params):
+    """ Computes a knot vector from the parameter list using averaging method.
+
+    Please refer to the Equation 9.8 on The NURBS Book (2nd Edition), pp.365 for details.
+
+    :param degree: degree
+    :type degree: int
+    :param num_points: number of data points
+    :type num_points: int
+    :param params: list of parameters, :math:`\\overline{u}_{k}`
+    :type params: list, tuple
+    :return: knot vector
+    :rtype: list
+    """
+    # Start knot vector
+    kv = [0.0 for _ in range(degree + 1)]
+
+    # Use averaging method (Eqn 9.8) to compute internal knots in the knot vector
+    for i in range(num_points - degree - 1):
+        temp_kv = (1.0 / degree) * sum([params[j] for j in range(i + 1, i + degree + 1)])
+        kv.append(temp_kv)
+
+    # End knot vector
+    kv += [1.0 for _ in range(degree + 1)]
+
+    return kv
+
+def build_coefficient_matrix(points, degree, knotvector, params):
+    num_points = len(points)
+    # Set up coefficient matrix
+    matrix_a = [[0.0 for _ in range(num_points)] for _ in range(num_points)]
+    for i in range(num_points):
+        span = find_span_linear(degree, knotvector, num_points, params[i])
+
+        matrix_a[i][span - degree: span + 1] = geomdl.helpers.basis_function(
+            degree, knotvector, span, params[i]
+        )
+    # Return coefficient matrix
+    return matrix_a
+def compute_params_curve(points, centripetal=False):
+    """
+    :param points: data points
+    :type points: list, tuple
+    :param centripetal: activates centripetal parametrization method
+    :type centripetal: bool
+    :return: parameter array, :math:`\\overline{u}_{k}`
+    :rtype: list
+    """
+
+
+
+    num_points = len(points)
+
+    # Calculate chord lengths
+    cds = [0.0 for _ in range(num_points + 1)]
+    cds[-1] = 1.0
+    for i in range(1, num_points):
+        distance = dist(points[i], points[i - 1])
+        cds[i] = np.sqrt(distance) if centripetal else distance
+
+    # Find the total chord length
+    d = sum(cds[1:-1])
+
+    # Divide individual chord lengths by the total chord length
+    uk = [0.0 for _ in range(num_points)]
+    for i in range(num_points):
+        uk[i] = sum(cds[0:i + 1]) / d
+
+    return uk
+
+def interpolate_curve(points, degree,  use_centripetal=False):
+    """ Curve interpolation through the data points.
+
+    Please refer to Algorithm A9.1 on The NURBS Book (2nd Edition), pp.369-370 for details.
+
+    Keyword Arguments:
+        * ``centripetal``: activates centripetal parametrization method. *Default: False*
+
+    :param points: data points
+    :type points: list, tuple
+    :param degree: degree of the output parametric curve
+    :type degree: int
+    :return: interpolated B-Spline curve
+    :rtype: BSpline.Curve
+    """
+    # Keyword arguments
+
+
+    # Number of control points
+    num_points = len(points)
+
+    # Get uk
+    uk = compute_params_curve(points, use_centripetal)
+
+    # Compute knot vector
+    kv = compute_knot_vector(degree, num_points, uk)
+
+    # Do global interpolation
+    matrix_a = np.array(build_coefficient_matrix( points,degree, kv, uk))
+    ctrlpts = lu_solve(lu_factor(matrix_a),points)
+
+    # Generate B-spline curve
+
+
+
+    return ctrlpts,kv,degree
+
+from mmcore.geom.vec import dist,dot,norm,cross,unit
+import math
+
+import geomdl
 
 
 def normalize_knot(knot_vector):

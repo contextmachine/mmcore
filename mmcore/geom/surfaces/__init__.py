@@ -162,7 +162,7 @@ class Surface:
     def plane_at(self, uv):
         orig = self.evaluate(uv)
         du = unit(self.derivative_u(uv))
-        dn = unit(np.cross(du, self.derivative_v(uv)))
+        dn = unit(cross(du, self.derivative_v(uv)))
         dv = cross(dn, du)
 
         # n = evaluate_normal2(
