@@ -292,8 +292,8 @@ def curve_ppi(
         # print(c1.interval(), t1_range, c2.interval(), t2_range)
         if eager:
             if not aabb_overlap(
-                curve_aabb_eager(c1, bounds=t1_range, cnt=3),
-                curve_aabb_eager(c2, bounds=t2_range, cnt=3),
+                curve_aabb_eager(c1, bounds=t1_range, cnt=8),
+                curve_aabb_eager(c2, bounds=t2_range, cnt=8),
             ):
                 return []
         else:

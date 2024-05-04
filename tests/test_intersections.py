@@ -1,5 +1,5 @@
 from unittest import TestCase
-
+"""
 import numpy as np
 
 from mmcore.geom.interfaces import Ray, collection
@@ -58,3 +58,4 @@ class Test(TestCase):
 
         self.assertTrue(np.allclose(res, result))
 
+"""

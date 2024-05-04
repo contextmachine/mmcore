@@ -364,21 +364,66 @@ def evaluate_normal2(
     return normal_vector
 
 
-gradient_u = np.array([1, 0.5, 0])
-gradient_v = np.array([0, 0.7, 0.1])
-second_derivative_uu = np.array([1, 0, 0])
-second_derivative_uv = np.array([0, 0, 1])
-second_derivative_vv = np.array([0, 1, 0])
-limit_direction = 2
-evaluate_normal(
-    gradient_u,
-    gradient_v,
-    1.0,
-    second_derivative_uv,
-    second_derivative_vv,
-    limit_direction,
-)
 
+
+def evaluate_sectional_curvature(derivative_u,
+                                 derivative_v,
+                                 second_derivative_uu,
+                                 second_derivative_uv,
+                                 second_derivative_vv,
+                                 planeNormal):
+    """
+      S10, S01 - [in]
+    surface 1st partial derivatives
+  S20, S11, S02 - [in]
+    surface 2nd partial derivatives
+  planeNormal - [in]
+    unit normal to section plane
+  K - [out] Sectional curvature
+    Curvature of the intersection curve of the surface
+    and plane through the surface point where the partial
+    derivatives were evaluationed.
+    :param du:
+    :param derivative_v:
+    :param second_derivative_uu:
+    :param second_derivative_uv:
+    :param second_derivative_vv:
+    :param planeNormal:
+    :return:
+    """
+    M = cross(derivative_u, derivative_v)
+    D1 = cross(M, planeNormal)
+
+    matrix = np.array([list(derivative_u), list(derivative_v)])
+    vec = np.array(list(D1))
+
+    try:
+        # Attempt to solve the system of linear equations
+        a, b = np.linalg.solve(matrix.transpose(), vec)
+        D2 = a * second_derivative_uu + b * second_derivative_uv
+        M = cross(D2, derivative_v)
+        D2 = a * second_derivative_uv + b * second_derivative_vv
+        M2 = cross(derivative_u, D2)
+
+        M = M + M2
+        D2 = cross(M, planeNormal)
+
+        a = np.dot(D1, D1)
+
+        if not (a > np.finfo(float).eps):
+            return np.array([j for i in [0.0] * 3 for j in [i]])
+
+        a = 1.0 / a
+        b = -a * np.dot(D2, D1)
+        K = a * (D2 + b * D1)
+
+        return K
+
+    except np.linalg.LinAlgError:
+        return np.array([j for i in [0.0] * 3 for j in [i]])
+    except Exception as e:
+        print(e)
+        return np.array([j for i in [0.0] * 3 for j in [i]])
 
 def curve_bound_points(curve, bounds=None, tol=1e-5):
     """

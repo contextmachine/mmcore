@@ -8,8 +8,10 @@ from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
     iterative_divide_and_conquer_min,
 )
-
+from scipy.optimize import newton
 import multiprocess as mp
+
+from mmcore.numeric.fdm import bounded_fdm
 
 
 def closest_point_on_curve_single(curve, point, tol=1e-3):
@@ -54,7 +56,6 @@ def closest_points_on_curve_mp(curve, points, tol=1e-3, workers=1):
         ))
 
 
-
 def closest_point_on_curve(curve, pts, tol=1e-3, workers=1):
     pts = pts if isinstance(pts, np.ndarray) else np.array(pts)
 
@@ -62,6 +63,16 @@ def closest_point_on_curve(curve, pts, tol=1e-3, workers=1):
         return closest_point_on_curve_single(curve, pts, tol=tol)
 
     if workers == 1:
-        return  [closest_point_on_curve_single(curve, pt, tol=tol) for pt in pts]
+        return [closest_point_on_curve_single(curve, pt, tol=tol) for pt in pts]
     else:
-        return closest_points_on_curve_mp(curve,pts, tol=tol,workers=workers)
+        return closest_points_on_curve_mp(curve, pts, tol=tol, workers=workers)
+
+
+def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
+    def fun(t):
+        # C' (u) •(C(u) - P)
+        return np.dot(curve.derivative(t), curve.evaluate(t) - point)
+
+    dfun = bounded_fdm(fun, curve.interval())
+    res = newton(fun, t0, fprime=dfun, tol=tol, **kwargs)
+    return res, np.linalg.norm(curve.evaluate(res) - point)

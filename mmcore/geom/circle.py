@@ -1,7 +1,7 @@
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.curves import ParametricPlanarCurve
+
 from mmcore.geom.vec import unit
 
 
