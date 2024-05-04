@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 
+from mmcore.geom.vec import unit, dot, norm
 from mmcore.numeric import divide_interval, add_dim
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -76,3 +77,15 @@ def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
     dfun = bounded_fdm(fun, curve.interval())
     res = newton(fun, t0, fprime=dfun, tol=tol, **kwargs)
     return res, np.linalg.norm(curve.evaluate(res) - point)
+
+
+def vector_projection(a,b):
+	ua,ub=unit(a),unit(b)
+
+	return  ub*dot(ua,ub)*norm(a)
+
+
+def closest_point_on_line(line, point):
+	start,end=line
+	direction=end-start
+	return  start+vector_projection(point-start,direction)

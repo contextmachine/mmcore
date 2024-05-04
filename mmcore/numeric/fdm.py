@@ -58,7 +58,7 @@ def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
 
 
 class FDM:
-    def __new__(cls, fun):
+    def __new__(cls, fun=None):
         #record = Memo.get_or_create_record(fun)
 
         #rec = getattr(record, cls.__name__.lower(), None)
