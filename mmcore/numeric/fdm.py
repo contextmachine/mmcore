@@ -43,6 +43,20 @@ def fdm(f, method="central", h=DEFAULT_H):
         raise ValueError("Method must be 'central', 'forward' or 'backward'.")
 
 
+def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
+    _decimals = abs(int(math.log10(h)))
+
+    def wrp(t):
+        if abs(bounds[0] - t) <= h:
+            return np.round((f(t + h) - f(t)) / h, _decimals)
+        elif abs(bounds[1] - t) <= h:
+            return np.round((f(t) - f(t - h)) / h, _decimals)
+        else:
+            return np.round((f(t + h) - f(t - h)) / (2 * h), _decimals)
+
+    return wrp
+
+
 class FDM:
     def __new__(cls, fun):
         #record = Memo.get_or_create_record(fun)
@@ -327,3 +341,15 @@ class Hess(Grad):
             )
 
         return z
+
+
+def jac(fun, h=DEFAULT_H):
+    def jac_wrap(t):
+        inp = len(t)
+        H = np.eye(inp) * h
+        z = np.zeros((inp, inp))
+        for i in range(inp):
+            z[i, :] = (fun(t + H[i]) - fun(t - H[i])) / (2 * h)
+        return z
+
+    return jac_wrap

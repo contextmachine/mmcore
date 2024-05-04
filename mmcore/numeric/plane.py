@@ -5,7 +5,7 @@ from math import sqrt
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.vec import dot, norm_sq, unit, cross
+from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
 
 
 def inverse_evaluate_plane(pln, point):
@@ -148,3 +148,48 @@ def _mycross(a, b):
     ax, ay, az = a
     bx, by, bz = b
     return np.array([ay * bz - by * az, az * bx - bz * ax, ax * by - bx * ay])
+
+
+def vector_projection(a, b):
+    ua, ub = unit(a), unit(b)
+
+    return ub * dot(ua, ub) * norm(a)
+
+
+def closest_point_on_line(line, point):
+    start, end = line
+    direction = end - start
+    return start + vector_projection(point - start, direction)
+
+
+def plane_plane_intersect(self, other):
+    array_normals_stacked = np.vstack((self[-1], other[-1]))
+
+    array_00 = 2 * np.eye(3)
+    array_01 = array_normals_stacked.T
+    array_10 = array_normals_stacked
+    array_11 = np.zeros((2, 2))
+    matrix = np.block([[array_00, array_01], [array_10, array_11]])
+    dot_a = np.dot(self[0], self[-1])
+    dot_b = np.dot(other[0], other[-1])
+    array_y = np.array([*self[0], dot_a, dot_b])
+    # Solve the linear system.
+    solution = np.linalg.solve(matrix, array_y)
+    point_line = solution[:3]
+    direction_line = cross(self[-1], other[-1])
+    return point_line, direction_line
+def plane_line_intersect(plane:np.ndarray,line,  tol=1e-6, full_return=False):
+    ray_origin,ray_direction = line
+    ndotu = plane[-1].dot(ray_direction)
+    if abs(ndotu) < tol:
+        if full_return:
+            return None, None, None
+        return None
+    w = ray_origin - plane[0]
+    si = -plane[-1].dot(w) / ndotu
+    Psi = w + si * ray_direction + plane[0]
+    if full_return:
+        return w, si, Psi
+    return Psi
+def plane_plane_plane_intersect(self, other,third,tol=1e-6):
+    return plane_line_intersect(third,plane_plane_intersect(self,other),tol)
