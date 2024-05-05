@@ -407,6 +407,8 @@ class CurveEvaluator3D(Base):
         _get_third_derivative (FDM): The function for getting the third derivative of the curve.
 
     Example:
+    ----
+        ```python
         >>> from mmcore.api.curves import NurbsCurve3D
         >>> spl2=NurbsCurve3D(np.array([(-26030.187675027133, 5601.3871095975337, 31638.841094491760),
         ...                             (14918.717302595671, -25257.061306278192, 14455.443462719517),
@@ -430,6 +432,14 @@ class CurveEvaluator3D(Base):
 
         >>> 0.4==param_value
         True
+
+        >>> success,param_value = evaluator.get_parameter_at_length(0.0, 1010.1)
+        >>> success,param_value
+        (True, 0.006272270267993595)
+
+        >>> evaluator.get_length_at_parameter(0., param_value)
+        (True, 1010.1)
+        ```
 
     """
 
@@ -493,10 +503,8 @@ class CurveEvaluator3D(Base):
         :return: A tuple containing a boolean indicating the success status and the length calculated at the given parameter range.
 
         """
-        res, err = evaluate_length(
-            self._get_first_derivative, t0=fromParameter, t1=toParameter
-        )
-        return True, res
+
+        return True, self._curve._proxy.evaluate_length((fromParameter, toParameter))
 
     def get_parameter_at_length(
         self, fromParameter: float, length: float
@@ -512,17 +520,10 @@ class CurveEvaluator3D(Base):
         :rtype: tuple[bool, float]
         """
 
-        start, end = self._curve.interval()
-        return round(
-            evaluate_parameter_from_length(
-                self._get_first_derivative,
-                length,
-                t0=fromParameter,
-                t1_limit=end,
-                tol=TOLERANCE,
-            ),
-            ROUND_FACTOR,
-        )
+
+        return True, self._curve._proxy.evaluate_parameter_at_length(length,t0=fromParameter)
+
+
 
     def get_parameters_at_points(self, points: list[Point3D]) -> list[float]:
         """
