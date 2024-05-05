@@ -5,7 +5,6 @@ import uuid as _uuid
 
 import numpy as np
 
-import mmcore.geom.curves.bspline
 from mmcore.base import AGroup, APoints, Delegate
 from mmcore.base.components import Component
 from mmcore.base.models.gql import PointsMaterial
@@ -289,7 +288,7 @@ def update_array_children(self, graph: ParamGraph = pgraph):
         if k.startswith(hex(pointers.reference(self))):
 
             if isinstance(graph.item_table[k].resolver, ControlPointProxy):
-                ptr, i = mmcore.geom.curves.bspline.split("-")
+                ptr, i = k.split("-")
                 print(graph.item_table[k])
                 graph.item_table[k](x=self._ref[int(i), 0], y=self._ref[int(i), 1], z=self._ref[int(i), 2])
 
