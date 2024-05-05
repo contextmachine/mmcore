@@ -5,7 +5,6 @@ import numpy as np
 import rich
 from dotenv import find_dotenv, load_dotenv
 
-import mmcore.geom.curves.bspline
 from mmcore.base import AMesh
 from mmcore.base.components import Component
 from mmcore.base.models.gql import MeshBasicMaterial
@@ -31,7 +30,7 @@ from mmcore.geom.shapes import Shape, offset
 
 def get_row(pth, i):
     for ptk in pth["points"].keys():
-        r, c = mmcore.geom.curves.bspline.split("_")
+        r, c = ptk.replace("pt", "").split("_")
         if r == str(i):
             yield spl(pth["points"][ptk])
 
