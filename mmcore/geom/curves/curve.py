@@ -287,7 +287,7 @@ class Curve:
         """
         return self._evaluate_length_cached(bounds, tol)
 
-    def evaluate_parameter_at_length(self, length, t0=None, tol=TOLERANCE, **kwargs):
+    def evaluate_parameter_at_length(self, length, t0=None, tol=1.48e-8, **kwargs):
         """
         Evaluates the parameter at a specific length.
 
@@ -305,9 +305,9 @@ class Curve:
 
         res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
 
-        return round(newton(
-            func, res[0], tol=1e-3, x1=t1_limit, **kwargs
-        ), int(abs(np.log10(tol))))
+        return newton(
+            func, res[0], tol=tol, x1=t1_limit, **kwargs
+        )
 
     def apply_operator(self, other, op: Callable):
         if isinstance(other, Curve):
