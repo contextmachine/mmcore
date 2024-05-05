@@ -390,6 +390,6 @@ if __name__ == "__main__":
     import time
 
     s = time.time()
-    res = curve_ppi(aa, bb, 0.01, tol_bbox=0.1)
+    res = curve_ppi(aa, bb,  0.001, tol_bbox=0.1, eager=True)
     print(time.time() - s)
     print(res)

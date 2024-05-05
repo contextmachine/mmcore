@@ -5,11 +5,24 @@ from mmcore.func import vectorize
 from mmcore.geom.vec import unit
 
 
-class Circle(ParametricPlanarCurve, match_args=("r",), signature="()->(i)"):
-    def __new__(cls, r=1, origin=None, plane=None):
-        self = super().__new__(cls, origin=origin, plane=plane)
+class Circle:
+    def __init__(self, r=1, origin=None, plane=None):
+
+        self.plane = plane or np.zeros((4,3),dtype=float)
+        self.plane[1:,:]=np.eye(3)
+        if origin is not None:
+            self.plane[0]=origin
+
+
         self.r = r
-        return self
+
+    @property
+    def origin(self):
+        return self.plane[0]
+
+    @origin.setter
+    def origin(self,v):
+        self.plane[0]=v
 
     @property
     def a(self):
@@ -24,6 +37,8 @@ class Circle(ParametricPlanarCurve, match_args=("r",), signature="()->(i)"):
 
     def y(self, t):
         return self.r * np.sin(t)
+    def __call__(self, t):
+        return np.array([self.x(t), self.y(t), 0])
 
 
 def circle_intersection2d(c1: Circle, c2: Circle):

@@ -3,6 +3,15 @@ from enum import IntEnum
 import numpy as np
 
 
+def point_grid_2d(count_u, count_v, bounds_u=(0., 1.), bounds_v=(0., 1.)):
+    u, v = np.linspace(*bounds_u, count_u), np.linspace(*bounds_v, count_v)
+    z = np.zeros((count_u, count_v, 2), dtype=float)
+    for i in range(count_u):
+        for j in range(count_v):
+            z[i, j, :] = u[i], v[j]
+    return z
+
+
 def nd_min(a, b):
     a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
     if a_cond and b_cond:
