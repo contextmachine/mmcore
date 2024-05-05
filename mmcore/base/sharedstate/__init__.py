@@ -7,7 +7,6 @@ from fastapi.responses import UJSONResponse
 from starlette.responses import HTMLResponse
 from termcolor import colored
 import mmcore
-import mmcore.geom.curves.bspline
 from mmcore.base import AGroup
 from mmcore.base.params import pgraph
 from mmcore.base.userdata.controls import find_points_in_controls
@@ -37,9 +36,9 @@ def search_all_indices(lst, value):
 
 def generate_uvicorn_app_name(fpath, appname="app"):
     if "\\" in fpath:
-        r = list(mmcore.geom.curves.bspline.split("\\"))
+        r = list(fpath.split("\\"))
     else:
-        r = list(mmcore.geom.curves.bspline.split("/"))
+        r = list(fpath.split("/"))
     if r[-1].startswith("__"):
         r = r[:-1]
 
@@ -608,7 +607,7 @@ class SharedStateServer():
 
     def create_child(self, path, name=None, title=None, **kwargs):
         if name is None:
-            name = mmcore.geom.curves.bspline.split("/")[-1]
+            name = path.split("/")[-1]
         new_app = fastapi.FastAPI(name=name, title=self.header if title is None else title, **kwargs)
 
         new_app.add_middleware(CORSMiddleware, allow_origins=["*"],

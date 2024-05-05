@@ -3,7 +3,6 @@ from enum import Enum
 
 import numpy as np
 
-import mmcore.geom.curves.bspline
 from mmcore import __version__
 from mmcore.base.table import Index, Table, TableProxy
 
@@ -33,7 +32,7 @@ def _create_mesh_prim_data(prim_keys, name_mapping):
         row = {'gltf_name': pkey, 'mmcore_name': None, 'collection': False, 'specific': False}
         if pkey.startswith('_'):
             row['specific'] = True
-        spkey = mmcore.geom.curves.bspline.split('_')
+        spkey = pkey.split('_')
         if all([len(spkey) > 1, spkey[-1] == 'n']):
             row['collection'] = True
             row['gltf_name'] = spkey[0]

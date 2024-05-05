@@ -5,7 +5,6 @@ from functools import reduce
 import numpy as np
 from more_itertools import chunked
 
-import mmcore.geom.curves.bspline
 from mmcore.base.geom import MeshData
 from mmcore.base.table import Table
 from mmcore.compat.gltf.components import *
@@ -33,7 +32,7 @@ def gltf_decode_buffer(buffers):
     _prefixes = []
     _buffers = []
     for buffer in buffers:
-        pref, buff = mmcore.geom.curves.bspline.split(",")
+        pref, buff = buffer.uri.split(",")
         _buffers.append(buff)
         _prefixes.append(pref)
     return _prefixes, _buffers
@@ -275,7 +274,7 @@ def gltf_mesh_primitive_table(primitives, buffer_components, attribute_table: Ta
         data = dict()
 
         for k, v in primitive.attributes.items():
-            split_k = mmcore.geom.curves.bspline.split('_')
+            split_k = k.split('_')
             key = attribute_table[split_k[0]]
 
             data[key['mmcore_name']] = list(buffer_components[v])
