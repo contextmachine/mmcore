@@ -25,3 +25,4 @@ test.sh
 .pkl
 docs
 
+/tests/logs/

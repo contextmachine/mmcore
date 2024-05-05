@@ -415,14 +415,14 @@ class RelativePlane(Plane):
         self.local_axis[i] = self.parent.at_local(np.array(v) + self.origin)
 
 
-def create_plane(x=(1, 0, 0), y=None, origin=(0, 0, 0)):
+def create_plane(x=(1., 0., 0.), y=None, origin=(0., 0., 0.)):
     """ """
     pln = Plane()
     pln.origin = origin
 
     if y is None:
         x, y = axis = unit([x, [-x[1], x[0], 0]])
-        pln._arr[1:] = x, y, (0, 0, 1)
+        pln._arr[1:] = x, y, (0., 0., 1.)
 
     else:
         x, y = unit([x, y])

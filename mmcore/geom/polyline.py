@@ -256,13 +256,13 @@ def split_polyline(pln, tss):
 
 from scipy.spatial import ConvexHull, KDTree
 
-from mmcore.geom.curves import ParametricPlanarCurve
 
 
 
 
 
-class PolyLine(ParametricPlanarCurve):
+
+class PolyLine:
     """
     PolyLine class represents a polyline in a 2D space.
 
