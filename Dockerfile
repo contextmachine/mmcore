@@ -31,6 +31,7 @@ WORKDIR /tmp/build-python
 COPY --link docker-build-step2.sh docker-build-step2.sh
 RUN bash docker-build-step2.sh
 
+
 FROM installer
 WORKDIR /mmcore
 COPY --link . .
