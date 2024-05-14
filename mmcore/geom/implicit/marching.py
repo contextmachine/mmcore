@@ -1,3 +1,5 @@
+import sys
+
 import math
 
 import numpy as np
@@ -115,6 +117,9 @@ def implicit_curve_points(
     start_point = curve_point(func, start_point + (tangent * step), delta, grad=grad)
     pointlist.append(start_point)
     distance = step
+    if max_points is None:
+        max_points = sys.maxsize
+
 
     while (distance > step / 2.0) and (len(pointlist) < max_points):
         g = grad(start_point)

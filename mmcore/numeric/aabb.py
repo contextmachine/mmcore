@@ -4,7 +4,13 @@ from typing import Any
 
 import numpy as np
 
-from mmcore.numeric import curve_bound_points
+from mmcore.numeric import curve_bound_points, cartesian_product
+
+
+@np.vectorize(signature="(i),(i)->(j,i)")
+def box_from_intervals(start, end):
+    return cartesian_product(*(np.dstack((start, end))[0]))
+
 
 
 def aabb_overlap(

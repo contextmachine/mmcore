@@ -35,6 +35,7 @@ def create_mesh_buffer(
     uv=None,
     index=None,
     normal=None,
+
     _objectid=None,
     color: typing.Optional[list[float]] = None,
     threejs_type="BufferGeometry",

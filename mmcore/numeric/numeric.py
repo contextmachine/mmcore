@@ -477,6 +477,28 @@ def curve_roots(curve, axis=1):
     for start, end in divide_interval(*curve.interval(), step=0.5):
         roots.extend(test_all_roots(f, (start, end), tol))
     return roots
+
+
+
+
+
+def crvs_to_numpy_poly(crv, n_samples=100,remap=True):
+    t=np.linspace(*crv.interval(), n_samples)
+    pts=crv(t)
+    deg=len(crv.control_points) + 1
+    t=np.linspace(0., 1, n_samples) if remap else t
+    if pts[0].shape[-1]<3 or np.allclose(pts[...,-1],0.):
+
+        crvx, crvy = (np.polynomial.Polynomial.fit(np.linspace(0.,1,n_samples) if remap else t,  pts[...,0], deg),
+                      np.polynomial.Polynomial.fit(t, pts[..., 1],   deg))
+        return crvx, crvy
+    else:
+        crvx, crvy , crvz = (np.polynomial.Polynomial.fit(t, pts[..., 0], deg),
+                             np.polynomial.Polynomial.fit(t, pts[..., 1], deg),
+                             np.polynomial.Polynomial.fit(
+            t, pts[..., 2], deg))
+        return crvx,crvy,crvz
+
 if __name__ == '__main__':
     from mmcore.geom.curves import NURBSpline
     bb = NURBSpline(

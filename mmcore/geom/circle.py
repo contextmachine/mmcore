@@ -1,11 +1,11 @@
 import numpy as np
-
+from mmcore.geom.curves import Curve
 from mmcore.func import vectorize
 
 from mmcore.geom.vec import unit
 
 
-class Circle:
+class Circle(Curve):
     def __init__(self, r=1, origin=None, plane=None):
 
         self.plane = plane or np.zeros((4,3),dtype=float)

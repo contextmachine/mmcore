@@ -139,8 +139,8 @@ def interpolate_curve(points, degree,  use_centripetal=False):
     :type points: list, tuple
     :param degree: degree of the output parametric curve
     :type degree: int
-    :return: interpolated B-Spline curve
-    :rtype: BSpline.Curve
+    :return: interpolated B-Spline curve as (control_points, knots, degree) tuple.
+    :rtype: tuple[list, list, int]
     """
     # Keyword arguments
 
@@ -162,7 +162,7 @@ def interpolate_curve(points, degree,  use_centripetal=False):
 
 
 
-    return ctrlpts,kv,degree
+    return np.array(ctrlpts,dtype=float),kv,degree
 
 from mmcore.geom.vec import dist,dot,norm,cross,unit
 import math
