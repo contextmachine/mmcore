@@ -6,8 +6,15 @@ from typing import Callable, Optional, Iterable
 
 import numpy as np
 
-DEFAULT_H = 10 ** (-((sys.float_info.dig) - 1) // 2)
-_DECIMALS = abs(int(math.log10(DEFAULT_H)))
+DEFAULT_H = 1e-5
+_DECIMALS = 5
+from scipy.sparse import eye, csr_matrix
+
+_PDE_H = csr_matrix(eye(128))
+
+
+def _get_pde_h(dim):
+    return _PDE_H[:dim, :dim]
 
 
 def fdm(f, method="central", h=DEFAULT_H):
@@ -44,7 +51,7 @@ def fdm(f, method="central", h=DEFAULT_H):
 
 
 def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
-    _decimals = abs(int(math.log10(h)))
+    _decimals = _DECIMALS
 
     def wrp(t):
         if abs(bounds[0] - t) <= h:
@@ -55,6 +62,97 @@ def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
             return np.round((f(t + h) - f(t - h)) / (2 * h), _decimals)
 
     return wrp
+
+
+def pde(f, H, h=DEFAULT_H, bounds=(0., 1.)):
+    def wrp(t):
+
+        ts, te = t + H, t - H
+        if abs(bounds[0] - t) <= h:
+            return (f(ts) - f(t)) / h
+        elif abs(bounds[1] - t) <= h:
+            return (f(t) - f(te)) / h
+        else:
+            return (f(ts) - f(te)) / (2 * h)
+
+    return wrp
+
+
+class PDE:
+    def __init__(self, f, dim=3, h=DEFAULT_H):
+        self.f = f
+        self.h = h
+        self._dim = dim
+        self.H = _get_pde_h(dim) * self.h
+        self._full_dim_select = np.arange(self.dim)
+    @property
+    def dim(self):
+        return self._dim
+
+    @dim.setter
+    def dim(self,v):
+        self._dim=v
+        self.H = _get_pde_h(self._dim) * self.h
+
+
+    def _wrp(self, t, H, bounds=None):
+        if H is None:
+            H = self.H
+        ts, te = t + H, t - H
+
+        if bounds:
+            if abs(bounds[0] - t) <= self.h:
+                return (self.f(ts) - self.f(t)) / self.h
+            elif abs(bounds[1] - t) <= self.h:
+                return (self.f(t) - self.f(te)) / self.h
+            else:
+                return (self.f(ts) - self.f(te)) / (2 * self.h)
+        else:
+            return (self.f(ts) - self.f(te)) / (2 * self.h)
+
+    def dx(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((0,), dtype=int)), bounds=bounds)
+
+    def dy(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((1,), dtype=int)), bounds=bounds)
+
+    def get_h(self, axes):
+        _dH = np.zeros(self.dim, dtype=float)
+        _dH[axes] = self.h
+        return np.diag(_dH)
+
+    def dz(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((2,), dtype=int)), bounds=bounds)
+
+    def dn(self, t, i, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((i,), dtype=int)), bounds=bounds)
+
+    def dxy(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((0, 1), dtype=int)), bounds=bounds)
+
+    def dyz(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((1, 2), dtype=int)), bounds=bounds)
+
+    def dzx(self, t, bounds=None):
+
+        return self._wrp(t, self.get_h(np.array((0, 2), dtype=int)), bounds=bounds)
+
+    def dnn(self, t, ij, bounds=None):
+
+        return self._wrp(t, self.get_h(ij), bounds=bounds)
+
+
+
+    def __call__(self, t, ijk=None, bounds=None):
+        if ijk is None:
+            ijk = self._full_dim_select
+        return self.dnn(t, ijk, bounds=bounds)
 
 
 class FDM:

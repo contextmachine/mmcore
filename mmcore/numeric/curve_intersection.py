@@ -1,14 +1,26 @@
+"""
+    |  P  |  I  | P&I
+------------
+P   |
+-----------
+I   |
+---------------
+P&I |
+
+"""
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
-
-from mmcore.numeric.plane import inverse_evaluate_plane
-from mmcore.numeric.divide_and_conquer import test_all_roots
-from mmcore.numeric.routines import divide_interval
-from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
-
-from typing import Callable, Any
 from numpy.typing import ArrayLike
+
+from mmcore.geom.implicit.implicit import Union2D, find_features
+from mmcore.geom.implicit.tree import ImplicitTree2D
+from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
+from mmcore.numeric.divide_and_conquer import test_all_roots
+from mmcore.numeric.plane import inverse_evaluate_plane
+from mmcore.numeric.routines import divide_interval
 
 
 def _calculate_spline_tolerance(spline, default_tol=1e-3):
@@ -19,26 +31,28 @@ def _calculate_spline_tolerance(spline, default_tol=1e-3):
 
 
 def curve_pii(
-    curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
+        curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
 ) -> list[float]:
     """
-        The function finds the parameters where the parametric curve intersects some implicit form. It can be a curve, surface, ..., anything that has the form f(x)=0 where x is a vector denoting a point in space.
+    PII (Parametric Implicit Intersection)
+    ------
 
+    The function finds the parameters where the parametric curve intersects some implicit form. It can be a curve,
+    surface, ..., anything that has the form f(x)=0 where x is a vector denoting a point in space.
 
-        :param curve: the curve in parametric form
+    :param curve: the curve in parametric form
+    :param implicit: the implicit function like `f(x) = 0` where x is a vector denoting a point in space.
+    :type implicit: callable
+    :param step: Step with which the range of the curve parameter is initially split for estimation. defaults to 0.5
+    :param default_tol: The error for computing the intersection in the parametric space of a curve.
+    If the curve is a spline, the error is calculated automatically and the default_tolerance value is ignored.
+    :type default_tol: float
+    :return: list of parameters that implicit function is intersects
+    :rtype: list[float]
 
-        :param implicit: the implicit function like `f(x) = 0` where x is a vector denoting a point in space.
-        :type implicit: callable
-        :param step: Step with which the range of the curve parameter is initially split for estimation. defaults to 0.5
-        :param default_tol: The error for computing the intersection in the parametric space of a curve.
-        If the curve is a spline, the error is calculated automatically and the default_tolerance value is ignored.
-        :type default_tol: float
-        :return: list of parameters that implicit function is intersects
-        :rtype: list[float]
-
-        This algorithm is the preferred algorithm for curve crossing problems.
-        Its solution is simpler and faster than the general case for PP (parametric-parametric) or II (implict-implict)
-        intersection. You should use this algorithm if you can make one of the forms parametric and the other implicit.
+    This algorithm is the preferred algorithm for curve crossing problems.
+    Its solution is simpler and faster than the general case for PP (parametric-parametric) or II (implict-implict)
+    intersection. You should use this algorithm if you can make one of the forms parametric and the other implicit.
 
 
     Intersection with implicit curve.
@@ -137,7 +151,8 @@ def curve_intersect(curve1, curve2, tol: float = 0.01):
     elif hasattr(curve2, "evaluate") and hasattr(curve1, "evaluate"):
         return curve_ppi(curve1, curve2, tol=tol)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "implicit"):
-        raise NotImplemented("III has not been implemented yet.")
+        raise curve_iii(
+            curve1, curve2)
     else:
         raise ValueError(
             "curves must have parametric or implicit form - evaluate(t) and implicit(xyz) methods. "
@@ -164,12 +179,12 @@ def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, 
     """
 
     def intersect_recursive(
-        c1,
-        c2,
-        t1_start: float,
-        t1_end: float,
-        t2_start: float,
-        t2_end: float,
+            c1,
+            c2,
+            t1_start: float,
+            t1_end: float,
+            t2_start: float,
+            t2_end: float,
     ):
         # Check if the bounding boxes of the curves overlap
         box1 = curve_aabb(c1, (t1_start, t1_end), tol)
@@ -218,20 +233,12 @@ def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, 
     return list(zip(*all_intersections))
 
 
-def curve_ppi(
-    curve1,
-    curve2,
-    tol: float = 0.001,
-    tol_bbox=0.1,
-    bounds1=None,
-    bounds2=None,
-    eager=True,
-) -> list[tuple[float, float]]:
+def curve_ppi(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None,bounds2=None,eager=True) -> list[tuple[float, float]]:
     """
-    PPI
+    PPI (Parametric Parametric Intersection)
     ------
 
-    PPI (Parametric Parametric Intersection) for the curves.
+    Intersection for the two parametric curves.
     curve1 and curve2 can be any object with a parametric curve interface.
     However, in practice it is worth using only if both curves do not have implicit representation,
     most likely they are two B-splines or something similar.
@@ -292,16 +299,15 @@ def curve_ppi(
         # print(c1.interval(), t1_range, c2.interval(), t2_range)
         if eager:
             if not aabb_overlap(
-                curve_aabb_eager(c1, bounds=t1_range, cnt=8),
-                curve_aabb_eager(c2, bounds=t2_range, cnt=8),
+                    curve_aabb_eager(c1, bounds=t1_range, cnt=8),
+                    curve_aabb_eager(c2, bounds=t2_range, cnt=8),
             ):
                 return []
         else:
             if not aabb_overlap(
-            curve_aabb(c1, bounds=t1_range, tol=tol_bbox),
-            curve_aabb(c2, bounds=t2_range, tol=tol_bbox)):
+                    curve_aabb(c1, bounds=t1_range, tol=tol_bbox),
+                    curve_aabb(c2, bounds=t2_range, tol=tol_bbox)):
                 return []
-
 
         t1_mid = t1_range[0] + (t1_range[1] - t1_range[0]) / 2
         t2_mid = t2_range[0] + (t2_range[1] - t2_range[0]) / 2
@@ -363,6 +369,64 @@ def curve_ppi(
     return result
 
 
+def curve_iii(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
+    """
+    III (Implicit Implicit Intersection)
+    ------
+    Intersection for the two implicit curves. Requirements: both curves must have an `implicit` method
+    with the following signature: `(xy:np.ndarray[2, dtype[float]]) -> float`
+
+    :param curve1: first curve
+    :param curve2: second curve
+    :param tree: [Optional] The ImplicitTree2D object representing descretizations of primitives. If None, a new treewill be constructed from the union of the curves.
+    :type tree: ImplicitTree2D
+    :param rtol: [Optional] see Note.
+    :param atol: [Optional] see Note.
+    :return: List containing all intersection points.
+
+    Note
+    -----
+
+    **atol, rtol :**
+    These values will be passed to np.allclose at and will affect whether two close intersections are
+    considered as one. If None, the values set in np.allclose will be used.
+    In general, curve_iii does not require passing an error parameter, and the solution can be considered "exact".
+
+    Example
+    --------
+    >>> import numpy as np
+    >>> from mmcore.geom.implicit import Implicit2D
+
+    >>> class Circle2D(Implicit2D):
+    ...    def __init__(self, origin=(0.0, 0.0), radius=1):
+    ...        super().__init__(autodiff=True)
+    ...        self.origin = np.array(origin, dtype=float)
+    ...        self.radius = radius
+    ...
+    ...    def bounds(self):
+    ...        return self.origin - self.radius, self.origin + self.radius
+    ...
+    ...    def implicit(self, v):
+    ...        return np.linalg.norm(v - self.origin) - self.radius
+    ...
+
+    >>> c1,c2=Circle2D((0.,1),2),Circle2D((3.,3),3)
+    >>> intersections = curve_iii(c1,c2)
+    >>> intersections
+    [[1.8461538366698576, 0.2307692265580236], [0.0, 2.999999995]]
+
+    >>> np.array(intersections)
+    array([[1.84615384, 0.23076923],
+           [0.        , 3.        ]])
+
+    """
+    if tree is None:
+        ix = Union2D(curve1, curve2)
+        tree = ImplicitTree2D(ix, depth=4)
+        tree.build()
+    return list(find_features((curve1, curve2), tree.border, atol=atol,rtol=rtol))
+
+
 if __name__ == "__main__":
     # print(res[0].control_points, res[1].control_points)
     from mmcore.geom.curves import NURBSpline
@@ -390,6 +454,13 @@ if __name__ == "__main__":
     import time
 
     s = time.time()
-    res = curve_ppi(aa, bb,  0.001, tol_bbox=0.1, eager=True)
+    res = curve_ppi(aa, bb, 0.001, tol_bbox=0.1, eager=True)
     print(time.time() - s)
     print(res)
+
+
+    def fun(t):
+        bb(t)
+
+
+    np.polynomial.Polynomial.fit(np.linspace(*aa.interval(), 100), aa(np.linspace(*aa.interval(), 100)))
