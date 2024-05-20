@@ -13,11 +13,11 @@ from scipy.optimize import newton
 
 from mmcore.geom.vec import unit,cross
 
-from mmcore.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
+from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
     evaluate_length, iterative_divide_and_conquer_min
-from mmcore.numeric.curve_intersection import curve_intersect
-from mmcore.numeric.fdm import DEFAULT_H, fdm
 
+from mmcore.numeric.fdm import DEFAULT_H, fdm
+from mmcore.numeric.curve_intersection import curve_intersect
 TOLERANCE = 1e-4
 
 
@@ -75,6 +75,7 @@ class Curve:
     def intersect_with_curve(
             self, other: "Curve", tol=TOLERANCE
     ) -> list[tuple[float, float]]:
+
         """
         PPI & PII
         ------
@@ -136,6 +137,7 @@ class Curve:
 
 
         """
+
         return curve_intersect(self, other, tol=tol)
 
     def interval(self):

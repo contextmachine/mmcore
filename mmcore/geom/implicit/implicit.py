@@ -3,13 +3,12 @@ from __future__ import annotations
 import abc
 
 import numpy as np
-from scipy.optimize import minimize
 
-from mmcore.geom.implicit import implicit_curve_points
-from mmcore.geom.implicit.tree import ImplicitTree2D
+from mmcore.geom.implicit.marching import implicit_curve_points
+
 from mmcore.numeric.fdm import fdm
 from mmcore.geom.curves.knot import interpolate_curve
-from mmcore.geom.curves import NURBSpline
+
 def op_union(d1, d2):
     return min(d1, d2)
 
@@ -181,6 +180,7 @@ class Implicit2D(Implicit):
         cpts,knots,deg=interpolate_curve(self.points(step=step),degree=degree)
         z=np.zeros((*cpts.shape[:-1],3),dtype=float)
         z[...,:2]=cpts
+        from mmcore.geom.curves.bspline import NURBSpline
         return NURBSpline(control_points=z, knots=np.array(knots,float), degree=degree)
 
 
@@ -329,45 +329,5 @@ class Sub3D(Implicit3D):
 
     def bounds(self):
         return self.a.bounds()
-
-
-def _find_feature(sdfs, node, node_norm):
-
-    def f(x):
-        return max(abs(sdfs[0].implicit(x)), abs(sdfs[1].implicit(x)))
-
-    x0 = np.average(node, axis=0)
-    if node_norm < abs(sdfs[0].implicit(x0)):
-        return False, None
-    if node_norm < abs(sdfs[1].implicit(x0)):
-        return False, None
-    else:
-        res = minimize(
-            f, x0=x0, bounds=((node[0][0], node[1][0]), (node[0][1], node[1][1]))
-        )
-
-        return np.isclose(res.fun, 0), res
-
-
-def find_features(sdfs, nodes, rtol=None, atol=None):
-    node = nodes[0]
-    node_norm = np.linalg.norm([node[1][0] - node[0][0], node[1][1] - node[0][1]])
-    kws=dict(
-
-    )
-    if atol:
-        kws['atol'] = atol
-    if rtol:
-        kws['rtol'] = atol
-    last = None
-    for node in nodes:
-        success, res = _find_feature(sdfs, node, node_norm)
-
-        if success:
-
-            if last is not None and np.allclose(last.x, res.x,**kws):
-                continue
-            last = res
-            yield res.x
 
 

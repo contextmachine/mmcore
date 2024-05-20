@@ -15,8 +15,8 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike
 
-from mmcore.geom.implicit.implicit import Union2D, find_features
-from mmcore.geom.implicit.tree import ImplicitTree2D
+from mmcore.geom.implicit.tree import ImplicitTree2D,implicit_find_features
+
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.plane import inverse_evaluate_plane
@@ -369,6 +369,9 @@ def curve_ppi(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None,bou
     return result
 
 
+
+
+
 def curve_iii(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
     """
     III (Implicit Implicit Intersection)
@@ -421,10 +424,10 @@ def curve_iii(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
 
     """
     if tree is None:
-        ix = Union2D(curve1, curve2)
-        tree = ImplicitTree2D(ix, depth=4)
+
+        tree = ImplicitTree2D(lambda v:min(curve1.implicit(v), curve2.implicit(v)), depth=4)
         tree.build()
-    return list(find_features((curve1, curve2), tree.border, atol=atol,rtol=rtol))
+    return list(implicit_find_features((curve1, curve2), tree.border, atol=atol,rtol=rtol))
 
 
 if __name__ == "__main__":

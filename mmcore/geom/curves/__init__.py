@@ -2,9 +2,9 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
 
-from mmcore.geom.curves.bspline import NURBSpline
+
 from mmcore.geom.curves.curve import Curve
-from mmcore.geom.vec import unit, cross
+
 
 from mmcore.geom.curves.bspline_utils import (
     calc_b_spline_point,
@@ -24,7 +24,7 @@ from mmcore.geom.curves.knot import (
     find_multiplicity,
     knot_insertion,
 )
-
+from mmcore.geom.curves.bspline import NURBSpline
 """
 
 2. `nurbs_curve_intersect(curve1: NURBSpline, curve2: NURBSpline, tol: float) → list[tuple[float, float] | None]` function:
