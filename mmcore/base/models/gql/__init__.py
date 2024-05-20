@@ -589,7 +589,7 @@ class MeshPhongMaterial(BaseMaterial):
     flatShading: bool = True
     uuid: typing.Optional[str] = None
 
-
+import typing
 @dataclasses.dataclass
 class MeshStandardMaterial(BaseMaterial):
     name: str = "Default"
@@ -604,6 +604,12 @@ class MeshStandardMaterial(BaseMaterial):
     blendColor: float = 0
     flatShading: bool = True
     uuid: typing.Optional[str] = None
+
+
+    envMapRotation: typing.Any = (0, 0, 0, "XYZ")
+    envMapIntensity: int =1
+
+
 
 
 @strawberry.type
