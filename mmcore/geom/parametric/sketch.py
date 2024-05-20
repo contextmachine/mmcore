@@ -15,8 +15,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial.distance import euclidean
 
-import mmcore.api.plane
-import mmcore.api.surface
+
 from mmcore.collections import DCLL, DoublyLinkedList
 from mmcore.collections.multi_description import EntityCollection
 from mmcore.geom.materials import ColorRGB
