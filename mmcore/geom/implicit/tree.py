@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import numpy as np
+from scipy.optimize import minimize
+
 from mmcore.geom.implicit.dc import buildTree, collapse, Empty, Full, Leaf
-from mmcore.geom.implicit.implicit import Implicit2D
+
 
 
 class ImplicitTree2D:
-    def __init__(self, shape: Implicit2D, depth=3):
+    def __init__(self, shape: 'Implicit2D', depth=3):
         self.full = []
         self.empty = []
         self.border = []
@@ -19,7 +22,7 @@ class ImplicitTree2D:
         self._tree = buildTree(minb, maxb, self.depth)
 
     def collapse(self):
-        self._collapsed_tree = collapse(self.shape.implicit, self._tree)
+        self._collapsed_tree = collapse(getattr(self.shape,'implicit',self.shape), self._tree)
 
     def clear(self):
         self.full.clear()
@@ -51,3 +54,41 @@ class ImplicitTree2D:
             self.build_node(tree.b, ((xmid, ymin), (xmax, ymid)))
             self.build_node(tree.c, ((xmin, ymid), (xmid, ymax)))
             self.build_node(tree.d, ((xmid, ymid), (xmax, ymax)))
+
+def _find_feature(sdfs, node, node_norm):
+
+    def f(x):
+        return max(abs(sdfs[0].implicit(x)), abs(sdfs[1].implicit(x)))
+
+    x0 = np.average(node, axis=0)
+    if node_norm < abs(sdfs[0].implicit(x0)):
+        return False, None
+    if node_norm < abs(sdfs[1].implicit(x0)):
+        return False, None
+    else:
+        res = minimize(
+            f, x0=x0, bounds=((node[0][0], node[1][0]), (node[0][1], node[1][1]))
+        )
+
+        return np.isclose(res.fun, 0), res
+def implicit_find_features(sdfs, nodes, rtol=None, atol=None):
+    node = nodes[0]
+    node_norm = np.linalg.norm([node[1][0] - node[0][0], node[1][1] - node[0][1]])
+    kws=dict(
+
+    )
+    if atol:
+        kws['atol'] = atol
+    if rtol:
+        kws['rtol'] = atol
+    last = None
+    for node in nodes:
+        success, res = _find_feature(sdfs, node, node_norm)
+
+        if success:
+
+            if last is not None and np.allclose(last.x, res.x,**kws):
+                continue
+            last = res
+            yield res.x
+
