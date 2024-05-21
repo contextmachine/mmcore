@@ -1,9 +1,6 @@
 # mmcore
 
 Some useful hints:
-
-- `mmcore.api` - User API like common CAD systems.
-
 - `mmcore.geom` - Data structures representing geometric objects
   - `mmcore.geom.curves` - Representations of curves in parametric form
   - `mmcore.geom.curves.curve` - Basic curve class in parametric form that implements many useful methods
