@@ -12,6 +12,31 @@ PI2 = 6.283185307179586
 
 
 class Circle2D(Curve, Implicit2D):
+    """
+
+    Class Circle2D
+
+    This class represents a 2-dimensional circle.
+
+    Attributes:
+    - origin (ndarray): The center point of the circle. Defaults to [0, 0].
+    - r (float): The radius of the circle. Defaults to 1.
+    - normal (function): A function that returns the unit normal vector to the circle at a given point.
+
+    Methods:
+    - __init__(origin=None, r=1.): Initializes a Circle2D object with the specified origin and radius.
+    - interval(): Returns the interval of the parameterization of the circle. Returns a tuple (start, end).
+    - implicit(v): Returns the implicit equation of the circle at a given point v.
+    - _circle_normal(v): Returns the vector from the origin to the specified point v.
+    - _circle_normal_unit(v): Returns the unit normal vector to the circle at a given point v.
+    - a(): Returns the radius of the circle.
+    - a(v): Sets the radius of the circle to the specified value v.
+    - x(t): Returns the x-coordinate of a point on the circle at the specified parameter value t.
+    - y(t): Returns the y-coordinate of a point on the circle at the specified parameter value t.
+    - evaluate(t): Returns the coordinates of a point on the circle at the specified parameter value t as a ndarray.
+    - closest_point(v): Returns the closest point on the circle to the specified point v.
+
+    """
     def __init__(self, origin=None, r=1.):
         super().__init__()
 
