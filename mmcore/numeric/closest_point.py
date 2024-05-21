@@ -5,6 +5,7 @@ import numpy as np
 
 from mmcore.geom.vec import unit, dot, norm
 from mmcore.numeric import divide_interval, add_dim
+from mmcore.numeric.fdm import PDE
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
     iterative_divide_and_conquer_min,
@@ -14,7 +15,50 @@ import multiprocess as mp
 
 from mmcore.numeric.fdm import bounded_fdm
 
+def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
+    """
+    Find the foot point on the parametric surface S(s, t) closest to the given point P.
+    """
+    if partial_derivatives is None:
+        _pde=PDE(S, dim=2)
+        partial_derivatives=lambda uv:_pde(uv).T
+    s,t= st = np.array([s0, t0])
 
+    while True:
+        p_i = S(st)
+        e_s, e_t = partial_derivatives(st)
+        # Solve the linear system for Δs and Δt
+        A = np.array([
+            [np.dot(e_s, e_s), np.dot(e_s, e_t)],
+            [np.dot(e_s, e_t), np.dot(e_t, e_t)]
+        ])
+        b = np.array([
+            np.dot(P - p_i, e_s),
+            np.dot(P - p_i, e_t)
+        ])
+        delta = np.linalg.solve(A, b)
+        delta_s, delta_t = delta
+        q_i = p_i + delta_s * e_s + delta_t * e_t
+        s_new = s + delta_s
+        t_new = t + delta_t
+        p_new = S(s_new, t_new)
+        f1 = q_i - p_i
+        f2 = p_new - q_i
+        # Check convergence
+        if np.linalg.norm(q_i - p_i) < epsilon:
+            break
+        # Newton step for the foot point on the tangent parabola
+        a0 = np.dot(P - p_i, f1)
+        a1 = 2 * np.dot(f2, P - p_i) - np.dot(f1, f1)
+        a2 = -3 * np.dot(f1, f2)
+        a3 = -2 * np.dot(f2, f2)
+        alpha = 1 - (a0 + a1 + a2 + a3) / (a1 + 2 * a2 + 3 * a3)
+        alpha = np.clip(alpha, 0, alpha_max)
+        s = s + alpha * delta_s
+        t = t + alpha * delta_t
+        st[0]=s
+        st[1]=t
+    return S(s, t), s, t
 def closest_point_on_curve_single(curve, point, tol=1e-3):
     """
 
