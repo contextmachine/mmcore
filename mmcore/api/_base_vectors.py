@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ._typing import Type, TypeVar, Union, SupportsInt, SupportsFloat
+from ._typing import Type, TypeVar, Union, SupportsInt, SupportsFloat,Self
 import numpy as np
 from mmcore.api._base import Base
 
