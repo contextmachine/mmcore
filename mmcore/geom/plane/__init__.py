@@ -8,7 +8,7 @@ from mmcore.func import vectorize
 from mmcore.geom import vec
 from mmcore.geom.plane.refine import PlaneRefine
 from mmcore.geom.vec import cross, dot, norm, perp2d, unit
-from mmcore.numeric.plane import distance, project_point_by_normal, plane_from_3pt
+from mmcore.numeric.plane import distance, project_point_by_normal, plane_from_3pt,distance,plane_line_intersect
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", "zaxis"])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
@@ -77,9 +77,7 @@ def np_plane(xaxis, yaxis, origin):
     return pln
 
 
-@vectorize(excluded=[0], signature="(i)->()")
-def distance(self, pt):
-    return point_to_plane_distance(pt, self.origin, self.normal)
+point_to_plane_distance=distance
 
 
 class Entity:
@@ -593,10 +591,10 @@ def gen_norms(spline, density=4, bounds=(0, 1)):
         yield plane(origin=pt.point, xaxis=x, yaxis=y, zaxis=pt.normal)
 
 
-from mmcore.geom.parametric import algorithms as algo, point_to_plane_distance
 
 
-def ray_intersection(ray: algo.Ray, pln: Plane):
+
+def ray_intersection(ray, pln: Plane):
     """Find the intersection point between a ray and a plane.
 
     :param ray: The ray for which to find the intersection point.
@@ -606,7 +604,7 @@ def ray_intersection(ray: algo.Ray, pln: Plane):
     :return: The intersection point between the ray and the plane.
     :rtype: np.ndarray|tuple
     """
-    return algo.ray_plane_intersection(*ray, pln, full_return=True)
+    return plane_line_intersect( pln._array,(ray[0],ray[1]+ray[0]), full_return=True)
 
 
 def rotate_vectors_around_plane(vecs, plane_a, angle, axis=2):

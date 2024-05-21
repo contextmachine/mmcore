@@ -24,9 +24,10 @@ def intersects_segments(ab: np.ndarray, cd: np.ndarray) -> bool:
 
 
 
+@vectorize(signature='(i,j)->(i,k,j)')
+def polyline_to_lines(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
 
-
-from mmcore.geom.polyline import polyline_to_lines
 
 
 

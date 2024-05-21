@@ -1,5 +1,4 @@
-from mmcore.utils.env import load_dotenv_from_path, load_dotenv_from_stream
-load_dotenv_from_path('.env')
+
 TOLERANCE = 1e-06
 
 class VersionInfo(str):
