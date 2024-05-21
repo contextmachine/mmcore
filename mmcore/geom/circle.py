@@ -1,28 +1,39 @@
 import numpy as np
 from mmcore.geom.curves import Curve
+from mmcore.geom.implicit import Implicit2D
 from mmcore.func import vectorize
-
+from math import cos, sin, pi
 from mmcore.geom.vec import unit
+from mmcore.numeric.plane import inverse_evaluate_plane
+
+_IDENTITY = np.eye(3)
+PI05 = 1.5707963267948966
+PI2 = 6.283185307179586
 
 
-class Circle(Curve):
-    def __init__(self, r=1, origin=None, plane=None):
+class Circle2D(Curve, Implicit2D):
+    def __init__(self, origin=None, r=1.):
+        super().__init__()
 
-        self.plane = plane or np.zeros((4,3),dtype=float)
-        self.plane[1:,:]=np.eye(3)
-        if origin is not None:
-            self.plane[0]=origin
-
-
+        self.origin = (
+            origin if isinstance(origin, np.ndarray) else np.array(origin)) if origin is not None else np.zeros(2,
+                                                                                                                dtype=float)
         self.r = r
 
-    @property
-    def origin(self):
-        return self.plane[0]
+        self.normal = self._circle_normal_unit
 
-    @origin.setter
-    def origin(self,v):
-        self.plane[0]=v
+    def interval(self):
+        return 0., PI2
+
+    def implicit(self, v) -> float:
+        return np.linalg.norm(self._circle_normal(v)) - self.r
+
+    def _circle_normal(self, v) -> float:
+        return v - self.origin
+
+    def _circle_normal_unit(self, v) -> float:
+        point = self._circle_normal(v)
+        return point / np.linalg.norm(point)
 
     @property
     def a(self):
@@ -33,15 +44,22 @@ class Circle(Curve):
         self.r = v
 
     def x(self, t):
-        return self.r * np.cos(t)
+        return self.origin[0] + self.r * np.cos(t)
 
     def y(self, t):
-        return self.r * np.sin(t)
-    def __call__(self, t):
-        return np.array([self.x(t), self.y(t), 0])
+        return self.origin[1] + self.r * np.sin(t)
+
+    def evaluate(self, t):
+        return np.array([self.x(t), self.y(t)])
+
+    def closest_point(self, v):
+        N = self._circle_normal(v)
+        nn = np.linalg.norm(N)
+        nu = N / nn
+        return v - (nu * (nn - self.r)), np.arccos(nu[0])
 
 
-def circle_intersection2d(c1: Circle, c2: Circle):
+def circle_intersection2d(c1: Circle2D, c2: Circle2D):
     """
     calculate the intersection points of two 2D circles given as input
 
@@ -84,8 +102,8 @@ def circle_intersection2d(c1: Circle, c2: Circle):
         raise ValueError("Circles do not intersect")
 
     # Compute the coordinates of the intersection points
-    a = (r1**2 - r2**2 + d**2) / (2 * d)
-    h = np.sqrt(r1**2 - a**2)
+    a = (r1 ** 2 - r2 ** 2 + d ** 2) / (2 * d)
+    h = np.sqrt(r1 ** 2 - a ** 2)
     xm = x1 + a * (x2 - x1) / d
     ym = y1 + a * (y2 - y1) / d
     xs1 = xm - h * (y2 - y1) / d
@@ -96,7 +114,7 @@ def circle_intersection2d(c1: Circle, c2: Circle):
     return np.array([(xs1, ys1, c1.origin[-1]), (xs2, ys2, c2.origin[-1])], float)
 
 
-def tangents_lines(circle: Circle, pt: np.ndarray):
+def tangents_lines(circle: Circle2D, pt: np.ndarray):
     # TODO: Replace current solution to solution using dot product if it possible
     a = circle.r
     direct = pt[:2] - circle.origin[:2]
@@ -112,7 +130,7 @@ def tangents_lines(circle: Circle, pt: np.ndarray):
     return np.array([[*T1xy, 0.0], [*T2xy, 0.0]])
 
 
-def closest_point_on_circle_2d(circle: Circle, pt: np.ndarray):
-    un = unit(circle.origin - pt)
+def closest_point_on_circle_2d(circle: Circle2D, pt: np.ndarray):
+    un = circle.normal(pt)
 
-    return np.arccos(un[0]) - np.pi / 2
+    return np.arccos(un[0]) - PI05
