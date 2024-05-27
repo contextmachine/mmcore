@@ -461,9 +461,3 @@ if __name__ == "__main__":
     print(time.time() - s)
     print(res)
 
-
-    def fun(t):
-        bb(t)
-
-
-    np.polynomial.Polynomial.fit(np.linspace(*aa.interval(), 100), aa(np.linspace(*aa.interval(), 100)))
