@@ -17,7 +17,7 @@ ctypedef np.float64_t DTYPE_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef dot_array_x_array(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
+def dot_array_x_array(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec_a.shape[0],))
     cdef DTYPE_t item = 0.0
     for i in range(vec_a.shape[0]):
@@ -27,8 +27,9 @@ cdef dot_array_x_array(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, nd
             item += vec_a[i, j] * vec_b[i, j]
         res[i] += item
     return res
-
-cdef dot_vec_x_array(np.ndarray[DTYPE_t, ndim=1] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def dot_vec_x_array(np.ndarray[DTYPE_t, ndim=1] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec_b.shape[0],))
     cdef DTYPE_t item = 0.0
     for i in range(vec_b.shape[0]):
@@ -37,8 +38,9 @@ cdef dot_vec_x_array(np.ndarray[DTYPE_t, ndim=1] vec_a, np.ndarray[DTYPE_t, ndim
             item += vec_a[j] * vec_b[i, j]
         res[i] += item
     return res
-
-cdef dot_array_x_vec(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=1] vec_b):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def dot_array_x_vec(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=1] vec_b):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec_a.shape[0],))
     cdef DTYPE_t item = 0.0
     for i in range(vec_a.shape[0]):
@@ -63,7 +65,7 @@ def dot(np.ndarray[DTYPE_t, ndim=2] vec_a, np.ndarray[DTYPE_t, ndim=2] vec_b):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef long double scalar_dot(np.ndarray[DTYPE_t, ndim=1] vec_a,
+def scalar_dot(np.ndarray[DTYPE_t, ndim=1] vec_a,
                             np.ndarray[DTYPE_t, ndim=1] vec_b):
     cdef long double res = 0.0
     for j in range(vec_a.shape[0]):
@@ -72,7 +74,7 @@ cdef long double scalar_dot(np.ndarray[DTYPE_t, ndim=1] vec_a,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef long double scalar_norm(np.ndarray[DTYPE_t, ndim=1] vec):
+def scalar_norm(np.ndarray[DTYPE_t, ndim=1] vec):
     cdef DTYPE_t res = 0.0
     for j in range(vec.shape[0]):
         res += (vec[j] ** 2)
@@ -212,7 +214,7 @@ def courtesan_to_cylindrical(np.ndarray[DTYPE_t, ndim=2] xyz):
     return pts
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef long double cdet(np.ndarray[DTYPE_t, ndim=2] arr):
+cdef long double cdet(np.ndarray[DTYPE_t, ndim=2] arr) :
     cdef long double res = 0.0
     for i in range(arr.shape[0] - 1):
         res += ((arr[i + 1][0] - arr[i][0]) * (arr[i + 1][1] + arr[i][1]))
@@ -238,4 +240,29 @@ def multi_points_order(list points_list):
     cdef np.ndarray[long, ndim = 1] res = np.empty((len(points_list),), int)
     for i in range(len(points_list)):
         res[i] = points_order(points_list[i])
+    return res
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def scalar_cross(np.ndarray[DTYPE_t, ndim=1] vec_a,
+          np.ndarray[DTYPE_t, ndim=1] vec_b):
+    cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((3,))
+
+
+    res[ 0] = (vec_a[ 1] * vec_b[ 2]) - (vec_a[ 2] * vec_b[ 1])
+    res[ 1] = (vec_a[ 2] * vec_b[ 0]) - (vec_a[ 0] * vec_b[ 2])
+    res[ 2] = (vec_a[ 0] * vec_b[ 1]) - (vec_a[ 1] * vec_b[ 0])
+    return res
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def scalar_unit(np.ndarray[DTYPE_t, ndim=1] vec):
+    cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec.shape[0],))
+    cdef long double item=0.
+    cdef long double component_sq = 0.0
+    cdef long double nrm = 0.0
+    for j in range(vec.shape[1]):
+        component_sq = vec[j] ** 2
+        item += component_sq
+    nrm = sqrt(item)
+    for k in range(vec.shape[1]):
+        res[k] = vec[ k] / nrm
     return res
