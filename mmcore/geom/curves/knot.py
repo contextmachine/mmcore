@@ -1,12 +1,10 @@
 from copy import deepcopy
-
-from scipy.linalg import lu_solve,lu_factor
-
-from mmcore.geom.vec import *
 import numpy as np
+from scipy.linalg import lu_solve,lu_factor
+from mmcore.geom.vec import dist
 
-import geomdl
-import geomdl.helpers
+
+
 def generate_knot(degree, num_ctrlpts, clamped=True):
     """ Generates an equally spaced knot vector.
 
@@ -57,6 +55,39 @@ def generate_knot(degree, num_ctrlpts, clamped=True):
     # Return auto-generated knot vector
     return knot_vector
 
+def basis_function(degree, knot_vector, span, knot):
+    """ Computes the non-vanishing basis functions for a single parameter.
+
+    Cox - de Boor recursion formula.
+
+    :param degree: degree, :math:`p`
+    :type degree: int
+    :param knot_vector: knot vector, :math:`U`
+    :type knot_vector: list, tuple
+    :param span: knot span, :math:`i`
+    :type span: int
+    :param knot: knot or parameter, :math:`u`
+    :type knot: float
+    :return: basis functions
+    :rtype: list
+    """
+    left = [0.0 for _ in range(degree + 1)]
+    right = [0.0 for _ in range(degree + 1)]
+    N = [1.0 for _ in range(degree + 1)]
+
+    for j in range(1, degree + 1):
+        left[j] = knot - knot_vector[span + 1 - j]
+        right[j] = knot_vector[span + j] - knot
+        saved = 0.0
+        for r in range(0, j):
+            temp = N[r] / (right[r + 1] + left[j - r])
+            N[r] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        N[j] = saved
+
+    return N
+
+
 def compute_knot_vector(degree, num_points, params):
     """ Computes a knot vector from the parameter list using averaging method.
 
@@ -91,7 +122,7 @@ def build_coefficient_matrix(points, degree, knotvector, params):
     for i in range(num_points):
         span = find_span_linear(degree, knotvector, num_points, params[i])
 
-        matrix_a[i][span - degree: span + 1] = geomdl.helpers.basis_function(
+        matrix_a[i][span - degree: span + 1] = basis_function(
             degree, knotvector, span, params[i]
         )
     # Return coefficient matrix
@@ -164,10 +195,9 @@ def interpolate_curve(points, degree,  use_centripetal=False):
 
     return np.array(ctrlpts,dtype=float),kv,degree
 
-from mmcore.geom.vec import dist,dot,norm,cross,unit
-import math
 
-import geomdl
+
+
 
 
 def normalize_knot(knot_vector):
@@ -175,8 +205,7 @@ def normalize_knot(knot_vector):
 
     :param knot_vector: knot vector to be normalized
     :type knot_vector: list, tuple
-    :param decimals: rounding number
-    :type decimals: int
+
     :return: normalized knot vector
     :rtype: list
     """
@@ -346,7 +375,7 @@ def knot_insertion(degree, knotvector, ctrlpts, u, num=1, **kwargs)->tuple:
     :param knotvector: knot vector
     :type knotvector: list, tuple
     :param ctrlpts: control points
-    :type ctrlpts: list
+    :type ctrlpts: np.ndarray[Any, float]
     :param u: knot to be inserted (parameter to be inserted)
     :type u: float
     :return: updated control points
