@@ -2,24 +2,15 @@ from collections import namedtuple
 from uuid import uuid4
 
 import numpy as np
-from multipledispatch import dispatch
 
 from mmcore.func import vectorize
 from mmcore.geom import vec
 from mmcore.geom.plane.refine import PlaneRefine
 from mmcore.geom.vec import cross, dot, norm, perp2d, unit
-from mmcore.numeric.plane import distance, project_point_by_normal, plane_from_3pt,distance,plane_line_intersect
+from mmcore.numeric.plane import plane_from_3pt,distance,plane_line_intersect
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", "zaxis"])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])
-
-
-def plane_from_normal_origin(normal, origin):
-    projected = project_point_by_normal(np.array([0.0, 0.0, 0.0]), normal, origin)
-    xaxis = unit(projected - origin)
-    yaxis = cross(normal, xaxis)
-    return np.array([origin, xaxis, yaxis, normal])
-
 
 NpPlane = np.void(
     0,
@@ -34,28 +25,12 @@ NpPlane = np.void(
 )
 
 
-@dispatch(object, object)
-def np_plane(xaxis, yaxis):
-    """
-    :param xaxis: The x-axis vector of the plane.
-    :type xaxis: object
-    :param yaxis: The y-axis vector of the plane.
-    :type yaxis: object
-    :return: The plane defined by the given x-axis and y-axis vectors.
-    :rtype: object
-
-    """
-    xaxis, yaxis = unit([xaxis, yaxis])
-    zaxis = cross(xaxis, yaxis)
-    pln = np.array(0, dtype=NpPlane)
-    pln[1] = xaxis
-    pln[2] = yaxis
-    pln[3] = zaxis
-    return pln
 
 
-@dispatch(object, object, object)
-def np_plane(xaxis, yaxis, origin):
+
+
+
+def np_plane(xaxis, yaxis, origin=None):
     """
     :param xaxis: The x-axis vector of the plane.
     :type xaxis: object
@@ -70,7 +45,8 @@ def np_plane(xaxis, yaxis, origin):
     xaxis, yaxis = unit([xaxis, yaxis])
     zaxis = cross(xaxis, yaxis)
     pln = np.array(0, dtype=NpPlane)
-    pln[0] = origin
+    if origin is not None:
+        pln[0] = origin
     pln[1] = xaxis
     pln[2] = yaxis
     pln[3] = zaxis
@@ -448,7 +424,7 @@ def plane(origin, xaxis, yaxis, zaxis):
     return Plane((origin, xaxis, yaxis, zaxis))
 
 
-@vectorize(excluded=[0], signature="(i)->(i)")
+
 def project(pln, pt):
     """
     Calculate the projection of a point onto a plane.
@@ -460,7 +436,7 @@ def project(pln, pt):
     :return: The projected point.
     :rtype: ndarray (shape: (3,))
     """
-    return pt - (dot(pln.normal, pt - pln.origin) * pln.normal)
+    return pt - (np.dot(pln[-1], pt - pln[0]) * pln[-1])
 
 
 WXY = create_plane()

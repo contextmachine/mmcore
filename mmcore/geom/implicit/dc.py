@@ -1,9 +1,9 @@
-import functools
+
 import math
 from typing import Callable
-from multipledispatch import dispatch
+
 import numpy as np
-from scipy.linalg import svd
+
 import sys
 
 sys.setrecursionlimit(100000)
@@ -296,9 +296,10 @@ def collapse(shape: Shape, tree: Tree) -> Tree:
 
     Example
     ----
+
     >>> import matplotlib.pyplot as plt
     >>> import matplotlib.patches as patches
-    >>> from dc import *
+    >>> from mmcore.geom.implicit.dc import *
 
     >>> def drawLeaf(color, cell):
     ...     (xmin, ymin), (xmax, ymax) = cell
@@ -309,7 +310,7 @@ def collapse(shape: Shape, tree: Tree) -> Tree:
     >>> def draw(res):
     ...     fig, ax = plt.subplots()
     ...
-    ...     def draw_inner(tree, quad):
+    ...     def draw_inner(tree:Root, quad):
     ...         if isinstance(tree, Empty):
     ...             return
     ...         elif isinstance(tree, Full):
@@ -321,12 +322,12 @@ def collapse(shape: Shape, tree: Tree) -> Tree:
     ...             xmid = (xmin + xmax) / 2
     ...             ymid = (ymin + ymax) / 2
     ...
-    ...             _draw(tree.a, ((xmin, ymin), (xmid, ymid)))
-    ...             _draw(tree.b, ((xmid, ymin), (xmax, ymid)))
-    ...             _draw(tree.c, ((xmin, ymid), (xmid, ymax)))
-    ...             _draw(tree.d, ((xmid, ymid), (xmax, ymax)))
+    ...             draw_inner(tree.a, ((xmin, ymin), (xmid, ymid)))
+    ...             draw_inner(tree.b, ((xmid, ymin), (xmax, ymid)))
+    ...             draw_inner(tree.c, ((xmin, ymid), (xmid, ymax)))
+    ...             draw_inner(tree.d, ((xmid, ymid), (xmax, ymax)))
     ...     _tree=buildTree((0, 0), (1, 1), res) # Построение дерева, res - резолюшн, сколько раз будет делиться QuadTree
-    ...     tree = collapse(hi(), _tree)   # collapse, перестраивает дерево под шейп. hi - sdf шейп
+    ...     _tree = collapse(hi(), _tree)   # collapse, перестраивает дерево под шейп. hi - sdf шейп
 
     ...     draw_inner(tree, ((0, 0), (1, 1)))
     ...     ax.set_aspect('equal')

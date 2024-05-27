@@ -1,6 +1,17 @@
 import numpy as np
-from mmcore.func import vectorize
-from mmcore.numeric.fdm import FDM
+DEFAULT_H = 1e-5
+
+
+def fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
+    def wrp(t):
+        if abs(bounds[0] - t) <= h:
+            return (f(t + h) - f(t)) / h
+        elif abs(bounds[1] - t) <= h:
+            return (f(t) - f(t - h)) / h
+        else:
+            return (f(t + h) - f(t - h)) / (2 * h)
+
+    return wrp
 
 
 class BSpline:
@@ -8,11 +19,11 @@ class BSpline:
         self.control_points = control_points
         self.degree = degree
         self.knots = self.generate_knots() if knots is None else knots
-        self.derivative = FDM(self)
-        self.second_derivative = FDM(self.derivative)
+        self.derivative =  fdm(self)
+        self.second_derivative =  fdm(self.derivative)
 
     def interval(self):
-        return (0., max(self.knots))
+        return 0., max(self.knots)
 
     def generate_knots(self):
         """
@@ -54,8 +65,7 @@ class BSpline:
             c2 = (T[i + k + 1] - t) / (T[i + k + 1] - T[i + 1]) * self.basis_function(t, i + 1, k - 1, T)
         return c1 + c2
 
-    @vectorize(excluded=[0], signature='()->(i)')
-    def __call__(self, t: float) -> tuple[float, float, float]:
+    def evaluate(self, t: float) -> np.ndarray:
         """
         Here write a solution to the parametric equation curves at the point corresponding to the parameter t. The function should return three numbers (x,y,z)
         """
@@ -72,13 +82,12 @@ class BSpline:
         return np.array(result)
 
 
-class RationalBSpline(BSpline):
+class NURBSpline(BSpline):
     def __init__(self, control_points, weights=None, degree=3, knots=None):
         super().__init__(control_points, degree, knots)
         self.weights = np.ones((len(self.control_points),), dtype=float) if weights is None else np.array(weights)
 
-    @vectorize(excluded=[0], signature='()->(i)')
-    def __call__(self, t: float) -> tuple[float, float, float]:
+    def __call__(self, t: float) -> np.array:
         """
         Here write a solution to the parametric equation RationalBSpline at the point corresponding
         to the parameter t. The function should return three numbers (x,y,z)

@@ -1,28 +1,27 @@
-import math
+
 import os
 
 import numpy as np
 
 from mmcore.geom.vec import unit, dot, norm
-from mmcore.numeric import divide_interval, add_dim
+from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE
-from mmcore.numeric.divide_and_conquer import (
-    recursive_divide_and_conquer_min,
-    iterative_divide_and_conquer_min,
-)
+from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min
+
 from scipy.optimize import newton
-import multiprocess as mp
+import multiprocessing as mp
 
 from mmcore.numeric.fdm import bounded_fdm
+
 
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
     """
     Find the foot point on the parametric surface S(s, t) closest to the given point P.
     """
     if partial_derivatives is None:
-        _pde=PDE(S, dim=2)
-        partial_derivatives=lambda uv:_pde(uv).T
-    s,t= st = np.array([s0, t0])
+        _pde = PDE(S, dim=2)
+        partial_derivatives = lambda uv: _pde(uv).T
+    s, t = st = np.array([s0, t0])
 
     while True:
         p_i = S(st)
@@ -56,16 +55,17 @@ def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=2
         alpha = np.clip(alpha, 0, alpha_max)
         s = s + alpha * delta_s
         t = t + alpha * delta_t
-        st[0]=s
-        st[1]=t
+        st[0] = s
+        st[1] = t
     return S(s, t), s, t
+
+
 def closest_point_on_curve_single(curve, point, tol=1e-3):
     """
 
     :param curve: The curve on which to find the closest point.
     :param point: The point for which to find the closest point on the curve.
     :param tol: The tolerance for the minimum finding algorithm. Defaults to 1e-5.
-    :param workers: Workers count
     :return: The closest point on the curve to the given point, distance.
 
     """
@@ -92,13 +92,22 @@ def closest_point_on_curve_single(curve, point, tol=1e-3):
     return t_best, d_best
 
 
+class _ClosestPointSolution:
+    def __init__(self, curve, tol=1e-5):
+        self.curve = curve
+        self.tol = tol
+
+    def __call__(self, point):
+        return closest_point_on_curve_single(self.curve, point, tol=self.tol)
+
+
 def closest_points_on_curve_mp(curve, points, tol=1e-3, workers=1):
     if workers == -1:
         workers = os.cpu_count()
     with mp.Pool(workers) as pool:
-        return list(pool.map(
-            lambda pt: closest_point_on_curve_single(curve, pt, tol=tol), points
-        ))
+        solution = _ClosestPointSolution(curve, tol=tol)
+        return list(pool.map(solution, points
+                             ))
 
 
 def closest_point_on_curve(curve, pts, tol=1e-3, workers=1):
@@ -122,14 +131,24 @@ def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
     res = newton(fun, t0, fprime=dfun, tol=tol, **kwargs)
     return res, np.linalg.norm(curve.evaluate(res) - point)
 
+from mmcore.geom.vec import unit, dot, norm
+def vector_projection(a, b):
+    ua, ub = unit(a), unit(b)
 
-def vector_projection(a,b):
-	ua,ub=unit(a),unit(b)
-
-	return  ub*dot(ua,ub)*norm(a)
+    return ub * dot(ua, ub) * norm(a)
 
 
 def closest_point_on_line(line, point):
-	start,end=line
-	direction=end-start
-	return  start+vector_projection(point-start,direction)
+    start, end = line
+    direction = end - start
+    return start + vector_projection(point - start, direction)
+
+
+__all__ = ["closest_point_on_curve",
+           "closest_point_on_line",
+           "foot_point",
+           "closest_point_on_curve_single",
+           "closest_points_on_curve_mp",
+           "closest_points_on_curve_mp",
+           "local_closest_point_on_curve"
+           ]

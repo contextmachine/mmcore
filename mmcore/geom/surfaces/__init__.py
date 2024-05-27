@@ -235,16 +235,31 @@ class BiLinear(Surface):
         )
 
 
+class LinearMap:
+    def __init__(self, source, target):
+        self.source = np.array(source)
+        self.target = np.array(target)
+        self.slope = np.dot(self.source, self.target)
+
+    def __call__(self, t):
+        return self.slope * t
+    def __invert__(self):
+        return LinearMap(self.target,self.source)
+    def inv(self):
+        return self.__invert__()
+
 class Ruled(Surface):
     def __init__(self, c1, c2):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self._intervals = np.array([c1.interval(), c2.interval()])
+        self._remap_u = LinearMap((0., 1.), self._intervals[0])
+        self._remap_v = LinearMap((0., 1.), self._intervals[1])
+
 
     def _remap_param(self, t):
-        return np.interp(t, (0.0, 1.0), self.c1.interval()), np.interp(
-            t, (0.0, 1.0), self.c2.interval()
-        )
+        return  self._remap_u(t), self._remap_v(t)
+
 
     def evaluate(self, uv):
         uc1, uc2 = self._remap_param(uv[0])
