@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Protocol,Union,Optional
+from typing import Protocol, Union, Optional, Iterable
 
 import numpy as np
 from numpy._typing import NDArray
@@ -216,6 +216,8 @@ class Curve:
         ...
 
 
+    def __call__(self, t:Union[float,NDArray[float],Iterable[float]]):
+        ...
 
 
 
