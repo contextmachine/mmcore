@@ -12,15 +12,8 @@ FROM buildpack-deps as builder
 LABEL org.opencontainers.image.source=https://github.com/contextmachine/mmcore
 LABEL org.opencontainers.image.description="mmcore, the modern cad/cam engine"
 LABEL autor="Andrew Astakhov <aa@contextmachine.ru> <aw.astakhov@gmail.com>"
-# Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
-# 🐍 Setup micromamba.
-# ⚙️ Source: https://hub.docker.com/r/mambaorg/micromamba
-#COPY --chown=root:root env.yaml /tmp/env.yaml
 
-#RUN micromamba install -y -n base -f /tmp/env.yaml && \
-#    micromamba clean --all --yes
-# 🐳 Setting pre-build params and environment variables.
-# ⚙️ Please set you environment globals :)
+
 COPY docker-build-step1.sh /docker-build-step1.sh
 
 RUN bash docker-build-step1.sh
@@ -35,7 +28,6 @@ RUN bash docker-build-step2.sh
 FROM installer
 WORKDIR /mmcore
 COPY --link . .
-#RUN apt update && apt -y install npm nodejs
 EXPOSE 7711
 
 RUN python3.12 -m pip install . --break-system-packages
