@@ -6,10 +6,10 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
-
+from mmcore.geom.vec.vec_speedups import scalar_dot,dot_vec_x_array,scalar_norm,scalar_cross,scalar_unit
 
 def inverse_evaluate_plane(pln, point):
-    return dot(point - pln[0], pln[1:])
+    return dot_vec_x_array(point - pln[0], pln[1:])
 
 
 def evaluate_plane(pln, point):
@@ -73,6 +73,7 @@ def plane_from_normal2(origin, normal, tol=1e-5):
 
 def project_point_by_normal(point, normal, origin):
     v = point - origin
+
     dst = v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2]
     return point - dst * normal
 
@@ -111,10 +112,10 @@ def plane_from_3pt(pt0, pt1, pt2):
     a, b, c, d = plane_eq_from_pts(pt0, pt1, pt2)
     # Normal vector to the plane
     n = np.array([a, b, c])
-    N = unit(n)
+    N = scalar_unit(n)
     # Choose an arbitrary point on the plane
-    xax = unit(pt1 - pt0)
-    yax = cross(N, xax)
+    xax = scalar_unit(pt1 - pt0)
+    yax = scalar_cross(N, xax)
     # Generate a vector on the plane
     return np.array([pt0, xax, yax, N]), [a, b, c, d]
 
@@ -151,9 +152,9 @@ def _mycross(a, b):
 
 
 def vector_projection(a, b):
-    ua, ub = unit(a), unit(b)
+    ua, ub = scalar_unit(a), scalar_unit(b)
 
-    return ub * dot(ua, ub) * norm(a)
+    return ub * scalar_dot(ua, ub) * scalar_norm(a)
 
 
 def closest_point_on_line(line, point):
@@ -170,16 +171,18 @@ def plane_plane_intersect(self, other):
     array_10 = array_normals_stacked
     array_11 = np.zeros((2, 2))
     matrix = np.block([[array_00, array_01], [array_10, array_11]])
-    dot_a = np.dot(self[0], self[-1])
-    dot_b = np.dot(other[0], other[-1])
+    dot_a = scalar_dot(self[0], self[-1])
+    dot_b = scalar_dot(other[0], other[-1])
     array_y = np.array([*self[0], dot_a, dot_b])
     # Solve the linear system.
     solution = np.linalg.solve(matrix, array_y)
     point_line = solution[:3]
-    direction_line = cross(self[-1], other[-1])
+    direction_line = scalar_cross(self[-1], other[-1])
     return point_line, direction_line
-def plane_line_intersect(plane:np.ndarray,line,  tol=1e-6, full_return=False):
-    ray_origin,ray_direction = line
+
+
+def plane_line_intersect(plane: np.ndarray, line, tol=1e-6, full_return=False):
+    ray_origin, ray_direction = line
     ndotu = plane[-1].dot(ray_direction)
     if abs(ndotu) < tol:
         if full_return:
@@ -191,5 +194,36 @@ def plane_line_intersect(plane:np.ndarray,line,  tol=1e-6, full_return=False):
     if full_return:
         return w, si, Psi
     return Psi
-def plane_plane_plane_intersect(self, other,third,tol=1e-6):
-    return plane_line_intersect(third,plane_plane_intersect(self,other),tol)
+
+
+def plane_plane_plane_intersect(self, other, third, tol=1e-6):
+    return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
+
+
+def plane_from_normal_origin(normal, origin):
+    projected = project_point_by_normal(np.array([0.0, 0.0, 0.0]), normal, origin)
+    xaxis_not_unit=projected - origin
+    xaxis = xaxis_not_unit/scalar_norm(xaxis_not_unit)
+    yaxis = scalar_cross(normal, xaxis)
+    return np.array([origin, xaxis, yaxis, normal])
+
+
+def project(pln, pt):
+    """
+    Calculate the projection of a point onto a plane.
+
+    :param pln: The plane to project the point onto.
+    :type pln: Plane|SlimPlane
+    :param pt: The point to be projected onto the plane.
+    :type pt: ndarray (shape: (3,))
+    :return: The projected point.
+    :rtype: ndarray (shape: (3,))
+    """
+    return pt - (scalar_dot(pln[-1], pt - pln[0]) * pln[-1])
+
+
+def orient_matrix(p1, p2):
+    trx = np.eye(4)
+    trx[:3, :3] = p1[1:] @ p2[1:].T
+    trx[-1, :-1] = p2[0] - p1[0]
+    return trx
