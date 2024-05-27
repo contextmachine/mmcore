@@ -1,10 +1,8 @@
 from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike
-
-
 from mmcore.geom.curves.curve import Curve
-
+from mmcore.geom.curves.bspline import NURBSpline
 
 from mmcore.geom.curves.bspline_utils import (
     calc_b_spline_point,
@@ -13,36 +11,14 @@ from mmcore.geom.curves.bspline_utils import (
     calc_rational_curve_derivatives,
 )
 
-"""
-Here are the implementations of the requested functions and methods:
 
-1. `split(t: float) → tuple[NURBSpline, NURBSpline]` method in the `NURBSpline` class:
-
-"""
 from mmcore.geom.curves.knot import (
     find_span_binsearch,
     find_multiplicity,
     knot_insertion,
 )
-from mmcore.geom.curves.bspline import NURBSpline
-"""
 
-2. `nurbs_curve_intersect(curve1: NURBSpline, curve2: NURBSpline, tol: float) → list[tuple[float, float] | None]` function:
 
-"""
-
-"""
-
-These implementations handle both 2D and 3D cases, as the dimensionality is determined by the control points of the NURBS curves.
-
-The `split` method uses De Boor's algorithm to split the NURBS curve at the given parameter value `t`. It computes the new control points, weights, and knot vectors for the resulting left and right subcurves.
-
-The `nurbs_curve_intersect` function uses a recursive divide-and-conquer approach to find intersections between two NURBS curves. 
-It checks the AABB overlap of the curves and recursively splits them until the distance between the curves 
-is within the specified tolerance or there is no overlap. 
-The function returns a list of tuples representing the parameter values of the intersections on each curve.
-
-Note that the `nurbs_curve_aabb` function from document 10 is used to compute the AABB of the NURBS curves for the intersection algorithm."""
 
 
 class Circle(Curve):
@@ -64,16 +40,16 @@ class Circle(Curve):
         return self.origin[1]
 
     def fx(self, x):
-        _ = np.sqrt(self.a**2 - (x - self.b) ** 2)
+        _ = np.sqrt(self.a ** 2 - (x - self.b) ** 2)
         return np.array([self.c + _, self.c - _])
 
     def fy(self, y):
-        _ = np.sqrt(self.a**2 - (y - self.c) ** 2)
+        _ = np.sqrt(self.a ** 2 - (y - self.c) ** 2)
         return np.array([self.b + _, self.b - _])
 
     def implict(self, xy):
         return (
-            (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r**2
+                (xy[0] - self.origin[0]) ** 2 + (xy[1] - self.origin[1]) ** 2 - self.r ** 2
         )
 
     def intersect_with_circle(self, circle):
@@ -83,15 +59,6 @@ class Circle(Curve):
         return np.array(
             [self.r * np.cos(t) + self.origin[0], self.r * np.sin(t) + self.origin[1]]
         )
-
-
-
-
-
-
-
-
-
 
 
 class Offset(Curve):

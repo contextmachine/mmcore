@@ -37,36 +37,35 @@ class Circle2D(Curve, Implicit2D):
     - closest_point(v): Returns the closest point on the circle to the specified point v.
 
     """
+
     def __init__(self, origin=None, r=1.):
-        super().__init__()
+        super().__init__(autodiff=False)
 
         self.origin = (
             origin if isinstance(origin, np.ndarray) else np.array(origin)) if origin is not None else np.zeros(2,
                                                                                                                 dtype=float)
         self.r = r
 
-        self.normal = self._circle_normal_unit
+        self.normal = self._implicit_unit_normal
 
     def interval(self):
         return 0., PI2
 
     def implicit(self, v) -> float:
-        return np.linalg.norm(self._circle_normal(v)) - self.r
+        return np.linalg.norm(self._implicit_normal(v)) - self.r
 
-    def _circle_normal(self, v) -> float:
+    def _implicit_normal(self, v) -> float:
         return v - self.origin
 
-    def _circle_normal_unit(self, v) -> float:
-        point = self._circle_normal(v)
+    def _implicit_unit_normal(self, v) -> float:
+        point = self._implicit_normal(v)
         return point / np.linalg.norm(point)
 
-    @property
-    def a(self):
-        return self.r
-
-    @a.setter
-    def a(self, v):
-        self.r = v
+    def normal(self, val):
+        if isinstance(val, float):
+            return super(Curve, self).normal(val)
+        else:
+            return self._implicit_unit_normal(val)
 
     def x(self, t):
         return self.origin[0] + self.r * np.cos(t)
@@ -78,10 +77,13 @@ class Circle2D(Curve, Implicit2D):
         return np.array([self.x(t), self.y(t)])
 
     def closest_point(self, v):
-        N = self._circle_normal(v)
+
+        N = self._implicit_normal(v)
         nn = np.linalg.norm(N)
         nu = N / nn
         return v - (nu * (nn - self.r)), np.arccos(nu[0])
+
+
 
 
 def circle_intersection2d(c1: Circle2D, c2: Circle2D):
