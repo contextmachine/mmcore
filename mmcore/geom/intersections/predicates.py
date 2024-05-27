@@ -1,12 +1,12 @@
 from typing import Any
 
 import numpy as np
-from multipledispatch import dispatch
+
 from scipy.spatial import KDTree
 
 from mmcore.func import vectorize
-from mmcore.geom.vec import dist, unit
-from mmcore.numeric import remove_dim
+from mmcore.geom.vec import unit
+
 
 
 @vectorize(signature='(i),(i),(i)->()')

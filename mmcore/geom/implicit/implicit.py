@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-
+from typing import Union
 import numpy as np
 
 from mmcore.geom.implicit.marching import implicit_curve_points
@@ -122,8 +122,10 @@ class Implicit:
         ...
 
 
-
+def is_implicit(obj):
+    return getattr(obj,'is_implicit',False)
 class Implicit2D(Implicit):
+    is_implicit=True
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -137,8 +139,17 @@ class Implicit2D(Implicit):
 
     def union(self, other: Implicit2D):
         return Union2D(self, other)
+    def intersection_with_curve(self, curve):
+        """
 
-    def intersection(self, other: Implicit2D):
+        :param curve: mmcore.geom.curves.Curve |
+
+        Returns:
+
+        """
+
+
+    def intersection(self, other:Union[Implicit2D,Implicit3D]):
         return Intersection2D(self, other)
 
     def substraction(self, other: Implicit2D):

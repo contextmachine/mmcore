@@ -157,17 +157,13 @@ class PDE:
 
 class FDM:
     def __new__(cls, fun=None):
-        #record = Memo.get_or_create_record(fun)
 
-        #rec = getattr(record, cls.__name__.lower(), None)
-        #if rec:
-        #    return rec
 
         obj = super().__new__(cls)
 
         obj._fun = fun
 
-        #Memo.update_record(fun, {cls.__name__.lower(): obj})
+
         return obj
 
     def dydx(self, t):
@@ -247,8 +243,8 @@ class FDM:
         return (self._fun(t) - self._fun(t - h)) / h
 
     def __call__(self, t, h=DEFAULT_H, method="central"):
-        _decimals = abs(int(math.log10(h)))
-        return np.round(getattr(self, method)(t, h=h), _decimals)
+
+        return getattr(self, method)(t, h=h)
 
 
 from mmcore.numeric.routines import remove_dim

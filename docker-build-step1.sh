@@ -6,7 +6,10 @@ wget https://www.python.org/ftp/python/3.12.2/Python-3.12.2.tgz
 tar -xf Python-3.12.2.tgz
 cd Python-3.12.*/
 bash ./configure --enable-optimizations
-make -j 8
+
+export CPU_COUNT=$(cat /proc/cpuinfo | grep processor | wc -l)
+make -j $CPU_COUNT
+
 
 #
 #make altinstall
