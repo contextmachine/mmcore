@@ -1,12 +1,12 @@
-import sys
-
 import math
+import sys
 
 import numpy as np
 
 from mmcore.geom.vec import make_perpendicular, unit
-
 from mmcore.numeric.fdm import Grad, fdm
+
+
 def _resolve_grad(func, grad=None):
     return grad if grad is not None else Grad(func)
 
@@ -23,8 +23,8 @@ def newton_step(func: callable, x: np.ndarray, grad: callable):
     return x + t * g
 
 
-def curve_point2(func, x0,  tol=1e-5,grad=None):
-    grad=_resolve_grad(func, grad)
+def curve_point2(func, x0, tol=1e-5, grad=None):
+    grad = _resolve_grad(func, grad)
     x0 = np.copy(x0)
     delta = 1.0
     while delta >= tol:
@@ -33,7 +33,6 @@ def curve_point2(func, x0,  tol=1e-5,grad=None):
         x0[0] = xi1
         x0[1] = yi1
     return x0
-
 
 
 def curve_point(func, initial_point: np.ndarray = None, delta=0.001, grad=None):
@@ -79,7 +78,7 @@ def implicit_tangent(d1, d2):
 
 
 def implicit_curve_points(
-    func, v0, v1=None, max_points=100, step=0.2, delta=0.001, grad=None
+        func, v0, v1=None, max_points=100, step=0.2, delta=0.001, grad=None
 ):
     """
     Calculates implicit curve points using the curve_point algorithm.
@@ -120,7 +119,6 @@ def implicit_curve_points(
     if max_points is None:
         max_points = sys.maxsize
 
-
     while (distance > step / 2.0) and (len(pointlist) < max_points):
         g = grad(start_point)
 
@@ -132,3 +130,214 @@ def implicit_curve_points(
         distance = np.linalg.norm(start_point - end_point)
     pointlist.append(end_point)
     return pointlist
+
+
+
+
+def evaluate_jacobian(alpha, beta, qk, point, grad1, grad2):
+    g1 = grad1(qk)
+    g2 = grad2(qk)
+    #gn1 = grad1(point)
+    #gn2 = grad2(point)
+    J = np.array([
+        [np.dot(g1, g1), np.dot(g2, g1)],
+        [np.dot(g1, g2), np.dot(g2, g2)]
+    ])
+    return J
+
+
+def evaluate_g(alpha, beta, qk, point, surf1, surf2):
+    g = np.array([surf1(point), surf2(point)])
+
+    return g
+
+
+
+
+def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100):
+    """
+
+    :param surf1:
+    :param surf2:
+    :param q0:
+    :param grad1:
+    :param grad2:
+    :param tol:
+    :param max_iter:
+    :return:
+
+    Example
+    ---
+
+    >>> from mmcore.geom.sphere import Sphere
+    >>> c1= Sphere(np.array([0.,0.,0.]),1.)
+    >>> c2= Sphere(np.array([1.,1.,1.]),1)
+    >>> q0 =np.array((0.579597, 0.045057, 0.878821))
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.normal,c2.normal,tol=1e-6) # 7 newthon iterations
+    >>> print(c1.implicit(res),c2.implicit(res))
+    4.679345799729617e-10 4.768321293369127e-10
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.normal,c2.normal,tol=1e-12) # 9 newthon iterations
+    >>> print(c1.implicit(res),c2.implicit(res))
+    -1.1102230246251565e-16 2.220446049250313e-16
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.normal,c2.normal,tol=1e-16) # 10 newthon iterations
+    >>> print(c1.implicit(res),c2.implicit(res))
+    0.0 0.0
+    """
+    def newton_step( q, alpha_init, beta_init):
+        q=np.copy(q)
+
+        #point = q + alpha_init * grad1(q) + beta_init * grad2(q)
+        J = evaluate_jacobian(alpha_init, beta_init,  q, q, grad1, grad2)
+        g = evaluate_g(alpha_init, beta_init,  q, q, surf1, surf2)
+        alpha_init,beta_init = np.linalg.solve(J, -g)
+        return alpha_init,beta_init
+
+
+
+
+
+
+
+
+
+
+
+    alpha, beta = 0.,0.
+    qk = np.copy(q0)
+
+    alpha, beta = newton_step( qk, alpha, beta)
+    delta = alpha * grad1(qk) + beta * grad2(qk)
+    qk_next = delta + qk
+    d = np.linalg.norm(qk_next - qk)
+    i=0
+    while d > tol :
+        if i>max_iter:
+            raise ValueError('Maximum iterations exceeded, No convergence')
+        qk = qk_next
+
+
+        alpha, beta = newton_step( qk, alpha, beta)
+        delta = alpha * grad1(qk) + beta * grad2(qk)
+        qk_next = delta + qk
+        d = np.linalg.norm(delta)
+
+        i+=1
+    return qk_next
+
+
+
+
+
+
+def _proc_val(f,g):
+    cc = sum(g * g)
+    if cc > 0:
+        f=-f / cc
+    else:
+        f=0.
+    return f
+
+def normalize3d(v):
+    norm = np.linalg.norm(v)
+    if norm == 0:
+        return v
+    return v / norm
+
+
+def scalarp3d(v1, v2):
+    return np.dot(v1, v2)
+
+
+def lcomb2vt3d(a, v1, b, v2):
+    return a * v1 + b * v2
+
+
+def diff3d(v1, v2):
+    return v1 - v2
+
+
+def abs3d(v):
+    return np.linalg.norm(v)
+
+
+def vectorp(v1, v2):
+    return np.cross(v1, v2)
+
+
+def put3d(x, y, z):
+    return np.array([x, y, z])
+
+
+def surface_point_normal_tangentvts(fun,p_start, grad, tol=1e-5):
+    p, nv = surface_point(fun, p_start, grad,tol)
+    nv = normalize3d(nv)
+
+    if abs(nv[0]) > 0.5 or abs(nv[1]) > 0.5:
+        tv1 = put3d(nv[1], -nv[0], 0)
+    else:
+        tv1 = put3d(-nv[2], 0, nv[0])
+
+    tv1 = normalize3d(tv1)
+    tv2 = vectorp(nv, tv1)
+    return p, nv, tv1, tv2
+
+
+def surface_point(fun,p0, grad, tol=1e-8):
+
+
+    p_i = p0
+
+    while True:
+        fi, gradfi = (fun(p_i), grad(p_i))
+        cc = scalarp3d(gradfi, gradfi)
+        if cc > 1e-15:
+            t = -fi / cc
+        else:
+            t = 0
+            print(f"{cc} WARNING tri (surface_point...): newton")
+
+        p_i1 = lcomb2vt3d(1, p_i, t, gradfi)
+        dv = diff3d(p_i1, p_i)
+        delta = abs3d(dv)
+
+        if delta < tol:
+            break
+
+        p_i = p_i1
+
+    fi, gradfi = fun(p_i),grad(p_i)
+    return p_i1, gradfi
+
+
+
+
+
+
+def marching_intersection_curve_points(
+        f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6
+):
+    points = []
+
+    p = intersection_curve_point(f1, f2, start_point, grad_f1, grad_f2, tol=tol)
+    if end_point is None:
+        end_point = np.copy(p)
+    points.append(p)
+    if max_points is None:
+        max_points = sys.maxsize
+
+    while (len(points) < max_points):
+
+        grad_cross = np.cross(grad_f1(p), grad_f2(p))
+        if np.linalg.norm(grad_cross) == 0:
+            break
+        unit_tangent = grad_cross / np.linalg.norm(grad_cross)
+
+        p = intersection_curve_point(f1, f2, p + step * unit_tangent, grad_f1, grad_f2, tol=tol)
+        points.append(p)
+        dst = np.linalg.norm(p - end_point)
+
+        if dst < step / 2:
+            break
+
+    points.append(end_point)
+    return np.array(points)
