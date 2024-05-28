@@ -5,6 +5,7 @@ cdef extern from "math.h":
     long double atan2(long double a, double b)
     long double atan(long double a)
 
+
 cdef extern from "limits.h":
     double DBL_MAX
 
@@ -259,10 +260,59 @@ def scalar_unit(np.ndarray[DTYPE_t, ndim=1] vec):
     cdef long double item=0.
     cdef long double component_sq = 0.0
     cdef long double nrm = 0.0
-    for j in range(vec.shape[1]):
+    for j in range(vec.shape[0]):
         component_sq = vec[j] ** 2
         item += component_sq
     nrm = sqrt(item)
-    for k in range(vec.shape[1]):
+    for k in range(vec.shape[0]):
         res[k] = vec[ k] / nrm
     return res
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int cinvert_jacobian(double[:,:] J, double[:,:] J_inv)noexcept nogil:
+    cdef double a=J[0][0]
+    cdef double b=J[0][1]
+    cdef double c=J[1][0]
+    cdef double d=J[1][1]
+    cdef double jac_det = a * d - b * c
+    cdef int return_code = 0
+
+    if jac_det==0:
+        return_code=-1
+
+    else:
+        J_inv[0][0]=d / jac_det
+        J_inv[0][1] = -b / jac_det
+        J_inv[1][0] =-c  / jac_det
+        J_inv[1][1] = a / jac_det
+
+    return return_code
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void cinvert_jacobian_vec(double[:,:,:] J, double[:,:,:] J_inv, int[:] status) noexcept nogil:
+    cdef size_t i
+    for i in range(J_inv.shape[0]):
+        status[i]=cinvert_jacobian(J[i], J_inv[i])
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def invert_jacobian(J):
+    cdef double[:,:] J_inv_m
+    cdef double[:,:, :] J_inv
+    cdef int[:] status
+    cdef int status_m
+    if J.ndim==2:
+        J_inv_m=np.empty((2,2))
+        status_m=cinvert_jacobian(J,J_inv_m)
+        return J_inv_m,status_m
+
+    else:
+        J_inv = np.empty((J.shape[0], 2, 2))
+        status=np.empty((J.shape[0], 2, 2), dtype=np.intc)
+        with nogil:
+            cinvert_jacobian_vec(J, J_inv,  status)
+        return J_inv, status
