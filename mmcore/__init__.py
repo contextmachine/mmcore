@@ -1,4 +1,3 @@
-
 TOLERANCE = 1e-06
 
 class VersionInfo(str):
@@ -16,4 +15,4 @@ class VersionInfo(str):
 
     def __call__(self):
         return self._value
-__version__ = VersionInfo('0.26.1')
+__version__ = VersionInfo('0.27.1')
