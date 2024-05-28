@@ -6,7 +6,7 @@ from typing import Callable, Optional, Iterable
 
 import numpy as np
 
-DEFAULT_H = 1e-5
+DEFAULT_H = 1e-8
 _DECIMALS = 5
 from scipy.sparse import eye, csr_matrix
 
@@ -41,11 +41,11 @@ def fdm(f, method="central", h=DEFAULT_H):
     _decimals = abs(int(math.log10(h)))
 
     if method == "central":
-        return lambda t: np.round((f(t + h) - f(t - h)) / (2 * h), _decimals)
+        return lambda t: (f(t + h) - f(t - h)) / (2 * h)
     elif method == "forward":
-        return lambda t: np.round((f(t + h) - f(t)) / h, _decimals)
+        return lambda t: (f(t + h) - f(t)) / h
     elif method == "backward":
-        return lambda t: np.round((f(t) - f(t - h)) / h, _decimals)
+        return lambda t: (f(t) - f(t - h)) / h
     else:
         raise ValueError("Method must be 'central', 'forward' or 'backward'.")
 
@@ -55,11 +55,11 @@ def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
 
     def wrp(t):
         if abs(bounds[0] - t) <= h:
-            return np.round((f(t + h) - f(t)) / h, _decimals)
+            return (f(t + h) - f(t)) / h
         elif abs(bounds[1] - t) <= h:
-            return np.round((f(t) - f(t - h)) / h, _decimals)
+            return (f(t) - f(t - h)) / h
         else:
-            return np.round((f(t + h) - f(t - h)) / (2 * h), _decimals)
+            return (f(t + h) - f(t - h)) / (2 * h)
 
     return wrp
 
