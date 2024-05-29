@@ -1,6 +1,8 @@
 .idea/
 data/
 docs/
+dist/
+build/
 Writerside/
 docker-compose.yml
 masks.cxm
@@ -11,7 +13,9 @@ debugview/
 docker/
 .run/
 env.json
-node_modules
+node_modules/
+notes/
+tests/
 .env
 .github
 .fleet
@@ -22,7 +26,5 @@ build.sh
 push.sh
 run.sh
 test.sh
-.pkl
 docs
-
 /tests/logs/

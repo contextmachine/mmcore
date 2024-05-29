@@ -37,8 +37,8 @@ Some useful hints:
   - `mmcore.geom.curves.bspline` - **B-Spline** curves and **NURBS** curves
   - `mmcore.geom.surfaces` - Representations of surfaces in parametric form
   - `mmcore.geom.implicit` - Implicit representations [[1]](https://en.wikipedia.org/wiki/Implicit_curve)  of curves and surfaces  
-  - `mmcore.geom.implivit.dc` - **Adaptive Dual Contouring** algorithm [[2]](https://www.cs.wustl.edu/~taoju/research/interfree_paper_final.pdf) , so far in 2D. 
-  - `mmcore.geom.implivit.tree` - Octree approximation for shapes in implicit form (like libfive [[3]](https://github.com/libfive/libfive)), so far in 2D.  
+  - `mmcore.geom.implicit.dc` - **Adaptive Dual Contouring** algorithm [[2]](https://www.cs.wustl.edu/~taoju/research/interfree_paper_final.pdf) , so far in 2D. 
+  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive [[3]](https://github.com/libfive/libfive)), so far in 2D.  
   - `mmcore.geom.bvh` - Implementation of BVH tree construction and queries. This can be extremely useful for intersectionb nearest neighbor search and other spatial tasks. 
   
 - `mmcore.numeric` - Implementation of fundamental numeric CAD algorithms and some data structures. 
