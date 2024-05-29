@@ -3,6 +3,8 @@ make altinstall
 printf "checks:\n"
 python3.12 --version
 pip3.12 --version
+rm -r /tmp/build-python
+
 #printf "checks:\n"
 #python3.12 --version
 #pip3.12 --version
