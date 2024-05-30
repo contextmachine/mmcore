@@ -132,11 +132,9 @@ def implicit_curve_points(
     return pointlist
 
 
-
-
-def evaluate_jacobian(alpha, beta, qk, point, grad1, grad2):
-    g1 = grad1(qk)
-    g2 = grad2(qk)
+def evaluate_jacobian(alpha, beta, qk, point, g1, g2):
+    #g1 = grad1(qk)
+    #g2 = grad2(qk)
     #gn1 = grad1(point)
     #gn2 = grad2(point)
     J = np.array([
@@ -146,12 +144,11 @@ def evaluate_jacobian(alpha, beta, qk, point, grad1, grad2):
     return J
 
 
-def evaluate_g(alpha, beta, qk, point, surf1, surf2):
-    g = np.array([surf1(point), surf2(point)])
+def evaluate_g(alpha, beta, qk, point, f1, f2):
+    #g = np.array([surf1(point), surf2(point)])
 
-    return g
-
-
+    #return g
+    ...
 
 
 def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100):
@@ -183,59 +180,53 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     >>> print(c1.implicit(res),c2.implicit(res))
     0.0 0.0
     """
-    def newton_step( q, alpha_init, beta_init):
-        q=np.copy(q)
+
+    def newton_step(q, alpha_init, beta_init, fun1, fun2, grd1, grd2):
 
         #point = q + alpha_init * grad1(q) + beta_init * grad2(q)
-        J = evaluate_jacobian(alpha_init, beta_init,  q, q, grad1, grad2)
-        g = evaluate_g(alpha_init, beta_init,  q, q, surf1, surf2)
-        alpha_init,beta_init = np.linalg.solve(J, -g)
-        return alpha_init,beta_init
+        J = evaluate_jacobian(alpha_init, beta_init, q, q, grd1, grd2)
+        g = np.array([fun1, fun2])
 
+        alpha_init, beta_init = np.linalg.solve(J, -g)
+        return alpha_init, beta_init
 
-
-
-
-
-
-
-
-
-
-    alpha, beta = 0.,0.
+    alpha, beta = 0., 0.
     qk = np.copy(q0)
+    f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
 
-    alpha, beta = newton_step( qk, alpha, beta)
+    alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
     delta = alpha * grad1(qk) + beta * grad2(qk)
     qk_next = delta + qk
     d = np.linalg.norm(qk_next - qk)
-    i=0
-    while d > tol :
-        if i>max_iter:
+    i = 0
+    while d > tol:
+
+        if i > max_iter:
             raise ValueError('Maximum iterations exceeded, No convergence')
+
         qk = qk_next
+        f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
+        cc = np.sum(g1 * g2)
 
+        alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
 
-        alpha, beta = newton_step( qk, alpha, beta)
-        delta = alpha * grad1(qk) + beta * grad2(qk)
+        #alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
+        delta = alpha * g1 + beta * g2
         qk_next = delta + qk
         d = np.linalg.norm(delta)
 
-        i+=1
+        i += 1
     return qk_next
 
 
-
-
-
-
-def _proc_val(f,g):
+def _proc_val(f, g):
     cc = sum(g * g)
     if cc > 0:
-        f=-f / cc
+        f = -f / cc
     else:
-        f=0.
+        f = 0.
     return f
+
 
 def normalize3d(v):
     norm = np.linalg.norm(v)
@@ -268,8 +259,8 @@ def put3d(x, y, z):
     return np.array([x, y, z])
 
 
-def surface_point_normal_tangentvts(fun,p_start, grad, tol=1e-5):
-    p, nv = surface_point(fun, p_start, grad,tol)
+def surface_point_normal_tangentvts(fun, p_start, grad, tol=1e-5):
+    p, nv = surface_point(fun, p_start, grad, tol)
     nv = normalize3d(nv)
 
     if abs(nv[0]) > 0.5 or abs(nv[1]) > 0.5:
@@ -282,15 +273,13 @@ def surface_point_normal_tangentvts(fun,p_start, grad, tol=1e-5):
     return p, nv, tv1, tv2
 
 
-def surface_point(fun,p0, grad, tol=1e-8):
-
-
+def surface_point(fun, p0, grad, tol=1e-8):
     p_i = p0
 
     while True:
         fi, gradfi = (fun(p_i), grad(p_i))
         cc = scalarp3d(gradfi, gradfi)
-        if cc > 1e-15:
+        if cc > 0:
             t = -fi / cc
         else:
             t = 0
@@ -305,39 +294,61 @@ def surface_point(fun,p0, grad, tol=1e-8):
 
         p_i = p_i1
 
-    fi, gradfi = fun(p_i),grad(p_i)
+    fi, gradfi = fun(p_i), grad(p_i)
     return p_i1, gradfi
-
-
-
-
 
 
 def marching_intersection_curve_points(
         f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6
 ):
+    """
+    :param f1: The first function defining the intersection surface
+    :param f2: The second function defining the intersection surface
+    :param grad_f1: The gradient of the first surface
+    :param grad_f2: The gradient of the second surface
+    :param start_point:  Starting point in the vicinity of the intersection curve
+    :param end_point: The endpoint is near the intersection curve. If None, the start_point is used. (default: None)
+    :param step: The step size for incrementing along the curve (default: 0.1)
+    :param max_points: The maximum number of points to calculate on the curve (default: None)
+    :param tol: The tolerance for determining when to stop calculating points (default: 1e-6)
+    :return: An array of points that lie on the intersection curve
+
+    """
     points = []
 
     p = intersection_curve_point(f1, f2, start_point, grad_f1, grad_f2, tol=tol)
+    points.append(p)
+
     if end_point is None:
         end_point = np.copy(p)
-    points.append(p)
+
     if max_points is None:
         max_points = sys.maxsize
 
     while (len(points) < max_points):
-
-        grad_cross = np.cross(grad_f1(p), grad_f2(p))
-        if np.linalg.norm(grad_cross) == 0:
+        g1, g2 = grad_f1(p), grad_f2(p)
+        grad_cross = np.cross(g1, g2)
+        if np.dot(grad_cross,grad_cross) == 0:
             break
+
         unit_tangent = grad_cross / np.linalg.norm(grad_cross)
 
-        p = intersection_curve_point(f1, f2, p + step * unit_tangent, grad_f1, grad_f2, tol=tol)
-        points.append(p)
-        dst = np.linalg.norm(p - end_point)
+        p1 = intersection_curve_point(f1, f2, p + step * unit_tangent, grad_f1, grad_f2, tol=tol)
+        # A rather specific treatment of the singularity, but it seems to work. In the literature I could find,
+        # the singularity was usually defined by a zero gradient. This is not difficult to handle and here I actually
+        # do it a few lines above. However, I ran into a different problem, in the neighbourhood of the singular
+        # point cross(grad1,grad2), changed sign and the point would "bounce" back and then be evaluated correctly
+        # and so on round and round, and the zero gradient check failed. I managed to fix this through the proximity
+        # check to the point 2 steps earlier. In this case, I'm unrolling the tangent, so I've managed to get through
+        # all the singularity curves I've tested so far.
+        if len(points) > 1 and np.linalg.norm(p1 - points[len(points) - 2]) < step / 2:
+            p1 = intersection_curve_point(f1, f2, p - step * unit_tangent, grad_f1, grad_f2, tol=tol)
 
+        dst = np.linalg.norm(p1 - end_point)
+        points.append(p1)
         if dst < step / 2:
             break
+        p = p1
 
-    points.append(end_point)
+
     return np.array(points)
