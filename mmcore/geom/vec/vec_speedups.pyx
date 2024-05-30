@@ -4,10 +4,12 @@ cdef extern from "math.h":
     long double cos(long double v)
     long double atan2(long double a, double b)
     long double atan(long double a)
+    double fmax(double a)
 
 
 cdef extern from "limits.h":
     double DBL_MAX
+    double DBL_MIN
 
 
 import numpy as np
@@ -77,8 +79,11 @@ def scalar_dot(np.ndarray[DTYPE_t, ndim=1] vec_a,
 @cython.wraparound(False)
 def scalar_norm(np.ndarray[DTYPE_t, ndim=1] vec):
     cdef DTYPE_t res = 0.0
+    cdef DTYPE_t res2 = 0.0
     for j in range(vec.shape[0]):
         res += (vec[j] ** 2)
+    if res<=1e-15:
+        return res2
     return sqrt(res)
 
 @cython.boundscheck(False)
