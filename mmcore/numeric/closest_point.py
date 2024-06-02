@@ -4,6 +4,7 @@ import os
 import numpy as np
 
 from mmcore.geom.vec import unit, dot, norm
+from mmcore.geom.vec.vec_speedups import vector_projection
 from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min
@@ -131,12 +132,12 @@ def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
     res = newton(fun, t0, fprime=dfun, tol=tol, **kwargs)
     return res, np.linalg.norm(curve.evaluate(res) - point)
 
-from mmcore.geom.vec import unit, dot, norm
-def vector_projection(a, b):
-    ua, ub = unit(a), unit(b)
 
-    return ub * dot(ua, ub) * norm(a)
 
+def closest_point_on_ray(ray, point):
+    start, direction = ray
+
+    return start + vector_projection(point - start, direction)
 
 def closest_point_on_line(line, point):
     start, end = line
@@ -145,6 +146,7 @@ def closest_point_on_line(line, point):
 
 
 __all__ = ["closest_point_on_curve",
+
            "closest_point_on_line",
            "foot_point",
            "closest_point_on_curve_single",

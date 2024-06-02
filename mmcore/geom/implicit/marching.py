@@ -132,6 +132,37 @@ def implicit_curve_points(
     return pointlist
 
 
+def raster_algorithm(f, x_min, x_max, y_min, y_max, nx, ny, gamma=0.5,grad=None):
+    """Raster algorithm to find points close to the implicit curve f(x, y) = 0."""
+
+    def gradient(f, xy, h=1e-5):
+        """Calculate the numerical gradient of f at (x, y)."""
+        x, y = xy
+        df_dx = (f((x + h, y)) - f((x - h, y))) / (2 * h)
+        df_dy = (f((x, y + h)) - f((x, y - h))) / (2 * h)
+        return np.array([df_dx, df_dy])
+
+
+    x_vals = np.linspace(x_min, x_max, nx)
+    y_vals = np.linspace(y_min, y_max, ny)
+    d_max = max((x_max - x_min) / nx, (y_max - y_min) / ny)
+
+    curve_points = []
+
+    for i, x in enumerate(x_vals):
+        for j, y in enumerate(y_vals):
+            f_val = f((x, y))
+            grad_f = gradient(f, [x,y])
+            grad_norm = np.linalg.norm(grad_f)
+
+            if grad_norm != 0:
+                delta = abs(f_val) / grad_norm
+                if delta < gamma * d_max:
+                    curve_points.append(curve_point(f, np.array([x, y])))
+
+    return np.array(curve_points)
+
+
 def evaluate_jacobian(alpha, beta, qk, point, g1, g2):
     #g1 = grad1(qk)
     #g2 = grad2(qk)
@@ -273,9 +304,9 @@ def surface_point_normal_tangentvts(fun, p_start, grad, tol=1e-5):
     return p, nv, tv1, tv2
 
 
-def surface_point(fun, p0, grad, tol=1e-8):
+def surface_point(fun, p0, grad=None, tol=1e-8):
     p_i = p0
-
+    grad=_resolve_grad(fun, grad)
     while True:
         fi, gradfi = (fun(p_i), grad(p_i))
         cc = scalarp3d(gradfi, gradfi)
@@ -294,12 +325,12 @@ def surface_point(fun, p0, grad, tol=1e-8):
 
         p_i = p_i1
 
-    fi, gradfi = fun(p_i), grad(p_i)
-    return p_i1, gradfi
+    #fi, gradfi = fun(p_i), grad(p_i)
+    return p_i1
 
 
 def marching_intersection_curve_points(
-        f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6
+        f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6, point_callback=None
 ):
     """
     :param f1: The first function defining the intersection surface
@@ -315,10 +346,13 @@ def marching_intersection_curve_points(
 
     """
     points = []
-
+    use_callback = True
+    if point_callback is None:
+        use_callback=False
     p = intersection_curve_point(f1, f2, start_point, grad_f1, grad_f2, tol=tol)
     points.append(p)
-
+    if use_callback:
+        point_callback(p)
     if end_point is None:
         end_point = np.copy(p)
 
@@ -349,6 +383,8 @@ def marching_intersection_curve_points(
         if dst < step / 2:
             break
         p = p1
-
+        if use_callback:
+            point_callback(p)
 
     return np.array(points)
+
