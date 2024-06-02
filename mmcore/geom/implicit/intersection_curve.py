@@ -107,7 +107,11 @@ class TraceIntersectionImplicitCurve:
 
     def build(self, step=0.1, **kwargs):
         """
-      When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~0.150 sec,
+        Find all intersection curves between two implicit bodies.
+
+        Note
+        ----
+        When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~0.150 sec,
         (on my machine this is about 10 times slower than Rhinoceros8, which of course can be considered a victory,
         since we achieve this speed in python at runtime with classes defined on the fly).
         If we just trace in a loop from the desired points it will be ~0.130 sec.
