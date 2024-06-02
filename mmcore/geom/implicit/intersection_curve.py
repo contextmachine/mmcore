@@ -59,7 +59,9 @@ class TraceIntersectionImplicitCurve:
         self.initial_point = self.rebuild_tree()
 
     def build_points(self):
-        return np.array([self.crv.closest_point(i) for i in np.average(self.crv.tree.border, axis=1)])
+
+        return np.array([self.crv.closest_point(i) for i in np.average(self.crv.surf1.tree.border+self.crv.surf1.tree.empty, axis=1)])
+
 
     def trace_curve_point(self, point, step):
 
