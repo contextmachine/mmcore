@@ -321,3 +321,39 @@ def invert_jacobian(J):
         with nogil:
             cinvert_jacobian_vec(J, J_inv,  status)
         return J_inv, status
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def vector_projection(double[:] a, double[:] b):
+    cdef double[:] res=np.empty((3,))
+    bn=(b[0]**2 + b[1]**2 + b[2]**2)
+
+    res[0]=a[0]*b[0]*b[0]/bn + a[1]*b[0]*b[1]/bn + a[2]*b[0]*b[2]/bn
+    res[1]=a[0]*b[0]*b[1]/bn + a[1]*b[1]*b[1]/bn + a[2]*b[1]*b[2]/bn
+    res[2]=a[0]*b[0]*b[2]/bn + a[1]*b[1]*b[2]/bn + a[2]*b[2]*b[2]/bn
+    return res
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def closest_point_on_ray( double[:] start, double[:] direction,  double[:] point):
+    cdef double [:] res=np.empty((3,))
+    cdef double [:] a=np.empty((3,))
+    cdef double directionn = (direction[0] ** 2 + direction[1] ** 2 + direction[2] ** 2)
+    a[0]=point[0]-start[0]
+    a[1] = point[1] - start[1]
+    a[2] = point[2] - start[2]
+
+    res[0]=a[0]*direction[0]*direction[0]/directionn + a[1]*direction[0]*direction[1]/directionn + a[2]*direction[0]*direction[2]/directionn
+    res[1]=a[0]*direction[0]*direction[1]/directionn + a[1]*direction[1]*direction[1]/directionn + a[2]*direction[1]*direction[2]/directionn
+    res[2]=a[0]*direction[0]*direction[2]/directionn + a[1]*direction[1]*direction[2]/directionn + a[2]*direction[2]*direction[2]/directionn
+    return res
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def closest_point_on_line(double[:] start,double[:] end, double[:] point):
+    cdef double [:] direction=np.empty((3,))
+    cdef double [:] p=np.empty((3,))
+    direction[0] = end[0] - start[0]
+    direction[1] = end[1] - start[1]
+    direction[2] = end[2] - start[2]
+    p[0] = point[0] - start[0]
+    p[1] = point[1] - start[1]
+    p[2] = point[2] - start[2]
+    return vector_projection(p, direction)

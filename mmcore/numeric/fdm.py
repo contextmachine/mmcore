@@ -5,9 +5,10 @@ import sys
 from typing import Callable, Optional, Iterable
 
 import numpy as np
+from scipy.optimize import minimize
 
-DEFAULT_H = 1e-8
-_DECIMALS = 5
+DEFAULT_H = 1e-3
+_DECIMALS = 3
 from scipy.sparse import eye, csr_matrix
 
 _PDE_H = csr_matrix(eye(128))
@@ -85,15 +86,15 @@ class PDE:
         self._dim = dim
         self.H = _get_pde_h(dim) * self.h
         self._full_dim_select = np.arange(self.dim)
+
     @property
     def dim(self):
         return self._dim
 
     @dim.setter
-    def dim(self,v):
-        self._dim=v
+    def dim(self, v):
+        self._dim = v
         self.H = _get_pde_h(self._dim) * self.h
-
 
     def _wrp(self, t, H, bounds=None):
         if H is None:
@@ -147,8 +148,6 @@ class PDE:
 
         return self._wrp(t, self.get_h(ij), bounds=bounds)
 
-
-
     def __call__(self, t, ijk=None, bounds=None):
         if ijk is None:
             ijk = self._full_dim_select
@@ -157,12 +156,9 @@ class PDE:
 
 class FDM:
     def __new__(cls, fun=None):
-
-
         obj = super().__new__(cls)
 
         obj._fun = fun
-
 
         return obj
 
@@ -243,7 +239,6 @@ class FDM:
         return (self._fun(t) - self._fun(t - h)) / h
 
     def __call__(self, t, h=DEFAULT_H, method="central"):
-
         return getattr(self, method)(t, h=h)
 
 
@@ -316,6 +311,12 @@ class Memo:
 
 
 __memo__ = Memo
+
+
+def _construct_fdm_arguments(x, h=DEFAULT_H):
+    b = x.shape[-1]
+    arg_matrix = np.eye(b) * h + x
+    return arg_matrix
 
 
 def pde(fun, x, h=DEFAULT_H):
@@ -391,50 +392,49 @@ class Grad(FDM):
         return z
 
 
-class Hess(Grad):
-    def central(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        lx, ly = t.shape[0], t.shape[0]
-        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+# Step 3: Numerical Hessian calculation
+def hessian(f, point, h=DEFAULT_H):
+    point = np.asarray(point)
+    n = point.size
+    H = np.zeros((n, n))
+    fp = f(point)
+    for i in range(n):
+        for j in range(i, n):
+            if i == j:
+                forward_i = point.copy()
+                backward_i = point.copy()
+                forward_i[i] += h
+                backward_i[i] -= h
+                H[i, i] = (f(forward_i) - 2 * fp + f(backward_i)) / h ** 2
+            else:
+                forward_i_j = point.copy()
+                forward_i_j[i] += h
+                forward_i_j[j] += h
 
-        t = np.atleast_1d(t)
-        lx, ly = t.shape[0], t.shape[0]
-        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+                forward_i_backward_j = point.copy()
+                forward_i_backward_j[i] += h
+                forward_i_backward_j[j] -= h
 
-        for i in range(lx):
-            o = np.zeros(ly, dtype=float)
-            o[i] = h
-            z[i] = (self._grad(t + o) - self._grad(t - o)) / (2 * h)
+                backward_i_forward_j = point.copy()
+                backward_i_forward_j[i] -= h
+                backward_i_forward_j[j] += h
 
-        return z
+                backward_i_j = point.copy()
+                backward_i_j[i] -= h
+                backward_i_j[j] -= h
 
-    def backward(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        lx, ly = t.shape[0], t.shape[0]
-        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
+                H[i, j] = H[j, i] = (f(forward_i_j) - f(forward_i_backward_j) - f(backward_i_forward_j) + f(
+                    backward_i_j)) / (4 * h ** 2)
+    return H
 
-        for i in range(lx):
-            o = np.zeros(ly, dtype=float)
-            o[i] = h
-            z[i, ...] = (self._grad.backward(t + o) - self._grad.backward(t - o)) / (
-                    2 * h
-            )
 
-        return z
+class Hess:
+    def __init__(self, fun, h=DEFAULT_H):
+        self.fun = fun
+        self.h = h
 
-    def forward(self, t, h=DEFAULT_H):
-        t = np.atleast_1d(t)
-        lx, ly = t.shape[0], t.shape[0]
-        z = np.zeros((lx, ly, *t.shape[1:]), dtype=float)
-
-        for i in range(lx):
-            o = np.zeros(ly, dtype=float)
-            o[i] = h
-            z[i, ...] = (self._grad.forward(t + o) - self._grad.forward(t - o)) / (
-                    2 * h
-            )
-
-        return z
+    def __call__(self, x):
+        return hessian(self.fun, x, h=self.h)
 
 
 def jac(fun, h=DEFAULT_H):
@@ -447,3 +447,35 @@ def jac(fun, h=DEFAULT_H):
         return z
 
     return jac_wrap
+
+def gradient(f, point, h=1e-5):
+    point = np.asarray(point)
+    grad = np.zeros_like(point)
+    for i in range(point.size):
+        point[i] += h
+        f_plus_h = f(point)
+        point[i] -= 2 * h
+        f_minus_h = f(point)
+        point[i] += h
+        grad[i] = (f_plus_h - f_minus_h) / (2 * h)
+    return grad
+
+
+
+def calculate_bnds(surface, centroid=(0., 0., 0.)):
+    cons = {'type': 'eq', 'fun': surface}
+    origin = np.zeros(3)
+    axis = np.eye(3)
+    bounds = np.zeros((2, 3))
+    i = 0
+    c = np.array(centroid, dtype=float)
+    for j, n in enumerate(axis):
+        x1 = minimize(lambda point: -1 * np.dot(n, point - c), initial_guess,
+                      constraints=cons)
+        x2 = minimize(lambda point: -1 * np.dot(-n, point - c), initial_guess,
+                      constraints=cons)
+        bounds[0][j] = x1.x[j]
+
+        bounds[1][j] = x2.x[j]
+
+    return bounds

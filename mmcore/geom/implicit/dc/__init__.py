@@ -6,25 +6,9 @@ import numpy as np
 
 import sys
 
+from mmcore.geom.implicit.tree.collapse2d import Point, Shape, Min, Max, Tree, Root, Empty, Full, Leaf, Cell, Side
+
 sys.setrecursionlimit(100000)
-Point = tuple[float, float]
-Shape = Callable[[Point], float]
-
-
-def nd_min(a, b):
-    a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
-    if a_cond and b_cond:
-        a[np.abs(a) > np.abs(b)] = b[np.abs(a) > np.abs(b)]
-        return a
-    elif a_cond:
-        a[abs(a) > np.abs(b)] = b
-        return a
-    elif b_cond:
-        b[np.abs(b) > abs(a)] = a
-        return b
-    else:
-
-        return abs_cmp(a, b, min)
 
 
 def abs_cmp(a, b, op):
@@ -128,10 +112,6 @@ def inv(a: Shape) -> Shape:
     return _inv
 
 
-Min = Point
-Max = Point
-
-
 def substract(a: Shape, b: Shape) -> Shape:
     def wrap(p: Point) -> float:
         return opSubtraction(b(p), a(p))
@@ -171,17 +151,6 @@ def test4():
     return union(test3(), rectangle((0.1, 0.1), (0.25, 0.9)))
 
 
-class Tree:
-    def __init__(self):
-        pass
-
-    @property
-    def children(self):
-        return ()
-
-    def reduce(self): ...
-
-
 def opUnion(d1, d2):
     return min(d1, d2)
 
@@ -198,62 +167,6 @@ def opXor(d1, d2):
     return max(min(d1, d2), -max(d1, d2))
 
 
-class Root(Tree):
-    __match_args__ = tuple("a,b,c,d".split(","))
-
-    def __init__(self, a, b, c, d):
-        self.a = a
-        self.b = b
-        self.c = c
-        self.d = d
-
-    @property
-    def children(self):
-        return self.a, self.b, self.c, self.d
-
-    def reduce(self):
-        return Root(self.a.reduce(), self.b.reduce(), self.c.reduce(), self.d.reduce())
-
-
-class Empty(Tree):
-    def __init__(self, node: Tree = None):
-        self.node = node
-
-    @property
-    def children(self):
-        return (self.node,)
-
-    def reduce(self):
-        return self.node.reduce()
-
-
-class Full(Tree):
-    def __init__(self, node: Tree = None):
-        self.node = node
-
-    @property
-    def children(self):
-        return (self.node,)
-
-    def reduce(self):
-
-        return self.node.reduce()
-
-
-class Leaf(Tree):
-    __match_args__ = ("data",)
-
-    def __init__(self, data):
-        self.data = data
-
-    @property
-    def children(self):
-        return ()
-
-    def reduce(self):
-        return self
-
-
 def trav(
     tree: Tree,
     cb: Callable[[Tree, Tree], None],
@@ -265,124 +178,6 @@ def trav(
             cb(tree, ch)
         else:
             trav(ch, cb)
-
-
-Cell = tuple[Min, Max]
-
-
-def buildTree(min: Min, max: Max, i: int) -> Tree:
-    if i == 0:
-        return Leaf((min, max))
-
-    xmin, ymin = min
-    xmax, ymax = max
-    xmid = (xmin + xmax) / 2
-    ymid = (ymin + ymax) / 2
-
-    a = buildTree((xmin, ymin), (xmid, ymid), i - 1)
-    b = buildTree((xmid, ymin), (xmax, ymid), i - 1)
-    c = buildTree((xmin, ymid), (xmid, ymax), i - 1)
-    d = buildTree((xmid, ymid), (xmax, ymax), i - 1)
-
-    return Root(a, b, c, d)
-
-
-def collapse(shape: Shape, tree: Tree) -> Tree:
-    """
-
-    :param shape:
-    :param tree:
-    :return:
-
-    Example
-    ----
-
-    >>> import matplotlib.pyplot as plt
-    >>> import matplotlib.patches as patches
-    >>> from mmcore.geom.implicit.dc import *
-
-    >>> def drawLeaf(color, cell):
-    ...     (xmin, ymin), (xmax, ymax) = cell
-    ...     rect = patches.Rectangle((xmin, ymin), xmax - xmin - 0.005, ymax - ymin - 0.005,
-    ...                              linewidth=1, edgecolor=color, facecolor='none')
-    ...     return rect
-
-    >>> def draw(res):
-    ...     fig, ax = plt.subplots()
-    ...
-    ...     def draw_inner(tree:Root, quad):
-    ...         if isinstance(tree, Empty):
-    ...             return
-    ...         elif isinstance(tree, Full):
-    ...             ax.add_patch(drawLeaf('black', quad))
-    ...         elif isinstance(tree, Leaf):
-    ...             ax.add_patch(drawLeaf('lightgreen', quad))
-    ...         else:
-    ...             (xmin, ymin), (xmax, ymax) = quad
-    ...             xmid = (xmin + xmax) / 2
-    ...             ymid = (ymin + ymax) / 2
-    ...
-    ...             draw_inner(tree.a, ((xmin, ymin), (xmid, ymid)))
-    ...             draw_inner(tree.b, ((xmid, ymin), (xmax, ymid)))
-    ...             draw_inner(tree.c, ((xmin, ymid), (xmid, ymax)))
-    ...             draw_inner(tree.d, ((xmid, ymid), (xmax, ymax)))
-    ...     _tree=buildTree((0, 0), (1, 1), res) # Построение дерева, res - резолюшн, сколько раз будет делиться QuadTree
-    ...     _tree = collapse(hi(), _tree)   # collapse, перестраивает дерево под шейп. hi - sdf шейп
-
-    ...     draw_inner(tree, ((0, 0), (1, 1)))
-    ...     ax.set_aspect('equal')
-    ...     ax.axis('off')
-    ...     plt.tight_layout()
-    ...     plt.show()
-    ...
-
-    >>> for res in range(1, 6):
-    ...     draw(res)
-
-    """
-
-    def _collapse(leaf: Leaf) -> Tree:
-        (xmin, ymin), (xmax, ymax) = leaf.data
-        values = [shape((x, y)) for x in [xmin, xmax] for y in [ymin, ymax]]
-
-        if all(v < 0 for v in values):
-            return Full(leaf)
-        elif all(v >= 0 for v in values):
-            return Empty(leaf)
-        else:
-            return leaf
-
-    def _collapse_root(root: Root) -> Tree:
-        a = collapse(shape, root.a)
-        b = collapse(shape, root.b)
-        c = collapse(shape, root.c)
-        d = collapse(shape, root.d)
-
-        if (
-            isinstance(a, Empty)
-            and isinstance(b, Empty)
-            and isinstance(c, Empty)
-            and isinstance(d, Empty)
-        ):
-            return Empty(root)
-        elif (
-            isinstance(a, Full)
-            and isinstance(b, Full)
-            and isinstance(c, Full)
-            and isinstance(d, Full)
-        ):
-            return Full(root)
-        else:
-            return Root(a, b, c, d)
-
-    if isinstance(tree, Leaf):
-        return _collapse(tree)
-    elif isinstance(tree, Root):
-        return _collapse_root(tree)
-    else:
-        return tree
-
-
 def foldTree(tree: Tree, quad: Cell, root, empty, full, leaf) -> float:
     if isinstance(tree, Root):
         (xmin, ymin), (xmax, ymax) = quad
@@ -403,36 +198,6 @@ def foldTree(tree: Tree, quad: Cell, root, empty, full, leaf) -> float:
         return full(quad)
     elif isinstance(tree, Leaf):
         return leaf(quad)
-
-
-from enum import Enum, auto
-
-
-class Side(Enum):
-    Upper = auto()
-    Lower = auto()
-    Left = auto()
-    Right = auto()
-
-
-lut = [
-    [],  # 0000
-    [(Side.Upper, Side.Right)],  # 000d
-    [(Side.Left, Side.Upper)],  # 00c0
-    [(Side.Left, Side.Right)],  # 00cd
-    [(Side.Right, Side.Lower)],  # 0b00
-    [(Side.Upper, Side.Lower)],  # 0b0d
-    [(Side.Right, Side.Lower), (Side.Left, Side.Upper)],  # 0bc0
-    [(Side.Left, Side.Lower)],  # 0bcd
-    [(Side.Lower, Side.Left)],  # a000
-    [(Side.Lower, Side.Left), (Side.Upper, Side.Right)],  # a00d
-    [(Side.Lower, Side.Upper)],  # a0c0
-    [(Side.Lower, Side.Right)],  # a0cd
-    [(Side.Right, Side.Left)],  # ab00
-    [(Side.Upper, Side.Left)],  # ab0d
-    [(Side.Right, Side.Upper)],  # abc0
-    [],
-]  # abcd
 
 
 def index(shape: Shape, cell: Cell) -> int:
@@ -483,9 +248,6 @@ def zero(shape: Shape, a: Point, b: Point) -> Point:
             return x, y
 
         return zero_(0.5, 0.25, 10)
-
-
-Edge = tuple[Point, Point]
 
 
 def contours(shape, cell):
@@ -575,6 +337,9 @@ def feature(shape, cell):
         return None
 
 
+Edge = tuple[Point, Point]
+
+
 def dc(shape: Shape, tree: Tree) -> list[Edge]:
     return faceProc(shape, tree)
 
@@ -626,3 +391,23 @@ def edgeProcV(shape, tree1, tree2):
         return edgeProcV(shape, a, c) + edgeProcV(shape, b, d)
     else:
         return []
+
+
+lut = [
+    [],  # 0000
+    [(Side.Upper, Side.Right)],  # 000d
+    [(Side.Left, Side.Upper)],  # 00c0
+    [(Side.Left, Side.Right)],  # 00cd
+    [(Side.Right, Side.Lower)],  # 0b00
+    [(Side.Upper, Side.Lower)],  # 0b0d
+    [(Side.Right, Side.Lower), (Side.Left, Side.Upper)],  # 0bc0
+    [(Side.Left, Side.Lower)],  # 0bcd
+    [(Side.Lower, Side.Left)],  # a000
+    [(Side.Lower, Side.Left), (Side.Upper, Side.Right)],  # a00d
+    [(Side.Lower, Side.Upper)],  # a0c0
+    [(Side.Lower, Side.Right)],  # a0cd
+    [(Side.Right, Side.Left)],  # ab00
+    [(Side.Upper, Side.Left)],  # ab0d
+    [(Side.Right, Side.Upper)],  # abc0
+    [],
+]  # abcd

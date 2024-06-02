@@ -3,12 +3,11 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import minimize
 
-from mmcore.geom.implicit.dc import buildTree, collapse, Empty, Full, Leaf
-
+from mmcore.geom.implicit.tree.collapse2d import Empty, Full, Leaf, build_tree2d, collapse2d
 
 
 class ImplicitTree2D:
-    def __init__(self, shape: 'Implicit2D', depth=3):
+    def __init__(self, shape: 'Implicit2D', depth=3, bounds=None):
         self.full = []
         self.empty = []
         self.border = []
@@ -16,13 +15,14 @@ class ImplicitTree2D:
         self.shape = shape
         self._tree = None
         self._collapsed_tree = None
+        self.bounds = getattr(self.shape, "bounds", lambda: ((-5., -5.), (5., 5.)))() if bounds is None else bounds
 
     def build_tree(self):
-        minb, maxb = self.shape.bounds()
-        self._tree = buildTree(minb, maxb, self.depth)
+        minb, maxb = self.bounds
+        self._tree = build_tree2d(minb, maxb, self.depth)
 
     def collapse(self):
-        self._collapsed_tree = collapse(getattr(self.shape,'implicit',self.shape), self._tree)
+        self._collapsed_tree = collapse2d(getattr(self.shape, 'implicit', self.shape), self._tree)
 
     def clear(self):
         self.full.clear()
@@ -55,8 +55,8 @@ class ImplicitTree2D:
             self.build_node(tree.c, ((xmin, ymid), (xmid, ymax)))
             self.build_node(tree.d, ((xmid, ymid), (xmax, ymax)))
 
-def _find_feature(sdfs, node, node_norm):
 
+def _find_feature(sdfs, node, node_norm):
     def f(x):
         return max(abs(sdfs[0].implicit(x)), abs(sdfs[1].implicit(x)))
 
@@ -71,10 +71,12 @@ def _find_feature(sdfs, node, node_norm):
         )
 
         return np.isclose(res.fun, 0), res
+
+
 def implicit_find_features(sdfs, nodes, rtol=None, atol=None):
     node = nodes[0]
     node_norm = np.linalg.norm([node[1][0] - node[0][0], node[1][1] - node[0][1]])
-    kws=dict(
+    kws = dict(
 
     )
     if atol:
@@ -87,8 +89,7 @@ def implicit_find_features(sdfs, nodes, rtol=None, atol=None):
 
         if success:
 
-            if last is not None and np.allclose(last.x, res.x,**kws):
+            if last is not None and np.allclose(last.x, res.x, **kws):
                 continue
             last = res
             yield res.x
-
