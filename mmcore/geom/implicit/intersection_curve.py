@@ -59,7 +59,8 @@ class TraceIntersectionImplicitCurve:
         self.initial_point = self.rebuild_tree()
 
     def build_points(self):
-
+        #TODO сделать более адекватное и простое семплирование точек, можно просто грид по bounds.
+        # Построение дерева кажется пока пустой тратой времени особенно для деталей с тонкими стенками и множеством пересечений
         return np.array([self.crv.closest_point(i) for i in np.average(self.crv.surf1.tree.border+self.crv.surf1.tree.empty, axis=1)])
 
 
