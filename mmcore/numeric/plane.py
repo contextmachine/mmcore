@@ -6,7 +6,10 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
-from mmcore.geom.vec.vec_speedups import scalar_dot,dot_vec_x_array,scalar_norm,scalar_cross,scalar_unit
+from mmcore.geom.vec.vec_speedups import scalar_dot,dot_vec_x_array,scalar_norm,scalar_cross,scalar_unit,vector_projection
+
+
+
 
 def inverse_evaluate_plane(pln, point):
     return dot_vec_x_array(point - pln[0], pln[1:])
@@ -151,16 +154,7 @@ def _mycross(a, b):
     return np.array([ay * bz - by * az, az * bx - bz * ax, ax * by - bx * ay])
 
 
-def vector_projection(a, b):
-    ua, ub = scalar_unit(a), scalar_unit(b)
 
-    return ub * scalar_dot(ua, ub) * scalar_norm(a)
-
-
-def closest_point_on_line(line, point):
-    start, end = line
-    direction = end - start
-    return start + vector_projection(point - start, direction)
 
 
 def plane_plane_intersect(self, other):

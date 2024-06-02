@@ -3,11 +3,15 @@ from __future__ import annotations
 import abc
 from typing import Union
 import numpy as np
+from numpy._typing import NDArray
 
 from mmcore.geom.implicit.marching import implicit_curve_points
+from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
+from mmcore.geom.vec.vec_speedups import scalar_norm
 
 from mmcore.numeric.fdm import fdm
 from mmcore.geom.curves.knot import interpolate_curve
+
 
 def op_union(d1, d2):
     return min(d1, d2)
@@ -51,7 +55,7 @@ def normal_from_function2d(f, d=0.0001):
         return res
 
     return norm
-
+from mmcore.numeric.fdm import gradient
 
 def normal_from_function3d(f, d=0.0001):
     """Given a sufficiently smooth 3d function, f, returns a function approximating of the gradient of f.
@@ -64,7 +68,7 @@ def normal_from_function3d(f, d=0.0001):
         res[0] = (f(xyz + D[0]) - f(xyz - D[0])) / 2 / d
         res[1] = (f(xyz + D[1]) - f(xyz - D[1])) / 2 / d
         res[2] = (f(xyz + D[2]) - f(xyz - D[2])) / 2 / d
-        res / np.linalg.norm(res)
+        res / scalar_norm(res)
 
         return res
 
@@ -78,7 +82,7 @@ class Implicit:
         if autodiff:
             self._normal = self.normal_from_function(self.implicit)
         self.dxdy = fdm(self.implicit)
-
+        self._tree = None
         self._vimplicit = np.vectorize(self.implicit, signature="()->(i)")
 
     def implicit(self, v) -> float:
@@ -108,27 +112,45 @@ class Implicit:
         return self._vimplicit(pt)
 
     def __call__(self, v):
-        v=np.array(v) if not isinstance(v, np.ndarray) else v
-        if v.ndim==1:
+        v = np.array(v) if not isinstance(v, np.ndarray) else v
+        if v.ndim == 1:
 
             return self.implicit(v)
         else:
             return self.vimplicit(v)
+
+    def bounds(self) -> Union[
+        tuple[tuple[float, float], tuple[float, float]], tuple[tuple[float, float, float], tuple[float, float, float]]]:
+        """
+        BBox
+        """
+        ...
+
+    def build_tree(self, depth=3):
+        ...
+
+    @property
+    def tree(self) -> Union[ImplicitTree2D, ImplicitTree3D]:
+        if self._tree is None:
+            self.build_tree()
+        return self._tree
+
+
+def is_implicit(obj):
+    return getattr(obj, 'is_implicit', False)
+
+
+class Implicit2D(Implicit):
+    is_implicit = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def bounds(self) -> tuple[tuple[float, float], tuple[float, float]]:
         """
         BBox
         """
         ...
-
-
-def is_implicit(obj):
-    return getattr(obj,'is_implicit',False)
-class Implicit2D(Implicit):
-    is_implicit=True
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
 
     @staticmethod
     def normal_from_function(fun, d=0.0001):
@@ -139,6 +161,7 @@ class Implicit2D(Implicit):
 
     def union(self, other: Implicit2D):
         return Union2D(self, other)
+
     def intersection_with_curve(self, curve):
         """
 
@@ -148,8 +171,7 @@ class Implicit2D(Implicit):
 
         """
 
-
-    def intersection(self, other:Union[Implicit2D,Implicit3D]):
+    def intersection(self, other: Union[Implicit2D, Implicit3D]):
         return Intersection2D(self, other)
 
     def substraction(self, other: Implicit2D):
@@ -186,13 +208,15 @@ class Implicit2D(Implicit):
 
         return np.array(res, dtype=float)
 
-    def to_bspline(self, degree=3, step:float=0.5):
-
-        cpts,knots,deg=interpolate_curve(self.points(step=step),degree=degree)
-        z=np.zeros((*cpts.shape[:-1],3),dtype=float)
-        z[...,:2]=cpts
+    def to_bspline(self, degree=3, step: float = 0.5):
+        cpts, knots, deg = interpolate_curve(self.points(step=step), degree=degree)
+        z = np.zeros((*cpts.shape[:-1], 3), dtype=float)
+        z[..., :2] = cpts
         from mmcore.geom.curves.bspline import NURBSpline
-        return NURBSpline(control_points=z, knots=np.array(knots,float), degree=degree)
+        return NURBSpline(control_points=z, knots=np.array(knots, float), degree=degree)
+
+    def build_tree(self, depth=3):
+        self._tree = ImplicitTree2D(self.implicit, depth, bounds=self.bounds())
 
 
 class Implicit3D(Implicit):
@@ -224,18 +248,30 @@ class Implicit3D(Implicit):
     def __or__(self, other: Implicit3D):
         return self.union(other)
 
+    def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """
+        BBox
+        """
+        ...
+    def build_tree(self, depth=3):
+        self._tree = ImplicitTree3D(self.implicit, depth, bounds=self.bounds())
+        self._tree.build(depth=depth)
+
+
 
 class ImplicitOperator2D(Implicit2D):
     def __init__(self, a: Implicit2D, b: Implicit2D, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.a = a
         self.b = b
+        self._bounds = None
+        self.solve_bounds()
 
     @abc.abstractmethod
     def implicit(self, v) -> float: ...
 
-    def features(self):
-        self.points(max_points=64, step=0.4)
+    def solve_bounds(self):
+        ...
 
 
 class Union2D(Implicit2D):
@@ -243,17 +279,22 @@ class Union2D(Implicit2D):
         super().__init__()
         self.a = a
         self.b = b
+        self._bounds = None
+        self.solve_bounds()
 
     def implicit(self, v):
         return np.array(op_union(self.a.implicit(v), self.b.implicit(v)))
 
-    def bounds(self):
+    def solve_bounds(self):
         (axmin, aymin), (axmax, aymax) = self.a.bounds()
         (bxmin, bymin), (bxmax, bymax) = self.b.bounds()
-        return (min(axmin, bxmin), min(aymin, bymin)), (
+        self._bounds = (min(axmin, bxmin), min(aymin, bymin)), (
             max(axmax, bxmax),
             max(aymax, bymax),
         )
+
+    def bounds(self):
+        return self._bounds
 
 
 class Union3D(Implicit3D):
@@ -261,20 +302,25 @@ class Union3D(Implicit3D):
         super().__init__()
         self.a = a
         self.b = b
+        self._bounds = None
+        self.solve_bounds()
 
     def implicit(self, v):
         return np.array(op_union(self.a.implicit(v), self.b.implicit(v)))
 
-    def bounds(self):
+    def solve_bounds(self):
         (axmin, aymin, azmin), (axmax, aymax, azmax) = self.a.bounds()
         (bxmin, bymin, bzmin), (bxmax, bymax, bzmax) = self.b.bounds()
-        return (min(axmin, bxmin),
-                min(aymin, bymin),
-                min(azmin, bzmin)), (
+        self._bounds = (min(axmin, bxmin),
+                        min(aymin, bymin),
+                        min(azmin, bzmin)), (
             max(axmax, bxmax),
             max(aymax, bymax),
             max(azmax, bzmax),
         )
+
+    def bounds(self):
+        return self._bounds
 
 
 class Intersection2D(Implicit2D):
@@ -282,17 +328,22 @@ class Intersection2D(Implicit2D):
         super().__init__()
         self.a = a
         self.b = b
+        self._bounds = None
+        self.solve_bounds()
 
     def implicit(self, v):
         return np.array(op_intersection(self.a.implicit(v), self.b.implicit(v)))
 
-    def bounds(self):
+    def solve_bounds(self):
         (axmin, aymin), (axmax, aymax) = self.a.bounds()
         (bxmin, bymin), (bxmax, bymax) = self.b.bounds()
-        return (max(axmin, bxmin), max(aymin, bymin)), (
+        self._bounds(max(axmin, bxmin), max(aymin, bymin)), (
             min(axmax, bxmax),
             min(aymax, bymax),
         )
+
+    def bounds(self):
+        return self._bounds
 
 
 class Intersection3D(Implicit3D):
@@ -300,20 +351,25 @@ class Intersection3D(Implicit3D):
         super().__init__()
         self.a = a
         self.b = b
+        self._bounds = None
+        self.solve_bounds()
+
+    def solve_bounds(self):
+        (axmin, aymin, azmin), (axmax, aymax, azmax) = self.a.bounds()
+        (bxmin, bymin, bzmin), (bxmax, bymax, bzmax) = self.b.bounds()
+        self._bounds = (max(axmin, bxmin),
+                        max(aymin, bymin),
+                        max(azmin, bzmin)), (
+            min(axmax, bxmax),
+            min(aymax, bymax),
+            min(azmax, bzmax),
+        )
 
     def implicit(self, v):
         return np.array(op_intersection(self.a.implicit(v), self.b.implicit(v)))
 
     def bounds(self):
-        (axmin, aymin, azmin), (axmax, aymax, azmax) = self.a.bounds()
-        (bxmin, bymin, bzmin), (bxmax, bymax, bzmax) = self.b.bounds()
-        return (max(axmin, bxmin),
-                max(aymin, bymin),
-                max(azmin, bzmin)), (
-            min(axmax, bxmax),
-            min(aymax, bymax),
-            min(azmax, bzmax),
-        )
+        return self._bounds
 
 
 class Sub2D(Implicit2D):
@@ -340,5 +396,3 @@ class Sub3D(Implicit3D):
 
     def bounds(self):
         return self.a.bounds()
-
-
