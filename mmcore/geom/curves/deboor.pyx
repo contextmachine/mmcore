@@ -37,7 +37,7 @@ cdef xyz cevaluate_nurbs(double t, double[:,:] cpts, double[:] knots, double[:] 
     cdef double b;
     cdef double crd;
     cdef double sum_of_weights =0.;
-
+    cdef size_t i;
     cdef xyz result=xyz(0.,0.,0.);
     for i in range(n):
         b = cdeboor(knots, t, i, degree)* weights[i]
