@@ -1,4 +1,3 @@
-
 import numpy as np
 from scipy.spatial import KDTree
 
@@ -17,7 +16,7 @@ from mmcore.geom.implicit.marching import (
 from mmcore.geom.implicit import Implicit3D
 
 
-class IntersectionImplicitCurve(Implicit):
+class ImplicitIntersectionCurve(Implicit):
     def __init__(self, surf1: Implicit3D, surf2: Implicit3D, tol=1e-6):
         super().__init__(autodiff=False)
         self.surf1 = surf1
@@ -45,39 +44,48 @@ class IntersectionImplicitCurve(Implicit):
         return intersection_curve_point(self.surf1, self.surf2, v, self.surf1.normal, self.surf2.normal, tol=self.tol)
 
 
+class ImplicitIntersectionCurveIterator:
+    """
+            Find all intersection curves between two implicit bodies.
+
+            Note
+            ----
+            When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~0.150 sec,
+            (on my machine this is about 10 times slower than Rhinoceros8, which of course can be considered a victory,
+            since we achieve this speed in python at runtime with classes defined on the fly).
+            If we just trace in a loop from the desired points it will be ~0.130 sec.
+            This means that replacing KDTree with a more specialized data structure will give ~ -0.020 to speed at best.
+            This is not insignificant, but most of the time is spent on marching, not on querying points and rebuilding the tree.
 
 
-class TraceIntersectionImplicitCurve:
-    def __init__(self, crv: IntersectionImplicitCurve, workers=-1):
+
+            """
+
+    def __init__(self, crv: ImplicitIntersectionCurve, step=0.1, workers=-1, **kwargs):
         self.crv = crv
 
         self.points = self.build_points()
         self._kdtree = None
-        self.pop_queue = []
+        self.pop_queue = set()
         self.workers = workers
         self.traces = []
         self.initial_point = self.rebuild_tree()
+        self.step = step
+        self._kws = kwargs
 
     def build_points(self):
         #TODO сделать более адекватное и простое семплирование точек, можно просто грид по bounds.
         # Построение дерева кажется пока пустой тратой времени особенно для деталей с тонкими стенками и множеством пересечений
-        return np.array([self.crv.closest_point(i) for i in np.average(self.crv.surf1.tree.border+self.crv.surf1.tree.empty, axis=1)])
-
+        return np.array([self.crv.closest_point(i) for i in
+                         np.average(self.crv.surf1.tree.border + self.crv.surf1.tree.empty, axis=1)])
 
     def trace_curve_point(self, point, step):
-
-        self.add_to_pop(point, step)
-
-    def add_to_pop(self, point, radius):
-        res = self._kdtree.query_ball_point(point, radius, workers=self.workers)
-
-        sorted_ixs = np.sort(res)
-        self.pop_queue.extend(sorted_ixs)
-
+        res = self._kdtree.query_ball_point(point, step, workers=self.workers)
+        self.pop_queue.update({*res})
 
     def rebuild_tree(self):
 
-        ixs = np.array(np.unique(self.pop_queue), dtype=int)
+        ixs = np.array(tuple(self.pop_queue), dtype=int)
         self.points = np.delete(self.points, ixs, axis=0)
         self.initial_point = None
 
@@ -95,42 +103,40 @@ class TraceIntersectionImplicitCurve:
         self.pop_queue.clear()
         return self.initial_point
 
-    def _build_one(self, step=0.1, **kwargs):
+    def __next__(self):
 
         if self.initial_point is not None:
-            self.traces.append(marching_intersection_curve_points(self.crv.surf1.implicit, self.crv.surf2.implicit,
-                                                                  start_point=self.initial_point,
-                                                                  grad_f1=self.crv.surf1.normal,
-                                                                  grad_f2=self.crv.surf2.normal,
-                                                                  step=step,
-                                                                  point_callback=lambda pt: self.trace_curve_point(pt,
-                                                                                                                   step=step) if self._kdtree is not None else None,
-                                                                  **kwargs).tolist())
+            res = marching_intersection_curve_points(self.crv.surf1.implicit, self.crv.surf2.implicit,
+                                                     start_point=self.initial_point,
+                                                     grad_f1=self.crv.surf1.normal,
+                                                     grad_f2=self.crv.surf2.normal,
+                                                     step=self.step,
+                                                     point_callback=lambda pt: self.trace_curve_point(pt,
+                                                                                                      step=self.step) if self._kdtree is not None else None,
+                                                     **self._kws).tolist()
             self.initial_point = self.rebuild_tree()
+            return res
 
-    def build(self, step=0.1, **kwargs):
-        """
-        Find all intersection curves between two implicit bodies.
+        else:
+            raise StopIteration
 
-        Note
-        ----
-        When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~0.150 sec,
-        (on my machine this is about 10 times slower than Rhinoceros8, which of course can be considered a victory,
-        since we achieve this speed in python at runtime with classes defined on the fly).
-        If we just trace in a loop from the desired points it will be ~0.130 sec.
-        This means that replacing KDTree with a more specialized data structure will give ~ -0.020 to speed at best.
-        This is not insignificant, but most of the time is spent on marching, not on querying points and rebuilding the tree.
+    def __iter__(self):
+        return self
 
 
-        :param step:
-        :param kwargs:
-        :return:
-        """
-        while self.initial_point is not None:
-            self._build_one(step=step, **kwargs)
-        return self.traces
+def iterate_curves(curve: ImplicitIntersectionCurve, step=0.1, workers=-1, **kwargs):
+    return ImplicitIntersectionCurveIterator(curve, step=step, workers=workers, **kwargs)
+
+
+from mmcore.geom.curves.knot import interpolate_curve
+
+
+def iterate_curves_as_nurbs(curve: ImplicitIntersectionCurve, step=0.1, degree=3, workers=-1, **kwargs):
+    for pts in ImplicitIntersectionCurveIterator(curve, step=step, workers=workers, **kwargs):
+        yield interpolate_curve(pts, degree=degree)
+
+
 if __name__ == '__main__':
-
 
     class Cylinder(Implicit3D):
         def __init__(
@@ -141,7 +147,6 @@ if __name__ == '__main__':
             self.start = self.origin = np.array(origin)
             self.r = r
             self.end = np.array(self.origin + self.axis)
-
 
         def _normal(self, v):
             pt = closest_point_on_ray((self.origin, self.axis), v)
@@ -219,11 +224,14 @@ if __name__ == '__main__':
         print(err)
     print(time.time() - s)
 
-    crv = IntersectionImplicitCurve(t1, t2)
+    crv = ImplicitIntersectionCurve(t1, t2)
     crv.build_tree()
     s = time.time()
+    res = []
+    for item in iterate_curves(crv):
+        res.append(item)
+    #trace = ImplicitIntersectionCurveIterator(crv)
 
-    trace = TraceIntersectionImplicitCurve(crv)
-    res=trace.build()
     print(time.time() - s)
+
     print(len(res))
