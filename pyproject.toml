@@ -46,4 +46,4 @@ enable = true
 
 [tool.poetry-dynamic-versioning.version]
 source = "tag"
-pattern = "^v(?P<version>.*)$"
+format = "{tag}.dev{distance}+{branch}.{sha}"
