@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.24.1.post66.dev0+90e5681"
+version = "0.27.1"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -13,18 +13,14 @@ packages = [{ include = "./mmcore" }]
 
 
 [tool.poetry.dependencies]
-numpy = { version = "^1.24.1" }
 python = ">=3.9,<4.0"
+numpy = { version = "^1.24.1" }
 earcut = { version = "^1.1.5" }
-python-dotenv = "^1.0.0"
 scipy = ">=1.11.1,<1.12.0"
 pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
-cython = "*"
-cython-lint = "*"
-toml = "^0.10.2"
-platformdirs = "^4.2.0"
-importlib-metadata = { version = "^1.0.0", python = "<3.8" }
+
+
 
 
 
@@ -37,13 +33,16 @@ script = 'build.py'
 matplotlib = { version = "^3.8.3", optional = true }
 pydoc-markdown = {version = "^4.8.2", optional = true}
 ipython = {version = "*", optional = true}
+cython = "*"
+cython-lint = "*"
+python-dotenv = "^1.0.0"
 
 [tool.cython-lint]
 max-line-length = 140
 ignore = ['E503', 'E504']
 
 [tool.poetry-dynamic-versioning]
-enable = false
+enable = true
 
 [tool.poetry-dynamic-versioning.version]
 source = "tag"
