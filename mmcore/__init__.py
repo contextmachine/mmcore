@@ -1,18 +1,8 @@
-TOLERANCE = 1e-06
+try:
+    from importlib.metadata import version
+except ImportError:
+    # For Python<3.8, use importlib-metadata package
+    # noinspection PyUnresolvedReferences
+    from importlib_metadata import version
 
-class VersionInfo(str):
-
-    def __new__(cls, val):
-        self = super().__new__(cls)
-        self._value = val
-        return self
-
-    def __str__(self):
-        return str.__str__(self._value)
-
-    def __repr__(self):
-        return str.__str__(self._value)
-
-    def __call__(self):
-        return self._value
-__version__ = VersionInfo('0.27.1')
+__version__ = version("your-package-name")
