@@ -43,6 +43,7 @@ ignore = ['E503', 'E504']
 
 [tool.poetry-dynamic-versioning]
 enable = true
+vcs = "git"
 
 [tool.poetry-dynamic-versioning.version]
 source = "tag"
