@@ -1,12 +1,12 @@
-import numpy as np
+from typing import Any
 
-from mmcore.ds.cdll import CDLL
+
 
 from mmcore.geom.vec import *
 import numpy as np
 from earcut import earcut
 
-from mmcore.func import vectorize
+
 
 
 def ecut(self) -> tuple:
@@ -99,7 +99,7 @@ polygon_area_vectorized = np.vectorize(polygon_area,
                                        excluded=['cast_to_numpy'],
                                        signature='(i,n)->()')
 
-@vectorize(signature='(i,j)->(k,j)')
+
 def to_polygon_area(boundary: np.ndarray):
     """
     Добавляет первую точку контура в конец чтобы соответствовать требованиям polygon_area
@@ -518,8 +518,6 @@ class Polygon(object):
         return polygon_area(to_polygon_area(self.corners))
 
 
-from mmcore.geom.intersections.predicates import intersects_segments
-
 
 def intersect(s1, s2, c1, c2):
     """Test the intersection between two lines (two pairs of coordinates for two points).
@@ -622,3 +620,58 @@ class PolygonCollection(list[Polygon]):
                     break
 
             return lst, lst2
+
+
+
+
+
+
+from mmcore.numeric.aabb import aabb,aabb_overlap,point_in_aabb
+
+
+
+
+def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray[Any, np.dtype[np.bool_]]:
+
+    return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+
+
+
+
+def intersects_segments(ab: np.ndarray,  cd: np.ndarray,ab_bbox=None, cd_bbox=None) -> bool:
+    if ab_bbox is None:
+        ab_bbox=aabb(ab)
+    if cd_bbox is None:
+        cd_bbox=aabb(cd)
+    if not aabb_overlap(ab_bbox,cd_bbox):
+        return False
+    a, b = ab
+    c, d = cd
+    return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
+
+
+def segments_by_loop(loop, start_index=0):
+    return np.array([(i, (i + 1) % len(loop)) for i in range(len(loop))],dtype=np.int32)+start_index
+
+def point_in_polygon(points: np.ndarray,point: np.ndarray,segments=None, poly_aabb=None):
+
+    if poly_aabb is None:
+        poly_aabb=aabb(points)
+
+    if not point_in_aabb(poly_aabb,point):
+        return False
+    if np.allclose(points[0],points[-1]):
+        points=points[1:]
+    if segments is None:
+        segments = segments_by_loop(points)
+    segment=np.array([point,point+poly_aabb[1]-poly_aabb[0]])
+
+    bbox_segm=aabb(segment)
+    cnt=0
+    for pts in points[segments]:
+        if intersects_segments(pts, segment,cd_bbox=bbox_segm):
+            cnt+=1
+    return cnt % 2 == 1
+
+import numpy as np

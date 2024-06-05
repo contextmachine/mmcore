@@ -74,6 +74,21 @@ def normal_from_function3d(f, d=0.0001):
 
     return norm
 
+class NpCache:
+    def __init__(self, func):
+        self._cache=dict()
+        self.func=func
+    def clear(self):
+        self._cache.clear()
+    def __call__(self, arg):
+        key=repr(arg)
+        if key in self._cache:
+            return self._cache[key]
+
+        res=self.func(arg)
+        self._cache[key]=res
+        return res
+
 
 class Implicit:
 
@@ -83,7 +98,11 @@ class Implicit:
             self._normal = self.normal_from_function(self.implicit)
         self.dxdy = fdm(self.implicit)
         self._tree = None
+        #self.implicit = NpCache(self.implicit)
         self._vimplicit = np.vectorize(self.implicit, signature="()->(i)")
+
+    def invalidate_cache(self):
+        self.implicit.clear()
 
     def implicit(self, v) -> float:
         ...

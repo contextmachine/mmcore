@@ -12,6 +12,13 @@ def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
 
 
+def point_in_aabb(bbox,point):
+    if bbox.shape[-1]==2:
+        return (bbox[0][0] <= point[0] <= bbox[1][0] and
+                bbox[0][1] <= point[1] <= bbox[1][1] )
+    return (bbox[0][0] <= point[0] <= bbox[1][0] and
+            bbox[0][1] <= point[1] <= bbox[1][1] and
+            bbox[0][2] <= point[2] <= bbox[1][2])
 
 def aabb_overlap(
     box1: np.ndarray[Any, np.dtype[float]], box2: np.ndarray[Any, np.dtype[float]]
@@ -31,6 +38,14 @@ def aabb_overlap(
         :rtype: bool
         * where K is the number of dims. For example in 3d case (x,y,z) K=3.
     """
+    if box1.shape[-1]==2:
+        return (
+                box1[0][0] <= box2[1][0]
+                and box1[1][0] >= box2[0][0]
+                and box1[0][1] <= box2[1][1]
+                and box1[1][1] >= box2[0][1]
+
+        )
     return (
         box1[0][0] <= box2[1][0]
         and box1[1][0] >= box2[0][0]
