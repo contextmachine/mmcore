@@ -425,7 +425,7 @@ def evaluate_sectional_curvature(derivative_u,
         print(e)
         return np.array([j for i in [0.0] * 3 for j in [i]])
 
-def curve_bound_points(curve, bounds=None, tol=1e-5):
+def curve_bound_points(curve, bounds=None, tol=1e-2):
     """
     Returns a array of parameters whose evaluation gives you a set of points at least sufficient
     for correct estimation of the AABB(Axis-Aligned Bounding Box) of the curve.
@@ -445,20 +445,26 @@ def curve_bound_points(curve, bounds=None, tol=1e-5):
     t_values = []
 
     def solve_interval(f, bnds):
+
         f_min, _ = iterative_divide_and_conquer_min(f, bnds, tol=tol)
         f_max, _ = iterative_divide_and_conquer_min(lambda t: -f(t), bnds, tol=tol)
         return f_min, f_max
 
     curve_start, curve_end = curve.interval() if bounds is None else bounds
-    if (curve_end - curve_start) > 1.0:
-        for start, end in divide_interval(curve_start, curve_end, step=1.0):
-            t_values.extend(solve_interval(t_x, (start, end)))
-            t_values.extend(solve_interval(t_y, (start, end)))
-            t_values.extend(solve_interval(t_z, (start, end)))
-    else:
-        t_values.extend(solve_interval(t_x, (curve_start, curve_end)))
-        t_values.extend(solve_interval(t_y, (curve_start, curve_end)))
-        t_values.extend(solve_interval(t_z, (curve_start, curve_end)))
+    #if (curve_end - curve_start) > 1.0:
+    #    for start, end in divide_interval(curve_start, curve_end, step=1.0):
+    #        #solve_interval(t_x, (start, end))
+    #        t_values.extend(solve_interval(t_x, (start, end)))
+    #        t_values.extend(solve_interval(t_y, (start, end)))
+    #        t_values.extend(solve_interval(t_z, (start, end)))
+    #else:
+    #    t_values.extend(solve_interval(t_x, (curve_start, curve_end)))
+    #    t_values.extend(solve_interval(t_y, (curve_start, curve_end)))
+    #    t_values.extend(solve_interval(t_z, (curve_start, curve_end)))
+    t_values.extend(solve_interval(t_x, (curve_start, curve_end)))
+    t_values.extend(solve_interval(t_y, (curve_start, curve_end)))
+    t_values.extend(solve_interval(t_z, (curve_start, curve_end)))
+
     return np.unique(np.array([curve_start, *t_values, curve_end]))
 
 

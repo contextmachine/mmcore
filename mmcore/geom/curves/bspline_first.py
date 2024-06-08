@@ -1,114 +1,280 @@
 import numpy as np
-DEFAULT_H = 1e-5
 
 
-def fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
-    def wrp(t):
-        if abs(bounds[0] - t) <= h:
-            return (f(t + h) - f(t)) / h
-        elif abs(bounds[1] - t) <= h:
-            return (f(t) - f(t - h)) / h
+def find_span(n, p, u, U):
+    """
+    Determine the knot span index.
+    """
+    if u == U[n + 1]:
+        return n  # Special case
+    low = p
+    high = n + 1
+    mid = (low + high) // 2
+
+    while u < U[mid] or u >= U[mid + 1]:
+        if u < U[mid]:
+            high = mid
         else:
-            return (f(t + h) - f(t - h)) / (2 * h)
+            low = mid
+        mid = (low + high) // 2
+    return mid
 
-    return wrp
+
+def basis_funs(i, u, p, U):
+    """
+    Compute the nonvanishing basis functions.
+    """
+    N = [0.0] * (p + 1)
+    left = [0.0] * (p + 1)
+    right = [0.0] * (p + 1)
+    N[0] = 1.0
+
+    for j in range(1, p + 1):
+        left[j] = u - U[i + 1 - j]
+        right[j] = U[i + j] - u
+        saved = 0.0
+
+        for r in range(j):
+            temp = N[r] / (right[r + 1] + left[j - r])
+            N[r] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+
+        N[j] = saved
+
+    return N
 
 
-class BSpline:
+def curve_point(n, p, U, P, u):
+    """
+    Compute a point on a B-spline curve.
+
+    Parameters:
+    n (int): The number of basis functions minus one.
+    p (int): The degree of the basis functions.
+    U (list of float): The knot vector.
+    P (list of list of float): The control points of the B-spline curve.
+    u (float): The parameter value.
+
+    Returns:
+    list of float: The computed curve point.
+    """
+    span = find_span(n, p, u, U)
+    N = basis_funs(span, u, p, U)
+    C = [0.0] * len(P[0])
+
+    for i in range(p + 1):
+        for j in range(len(C)):
+            C[j] += N[i] * P[span - p + i][j]
+
+    return C
+
+
+def all_basis_funs(span, u, p, U):
+    """
+    Compute all nonzero basis functions and their derivatives up to the ith-degree basis function.
+
+    Parameters:
+    span (int): The knot span index.
+    u (float): The parameter value.
+    p (int): The degree of the basis functions.
+    U (list of float): The knot vector.
+
+    Returns:
+    list of list of float: The basis functions.
+    """
+    N = [[0.0 for _ in range(p + 1)] for _ in range(p + 1)]
+    left = [0.0 for _ in range(p + 1)]
+    right = [0.0 for _ in range(p + 1)]
+    N[0][0] = 1.0
+
+    for j in range(1, p + 1):
+        left[j] = u - U[span + 1 - j]
+        right[j] = U[span + j] - u
+        saved = 0.0
+        for r in range(j):
+            N[j][r] = right[r + 1] + left[j - r]
+            temp = N[r][j - 1] / N[j][r]
+            N[r][j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        N[j][j] = saved
+
+    return N
+
+
+def ders_basis_funs(i, u, p, n, U):
+    """
+    Compute the nonzero basis functions and their derivatives.
+    """
+    ders = [[0.0 for _ in range(p + 1)] for _ in range(n + 1)]
+    ndu = [[0.0 for _ in range(p + 1)] for _ in range(p + 1)]
+    left = [0.0 for _ in range(p + 1)]
+    right = [0.0 for _ in range(p + 1)]
+
+    ndu[0][0] = 1.0
+
+    for j in range(1, p + 1):
+        left[j] = u - U[i + 1 - j]
+        right[j] = U[i + j] - u
+        saved = 0.0
+        for r in range(j):
+            ndu[j][r] = right[r + 1] + left[j - r]
+            temp = ndu[r][j - 1] / ndu[j][r]
+            ndu[r][j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        ndu[j][j] = saved
+
+    for j in range(p + 1):
+        ders[0][j] = ndu[j][p]
+
+    a = [[0.0 for _ in range(p + 1)] for _ in range(2)]
+    for r in range(p + 1):
+        s1 = 0
+        s2 = 1
+        a[0][0] = 1.0
+        for k in range(1, n + 1):
+            d = 0.0
+            rk = r - k
+            pk = p - k
+            if r >= k:
+                a[s2][0] = a[s1][0] / ndu[pk + 1][rk]
+                d = a[s2][0] * ndu[rk][pk]
+            if rk >= -1:
+                j1 = 1
+            else:
+                j1 = -rk
+            if r - 1 <= pk:
+                j2 = k - 1
+            else:
+                j2 = p - r
+            for j in range(j1, j2 + 1):
+                a[s2][j] = (a[s1][j] - a[s1][j - 1]) / ndu[pk + 1][rk + j]
+                d += a[s2][j] * ndu[rk + j][pk]
+            if r <= pk:
+                a[s2][k] = -a[s1][k - 1] / ndu[pk + 1][r]
+                d += a[s2][k] * ndu[r][pk]
+            ders[k][r] = d
+            j = s1
+            s1 = s2
+            s2 = j
+
+    r = p
+    for k in range(1, n + 1):
+        for j in range(p + 1):
+            ders[k][j] *= r
+        r *= (p - k)
+
+    return ders
+
+
+def curve_derivs_alg1(n, p, U, P, u, d):
+    """
+    Compute the derivatives of a B-spline curve.
+
+    Parameters:
+    n (int): The number of basis functions minus one.
+    p (int): The degree of the basis functions.
+    U (list of float): The knot vector.
+    P (list of list of float): The control points of the B-spline curve.
+    u (float): The parameter value.
+    d (int): The number of derivatives to compute.
+
+    Returns:
+    list of list of float: The computed curve derivatives.
+    """
+    du = min(d, p)
+    CK = [[0.0 for _ in range(len(P[0]))] for _ in range(du + 1)]
+
+    span = find_span(n, p, u, U)
+    nders = ders_basis_funs(span, u, p, du, U)
+
+    for k in range(du + 1):
+        for j in range(p + 1):
+            for l in range(len(CK[0])):
+                CK[k][l] += nders[k][j] * P[span - p + j][l]
+
+    return CK
+
+
+def projective_to_cartesian(point):
+
+    point=point if isinstance(point,np.ndarray) else np.array(point)
+    print(point[...,-1])
+    cartesian_point = point[...,:-1] / point[...,-1]
+    return cartesian_point
+
+class NURBSCurve:
     def __init__(self, control_points, degree=3, knots=None):
-        self.control_points = control_points
+        self._control_points = np.ones((len(control_points), 4))
+        self._control_points[:, :-1] = control_points
         self.degree = degree
-        self.knots = self.generate_knots() if knots is None else knots
-        self.derivative =  fdm(self)
-        self.second_derivative =  fdm(self.derivative)
+        self.knots = knots if knots is not None else self.generate_knots()
+        self.n = len(self._control_points) - 1
+        self._interval=[0., max(self.knots)]
 
+
+    @property
     def interval(self):
-        return 0., max(self.knots)
+        """
+        parametric interval
+        :return:
+        """
+        return self._interval
+
+    @interval.setter
+    def interval(self,val):
+        """
+        parametric interval
+        """
+        s,e=val
+        if s<min(self.knots) or e>max(self.knots):
+            raise ValueError('interval value out of range')
+        self._interval[:]=s,e
+
+    @property
+    def control_points(self):
+        return self._control_points[..., :-1]
 
     def generate_knots(self):
         """
 
         This function generates default knots based on the number of control points
         :return: A list of knots
-
-
-    About Knots Count.
-    ------------------
-    Why is there always one more node here than in OpenNURBS?
-    In fact, it is OpenNURBS that deviates from the standard here.
-    The original explanation can be found in the file `opennurbs/opennurbs_evaluate_nurbs.h`.
-    But I will give a fragment:
-
-    >   Most literature, including DeBoor and The NURBS Book,
-    > duplicate the Opennurbs start and end knot values and have knot vectors
-    > of length d+n+1. The extra two knot values are completely superfluous
-    > when degree >= 1. [source](https://github.com/mcneel/opennurbs/blob/19df20038249fc40771dbd80201253a76100842c/opennurbs_evaluate_nurbs.h#L116-L120)
-
         """
         n = len(self.control_points)
         knots = [0] * (self.degree + 1) + list(range(1, n - self.degree)) + [n - self.degree] * (self.degree + 1)
         return knots
 
-    def basis_function(self, t, i, k, T):
+    def evaluate(self, t: float):
         """
-        Calculating basis function with Cox - de Boor algorithm
+        Compute a point on a NURBS-spline curve.
+
+        :param t: The parameter value.
+        :return: np.array with shape (3,).
         """
-        if k == 0:
-            return 1.0 if T[i] <= t < T[i + 1] else 0.0
-        if T[i + k] == T[i]:
-            c1 = 0.0
-        else:
-            c1 = (t - T[i]) / (T[i + k] - T[i]) * self.basis_function(t, i, k - 1, T)
-        if T[i + k + 1] == T[i + 1]:
-            c2 = 0.0
-        else:
-            c2 = (T[i + k + 1] - t) / (T[i + k + 1] - T[i + 1]) * self.basis_function(t, i + 1, k - 1, T)
-        return c1 + c2
+        return projective_to_cartesian(curve_point(self.n, self.degree, self.knots, self._control_points, t))
 
-    def evaluate(self, t: float) -> np.ndarray:
+    def derivatives(self, t: float, d: int = 1):
         """
-        Here write a solution to the parametric equation curves at the point corresponding to the parameter t. The function should return three numbers (x,y,z)
+
+        :param t: The parameter value.
+         :type t: float
+        :param d:  The number of derivatives to compute.
+        :type d: int
+        :type t:
+        :return: np.array with shape (d+1,M) where M is the number of vector components. That is 2 for 2d curves and 3 for spatial curves.
+        Returns an array of derivatives. There will always be a point on the curve under index 0. That is, `curve.evaluate(0.5)== curve.derivatives(0.5, 1)[0]`.
+Index 1 is the first derivative,
+under index 2 is the second derivative, and so on.
         """
-        n = len(self.control_points)
-        assert n > self.degree, "Expected the number of control points to be greater than the degree of the spline"
+        return np.array(curve_derivs_alg1(self.n, self.degree, self.knots, self._control_points, t, d))[..., :-1]
 
-        result = [0.0, 0.0, 0.0]
-        for i in range(n):
-            b = self.basis_function(t, i, self.degree, self.knots)
-            result[0] += b * self.control_points[i][0]
-            result[1] += b * self.control_points[i][1]
-            result[2] += b * self.control_points[i][2]
+if __name__ == '__main__':
+    control_points = np.array([[20, 110, 10.], [70, 250.3, 20.], [120, 50, 80.], [170, 200, 50.], [220, 60, 20.]],
+                              dtype=float)
+    curve = NURBSCurve(control_points,degree=3)
 
-        return np.array(result)
+    point, first_derivative, second_derivative = curve.derivatives(0.5,2)
+    print(point,first_derivative,second_derivative) # [ 79.375    181.115625  34.6875  ] [ 93.75    -54.43125  58.125  ] [ -75.    -458.625   -7.5  ]
+    point2 = curve.evaluate(0.5)
+    print(np.allclose(point, point2)) # True
 
-
-class NURBSpline(BSpline):
-    def __init__(self, control_points, weights=None, degree=3, knots=None):
-        super().__init__(control_points, degree, knots)
-        self.weights = np.ones((len(self.control_points),), dtype=float) if weights is None else np.array(weights)
-
-    def __call__(self, t: float) -> np.array:
-        """
-        Here write a solution to the parametric equation RationalBSpline at the point corresponding
-        to the parameter t. The function should return three numbers (x,y,z)
-        """
-        n = len(self.control_points)
-        assert n > self.degree, "Expected the number of control points to be greater than the degree of the spline"
-        assert len(self.weights) == n, "Expected to have a weight for every control point"
-
-        rational_function_values = [0.0, 0.0, 0.0]  # values of the rational B-spline function at t
-        sum_of_weights = 0  # sum of weight * basis function
-
-        for i in range(n):
-            b = self.basis_function(t, i, self.degree, self.knots)
-            rational_function_values[0] += b * self.weights[i] * self.control_points[i][0]
-            rational_function_values[1] += b * self.weights[i] * self.control_points[i][1]
-            rational_function_values[2] += b * self.weights[i] * self.control_points[i][2]
-            sum_of_weights += b * self.weights[i]
-
-        # normalizing with the sum of weights to get rational B-spline
-        rational_function_values[0] /= sum_of_weights
-        rational_function_values[1] /= sum_of_weights
-        rational_function_values[2] /= sum_of_weights
-
-        return np.array(rational_function_values)

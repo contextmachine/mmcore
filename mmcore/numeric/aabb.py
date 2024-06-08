@@ -75,7 +75,7 @@ def aabb(points: np.ndarray):
     )
 
 
-def curve_aabb(curve, bounds=None, tol=1e-5):
+def curve_aabb(curve, bounds=None, tol=1e-2):
     """
     >>> from mmcore.geom.curves.bspline import NURBSpline    >>> from mmcore.numeric.aabb import aabb,curve_aabb,aabb_overlap
     >>> pts1=np.array([(-41.0, 143.0, 0.0), (563.0, -184.0, 0.0), (876.0, 594.0, 0.0), (1272.0, -104.0, 0.0), (1580.0, 604.0, 0.0), (2048.0, -462.0, 0.0)])
