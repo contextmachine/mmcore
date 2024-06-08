@@ -92,10 +92,9 @@ class NpCache:
 
 class Implicit:
 
-    def __init__(self, autodiff=True):
+    def __init__(self):
         super().__init__()
-        if autodiff:
-            self._normal = self.normal_from_function(self.implicit)
+
         self.dxdy = fdm(self.implicit)
         self._tree = None
         #self.implicit = NpCache(self.implicit)
@@ -108,7 +107,7 @@ class Implicit:
         ...
 
     def normal(self, v):
-        return self._normal(v)
+        ...
 
     def closest_point(self, v):
         d = self.implicit(v)
@@ -163,7 +162,7 @@ class Implicit2D(Implicit):
     is_implicit = True
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
     def bounds(self) -> tuple[tuple[float, float], tuple[float, float]]:
         """
@@ -189,7 +188,16 @@ class Implicit2D(Implicit):
         Returns:
 
         """
+    def normal(self, xy):
+        d=0.001
+        D = np.eye(2) * d
+        res = np.zeros(2, dtype=float)
+        res[0] = (self.implicit(xy + D[0]) - self.implicit(xy - D[0])) / 2 / d
+        res[1] = (self.implicit(xy + D[1]) - self.implicit(xy - D[1])) / 2 / d
 
+        res / np.linalg.norm(res)
+
+        return res
     def intersection(self, other: Union[Implicit2D, Implicit3D]):
         return Intersection2D(self, other)
 
@@ -237,10 +245,20 @@ class Implicit2D(Implicit):
     def build_tree(self, depth=3):
         self._tree = ImplicitTree2D(self.implicit, depth, bounds=self.bounds())
 
+    def normal(self, xyz):
+        D = np.eye(2) * DEFAULT_H
+        res = np.zeros(2, dtype=float)
+        res[0] = (self.implicit(xyz + D[0]) - self.implicit(xyz - D[0])) / 2 / DEFAULT_H
+        res[1] = (self.implicit(xyz + D[1]) - self.implicit(xyz - D[1])) / 2 / DEFAULT_H
+    
+        return res / scalar_norm(res)
+
+
+from mmcore.numeric.fdm import DEFAULT_H
 
 class Implicit3D(Implicit):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
     @staticmethod
     def normal_from_function(fun, d=0.0001):
@@ -275,7 +293,14 @@ class Implicit3D(Implicit):
     def build_tree(self, depth=3):
         self._tree = ImplicitTree3D(self.implicit, depth, bounds=self.bounds())
         self._tree.build(depth=depth)
-
+    
+    def normal(self, xyz):
+        D = np.eye(3) * DEFAULT_H
+        res = np.zeros(3, dtype=float)
+        res[0] = (self.implicit(xyz + D[0]) - self.implicit(xyz - D[0])) / 2 / DEFAULT_H
+        res[1] = (self.implicit(xyz + D[1]) - self.implicit(xyz - D[1])) / 2 /DEFAULT_H
+        res[2] = (self.implicit(xyz + D[2]) - self.implicit(xyz - D[2])) / 2 / DEFAULT_H
+        return res / scalar_norm(res)
 
 
 class ImplicitOperator2D(Implicit2D):
