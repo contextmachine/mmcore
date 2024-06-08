@@ -155,26 +155,31 @@ def _mycross(a, b):
 
 
 
+def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
+    normal1, normal2 = plane1[3], plane2[3]
 
+    # Stack the normal vectors
+    array_normals_stacked = np.vstack((normal1, normal2))
 
-def plane_plane_intersect(self, other):
-    array_normals_stacked = np.vstack((self[-1], other[-1]))
+    # Construct the matrix
+    matrix = np.block(
+        [
+            [2 * np.eye(3), array_normals_stacked.T],
+            [array_normals_stacked, np.zeros((2, 2))],
+        ]
+    )
 
-    array_00 = 2 * np.eye(3)
-    array_01 = array_normals_stacked.T
-    array_10 = array_normals_stacked
-    array_11 = np.zeros((2, 2))
-    matrix = np.block([[array_00, array_01], [array_10, array_11]])
-    dot_a = scalar_dot(self[0], self[-1])
-    dot_b = scalar_dot(other[0], other[-1])
-    array_y = np.array([*self[0], dot_a, dot_b])
-    # Solve the linear system.
+    # Construct the right-hand side of the equation
+    dot_a = np.dot(plane1[0], normal1)
+    dot_b = np.dot(plane2[0], normal2)
+    array_y = np.array([*plane1[0], dot_a, dot_b])
+
+    # Solve the linear system
     solution = np.linalg.solve(matrix, array_y)
     point_line = solution[:3]
-    direction_line = scalar_cross(self[-1], other[-1])
+    direction_line = scalar_cross(normal1, normal2)
+
     return point_line, direction_line
-
-
 def plane_line_intersect(plane: np.ndarray, line, tol=1e-6, full_return=False):
     ray_origin, ray_direction = line
     ndotu = plane[-1].dot(ray_direction)

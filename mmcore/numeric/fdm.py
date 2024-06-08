@@ -459,6 +459,22 @@ def gradient(f, point, h=1e-5):
         point[i] += h
         grad[i] = (f_plus_h - f_minus_h) / (2 * h)
     return grad
+def newtons_method(f, initial_point, tol=1e-5, max_iter=100):
+    point = np.asarray(initial_point)
+    for _ in range(max_iter):
+        grad = gradient(f, point)
+        H = hessian(f, point)
+        try:
+            H_inv = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            print("Hessian is singular at the point", point)
+            break
+        step = H_inv @ grad
+        new_point = point - step
+        if np.linalg.norm(new_point - point) < tol:
+            break
+        point = new_point
+    return point
 
 
 
