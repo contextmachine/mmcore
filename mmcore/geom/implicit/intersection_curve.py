@@ -6,10 +6,7 @@ from scipy.spatial import KDTree
 
 from mmcore.geom.implicit.implicit import Implicit, Intersection3D
 from mmcore.geom.implicit.marching import intersection_curve_point
-
 from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_unit
-
-
 from mmcore.numeric.aabb import aabb
 
 from mmcore.geom.implicit.marching import (
@@ -19,12 +16,12 @@ from mmcore.geom.implicit.marching import (
 from mmcore.geom.implicit import Implicit3D
 
 
-def mgrid3d(bounds, x_count,y_count,z_count):
+def mgrid3d(bounds, x_count, y_count, z_count):
     # Создаем линейные пространства
-    (minx, miny, minz), (maxx, maxy, maxz) =bounds
-    x = np.linspace(minx,maxx, x_count)
-    y = np.linspace(miny,maxy, y_count)
-    z = np.linspace(minz,maxz,z_count)
+    (minx, miny, minz), (maxx, maxy, maxz) = bounds
+    x = np.linspace(minx, maxx, x_count)
+    y = np.linspace(miny, maxy, y_count)
+    z = np.linspace(minz, maxz, z_count)
     # Создаем 3D сетку точек
     X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
     # Объединяем координаты в один массив
@@ -44,13 +41,12 @@ class ImplicitIntersectionCurve(Implicit):
         self._intersection.build_tree(depth=depth)
         self._tree = self._intersection.tree
 
-    def sample(self, step=None,x_cnt=15, y_cnt=15, z_cnt=15):
-
+    def sample(self, step=None, x_cnt=15, y_cnt=15, z_cnt=15):
         (minx, miny, minz), (maxx, maxy, maxz) = self.bounds()
         print(self.bounds)
         if step is not None:
             x_cnt, y_cnt, z_cnt = np.array([np.ceil((maxx - minx) / step), np.ceil((maxy - miny) / step), np.ceil(
-            (maxz - minz) / step)], dtype=int)
+                (maxz - minz) / step)], dtype=int)
         return mgrid3d(((minx, miny, minz), (maxx, maxy, maxz)), x_cnt, y_cnt, z_cnt)
 
     def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
@@ -66,7 +62,8 @@ class ImplicitIntersectionCurve(Implicit):
         return scalar_unit(self._normal_not_unit(point))
 
     def closest_point(self, v):
-        return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal, self.surf2.normal, tol=self.tol)
+        return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal,
+                                        self.surf2.normal, tol=self.tol)
 
 
 class ImplicitIntersectionCurveIterator:
@@ -104,21 +101,22 @@ class ImplicitIntersectionCurveIterator:
         # Построение дерева кажется пока пустой тратой времени особенно для деталей с тонкими стенками и множеством пересечений
         if hasattr(self.crv, '_tree'):
             return np.array([self.crv.closest_point(i) for i in
-                         np.average(self.crv.tree.border + self.crv.tree.full, axis=1)])
+                             np.average(self.crv.tree.border + self.crv.tree.full, axis=1)])
         else:
             if method == 0:
-                warnings.warn("Method 0 cannot be used because one of the bodies does not have the `tree` attribute. Using method 1")
-            l=[]
+                warnings.warn(
+                    "Method 0 cannot be used because one of the bodies does not have the `tree` attribute. Using method 1")
+            l = []
 
             for i in self.crv.sample():
 
-                d=abs(self.crv.implicit(i))
-                if d<=0.2:
-                    print(d,i)
+                d = abs(self.crv.implicit(i))
+                if d <= 0.2:
+                    print(d, i)
                     l.append(self.crv.closest_point(i))
 
-
             return np.array(l)
+
     def trace_curve_point(self, point, step):
         res = self._kdtree.query_ball_point(point, step, workers=self.workers)
         self.pop_queue.update({*res})
@@ -181,35 +179,33 @@ if __name__ == '__main__':
     import numba
 
 
-    @numba.njit(cache=True)
-    def py_vp(a, b):
-        res = np.empty((3,))
-        bn = (b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
+    # Поистине огромным преимуществом является то что не сложная пользовательская реализация всего пары implicit и normal с использованием numba,
+    # дает практически тот же результат что и примитивы реализованные на cython.
+    # Это значит что действительно можно  получать создавать пользовательские объекты, не прибегая к написанию расширений на C,
+    # и при этом иметь производительность сравнимую с коммерческим САПР.
 
-        res[0] = a[0] * b[0] * b[0] / bn + a[1] * b[0] * b[1] / bn + a[2] * b[0] * b[2] / bn
-        res[1] = a[0] * b[0] * b[1] / bn + a[1] * b[1] * b[1] / bn + a[2] * b[1] * b[2] / bn
-        res[2] = a[0] * b[0] * b[2] / bn + a[1] * b[1] * b[2] / bn + a[2] * b[2] * b[2] / bn
-        return res
+    # The really great advantage is that a simple custom implementation of just a pair of implicit and normal using numba,
+    # gives pretty much the same result as primitives implemented in cython.
+    # This means that it is indeed possible to create custom objects without having to write C extensions,
+    # and still have performance comparable to commercial CAD.
+
     @numba.njit(cache=True)
     def closest_point_on_ray2(ray, point):
         start, b = ray
-        a=(point[0] - start[0], point[1] - start[1], point[2] - start[2])
-
+        a = (point[0] - start[0], point[1] - start[1], point[2] - start[2])
         bn = (b[0] ** 2 + b[1] ** 2 + b[2] ** 2)
-
-
-
         # return start + vector_projection(point - start, direction)
-        return  (a[0] * b[0] * b[0] / bn + a[1] * b[0] * b[1] / bn + a[2] * b[0] * b[2] / bn+start[0],
-         a[0] * b[0] * b[1] / bn + a[1] * b[1] * b[1] / bn + a[2] * b[1] * b[2] / bn+start[1],
-         a[0] * b[0] * b[2] / bn + a[1] * b[1] * b[2] / bn + a[2] * b[2] * b[2] / bn+start[2])
+        return (a[0] * b[0] * b[0] / bn + a[1] * b[0] * b[1] / bn + a[2] * b[0] * b[2] / bn + start[0],
+                a[0] * b[0] * b[1] / bn + a[1] * b[1] * b[1] / bn + a[2] * b[1] * b[2] / bn + start[1],
+                a[0] * b[0] * b[2] / bn + a[1] * b[1] * b[2] / bn + a[2] * b[2] * b[2] / bn + start[2])
+
 
     @numba.jit(cache=True)
-    def cyl_normal(origin, axis, x,y,z):
-        px,py,pz = closest_point_on_ray2((origin, axis), (x,y,z))
-        n = np.array([x-px ,y-py,z-pz])
+    def cyl_normal(origin, axis, x, y, z):
+        px, py, pz = closest_point_on_ray2((origin, axis), (x, y, z))
+        n = np.array([x - px, y - py, z - pz])
 
-        N = n / np.linalg.norm( n )
+        N = n / np.linalg.norm(n)
 
         if np.allclose(N, 0.0):
             return np.zeros(3, dtype=float)
@@ -218,22 +214,28 @@ if __name__ == '__main__':
 
 
     @numba.jit(cache=True)
-    def cyl_implicit(origin, axis, r,x,y,z) -> float:
-        px,py,pz = closest_point_on_ray2((origin, axis), (x,y,z))
+    def cyl_implicit(origin, axis, r, x, y, z) -> float:
+        px, py, pz = closest_point_on_ray2((origin, axis), (x, y, z))
         n = np.array([x - px, y - py, z - pz])
         return np.linalg.norm(n) - r
+
+
     @numba.jit(cache=True)
-    def tub_implicit(origin, axis, r, thickness,x,y,z) -> float:
-        ii = cyl_implicit(origin, axis, r, x,y,z)
+    def tub_implicit(origin, axis, r, thickness, x, y, z) -> float:
+        ii = cyl_implicit(origin, axis, r, x, y, z)
         return abs(ii) - thickness / 2
+
+
     @numba.jit(cache=True)
-    def tub_normal(origin, axis, r, thickness, x,y,z) -> float:
+    def tub_normal(origin, axis, r, thickness, x, y, z) -> float:
 
         res = np.zeros(3, dtype=float)
-        res[0]=( tub_implicit(origin, axis, r, thickness,x+0.001,y,z)-        tub_implicit(origin, axis, r, thickness, x-0.001,y,z))/2/0.001
-        res[1] =(tub_implicit(origin, axis, r, thickness,x,y+0.001,z)-        tub_implicit(origin, axis, r, thickness, x,y-0.001,z))/2/0.001
-        res[2] =(tub_implicit(origin, axis, r, thickness,x,y,z+0.001)-        tub_implicit(origin, axis, r, thickness, x,y,z-0.001))/2/0.001
-
+        res[0] = (tub_implicit(origin, axis, r, thickness, x + 0.001, y, z) - tub_implicit(origin, axis, r, thickness,
+                                                                                           x - 0.001, y, z)) / 2 / 0.001
+        res[1] = (tub_implicit(origin, axis, r, thickness, x, y + 0.001, z) - tub_implicit(origin, axis, r, thickness,
+                                                                                           x, y - 0.001, z)) / 2 / 0.001
+        res[2] = (tub_implicit(origin, axis, r, thickness, x, y, z + 0.001) - tub_implicit(origin, axis, r, thickness,
+                                                                                           x, y, z - 0.001)) / 2 / 0.001
 
         return res / np.linalg.norm(res)
 
@@ -248,16 +250,13 @@ if __name__ == '__main__':
             self.r = r
             self.end = np.array(self.origin + self.axis)
 
-
-
         def implicit(self, v) -> float:
-
-            return cyl_implicit(self.origin,self.axis,self.r,v[0],v[1],v[2])
+            return cyl_implicit(self.origin, self.axis, self.r, v[0], v[1], v[2])
 
         def normal(self, v) -> float:
-            return cyl_normal(self.origin, self.axis,v[0],v[1],v[2])
-        def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+            return cyl_normal(self.origin, self.axis, v[0], v[1], v[2])
 
+        def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
             return aabb(np.array(
                 [self.start + self.r ** 2, self.start - self.r ** 2, self.end + self.r ** 2, self.end - self.r ** 2]))
 
@@ -267,13 +266,12 @@ if __name__ == '__main__':
             super().__init__(*args, **kwargs)
             self.thickness = thickness
 
-
         def implicit(self, pt):
+            return tub_implicit(self.origin, self.axis, self.r, self.thickness, pt[0], pt[1], pt[2])
 
-
-            return  tub_implicit(self.origin, self.axis, self.r, self.thickness,pt[0],pt[1],pt[2])
         def normal(self, v):
-            return tub_normal(self.origin, self.axis, self.r, self.thickness,v[0],v[1],v[2])
+            return tub_normal(self.origin, self.axis, self.r, self.thickness, v[0], v[1], v[2])
+
 
     x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],
                      [[7.14384241216015, -6.934735074711716, -0.1073366304415263],
@@ -295,7 +293,7 @@ if __name__ == '__main__':
     t1 = Tube(0.2, aa[0], z, aa[1] - aa[0])
     t2 = Tube(0.2, bb[0], u, bb[1] - bb[0])
     t1.implicit(np.array((1., 1., 1)))  # compile
-    t1.normal(np.array((1.,1.,1))) #compile
+    t1.normal(np.array((1., 1., 1)))  #compile
     vv = np.array(v)
 
     import time
@@ -320,31 +318,25 @@ if __name__ == '__main__':
 
     except ValueError as err:
         print(err)
-
-    #print("numba primitives speed (full):", (time.perf_counter_ns() - s)*1e-6,'ms.')
-
-
+    print("numba primitives speed:", (time.perf_counter_ns() - s)*1e-6,'ms.')
     crv = ImplicitIntersectionCurve(t1, t2)
     crv.build_tree()
     s = time.perf_counter_ns()
     res2 = []
+
     for item in iterate_curves(crv):
         res2.append(item)
-    #trace = ImplicitIntersectionCurveIterator(crv)
-
     print("numba primitives speed (full):", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
 
     print(len(res2))
     from mmcore.geom.implicit._implicit import CylinderPipe
 
-    t11 = CylinderPipe(aa[0],aa[1] , z,0.2 )
-    t21 = CylinderPipe(bb[0],bb[1] , u,0.2 )
+    t11 = CylinderPipe(aa[0], aa[1], z, 0.2)
+    t21 = CylinderPipe(bb[0], bb[1], u, 0.2)
 
     s = time.perf_counter_ns()
     res1 = []
     for item in iterate_curves(crv):
         res2.append(item)
 
-
-
-    print("mmcore builtin primitives speed:",(time.perf_counter_ns() - s)*1e-6,'ms.')
+    print("mmcore builtin primitives speed:", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
