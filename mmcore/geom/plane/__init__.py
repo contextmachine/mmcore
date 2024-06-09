@@ -7,7 +7,7 @@ from mmcore.func import vectorize
 from mmcore.geom import vec
 from mmcore.geom.plane.refine import PlaneRefine
 from mmcore.geom.vec import cross, dot, norm, perp2d, unit
-from mmcore.numeric.plane import plane_from_3pt,distance,plane_line_intersect
+from mmcore.numeric.plane import plane_from_3pt,distance, plane_line_intersect
 
 _Plane = namedtuple("Plane", ["origin", "xaxis", "yaxis", "zaxis"])
 _PlaneGeneral = namedtuple("Plane", ["origin", "axises"])

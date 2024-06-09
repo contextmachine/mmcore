@@ -1,9 +1,12 @@
+from libc.math cimport pi
 cdef extern from "math.h":
     long double sqrt(long double xx)
     long double sin(long double u)
     long double cos(long double v)
     long double atan2(long double a, double b)
     long double atan(long double a)
+    const double pi
+
     double fmax(double a)
 
 
@@ -357,3 +360,56 @@ def closest_point_on_line(double[:] start,double[:] end, double[:] point):
     p[1] = point[1] - start[1]
     p[2] = point[2] - start[2]
     return vector_projection(p, direction)
+"""
+def rotate(self, deg):
+    sin, cos = function_DegToSinCos(deg)
+    return Vector2D(self.x * cos - self.y * sin, self.x * sin + self.y * cos)
+
+    def rotateAroundPoint(self, v2d, deg):
+        sin, cos = function_DegToSinCos(deg)
+        v2d0 = self.sub(v2d)
+        return Vector2D(v2d0.x * cos - v2d0.y * sin, v2d0.x * sin + v2d0.y * cos).add(v2d)
+
+
+
+cpdef void function_linearCombine2D(double[2] v3d0, double r0, double[2] v3d1, double r1,
+                                    double[2] result):
+    result[0] = r0 * v3d0[0] + r1 * v3d1[0]
+    result[1] = r0 * v3d0[1] + r1 * v3d1[1]
+
+
+cpdef void function_linearCombine3D(double[3] v3d0, double r0, double[3] v3d1, double r1, double[3] v3d2, double r2=0, double[3] result):
+
+    result[0]=r0 * v3d0[0] + r1 * v3d1[0] + r2 * v3d2[0]
+    result[1]=r0 * v3d0[1] + r1 * v3d1[1] + r2 * v3d2[1]
+    result[2]= r0 * v3d0[2]+ r1 * v3d1[2] + r2 * v3d2[2]
+
+
+
+def function_DegToSinCos(deg):
+    deg = deg * pi / 180
+    return (sin(deg), math.cos(deg))
+
+
+cpdef double function_SolveEquationDeg1(double a, double b):
+    return -b / a
+
+def function_SolveEquationDeg2(double a, double b, double c, result[:]):  # sqrt exception will be raised
+    cdef static double
+    if a!=0:  # wenn a!=0
+        h0 = sqrt((b * b - 4 * a * c) / 4 * a * a)
+        h1 = b / -2 * a
+
+        return (h1 + h0, h1 - h0)
+    return function_SolveEquationDeg1(b, c)
+
+
+def function_PointOverPlane(v3d, n_v3d, d):  #{...stellt fest, ob der Punkt p "vor" der Ebene  nv*x-d=0 liegt.}
+    return v3d.scalarProduct(n_v3d) - d >= 0
+
+
+def function_GetPlaneEquation(v3d0, v3d1, v3d2):  #Exception wenn keine ebene
+    n_v3d = ((v3d1.sub(v3d0)).vectorProduct(v3d2.sub(v3d0))).normalize()
+    if not n_v3d.equals(Vector3D()): return (n_v3d, n_v3d.scalarProduct(v3d0))
+    raise
+"""
