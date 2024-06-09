@@ -6,9 +6,13 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
-from mmcore.geom.vec.vec_speedups import scalar_dot,dot_vec_x_array,scalar_norm,scalar_cross,scalar_unit,vector_projection
+from mmcore.geom.vec.vec_speedups import scalar_dot, dot_vec_x_array, scalar_norm, scalar_cross, scalar_unit, \
+    vector_projection
 
-
+WORLD_XY = np.array([[0., 0., 0.],
+                     [1., 0., 0.],
+                     [0., 1., 0.],
+                     [0., 0., 1.]])
 
 
 def inverse_evaluate_plane(pln, point):
@@ -29,10 +33,11 @@ def distance(pln, point2):
     a, b, c = pln[-1]
     x0, y0, z0 = pln[0]
     x, y, z = point2
+    n = sqrt(a ** 2 + b ** 2 + c ** 2)
     return abs(
-        a * (x - x0) / sqrt(a ** 2 + b ** 2 + c ** 2)
-        + b * (y - y0) / sqrt(a ** 2 + b ** 2 + c ** 2)
-        + c * (z - z0) / sqrt(a ** 2 + b ** 2 + c ** 2)
+        a * (x - x0) / n
+        + b * (y - y0) / n
+        + c * (z - z0) / n
     )
 
 
@@ -76,38 +81,8 @@ def plane_from_normal2(origin, normal, tol=1e-5):
 
 def project_point_by_normal(point, normal, origin):
     v = point - origin
-
     dst = v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2]
     return point - dst * normal
-
-
-def plane_eq_from_pts(p1, p2, p3):
-    return [
-        p1[1] * p2[2]
-        - p1[1] * p3[2]
-        - p1[2] * p2[1]
-        + p1[2] * p3[1]
-        + p2[1] * p3[2]
-        - p2[2] * p3[1],
-        -p1[0] * p2[2]
-        + p1[0] * p3[2]
-        + p1[2] * p2[0]
-        - p1[2] * p3[0]
-        - p2[0] * p3[2]
-        + p2[2] * p3[0],
-        p1[0] * p2[1]
-        - p1[0] * p3[1]
-        - p1[1] * p2[0]
-        + p1[1] * p3[0]
-        + p2[0] * p3[1]
-        - p2[1] * p3[0],
-        -p1[0] * p2[1] * p3[2]
-        + p1[0] * p2[2] * p3[1]
-        + p1[1] * p2[0] * p3[2]
-        - p1[1] * p2[2] * p3[0]
-        - p1[2] * p2[0] * p3[1]
-        + p1[2] * p2[1] * p3[0],
-    ]
 
 
 def plane_from_3pt(pt0, pt1, pt2):
@@ -123,27 +98,38 @@ def plane_from_3pt(pt0, pt1, pt2):
     return np.array([pt0, xax, yax, N]), [a, b, c, d]
 
 
-def pln_eq_3pt(p0, p1, p2):
-    matrix_a = np.array([[p0[1], p0[2], 1], [p1[1], p1[2], 1], [p2[1], p2[2], 1]])
-    matrix_b = np.array([[-p0[0], p0[2], 1], [-p1[0], p1[2], 1], [-p2[0], p2[2], 1]])
-    matrix_c = np.array([[p0[0], p0[1], 1], [p1[0], p1[1], 1], [p2[0], p2[1], 1]])
-    matrix_d = np.array(
-        [[-p0[0], -p0[1], p0[2]], [-p1[0], -p1[1], p1[2]], [-p2[0], -p2[1], p2[2]]]
-    )
-    det_a = np.linalg.det(matrix_a)
-    det_b = np.linalg.det(matrix_b)
-    det_c = np.linalg.det(matrix_c)
-    det_d = -np.linalg.det(matrix_d)
-    return np.array([det_a, det_b, det_c, det_d])
+def plane_eq_from_pts(pt0, pt1, pt2):
+    """
+    x3=y0*z1
+x4=y1*z2
+x5=y2*z0
+v0=x3 + x4 + x5 - y0*z2 - y1*z0 - y2*z1
+v1=-x0*z1 + x0*z2 + x1*z0 - x1*z2 - x2*z0 + x2*z1
+v2=x0*y1 - x0*y2 - x1*y0 + x1*y2 + x2*y0 - x2*y1
+v3=-x0*x4 + x0*y2*z1 - x1*x5 + x1*y0*z2 - x2*x3 + x2*y1*z0
+    :param pt0:
+    :param pt1:
+    :param pt2:
+    :return:
+    """
+    x3 = pt0[1] * pt1[2]
+    x4 = pt1[1] * pt2[2]
+    x5 = pt2[1] * pt0[2]
+    return np.array(
+        [x3 + x4 + x5 - pt0[1] * pt2[2] - pt1[1] * pt0[2] - pt2[1] * pt1[2],
+         -pt0[0] * pt1[2] + pt0[0] * pt2[2] + pt1[0] * pt0[2] - pt1[0] * pt2[2] - pt2[0] * pt0[2] + pt2[0] * pt1[2],
+         pt0[0] * pt1[1] - pt0[0] * pt2[1] - pt1[0] * pt0[1] + pt1[0] * pt2[1] + pt2[0] * pt0[1] - pt2[0] * pt1[1],
+         -pt0[0] * x4 + pt0[0] * pt2[1] * pt1[2] - pt1[0] * x5 + pt1[0] * pt0[1] * pt2[2] - pt2[0] * x3 + pt2[0] * pt1[
+             1] * pt0[2]])
 
 
 @vectorize(excluded=[1], signature="(i)->(i)")
 def perp_to_vector(v, tol=1e-5):
     if norm_sq(v) >= tol:
         if (abs(v[0]) >= tol) or (abs(v[1]) >= tol):
-            return _mycross(v, [0, 0, 1])
+            return _mycross(v, WORLD_XY[-1])
         else:
-            return _mycross(v, [1, 0, 0])
+            return _mycross(v, WORLD_XY[1])
     else:
         return np.array([0.0, 0.0, 0.0])
 
@@ -152,7 +138,6 @@ def _mycross(a, b):
     ax, ay, az = a
     bx, by, bz = b
     return np.array([ay * bz - by * az, az * bx - bz * ax, ax * by - bx * ay])
-
 
 
 def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
@@ -180,6 +165,8 @@ def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
     direction_line = scalar_cross(normal1, normal2)
 
     return point_line, direction_line
+
+
 def plane_line_intersect(plane: np.ndarray, line, tol=1e-6, full_return=False):
     ray_origin, ray_direction = line
     ndotu = plane[-1].dot(ray_direction)
@@ -201,8 +188,8 @@ def plane_plane_plane_intersect(self, other, third, tol=1e-6):
 
 def plane_from_normal_origin(normal, origin):
     projected = project_point_by_normal(np.array([0.0, 0.0, 0.0]), normal, origin)
-    xaxis_not_unit=projected - origin
-    xaxis = xaxis_not_unit/scalar_norm(xaxis_not_unit)
+    xaxis_not_unit = projected - origin
+    xaxis = xaxis_not_unit / scalar_norm(xaxis_not_unit)
     yaxis = scalar_cross(normal, xaxis)
     return np.array([origin, xaxis, yaxis, normal])
 
@@ -226,3 +213,37 @@ def orient_matrix(p1, p2):
     trx[:3, :3] = p1[1:] @ p2[1:].T
     trx[-1, :-1] = p2[0] - p1[0]
     return trx
+
+
+
+def local_to_world(pt, pln= WORLD_XY):
+    """
+    :param pt: The point in the local coordinate system that needs to be transformed to the world coordinate system.
+    :type pt: numpy.ndarray
+
+    :param pln: The reference plane in the world coordinate system that defines the transformation.
+                It can be either a Plane or a SlimPlane object.
+    :type pln: Plane or SlimPlane.
+
+    :return: The transformed point in the world coordinate system.
+    :rtype: numpy.ndarray
+    """
+    z = np.zeros(3)
+    z += pln.origin
+    z += pt[0] * pln.xaxis
+    z += pt[1] * pln.yaxis
+    z += pt[2] * pln.zaxis
+    return z
+
+
+
+def world_to_local(pt, pln):
+    """ """
+    return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
+
+def rotate(pln):...
+def translate(pln):...
+def orient(pln):...
+def transform(pln, m):...
+
+def offset(pln):...
