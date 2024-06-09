@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 from typing import Union
 import numpy as np
-from numpy._typing import NDArray
 
 from mmcore.geom.implicit.marching import implicit_curve_points
 from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
