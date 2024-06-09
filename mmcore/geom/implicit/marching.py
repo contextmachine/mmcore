@@ -3,7 +3,9 @@ import sys
 
 import numpy as np
 
+from mmcore.geom.implicit._implicit import solve2x2
 from mmcore.geom.vec import make_perpendicular, unit
+from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_cross
 from mmcore.numeric.fdm import Grad, fdm
 
 
@@ -182,7 +184,7 @@ def evaluate_g(alpha, beta, qk, point, f1, f2):
     ...
 
 
-def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100):
+def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100,return_grads=False):
     """
 
     :param surf1:
@@ -211,24 +213,20 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     >>> print(c1.implicit(res),c2.implicit(res))
     0.0 0.0
     """
-
-    def newton_step(q, alpha_init, beta_init, fun1, fun2, grd1, grd2):
-
-        #point = q + alpha_init * grad1(q) + beta_init * grad2(q)
-        J = evaluate_jacobian(alpha_init, beta_init, q, q, grd1, grd2)
-        g = np.array([fun1, fun2])
-
-        alpha_init, beta_init = np.linalg.solve(J, -g)
-        return alpha_init, beta_init
-
-    alpha, beta = 0., 0.
+    alpha_beta=np.zeros(2,dtype=np.float64)
     qk = np.copy(q0)
     f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
 
-    alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
-    delta = alpha * grad1(qk) + beta * grad2(qk)
+    J = np.array([
+        [np.dot(g1, g1), np.dot(g2, g1)],
+        [np.dot(g1, g2), np.dot(g2, g2)]
+    ])
+
+    g = np.array([f1, f2])
+    success=solve2x2(J, -g, alpha_beta)
+    delta =  alpha_beta[0]* grad1(qk) + alpha_beta[1] * grad2(qk)
     qk_next = delta + qk
-    d = np.linalg.norm(qk_next - qk)
+    d = scalar_norm(qk_next - qk)
     i = 0
     while d > tol:
 
@@ -237,16 +235,25 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
 
         qk = qk_next
         f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
-        cc = np.sum(g1 * g2)
+        J = np.array([
+            [np.dot(g1, g1), np.dot(g2, g1)],
+            [np.dot(g1, g2), np.dot(g2, g2)]
+        ])
 
-        alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
+        g = np.array([f1, f2])
+
+        success = solve2x2(J, -g, alpha_beta)
 
         #alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
-        delta = alpha * g1 + beta * g2
+        #alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
+        delta = alpha_beta[0] * g1 + alpha_beta[1] * g2
         qk_next = delta + qk
-        d = np.linalg.norm(delta)
+        d = scalar_norm(delta)
 
         i += 1
+
+    if return_grads:
+        return qk_next,f1,f2,g1,g2
     return qk_next
 
 
@@ -349,7 +356,7 @@ def marching_intersection_curve_points(
     use_callback = True
     if point_callback is None:
         use_callback=False
-    p = intersection_curve_point(f1, f2, start_point, grad_f1, grad_f2, tol=tol)
+    p,f1_val,f2_val,g1,g2 = intersection_curve_point(f1, f2, start_point, grad_f1, grad_f2, tol=tol,return_grads=True)
     points.append(p)
     if use_callback:
         point_callback(p)
@@ -360,14 +367,15 @@ def marching_intersection_curve_points(
         max_points = sys.maxsize
 
     while (len(points) < max_points):
-        g1, g2 = grad_f1(p), grad_f2(p)
-        grad_cross = np.cross(g1, g2)
+        #g1, g2 = grad_f1(p), grad_f2(p)
+        grad_cross = scalar_cross(g1, g2)
         if np.dot(grad_cross,grad_cross) == 0:
             break
 
-        unit_tangent = grad_cross / np.linalg.norm(grad_cross)
+        unit_tangent = grad_cross / scalar_norm(grad_cross)
 
-        p1 = intersection_curve_point(f1, f2, p + step * unit_tangent, grad_f1, grad_f2, tol=tol)
+        p1,_f1_val,_f2_val,_g1,_g2  = intersection_curve_point(f1, f2, p + step * unit_tangent, grad_f1, grad_f2, tol=tol,return_grads=True)
+
         # A rather specific treatment of the singularity, but it seems to work. In the literature I could find,
         # the singularity was usually defined by a zero gradient. This is not difficult to handle and here I actually
         # do it a few lines above. However, I ran into a different problem, in the neighbourhood of the singular
@@ -375,16 +383,19 @@ def marching_intersection_curve_points(
         # and so on round and round, and the zero gradient check failed. I managed to fix this through the proximity
         # check to the point 2 steps earlier. In this case, I'm unrolling the tangent, so I've managed to get through
         # all the singularity curves I've tested so far.
-        if len(points) > 1 and np.linalg.norm(p1 - points[len(points) - 2]) < step / 2:
-            p1 = intersection_curve_point(f1, f2, p - step * unit_tangent, grad_f1, grad_f2, tol=tol)
+        if len(points) > 1 and scalar_norm(p1 - points[len(points) - 2]) < step / 2:
+            print(0,0)
+            p1,_f1_val,_f2_val,_g1,_g2  = intersection_curve_point(f1, f2, p - step * unit_tangent, grad_f1, grad_f2, tol=tol, return_grads=True)
 
-        dst = np.linalg.norm(p1 - end_point)
-        points.append(p1)
+        dst = scalar_norm(p1 - end_point)
+
         if dst < step / 2:
             break
+        points.append(p1)
         p = p1
         if use_callback:
             point_callback(p)
+        f1_val,f2_val,g1,g2=_f1_val,_f2_val,_g1, _g2
 
     return np.array(points)
 

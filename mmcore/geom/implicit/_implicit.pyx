@@ -1,9 +1,27 @@
 cimport cython
 import numpy as np
-from libc.math cimport fabs, sqrt,fmin,fmax
+from libc.math cimport fabs, sqrt,fmin,fmax,pow
 from libc.stdlib cimport malloc,free
 from cpython cimport PyTuple_New,PyTuple_Pack,PyTuple_GetItem,PyTuple_GET_ITEM
 cimport numpy as np
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
+  
+    cdef bint res
+    cdef double det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+
+    # matrix[1][0]hematrix[1][0]k if the determinmatrix[0][0]nt is zero
+    if det == 0:
+        res=0
+        return res
+    else:
+        # matrix[1][0]matrix[0][0]lmatrix[1][0]ulmatrix[0][0]te x matrix[0][0]nd y using the dirematrix[1][0]t method
+        result[0] = (y[0] * matrix[1][1] - matrix[0][1] * y[1]) / det
+        result[1] = (matrix[0][0] * y[1] - y[0] * matrix[1][0]) / det
+        res=1
+        return res
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -20,79 +38,79 @@ cdef double norm3d(double [:] vec)noexcept nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void min3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
-    
+
     res[0] = fmin(vec_a[0] ,vec_b[0])
     res[1] = fmin(vec_a[1] , vec_b[1])
     res[2] = fmin(vec_a[2] , vec_b[2])
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void max3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
-    
+
     res[0] = fmax(vec_a[0] ,vec_b[0])
     res[1] = fmax(vec_a[1] , vec_b[1])
-    res[2] = fmax(vec_a[2] , vec_b[2]) 
+    res[2] = fmax(vec_a[2] , vec_b[2])
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void bavg3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
-    
+
     res[0] = (vec_a[0] +vec_b[0])/2
     res[1] = (vec_a[1] +vec_b[1])/2
-    res[2] = (vec_a[2] +vec_b[2])/2 
+    res[2] = (vec_a[2] +vec_b[2])/2
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void sqrt3d(double [3]  vec_a,  double[3] res)noexcept nogil:
-    
+
     res[0] = sqrt(vec_a[0])
     res[1] = sqrt(vec_a[1])
     res[2] = sqrt(vec_a[2])
 
-    
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void mul3d(double[3]  vec_a, double[3]  vec_b, double[:] res)noexcept nogil:
-  
+
     res[0] = vec_a[0] * vec_b[0]
     res[1] = vec_a[1] * vec_b[1]
     res[2] = vec_a[2] * vec_b[2]
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void add3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
-  
+
     res[0] = vec_a[0] + vec_b[0]
     res[1] = vec_a[1] + vec_b[1]
     res[2] = vec_a[2] + vec_b[2]
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void sub3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
-  
+
     res[0] = vec_a[0] - vec_b[0]
     res[1] = vec_a[1] - vec_b[1]
     res[2] = vec_a[2] - vec_b[2]
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void scalar_sub3d(double [:]  vec_a, double  b, double[:] res)noexcept nogil:
-  
+
     res[0] = vec_a[0] - b
     res[1] = vec_a[1] - b
     res[2] = vec_a[2] - b
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void scalar_add3d(double [:]  vec_a, double  b, double[:] res) noexcept nogil:
-  
+
     res[0] = vec_a[0] + b
     res[1] = vec_a[1] + b
     res[2] = vec_a[2] + b
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void scalar_mul3d(double [:]  vec_a, double  b, double[:] res)noexcept nogil:
-  
+
     res[0] = vec_a[0] * b
     res[1] = vec_a[1] * b
     res[2] = vec_a[2] * b
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void scalar_div3d(double [:]  vec_a, double  b, double[:] res) noexcept nogil:
-  
+
     res[0] = vec_a[0] / b
     res[1] = vec_a[1] / b
     res[2] = vec_a[2] / b
@@ -119,8 +137,8 @@ cdef class Implicit3D:
             result[0] /=n
             result[1] /= n
             result[2] /= n
-        
-       
+
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -139,7 +157,7 @@ cdef class Implicit3D:
         cdef double z = point[2]
         cdef double result = self.cimplicit(x,y,z)
         return result
-    @property
+
     def bounds(self):
         return self._bounds
 
@@ -156,8 +174,8 @@ cdef class Sphere(Implicit3D):
         self.oz=oz
         self._radius=radius
         self._calculate_bounds()
-        
-    
+
+
 
 
     @cython.boundscheck(False)
@@ -187,10 +205,10 @@ cdef class Sphere(Implicit3D):
         result[1] /= n
         result[2] /= n
 
-    @property
+
     def bounds(self):
         return self._bounds
-    
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cpdef void set(self, double ox, double oy, double oz, double radius ):
@@ -200,23 +218,26 @@ cdef class Sphere(Implicit3D):
         self._radius=radius
         self._calculate_bounds()
 
-  
-    
+
+
     def astuple(self):
         cdef tuple tpl=PyTuple_Pack(4,self.ox,self.oy,self.oz,self._radius )
         return tpl
+
+
+
 @cython.boundscheck(False)
-@cython.wraparound(False)     
+@cython.wraparound(False)
 cdef void cylinder_aabb(double pax,double pay,double paz, double pbx,double pby,double pbz,double ax,double ay,double az, double r, double[:,:] res) noexcept nogil:
     cdef:
         double axsq=ax*ax
-        double aysq=ax*ay
+        double aysq=ay*ay
         double azsq=az*az
         double a_norm_sq=axsq+aysq+azsq
         double ex=r*sqrt(1-axsq / a_norm_sq)
         double ey=r*sqrt(1-aysq / a_norm_sq)
         double ez=r*sqrt(1-azsq / a_norm_sq)
-   
+
     res[0][0]=fmin(pax - ex,pbx - ex)
     res[0][1]=fmin(pay - ey,pby - ey)
     res[0][2]=fmin(paz - ez,pbz - ez)
@@ -224,7 +245,7 @@ cdef void cylinder_aabb(double pax,double pay,double paz, double pbx,double pby,
     res[1][1]=fmax(pay + ey,pby + ey)
     res[1][2]=fmax(paz + ez,pbz + ez)
 
-    
+
 cdef class Cylinder(Implicit3D):
     cdef double ox
     cdef double oy
@@ -249,18 +270,18 @@ cdef class Cylinder(Implicit3D):
         self._calculate_bounds()
 
     @cython.boundscheck(False)
-    @cython.wraparound(False)  
+    @cython.wraparound(False)
     cdef double cimplicit(self, double x,double y, double z) noexcept nogil:
-       
+
         cdef double ax = x - self.ox
         cdef double  ay = y - self.oy
         cdef double  az = z - self.oz
         cdef double  bn = self.dx**2 + self.dy**2 + self.dz**2
-        cdef double n = sqrt((x-(ax * self.dx * self.dx / bn + ay * self.dx * self.dy / bn + az * self.dx * self.dz / bn + self.ox))**2+(y- (ax * self.dx * self.dy / bn + ay * self.dy * self.dy / bn + az * self.dy * self.dz / bn + self.oy))**2+(z- (ax * self.dx * self.dz / bn + ay * self.dy * self.dz / bn + az * self.dz * self.dz / bn + self.oz))**2)
+        cdef double n = sqrt((x-(ax * self.dx * self.dx / bn + ay * self.dx * self.dy / bn + az * self.dx * self.dz / bn + self.ox))**2+(y- (ax * self.dx * self.dy / bn + ay * self.dy * self.dy / bn + az * self.dy * self.dz / bn + self.oy))**2+(z- (ax * self.dx * self.dz / bn + ay * self.dy * self.dz / bn + az * self.dz * self.dz / bn + self.oz))**2)-self._radius
         return n
-            
+
     @cython.boundscheck(False)
-    @cython.wraparound(False)  
+    @cython.wraparound(False)
     cdef void cnormal(self, double x,double y, double z, double[:] result) noexcept nogil:
         cdef double n
         self._normal_not_unit(x,y,z,result)
@@ -283,7 +304,7 @@ cdef class Cylinder(Implicit3D):
     def astuple(self):
         cdef tuple tpl=PyTuple_Pack(4,self.ox,self.oy,self.oz,self.ex,self.ey,self.ez,self._radius )
         return tpl
-    
+
     @property
     def start(self):
         cdef double[:] orig = np.empty(3)
@@ -314,7 +335,7 @@ cdef class Cylinder(Implicit3D):
         orig[1]=self.ey
         orig[2]=self.ez
         return orig
-    
+
     @end.setter
     def end(self, double[:] end):
 
@@ -323,7 +344,7 @@ cdef class Cylinder(Implicit3D):
         self.ez=end[2]
         self._calculate_direction()
         self._calculate_bounds()
-     
+
     @property
     def direction(self):
         cdef double[:] orig = np.empty(3)
@@ -331,7 +352,7 @@ cdef class Cylinder(Implicit3D):
         orig[1]=self.dy
         orig[2]=self.dz
         return orig
-    @property
+
     def bounds(self):
         return self._bounds
     cpdef void set(self, double[:] start, double[:] end,double radius):
@@ -355,28 +376,93 @@ cdef class Cylinder(Implicit3D):
         res[0]=x-(ax * self.dx * self.dx / bn + ay * self.dx * self.dy / bn + az * self.dx * self.dz / bn + self.ox)
         res[1]=y- (ax * self.dx * self.dy / bn + ay * self.dy * self.dy / bn + az * self.dy * self.dz / bn + self.oy)
         res[2]=z- (ax * self.dx * self.dz / bn + ay * self.dy * self.dz / bn + az * self.dz * self.dz / bn + self.oz)
-        
+
 cdef class CylinderPipe(Cylinder):
     """
     Straight cylindrical pipe with adjustable thickness.
-    
+
     """
     cdef double _thickness
- 
+
     def __init__(self, double[:] start, double[:] end, double radius,  double thickness) -> None:
         self._thickness = thickness
-        super().__init__(start, end, radius) 
+        super().__init__(start, end, radius)
 
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef double cimplicit(self, double x, double y, double z) noexcept nogil:
-        cdef double r=Cylinder.cimplicit(self, x,y,z)
-        cdef double res = fabs(r)-self._thickness/2
+        cdef double x0 = pow(self.dx, 2);
+        cdef double x1 = pow(self.dy, 2);
+        cdef double x2 = pow(self.dz, 2);
+        cdef double x3 = 1.0 / (x0 + x1 + x2);
+        cdef double x4 = x3 * (self.oy - y);
+        cdef double x5 = self.dx * self.dy;
+        cdef double x6 = x3 * (self.oz - z);
+        cdef double x7 = self.dz * x6;
+        cdef double x8 = x3 * (self.ox - x);
+        cdef double res = -1.0 / 2.0 * self._thickness + fabs(self._radius - sqrt(
+            pow(self.dx * x7 - self.ox + x + x0 * x8 + x4 * x5, 2) + pow(self.dy * x7 - self.oy + x1 * x4 + x5 * x8 + y, 2) + pow(
+                self.dx * self.dz * x8 + self.dy * self.dz * x4 - self.oz + x2 * x6 + z, 2)));
         return res
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cnormal(self, double x, double y, double z, double[:] result) noexcept nogil:
-        Implicit3D.cnormal(self, x,y,z, result)
+        cdef double x0 = pow(self.dx, 2);
+        cdef double x1 = pow(self.dy, 2);
+        cdef double x2 = pow(self.dz, 2);
+        cdef double x3 = 1.0 / (x0 + x1 + x2);
+        cdef double x4 = self.dy * x3;
+        cdef double x5 = -self.ox + x;
+        cdef double x6 = x5 + 0.001;
+        cdef double x7 = -x6;
+        cdef double x8 = self.dx * x7;
+        cdef double x9 = self.oz - z;
+        cdef double x10 = self.dz * x4;
+        cdef double x11 = x10 * x9;
+        cdef double x12 = self.oy - y;
+        cdef double x13 = x1 * x3;
+        cdef double x14 = -self.oy + y;
+        cdef double x15 = x12 * x13 + x14;
+        cdef double x16 = x11 + x15;
+        cdef double x17 = self.dz * x3;
+        cdef double x18 = x10 * x12;
+        cdef double x19 = x2 * x3;
+        cdef double x20 = -self.oz + z;
+        cdef double x21 = x19 * x9 + x20;
+        cdef double x22 = x18 + x21;
+        cdef double x23 = x0 * x3;
+        cdef double x24 = self.dx * x17;
+        cdef double x25 = x24 * x9;
+        cdef double x26 = self.dx * x4;
+        cdef double x27 = x12 * x26;
+        cdef double x28 = x25 + x27;
+        cdef double x29 = self.ox - x;
+        cdef double x30 = x29 + 0.001;
+        cdef double x31 = x14 + 0.001;
+        cdef double x32 = -x31;
+        cdef double x33 = x23 * x29 + x5;
+        cdef double x34 = x25 + x33;
+        cdef double x35 = x24 * x29;
+        cdef double x36 = x21 + x35;
+        cdef double x37 = x26 * x29;
+        cdef double x38 = x11 + x37;
+        cdef double x39 = x12 + 0.001;
+        cdef double x40 = x20 + 0.001;
+        cdef double x41 = -x40;
+        cdef double x42 = x27 + x33;
+        cdef double x43 = x15 + x37;
+        cdef double x44 = x18 + x35;
+        cdef double x45 = x9 + 0.001;
+        result[0] = -500.0 * fabs(self._radius - sqrt(
+            pow(x16 + x26 * x30, 2) + pow(x22 + x24 * x30, 2) + pow(x23 * x30 + x28 + x5 - 0.001, 2))) + 500.0 * fabs(
+            self._radius - sqrt(pow(x16 + x4 * x8, 2) + pow(x17 * x8 + x22, 2) + pow(x23 * x7 + x28 + x6, 2)));
+        result[1]  = 500.0 * fabs(self._radius - sqrt(
+            pow(x10 * x32 + x36, 2) + pow(x26 * x32 + x34, 2) + pow(x13 * x32 + x31 + x38, 2))) - 500.0 * fabs(
+            self._radius - sqrt(pow(x10 * x39 + x36, 2) + pow(x26 * x39 + x34, 2) + pow(x13 * x39 + x14 + x38 - 0.001, 2)));
+        result[2]  = 500.0 * fabs(self._radius - sqrt(
+            pow(x10 * x41 + x43, 2) + pow(x24 * x41 + x42, 2) + pow(x19 * x41 + x40 + x44, 2))) - 500.0 * fabs(
+            self._radius - sqrt(pow(x10 * x45 + x43, 2) + pow(x24 * x45 + x42, 2) + pow(x19 * x45 + x20 + x44 - 0.001, 2)));
+
     cdef void _calculate_bounds(self) noexcept nogil:
         cylinder_aabb(self.ox,self.oy,self.oz,self.ex,self.ey,self.ez,self.dx,self.dy,self.dz,self._radius+self._thickness/2, self._bounds)

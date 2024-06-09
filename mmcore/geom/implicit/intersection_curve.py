@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 from scipy.spatial import KDTree
@@ -17,6 +19,19 @@ from mmcore.geom.implicit.marching import (
 from mmcore.geom.implicit import Implicit3D
 
 
+def mgrid3d(bounds, x_count,y_count,z_count):
+    # Создаем линейные пространства
+    (minx, miny, minz), (maxx, maxy, maxz) =bounds
+    x = np.linspace(minx,maxx, x_count)
+    y = np.linspace(miny,maxy, y_count)
+    z = np.linspace(minz,maxz,z_count)
+    # Создаем 3D сетку точек
+    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+    # Объединяем координаты в один массив
+    points = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
+    return points
+
+
 class ImplicitIntersectionCurve(Implicit):
     def __init__(self, surf1: Implicit3D, surf2: Implicit3D, tol=1e-6):
         super().__init__()
@@ -28,6 +43,15 @@ class ImplicitIntersectionCurve(Implicit):
     def build_tree(self, depth=3):
         self._intersection.build_tree(depth=depth)
         self._tree = self._intersection.tree
+
+    def sample(self, step=None,x_cnt=15, y_cnt=15, z_cnt=15):
+
+        (minx, miny, minz), (maxx, maxy, maxz) = self.bounds()
+        print(self.bounds)
+        if step is not None:
+            x_cnt, y_cnt, z_cnt = np.array([np.ceil((maxx - minx) / step), np.ceil((maxy - miny) / step), np.ceil(
+            (maxz - minz) / step)], dtype=int)
+        return mgrid3d(((minx, miny, minz), (maxx, maxy, maxz)), x_cnt, y_cnt, z_cnt)
 
     def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         return self._intersection.bounds()
@@ -42,7 +66,7 @@ class ImplicitIntersectionCurve(Implicit):
         return scalar_unit(self._normal_not_unit(point))
 
     def closest_point(self, v):
-        return intersection_curve_point(self.surf1, self.surf2, v, self.surf1.normal, self.surf2.normal, tol=self.tol)
+        return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal, self.surf2.normal, tol=self.tol)
 
 
 class ImplicitIntersectionCurveIterator:
@@ -51,13 +75,14 @@ class ImplicitIntersectionCurveIterator:
 
             Note
             ----
-            When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~0.150 sec,
-            (on my machine this is about 10 times slower than Rhinoceros8, which of course can be considered a victory,
-            since we achieve this speed in python at runtime with classes defined on the fly).
-            If we just trace in a loop from the desired points it will be ~0.130 sec.
-            This means that replacing KDTree with a more specialized data structure will give ~ -0.020 to speed at best.
-            This is not insignificant, but most of the time is spent on marching, not on querying points and rebuilding the tree.
+            When tracing the intersection curves of two implicit pipes (a cylinder with a thick wall) it shows a speed of ~ 18.0 sms,
+            (on my machine this is about 1.5-2.5 times slower than Rhinoceros8, which of course can be considered a victory,
+            since we achieve this speed in python at runtime).
+            If we just trace in a loop from the desired points it will be ~7.5 ms, which is roughly identical to Rhinoceros8.
 
+            KDtree adds about 1 millisecond in the test case.
+            But the initial tree construction seems to cost more than 10.0 ms., and it will be much worse on large intersections.
+            I tried uniform sampling, but it makes everything much slower, so I'll probably have to give up on that idea.
 
 
             """
@@ -74,12 +99,26 @@ class ImplicitIntersectionCurveIterator:
         self.step = step
         self._kws = kwargs
 
-    def build_points(self):
+    def build_points(self, method=0):
         #TODO сделать более адекватное и простое семплирование точек, можно просто грид по bounds.
         # Построение дерева кажется пока пустой тратой времени особенно для деталей с тонкими стенками и множеством пересечений
-        return np.array([self.crv.closest_point(i) for i in
-                         np.average(self.crv.surf1.tree.border + self.crv.surf1.tree.empty, axis=1)])
+        if hasattr(self.crv, '_tree'):
+            return np.array([self.crv.closest_point(i) for i in
+                         np.average(self.crv.tree.border + self.crv.tree.full, axis=1)])
+        else:
+            if method == 0:
+                warnings.warn("Method 0 cannot be used because one of the bodies does not have the `tree` attribute. Using method 1")
+            l=[]
 
+            for i in self.crv.sample():
+
+                d=abs(self.crv.implicit(i))
+                if d<=0.2:
+                    print(d,i)
+                    l.append(self.crv.closest_point(i))
+
+
+            return np.array(l)
     def trace_curve_point(self, point, step):
         res = self._kdtree.query_ball_point(point, step, workers=self.workers)
         self.pop_queue.update({*res})
@@ -255,12 +294,13 @@ if __name__ == '__main__':
     cl1 = Cylinder(aa[0], z, aa[1] - aa[0])
     t1 = Tube(0.2, aa[0], z, aa[1] - aa[0])
     t2 = Tube(0.2, bb[0], u, bb[1] - bb[0])
-    t1.normal(np.random.random(3))
+    t1.implicit(np.array((1., 1., 1)))  # compile
+    t1.normal(np.array((1.,1.,1))) #compile
     vv = np.array(v)
-    print(cl2.normal(vv[0]))
+
     import time
 
-    s = time.time()
+    s = time.perf_counter_ns()
     try:
         res = []
         for i in range(len(vv)):
@@ -272,52 +312,39 @@ if __name__ == '__main__':
                     t2.normal,
                     vv[i],
                     max_points=200,
-                    step=0.1,
+                    step=0.2,
                     tol=1e-5,
-                )
+                ).tolist()
             )
 
 
     except ValueError as err:
         print(err)
-    print(time.time() - s)
-    t1.normal(np.random.random(3))
-    t2.normal(np.random.random(3))
+
+    #print("numba primitives speed (full):", (time.perf_counter_ns() - s)*1e-6,'ms.')
+
+
     crv = ImplicitIntersectionCurve(t1, t2)
     crv.build_tree()
-    s = time.time()
-    res = []
+    s = time.perf_counter_ns()
+    res2 = []
     for item in iterate_curves(crv):
-        res.append(item)
+        res2.append(item)
     #trace = ImplicitIntersectionCurveIterator(crv)
 
-    print("numba primitives speed:",time.time() - s)
+    print("numba primitives speed (full):", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
 
-    print(len(res))
+    print(len(res2))
     from mmcore.geom.implicit._implicit import CylinderPipe
 
-    t1 = CylinderPipe(aa[0],aa[1] , z,0.2 )
-    t2 = CylinderPipe(bb[0],bb[1] , u,0.2 )
-    import time
+    t11 = CylinderPipe(aa[0],aa[1] , z,0.2 )
+    t21 = CylinderPipe(bb[0],bb[1] , u,0.2 )
 
-    s = time.time()
-    try:
-        res = []
-        for i in range(len(vv)):
-            res.append(
-                marching_intersection_curve_points(
-                    t1.implicit,
-                    t2.implicit,
-                    t1.normal,
-                    t2.normal,
-                    vv[i],
-                    max_points=200,
-                    step=0.1,
-                    tol=1e-5,
-                )
-            )
+    s = time.perf_counter_ns()
+    res1 = []
+    for item in iterate_curves(crv):
+        res2.append(item)
 
 
-    except ValueError as err:
-        print(err)
-    print("mmcore builtin primitives speed:",time.time() - s)
+
+    print("mmcore builtin primitives speed:",(time.perf_counter_ns() - s)*1e-6,'ms.')
