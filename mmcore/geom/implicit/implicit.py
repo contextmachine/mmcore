@@ -4,7 +4,7 @@ import abc
 from typing import Union
 import numpy as np
 
-from mmcore.geom.implicit.marching import implicit_curve_points
+from mmcore.geom.implicit.marching import marching_implicit_curve_points
 from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
 from mmcore.geom.vec.vec_speedups import scalar_norm
 
@@ -228,7 +228,7 @@ class Implicit2D(Implicit):
         """
         v0 = np.array(self.v0())
 
-        res = implicit_curve_points(
+        res = marching_implicit_curve_points(
             self.implicit, v0=v0, v1=v0, max_points=max_points, step=step, delta=delta
         )
 
@@ -375,6 +375,10 @@ class Intersection2D(Implicit2D):
         self.solve_bounds()
 
     def implicit(self, v):
+        def op_intersection(d1, d2):
+            return max(d1, d2)
+
+
         return np.array(op_intersection(self.a.implicit(v), self.b.implicit(v)))
 
     def solve_bounds(self):
