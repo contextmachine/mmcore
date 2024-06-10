@@ -391,6 +391,14 @@ class Grad(FDM):
 
         return z
 
+class Hess:
+    def __init__(self, fun, h=DEFAULT_H):
+        self.fun = fun
+        self.h = h
+
+    def __call__(self, x):
+        return hessian(self.fun, x, h=self.h)
+
 
 # Step 3: Numerical Hessian calculation
 def hessian(f, point, h=DEFAULT_H):
@@ -428,13 +436,7 @@ def hessian(f, point, h=DEFAULT_H):
     return H
 
 
-class Hess:
-    def __init__(self, fun, h=DEFAULT_H):
-        self.fun = fun
-        self.h = h
 
-    def __call__(self, x):
-        return hessian(self.fun, x, h=self.h)
 
 
 def jac(fun, h=DEFAULT_H):
@@ -448,7 +450,7 @@ def jac(fun, h=DEFAULT_H):
 
     return jac_wrap
 
-def gradient(f, point, h=1e-5):
+def gradient(f, point, h=DEFAULT_H):
     point = np.asarray(point)
     grad = np.zeros_like(point)
     for i in range(point.size):
@@ -459,12 +461,15 @@ def gradient(f, point, h=1e-5):
         point[i] += h
         grad[i] = (f_plus_h - f_minus_h) / (2 * h)
     return grad
-def newtons_method(f, initial_point, tol=1e-5, max_iter=100):
+
+
+def newtons_method(f, initial_point, tol=DEFAULT_H, max_iter=100):
     point = np.asarray(initial_point)
     for _ in range(max_iter):
         grad = gradient(f, point)
         H = hessian(f, point)
         try:
+
             H_inv = np.linalg.inv(H)
         except np.linalg.LinAlgError:
             print("Hessian is singular at the point", point)
@@ -480,18 +485,49 @@ def newtons_method(f, initial_point, tol=1e-5, max_iter=100):
 
 def calculate_bnds(surface, centroid=(0., 0., 0.)):
     cons = {'type': 'eq', 'fun': surface}
-    origin = np.zeros(3)
+
     axis = np.eye(3)
     bounds = np.zeros((2, 3))
-    i = 0
+
     c = np.array(centroid, dtype=float)
     for j, n in enumerate(axis):
-        x1 = minimize(lambda point: -1 * np.dot(n, point - c), initial_guess,
+        x1 = minimize(lambda point: -1 * np.dot(n, point - c), centroid,
                       constraints=cons)
-        x2 = minimize(lambda point: -1 * np.dot(-n, point - c), initial_guess,
+        x2 = minimize(lambda point: -1 * np.dot(-n, point - c), centroid,
                       constraints=cons)
         bounds[0][j] = x1.x[j]
 
         bounds[1][j] = x2.x[j]
 
     return bounds
+if __name__ == '__main__':
+    from mmcore.geom.implicit._implicit import Cylinder
+
+    x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],
+                     [[7.14384241216015, -6.934735074711716, -0.1073366304415263],
+                      [7.0788761013028365, 10.016931402130641, 0.8727530304189204]],
+                     [[8.072688942425103, -2.3061831591019826, 0.2615779273274319],
+                      [7.173685617288537, -3.4427234423361512, 0.4324928834164773],
+                      [7.683972288682133, -2.74630545102506, 0.07413871667321925],
+                      [7.088944240699163, -4.61458155002528, -0.22460509818398067],
+                      [7.304629277158477, -3.9462033818505433, 0.8955725109783643],
+                      [7.304629277158477, -3.3362864951018985, 0.8955725109783643],
+                      [7.304629277158477, -2.477065729786164, 0.7989970582016114],
+                      [7.304629277158477, -2.0988672326949933, 0.7989970582016114]], 0.72648, 1.0]
+
+    aa = np.array(x)
+    bb = np.array(y)
+    t11 = Cylinder(aa[0], aa[1], z)
+    t21 = Cylinder(bb[0], bb[1], u)
+    from mmcore.numeric.fdm import newtons_method, Grad
+
+
+    def uu(xyz):
+        a, b = t11.implicit(xyz), t21.implicit(xyz)
+        print(xyz,a, b)
+        return a * b
+
+
+    res=newtons_method(uu, np.array([3.,5.,10.]),tol=1e-8, max_iter=100)
+    from mmcore.geom.implicit.marching import surface_point
+    print(t11.implicit(res),t21.implicit(res) )

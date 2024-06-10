@@ -8,7 +8,7 @@ import mmcore.geom.implicit.intersection_curve
 import importlib
 from math import copysign
 importlib.reload(mmcore.geom.implicit.intersection_curve )
-from mmcore.geom.implicit.marching import marching_intersection_curve_points,surface_point,surface_point_normal_tangentvts
+from mmcore.geom.implicit.marching import marching_intersection_curve_points,surface_point,surface_plane
 from mmcore.geom.implicit.intersection_curve import  ImplicitIntersectionCurve,iterate_curves
 import importlib
 from math import copysign
