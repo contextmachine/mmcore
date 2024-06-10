@@ -1,11 +1,11 @@
-from libc.math cimport pi
+from libc.math cimport pi,fabs
 cdef extern from "math.h":
     long double sqrt(long double xx)
     long double sin(long double u)
     long double cos(long double v)
     long double atan2(long double a, double b)
     long double atan(long double a)
-    const double pi
+
 
     double fmax(double a)
 
@@ -88,7 +88,21 @@ def scalar_norm(np.ndarray[DTYPE_t, ndim=1] vec):
     if res<=1e-15:
         return res2
     return sqrt(res)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def scalar_normalize(np.ndarray[DTYPE_t, ndim=1] vec):
+    cdef DTYPE_t res = 0.
+    cdef Py_ssize_t j
+    for j in range(vec.shape[0]):
+        res += (vec[j] ** 2)
 
+    res=sqrt(res)
+
+    if res>1e-15:
+        for j in range(vec.shape[0]):
+            vec[j]=vec[j]/res
+        return 1
+    return 0
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def norm(np.ndarray[DTYPE_t, ndim=2] vec):
