@@ -1,8 +1,6 @@
 import numba
-
 import numpy as np
-
-from mmcore.geom.implicit.marching import marching_intersection_curve_points
+import time
 from mmcore.geom.implicit.implicit import Implicit3D
 from mmcore.geom.implicit.intersection_curve import ImplicitIntersectionCurve, iterate_curves
 
@@ -96,7 +94,6 @@ class Tube(Cylinder):
     def _normal(self, v):
         return tub_normal(self.origin, self.axis, self.r, self.thickness, v[0], v[1], v[2])
 
-
     def bounds(self):
         return cylinder_aabb(self.start, self.end, self.r + self.thickness / 2)
 
@@ -116,44 +113,19 @@ x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.65662510904
 aa = np.array(x)
 bb = np.array(y)
 
-cl2 = Cylinder(bb[0], u, bb[1] - bb[0])
-cl1 = Cylinder(aa[0], z, aa[1] - aa[0])
 t1 = Tube(0.2, aa[0], z, aa[1] - aa[0])
 t2 = Tube(0.2, bb[0], u, bb[1] - bb[0])
-vv = np.array(v)
-print(cl2.normal(vv[0]))
-import time
+
 t1.normal(np.random.random(3))
 t2.normal(np.random.random(3))
-s = time.time()
-try:
-    res = []
-    for i in range(len(vv)):
-        res.append(
-            marching_intersection_curve_points(
-                t1.implicit,
-                t2.implicit,
-                t1.normal,
-                t2.normal,
-                vv[i],
-                max_points=200,
-                step=0.1,
-                tol=1e-5,
-            )
-        )
-
-
-except ValueError as err:
-    print(err)
-print(time.time() - s)
 
 crv = ImplicitIntersectionCurve(t1, t2)
 crv.build_tree()
+
 s = time.time()
 res = []
 for item in iterate_curves(crv):
     res.append(item)
-#trace = ImplicitIntersectionCurveIterator(crv)
 
 print(time.time() - s)
 
