@@ -49,7 +49,7 @@ def _curve_point2(func, x0, tol=1e-5, grad=None):
 
 
 def _normalize3d(v):
-    norm = np.linalg.norm(v)
+    norm = scalar_norm(v)
     if norm == 0:
         return v
     return v / norm
