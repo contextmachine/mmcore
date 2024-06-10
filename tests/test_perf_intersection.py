@@ -6,16 +6,12 @@ from mmcore.geom.vec.vec_speedups import scalar_norm,scalar_unit,scalar_dot
 import mmcore.geom.implicit.marching
 import mmcore.geom.implicit.intersection_curve
 import importlib
-from math import copysign
+
 importlib.reload(mmcore.geom.implicit.intersection_curve )
 from mmcore.geom.implicit.marching import marching_intersection_curve_points,surface_point,surface_plane
 from mmcore.geom.implicit.intersection_curve import  ImplicitIntersectionCurve,iterate_curves
-import importlib
-from math import copysign
-importlib.reload(mmcore.geom.implicit.marching)
-from mmcore.geom.implicit import Implicit3D
-from mmcore.numeric.aabb import aabb
-from mmcore.geom.implicit._implicit import CylinderPipe
+
+from mmcore.geom.primitives import Tube
 
 import time
 
@@ -34,8 +30,8 @@ def test_bodies1():
 
     aa = np.array(x)
     bb = np.array(y)
-    t11 = CylinderPipe(aa[0], aa[1], z, 0.2)
-    t21 = CylinderPipe(bb[0], bb[1], u, 0.2)
+    t11 = Tube(aa[0], aa[1], z, 0.2)
+    t21 = Tube(bb[0], bb[1], u, 0.2)
 
     s = time.perf_counter_ns()
     vv = np.array(v)
@@ -78,8 +74,8 @@ def test_bodies2():
 
     aa = np.array(x)
     bb = np.array(y)
-    t11 = CylinderPipe(aa[0], aa[1], z, 0.2)
-    t21 = CylinderPipe(bb[0], bb[1], u, 0.2)
+    t11 = Tube(aa[0], aa[1], z, 0.2)
+    t21 = Tube(bb[0], bb[1], u, 0.2)
     s1 = time.perf_counter_ns()
 
     crv = ImplicitIntersectionCurve(t11, t21, tol=0.001)

@@ -7,7 +7,7 @@ cimport numpy as np
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
+cdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
   
     cdef bint res
     cdef double det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
@@ -167,11 +167,11 @@ cdef class Sphere(Implicit3D):
     cdef double oz
     cdef double _radius
 
-    def __init__(self, double ox,double oy,double oz, double radius ):
+    def __init__(self,double[:] origin, double radius ):
         super().__init__()
-        self.ox=ox
-        self.oy=oy
-        self.oz=oz
+        self.ox=origin[0]
+        self.oy=origin[1]
+        self.oz=origin[2]
         self._radius=radius
         self._calculate_bounds()
 
@@ -224,7 +224,32 @@ cdef class Sphere(Implicit3D):
         cdef tuple tpl=PyTuple_Pack(4,self.ox,self.oy,self.oz,self._radius )
         return tpl
 
+    @property
+    def radius(self):
+        cdef double r=self._radius
 
+        return r
+    @radius.setter
+    def radius(self, double r):
+        self._radius=r
+        self._calculate_bounds()
+
+
+    @property
+    def origin(self):
+        cdef double[:] orig=np.empty((3,))
+        orig[0]=self.ox
+        orig[1]=self.oy
+        orig[2]=self.oz
+        
+        return orig
+    @origin.setter
+    def origin(self,  double[:] orig):
+
+        self.ox=orig[0]
+        self.oy=orig[1]
+        self.oz=orig[2]
+        self._calculate_bounds()
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -377,7 +402,7 @@ cdef class Cylinder(Implicit3D):
         res[1]=y- (ax * self.dx * self.dy / bn + ay * self.dy * self.dy / bn + az * self.dy * self.dz / bn + self.oy)
         res[2]=z- (ax * self.dx * self.dz / bn + ay * self.dy * self.dz / bn + az * self.dz * self.dz / bn + self.oz)
 
-cdef class CylinderPipe(Cylinder):
+cdef class Tube(Cylinder):
     """
     Straight cylindrical pipe with adjustable thickness.
 

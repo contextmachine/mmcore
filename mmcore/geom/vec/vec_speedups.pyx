@@ -374,6 +374,23 @@ def closest_point_on_line(double[:] start,double[:] end, double[:] point):
     p[1] = point[1] - start[1]
     p[2] = point[2] - start[2]
     return vector_projection(p, direction)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
+
+    cdef bint res
+    cdef double det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+
+    # matrix[1][0]hematrix[1][0]k if the determinmatrix[0][0]nt is zero
+    if det == 0:
+        res=0
+        return res
+    else:
+        # matrix[1][0]matrix[0][0]lmatrix[1][0]ulmatrix[0][0]te x matrix[0][0]nd y using the dirematrix[1][0]t method
+        result[0] = (y[0] * matrix[1][1] - matrix[0][1] * y[1]) / det
+        result[1] = (matrix[0][0] * y[1] - y[0] * matrix[1][0]) / det
+        res=1
+        return res
 """
 def rotate(self, deg):
     sin, cos = function_DegToSinCos(deg)

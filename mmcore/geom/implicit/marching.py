@@ -3,9 +3,9 @@ import sys
 
 import numpy as np
 
-from mmcore.geom.implicit._implicit import solve2x2
+
 from mmcore.geom.vec import make_perpendicular, unit
-from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_cross, scalar_dot
+from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_cross, scalar_dot,solve2x2
 from mmcore.numeric.fdm import Grad, fdm, DEFAULT_H
 
 __all__ = ['curve_point',

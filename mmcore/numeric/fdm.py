@@ -501,7 +501,7 @@ def calculate_bnds(surface, centroid=(0., 0., 0.)):
 
     return bounds
 if __name__ == '__main__':
-    from mmcore.geom.implicit._implicit import Cylinder
+    from mmcore.geom.primitives import Cylinder
 
     x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],
                      [[7.14384241216015, -6.934735074711716, -0.1073366304415263],

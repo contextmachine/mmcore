@@ -329,10 +329,10 @@ if __name__ == '__main__':
     print("numba primitives speed (full):", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
 
     print(len(res2))
-    from mmcore.geom.implicit._implicit import CylinderPipe
+    from mmcore.geom.primitives import Tube
 
-    t11 = CylinderPipe(aa[0], aa[1], z, 0.2)
-    t21 = CylinderPipe(bb[0], bb[1], u, 0.2)
+    t11 = Tube(aa[0], aa[1], z, 0.2)
+    t21 = Tube(bb[0], bb[1], u, 0.2)
 
     s = time.perf_counter_ns()
     res1 = []
