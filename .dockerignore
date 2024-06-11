@@ -28,3 +28,4 @@ run.sh
 test.sh
 docs
 /tests/logs/
+/examples/surfaces_intersection/numba_intersections.py
