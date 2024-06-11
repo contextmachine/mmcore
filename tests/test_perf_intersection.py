@@ -1,5 +1,6 @@
 import json
-
+import yappi
+import profile
 import numpy as np
 from mmcore.geom.vec.vec_speedups import scalar_norm,scalar_unit,scalar_dot
 
@@ -32,7 +33,8 @@ def test_bodies1():
     bb = np.array(y)
     t11 = Tube(aa[0], aa[1], z, 0.2)
     t21 = Tube(bb[0], bb[1], u, 0.2)
-
+    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    yappi.start(builtins=True)
     s = time.perf_counter_ns()
     vv = np.array(v)
     res1 = []
@@ -50,11 +52,14 @@ def test_bodies1():
             )
         )
     ms=(time.perf_counter_ns() - s) * 1e-6
-    print("mmcore builtin primitives speed:", ms, 'ms.')
+    yappi.stop()
+    func_stats = yappi.get_func_stats()
+    func_stats.save(f"test_perf_intersection_test_bodies1_stats_{int(time.time())}.pstat", type='pstat')
+    #print("mmcore builtin primitives speed:", ms, 'ms.')
     rres1 = []
     for r in res1:
         rres1.append(r.tolist())
-    print(rres1)
+    #print(rres1)
     with open(__file__.replace('.py', '_test_bodies1_log.txt'), 'a') as f:
         f.writelines([f'\n{ms} ms. {len(res1)}'])
 
@@ -77,7 +82,8 @@ def test_bodies2():
     t11 = Tube(aa[0], aa[1], z, 0.2)
     t21 = Tube(bb[0], bb[1], u, 0.2)
     s1 = time.perf_counter_ns()
-
+    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    yappi.start(builtins=True)
     crv = ImplicitIntersectionCurve(t11, t21, tol=0.001)
     crv.build_tree()
     it=iterate_curves(crv,step=0.2)
@@ -86,14 +92,35 @@ def test_bodies2():
     for item in it:
         res2.append(item)
     e=time.perf_counter_ns()
+    yappi.stop()
+    func_stats = yappi.get_func_stats()
+    func_stats.save(f"test_perf_intersection_test_bodies2_stats_{int(time.time())}.pstat", type='pstat')
+
     ms = (e- s) * 1e-6
     ms1 = (e - s1) * 1e-6
-    print("mmcore builtin primitives speed:", ms, 'ms.')
+    #print("mmcore builtin primitives speed:", ms, 'ms.')
 
-    print(res2)
+    #print(res2)
     with open(__file__.replace('.py', '_test_bodies2_log.txt'), 'a') as f:
         f.writelines([f'\n{ms1} ms. {ms} ms. {len(res2)}'])
-
 if __name__ == '__main__':
+    import time
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start(builtins=True)
     test_bodies1()
+    #yappi.stop()
+    #func_stats=yappi.get_func_stats()
+    #thread_stats=yappi.get_thread_stats()
+    #func_stats.save(f"test_perf_intersection_test_bodies1_stats_{int(time.time())}.pstat", "pstat")
+    #thread_stats.print_all()
+
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start(builtins=True)
     test_bodies2()
+    #yappi.stop()
+    #func_stats=yappi.get_func_stats()
+    #func_stats.save(f"test_perf_intersection_test_bodies2_stats_{int(time.time())}.pstat", "pstat")
+    #thread_stats1 = yappi.get_thread_stats()
+    #thread_stats1.print_all()
+
+

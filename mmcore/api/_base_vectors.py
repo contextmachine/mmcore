@@ -127,7 +127,7 @@ class BaseVector(Base):
         vector : The vector to take the dot product to.
         Returns the dot product value.
         """
-        return np.dot(self._array, vector._array)
+        return scalar_dot(self._array, vector._array)
 
     def is_parallel(self, vector: Type[Self]) -> bool:
         """

@@ -93,10 +93,10 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
     """
 
     def f(uv: NDArray[float]) -> float:
-        return np.dot(surface.derivative_u(uv), surface(uv) - P)
+        return scalar_dot(surface.derivative_u(uv), surface(uv) - P)
 
     def g(uv: NDArray[float]) -> float:
-        return np.dot(surface.derivative_v(uv), surface(uv) - P)
+        return scalar_dot(surface.derivative_v(uv), surface(uv) - P)
 
     ui, vi = u0, v0
     uivi = np.array([u0, v0])
@@ -106,10 +106,10 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
 
         # Calculate the Jacobian matrix
         J = np.array([
-            [np.dot(surface.derivative_u(uivi), surface.derivative_u(uivi)),
-             np.dot(surface.derivative_u(uivi), surface.derivative_v(uivi))],
-            [np.dot(surface.derivative_v(uivi), surface.derivative_u(uivi)),
-             np.dot(surface.derivative_v(uivi), surface.derivative_v(uivi))]
+            [scalar_dot(surface.derivative_u(uivi), surface.derivative_u(uivi)),
+             scalar_dot(surface.derivative_u(uivi), surface.derivative_v(uivi))],
+            [scalar_dot(surface.derivative_v(uivi), surface.derivative_u(uivi)),
+             scalar_dot(surface.derivative_v(uivi), surface.derivative_v(uivi))]
         ])
 
         # Calculate the k vector
@@ -152,7 +152,7 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
         if np.linalg.norm(surface(ui1vi1) - P) <= tol1:
             break
 
-        if abs(np.dot(surface.derivative_u(ui1vi1), surface(ui1vi1) - P)) / (
+        if abs(scalar_dot(surface.derivative_u(ui1vi1), surface(ui1vi1) - P)) / (
                 np.linalg.norm(surface.derivative_u(ui1vi1)) * np.linalg.norm(surface(ui1vi1) - P)) <= tol2:
             break
 

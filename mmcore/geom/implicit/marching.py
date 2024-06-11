@@ -70,8 +70,8 @@ def _evaluate_jacobian(g1, g2):
     :return: Jacobian matrix for the two gradients
     """
     J = np.array([
-        [np.dot(g1, g1), np.dot(g2, g1)],
-        [np.dot(g1, g2), np.dot(g2, g2)]
+        [scalar_dot(g1, g1), scalar_dot(g2, g1)],
+        [scalar_dot(g1, g2), scalar_dot(g2, g2)]
     ])
     return J
 
@@ -151,8 +151,8 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
 
     J = np.array([
-        [np.dot(g1, g1), np.dot(g2, g1)],
-        [np.dot(g1, g2), np.dot(g2, g2)]
+        [scalar_dot(g1, g1), scalar_dot(g2, g1)],
+        [scalar_dot(g1, g2), scalar_dot(g2, g2)]
     ])
 
     g = np.array([f1, f2])
@@ -175,8 +175,8 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
         qk = qk_next
         f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
         J = np.array([
-            [np.dot(g1, g1), np.dot(g2, g1)],
-            [np.dot(g1, g2), np.dot(g2, g2)]
+            [scalar_dot(g1, g1), scalar_dot(g2, g1)],
+            [scalar_dot(g1, g2), scalar_dot(g2, g2)]
         ])
 
         g[:] = f1, f2
@@ -333,7 +333,7 @@ def marching_intersection_curve_points(
             if np.any(p < bounds[0]) or np.any(p > bounds[1]):
                 break
         grad_cross = scalar_cross(g1, g2)
-        if np.dot(grad_cross, grad_cross) == 0:
+        if scalar_dot(grad_cross, grad_cross) == 0:
             break
 
         unit_tangent = grad_cross / scalar_norm(grad_cross)

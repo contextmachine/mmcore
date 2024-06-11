@@ -14,9 +14,9 @@ def sd_triangle(p: np.array, a: np.array, b: np.array, c: np.array):
     nor = np.cross(ba, ac)
     S = _check_normals(p, a, b, c, np.cross(ba, c - a))
     condition = (
-        sign_func(np.dot(np.cross(ba, nor), pa))
-        + sign_func(np.dot(np.cross(cb, nor), pb))
-        + sign_func(np.dot(np.cross(ac, nor), pc))
+        sign_func(scalar_dot(np.cross(ba, nor), pa))
+        + sign_func(scalar_dot(np.cross(cb, nor), pb))
+        + sign_func(scalar_dot(np.cross(ac, nor), pc))
         < 2.0
     )
 
@@ -25,16 +25,16 @@ def sd_triangle(p: np.array, a: np.array, b: np.array, c: np.array):
             np.sqrt(
                 min(
                     min(
-                        dot2(ba * clamp(np.dot(ba, pa) / dot2(ba), 0.0, 1.0) - pa),
-                        dot2(cb * clamp(np.dot(cb, pb) / dot2(cb), 0.0, 1.0) - pb),
+                        dot2(ba * clamp(scalar_dot(ba, pa) / dot2(ba), 0.0, 1.0) - pa),
+                        dot2(cb * clamp(scalar_dot(cb, pb) / dot2(cb), 0.0, 1.0) - pb),
                     ),
-                    dot2(ac * clamp(np.dot(ac, pc) / dot2(ac), 0.0, 1.0) - pc),
+                    dot2(ac * clamp(scalar_dot(ac, pc) / dot2(ac), 0.0, 1.0) - pc),
                 )
             )
             * S
         )
     else:
-        return np.sqrt(np.dot(nor, pa) * np.dot(nor, pa) / dot2(nor)) * S
+        return np.sqrt(scalar_dot(nor, pa) * scalar_dot(nor, pa) / dot2(nor)) * S
 
 class Triangle(Object3D):
     def __init__(self, geom):

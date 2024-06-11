@@ -37,7 +37,7 @@ class Vector2D(BaseVector):
         vector : The vector to use in the dot product calculation.
         Returns the dot product of the two vectors.
         """
-        return np.dot(self._array, vector._array)
+        return scalar_dot(self._array, vector._array)
 
     @classmethod
     def cast(cls, arg) -> Vector2D:
@@ -60,7 +60,7 @@ class Vector2D(BaseVector):
         vector : The vector to compare with for parallelism.
         Returns true if the vectors are parallel.
         """
-        return np.isclose(np.dot(self._array, vector._array), 1)
+        return np.isclose(scalar_dot(self._array, vector._array), 1)
 
     def is_perpendicular(self, vector: Vector2D) -> bool:
         """
@@ -68,7 +68,7 @@ class Vector2D(BaseVector):
         vector : The vector to compare with for perpendicularity.
         Returns true if the vectors are perpendicular.
         """
-        return np.isclose(np.dot(self._array, vector._array), 0)
+        return np.isclose(scalar_dot(self._array, vector._array), 0)
 
     def normalize(self) -> bool:
         """

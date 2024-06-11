@@ -239,7 +239,7 @@ class LinearMap:
     def __init__(self, source, target):
         self.source = np.array(source)
         self.target = np.array(target)
-        self.slope = np.dot(self.source, self.target)
+        self.slope = scalar_dot(self.source, self.target)
 
     def __call__(self, t):
         return self.slope * t
