@@ -6,9 +6,10 @@ from scipy.spatial import KDTree
 
 from mmcore.geom.implicit.implicit import Implicit, Intersection3D
 from mmcore.geom.implicit.marching import intersection_curve_point
-from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_unit
+from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_unit, scalar_cross, scalar_dot
 from mmcore.numeric.aabb import aabb
-
+from mmcore.numeric.fdm import newtons_method
+from mmcore.numeric.numeric import gram_schmidt
 from mmcore.geom.implicit.marching import (
     marching_intersection_curve_points,
 
@@ -31,7 +32,7 @@ def mgrid3d(bounds, x_count, y_count, z_count):
     return points
 
 
-class ImplicitIntersectionCurve(Implicit):
+class ImplicitIntersectionCurve(Implicit3D):
     def __init__(self, surf1: Implicit3D, surf2: Implicit3D, tol=1e-6):
         super().__init__()
         self.surf1 = surf1
@@ -43,26 +44,32 @@ class ImplicitIntersectionCurve(Implicit):
         self._intersection.build_tree(depth=depth)
         self._tree = self._intersection.tree
 
-    def sample(self, step=None, x_cnt=15, y_cnt=15, z_cnt=15):
-        (minx, miny, minz), (maxx, maxy, maxz) = self.bounds()
-        print(self.bounds)
-        if step is not None:
-            x_cnt, y_cnt, z_cnt = np.array([np.ceil((maxx - minx) / step), np.ceil((maxy - miny) / step), np.ceil(
-                (maxz - minz) / step)], dtype=int)
-        return mgrid3d(((minx, miny, minz), (maxx, maxy, maxz)), x_cnt, y_cnt, z_cnt)
-
     def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         return self._intersection.bounds()
 
-    def implicit(self, v):
-        return scalar_norm(self._normal_not_unit(v))
 
-    def _normal_not_unit(self, point):
-        return point - self.closest_point(point)
+    def implicit(self, pt):
+        return scalar_norm(pt-self.closest_point(pt))
+    def tangent(self, pt):
+        cpt=self.closest_point(pt)
+        return scalar_unit(np.cross(self.surf1.normal(cpt),self.surf2.normal(cpt)))
+    def normal(self, xyz):
+        return xyz-self.closest_point(xyz)
 
-    def normal(self, point):
-        return scalar_unit(self._normal_not_unit(point))
-
+    def plane(self, pt):
+        cpt = self.closest_point(pt)
+        pln=np.zeros((4,3))
+        pln[0]=cpt
+        n=scalar_unit(pt-cpt)
+        pln[2] = n
+        n1,n2=self.surf1.normal(cpt), self.surf2.normal(cpt)
+        #n3=(n1+ n2)/2
+        tang=scalar_unit(scalar_cross(n1,n2))
+        pln[1]=tang
+        self.surf1.normal(cpt)
+        pln[2] = scalar_unit(n1 -  tang * scalar_dot(n1, tang))
+        pln[3] = scalar_cross(tang, pln[2])
+        return pln
     def closest_point(self, v):
         return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal,
                                         self.surf2.normal, tol=self.tol)
@@ -89,38 +96,54 @@ class ImplicitIntersectionCurveIterator:
 
             """
 
-    def __init__(self, crv: ImplicitIntersectionCurve, step=0.1, workers=-1, **kwargs):
+    def __init__(self, crv: ImplicitIntersectionCurve, step=0.1, workers=-1, debug=None, clear_debug=True, **kwargs):
         self.crv = crv
 
-        self.points = self.build_points()
+        self.step = step
+        self._kws = kwargs
         self._kdtree = None
         self.pop_queue = set()
         self.workers = workers
         self.traces = []
-        self.initial_point = self.rebuild_tree()
-        self.step = step
-        self._kws = kwargs
+        self.points = self.build_points(debug=debug, clear=clear_debug)
 
-    def build_points(self, method=0):
+        self.initial_point = self.rebuild_tree()
+
+    def build_points(self, debug=None, clear=True):
         #TODO сделать более адекватное и простое семплирование точек, можно просто грид по bounds.
         # Построение дерева кажется пока пустой тратой времени особенно для деталей с тонкими стенками и множеством пересечений
-        if hasattr(self.crv, '_tree'):
-            return np.array([self.crv.closest_point(i) for i in
-                             np.average(self.crv.tree.border + self.crv.tree.full, axis=1)])
+
+        arr = []
+        if debug is not None:
+
+            for pt in np.average(self.crv.tree.border, axis=1):
+                dbg = []
+                success, p = intersection_curve_point(surf1=self.crv.surf1.implicit,
+                                                      surf2=self.crv.surf2.implicit,
+                                                      q0=pt,
+                                                      grad1=self.crv.surf1.normal, grad2=self.crv.surf2.normal,
+                                                      no_err=True,
+                                                      max_iter=8,
+                                                      tol=self.crv.tol)
+                if success:
+                    arr.append(p)
+                    if clear:
+                        debug[:] = dbg
+                    else:
+                        debug.append(dbg)
         else:
-            if method == 0:
-                warnings.warn(
-                    "Method 0 cannot be used because one of the bodies does not have the `tree` attribute. Using method 1")
-            l = []
+            for pt in np.average(self.crv.tree.border, axis=1):
+                success, p = intersection_curve_point(self.crv.surf1.implicit,
+                                                      self.crv.surf2.implicit,
+                                                      pt,
+                                                      self.crv.surf1.normal, self.crv.surf2.normal,
+                                                      no_err=True,
+                                                      max_iter=8,
+                                                      tol=self.crv.tol)
+                if success:
+                    arr.append(p)
 
-            for i in self.crv.sample():
-
-                d = abs(self.crv.implicit(i))
-                if d <= 0.2:
-                    print(d, i)
-                    l.append(self.crv.closest_point(i))
-
-            return np.array(l)
+        return np.array(arr)
 
     def trace_curve_point(self, point, step):
         res = self._kdtree.query_ball_point(point, step, workers=self.workers)
@@ -159,6 +182,7 @@ class ImplicitIntersectionCurveIterator:
                                                                                                       step=self.step) if self._kdtree is not None else None,
                                                      **self._kws).tolist()
             self.initial_point = self.rebuild_tree()
+
             return res
 
         else:
@@ -172,10 +196,10 @@ def intersection_curve(surf1, surf2):
     return ImplicitIntersectionCurve(surf1, surf2)
 
 
-def iterate_curves(curve: ImplicitIntersectionCurve, step=0.1, workers=-1, return_nurbs=False, **kwargs):
+def iterate_curves(curve: ImplicitIntersectionCurve, step=0.1, workers=-1, return_nurbs=False, debug=None, **kwargs):
     if return_nurbs:
         return iterate_curves_as_nurbs(curve, step, workers=workers, **kwargs)
-    return ImplicitIntersectionCurveIterator(curve, step=step, workers=workers, **kwargs)
+    return ImplicitIntersectionCurveIterator(curve, step=step, workers=workers, debug=debug, **kwargs)
 
 
 from mmcore.geom.curves.knot import interpolate_curve

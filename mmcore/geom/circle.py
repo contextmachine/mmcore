@@ -76,7 +76,7 @@ class Circle2D(Curve, Implicit2D):
     def evaluate(self, t):
         return np.array([self.x(t), self.y(t)])
 
-    def closest_point(self, v):
+    def point_on_curve(self, v):
 
         N = self._implicit_normal(v)
         nn = np.linalg.norm(N)

@@ -3,9 +3,8 @@ import sys
 
 import numpy as np
 
-
 from mmcore.geom.vec import make_perpendicular, unit
-from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_cross, scalar_dot,solve2x2
+from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_cross, scalar_dot, solve2x2
 from mmcore.numeric.fdm import Grad, fdm, DEFAULT_H
 
 __all__ = ['curve_point',
@@ -45,7 +44,6 @@ def _curve_point2(func, x0, tol=1e-5, grad=None):
         x0[0] = xi1
         x0[1] = yi1
     return x0
-
 
 
 def _normalize3d(v):
@@ -118,7 +116,7 @@ def curve_point(func, initial_point: np.ndarray = None, delta=0.001, grad=None):
     return new_point
 
 
-def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100, return_grads=False):
+def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100, return_grads=False, no_err=False):
     """
 
     :param surf1:
@@ -149,6 +147,7 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     """
     alpha_beta = np.zeros(2, dtype=np.float64)
     qk = np.copy(q0)
+
     f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
 
     J = np.array([
@@ -163,10 +162,15 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     d = scalar_norm(qk_next - qk)
     i = 0
 
+    success = True
     while d > tol:
 
         if i > max_iter:
-            raise ValueError('Maximum iterations exceeded, No convergence')
+            if not no_err:
+                raise ValueError(f'Maximum iterations exceeded, No convergence {d}')
+            else:
+                success = False
+                break
 
         qk = qk_next
         f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
@@ -177,19 +181,21 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
 
         g[:] = f1, f2
 
-        success = solve2x2(J, -g, alpha_beta)
+        _success = solve2x2(J, -g, alpha_beta)
 
         #alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
         #alpha, beta = newton_step(qk, alpha, beta, f1, f2, g1, g2)
         delta = alpha_beta[0] * g1 + alpha_beta[1] * g2
         qk_next = delta + qk
+
         d = scalar_norm(delta)
 
         i += 1
 
     if return_grads:
-        return qk_next, f1, f2, g1, g2
-    return qk_next
+        return (success, (qk_next, f1, f2, g1, g2)) if no_err else qk_next, f1, f2, g1, g2
+
+    return (success, qk_next) if no_err else qk_next
 
 
 def surface_point(fun, p0, grad=None, tol=1e-8):
@@ -288,7 +294,8 @@ def marching_implicit_curve_points(
 
 
 def marching_intersection_curve_points(
-        f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6, point_callback=None
+        f1, f2, grad_f1, grad_f2, start_point, end_point=None, step=0.1, max_points=None, tol=1e-6, bounds=None,
+        point_callback=None
 ):
     """
     :param f1: The first function defining the intersection surface
@@ -303,6 +310,7 @@ def marching_intersection_curve_points(
     :return: An array of points that lie on the intersection curve
 
     """
+
     points = []
     use_callback = True
     if point_callback is None:
@@ -320,6 +328,10 @@ def marching_intersection_curve_points(
 
     while (len(points) < max_points):
         #g1, g2 = grad_f1(p), grad_f2(p)
+        if bounds is not None:
+
+            if np.any(p < bounds[0]) or np.any(p > bounds[1]):
+                break
         grad_cross = scalar_cross(g1, g2)
         if np.dot(grad_cross, grad_cross) == 0:
             break
