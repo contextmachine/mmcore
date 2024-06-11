@@ -182,7 +182,7 @@ def evaluate_curvature(
         unit_tangent_vector = derivative / norm_derivative
 
         # Compute scalar component of curvature
-        negative_second_derivative_dot_tangent = -np.dot(
+        negative_second_derivative_dot_tangent = -scalar_dot(
             second_derivative, unit_tangent_vector
         )
         inverse_norm_derivative_squared = 1.0 / (norm_derivative * norm_derivative)
@@ -282,7 +282,7 @@ def evaluate_normal(
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
     dot_product_gradient_u = norm_sq(gradient_u)
-    dot_product_gradient_uv = np.dot(gradient_u, gradient_v)
+    dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
     dot_product_gradient_v = norm_sq(gradient_v)
 
     determinant, jacobian_success = evaluate_jacobian(
@@ -343,7 +343,7 @@ def evaluate_normal2(
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
     dot_product_gradient_u = norm_sq(gradient_u)
-    dot_product_gradient_uv = np.dot(gradient_u, gradient_v)
+    dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
     dot_product_gradient_v = norm_sq(gradient_v)
     determinant, jacobian_success = evaluate_jacobian(
         dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
@@ -408,13 +408,13 @@ def evaluate_sectional_curvature(derivative_u,
         M = M + M2
         D2 = cross(M, planeNormal)
 
-        a = np.dot(D1, D1)
+        a = scalar_dot(D1, D1)
 
         if not (a > np.finfo(float).eps):
             return np.array([j for i in [0.0] * 3 for j in [i]])
 
         a = 1.0 / a
-        b = -a * np.dot(D2, D1)
+        b = -a * scalar_dot(D2, D1)
         K = a * (D2 + b * D1)
 
         return K

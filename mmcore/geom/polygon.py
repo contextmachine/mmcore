@@ -90,7 +90,7 @@ def polygon_area(poly, cast_to_numpy=True) -> float:
     if cast_to_numpy:
         poly = np.array(poly)
     length = poly.shape[0] - 1
-    return np.abs(np.dot(poly[:length, 1], poly[1:, 0]) - np.dot(poly[:length, 0], poly[1:, 1])) / 2
+    return np.abs(scalar_dot(poly[:length, 1], poly[1:, 0]) - scalar_dot(poly[:length, 0], poly[1:, 1])) / 2
 
 
 polygon_area_vectorized = np.vectorize(polygon_area,

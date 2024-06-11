@@ -155,8 +155,8 @@ def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
     )
 
     # Construct the right-hand side of the equation
-    dot_a = np.dot(plane1[0], normal1)
-    dot_b = np.dot(plane2[0], normal2)
+    dot_a = scalar_dot(plane1[0], normal1)
+    dot_b = scalar_dot(plane2[0], normal2)
     array_y = np.array([*plane1[0], dot_a, dot_b])
 
     # Solve the linear system

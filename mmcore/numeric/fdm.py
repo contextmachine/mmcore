@@ -492,9 +492,9 @@ def calculate_bnds(surface, centroid=(0., 0., 0.)):
 
     c = np.array(centroid, dtype=float)
     for j, n in enumerate(axis):
-        x1 = minimize(lambda point: -1 * np.dot(n, point - c), centroid,
+        x1 = minimize(lambda point: -1 * scalar_dot(n, point - c), centroid,
                       constraints=cons)
-        x2 = minimize(lambda point: -1 * np.dot(-n, point - c), centroid,
+        x2 = minimize(lambda point: -1 * scalar_dot(-n, point - c), centroid,
                       constraints=cons)
         bounds[0][j] = x1.x[j]
 
