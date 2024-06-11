@@ -59,7 +59,7 @@ def tub_normal(origin, axis, r, thickness, x, y, z) -> float:
 
 def cylinder_aabb(pa, pb, ra):
     a = pb - pa
-    e = ra * np.sqrt(1.0 - a * a / np.dot(a, a))
+    e = ra * np.sqrt(1.0 - a * a / scalar_dot(a, a))
     return (np.minimum(pa - e, pb - e), np.maximum(pa + e, pb + e))
 
 

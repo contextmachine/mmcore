@@ -579,7 +579,7 @@ def compound_transforms(first, second):
 
 def matmul(a, b):
     for row in a:
-        yield [np.dot(row, col) for col in b]
+        yield [scalar_dot(row, col) for col in b]
 
 
 def add_transforms(first, second):

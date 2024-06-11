@@ -16,13 +16,13 @@ def max_vec(a, b):
 
 def cylinder_aabb(pa, pb, ra):
     a = pb - pa
-    e = ra * np.sqrt(1.0 - a * a / np.dot(a, a))
+    e = ra * np.sqrt(1.0 - a * a / scalar_dot(a, a))
     return (min_vec(pa - e, pb - e), max_vec(pa + e, pb + e))
 
 
 def cone_aabb(pa, pb, ra, rb):
     a = pb - pa
-    e = np.sqrt(1.0 - a * a / np.dot(a, a))
+    e = np.sqrt(1.0 - a * a / scalar_dot(a, a))
     return (min_vec(pa - e * ra, pb - e * rb), max_vec(pa + e * ra, pb + e * rb))
 
 
