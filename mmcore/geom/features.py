@@ -1,6 +1,66 @@
 from enum import IntEnum
 
+
+from typing import Any
+
 import numpy as np
+
+from scipy.spatial import KDTree
+
+
+from mmcore.geom.vec import unit
+
+
+
+def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray[Any, np.dtype[np.bool_]]:
+    return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+
+
+
+def intersects_segments(ab: np.ndarray, cd: np.ndarray) -> bool:
+    a, b = ab
+    c, d = cd
+    return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
+
+
+def polyline_to_lines(pln_points):
+    return np.stack([pln_points, np.roll(pln_points, -1, axis=0)], axis=1)
+
+
+def aabb(points: np.ndarray):
+    return np.array((np.min(points, axis=len(points.shape) - 2), np.max(points, axis=len(points.shape) - 2)))
+
+
+aabb_vectorized = np.vectorize(aabb, signature='(i,j)->(k,j)')
+
+
+def point_indices(unq, other, eps=1e-6, dist_upper_bound=None, return_distance=True):
+    kd = KDTree(unq)
+    dists, ixs = kd.query(other, eps=eps, distance_upper_bound=dist_upper_bound)
+    if return_distance:
+        return dists, ixs
+    else:
+        return ixs
+
+
+
+def point_in_polygon(polygon: np.ndarray, point: np.ndarray):
+    inside = polygon[1] + unit((polygon[0] - polygon[1]) + (polygon[2] - polygon[1]))
+
+    cnt = len(np.arange(len(polygon))[intersects_segments(polyline_to_lines(polygon), [point, inside])]
+              )
+    return cnt % 2 == 0
+
+
+import numpy as np
+
+
+
+def clamp(self, min, max):
+    # assumes min < max, componentwise
+
+    return np.max(min, np.min(max, self))
 
 
 class PointsOrder(IntEnum):
@@ -24,6 +84,8 @@ def points_order(points, close=True) -> PointsOrder:
         return PointsOrder.CCW
     else:
         return PointsOrder.COLLINEAR
+
+
 
 
 # language=Glsl

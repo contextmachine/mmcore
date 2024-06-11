@@ -15,6 +15,8 @@ from mmcore.geom.implicit.marching import (
 )
 from mmcore.geom.implicit import Implicit3D
 
+DEFAULT_STEP = 0.2
+
 
 def mgrid3d(bounds, x_count, y_count, z_count):
     # Создаем линейные пространства
@@ -64,6 +66,9 @@ class ImplicitIntersectionCurve(Implicit):
     def closest_point(self, v):
         return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal,
                                         self.surf2.normal, tol=self.tol)
+
+    def __iter__(self):
+        return ImplicitIntersectionCurveIterator(self, step=DEFAULT_STEP, workers=-1)
 
 
 class ImplicitIntersectionCurveIterator:
@@ -163,7 +168,13 @@ class ImplicitIntersectionCurveIterator:
         return self
 
 
-def iterate_curves(curve: ImplicitIntersectionCurve, step=0.1, workers=-1, **kwargs):
+def intersection_curve(surf1, surf2):
+    return ImplicitIntersectionCurve(surf1, surf2)
+
+
+def iterate_curves(curve: ImplicitIntersectionCurve, step=0.1, workers=-1, return_nurbs=False, **kwargs):
+    if return_nurbs:
+        return iterate_curves_as_nurbs(curve, step, workers=workers, **kwargs)
     return ImplicitIntersectionCurveIterator(curve, step=step, workers=workers, **kwargs)
 
 
@@ -318,7 +329,7 @@ if __name__ == '__main__':
 
     except ValueError as err:
         print(err)
-    print("numba primitives speed:", (time.perf_counter_ns() - s)*1e-6,'ms.')
+    print("numba primitives speed:", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
     crv = ImplicitIntersectionCurve(t1, t2)
     crv.build_tree()
     s = time.perf_counter_ns()
