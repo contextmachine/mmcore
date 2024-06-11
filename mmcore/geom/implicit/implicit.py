@@ -108,7 +108,7 @@ class Implicit:
     def normal(self, v):
         ...
 
-    def closest_point(self, v):
+    def point_on_curve(self, v):
         d = self.implicit(v)
         N = self.normal(v) * d
         if d < 0:
@@ -244,13 +244,7 @@ class Implicit2D(Implicit):
     def build_tree(self, depth=3):
         self._tree = ImplicitTree2D(self.implicit, depth, bounds=self.bounds())
 
-    def normal(self, xyz):
-        D = np.eye(2) * DEFAULT_H
-        res = np.zeros(2, dtype=float)
-        res[0] = (self.implicit(xyz + D[0]) - self.implicit(xyz - D[0])) / 2 / DEFAULT_H
-        res[1] = (self.implicit(xyz + D[1]) - self.implicit(xyz - D[1])) / 2 / DEFAULT_H
-    
-        return res / scalar_norm(res)
+
 
 
 from mmcore.numeric.fdm import DEFAULT_H

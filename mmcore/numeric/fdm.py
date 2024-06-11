@@ -454,6 +454,7 @@ def gradient(f, point, h=DEFAULT_H):
     point = np.asarray(point)
     grad = np.zeros_like(point)
     for i in range(point.size):
+
         point[i] += h
         f_plus_h = f(point)
         point[i] -= 2 * h
