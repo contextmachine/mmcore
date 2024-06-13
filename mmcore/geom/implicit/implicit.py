@@ -6,7 +6,7 @@ import numpy as np
 
 from mmcore.geom.implicit.marching import marching_implicit_curve_points
 from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
-from mmcore.geom.vec.vec_speedups import scalar_norm
+from mmcore.numeric.vectors import scalar_norm
 
 from mmcore.numeric.fdm import fdm
 from mmcore.geom.curves.knot import interpolate_curve

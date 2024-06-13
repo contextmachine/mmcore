@@ -117,7 +117,7 @@ cdef void scalar_div3d(double [:]  vec_a, double  b, double[:] res) noexcept nog
 
 
 cdef class Implicit3D:
-    cdef double[:,:] _bounds
+
     def __init__(self):
         self._bounds=np.empty((2,3))
     @cython.boundscheck(False)
@@ -162,10 +162,7 @@ cdef class Implicit3D:
         return self._bounds
 
 cdef class Sphere(Implicit3D):
-    cdef double ox
-    cdef double oy
-    cdef double oz
-    cdef double _radius
+
 
     def __init__(self,double[:] origin, double radius ):
         super().__init__()
@@ -208,15 +205,6 @@ cdef class Sphere(Implicit3D):
 
     def bounds(self):
         return self._bounds
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cpdef void set(self, double ox, double oy, double oz, double radius ):
-        self.ox=ox
-        self.oy=oy
-        self.oz=oz
-        self._radius=radius
-        self._calculate_bounds()
 
 
 
@@ -272,16 +260,7 @@ cdef void cylinder_aabb(double pax,double pay,double paz, double pbx,double pby,
 
 
 cdef class Cylinder(Implicit3D):
-    cdef double ox
-    cdef double oy
-    cdef double oz
-    cdef double dx
-    cdef double dy
-    cdef double dz
-    cdef double ex
-    cdef double ey
-    cdef double ez
-    cdef double _radius
+
     def __init__(self, double[:] start, double[:] end, double radius) -> None:
         super().__init__()
         self.ox=start[0]
@@ -327,7 +306,7 @@ cdef class Cylinder(Implicit3D):
         cylinder_aabb(self.ox,self.oy,self.oz,self.ex,self.ey,self.ez,self.dx,self.dy,self.dz,self._radius,self._bounds)
 
     def astuple(self):
-        cdef tuple tpl=PyTuple_Pack(4,self.ox,self.oy,self.oz,self.ex,self.ey,self.ez,self._radius )
+        cdef tuple tpl=PyTuple_Pack(7,self.ox, self.oy, self.oz, self.ex, self.ey, self.ez, self._radius )
         return tpl
 
     @property
@@ -380,16 +359,7 @@ cdef class Cylinder(Implicit3D):
 
     def bounds(self):
         return self._bounds
-    cpdef void set(self, double[:] start, double[:] end,double radius):
-        self.ox=start[0]
-        self.oy=start[1]
-        self.oz=start[2]
-        self.ex=end[0]
-        self.ey=end[1]
-        self.ez=end[2]
-        self._radius=radius
-        self._calculate_direction()
-        self._calculate_bounds()
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void _normal_not_unit(self,double x,double y, double z,double[:] res) noexcept nogil:
@@ -407,7 +377,7 @@ cdef class Tube(Cylinder):
     Straight cylindrical pipe with adjustable thickness.
 
     """
-    cdef double _thickness
+
 
     def __init__(self, double[:] start, double[:] end, double radius,  double thickness) -> None:
         self._thickness = thickness
@@ -491,3 +461,6 @@ cdef class Tube(Cylinder):
 
     cdef void _calculate_bounds(self) noexcept nogil:
         cylinder_aabb(self.ox,self.oy,self.oz,self.ex,self.ey,self.ez,self.dx,self.dy,self.dz,self._radius+self._thickness/2, self._bounds)
+    def astuple(self):
+        cdef tuple tpl = PyTuple_Pack(8, self.ox, self.oy, self.oz, self.ex, self.ey, self.ez, self._radius, self._thickness)
+        return tpl

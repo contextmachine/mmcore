@@ -2,7 +2,7 @@ import numpy as np
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.surfaces import Surface
-from mmcore.geom.vec.vec_speedups import scalar_dot,scalar_norm
+from mmcore.numeric.vectors import scalar_dot,scalar_norm
 from numpy.typing import NDArray
 
 
