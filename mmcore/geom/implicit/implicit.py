@@ -4,7 +4,7 @@ import abc
 from typing import Union
 import numpy as np
 
-from mmcore.geom.implicit.marching import marching_implicit_curve_points
+from mmcore.numeric.marching import marching_implicit_curve_points
 from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
 from mmcore.numeric.vectors import scalar_norm
 
@@ -54,7 +54,7 @@ def normal_from_function2d(f, d=0.0001):
         return res
 
     return norm
-from mmcore.numeric.fdm import gradient
+
 
 def normal_from_function3d(f, d=0.0001):
     """Given a sufficiently smooth 3d function, f, returns a function approximating of the gradient of f.

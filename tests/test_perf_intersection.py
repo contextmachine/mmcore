@@ -1,21 +1,11 @@
-import json
-import yappi
-import profile
 import numpy as np
-from mmcore.numeric.vectors import scalar_norm,scalar_unit,scalar_dot
 
-import mmcore.geom.implicit.marching
-import mmcore.geom.implicit.intersection_curve
-import importlib
 
-importlib.reload(mmcore.geom.implicit.intersection_curve )
-from mmcore.geom.implicit.marching import marching_intersection_curve_points
-from mmcore.numeric.algorithms import surface_point, surface_plane
-from mmcore.geom.implicit.intersection_curve import  ImplicitIntersectionCurve,iterate_curves
+from mmcore.numeric.marching import marching_intersection_curve_points
+from mmcore.numeric.surface_intersection.implicit_implicit import  ImplicitIntersectionCurve,iterate_curves
 
 from mmcore.geom.primitives import Tube
 
-import time
 
 def test_bodies1():
     x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],

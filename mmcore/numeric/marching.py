@@ -28,7 +28,7 @@ def marching_implicit_curve_points(
 ):
     """
     Calculates implicit curve points using the curve_point algorithm.
-    >>> from mmcore.geom.implicit.marching import marching_implicit_curve_points
+
     >>> import numpy as np
     >>> def cassini(xy,a=1.1,c=1.0):
     ...     x,y=xy
