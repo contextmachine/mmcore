@@ -2,14 +2,15 @@ import json
 import yappi
 import profile
 import numpy as np
-from mmcore.geom.vec.vec_speedups import scalar_norm,scalar_unit,scalar_dot
+from mmcore.numeric.vectors import scalar_norm,scalar_unit,scalar_dot
 
 import mmcore.geom.implicit.marching
 import mmcore.geom.implicit.intersection_curve
 import importlib
 
 importlib.reload(mmcore.geom.implicit.intersection_curve )
-from mmcore.geom.implicit.marching import marching_intersection_curve_points,surface_point,surface_plane
+from mmcore.geom.implicit.marching import marching_intersection_curve_points
+from mmcore.numeric.algorithms import surface_point, surface_plane
 from mmcore.geom.implicit.intersection_curve import  ImplicitIntersectionCurve,iterate_curves
 
 from mmcore.geom.primitives import Tube
@@ -33,8 +34,8 @@ def test_bodies1():
     bb = np.array(y)
     t11 = Tube(aa[0], aa[1], z, 0.2)
     t21 = Tube(bb[0], bb[1], u, 0.2)
-    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    yappi.start(builtins=True)
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start(builtins=True)
     s = time.perf_counter_ns()
     vv = np.array(v)
     res1 = []
@@ -52,9 +53,9 @@ def test_bodies1():
             )
         )
     ms=(time.perf_counter_ns() - s) * 1e-6
-    yappi.stop()
-    func_stats = yappi.get_func_stats()
-    func_stats.save(f"test_perf_intersection_test_bodies1_stats_{int(time.time())}.pstat", type='pstat')
+    #yappi.stop()
+    #func_stats = yappi.get_func_stats()
+    #func_stats.save(f"test_perf_intersection_test_bodies1_stats_{int(time.time())}.pstat", type='pstat')
     #print("mmcore builtin primitives speed:", ms, 'ms.')
     rres1 = []
     for r in res1:
@@ -82,8 +83,8 @@ def test_bodies2():
     t11 = Tube(aa[0], aa[1], z, 0.2)
     t21 = Tube(bb[0], bb[1], u, 0.2)
     s1 = time.perf_counter_ns()
-    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    yappi.start(builtins=True)
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start(builtins=True)
     crv = ImplicitIntersectionCurve(t11, t21, tol=0.001)
     crv.build_tree()
     it=iterate_curves(crv,step=0.2)
@@ -92,9 +93,9 @@ def test_bodies2():
     for item in it:
         res2.append(item)
     e=time.perf_counter_ns()
-    yappi.stop()
-    func_stats = yappi.get_func_stats()
-    func_stats.save(f"test_perf_intersection_test_bodies2_stats_{int(time.time())}.pstat", type='pstat')
+    #yappi.stop()
+    #func_stats = yappi.get_func_stats()
+    #func_stats.save(f"test_perf_intersection_test_bodies2_stats_{int(time.time())}.pstat", type='pstat')
 
     ms = (e- s) * 1e-6
     ms1 = (e - s1) * 1e-6
