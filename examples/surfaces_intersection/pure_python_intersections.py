@@ -2,7 +2,7 @@ import numpy as np
 import time
 from mmcore.geom.implicit.implicit import Implicit3D
 from mmcore.geom.implicit.intersection_curve import ImplicitIntersectionCurve, iterate_curves
-from mmcore.geom.vec.vec_speedups import scalar_norm
+from mmcore.numeric.vectors import scalar_norm, scalar_dot
 from mmcore.numeric.closest_point import closest_point_on_ray
 
 

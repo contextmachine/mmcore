@@ -21,8 +21,8 @@ include_dirs = [numpy.get_include()]
 
 extensions = [
     Extension(
-        "mmcore.geom.vec.vec_speedups",
-        ["mmcore/geom/vec/vec_speedups.pyx"],
+        "mmcore.numeric.vectors",
+        ["mmcore/numeric/vectors.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs
@@ -35,8 +35,15 @@ extensions = [
         include_dirs=include_dirs
 
     ), Extension(
-        "mmcore.geom.primitives._primitives",
-        ["mmcore/geom/primitives/_primitives.pyx"],
+        "mmcore.geom.primitives",
+        ["mmcore/geom/primitives.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
+    ), Extension(
+        "mmcore.numeric.calgorithms",
+        ["mmcore/numeric/calgorithms.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs

@@ -6,7 +6,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
-from mmcore.geom.vec.vec_speedups import scalar_dot, dot_vec_x_array, scalar_norm, scalar_cross, scalar_unit, \
+from mmcore.numeric.vectors import scalar_dot, dot_vec_x_array, scalar_norm, scalar_cross, scalar_unit, \
     vector_projection
 
 WORLD_XY = np.array([[0., 0., 0.],

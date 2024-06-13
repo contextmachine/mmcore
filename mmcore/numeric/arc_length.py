@@ -1,7 +1,7 @@
 import numpy as np
 import math
 
-from mmcore.geom.vec.vec_speedups import scalar_norm,norm
+from mmcore.numeric.vectors import scalar_norm,norm
 
 
 def curvature_based_step(tolerance, curvature_radius):

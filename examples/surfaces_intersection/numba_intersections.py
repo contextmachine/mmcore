@@ -3,6 +3,7 @@ import numpy as np
 import time
 from mmcore.geom.implicit.implicit import Implicit3D
 from mmcore.geom.implicit.intersection_curve import ImplicitIntersectionCurve, iterate_curves
+from mmcore.numeric.vectors import scalar_dot
 
 
 @numba.njit(cache=True)

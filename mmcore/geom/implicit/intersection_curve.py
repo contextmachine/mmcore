@@ -6,7 +6,8 @@ from scipy.spatial import KDTree
 
 from mmcore.geom.implicit.implicit import Implicit, Intersection3D
 from mmcore.geom.implicit.marching import intersection_curve_point
-from mmcore.geom.vec.vec_speedups import scalar_norm, scalar_unit, scalar_cross, scalar_dot
+from mmcore.numeric.vectors import scalar_norm, scalar_unit, scalar_cross, scalar_dot
+from mmcore.numeric.algorithms import intersection_curve_point
 from mmcore.numeric.aabb import aabb
 from mmcore.numeric.fdm import newtons_method
 from mmcore.numeric.numeric import gram_schmidt
