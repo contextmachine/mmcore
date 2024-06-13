@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from mmcore.geom.implicit.intersection_curve import ImplicitIntersectionCurve, iterate_curves
+from mmcore.numeric.surface_intersection.implicit_implicit import ImplicitIntersectionCurve, iterate_curves
 
 from mmcore.geom.primitives import Tube
 

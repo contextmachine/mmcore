@@ -1,17 +1,12 @@
-import warnings
-
 import numpy as np
 
 from scipy.spatial import KDTree
 
-from mmcore.geom.implicit.implicit import Implicit, Intersection3D
-from mmcore.geom.implicit.marching import intersection_curve_point
+from mmcore.geom.implicit.implicit import Intersection3D
 from mmcore.numeric.vectors import scalar_norm, scalar_unit, scalar_cross, scalar_dot
 from mmcore.numeric.algorithms import intersection_curve_point
 from mmcore.numeric.aabb import aabb
-from mmcore.numeric.fdm import newtons_method
-from mmcore.numeric.numeric import gram_schmidt
-from mmcore.geom.implicit.marching import (
+from mmcore.numeric.marching import (
     marching_intersection_curve_points,
 
 )
@@ -48,29 +43,31 @@ class ImplicitIntersectionCurve(Implicit3D):
     def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
         return self._intersection.bounds()
 
-
     def implicit(self, pt):
-        return scalar_norm(pt-self.closest_point(pt))
+        return scalar_norm(pt - self.closest_point(pt))
+
     def tangent(self, pt):
-        cpt=self.closest_point(pt)
-        return scalar_unit(np.cross(self.surf1.normal(cpt),self.surf2.normal(cpt)))
+        cpt = self.closest_point(pt)
+        return scalar_unit(np.cross(self.surf1.normal(cpt), self.surf2.normal(cpt)))
+
     def normal(self, xyz):
-        return xyz-self.closest_point(xyz)
+        return xyz - self.closest_point(xyz)
 
     def plane(self, pt):
         cpt = self.closest_point(pt)
-        pln=np.zeros((4,3))
-        pln[0]=cpt
-        n=scalar_unit(pt-cpt)
+        pln = np.zeros((4, 3))
+        pln[0] = cpt
+        n = scalar_unit(pt - cpt)
         pln[2] = n
-        n1,n2=self.surf1.normal(cpt), self.surf2.normal(cpt)
+        n1, n2 = self.surf1.normal(cpt), self.surf2.normal(cpt)
         #n3=(n1+ n2)/2
-        tang=scalar_unit(scalar_cross(n1,n2))
-        pln[1]=tang
+        tang = scalar_unit(scalar_cross(n1, n2))
+        pln[1] = tang
         self.surf1.normal(cpt)
-        pln[2] = scalar_unit(n1 -  tang * scalar_dot(n1, tang))
+        pln[2] = scalar_unit(n1 - tang * scalar_dot(n1, tang))
         pln[3] = scalar_cross(tang, pln[2])
         return pln
+
     def closest_point(self, v):
         return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal,
                                         self.surf2.normal, tol=self.tol)
@@ -376,3 +373,7 @@ if __name__ == '__main__':
         res2.append(item)
 
     print("mmcore builtin primitives speed:", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
+
+
+def surface_iii(surf1, surf2):
+    return ImplicitIntersectionCurve(surf1, surf2)
