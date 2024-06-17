@@ -31,6 +31,7 @@ import numpy as np
 
 from mmcore.func import vectorize
 
+
 DEBUG_MODE = os.getenv('DEBUG_MODE')
 
 
@@ -50,11 +51,11 @@ def angle(a, b):
         if (not 0.9999 <= np.linalg.norm(a) <= 1.0001) or (not 0.9999 <= np.linalg.norm(b) <= 1.0001):
             raise ValueError("Both input vectors must be normalized.")
 
-    cos_angle = scalar_dot(a, b)
+    cos_angle = np.dot(a, b)
     if cos_angle < -1 or cos_angle > 1:
         raise ValueError("Dot product must be in the range [-1, 1]. Please check your input vectors.")
 
-    return np.arccos(scalar_dot(a, b))
+    return np.arccos(np.dot(a, b))
 
 
 @vectorize(signature='(i),(i),(i)->()')
@@ -152,7 +153,7 @@ def dot(a, b):
     :return: The dot product of `a` and `b`.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    return scalar_dot(a, b)
+    return np.dot(a, b)
 
 
 @vectorize(signature='(i)->(i)')
@@ -297,7 +298,7 @@ Out:
  array([-0.00107956, -0.21301218, -0.97704895]))
     """
     u = u / np.linalg.norm(u)  # Ensure u is a unit vector
-    v -= u * scalar_dot(u, v)  # Make v orthogonal to u
+    v -= u * np.dot(u, v)  # Make v orthogonal to u
 
     # Re-normalize v in case it's very close to zero
     if (np.linalg.norm(v) > 1e-10):
@@ -306,8 +307,8 @@ Out:
         raise ValueError('Vectors u and v are parallel')
 
     # w vector
-    w -= u * scalar_dot(u, w)
-    w -= v * scalar_dot(v, w)
+    w -= u * np.dot(u, w)
+    w -= v * np.dot(v, w)
 
     # Re-normalize w
     if (np.linalg.norm(w) > 1e-10):

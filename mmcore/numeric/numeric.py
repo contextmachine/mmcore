@@ -12,6 +12,7 @@ from mmcore.numeric.divide_and_conquer import (
     test_all_roots,
     iterative_divide_and_conquer_min,
 )
+from mmcore.numeric.vectors import scalar_dot
 
 
 def plane_on_curve(O, T, D2):
