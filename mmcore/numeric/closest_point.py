@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 from mmcore.geom.vec import unit, dot, norm
-from mmcore.numeric.vectors import vector_projection
+from mmcore.numeric.vectors import vector_projection, scalar_dot
 from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min

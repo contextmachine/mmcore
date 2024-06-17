@@ -9,7 +9,7 @@ from typing_extensions import Buffer
 Numeric = Union[SupportsInt, SupportsFloat, Buffer]
 
 from mmcore.geom.vec import dist, angle, unit, norm
-
+from mmcore.numeric.vectors import scalar_dot
 
 class BaseVector(Base):
     __dim__: int
