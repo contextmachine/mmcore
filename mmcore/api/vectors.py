@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from mmcore.api._base import Base
 from mmcore.api._base_vectors import BaseVector, BaseMatrix
 from mmcore.geom.vec import angle, cross, unit, dist
+from ..numeric import scalar_dot
 
 
 class Vector2D(BaseVector):

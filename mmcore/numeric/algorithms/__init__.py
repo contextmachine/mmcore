@@ -4,8 +4,6 @@ import numpy as np
 from mmcore.numeric.vectors import scalar_dot, solve2x2, scalar_norm, scalar_cross
 
 from mmcore.geom.vec import unit, make_perpendicular
-from mmcore.numeric import calgorithms
-
 from mmcore.numeric.fdm import Grad
 
 

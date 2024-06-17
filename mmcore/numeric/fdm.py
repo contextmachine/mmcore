@@ -2,6 +2,7 @@ import dataclasses
 import functools
 import math
 import sys
+from .vectors import scalar_dot
 from typing import Callable, Optional, Iterable
 
 import numpy as np
@@ -530,6 +531,6 @@ if __name__ == '__main__':
 
 
     res=newtons_method(uu, np.array([3.,5.,10.]),tol=1e-8, max_iter=100)
-    from mmcore.numeric.algorithms import surface_point
+
 
     print(t11.implicit(res),t21.implicit(res) )

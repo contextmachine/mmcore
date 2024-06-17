@@ -10,6 +10,7 @@ from mmcore.geom.curves.curve import Curve
 from mmcore.geom.vec import unit, norm, cross
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
+from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit
 
 
 class TwoPointForm:
@@ -161,9 +162,9 @@ class Surface:
 
     def plane_at(self, uv):
         orig = self.evaluate(uv)
-        du = unit(self.derivative_u(uv))
-        dn = unit(cross(du, self.derivative_v(uv)))
-        dv = cross(dn, du)
+        du = scalar_unit(self.derivative_u(uv))
+        dn = scalar_unit(cross(du, self.derivative_v(uv)))
+        dv = scalar_cross(dn, du)
 
         # n = evaluate_normal2(
         #    du,
