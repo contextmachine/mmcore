@@ -1,4 +1,6 @@
+import itertools
 import time
+from enum import Enum
 
 import numpy as np
 import scipy
@@ -6,6 +8,7 @@ import scipy
 from scipy.optimize import fsolve
 from scipy.spatial import KDTree
 
+from mmcore.geom.bvh import BoundingBox, intersect_bvh, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.geom.vec import cross, norm
 from mmcore.numeric import evaluate_curvature,calgorithms
@@ -13,12 +16,15 @@ from mmcore.numeric.aabb import aabb_overlap, aabb
 from mmcore.numeric.algorithms import intersection_curve_point
 from mmcore.numeric.algorithms import intersection_curve_point
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
-from mmcore.numeric.closest_point import closest_point_on_line
+from mmcore.numeric.closest_point import closest_point_on_line,closest_point_on_ray
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 from mmcore.geom.curves.knot import interpolate_curve
 from mmcore.geom.curves.bspline import NURBSpline
 from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit
-
+class TerminatorType(int, Enum):
+    FAIL=0
+    LOOP=1
+    EDGE=2
 TOL = 0.1
 def get_plane(origin,du,dv):
     duu = du/np.linalg.norm(du)
@@ -32,8 +38,8 @@ def freeform_step_debug(pt1,pt2,du1,dv1,du2,dv2):
 
     ln = np.array(plane_plane_intersect(pl1, pl2))
 
-    np1 = closest_point_on_line((ln[0], ln[0] + ln[1]), pt1)
-    np2 = closest_point_on_line((ln[0], ln[0] + ln[1]), pt2)
+    np1 = np.asarray(closest_point_on_ray((ln[0], ln[1]), pt1))
+    np2 = np.asarray(closest_point_on_ray((ln[0],  ln[1]), pt2))
 
     return np1, np1 + (np2 - np1) / 2, np2
 
@@ -99,9 +105,9 @@ def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
         return
     xyz1_new = s1.evaluate(uvb1_better)
     xyz2_new = s2.evaluate(uvb2_better)
-    print(   np.linalg.norm(xyz1_new -  xyz2_new))
+    #print(   np.linalg.norm(xyz1_new -  xyz2_new))
     if np.linalg.norm(xyz1_new - xyz2_new) <= tol:
-        print("e")
+        # print("e")
         return (xyz1_new, uvb1_better), (xyz2_new, uvb2_better)
     else:
 
@@ -169,28 +175,29 @@ def stop_check(s1, s2, xyz1, xyz2, uv1, uv2, initial_xyz, step, tol, iterations=
 
 
 def marching_method(
-        s1, s2, initial_uv1, initial_uv2, kd=None,tol=1e-3, max_iter=100, no_ff=False,side=1
+        s1, s2, initial_uv1, initial_uv2, kd=None,tol=1e-3, max_iter=1000, no_ff=False,side=1
 ):
     iterations = 0
-
+    terminator=None
     use_kd = kd is not None
     ixss = set()
     xyz1_init, xyz2_init = np.copy(s1.evaluate(initial_uv1)), np.copy(s2.evaluate(initial_uv2))
     res = marching_step(s1, s2, initial_uv1, initial_uv2, tol=tol, side=side)
+
     if res is None:
-        print("N")
-        return
+        #print("N")
+        return  terminator
 
     (xyz1, uv1_new), (xyz2, uv2_new),step = res
-
+    if use_kd:
+        ixss.update(kd.query_ball_point(xyz1_init, step*2))
     #print()
 
 
 
     uvs = [(uv1_new, uv2_new)]
-    pts = [xyz1]
-    if use_kd:
-        ixss.update(kd.query_ball_point(xyz1, tol))
+    pts = [ xyz1]
+
 
 
     #print(uv1_new, uv2_new)
@@ -206,7 +213,8 @@ def marching_method(
         res=marching_step(s1, s2, uv1, uv2,  tol=tol,side=side)
 
         if res is None:
-            print("N")
+            #print("N")
+            terminator = TerminatorType.EDGE
             break
         else:
 
@@ -222,15 +230,17 @@ def marching_method(
                #print(ixss)
 
            if np.linalg.norm(xyz1 - xyz1_init) < step:
-               print("b", xyz1_init, xyz1, np.linalg.norm(xyz1 - xyz1_init), step)
-               pts.append(xyz1_init)
+               #print("b", xyz1_init, xyz1, np.linalg.norm(xyz1 - xyz1_init), step)
+               pts.append(pts[0])
+
                uvs.append((initial_uv1.tolist(), initial_uv1.tolist()))
+               terminator=TerminatorType.LOOP
                break
         #print("I", np.linalg.norm(xyz1 - xyz1_init), step*2)
 
 
-    print(len(pts))
-    return uvs, pts, steps, list(ixss)
+    #print(len(pts))
+    return uvs, pts, steps, list(ixss), terminator
 
 
 def _ssss(res,tol):
@@ -271,11 +281,15 @@ def surface_local_cpt(surf1, surf2):
 
 def surface_ppi(surf1, surf2, tol=0.1):
 
-    res=find_closest(surf1,surf2,tol=tol)
+    #res=find_closest(surf1,surf2,tol=tol)
+    #if res is None:
+    #    return
+    res=find_closest2(surf1, surf2, tol=tol)
     if res is None:
         return
 
-    kd,uvs1,uvs2=_ssss(res,tol)
+
+    kd,uvs1,uvs2=res
 
     curves=[]
     curves_uvs=[]
@@ -296,22 +310,45 @@ def surface_ppi(surf1, surf2, tol=0.1):
         ress = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=1)
         ii += 1
         if ress is not None:
-            uvs, pts, steps, ixss = ress
+            start = np.copy(data[0])
+            if ress[-1]!=TerminatorType.LOOP:
+                ress_back = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=-1)
+
+
+                if ress_back is not None:
+
+                    uvs, pts, steps, ixss,terminator = ress
+                    uvsb, ptsb, stepsb, ixssb,terminator = ress_back
+                    rmv= np.unique(ixss+ixssb)
+                    data = np.delete(data, rmv, axis=0)
+                    uvs1 = np.delete(uvs1, rmv, axis=0)
+                    uvs2 = np.delete(uvs2, rmv, axis=0)
+                    if len(data.shape) == 2:
+                        kd = KDTree(data)
+                    else:
+
+                        kd = None
+                    return list(itertools.chain(reversed( ptsb),[start],pts))
+
+            uvs, pts, steps, ixss,terminator = ress
 
             rmv = np.array(ixss, dtype=int)
-            #print(rmv)
+            # print(rmv)
             data = np.delete(data, rmv, axis=0)
             uvs1 = np.delete(uvs1, rmv, axis=0)
             uvs2 = np.delete(uvs2, rmv, axis=0)
             if len(data.shape) == 2:
-                kd = KDTree(data)
+                    kd = KDTree(data)
 
             else:
 
-                kd = None
-                #ress = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=None, tol=tol, side=1)
+                    kd = None
+                        # ress = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=None, tol=tol, side=1)
 
-            return list(pts)
+            return [start]+list(pts)
+
+
+
         else:
             uvs1 = np.delete(uvs1, 0, axis=0)
             uvs2 = np.delete(uvs2, 0, axis=0)
@@ -323,46 +360,7 @@ def surface_ppi(surf1, surf2, tol=0.1):
                 kd = None
 
 
-        if len(uvs1)>0:
-            ress_back = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=-1)
-            if ress_back is not None:
-                uvs, pts, steps, ixss = ress_back
 
-                rmv = np.array(ixss, dtype=int)
-                data = np.delete(data, rmv, axis=0)
-                uvs1 = np.delete(uvs1, rmv, axis=0)
-                uvs2 = np.delete(uvs2, rmv, axis=0)
-
-                if len(data.shape) == 2:
-                    kd = KDTree(data)
-                else:
-                    kd = None
-
-                return list(reversed(pts))
-
-            elif ress is None and ress_back is None:
-                uvs1 = np.delete(uvs1, 0, axis=0)
-                uvs2 = np.delete(uvs2, 0, axis=0)
-                data = np.delete(data, 0, axis=0)
-                if len(data.shape) == 2:
-
-
-                    kd = KDTree(data)
-
-                else:
-
-                    kd = None
-                return None
-            else:
-                uvs1 = np.delete(uvs1, 0, axis=0)
-                uvs2 = np.delete(uvs2, 0, axis=0)
-                data = np.delete(data, 0, axis=0)
-                if len(data.shape) == 2:
-                    kd = KDTree(data)
-
-                else:
-                    kd = None
-                return
 
 
 
@@ -421,7 +419,7 @@ def find_closest(surf1, surf2, tol=1e-3):
     if aabb_overlap((min1max1), (min2max2)):
         cnts1 =  min(max(int(max((min1max1[1] - min1max1[0]) // (tol*2))),4),25)
         cnts2 =  min(max(int(max((min2max2[1] - min2max2[0]) // (tol*2))),4),25)
-        print(cnts1,cnts2)
+        #print(cnts1,cnts2)
 
 
 
@@ -435,11 +433,49 @@ def find_closest(surf1, surf2, tol=1e-3):
         a = np.array(a, dtype=int)
         b = np.array(b, dtype=int)
 
-
+        #print([pts1[a].tolist(),pts2[b].tolist()])
         return ClosestSurfaces(SurfaceStuff(surf1, kd1, pts1[a], _uvs1[a], min1max1),
                                SurfaceStuff(surf2, kd2, pts2[b], _uvs2[b], min2max2))
     else:
         return None
+def find_closest2(surf1:Surface, surf2:Surface, tol=1e-3):
+
+    min1max1:BoundingBox = surf1.tree.bounding_box
+    min2max2:BoundingBox = surf2.tree.bounding_box
+
+    if min1max1.intersect(min2max2):
+        pts = []
+        uvs1 = []
+        uvs2 = []
+        for first,second in intersect_bvh_objects(surf1.tree,surf2.tree):
+            first:BVHNode
+            second: BVHNode
+            #bb=first.bounding_box.intersection(second.bounding_box)
+
+
+            uv1=np.average(first.object.uvs,axis=0)
+            uv2=np.average(second.object.uvs, axis=0)
+
+            res=freeform_step(surf1,surf2, uv1, uv2, tol=tol)
+            if res is not None:
+                (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) =res
+                #print(uvb1_better, uvb2_better)
+                pts.append(xyz1_new)
+                uvs1.append(uvb1_better)
+                uvs2.append(uvb2_better)
+        return KDTree(np.array(pts)), np.array(uvs1),np.array(uvs2)
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     import yappi
@@ -447,7 +483,7 @@ if __name__ == '__main__':
     pts1=np.array([[(-6.0558943035701525, -13.657656200983698, 1.0693341635684721), (-1.5301574718208828, -12.758430585795727, -2.4497481670182113), (4.3625055618617772, -14.490138754852163, -0.052702347089249368), (7.7822965141636233, -13.958097981505476, 1.1632592672736894)], [(7.7822965141636233, -13.958097981505476, 1.1632592672736894), (9.3249111495947457, -9.9684277340655711, -2.3272399773510646), (9.9156785503454081, -4.4260877770435245, -4.0868275118021469), (13.184366571517304, 1.1076098797323481, 0.55039832538794542)], [(-3.4282810787748206, 2.5976227512567878, -4.1924897351083787), (5.7125793432806686, 3.1853804927764848, -3.1997049666908506), (9.8891692556257418, 1.2744489476398368, -7.2890391724273922), (13.184366571517304, 1.1076098797323481, 0.55039832538794542)], [(-6.0558943035701525, -13.657656200983698, 1.0693341635684721), (-2.1677078000821663, -4.2388638567221646, -3.2149413059589502), (-3.5823721281354479, -1.1684651343084738, 3.3563417199639680), (-3.4282810787748206, 2.5976227512567878, -4.1924897351083787)]]
 )
 
-    pts2=np.array([[(-9.5666205803690971, -12.711321277810857, -0.77093266173210928), (-1.5012583168504101, -15.685662924609387, -6.6022178296290024), (0.62360921189203689, -15.825362292273830, 2.9177845739234654), (7.7822965141636233, -14.858282311330257, -5.1454157090841059)], [(7.7822965141636233, -14.858282311330257, -5.1454157090841059), (9.3249111495947457, -9.9684277340655711, -1.3266123160614773), (12.689851531339878, -4.4260877770435245, -9.5700220471407818), (10.103825228355211, 1.1076098797323481, -5.6331564229411617)], [(-5.1868371621186844, 2.5976267088609308, 0.97022697723726137), (-0.73355849180427846, 3.1853804927764848, 1.4184540026745367), (1.7370638323127894, 4.7726088993795681, -3.4674902939896270), (10.103825228355211, 1.1076098797323481, -5.6331564229411617)], [(-9.5666205803690971, -12.711321277810857, -0.77093266173210928), (-3.9344403681487776, -6.6256134176686521, -6.3569364954962628), (-5.1574735761500676, -1.1684651343084738, 1.0573724488786185), (-5.1868371621186844, 2.5976267088609308, 0.97022697723726137)]]
+    pts2=np.array([[(-9.1092663228073292, -12.711321277810857, -0.77093266173210928), (-1.5012583168504101, -15.685662924609387, -6.6022178296290024), (0.62360921189203689, -15.825362292273830, 2.9177845739234654), (7.7822965141636233, -14.858282311330257, -5.1454157090841059)], [(7.7822965141636233, -14.858282311330257, -5.1454157090841059), (9.3249111495947457, -9.9684277340655711, -1.3266123160614773), (12.689851531339878, -4.4260877770435245, -8.9585086671785774), (10.103825228355211, 1.1076098797323481, -5.6331564229411617)], [(-5.1868371621186844, 4.7602528056675295, 0.97022697723726137), (-0.73355849180427846, 3.1853804927764848, 1.4184540026745367), (1.7370638323127894, 4.7726088993795681, -3.7548102282588882), (10.103825228355211, 1.1076098797323481, -5.6331564229411617)], [(-9.1092663228073292, -12.711321277810857, -0.77093266173210928), (-3.9344403681487776, -6.6256134176686521, -6.3569364954962628), (-3.9413840306534453, -1.1684651343084738, 0.77546233191951042), (-5.1868371621186844, 4.7602528056675295, 0.97022697723726137)]]
 )
 
 
