@@ -48,6 +48,19 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs
 
+    ), Extension(
+        "mmcore.geom.parametric",
+        ["mmcore/geom/parametric.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs),
+    Extension(
+        "mmcore.geom.curves._nurbs",
+        ["mmcore/geom/curves/_nurbs.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
     )
 
 ]
