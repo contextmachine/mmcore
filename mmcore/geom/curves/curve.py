@@ -65,12 +65,11 @@ class Curve:
 
            :return: None
         """
-        for a in ['_evaluate_cached','_evaluate_length_cached']:
-            if hasattr(self,a):
-                delattr( self, a)
 
-        self._evaluate_cached = lru_cache(maxsize=None)(self.evaluate)
-        self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
+
+        self._evaluate_cached.cache_clear()
+        self._evaluate_length_cached.cache_clear()
+
 
     def intersect_with_curve(
             self, other: "Curve", tol=TOLERANCE

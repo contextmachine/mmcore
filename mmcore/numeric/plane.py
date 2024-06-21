@@ -167,7 +167,7 @@ def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
     return point_line, direction_line
 
 
-def plane_line_intersect(plane: np.ndarray, line, tol=1e-6, full_return=False):
+def plane_line_intersect(plane: np.ndarray, line, tol=1e-15, full_return=False):
     ray_origin, ray_direction = line
     ndotu = plane[-1].dot(ray_direction)
     if abs(ndotu) < tol:
@@ -182,7 +182,7 @@ def plane_line_intersect(plane: np.ndarray, line, tol=1e-6, full_return=False):
     return Psi
 
 
-def plane_plane_plane_intersect(self, other, third, tol=1e-6):
+def plane_plane_plane_intersect(self, other, third, tol=1e-15):
     return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
 
 
