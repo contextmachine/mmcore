@@ -20,19 +20,33 @@ from mmcore.geom.curves.bspline import NURBSpline
 from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit
 
 TOL = 0.1
+def get_plane(origin,du,dv):
+    duu = du/np.linalg.norm(du)
 
+    dn = scalar_unit(scalar_cross(duu, dv))
+    dvu = scalar_cross(dn, duu)
+    return [origin,duu,dvu,dn]
 
-def freeform_step_debug(s1, s2, uv1, uv2):
-    pl1, pl2 = s1.plane_at(uv1), s2.plane_at(uv2)
+def freeform_step_debug(pt1,pt2,du1,dv1,du2,dv2):
+    pl1, pl2 = get_plane(pt1,du1,dv1),get_plane(pt2,du2,dv2)
+
     ln = np.array(plane_plane_intersect(pl1, pl2))
-    np1 = closest_point_on_line((ln[0], ln[0] + ln[1]), pl1[0])
-    np2 = closest_point_on_line((ln[0], ln[0] + ln[1]), pl2[0])
+
+    np1 = closest_point_on_line((ln[0], ln[0] + ln[1]), pt1)
+    np2 = closest_point_on_line((ln[0], ln[0] + ln[1]), pt2)
 
     return np1, np1 + (np2 - np1) / 2, np2
 
+def get_normal(du,dv):
+    duu = scalar_unit(du)
+    dn = scalar_unit(scalar_cross(duu, dv))
+    #dvu = scalar_cross(dn, du)
+    return duu,dn
+def solve_marching(pt1,pt2,du1,dv1,du2, dv2,tol, side=1):
 
-def solve_marching(s1:Surface, s2:Surface, uv1, uv2, tol,side=1):
-    pl1, pl2 = np.asarray(s1.plane_at(uv1)), np.asarray(s2.plane_at(uv2))
+    pl1, pl2 = get_plane(pt1,du1,dv1),get_plane(pt2,du2,dv2
+                                            )
+
 
     marching_direction = scalar_unit(scalar_cross(pl1[-1], pl2[-1]))
 
@@ -49,37 +63,45 @@ def solve_marching(s1:Surface, s2:Surface, uv1, uv2, tol,side=1):
     step = np.sqrt(np.abs(r ** 2 - (r - tol) ** 2)) * 2
     #print(r,K,r ** 2 - (r - tol) ** 2)
 
-    new_pln = np.array([pl1[0] + marching_direction*side * step, pl1[-1], pl2[-1], marching_direction*side])
+    new_pln = np.array([pt1 + marching_direction*side * step, pl1[-1], pl2[-1], marching_direction*side])
 
     return plane_plane_plane_intersect(pl1, pl2, new_pln), step
 
 
-def improve_uv(s:Surface, uv_old, xyz_better):
-    x_old, y_old, z_old = s.evaluate(uv_old)
+def improve_uv(du ,dv, xyz_old,xyz_better):
+    #x_old, y_old, z_old = s.evaluate(uv_old)
+    #x_old, y_old, z_old =xyz_old
+    dxdu, dydu, dzdu = du
+    dxdv, dydv, dzdv =  dv
+    #x_better, y_better, z_better = xyz_better
+    delta= xyz_better-xyz_old
 
-    dxdu, dydu, dzdu = s.derivative_u(uv_old)
-    dxdv, dydv, dzdv = s.derivative_v(uv_old)
-    x_better, y_better, z_better = xyz_better
-
-    xy = np.array([[dxdu, dxdv], [dydu, dydv]]), [x_better - x_old, y_better - y_old]
-    xz = np.array([[dxdu, dxdv], [dzdu, dzdv]]), [x_better - x_old, z_better - z_old]
-    yz = np.array([[dydu, dydv], [dzdu, dzdv]]), [y_better - y_old, z_better - z_old]
+    xy = [[dxdu, dxdv], [dydu, dydv]], [delta[0], delta[1]]
+    xz = [[dxdu, dxdv], [dzdu, dzdv]], [delta[0], delta[2]]
+    yz = [[dydu, dydv], [dzdu, dzdv]], [delta[1], delta[2]]
 
     #print( xy,xz,yz,'\n\n')
     max_det = sorted( [xy, xz, yz], key=lambda Ab: scipy.linalg.det(Ab[0]), reverse=True)[0]
     return np.linalg.solve(*max_det)
 
 def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
-    xyz_better = freeform_step_debug(s1, s2, uvb1, uvb2)[1]
+    pt1 = s1.evaluate(uvb1)
+    du1 = s1.derivative_u(uvb1)
+    dv1 = s1.derivative_v(uvb1)
+    pt2 = s2.evaluate(uvb2)
+    du2 = s2.derivative_u(uvb2)
+    dv2 = s2.derivative_v(uvb2)
+    xyz_better = np.array(freeform_step_debug(pt1,pt2,  du1,dv1, du2,dv2)[1] )
 
-    uvb1_better = uvb1 + improve_uv(s1, uvb1, xyz_better)
-    uvb2_better = uvb2 + improve_uv(s2, uvb2, xyz_better)
+    uvb1_better = uvb1 + improve_uv( du1,dv1, pt1, xyz_better)
+    uvb2_better = uvb2 + improve_uv(du2,dv2, pt2, xyz_better)
     if np.any(uvb1_better < 0.) or np.any(uvb2_better < 0.) or np.any(uvb1_better > 1.) or np.any(uvb2_better > 1.):
         return
     xyz1_new = s1.evaluate(uvb1_better)
     xyz2_new = s2.evaluate(uvb2_better)
-
-    if np.linalg.norm(xyz1_new - xyz2_new) < tol:
+    print(   np.linalg.norm(xyz1_new -  xyz2_new))
+    if np.linalg.norm(xyz1_new - xyz2_new) <= tol:
+        print("e")
         return (xyz1_new, uvb1_better), (xyz2_new, uvb2_better)
     else:
 
@@ -87,7 +109,13 @@ def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
 
 
 def marching_step(s1, s2, uvb1, uvb2, tol, cnt=0,side=1):
-    xyz_better, step = solve_marching(s1, s2, uvb1, uvb2, tol,side=side)
+    pt1=s1.evaluate(uvb1)
+    du1=s1.derivative_u(uvb1)
+    dv1 = s1.derivative_v(uvb1)
+    pt2 = s2.evaluate(uvb2)
+    du2=s2.derivative_u(uvb2)
+    dv2=s2.derivative_v(uvb2)
+    xyz_better, step = solve_marching(pt1, pt2, du1,dv1,   du2,dv2,  tol,side=side)
     #uvb1_better=point_inversion_surface(s1,xyz_better,*uvb1,tol,tol)
     #uvb2_better=point_inversion_surface(s2, xyz_better, *uvb2, tol, tol)
     #uvb1_better = uvb1 + improve_uv(s1, uvb1, xyz_better)
@@ -96,20 +124,22 @@ def marching_step(s1, s2, uvb1, uvb2, tol, cnt=0,side=1):
     #uv1=improve_uv(s1, uvb1, xyz_better)
     #uv2=improve_uv(s2, uvb2, xyz_better)
 
-    uvb1_better = uvb1 + improve_uv(s1, uvb1, xyz_better)
-    uvb2_better = uvb2 + improve_uv(s2, uvb2, xyz_better)
+    uvb1_better = uvb1 + improve_uv(  du1,dv1, pt1, xyz_better)
+    uvb2_better = uvb2 + improve_uv( du2,dv2, pt2, xyz_better)
     if np.any(uvb1_better<0.) or np.any(uvb2_better<0.) or np.any(uvb1_better>1.)or np.any(uvb2_better>1.):
 
         return
 
-    xyz1_new = s1.evaluate(uvb1_better)
-    xyz2_new = s2.evaluate(uvb2_better)
-    if np.linalg.norm(xyz1_new - xyz2_new) <=tol:
-        return (xyz1_new, uvb1_better), (xyz2_new, uvb2_better), step
+    #xyz1_new = s1.evaluate(uvb1_better)
+    #xyz2_new = s2.evaluate(uvb2_better)
+    #print( np.linalg.norm(xyz1_new - xyz2_new))
+    #if np.linalg.norm(xyz1_new - xyz2_new) <=tol:
+        #print("E",np.linalg.norm(xyz1_new - xyz2_new))
+    return (xyz_better, uvb1_better), (xyz_better, uvb2_better), step
 
-    else:
+    #else:
 
-        return marching_step(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1, side=side)
+    #    return marching_step(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1, side=side)
 
 
 def check_surface_edge(uv, surf_interval, tol):
