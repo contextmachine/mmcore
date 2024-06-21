@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -66,11 +66,13 @@ class CurveOnSurface(Curve):
 
     def interval(self):
         return self.curve.interval()
-
+from mmcore.geom.bvh import BVHNode
 
 class Surface:
+    _tree:Optional[BVHNode]=None
     def __init__(self):
         super().__init__()
+        self._tree=None
         self.evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
         self._grad = Grad(self)
         self._interval = np.array(self.interval())
@@ -78,7 +80,6 @@ class Surface:
         self._uh = np.array([DEFAULT_H, 0.0])
         self._vh = np.array([0.0, DEFAULT_H])
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
-
 
     def derivative_u(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
@@ -103,7 +104,6 @@ class Surface:
             return (self.evaluate(uv + self._vh) - self.evaluate(uv)) / DEFAULT_H
         else:
             return (self.evaluate(uv) - self.evaluate(uv - self._vh)) / DEFAULT_H
-
 
     def second_derivative_uu(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
@@ -209,6 +209,36 @@ class Surface:
         else:
             return self.evaluate_multi(uv)
 
+    def build_tree(self, u_count=5,v_count=5):
+        self._tree=surface_bvh(self, u_count,v_count)
+    @property
+    def tree(self):
+        if self._tree is None:
+            self.build_tree()
+        return self._tree
+
+
+from mmcore.geom.bvh import  PQuad,  build_bvh
+
+
+def surface_bvh(surf: Surface, u_count, v_count):
+    u_interval, v_interval = surf.interval()
+    u = np.linspace(*u_interval, u_count)
+    v = np.linspace(*v_interval, v_count)
+
+    quads = []
+
+    for i in range(u_count):
+        for j in range(v_count):
+            if i == (u_count - 1) or j == (v_count - 1):
+                pass
+            else:
+                q = np.array(([u[i], v[j]], [u[i + 1], v[j]], [u[i + 1], v[j + 1]], [u[i], v[j + 1]]))
+
+                quads.append(PQuad(surf(q), q))
+
+    return build_bvh(quads)
+
 
 def blossom(b, s, t):
     bs0 = (1 - s) * b[0] + s * b[1]
@@ -246,10 +276,13 @@ class LinearMap:
 
     def __call__(self, t):
         return self.slope * t
+
     def __invert__(self):
-        return LinearMap(self.target,self.source)
+        return LinearMap(self.target, self.source)
+
     def inv(self):
         return self.__invert__()
+
 
 class Ruled(Surface):
     def __init__(self, c1, c2):
@@ -258,14 +291,13 @@ class Ruled(Surface):
         self._intervals = np.array([np.array(c1.interval()), np.array(c2.interval())])
         self._remap_u = scalar_dot(np.array((0., 1.)), self._intervals[0])
         self._remap_v = scalar_dot(np.array((0., 1.)), self._intervals[1])
-        self._remap_uv=np.array([self._remap_u,self._remap_v])
+        self._remap_uv = np.array([self._remap_u, self._remap_v])
 
     def _remap_param(self, t):
-        return   self._remap_uv*t
-
+        return self._remap_uv * t
 
     def evaluate(self, uv):
-        uc1uc2 = self._remap_uv*uv[0]
+        uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])
 
@@ -284,7 +316,6 @@ def ruled(c1, c2):
     xu0, xu1 = lambda u: c1(u), lambda u: c2(u)
     c1i = c1.interval()
     c2i = c2.interval()
-
 
     def inner(uv):
         uv = _remap_interval_ruled(uv, c1i, c2i)
@@ -352,15 +383,15 @@ class Coons(Surface):
         self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
         self._rcd = BiLinear(self.xu0(0), self.xu0(1), self.xu1(1), self.x1v(1))
-        self._cached_eval=lru_cache(maxsize=None)(self._evaluate)
-        self._uv= np.array([0.,0.])
-    def evaluate(self, uv):
+        self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
+        self._uv = np.array([0., 0.])
 
+    def evaluate(self, uv):
         return self._cached_eval(*uv)
 
-    def _evaluate(self, u,v):
-        self._uv[:]=u,v
-        return self._rc.evaluate(  self._uv) + self._rd.evaluate(  self._uv[::-1]) - self._rcd.evaluate(  self._uv)
+    def _evaluate(self, u, v):
+        self._uv[:] = u, v
+        return self._rc.evaluate(self._uv) + self._rd.evaluate(self._uv[::-1]) - self._rcd.evaluate(self._uv)
 
 
 def _bl(c1, c2, d1, d2):
