@@ -1,5 +1,5 @@
 import numpy as np
-
+import mmcore.geom.curves._nurbs as nurbs
 
 def find_span(n, p, u, U):
     """
@@ -194,12 +194,81 @@ def curve_derivs_alg1(n, p, U, P, u, d):
 
     return CK
 
+def curve_deriv_cpts( p, U, P, d, r1, r2):
+    """
+    Compute control points of curve derivatives.
 
+    Parameters:
+
+    p (int): The degree of the basis functions.
+    U (list of float): The knot vector.
+    P (list of list of float): The control points of the B-spline curve.
+    d (int): The number of derivatives to compute.
+    r1 (int): The start index for control points.
+    r2 (int): The end index for control points.
+
+    Returns:
+    list of list of float: The computed control points of curve derivatives.
+    """
+    r = r2 - r1
+
+    PK = np.zeros((d+1,r+1,P.shape[1]))
+
+    for i in range(0, r + 1):
+        PK[0][i][:] =  P[r1 + i]
+
+    for k in range(1, d + 1):
+        tmp = p - k + 1
+        for i in range(r - k + 1):
+            for j in range(len(P[0])):
+
+                PK[k][i][j] = tmp * (PK[k - 1][i + 1][j] - PK[k - 1][i][j]) / (U[r1 + i + p + 1] - U[r1 + i + k])
+
+    return PK
+def curve_derivs_alg2(n, p, U, P, u, d):
+        """
+
+       Compute the derivatives of a B-spline curve.
+
+    Parameters:
+    n (int): The number of basis functions minus one.
+    p (int): The degree of the basis functions.
+    U (list of float): The knot vector.
+    P (list of list of float): The control points of the B-spline curve.
+    u (float): The parameter value.
+    d (int): The number of derivatives to compute.
+
+    Returns:
+        array of derivatives: The computed curve derivatives
+    """
+
+        dimension = P.shape[1]
+        degree=p
+        knotvector=U
+
+        # Algorithm A3.4
+        du = min(degree,d)
+
+        CK = [[0.0 for _ in range(dimension)] for _ in range(d + 1)]
+
+        span = find_span(n, degree,  u, knotvector)
+        bfuns=all_basis_funs(span,u,degree,knotvector)
+
+
+        # Algorithm A3.3
+        PK = curve_deriv_cpts( degree, knotvector, P, d, (span - degree), span)
+
+        for k in range(0, du + 1):
+            for j in range(0, degree - k + 1):
+
+                CK[k][:] = [elem + (bfuns[j][degree - k] * drv_ctl_p) for elem, drv_ctl_p in
+                            zip(CK[k], PK[k][j])]
+
+        # Return the derivatives
+        return CK
 def projective_to_cartesian(point):
-
     point=point if isinstance(point,np.ndarray) else np.array(point)
-    print(point[...,-1])
-    cartesian_point = point[...,:-1] / point[...,-1]
+    cartesian_point = point[...,:-1] / point[..., -1]
     return cartesian_point
 
 class NURBSCurve:
@@ -241,7 +310,7 @@ class NURBSCurve:
         :return: A list of knots
         """
         n = len(self.control_points)
-        knots = [0] * (self.degree + 1) + list(range(1, n - self.degree)) + [n - self.degree] * (self.degree + 1)
+        knots = np.array([0] * (self.degree + 1) + list(range(1, n - self.degree)) + [n - self.degree] * (self.degree + 1),dtype=float)
         return knots
 
     def evaluate(self, t: float):
@@ -251,7 +320,7 @@ class NURBSCurve:
         :param t: The parameter value.
         :return: np.array with shape (3,).
         """
-        return projective_to_cartesian(curve_point(self.n, self.degree, self.knots, self._control_points, t))
+        return projective_to_cartesian(nurbs.curve_point(self.n, self.degree, self.knots, self._control_points, t))
 
     def derivatives(self, t: float, d: int = 1):
         """
@@ -266,7 +335,12 @@ class NURBSCurve:
 Index 1 is the first derivative,
 under index 2 is the second derivative, and so on.
         """
-        return np.array(curve_derivs_alg1(self.n, self.degree, self.knots, self._control_points, t, d))[..., :-1]
+        du=min(d, self.degree)
+        CK = np.zeros((du + 1, self.control_points.shape[1]), dtype=np.float64)
+        nurbs.curve_derivs_alg2(self.n, self.degree, self.knots, self._control_points, t, d,  CK)
+
+        return np.array(CK)
+
 
 if __name__ == '__main__':
     control_points = np.array([[20, 110, 10.], [70, 250.3, 20.], [120, 50, 80.], [170, 200, 50.], [220, 60, 20.]],

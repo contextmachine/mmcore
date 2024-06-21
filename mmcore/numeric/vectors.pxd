@@ -115,6 +115,8 @@ cdef inline double scalar_dot3d(double* vec_a,
     cdef double res = vec_a[0]*vec_b[0]+vec_a[1]*vec_b[1]+vec_a[2]*vec_b[2]
 
     return res
+
+cdef void scalar_gram_schmidt_emplace(double[:] vec_a,double[:] vec_b)  noexcept nogil
 """
 cpdef double[:] scalar_gram_schmidt(double[:] vec_a,double[:] vec_b) noexcept nogil
 cpdef double[:] make_perpendicular(double[:] vec_a, double[:] vec_b) noexcept nogil
@@ -172,3 +174,44 @@ cpdef function_GetPlaneEquation(v3d0, v3d1, v3d2) #Exception wenn keine ebene
     if not n_v3d.equals(Vector3D())return (n_v3d, n_v3d.scalarProduct(v3d0))
     raise
 """
+
+
+cdef double dot3d(double [:]  vec_a, double [:]  vec_b) noexcept nogil
+
+
+
+cdef double norm3d(double [:] vec)noexcept nogil
+
+
+cdef void min3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil
+
+
+cdef void max3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil
+
+
+cdef void bavg3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil
+
+
+
+cdef void sqrt3d(double [3]  vec_a,  double[3] res)noexcept nogil
+
+
+
+cdef void mul3d(double[3]  vec_a, double[3]  vec_b, double[:] res)noexcept nogil
+
+
+cdef void add3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil
+
+
+cdef void sub3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil
+
+
+cdef void scalar_sub3d(double [:]  vec_a, double  b, double[:] res)noexcept nogil
+
+cdef void scalar_add3d(double [:]  vec_a, double  b, double[:] res) noexcept nogil
+
+
+
+cdef void scalar_mul3d(double [:]  vec_a, double  b, double[:] res)noexcept nogil
+
+cdef void scalar_div3d(double [:]  vec_a, double  b, double[:] res) noexcept nogil

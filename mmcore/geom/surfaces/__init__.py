@@ -79,6 +79,7 @@ class Surface:
         self._vh = np.array([0.0, DEFAULT_H])
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
 
+
     def derivative_u(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
             return (
@@ -102,6 +103,7 @@ class Surface:
             return (self.evaluate(uv + self._vh) - self.evaluate(uv)) / DEFAULT_H
         else:
             return (self.evaluate(uv) - self.evaluate(uv - self._vh)) / DEFAULT_H
+
 
     def second_derivative_uu(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
@@ -163,7 +165,7 @@ class Surface:
     def plane_at(self, uv):
         orig = self.evaluate(uv)
         du = scalar_unit(self.derivative_u(uv))
-        dn = scalar_unit(cross(du, self.derivative_v(uv)))
+        dn = scalar_unit(scalar_cross(du, self.derivative_v(uv)))
         dv = scalar_cross(dn, du)
 
         # n = evaluate_normal2(
@@ -229,8 +231,8 @@ class BiLinear(Surface):
         self.b00, self.b01, self.b11, self.b10 = np.array([a, b, c, d], dtype=float)
 
     def evaluate(self, uv):
-        return np.array([1 - uv[1], uv[1]]).dot(
-            np.array([1 - uv[0], uv[0]]).dot(
+        return np.array([1. - uv[1], uv[1]]).dot(
+            np.array([1. - uv[0], uv[0]]).dot(
                 np.array([[self.b00, self.b01], [self.b10, self.b11]])
             )
         )
@@ -253,19 +255,19 @@ class Ruled(Surface):
     def __init__(self, c1, c2):
         super().__init__()
         self.c1, self.c2 = c1, c2
-        self._intervals = np.array([c1.interval(), c2.interval()])
-        self._remap_u = LinearMap((0., 1.), self._intervals[0])
-        self._remap_v = LinearMap((0., 1.), self._intervals[1])
-
+        self._intervals = np.array([np.array(c1.interval()), np.array(c2.interval())])
+        self._remap_u = scalar_dot(np.array((0., 1.)), self._intervals[0])
+        self._remap_v = scalar_dot(np.array((0., 1.)), self._intervals[1])
+        self._remap_uv=np.array([self._remap_u,self._remap_v])
 
     def _remap_param(self, t):
-        return  self._remap_u(t), self._remap_v(t)
+        return   self._remap_uv*t
 
 
     def evaluate(self, uv):
-        uc1, uc2 = self._remap_param(uv[0])
+        uc1uc2 = self._remap_uv*uv[0]
 
-        return (1 - uv[1]) * self.c1(uc1) + uv[1] * self.c2(uc2)
+        return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])
 
 
 def _remap_param(self, t, c1, c2):
@@ -282,6 +284,7 @@ def ruled(c1, c2):
     xu0, xu1 = lambda u: c1(u), lambda u: c2(u)
     c1i = c1.interval()
     c2i = c2.interval()
+
 
     def inner(uv):
         uv = _remap_interval_ruled(uv, c1i, c2i)
@@ -345,12 +348,19 @@ class Coons(Surface):
         self.d1, self.d2 = d1, d2
 
         self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
+
         self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
         self._rcd = BiLinear(self.xu0(0), self.xu0(1), self.xu1(1), self.x1v(1))
-
+        self._cached_eval=lru_cache(maxsize=None)(self._evaluate)
+        self._uv= np.array([0.,0.])
     def evaluate(self, uv):
-        return self._rc(uv) + self._rd(np.array([uv[1], uv[0]])) - self._rcd(uv)
+
+        return self._cached_eval(*uv)
+
+    def _evaluate(self, u,v):
+        self._uv[:]=u,v
+        return self._rc.evaluate(  self._uv) + self._rd.evaluate(  self._uv[::-1]) - self._rcd.evaluate(  self._uv)
 
 
 def _bl(c1, c2, d1, d2):
