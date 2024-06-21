@@ -15,7 +15,7 @@ cdef class ParametricCurve:
         self._interval[1] = 1.0
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cevaluate(self, double t , double[:] result):
+    cdef void cevaluate(self, double t , double[:] result) noexcept nogil:
         pass
     cpdef double[:] interval(self):
         return self._interval

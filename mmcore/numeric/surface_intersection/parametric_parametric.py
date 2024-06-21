@@ -494,13 +494,15 @@ if __name__ == '__main__':
     #    patch2 = dill.load(f)
     patch1 = Coons(*(NURBSpline(pts) for pts in pts1))
     patch2 = Coons(*(NURBSpline(pts) for pts in pts2))
+    patch1.build_tree()
+    patch2.build_tree()
     s=time.time()
-    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    yappi.start(builtins=True)
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start(builtins=True)
     cc = surface_ppi(patch1, patch2, 0.01)
-    yappi.stop()
-    func_stats = yappi.get_func_stats()
-    func_stats.save(f"{__file__.replace('.py','')}_{int(time.time())}.pstat", type='pstat')
+    #yappi.stop()
+    #func_stats = yappi.get_func_stats()
+    #func_stats.save(f"{__file__.replace('.py','')}_{int(time.time())}.pstat", type='pstat')
 
     print(time.time()-s)
     print([np.array(c).tolist() for c in cc[0]])
