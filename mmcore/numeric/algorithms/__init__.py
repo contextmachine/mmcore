@@ -47,17 +47,30 @@ def curve_point(func, initial_point: np.ndarray = None, delta=0.001, grad=None):
 
 def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=100, return_grads=False, no_err=False):
     """
+        Intersection curve point between two curves.
 
-    :param surf1:
-    :param surf2:
-    :param q0:
-    :param grad1:
-    :param grad2:
-    :param tol:
-    :param max_iter:
-    :return:
+        :param surf1: The first curve surface function.
+        :type surf1: function
+        :param surf2: The second curve surface function.
+        :type surf2: function
+        :param q0: Initial point on the curve.
+        :type q0: numpy.ndarray
+        :param grad1: Gradient function of the first curve surface.
+        :type grad1: function
+        :param grad2: Gradient function of the second curve surface.
+        :type grad2: function
+        :param tol: Tolerance for convergence. Default is 1e-6.
+        :type tol: float
+        :param max_iter: Maximum number of iterations allowed. Default is 100.
+        :type max_iter: int
+        :param return_grads: Flag to indicate whether to return gradients. Default is False.
+        :type return_grads: bool
+        :param no_err: Flag to indicate whether to raise error or return failure status in case of no convergence. Default is False.
+        :type no_err: bool
+        :return: The intersection point on the curve surface.
+        :rtype: numpy.ndarray or tuple
 
-    Example
+        Example
     ---
 
     >>> from mmcore.geom.primitives import Sphere
