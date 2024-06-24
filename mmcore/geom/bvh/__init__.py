@@ -425,3 +425,9 @@ class PQuad(Object3D):
         self.uvs = uvs
         super().__init__(BoundingBox(*aabb(pts)))
 
+
+class PSegment(Object3D):
+    def __init__(self, pts, t):
+        self.pts = pts
+        self.t = t
+        super().__init__(BoundingBox(*aabb(pts)))

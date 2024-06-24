@@ -94,7 +94,7 @@ class ImplicitIntersectionCurveIterator:
 
             """
 
-    def __init__(self, crv: ImplicitIntersectionCurve, step=0.1, workers=-1, debug=None, clear_debug=True, **kwargs):
+    def __init__(self, crv: ImplicitIntersectionCurve, step=0.2, workers=-1, debug=None, clear_debug=True, **kwargs):
         self.crv = crv
 
         self.step = step

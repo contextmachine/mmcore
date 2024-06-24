@@ -49,11 +49,22 @@ Some useful hints:
   - `mmcore.numeric.closest_point` - Currently includes implementation of the algorithm for finding the **Closest Point on Curve**, **Parametric Surface Foot Point Algorithm** [[4]](Geometry and Algorithms for COMPUTER AIDED DESIGN, p. 94), etc.
   - `mmcore.numeric.curve_intersection` - Algorithms for finding all intersection points between two curves. All cases (Implicit-Implicit,Parametric-Implicit,Parametric-Parametric) are provided.
   - `mmcore.numeric.surface_intersection` - Algorithms for finding all intersection curves between two Surface. AThe following cases are currently available: Implicit-Implicit, Parametric-Parametric(Work in progress) are provided.
- 
+
+## Benchmarks
+I managed to do some benchmarks, the results are shown in the picture. I measured the speed of the operation of finding all curves of intersection of two solid tubes with some wall thickness. You can see an illustration of this operation next to the table. I compared the capabilities of `mmcore` with Rhino, since Rhino is available on macos.
+
+| task  size | cpu  | 	Rhino 8 (sec.) | 	mmcore (sec.) | 	 Rhino 8 (sec./it.)	 | mmcore (sec./it.) |
+|------------|------|-----------------|----------------|-----------------------|-------------------|
+| 1          | 	1	  | 0.027           | 	0.033         | 	0.027                | 	0.033            |
+| 100        | 	1	  | 2.685           | 	1.571         | 	0.027                | 	0.016            |
+| 100        | 	10	 | 0.938           | 	0.275         | 	0.0095               | 	0.0027           |
+| 1000       | 	10	 | 13.4            | 	2.313         | 	0.0134               | 	0.0023           |
+  
+<img src="notes/images/implicit_tubes_intersection.png" width="300"/>
 
 
 ## References
 1. https://en.wikipedia.org/wiki/Implicit_curve
 2. https://en.wikipedia.org/wiki/Implicit_curve
-3. https://github.com/libfive/libfive/blob/master/libfive/src/tree/tree.cpp
+3. https://github.com/libfive/libfive/blob/master/libfive
 4. Geometry and Algorithms for COMPUTER AIDED DESIGN, p. 94

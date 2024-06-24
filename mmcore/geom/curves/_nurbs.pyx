@@ -404,6 +404,16 @@ cdef class NURBSpline(ParametricCurve):
         cdef double[:] result =np.zeros((4,))
         self.cevaluate(t,result)
         return np.asarray(result[:3])
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def evaluate_multi(self, double[:] t):
+        cdef double[:,:] result=np.empty((t.shape[0],4))
+        cdef size_t i;
+        for i in range(t.shape[0]):
+
+
+            self.cevaluate(t[i],result[i])
+        return np.asarray(result)[:,:3]
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
