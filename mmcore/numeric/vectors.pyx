@@ -283,7 +283,7 @@ cpdef scalar_cross(double[:]vec_a,
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef scalar_unit(double[:]vec):
+cpdef  scalar_unit(double[:]vec):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec.shape[0],))
     cdef long double item=0.
     cdef long double component_sq = 0.0

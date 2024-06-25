@@ -1,6 +1,9 @@
 cimport cython
 import numpy as np
 cimport numpy as np
+np.import_array()
+from mmcore.numeric.vectors cimport sub3d
+
 cdef double DEFAULT_H=1e-3
 from mmcore.numeric cimport vectors
 from mmcore.numeric cimport calgorithms
@@ -176,3 +179,221 @@ cdef class ParametricCurve:
         cdef double[:,:,:]result=np.zeros((t.shape[0], 4,3))
         self.cplanes(t,result)
         return result
+
+cdef class ReparametrizedCurve(ParametricCurve):
+    cdef public ParametricCurve curve
+    def __init__(self, ParametricCurve curve, tuple new_interval):
+        super().__init__()
+        self._interval[0]= new_interval[0]
+        self._interval[1] = new_interval[1]
+        self.curve=curve
+
+cdef class ParametricSurface:
+
+    def __init__(self):
+
+        self._interval=np.zeros((2,2))
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_u(self, double u, double v,double[:] result):
+        cdef double[:] dd=np.empty((3,))
+        if (1. - DEFAULT_H) >= u >= DEFAULT_H:
+            self.cevaluate(u + DEFAULT_H, v, dd)
+            self.cevaluate(u- DEFAULT_H , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,2*DEFAULT_H,result)
+
+        elif u < DEFAULT_H:
+
+
+            self.cevaluate(u + DEFAULT_H, v, dd)
+            self.cevaluate(u , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,DEFAULT_H,result)
+
+
+        else:
+            self.cevaluate(u , v, dd)
+            self.cevaluate(u- DEFAULT_H, v, result)
+            sub3d(dd, result, result)
+            vectors.scalar_div3d(result, DEFAULT_H, result)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_v(self, double u, double v,double[:] result):
+        cdef double[:] dd=np.empty((3,))
+        if (1. - DEFAULT_H) >= v >= DEFAULT_H:
+            self.cevaluate(u , v+ DEFAULT_H, dd)
+            self.cevaluate(u , v- DEFAULT_H, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,2*DEFAULT_H,result)
+
+        elif v< DEFAULT_H:
+
+
+            self.cevaluate(u , v+ DEFAULT_H, dd)
+            self.cevaluate(u , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,DEFAULT_H,result)
+
+
+        else:
+            self.cevaluate(u , v, dd)
+            self.cevaluate(u, v- DEFAULT_H, result)
+            sub3d(dd, result, result)
+            vectors.scalar_div3d(result, DEFAULT_H, result)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_uu(self, double u, double v,double[:] result):
+        cdef double[:] dd=np.empty((3,))
+        if (1. - DEFAULT_H) >= u >= DEFAULT_H:
+            self.cderivative_u(u + DEFAULT_H, v, dd)
+            self.cderivative_u(u- DEFAULT_H , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,2*DEFAULT_H,result)
+
+        elif u < DEFAULT_H:
+
+
+            self.cderivative_u(u + DEFAULT_H, v, dd)
+            self.cderivative_u(u , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,DEFAULT_H,result)
+
+
+        else:
+            self.cderivative_u(u , v, dd)
+            self.cderivative_u(u- DEFAULT_H, v, result)
+            sub3d(dd, result, result)
+            vectors.scalar_div3d(result, DEFAULT_H, result)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_vv(self, double u, double v,double[:] result):
+        cdef double[:] dd=np.empty((3,))
+        if (1. - DEFAULT_H) >= v >= DEFAULT_H:
+            self.cderivative_v(u , v+ DEFAULT_H, dd)
+            self.cderivative_v(u , v- DEFAULT_H, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,2*DEFAULT_H,result)
+
+        elif v< DEFAULT_H:
+
+
+            self.cderivative_v(u , v+ DEFAULT_H, dd)
+            self.cderivative_v(u , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,DEFAULT_H,result)
+
+
+        else:
+            self.cderivative_v(u , v, dd)
+            self.cderivative_v(u, v- DEFAULT_H, result)
+            sub3d(dd, result, result)
+            vectors.scalar_div3d(result, DEFAULT_H, result)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_uv(self, double u, double v,double[:] result):
+        cdef double[:] dd=np.empty((3,))
+        if (1. - DEFAULT_H) >= v >= DEFAULT_H:
+            self.cderivative_u(u , v+ DEFAULT_H, dd)
+            self.cderivative_u(u , v- DEFAULT_H, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,2*DEFAULT_H,result)
+
+        elif v< DEFAULT_H:
+
+
+            self.cderivative_u(u , v+ DEFAULT_H, dd)
+            self.cderivative_u(u , v, result)
+            sub3d(dd,result,result)
+            vectors.scalar_div3d(result,DEFAULT_H,result)
+
+
+        else:
+            self.cderivative_u(u , v, dd)
+            self.cderivative_u(u, v- DEFAULT_H, result)
+            sub3d(dd, result, result)
+            vectors.scalar_div3d(result, DEFAULT_H, result)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate(self, double u, double v,double[:] result):
+        pass
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cplane_at(self, double u, double v, double[:,:] result):
+
+        orig = self.cevaluate(u, v,result[0] )
+        self.cderivative_u(u,v,result[1])
+        result[1,:] = vectors.scalar_unit(result[1])
+        self.cderivative_v(u,v,result[3])
+        result[3,:] = vectors.scalar_unit(vectors.scalar_cross(result[1], result[3] ))
+        result[2,:] = vectors.scalar_cross(result[3], result[1])
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def evaluate(self, double[:] uv):
+        cdef double[:] res=np.empty(3)
+        self.cevaluate(uv[0],uv[1],res)
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def plane_at(self, double[:] uv):
+        cdef double[:,:] res=np.empty((4,3))
+        self.cplane_at(uv[0],uv[1],res)
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def derivative_u(self, double[:] uv):
+        cdef double[:] res=np.empty((3,))
+        self.cderivative_u(uv[0],uv[1],res)
+
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def derivative_v(self, double[:] uv):
+        cdef double[:] res=np.empty((3,))
+        self.cderivative_v(uv[0],uv[1],res)
+
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def second_derivative_vv(self, double[:] uv):
+        cdef double[:] res=np.empty((3,))
+        self.csecond_derivative_vv(uv[0],uv[1],res)
+
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def second_derivative_uu(self, double[:] uv):
+        cdef double[:] res=np.empty((3,))
+        self.csecond_derivative_uu(uv[0],uv[1],res)
+
+        return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def second_derivative_uv(self, double[:] uv):
+        cdef double[:] res=np.empty((3,))
+        self.csecond_derivative_uv(uv[0],uv[1],res)
+
+        return np.asarray(res)
+
+cdef class Ruled(ParametricSurface):
+
+    def __init__(self, ParametricCurve c0, ParametricCurve c1):
+
+        super().__init__()
+        self.c0=c0
+        self.c1=c1
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate(self, double u,double v, double[:] result):
+        cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
+        cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
+        cdef double[:] temp=np.empty(3)
+        self.c0.cevaluate(u1,  temp)
+        self.c1.cevaluate(u2, result)
+        result[0] = (1. - v) * temp[0] + v * result[0]
+        result[1] = (1. - v) * temp[1] + v * result[1]
+        result[2] = (1. - v) * temp[2] + v * result[2]

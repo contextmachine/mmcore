@@ -153,12 +153,12 @@ def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
             [array_normals_stacked, np.zeros((2, 2))],
         ]
     )
-
+    #print(matrix)
     # Construct the right-hand side of the equation
     dot_a = scalar_dot(plane1[0], normal1)
     dot_b = scalar_dot(plane2[0], normal2)
     array_y = np.array([*plane1[0], dot_a, dot_b])
-
+    #print(matrix,array_y)
     # Solve the linear system
     solution = np.linalg.solve(matrix, array_y)
     point_line = solution[:3]
@@ -215,8 +215,7 @@ def orient_matrix(p1, p2):
     return trx
 
 
-
-def local_to_world(pt, pln= WORLD_XY):
+def local_to_world(pt, pln=WORLD_XY):
     """
     :param pt: The point in the local coordinate system that needs to be transformed to the world coordinate system.
     :type pt: numpy.ndarray
@@ -236,14 +235,21 @@ def local_to_world(pt, pln= WORLD_XY):
     return z
 
 
-
 def world_to_local(pt, pln):
     """ """
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
 
-def rotate(pln):...
-def translate(pln):...
-def orient(pln):...
-def transform(pln, m):...
 
-def offset(pln):...
+def rotate(pln): ...
+
+
+def translate(pln): ...
+
+
+def orient(pln): ...
+
+
+def transform(pln, m): ...
+
+
+def offset(pln): ...

@@ -1,6 +1,7 @@
 from enum import IntEnum
 
 import numpy as np
+from mmcore.numeric.routines._routines import uvs
 
 
 def point_grid_2d(count_u, count_v, bounds_u=(0., 1.), bounds_v=(0., 1.)):
@@ -28,7 +29,6 @@ def nd_min(a, b):
 
 
 def nd_max(a, b):
-
     a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
     if a_cond and b_cond:
         a[a < b] = b[a < b]
@@ -43,10 +43,9 @@ def nd_max(a, b):
         return max(a, b)
 
 
-
 def find_similar(value, values):
-    r=np.abs(values - value)
-    return np.where(r==np.min(r))[0]
+    r = np.abs(values - value)
+    return np.where(r == np.min(r))[0]
 
 
 def cartesian_product(*arrays):
@@ -66,6 +65,7 @@ def split_by_shapes(arr, target_shapes):
 
 def insert_in_tuple(tpl, i, val):
     return *tpl[:i], val, *tpl[i:]
+
 
 def add_dim(arr, val):
     first, *other = arr.shape
@@ -113,8 +113,9 @@ def split_dim(arr, index: int, val: int, insert_at='before'):
     method = _shape_insertion_method[insert_at]
 
     return arr.reshape(method(arr.shape, index, val))
-def remove_dim(arr, count=1):
 
+
+def remove_dim(arr, count=1):
     return arr.reshape((np.prod(arr.shape[:count + 1]), *arr.shape[count + 1:]))
 
 

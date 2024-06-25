@@ -78,11 +78,11 @@ cpdef points_order(double[:,:] points)
 cpdef multi_points_order(list points_list)
 
 
-cpdef scalar_cross(double[:] vec_a,
+cpdef  scalar_cross(double[:] vec_a,
           double[:] vec_b)
 
 
-cpdef scalar_unit(double[:] vec)
+cpdef  scalar_unit(double[:] vec)
 
 
 
