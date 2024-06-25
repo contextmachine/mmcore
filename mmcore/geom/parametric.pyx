@@ -397,3 +397,16 @@ cdef class Ruled(ParametricSurface):
         result[0] = (1. - v) * temp[0] + v * result[0]
         result[1] = (1. - v) * temp[1] + v * result[1]
         result[2] = (1. - v) * temp[2] + v * result[2]
+cdef class RationalRuled(Ruled):
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate(self, double u,double v, double[:] result):
+        cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
+        cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
+        cdef double[:] temp=np.empty(4)
+        cdef double[:] res=np.empty(4)
+        self.c0.cevaluate(u1,  temp)
+        self.c1.cevaluate(u2, res)
+        result[0] = (1. - v) * temp[0] + v * res[0]
+        result[1] = (1. - v) * temp[1] + v * res[1]
+        result[2] = (1. - v) * temp[2] + v * res[2]
