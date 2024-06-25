@@ -66,13 +66,17 @@ class CurveOnSurface(Curve):
 
     def interval(self):
         return self.curve.interval()
+
+
 from mmcore.geom.bvh import BVHNode
 
+
 class Surface:
-    _tree:Optional[BVHNode]=None
+    _tree: Optional[BVHNode] = None
+
     def __init__(self):
         super().__init__()
-        self._tree=None
+        self._tree = None
         self.evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
         self._grad = Grad(self)
         self._interval = np.array(self.interval())
@@ -209,8 +213,9 @@ class Surface:
         else:
             return self.evaluate_multi(uv)
 
-    def build_tree(self, u_count=5,v_count=5):
-        self._tree=surface_bvh(self, u_count,v_count)
+    def build_tree(self, u_count=5, v_count=5):
+        self._tree = surface_bvh(self, u_count, v_count)
+
     @property
     def tree(self):
         if self._tree is None:
@@ -218,7 +223,7 @@ class Surface:
         return self._tree
 
 
-from mmcore.geom.bvh import  PQuad,  build_bvh
+from mmcore.geom.bvh import PQuad, build_bvh
 
 
 def surface_bvh(surf: Surface, u_count, v_count):
@@ -284,14 +289,33 @@ class LinearMap:
         return self.__invert__()
 
 
+from mmcore.geom import parametric
+
+
 class Ruled(Surface):
-    def __init__(self, c1, c2):
+
+    def __init__(self, c1:Curve, c2:Curve):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self._intervals = np.array([np.array(c1.interval()), np.array(c2.interval())])
         self._remap_u = scalar_dot(np.array((0., 1.)), self._intervals[0])
         self._remap_v = scalar_dot(np.array((0., 1.)), self._intervals[1])
         self._remap_uv = np.array([self._remap_u, self._remap_v])
+    def derivative_v(self, uv):
+        uc1uc2 = self._remap_uv * uv[0]
+        return  self.c2.evaluate(uc1uc2[1])- np.array(self.c1.evaluate(uc1uc2[0]))
+
+    def derivative_u(self, uv):
+        uc1uc2 = self._remap_uv * uv[0]
+        return uv[1]*self.c2.derivative(uc1uc2[1])+(1.-uv[1])*self.c1.derivative(uc1uc2[0])
+    def second_derivative_uu(self, uv):
+        uc1uc2 = self._remap_uv * uv[0]
+
+        return uv[1]*self.c2.second_derivative(uc1uc2[1])+(1.-uv[1])*self.c1.second_derivative(uc1uc2[0])
+    def second_derivative_vv(self, uv):
+
+        return np.zeros(3)
+
 
     def _remap_param(self, t):
         return self._remap_uv * t
@@ -300,8 +324,8 @@ class Ruled(Surface):
         uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])
-
-
+CRuled=parametric.Ruled
+PyRuled=Ruled
 def _remap_param(self, t, c1, c2):
     return np.interp(t, (0.0, 1.0), self.c1.interval()), np.interp(
         t, (0.0, 1.0), self.c2.interval()
@@ -312,16 +336,12 @@ def _remap_interval_ruled(uv, c1, c2):
     return np.interp(uv[0], (0.0, 1.0), c1), np.interp(uv[1], (0.0, 1.0), c2)
 
 
-def ruled(c1, c2):
-    xu0, xu1 = lambda u: c1(u), lambda u: c2(u)
-    c1i = c1.interval()
-    c2i = c2.interval()
+def Ruled(c1, c2):
+    if hasattr(c1, '__pyx_table__') and hasattr(c2, '__pyx_table__'):
+        return CRuled(c1, c2)
+    else:
+        return PyRuled(c1, c2)
 
-    def inner(uv):
-        uv = _remap_interval_ruled(uv, c1i, c2i)
-        return (1 - uv[1]) * xu0(uv[0]) + uv[1] * xu1(uv[0])
-
-    return inner
 
 
 class Coons(Surface):
@@ -377,12 +397,15 @@ class Coons(Surface):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self.d1, self.d2 = d1, d2
-
-        self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
+        pt0 = np.array(c1.evaluate(c1.interval()[0]))
+        pt1 = np.array(c1.evaluate(c1.interval()[1]))
+        pt2 = np.array(c2.evaluate(c2.interval()[1]))
+        pt3 = np.array(d2.evaluate(d2.interval()[1]))
+        #self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
 
         self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
-        self._rcd = BiLinear(self.xu0(0), self.xu0(1), self.xu1(1), self.x1v(1))
+        self._rcd = BiLinear(pt0, pt1, pt2, pt3)
         self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
         self._uv = np.array([0., 0.])
 
@@ -396,10 +419,10 @@ class Coons(Surface):
 
 def _bl(c1, c2, d1, d2):
     return (
-        lambda u: c1(np.interp(u, (0.0, 1.0), c1.interval())),
-        lambda u: c2(np.interp(u, (0.0, 1.0), c2.interval())),
-        lambda v: d1(np.interp(v, (0.0, 1.0), d1.interval())),
-        lambda v: d2(np.interp(v, (0.0, 1.0), d2.interval())),
+        lambda u: c1.evaluate(np.interp(u, (0.0, 1.0), c1.interval())),
+        lambda u: c2.evaluate(np.interp(u, (0.0, 1.0), c2.interval())),
+        lambda v: d1.evaluate(np.interp(v, (0.0, 1.0), d1.interval())),
+        lambda v: d2.evaluate(np.interp(v, (0.0, 1.0), d2.interval())),
     )
 
 
