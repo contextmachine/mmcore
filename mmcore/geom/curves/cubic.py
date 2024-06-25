@@ -2,8 +2,9 @@ import numpy as np
 
 from mmcore.geom.curves.curve import Curve
 from numpy.typing import NDArray
-
-class CubicSpline(Curve):
+from mmcore.geom.curves._cubic import CubicSpline
+__all__=["CubicSpline"]
+class PyCubicSpline(Curve):
     """
 
     :class: CubicSpline
@@ -58,7 +59,11 @@ class CubicSpline(Curve):
     @property
     def degree(self):
         return 3
-
+    def dderivative(self, t):
+        return 3 * self.c0 * t * (2 * t - 2) + 3 * self.c0 * (1 - t) ** 2 - 3 * self.c1 * t ** 2 + 6 * self.c1 * t * (1 - t) - 3 * self.p0 * (
+                    1 - t) ** 2 + 3 * self.p1 * t ** 2
+    def dsecond_derivative(self, t):
+        return 6 * (self.c0 * t + 2 * self.c0 * (t - 1) - 2 * self.c1 * t - self.c1 * (t - 1) - self.p0 * (t - 1) + self.p1 * t)
     def evaluate(self, t):
         """
         Evaluate the value of a cubic Bezier curve at a given parameter.

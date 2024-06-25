@@ -61,6 +61,22 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs
 
+    ),
+Extension(
+        "mmcore.numeric.routines._routines",
+        ["mmcore/numeric/routines/_routines.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
+    ),
+Extension(
+        "mmcore.geom.curves._cubic",
+        ["mmcore/geom/curves/_cubic.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
     )
 
 ]
