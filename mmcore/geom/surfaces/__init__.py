@@ -342,7 +342,8 @@ def Ruled(c1, c2):
     else:
         return PyRuled(c1, c2)
 
-
+from mmcore.geom.curves.bspline import NURBSpline
+from mmcore.geom.curves.cubic import CubicSpline
 
 class Coons(Surface):
     """
@@ -402,8 +403,20 @@ class Coons(Surface):
         pt2 = np.array(c2.evaluate(c2.interval()[1]))
         pt3 = np.array(d2.evaluate(d2.interval()[1]))
         #self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
+        if isinstance(self.c1,CubicSpline) and isinstance(self.c2, CubicSpline):
+            self._rc=CRuled(self.c1,self.c2)
+        #elif isinstance(self.c1, NURBSpline) and isinstance(self.c2, NURBSpline):
+        #    self._rc = parametric.RationalRuled(self.c1._spline, self.c2._spline)
+        else:
+            self._rc=PyRuled(self.c1,self.c2)
 
-        self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
+        if  isinstance(self.d1, CubicSpline) and  isinstance(self.d2, CubicSpline) :
+            self._rd = CRuled( self.d2,self.d1)
+        #elif isinstance(self.d1, NURBSpline) and isinstance(self.d2, NURBSpline):
+        #    self._rd = parametric.RationalRuled(self.d1._spline, self.d2._spline)
+        else:
+            self._rd=PyRuled(self.d2,self.d1)
+        #self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
         self._rcd = BiLinear(pt0, pt1, pt2, pt3)
         self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
