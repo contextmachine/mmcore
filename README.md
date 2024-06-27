@@ -51,7 +51,7 @@ Some useful hints:
   - `mmcore.numeric.surface_intersection` - Algorithms for finding all intersection curves between two Surface. AThe following cases are currently available: Implicit-Implicit, Parametric-Parametric(Work in progress) are provided.
 
 ## Benchmarks
-I managed to do some benchmarks, the results are shown in the picture. I measured the speed of the operation of finding all curves of intersection of two solid tubes with some wall thickness. You can see an illustration of this operation next to the table. I compared the capabilities of `mmcore` with Rhino, since Rhino is available on macos.
+We managed to run several benchmarks and the results are shown in the figure. I measured the speed of the operation of finding all curves of intersection of two solid tubes with some wall thickness. You can see an illustration of this operation next to the table. We compared the capabilities of `mmcore` with Rhino, since Rhino is available on macos. These benchmarks are not exhaustive but emphasize the possibility of achieving competitive CAD engine performance on python.
 
 | task  size | cpu  | 	Rhino 8 (sec.) | 	mmcore (sec.) | 	 Rhino 8 (sec./it.)	 | mmcore (sec./it.) |
 |------------|------|-----------------|----------------|-----------------------|-------------------|
