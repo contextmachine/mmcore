@@ -40,7 +40,7 @@ Some useful hints:
   - `mmcore.geom.surfaces` - Representations of surfaces in parametric form
   - `mmcore.geom.implicit` - Implicit representations  of curves and surfaces  
   - `mmcore.geom.implicit.dc` - **Adaptive Dual Contouring** algorithm, so far in 2D. 
-  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive), so far in 2D.  
+  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive).  
   - `mmcore.geom.bvh` - Implementation of BVH tree construction and queries. This can be extremely useful for intersectionb nearest neighbor search and other spatial tasks. 
   - `mmcore.geom.primitives` -Built-in high-performance primitives 
 - `mmcore.numeric` - Implementation of fundamental numeric CAD algorithms and some data structures.
