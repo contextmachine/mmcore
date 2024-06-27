@@ -1,8 +1,11 @@
 # mmcore
 ## Overview
-Everything that is deprecated or uses deprecated components has been removed from this version. 
-We managed to get rid of a lot of dependencies, some of which, for example, made it impossible to build on pypy3. 
-The main goal is to improve this version to the dev functionality (which is actually used) but more efficiently and in accordance with the current concept. 
+mmcore is a modern CAD engine written in python and currently at the prototype stage. The main goal is to make CAD capabilities available and as easy to use as scipy, scikit-learn and other popular libraries. 
+
+mmcore is a common python package that just needs pip to install. mmcore has only two packages as required dependencies: numpy and scipy. Like any python software, mmcore can run seamlessly in cloud environments, command line scripts, and on familiar consumer platforms. This in itself provides automation capabilities that far exceed those of existing proprietary software. Server architecture allows for flexible deployment of the CAD engine in the cloud, on private networks, or embedded in other applications. This enables new use cases such as design simulation/optimization with massively parallelism, integration with PLM and manufacturing systems, and collaborative design over the Internet.
+
+
+mmcore does not currently guarantee backwards compatibility and does not provide a stable api. The current API will be modified!
 
 ## Installation
 
