@@ -38,13 +38,12 @@ Some useful hints:
   - `mmcore.geom.curves.curve` - Basic curve class in parametric form that implements many useful methods
   - `mmcore.geom.curves.bspline` - **B-Spline** curves and **NURBS** curves
   - `mmcore.geom.surfaces` - Representations of surfaces in parametric form
-  - `mmcore.geom.implicit` - Implicit representations [[1]](https://en.wikipedia.org/wiki/Implicit_curve)  of curves and surfaces  
-  - `mmcore.geom.implicit.dc` - **Adaptive Dual Contouring** algorithm [[2]](https://www.cs.wustl.edu/~taoju/research/interfree_paper_final.pdf) , so far in 2D. 
-  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive [[3]](https://github.com/libfive/libfive)), so far in 2D.  
+  - `mmcore.geom.implicit` - Implicit representations  of curves and surfaces  
+  - `mmcore.geom.implicit.dc` - **Adaptive Dual Contouring** algorithm, so far in 2D. 
+  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive), so far in 2D.  
   - `mmcore.geom.bvh` - Implementation of BVH tree construction and queries. This can be extremely useful for intersectionb nearest neighbor search and other spatial tasks. 
   - `mmcore.geom.primitives` -Built-in high-performance primitives 
-- `mmcore.numeric` - Implementation of fundamental numeric CAD algorithms and some data structures. 
- 
+- `mmcore.numeric` - Implementation of fundamental numeric CAD algorithms and some data structures.
   - `mmcore.numeric.fdm` - Automatic differentiation using **Finite Difference Method**. This also includes the gradient, jac, hessian calculation methods.
   - `mmcore.numeric.marching` - Marching method
   - `mmcore.numeric.plane` - Useful procedures for working with planes and coordinate systems
@@ -66,8 +65,3 @@ We managed to run several benchmarks and the results are shown in the figure. I 
 <img src="notes/images/implicit_tubes_intersection.png" width="300"/>
 
 
-## References
-1. https://en.wikipedia.org/wiki/Implicit_curve
-2. https://en.wikipedia.org/wiki/Implicit_curve
-3. https://github.com/libfive/libfive/blob/master/libfive
-4. Geometry and Algorithms for COMPUTER AIDED DESIGN, p. 94
