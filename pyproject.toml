@@ -34,6 +34,7 @@ ipython = {version = "*", optional = true}
 cython = "*"
 cython-lint = "*"
 python-dotenv = "^1.0.0"
+setuptools="*"
 
 [tool.cython-lint]
 max-line-length = 140
