@@ -1,9 +1,7 @@
 cimport cython
-
 cimport numpy as np
 import numpy as np
-ctypedef struct xyz:
-    double x,y,z;
+cimport mmcore.geom.curves.deboor
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef double cdeboor(double[:] knots, double t, int i, int k) noexcept nogil:
@@ -32,13 +30,13 @@ cdef double cdeboor(double[:] knots, double t, int i, int k) noexcept nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef xyz cevaluate_nurbs(double t, double[:,:] cpts, double[:] knots, double[:] weights, int degree  ):
+cdef void cevaluate_nurbs(double t, double[:,:] cpts, double[:] knots, double[:] weights, int degree, xyz *result  ):
     cdef Py_ssize_t n=cpts.shape[0]
     cdef double b;
     cdef double crd;
     cdef double sum_of_weights =0.;
     cdef size_t i;
-    cdef xyz result=xyz(0.,0.,0.);
+
     for i in range(n):
         b = cdeboor(knots, t, i, degree)* weights[i]
         result.x += b * cpts[i][0]
@@ -48,17 +46,17 @@ cdef xyz cevaluate_nurbs(double t, double[:,:] cpts, double[:] knots, double[:] 
     result.x = result.x / sum_of_weights
     result.y = result.y / sum_of_weights
     result.z = result.z / sum_of_weights
-    return result
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void cevaluate_nurbs_multi( double[:] t,double[:,:] cpts, double[:] knots, double[:] weights, int degree,double[:,:] result) :
 
-    cdef xyz pt;
+    cdef xyz pt=xyz(0.,0.,0.);
 
     for i in range(t.shape[0]):
-        pt=cevaluate_nurbs(t[i],cpts,knots,weights,degree)
-        result[i][0]=pt.x
+        cevaluate_nurbs(t[i],cpts,knots,weights,degree,&pt)
+        result[i][0] = pt.x
         result[i][1] = pt.y
         result[i][2] = pt.z
 
@@ -69,7 +67,8 @@ def deboor(double[:] knots, double t, int i, int k)   :
 
 def evaluate_nurbs(double t, double[:,:] cpts, double[:] knots, double[:] weights, int degree )   :
     cdef double[:] result=np.empty((3,))
-    cdef xyz pt=cevaluate_nurbs(t,cpts,knots,weights,degree)
+    cdef xyz pt=xyz(0.,0.,0.)
+    cevaluate_nurbs(t,cpts,knots,weights,degree,&pt)
     result[0] = pt.x
     result[1] = pt.y
     result[2] = pt.z

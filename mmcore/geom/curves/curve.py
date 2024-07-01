@@ -214,9 +214,9 @@ class Curve:
         else:
             return (self.evaluate(t) - self.evaluate(t - DEFAULT_H)) / DEFAULT_H
 
-    @property
-    def second_derivative(self):
-        return self._derivatives[2]
+
+    def second_derivative(self, t):
+        return self._derivatives[2](t)
 
     def add_derivative(self):
 

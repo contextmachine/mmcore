@@ -16,7 +16,7 @@ from mmcore.geom.curves._nurbs import NURBSpline as CNURBSpline
 
 from mmcore.numeric.vectors import scalar_unit
 
-
+__all__ = ['nurbs_split','NURBSpline']
 def nurbs_split(self, t: float) -> tuple:
     """
     :param self:
@@ -228,7 +228,7 @@ class BSpline(Curve):
         return super().__call__(t)
 
 
-class NURBSpline(Curve):
+class NURBSpline(CNURBSpline,Curve):
     """
     Non-Uniform Rational BSpline (NURBS)
     Example:
@@ -246,68 +246,85 @@ class NURBSpline(Curve):
 
     """
 
-    weights: np.ndarray
-    _spline: CNURBSpline
-
     def __init__(self, control_points, weights=None, degree=3, knots=None):
-        self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
-
-        self._control_points_count = len(control_points)
-
-        self._spline = CNURBSpline(np.asarray(control_points, dtype=float), degree=degree, knots=knots)
-        self.weights = np.array(self._spline.control_points.base[:, -1])
-        self._control_points = self._spline.control_points.base[:, :-1]
+        cpts=control_points if isinstance(control_points,np.ndarray) else np.array(control_points,dtype=float)
         if weights is not None:
-            pts = self._spline.get_control_points_4d()
-            pts[:, -1] = weights
-            self._spline.set_control_points_4d(pts)
+            cpts=np.ones((len(control_points),4),dtype=float)
+            cpts[:,:control_points.shape[1]]=control_points
+            cpts[:,3]=weights
+        if knots is not None:
+            knots=knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
+        super().__init__(cpts, degree=degree,knots=knots)
 
-        super().__init__()
 
-    def __getstate__(self):
-        return dict(control_points=np.asarray(self.control_points),
-                    weights=np.asarray(self.weights),
-                    degree=self.degree,
-                    knots=np.array(self.knots))
 
-    def __setstate__(self, state):
-        print(state)
-        self._spline = CNURBSpline(np.asarray(state.get('control_points', state.get('_control_points')), dtype=float),
-                                   degree=state.get('degree'), knots=state.get('knots'))
-        self._control_points = self._spline.control_points.base[:, :-1]
-        self.weights = np.array(self._spline.control_points.base[:, -1])
-        if state.get('weights') is not None:
-            pts = self._spline.get_control_points_4d()
-            pts[:, -1] = state.get('weights')
-            self._spline.set_control_points_4d(pts)
-        self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
-        self._control_points_count = len(self.control_points)
-        self._evaluate_cached = lru_cache(maxsize=None)(self.evaluate)
-        self._evaluate_length_cached = lru_cache(maxsize=None)(self.evaluate_length)
-        self._cached_basis_func = lru_cache(maxsize=None)(self.basis_function)
 
-        self.invalidate_cache()
+    #def __init__(self, control_points, weights=None, degree=3, knots=None):
+    #    self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
+    #
+    #    self._control_points_count = len(control_points)
+    #
+    #    self._spline = CNURBSpline(np.asarray(control_points, dtype=float), degree=degree, knots=knots)
+    #    #self.weights = np.array(self._spline.control_points)
+    #    self._control_points = self._spline.control_points
+    #    if weights is not None:
+    #        pts = self._spline.get_control_points_4d()
+    #        pts[:, -1] = weights
+    #        self._spline.set_control_points_4d(pts)
+    #
+    #    super().__init__(init_derivatives=False)
+    #@property
+    #def weights(self):
+    #    return self._spline.weights
+    #
+    #@weights.setter
+    #def weights(self,v):
+    #    self._spline.weights=v if isinstance(v, np.ndarray) else np.array(v,dtype=float)
+    #
+    #def __getstate__(self):
+    #    return dict(control_points=np.asarray(self.control_points),
+    #                weights=np.asarray(self.weights),
+    #                degree=self.degree,
+    #                knots=np.array(self.knots))
+    #
+    #def __setstate__(self, state):
+    #    print(state)
+    #    self._spline = CNURBSpline(np.asarray(state.get('control_points', state.get('_control_points')), dtype=float),
+    #                               degree=state.get('degree'), knots=state.get('knots'))
+    #    self._control_points = self._spline.control_points.base[:, :-1]
+    #    self.weights = np.array(self._spline.control_points.base[:, -1])
+    #    if state.get('weights') is not None:
+    #        pts = self._spline.get_control_points_4d()
+    #        pts[:, -1] = state.get('weights')
+    #        self._spline.set_control_points_4d(pts)
+    #    self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
+    #    self._control_points_count = len(self.control_points)
+    #    self._evaluate_cached = lru_cache(maxsize=None)(self.evaluate)
+    #    self._evaluate_length_cached = lru_cache(maxsize=None)(self.evaluate_length)
+    #    self._cached_basis_func = lru_cache(maxsize=None)(self.basis_function)
+    #
+    #    self.invalidate_cache()
 
-    def generate_knots(self):
-        self._spline.generate_knots()
-        return self._spline.knots
-
-    @property
-    def knots(self):
-        return self._spline.knots.base
-
-    @knots.setter
-    def knots(self, v):
-        self._spline.knots = np.asarray(v)
-        self.invalidate_cache()
-
-    def basis_function(self, t, i, k):
-        """
-        Calculating basis function with de Boor algorithm
-        """
-        # print(t,i,k)
-
-        return deboor(self.knots, t, i, k)
+    #def generate_knots(self):
+    #    self._spline.generate_knots()
+    #    return self._spline.knots
+    #
+    #@property
+    #def knots(self):
+    #    return self._spline.knots.base
+    #
+    #@knots.setter
+    #def knots(self, v):
+    #    self._spline.knots = np.asarray(v)
+    #    self.invalidate_cache()
+    #
+    #def basis_function(self, t, i, k):
+    #    """
+    #    Calculating basis function with de Boor algorithm
+    #    """
+    #    # print(t,i,k)
+    #
+    #    return deboor(self.knots, t, i, k)
 
     #@property
     #def weights(self):
@@ -319,25 +336,26 @@ class NURBSpline(Curve):
     #        self._spline.control_points.base[:, -1]=val
     #    else:
     #        raise ValueError("Weights must have length equal to the number of control points")
-    def derivative(self, t):
-        return self._spline.derivative(t)
-
-    def second_derivative(self, t):
-        return self._spline.second_derivative(t)
-
-    def plane_at(self, t):
-        return self._spline.plane_at(t)
-
-    def tangent(self, t):
-
-        return self._spline.tangent(t)
-
-    def curvature(self, t):
-        return self._spline.curvature(t)
-
-    def normal(self, t):
-
-        return self._spline.normal(t)
+    #def derivative(self, t):
+    #    print('ddd')
+    #    return self._spline.derivative(t)
+    #
+    #def second_derivative(self, t):
+    #    return self._spline.second_derivative(t)
+    #
+    #def plane_at(self, t):
+    #    return self._spline.plane_at(t)
+    #
+    #def tangent(self, t):
+    #
+    #    return self._spline.tangent(t)
+    #
+    #def curvature(self, t):
+    #    return self._spline.curvature(t)
+    #
+    #def normal(self, t):
+    #
+    #    return self._spline.normal(t)
 
     #@property
     #def _control_points(self):
@@ -352,73 +370,73 @@ class NURBSpline(Curve):
     #        zz[:,:-1]=val
     #        self._spline.set_control_points_4d(zz)
 
-    @property
-    def degree(self):
-        return self._spline.degree
-
-    @degree.setter
-    def degree(self, d):
-        self._spline.degree = d
-        self.invalidate_cache()
-
-    @property
-    def control_points(self):
-        return self._control_points
-
-    @control_points.setter
-    def control_points(self, value):
-        self._control_points = np.asarray(value)
-        self.invalidate_cache()
-
-    def set_weights(self, weights=None):
-        if weights is not None:
-            if len(weights) == len(self.control_points):
-                self.weights[:] = weights
-                self.invalidate_cache()
-            else:
-                raise ValueError(
-                    f"Weights must have the same length as the control points! Passed weights: {weights}, control_points size: {self._control_points_count}, control_points :{self.control_points}, weights : {weights}"
-                )
-
-    def invalidate_cache(self):
-
-        super().invalidate_cache()
-        self._cached_eval_func.cache_clear()
+    #@property
+    #def degree(self):
+    #    return self._spline.degree
+    #
+    #@degree.setter
+    #def degree(self, d):
+    #    self._spline.degree = d
+    #    self.invalidate_cache()
+    #
+    #@property
+    #def control_points(self):
+    #    return self._control_points
+    #
+    #@control_points.setter
+    #def control_points(self, value):
+    #    self._control_points = np.asarray(value)
+    #    self.invalidate_cache()
+    #
+    #def set_weights(self, weights=None):
+    #    if weights is not None:
+    #        if len(weights) == len(self.control_points):
+    #            self.weights[:] = weights
+    #            self.invalidate_cache()
+    #        else:
+    #            raise ValueError(
+    #                f"Weights must have the same length as the control points! Passed weights: {weights}, control_points size: {self._control_points_count}, control_points :{self.control_points}, weights : {weights}"
+    #            )
+    #
+    #def invalidate_cache(self):
+    #
+    #    super().invalidate_cache()
+    #    self._cached_eval_func.cache_clear()
 
     def split(self, t):
         return nurbs_split(self, t)
 
-    def _evaluate(self, t: float):
-        return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
+   #def _evaluate(self, t: float):
+   #    return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
+   #
+   #def _evaluate_multi(self, t: np.ndarray[float]):
+   #    return evaluate_nurbs_multi(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
 
-    def _evaluate_multi(self, t: np.ndarray[float]):
-        return evaluate_nurbs_multi(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
-
-    def evaluate(self, t: float):
-        """
-        x, y, z = 0.0, 0.0, 0.0
-        sum_of_weights = 0.0  # sum of weight * basis function
-
-        if abs(t - 0.0) <= 1e-8:
-            t = 0.0
-        elif abs(t - 1.0) <= 1e-8:
-            t = 1.0
-
-        for i in range(self._control_points_count):
-            b = self._cached_basis_func(t, i, self.degree)
-            x += b * self.weights[i] * self.control_points[i][0]
-            y += b * self.weights[i] * self.control_points[i][1]
-            z += b * self.weights[i] * self.control_points[i][2]
-            sum_of_weights += b * self.weights[i]
-        # normalizing with the sum of weights to get rational B-spline
-        x /= sum_of_weights
-        y /= sum_of_weights
-        z /= sum_of_weights"""
-
-        return self._cached_eval_func(t)
-
-    def evaluate_multi(self, t):
-        return self._spline.evaluate_multi(np.asarray(t))
+    #def evaluate(self, t: float):
+    #    """
+    #    x, y, z = 0.0, 0.0, 0.0
+    #    sum_of_weights = 0.0  # sum of weight * basis function
+    #
+    #    if abs(t - 0.0) <= 1e-8:
+    #        t = 0.0
+    #    elif abs(t - 1.0) <= 1e-8:
+    #        t = 1.0
+    #
+    #    for i in range(self._control_points_count):
+    #        b = self._cached_basis_func(t, i, self.degree)
+    #        x += b * self.weights[i] * self.control_points[i][0]
+    #        y += b * self.weights[i] * self.control_points[i][1]
+    #        z += b * self.weights[i] * self.control_points[i][2]
+    #        sum_of_weights += b * self.weights[i]
+    #    # normalizing with the sum of weights to get rational B-spline
+    #    x /= sum_of_weights
+    #    y /= sum_of_weights
+    #    z /= sum_of_weights"""
+    #
+    #    return self._cached_eval_func(t)
+    #
+    #def evaluate_multi(self, t):
+    #    return self._spline.evaluate_multi(np.asarray(t))
 
     def __call__(self, t):
         """

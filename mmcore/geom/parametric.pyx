@@ -20,6 +20,7 @@ cdef class ParametricCurve:
     @cython.wraparound(False)
     cdef void cevaluate(self, double t , double[:] result) noexcept nogil:
         pass
+
     cpdef double[:] interval(self):
         return self._interval
     def evaluate(self, t):
@@ -44,7 +45,7 @@ cdef class ParametricCurve:
             t2 = t - DEFAULT_H
             self.cevaluate(t1,v1)
             self.cevaluate(t2,v2)
-            vectors.sub3d(v1,v2,result)
+            vectors.sub3d(v1,v2, result)
             vectors.scalar_div3d(result, 2*DEFAULT_H, result)
 
 
@@ -193,6 +194,8 @@ cdef class ParametricSurface:
     def __init__(self):
 
         self._interval=np.zeros((2,2))
+        self._interval[0][1]=1.
+        self._interval[1][1] = 1.
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -379,12 +382,15 @@ cdef class ParametricSurface:
         return np.asarray(res)
 
 cdef class Ruled(ParametricSurface):
-
+    #cdef double _remap_u
+    #cdef double _remap_v
     def __init__(self, ParametricCurve c0, ParametricCurve c1):
 
         super().__init__()
         self.c0=c0
         self.c1=c1
+        #self._remap_u = vectors.scalar_dot(np.array((0., 1.)), self._interval[0])
+        #self._remap_v = vectors.scalar_dot(np.array((0., 1.)), self._interval[1])
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -397,6 +403,66 @@ cdef class Ruled(ParametricSurface):
         result[0] = (1. - v) * temp[0] + v * result[0]
         result[1] = (1. - v) * temp[1] + v * result[1]
         result[2] = (1. - v) * temp[2] + v * result[2]
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_v(self, double u, double v, double[:] result ):
+        cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
+        cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
+        cdef double[:] temp=np.empty(3)
+        self.c1.cevaluate(u2, temp)
+        self.c0.cevaluate(u1, result)
+        result[0] = temp[0] - result[0]
+        result[1] = temp[1] - result[1]
+        result[2] = temp[2] - result[2]
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_u(self, double u, double v, double[:] result ):
+        cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
+        cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
+        cdef double[:] temp=np.empty(3)
+        cdef double dv=1.-v
+
+        self.c1.cderivative(u2,temp)
+        temp[0]*=v
+        temp[1] *= v
+        temp[2] *= v
+        self.c0.cderivative(u1,result)
+        result[0]*=dv
+        result[1] *= dv
+        result[2] *= dv
+        result[0]+=temp[0]
+        result[1] += temp[1]
+        result[2] += temp[2]
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_uu(self, double u, double v, double[:] result ):
+            cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
+            cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
+            cdef double[:] temp=np.empty(3)
+            cdef double dv=1.-v
+
+            self.c1.csecond_derivative(u2,temp)
+            temp[0]*=v
+            temp[1] *= v
+            temp[2] *= v
+            self.c0.csecond_derivative(u1,result)
+            result[0]*=dv
+            result[1] *= dv
+            result[2] *= dv
+            result[0]+=temp[0]
+            result[1] += temp[1]
+            result[2] += temp[2]
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_vv(self, double u, double v, double[:] result ):
+        result[0] = 0.
+        result[1] = 0.
+        result[2] = 0.
+
+    def second_derivative_vv(self, double[:] uv):
+        return np.zeros(3)
+
 cdef class RationalRuled(Ruled):
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -410,3 +476,30 @@ cdef class RationalRuled(Ruled):
         result[0] = (1. - v) * temp[0] + v * res[0]
         result[1] = (1. - v) * temp[1] + v * res[1]
         result[2] = (1. - v) * temp[2] + v * res[2]
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_v(self, double u, double v, double[:] result ):
+        cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
+        cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
+        cdef double[:] temp=np.empty(4)
+        cdef double[:] res=np.empty(4)
+        self.c1.cevaluate(u2, temp)
+        self.c0.cevaluate(u1, res)
+        result[0] = temp[0] - res[0]
+        result[1] = temp[1] - res[1]
+        result[2] = temp[2] - res[2]
+class BiLinear(ParametricSurface):
+    cdef double[:,:,:] _m
+    def __init__(self, double[:] a, double[:] b, double[:] c, double[:] d):
+        super().__init__()
+        self._m=np.zeros((2,2,3))
+
+        #self.b00, self.b01, self.b11, self.b10 = np.array([a, b, c, d], dtype=float)
+
+        self._m[0][0] = a
+        self._m[0][1] =b
+        self._m[1][0] = d
+        self._m[1][1] = c
+
+
+
