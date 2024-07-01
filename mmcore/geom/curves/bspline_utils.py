@@ -239,7 +239,7 @@ def calc_rational_curve_derivatives(Pders):
 
 def insert_knot(self, t, num=1):
     cpts, knots = knot_insertion(
-        self.degree, self.knots.tolist(), self.control_points, t, num=num
+        self.degree, self.knots.tolist(), self._control_points, t, num=num
     )
     self.set(control_points=np.array(cpts), knots=np.array(knots))
     return True
