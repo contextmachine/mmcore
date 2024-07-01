@@ -255,9 +255,7 @@ class NURBSpline(CNURBSpline,Curve):
         if knots is not None:
             knots=knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
         super().__init__(cpts, degree=degree,knots=knots)
-
-
-
+        self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
 
     #def __init__(self, control_points, weights=None, degree=3, knots=None):
     #    self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)

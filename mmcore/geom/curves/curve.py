@@ -288,7 +288,7 @@ class Curve:
         """
         return self._evaluate_length_cached(bounds, tol)
 
-    def evaluate_parameter_at_length(self, length, t0=None, tol=1.48e-8, **kwargs):
+    def evaluate_parameter_at_length(self, length, t0=None, tol=1e-9, **kwargs):
         """
         Evaluates the parameter at a specific length.
 
@@ -302,7 +302,7 @@ class Curve:
         t1_limit = end
 
         def func(t):
-            return self.evaluate_length((t0, t)) - length
+            return abs(self.evaluate_length((t0, t))**2 - length**2)
 
         res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
 

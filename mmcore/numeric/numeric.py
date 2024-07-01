@@ -520,10 +520,10 @@ if __name__ == '__main__':
     print(divmod(time.time() - s, 60))
 
     s = time.time()
-    print(bb.evaluate_parameter_at_length(rrr), (bb.interval()[1] - bb.interval()[0]) * 0.9)
+    print(bb.evaluate_parameter_at_length(rrr, tol=1e-8), (bb.interval()[1] - bb.interval()[0]) * 0.9)
     print(divmod(time.time() - s, 60))
     s = time.time()
 
     print(
-        bb.evaluate_parameter_at_length(rr),0.23)
+        bb.evaluate_parameter_at_length(rr, tol=1e-8),0.23)
     print(divmod(time.time() - s, 60))
