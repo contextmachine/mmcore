@@ -1,4 +1,5 @@
 import itertools
+import math
 import time
 from enum import Enum
 
@@ -16,7 +17,7 @@ from mmcore.numeric.closest_point import closest_point_on_line, closest_point_on
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 from mmcore.geom.curves.knot import interpolate_curve
 from mmcore.geom.curves.bspline import NURBSpline
-from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit,det
+from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2
 
 
 class TerminatorType(int, Enum):
@@ -26,7 +27,7 @@ class TerminatorType(int, Enum):
 
 
 def get_plane(origin, du, dv):
-    duu = du / np.linalg.norm(du)
+    duu = du / scalar_norm(du)
 
     dn = scalar_unit(scalar_cross(duu, dv))
     dvu = scalar_cross(dn, duu)
@@ -65,7 +66,7 @@ def solve_marching(pt1, pt2, du1, dv1, du2, dv2, tol, side=1):
 
     r = 1 / scalar_norm(K)
 
-    step = np.sqrt(np.abs(r ** 2 - (r - tol) ** 2)) * 2
+    step = np.sqrt(abs(r ** 2 - (r - tol) ** 2)) * 2
 
     new_pln = np.array([pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction * side])
 
@@ -83,7 +84,9 @@ def improve_uv(du, dv, xyz_old, xyz_better):
     yz = np.array([[dydu, dydv], [dzdu, dzdv]]), [delta[1], delta[2]]
 
     max_det = max([xy, xz, yz], key=lambda Ab: det(Ab[0]))
-    return np.linalg.solve(*max_det)
+    res=np.zeros(2)
+    solve2x2(max_det[0], np.array(max_det[1]), res)
+    return res
 
 
 def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
@@ -93,16 +96,16 @@ def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
     pt2 = s2.evaluate(uvb2)
     du2 = s2.derivative_u(uvb2)
     dv2 = s2.derivative_v(uvb2)
-    xyz_better = np.array(freeform_step_debug(pt1, pt2, du1, dv1, du2, dv2)[1])
+    xyz_better = freeform_step_debug(pt1, pt2, du1, dv1, du2, dv2)[1]
 
     uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
-    if np.any(uvb1_better < 0.) or np.any(uvb2_better < 0.) or np.any(uvb1_better > 1.) or np.any(uvb2_better > 1.):
+    if any(uvb1_better < 0.) or any(uvb2_better < 0.) or any(uvb1_better > 1.) or any(uvb2_better > 1.):
         return
     xyz1_new = s1.evaluate(uvb1_better)
     xyz2_new = s2.evaluate(uvb2_better)
     #print(   np.linalg.norm(xyz1_new -  xyz2_new))
-    if np.linalg.norm(xyz1_new - xyz2_new) <= tol:
+    if scalar_norm(xyz1_new - xyz2_new) <= tol:
         # print("e")
         return (xyz1_new, uvb1_better), (xyz2_new, uvb2_better)
     else:
@@ -124,7 +127,7 @@ def marching_step(s1, s2, uvb1, uvb2, tol, cnt=0, side=1):
     uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
-    if np.any(uvb1_better < 0.) or np.any(uvb2_better < 0.) or np.any(uvb1_better > 1.) or np.any(uvb2_better > 1.):
+    if any(uvb1_better < 0.) or any(uvb2_better < 0.) or any(uvb1_better > 1.) or any(uvb2_better > 1.):
 
 
         #uvb1_better=np.clip(uvb1_better, 0., 1.)
@@ -147,7 +150,7 @@ def marching_method(
     terminator = None
     use_kd = kd is not None
     ixss = set()
-    xyz1_init, xyz2_init = np.copy(s1.evaluate(initial_uv1)), np.copy(s2.evaluate(initial_uv2))
+    xyz1_init, xyz2_init = s1.evaluate(initial_uv1), s2.evaluate(initial_uv2)
     res = marching_step(s1, s2, initial_uv1, initial_uv2, tol=tol, side=side)
 
     if res is None:
@@ -180,7 +183,7 @@ def marching_method(
 
             (xyz1, uv1_new), (xyz2, uv2_new), step = res
             pts.append(xyz1)
-            uvs.append((uv1_new.tolist(), uv2_new.tolist()))
+            uvs.append((uv1_new, uv2_new))
             steps.append(step)
             if use_kd:
                 #print(   len(kd.data),ixss,step,tol,kd.query(xyz1, 3))
@@ -192,7 +195,7 @@ def marching_method(
                 #print("b", xyz1_init, xyz1, np.linalg.norm(xyz1 - xyz1_init), step)
                 pts.append(pts[0])
 
-                uvs.append((initial_uv1.tolist(), initial_uv1.tolist()))
+                uvs.append((initial_uv1, initial_uv1))
                 terminator = TerminatorType.LOOP
                 break
         #print("I", np.linalg.norm(xyz1 - xyz1_init), step*2)
@@ -200,12 +203,6 @@ def marching_method(
     #print(len(pts))
     return uvs, pts, steps, list(ixss), terminator
 
-
-def surface_local_cpt(surf1, surf2):
-    def fun(t):
-        return np.array(surf2.evaluate(np.array([t[1], t[2]]))) - np.array(surf1.evaluate(np.array([0.00, t[0]])))
-
-    return fsolve(fun, np.array([0.5, 0.5, 0.5]))
 
 
 class SurfacePPI:
