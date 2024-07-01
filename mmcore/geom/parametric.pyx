@@ -488,7 +488,7 @@ cdef class RationalRuled(Ruled):
         result[0] = temp[0] - res[0]
         result[1] = temp[1] - res[1]
         result[2] = temp[2] - res[2]
-class BiLinear(ParametricSurface):
+cdef class BiLinear(ParametricSurface):
     cdef double[:,:,:] _m
     def __init__(self, double[:] a, double[:] b, double[:] c, double[:] d):
         super().__init__()
