@@ -1,11 +1,15 @@
 # cython: language_level=3
+import functools
+
 cimport cython
 import numpy as np
 cimport numpy as cnp
 from libc.stdlib cimport malloc,free
 from mmcore.geom.parametric cimport ParametricCurve
 from mmcore.numeric cimport vectors,calgorithms
+from mmcore.geom.curves.deboor cimport cdeboor,cevaluate_nurbs,xyz
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
+cnp.import_array()
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int find_span(int n, int p, double u, double[:] U) noexcept nogil:
@@ -60,7 +64,7 @@ cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept no
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double[:] result) noexcept nogil:
+cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double* result) noexcept nogil:
     """
     Compute a point on a B-spline curve.
 
@@ -83,7 +87,7 @@ cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, doubl
     basis_funs(span, u, p, U, N)
 
     for i in range(pp):
-        for j in range(result.shape[0]):
+        for j in range(4):
             result[j] += N[i] * P[span - p + i, j]
 
 
@@ -317,31 +321,71 @@ cdef void projective_to_cartesian(double[:] point, double[:] result)  noexcept n
     result[1]=point[1]/w
     result[2]=point[2]/w
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void projective_to_cartesian_ptr_ptr(double* point, double* result)  noexcept nogil:
+    cdef double w = point[3]
+    result[0]=point[0]/w
+    result[1]=point[1]/w
+    result[2]=point[2]/w
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noexcept nogil:
+    cdef double w = point[3]
+    result[0]=point[0]/w
+    result[1]=point[1]/w
+    result[2]=point[2]/w
 
 cdef class NURBSpline(ParametricCurve):
-    cdef double[:,:] _control_points
+    cdef public double[:,:] _control_points
     cdef public int degree
-    cdef public double[:] knots
+    cdef double[:] _knots
     cdef public int n
-    cdef double[:, :, :] _PK
+    cdef double[:,:,:] _PK
+    cdef public object _evaluate_cached
+    cdef double[4] _result_buffer
+
 
 
     def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None):
         super().__init__()
         self._control_points = np.ones((control_points.shape[0], 4))
-
+        self._result_buffer = np.zeros(4)
         self._control_points[:, :-1] = control_points
 
         self.degree = degree
         if knots is None:
             self.generate_knots()
         else:
-            self.knots=knots
+            self._knots=knots
 
         self.n = len(self._control_points) - 1
-        self._interval[0] = np.min(self.knots)
-        self._interval[1] = np.max(self.knots)
+        self._interval[0] = np.min(self._knots)
+        self._interval[1] = np.max(self._knots)
         self._PK = np.zeros((2 + 1, self.degree + 1, self._control_points.shape[1]-1 ))
+        self._evaluate_cached=functools.lru_cache(maxsize=None)(self._evaluate)
+    def __deepcopy__(self, memodict={}):
+        obj=self.__class__(control_points=self.control_points.copy(), degree=self.degree, knots=np.asarray(self._knots).copy())
+        obj.weights=self.weights
+        return obj
+
+    def __getstate__(self):
+        state=dict()
+        state['_control_points']=np.asarray(self._control_points)
+        state['_knots'] = np.asarray(self._knots)
+        state['degree'] = self.degree
+        return state
+
+    def __setstate__(self,state):
+        self._control_points=state['_control_points']
+        self._knots = state['_knots']
+        self.degree = state['degree']
+        self._evaluate_cached.cache_clear()
+        self.n = len(self._control_points) - 1
+        self._interval[0] = np.min(self._knots)
+        self._interval[1] = np.max(self._knots)
+        self._PK = np.zeros((2 + 1, self.degree + 1, self._control_points.shape[1] - 1))
+        self._result_buffer = np.zeros(4)
 
     cdef void _pknull(self):
 
@@ -349,20 +393,34 @@ cdef class NURBSpline(ParametricCurve):
 
     @property
     def control_points(self):
-        return self._control_points[..., :-1]
+        return np.asarray(self._control_points[:,:-1])
     @control_points.setter
     def control_points(self, double[:,:] control_points):
         self._control_points = np.ones((control_points.shape[0],4))
 
         self._control_points[:, :-1] = control_points
-
+        self._evaluate_cached.cache_clear()
+    @property
+    def knots(self):
+        return np.asarray(self._knots)
+    @knots.setter
+    def knots(self, double[:] v):
+        self._knots=v
+        self._evaluate_cached.cache_clear()
+    @property
+    def weights(self):
+        return np.asarray(self._control_points[:, 3])
+    @weights.setter
+    def weights(self, double[:] v):
+        self._control_points[:, 3]=v
+        self._evaluate_cached.cache_clear()
     cdef void generate_knots(self):
         """
         This function generates default knots based on the number of control points
         :return: A numpy array of knots
         """
         cdef int n = len(self.control_points)
-        self.knots = np.concatenate((
+        self._knots = np.concatenate((
             np.zeros(self.degree + 1),
             np.arange(1, n - self.degree),
             np.full(self.degree + 1, n - self.degree)
@@ -381,9 +439,6 @@ cdef class NURBSpline(ParametricCurve):
            self.cderivatives2(t,2, ders)
            calgorithms.evaluate_curvature(ders[1],ders[2],ders[0],result)
 
-
-
-
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cevaluate(self, double t, double[:] result) noexcept nogil:
@@ -393,17 +448,71 @@ cdef class NURBSpline(ParametricCurve):
         :param t: The parameter value.
         :return: np.array with shape (3,).
         """
+        cdef double w
+        #cdef double * res = <double *> malloc(sizeof(double) * 4)
 
-        curve_point(self.n, self.degree, self.knots, self._control_points, t, result)
-        projective_to_cartesian(result,result)
+        self._result_buffer[0] = 0.
+        self._result_buffer[1] = 0.
+        self._result_buffer[2] = 0.
+        self._result_buffer[3] = 0.
+
+        curve_point(self.n, self.degree, self._knots, self._control_points, t, &self._result_buffer[0])
+        w = self._result_buffer[3]
+        result[0] = self._result_buffer[0] / w
+        result[1] = self._result_buffer[1] / w
+        result[2] = self._result_buffer[2] / w
 
 
-    def evaluate(self, t):
+    cpdef set(self, double[:,:] control_points, double[:] knots ):
+        self._control_points=control_points
+        self._knots=knots
+        self._evaluate_cached.cache_clear()
+
+
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate_ptr(self, double t, double *result ) noexcept nogil:
+        """
+        Compute a point on a NURBS-spline curve.
+
+        :param t: The parameter value.
+        :return: np.array with shape (3,).
+        """
+        cdef double w
+
+
+        result[0]=0.
+        result[1] = 0.
+        result[2]=0.
+        result[3] = 0.
+
+
+        curve_point(self.n, self.degree, self._knots, self._control_points, t, result)
+        w=result[3]
+        result[0]=result[0]/w
+        result[1]=result[1]/w
+        result[2]=result[2]/w
+        result[3]=1.
+
+
+
+
+
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def _evaluate(self, double t):
         if not (self._interval[0]<=t<=self._interval[1]):
             raise ValueError("t out of bounds")
-        cdef double[:] result =np.zeros((4,))
-        self.cevaluate(t,result)
-        return np.asarray(result[:3])
+        cdef double[:] result =np.zeros((3,))
+        self.cevaluate(t, result)
+        return np.asarray(result)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def evaluate(self, double t):
+        return self._evaluate_cached(t)
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def evaluate_multi(self, double[:] t):
@@ -435,7 +544,7 @@ cdef class NURBSpline(ParametricCurve):
         cdef int i
         #cdef double[:, :]  CK = np.zeros((du + 1, 4))
         #cdef double[:, :, :] PK = np.zeros((d + 1, self.degree + 1,  self._control_points.shape[1]-1))
-        curve_derivs_alg1(self.n, self.degree, self.knots, self._control_points[:,:-1], t, d, CK)
+        curve_derivs_alg1(self.n, self.degree, self._knots, self._control_points[:,:-1], t, d, CK)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -453,7 +562,7 @@ cdef class NURBSpline(ParametricCurve):
            #cdef double[:, :, :] PK = np.zeros((d + 1, self.degree + 1,  self._control_points.shape[1]-1))
            self._pknull()
 
-           curve_derivs_alg2(self.n, self.degree, self.knots, self._control_points[:,:-1], t, d, CK, self._PK)
+           curve_derivs_alg2(self.n, self.degree, self._knots, self._control_points[:,:-1], t, d, CK, self._PK)
 
 
 
@@ -486,17 +595,6 @@ cdef class NURBSpline(ParametricCurve):
         cdef double[:,:] vecs=np.zeros((3,3))
         self.cplane(t,vecs)
         result[:]=vecs[3,:]
-
-
-
-
-
-
-
-
-
-
-
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -547,11 +645,13 @@ cdef class NURBSpline(ParametricCurve):
             result[0]=res[2][0]
             result[1]= res[2][1]
             result[2]= res[2][2]
+
     cpdef double[:,:] get_control_points_4d(self):
         return self._control_points
     cpdef void set_control_points_4d(self, double[:,:] cpts):
             self._control_points=cpts
             self.generate_knots()
             self.n = self._control_points.shape[0] - 1
-            self._interval[0] = np.min(self.knots)
-            self._interval[1] = np.max(self.knots)
+            self._interval[0] = np.min(self._knots)
+            self._interval[1] = np.max(self._knots)
+

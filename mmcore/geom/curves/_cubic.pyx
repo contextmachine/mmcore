@@ -45,7 +45,7 @@ cdef class CubicSpline(ParametricCurve):
     cdef void csecond_derivative(self, double t, double[:] result) :
         cdef double x0 = t - 1;
         result[0] = 6 * self.c0[0] * t + 12 * self.c0[0] * x0 - 12 * self.c1[0] * t - 6 * self.c1[0] * x0 - 6 * self.p0[0] * x0 + 6 * self.p1[0] * t
-        result[1] = 6 * self.c0[1] * t + 12 * self.c0[1] * x0 - 12 * self.c1[1] * t - 6 * self.c1[1] * x0 - 6 * self.p0[01] * x0 + 6 * self.p1[1] * t
+        result[1] = 6 * self.c0[1] * t + 12 * self.c0[1] * x0 - 12 * self.c1[1] * t - 6 * self.c1[1] * x0 - 6 * self.p0[1] * x0 + 6 * self.p1[1] * t
         result[2] = 6 * self.c0[2] * t + 12 * self.c0[2] * x0 - 12 * self.c1[2] * t - 6 * self.c1[2] * x0 - 6 * self.p0[2] * x0 + 6 * self.p1[2] * t
 
 

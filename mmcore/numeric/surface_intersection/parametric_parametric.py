@@ -481,10 +481,15 @@ if __name__ == '__main__':
 
     #with open('tests/coons2.pkl', 'rb') as f:
     #    patch2 = dill.load(f)
+
     patch1 = Coons(*(NURBSpline(pts) for pts in pts1))
     patch2 = Coons(*(NURBSpline(pts) for pts in pts2))
+
+    #patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
+    #patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
     patch1.build_tree()
     patch2.build_tree()
+    print(patch1._rc,)
     s = time.time()
     #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
     #yappi.start()

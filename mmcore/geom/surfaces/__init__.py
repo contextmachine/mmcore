@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mmcore.geom.curves.curve import Curve
+from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.vec import unit, norm, cross
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
@@ -261,14 +262,17 @@ def evaluate_bilinear(uv, b00, b01, b10, b11):
 
 
 class BiLinear(Surface):
+    #TODO: Оптимизировать evaluate и вывести все производные
     def __init__(self, a, b, c, d):
         super().__init__()
         self.b00, self.b01, self.b11, self.b10 = np.array([a, b, c, d], dtype=float)
 
+        self._m = np.array([[self.b00, self.b01], [self.b10, self.b11]])
+
     def evaluate(self, uv):
         return np.array([1. - uv[1], uv[1]]).dot(
             np.array([1. - uv[0], uv[0]]).dot(
-                np.array([[self.b00, self.b01], [self.b10, self.b11]])
+                self._m
             )
         )
 
@@ -294,28 +298,29 @@ from mmcore.geom import parametric
 
 class Ruled(Surface):
 
-    def __init__(self, c1:Curve, c2:Curve):
+    def __init__(self, c1: Curve, c2: Curve):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self._intervals = np.array([np.array(c1.interval()), np.array(c2.interval())])
         self._remap_u = scalar_dot(np.array((0., 1.)), self._intervals[0])
         self._remap_v = scalar_dot(np.array((0., 1.)), self._intervals[1])
         self._remap_uv = np.array([self._remap_u, self._remap_v])
+
     def derivative_v(self, uv):
         uc1uc2 = self._remap_uv * uv[0]
-        return  self.c2.evaluate(uc1uc2[1])- np.array(self.c1.evaluate(uc1uc2[0]))
+        return self.c2.evaluate(uc1uc2[1]) - np.array(self.c1.evaluate(uc1uc2[0]))
 
     def derivative_u(self, uv):
         uc1uc2 = self._remap_uv * uv[0]
-        return uv[1]*self.c2.derivative(uc1uc2[1])+(1.-uv[1])*self.c1.derivative(uc1uc2[0])
+        return uv[1] * self.c2.derivative(uc1uc2[1]) + (1. - uv[1]) * self.c1.derivative(uc1uc2[0])
+
     def second_derivative_uu(self, uv):
         uc1uc2 = self._remap_uv * uv[0]
 
-        return uv[1]*self.c2.second_derivative(uc1uc2[1])+(1.-uv[1])*self.c1.second_derivative(uc1uc2[0])
+        return uv[1] * self.c2.second_derivative(uc1uc2[1]) + (1. - uv[1]) * self.c1.second_derivative(uc1uc2[0])
+
     def second_derivative_vv(self, uv):
-
         return np.zeros(3)
-
 
     def _remap_param(self, t):
         return self._remap_uv * t
@@ -324,8 +329,12 @@ class Ruled(Surface):
         uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])
-CRuled=parametric.Ruled
-PyRuled=Ruled
+
+
+CRuled = parametric.Ruled
+PyRuled = Ruled
+
+
 def _remap_param(self, t, c1, c2):
     return np.interp(t, (0.0, 1.0), self.c1.interval()), np.interp(
         t, (0.0, 1.0), self.c2.interval()
@@ -342,8 +351,10 @@ def Ruled(c1, c2):
     else:
         return PyRuled(c1, c2)
 
+
 from mmcore.geom.curves.bspline import NURBSpline
 from mmcore.geom.curves.cubic import CubicSpline
+
 
 class Coons(Surface):
     """
@@ -403,19 +414,19 @@ class Coons(Surface):
         pt2 = np.array(c2.evaluate(c2.interval()[1]))
         pt3 = np.array(d2.evaluate(d2.interval()[1]))
         #self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
-        if isinstance(self.c1,CubicSpline) and isinstance(self.c2, CubicSpline):
-            self._rc=CRuled(self.c1,self.c2)
+        if isinstance(self.c1, ParametricCurve) and isinstance(self.c2, ParametricCurve):
+            self._rc = CRuled(self.c1, self.c2)
         #elif isinstance(self.c1, NURBSpline) and isinstance(self.c2, NURBSpline):
         #    self._rc = parametric.RationalRuled(self.c1._spline, self.c2._spline)
         else:
-            self._rc=PyRuled(self.c1,self.c2)
+            self._rc = PyRuled(self.c1, self.c2)
 
-        if  isinstance(self.d1, CubicSpline) and  isinstance(self.d2, CubicSpline) :
-            self._rd = CRuled( self.d2,self.d1)
+        if isinstance(self.d1, ParametricCurve) and isinstance(self.d2, ParametricCurve):
+            self._rd = CRuled(self.d2, self.d1)
         #elif isinstance(self.d1, NURBSpline) and isinstance(self.d2, NURBSpline):
         #    self._rd = parametric.RationalRuled(self.d1._spline, self.d2._spline)
         else:
-            self._rd=PyRuled(self.d2,self.d1)
+            self._rd = PyRuled(self.d2, self.d1)
         #self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
         self._rcd = BiLinear(pt0, pt1, pt2, pt3)
