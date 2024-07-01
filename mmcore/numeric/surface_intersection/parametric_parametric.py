@@ -14,6 +14,7 @@ from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric import calgorithms
 from mmcore.numeric.aabb import aabb_overlap, aabb
 from mmcore.numeric.closest_point import closest_point_on_line, closest_point_on_ray
+from mmcore.numeric.curve_surface_ppi import curve_surface_ppi, closest_curve_surface_ppi
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 from mmcore.geom.curves.knot import interpolate_curve
 from mmcore.geom.curves.bspline import NURBSpline
@@ -24,6 +25,7 @@ class TerminatorType(int, Enum):
     FAIL = 0
     LOOP = 1
     EDGE = 2
+    STEP=3
 
 
 def get_plane(origin, du, dv):
@@ -113,7 +115,7 @@ def freeform_step(s1, s2, uvb1, uvb2, tol, cnt=0):
         return freeform_step(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
 
 
-def marching_step(s1, s2, uvb1, uvb2, tol, cnt=0, side=1):
+def marching_step(s1:Surface, s2, uvb1, uvb2, tol, cnt=0, side=1):
     pt1 = s1.evaluate(uvb1)
     pt2 = s2.evaluate(uvb2)
 
@@ -128,16 +130,40 @@ def marching_step(s1, s2, uvb1, uvb2, tol, cnt=0, side=1):
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
     if any(uvb1_better < 0.) or any(uvb2_better < 0.) or any(uvb1_better > 1.) or any(uvb2_better > 1.):
+        uv11,uv22=np.bitwise_or(uvb1_better <= 0.,uvb1_better >= 1.),np.bitwise_or(uvb1_better <= 0.,uvb1_better >= 1.)
+        if np.any(uv11):
+            np.clip(uvb1_better,0.,1.,out=uvb1_better )
+            i = (np.arange(2, dtype=int)[uv11])[0]
+            print(i)
+            j = (np.arange(2, dtype=int)[np.bitwise_not(uv11)])[0]
+            v=uvb1_better[i]
+            crv=[s1.isoline_u, s1.isoline_v][i](v)
+            res = closest_curve_surface_ppi(crv, s2, np.array([uvb1_better[j], *uvb2_better]))
+            xyz_better=crv.evaluate(res[0])
+            uvb2_better=res[1:]
+            uvb1_better[j]=res[0]
+            return (xyz_better,   uvb1_better), (xyz_better, uvb2_better),step,TerminatorType.EDGE
 
+        else:
+            np.clip(uv22, 0., 1., out=uvb2_better)
+            i=(np.arange(2, dtype=int)[uv22])[0]
+            j = (np.arange(2, dtype=int)[np.bitwise_not(uv22)])[0]
+            v = uvb2_better[i]
 
+            crv = [s2.isoline_u, s2.isoline_v][i](v)
+            res=closest_curve_surface_ppi(crv,s1, np.array([uvb2_better[j],*uvb1_better]))
+            xyz_better = crv.evaluate(res[0])
+            uvb1_better = res[1:]
+            uvb2_better[j] = res[0]
+            return (xyz_better, uvb1_better), (xyz_better, uvb2_better), step, TerminatorType.EDGE
         #uvb1_better=np.clip(uvb1_better, 0., 1.)
         #uvb2_better=np.clip(uvb2_better, 0., 1.)
 
         #pt=s1.evaluate(uvb1_better)
 
-        return
 
-    return (xyz_better, uvb1_better), (xyz_better, uvb2_better), step
+
+    return (xyz_better, uvb1_better), (xyz_better, uvb2_better), step, TerminatorType.STEP
 
     #else:
 
@@ -153,14 +179,16 @@ def marching_method(
     xyz1_init, xyz2_init = s1.evaluate(initial_uv1), s2.evaluate(initial_uv2)
     res = marching_step(s1, s2, initial_uv1, initial_uv2, tol=tol, side=side)
 
-    if res is None:
+    if res[-1]==TerminatorType.EDGE:
         #print("N")
+
         return terminator
 
-    (xyz1, uv1_new), (xyz2, uv2_new), step = res
+    (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
     if use_kd:
         ixss.update(kd.query_ball_point(xyz1_init, step * 2))
     #print()
+
 
     uvs = [(uv1_new, uv2_new)]
     pts = [xyz1]
@@ -168,36 +196,36 @@ def marching_method(
     #print(uv1_new, uv2_new)
 
     steps = [step]
+    if terminator is TerminatorType.EDGE:
 
+        return uvs, pts, steps, list(ixss), terminator
     for i in range(max_iter):
 
         uv1, uv2 = uv1_new, uv2_new
 
         res = marching_step(s1, s2, uv1, uv2, tol=tol, side=side)
 
-        if res is None:
-            #print("N")
-            terminator = TerminatorType.EDGE
-            break
-        else:
-
-            (xyz1, uv1_new), (xyz2, uv2_new), step = res
-            pts.append(xyz1)
-            uvs.append((uv1_new, uv2_new))
-            steps.append(step)
-            if use_kd:
+        (xyz1, uv1_new), (xyz2, uv2_new), step,terminator = res
+        pts.append(xyz1)
+        uvs.append((uv1_new, uv2_new))
+        steps.append(step)
+        if use_kd:
                 #print(   len(kd.data),ixss,step,tol,kd.query(xyz1, 3))
 
                 ixss.update(kd.query_ball_point(xyz1, step * 2))
                 #print(ixss)
 
-            if np.linalg.norm(xyz1 - xyz1_init) < step:
+        if terminator is TerminatorType.EDGE:
+            break
+
+        if np.linalg.norm(xyz1 - xyz1_init) < step:
                 #print("b", xyz1_init, xyz1, np.linalg.norm(xyz1 - xyz1_init), step)
                 pts.append(pts[0])
 
                 uvs.append((initial_uv1, initial_uv1))
                 terminator = TerminatorType.LOOP
                 break
+
         #print("I", np.linalg.norm(xyz1 - xyz1_init), step*2)
 
     #print(len(pts))

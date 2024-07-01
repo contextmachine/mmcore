@@ -188,6 +188,16 @@ class Surface:
     def isocurve_v(self, v0: float, v1: float):
         return self.isocurve(0.0, v0, 1.0, v1)
 
+    def isoline_u(self, u:float):
+        orig=np.array([u,0.])
+        direction=np.array([0.,1.])
+        crv = lambda t: orig + direction * t
+        return CurveOnSurface(self,crv)
+    def isoline_v(self, v:float):
+        orig=np.array([0.,v])
+        direction=np.array([1.,0.])
+        crv = lambda t: orig + direction * t
+        return CurveOnSurface(self,crv)
     def interval(self):
         return (0.0, 1.0), (0.0, 1.0)
 
