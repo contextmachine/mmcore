@@ -5,7 +5,7 @@ from mmcore.numeric.routines import uvs
 from scipy.spatial import KDTree
 
 
-__all__=['curve_surface_ppi']
+__all__=['curve_surface_ppi','closest_curve_surface_ppi']
 
 # Define the difference function
 def difference( curve, surface,params):
@@ -99,6 +99,8 @@ def curve_surface_ppi(curve, surface, steps=50, threshold=0.1,tol=1e-6, t_range=
 
     return find_intersections( curve,surface, steps=steps, threshold=threshold,tol=tol, t_range=t_range, uv_range=uv_range)
 
+def closest_curve_surface_ppi(curve, surface,initial_guess):
+    return newton_raphson(curve, surface, initial_guess)
 
 
 # Define parameter ranges and search for intersections
