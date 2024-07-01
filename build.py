@@ -88,14 +88,15 @@ Extension(
 #        include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
 
 #    ),
-ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
-dist = Distribution({"ext_modules": ext_modules})
-cmd = build_ext(dist)
-cmd.ensure_finalized()
-cmd.run()
+if __name__ == "__main__":
+    ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
+    dist = Distribution({"ext_modules": ext_modules})
+    cmd = build_ext(dist)
+    cmd.ensure_finalized()
+    cmd.run()
 
-import os, shutil
+    import os, shutil
 
-for output in cmd.get_outputs():
-    relative_extension = os.path.relpath(output, cmd.build_lib)
-    shutil.copyfile(output, relative_extension)
+    for output in cmd.get_outputs():
+        relative_extension = os.path.relpath(output, cmd.build_lib)
+        shutil.copyfile(output, relative_extension)
