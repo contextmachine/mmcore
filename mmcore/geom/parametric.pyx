@@ -488,18 +488,5 @@ cdef class RationalRuled(Ruled):
         result[0] = temp[0] - res[0]
         result[1] = temp[1] - res[1]
         result[2] = temp[2] - res[2]
-cdef class BiLinear(ParametricSurface):
-    cdef double[:,:,:] _m
-    def __init__(self, double[:] a, double[:] b, double[:] c, double[:] d):
-        super().__init__()
-        self._m=np.zeros((2,2,3))
-
-        #self.b00, self.b01, self.b11, self.b10 = np.array([a, b, c, d], dtype=float)
-
-        self._m[0][0] = a
-        self._m[0][1] =b
-        self._m[1][0] = d
-        self._m[1][1] = c
-
 
 
