@@ -1,26 +1,19 @@
 import itertools
-import math
 import time
 from enum import Enum
 
 import numpy as np
-import scipy
-
-from scipy.optimize import fsolve
+from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2
 from scipy.spatial import KDTree
 
-from mmcore.geom.bvh import BoundingBox, intersect_bvh, intersect_bvh_objects, BVHNode
+from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
+from mmcore.geom.curves.bspline import NURBSpline
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric import calgorithms, uvs
-from mmcore.numeric.aabb import aabb_overlap, aabb
-from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
-from mmcore.numeric.closest_point import closest_point_on_line, closest_point_on_ray, closest_point_on_curve
+from mmcore.numeric.closest_point import closest_point_on_ray
 from mmcore.numeric.curve_intersection import curve_ppi
-from mmcore.numeric.curve_surface_ppi import curve_surface_ppi, closest_curve_surface_ppi
+from mmcore.numeric.curve_surface_ppi import closest_curve_surface_ppi
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
-from mmcore.geom.curves.knot import interpolate_curve
-from mmcore.geom.curves.bspline import NURBSpline
-from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2
 
 
 class TerminatorType(int, Enum):
@@ -522,9 +515,6 @@ def find_closest2(surf1: Surface, surf2: Surface, tol=1e-3):
 
 
 if __name__ == '__main__':
-    import yappi
-    from mmcore.geom.curves.cubic import CubicSpline
-
     pts1 = np.array([
         [(-6.0558943035701525, -13.657656200983698, 1.0693341635684721),
          (-1.5301574718208828, -12.758430585795727, -2.4497481670182113),
