@@ -391,6 +391,8 @@ cdef class Ruled(ParametricSurface):
         self.c1=c1
         #self._remap_u = vectors.scalar_dot(np.array((0., 1.)), self._interval[0])
         #self._remap_v = vectors.scalar_dot(np.array((0., 1.)), self._interval[1])
+    def __reduce__(self):
+        return (self.__class__, (self.c0, self.c1))
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -490,3 +492,60 @@ cdef class RationalRuled(Ruled):
         result[2] = temp[2] - res[2]
 
 
+cdef class BiLinear(ParametricSurface):
+    cdef double[:] b00
+    cdef double[:] b10
+    cdef double[:] b11
+    cdef double[:] b01
+    def __init__(self, a, b, c, d):
+        super().__init__()
+        self.b00, self.b10, self.b11, self.b01 = np.array([a, b, c, d], dtype=float)
+    
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate(self, double u,double v, double[:] result):
+        result[0]=v * (u * self.b11[0] + self.b01[0] * (1 - u)) + (1 - v) * (
+                    u * self.b10[0] + self.b00[0] * (1 - u))
+        result[1] = v * (u * self.b11[1] + self.b01[1] * (1 - u)) + (1 - v) * (
+                u * self.b10[1] + self.b00[1] * (1 - u))
+        result[2] = v * (u * self.b11[2] + self.b01[2] * (1 - u)) + (1 - v) * (
+                u * self.b10[2] + self.b00[2] * (1 - u))
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_u(self, double u,double v, double[:] result):
+        
+        result[0]= v * (-self.b01[0] + self.b11[0]) + (1 - v) * (-self.b00[0] + self.b10[0])
+        result[1] = v * (-self.b01[1] + self.b11[1]) + (1 - v) * (-self.b00[1] + self.b10[1])
+
+        result[2] = v * (-self.b01[2] + self.b11[2]) + (1 - v) * (-self.b00[2] + self.b10[2])
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cderivative_v(self, double u,double v, double[:] result):
+        result[0] = -u * self.b10[0] + u * self.b11[0] - self.b00[0] * (1 - u) + self.b01[0] * (1 - u)
+        result[1] = -u * self.b10[1] + u * self.b11[1] - self.b00[1] * (1 - u) + self.b01[1] * (1 - u)
+        result[2] = -u * self.b10[2] + u * self.b11[2] - self.b00[2] * (1 - u) + self.b01[2] * (1 - u)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void csecond_derivative_uv(self, double u,double v, double[:] result):
+
+        result[0] =self.b00[0] - self.b01[0] - self.b10[0] + self.b11[0]    
+        result[1] =self.b00[1] - self.b01[1] - self.b10[1] + self.b11[1]    
+        result[2] =self.b00[2] - self.b01[2] - self.b10[2] + self.b11[2]    
+        
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cecond_derivative_vv(self, double u,double v, double[:] result):
+        result[0] =0.0
+        result[1] =0.0
+        result[2] =0.0
+
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cecond_derivative_uu(self, double u,double v, double[:] result):
+        result[0] =0.0
+        result[1] =0.0
+        result[2] =0.0
+    def __reduce__(self):
+        return (self.__class__, (np.asarray(self.b00),np.asarray(self.b10),np.asarray(self.b11),np.asarray(self.b01)))

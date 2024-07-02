@@ -1,6 +1,9 @@
 import numpy as np
 
 from mmcore.numeric.vectors import  scalar_norm
+from numpy._typing import NDArray
+
+from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.routines import uvs
 from scipy.spatial import KDTree
 
@@ -11,15 +14,13 @@ __all__=['curve_surface_ppi','closest_curve_surface_ppi']
 def difference( curve, surface,params):
     t, u, v = params
 
-    return curve(t) - surface(np.array([u,v]))
+    return curve.evaluate(t) - surface.evaluate(np.array([u,v]))
 
 
 # Define the Jacobian matrix for the Newton-Raphson method
-def jacobian(curve,surface,  params):
+def jacobian(curve,surface,  params, J):
     #t, u, v = params
-    h = 1e-6
-
-    J = np.zeros((3, 3))
+    h=1e-6
 
     for i in range(3):
         dp = np.zeros(3)
@@ -28,14 +29,37 @@ def jacobian(curve,surface,  params):
         J[:, i] = (difference( curve, surface,params + dp) - difference( curve,surface, params - dp)) / (2 * h)
 
     return J
+def _jac_cls(curve,surface,  params,J):
+    x=curve.derivative(params[0])
 
-
+    y = -1*surface.derivative_u(params[1:])
+    z = -1*surface.derivative_v(params[1:])
+    J[0, 0]=x[0]
+    J[1, 0] = x[1]
+    J[2, 0] = x[2]
+    J[0, 1] = y[0]
+    J[1, 1] = y[1]
+    J[2, 1] = y[2]
+    J[0, 2] = z[0]
+    J[1, 2] = z[1]
+    J[2, 2] = z[2]
+    return J
 # Newton-Raphson method to refine the solution
 def newton_raphson( curve,surface, params, tol=1e-6, max_iter=100):
+    J = np.zeros((3, 3))
+    if hasattr(surface,'derivative_v') and  hasattr(curve,'derivative'):
+        jac=_jac_cls
+    else:
+        jac=jacobian
+
     for i in range(max_iter):
+        J[:]=0.0
+
+
 
         F = difference( curve, surface, params)
-        J = jacobian( curve,surface, params)
+        jac(curve,surface, params, J)
+
         delta = np.linalg.solve(J, -F)
         params = params + delta
 
@@ -59,20 +83,18 @@ def grid_search( curve,surface, t_range, uv_range, steps,threshold):
     v_vals = uv[..., 1]
 
     spts = surface(uv)
-    if spts.shape[0] == 3 and spts.shape[1] != 3:
-        spts = spts.T
+
     kd = KDTree(spts)
 
     cpts = curve(t_vals)
-    if cpts.shape[0] == 3 and cpts.shape[1] != 3:
-        cpts = cpts.T
+
     initial_guess = []
     for i, pt in enumerate(cpts):
         ii = kd.query_ball_point(pt, threshold)
         if len(ii) > 0:
             for j in ii:
 
-                initial_guess.append([t_vals[i], u_vals[j], v_vals[j]])
+                initial_guess.append(np.array([t_vals[i], u_vals[j], v_vals[j]]))
 
     return initial_guess
 
@@ -99,27 +121,40 @@ def curve_surface_ppi(curve, surface, steps=50, threshold=0.1,tol=1e-6, t_range=
 
     return find_intersections( curve,surface, steps=steps, threshold=threshold,tol=tol, t_range=t_range, uv_range=uv_range)
 
-def closest_curve_surface_ppi(curve, surface,initial_guess):
-    return newton_raphson(curve, surface, initial_guess)
+def closest_curve_surface_ppi(curve, surface,initial_guess,tol=1e-6, max_iter=100):
+    return newton_raphson(curve, surface, initial_guess,tol=tol, max_iter=max_iter)
 
 
 # Define parameter ranges and search for intersections
 if __name__ == '__main__':
     from mmcore.geom.curves.bspline import NURBSpline
     import time
-
+    from mmcore.geom.surfaces import Surface
 
     # Define the parametric surface
 
-    def surface(uv):
-        if uv.ndim == 1:
-            u,v=uv
-        else:
-            u, v = uv[..., 0], uv[..., 1]
-        x_s = u
-        y_s = v
-        z_s = u ** 2 + v ** 2
-        return np.array([x_s, y_s, z_s])
+    class Surf(Surface):
+        def interval(self):
+            return (-2, 2),(-2, 2)
+        def derivative_v(self, uv):
+            return np.array([0.,1.,2 * uv[1]])
+        def second_derivative_uu(self, uv):
+            return np.array([ 0.,0.,2.])
+        def second_derivative_vv(self, uv):
+            return np.array([ 0.,0.,2.])
+        def second_derivative_uv(self, uv):
+            return np.array([ 0.,0.,0.])
+        def derivative_u(self, uv):
+            return np.array([ 1.,0.,2 * uv[0]])
+        def evaluate(self, uv) -> NDArray[float]:
+
+
+            u, v = uv
+
+            x_s = u
+            y_s = v
+            z_s = u ** 2 + v ** 2
+            return np.array([x_s, y_s, z_s])
 
 
     pts = np.array(
@@ -132,7 +167,7 @@ if __name__ == '__main__':
     )
     # Define the parametric curve
     nc = NURBSpline(pts)
-
+    surf = Surf()
     # Define parameter ranges and search for intersections
 
 
@@ -142,12 +177,15 @@ if __name__ == '__main__':
     uv_range = (-2, 2),(-2, 2)
     steps = 50
     s = time.time()
+
     # Solve intersection
-    intersections = curve_surface_ppi(nc, surface, t_range=t_range, uv_range=uv_range, steps=steps)
+    intersections = curve_surface_ppi(nc, surf, t_range=t_range, uv_range=uv_range, steps=steps)
 
     print(time.time() - s)
     # Output the results
     print(intersections)
 
     for i in intersections:
-        print(nc.evaluate(i[0]).tolist(), surface(i[1:]).tolist())
+        print(nc.evaluate(i[0]).tolist(),  surf(i[1:]).tolist())
+        print(i, point_inversion_surface(surf,nc.evaluate(i[0]), *i[1:],0.5,0.5) ,'\n')
+

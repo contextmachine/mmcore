@@ -41,10 +41,11 @@ class TwoPointForm:
 
 
 class CurveOnSurface(Curve):
-    def __init__(self, surf: "Surface", curve: "Curve|Callable"):
+    def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0.,1.)):
         super().__init__()
         self.surf = surf
         self.curve = curve
+        self._interval = interval
         self._eval_crv_func = getattr(self.curve, "evaluate", self.curve)
 
     def plane_at(self, t):
@@ -66,7 +67,7 @@ class CurveOnSurface(Curve):
         return self._eval_crv_func(t)[..., :2]
 
     def interval(self):
-        return self.curve.interval()
+        return self._interval
 
 
 from mmcore.geom.bvh import BVHNode
@@ -287,6 +288,7 @@ class BiLinear(Surface):
         )
 
 
+
 class LinearMap:
     def __init__(self, source, target):
         self.source = np.array(source)
@@ -419,10 +421,11 @@ class Coons(Surface):
         super().__init__()
         self.c1, self.c2 = c1, c2
         self.d1, self.d2 = d1, d2
-        pt0 = np.array(c1.evaluate(c1.interval()[0]))
-        pt1 = np.array(c1.evaluate(c1.interval()[1]))
-        pt2 = np.array(c2.evaluate(c2.interval()[1]))
-        pt3 = np.array(d2.evaluate(d2.interval()[1]))
+        self.pt0 = np.array(c1.evaluate(c1.interval()[0]))
+        self.pt1 = np.array(c1.evaluate(c1.interval()[1]))
+        self.pt2 = np.array(c2.evaluate(c2.interval()[1]))
+        self.pt3 = np.array(d2.evaluate(d2.interval()[1]))
+
         #self.xu0, self.xu1, self.x0v, self.x1v = _bl(c1, c2, d1, d2)
         if isinstance(self.c1, ParametricCurve) and isinstance(self.c2, ParametricCurve):
             self._rc = CRuled(self.c1, self.c2)
@@ -439,7 +442,7 @@ class Coons(Surface):
             self._rd = PyRuled(self.d2, self.d1)
         #self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
-        self._rcd = BiLinear(pt0, pt1, pt2, pt3)
+        self._rcd = BiLinear(self.pt0, self.pt1, self.pt2, self.pt3)
         self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
         self._uv = np.array([0., 0.])
 
@@ -449,15 +452,6 @@ class Coons(Surface):
     def _evaluate(self, u, v):
         self._uv[:] = u, v
         return self._rc.evaluate(self._uv) + self._rd.evaluate(self._uv[::-1]) - self._rcd.evaluate(self._uv)
-
-
-def _bl(c1, c2, d1, d2):
-    return (
-        lambda u: c1.evaluate(np.interp(u, (0.0, 1.0), c1.interval())),
-        lambda u: c2.evaluate(np.interp(u, (0.0, 1.0), c2.interval())),
-        lambda v: d1.evaluate(np.interp(v, (0.0, 1.0), d1.interval())),
-        lambda v: d2.evaluate(np.interp(v, (0.0, 1.0), d2.interval())),
-    )
 
 
 """
