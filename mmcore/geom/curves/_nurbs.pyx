@@ -16,9 +16,15 @@ cdef int find_span(int n, int p, double u, double[:] U) noexcept nogil:
     """
     Determine the knot span index.
     """
+    if u>U[-1]:
+        u=U[-1]
+    elif u < U[0]:
+        u = U[0]
 
     if u == U[n + 1]:
         return n  # Special case
+
+
     cdef int low = p
     cdef int high = n + 1
     cdef int mid = (low + high) // 2
@@ -345,13 +351,17 @@ cdef class NURBSpline(ParametricCurve):
     cdef public object _evaluate_cached
     cdef double[4] _result_buffer
 
-
-
+    def __reduce__(self):
+        return (self.__class__, (np.asarray(self._control_points),self.degree,np.asarray(self._knots)))
     def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None):
         super().__init__()
         self._control_points = np.ones((control_points.shape[0], 4))
         self._result_buffer = np.zeros(4)
-        self._control_points[:, :-1] = control_points
+        if control_points.shape[1]==4:
+
+            self._control_points[:,:] = control_points
+        else:
+            self._control_points[:,:-1]=control_points
 
         self.degree = degree
         if knots is None:
@@ -503,10 +513,9 @@ cdef class NURBSpline(ParametricCurve):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def _evaluate(self, double t):
-        if not (self._interval[0]<=t<=self._interval[1]):
-            raise ValueError("t out of bounds")
         cdef double[:] result =np.zeros((3,))
         self.cevaluate(t, result)
+
         return np.asarray(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
