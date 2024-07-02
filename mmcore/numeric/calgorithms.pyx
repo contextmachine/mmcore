@@ -142,8 +142,8 @@ cdef inline bint cintersection_curve_point(Implicit3D surf1, Implicit3D surf2, d
     qk[2]=q0[2]
     f[0]=surf1.cimplicit(qk[0], qk[1], qk[2],)
     f[1]=surf2.cimplicit(qk[0], qk[1], qk[2],)
-    surf1.cnormal(qk[0], qk[1], qk[2], g1)
-    surf2.cnormal(qk[0], qk[1], qk[2], g2)
+    surf1.cgradient(qk[0], qk[1], qk[2], g1)
+    surf2.cgradient(qk[0], qk[1], qk[2], g2)
 
 
     J[0][0] = scalar_dot(g1, g1)
@@ -154,8 +154,8 @@ cdef inline bint cintersection_curve_point(Implicit3D surf1, Implicit3D surf2, d
     g[0]= -f[0]
     g[1]= -f[1]
     success = solve2x2(J, g, alpha_beta)
-    surf1.cnormal(qk[0], qk[1], qk[2], g1)
-    surf2.cnormal(qk[0], qk[1], qk[2], g2)
+    surf1.cgradient(qk[0], qk[1], qk[2], g1)
+    surf2.cgradient(qk[0], qk[1], qk[2], g2)
 
     delta[0] = alpha_beta[0] * g1[0] + alpha_beta[1] *g2[0]
     delta[1] = alpha_beta[0] * g1[1] + alpha_beta[1] * g2[1]
@@ -180,8 +180,8 @@ cdef inline bint cintersection_curve_point(Implicit3D surf1, Implicit3D surf2, d
 
         f[0] = surf1.cimplicit(qk[0], qk[1], qk[2],)
         f[1] = surf2.cimplicit(qk[0], qk[1], qk[2],)
-        surf1.cnormal(qk[0],qk[1],qk[2], g1)
-        surf2.cnormal(qk[0],qk[1],qk[2], g2)
+        surf1.cgradient(qk[0],qk[1],qk[2], g1)
+        surf2.cgradient(qk[0],qk[1],qk[2], g2)
 
         J[0][0] = scalar_dot(g1, g1)
         J[0][1] = scalar_dot(g2, g1)

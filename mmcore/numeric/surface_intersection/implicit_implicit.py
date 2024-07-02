@@ -48,9 +48,9 @@ class ImplicitIntersectionCurve(Implicit3D):
 
     def tangent(self, pt):
         cpt = self.closest_point(pt)
-        return scalar_unit(np.cross(self.surf1.normal(cpt), self.surf2.normal(cpt)))
+        return scalar_unit(np.cross(self.surf1.gradient(cpt), self.surf2.gradient(cpt)))
 
-    def normal(self, xyz):
+    def gradient(self, xyz):
         return xyz - self.closest_point(xyz)
 
     def plane(self, pt):
@@ -59,18 +59,18 @@ class ImplicitIntersectionCurve(Implicit3D):
         pln[0] = cpt
         n = scalar_unit(pt - cpt)
         pln[2] = n
-        n1, n2 = self.surf1.normal(cpt), self.surf2.normal(cpt)
+        n1, n2 = self.surf1.gradient(cpt), self.surf2.gradient(cpt)
         #n3=(n1+ n2)/2
         tang = scalar_unit(scalar_cross(n1, n2))
         pln[1] = tang
-        self.surf1.normal(cpt)
+        self.surf1.gradient(cpt)
         pln[2] = scalar_unit(n1 - tang * scalar_dot(n1, tang))
         pln[3] = scalar_cross(tang, pln[2])
         return pln
 
     def closest_point(self, v):
-        return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.normal,
-                                        self.surf2.normal, tol=self.tol)
+        return intersection_curve_point(self.surf1.implicit, self.surf2.implicit, v, self.surf1.gradient,
+                                        self.surf2.gradient, tol=self.tol)
 
     def __iter__(self):
         return ImplicitIntersectionCurveIterator(self, step=DEFAULT_STEP, workers=-1)
@@ -119,7 +119,7 @@ class ImplicitIntersectionCurveIterator:
                 success, p = intersection_curve_point(surf1=self.crv.surf1.implicit,
                                                       surf2=self.crv.surf2.implicit,
                                                       q0=pt,
-                                                      grad1=self.crv.surf1.normal, grad2=self.crv.surf2.normal,
+                                                      grad1=self.crv.surf1.gradient, grad2=self.crv.surf2.gradient,
                                                       no_err=True,
                                                       max_iter=8,
                                                       tol=self.crv.tol)
@@ -134,7 +134,7 @@ class ImplicitIntersectionCurveIterator:
                 success, p = intersection_curve_point(self.crv.surf1.implicit,
                                                       self.crv.surf2.implicit,
                                                       pt,
-                                                      self.crv.surf1.normal, self.crv.surf2.normal,
+                                                      self.crv.surf1.gradient, self.crv.surf2.gradient,
                                                       no_err=True,
                                                       max_iter=8,
                                                       tol=self.crv.tol)
@@ -173,8 +173,8 @@ class ImplicitIntersectionCurveIterator:
 
             res = marching_intersection_curve_points(self.crv.surf1.implicit, self.crv.surf2.implicit,
                                                      start_point=self.initial_point,
-                                                     grad_f1=self.crv.surf1.normal,
-                                                     grad_f2=self.crv.surf2.normal,
+                                                     grad_f1=self.crv.surf1.gradient,
+                                                     grad_f2=self.crv.surf2.gradient,
                                                      step=self.step,
                                                      point_callback=lambda pt: self.trace_curve_point(pt,
                                                                                                       step=self.step) if self._kdtree is not None else None,

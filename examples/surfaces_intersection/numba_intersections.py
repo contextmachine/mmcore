@@ -117,8 +117,8 @@ bb = np.array(y)
 t1 = Tube(0.2, aa[0], z, aa[1] - aa[0])
 t2 = Tube(0.2, bb[0], u, bb[1] - bb[0])
 
-t1.normal(np.random.random(3))
-t2.normal(np.random.random(3))
+t1.gradient(np.random.random(3))
+t2.gradient(np.random.random(3))
 
 crv = ImplicitIntersectionCurve(t1, t2)
 crv.build_tree()
