@@ -12,7 +12,7 @@ from mmcore.numeric.divide_and_conquer import (
     test_all_roots,
     iterative_divide_and_conquer_min,
 )
-from mmcore.numeric.vectors import scalar_dot
+from mmcore.numeric.vectors import scalar_dot, scalar_cross
 
 
 def plane_on_curve(O, T, D2):
@@ -365,66 +365,131 @@ def evaluate_normal2(
     return normal_vector
 
 
+import math
+import numpy as np
 
 
-def evaluate_sectional_curvature(derivative_u,
-                                 derivative_v,
-                                 second_derivative_uu,
-                                 second_derivative_uv,
-                                 second_derivative_vv,
-                                 planeNormal):
+def solve3x2(col0, col1, d0, d1, d2):
     """
-      S10, S01 - [in]
-    surface 1st partial derivatives
-  S20, S11, S02 - [in]
-    surface 2nd partial derivatives
-  planeNormal - [in]
-    unit normal to section plane
-  K - [out] Sectional curvature
-    Curvature of the intersection curve of the surface
-    and plane through the surface point where the partial
-    derivatives were evaluationed.
-    :param du:
-    :param derivative_v:
-    :param second_derivative_uu:
-    :param second_derivative_uv:
-    :param second_derivative_vv:
-    :param planeNormal:
-    :return:
+    Solve a 3x2 system of linear equations
+
+    Input:
+    col0, col1: lists of 3 floats
+    d0, d1, d2: right hand column of system
+
+    Output:
+    Tuple containing:
+    - return code:
+        2: successful
+        0: failure - 3x2 matrix has rank 0
+        1: failure - 3x2 matrix has rank 1
+    - x, y: solution
+    - err: error term
+    - pivot_ratio: min(|pivots|)/max(|pivots|)
+
+    If the return code is 2, then
+    x*col0 + y*col1 + err*(col0 X col1)/|col0 X col1| = [d0,d1,d2]
+
+    The pivot_ratio indicates how well-conditioned the matrix is.
+    If this number is small, the 3x2 matrix may be singular or ill-conditioned.
     """
-    M = cross(derivative_u, derivative_v)
-    D1 = cross(M, planeNormal)
+    x, y = 0.0, 0.0
+    pivot_ratio = 0.0
+    err = float('inf')
 
-    matrix = np.array([list(derivative_u), list(derivative_v)])
-    vec = np.array(list(D1))
+    i = np.argmax([abs(val) for val in col0 + col1])
+    if i >= 3:
+        col0, col1 = col1, col0
+        x, y = y, x
 
-    try:
-        # Attempt to solve the system of linear equations
-        a, b = np.linalg.solve(matrix.transpose(), vec)
-        D2 = a * second_derivative_uu + b * second_derivative_uv
-        M = cross(D2, derivative_v)
-        D2 = a * second_derivative_uv + b * second_derivative_vv
-        M2 = cross(derivative_u, D2)
+    if max(map(abs, col0 + col1)) == 0.0:
+        return 0, x, y, err, pivot_ratio
 
-        M = M + M2
-        D2 = cross(M, planeNormal)
+    pivot_ratio = abs(max(map(abs, col0 + col1)))
 
-        a = scalar_dot(D1, D1)
+    i %= 3
+    if i == 1:
+        col0[0], col0[1] = col0[1], col0[0]
+        col1[0], col1[1] = col1[1], col1[0]
+        d0, d1 = d1, d0
+    elif i == 2:
+        col0[0], col0[2] = col0[2], col0[0]
+        col1[0], col1[2] = col1[2], col1[0]
+        d0, d2 = d2, d0
 
-        if not (a > np.finfo(float).eps):
-            return np.array([j for i in [0.0] * 3 for j in [i]])
+    col1[0] /= col0[0]
+    d0 /= col0[0]
 
-        a = 1.0 / a
-        b = -a * scalar_dot(D2, D1)
-        K = a * (D2 + b * D1)
+    if col0[1] != 0.0:
+        col1[1] += -col0[1] * col1[0]
+        d1 += -col0[1] * d0
+    if col0[2] != 0.0:
+        col1[2] += -col0[2] * col1[0]
+        d2 += -col0[2] * d0
 
-        return K
+    if abs(col1[1]) > abs(col1[2]):
+        pivot_ratio = min(pivot_ratio, abs(col1[1])) / max(pivot_ratio, abs(col1[1]))
+        d1 /= col1[1]
+        if col1[0] != 0.0:
+            d0 += -col1[0] * d1
+        if col1[2] != 0.0:
+            d2 += -col1[2] * d1
+        x, y, err = d0, d1, d2
+    elif col1[2] == 0.0:
+        return 1, x, y, err, pivot_ratio
+    else:
+        pivot_ratio = min(pivot_ratio, abs(col1[2])) / max(pivot_ratio, abs(col1[2]))
+        d2 /= col1[2]
+        if col1[0] != 0.0:
+            d0 += -col1[0] * d2
+        if col1[1] != 0.0:
+            d1 += -col1[1] * d2
+        x, y, err = d0, d2, d1
 
-    except np.linalg.LinAlgError:
-        return np.array([j for i in [0.0] * 3 for j in [i]])
-    except Exception as e:
-        print(e)
-        return np.array([j for i in [0.0] * 3 for j in [i]])
+    return 2, x, y, err, pivot_ratio
+
+
+def evaluate_sectional_curvature(S10, S01, S20, S11, S02, planeNormal):
+    """
+    Calculate the curvature of the intersection of a surface and a plane.
+
+    Input:
+    S10, S01, S20, S11, S02: 3D vectors representing surface derivatives
+    planeNormal: 3D vector representing the normal of the intersecting plane
+
+    Output:
+    Tuple containing:
+    - bool: True if calculation was successful, False otherwise
+    - K: 3D vector representing the curvature
+    """
+
+
+
+    M = scalar_cross(S10, S01)
+    D1 = scalar_cross(M, planeNormal)
+
+
+    rank, a, b, e, pr = solve3x2(S10, S01, D1[0], D1[1], D1[2])
+    if rank < 2:
+        return False, np.array([0.0, 0.0, 0.0])
+
+    D2 = np.array([a * S20[i] + b * S11[i] for i in range(3)])
+    M = np.array(scalar_cross(D2, S01))
+    D2 = np.array([a * S11[i] + b * S02[i] for i in range(3)])
+    M = np.array([M[i] + scalar_cross(S10, D2)[i] for i in range(3)])
+
+    D2 = scalar_cross(M, planeNormal)
+
+    a = sum(d * d for d in D1)
+
+    if a <= 1e-15:  # ON_DBL_MIN
+        return False, np.array([0.0, 0.0, 0.0])
+
+    a = 1.0 / a
+    b = -a * sum(D2[i] * D1[i] for i in range(3))
+    K = np.array([a * (D2[i] + b * D1[i]) for i in range(3)])
+
+    return True, K
 
 def curve_bound_points(curve, bounds=None, tol=1e-2):
     """
