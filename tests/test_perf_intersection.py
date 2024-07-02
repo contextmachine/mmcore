@@ -33,8 +33,8 @@ def test_bodies1():
             marching_intersection_curve_points(
                 t11.implicit,
                 t21.implicit,
-                t11.normal,
-                t21.normal,
+                t11.gradient,
+                t21.gradient,
                 vv[i],
                 max_points=200,
                 step=0.2,

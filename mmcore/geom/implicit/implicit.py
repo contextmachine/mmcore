@@ -105,12 +105,12 @@ class Implicit:
     def implicit(self, v) -> float:
         ...
 
-    def normal(self, v):
+    def gradient(self, v):
         ...
 
     def point_on_curve(self, v):
         d = self.implicit(v)
-        N = self.normal(v) * d
+        N = self.gradient(v) * d
         if d < 0:
 
             return v - N
@@ -174,7 +174,7 @@ class Implicit2D(Implicit):
         return normal_from_function2d(fun, d)
 
     def tangent(self, v):
-        return tangent2d(self.normal(v))
+        return tangent2d(self.gradient(v))
 
     def union(self, other: Implicit2D):
         return Union2D(self, other)
@@ -187,7 +187,7 @@ class Implicit2D(Implicit):
         Returns:
 
         """
-    def normal(self, xy):
+    def gradient(self, xy):
         d=0.001
         D = np.eye(2) * d
         res = np.zeros(2, dtype=float)
@@ -287,7 +287,7 @@ class Implicit3D(Implicit):
         self._tree = ImplicitTree3D(self.implicit, depth, bounds=self.bounds())
         self._tree.build(depth=depth)
     
-    def normal(self, xyz):
+    def gradient(self, xyz):
         D = np.eye(3) * DEFAULT_H
         res = np.zeros(3, dtype=float)
         res[0] = (self.implicit(xyz + D[0]) - self.implicit(xyz - D[0])) / 2 / DEFAULT_H
