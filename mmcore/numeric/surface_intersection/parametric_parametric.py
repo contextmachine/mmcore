@@ -512,7 +512,7 @@ def find_closest2(surf1: Surface, surf2: Surface, tol=1e-3):
             uv1 = np.average(first.object.uvs, axis=0)
             uv2 = np.average(second.object.uvs, axis=0)
 
-            res = freeform_step(surf1, surf2, uv1, uv2, tol=tol)
+            res = freeform_step(surf1, surf2, uv1, uv2)
             if res is not None:
                 (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) = res
                 #print(uvb1_better, uvb2_better)
