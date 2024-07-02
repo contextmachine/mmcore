@@ -61,9 +61,9 @@ class Circle2D(Curve, Implicit2D):
         point = self._implicit_normal(v)
         return point / np.linalg.norm(point)
 
-    def normal(self, val):
+    def gradient(self, val):
         if isinstance(val, float):
-            return super(Curve, self).normal(val)
+            return super(Curve, self).gradient(val)
         else:
             return self._implicit_unit_normal(val)
 

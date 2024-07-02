@@ -1,10 +1,11 @@
 cimport cython
 import numpy as np
-from libc.math cimport fabs, sqrt,fmin,fmax,pow
+from libc.math cimport fabs, sqrt,fmin,fmax,pow,pi,sin,cos
 from libc.stdlib cimport malloc,free
 from cpython cimport PyTuple_New,PyTuple_Pack,PyTuple_GetItem,PyTuple_GET_ITEM
 cimport numpy as np
-
+from mmcore.geom.parametric cimport ParametricSurface
+from mmcore.numeric.vectors cimport scalar_cross
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
@@ -127,7 +128,7 @@ cdef class Implicit3D:
         return res
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cnormal(self, double x, double y, double z, double[:] result) noexcept nogil:
+    cdef void cgradient(self, double x, double y, double z, double[:] result) noexcept nogil:
         cdef double n
         result[0] = (self.cimplicit(x+1e-3,y,z) - self.cimplicit(x-1e-3,y,z)) / 2 / 1e-3
         result[1] = (self.cimplicit(x,y+1e-3,z)- self.cimplicit(x,y-1e-3,z)) / 2 / 1e-3
@@ -142,12 +143,12 @@ cdef class Implicit3D:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    def normal(self, double[:] point):
+    def gradient(self, double[:] point):
         cdef double x=point[0]
         cdef double y = point[1]
         cdef double z = point[2]
         cdef double[:] result=np.empty((3,))
-        self.cnormal(x,y,z,result)
+        self.cgradient(x,y,z,result)
         return np.array(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -192,7 +193,7 @@ cdef class Sphere(Implicit3D):
         return result
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cnormal(self, double x,double y, double z, double[:] result) noexcept nogil:
+    cdef void cgradient(self, double x,double y, double z, double[:] result) noexcept nogil:
         cdef double n
         result[0]=x-self.ox
         result[1]=y-self.oy
@@ -259,7 +260,7 @@ cdef void cylinder_aabb(double pax,double pay,double paz, double pbx,double pby,
     res[1][2]=fmax(paz + ez,pbz + ez)
 
 
-cdef class Cylinder(Implicit3D):
+cdef class ImplicitCylinder(Implicit3D):
 
     def __init__(self, double[:] start, double[:] end, double radius) -> None:
         super().__init__()
@@ -286,7 +287,7 @@ cdef class Cylinder(Implicit3D):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cnormal(self, double x,double y, double z, double[:] result) noexcept nogil:
+    cdef void cgradient(self, double x,double y, double z, double[:] result) noexcept nogil:
         cdef double n
         self._normal_not_unit(x,y,z,result)
         n=norm3d(result)
@@ -372,7 +373,88 @@ cdef class Cylinder(Implicit3D):
         res[1]=y- (ax * self.dx * self.dy / bn + ay * self.dy * self.dy / bn + az * self.dy * self.dz / bn + self.oy)
         res[2]=z- (ax * self.dx * self.dz / bn + ay * self.dy * self.dz / bn + az * self.dz * self.dz / bn + self.oz)
 
-cdef class Tube(Cylinder):
+
+
+
+cdef class Cylinder(ParametricSurface):
+    cdef ImplicitCylinder _implicit_prim
+    cdef public  double[:] start
+    cdef public  double[:] end
+    cdef public  double[:] direction
+    cdef public  double radius
+    cdef public double[:] u
+    cdef public double[:] v
+    cdef double[:] W
+    cdef double[:] D_hat
+    cdef double  D_norm
+    cdef double[:] U_hat
+
+    def __init__(self, start, end, radius):
+        self._implicit_prim=ImplicitCylinder(start,end,radius)
+        self._interval=np.zeros((2,2))
+        self.start = start
+        self.end = end
+        self.radius = radius
+        self._interval[0][1]=pi*2
+        self.direction =np.zeros(3)
+        # Calculate direction vector D and its normalized form D_hat
+        sub3d(self.end ,self.start,self.direction)
+        self.D_norm = norm3d(self.direction)
+        self.D_hat = np.asarray(self.direction)/ self.D_norm
+        self._interval[1][1] =  self.D_norm
+
+        # Choose an arbitrary vector W that is not collinear with D_hat
+        if np.allclose(self.D_hat, [1, 0, 0]):
+            self.W = np.array([0., 1., 0.])
+        else:
+            self.W = np.array([1., 0., 0.])
+
+        # Calculate U and its normalized form U_hat
+        self.u = scalar_cross(self.D_hat, self.W)
+        self.U_hat = np.asarray(self.u) / norm3d(self.u)
+
+        # Calculate V
+        self.v = scalar_cross(self.D_hat, self.U_hat)
+    def interval(self):
+        return np.asarray(self._interval)
+
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def gradient(self, double[:] point):
+
+        return self._implicit_prim.gradient(point)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def implicit( self, double[:] point):
+
+        return self._implicit_prim.implicit(point)
+
+    def bounds(self):
+        return self._implicit_prim.bounds()
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cevaluate(self, double u, double v, double[:] result):
+            # Calculate the point on the cylinder surface for given t and theta
+            cdef double cos_u=cos(u)
+            cdef double sin_u = sin(u)
+
+            result[0] = self.start[0] + v * self.D_hat[0] + self.radius * (cos_u * self.U_hat[0] + sin_u * self.v[0])
+            result[1] = self.start[1] + v * self.D_hat[1] + self.radius * (cos_u* self.U_hat[1] + sin_u * self.v[1])
+            result[2] = self.start[2] + v * self.D_hat[2] + self.radius * (cos_u * self.U_hat[2] + sin_u  * self.v[2])
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef double cimplicit(self, double x, double y, double z) noexcept nogil:
+        cdef double n=self._implicit_prim.cimplicit(x,y,z)
+        return n
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cgradient(self, double x, double y, double z, double[:] result) noexcept nogil:
+        self._implicit_prim.cgradient(x,y,z, result)
+
+
+cdef class Tube(ImplicitCylinder):
     """
     Straight cylindrical pipe with adjustable thickness.
 
@@ -402,7 +484,7 @@ cdef class Tube(Cylinder):
         return res
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cnormal(self, double x, double y, double z, double[:] result) noexcept nogil:
+    cdef void cgradient(self, double x, double y, double z, double[:] result) noexcept nogil:
         cdef double x0 = pow(self.dx, 2);
         cdef double x1 = pow(self.dy, 2);
         cdef double x2 = pow(self.dz, 2);
@@ -464,3 +546,5 @@ cdef class Tube(Cylinder):
     def astuple(self):
         cdef tuple tpl = PyTuple_Pack(8, self.ox, self.oy, self.oz, self.ex, self.ey, self.ez, self._radius, self._thickness)
         return tpl
+
+
