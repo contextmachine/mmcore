@@ -1,4 +1,5 @@
 cimport cython
+import numpy as np
 from mmcore.geom.parametric cimport ParametricCurve
 from libc.math cimport pow
 
@@ -16,6 +17,8 @@ cdef class CubicSpline(ParametricCurve):
         self.c0 = c0
         self.c1 = c1
         self.p1 = p1
+    def __reduce__(self):
+        return (self.__class__, (np.asarray(self.p0), np.asarray(self.c0),np.asarray(self.c1),np.asarray(self.p1)))
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cevaluate(self, double t, double[:] result) noexcept nogil:
