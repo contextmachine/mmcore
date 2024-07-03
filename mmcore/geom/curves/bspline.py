@@ -1,20 +1,17 @@
 from __future__ import annotations
 import copy
-import itertools
-import math
+
 from functools import lru_cache
 
 import numpy as np
 
-from mmcore.func import vectorize
+
 from mmcore.geom.curves.curve import Curve
-from mmcore.geom.curves.deboor import deboor, evaluate_nurbs_multi, evaluate_nurbs
+
 
 from mmcore.geom.curves.knot import find_span_binsearch, find_multiplicity
-from mmcore.geom.curves.bspline_utils import calc_bspline_derivatives, insert_knot
+from mmcore.geom.curves.bspline_utils import insert_knot
 from mmcore.geom.curves._nurbs import NURBSpline as CNURBSpline
-
-from mmcore.numeric.vectors import scalar_unit
 
 __all__ = ['nurbs_split','NURBSpline']
 def nurbs_split(self, t: float) -> tuple:
@@ -74,158 +71,6 @@ def nurbs_split(self, t: float) -> tuple:
     return curve1, curve2
 
 
-class BSpline(Curve):
-    """ """
-
-    _control_points = None
-    _cached_basis_func: callable = None
-    degree = 3
-    knots = None
-
-    def interval(self):
-        return (float(min(self.knots)), float(max(self.knots)))
-
-    def __init__(self, control_points, degree=3, knots=None):
-        self._cached_basis_func = lru_cache(maxsize=None)(self.basis_function)
-        super().__init__()
-
-        self._control_points_count = None
-
-        self.set(control_points, degree=degree, knots=knots)
-        self._wcontrol_points = np.ones((len(control_points), 4), dtype=float)
-        self._wcontrol_points[:, :-1] = self.control_points
-
-    def _evaluate(self, t):
-        ...
-
-    def invalidate_cache(self):
-        super().invalidate_cache()
-
-        self._cached_basis_func.cache_clear()
-
-    @vectorize(excluded=[0], signature="()->(i)")
-    def derivative(self, t):
-        return calc_bspline_derivatives(
-            self.degree, self.knots, self._wcontrol_points, t, 1
-        )[1][:-1]
-
-    @vectorize(excluded=[0], signature="()->(i)")
-    def second_derivative(self, t):
-        return calc_bspline_derivatives(
-            self.degree, self.knots, self._wcontrol_points, t, 2
-        )[2][:-1]
-
-    @vectorize(excluded=[0, "n", "return_projective"], signature="()->(j,i)")
-    def n_derivative(self, t, n=3, return_projective=False):
-        """
-        :param t: Parameter on the curve
-        :param n: The number of derivatives that need to be evaluated.
-        The zero derivative ( n=0 ) is a point on the curve, the last derivative is always==[0,0,0,0,1]
-
-        :param return_projective: If True will return vectors as [x,y,z,w] instead of [x,y,z] default False
-        :return:
-        """
-        res = np.array(
-            calc_bspline_derivatives(
-                self.degree, self.knots, self._wcontrol_points, t, n
-            )
-        )
-        if return_projective:
-            return res
-        return res[..., :-1]
-
-    def set(self, control_points=None, degree=None, knots=None):
-        if control_points is not None:
-            self._control_points = control_points if isinstance(control_points, np.ndarray) else np.array(
-                control_points, dtype=float)
-
-        if degree is not None:
-            self.degree = degree
-        self._control_points_count = len(self.control_points)
-        self.knots = self.generate_knots() if knots is None else np.array(knots)
-        self.invalidate_cache()
-
-    def generate_knots(self):
-        """
-        In this code, the `generate_knots` method generates default knots based on the number of control points.
-        The `__call__` method computes the parametric B-spline equation at the given parameter `t`.
-        It first normalizes the parameter and finds the appropriate knot interval.
-        Then, it computes the blending functions within that interval
-        and uses them to compute the point on the B-spline curve using the control points.
-        https://www.cl.cam.ac.uk/teaching/1999/AGraphHCI/SMAG/node4.html
-
-        This function generates default knots based on the number of control points
-        :return: A list of knots
-
-
-        Difference with OpenNURBS.
-        ------------------
-        Why is there always one more node here than in OpenNURBS?
-        In fact, it is OpenNURBS that deviates from the standard here.
-        The original explanation can be found in the file `opennurbs/opennurbs_evaluate_nurbs.h`.
-        But I will give a fragment:
-
-            `Most literature, including DeBoor and The NURBS Book,
-        duplicate the Opennurbs start and end knot values and have knot vectors
-        of length d+n+1. The extra two knot values are completely superfluous
-        when degree >= 1.`  [source](https://github.com/mcneel/opennurbs/blob/19df20038249fc40771dbd80201253a76100842c/opennurbs_evaluate_nurbs.h#L116-L120)
-
-
-
-
-        """
-        n = len(self.control_points)
-        knots = (
-                [0] * (self.degree + 1)
-                + list(range(1, n - self.degree))
-                + [n - self.degree] * (self.degree + 1)
-        )
-
-        return np.array(knots, float)
-
-    def basis_function(self, t, i, k):
-        """
-        Calculating basis function with de Boor algorithm
-        """
-        # print(t,i,k)
-
-        return deboor(self.knots, t, i, k)
-
-    def evaluate(self, t: float):
-        result = np.zeros(3, dtype=float)
-        if t == 0.0:
-            t += 1e-8
-        elif t == 1.0:
-            t -= 1e-8
-
-        for i in range(self._control_points_count):
-            b = self._cached_basis_func(t, i, self.degree)
-
-            result[0] += b * self.control_points[i][0]
-            result[1] += b * self.control_points[i][1]
-            result[2] += b * self.control_points[i][2]
-        return result
-
-    @property
-    def control_points(self):
-        return self._control_points
-
-    @control_points.setter
-    def control_points(self, value):
-        self._control_points = np.array(value, dtype=float)
-        self.invalidate_cache()
-
-    def __call__(self, t: float) -> tuple[float, float, float]:
-        """
-        Here write a solution to the parametric equation curves at the point corresponding to the parameter t.
-        The function should return three numbers (x,y,z)
-        """
-
-        self._control_points_count = n = len(self.control_points)
-        assert (
-                n > self.degree
-        ), "Expected the number of control points to be greater than the degree of the spline"
-        return super().__call__(t)
 
 
 class NURBSpline(CNURBSpline,Curve):
@@ -405,7 +250,8 @@ class NURBSpline(CNURBSpline,Curve):
 
     def split(self, t):
         return nurbs_split(self, t)
-
+    def evaluate(self, t):
+        return CNURBSpline.evaluate(self,t)
    #def _evaluate(self, t: float):
    #    return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
    #
