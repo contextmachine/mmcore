@@ -2,6 +2,7 @@
 import functools
 
 cimport cython
+from cython.view cimport array as cvarray
 import numpy as np
 cimport numpy as cnp
 from libc.stdlib cimport malloc,free
@@ -12,19 +13,36 @@ from libc.math cimport fabs, sqrt,fmin,fmax,pow
 cnp.import_array()
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int find_span(int n, int p, double u, double[:] U) noexcept nogil:
+cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
     """
     Determine the knot span index.
     """
-    if u>U[-1]:
-        u=U[-1]
-    elif u < U[0]:
-        u = U[0]
+    cdef double U_min = U[p]
+    cdef double U_max = U[n+1]
+    cdef double period
+    if is_periodic :
+        # Wrap u to be within the valid range for periodic and closed curves
 
+        period= U_max - U_min
+        while u < U_min:
+            u += period
+        while u > U_max:
+            u -= period
+
+    else:
+        # Clamp u to be within the valid range for open curves
+        if u == U[n + 1]:
+            return n
+        if u > U[-1]:
+            u = U[-1]
+        elif u < U[0]:
+            u = U[0]
+
+        # Handle special case for the upper boundary
     if u == U[n + 1]:
-        return n  # Special case
+        return n
 
-
+    # Binary search for the correct knot span
     cdef int low = p
     cdef int high = n + 1
     cdef int mid = (low + high) // 2
@@ -35,8 +53,8 @@ cdef int find_span(int n, int p, double u, double[:] U) noexcept nogil:
         else:
             low = mid
         mid = (low + high) // 2
-    return mid
 
+    return mid
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept nogil:
@@ -70,7 +88,7 @@ cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept no
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double* result) noexcept nogil:
+cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double* result,bint is_periodic) noexcept nogil:
     """
     Compute a point on a B-spline curve.
 
@@ -87,7 +105,7 @@ cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, doubl
 
     cdef int pp = p + 1
     cdef int i, j
-    cdef int span = find_span(n, p, u, U)
+    cdef int span = find_span(n, p, u, U,is_periodic)
     cdef double* N = <double*>malloc(sizeof(double)*pp)
 
     basis_funs(span, u, p, U, N)
@@ -211,7 +229,7 @@ cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK):
+cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK,bint is_periodic):
     """
     Compute the derivatives of a B-spline curve.
 
@@ -231,7 +249,7 @@ cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u
     cdef int du = min(d, p)
     #cdef double[:, :] CK = np.zeros((du + 1, P.shape[1]))
     cdef int pp=p+1
-    cdef int span = find_span(n, p, u, U)
+    cdef int span = find_span(n, p, u, U,is_periodic)
     cdef double[:, :] nders = ders_basis_funs(span, u, p, du, U)
 
     cdef int k, j, l
@@ -281,7 +299,7 @@ cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, i
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK, double[:, :,:] PK):
+cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK, double[:, :,:] PK,bint is_periodic):
     """
     Compute the derivatives of a B-spline curve.
 
@@ -306,7 +324,7 @@ cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u
 
     #cdef double[:, :] CK = np.zeros((d + 1, dimension))
 
-    cdef int span = find_span(n, degree, u, knotvector)
+    cdef int span = find_span(n, degree, u, knotvector,is_periodic)
     #cdef double[:, :, :] PK = np.zeros((d + 1, degree + 1, P.shape[1]))
 
     cdef double[:, :] bfuns = all_basis_funs(span, u, degree, knotvector)
@@ -342,65 +360,138 @@ cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noex
     result[1]=point[1]/w
     result[2]=point[2]/w
 
+
+
 cdef class NURBSpline(ParametricCurve):
     cdef public double[:,:] _control_points
-    cdef public int degree
+    cdef public int _degree
     cdef double[:] _knots
-    cdef public int n
-    cdef double[:,:,:] _PK
+    cdef bint _periodic
     cdef public object _evaluate_cached
-    cdef double[4] _result_buffer
+
 
     def __reduce__(self):
-        return (self.__class__, (np.asarray(self._control_points),self.degree,np.asarray(self._knots)))
-    def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None):
+        return (self.__class__, (np.asarray(self._control_points),self._degree,np.asarray(self._knots),self._periodic))
+    def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None, bint periodic=0):
         super().__init__()
+        self._degree = degree
+        self._periodic = periodic
         self._control_points = np.ones((control_points.shape[0], 4))
-        self._result_buffer = np.zeros(4)
+
         if control_points.shape[1]==4:
 
             self._control_points[:,:] = control_points
         else:
             self._control_points[:,:-1]=control_points
 
-        self.degree = degree
+
         if knots is None:
-            self.generate_knots()
+                self.generate_knots()
         else:
             self._knots=knots
+        self._update_interval()
+        self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
+        if  periodic:
+            self.make_periodic()
 
-        self.n = len(self._control_points) - 1
-        self._interval[0] = np.min(self._knots)
-        self._interval[1] = np.max(self._knots)
-        self._PK = np.zeros((2 + 1, self.degree + 1, self._control_points.shape[1]-1 ))
-        self._evaluate_cached=functools.lru_cache(maxsize=None)(self._evaluate)
+
+
+
+
     def __deepcopy__(self, memodict={}):
-        obj=self.__class__(control_points=self.control_points.copy(), degree=self.degree, knots=np.asarray(self._knots).copy())
+        obj=self.__class__(control_points=self.control_points.copy(), degree=self._degree, knots=np.asarray(self._knots).copy())
+
         obj.weights=self.weights
+        if self._periodic:
+            obj.make_periodic()
+
         return obj
+    cpdef void set_degree(self, int val):
+        self._degree=val
+
+
+
+    cpdef int get_degree(self):
+        return self._degree
+    @property
+    def degree(self):
+        return self._degree
+    @degree.setter
+    def degree(self,v):
+        cdef int val=int(v)
+        self.set_degree(val)
+
+    cpdef bint is_open(self):
+        """
+        Check if the NURBS curve is open
+        """
+        cdef bint res = True
+        cdef int i
+        cdef double[:] part1=self._knots[:self._degree + 1]
+        cdef double[:] part2=  self._knots[-(self._degree + 1):]
+        for i in range(part1.shape[0]):
+            res=part1[i] == self._knots[0]
+            if not res:
+                break
+        for i in range(part2.shape[0]):
+            res=part2[i] == self._knots[-1]
+            if not res:
+                break
+
+        return res
+
+    cpdef bint is_closed(self):
+        """
+        Check if the NURBS curve is closed
+        """
+        cdef bint res = True
+        cdef int i
+        for i in range(4):
+            res=self._control_points[0][i]==self.control_points[-1][i]
+            if not res:
+                break
+        return res
+
+
+
+    cpdef bint is_periodic(self):
+        """
+        Check if the NURBS curve is periodic
+        """
+        cdef bint res = True
+        cdef int i
+        cdef double[:,:] part1=self._control_points[:self._degree]
+        cdef double[:,:] part2= self._control_points[-self._degree:]
+        for j in range(part1.shape[0]):
+
+            for i in range(4):
+
+                res = part1[j][i] == part2[j][i]
+                if not res:
+                    break
+
+        return res
 
     def __getstate__(self):
         state=dict()
         state['_control_points']=np.asarray(self._control_points)
         state['_knots'] = np.asarray(self._knots)
-        state['degree'] = self.degree
+        state['_degree'] = self._degree,
+        state['_periodic']=self._periodic
+
         return state
 
     def __setstate__(self,state):
         self._control_points=state['_control_points']
         self._knots = state['_knots']
-        self.degree = state['degree']
-        self._evaluate_cached.cache_clear()
-        self.n = len(self._control_points) - 1
-        self._interval[0] = np.min(self._knots)
-        self._interval[1] = np.max(self._knots)
-        self._PK = np.zeros((2 + 1, self.degree + 1, self._control_points.shape[1] - 1))
-        self._result_buffer = np.zeros(4)
+        self._degree = state['_degree']
+        self._periodic = state['_periodic']
 
-    cdef void _pknull(self):
+        self._update_interval()
 
-        self._PK= np.zeros((2 + 1, self.degree + 1, self._control_points.shape[1]-1 ))
-
+    @property
+    def periodic(self):
+        return self._periodic
     @property
     def control_points(self):
         return np.asarray(self._control_points[:,:-1])
@@ -410,6 +501,8 @@ cdef class NURBSpline(ParametricCurve):
 
         self._control_points[:, :-1] = control_points
         self._evaluate_cached.cache_clear()
+
+
     @property
     def knots(self):
         return np.asarray(self._knots)
@@ -417,6 +510,7 @@ cdef class NURBSpline(ParametricCurve):
     def knots(self, double[:] v):
         self._knots=v
         self._evaluate_cached.cache_clear()
+
     @property
     def weights(self):
         return np.asarray(self._control_points[:, 3])
@@ -429,12 +523,77 @@ cdef class NURBSpline(ParametricCurve):
         This function generates default knots based on the number of control points
         :return: A numpy array of knots
         """
-        cdef int n = len(self.control_points)
+        cdef int n = len(self._control_points)
         self._knots = np.concatenate((
-            np.zeros(self.degree + 1),
-            np.arange(1, n - self.degree),
-            np.full(self.degree + 1, n - self.degree)
+            np.zeros(self._degree + 1),
+            np.arange(1, n - self._degree),
+            np.full(self._degree + 1, n - self._degree)
         ))
+
+
+    cdef void generate_knots_periodic(self):
+        """
+        This function generates knots for a periodic NURBS curve
+        """
+        cdef int n = len(self._control_points)
+        cdef int m = n + self.degree + 1
+        self._knots = np.zeros(m)
+        for i in range(m):
+            self._knots[i] = i - self.degree
+
+    cdef _update_interval(self):
+        self._interval[0] = self._knots[self._degree]
+        self._interval[1] = self._knots[self._knots.shape[0] - self._degree-1 ]
+    cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
+        cdef int n = len(cpts)
+        cdef int new_n = n + self.degree
+        cdef double[:,:] new_control_points = np.zeros((new_n, 4))
+        new_control_points[:n, :] = cpts
+        for i in range(self.degree):
+            new_control_points[n + i, :] = cpts[i, :]
+        return new_control_points
+    cpdef void make_periodic(self):
+        """
+        Modify the NURBS curve to make it periodic
+        """
+        if self.is_periodic():
+            return
+        cdef int n = len(self.control_points)
+        cdef int new_n = n + self.degree
+        cdef double[:,:] new_control_points = np.zeros((new_n, 4))
+
+        # Copy the original control points
+
+        new_control_points[:n, :] = self._control_points
+
+        # Add the first degree control points to the end to make it periodic
+        for i in range(self.degree):
+            new_control_points[n + i, :] = self._control_points[i, :]
+
+        self._control_points = new_control_points
+        self.generate_knots_periodic()
+        self._update_interval()
+        self._periodic=True
+        self._evaluate_cached.cache_clear()
+
+
+
+
+    cpdef void make_open(self):
+        """
+        Modify the NURBS curve to make it open
+        """
+        if not self.is_open():
+            return
+        cdef int n = len(self._control_points) - self._degree  # Calculate the original number of control points
+        self._control_points = self._control_points[:n, :]  # Trim the extra control points
+        self.generate_knots()  # Generate an open knot vector
+
+        self._update_interval()
+        self._periodic = False
+        self._evaluate_cached.cache_clear()
+
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void ctangent(self, double t,double[:] result):
@@ -459,19 +618,21 @@ cdef class NURBSpline(ParametricCurve):
         :return: np.array with shape (3,).
         """
         cdef double w
+        cdef double* _result_buffer=<double*>malloc(sizeof(double)*4)
+        cdef int n= len(self._control_points)-1
         #cdef double * res = <double *> malloc(sizeof(double) * 4)
 
-        self._result_buffer[0] = 0.
-        self._result_buffer[1] = 0.
-        self._result_buffer[2] = 0.
-        self._result_buffer[3] = 0.
+        _result_buffer[0] = 0.
+        _result_buffer[1] = 0.
+        _result_buffer[2] = 0.
+        _result_buffer[3] = 0.
 
-        curve_point(self.n, self.degree, self._knots, self._control_points, t, &self._result_buffer[0])
-        w = self._result_buffer[3]
-        result[0] = self._result_buffer[0] / w
-        result[1] = self._result_buffer[1] / w
-        result[2] = self._result_buffer[2] / w
-
+        curve_point(n, self._degree, self._knots, self._control_points, t, _result_buffer, self._periodic)
+        w = _result_buffer[3]
+        result[0] = _result_buffer[0] / w
+        result[1] = _result_buffer[1] / w
+        result[2] = _result_buffer[2] / w
+        free(_result_buffer)
 
     cpdef set(self, double[:,:] control_points, double[:] knots ):
         self._control_points=control_points
@@ -490,7 +651,7 @@ cdef class NURBSpline(ParametricCurve):
         :return: np.array with shape (3,).
         """
         cdef double w
-
+        cdef int n = len(self._control_points) - 1
 
         result[0]=0.
         result[1] = 0.
@@ -498,7 +659,7 @@ cdef class NURBSpline(ParametricCurve):
         result[3] = 0.
 
 
-        curve_point(self.n, self.degree, self._knots, self._control_points, t, result)
+        curve_point(n, self._degree, self._knots, self._control_points, t, result,self._periodic)
         w=result[3]
         result[0]=result[0]/w
         result[1]=result[1]/w
@@ -549,11 +710,11 @@ cdef class NURBSpline(ParametricCurve):
         :type d: int
         :return: np.array with shape (d+1,M) where M is the number of vector components.
         """
-
+        cdef int n = len(self._control_points) - 1
         cdef int i
         #cdef double[:, :]  CK = np.zeros((du + 1, 4))
-        #cdef double[:, :, :] PK = np.zeros((d + 1, self.degree + 1,  self._control_points.shape[1]-1))
-        curve_derivs_alg1(self.n, self.degree, self._knots, self._control_points[:,:-1], t, d, CK)
+        #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
+        curve_derivs_alg1(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK,self._periodic)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -565,13 +726,13 @@ cdef class NURBSpline(ParametricCurve):
            :type d: int
            :return: np.array with shape (d+1,M) where M is the number of vector components.
            """
-
+           cdef int n = len(self._control_points) - 1
            cdef int i
            #cdef double[:, :]  CK = np.zeros((du + 1, 4))
-           #cdef double[:, :, :] PK = np.zeros((d + 1, self.degree + 1,  self._control_points.shape[1]-1))
-           self._pknull()
+           #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
+           cdef double[:,:,:] PK= np.zeros((2 + 1, self._degree + 1, self._control_points.shape[1]-1 ))
 
-           curve_derivs_alg2(self.n, self.degree, self._knots, self._control_points[:,:-1], t, d, CK, self._PK)
+           curve_derivs_alg2(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK, PK,self._periodic)
 
 
 
@@ -616,7 +777,7 @@ cdef class NURBSpline(ParametricCurve):
         :return: np.array with shape (d+1,M) where M is the number of vector components.
         """
 
-        cdef int du = min(d, self.degree)
+        cdef int du = min(d, self._degree)
         cdef double[:, :]  CK = np.zeros((du + 1, 3))
 
 
@@ -633,7 +794,7 @@ cdef class NURBSpline(ParametricCurve):
             :return: np.array with shape (d+1,M) where M is the number of vector components.
             """
 
-            cdef int du = min(d, self.degree)
+            cdef int du = min(d, self._degree)
             cdef double[:, :]  CK = np.zeros((du + 1, 3))
 
             self.cderivatives1(t,d,CK)
@@ -654,13 +815,4 @@ cdef class NURBSpline(ParametricCurve):
             result[0]=res[2][0]
             result[1]= res[2][1]
             result[2]= res[2][2]
-
-    cpdef double[:,:] get_control_points_4d(self):
-        return self._control_points
-    cpdef void set_control_points_4d(self, double[:,:] cpts):
-            self._control_points=cpts
-            self.generate_knots()
-            self.n = self._control_points.shape[0] - 1
-            self._interval[0] = np.min(self._knots)
-            self._interval[1] = np.max(self._knots)
 
