@@ -77,8 +77,16 @@ Extension(
         extra_link_args=link_args,
         include_dirs=include_dirs
 
-    )
 
+    ),
+Extension(
+        "mmcore.geom.implicit.tree.cbuild_tree3d",
+        ["mmcore/geom/implicit/tree/cbuild_tree3d.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
+    )
 ]
 #Extension(
 #        "mmcore.geom.mesh.mesh",

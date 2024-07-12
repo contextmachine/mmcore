@@ -3,6 +3,7 @@ import sys
 from typing import Callable
 
 import numpy as np
+from .cbuild_tree3d import build_tree3d,Full,Empty,Tree,Root,Leaf
 
 sys.setrecursionlimit(100000)
 Point = tuple[float, float, float]
@@ -14,7 +15,7 @@ Max = Point
 
 Cell = tuple[Min, Max]
 
-
+"""
 class Tree:
     def __init__(self):
         pass
@@ -30,7 +31,7 @@ class Tree:
 
 class Root(Tree):
     __match_args__ = tuple("a,b,c,d,e,f,g,h".split(","))
-
+    __slots__ = ("a", "b", "c", "d", "e", "f", "g", "h",)
     def __init__(self, a, b, c, d, e, f, g, h):
         super().__init__()
         self.a = a
@@ -48,6 +49,7 @@ class Root(Tree):
 
 
 class Empty(Tree):
+    __slots__ = ("node",)
     def __init__(self, node: Tree = None):
         super().__init__()
         self.node = node
@@ -59,6 +61,7 @@ class Empty(Tree):
 
 
 class Full(Tree):
+    __slots__ = ("node",)
     def __init__(self, node: Tree = None):
         super().__init__()
         self.node = node
@@ -71,6 +74,7 @@ class Full(Tree):
 
 class Leaf(Tree):
     __match_args__ = ("data",)
+    __slots__ = ("data",)
 
     def __init__(self, data):
         super().__init__()
@@ -103,6 +107,7 @@ def build_tree3d(min: Min, max: Max, i: int) -> Tree:
 
 
     return Root(a, b, c, d, e, f, g, h)
+"""
 
 
 def collapse3d(shape: Shape, tree: Tree) -> Tree:
