@@ -208,6 +208,10 @@ def iterate_curves_as_nurbs(curve: ImplicitIntersectionCurve, step=0.1, degree=3
         yield interpolate_curve(pts, degree=degree)
 
 
+def surface_iii(surf1, surf2, tol=1e-6):
+    return ImplicitIntersectionCurve(surf1, surf2, tol=tol)
+
+
 if __name__ == '__main__':
     import numba
 
@@ -373,7 +377,3 @@ if __name__ == '__main__':
         res2.append(item)
 
     print("mmcore builtin primitives speed:", (time.perf_counter_ns() - s) * 1e-6, 'ms.')
-
-
-def surface_iii(surf1, surf2):
-    return ImplicitIntersectionCurve(surf1, surf2)
