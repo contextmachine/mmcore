@@ -208,6 +208,143 @@ def recursive_divide_and_conquer_roots(fun, bounds, tol=0.01):
 
 def sign(val):
     return math.copysign(1, val)
+def divide_and_conquer_min_2d(f, x_range, y_range, tol=1e-6):
+    """
+    :param f: The function to minimize. Should take two arguments, f(x, y), and return a scalar value.
+    :param x_range: The range of x values to search for the minimum. Should be a tuple (x_min, x_max).
+    :param y_range: The range of y values to search for the minimum. Should be a tuple (y_min, y_max).
+    :param tol: The tolerance for the search. The search will stop when the range of x and y values is smaller than this tolerance.
+    :return: The coordinates (x, y) of the minimum point found.
+
+    This method implements a divide and conquer approach to find the minimum point of a 2D function within a given range. It starts with the entire range and iteratively divides it into smaller subranges until the range becomes smaller than the specified tolerance. At each iteration, the method evaluates the function at corners and midpoints of the edges, and selects the subrange that contains the minimum value. The method continues to divide this selected subrange until the range becomes smaller than the tolerance.
+
+    The method returns the coordinates of the minimum point found, which is the midpoint of the final subrange.
+    """
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    while (x_max - x_min) > tol or (y_max - y_min) > tol:
+        x_mid = (x_min + x_max) / 2
+        y_mid = (y_min + y_max) / 2
+        # Evaluate the function at the corners and midpoints of the edges
+        f00 = f(x_min, y_min)
+        f10 = f(x_max, y_min)
+        f01 = f(x_min, y_max)
+        f11 = f(x_max, y_max)
+        f_mid_x_min = f(x_mid, y_min)
+        f_mid_x_max = f(x_mid, y_max)
+        f_mid_y_min = f(x_min, y_mid)
+        f_mid_y_max = f(x_max, y_mid)
+        f_mid_xy = f(x_mid, y_mid)
+        # Create a list of (value, coordinates) pairs
+        candidates = [
+            (f00, (x_min, y_min)),
+            (f10, (x_max, y_min)),
+            (f01, (x_min, y_max)),
+            (f11, (x_max, y_max)),
+            (f_mid_x_min, (x_mid, y_min)),
+            (f_mid_x_max, (x_mid, y_max)),
+            (f_mid_y_min, (x_min, y_mid)),
+            (f_mid_y_max, (x_max, y_mid)),
+            (f_mid_xy, (x_mid, y_mid))
+        ]
+        # Find the minimum value and its coordinates
+        min_val, min_coords = min(candidates, key=lambda item: item[0])
+        x_min, x_max = min_coords[0] - (x_max - x_min) / 4, min_coords[0] + (x_max - x_min) / 4
+        y_min, y_max = min_coords[1] - (y_max - y_min) / 4, min_coords[1] + (y_max - y_min) / 4
+        # Ensure the search space does not collapse below tolerance
+        x_min = max(x_min, x_range[0])
+        x_max = min(x_max, x_range[1])
+        y_min = max(y_min, y_range[0])
+        y_max = min(y_max, y_range[1])
+    return (x_min + x_max) / 2, (y_min + y_max) / 2
+
+
+
+
+from mmcore.numeric.fdm import newtons_method, classify_critical_point_2d, CriticalPointType
+
+
+
+
+
+def find_all_minima(f, x_range, y_range, grid_density=10, tol=1e-6):
+    """
+
+    :param f: The function to find minima for. It should be a function of two variables.
+    :param x_range: The range of x-values to search for minima in, specified as a tuple (x_min, x_max).
+    :param y_range: The range of y-values to search for minima in, specified as a tuple (y_min, y_max).
+    :param grid_density: The number of grid points to generate along each axis. Higher grid density increases accuracy but also increases computational cost. Default is 10.
+    :param tol: The tolerance for convergence criteria of the local minimization algorithm. Default is 1e-6.
+    :return: A list of tuples (x, y, value) representing the minima found in the specified range.
+
+    Example
+    ---------
+    >>> import numpy as np
+    >>> def f(x, y):
+    ...     # Example function, replace with your actual function
+    ...     return (x - 1) ** 2 + (y - 2) ** 2 + np.sin(3 * x) * np.cos(3 * y)
+
+    >>> x_range = (-2, 4)
+    ... y_range = (-2, 4)
+    ... tolerance = 1e-6
+
+    >>> minima = find_all_minima(f, x_range, y_range, grid_density=20, tol=tolerance)
+    >>> minima
+    [(-0.20955570735465462, 2.068488218049512, 0.8814236284722828), (0.6239490890366713, 1.2349839216539054, -0.08077762630018981), (0.6319616334813937, 2.9100055589078364, 0.23559259074534356), (1.4654659299114376, 2.0765007624783474, -0.7266086640277386)]
+
+    """
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    # Generate grid points
+    x_vals = np.linspace(x_min, x_max, grid_density)
+    y_vals = np.linspace(y_min, y_max, grid_density)
+    minima = []
+    tol2 = 10 ** (np.log10(tol) / 2)
+
+    for x in x_vals:
+        for y in y_vals:
+            # Perform local minimization using scipy's minimize
+            result, *other = newtons_method(lambda coords: f(coords[0], coords[1]), [x, y], tol=tol2, max_iter=8,
+                                            no_warn=True, full_return=True)
+
+            if result is not None:
+                # if np.linalg.det(other[1])<0: seadle
+                critical_point_type = classify_critical_point_2d(other[1])
+
+                if critical_point_type is CriticalPointType.LOCAL_MINIMUM:
+
+                    min_point = tuple(result)
+                    min_value = f(*min_point)
+
+                    # Check if this minimum is already in the list (within tolerance)
+                    if all(
+                            np.linalg.norm(np.array(min_point) - np.array(existing_min[:2]))
+                            > tol2
+                            for existing_min in minima
+                    ):
+                        minima.append((min_point[0], min_point[1], min_value))
+    # Refine the minima using divide-and-conquer method
+    refined_minima = []
+    for min_point in minima:
+        local_min = divide_and_conquer_min_2d(
+            f,
+            (min_point[0] - tol, min_point[0] + tol),
+            (min_point[1] - tol, min_point[1] + tol),
+            tol,
+        )
+        print(min_point, local_min)
+        refined_minima.append(
+            (local_min[0], local_min[1], f(local_min[0], local_min[1]))
+        )
+    # Remove duplicates from the refined minima
+    final_minima = []
+    for min_point in refined_minima:
+        if all(
+                np.linalg.norm(np.array(min_point[:2]) - np.array(existing_min[:2])) > tol
+                for existing_min in final_minima
+        ):
+            final_minima.append(min_point)
+    return final_minima
 
 
 def test_all_roots(fun, bounds, tol):
