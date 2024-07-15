@@ -5,7 +5,7 @@ import sys
 import warnings
 from enum import Enum
 
-from .vectors import scalar_dot, scalar_norm
+from mmcore.numeric.vectors import scalar_dot, scalar_norm
 from typing import Callable, Optional, Iterable
 
 import numpy as np

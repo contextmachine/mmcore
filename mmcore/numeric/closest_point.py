@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 
-from mmcore.geom.vec import unit, dot, norm
 from mmcore.numeric.vectors import vector_projection, scalar_dot
 from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE
