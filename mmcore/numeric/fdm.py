@@ -2,7 +2,10 @@ import dataclasses
 import functools
 import math
 import sys
-from .vectors import scalar_dot
+import warnings
+from enum import Enum
+
+from .vectors import scalar_dot, scalar_norm
 from typing import Callable, Optional, Iterable
 
 import numpy as np
@@ -401,12 +404,34 @@ class Hess:
         return hessian(self.fun, x, h=self.h)
 
 
-# Step 3: Numerical Hessian calculation
+
 def hessian(f, point, h=DEFAULT_H):
+    """
+    Calculate the Hessian matrix of a given function `f` at a given `point`.
+
+    :param f: The function to calculate the Hessian matrix for.
+    :param point: The point at which to calculate the Hessian matrix.
+    :param h: The step size for numerical differentiation. Default is `DEFAULT_H`.
+    :return: The Hessian matrix of `f` at `point`.
+
+    Example usage:
+    ```python
+    import numpy as np
+
+    def f(x):
+        return x[0]**2 + x[1]**2
+
+    point = np.array([1, 2])
+    hessian_matrix = hessian(f, point)
+
+    print(hessian_matrix)
+    ```
+    """
     point = np.asarray(point)
     n = point.size
     H = np.zeros((n, n))
     fp = f(point)
+
     for i in range(n):
         for j in range(i, n):
             if i == j:
@@ -452,6 +477,13 @@ def jac(fun, h=DEFAULT_H):
     return jac_wrap
 
 def gradient(f, point, h=DEFAULT_H):
+    """
+    :param f: A function that takes a point as input and returns a scalar value.
+    :param point: The point at which the gradient will be computed.
+    :param h: The step size used in the finite difference approximation of the gradient. (Default value is DEFAULT_H)
+
+    :return: The gradient of the function at the given point.
+    """
     point = np.asarray(point)
     grad = np.zeros_like(point)
     for i in range(point.size):
@@ -464,24 +496,104 @@ def gradient(f, point, h=DEFAULT_H):
         grad[i] = (f_plus_h - f_minus_h) / (2 * h)
     return grad
 
+class CriticalPointType(int,Enum):
+    """
+    Represents the type of a critical point.
 
-def newtons_method(f, initial_point, tol=DEFAULT_H, max_iter=100):
+    Enum Values:
+    UNDEFINED: 0
+        The critical point is undefined.
+    LOCAL_MINIMUM: 1
+        The critical point is a local minimum.
+    LOCAL_MAXIMUM: 2
+        The critical point is a local maximum.
+    SADDLE_POINT: 3
+        The critical point is a saddle point.
+    """
+    UNDEFINED = 0
+    LOCAL_MINIMUM=1
+    LOCAL_MAXIMUM = 2
+    SADDLE_POINT=3
+
+
+
+def classify_critical_point_2d(hess)->CriticalPointType:
+    # Ensure the input is a 2x2 matrix
+    if hess.shape != (2, 2):
+        raise ValueError("The Hessian matrix must be 2x2.")
+
+    # Extract the second partial derivatives from the Hessian matrix
+    f_xx = hess[0, 0]
+    f_yy = hess[1, 1]
+    f_xy = hess[0, 1]
+
+    # Compute the determinant of the Hessian matrix
+    det_H = f_xx * f_yy - f_xy * f_xy
+
+    if det_H > 0:
+        if f_xx > 0:
+            return CriticalPointType.LOCAL_MINIMUM # Local minimum
+        elif f_xx < 0:
+            return CriticalPointType.LOCAL_MAXIMUM  # Local maximum
+    elif det_H < 0:
+        return  CriticalPointType.SADDLE_POINT  # Saddle point
+    else:
+        return CriticalPointType.UNDEFINED  # Inconclusive
+
+
+
+def newtons_method(f, initial_point, tol=DEFAULT_H, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None):
+    """
+    Apply Newton's method to find the root of a function.
+    The same powerful newton converging in a few iterations.
+
+    :param f: The function for which the root is to be found.
+    :param initial_point: The initial point for the iteration.
+    :param tol: Tolerance for the stopping criterion. Default is DEFAULT_H.
+    :param max_iter: Maximum number of iterations. Default is 100.
+    :param no_warn: If True, suppress warnings. Default is False.
+    :param full_return: If True, return all intermediate variables. Default is False.
+    :param grad: The gradient of the function. If None, compute the gradient using the gradient function.
+    :param hess: The Hessian of the function. If None, compute the Hessian using the hessian function.
+    :return: The root of the function if found, None otherwise.
+
+    """
     point = np.asarray(initial_point)
+    H_inv=None
+    H=None
+    if grad is None:
+        _grad=lambda x: gradient(f, x)
+    else:
+        _grad=grad
+    if hess is None:
+        hess=lambda x: hessian(f, x)
+
+    else:
+        hess=hess
+    grad=None
     for _ in range(max_iter):
-        grad = gradient(f, point)
-        H = hessian(f, point)
+        grad = _grad(point)
+        H = hess( point)
+
         try:
 
             H_inv = np.linalg.inv(H)
         except np.linalg.LinAlgError:
-            print("Hessian is singular at the point", point)
+            if not no_warn:
+                warnings.warn(f"Hessian is singular at the point {point}")
             break
         step = H_inv @ grad
         new_point = point - step
-        if np.linalg.norm(new_point - point) < tol:
-            break
+        if scalar_norm(new_point - point) < tol:
+            if full_return:
+                return new_point,grad,H, H_inv,_
+            return new_point
         point = new_point
-    return point
+    if not no_warn:
+        warnings.warn(f"Iteration limit {max_iter} at {point} ")
+    if full_return:
+        return None, grad, H, H_inv, max_iter
+    return None
 
 
 
