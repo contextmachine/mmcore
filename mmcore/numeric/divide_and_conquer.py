@@ -3,7 +3,7 @@ import math
 import numpy as np
 from scipy.optimize import bisect
 
-from mmcore.numeric.fdm import Grad
+
 
 
 def recursive_divide_and_conquer_min(fun, bounds, tol):
@@ -132,57 +132,9 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
     return x_min, fun(x_min)
 
 
-from mmcore.numeric.bisection import closest_local_minimum
 
 
-def find_best(fun, bounds, jac=None, tol=1e-6):
-    """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from mmcore.numeric.fdm import Grad
 
-    from mmcore.numeric.divide_and_conquer import find_best
-
-    def f(x):
-        return np.cos(x -1) **3*x
-
-    t0, t1 = -8, 8
-    x = np.linspace(t0, t1, 100)
-    y = f(x)
-
-    global_min= find_best(f, (t0,t1), jac=Grad(f),tol=1e-5)
-
-
-    plt.plot(x, y, "-k")
-    plt.plot(*global_min, "rx")
-    plt.show()
-
-        :param fun:
-        :param bounds:
-        :param jac:
-        :param tol:
-        :return:
-    """
-    low, high = bounds
-    if high - low < tol:
-        return iterative_divide_and_conquer_min(fun, (low, high), tol)
-    if not jac:
-        jac = Grad(fun)
-    branches = []
-    minx, miny = iterative_divide_and_conquer_min(fun, (low, high), tol)
-    branches.append((minx, miny))
-
-    ((x1,), y1), ((x2,), y2) = (
-        closest_local_minimum(jac, minx),
-        closest_local_minimum(lambda x: -jac(x), minx),
-    )
-
-    if low < x1 < high:
-        branches.append(find_best(fun, (low, x1), jac, tol))
-    if low < x2 < high:
-        branches.append(find_best(fun, (x2, high), jac, tol))
-
-    return sorted(branches, key=lambda x: x[1])[0]
 
 
 def recursive_divide_and_conquer_roots(fun, bounds, tol=0.01):

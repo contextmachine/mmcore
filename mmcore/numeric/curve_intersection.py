@@ -455,5 +455,9 @@ if __name__ == "__main__":
 
     s = time.time()
     res = curve_ppi(aa, bb, 0.001, tol_bbox=0.1, eager=True)
+
     print(time.time() - s)
+
     print(res)
+    # [(0.600738525390625, 0.371673583984375)]
+    print(aa(res[0][0]))

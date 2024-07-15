@@ -1,7 +1,6 @@
-import numpy as np
+
 from scipy.optimize import minimize
 
-from mmcore.geom.vec import norm_sq
 from .fdm import Grad
 
 
@@ -104,9 +103,3 @@ def scalar_min_1d(f, start, end, step=0.001, divs=32):
 
     return wrap(start, end)
 
-
-def closest_point_on_curve(curve, point, step=0.001, divs=32):
-    def objective(t):
-        return norm_sq(curve(t) - point)
-
-    return scalar_min_1d(objective, *curve.interval(), step=step, divs=divs)
