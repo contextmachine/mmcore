@@ -17,7 +17,7 @@ from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvatu
     evaluate_length, iterative_divide_and_conquer_min
 
 from mmcore.numeric.fdm import DEFAULT_H, fdm
-from mmcore.numeric.curve_intersection import curve_intersection
+
 TOLERANCE = 1e-4
 
 
@@ -71,73 +71,74 @@ class Curve:
         self._evaluate_length_cached.cache_clear()
 
 
-    def intersect_with_curve(
-            self, other: "Curve", tol=TOLERANCE
-    ) -> list[tuple[float, float]]:
 
-        """
-        PPI & PII
-        ------
-
-        PPI (Parametric Parametric Intersection) for the curves.
-        curve1 and curve2 can be any object with a parametric curve interface.
-        However, in practice it is worth using only if both curves do not have implicit representation,
-        most likely they are two B-splines or something similar.
-        Otherwise it is much more efficient to use PII (Parametric Implict Intersection).
-
-        The function uses a recursive divide-and-conquer approach to find intersections between two curves.
-        It checks the AABB overlap of the curves and recursively splits them until the distance between the curves is within
-        the specified tolerance or there is no overlap. The function returns a list of tuples
-        representing the parameter values of the intersections on each curve.
-
-        Обратите внимание! Этот метод продолжает "Разделяй и властвуй" пока расстояние не станет меньше погрешности.
-        Вы можете значительно ускорить поиск, начиная метод ньютона с того момента где для вас это приемлимо.
-        Однако имейте ввиду что для правильной сходимости вы уже должны быть в "низине" с одним единственым минимумом.
-
-        :param curve1: first curve
-        :param curve2: second curve
-        :param bounds1: [Optional] custom bounds for first NURBS curve. By default, the first NURBS curve interval.
-        :param bounds2: [Optional] custom bounds for first NURBS curve. By default, the second NURBS curve interval.
-        :param tol: A pair of points on a pair of Euclidean curves whose Euclidean distance between them is less than tol will be considered an intersection point
-        :return: List containing all intersections, or empty list if there are no intersections. Where intersection
-        is the tuple of the parameter values of the intersections on each curve.
-        :rtype: list[tuple[float, Optional[float]]]
-
-        Example
-        --------
-        >>> import numpy as np
-        >>> from mmcore.geom.curves.bspline import NURBSpline
-        >>> from mmcore.numeric.curve_intersection import curve_ppi
-        >>> first = NURBSpline(
-        ...    np.array(
-        ...        [
-        ...            (-13.654958030023677, -19.907874497194975, 0.0),
-        ...            (3.7576433265207765, -39.948793039632903, 0.0),
-        ...            (16.324284871574083, -18.018771519834026, 0.0),
-        ...            (44.907234268165922, -38.223959886390297, 0.0),
-        ...            (49.260384607302036, -13.419216444520401, 0.0),
-        ...        ]
-        ...    )
-        ... )
-        >>> second = NURBSpline(
-        ...     np.array(
-        ...         [
-        ...             (40.964758489325661, -3.8915666456564679, 0.0),
-        ...             (-9.5482124270650726, -28.039230791052990, 0.0),
-        ...             (4.1683178868166371, -58.264878428828240, 0.0),
-        ...             (37.268687446662931, -58.100608604709883, 0.0),
-        ...         ]
-        ...     )
-        ... )
-
-        >>> intersections = curve_ppi(first, second, 0.001)
-        >>> print(intersections)
-        [(0.600738525390625, 0.371673583984375)]
-
-
-        """
-
-        return curve_intersection(self, other, tol=tol)
+    #def intersect_with_curve(
+    #        self, other: "Curve", tol=TOLERANCE
+    #) -> list[tuple[float, float]]:
+    #
+    #    """
+    #    PPI & PII
+    #    ------
+    #
+    #    PPI (Parametric Parametric Intersection) for the curves.
+    #    curve1 and curve2 can be any object with a parametric curve interface.
+    #    However, in practice it is worth using only if both curves do not have implicit representation,
+    #    most likely they are two B-splines or something similar.
+    #    Otherwise it is much more efficient to use PII (Parametric Implict Intersection).
+    #
+    #    The function uses a recursive divide-and-conquer approach to find intersections between two curves.
+    #    It checks the AABB overlap of the curves and recursively splits them until the distance between the curves is within
+    #    the specified tolerance or there is no overlap. The function returns a list of tuples
+    #    representing the parameter values of the intersections on each curve.
+    #
+    #    Обратите внимание! Этот метод продолжает "Разделяй и властвуй" пока расстояние не станет меньше погрешности.
+    #    Вы можете значительно ускорить поиск, начиная метод ньютона с того момента где для вас это приемлимо.
+    #    Однако имейте ввиду что для правильной сходимости вы уже должны быть в "низине" с одним единственым минимумом.
+    #
+    #    :param curve1: first curve
+    #    :param curve2: second curve
+    #    :param bounds1: [Optional] custom bounds for first NURBS curve. By default, the first NURBS curve interval.
+    #    :param bounds2: [Optional] custom bounds for first NURBS curve. By default, the second NURBS curve interval.
+    #    :param tol: A pair of points on a pair of Euclidean curves whose Euclidean distance between them is less than tol will be considered an intersection point
+    #    :return: List containing all intersections, or empty list if there are no intersections. Where intersection
+    #    is the tuple of the parameter values of the intersections on each curve.
+    #    :rtype: list[tuple[float, Optional[float]]]
+    #
+    #    Example
+    #    --------
+    #    >>> import numpy as np
+    #    >>> from mmcore.geom.curves.bspline import NURBSpline
+    #    >>> from mmcore.numeric.intersection.curve_curve import curve_ppi
+    #    >>> first = NURBSpline(
+    #    ...    np.array(
+    #    ...        [
+    #    ...            (-13.654958030023677, -19.907874497194975, 0.0),
+    #    ...            (3.7576433265207765, -39.948793039632903, 0.0),
+    #    ...            (16.324284871574083, -18.018771519834026, 0.0),
+    #    ...            (44.907234268165922, -38.223959886390297, 0.0),
+    #    ...            (49.260384607302036, -13.419216444520401, 0.0),
+    #    ...        ]
+    #    ...    )
+    #    ... )
+    #    >>> second = NURBSpline(
+    #    ...     np.array(
+    #    ...         [
+    #    ...             (40.964758489325661, -3.8915666456564679, 0.0),
+    #    ...             (-9.5482124270650726, -28.039230791052990, 0.0),
+    #    ...             (4.1683178868166371, -58.264878428828240, 0.0),
+    #    ...             (37.268687446662931, -58.100608604709883, 0.0),
+    #    ...         ]
+    #    ...     )
+    #    ... )
+    #
+    #    >>> intersections = curve_ppi(first, second, 0.001)
+    #    >>> print(intersections)
+    #    [(0.600738525390625, 0.371673583984375)]
+    #
+    #
+    #    """
+    #
+    #    return curve_intersection(self, other, tol=tol)
 
     def interval(self):
         """

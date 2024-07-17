@@ -6,7 +6,7 @@ from mmcore.geom.vec import *
 import numpy as np
 from earcut import earcut
 
-
+from mmcore.numeric.vectors import scalar_dot
 
 
 def ecut(self) -> tuple:

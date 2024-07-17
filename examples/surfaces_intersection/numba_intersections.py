@@ -2,7 +2,7 @@ import numba
 import numpy as np
 import time
 from mmcore.geom.implicit.implicit import Implicit3D
-from mmcore.numeric.surface_intersection.implicit_implicit import ImplicitIntersectionCurve, iterate_curves
+from mmcore.numeric.intersection.implicit_implicit import ImplicitIntersectionCurve, iterate_curves
 from mmcore.numeric.vectors import scalar_dot
 
 
