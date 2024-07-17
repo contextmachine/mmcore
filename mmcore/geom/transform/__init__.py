@@ -11,6 +11,7 @@ from numpy import ndarray
 from mmcore.func import vectorize
 from mmcore.geom.transform.cs import uniform_scale_3D
 from mmcore.geom.vec import unit
+from mmcore.numeric.vectors import scalar_dot
 
 
 def add_crd(pt, value):

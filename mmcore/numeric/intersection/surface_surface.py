@@ -1,18 +1,16 @@
 import itertools
 import time
 from enum import Enum
-from typing import List, Tuple
 
 import numpy as np
 from scipy.spatial import KDTree
 
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
-from mmcore.geom.curves import NURBSpline
-from mmcore.geom.surfaces import Surface, Coons, CurveOnSurface
+from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric import calgorithms, uvs
 from mmcore.numeric.closest_point import closest_point_on_ray
-from mmcore.numeric.curve_intersection import curve_ppi
-from mmcore.numeric.curve_surface_ppi import closest_curve_surface_ppi
+from mmcore.numeric.intersection.curve_curve import curve_ppi
+from mmcore.numeric.intersection.curve_surface import closest_curve_surface_ppi
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
