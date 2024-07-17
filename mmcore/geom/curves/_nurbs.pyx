@@ -2,7 +2,6 @@
 import functools
 
 cimport cython
-from cython.view cimport array as cvarray
 import numpy as np
 cimport numpy as cnp
 from libc.stdlib cimport malloc,free
@@ -20,10 +19,9 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
     """
     cdef double U_min = U[p]
     cdef double U_max = U[n+1]
-    cdef int last = U.shape[0]-1
     cdef double period
 
-    cdef int r
+
     if is_periodic :
         # Wrap u to be within the valid range for periodic and closed curves
 
@@ -35,17 +33,14 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
 
     else:
         # Clamp u to be within the valid range for open curves
-        if u == U[n + 1]:
-            r=n
-            return r
 
-        if u > U[last]:
-            r = n
-            return r
+        if u >= U[n+1]:
+
+            return n
 
         elif u < U[0]:
-            r = p
-            return r
+
+            return p
 
         # Handle special case for the upper boundary
     if u == U[n + 1]:
@@ -66,6 +61,7 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
 
     return mid
 @cython.boundscheck(False)
+@cython.wraparound(False)
 cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept nogil:
     """
     Compute the nonvanishing basis functions.
@@ -419,11 +415,6 @@ cdef class NURBSpline(ParametricCurve):
         self._degree=val
 
 
-    cpdef int find_span(self, double t):
-        cdef int n =self._control_points.shape[0]-1
-
-        cdef int res=find_span(n, self._degree, t,self._knots, self._periodic)
-        return res
     cpdef int get_degree(self):
         return self._degree
     @property

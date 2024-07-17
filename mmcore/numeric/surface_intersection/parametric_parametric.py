@@ -377,7 +377,7 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500):
         ii += 1
         if ress is not None:
             start = np.copy(data[0])
-            start_uv = np.array([uvs1[0], uvs2[0]])
+            start_uv = np.array([np.copy(uvs1[0]), np.copy(uvs2[0])])
             if ress[-1] != TerminatorType.LOOP:
                 ress_back = marching_method(
                     surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=-1
@@ -473,13 +473,17 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
     for i, curve_pts in enumerate(curves):
 
         curve = interpolate_nurbs_curve(curve_pts, 3)
-        curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0], 3)
-        curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1], 3)
-        if all([terminator is TerminatorType.LOOP for terminator in terminators]):
+
+        if all([terminator is TerminatorType.LOOP for terminator in terminators[i]]):
+            curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0][:-1], 3)
+            curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1][:-1], 3)
             curve.make_periodic()
             curve_on_surf1.make_periodic()
             curve_on_surf2.make_periodic()
-        results.append((curve, CurveOnSurface(surf1, curve_on_surf1), CurveOnSurface(surf1, curve_on_surf2)))
+        else:
+            curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0], 3)
+            curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1], 3)
+        results.append((curve, CurveOnSurface(surf1, curve_on_surf1, interval=curve_on_surf1.interval()), CurveOnSurface(surf2, curve_on_surf2,interval=curve_on_surf2.interval())))
 
     return results
 
