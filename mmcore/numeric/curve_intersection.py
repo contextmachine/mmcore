@@ -143,7 +143,7 @@ def curve_x_plane(curve, plane, axis=2, step=0.5):
     )
 
 
-def curve_intersect(curve1, curve2, tol: float = 0.01):
+def curve_intersection(curve1, curve2, tol: float = 0.01):
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
         return curve_pii(curve2, curve1)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):

@@ -32,7 +32,7 @@ from mmcore.numeric.numeric import (
     evaluate_parameter_from_length,
 )
 from mmcore.numeric.aabb import curve_aabb
-from mmcore.numeric.curve_intersection import curve_intersect
+from mmcore.numeric.curve_intersection import curve_intersection
 
 
 class Surface(Base):
@@ -217,7 +217,7 @@ class BaseCurve(Base):
         This method intersects the current object with the given curve. It returns the intersecting points on the curve as an ObjectCollection. If there are no intersecting points, an empty
         * ObjectCollection is returned.
         """
-        res, dists = curve_intersect(self, curve, tol=0.01)
+        res, dists = curve_intersection(self, curve, tol=0.01)
         if len(res) == 0:
             return ObjectCollection()
         else:
@@ -376,7 +376,7 @@ class Curve3D(BaseCurve):
         This method intersects the current object with the given curve. It returns the intersecting points on the curve as an ObjectCollection. If there are no intersecting points, an empty
         * ObjectCollection is returned.
         """
-        res, dists = curve_intersect(self, curve, 0.01)
+        res, dists = curve_intersection(self, curve, 0.01)
         if len(res) == 0:
             return ObjectCollection()
         else:
