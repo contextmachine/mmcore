@@ -17,7 +17,7 @@ from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvatu
     evaluate_length, iterative_divide_and_conquer_min
 
 from mmcore.numeric.fdm import DEFAULT_H, fdm
-from mmcore.numeric.curve_intersection import curve_intersect
+from mmcore.numeric.curve_intersection import curve_intersection
 TOLERANCE = 1e-4
 
 
@@ -137,7 +137,7 @@ class Curve:
 
         """
 
-        return curve_intersect(self, other, tol=tol)
+        return curve_intersection(self, other, tol=tol)
 
     def interval(self):
         """
