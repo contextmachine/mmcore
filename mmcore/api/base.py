@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import abc
 import math
-from abc import ABCMeta, abstractmethod
-from ._typing import Union, Generic, TypeVar, List, Any
+from abc import abstractmethod
+from ._typing import Union, TypeVar, Any
 
 from numpy._typing import ArrayLike
 
@@ -15,7 +14,7 @@ from mmcore.api._base import Base, ObjectCollection, TB
 from mmcore.api.bbox import BoundingBox2D, BoundingBox3D
 from mmcore.api.enums import SurfaceTypes, Curve2DTypes, Curve3DTypes
 from mmcore.api.vectors import Matrix3D, Matrix2D, Vector3D, Point3D, Vector2D, Point2D
-from mmcore.geom.vec import norm, norm_sq
+from mmcore.geom.vec import norm
 from mmcore.numeric.fdm import FDM
 from mmcore.numeric.closest_point import closest_point_on_curve
 
@@ -29,10 +28,9 @@ from mmcore.numeric.numeric import (
     evaluate_tangent_vec,
     normal_at,
     plane_on_curve,
-    evaluate_parameter_from_length,
 )
 from mmcore.numeric.aabb import curve_aabb
-from mmcore.numeric.curve_intersection import curve_intersection
+from mmcore.numeric.intersection.curve_curve import curve_intersection
 
 
 class Surface(Base):

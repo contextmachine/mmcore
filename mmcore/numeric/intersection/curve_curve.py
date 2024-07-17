@@ -60,7 +60,7 @@ def curve_pii(
 
 
         >>> import numpy as np
-        >>> from mmcore.numeric.curve_intersection import curve_pii
+        >>> from mmcore.numeric.intersection.curve_curve import curve_pii
         >>> from mmcore.geom.curves import NURBSpline
 
 
@@ -135,12 +135,6 @@ def curve_pii(
 
 def curve_x_axis(curve, axis=1, step=0.5):
     return curve_pii(curve, lambda xyz: xyz[axis], step=step)
-
-
-def curve_x_plane(curve, plane, axis=2, step=0.5):
-    return curve_pii(
-        curve, lambda xyz: inverse_evaluate_plane(plane, xyz)[axis], step=step
-    )
 
 
 def curve_intersection(curve1, curve2, tol: float = 0.01):
