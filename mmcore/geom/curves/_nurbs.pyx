@@ -11,6 +11,7 @@ from mmcore.numeric cimport vectors,calgorithms
 from mmcore.geom.curves.deboor cimport cdeboor,cevaluate_nurbs,xyz
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
 cnp.import_array()
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
@@ -19,7 +20,10 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
     """
     cdef double U_min = U[p]
     cdef double U_max = U[n+1]
+    cdef int last = U.shape[0]-1
     cdef double period
+
+    cdef int r
     if is_periodic :
         # Wrap u to be within the valid range for periodic and closed curves
 
@@ -32,15 +36,21 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
     else:
         # Clamp u to be within the valid range for open curves
         if u == U[n + 1]:
-            return n
-        if u > U[-1]:
-            u = U[-1]
+            r=n
+            return r
+
+        if u > U[last]:
+            r = n
+            return r
+
         elif u < U[0]:
-            u = U[0]
+            r = p
+            return r
 
         # Handle special case for the upper boundary
     if u == U[n + 1]:
         return n
+
 
     # Binary search for the correct knot span
     cdef int low = p
@@ -56,7 +66,6 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
 
     return mid
 @cython.boundscheck(False)
-@cython.wraparound(False)
 cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept nogil:
     """
     Compute the nonvanishing basis functions.
@@ -410,7 +419,11 @@ cdef class NURBSpline(ParametricCurve):
         self._degree=val
 
 
+    cpdef int find_span(self, double t):
+        cdef int n =self._control_points.shape[0]-1
 
+        cdef int res=find_span(n, self._degree, t,self._knots, self._periodic)
+        return res
     cpdef int get_degree(self):
         return self._degree
     @property
@@ -659,7 +672,7 @@ cdef class NURBSpline(ParametricCurve):
         result[3] = 0.
 
 
-        curve_point(n, self._degree, self._knots, self._control_points, t, result,self._periodic)
+        curve_point(n, self._degree, self._knots, self._control_points, t, result, self._periodic)
         w=result[3]
         result[0]=result[0]/w
         result[1]=result[1]/w

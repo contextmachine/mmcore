@@ -5,15 +5,15 @@ from functools import lru_cache
 
 import numpy as np
 
-
 from mmcore.geom.curves.curve import Curve
-
 
 from mmcore.geom.curves.knot import find_span_binsearch, find_multiplicity
 from mmcore.geom.curves.bspline_utils import insert_knot
 from mmcore.geom.curves._nurbs import NURBSpline as CNURBSpline
 
-__all__ = ['nurbs_split','NURBSpline']
+__all__ = ['nurbs_split', 'NURBSpline']
+
+
 def nurbs_split(self, t: float) -> tuple:
     """
     :param self:
@@ -71,9 +71,7 @@ def nurbs_split(self, t: float) -> tuple:
     return curve1, curve2
 
 
-
-
-class NURBSpline(CNURBSpline,Curve):
+class NURBSpline(CNURBSpline, Curve):
     """
     Non-Uniform Rational BSpline (NURBS)
     Example:
@@ -88,19 +86,77 @@ class NURBSpline(CNURBSpline,Curve):
         ...                   (612.94310080525793, 24446.695569574043, -24080.735343204549),
         ...                   (-7503.6320665111089, 2896.2190847052334, -31178.971042788111)]
         ...                  ))
+        Compared to scipy.interpolate.BSpline has weights (because it is a NURBS-spline not a B-spline),
+        does not allow to have dimensionality of control points strictly (x,y,z,w), also has more CAD interface.
+        For 3D points, for all weights equal to 1, the behaviour will be completely identical:
+        >>> pts=np.array([(-26030.187675027133, 5601.3871095975337, 31638.841094491760),
+        ...                   (14918.717302595671, -25257.061306278192, 14455.443462719517),
+        ...                   (19188.604482326708, 17583.891501540096, 6065.9078795798523),
+        ...                   (-18663.729281923122, 5703.1869371495322, 0.0),
+        ...                   (20028.126297559378, -20024.715164607202, 2591.0893519960955),
+        ...                   (4735.5467668945130, 25720.651181520021, -6587.2644037490491),
+        ...                   (-20484.795362315021, -11668.741154421798, -14201.431195298581),
+        ...                   (18434.653814767291, -4810.2095985021788, -14052.951382291201),
+        ...                   (612.94310080525793, 24446.695569574043, -24080.735343204549),
+        ...                   (-7503.6320665111089, 2896.2190847052334, -31178.971042788111)]
+        ...                  )
+        >>> degree=3
+        >>> nspl=NURBSpline(pts, degree=degree)
+        >>> from scipy.interpolate import BSpline
+        >>> bspl=BSpline(nspl.knots, pts, degree)
+        >>> print(tuple(nspl.interval()))
+        (0.0, 7.0)
+        >>> nspl.evaluate(3.5)
+        array([11050.3324133 ,  2605.02029524, -2210.69702887])
+
+        >>> bspl(3.5)
+        array([11050.3324133 ,  2605.02029524, -2210.69702887])
+
+        Just like scipy.interpolate.BSpline can also be extrapolated:
+        >>> nspl.evaluate(-0.5)
+        array([-120493.73709463,   99219.41340439,   68643.18874618])
+
+        >>> bspl(-0.5)
+        array([-120493.73709463,   99219.41340439,   68643.18874618])
+
+        Unlike geomdl.NURBS.Curve, it is not limited to the range 0.,1. (does not default knots vector to the range 0 to 1),
+        supports extrapolation, and is less nerdy )).
+
+        Create mmcore NURBSpline object:
+        >>> nspl=NURBSpline(pts, degree=3)
+
+        Create geomdl.NURBS.Curve object:
+        >>> from geomdl import NURBS
+        >>> geomdl_nspl=NURBS.Curve()
+        >>> geomdl_nspl.degree=3
+        >>> geomdl_nspl.ctrlpts=nspl.control_points.tolist()
+        >>> from geomdl.knotvector import generate
+        >>> geomdl_nspl.knotvector=generate()
+
+        Evaluate objects:
+        >>> pt = nspl.evaluate(3.5)
+        >>> pt
+        array([11050.3324133 ,  2605.02029524, -2210.69702887]))
+
+        >>> geomdl_pt = geomdl_nspl.evaluate_single(0.5) # geomdl will require the parameter to be 0 to 1
+        >>> geomdl_pt
+        [11050.33241329586, 2605.0202952442223, -2210.6970288670113]
+
+        >>> np.allclose(geomdl_pt, pt)
+        True
 
     """
 
-    def __init__(self, control_points,  degree=3, knots=None,weights=None):
-        cpts=control_points if isinstance(control_points,np.ndarray) else np.array(control_points,dtype=float)
+    def __init__(self, control_points, degree=3, knots=None, weights=None):
+        cpts = control_points if isinstance(control_points, np.ndarray) else np.array(control_points, dtype=float)
         if weights is not None:
-            cpts=np.ones((len(control_points),4),dtype=float)
-            cpts[:,:control_points.shape[1]]=control_points
-            cpts[:,3]=weights
+            cpts = np.ones((len(control_points), 4), dtype=float)
+            cpts[:, :control_points.shape[1]] = control_points
+            cpts[:, 3] = weights
         if knots is not None:
-            knots=knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
+            knots = knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
 
-        super().__init__(cpts, degree, knots)
+        super().__init__(cpts, degree=degree, knots=knots)
 
         self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
 
@@ -250,13 +306,15 @@ class NURBSpline(CNURBSpline,Curve):
 
     def split(self, t):
         return nurbs_split(self, t)
+
     def evaluate(self, t):
-        return CNURBSpline.evaluate(self,t)
-   #def _evaluate(self, t: float):
-   #    return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
-   #
-   #def _evaluate_multi(self, t: np.ndarray[float]):
-   #    return evaluate_nurbs_multi(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
+        return CNURBSpline.evaluate(self, t)
+
+    #def _evaluate(self, t: float):
+    #    return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
+    #
+    #def _evaluate_multi(self, t: np.ndarray[float]):
+    #    return evaluate_nurbs_multi(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
 
     #def evaluate(self, t: float):
     #    """
@@ -304,5 +362,20 @@ class NURBSpline(CNURBSpline,Curve):
                 return np.array(self.evaluate_multi(t))
             else:
                 return np.array(self.evaluate_multi(t.flatten())).reshape((*t.shape, 3))
+
+
+from .knot import interpolate_curve
+
+
+def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
+    cpts, knots, degree = interpolate_curve(points, degree=degree, use_centripetal=use_centripetal)
+    if cpts.shape[1] < 3:
+        z = np.zeros((cpts.shape[0], 3), dtype=float)
+
+        z[:, :cpts.shape[1]] = cpts
+        cpts = z
+    spl = NURBSpline(cpts, degree=degree, knots=knots)
+    #spl.knots=np.array(knots,dtype=float)
+    return spl
 
 

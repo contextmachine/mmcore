@@ -7,9 +7,17 @@ def find_span(n, p, u, U):
     """
     if u == U[n + 1]:
         return n  # Special case
+
+
+
     low = p
     high = n + 1
     mid = (low + high) // 2
+    if u > U[-1]:
+        return n
+
+    elif u < U[0]:
+        return p
 
     while u < U[mid] or u >= U[mid + 1]:
         if u < U[mid]:
@@ -33,8 +41,10 @@ def basis_funs(i, u, p, U):
         left[j] = u - U[i + 1 - j]
         right[j] = U[i + j] - u
         saved = 0.0
+        #print('bf',i + 1 - j)
 
         for r in range(j):
+
             temp = N[r] / (right[r + 1] + left[j - r])
             N[r] = saved + right[r + 1] * temp
             saved = left[j - r] * temp
@@ -64,6 +74,7 @@ def curve_point(n, p, U, P, u):
 
     for i in range(p + 1):
         for j in range(len(C)):
+            #print('cp', span - p + i, P)
             C[j] += N[i] * P[span - p + i][j]
 
     return C
@@ -280,7 +291,8 @@ class NURBSCurve:
         self.n = len(self._control_points) - 1
         self._interval=[0., max(self.knots)]
 
-
+    def find_span(self, t):
+        return find_span(self.n, self.degree,  t, self.knots)
     @property
     def interval(self):
         """
@@ -320,7 +332,7 @@ class NURBSCurve:
         :param t: The parameter value.
         :return: np.array with shape (3,).
         """
-        return projective_to_cartesian(nurbs.curve_point(self.n, self.degree, self.knots, self._control_points, t))
+        return projective_to_cartesian(curve_point(self.n, self.degree, self.knots, self._control_points, t))
 
     def derivatives(self, t: float, d: int = 1):
         """
@@ -337,7 +349,7 @@ under index 2 is the second derivative, and so on.
         """
         du=min(d, self.degree)
         CK = np.zeros((du + 1, self.control_points.shape[1]), dtype=np.float64)
-        nurbs.curve_derivs_alg2(self.n, self.degree, self.knots, self._control_points, t, d,  CK)
+        curve_derivs_alg2(self.n, self.degree, self.knots, self._control_points, t, d,  CK)
 
         return np.array(CK)
 
