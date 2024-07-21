@@ -1,4 +1,5 @@
 import itertools
+import math
 import time
 from enum import Enum
 
@@ -29,17 +30,7 @@ def get_plane(origin, du, dv):
 
     dn = scalar_unit(scalar_cross(duu, dv))
     dvu = scalar_cross(dn, duu)
-    return [origin, duu, dvu, dn]
-
-
-def freeform_step_debug(pt1, pt2, du1, dv1, du2, dv2):
-    pl1, pl2 = get_plane(pt1, du1, dv1), get_plane(pt2, du2, dv2)
-    ln = np.array(plane_plane_intersect(pl1, pl2))
-
-    np1 = np.asarray(closest_point_on_ray((ln[0], ln[1]), pt1))
-    np2 = np.asarray(closest_point_on_ray((ln[0], ln[1]), pt2))
-
-    return np1, np1 + (np2 - np1) / 2, np2
+    return np.array([origin, duu, dvu, dn])
 
 
 def get_normal(du, dv):
@@ -54,16 +45,17 @@ def solve_marching(pt1, pt2, du1, dv1, du2, dv2, tol, side=1):
 
     marching_direction = np.array(scalar_unit(scalar_cross(pl1[-1], pl2[-1])))
 
-    tng = np.zeros((2, 3))
+    #tng = np.zeros((2, 3))
 
-    calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
+    #calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
+    #marching_direction=tng[0]
+    #K = tng[1]
 
-    K = tng[1]
 
-    r = 1 / (scalar_norm(K))
-
-    step = np.sqrt(abs(r ** 2 - (r - tol) ** 2)) * 2
-
+    #r = 1 / (scalar_norm(K))
+    r = 1
+    step = math.sqrt(abs(r ** 2 - (r - tol) ** 2)) * 2
+    #print(scalar_norm(K))
     new_pln = np.array(
         [pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction]
     )
@@ -87,7 +79,17 @@ def improve_uv(du, dv, xyz_old, xyz_better):
     return res
 
 
-def freeform_step(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
+def freeform_step(pt1, pt2, du1, dv1, du2, dv2):
+    pl1, pl2 = get_plane(pt1, du1, dv1), get_plane(pt2, du2, dv2)
+    ln = np.array(plane_plane_intersect(pl1, pl2))
+
+    np1 = np.asarray(closest_point_on_ray((ln[0], ln[1]), pt1))
+    np2 = np.asarray(closest_point_on_ray((ln[0], ln[1]), pt2))
+
+    return np1, np1 + (np2 - np1) / 2, np2
+
+
+def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
     pt1 = s1.evaluate(uvb1)
     pt2 = s2.evaluate(uvb2)
     if scalar_norm(pt1 - pt2) < tol:
@@ -98,7 +100,7 @@ def freeform_step(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
     du2 = s2.derivative_u(uvb2)
     dv2 = s2.derivative_v(uvb2)
 
-    p1_better, xyz_better, p2_better = freeform_step_debug(pt1, pt2, du1, dv1, du2, dv2)
+    p1_better, xyz_better, p2_better = freeform_step(pt1, pt2, du1, dv1, du2, dv2)
 
     if xyz_better is None:
         return
@@ -115,7 +117,7 @@ def freeform_step(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
         return
     else:
         if cnt < max_cnt:
-            return freeform_step(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
+            return freeform_method(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
         else:
             return
 
@@ -343,7 +345,7 @@ def find_closest_points(surf1: Surface, surf2: Surface, tol=1e-3):
             uv1 = np.average(first.object.uvs, axis=0)
             uv2 = np.average(second.object.uvs, axis=0)
 
-            res = freeform_step(surf1, surf2, uv1, uv2)
+            res = freeform_method(surf1, surf2, uv1, uv2)
             if res is not None:
                 (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) = res
                 # print(uvb1_better, uvb2_better)
@@ -556,9 +558,9 @@ if __name__ == "__main__":
 
     patch1 = Coons(*(NURBSpline(pts) for pts in pts1))
     patch2 = Coons(*(NURBSpline(pts) for pts in pts2))
-
-    # patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
-    # patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
+    #from mmcore.geom.curves.cubic import CubicSpline
+    #patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
+    #patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
     patch1.build_tree(10, 10)
     patch2.build_tree(10, 10)
     print(
@@ -569,7 +571,7 @@ if __name__ == "__main__":
     # yappi.start()
     TOL = 0.001
     cc = surface_ppi(patch1, patch2, TOL)
-
+    print(time.time() - s)
     # tolerance checks
     print(
         np.all((patch1(cc[1][0][0]) - patch2(cc[1][0][1])) <= TOL)
@@ -581,7 +583,7 @@ if __name__ == "__main__":
     # func_stats = yappi.get_func_stats()
     # func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
-    print(time.time() - s)
+
     print([np.array(c).tolist() for c in cc[0]])
 
     print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
