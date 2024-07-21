@@ -15,7 +15,7 @@ from mmcore.numeric.intersection.curve_surface import closest_curve_surface_ppi
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
-from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2
+from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2, norm
 
 
 class TerminatorType(int, Enum):
@@ -569,7 +569,7 @@ if __name__ == "__main__":
     s = time.time()
     # yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
     # yappi.start()
-    TOL = 0.001
+    TOL =1e-2
     cc = surface_ppi(patch1, patch2, TOL)
     print(time.time() - s)
     # tolerance checks
@@ -578,7 +578,7 @@ if __name__ == "__main__":
         and np.all((patch1(cc[1][0][0]) - np.array(cc[0][0])) <= TOL)
         and np.all((patch2(cc[1][0][1]) - np.array(cc[0][0])) <= TOL)
     )
-
+    print([np.max(norm(patch1(cc[1][0][0]) - patch2(cc[1][0][1]))),np.max(norm(patch1(cc[1][0][0]) - np.array(cc[0][0]))),   np.max(norm(patch2(cc[1][0][1]) - np.array(cc[0][0])))])
     # yappi.stop()
     # func_stats = yappi.get_func_stats()
     # func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
