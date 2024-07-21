@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from math import sqrt
-
+from  .cplane import plane_plane_intersection   ,plane_plane_intersect   ,evaluate_plane,inverse_evaluate_plane    ,plane_plane_plane_intersect
 import numpy as np
 
 from mmcore.func import vectorize
@@ -15,18 +15,18 @@ WORLD_XY = np.array([[0., 0., 0.],
                      [0., 0., 1.]])
 
 
-def inverse_evaluate_plane(pln, point):
-    return dot_vec_x_array(point - pln[0], pln[1:])
-
-
-def evaluate_plane(pln, point):
-    return (
-            pln[0]
-            + pln[1] * point[0]
-            + pln[2] * point[1]
-            + pln[3] * point[2]
-
-    )
+#def inverse_evaluate_plane(pln, point):
+#    return dot_vec_x_array(point - pln[0], pln[1:])
+#
+#
+#def evaluate_plane(pln, point):
+#    return (
+#            pln[0]
+#            + pln[1] * point[0]
+#            + pln[2] * point[1]
+#            + pln[3] * point[2]
+#
+#    )
 
 
 def distance(pln, point2):
@@ -140,31 +140,31 @@ def _mycross(a, b):
     return np.array([ay * bz - by * az, az * bx - bz * ax, ax * by - bx * ay])
 
 
-def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
-    normal1, normal2 = plane1[3], plane2[3]
-
-    # Stack the normal vectors
-    array_normals_stacked = np.vstack((normal1, normal2))
-
-    # Construct the matrix
-    matrix = np.block(
-        [
-            [2 * np.eye(3), array_normals_stacked.T],
-            [array_normals_stacked, np.zeros((2, 2))],
-        ]
-    )
-    #print(matrix)
-    # Construct the right-hand side of the equation
-    dot_a = scalar_dot(plane1[0], normal1)
-    dot_b = scalar_dot(plane2[0], normal2)
-    array_y = np.array([*plane1[0], dot_a, dot_b])
-    #print(matrix,array_y)
-    # Solve the linear system
-    solution = np.linalg.solve(matrix, array_y)
-    point_line = solution[:3]
-    direction_line = scalar_cross(normal1, normal2)
-
-    return point_line, direction_line
+#def plane_plane_intersect(plane1: np.ndarray, plane2: np.ndarray):
+#    normal1, normal2 = plane1[3], plane2[3]
+#
+#    # Stack the normal vectors
+#    array_normals_stacked = np.vstack((normal1, normal2))
+#
+#    # Construct the matrix
+#    matrix = np.block(
+#        [
+#            [2 * np.eye(3), array_normals_stacked.T],
+#            [array_normals_stacked, np.zeros((2, 2))],
+#        ]
+#    )
+#    #print(matrix)
+#    # Construct the right-hand side of the equation
+#    dot_a = scalar_dot(plane1[0], normal1)
+#    dot_b = scalar_dot(plane2[0], normal2)
+#    array_y = np.array([*plane1[0], dot_a, dot_b])
+#    #print(matrix,array_y)
+#    # Solve the linear system
+#    solution = np.linalg.solve(matrix, array_y)
+#    point_line = solution[:3]
+#    direction_line = scalar_cross(normal1, normal2)
+#
+#    return point_line, direction_line
 
 
 def plane_line_intersect(plane: np.ndarray, line, tol=1e-15, full_return=False):
@@ -182,8 +182,8 @@ def plane_line_intersect(plane: np.ndarray, line, tol=1e-15, full_return=False):
     return Psi
 
 
-def plane_plane_plane_intersect(self, other, third, tol=1e-15):
-    return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
+#def plane_plane_plane_intersect(self, other, third, tol=1e-15):
+#    return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
 
 
 def plane_from_normal_origin(normal, origin):
