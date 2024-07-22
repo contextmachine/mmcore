@@ -11,7 +11,7 @@ from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.vec import unit, norm, cross
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
-from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit
+from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
 
 
 class TwoPointForm:
@@ -39,7 +39,49 @@ class TwoPointForm:
     def __call__(self, x, y):
         return np.linalg.det(self.det_form(x, y))
 
+def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2):
+    """
+    Compute the curvature of the intersection curve between two parametric surfaces given their partial derivatives.
 
+    Parameters:
+    -  Su1, Sv1, Suu1, Suv1, Svv1: partial derivatives of the first surface at the intersection point
+    -  Su2, Sv2, Suu2, Suv2, Svv2: partial derivatives of the second surface at the intersection point
+
+    Returns:
+    - curvature: curvature of the intersection curve at the given point
+    """
+
+    # Compute normal vectors
+    N1 =np.array(np.cross(Su1, Sv1))
+    N1 /= np.linalg.norm(N1)
+    N2 = np.array(np.cross(Su2, Sv2))
+    N2 /= np.linalg.norm(N2)
+
+    # Check if the surfaces intersect tangentially
+    cos_theta = np.dot(N1, N2)
+    if np.isclose(np.abs(cos_theta), 1):
+        raise ValueError("The surfaces intersect tangentially at the given point")
+
+    # Compute tangent vector of the intersection curve
+    T = np.array(np.cross(N1, N2))
+    T /= np.linalg.norm(T)
+
+
+    # Compute the curvature vector
+    L1 = np.dot(Suu1, N1)
+    M1 = np.dot(Suv1, N1)
+    N1_2 = np.dot(Svv1, N1)
+    L2 = np.dot(Suu2, N2)
+    M2 = np.dot(Suv2, N2)
+    N2_2 = np.dot(Svv2, N2)
+    k1 = (L1 * (np.dot(Su1, T)) ** 2 + 2 * M1 * np.dot(Su1, T) * np.dot(Sv1, T) + N1_2 * (np.dot(Sv1, T)) ** 2)
+    k2 = (L2 * (np.dot(Su2, T)) ** 2 + 2 * M2 * np.dot(Su2, T) * np.dot(Sv2, T) + N2_2 * (np.dot(Sv2, T)) ** 2)
+    curvature_vector = (k1 * N1 + k2 * N2) / (1 - cos_theta ** 2)
+
+    # Compute the curvature magnitude
+    #curvature = np.linalg.norm(curvature_vector)
+
+    return curvature_vector, T
 class CurveOnSurface(Curve):
     def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0.,1.)):
         super().__init__()
@@ -68,6 +110,7 @@ class CurveOnSurface(Curve):
 
     def interval(self):
         return self._interval
+
 
 
 from mmcore.geom.bvh import BVHNode
