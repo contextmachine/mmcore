@@ -103,7 +103,9 @@ def freeform_step_debug(s1, s2, uv1, uv2):
 
 def solve_marching(s1, s2, uv1, uv2, tol):
     pl1, pl2 = s1.plane_at(uv1), s2.plane_at(uv2)
+
     marching_direction = np.cross(pl1[-1], pl2[-1])
+
     K = _evaluate_curvature(marching_direction, pl1[-1])[1]
     r = 1 / np.linalg.norm(K)
     step = np.sqrt(r ** 2 - (r - tol) ** 2) * 2
@@ -139,6 +141,7 @@ def freeform_step(s1, s2, uvb1, uvb2, tol=TOL):
 
 
 def marching_step(s1, s2, uvb1, uvb2, tol=TOL):
+
     xyz_better, step = solve_marching(s1, s2, uvb1, uvb2, tol)
     uvb1_better = uvb1 + improve_uv(s1, uvb1, xyz_better)
     uvb2_better = uvb2 + improve_uv(s2, uvb2, xyz_better)

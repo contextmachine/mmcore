@@ -16,8 +16,57 @@ from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_inters
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
 from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2, norm
+def c_derivative(S_u, S_v, u_prime, v_prime):
+    return S_u * u_prime + S_v * v_prime
+
+def c_second_derivative(S_uu, S_uv, S_vv, u_prime, v_prime, u_double_prime, v_double_prime):
+    return S_uu * u_prime**2 + 2 * S_uv * u_prime * v_prime + S_vv * v_prime**2 + S_uu * u_double_prime + S_v * v_double_prime
 
 
+
+def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2):
+    """
+    Compute the curvature of the intersection curve between two parametric surfaces given their partial derivatives.
+
+    Parameters:
+    -  Su1, Sv1, Suu1, Suv1, Svv1: partial derivatives of the first surface at the intersection point
+    -  Su2, Sv2, Suu2, Suv2, Svv2: partial derivatives of the second surface at the intersection point
+
+    Returns:
+    - curvature: curvature of the intersection curve at the given point
+    """
+
+    # Compute normal vectors
+    N1 =np.array(np.cross(Su1, Sv1))
+    N1 /= np.linalg.norm(N1)
+    N2 = np.array(scalar_cross(Su2, Sv2))
+    N2 /=  np.linalg.norm(N2)
+
+    # Check if the surfaces intersect tangentially
+    cos_theta = np.dot(N1, N2)
+    if np.isclose(np.abs(cos_theta), 1):
+        raise ValueError("The surfaces intersect tangentially at the given point")
+
+    # Compute tangent vector of the intersection curve
+    T = np.array(np.cross(N1, N2))
+    T /= np.linalg.norm(T)
+
+
+    # Compute the curvature vector
+    L1 = np.dot(scalar_unit(Suu1), N1)
+    M1 = np.dot(scalar_unit(Suv1), N1)
+    N1_2 = np.dot(scalar_unit(Svv1), N1)
+    L2 = np.dot(scalar_unit(Suu2), N2)
+    M2 = np.dot(scalar_unit(Suv2), N2)
+    N2_2 = np.dot(scalar_unit(Svv2), N2)
+    k1 = (L1 * (np.dot(scalar_unit(Su1), T)) ** 2 + 2 * M1 * np.dot(scalar_unit(Su1), T) * np.dot(scalar_unit(Sv1), T) + N1_2 * (np.dot(scalar_unit(Sv1), T)) ** 2)
+    k2 = (L2 * (np.dot(scalar_unit(Su2), T)) ** 2 + 2 * M2 * np.dot(scalar_unit(Su2), T) * np.dot(scalar_unit(Sv2), T) + N2_2 * (np.dot(scalar_unit(Sv2), T)) ** 2)
+    curvature_vector = (k1 * N1 + k2 * N2) / ( 1-cos_theta ** 2)
+
+    # Compute the curvature magnitude
+    #curvature = np.linalg.norm(curvature_vector)
+
+    return curvature_vector, T
 class TerminatorType(int, Enum):
     FAIL = 0
     LOOP = 1
@@ -40,27 +89,7 @@ def get_normal(du, dv):
     return duu, dn
 
 
-def solve_marching(pt1, pt2, du1, dv1, du2, dv2, tol, side=1):
-    pl1, pl2 = get_plane(pt1, du1, dv1), get_plane(pt2, du2, dv2)
 
-    marching_direction = np.array(scalar_unit(scalar_cross(pl1[-1], pl2[-1])))
-
-    #tng = np.zeros((2, 3))
-
-    #calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
-    #marching_direction=tng[0]
-    #K = tng[1]
-
-
-    #r = 1 / (scalar_norm(K))
-    r = 1
-    step = math.sqrt(abs(r ** 2 - (r - tol) ** 2)) * 2
-    #print(scalar_norm(K))
-    new_pln = np.array(
-        [pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction]
-    )
-
-    return plane_plane_plane_intersect(pl1, pl2, new_pln), step
 
 
 def improve_uv(du, dv, xyz_old, xyz_better):
@@ -97,8 +126,11 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
     du1 = s1.derivative_u(uvb1)
     dv1 = s1.derivative_v(uvb1)
 
+
+
     du2 = s2.derivative_u(uvb2)
     dv2 = s2.derivative_v(uvb2)
+
 
     p1_better, xyz_better, p2_better = freeform_step(pt1, pt2, du1, dv1, du2, dv2)
 
@@ -121,19 +153,54 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
         else:
             return
 
+def solve_marching(pt1, pt2, du1, dv1, duu1, duv1,dvv1, du2, dv2,duu2, duv2,dvv2, tol, side=1):
+    pl1, pl2 = get_plane(pt1, du1, dv1), get_plane(pt2, du2, dv2)
 
+    marching_direction = np.array(scalar_unit(scalar_cross(pl1[-1], pl2[-1])))
+
+    #tng = np.zeros((2, 3))
+    curvature_vector,tangent_vector=compute_intersection_curvature( du1, dv1, duu1, duv1,dvv1,du2,  dv2,duu2, duv2,dvv2)
+    #calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
+    #marching_direction=tng[0]
+    #K = tng[1]
+
+    #print(scalar_norm(curvature_vector))
+    #r = 1 / (scalar_norm(K))
+    r = 1/np.sqrt(scalar_norm(curvature_vector))
+    #print(r,1/r)
+    #r=1/r
+    #print((r**2)-(r-tol)**2)
+
+    step = np.sqrt(r ** 2 - (r - tol) ** 2) * 2
+    #print(step)
+    new_pln = np.array(
+        [pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction]
+    )
+
+    return plane_plane_plane_intersect(pl1, pl2, new_pln), step
 def marching_step(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1):
     pt1 = s1.evaluate(uvb1)
 
     pt2 = s2.evaluate(uvb2)
 
     du1 = s1.derivative_u(uvb1)
+
+
     dv1 = s1.derivative_v(uvb1)
+    duu1 = s1.second_derivative_uu(uvb1)
+    duv1 = s1.second_derivative_uv(uvb1)
+    dvv1 = s1.second_derivative_vv(uvb1)
+
+
+
 
     du2 = s2.derivative_u(uvb2)
     dv2 = s2.derivative_v(uvb2)
+    duu2 = s2.second_derivative_uu(uvb2)
+    duv2 = s2.second_derivative_uv(uvb2)
+    dvv2 = s2.second_derivative_vv(uvb2)
 
-    xyz_better, step = solve_marching(pt1, pt2, du1, dv1, du2, dv2, tol, side=side)
+    xyz_better, step = solve_marching(pt1, pt2, du1, dv1,duu1, duv1, dvv1, du2, dv2, duu2, duv2, dvv2, tol, side)
 
     if xyz_better is None:
         return
@@ -569,7 +636,7 @@ if __name__ == "__main__":
     s = time.time()
     # yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
     # yappi.start()
-    TOL =1e-2
+    TOL =0.001
     cc = surface_ppi(patch1, patch2, TOL)
     print(time.time() - s)
     # tolerance checks
@@ -586,5 +653,5 @@ if __name__ == "__main__":
 
     print([np.array(c).tolist() for c in cc[0]])
 
-    print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
+    #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     res = surface_intersection(patch1, patch2, TOL)
