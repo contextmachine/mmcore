@@ -126,10 +126,14 @@ cdef class ParametricCurve:
         ders[1, 0] /= nrm
         ders[1, 1] /= nrm
         ders[1, 2] /= nrm
+        result[0] =   ders[1, 0]
+        result[1] =   ders[1, 1]
+        result[2] =   ders[1, 2]
 
-        result[0] = (ders[0][1] * ders[1][2]) - (ders[0][2] * ders[1][1])
-        result[1] = (ders[0][2] * ders[1][0]) - (ders[0][0] * ders[1][2])
-        result[2] = (ders[0][0] * ders[1][1]) - (ders[0][1] * ders[1][0])
+        #
+        #result[0] = (ders[0][1] * ders[1][2]) - (ders[0][2] * ders[1][1])
+        #result[1] = (ders[0][2] * ders[1][0]) - (ders[0][0] * ders[1][2])
+        #result[2] = (ders[0][0] * ders[1][1]) - (ders[0][1] * ders[1][0])
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cplanes(self, double[:] t, double[:,:,:] result):
