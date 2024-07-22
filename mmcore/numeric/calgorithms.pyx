@@ -48,9 +48,7 @@ cpdef void evaluate_tangent(double[:] D1, double[:] D2, double[:] result) noexce
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef bint evaluate_curvature(
-    double[:] derivative, double[:] second_derivative, double[:] unit_tangent_vector, double[:] curvature_vector,
-)noexcept nogil:
+cpdef bint evaluate_curvature(double[:] derivative, double[:] second_derivative, double[:] unit_tangent_vector, double[:] curvature_vector)  noexcept nogil:
     """
     Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and
     second derivative.
@@ -99,7 +97,7 @@ cpdef bint evaluate_curvature(
 
 
         # Compute scalar component of curvature
-        negative_second_derivative_dot_tangent = - (second_derivative[0]* unit_tangent_vector[0]+second_derivative[1]* unit_tangent_vector[1]+second_derivative[2]* unit_tangent_vector[2])
+        negative_second_derivative_dot_tangent = (-1)*(second_derivative[0]* unit_tangent_vector[0]+  second_derivative[1]* unit_tangent_vector[1]+  second_derivative[2]* unit_tangent_vector[2])
         inverse_norm_derivative_squared = 1.0 / (norm_derivative * norm_derivative)
 
         # Calculate curvature vector

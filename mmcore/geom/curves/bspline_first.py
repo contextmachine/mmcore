@@ -1,6 +1,9 @@
 import numpy as np
 import mmcore.geom.curves._nurbs as nurbs
 
+from mmcore.geom.curves.curve import Curve
+
+
 def find_span(n, p, u, U):
     """
     Determine the knot span index.
@@ -282,8 +285,9 @@ def projective_to_cartesian(point):
     cartesian_point = point[...,:-1] / point[..., -1]
     return cartesian_point
 
-class NURBSCurve:
+class NURBSCurve(Curve):
     def __init__(self, control_points, degree=3, knots=None):
+        super().__init__()
         self._control_points = np.ones((len(control_points), 4))
         self._control_points[:, :-1] = control_points
         self.degree = degree

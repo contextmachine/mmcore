@@ -463,7 +463,7 @@ cdef class NURBSpline(ParametricCurve):
         Check if the NURBS curve is periodic
         """
         cdef bint res = True
-        cdef int i
+        cdef int i,j
         cdef double[:,:] part1=self._control_points[:self._degree]
         cdef double[:,:] part2= self._control_points[-self._degree:]
         for j in range(part1.shape[0]):
@@ -539,6 +539,7 @@ cdef class NURBSpline(ParametricCurve):
         """
         This function generates knots for a periodic NURBS curve
         """
+        cdef int i
         cdef int n = len(self._control_points)
         cdef int m = n + self.degree + 1
         self._knots = np.zeros(m)
@@ -550,6 +551,7 @@ cdef class NURBSpline(ParametricCurve):
         self._interval[1] = self._knots[self._knots.shape[0] - self._degree-1 ]
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
         cdef int n = len(cpts)
+        cdef int i
         cdef int new_n = n + self.degree
         cdef double[:,:] new_control_points = np.zeros((new_n, 4))
         new_control_points[:n, :] = cpts
@@ -560,12 +562,13 @@ cdef class NURBSpline(ParametricCurve):
         """
         Modify the NURBS curve to make it periodic
         """
+
         if self.is_periodic():
             return
         cdef int n = len(self.control_points)
         cdef int new_n = n + self.degree
         cdef double[:,:] new_control_points = np.zeros((new_n, 4))
-
+        cdef int i
         # Copy the original control points
 
         new_control_points[:n, :] = self._control_points
@@ -734,7 +737,7 @@ cdef class NURBSpline(ParametricCurve):
            cdef int i
            #cdef double[:, :]  CK = np.zeros((du + 1, 4))
            #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
-           cdef double[:,:,:] PK= np.zeros((2 + 1, self._degree + 1, self._control_points.shape[1]-1 ))
+           cdef double[:,:,:] PK= np.zeros((d + 1, self._degree + 1, self._control_points.shape[1]-1 ))
 
            curve_derivs_alg2(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK, PK,self._periodic)
 
@@ -768,7 +771,8 @@ cdef class NURBSpline(ParametricCurve):
     cdef void cnormal(self, double t, double[:] result):
         cdef double[:,:] vecs=np.zeros((3,3))
         self.cplane(t,vecs)
-        result[:]=vecs[3,:]
+        result[:]=vecs[2,:]
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -814,9 +818,10 @@ cdef class NURBSpline(ParametricCurve):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void csecond_derivative(self, double t, double[:] result):
-            cdef double[:,:] res=np.zeros((2,3))
+            cdef double[:,:] res=np.zeros((3,3))
             self.cderivatives2(t, 2, res)
-            result[0]=res[2][0]
+            result[0]= res[2][0]
             result[1]= res[2][1]
             result[2]= res[2][2]
+
 
