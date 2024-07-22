@@ -290,7 +290,7 @@ if __name__ == '__main__':
         def implicit(self, v) -> float:
             return cyl_implicit(self.origin, self.axis, self.r, v[0], v[1], v[2])
 
-        def normal(self, v) -> float:
+        def gradient(self, v) -> float:
             return cyl_normal(self.origin, self.axis, v[0], v[1], v[2])
 
         def bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
@@ -306,7 +306,7 @@ if __name__ == '__main__':
         def implicit(self, pt):
             return tub_implicit(self.origin, self.axis, self.r, self.thickness, pt[0], pt[1], pt[2])
 
-        def normal(self, v):
+        def gradient(self, v):
             return tub_normal(self.origin, self.axis, self.r, self.thickness, v[0], v[1], v[2])
 
 
@@ -330,7 +330,7 @@ if __name__ == '__main__':
     t1 = Tube(0.2, aa[0], z, aa[1] - aa[0])
     t2 = Tube(0.2, bb[0], u, bb[1] - bb[0])
     t1.implicit(np.array((1., 1., 1)))  # compile
-    t1.normal(np.array((1., 1., 1)))  #compile
+    t1.gradient(np.array((1., 1., 1)))  #compile
     vv = np.array(v)
 
     import time
@@ -343,8 +343,8 @@ if __name__ == '__main__':
                 marching_intersection_curve_points(
                     t1.implicit,
                     t2.implicit,
-                    t1.normal,
-                    t2.normal,
+                    t1.gradient,
+                    t2.gradient,
                     vv[i],
                     max_points=200,
                     step=0.2,
