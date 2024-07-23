@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.vec import unit, norm, cross
+from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
@@ -39,7 +40,8 @@ class TwoPointForm:
     def __call__(self, x, y):
         return np.linalg.det(self.det_form(x, y))
 
-def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2):
+
+def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2):
     """
     Compute the curvature of the intersection curve between two parametric surfaces given their partial derivatives.
 
@@ -52,7 +54,7 @@ def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, 
     """
 
     # Compute normal vectors
-    N1 =np.array(np.cross(Su1, Sv1))
+    N1 = np.array(np.cross(Su1, Sv1))
     N1 /= np.linalg.norm(N1)
     N2 = np.array(np.cross(Su2, Sv2))
     N2 /= np.linalg.norm(N2)
@@ -65,7 +67,6 @@ def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, 
     # Compute tangent vector of the intersection curve
     T = np.array(np.cross(N1, N2))
     T /= np.linalg.norm(T)
-
 
     # Compute the curvature vector
     L1 = np.dot(Suu1, N1)
@@ -82,8 +83,10 @@ def compute_intersection_curvature( Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, 
     #curvature = np.linalg.norm(curvature_vector)
 
     return curvature_vector, T
+
+from mmcore.geom.implicit import ParametrizedImplicit2D
 class CurveOnSurface(Curve):
-    def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0.,1.)):
+    def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0., 1.)):
         super().__init__()
         self.surf = surf
         self.curve = curve
@@ -92,15 +95,15 @@ class CurveOnSurface(Curve):
 
     def plane_at(self, t):
         O = self.evaluate(t)
-        T = unit(self.tangent(t))
+        T = scalar_unit(self.tangent(t))
         uv = self.evaluate_curve(t)
-        B = unit(self.surf.normal(uv))
-        N = cross(B, T)
+        B = scalar_unit(self.surf.normal(uv))
+        N = scalar_cross(B, T)
         return np.array([O, T, N, B])
 
     def normal(self, t):
         uv = self.evaluate_curve(t)
-        return cross(*unit([self.surf.normal(uv), self.tangent(t)]))
+        return np.array(scalar_cross(*scalar_unit([self.surf.normal(uv), self.tangent(t)])))
 
     def evaluate(self, t: float):
         return self.surf.evaluate(self.evaluate_curve(t))
@@ -110,6 +113,9 @@ class CurveOnSurface(Curve):
 
     def interval(self):
         return self._interval
+
+    def point_inside(self, uv):
+        return point_in_parametric_curve(self.curve, uv)
 
 
 
@@ -232,16 +238,18 @@ class Surface:
     def isocurve_v(self, v0: float, v1: float):
         return self.isocurve(0.0, v0, 1.0, v1)
 
-    def isoline_u(self, u:float):
-        orig=np.array([u,0.])
-        direction=np.array([0.,1.])
+    def isoline_u(self, u: float):
+        orig = np.array([u, 0.])
+        direction = np.array([0., 1.])
         crv = lambda t: orig + direction * t
-        return CurveOnSurface(self,crv)
-    def isoline_v(self, v:float):
-        orig=np.array([0.,v])
-        direction=np.array([1.,0.])
+        return CurveOnSurface(self, crv)
+
+    def isoline_v(self, v: float):
+        orig = np.array([0., v])
+        direction = np.array([1., 0.])
         crv = lambda t: orig + direction * t
-        return CurveOnSurface(self,crv)
+        return CurveOnSurface(self, crv)
+
     def interval(self):
         return (0.0, 1.0), (0.0, 1.0)
 
@@ -329,7 +337,6 @@ class BiLinear(Surface):
                 self._m
             )
         )
-
 
 
 class LinearMap:
