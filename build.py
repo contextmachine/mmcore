@@ -18,6 +18,19 @@ from Cython.Build import cythonize
 compile_args = ["-O3"]
 link_args = []
 include_dirs = [numpy.get_include()]
+define_macros = [
+    ('VOID', 'void'),
+    ('REAL', 'double'),
+    ('NO_TIMER', 1),
+    ('TRILIBRARY', 1),
+    ('ANSI_DECLARATORS', 1),
+]
+
+
+# see pyproject.toml for other metadata
+
+
+
 
 extensions = [
     Extension(
@@ -103,6 +116,20 @@ Extension(
 #        include_dirs=[numpy.get_include(), 'mmcore/geom/mesh']
 
 #    ),
+
+compile_args = ["-O3"]
+link_args = []
+include_dirs = [*include_dirs,'mmcore/topo/mesh/triangle-c']
+if sys.platform == 'darwin':
+    link_args += ['-mno-sse', '-mno-sse2', '-mno-sse3']
+extensions.append(Extension(
+       "mmcore.topo.mesh.triangle.core",
+       ['mmcore/topo/mesh/triangle-c/triangle.c',"mmcore/topo/mesh/triangle/core.pyx"],
+    extra_compile_args=compile_args,
+    extra_link_args=link_args,
+    define_macros=define_macros,
+    include_dirs=include_dirs))
+
 if __name__ == "__main__":
     ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
     dist = Distribution({"ext_modules": ext_modules})
