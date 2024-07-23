@@ -4,7 +4,7 @@ import numpy as np
 
 from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_dot
 
-from mmcore.numeric.algorithms import curve_point, intersection_curve_point, _implicit_tangent
+from mmcore.numeric.algorithms.implicit_point import curve_point, intersection_curve_point, _implicit_tangent
 from mmcore.numeric.fdm import Grad, fdm, DEFAULT_H
 
 __all__ = ['marching_implicit_curve_points',
