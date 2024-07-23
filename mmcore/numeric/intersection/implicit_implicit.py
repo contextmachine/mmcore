@@ -4,7 +4,7 @@ from scipy.spatial import KDTree
 
 from mmcore.geom.implicit.implicit import Intersection3D
 from mmcore.numeric.vectors import scalar_norm, scalar_unit, scalar_cross, scalar_dot
-from mmcore.numeric.algorithms import intersection_curve_point
+from mmcore.numeric.algorithms.implicit_point import intersection_curve_point
 from mmcore.numeric.aabb import aabb
 from mmcore.numeric.marching import (
     marching_intersection_curve_points,

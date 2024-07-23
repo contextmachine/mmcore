@@ -136,6 +136,11 @@ def curve_pii(
 def curve_x_axis(curve, axis=1, step=0.5):
     return curve_pii(curve, lambda xyz: xyz[axis], step=step)
 
+def curve_x_ray(curve, orig, axis=1, step=0.5):
+    orig=orig if isinstance(orig, np.ndarray) else np.array(orig,dtype=float)
+    return curve_pii(curve, lambda xyz: (orig-xyz)[axis], step=step)
+
+
 
 def curve_intersection(curve1, curve2, tol: float = 0.01):
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
