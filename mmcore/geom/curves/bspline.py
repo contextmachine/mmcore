@@ -1,12 +1,14 @@
 from __future__ import annotations
 import copy
+import math
 
 from functools import lru_cache
 
 import numpy as np
 
 from mmcore.geom.curves.curve import Curve
-
+from mmcore.numeric.plane import WORLD_XY, evaluate_plane, inverse_evaluate_plane, inverse_evaluate_plane_arr, \
+    evaluate_plane_arr
 from mmcore.geom.curves.knot import find_span_binsearch, find_multiplicity
 from mmcore.geom.curves.bspline_utils import insert_knot
 from mmcore.geom.curves._nurbs import NURBSpline as CNURBSpline
@@ -362,12 +364,45 @@ class NURBSpline(CNURBSpline, Curve):
                 return np.array(self.evaluate_multi(t))
             else:
                 return np.array(self.evaluate_multi(t.flatten())).reshape((*t.shape, 3))
+    @classmethod
+    def create_circle(cls, origin=(0.,0.,0.), radius=1, plane=WORLD_XY) -> "OCCNurbsCurve":
+        """Construct a NURBS curve from a circle.
 
+        Parameters
+        ----------
+        circle : :class:`~compas.geometry.Circle`
+            The circle geometry.
+
+        Returns
+        -------
+        :class:`OCCNurbsCurve`
+
+        """
+
+        w =  math.sqrt(2)/2
+
+        points=np.array([[radius, 0., 0.,  1.],
+         [radius, radius, 0.,  w],
+         [0., radius, 0. ,  1. ],
+         [-radius, radius, 0.,   w ],
+         [-radius, 0., 0. ,1.  ],
+         [-radius, -radius, 0., w  ],
+         [0., -radius, 0. ,1.  ],
+         [radius, -radius, 0. , w  ],
+         [radius, 0., 0. , 1.  ]],dtype=float)
+        points[:,:-1]=np.array(evaluate_plane_arr(plane,points[:,:-1] ))
+
+        knots = np.array([0, math.pi/2, math.pi, 3*math.pi/2, 2*math.pi], dtype=float)
+        mults = np.array([3, 2, 2, 2, 3],dtype=int)
+        knots=np.repeat(knots,mults)
+        return cls(control_points=points, degree=2, knots=knots)
 
 from .knot import interpolate_curve
 
 
 def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
+    degree=min(len(points)-1, degree)
+
     cpts, knots, degree = interpolate_curve(points, degree=degree, use_centripetal=use_centripetal)
     if cpts.shape[1] < 3:
         z = np.zeros((cpts.shape[0], 3), dtype=float)
