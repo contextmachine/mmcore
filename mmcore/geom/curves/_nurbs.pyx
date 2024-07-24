@@ -112,12 +112,24 @@ cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, doubl
     cdef int i, j
     cdef int span = find_span(n, p, u, U,is_periodic)
     cdef double* N = <double*>malloc(sizeof(double)*pp)
+    cdef double sum_of_weights=0.
+    cdef double b
+
+
 
     basis_funs(span, u, p, U, N)
 
     for i in range(pp):
-        for j in range(4):
-            result[j] += N[i] * P[span - p + i, j]
+        b = N[i] * P[span - p + i, 3]
+        sum_of_weights +=  b
+        result[0] += (b * P[span - p + i, 0])
+        result[1] += (b * P[span - p + i, 1])
+        result[2] += (b * P[span - p + i, 2])
+
+    result[0]/=sum_of_weights
+    result[1]/=sum_of_weights
+    result[2]/=sum_of_weights
+    result[3] = 1.
 
 
     free(N)
@@ -278,9 +290,10 @@ cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, i
     d (int): The number of derivatives to compute.
     r1 (int): The start index for control points.
     r2 (int): The end index for control points.
+    PK (double[:, :, :]): The computed control points of curve derivatives.
 
     Returns:
-    ndarray: The computed control points of curve derivatives.
+    void
     """
 
 
@@ -291,6 +304,7 @@ cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, i
     pp=p+1
     cdef double tmp
     for i in range(r + 1):
+
         PK[0, i, :] = P[r1 + i, :]
 
     for k in range(1, d + 1):
@@ -635,11 +649,35 @@ cdef class NURBSpline(ParametricCurve):
         _result_buffer[3] = 0.
 
         curve_point(n, self._degree, self._knots, self._control_points, t, _result_buffer, self._periodic)
-        w = _result_buffer[3]
-        result[0] = _result_buffer[0] / w
-        result[1] = _result_buffer[1] / w
-        result[2] = _result_buffer[2] / w
+
+        result[0] = _result_buffer[0]
+        result[1] = _result_buffer[1]
+        result[2] = _result_buffer[2]
+
         free(_result_buffer)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cpdef evaluate4d(self, double t) :
+
+        cdef double * _result_buffer = <double *> malloc(sizeof(double) * 4)
+        cdef int n = len(self._control_points) - 1
+        #cdef double * res = <double *> malloc(sizeof(double) * 4)
+        cdef double[:] result=np.zeros((4,))
+        _result_buffer[0] = 0.
+        _result_buffer[1] = 0.
+        _result_buffer[2] = 0.
+        _result_buffer[3] = 0.
+
+        curve_point(n, self._degree, self._knots, self._control_points, t, _result_buffer, self._periodic)
+
+        result[0] = _result_buffer[0]
+        result[1] = _result_buffer[1]
+        result[2] = _result_buffer[2]
+        result[3] = _result_buffer[3]
+
+        free(_result_buffer)
+        return np.asarray(result)
+
 
     cpdef set(self, double[:,:] control_points, double[:] knots ):
         self._control_points=control_points
@@ -667,11 +705,10 @@ cdef class NURBSpline(ParametricCurve):
 
 
         curve_point(n, self._degree, self._knots, self._control_points, t, result, self._periodic)
-        w=result[3]
-        result[0]=result[0]/w
-        result[1]=result[1]/w
-        result[2]=result[2]/w
+
+
         result[3]=1.
+
 
 
 
@@ -801,12 +838,27 @@ cdef class NURBSpline(ParametricCurve):
             :type d: int
             :return: np.array with shape (d+1,M) where M is the number of vector components.
             """
-
             cdef int du = min(d, self._degree)
             cdef double[:, :]  CK = np.zeros((du + 1, 3))
 
-            self.cderivatives1(t,d,CK)
+            self.cderivatives1(t,d, CK)
             return np.asarray(CK)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def derivative_control_points(self, double t, int d=1 ) :
+            """
+               :param t: The parameter value.
+               :type t: float
+               :param d: The number of derivatives to compute.
+               :type d: int
+               :return: np.array with shape (d+1,M) where M is the number of vector components.
+            """
+            cdef int n = len(self._control_points) - 1
+            cdef int span = find_span(n, self._degree, t,self._knots,self._periodic)
+            cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1, self._control_points.shape[1]-1))
+            curve_deriv_cpts(self._degree, self._knots,self._control_points, d, span - self._degree, span, PK)
+
+            return np.asarray(PK)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cderivative(self, double t, double[:] result):

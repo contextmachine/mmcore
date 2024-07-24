@@ -16,6 +16,7 @@ cdef class ParametricCurve:
     def __init__(self):
         self._interval=np.zeros((2,))
         self._interval[1] = 1.0
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cevaluate(self, double t , double[:] result) noexcept nogil:
@@ -184,7 +185,24 @@ cdef class ParametricCurve:
         cdef double[:,:,:]result=np.zeros((t.shape[0], 4,3))
         self.cplanes(t,result)
         return result
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def points(self, count=50):
+        """
+        :param count: The number of points to generate (default is 50)
+        :return: A numpy array of shape (count, 3) containing the evaluated points
+        """
+        cdef int cnt=count
+        cdef double[:,:] result=np.empty((cnt,3))
+        cdef double[:] _interval = self.interval()
+        cdef double[:] t=   np.linspace(  _interval[0],  _interval[1], cnt)
+        cdef int i
 
+
+        for i in range(cnt):
+            self.cevaluate(t[i],result[i])
+
+        return np.asarray(result)
 cdef class ReparametrizedCurve(ParametricCurve):
     cdef public ParametricCurve curve
     def __init__(self, ParametricCurve curve, tuple new_interval):
@@ -384,7 +402,14 @@ cdef class ParametricSurface:
         self.csecond_derivative_uv(uv[0],uv[1],res)
 
         return np.asarray(res)
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def evaluate_multi(self, double[:,:] uv):
+        cdef int i
+        cdef double[:,:] res=np.empty((uv.shape[0],3))
+        for i in range(uv.shape[0]):
+            self.cevaluate(uv[i,0],uv[i,1],res[i])
+        return np.asarray(res)
 cdef class Ruled(ParametricSurface):
     #cdef double _remap_u
     #cdef double _remap_v
