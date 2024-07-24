@@ -336,7 +336,8 @@ class Curve:
 
     def remap_param(self, t, domain=(0.0, 1.0)):
         return np.interp(t, domain, self.interval())
-
+    def points(self, count=50):
+        return np.asarray(self(np.linspace(*self.interval(), count)))
 
 class TrimmedCurve(Curve):
     def __init__(self, curve: Curve, start: float = None, end: float = None):
