@@ -1,11 +1,8 @@
 from typing import Any
-
-
-
+from mmcore.numeric.aabb import aabb, aabb_overlap, point_in_aabb
 from mmcore.geom.vec import *
 import numpy as np
 from earcut import earcut
-
 from mmcore.numeric.vectors import scalar_dot
 
 
@@ -108,7 +105,8 @@ def to_polygon_area(boundary: np.ndarray):
     :return:
     :rtype:
     """
-    return np.array([*boundary, boundary[0]],dtype=boundary.dtype)
+    return np.array([*boundary, boundary[0]], dtype=boundary.dtype)
+
 
 def clip(subjectPolygon, clipPolygon):
     def inside(p):
@@ -140,7 +138,9 @@ def clip(subjectPolygon, clipPolygon):
             s = e
         cp1 = cp2
     return (outputList)
-class Vertex(object):
+
+
+class Vertex:
     """Node in a circular doubly linked list.
 
     This class is almost exactly as described in the paper by Günther/Greiner.
@@ -236,7 +236,7 @@ class Vertex(object):
         return
 
 
-class Polygon(object):
+class Polygon:
     """Manages a circular doubly linked list of Vertex objects that represents a polygon."""
 
     head = None
@@ -518,7 +518,6 @@ class Polygon(object):
         return polygon_area(to_polygon_area(self.corners))
 
 
-
 def intersect(s1, s2, c1, c2):
     """Test the intersection between two lines (two pairs of coordinates for two points).
 
@@ -581,7 +580,7 @@ def clip_polygon(subject, clipper, operation='difference'):
 
     clipped = Clipper.difference(Subject) if operation == 'reversed-diff' else Subject.__getattribute__(operation)(
         Clipper
-        )
+    )
 
     return clipped
 
@@ -622,56 +621,166 @@ class PolygonCollection(list[Polygon]):
             return lst, lst2
 
 
-
-
-
-
-from mmcore.numeric.aabb import aabb,aabb_overlap,point_in_aabb
-
-
-
-
 def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray[Any, np.dtype[np.bool_]]:
-
     return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
 
 
-
-
-def intersects_segments(ab: np.ndarray,  cd: np.ndarray,ab_bbox=None, cd_bbox=None) -> bool:
+def intersects_segments(ab: np.ndarray, cd: np.ndarray, ab_bbox=None, cd_bbox=None) -> bool:
     if ab_bbox is None:
-        ab_bbox=aabb(ab)
+        ab_bbox = aabb(ab)
     if cd_bbox is None:
-        cd_bbox=aabb(cd)
-    if not aabb_overlap(ab_bbox,cd_bbox):
+        cd_bbox = aabb(cd)
+    if not aabb_overlap(ab_bbox, cd_bbox):
         return False
     a, b = ab
     c, d = cd
     return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
 
 
-
 def segments_by_loop(loop, start_index=0):
-    return np.array([(i, (i + 1) % len(loop)) for i in range(len(loop))],dtype=np.int32)+start_index
+    return np.array([(i, (i + 1) % len(loop)) for i in range(len(loop))], dtype=np.int32) + start_index
 
-def point_in_polygon(points: np.ndarray,point: np.ndarray,segments=None, poly_aabb=None):
 
+def point_in_polygon(points: np.ndarray, point: np.ndarray, segments=None, poly_aabb=None):
     if poly_aabb is None:
-        poly_aabb=aabb(points)
+        poly_aabb = aabb(points)
 
-    if not point_in_aabb(poly_aabb,point):
+    if not point_in_aabb(poly_aabb, point):
         return False
-    if np.allclose(points[0],points[-1]):
-        points=points[1:]
+    if np.allclose(points[0], points[-1]):
+        points = points[1:]
     if segments is None:
         segments = segments_by_loop(points)
-    segment=np.array([point,point+poly_aabb[1]-poly_aabb[0]])
+    segment = np.array([point, point + poly_aabb[1] - poly_aabb[0]])
 
-    bbox_segm=aabb(segment)
-    cnt=0
+    bbox_segm = aabb(segment)
+    cnt = 0
     for pts in points[segments]:
-        if intersects_segments(pts, segment,cd_bbox=bbox_segm):
-            cnt+=1
+        if intersects_segments(pts, segment, cd_bbox=bbox_segm):
+            cnt += 1
     return cnt % 2 == 1
 
+
 import numpy as np
+
+
+def is_point_in_polygon(point, polygon):
+    """
+    Determines if a point is inside an arbitrary polygon using the Ray-Casting algorithm.
+
+    Parameters:
+    point (tuple): The point to check, represented as (x, y).
+    polygon (list): List of tuples representing the vertices of the polygon in (x, y) format.
+
+    Returns:
+    bool: True if the point is inside the polygon, False otherwise.
+    """
+    x, y = point
+    n = len(polygon)
+    inside = False
+
+    p1x, p1y = polygon[0]
+    for i in range(n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+
+    return inside
+
+
+class BoundingBox:
+    def __init__(self, x_min, x_max, y_min, y_max):
+        self.x_min = x_min
+        self.x_max = x_max
+        self.y_min = y_min
+        self.y_max = y_max
+
+    def intersects_ray(self, x, y):
+        # Check if the ray intersects the bounding box
+        return y >= self.y_min and y <= self.y_max and x <= self.x_max
+
+    def union(self, other):
+        # Create a bounding box that encompasses both self and other
+        return BoundingBox(
+            min(self.x_min, other.x_min),
+            max(self.x_max, other.x_max),
+            min(self.y_min, other.y_min),
+            max(self.y_max, other.y_max)
+        )
+
+
+class BVHNode:
+    def __init__(self, bounding_box, left=None, right=None, edge=None):
+        self.bounding_box = bounding_box
+        self.left = left
+        self.right = right
+        self.edge = edge  # None for non-leaf nodes
+
+
+def polygon_build_bvh(edges):
+    def build_recursive(objects):
+        if len(objects) == 1:
+            return BVHNode(objects[0][0], edge=objects[0][1])
+
+        # Sort edges by the center of their bounding boxes
+        objects.sort(key=lambda obj: (obj[0].x_min + obj[0].x_max) / 2)
+
+        mid = len(objects) // 2
+        left = build_recursive(objects[:mid])
+        right = build_recursive(objects[mid:])
+
+        bounding_box = left.bounding_box.union(right.bounding_box)
+        return BVHNode(bounding_box, left, right)
+
+    bounding_boxes = [(BoundingBox(min(x1, x2), max(x1, x2), min(y1, y2), max(y1, y2)), (x1, y1, x2, y2))
+                      for (x1, y1), (x2, y2) in edges]
+    return build_recursive(bounding_boxes)
+
+
+def is_point_in_polygon_bvh(bvh_root, point):
+    """
+
+    :param point:
+    :param bvh_root:
+    :return:
+
+    Example
+    ------
+    >>> polygon = [[6.2473630632829034, -4.6501623869364659], [4.5977790726622780, -7.9013992636043762], [5.6974884793053437, -8.4180460064619140], [6.4988720101896780, -7.0222670191270575], [5.9886117822374212, -6.7365615003726074], [6.4174018118259593, -6.0076576582442573], [7.3332739860138512, -6.4369235139392975], [6.0892830654991226, -8.6939253124958800], [7.130368038925603, -9.3282139115414324], [8.8187717638415339, -5.7738251567346959]]
+    >>> edges = [(polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))]
+    >>> bvh_root = polygon_build_bvh(edges)
+
+    >>> points = (6.2697549308428240, -7.0629610641788423),(6.6607986921973108, -6.4609212083145193)
+
+    >>> result=[is_point_in_polygon_bvh( bvh_root,point) for point in points]
+    >>> print(result)  # Output: [True, False]
+    [True, False]
+    """
+    x, y = point
+    intersections = 0
+
+    def intersect_ray(node):
+        nonlocal intersections
+        if node is None or not node.bounding_box.intersects_ray(x, y):
+            return
+
+        if node.edge is not None:
+            x1, y1, x2, y2 = node.edge
+            if y > min(y1, y2) and y <= max(y1, y2) and x <= max(x1, x2):
+                if y1 != y2:
+                    xinters = (y - y1) * (x2 - x1) / (y2 - y1) + x1
+                    if x <= xinters:
+                        intersections += 1
+            return
+
+        intersect_ray(node.left)
+        intersect_ray(node.right)
+
+    intersect_ray(bvh_root)
+    return intersections % 2 == 1
