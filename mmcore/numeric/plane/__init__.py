@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from math import sqrt
-from  .cplane import plane_plane_intersection   ,plane_plane_intersect   ,evaluate_plane,inverse_evaluate_plane    ,plane_plane_plane_intersect
+from mmcore.numeric.plane.cplane import plane_plane_intersection, plane_plane_intersect, evaluate_plane, \
+    inverse_evaluate_plane, plane_plane_plane_intersect,inverse_evaluate_plane_arr,evaluate_plane_arr
 import numpy as np
 
 from mmcore.func import vectorize
