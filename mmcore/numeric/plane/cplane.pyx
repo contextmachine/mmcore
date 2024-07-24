@@ -68,6 +68,34 @@ cpdef double[:] inverse_evaluate_plane(double[:,:] pln, double[:] point):
     cinverse_evaluate_plane(pln,point,result)
     return result
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double[:,:] evaluate_plane_arr(double[:,:] pln, double[:,:] points):
+    cdef int i
+    cdef double[:,:] result=np.empty((points.shape[0], 3,))
+
+
+    for i in range(points.shape[0]):
+        cevaluate_plane(pln, points[i], result[i])
+    return result
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double[:,:] inverse_evaluate_plane_arr(double[:,:] pln, double[:,:]  points):
+    cdef int i
+    cdef double[:,:] result=np.empty((points.shape[0], 3,))
+
+
+    for i in range(points.shape[0]):
+            cinverse_evaluate_plane(pln, points[i], result[i])
+    return result
+
+
+
+
+
+
 
 
 @cython.boundscheck(False)
