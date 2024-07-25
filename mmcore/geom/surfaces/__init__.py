@@ -8,7 +8,6 @@ from numpy.typing import NDArray
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
-from mmcore.geom.vec import unit, norm, cross
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2
@@ -92,6 +91,24 @@ class CurveOnSurface(Curve):
         self.curve = curve
         self._interval = interval
         self._eval_crv_func = getattr(self.curve, "evaluate", self.curve)
+        self._polygon=None
+        self._edges=None
+        self._bvh_uv_root=None
+
+    def build_uv_bvh(self):
+        if hasattr(self.curve, 'degree'):
+            if self.curve.degree == 1:
+                self._polygon = self.curve.evaluate_multi(np.arange(*self.curve.interval()))[:,:2]
+
+            elif  hasattr(self.curve,'points'):
+                self._polygon = self.curve.points()[:,:2]
+
+            else:
+                self._polygon =  self.curve(np.linspace(*self.curve.interval(),50))[:,:2]
+        else:
+            self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:,:2]
+        self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in range(len(self._polygon))]
+        self._bvh_uv_root = polygon_build_bvh(self._edges)
 
     def plane_at(self, t):
         O = self.evaluate(t)
@@ -115,7 +132,9 @@ class CurveOnSurface(Curve):
         return self._interval
 
     def point_inside(self, uv):
+
         return point_in_parametric_curve(self.curve, uv)
+
 
 
 
@@ -131,11 +150,26 @@ class Surface:
         self.evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
         self._grad = Grad(self)
         self._interval = np.array(self.interval())
-        max_norm = norm(self._interval[:, 1])
+
         self._uh = np.array([DEFAULT_H, 0.0])
         self._vh = np.array([0.0, DEFAULT_H])
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
+        self._boundary=None
 
+    def build_boundary(self):
+
+        u0,u1=   self._interval[0]
+        v0, v1 = self._interval[1]
+        boundary_curve=NURBSpline(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0,  0.]]), degree=1)
+
+        self._boundary=CurveOnSurface(self, boundary_curve,interval=tuple(boundary_curve.interval()) )
+        self._boundary.build_uv_bvh()
+
+
+
+    @property
+    def boundary(self):
+        return self._boundary
     def derivative_u(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
             return (
