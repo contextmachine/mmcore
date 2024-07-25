@@ -2,6 +2,7 @@ import functools
 import itertools
 import math
 import time
+import warnings
 from enum import Enum
 
 import numpy as np
@@ -141,6 +142,7 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=200):
         if cnt < max_cnt:
             return freeform_method(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
         else:
+            warnings.warn('freeform not convergence')
             return
 
 
@@ -218,7 +220,7 @@ def solve_marching(pt1, pt2, du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2, duv2, d
         [pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction]
     )
 
-    return plane_plane_plane_intersect(pl1, pl2, new_pln), step
+    return np.array(plane_plane_plane_intersect(pl1, pl2, new_pln)), step
 
 
 def marching_step(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_step=False):
@@ -525,8 +527,12 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
 
 
     """
-    curves, curves_uvs, stepss, terminators = surface_ppi(surf1, surf2, tol=tol, max_iter=max_iter,
+    res=surface_ppi(surf1, surf2, tol=tol, max_iter=max_iter,
                                                           curvature_step=curvature_step)
+    if res is None:
+        return []
+
+    curves, curves_uvs, stepss, terminators = res
     results = []
     for i, curve_pts in enumerate(curves):
 
