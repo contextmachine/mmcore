@@ -10,8 +10,6 @@ from scipy.spatial import KDTree
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric.closest_point import closest_point_on_ray
-from mmcore.numeric.intersection.curve_curve import curve_ppi
-from mmcore.numeric.intersection.curve_surface import closest_curve_surface_ppi
 from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
@@ -113,7 +111,7 @@ def freeform_step(pt1, pt2, du1, dv1, du2, dv2):
     return np1, np1 + (np2 - np1) / 2, np2
 
 
-def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
+def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=200):
     pt1 = s1.evaluate(uvb1)
     pt2 = s2.evaluate(uvb2)
     if scalar_norm(pt1 - pt2) < tol:
@@ -133,10 +131,10 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
     if (
-            any(uvb1_better <= 0.0)
-            or any(uvb2_better <= 0.0)
-            or any(uvb1_better >= 1.0)
-            or any(uvb2_better >= 1.0)
+            any(uvb1_better < 0.0)
+            or any(uvb2_better < 0.0)
+            or any(uvb1_better > 1.0)
+            or any(uvb2_better > 1.0)
     ):
         return
     else:
@@ -144,6 +142,46 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=20):
             return freeform_method(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
         else:
             return
+
+
+def find_uv_intersection(us, vs, ut, vt, u0, v0, u1, v1):
+    def line_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
+        # Calculate the denominator
+        denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1)
+
+        if denom == 0:
+            return None  # Lines are parallel
+
+        # Calculate the numerators
+        ua_num = (x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)
+        ub_num = (x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)
+
+        ua = ua_num / denom
+        ub = ub_num / denom
+
+        # Check if the intersection is within the line segments
+        if 0 <= ua <= 1 and 0 <= ub <= 1:
+            intersection_x = x1 + ua * (x2 - x1)
+            intersection_y = y1 + ua * (y2 - y1)
+            return (intersection_x, intersection_y)
+
+        return None
+
+    # Define the boundaries as line segments
+    boundaries = [
+        (u0, v0, u1, v0),  # Bottom boundary
+        (u1, v0, u1, v1),  # Right boundary
+        (u1, v1, u0, v1),  # Top boundary
+        (u0, v1, u0, v0),  # Left boundary
+    ]
+
+    for ua, va, ub, vb in boundaries:
+        intersection = line_intersection(us, vs, ut, vt, ua, va, ub, vb)
+        if intersection:
+            return intersection
+
+    return None
+
 
 
 @functools.lru_cache(maxsize=None)
@@ -211,107 +249,24 @@ def marching_step(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_ste
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
     if (
-            any(uvb1_better <= 0.0)
-            or any(uvb2_better <= 0.0)
-            or any(uvb1_better >= 1.0)
-            or any(uvb2_better >= 1.0)
+            any(uvb1_better < 0.0)
+            or any(uvb2_better < 0.0)
+            or any(uvb1_better > 1.0)
+            or any(uvb2_better > 1.0)
     ):
-        uv11, uv22 = np.bitwise_or(
-            uvb1_better <= 0.0, uvb1_better >= 1.0
-        ), np.bitwise_or(uvb2_better <= 0.0, uvb2_better >= 1.0)
-        if np.any(uv11) and np.any(uv22):
-            i = (np.arange(2, dtype=int)[uv11])[0]
-            j = (np.arange(2, dtype=int)[uv22])[0]
-            ni = (np.arange(2, dtype=int)[np.bitwise_not(uv11)])[0]
-            nj = (np.arange(2, dtype=int)[np.bitwise_not(uv22)])[0]
-            v1 = uvb1_better[i]
-            v2 = uvb2_better[j]
-            # print(v1,v2)
-            crv1 = [s1.isoline_u, s1.isoline_v][i](v1)
-            crv2 = [s2.isoline_u, s2.isoline_v][j](v2)
-            # initial=np.array([uvb1_better[ni], uvb2_better[nj]])
-            # print(crv1,crv2,     initial)
-            res = curve_ppi(crv1, crv2, tol=tol)
-            t1, t2 = min(res, key=lambda x: np.linalg.norm(initial, x))
-            uvb1_better[ni] = t1
-            uvb2_better[nj] = t2
-            xyz_better1 = s1(uvb1_better)
-            return (
-                (xyz_better1, uvb1_better),
-                (xyz_better1, uvb2_better),
-                np.linalg.norm(pt1 - xyz_better1),
-                TerminatorType.EDGE,
-            )
+        xyz_better = constrained_uv_int(s1, s2, uvb1, uvb1_better, uvb2, uvb2_better, pt1, xyz_better)
+        uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
+        uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
-        elif np.any(uv11):
-            uvb1_better = np.clip(uvb1_better, 0.0, 1.0)
+        uvb1_better = np.clip(uvb1_better, 0., 1.)
+        uvb2_better = np.clip(uvb2_better, 0., 1.)
 
-            # np.clip(uvb2_better, 0., 1., out=uvb2_better)
-            ii = np.arange(2, dtype=int)[uv11]
-            # print(ii)
-            i = ii[0]
-            j = (np.arange(2, dtype=int)[np.bitwise_not(uv11)])[0]
-            v = uvb1_better[i]
-            crv = [s1.isoline_u, s1.isoline_v][i](v)
-            initial = np.array([uvb1_better[j], *uvb2_better])
-            # print( initial)
-            res = closest_curve_surface_ppi(crv, s2, initial, tol=tol, max_iter=9)
-
-            # print(res, crv.evaluate(res[0]), s2.evaluate(res[1:]))
-            if all(np.bitwise_and(res >= 0.0, res <= 1.0)):
-                xyz_better1 = crv.evaluate(res[0])
-                uvb2_better = res[1:]
-
-                uvb1_better[j] = res[0]
-                # print(point_inversion_surface(s1, crv.evaluate(res[0]),*uvb1_better,tol1=tol,tol2=tol),uvb1_better)
-                return (
-                    (xyz_better1, uvb1_better),
-                    (xyz_better1, uvb2_better),
-                    np.linalg.norm(pt1 - xyz_better1),
-                    TerminatorType.EDGE,
-                )
-            else:
-                # print(res,'fai;')
-                return
-
-        elif np.any(uv22):
-            # print(uvb2_better)
-            uvb2_better = np.clip(uvb2_better, 0.0, 1.0)
-            # print(uvb2_better)
-            # np.clip(uvb1_better, 0., 1., out=uvb1_better)
-
-            i = (np.arange(2, dtype=int)[uv22])[0]
-            j = (np.arange(2, dtype=int)[np.bitwise_not(uv22)])[0]
-            v = uvb2_better[i]
-            # print(i,j)
-            crv = [s2.isoline_u, s2.isoline_v][i](v)
-            initial = np.array([uvb2_better[j], *uvb1_better])
-            # print(initial)
-            res = closest_curve_surface_ppi(crv, s1, initial, tol=tol, max_iter=9)
-            # print(res, crv.evaluate(res[0]), s1.evaluate(res[1:]))
-
-            if all(np.bitwise_and(res >= 0.0, res <= 1.0)):
-                xyz_better1 = crv.evaluate(res[0])
-                uvb1_better = res[1:]
-                uvb2_better[j] = res[0]
-                # print(point_inversion_surface(s2, crv.evaluate(res[0]),*uvb2_better,tol1=tol,tol2=tol),uvb2_better)
-                return (
-                    (xyz_better1, uvb1_better),
-                    (xyz_better1, uvb2_better),
-                    np.linalg.norm(pt1 - xyz_better1),
-                    TerminatorType.EDGE,
-                )
-            else:
-                # print(res,'fai;')
-                return
-        else:
-            # print(uv11,uv22,uvb1_better,uvb2_better)
-            return
-            # uvb1_better=np.clip(uvb1_better, 0., 1.)
-        # uvb2_better=np.clip(uvb2_better, 0., 1.)
-
-        # pt=s1.evaluate(uvb1_better)
-
+        return (
+            (xyz_better, uvb1_better),
+            (xyz_better, uvb2_better),
+            step,
+            TerminatorType.EDGE,
+        )
     return (
         (xyz_better, uvb1_better),
         (xyz_better, uvb2_better),
@@ -320,9 +275,27 @@ def marching_step(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_ste
     )
 
 
-# else:
+def constrained_uv_int(surf1, surf2, uv11, uv12, uv21, uv22, pt1, pt2):
+    (u0, u1), (v0, v1) = surf1.interval()
+    res1 = find_uv_intersection(*uv11, *uv12, u0, v0, u1, v1)
+    (u0, u1), (v0, v1) = surf2.interval()
+    res2 = find_uv_intersection(*uv21, *uv22, u0, v0, u1, v1)
+    if res1 is None:
+        uv_first = uv12
+    else:
+        uv_first = res1
 
-#    return marching_step(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1, side=side)
+    xyz_first_better = surf1.evaluate(np.array(uv_first)) - pt1
+
+    if res2 is None:
+        uv_second = uv22
+
+    else:
+        uv_second = res2
+    xyz_second_better = surf2.evaluate(np.array(uv_second)) - pt1
+
+    xyz3 = min((xyz_second_better, xyz_first_better), key=lambda x: scalar_norm(x))
+    return xyz3 + pt1
 
 
 def marching_method(
@@ -344,7 +317,7 @@ def marching_method(
     res = marching_step(s1, s2, initial_uv1, initial_uv2, tol=tol, side=side, curvature_step=curvature_step)
     if res is None:
         terminator = TerminatorType.EDGE
-        return terminator
+        return
 
     (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
     if use_kd:
@@ -404,24 +377,35 @@ def find_closest_points(surf1: Surface, surf2: Surface, tol=1e-3):
     min2max2: BoundingBox = surf2.tree.bounding_box
 
     if min1max1.intersect(min2max2):
+
         pts = []
         uvs1 = []
         uvs2 = []
+
         for first, second in intersect_bvh_objects(surf1.tree, surf2.tree):
             first: BVHNode
             second: BVHNode
             # bb=first.bounding_box.intersection(second.bounding_box)
+            uv1 = np.clip(np.average(first.object.uvs, axis=0), 0., 1.)
+            uv2 = np.clip(np.average(second.object.uvs, axis=0), 0., 1.)
 
-            uv1 = np.average(first.object.uvs, axis=0)
-            uv2 = np.average(second.object.uvs, axis=0)
+            if any([any(uv1 < 0), any(uv1 > 1), any(uv2 < 0), any(uv2 > 1)]):
+                pass
+            else:
+                #print(uv1, uv2)
 
-            res = freeform_method(surf1, surf2, uv1, uv2)
-            if res is not None:
-                (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) = res
-                # print(uvb1_better, uvb2_better)
-                pts.append(xyz1_new)
-                uvs1.append(uvb1_better)
-                uvs2.append(uvb2_better)
+                res = freeform_method(surf1, surf2, uv1, uv2, tol=tol)
+
+                if res is not None:
+
+                    (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) = res
+                    if any([any(uvb1_better < 0), any(uvb1_better > 1), any(uvb2_better < 0), any(uvb2_better > 1)]):
+                        pass
+                    # print(uvb1_better, uvb2_better)
+                    pts.append(xyz1_new)
+                    uvs1.append(uvb1_better)
+                    uvs2.append(uvb2_better)
+        #print(np.array(pts).tolist())
         return KDTree(np.array(pts)), np.array(uvs1), np.array(uvs2)
 
 
@@ -641,12 +625,18 @@ if __name__ == "__main__":
     print(
         patch1._rc,
     )
+    import yappi
+
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start()
     s = time.time()
-    # yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    # yappi.start()
     TOL = 0.001
     cc = surface_ppi(patch1, patch2, TOL)
     print(time.time() - s)
+    #yappi.stop()
+    #func_stats = yappi.get_func_stats()
+    #func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
+
     # tolerance checks
     print(
         np.all((patch1(cc[1][0][0]) - patch2(cc[1][0][1])) <= TOL)
@@ -656,9 +646,6 @@ if __name__ == "__main__":
     print([np.max(norm(patch1(cc[1][0][0]) - patch2(cc[1][0][1]))),
            np.max(norm(patch1(cc[1][0][0]) - np.array(cc[0][0]))),
            np.max(norm(patch2(cc[1][0][1]) - np.array(cc[0][0])))])
-    # yappi.stop()
-    # func_stats = yappi.get_func_stats()
-    # func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
     print([np.array(c).tolist() for c in cc[0]])
 
