@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from mmcore.numeric.vectors import vector_projection, scalar_dot
+from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm
 from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min
@@ -72,7 +72,7 @@ def closest_point_on_curve_single(curve, point, tol=1e-3):
     _fn = getattr(curve, "evaluate", curve)
 
     def distance_func(t):
-        return np.linalg.norm(point - _fn(t))
+        return scalar_norm(point - _fn(t))
 
     t0, t1 = curve.interval()
 
