@@ -71,7 +71,8 @@ class Curve:
         self._evaluate_length_cached.cache_clear()
 
 
-
+    def points(self, count=50):
+        return np.array(self.evaluate_multi(np.linspace(*self.interval(), count)))
     #def intersect_with_curve(
     #        self, other: "Curve", tol=TOLERANCE
     #) -> list[tuple[float, float]]:

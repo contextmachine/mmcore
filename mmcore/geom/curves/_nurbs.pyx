@@ -439,36 +439,9 @@ cdef class NURBSpline(ParametricCurve):
         cdef int val=int(v)
         self.set_degree(val)
 
-    cpdef bint is_open(self):
-        """
-        Check if the NURBS curve is open
-        """
-        cdef bint res = True
-        cdef int i
-        cdef double[:] part1=self._knots[:self._degree + 1]
-        cdef double[:] part2=  self._knots[-(self._degree + 1):]
-        for i in range(part1.shape[0]):
-            res=part1[i] == self._knots[0]
-            if not res:
-                break
-        for i in range(part2.shape[0]):
-            res=part2[i] == self._knots[-1]
-            if not res:
-                break
 
-        return res
 
-    cpdef bint is_closed(self):
-        """
-        Check if the NURBS curve is closed
-        """
-        cdef bint res = True
-        cdef int i
-        for i in range(4):
-            res=self._control_points[0][i]==self.control_points[-1][i]
-            if not res:
-                break
-        return res
+
 
 
 

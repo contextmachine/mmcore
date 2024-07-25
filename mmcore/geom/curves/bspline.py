@@ -305,7 +305,11 @@ class NURBSpline(CNURBSpline, Curve):
     #
     #    super().invalidate_cache()
     #    self._cached_eval_func.cache_clear()
-
+    def points(self, *args, **kwargs):
+        if self.degree==1:
+            return self.control_points[:-1]
+        else:
+            return super().points(*args, **kwargs)
     def split(self, t):
         return nurbs_split(self, t)
 
