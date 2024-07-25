@@ -1,9 +1,11 @@
-from typing import Iterable
+from typing import Collection
+
 import numpy as np
-from mmcore.numeric.routines import uvs
+
 from mmcore.geom.polygon import is_point_in_polygon_bvh, polygon_build_bvh
 from mmcore.geom.surfaces import CurveOnSurface, Surface
-from mmcore.topo.mesh.triangle import triangulate, convex_hull
+from mmcore.numeric.routines import uvs
+from mmcore.topo.mesh.triangle import triangulate
 from mmcore.topo.mesh.triangle.tri import segments_by_loop
 
 
@@ -71,19 +73,57 @@ def match_edge_cases(polygon, bounds, tol=1e-3):
               polygon[-1]])
 
 
-def tessellate_surface(surface: Surface, trims: Iterable[CurveOnSurface] = (), u_count=25, v_count=25,
-                       boundary_count=100):
+def calculate_uv_ratio(surf: Surface):
+    (u_min, u_max), (v_min, v_max) = surf.interval()
+
+    crv1 = surf.isoline_u((u_min + u_max) / 2)
+    crv2 = surf.isoline_v((v_min + v_max) / 2)
+    l1 = crv1.evaluate_length(crv1.interval())
+    l2 = crv2.evaluate_length(crv2.interval())
+    return l1 / l2, l1, l2
+
+
+def tessellate_surface(surface: Surface,
+                       trims: Collection[CurveOnSurface] = (),
+                       u_count: int = None, v_count: int = None,
+                       boundary_count: int = 100, calculate_density: bool = False):
     """
     :param surface: The surface to be tessellated.
-    :param trims: The collection of trims to be included in the tessellation.
-    :param u_count: The number of divisions in the u direction.
-    :param v_count: The number of divisions in the v direction.
-    :param boundary_count: The number of divisions in the boundary.
-
-    :return: The tessellated surface.
-
+    :param trims: Collection of curves on the surface to be included in the tessellation.
+    :param u_count: Optional. Number of divisions in the u direction of the surface. If not provided, default value is 25.
+    :param v_count: Optional. Number of divisions in the v direction of the surface. If not provided, default value is 25.
+    :param boundary_count: Optional. Number of divisions in the boundary of the surface. Defaults to 100.
+    :param calculate_density: Optional. If True, calculates the density of the divisions based on the length of the trims. Defaults to False.
+    :return: The tessellation of the surface as a dictionary with vertices, segments, position, and other properties.
 
     """
+
+    trims_density = [boundary_count] * len(trims)
+    if calculate_density:
+        ratio, lu, lv = calculate_uv_ratio(surface)
+
+        if u_count is not None and v_count is None:
+            u_count = 25
+            v_count = int(ratio * u_count)
+        elif u_count is None:
+            u_count = int((1 / ratio) * v_count)
+        elif v_count is None:
+            v_count = int(ratio * u_count)
+        else:
+            pass
+        for i, trim in enumerate(trims):
+            l = trim.evaluate_length(trim.interval())
+            trims_density[i] = int(((lu / l) * u_count) / 4)
+    else:
+        if u_count is not None and v_count is None:
+            u_count = 25
+            v_count = 25
+        elif u_count is None:
+            u_count = v_count
+
+        elif v_count is None:
+            v_count = u_count
+
     uv_interval = ((u_min, v_min), (u_max, v_max)) = surface.interval()
 
     boundary = np.array([*np.linspace((u_min, v_min), (u_max, v_min), u_count),
@@ -99,19 +139,40 @@ def tessellate_surface(surface: Surface, trims: Iterable[CurveOnSurface] = (), u
     tessellation_params = dict(vertices=[*boundary], segments=[*boundary_edges])
     _max = len(boundary)
 
-    for trim in trims:
-        polygon, edges = _process_trim(trim, boundary_count)
+    for i, trim in enumerate(trims):
+        polygon, edges = _process_trim(trim, trims_density[i])
 
         tessellation_params['segments'].extend(edges + _max)
         tessellation_params['vertices'].extend(polygon)
         _max += len(edges)
     uv = uvs(u_count - 1, v_count - 1, *tess_uv)
-    tessellation_params['vertices'].extend(uv)
-    tessellation_params['vertices'] = np.array(tessellation_params['vertices'], dtype=float)
-    tessellation_params['segments'] = np.array(tessellation_params['segments'], dtype=np.int32)
-    tessellation = triangulate(
-        tessellation_params
-    )
 
-    tessellation["position"] = surface(tessellation["vertices"])
+    tessellation_params['vertices'].extend(uv)
+    vxs = np.array(tessellation_params['vertices'], dtype=float)
+    if calculate_density:
+        vxs[..., 1] *= ratio
+    tessellation_params['vertices'] = vxs
+    tessellation_params['segments'] = np.array(tessellation_params['segments'], dtype=np.int32)
+    if calculate_density:
+        tessellation = triangulate(
+            tessellation_params, opts='q'
+        )
+    else:
+        tessellation = triangulate(
+            tessellation_params
+        )
+    vxs = np.array(tessellation["vertices"])
+    if calculate_density:
+        vxs[..., 1] /= ratio
+    tessellation["vertices"] = vxs
+    tessellation["position"] = surface(vxs)
     return tessellation
+
+
+def as_polygons(triangulate_result):
+    """
+    The small debug helper
+    :param triangulate_result:
+    :return:
+    """
+    return triangulate_result['position'][triangulate_result['triangles']]
