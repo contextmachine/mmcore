@@ -63,6 +63,27 @@ cdef class ParametricCurve:
             self.cevaluate(t2, v2)
             vectors.sub3d(v1, v2, result)
             vectors.scalar_div3d(result, DEFAULT_H, result)
+
+    cpdef double[:] end(self):
+        cdef double[:] pt=np.empty((3,))
+
+        self.cevaluate(self._interval[1], pt)
+        return pt
+    cpdef double[:] start(self):
+        cdef double[:] pt=np.empty((3,))
+
+        self.cevaluate(self._interval[0], pt)
+        return pt
+
+    cpdef bint is_closed(self):
+        cdef double[:] end=self.end()
+        cdef double[:] start=self.start()
+        cdef bint res=fabs(end[0]-start[0])<=1e-7 and fabs(end[1]-start[1])<=1e-7 and fabs(end[2]-start[2])<=1e-7
+        return res
+    cpdef bint is_open(self):
+        cdef bint res= not self.is_closed()
+        return res
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void csecond_derivative(self, double t, double[:] result):
@@ -564,7 +585,7 @@ cdef class BiLinear(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cecond_derivative_vv(self, double u,double v, double[:] result):
+    cdef void csecond_derivative_vv(self, double u,double v, double[:] result):
         result[0] =0.0
         result[1] =0.0
         result[2] =0.0
@@ -572,7 +593,7 @@ cdef class BiLinear(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cecond_derivative_uu(self, double u,double v, double[:] result):
+    cdef void csecond_derivative_uu(self, double u,double v, double[:] result):
         result[0] =0.0
         result[1] =0.0
         result[2] =0.0

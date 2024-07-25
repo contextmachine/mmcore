@@ -8,7 +8,10 @@ cdef class ParametricCurve:
 
     cpdef double[:] interval(self)
 
-
+    cpdef double[:] start(self)
+    cpdef double[:]  end(self)
+    cpdef bint is_closed(self)
+    cpdef bint is_open(self)
     cdef void cderivative(self, double t, double[:] result)
 
     cdef void csecond_derivative(self, double t, double[:] result)
