@@ -40,7 +40,7 @@ The vectorized approach takes a different strategy, optimized for processing man
 
 This approach, despite similar performance to the classical method in this processor implementation, opens up exciting possibilities for modern computational techniques. The key notion here is to present the classical CAD algorithm in a format that is well compatible with modern computational methods, including machine learning workflows.
 
-Although in this tutorial we use conventional NumPy arrays on the CPU, the same approach can be easily adapted, for example, to use PyTorch tensors or other ML frameworks. This would take advantage of GPU acceleration and open up other features of these actively evolving frameworks.
+Although in this tutorial we use conventional NumPy arrays on the CPU, the same approach can easily be adapted to use, for example, PyTorch tensors or other ML frameworks. This would take advantage of GPU acceleration and other features of these actively developing tools.
 
 ## Implementation with mmcore
 
