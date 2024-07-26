@@ -508,7 +508,7 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
                          curvature_step=False) -> list[
     tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]:
     """
-    Calculate the intersection of two surfaces.
+    Calculate the intersection of two parametric surfaces.
 
     :param surf1: The first surface.
     :type surf1: Surface
@@ -525,6 +525,15 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
              CurveOnSurface objects for surf1 and surf2.
     :rtype: list[tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]
 
+    Note
+    -----
+    If successful (intersection found), this function returns a list of intersection results because two surfaces can form as many separate intersection curves as desired.
+
+     Since two surfaces can form as many separate intersection curves as desired, the list of intersection results.
+     Each intersection result is a separate intersection curve in three views:
+        1. A spatial NURBS curve (NURBSpline object).
+        2. A curve in the parametric space of the first surface (CurveOnSurface object).
+        3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
     res=surface_ppi(surf1, surf2, tol=tol, max_iter=max_iter,
