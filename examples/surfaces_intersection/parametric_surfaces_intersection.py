@@ -2,6 +2,29 @@
 This example illustrates how intersections can be handled on a geometric level,
 i.e. without resorting to advanced topological algorithms and data structures.
 Only points, curves, surfaces and trims are used.
+
+
+At the end of executing this script you should see something like:
+```
+6 intersection computed at: 0.03678107261657715 sec.
+
+(<mmcore.geom.surfaces.Ruled object at 0x109a071d0> X
+    <mmcore.geom.surfaces.BiLinear object at 0x118184e00>):
+    1. <mmcore.geom.curves.bspline.NURBSpline object at 0x10feffa50>, <mmcore.geom.surfaces.CurveOnSurface object at 0x104820d40>, <mmcore.geom.surfaces.CurveOnSurface object at 0x109f23e00>
+
+(<mmcore.geom.surfaces.Ruled object at 0x118184e30> X
+    <mmcore.geom.surfaces.BiLinear object at 0x118184e00>):
+    1. <mmcore.geom.curves.bspline.NURBSpline object at 0x11f8f4250>, <mmcore.geom.surfaces.CurveOnSurface object at 0x11f8d7e60>, <mmcore.geom.surfaces.CurveOnSurface object at 0x11f8fc050>
+
+...
+
+(<mmcore.geom.surfaces.Ruled object at 0x118184e30> X
+    <mmcore.geom.surfaces.BiLinear object at 0x118187620>):
+    1. <mmcore.geom.curves.bspline.NURBSpline object at 0x11f8f4e50>, <mmcore.geom.surfaces.CurveOnSurface object at 0x11f8fff20>, <mmcore.geom.surfaces.CurveOnSurface object at 0x11f990050>
+
+```
+
+
 """
 import numpy as np
 
@@ -125,6 +148,7 @@ for surf2 in surfaces2:
 import time
 
 # Find all intersection curves
+
 s = time.time()
 intersections = dict()
 for i, surf1 in enumerate(surfaces):
@@ -135,23 +159,21 @@ for i, surf1 in enumerate(surfaces):
                 pass
             else:
                 intersections[(i, j)] = res
-print(f'{len(intersections)} intersection computed at: {time.time() - s} sec.' )
-
+print(f'{len(intersections)} intersection computed at: {time.time() - s} sec.')
 
 ptss = []
 degs = []
-for keys,crvs in intersections.items():
+for keys, crvs in intersections.items():
     print(f'\n({surfaces[keys[0]]} X \n\t{surfaces2[keys[1]]}):')
 
-    for i,(spatial, uv1, uv2) in enumerate(crvs):
-        print(f'\t{i+1}. {spatial}, {uv1}, {uv2}')
+    for i, (spatial, uv1, uv2) in enumerate(crvs):
+        print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
         ptss.append((spatial.control_points * 100).tolist())
         degs.append(spatial.degree)
 
 # Tesselation
 
 from mmcore.topo.mesh.tess import tessellate_surface, as_polygons
-
 
 TT = dict()
 for (i, j), v in intersections.items():
@@ -166,4 +188,3 @@ for i, trms in TT.items():
 # This function will simply return all polygons as lists of points
 # (this is handy for debugging me here and now, the original data structure can give you much more)
 mshs = [(as_polygons(msh) * 1000).tolist() for msh in meshes]
-
