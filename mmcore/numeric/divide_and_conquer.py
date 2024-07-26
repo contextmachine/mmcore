@@ -210,6 +210,69 @@ def divide_and_conquer_min_2d(f, x_range, y_range, tol=1e-6):
         y_max = min(y_max, y_range[1])
     return (x_min + x_max) / 2, (y_min + y_max) / 2
 
+def divide_and_conquer_min_2d_vectorized(f, x_range, y_range, tol=1e-6):
+    """
+    :param f: The function to minimize. Should take two arguments, f(x, y), and return a scalar value.
+    :param x_range: The range of x values to search for the minimum. Should be a tuple (x_min, x_max).
+    :param y_range: The range of y values to search for the minimum. Should be a tuple (y_min, y_max).
+    :param tol: The tolerance for the search. The search will stop when the range of x and y values is smaller than this tolerance.
+    :return: The coordinates (x, y) of the minimum point found.
+
+    This method implements a divide and conquer approach to find the minimum point of a 2D function within a given range. It starts with the entire range and iteratively divides it into smaller subranges until the range becomes smaller than the specified tolerance. At each iteration, the method evaluates the function at corners and midpoints of the edges, and selects the subrange that contains the minimum value. The method continues to divide this selected subrange until the range becomes smaller than the tolerance.
+
+    The method returns the coordinates of the minimum point found, which is the midpoint of the final subrange.
+    """
+    tol=tol/2
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    while np.all((x_max - x_min) > tol) or np.all((y_max - y_min) > tol):
+        x_mid = (x_min + x_max) / 2
+        y_mid = (y_min + y_max) / 2
+        # Evaluate the function at the corners and midpoints of the edges
+        f00 = f(x_min, y_min)
+        f10 = f(x_max, y_min)
+        f01 = f(x_min, y_max)
+        f11 = f(x_max, y_max)
+        f_mid_x_min = f(x_mid, y_min)
+        f_mid_x_max = f(x_mid, y_max)
+        f_mid_y_min = f(x_min, y_mid)
+        f_mid_y_max = f(x_max, y_mid)
+        f_mid_xy = f(x_mid, y_mid)
+        # Create a list of (value, coordinates) pairs
+        min_val=np.zeros(x_range.shape[1])
+        min_coords=np.zeros((2,x_range.shape[1]))
+
+        for i in range(x_range.shape[1]):
+            candidates = [
+                (f00[i], (x_min[i], y_min[i])),
+                (f10[i], (x_max[i], y_min[i])),
+                (f01[i], (x_min[i], y_max[i])),
+                (f11[i], (x_max[i], y_max[i])),
+                (f_mid_x_min[i], (x_mid[i], y_min[i])),
+                (f_mid_x_max[i], (x_mid[i], y_max[i])),
+                (f_mid_y_min[i], (x_min[i], y_mid[i])),
+                (f_mid_y_max[i], (x_max[i], y_mid[i])),
+                (f_mid_xy[i], (x_mid[i], y_mid[i]))
+            ]
+
+            min_val[i], min_coords[:,i]= min(candidates, key=lambda item: item[0])
+
+
+
+        # Find the minimum value and its coordinates
+
+        x_min, x_max = min_coords[0] - (x_max - x_min) / 4, min_coords[0] + (x_max - x_min) / 4
+        y_min, y_max = min_coords[1] - (y_max - y_min) / 4, min_coords[1] + (y_max - y_min) / 4
+
+        # Ensure the search space does not collapse below tolerance
+        x_min = np.maximum(x_min, x_range[0])
+        x_max = np.minimum(x_max, x_range[1])
+        y_min = np.maximum(y_min, y_range[0])
+        y_max = np.minimum(y_max, y_range[1])
+
+    return (x_min + x_max) / 2, (y_min + y_max) / 2
+
+
 
 
 

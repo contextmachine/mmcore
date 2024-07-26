@@ -8,6 +8,8 @@ from numpy.typing import NDArray
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
+
+from mmcore.geom.polygon import polygon_build_bvh
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.numeric import evaluate_normal2

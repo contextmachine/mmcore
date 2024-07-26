@@ -45,7 +45,8 @@ class BoundingBox:
                 self.max_point[2] - self.min_point[2],
             ]
         )
-
+    def volume(self):
+        return self.dims[0]*  self.dims[1]*  self.dims[2]
     def intersect(self, other):
         """Check if this bounding box intersects with another"""
         return (
@@ -316,6 +317,16 @@ def intersect_bvh_objects(node1, node2):
                 stack.append((n1, n2.right))
 
     return intersections
+
+
+
+
+def contains_point(bvh_root, pt):
+    results=[]
+    pt_box = BoundingBox(pt, pt)
+    traverse_bvh(bvh_root, pt_box,   results)
+    return results
+
 
 def sd_triangle(p: np.array, a: np.array, b: np.array, c: np.array):
     ba = b - a
