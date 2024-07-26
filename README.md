@@ -64,4 +64,5 @@ We managed to run several benchmarks and the results are shown in the figure. I 
   
 <img src="notes/images/implicit_tubes_intersection.png" width="300"/>
 
-
+## Tutorials
+You can also check out one of the [first detailed tutorial](./notes/surface_closest_point.md) with the implementation of a couple of CAD algorithms using `mmcore`
