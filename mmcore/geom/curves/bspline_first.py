@@ -297,7 +297,7 @@ class NURBSCurve(Curve):
 
     def find_span(self, t):
         return find_span(self.n, self.degree,  t, self.knots)
-    @property
+
     def interval(self):
         """
         parametric interval
@@ -305,15 +305,8 @@ class NURBSCurve(Curve):
         """
         return self._interval
 
-    @interval.setter
-    def interval(self,val):
-        """
-        parametric interval
-        """
-        s,e=val
-        if s<min(self.knots) or e>max(self.knots):
-            raise ValueError('interval value out of range')
-        self._interval[:]=s,e
+
+
 
     @property
     def control_points(self):

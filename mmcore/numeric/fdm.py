@@ -12,7 +12,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 DEFAULT_H = 1e-3
-_DECIMALS = 3
+_DECIMALS = 5
 from scipy.sparse import eye, csr_matrix
 
 _PDE_H = csr_matrix(eye(128))
