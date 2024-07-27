@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from typing import Callable, Optional
 
@@ -11,7 +12,7 @@ from mmcore.geom.parametric import ParametricCurve
 
 from mmcore.geom.polygon import polygon_build_bvh
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
-from mmcore.numeric.fdm import Grad, DEFAULT_H
+from mmcore.numeric.fdm import Grad, DEFAULT_H, newtons_method
 from mmcore.numeric.numeric import evaluate_normal2
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
 
@@ -85,7 +86,10 @@ def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, S
 
     return curvature_vector, T
 
+
 from mmcore.geom.implicit import ParametrizedImplicit2D
+
+
 class CurveOnSurface(Curve):
     def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0., 1.)):
         super().__init__()
@@ -93,23 +97,24 @@ class CurveOnSurface(Curve):
         self.curve = curve
         self._interval = interval
         self._eval_crv_func = getattr(self.curve, "evaluate", self.curve)
-        self._polygon=None
-        self._edges=None
-        self._bvh_uv_root=None
+        self._polygon = None
+        self._edges = None
+        self._bvh_uv_root = None
 
     def build_uv_bvh(self):
         if hasattr(self.curve, 'degree'):
             if self.curve.degree == 1:
-                self._polygon = self.curve.evaluate_multi(np.arange(*self.curve.interval()))[:,:2]
+                self._polygon = self.curve.evaluate_multi(np.arange(*self.curve.interval()))[:, :2]
 
-            elif  hasattr(self.curve,'points'):
-                self._polygon = self.curve.points()[:,:2]
+            elif hasattr(self.curve, 'points'):
+                self._polygon = self.curve.points()[:, :2]
 
             else:
-                self._polygon =  self.curve(np.linspace(*self.curve.interval(),50))[:,:2]
+                self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:, :2]
         else:
-            self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:,:2]
-        self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in range(len(self._polygon))]
+            self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:, :2]
+        self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in
+                       range(len(self._polygon))]
         self._bvh_uv_root = polygon_build_bvh(self._edges)
 
     def plane_at(self, t):
@@ -138,11 +143,9 @@ class CurveOnSurface(Curve):
         return point_in_parametric_curve(self.curve, uv)
 
 
-
-
-from mmcore.geom.bvh import BVHNode
-
-
+from mmcore.geom.bvh import BVHNode, contains_point
+from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
+from mmcore.numeric.fdm import gradient as fgrdient
 class Surface:
     _tree: Optional[BVHNode] = None
 
@@ -156,22 +159,59 @@ class Surface:
         self._uh = np.array([DEFAULT_H, 0.0])
         self._vh = np.array([0.0, DEFAULT_H])
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
-        self._boundary=None
+        self._boundary = None
 
     def build_boundary(self):
 
-        u0,u1=   self._interval[0]
+        u0, u1 = self._interval[0]
         v0, v1 = self._interval[1]
-        boundary_curve=NURBSpline(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0,  0.]]), degree=1)
+        boundary_curve = NURBSpline(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0, 0.]]),
+                                    degree=1)
 
-        self._boundary=CurveOnSurface(self, boundary_curve,interval=tuple(boundary_curve.interval()) )
+        self._boundary = CurveOnSurface(self, boundary_curve, interval=tuple(boundary_curve.interval()))
         self._boundary.build_uv_bvh()
 
+    def inversion(self, pt):
+        def wrp1(uv):
+            d = self.evaluate(uv) - pt
+            return scalar_dot(d, d)
 
+        def wrp(u,v):
+            d = self.evaluate(np.array([u,v])) - pt
+            return scalar_dot(d, d)
+
+        cpt = contains_point(self.tree, pt)
+
+        if len(cpt) == 0:
+            (umin, umax), (vmin, vmax) = self.interval()
+            return divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax),1e-3 )
+
+        else:
+
+            initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
+            return newtons_method(wrp1, initial)
+
+
+
+    def implicit(self, pt):
+        uv = self.inversion(pt)
+        direction = pt - self.evaluate(uv)
+        #val = scalar_dot(direction, scalar_cross(self.derivative_u(uv), self.derivative_v(uv)))
+
+        return scalar_dot(direction,direction)
+    def bounds(self):
+        return np.array([self.tree.bounding_box.min_point,self.tree.bounding_box.max_point])
+    def gradient(self, pt):
+
+        gg=self.inversion(pt)
+
+
+        return  self.plane_at(gg)[-1]
 
     @property
     def boundary(self):
         return self._boundary
+
     def derivative_u(self, uv):
         if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
             return (
@@ -424,6 +464,7 @@ class Ruled(Surface):
         return self._remap_uv * t
 
     def evaluate(self, uv):
+
         uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])

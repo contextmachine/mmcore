@@ -118,8 +118,10 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
                 success = False
                 break
 
+
         qk = qk_next
         f1, f2, g1, g2 = surf1(qk), surf2(qk), grad1(qk), grad2(qk)
+
         J = np.array([
             [scalar_dot(g1, g1), scalar_dot(g2, g1)],
             [scalar_dot(g1, g2), scalar_dot(g2, g2)]

@@ -149,18 +149,24 @@ class NURBSpline(CNURBSpline, Curve):
 
     """
 
-    def __init__(self, control_points, degree=3, knots=None, weights=None):
-        cpts = control_points if isinstance(control_points, np.ndarray) else np.array(control_points, dtype=float)
-        if weights is not None:
-            cpts = np.ones((len(control_points), 4), dtype=float)
-            cpts[:, :control_points.shape[1]] = control_points
-            cpts[:, 3] = weights
+    def __init__(self, control_points, degree=3, knots=None, periodic=False):
         if knots is not None:
             knots = knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
+        cpts = control_points if isinstance(control_points, np.ndarray) else np.array(control_points, dtype=float)
+        if not cpts.shape[1]==4:
 
-        super().__init__(cpts, degree=degree, knots=knots)
+
+            _cpts = np.ones((cpts.shape[0], 4), dtype=float)
+            _cpts[:, :cpts.shape[1]] = cpts
+            _cpts[:, 3] = 1.
+            CNURBSpline.__init__(self,  _cpts, degree, knots, periodic)
+
+
+        else:
+            CNURBSpline.__init__(self, cpts, degree, knots, periodic)
 
         self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
+
 
     #def __init__(self, control_points, weights=None, degree=3, knots=None):
     #    self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
@@ -315,6 +321,13 @@ class NURBSpline(CNURBSpline, Curve):
 
     def evaluate(self, t):
         return CNURBSpline.evaluate(self, t)
+    def __setstate__(self, state):
+        self.control_points = state['_control_points']
+        self._knots = state['_knots']
+        self._degree = state['_degree']
+        self._periodic = state['_periodic']
+        self.weights = state['_control_points'][:, 3]
+        self._interval = state['_interval']
 
     #def _evaluate(self, t: float):
     #    return evaluate_nurbs(t, self._control_points, self._spline.knots, self.weights, self._spline.degree).base
@@ -394,7 +407,7 @@ class NURBSpline(CNURBSpline, Curve):
          [0., -radius, 0. ,1.  ],
          [radius, -radius, 0. , w  ],
          [radius, 0., 0. , 1.  ]],dtype=float)
-        points[:,:-1]=np.array(evaluate_plane_arr(plane,points[:,:-1] ))
+        points[:,:-1]=np.array(evaluate_plane_arr(plane,points[:,:-1]-origin ))
 
         knots = np.array([0, math.pi/2, math.pi, 3*math.pi/2, 2*math.pi], dtype=float)
         mults = np.array([3, 2, 2, 2, 3],dtype=int)

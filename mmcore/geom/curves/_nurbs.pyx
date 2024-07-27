@@ -390,7 +390,7 @@ cdef class NURBSpline(ParametricCurve):
 
 
     def __reduce__(self):
-        return (self.__class__, (np.asarray(self._control_points),self._degree,np.asarray(self._knots),self._periodic))
+        return (self.__class__, (np.asarray(self._control_points),self._degree,  np.asarray(self._knots),  self._periodic))
     def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None, bint periodic=0):
         super().__init__()
         self._degree = degree
@@ -421,8 +421,7 @@ cdef class NURBSpline(ParametricCurve):
         obj=self.__class__(control_points=self.control_points.copy(), degree=self._degree, knots=np.asarray(self._knots).copy())
 
         obj.weights=self.weights
-        if self._periodic:
-            obj.make_periodic()
+
 
         return obj
     cpdef void set_degree(self, int val):
@@ -467,18 +466,26 @@ cdef class NURBSpline(ParametricCurve):
         state=dict()
         state['_control_points']=np.asarray(self._control_points)
         state['_knots'] = np.asarray(self._knots)
-        state['_degree'] = self._degree,
+        state['_degree'] = self._degree
         state['_periodic']=self._periodic
-
+        state['_interval']=np.asarray(self._interval)
+        state['_weights'] = np.asarray(self.weights)
         return state
 
     def __setstate__(self,state):
-        self._control_points=state['_control_points']
+        self._control_points=np.ones((len(state['_control_points']),4))
+        for i in range(len(state['_control_points'])):
+            self._control_points[i,0]=state['_control_points'][i][  0]
+            self._control_points[i, 1] = state['_control_points'][i][1]
+            self._control_points[i, 2] = state['_control_points'][i][2]
+            self._control_points[i, 3] = state['_weights'][i]
+
         self._knots = state['_knots']
         self._degree = state['_degree']
         self._periodic = state['_periodic']
+        self.weights = state['_control_points'][:,3]
+        self._interval = state['_interval']
 
-        self._update_interval()
 
     @property
     def periodic(self):
@@ -487,11 +494,15 @@ cdef class NURBSpline(ParametricCurve):
     def control_points(self):
         return np.asarray(self._control_points[:,:-1])
     @control_points.setter
-    def control_points(self, double[:,:] control_points):
+    def control_points(self, control_points):
         self._control_points = np.ones((control_points.shape[0],4))
+        if control_points.shape[1]==4:
+            self._control_points[:]=control_points
+        else:
 
-        self._control_points[:, :-1] = control_points
+            self._control_points[:, :control_points.shape[1]] = control_points
         self._evaluate_cached.cache_clear()
+
 
 
     @property
