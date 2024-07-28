@@ -1,10 +1,10 @@
 [build-system]
-requires = ["poetry-core", "cython", "numpy", "setuptools", "pyMSVC;sys_platform=='win32'"]
+requires = ["poetry-core", "cython", "numpy", "setuptools", "pytest", "pyMSVC;sys_platform=='win32'"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.31.3.post7.dev0+45de66c"
+version = "0.32.1"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -19,12 +19,14 @@ pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
 
 
+
 [tool.poetry.build]
 generate-setup-file = false
 script = 'build.py'
 
 
 [tool.poetry.group.dev.dependencies]
+pytest = "^8.3.2"
 matplotlib = { version = "^3.8.3", optional = true }
 pydoc-markdown = {version = "^4.8.2", optional = true}
 ipython = {version = "*", optional = true}
@@ -37,10 +39,3 @@ setuptools="*"
 max-line-length = 140
 ignore = ['E503', 'E504']
 
-[tool.poetry-dynamic-versioning]
-enable = true
-vcs = "git"
-
-[tool.poetry-dynamic-versioning.version]
-source = "tag"
-format = "{tag}.dev{distance}+{branch}.{sha}"
