@@ -146,6 +146,8 @@ class CurveOnSurface(Curve):
 from mmcore.geom.bvh import BVHNode, contains_point
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
 from mmcore.numeric.fdm import gradient as fgrdient
+
+
 class Surface:
     _tree: Optional[BVHNode] = None
 
@@ -176,37 +178,36 @@ class Surface:
             d = self.evaluate(uv) - pt
             return scalar_dot(d, d)
 
-        def wrp(u,v):
-            d = self.evaluate(np.array([u,v])) - pt
+        def wrp(u, v):
+            d = self.evaluate(np.array([u, v])) - pt
             return scalar_dot(d, d)
 
         cpt = contains_point(self.tree, pt)
 
         if len(cpt) == 0:
             (umin, umax), (vmin, vmax) = self.interval()
-            return divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax),1e-3 )
+            return divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax), 1e-3)
 
         else:
 
             initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
             return newtons_method(wrp1, initial)
 
-
-
     def implicit(self, pt):
         uv = self.inversion(pt)
         direction = pt - self.evaluate(uv)
         #val = scalar_dot(direction, scalar_cross(self.derivative_u(uv), self.derivative_v(uv)))
 
-        return scalar_dot(direction,direction)
+        return scalar_dot(direction, direction)
+
     def bounds(self):
-        return np.array([self.tree.bounding_box.min_point,self.tree.bounding_box.max_point])
+        return np.array([self.tree.bounding_box.min_point, self.tree.bounding_box.max_point])
+
     def gradient(self, pt):
 
-        gg=self.inversion(pt)
+        gg = self.inversion(pt)
 
-
-        return  self.plane_at(gg)[-1]
+        return self.plane_at(gg)[-1]
 
     @property
     def boundary(self):
@@ -285,13 +286,10 @@ class Surface:
             ) / DEFAULT_H
 
     def normal(self, uv):
-        return evaluate_normal2(
-            self.derivative_u(uv),
-            self.derivative_v(uv),
-            self.second_derivative_uu(uv),
-            self.second_derivative_uv(uv),
-            self.second_derivative_vv(uv),
-        )
+        du=self.derivative_u(uv)
+        dv=self.derivative_v(uv)
+        n = scalar_cross(du,dv)
+        return np.array(n)/scalar_norm(n)
 
     def plane_at(self, uv):
         orig = self.evaluate(uv)
@@ -464,7 +462,6 @@ class Ruled(Surface):
         return self._remap_uv * t
 
     def evaluate(self, uv):
-
         uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])

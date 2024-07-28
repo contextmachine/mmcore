@@ -4,9 +4,12 @@ import os
 import numpy as np
 
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm
+
+from mmcore.geom.bvh import contains_point
+from mmcore.geom.surfaces import Surface
 from mmcore.numeric import divide_interval
-from mmcore.numeric.fdm import PDE
-from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min
+from mmcore.numeric.fdm import PDE, newtons_method
+from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d
 
 from scipy.optimize import newton
 import multiprocessing as mp
@@ -143,6 +146,33 @@ def closest_point_on_line(line, point):
     direction = end - start
     return start + vector_projection(point - start, direction)
 
+
+def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
+
+    if bounds is None:
+        bounds = tuple(self.interval())
+    (umin, umax), (vmin, vmax) = bounds
+    def wrp1(uv):
+        d = self.evaluate(uv) - pt
+        return scalar_dot(d, d)
+
+    def wrp(u, v):
+        d = self.evaluate(np.array([u, v])) - pt
+        return scalar_dot(d, d)
+
+    cpt = contains_point(self.tree, pt)
+
+    if len(cpt) == 0:
+        #(umin, umax), (vmin, vmax) = self.interval()
+        return divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax), tol)
+
+    else:
+
+        initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
+        uv=newtons_method(wrp1, initial,tol=tol)
+        if uv is None:
+            raise ValueError('Newtons method failed to converge')
+        return uv
 
 __all__ = ["closest_point_on_curve",
 

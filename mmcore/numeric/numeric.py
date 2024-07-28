@@ -491,6 +491,7 @@ def evaluate_sectional_curvature(S10, S01, S20, S11, S02, planeNormal):
 
     return True, K
 
+
 def curve_bound_points(curve, bounds=None, tol=1e-2):
     """
     Returns a array of parameters whose evaluation gives you a set of points at least sufficient
