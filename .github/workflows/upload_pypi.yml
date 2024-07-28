@@ -1,0 +1,33 @@
+name: upload-to-pypi
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+    branches:
+      - 'master'
+
+jobs:
+  upload_pypi:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: poetry
+      url: https://pypi.org/p/mmcore
+
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.artifactname.outputs.wheelfile }}
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
