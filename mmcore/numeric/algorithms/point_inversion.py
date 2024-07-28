@@ -1,9 +1,13 @@
 import numpy as np
 
+from mmcore.geom.bvh import contains_point
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.surfaces import Surface
-from mmcore.numeric.vectors import scalar_dot,scalar_norm,dot,norm,cross
+from mmcore.numeric.vectors import scalar_dot, scalar_norm, dot, norm, cross
 from numpy.typing import NDArray
+
+from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
+from mmcore.numeric.fdm import newtons_method
 
 
 # Assuming the following functions are already implemented
@@ -80,8 +84,35 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
                             max_iter: int = 100) -> (
         float, float):
     """
-    Perform point inversion on a surface to find parameters (u, v) such that S(u, v) is close to P
+    Perform point inversion on a surface to find parameters (u, v) such that P - S(u, v) will be perpendicular to the surface.
 
+    :param surface: The surface object to perform point inversion on.
+    :param P: The point to be inverted.
+    :param u0: The initial u parameter value.
+    :param v0: The initial v parameter value.
+    :param tol1: The tolerance for convergence criteria 1.
+    :param tol2: The tolerance for convergence criteria 2.
+    :param max_iter: The maximum number of iterations to perform. Defaults to 100.
+    :return: The u and v parameter values of the inverted point.
+
+    This method performs point inversion on a given surface object. It iteratively updates the u and v parameter values based on convergence criteria until a sufficient solution is found. The surface object should have methods to compute the surface's derivatives and evaluate the surface at a given parameter.
+
+    The convergence criteria are defined as follows:
+
+        1. If the change in u and v parameter values is below the tolerance given by tol1 multiplied by the sum of the norms of the surface's u and v derivatives at the current parameter values, the iteration is considered converged.
+        2. If the distance between the inverted point and the surface evaluated at the updated parameter values is below tol1, the iteration is considered converged.
+        3. If the absolute value of the dot product between the surface's u derivative and the vector connecting the inverted point and the surface evaluated at the updated parameter values, divided by the product of the norms of the surface's u derivative and the vector, is below tol2, the iteration is considered converged.
+
+
+
+
+    Important
+    ----
+    Since the inversion of a point on the surface may not be unique, the algorithm finds the closest solution to u0,v0.
+    This does not ensure that the solution is the closest inversion to point P,
+    and even less does it ensure that the solution is the closest point on the surface.
+    To find the closest point, see:
+        mmcore.numeric.closest_point.closest_point_on_surface
 
     # Example usage
     P = np.array([x, y, z])  # The point to project
@@ -90,6 +121,7 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
     tol2 = 1e-6  # Tolerance for zero cosine measure
     u, v = point_inversion_surface(P, u0, v0, tol1, tol2)
 
+    The method returns the final u and v parameter values of the inverted point.
     """
 
     def f(uv: NDArray[float]) -> float:
@@ -159,10 +191,14 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
         uivi = ui1vi1
 
     return uivi
-_vec_solve    =np.vectorize(np.linalg.solve, signature='(i,i),(i)->(i)'
-                                                       )
+
+
+_vec_solve = np.vectorize(np.linalg.solve, signature='(i,i),(i)->(i)'
+                          )
+
+
 def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: float, tol1: float, tol2: float,
-                            max_iter: int = 100) -> (
+                                   max_iter: int = 100) -> (
         float, float):
     """
     Perform point inversion on a surface to find parameters (u, v) such that S(u, v) is close to P
@@ -176,8 +212,8 @@ def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: flo
     u, v = point_inversion_surface(P, u0, v0, tol1, tol2)
 
     """
-    sdu=np.vectorize(surface.derivative_u,signature='(i)->(j)',cache=True)
-    sdv=np.vectorize(surface.derivative_v, signature='(i)->(j)',cache=True)
+    sdu = np.vectorize(surface.derivative_u, signature='(i)->(j)', cache=True)
+    sdv = np.vectorize(surface.derivative_v, signature='(i)->(j)', cache=True)
 
     def f(uv: NDArray[float]) -> float:
         return np.array(dot(sdu(uv), surface(uv) - P))
@@ -185,43 +221,35 @@ def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: flo
     def g(uv: NDArray[float]) -> float:
         return np.array(dot(sdv(uv), surface(uv) - P))
 
-
-    uivi = np.empty((P.shape[0],2), dtype=float)
-    uivi[...,0]=u0
+    uivi = np.empty((P.shape[0], 2), dtype=float)
+    uivi[..., 0] = u0
     uivi[..., 1] = v0
 
-    J=np.zeros((P.shape[0], 2,2), dtype=np.float64)
-    k=np.zeros((P.shape[0], 2), dtype=np.float64)
-    result_uv=np.zeros((P.shape[0],2), dtype=np.float64)
-    mask_indices = np.arange(P.shape[0],dtype=int)
+    J = np.zeros((P.shape[0], 2, 2), dtype=np.float64)
+    k = np.zeros((P.shape[0], 2), dtype=np.float64)
+    result_uv = np.zeros((P.shape[0], 2), dtype=np.float64)
+    mask_indices = np.arange(P.shape[0], dtype=int)
     for _ in range(max_iter):
 
         f_val = f(uivi)
         g_val = g(uivi)
-        print(_,f_val,g_val)
+        print(_, f_val, g_val)
         # Calculate the Jacobian matrix
         du = sdu(uivi)
         dv = sdv(uivi)
-        du_norm=np.array(norm(du))
+        du_norm = np.array(norm(du))
         dv_norm = np.array(norm(du))
 
-        dot_du_du,dot_du_dv,dot_dv_dv,dot_dv_du=np.array(dot(du, du)), np.array(dot(du, dv)), np.array(dot(dv, dv)), np.array(dot(dv, du))
-        J[..., 0, 0]=dot_du_du
+        dot_du_du, dot_du_dv, dot_dv_dv, dot_dv_du = np.array(dot(du, du)), np.array(dot(du, dv)), np.array(
+            dot(dv, dv)), np.array(dot(dv, du))
+        J[..., 0, 0] = dot_du_du
         J[..., 0, 1] = dot_du_dv
         J[..., 1, 0] = dot_dv_du
         J[..., 1, 1] = dot_dv_dv
 
-
         # Calculate the k vector
-        k[...,0] = f_val
-        k[...,1] = g_val
-
-
-
-
-
-
-
+        k[..., 0] = f_val
+        k[..., 1] = g_val
 
         """
         k = np.array(
@@ -246,37 +274,35 @@ def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: flo
         """
         # Solve for delta
 
-
         delta = _vec_solve(J, k)
-        print(_,delta)
+        print(_, delta)
 
         # Update u and v
         ui1vi1 = uivi - delta
 
-        mask=np.array(norm(ui1vi1)*(du_norm + dv_norm))<=tol1
+        mask = np.array(norm(ui1vi1) * (du_norm + dv_norm)) <= tol1
 
-
-        pt_vec=surface(ui1vi1) - P
-        pt_norm=np.array(norm( pt_vec))
+        pt_vec = surface(ui1vi1) - P
+        pt_norm = np.array(norm(pt_vec))
         #print(pt_norm
         #      )
-        mask2=        pt_norm<=tol1
-        dui1=sdu(ui1vi1)
-        mask3=abs(np.array(dot(dui1, pt_vec)))/np.array(norm( dui1)*pt_norm)<=tol2
-        mask=np.bitwise_or(mask,np.bitwise_or(mask2,mask3))
-        mask_inv=np.bitwise_not(mask)
+        mask2 = pt_norm <= tol1
+        dui1 = sdu(ui1vi1)
+        mask3 = abs(np.array(dot(dui1, pt_vec))) / np.array(norm(dui1) * pt_norm) <= tol2
+        mask = np.bitwise_or(mask, np.bitwise_or(mask2, mask3))
+        mask_inv = np.bitwise_not(mask)
         if np.any(mask):
-            print("M",uivi)
+            print("M", uivi)
         result_uv[mask_indices[mask]] = uivi[mask]
 
-        mask_indices=mask_indices[mask_inv]
+        mask_indices = mask_indices[mask_inv]
         #uivi[mask_inv]=ui1vi1[mask_inv]
-        uivi=ui1vi1[mask_inv]
-        P=P[mask_inv]
-        J=J[mask_inv]
+        uivi = ui1vi1[mask_inv]
+        P = P[mask_inv]
+        J = J[mask_inv]
         k = k[mask_inv]
 
-        if len(uivi)==0:
+        if len(uivi) == 0:
             break
         # Check convergence criteria
         #if np.linalg.norm(ui1vi1 - uivi,axis=1) * (np.linalg.norm(surface.derivative_u(uivi)) + np.linalg.norm(
@@ -294,3 +320,4 @@ def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: flo
         #uivi = ui1vi1
 
     return result_uv
+
