@@ -183,9 +183,10 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
 
         if np.linalg.norm(surface(ui1vi1) - P) <= tol1:
             break
-
-        if abs(scalar_dot(surface.derivative_u(ui1vi1), surface(ui1vi1) - P)) / (
-                np.linalg.norm(surface.derivative_u(ui1vi1)) * np.linalg.norm(surface(ui1vi1) - P)) <= tol2:
+        _du=surface.derivative_u(ui1vi1)
+        _pt=surface.evaluate(ui1vi1)
+        if abs(scalar_dot( _du, _pt- P)) / (
+                np.linalg.norm( _du) * np.linalg.norm(_pt - P)) <= tol2:
             break
 
         uivi = ui1vi1
