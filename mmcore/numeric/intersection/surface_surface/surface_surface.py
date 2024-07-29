@@ -359,13 +359,13 @@ def marching_stepv2(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_s
         print()
         uvb1_better,uvb2_better= constrained_uv_int(s1, s2, uvb1, uvb1_better, uvb2, uvb2_better, pt1,pt2,tol)
 
-
+        xyz_better = (s1.evaluate(uvb1_better) + s2.evaluate(uvb2_better)) / 2
         uvb1_better = np.clip(uvb1_better, 0., 1.)
         uvb2_better = np.clip(uvb2_better, 0., 1.)
 
         return (
-            (s1.evaluate(uvb1_better), uvb1_better),
-            (s2.evaluate(uvb2_better), uvb2_better),
+            ( xyz_better, uvb1_better),
+            ( xyz_better, uvb2_better),
             step,
             TerminatorType.EDGE,
         )
