@@ -4,6 +4,7 @@ from typing import Protocol, Union, Optional, Iterable
 import numpy as np
 from numpy._typing import NDArray
 
+from mmcore.geom.bvh import BVHNode
 
 
 class ImplicitCurveProtocol(Protocol):
@@ -233,3 +234,7 @@ class TrimmedCurve(Curve):
 
 
 SubCurve=TrimmedCurve
+
+
+def curve_bvh(curve: Curve, bounds=None, count=None)->BVHNode:
+    return None

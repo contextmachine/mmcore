@@ -1,15 +1,16 @@
-
+import itertools
 import os
 
 import numpy as np
 
-from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm
+from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
 from mmcore.geom.bvh import contains_point
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric import divide_interval
 from mmcore.numeric.fdm import PDE, newtons_method
-from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d
+from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
+    divide_and_conquer_min_2d_vectorized
 
 from scipy.optimize import newton
 import multiprocessing as mp
@@ -149,6 +150,7 @@ def closest_point_on_line(line, point):
 
 def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
 
+
     if bounds is None:
         bounds = tuple(self.interval())
     (umin, umax), (vmin, vmax) = bounds
@@ -164,7 +166,7 @@ def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
 
     if len(cpt) == 0:
         #(umin, umax), (vmin, vmax) = self.interval()
-        return divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax), tol)
+        return np.array(divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax), tol))
 
     else:
 
@@ -173,7 +175,70 @@ def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
         if uv is None:
             raise ValueError('Newtons method failed to converge')
         return uv
+def closest_points_on_surface(surface, pts, tol=1e-6):
+    """
+    Compute the closest points on a surface to a given set of points using a classic approach.
 
+    :param surface: The surface object.
+    :param pts: The set of points as a numpy array.
+    :param tol: The tolerance value for the division and conquest algorithm. Default is 1e-6.
+    :return: The closest points on the surface corresponding to the given set of points as a numpy array of (u, v) pairs.
+    """
+    surface.build_tree(10, 10)
+
+    def objective(u, v):
+        d = surface.evaluate(np.array((u, v))) - pt
+        return scalar_dot(d, d)
+
+    uvs = np.zeros((len(pts), 2))
+
+    for i, pt in enumerate(pts):
+        objects = contains_point(surface.tree, pt)
+        if len(objects) == 0:
+            uvs[i] = np.array(
+                divide_and_conquer_min_2d(objective, *surface.interval(), tol=tol)
+            )
+        else:
+            uvs_ranges = np.array(
+                list(itertools.chain.from_iterable(o.uvs for o in objects))
+            )
+            uvs[i] = np.array(
+                divide_and_conquer_min_2d(
+                    objective,
+                    (np.min(uvs_ranges[..., 0]), np.max(uvs_ranges[..., 0])),
+                    (np.min(uvs_ranges[..., 1]), np.max(uvs_ranges[..., 1])),
+                    tol=tol,
+                )
+            )
+    return uvs
+def closest_point_on_surface_batched(surface, pts, tol=1e-6):
+    """
+    Compute the closest points on a surface to a given set of points using a vectorized approach.
+
+    :param surface: The surface object.
+    :param pts: The set of points as a numpy array.
+    :param tol: The tolerance value for the division and conquest algorithm. Default is 1e-6.
+    :return: The closest points on the surface corresponding to the given set of points as a numpy array of (u, v) pairs.
+    """
+
+    def objective(u, v):
+        d = surface(np.array((u, v)).T) - pts
+        return np.array(dot(d, d))
+
+    (u_min, u_max), (v_min, v_max) = surface.interval()
+    x_range = np.empty((2, len(pts)))
+    x_range[0] = u_min
+    x_range[1] = u_max
+    y_range = np.empty((2, len(pts)))
+    y_range[0] = v_min
+    y_range[1] = v_max
+
+    uvs = np.array(
+        divide_and_conquer_min_2d_vectorized(
+            objective, x_range=x_range, y_range=y_range, tol=tol
+        )
+    )
+    return uvs.T
 __all__ = ["closest_point_on_curve",
 
            "closest_point_on_line",
