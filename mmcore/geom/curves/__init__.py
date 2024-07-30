@@ -61,19 +61,6 @@ class Circle(Curve):
         )
 
 
-class Offset(Curve):
-    def __init__(self, crv: Curve, distance: float):
-        super().__init__()
-        self.crv = crv
-        self._is_uniform = None
-        self._distance = None
-        self.distance = distance
-
-    def interval(self):
-        return self.crv.interval()
-
-    def evaluate(self, t: float) -> ArrayLike:
-        return self.crv(t) + self.crv.normal(t) * self.distance
 
 
 if __name__ == "__main__":
