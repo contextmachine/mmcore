@@ -11,6 +11,7 @@ import numpy as np
 from numpy._typing import ArrayLike
 from scipy.optimize import newton
 
+from mmcore.geom.bvh import PSegment, build_bvh
 from mmcore.geom.vec import unit,cross
 
 from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
@@ -41,6 +42,7 @@ class Curve:
     """
     Base Curve with Parametric Form Support
     """
+    _tree=None
     def __init__(self, init_derivatives=True):
         super().__init__()
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)", doc="""
@@ -69,7 +71,12 @@ class Curve:
 
         self._evaluate_cached.cache_clear()
         self._evaluate_length_cached.cache_clear()
+    @property
+    def tree(self):
+        if getattr(self, '_tree', None) is None:
+            self.build_tree()
 
+        return self._tree
 
     def points(self, count=50):
         return np.array(self.evaluate_multi(np.linspace(*self.interval(), count)))
@@ -339,6 +346,12 @@ class Curve:
         return np.interp(t, domain, self.interval())
     def points(self, count=50):
         return np.asarray(self(np.linspace(*self.interval(), count)))
+    def build_tree(self, count=50):
+        self._tree=curve_bvh(self,
+                  tuple(self.interval()),
+            count=count
+        )
+
 
 class TrimmedCurve(Curve):
     def __init__(self, curve: Curve, start: float = None, end: float = None):
@@ -429,3 +442,30 @@ class CurveCurveNode(CurveCallableNode):
         s = self.second.interval()
 
         return max(f[0], s[0]), min(f[1], s[1])
+def curve_bvh(curve: Curve, bounds=None, count=None):
+
+    start, end = curve.interval() if bounds is None else bounds
+
+
+
+    if count is None:
+        if hasattr(curve, 'degree') :
+
+            count = math.ceil(end - start) * curve.degree
+        else:
+            count=16
+
+    t = np.linspace(start, end, count + 1)
+    ts = np.empty((count, 2))
+    pts = np.empty((count, 2, 3))
+    res = curve(t)
+    segments = []
+    for i in range(count):
+        pts[i, 0, :] = res[i]
+        pts[i, 1, :] = res[i + 1]
+        ts[i, 0] = t[i]
+        ts[i, 1] = t[i + 1]
+        segments.append(PSegment(pts[i], ts[i]))
+
+    return build_bvh(segments)
+

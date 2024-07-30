@@ -1,26 +1,38 @@
 import functools
 import itertools
-import math
 import time
 import warnings
-from enum import Enum
 
 import numpy as np
 from scipy.spatial import KDTree
 
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
-from mmcore.numeric.closest_point import closest_point_on_ray, closest_point_on_surface
-from mmcore.numeric.algorithms.point_inversion import points_inversion_surface, point_inversion_surface
-from mmcore.numeric.fdm import DEFAULT_H, newtons_method
-from mmcore.numeric.intersection.surface_surface.sectioal_tangent import sectional_tangent, sectional_curvature_vector
-from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect,inverse_evaluate_plane
+from mmcore.numeric.closest_point import closest_point_on_ray, closest_point_on_surface_batched, \
+    closest_point_on_surface, closest_points_on_surface
+from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
+from mmcore.numeric.intersection.surface_surface._terminator import (
+    TerminatorType,
+    Terminator,
+)
+
+from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
-from mmcore.numeric.vectors import scalar_norm, scalar_cross, scalar_unit, det, solve2x2, norm, scalar_dot
+from mmcore.numeric.vectors import (
+    scalar_norm,
+    scalar_cross,
+    scalar_unit,
+    det,
+    solve2x2,
+    norm,
+    scalar_dot,
+)
 
 
-def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2):
+def compute_intersection_curvature(
+    Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, Suv2, Svv2
+):
     """
     Compute the curvature of the intersection curve between two parametric surfaces given their partial derivatives.
 
@@ -57,21 +69,14 @@ def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, S
     L2 = scalar_dot(scalar_unit(Suu2), N2)
     M2 = scalar_dot(scalar_unit(Suv2), N2)
     N2_2 = scalar_dot(scalar_unit(Svv2), N2)
-    k1 = (L1 * uSu1 ** 2 + 2 * M1 * uSu1 * uSv1 + N1_2 * (uSv1 ** 2))
-    k2 = (L2 * uSu2 ** 2 + 2 * M2 * uSu2 * uSv2 + N2_2 * (uSv2 ** 2))
-    curvature_vector = (k1 * N1 + k2 * N2) / (1 - cos_theta ** 2)
+    k1 = L1 * uSu1**2 + 2 * M1 * uSu1 * uSv1 + N1_2 * (uSv1**2)
+    k2 = L2 * uSu2**2 + 2 * M2 * uSu2 * uSv2 + N2_2 * (uSv2**2)
+    curvature_vector = (k1 * N1 + k2 * N2) / (1 - cos_theta**2)
 
     # Compute the curvature magnitude
-    #curvature = np.linalg.norm(curvature_vector)
+    # curvature = np.linalg.norm(curvature_vector)
 
     return curvature_vector, T
-
-
-class TerminatorType(int, Enum):
-    FAIL = 0
-    LOOP = 1
-    EDGE = 2
-    STEP = 3
 
 
 def get_plane(origin, du, dv):
@@ -135,20 +140,18 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=200):
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
     if (
-            any(uvb1_better < 0.0)
-            or any(uvb2_better < 0.0)
-            or any(uvb1_better > 1.0)
-            or any(uvb2_better > 1.0)
+        any(uvb1_better < 0.0)
+        or any(uvb2_better < 0.0)
+        or any(uvb1_better > 1.0)
+        or any(uvb2_better > 1.0)
     ):
-
-
         return None
 
     else:
         if cnt < max_cnt:
             return freeform_method(s1, s2, uvb1_better, uvb2_better, tol, cnt + 1)
         else:
-            warnings.warn('freeform not convergence')
+            warnings.warn("freeform not convergence")
             return
 
 
@@ -191,37 +194,53 @@ def find_uv_intersection(us, vs, ut, vt, u0, v0, u1, v1):
     return None
 
 
-
 @functools.lru_cache(maxsize=None)
 def solve_step(r, tol):
-    return np.sqrt(r ** 2 - (r - tol) ** 2) * 2
+    return np.sqrt(r**2 - (r - tol) ** 2) * 2
 
 
-def solve_marching(pt1, pt2, du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2, duv2, dvv2, tol, side=1, curvature_step=False):
+def solve_marching(
+    pt1,
+    pt2,
+    du1,
+    dv1,
+    duu1,
+    duv1,
+    dvv1,
+    du2,
+    dv2,
+    duu2,
+    duv2,
+    dvv2,
+    tol,
+    side=1,
+    curvature_step=False,
+):
     pl1, pl2 = get_plane(pt1, du1, dv1), get_plane(pt2, du2, dv2)
 
     marching_direction = np.array(scalar_unit(scalar_cross(pl1[-1], pl2[-1])))
 
-    #tng = np.zeros((2, 3))
-    #calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
-    #marching_direction=tng[0]
-    #K = tng[1]
+    # tng = np.zeros((2, 3))
+    # calgorithms.evaluate_curvature(marching_direction * side, pl1[-1], tng[0], tng[1])
+    # marching_direction=tng[0]
+    # K = tng[1]
     if not curvature_step:
         r = 1
         step = solve_step(r, tol)
     else:
-        curvature_vector, tangent_vector = compute_intersection_curvature(du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2,
-                                                                          duv2, dvv2)
+        curvature_vector, tangent_vector = compute_intersection_curvature(
+            du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2, duv2, dvv2
+        )
 
-        #print(scalar_norm(curvature_vector))
-        #r = 1 / (scalar_norm(K))
+        # print(scalar_norm(curvature_vector))
+        # r = 1 / (scalar_norm(K))
         r = 1 / np.sqrt(scalar_norm(curvature_vector))
-        #print(r,1/r)
-        #r=1/r
-        #print((r**2)-(r-tol)**2)
+        # print(r,1/r)
+        # r=1/r
+        # print((r**2)-(r-tol)**2)
 
-        step = np.sqrt(r ** 2 - (r - tol) ** 2) * 2
-        #print(step)
+        step = np.sqrt(r**2 - (r - tol) ** 2) * 2
+        # print(step)
     new_pln = np.array(
         [pt1 + marching_direction * side * step, pl1[-1], pl2[-1], marching_direction]
     )
@@ -229,62 +248,17 @@ def solve_marching(pt1, pt2, du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2, duv2, d
     return np.array(plane_plane_plane_intersect(pl1, pl2, new_pln)), step
 
 
-def marching_step(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_step=False):
-    duu1 = duv1 = dvv1 = duu2 = duv2 = dvv2 = None
-    pt1 = s1.evaluate(uvb1)
-
-    pt2 = s2.evaluate(uvb2)
-
-    du1 = s1.derivative_u(uvb1)
-    dv1 = s1.derivative_v(uvb1)
-    du2 = s2.derivative_u(uvb2)
-    dv2 = s2.derivative_v(uvb2)
-    if curvature_step:
-        duu1 = s1.second_derivative_uu(uvb1)
-        duv1 = s1.second_derivative_uv(uvb1)
-        dvv1 = s1.second_derivative_vv(uvb1)
-        duu2 = s2.second_derivative_uu(uvb2)
-        duv2 = s2.second_derivative_uv(uvb2)
-        dvv2 = s2.second_derivative_vv(uvb2)
-
-    xyz_better, step = solve_marching(pt1, pt2, du1, dv1, duu1, duv1, dvv1, du2, dv2, duu2, duv2, dvv2, tol, side,
-                                      curvature_step=curvature_step)
-
-    if xyz_better is None:
-        return
-
-    uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
-    uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
-
-    if (
-            any(uvb1_better < 0.0)
-            or any(uvb2_better < 0.0)
-            or any(uvb1_better > 1.0)
-            or any(uvb2_better > 1.0)
-    ):
-
-        xyz_better = constrained_uv_int(s1, s2, uvb1, uvb1_better, uvb2, uvb2_better, pt1,pt2)
-        uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
-        uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
-
-        uvb1_better = np.clip(uvb1_better, 0., 1.)
-        uvb2_better = np.clip(uvb2_better, 0., 1.)
-
-        return (
-            (xyz_better, uvb1_better),
-            (xyz_better, uvb2_better),
-            step,
-            TerminatorType.EDGE,
-        )
-    return (
-        (xyz_better, uvb1_better),
-        (xyz_better, uvb2_better),
-        step,
-        TerminatorType.STEP,
-    )
-
-
-def marching_stepv2(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_step=False):
+def marching_step(
+    s1: Surface,
+    s2,
+    uvb1,
+    uvb2,
+    tol,
+    cnt=0,
+    side=1,
+    curvature_step=False,
+    boundary_terminators: Terminator = None,
+):
     pt1, xax1, yax1, n1 = pl1 = s1.plane_at(uvb1)
     pt2, xax2, yax2, n2 = pl2 = s2.plane_at(uvb2)
 
@@ -296,7 +270,6 @@ def marching_stepv2(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_s
     T /= np.linalg.norm(T)
 
     def sectional_tangent(veps):
-
         uv1_new = uvb1 + improve_uv(du1, dv1, pt1, pt1 + veps)
         uv2_new = uvb2 + improve_uv(du2, dv2, pt2, pt2 + veps)
         n1, n2 = s1.normal(uv1_new), s2.normal(uv2_new)
@@ -307,157 +280,139 @@ def marching_stepv2(s1: Surface, s2, uvb1, uvb2, tol, cnt=0, side=1, curvature_s
     vesp = T * 1e-3
     curvature_vector = (sectional_tangent(vesp) - T) / (np.linalg.norm(vesp))
 
-    #tangent, curvature_vector = sectional_curvature_vector(s1, s2, pt1, eps=1e-5, tol=tol)
+    # tangent, curvature_vector = sectional_curvature_vector(s1, s2, pt1, eps=1e-5, tol=tol)
 
     K = np.linalg.norm(curvature_vector)
 
     r = 1 / K
 
-
-
     # print(r,1/r)
     # r=1/r
     # print((r**2)-(r-tol)**2)
 
-    step = np.sqrt(r ** 2 - (r - tol) ** 2) * 2
+    step = np.sqrt(r**2 - (r - tol) ** 2) * 2
 
-    new_pln = np.array(
-        [(pt1+pt2)/2 + T * side * step, n1, n2, T]
-    )
-    #print(step)
+    new_pln = np.array([(pt1 + pt2) / 2 + T * side * step, n1, n2, T])
+    # print(step)
 
     xyz_better = np.array(plane_plane_plane_intersect(pl1, pl2, new_pln))
 
-
-
-
-
-
-
-    #print([[xyz_better.tolist()],pl1.tolist(),pl2.tolist(),new_pln.tolist()], end=',')
+    # print([[xyz_better.tolist()],pl1.tolist(),pl2.tolist(),new_pln.tolist()], end=',')
     if xyz_better is None:
         return
     uvb1_better = uvb1 + improve_uv(du1, dv1, pt1, xyz_better)
     uvb2_better = uvb2 + improve_uv(du2, dv2, pt2, xyz_better)
 
-
-
-
-
-
-
-
-
-
-
     if (
-            any(uvb1_better < 0.0)
-            or any(uvb2_better < 0.0)
-            or any(uvb1_better > 1.0)
-            or any(uvb2_better > 1.0)
+        any(uvb1_better < 0.0)
+        or any(uvb2_better < 0.0)
+        or any(uvb1_better > 1.0)
+        or any(uvb2_better > 1.0)
     ):
-        print()
-        uvb1_better,uvb2_better= constrained_uv_int(s1, s2, uvb1, uvb1_better, uvb2, uvb2_better, pt1,pt2,tol)
+        if boundary_terminators is not None:
+            xyz_better, uvb1_better, uvb2_better = boundary_terminators.get_closest(
+                xyz_better
+            )
 
-        xyz_better = (s1.evaluate(uvb1_better) + s2.evaluate(uvb2_better)) / 2
-        uvb1_better = np.clip(uvb1_better, 0., 1.)
-        uvb2_better = np.clip(uvb2_better, 0., 1.)
+
+        # uvb1_better,uvb2_better= constrained_uv_int(s1, s2, uvb1, uvb1_better, uvb2, uvb2_better, pt1,pt2,tol)
+
+        # xyz_better = (s1.evaluate(uvb1_better) + s2.evaluate(uvb2_better)) / 2
+        # uvb1_better = np.clip(uvb1_better, 0., 1.)
+        # uvb2_better = np.clip(uvb2_better, 0., 1.)
 
         return (
-            ( xyz_better, uvb1_better),
-            ( xyz_better, uvb2_better),
+            (xyz_better, uvb1_better),
+            (xyz_better, uvb2_better),
             step,
             TerminatorType.EDGE,
         )
-    res=freeform_method(s1, s2, uvb1_better, uvb2_better, tol)
+    res = freeform_method(s1, s2, uvb1_better, uvb2_better, tol)
     if res is None:
         return
     else:
-        (xyz1_better, uvb1_better),    (xyz2_better, uvb2_better)=res
+        (xyz1_better, uvb1_better), (xyz2_better, uvb2_better) = res
         return (
-            ((xyz1_better+xyz2_better)*0.5, uvb1_better),
-            ((xyz1_better+xyz2_better)*0.5, uvb2_better),
+            ((xyz1_better + xyz2_better) * 0.5, uvb1_better),
+            ((xyz1_better + xyz2_better) * 0.5, uvb2_better),
             step,
             TerminatorType.STEP,
         )
 
 
-
-def constrained_uv_int(surf1, surf2, uv11, uv12, uv21, uv22, pt1,pt2,tol):
-
-
+def constrained_uv_int(surf1, surf2, uv11, uv12, uv21, uv22, pt1, pt2, tol):
     (u0, u1), (v0, v1) = surf1.interval()
     res1 = find_uv_intersection(*uv11, *uv12, u0, v0, u1, v1)
     (u0, u1), (v0, v1) = surf2.interval()
     res2 = find_uv_intersection(*uv21, *uv22, u0, v0, u1, v1)
     if res1 is None and res2 is None:
-        raise ValueError('No intersection between uv1 and uv2')
+        raise ValueError("No intersection between uv1 and uv2")
     elif res1 is not None and res2 is not None:
-        uv1=res1
-        uv2=res2
-        p1n=surf1.evaluate(uv1)
-        p2n=surf2.evaluate(uv2)
-        t1=  p1n-pt1
-        t2=  p2n-pt2
+        uv1 = res1
+        uv2 = res2
+        p1n = surf1.evaluate(uv1)
+        p2n = surf2.evaluate(uv2)
+        t1 = p1n - pt1
+        t2 = p2n - pt2
 
-
-
-        if np.linalg.norm(t1)<=np.linalg.norm(t2):
-
-
-            uv2 =point_inversion_surface(surf2,   p1n,*uv2, tol1=1e-6,tol2=tol)
+        if np.linalg.norm(t1) <= np.linalg.norm(t2):
+            uv2 = point_inversion_surface(surf2, p1n, *uv2, tol1=1e-6, tol2=tol)
         else:
-
-
-            uv1 = point_inversion_surface( surf1,  p2n, *uv1, tol1=1e-6,tol2=tol)
+            uv1 = point_inversion_surface(surf1, p2n, *uv1, tol1=1e-6, tol2=tol)
 
         return uv1, uv2
 
     elif res1 is not None:
         uv1 = res1
-        p1n=surf1.evaluate(uv1)
+        p1n = surf1.evaluate(uv1)
 
-
-        #uv2 = newtons_method(wrp1, uv22)
+        # uv2 = newtons_method(wrp1, uv22)
         uv2 = point_inversion_surface(surf2, p1n, *uv22, tol1=1e-6, tol2=tol)
 
-        return uv1,uv2
-
+        return uv1, uv2
 
     elif res2 is not None:
-
         uv2 = res2
-        p2n=surf2.evaluate(uv2)
+        p2n = surf2.evaluate(uv2)
 
-        uv1 = point_inversion_surface(surf1,  p2n, *uv12, tol1=1e-6, tol2=tol)
+        uv1 = point_inversion_surface(surf1, p2n, *uv12, tol1=1e-6, tol2=tol)
 
         return uv1, uv2
 
     else:
-        raise ValueError('No intersection between uv1 and uv2')
-    #xyz_second_better = surf2.evaluate(np.array(uv_second)) - pt2
+        raise ValueError("No intersection between uv1 and uv2")
+    # xyz_second_better = surf2.evaluate(np.array(uv_second)) - pt2
 
-    #xyz3 = min(((xyz_second_better,pt1), (xyz_first_better, pt2)), key=lambda x: scalar_norm(x[0]))
-
+    # xyz3 = min(((xyz_second_better,pt1), (xyz_first_better, pt2)), key=lambda x: scalar_norm(x[0]))
 
 
 def marching_method(
-        s1,
-        s2,
-        initial_uv1,
-        initial_uv2,
-        kd=None,
-        tol=1e-3,
-        max_iter=500,
-        no_ff=False,
-        side=1,
-        curvature_step=False
+    s1,
+    s2,
+    initial_uv1,
+    initial_uv2,
+    kd=None,
+    tol=1e-3,
+    max_iter=500,
+    no_ff=False,
+    side=1,
+    curvature_step=False,
+    boundary_terminators=None,
 ):
     terminator = None
     use_kd = kd is not None
     ixss = set()
     xyz1_init, xyz2_init = s1.evaluate(initial_uv1), s2.evaluate(initial_uv2)
-    res = marching_stepv2(s1, s2, initial_uv1, initial_uv2, tol=tol, side=side, curvature_step=curvature_step)
+    res = marching_step(
+        s1,
+        s2,
+        initial_uv1,
+        initial_uv2,
+        tol=tol,
+        side=side,
+        curvature_step=curvature_step,
+        boundary_terminators=boundary_terminators
+    )
     if res is None:
         terminator = TerminatorType.EDGE
         return
@@ -478,7 +433,9 @@ def marching_method(
     for i in range(max_iter):
         uv1, uv2 = uv1_new, uv2_new
 
-        res = marching_stepv2(s1, s2, uv1, uv2, tol=tol, side=side, curvature_step=curvature_step)
+        res = marching_step(
+            s1, s2, uv1, uv2, tol=tol, side=side, curvature_step=curvature_step,boundary_terminators=boundary_terminators
+        )
         if res is None:
             terminator = TerminatorType.EDGE
             break
@@ -520,7 +477,6 @@ def find_closest_points(surf1: Surface, surf2: Surface, tol=1e-3):
     min2max2: BoundingBox = surf2.tree.bounding_box
 
     if min1max1.intersect(min2max2):
-
         pts = []
         uvs1 = []
         uvs2 = []
@@ -529,33 +485,47 @@ def find_closest_points(surf1: Surface, surf2: Surface, tol=1e-3):
             first: BVHNode
             second: BVHNode
             # bb=first.bounding_box.intersection(second.bounding_box)
-            uv1 = np.clip(np.average(first.object.uvs, axis=0), 0., 1.)
-            uv2 = np.clip(np.average(second.object.uvs, axis=0), 0., 1.)
+            uv1 = np.clip(np.average(first.object.uvs, axis=0), 0.0, 1.0)
+            uv2 = np.clip(np.average(second.object.uvs, axis=0), 0.0, 1.0)
 
             if any([any(uv1 < 0), any(uv1 > 1), any(uv2 < 0), any(uv2 > 1)]):
                 pass
             else:
-                #print(uv1, uv2)
+                # print(uv1, uv2)
 
                 res = freeform_method(surf1, surf2, uv1, uv2, tol=tol)
 
                 if res is not None:
-
                     (xyz1_new, uvb1_better), (xyz2_new, uvb2_better) = res
-                    if any([any(uvb1_better < 0), any(uvb1_better > 1), any(uvb2_better < 0), any(uvb2_better > 1)]):
+                    if any(
+                        [
+                            any(uvb1_better < 0),
+                            any(uvb1_better > 1),
+                            any(uvb2_better < 0),
+                            any(uvb2_better > 1),
+                        ]
+                    ):
                         pass
                     # print(uvb1_better, uvb2_better)
                     pts.append(xyz1_new)
                     uvs1.append(uvb1_better)
                     uvs2.append(uvb2_better)
-        #print(np.array(pts).tolist())
+        # print(np.array(pts).tolist())
         return KDTree(np.array(pts)), np.array(uvs1), np.array(uvs2)
 
 
-def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
+from mmcore.numeric.intersection.surface_surface._terminator import surface_surface_intersection_edge_terminator
+
+
+def surface_ppi(
+    surf1: Surface, surf2: Surface, tol=0.1, max_iter=500, curvature_step=False
+):
     res = find_closest_points(surf1, surf2, tol=tol)
     if res is None:
         return
+    edge_terminator = surface_surface_intersection_edge_terminator(surf1, surf2
+                                                                   )
+
 
     kd, uvs1, uvs2 = res
 
@@ -570,7 +540,17 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
     def _next():
         nonlocal ii, kd, data, uvs1, uvs2, l
 
-        ress = marching_method(surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=1, curvature_step=curvature_step)
+        ress = marching_method(
+            surf1,
+            surf2,
+            uvs1[0],
+            uvs2[0],
+            kd=kd,
+            tol=tol,
+            side=1,
+            curvature_step=curvature_step,
+            boundary_terminators=edge_terminator,
+        )
         ii += 1
         if ress is not None:
             start = np.copy(data[0])
@@ -578,7 +558,15 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
 
             if ress[-1] != TerminatorType.LOOP:
                 ress_back = marching_method(
-                    surf1, surf2, uvs1[0], uvs2[0], kd=kd, tol=tol, side=-1, curvature_step=curvature_step
+                    surf1,
+                    surf2,
+                    uvs1[0],
+                    uvs2[0],
+                    kd=kd,
+                    tol=tol,
+                    side=-1,
+                    curvature_step=curvature_step,
+                    boundary_terminators=edge_terminator,
                 )
 
                 if ress_back is not None:
@@ -596,9 +584,7 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
                     curves_uvs.append(
                         list(itertools.chain(reversed(uvsb), [start_uv], uv_s))
                     )
-                    stepss.append(
-                        list(itertools.chain(reversed(stepsb), steps))
-                    )
+                    stepss.append(list(itertools.chain(reversed(stepsb), steps)))
 
                     return list(itertools.chain(reversed(ptsb), [start], pts))
 
@@ -613,9 +599,7 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
                 kd = None
             terminators.append([terminator])
             curves_uvs.append([start_uv] + list(uv_s))
-            stepss.append(
-                steps
-            )
+            stepss.append(steps)
             return [start] + list(pts)
         else:
             uvs1 = np.delete(uvs1, 0, axis=0)
@@ -652,9 +636,13 @@ def surface_ppi(surf1, surf2, tol=0.1, max_iter=500, curvature_step=False):
 from mmcore.geom.surfaces import CurveOnSurface, Surface
 
 
-def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_iter: int = 500,
-                         curvature_step=False) -> list[
-    tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]:
+def surface_intersection(
+    surf1: Surface,
+    surf2: Surface,
+    tol: float = 0.01,
+    max_iter: int = 500,
+    curvature_step=False,
+) -> list[tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -684,15 +672,15 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
         3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
-    res = surface_ppi(surf1, surf2, tol=tol, max_iter=max_iter,
-                      curvature_step=curvature_step)
+    res = surface_ppi(
+        surf1, surf2, tol=tol, max_iter=max_iter, curvature_step=curvature_step
+    )
     if res is None:
         return []
 
     curves, curves_uvs, stepss, terminators = res
     results = []
     for i, curve_pts in enumerate(curves):
-
         curve = interpolate_nurbs_curve(curve_pts, 3)
 
         if all([terminator is TerminatorType.LOOP for terminator in terminators[i]]):
@@ -704,8 +692,17 @@ def surface_intersection(surf1: Surface, surf2: Surface, tol: float = 0.01, max_
         else:
             curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0], 3)
             curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1], 3)
-        results.append((curve, CurveOnSurface(surf1, curve_on_surf1, interval=curve_on_surf1.interval()),
-                        CurveOnSurface(surf2, curve_on_surf2, interval=curve_on_surf2.interval())))
+        results.append(
+            (
+                curve,
+                CurveOnSurface(
+                    surf1, curve_on_surf1, interval=curve_on_surf1.interval()
+                ),
+                CurveOnSurface(
+                    surf2, curve_on_surf2, interval=curve_on_surf2.interval()
+                ),
+            )
+        )
 
     return results
 
@@ -780,39 +777,43 @@ if __name__ == "__main__":
 
     patch1 = Coons(*(NURBSpline(pts) for pts in pts1))
     patch2 = Coons(*(NURBSpline(pts) for pts in pts2))
-    #from mmcore.geom.curves.cubic import CubicSpline
-    #patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
-    #patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
+    # from mmcore.geom.curves.cubic import CubicSpline
+    # patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
+    # patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
     patch1.build_tree(10, 10)
     patch2.build_tree(10, 10)
-    print(
-        patch1._rc,
-    )
-    import yappi
+    #print(
+    #    patch1._rc,
+    #)
 
-    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    #yappi.start()
+    # yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    # yappi.start()
     s = time.time()
     TOL = 0.001
     cc = surface_ppi(patch1, patch2, TOL)
     print(time.time() - s)
-    #yappi.stop()
-    #func_stats = yappi.get_func_stats()
-    #func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
-    print(np.linalg.norm(
+    # yappi.stop()
+    # func_stats = yappi.get_func_stats()
+    # func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
-        patch1(cc[1][0][0]) - patch2(cc[1][0][1]), axis=1))
     # tolerance checks
-    print(
-        np.all((patch1(cc[1][0][0]) - patch2(cc[1][0][1])) <= TOL)
-        and np.all((patch1(cc[1][0][0]) - np.array(cc[0][0])) <= TOL)
-        and np.all((patch2(cc[1][0][1]) - np.array(cc[0][0])) <= TOL)
-    )
-    print([np.max(norm(patch1(cc[1][0][0]) - patch2(cc[1][0][1]))),
-           np.max(norm(patch1(cc[1][0][0]) - np.array(cc[0][0]))),
-           np.max(norm(patch2(cc[1][0][1]) - np.array(cc[0][0])))])
+
+    pts_crv_1=np.array(cc[0][0])
+    pts_crv_2 = np.array(cc[0][1])
+
+    nrm=[np.all(
+        np.linalg.norm(patch1(closest_points_on_surface(patch1, pts_crv_1))-pts_crv_1,axis=1)),
+    np.all(
+        np.linalg.norm(patch1(closest_points_on_surface(patch1, pts_crv_2)) - pts_crv_2, axis=1)),
+        np.all(
+            np.linalg.norm(patch2(closest_points_on_surface(patch2, pts_crv_1)) - pts_crv_1, axis=1)),
+            np.all(
+                np.linalg.norm(patch2(closest_points_on_surface(patch2, pts_crv_2)) - pts_crv_2, axis=1))]
+    print(      all(nrm))
+
+
 
     print([np.array(c).tolist() for c in cc[0]])
 
-    #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
+    # print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     res = surface_intersection(patch1, patch2, TOL)

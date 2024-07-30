@@ -1,8 +1,10 @@
 import numpy as np
 
-from mmcore.numeric.vectors import scalar_norm
+from mmcore.numeric.vectors import scalar_norm, norm
 from numpy._typing import NDArray
 
+from mmcore.geom.curves.curve import curve_bvh
+from mmcore.geom.surfaces import surface_bvh
 from mmcore.numeric import inverse_evaluate_plane
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.intersection.curve_curve import curve_pii
@@ -78,8 +80,79 @@ def newton_raphson(curve, surface, params, tol=1e-6, max_iter=100):
     return params
 
 
+from mmcore.geom.bvh import contains_point
+import math
+
+
+def count_from_length_brute_force(surf, crv, threshold, t_range=None, uv_range=None):
+    (umin, umax), (vmin, vmax) = surf.interval() if uv_range is None else uv_range
+    (tmin, tmax) = crv.interval() if t_range is None else t_range
+    ud = max(surf.isoline_u(umin).evaluate_length((vmin, vmax)),
+
+             surf.isoline_u(umax).evaluate_length((vmin, vmax)))
+    vd = max(surf.isoline_v(vmin).evaluate_length((umin, umax)),
+
+             surf.isoline_v(vmax).evaluate_length((umin, umax)))
+    u_count = int(math.ceil(ud / threshold))
+    v_count = int(math.ceil(vd / threshold))
+    t_count = int(math.ceil(crv.evaluate_length((tmin, tmax)) / threshold))
+    return t_count, u_count, v_count
+
+from mmcore.geom.bvh import intersect_bvh_objects,contains_point
+def bvh_search(curve,surface):
+    return [np.array((np.average(i.object.t), *np.average(j.object.uvs, axis=0))) for i, j in
+     intersect_bvh_objects(curve.tree, surface.tree)]
+
+
+def gs2(curve, surface, threshold, t_range=None, uv_range=None,tol=1e-3, counts=None):
+    (umin, umax), (vmin, vmax) = surf.interval() if uv_range is None else uv_range
+    (tmin, tmax) = curve.interval() if t_range is None else t_range
+    bvh1=curve.tree
+    bvh2=surface.tree
+
+    intersect_bvh_objects(bvh1,bvh2)
+
+    curve_steps, u_count, v_count = count_from_length_brute_force(surface, curve, threshold, t_range=(tmin, tmax),
+                                                                  uv_range=((umin, umax),
+                                                                            (vmin, vmax))) if counts is None else counts
+    t_min, t_max = t_range
+    u_min, u_max = uv_range[0]
+    v_min, v_max = uv_range[1]
+    uv = uvs(u_count, v_count)
+    uv[..., 0] *= u_max - u_min
+    uv[..., 0] += u_min
+    uv[..., 1] *= v_max - v_min
+    uv[..., 1] += v_min
+    t_vals = np.linspace(tmin, tmax, curve_steps)
+    u_vals = uv[..., 0]
+    v_vals = uv[..., 1]
+
+    spts = surface(uv)
+
+    kd = KDTree(spts)
+
+    cpts = curve(t_vals)
+
+    dst, ixs = kd.query(cpts, 1)
+    dff = np.diff(dst)
+    mdst = threshold
+    u_old, v_old, t_old = np.inf, np.inf, np.inf
+    indices = ixs[dst <= mdst]
+
+    for t, u, v in zip(t_vals[dst < mdst], u_vals[indices], v_vals[indices]):
+        if abs(t_old - t) < (tol) and abs(u_old - u) < (tol) and abs(v_old - v) < (tol):
+            u_old = u
+            v_old = v
+            t_old = t
+        else:
+            u_old = u
+            v_old = v
+            t_old = t
+            yield t, u, v
+
+
 # Grid search for initial guesses
-def grid_search(curve, surface, t_range, uv_range, steps, threshold):
+def _grid_search(curve, surface, t_range, uv_range, steps, threshold):
     t_min, t_max = t_range
     u_min, u_max = uv_range[0]
     v_min, v_max = uv_range[1]
@@ -99,6 +172,7 @@ def grid_search(curve, surface, t_range, uv_range, steps, threshold):
     cpts = curve(t_vals)
 
     initial_guess = []
+
     for i, pt in enumerate(cpts):
         ii = kd.query_ball_point(pt, threshold)
         if len(ii) > 0:
@@ -107,13 +181,28 @@ def grid_search(curve, surface, t_range, uv_range, steps, threshold):
 
     return initial_guess
 
-
+grid_search=gs2
 # Main function to find intersections
-def find_intersections(curve, surface, t_range, uv_range, steps=50, threshold=0.1, tol=1e-6):
-    initial_guesses = grid_search(curve, surface, t_range, uv_range, steps=steps, threshold=threshold)
+def find_intersections_grid(curve, surface, t_range, uv_range, steps=50, threshold=0.1, tol=1e-6):
+
+    initial_guesses = list(grid_search(curve, surface, t_range=
+    t_range,threshold=threshold,uv_range= uv_range,tol=tol))
     intersections = []
     for guess in initial_guesses:
-        refined = newton_raphson(curve, surface, guess)
+        refined = newton_raphson(curve, surface, guess,tol=tol)
+        if not any(
+                np.allclose(refined, intersection, atol=tol)
+                for intersection in intersections
+        ):
+            intersections.append(refined)
+    return intersections
+
+def find_intersections_bvh(curve, surface, tol=1e-6):
+
+    initial_guesses = list(bvh_search(curve, surface))
+    intersections = []
+    for guess in initial_guesses:
+        refined = newton_raphson(curve, surface, guess,tol=tol)
         if not any(
                 np.allclose(refined, intersection, atol=tol)
                 for intersection in intersections
@@ -122,22 +211,34 @@ def find_intersections(curve, surface, t_range, uv_range, steps=50, threshold=0.
     return intersections
 
 
-def curve_surface_ppi(curve, surface, steps=50, threshold=0.1, tol=1e-6, t_range=None, uv_range=None):
+def curve_surface_ppi(curve, surface, steps=50, threshold=0.1, tol=1e-6, t_range=None, uv_range=None, method='bvh'):
+    if method == 'bvh':
+        return find_intersections_bvh(curve, surface, tol=tol)
+
     if t_range is None:
         t_range = np.array(curve.interval())
     if uv_range is None:
         uv_range = np.array(surface.interval())
 
-    return find_intersections(curve, surface, steps=steps, threshold=threshold, tol=tol, t_range=t_range,
-                              uv_range=uv_range)
+
+    return find_intersections_grid(curve, surface, steps=steps, threshold=threshold, tol=tol, t_range=t_range,
+                                      uv_range=uv_range)
 
 
-def closest_curve_surface_ppi(curve, surface, initial_guess, tol=1e-6, max_iter=100):
+def closest_curve_surface_ppi(curve, surface, initial_guess, tol=1e-6,  max_iter=100):
     return newton_raphson(curve, surface, initial_guess, tol=tol, max_iter=max_iter)
 
 
-def curve_surface_intersection(curve, surface, tol=1e-6):
-    return curve_surface_ppi(curve, surface, tol=tol)
+def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bounds=None):
+
+    (umin, umax), (vmin, vmax) = surface.interval() if uv_bounds is None else uv_bounds
+    (tmin, tmax) = curve.interval() if  t_bounds is None else  t_bounds
+    res=[]
+    for t,u,v in find_intersections_bvh(curve, surface, tol=tol):
+        if    (tmin<=t<= tmax) and  (umin<=u<=umax) and (vmin<=v<= vmax):
+            res.append((t,u,v))
+
+    return np.array(res)
 
 
 def curve_implicit_intersection(curve, surface, tol=1e-6):
