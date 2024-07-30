@@ -53,7 +53,7 @@ pts1 = (
                 [7113.4722683146974, 32245.522771637792, 2490.2727432253123],
             ]
         )
-        * 0.001
+
 )
 pts2 = (
         np.array(
@@ -74,7 +74,7 @@ pts2 = (
                 [7137.6116218915704, 32544.549833613004, 2489.9443907486457],
             ]
         )
-        * 0.001
+
 )
 pts3 = (
         np.array(
@@ -95,7 +95,7 @@ pts3 = (
                 [5068.5739190365857, 32711.634213989026, 2540.0655347380707],
             ]
         )
-        * 0.001
+
 )
 curves = [
     interpolate_nurbs_curve(pts1, degree=3),
@@ -116,7 +116,7 @@ pts21 = (
                 [8380.3384645676269, 37970.965459917032, 8062.3970266759243],
             ]
         )
-        * 0.001
+
 )
 
 pts22 = (
@@ -130,7 +130,7 @@ pts22 = (
                 [8777.1529917496664, 35439.142134817441, 8089.3449105725776],
             ]
         )
-        * 0.001
+
 )
 
 surfaces2 = [
@@ -168,7 +168,7 @@ for keys, crvs in intersections.items():
 
     for i, (spatial, uv1, uv2) in enumerate(crvs):
         print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
-        ptss.append((spatial.control_points * 100).tolist())
+        ptss.append((spatial.control_points).tolist())
         degs.append(spatial.degree)
 
 # Tesselation
@@ -187,4 +187,5 @@ for i, trms in TT.items():
 
 # This function will simply return all polygons as lists of points
 # (this is handy for debugging me here and now, the original data structure can give you much more)
-mshs = [(as_polygons(msh) * 1000).tolist() for msh in meshes]
+mshs = [(as_polygons(msh)).tolist() for msh in meshes]
+

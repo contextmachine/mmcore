@@ -327,14 +327,14 @@ def marching_step(
             step,
             TerminatorType.EDGE,
         )
-    res = freeform_method(s1, s2, uvb1_better, uvb2_better, tol)
-    if res is None:
-        return
-    else:
-        (xyz1_better, uvb1_better), (xyz2_better, uvb2_better) = res
-        return (
-            ((xyz1_better + xyz2_better) * 0.5, uvb1_better),
-            ((xyz1_better + xyz2_better) * 0.5, uvb2_better),
+    #res = freeform_method(s1, s2, uvb1_better, uvb2_better, tol)
+    #if res is None:
+    #    return#
+    #else:
+        #(xyz1_better, uvb1_better), (xyz2_better, uvb2_better) = res
+    return (
+            (xyz_better, uvb1_better),
+            (xyz_better , uvb2_better),
             step,
             TerminatorType.STEP,
         )
@@ -420,12 +420,9 @@ def marching_method(
     (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
     if use_kd:
         ixss.update(kd.query_ball_point(xyz1_init, step * 2))
-    # print()
 
     uvs = [(uv1_new, uv2_new)]
     pts = [xyz1]
-
-    # print(uv1_new, uv2_new)
 
     steps = [step]
     if terminator is TerminatorType.EDGE:
@@ -444,25 +441,22 @@ def marching_method(
         uvs.append((uv1_new, uv2_new))
         steps.append(step)
         if use_kd:
-            # print(   len(kd.data),ixss,step,tol,kd.query(xyz1, 3))
 
             ixss.update(kd.query_ball_point(xyz1, step * 2))
-            # print(ixss)
+
 
         if terminator is TerminatorType.EDGE:
             break
 
         if scalar_norm(xyz1 - xyz1_init) < step:
-            # print("b", xyz1_init, xyz1, np.linalg.norm(xyz1 - xyz1_init), step)
+
             pts.append(pts[0])
 
             uvs.append((initial_uv1, initial_uv1))
             terminator = TerminatorType.LOOP
             break
 
-        # print("I", np.linalg.norm(xyz1 - xyz1_init), step*2)
 
-    # print(len(pts))
     return uvs, pts, steps, list(ixss), terminator
 
 
@@ -511,6 +505,7 @@ def find_closest_points(surf1: Surface, surf2: Surface, tol=1e-3):
                     uvs1.append(uvb1_better)
                     uvs2.append(uvb2_better)
         # print(np.array(pts).tolist())
+
         return KDTree(np.array(pts)), np.array(uvs1), np.array(uvs2)
 
 
@@ -522,8 +517,9 @@ def surface_ppi(
 ):
     res = find_closest_points(surf1, surf2, tol=tol)
     if res is None:
+        print(1)
         return
-    edge_terminator = surface_surface_intersection_edge_terminator(surf1, surf2
+    edge_terminator = surface_surface_intersection_edge_terminator(surf1, surf2,tol=tol
                                                                    )
 
 
@@ -765,15 +761,7 @@ if __name__ == "__main__":
             ],
         ]
     )
-    # with open('tests/patch1.txt') as f:
-    #    pts1=np.array(eval(f.read()))
-    # with open('tests/patch2.txt') as f:
-    #    pts2=np.array(eval(f.read()))
-    # with open('tests/coons1.pkl', 'rb') as f:
-    #    patch1 = dill.load(f)
 
-    # with open('tests/coons2.pkl', 'rb') as f:
-    #    patch2 = dill.load(f)
 
     patch1 = Coons(*(NURBSpline(pts) for pts in pts1))
     patch2 = Coons(*(NURBSpline(pts) for pts in pts2))
@@ -817,3 +805,7 @@ if __name__ == "__main__":
 
     # print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     res = surface_intersection(patch1, patch2, TOL)
+
+
+    #-----------------
+
