@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.integrate import quad
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
