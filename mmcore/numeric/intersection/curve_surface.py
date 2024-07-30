@@ -43,7 +43,6 @@ def jacobian(curve, surface, params, J):
 
 def _jac_cls(curve, surface, params, J):
     x = curve.derivative(params[0])
-
     y = -1 * surface.derivative_u(params[1:])
     z = -1 * surface.derivative_v(params[1:])
     J[0, 0] = x[0]
@@ -71,10 +70,8 @@ def newton_raphson(curve, surface, params, tol=1e-6, max_iter=100):
 
         F = difference(curve, surface, params)
         jac(curve, surface, params, J)
-
         delta = np.linalg.solve(J, -F)
         params = params + delta
-
         if scalar_norm(delta) < tol:
             return params
     return params
@@ -88,7 +85,6 @@ def count_from_length_brute_force(surf, crv, threshold, t_range=None, uv_range=N
     (umin, umax), (vmin, vmax) = surf.interval() if uv_range is None else uv_range
     (tmin, tmax) = crv.interval() if t_range is None else t_range
     ud = max(surf.isoline_u(umin).evaluate_length((vmin, vmax)),
-
              surf.isoline_u(umax).evaluate_length((vmin, vmax)))
     vd = max(surf.isoline_v(vmin).evaluate_length((umin, umax)),
 
@@ -202,7 +198,8 @@ def find_intersections_bvh(curve, surface, tol=1e-6):
     initial_guesses = list(bvh_search(curve, surface))
     intersections = []
     for guess in initial_guesses:
-        refined = newton_raphson(curve, surface, guess,tol=tol)
+        refined = newton_raphson(curve, surface, guess, tol=tol)
+
         if not any(
                 np.allclose(refined, intersection, atol=tol)
                 for intersection in intersections

@@ -90,8 +90,8 @@ def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface,
     if len(b2s1) > 0:
         prms2 = np.array(b2s1)
         xyz = np.array([*xyz, *surf2.boundary(prms2[:, 0])])
-        uv1 = np.array([*uv1, prms2[:, 1:]])
-        uv2 = np.array([*uv2, surf2.boundary.curve(prms2[:, 1:])[:, :2]])
+        uv1 = np.array([*uv1, *prms2[:, 1:]])
+        uv2 = np.array([*uv2, *surf2.boundary.curve(prms2[:,0])[:, :2]])
 
     return Terminator(TerminatorType.EDGE, xyz=xyz,
                       uv1=uv1,
