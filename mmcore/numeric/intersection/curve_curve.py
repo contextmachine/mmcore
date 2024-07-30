@@ -120,14 +120,14 @@ def curve_pii(
            [-1.13538864,  0.43142482,  0.        ]])
 
     """
-
+    implicit_form= getattr(implicit, "implicit", implicit)
     evaluate_parametric_form = getattr(curve, "evaluate", curve)
     tol = _calculate_spline_tolerance(curve, default_tol)
     roots = []
     for start, end in divide_interval(*curve.interval(), step=step):
         roots.extend(
             test_all_roots(
-                lambda t: implicit(evaluate_parametric_form(t)), (start, end), tol=tol
+                lambda t:   implicit_form(evaluate_parametric_form(t)), (start, end), tol=tol
             )
         )
     return roots

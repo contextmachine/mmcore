@@ -1,4 +1,5 @@
 # mmcore
+[![poetry-build](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml)
 [![Docker](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml) 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![pip downloads](https://img.shields.io/pypi/dm/mmcore)](https://pypi.python.org/project/mmcore)

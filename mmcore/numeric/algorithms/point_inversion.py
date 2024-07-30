@@ -3,7 +3,7 @@ import numpy as np
 from mmcore.geom.bvh import contains_point
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.surfaces import Surface
-from mmcore.numeric.vectors import scalar_dot, scalar_norm, dot, norm, cross
+from mmcore.numeric.vectors import scalar_dot, scalar_norm, dot, norm, cross, solve2x2
 from numpy.typing import NDArray
 
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
@@ -76,7 +76,7 @@ def point_inversion_curve(curve: Curve, P: np.ndarray, u0: float, tol1: float, t
 
 import numpy as np
 
-
+np.isclose
 # Assuming the following functions are already implemented 0.6741571976269591
 
 
@@ -132,16 +132,18 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
 
     ui, vi = u0, v0
     uivi = np.array([u0, v0])
+    delta=  np.zeros(2)
     for _ in range(max_iter):
         f_val = f(uivi)
         g_val = g(uivi)
-
+        du=surface.derivative_u(uivi)
+        dv=surface.derivative_v(uivi)
         # Calculate the Jacobian matrix
         J = np.array([
-            [scalar_dot(surface.derivative_u(uivi), surface.derivative_u(uivi)),
-             scalar_dot(surface.derivative_u(uivi), surface.derivative_v(uivi))],
-            [scalar_dot(surface.derivative_v(uivi), surface.derivative_u(uivi)),
-             scalar_dot(surface.derivative_v(uivi), surface.derivative_v(uivi))]
+            [scalar_dot(du, du),
+             scalar_dot(du, dv)],
+            [scalar_dot(dv, du),
+             scalar_dot(dv, dv)]
         ])
 
         # Calculate the k vector
@@ -171,22 +173,25 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
 
         """
         # Solve for delta
-        delta = np.linalg.solve(J, k)
 
+        success = solve2x2(J, k, delta)
+        if success==0:
+            raise ValueError(f'Failure to compute a matrix system of equations A={J} b={k}')
         # Update u and v
         ui1vi1 = uivi - delta
 
         # Check convergence criteria
-        if np.linalg.norm(ui1vi1 - uivi) * (np.linalg.norm(surface.derivative_u(uivi)) + np.linalg.norm(
-                surface.derivative_v(uivi))) <= tol1:
+        if np.linalg.norm(ui1vi1 - uivi) * (np.linalg.norm(du) + np.linalg.norm(
+                dv)) <= tol1:
             break
+        new_pt=surface.evaluate(ui1vi1)
+        if scalar_norm( new_pt- P) <= tol1:
+            break
+        new_du=surface.derivative_u(ui1vi1)
 
-        if np.linalg.norm(surface(ui1vi1) - P) <= tol1:
-            break
-        _du=surface.derivative_u(ui1vi1)
-        _pt=surface.evaluate(ui1vi1)
-        if abs(scalar_dot( _du, _pt- P)) / (
-                np.linalg.norm( _du) * np.linalg.norm(_pt - P)) <= tol2:
+        pt_diff= new_pt-P
+        if abs(scalar_dot(new_du, pt_diff)) / (
+                np.linalg.norm(new_du) *  np.linalg.norm(pt_diff)) <= tol2:
             break
 
         uivi = ui1vi1
