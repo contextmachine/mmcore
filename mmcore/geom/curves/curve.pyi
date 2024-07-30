@@ -22,6 +22,7 @@ class ParametricCurveProtocol(Protocol):
 
 
 class Curve:
+
     def invalidate_cache(self)->None:
         """
         Invalidates the cache.

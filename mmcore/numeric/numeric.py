@@ -4,7 +4,7 @@ from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
 
-from mmcore.numeric.plane import inverse_evaluate_plane
+
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -12,7 +12,7 @@ from mmcore.numeric.divide_and_conquer import (
     test_all_roots,
     iterative_divide_and_conquer_min,
 )
-from mmcore.numeric.vectors import scalar_dot, scalar_cross
+from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_norm
 
 
 def plane_on_curve(O, T, D2):
@@ -77,7 +77,7 @@ def evaluate_length(first_der, t0: float, t1: float, **kwargs):
     """ """
 
     def ds(t):
-        return norm(first_der(t))
+        return scalar_norm(first_der(t))
 
     return quad(ds, t0, t1, **kwargs)
 
@@ -282,16 +282,16 @@ def evaluate_normal(
 
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
-    dot_product_gradient_u = norm_sq(gradient_u)
+    dot_product_gradient_u = scalar_dot(gradient_u,gradient_u)
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
-    dot_product_gradient_v = norm_sq(gradient_v)
+    dot_product_gradient_v =  scalar_dot(gradient_v,gradient_v)
 
     determinant, jacobian_success = evaluate_jacobian(
         dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
     )
 
     if jacobian_success:
-        return np.cross(gradient_u, gradient_v)
+        return scalar_cross(gradient_u, gradient_v)
 
     coeff_a, coeff_b = {
         2: [-1.0, 1.0],
@@ -300,10 +300,10 @@ def evaluate_normal(
     }.get(limit_direction, [1.0, 1.0])
 
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
-    cross_product_v = cross(gradient_u, cross_vector_v)
+    cross_product_v =  scalar_cross(gradient_u, cross_vector_v)
 
     cross_vector_u = coeff_a * second_derivative_uu + coeff_b * second_derivative_uv
-    cross_product_u = cross(cross_vector_u, gradient_v)
+    cross_product_u = scalar_cross(cross_vector_u, gradient_v)
 
     normal_vector = cross_product_v + cross_product_u
     normal_vector = normal_vector / np.linalg.norm(normal_vector)
@@ -343,23 +343,23 @@ def evaluate_normal2(
     limit_direction = 2
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
-    dot_product_gradient_u = norm_sq(gradient_u)
+    dot_product_gradient_u = scalar_dot(gradient_u, gradient_u)
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
-    dot_product_gradient_v = norm_sq(gradient_v)
+    dot_product_gradient_v = scalar_dot(gradient_v, gradient_v)
     determinant, jacobian_success = evaluate_jacobian(
         dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
     )
     if jacobian_success:
-        return np.cross(gradient_u, gradient_v)
+        return scalar_cross(gradient_u, gradient_v)
     coeff_a, coeff_b = {
         2: [-1.0, 1.0],
         3: [-1.0, -1.0],
         4: [1.0, -1.0],
     }.get(limit_direction, [1.0, 1.0])
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
-    cross_product_v = cross(gradient_u, cross_vector_v)
+    cross_product_v = scalar_cross(gradient_u, cross_vector_v)
     cross_vector_u = coeff_a * second_derivative_uu + coeff_b * second_derivative_uv
-    cross_product_u = cross(cross_vector_u, gradient_v)
+    cross_product_u = scalar_cross(cross_vector_u, gradient_v)
     normal_vector = cross_product_v + cross_product_u
     normal_vector = normal_vector / np.linalg.norm(normal_vector)
     return normal_vector
