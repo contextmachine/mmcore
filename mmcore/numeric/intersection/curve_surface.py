@@ -5,7 +5,7 @@ from numpy._typing import NDArray
 
 from mmcore.geom.curves.curve import curve_bvh
 from mmcore.geom.surfaces import surface_bvh
-from mmcore.numeric import inverse_evaluate_plane
+from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.intersection.curve_curve import curve_pii
 from mmcore.numeric.routines import uvs
