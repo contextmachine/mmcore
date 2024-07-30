@@ -12,7 +12,7 @@ from numpy._typing import ArrayLike
 from scipy.optimize import newton
 
 from mmcore.geom.bvh import PSegment, build_bvh
-from mmcore.geom.vec import unit,cross
+from mmcore.geom.vec import unit, cross
 
 from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
     evaluate_length, iterative_divide_and_conquer_min
@@ -32,7 +32,7 @@ def circle_of_curvature(curve: Curve, t: float):
     R = 1 / k
 
     return (
-        origin,   R,
+        origin, R,
         np.array([origin + N * R, T, N, B])
 
     )  # Plane of curvature circle, Radius of curvature circle
@@ -42,9 +42,12 @@ class Curve:
     """
     Base Curve with Parametric Form Support
     """
-    _tree=None
+    _tree = None
+    _interval = None
+
     def __init__(self, init_derivatives=True):
         super().__init__()
+        self._interval = (0., 1.)
         self.evaluate_multi = np.vectorize(self.evaluate, signature="()->(i)", doc="""
         Evaluate points on the curve at t values array
         :param t: np.ndarray[float] with shape N
@@ -53,7 +56,7 @@ class Curve:
         if init_derivatives:
             self._derivatives = [self, self.derivative]
             self.add_derivative()
-            self._derivatives[2].__doc__="""
+            self._derivatives[2].__doc__ = """
         :param t:float
         :return: vector of second derivative  as numpy array of floats with shape (2,) for 2d case and (3,) for 3d case.
         :rtype: np.ndarray[(3,), np.dtype[float]]\n"""
@@ -68,9 +71,9 @@ class Curve:
            :return: None
         """
 
-
         self._evaluate_cached.cache_clear()
         self._evaluate_length_cached.cache_clear()
+
     @property
     def tree(self):
         if getattr(self, '_tree', None) is None:
@@ -80,6 +83,7 @@ class Curve:
 
     def points(self, count=50):
         return np.array(self.evaluate_multi(np.linspace(*self.interval(), count)))
+
     #def intersect_with_curve(
     #        self, other: "Curve", tol=TOLERANCE
     #) -> list[tuple[float, float]]:
@@ -155,13 +159,16 @@ class Curve:
         :return: start and end parameter values
 
         """
-        return 0.0, 1.0
+        return self._interval
 
     def split(self, t):
         return (
             TrimmedCurve(self, self.interval()[0], t),
             TrimmedCurve(self, t, self.interval()[1])
         )
+
+    def extend(self, start=0., end=0.):
+        self._interval = (self._interval[0] - start, self._interval[1] + end)
 
     def normal(self, t):
         """
@@ -223,7 +230,6 @@ class Curve:
         else:
             return (self.evaluate(t) - self.evaluate(t - DEFAULT_H)) / DEFAULT_H
 
-
     def second_derivative(self, t):
         return self._derivatives[2](t)
 
@@ -249,7 +255,7 @@ class Curve:
         """
         ...
 
-    def circle_of_curvature(self, t:float):
+    def circle_of_curvature(self, t: float):
         """
         Calculates the circle of curvature at the given parameter t.
         :param t: The parameter value at which to calculate the circle of curvature.
@@ -288,7 +294,7 @@ class Curve:
 
         return evaluate_length(self.derivative, bounds[0], bounds[1], epsabs=tol, epsrel=tol)[0]
 
-    def evaluate_length(self, bounds:tuple[float,float], tol:float=1e-3)->float:
+    def evaluate_length(self, bounds: tuple[float, float], tol: float = 1e-3) -> float:
         """
         Estimate the length of the curve from bounds[0] to bounds[1] using integration
         :param bounds: start and end parameter
@@ -311,7 +317,7 @@ class Curve:
         t1_limit = end
 
         def func(t):
-            return abs(self.evaluate_length((t0, t))**2 - length**2)
+            return abs(self.evaluate_length((t0, t)) ** 2 - length ** 2)
 
         res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
 
@@ -344,13 +350,15 @@ class Curve:
 
     def remap_param(self, t, domain=(0.0, 1.0)):
         return np.interp(t, domain, self.interval())
+
     def points(self, count=50):
         return np.asarray(self(np.linspace(*self.interval(), count)))
+
     def build_tree(self, count=50):
-        self._tree=curve_bvh(self,
-                  tuple(self.interval()),
-            count=count
-        )
+        self._tree = curve_bvh(self,
+                               tuple(self.interval()),
+                               count=count
+                               )
 
 
 class TrimmedCurve(Curve):
@@ -442,18 +450,17 @@ class CurveCurveNode(CurveCallableNode):
         s = self.second.interval()
 
         return max(f[0], s[0]), min(f[1], s[1])
-def curve_bvh(curve: Curve, bounds=None, count=None):
 
+
+def curve_bvh(curve: Curve, bounds=None, count=None):
     start, end = curve.interval() if bounds is None else bounds
 
-
-
     if count is None:
-        if hasattr(curve, 'degree') :
+        if hasattr(curve, 'degree'):
 
             count = math.ceil(end - start) * curve.degree
         else:
-            count=16
+            count = 16
 
     t = np.linspace(start, end, count + 1)
     ts = np.empty((count, 2))
@@ -468,4 +475,3 @@ def curve_bvh(curve: Curve, bounds=None, count=None):
         segments.append(PSegment(pts[i], ts[i]))
 
     return build_bvh(segments)
-
