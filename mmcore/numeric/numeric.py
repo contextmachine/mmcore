@@ -131,11 +131,12 @@ def evaluate_parameter_from_length(
     )
 
 
+
 evaluate_length_vec = np.vectorize(
     evaluate_length, excluded=[0], signature="(),()->(),()"
 )
 
-import math
+
 
 
 def calculate_curvature2d(dx, dy, ddx, ddy):
