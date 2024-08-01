@@ -387,6 +387,7 @@ cdef class NURBSpline(ParametricCurve):
     cdef double[:] _knots
     cdef bint _periodic
     cdef public object _evaluate_cached
+    cdef double[:] _greville_abscissae
 
 
     def __reduce__(self):
@@ -408,7 +409,7 @@ cdef class NURBSpline(ParametricCurve):
                 self.generate_knots()
         else:
             self._knots=knots
-        self._update_interval()
+            self.knots_update_hook()
         self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
         if  periodic:
             self.make_periodic()
@@ -511,6 +512,7 @@ cdef class NURBSpline(ParametricCurve):
     @knots.setter
     def knots(self, double[:] v):
         self._knots=v
+        self.knots_update_hook()
         self._evaluate_cached.cache_clear()
 
     @property
@@ -520,6 +522,12 @@ cdef class NURBSpline(ParametricCurve):
     def weights(self, double[:] v):
         self._control_points[:, 3]=v
         self._evaluate_cached.cache_clear()
+
+    @property
+    def greville_abscissae(self):
+        return np.asarray(self._greville_abscissae)
+
+
     cdef void generate_knots(self):
         """
         This function generates default knots based on the number of control points
@@ -532,6 +540,12 @@ cdef class NURBSpline(ParametricCurve):
             np.full(self._degree + 1, n - self._degree)
         ))
 
+        self.knots_update_hook()
+    cpdef knots_update_hook(self):
+        self._update_interval()
+        self._greville_abscissae = greville_abscissae(self.knots,self.degree
+                                                      )
+
 
     cdef void generate_knots_periodic(self):
         """
@@ -543,6 +557,7 @@ cdef class NURBSpline(ParametricCurve):
         self._knots = np.zeros(m)
         for i in range(m):
             self._knots[i] = i - self.degree
+        self.knots_update_hook()
 
     cdef _update_interval(self):
         self._interval[0] = self._knots[self._degree]
@@ -577,9 +592,10 @@ cdef class NURBSpline(ParametricCurve):
 
         self._control_points = new_control_points
         self.generate_knots_periodic()
-        self._update_interval()
+
         self._periodic=True
         self._evaluate_cached.cache_clear()
+
 
 
 
@@ -594,9 +610,9 @@ cdef class NURBSpline(ParametricCurve):
         self._control_points = self._control_points[:n, :]  # Trim the extra control points
         self.generate_knots()  # Generate an open knot vector
 
-        self._update_interval()
         self._periodic = False
         self._evaluate_cached.cache_clear()
+
 
 
     @cython.boundscheck(False)
@@ -861,3 +877,18 @@ cdef class NURBSpline(ParametricCurve):
             result[2]= res[2][2]
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double[:] greville_abscissae(double[:] knots, int degree):
+    cdef int n = knots.shape[0] - degree - 1
+    cdef double[:] greville=np.empty((n,))
+    cdef double temp
+    cdef int i,j,k
+    for i in range(n):
+        temp=0.
+        for k in range(degree):
+            j = i + 1 + k
+            temp+=knots[j]
+        temp/= degree
+        greville[i]=temp
+    return greville

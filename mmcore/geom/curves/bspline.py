@@ -73,6 +73,8 @@ def nurbs_split(self, t: float) -> tuple:
     return curve1, curve2
 
 
+
+
 class NURBSpline(CNURBSpline, Curve):
     """
     Non-Uniform Rational BSpline (NURBS)
@@ -153,20 +155,18 @@ class NURBSpline(CNURBSpline, Curve):
         if knots is not None:
             knots = knots if isinstance(knots, np.ndarray) else np.array(knots, dtype=float)
         cpts = control_points if isinstance(control_points, np.ndarray) else np.array(control_points, dtype=float)
-        if not cpts.shape[1]==4:
-
+        if not cpts.shape[1] == 4:
 
             _cpts = np.ones((cpts.shape[0], 4), dtype=float)
             _cpts[:, :cpts.shape[1]] = cpts
             _cpts[:, 3] = 1.
-            CNURBSpline.__init__(self,  _cpts, degree, knots, periodic)
+            CNURBSpline.__init__(self, _cpts, degree, knots, periodic)
 
 
         else:
             CNURBSpline.__init__(self, cpts, degree, knots, periodic)
 
         self._evaluate_length_cached = lru_cache(maxsize=None)(self._evaluate_length)
-
 
     #def __init__(self, control_points, weights=None, degree=3, knots=None):
     #    self._cached_eval_func = lru_cache(maxsize=None)(self._evaluate)
@@ -312,15 +312,17 @@ class NURBSpline(CNURBSpline, Curve):
     #    super().invalidate_cache()
     #    self._cached_eval_func.cache_clear()
     def points(self, *args, **kwargs):
-        if self.degree==1:
+        if self.degree == 1:
             return self.control_points[:-1]
         else:
             return super().points(*args, **kwargs)
+
     def split(self, t):
         return nurbs_split(self, t)
 
     def evaluate(self, t):
         return CNURBSpline.evaluate(self, t)
+
     def __setstate__(self, state):
         self.control_points = state['_control_points']
         self._knots = state['_knots']
@@ -381,8 +383,9 @@ class NURBSpline(CNURBSpline, Curve):
                 return np.array(self.evaluate_multi(t))
             else:
                 return np.array(self.evaluate_multi(t.flatten())).reshape((*t.shape, 3))
+
     @classmethod
-    def create_circle(cls, origin=(0.,0.,0.), radius=1, plane=WORLD_XY) -> "OCCNurbsCurve":
+    def create_circle(cls, origin=(0., 0., 0.), radius=1, plane=WORLD_XY) -> "OCCNurbsCurve":
         """Construct a NURBS curve from a circle.
 
         Parameters
@@ -396,29 +399,30 @@ class NURBSpline(CNURBSpline, Curve):
 
         """
 
-        w =  math.sqrt(2)/2
+        w = math.sqrt(2) / 2
 
-        points=np.array([[radius, 0., 0.,  1.],
-         [radius, radius, 0.,  w],
-         [0., radius, 0. ,  1. ],
-         [-radius, radius, 0.,   w ],
-         [-radius, 0., 0. ,1.  ],
-         [-radius, -radius, 0., w  ],
-         [0., -radius, 0. ,1.  ],
-         [radius, -radius, 0. , w  ],
-         [radius, 0., 0. , 1.  ]],dtype=float)
-        points[:,:-1]=np.array(evaluate_plane_arr(plane,points[:,:-1]-origin ))
+        points = np.array([[radius, 0., 0., 1.],
+                           [radius, radius, 0., w],
+                           [0., radius, 0., 1.],
+                           [-radius, radius, 0., w],
+                           [-radius, 0., 0., 1.],
+                           [-radius, -radius, 0., w],
+                           [0., -radius, 0., 1.],
+                           [radius, -radius, 0., w],
+                           [radius, 0., 0., 1.]], dtype=float)
+        points[:, :-1] = np.array(evaluate_plane_arr(plane, points[:, :-1] - origin))
 
-        knots = np.array([0, math.pi/2, math.pi, 3*math.pi/2, 2*math.pi], dtype=float)
-        mults = np.array([3, 2, 2, 2, 3],dtype=int)
-        knots=np.repeat(knots,mults)
+        knots = np.array([0, math.pi / 2, math.pi, 3 * math.pi / 2, 2 * math.pi], dtype=float)
+        mults = np.array([3, 2, 2, 2, 3], dtype=int)
+        knots = np.repeat(knots, mults)
         return cls(control_points=points, degree=2, knots=knots)
+
 
 from .knot import interpolate_curve
 
 
 def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
-    degree=min(len(points)-1, degree)
+    degree = min(len(points) - 1, degree)
 
     cpts, knots, degree = interpolate_curve(points, degree=degree, use_centripetal=use_centripetal)
     if cpts.shape[1] < 3:
@@ -429,5 +433,3 @@ def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
     spl = NURBSpline(cpts, degree=degree, knots=knots)
     #spl.knots=np.array(knots,dtype=float)
     return spl
-
-
