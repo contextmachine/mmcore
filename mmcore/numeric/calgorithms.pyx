@@ -8,6 +8,7 @@ from mmcore.geom.primitives cimport Implicit3D
 
 import numpy as np
 cimport numpy as np
+np.import_array()
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef void evaluate_tangent(double[:] D1, double[:] D2, double[:] result) noexcept nogil:
