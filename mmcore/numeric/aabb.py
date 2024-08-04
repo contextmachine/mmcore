@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from mmcore.numeric.numeric import curve_bound_points
+from mmcore.numeric.numeric import curve_bound_points, curve_bound_points2
 from mmcore.numeric.routines import cartesian_product
 
 @np.vectorize(signature="(i),(i)->(j,i)")
@@ -90,7 +90,13 @@ def curve_aabb(curve, bounds=None, tol=1e-2):
     :return: AABB (Axis-Aligned Bounding Box) of curve object
     :rtype np.ndarray with shape (2, K).
     """
+
     return aabb(curve(curve_bound_points(curve, bounds=bounds, tol=tol)))
+
+def curve_aabb2(curve, bounds=None):
+    tmin,mins=curve_bound_points2(curve, bounds=bounds, tol=1e-5)
+    tmax,maxs=curve_bound_points2(curve, bounds=bounds,neg=True, tol=1e-5)
+    return aabb(np.array([mins.min(axis=0),maxs.max(axis=0)]))
 
 
 def curve_aabb_eager(curve, bounds=None, cnt=8):

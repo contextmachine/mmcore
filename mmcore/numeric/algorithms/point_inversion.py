@@ -1,13 +1,11 @@
 import numpy as np
 
-from mmcore.geom.bvh import contains_point
+
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric.vectors import scalar_dot, scalar_norm, dot, norm, cross, solve2x2
 from numpy.typing import NDArray
 
-from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
-from mmcore.numeric.fdm import newtons_method
 
 
 # Assuming the following functions are already implemented
@@ -76,7 +74,7 @@ def point_inversion_curve(curve: Curve, P: np.ndarray, u0: float, tol1: float, t
 
 import numpy as np
 
-np.isclose
+
 # Assuming the following functions are already implemented 0.6741571976269591
 
 

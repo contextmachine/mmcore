@@ -213,7 +213,8 @@ class Curve:
         return plane_on_curve(
             self.evaluate(t), self.tangent(t), self.second_derivative(t)
         )
-
+    def planes_at(self, t):
+        return np.array([self.plane_at(s) for s in t])
     def derivative(self, t):
         """
         :param t:float
@@ -312,18 +313,25 @@ class Curve:
         :param kwargs: Additional keyword arguments to be passed.
         :return: The parameter value at the specified length.
         """
-        start, end = self.interval()
-        t0 = t0 if t0 is not None else start
-        t1_limit = end
+        if hasattr(self,'_length_evaluator'):
+            return self._length_evaluator(length)
+        else:
+            self._length_evaluator=length_evaluator(self)
 
-        def func(t):
-            return abs(self.evaluate_length((t0, t)) ** 2 - length ** 2)
 
-        res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
-
-        return newton(
-            func, res[0], tol=tol, x1=t1_limit, **kwargs
-        )
+        #start, end = self.interval()
+        #t0 = t0 if t0 is not None else start
+        #t1_limit = end
+        #
+        #def func(t):
+        #    return abs(self.evaluate_length((t0, t)) ** 2 - length ** 2)
+        #
+        #res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
+        #
+        #return newton(
+        #    func, res[0], tol=tol, x1=t1_limit, **kwargs
+        #)
+        return self._length_evaluator(length)
 
     def apply_operator(self, other, op: Callable):
         if isinstance(other, Curve):
@@ -351,14 +359,16 @@ class Curve:
     def remap_param(self, t, domain=(0.0, 1.0)):
         return np.interp(t, domain, self.interval())
 
-    def points(self, count=50):
-        return np.asarray(self(np.linspace(*self.interval(), count)))
+
 
     def build_tree(self, count=50):
         self._tree = curve_bvh(self,
                                tuple(self.interval()),
                                count=count
                                )
+
+    def length_at(self, t):
+        return self.evaluate(self.evaluate_parameter_at_length(t))
 
 
 class TrimmedCurve(Curve):
@@ -475,3 +485,93 @@ def curve_bvh(curve: Curve, bounds=None, count=None):
         segments.append(PSegment(pts[i], ts[i]))
 
     return build_bvh(segments)
+
+from scipy.interpolate import interp1d
+
+def curvature_points(curve, tol=1e-3):
+    from mmcore.numeric.algorithms.point_inversion import point_inversion_curve
+    start, end = curve.interval()
+    t = start
+    params = [t]
+    P, T, N, B = np.array(curve.plane_at(t))
+    steps = [start]
+    next_t = t + tol
+
+    while next_t < end:
+        P_prev, T_prev, N_prev, B_prev = P, T, N, B
+        params.append(next_t)
+
+        P, T, N, B = np.array(curve.plane_at(next_t))
+
+        R = np.linalg.norm(P - P_prev) / np.arccos(np.dot(T, T_prev))
+
+        phi = 2 * np.arccos((1 - tol / R))
+        step = R * np.tan(phi) / 2
+
+        t = next_t
+
+        next_t = point_inversion_curve(curve, P + (T * step), t, 1e-6, 1e-6)
+        if next_t <= t:
+            print('oo')
+            next_t = t + tol / 2
+
+        steps.append(step)
+    params.append(end)
+    return np.array(params), np.array(steps)
+
+def arc_length_reparameterization(curve):
+    count=100
+    start, end = curve.interval()
+    params = np.linspace(start, end, count)
+    lvals=np.zeros((count,))
+    for i,v in enumerate(params):
+
+        lvals[i]=curve.evaluate_length((start, float(v)))
+
+
+
+
+
+
+    return interp1d(np.linspace(0.,1.,count),interp1d(lvals,params)(np.linspace(lvals.min(),lvals.max(),count)))
+
+
+def length_evaluator(curve):
+    count=100
+    start, end = curve.interval()
+    params = np.linspace(start,end,count)
+
+    lvals = np.array( [curve.evaluate_length( (start,float(i))) for i in params])
+    return interp1d( lvals,params)
+
+class ReparametrizedCurve(Curve):
+    def __init__(self, curve:Curve, parametrization:interp1d):
+        self.curve=curve
+        self.parametrization=parametrization
+        self._interval = (0.,1.)
+    def evaluate_curve_parameter(self, t):
+        return self.parametrization(t)
+    def interval(self):
+        return self._interval
+    def evaluate(self, t):
+        return self.curve.evaluate(float(self.parametrization(t)))
+    def evaluate_length(self, bounds):
+        return self.curve.evaluate_length(tuple(self.parametrization(bounds)))
+    def tangent(self, t):
+        return self.curve.tangent(self.parametrization(t))
+    def normal(self, t):
+        return self.curve.normal(self.parametrization(t))
+    def derivative(self, t):
+        return self.curve.derivative(self.parametrization(t))
+    def second_derivative(self, t):
+        return self.curve.second_derivative(self.parametrization(t))
+    def evaluate_multi(self, t):
+
+        return self.curve.evaluate_multi(self.parametrization(t))
+    def curvature(self, t):
+        return self.curve.curvature(self.parametrization(t))
+    def plane_at(self, t):
+        return self.curve.plane_at(self.parametrization(t))
+    def planes_at(self, t):
+        return self.curve.planes_at(self.parametrization(t))
+    
