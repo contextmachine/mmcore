@@ -574,4 +574,9 @@ class ReparametrizedCurve(Curve):
         return self.curve.plane_at(self.parametrization(t))
     def planes_at(self, t):
         return self.curve.planes_at(self.parametrization(t))
-    
+    def circle_of_curvature(self, t):
+        return self.circle_of_curvature(self.parametrization(t))
+
+class ArcLengthParameterization(ReparametrizedCurve):
+    def __init__(self, curve:Curve):
+        super().__init__(curve,arc_length_reparameterization(curve))

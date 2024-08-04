@@ -7,6 +7,7 @@ from typing import Callable, Optional
 import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import quad
+from scipy.interpolate import interp1d
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
@@ -329,9 +330,10 @@ class Surface:
         return (0.0, 1.0), (0.0, 1.0)
 
     def isocurve(self, u0=-1.0, v0=-1.0, u1=-1.0, v1=-1.0):
-        kfc = [0.0, 0.0, 1.0, 1.0]
+        start,end= self.interval()
+        kfc=list((*start,*end))
         for i, val in enumerate((u0, v0, u1, v1)):
-            if val < 0.0:
+            if val < min(start):
                 continue
             else:
                 kfc[i] = val
@@ -344,6 +346,21 @@ class Surface:
 
     def evaluate(self, uv) -> NDArray[float]:
         ...
+    def geodesic_length(self, start_uv,end_uv):
+
+        d_uv=end_uv-start_uv
+        #n_d_uv=d_uv/scalar_norm(d_uv)
+        params=np.linspace(-1.,1., 100)
+        def lnt(t):
+            td=(self.evaluate(start_uv+d_uv*(t+1e-5))-self.evaluate(start_uv+d_uv*(t-1e-5)))/2/1e-5
+            td/=scalar_norm(td)
+            return td
+
+        interpl=interp1d(np.array([quad(lnt, -1., p)[0] for p in params]), params)
+        return lambda t: start_uv+ d_uv*interpl(t)
+
+
+
 
     def __call__(self, uv) -> NDArray[float]:
         if uv.ndim == 1:
