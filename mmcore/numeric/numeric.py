@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from scipy.interpolate import interp1d
+
 from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
 
+from mmcore.numeric.fdm import fdm
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -81,6 +84,8 @@ def evaluate_length(first_der, t0: float, t1: float, **kwargs):
         return scalar_norm(first_der(t))
 
     return quad(ds, t0, t1, **kwargs)
+
+
 
 
 from scipy.optimize import newton, bisect

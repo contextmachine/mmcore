@@ -239,3 +239,7 @@ SubCurve=TrimmedCurve
 
 def curve_bvh(curve: Curve, bounds=None, count=None)->BVHNode:
     return None
+
+
+class ArcLengthParameterization:
+    pass
