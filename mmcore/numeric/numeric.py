@@ -4,7 +4,6 @@ from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
 
-
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -73,6 +72,8 @@ def evaluate_tangent(D1, D2):
 evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()")
 
 from scipy.integrate import quadrature
+
+
 def evaluate_length(first_der, t0: float, t1: float, **kwargs):
     """ """
 
@@ -82,21 +83,20 @@ def evaluate_length(first_der, t0: float, t1: float, **kwargs):
     return quad(ds, t0, t1, **kwargs)
 
 
-from scipy.optimize import newton,bisect
+from scipy.optimize import newton, bisect
 
 
 def evaluate_parameter_from_length(
-    first_der,
-    l: float,
-    t0: float = 0.0,
+        first_der,
+        l: float,
+        t0: float = 0.0,
 
-
-    fprime=None,
-    fprime2=None,
-    t1_limit=None,
-    tol=1e-8,
-    maxiter=50,
-            **kwargs
+        fprime=None,
+        fprime2=None,
+        t1_limit=None,
+        tol=1e-8,
+        maxiter=50,
+        **kwargs
 
 ):
     """
@@ -114,22 +114,20 @@ def evaluate_parameter_from_length(
     :return: The parameter 't' that corresponds to the target length 'l'.
     """
 
-
     def func_to_bisect(t):
         return evaluate_length(first_der, t0, t, **kwargs)[0] - l
+
     def func(t):
         return abs(evaluate_length(first_der, t0, t, **kwargs)[0] - l)
-
 
     #return newton(
     #    func, t0, tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
     #)
-    res=iterative_divide_and_conquer_min(func, (t0,t1_limit), t1_limit*2)
+    res = iterative_divide_and_conquer_min(func, (t0, t1_limit), t1_limit * 2)
 
     return newton(
-       func, res[0], tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
+        func, res[0], tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
     )
-
 
 
 evaluate_length_vec = np.vectorize(
@@ -137,17 +135,15 @@ evaluate_length_vec = np.vectorize(
 )
 
 
-
-
 def calculate_curvature2d(dx, dy, ddx, ddy):
     numerator = abs(dx * ddy - dy * ddx)
-    denominator = math.pow((dx**2 + dy**2), 1.5)
+    denominator = math.pow((dx ** 2 + dy ** 2), 1.5)
     curvature = numerator / denominator
     return numerator, denominator, curvature
 
 
 def evaluate_curvature(
-    derivative, second_derivative
+        derivative, second_derivative
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """
     Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and
@@ -191,8 +187,8 @@ def evaluate_curvature(
 
         # Calculate curvature vector
         curvature_vector = inverse_norm_derivative_squared * (
-            second_derivative
-            + negative_second_derivative_dot_tangent * unit_tangent_vector
+                second_derivative
+                + negative_second_derivative_dot_tangent * unit_tangent_vector
         )
 
         # We will recalculate
@@ -233,8 +229,8 @@ def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
     b = ds_o_dt * ds_o_dt
     det = a - b
     if (
-        ds_o_ds <= dt_o_dt * np.finfo(float).eps
-        or dt_o_dt <= ds_o_ds * np.finfo(float).eps
+            ds_o_ds <= dt_o_dt * np.finfo(float).eps
+            or dt_o_dt <= ds_o_ds * np.finfo(float).eps
     ):
         # One of the partials is (numerically) zero w.r.t. the other partial - value of det is unreliable
         rc = False
@@ -248,12 +244,12 @@ def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
 
 
 def evaluate_normal(
-    gradient_u,
-    gradient_v,
-    second_derivative_uu,
-    second_derivative_uv,
-    second_derivative_vv,
-    limit_direction=None,
+        gradient_u,
+        gradient_v,
+        second_derivative_uu,
+        second_derivative_uv,
+        second_derivative_vv,
+        limit_direction=None,
 ):
     """
     :param gradient_u: The gradient vector in the u direction.
@@ -283,9 +279,9 @@ def evaluate_normal(
 
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
-    dot_product_gradient_u = scalar_dot(gradient_u,gradient_u)
+    dot_product_gradient_u = scalar_dot(gradient_u, gradient_u)
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
-    dot_product_gradient_v =  scalar_dot(gradient_v,gradient_v)
+    dot_product_gradient_v = scalar_dot(gradient_v, gradient_v)
 
     determinant, jacobian_success = evaluate_jacobian(
         dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
@@ -301,7 +297,7 @@ def evaluate_normal(
     }.get(limit_direction, [1.0, 1.0])
 
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
-    cross_product_v =  scalar_cross(gradient_u, cross_vector_v)
+    cross_product_v = scalar_cross(gradient_u, cross_vector_v)
 
     cross_vector_u = coeff_a * second_derivative_uu + coeff_b * second_derivative_uv
     cross_product_u = scalar_cross(cross_vector_u, gradient_v)
@@ -313,12 +309,12 @@ def evaluate_normal(
 
 
 def evaluate_normal2(
-    gradient_u,
-    gradient_v,
-    second_derivative_uu,
-    second_derivative_uv,
-    second_derivative_vv,
-    limit_direction=None,
+        gradient_u,
+        gradient_v,
+        second_derivative_uu,
+        second_derivative_uv,
+        second_derivative_vv,
+        limit_direction=None,
 ):
     """
     :param gradient_u: The gradient vector in the u direction.
@@ -464,11 +460,8 @@ def evaluate_sectional_curvature(S10, S01, S20, S11, S02, planeNormal):
     - K: 3D vector representing the curvature
     """
 
-
-
     M = scalar_cross(S10, S01)
     D1 = scalar_cross(M, planeNormal)
-
 
     rank, a, b, e, pr = solve3x2(S10, S01, D1[0], D1[1], D1[2])
     if rank < 2:
@@ -513,7 +506,6 @@ def curve_bound_points(curve, bounds=None, tol=1e-2):
     t_values = []
 
     def solve_interval(f, bnds):
-
         f_min, _ = iterative_divide_and_conquer_min(f, bnds, tol=tol)
         f_max, _ = iterative_divide_and_conquer_min(lambda t: -f(t), bnds, tol=tol)
         return f_min, f_max
@@ -536,6 +528,36 @@ def curve_bound_points(curve, bounds=None, tol=1e-2):
     return np.unique(np.array([curve_start, *t_values, curve_end]))
 
 
+def curve_bound_points2(curve, bounds=None, neg=False, tol=1e-5):
+    """
+    Returns a array of parameters whose evaluation gives you a set of points at least sufficient
+    for correct estimation of the AABB(Axis-Aligned Bounding Box) of the curve.
+    Also the set contains parameters of all extrema of the curve,
+    but does not guarantee that the curve is extreme in all parameters.
+    """
+
+    low, high = np.zeros((3,)) + bounds[0], np.zeros((3,)) + bounds[1]
+
+    while np.all(np.abs(high - low) >= tol):
+        m1 = low + (high - low) / 4
+        m2 = high - (high - low) / 4
+        if neg:
+            xyz1 = -1 * np.diag(np.array(curve(m1)))
+            xyz2 = -1 * np.diag(np.array(curve(m2)))
+        else:
+            xyz1 = np.diag(np.array(curve(m1)))
+            xyz2 = np.diag(np.array(curve(m2)))
+
+        mask = xyz1 < xyz2
+        inv_mask = np.bitwise_not(mask)
+        high[mask] = m2[mask]
+        low[inv_mask] = m1[inv_mask]
+
+    x_min = (low + high) / 2
+
+    return x_min, curve(x_min)
+
+
 def curve_roots(curve, axis=1):
     _curve_fun = getattr(curve, "evaluate", curve)
 
@@ -553,37 +575,43 @@ def curve_roots(curve, axis=1):
     return roots
 
 
+def crvs_to_numpy_poly(crv, n_samples=100, remap=True):
+    t = np.linspace(*crv.interval(), n_samples)
+    pts = crv(t)
+    deg = len(crv.control_points) + 1
+    t = np.linspace(0., 1, n_samples) if remap else t
+    if pts[0].shape[-1] < 3 or np.allclose(pts[..., -1], 0.):
 
-
-
-def crvs_to_numpy_poly(crv, n_samples=100,remap=True):
-    t=np.linspace(*crv.interval(), n_samples)
-    pts=crv(t)
-    deg=len(crv.control_points) + 1
-    t=np.linspace(0., 1, n_samples) if remap else t
-    if pts[0].shape[-1]<3 or np.allclose(pts[...,-1],0.):
-
-        crvx, crvy = (np.polynomial.Polynomial.fit(np.linspace(0.,1,n_samples) if remap else t,  pts[...,0], deg),
-                      np.polynomial.Polynomial.fit(t, pts[..., 1],   deg))
+        crvx, crvy = (np.polynomial.Polynomial.fit(np.linspace(0., 1, n_samples) if remap else t, pts[..., 0], deg),
+                      np.polynomial.Polynomial.fit(t, pts[..., 1], deg))
         return crvx, crvy
     else:
-        crvx, crvy , crvz = (np.polynomial.Polynomial.fit(t, pts[..., 0], deg),
-                             np.polynomial.Polynomial.fit(t, pts[..., 1], deg),
-                             np.polynomial.Polynomial.fit(
-            t, pts[..., 2], deg))
-        return crvx,crvy,crvz
+        crvx, crvy, crvz = (np.polynomial.Polynomial.fit(t, pts[..., 0], deg),
+                            np.polynomial.Polynomial.fit(t, pts[..., 1], deg),
+                            np.polynomial.Polynomial.fit(
+                                t, pts[..., 2], deg))
+        return crvx, crvy, crvz
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     from mmcore.geom.curves import NURBSpline
+
     bb = NURBSpline(
-        np.random.random((25,3))
+        np.random.random((25, 3))
     )
     import time
-    s=time.time()
-    rr=bb.evaluate_length((0., 0.23))
-    print(divmod(time.time()-s,60))
+
     s = time.time()
-    rrr=bb.evaluate_length((0.0, (bb.interval()[1]-bb.interval()[0])*0.9))
+    rr = bb.evaluate_length((0., 0.23))
+    print(divmod(time.time() - s, 60))
+    s = time.time()
+    rrr = bb.evaluate_length((0.0, (bb.interval()[1] - bb.interval()[0]) * 0.9))
     print(divmod(time.time() - s, 60))
 
     s = time.time()
@@ -592,5 +620,5 @@ if __name__ == '__main__':
     s = time.time()
 
     print(
-        bb.evaluate_parameter_at_length(rr, tol=1e-8),0.23)
+        bb.evaluate_parameter_at_length(rr, tol=1e-8), 0.23)
     print(divmod(time.time() - s, 60))
