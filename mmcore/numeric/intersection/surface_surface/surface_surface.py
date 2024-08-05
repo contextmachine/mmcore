@@ -3,27 +3,15 @@ import itertools
 import time
 import warnings
 
-import numpy as np
 from scipy.spatial import KDTree
 
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric.closest_point import closest_point_on_ray, closest_points_on_surface
-from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
-from mmcore.numeric.intersection.surface_surface._terminator import (
-    TerminatorType,
-    Terminator,
-)
 
-
-from mmcore.numeric.plane import plane_plane_intersect, plane_plane_plane_intersect
+from mmcore.numeric.plane import plane_plane_intersect
 
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
-from mmcore.numeric.vectors import (
-    scalar_norm,
-    scalar_cross,
-    scalar_unit,
-)
 
 import numpy as np
 from mmcore.numeric.vectors import det, solve2x2
@@ -316,99 +304,6 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=200):
         else:
             warnings.warn("freeform not convergence")
             return
-
-
-def find_uv_intersection(us, vs, ut, vt, u0, v0, u1, v1):
-    def line_intersection(x1, y1, x2, y2, x3, y3, x4, y4):
-        # Calculate the denominator
-        denom = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1)
-
-        if denom == 0:
-            return None  # Lines are parallel
-
-        # Calculate the numerators
-        ua_num = (x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)
-        ub_num = (x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)
-
-        ua = ua_num / denom
-        ub = ub_num / denom
-
-        # Check if the intersection is within the line segments
-        if 0 <= ua <= 1 and 0 <= ub <= 1:
-            intersection_x = x1 + ua * (x2 - x1)
-            intersection_y = y1 + ua * (y2 - y1)
-            return (intersection_x, intersection_y)
-
-        return None
-
-    # Define the boundaries as line segments
-    boundaries = [
-        (u0, v0, u1, v0),  # Bottom boundary
-        (u1, v0, u1, v1),  # Right boundary
-        (u1, v1, u0, v1),  # Top boundary
-        (u0, v1, u0, v0),  # Left boundary
-    ]
-
-    for ua, va, ub, vb in boundaries:
-        intersection = line_intersection(us, vs, ut, vt, ua, va, ub, vb)
-        if intersection:
-            return intersection
-
-    return None
-
-
-@functools.lru_cache(maxsize=None)
-def solve_step(r, tol):
-    return np.sqrt(r ** 2 - (r - tol) ** 2) * 2
-
-
-
-
-def constrained_uv_int(surf1, surf2, uv11, uv12, uv21, uv22, pt1, pt2, tol):
-    (u0, u1), (v0, v1) = surf1.interval()
-    res1 = find_uv_intersection(*uv11, *uv12, u0, v0, u1, v1)
-    (u0, u1), (v0, v1) = surf2.interval()
-    res2 = find_uv_intersection(*uv21, *uv22, u0, v0, u1, v1)
-    if res1 is None and res2 is None:
-        raise ValueError("No intersection between uv1 and uv2")
-    elif res1 is not None and res2 is not None:
-        uv1 = res1
-        uv2 = res2
-        p1n = surf1.evaluate(uv1)
-        p2n = surf2.evaluate(uv2)
-        t1 = p1n - pt1
-        t2 = p2n - pt2
-
-        if np.linalg.norm(t1) <= np.linalg.norm(t2):
-            uv2 = point_inversion_surface(surf2, p1n, *uv2, tol1=1e-6, tol2=tol)
-        else:
-            uv1 = point_inversion_surface(surf1, p2n, *uv1, tol1=1e-6, tol2=tol)
-
-        return uv1, uv2
-
-    elif res1 is not None:
-        uv1 = res1
-        p1n = surf1.evaluate(uv1)
-
-        # uv2 = newtons_method(wrp1, uv22)
-        uv2 = point_inversion_surface(surf2, p1n, *uv22, tol1=1e-6, tol2=tol)
-
-        return uv1, uv2
-
-    elif res2 is not None:
-        uv2 = res2
-        p2n = surf2.evaluate(uv2)
-
-        uv1 = point_inversion_surface(surf1, p2n, *uv12, tol1=1e-6, tol2=tol)
-
-        return uv1, uv2
-
-    else:
-        raise ValueError("No intersection between uv1 and uv2")
-    # xyz_second_better = surf2.evaluate(np.array(uv_second)) - pt2
-
-    # xyz3 = min(((xyz_second_better,pt1), (xyz_first_better, pt2)), key=lambda x: scalar_norm(x[0]))
-
 
 
 
