@@ -11,6 +11,7 @@ from scipy.interpolate import interp1d
 
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
+from mmcore.geom.parametric import BiLinear as CBiLinear
 
 from mmcore.geom.polygon import polygon_build_bvh
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
@@ -288,10 +289,10 @@ class Surface:
             ) / DEFAULT_H
 
     def normal(self, uv):
-        du=self.derivative_u(uv)
-        dv=self.derivative_v(uv)
-        n = scalar_cross(du,dv)
-        return np.array(n)/scalar_norm(n)
+        du = self.derivative_u(uv)
+        dv = self.derivative_v(uv)
+        n = scalar_cross(du, dv)
+        return np.array(n) / scalar_norm(n)
 
     def plane_at(self, uv):
         orig = self.evaluate(uv)
@@ -330,8 +331,8 @@ class Surface:
         return (0.0, 1.0), (0.0, 1.0)
 
     def isocurve(self, u0=-1.0, v0=-1.0, u1=-1.0, v1=-1.0):
-        start,end= self.interval()
-        kfc=list((*start,*end))
+        start, end = self.interval()
+        kfc = list((*start, *end))
         for i, val in enumerate((u0, v0, u1, v1)):
             if val < min(start):
                 continue
@@ -346,21 +347,38 @@ class Surface:
 
     def evaluate(self, uv) -> NDArray[float]:
         ...
-    def geodesic_length(self, start_uv,end_uv):
 
-        d_uv=end_uv-start_uv
+    def geodesic_length(self, start_uv, end_uv):
+
+        d_uv = end_uv - start_uv
         #n_d_uv=d_uv/scalar_norm(d_uv)
-        params=np.linspace(-1.,1., 100)
+        params = np.linspace(-1., 1., 100)
+
         def lnt(t):
-            td=(self.evaluate(start_uv+d_uv*(t+1e-5))-self.evaluate(start_uv+d_uv*(t-1e-5)))/2/1e-5
-            td/=scalar_norm(td)
+            td = (self.evaluate(start_uv + d_uv * (t + 1e-5)) - self.evaluate(start_uv + d_uv * (t - 1e-5))) / 2 / 1e-5
+            td /= scalar_norm(td)
             return td
 
-        interpl=interp1d(np.array([quad(lnt, -1., p)[0] for p in params]), params)
-        return lambda t: start_uv+ d_uv*interpl(t)
+        interpl = interp1d(np.array([quad(lnt, -1., p)[0] for p in params]), params)
+        return lambda t: start_uv + d_uv * interpl(t)
 
+    def derivatives(self, uv):
+        du_prev = uv - self._uh
+        du_next = uv + self._uh
+        dv_prev = uv - self._vh
+        dv_next = uv + self._vh
+        ders = np.empty((2, 3))
+        pt_prev_du = self.evaluate(du_prev)
+        pt_prev_dv = self.evaluate(dv_prev)
 
+        #ders[0]=self.evaluate(uv)
+        pt_next_du = self.evaluate(du_next)
+        pt_next_dv = self.evaluate(dv_next)
 
+        ders[0] = (pt_next_du - pt_prev_du) / 2 / DEFAULT_H
+        ders[1] = (pt_next_dv - pt_prev_dv) / 2 / DEFAULT_H
+
+        return ders
 
     def __call__(self, uv) -> NDArray[float]:
         if uv.ndim == 1:
@@ -584,16 +602,16 @@ class Coons(Surface):
             self._rd = PyRuled(self.d2, self.d1)
         #self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
-        self._rcd = BiLinear(self.pt0, self.pt1, self.pt2, self.pt3)
+        self._rcd = CBiLinear(self.pt0, self.pt1, self.pt2, self.pt3)
         self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
-        self._uv = np.array([0., 0.])
+        #self._uv = np.array([0., 0.])
 
     def evaluate(self, uv):
         return self._cached_eval(*uv)
 
     def _evaluate(self, u, v):
-        self._uv[:] = u, v
-        return self._rc.evaluate(self._uv) + self._rd.evaluate(self._uv[::-1]) - self._rcd.evaluate(self._uv)
+        uv = np.array([u, v], dtype=float)
+        return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
 
 
 """

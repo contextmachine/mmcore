@@ -113,6 +113,13 @@ Extension(
         extra_link_args=link_args,
         include_dirs=include_dirs
 
+    ),Extension(
+        "mmcore.numeric.intersection.surface_surface._ssi",
+        ["mmcore/numeric/intersection/surface_surface/_ssi.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
     )
 ]
 #Extension(
@@ -137,7 +144,24 @@ extensions.append(Extension(
     define_macros=define_macros,
     include_dirs=include_dirs))
 
+logo=r"""
+                                                
+       ____ ___  ____ ___  _________  ________ 
+      / __ `__ \/ __ `__ \/ ___/ __ \/ ___/ _ \
+     / / / / / / / / / / / /__/ /_/ / /  /  __/
+    /_/ /_/ /_/_/ /_/ /_/\___/\____/_/   \___/ 
+                                               
+                                                
+"""
+
+
+
+
+
+
 if __name__ == "__main__":
+
+    print(logo)
     ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
     dist = Distribution({"ext_modules": ext_modules})
     cmd = build_ext(dist)
