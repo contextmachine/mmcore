@@ -18,10 +18,8 @@ from mmcore.numeric.vectors import det, solve2x2
 from collections import namedtuple
 from typing import NamedTuple
 
-
 from mmcore.numeric import scalar_cross, scalar_norm
 from mmcore.numeric.vectors import scalar_unit
-
 
 from mmcore.numeric.fdm import DEFAULT_H
 from mmcore.numeric.intersection.surface_surface._terminator import TerminatorType
@@ -41,30 +39,23 @@ class MarchingMethod:
 
     def __init__(self, s1,
                  s2,
-                 initial_uv1,
-                 initial_uv2,
                  kd=None,
                  tol=1e-3,
                  max_iter=500,
-                 no_ff=False,
                  side=1,
-                 curvature_step=False,
+
                  boundary_terminators=None,
                  fdm_h=DEFAULT_H
                  ):
         self.s1 = s1
         self.s2 = s2
-        self.initial_uv1 = initial_uv1
-        self.initial_uv2 = initial_uv2
+
         self.kd = kd
         self.tol = tol
         self.max_iter = max_iter
-        self.no_ff = no_ff
         self.side = side
-        self.curvature_step = curvature_step
         self.boundary_terminators = boundary_terminators
         self.fdm_h = fdm_h
-
 
     @staticmethod
     def calculate_derivatives_data(surface, uv):
@@ -120,6 +111,7 @@ class MarchingMethod:
                                                       step_data.first.pt + veps)
             uv2_new = step_data.second.uv + improve_uv(step_data.second.du, step_data.second.dv, step_data.second.pt,
                                                        step_data.second.pt + veps)
+
             n1, n2 = self.s1.normal(uv1_new), self.s2.normal(uv2_new)
             Tn = np.array(scalar_cross(n1, n2))
             Tn /= np.linalg.norm(Tn)
@@ -143,7 +135,7 @@ class MarchingMethod:
                         )
 
     @staticmethod
-    def improve_uvs(step_data: IntersectionStepData, pt_better:np.ndarray):
+    def improve_uvs(step_data: IntersectionStepData, pt_better: np.ndarray):
         uvb1_better = step_data.first.uv + improve_uv(step_data.first.du, step_data.first.dv, step_data.first.pt,
                                                       pt_better)
         uvb2_better = step_data.second.uv + improve_uv(step_data.second.du, step_data.second.dv, step_data.second.pt,
@@ -173,19 +165,18 @@ class MarchingMethod:
 
         return False, (xyz_better, uvb1_better, uvb2_better)
 
-    def solve(self
+    def solve(self, initial_uv1, initial_uv2
 
-
-    ):
+              ):
         terminator = None
         use_kd = self.kd is not None
         ixss = set()
-        xyz1_init, xyz2_init =  self.s1.evaluate( self.initial_uv1),  self.s2.evaluate( self.initial_uv2)
+        xyz1_init, xyz2_init = self.s1.evaluate(initial_uv1), self.s2.evaluate(initial_uv2)
 
         res = self.step(
 
-            self.initial_uv1,
-            self.initial_uv2
+            initial_uv1,
+            initial_uv2
         )
 
         if res is None:
@@ -224,7 +215,7 @@ class MarchingMethod:
             if scalar_norm(xyz1 - xyz1_init) < step:
                 pts.append(pts[0])
 
-                uvs.append((self.initial_uv1, self.initial_uv2))
+                uvs.append((initial_uv1, initial_uv2))
                 terminator = TerminatorType.LOOP
                 break
 
@@ -245,6 +236,7 @@ def improve_uv(du, dv, xyz_old, xyz_better):
     res = np.zeros(2)
     solve2x2(max_det[0], np.array(max_det[1]), res)
     return res
+
 
 def get_plane(origin, du, dv):
     duu = du / scalar_norm(du)
@@ -304,7 +296,6 @@ def freeform_method(s1, s2, uvb1, uvb2, tol=1e-6, cnt=0, max_cnt=200):
         else:
             warnings.warn("freeform not convergence")
             return
-
 
 
 from collections import namedtuple
@@ -379,40 +370,33 @@ def surface_ppi(
     ii = 0
     l = len(uvs2)
     march = MarchingMethod(
-
         surf1,
         surf2,
-        uvs1[0],
-        uvs2[0],
         kd=kd,
         tol=tol,
         side=1,
-        curvature_step=curvature_step,
         boundary_terminators=edge_terminator,
     )
-    def _next():
-        nonlocal ii, kd, data, uvs1, uvs2, l,march
-        march.initial_uv1 = uvs1[0]
-        march.initial_uv2 = uvs2[0]
-        march.side = -1
-        march.kd = kd
-        march.boundary_terminators = edge_terminator
 
-        ress=march.solve()
+    def _next():
+        nonlocal ii, kd, data, uvs1, uvs2, l
+
+        march.side = 1
+        march.kd = kd
+
+        ress = march.solve(uvs1[0], uvs2[0])
         ii += 1
         if ress is not None:
             start = np.copy(data[0])
             start_uv = np.array([np.copy(uvs1[0]), np.copy(uvs2[0])])
 
             if ress[-1] != TerminatorType.LOOP:
-
-                march.initial_uv1 = uvs1[0]
-                march.initial_uv2 = uvs2[0]
                 march.side = -1
+                march.kd = kd
                 march.kd = kd
                 march.boundary_terminators = edge_terminator
 
-                ress_back=march.solve()
+                ress_back = march.solve(uvs1[0], uvs2[0])
 
                 if ress_back is not None:
                     uv_s, pts, steps, ixss, terminator = ress
