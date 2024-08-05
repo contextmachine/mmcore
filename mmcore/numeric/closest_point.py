@@ -136,11 +136,11 @@ def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
     return res, np.linalg.norm(curve.evaluate(res) - point)
 
 
-
 def closest_point_on_ray(ray, point):
     start, direction = ray
 
     return start + vector_projection(point - start, direction)
+
 
 def closest_point_on_line(line, point):
     start, end = line
@@ -148,12 +148,11 @@ def closest_point_on_line(line, point):
     return start + vector_projection(point - start, direction)
 
 
-def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
-
-
+def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
     if bounds is None:
         bounds = tuple(self.interval())
     (umin, umax), (vmin, vmax) = bounds
+
     def wrp1(uv):
         d = self.evaluate(uv) - pt
         return scalar_dot(d, d)
@@ -171,7 +170,7 @@ def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
     else:
 
         initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
-        uv=newtons_method(wrp1, initial,tol=tol)
+        uv = newtons_method(wrp1, initial, tol=tol)
         if uv is None:
             raise ValueError('Newtons method failed to converge')
         return uv
@@ -213,6 +212,8 @@ def closest_points_on_surface(surface, pts, tol=1e-6):
                 )
             )
     return uvs
+
+
 def closest_point_on_surface_batched(surface, pts, tol=1e-6):
     """
     Compute the closest points on a surface to a given set of points using a vectorized approach.
@@ -241,6 +242,8 @@ def closest_point_on_surface_batched(surface, pts, tol=1e-6):
         )
     )
     return uvs.T
+
+
 __all__ = ["closest_point_on_curve",
 
            "closest_point_on_line",
