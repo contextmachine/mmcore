@@ -287,14 +287,64 @@ cpdef void cplane_plane_plane_intersect(double[:,:] plane1, double[:,:] plane2,d
     b[2] =  dot_product(plane3[0], normal3)
 
     solve_system_3x3(A, b, result)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef void cplane_plane_plane_intersect_points_and_normals(double[:] pt1,double[:] normal1, double[:] pt2, double[:] normal2, double[:] pt3, double[:] normal3,double[:] result) noexcept nogil:
+    """
+    :param pt1: A 1D array representing the origin of the first plane. Shape should be (3,).
+    :param normal1: A 1D array representing the normal of the first plane. Shape should be (3,).
+    :param pt2: A 1D array representing the origin of the second plane. Shape should be (3,).
+    :param normal2: A 1D array representing the normal of the second plane. Shape should be (3,).
+    :param pt3: A 1D array representing the origin of the third plane. Shape should be (3,).
+    :param normal3: A 1D array representing the normal of the third plane. Shape should be (3,).
+    :return: A 1D array representing the intersection point of the three planes. Shape is (3,).
+
+    """
+    cdef double[3][3] A;
+    cdef double[3] b;
+    A[0][0] = normal1[0]
+    A[0][1] = normal1[1]
+    A[0][2] = normal1[2]
+    A[1][0] = normal2[0]
+    A[1][1] = normal2[1]
+    A[1][2] = normal2[2]
+    A[2][0] = normal3[0]
+    A[2][1] = normal3[1]
+    A[2][2] = normal3[2]
+
+    b[0] = dot_product(pt1, normal1)
+    b[1] = dot_product(pt2, normal2)
+    b[2] =  dot_product(pt3, normal3)
+
+    solve_system_3x3(A, b, result)
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef double[:] plane_plane_plane_intersect(double[:,:] plane1, double[:,:] plane2,double[:,:] plane3):
+
     cdef int i
     cdef double[:] result=np.empty((3,))
     cplane_plane_plane_intersect(plane1,plane2,plane3,result)
     return result
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef double[:] plane_plane_plane_intersect_points_and_normals(double[:] pt1, double[:] normal1, double[:] pt2, double[:] normal2, double[:] pt3, double[:] normal3):
+    """
+    :param pt1: A 1D array representing the origin of the first plane. Shape should be (3,).
+    :param normal1: A 1D array representing the normal of the first plane. Shape should be (3,).
+    :param pt2: A 1D array representing the origin of the second plane. Shape should be (3,).
+    :param normal2: A 1D array representing the normal of the second plane. Shape should be (3,).
+    :param pt3: A 1D array representing the origin of the third plane. Shape should be (3,).
+    :param normal3: A 1D array representing the normal of the third plane. Shape should be (3,).
+    :return: A 1D array representing the intersection point of the three planes. Shape is (3,).
+
+    """
+    cdef int i
+    cdef double[:] result=np.empty((3,))
+    cplane_plane_plane_intersect_points_and_normals( pt1,normal1, pt2,normal2, pt3, normal3,result)
+    return result
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
