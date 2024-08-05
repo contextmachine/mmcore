@@ -44,7 +44,15 @@ cpdef void evaluate_tangent(double[:] D1, double[:] D2, double[:] result) noexce
         result[2] = D1[2] / d1
 
 
-
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef surface_jacobian(double[:] du, double[:] dv):
+    cdef double[:,:] J=np.empty((2,2))
+    J[0, 0] = scalar_dot(du, du)
+    J[0, 1] = scalar_dot(du, dv)
+    J[1, 0] = scalar_dot(dv, du)
+    J[1, 1] = scalar_dot(dv, dv)
+    return J
 
 
 @cython.boundscheck(False)
