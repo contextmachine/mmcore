@@ -175,6 +175,8 @@ def closest_point_on_surface(self:Surface, pt, tol=1e-3,bounds=None):
         if uv is None:
             raise ValueError('Newtons method failed to converge')
         return uv
+
+
 def closest_points_on_surface(surface, pts, tol=1e-6):
     """
     Compute the closest points on a surface to a given set of points using a classic approach.
