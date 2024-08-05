@@ -1,8 +1,7 @@
 from copy import deepcopy
 import numpy as np
 from scipy.linalg import lu_solve,lu_factor
-from mmcore.geom.vec import dist
-
+from mmcore.numeric.vectors import norm, scalar_norm
 
 
 def generate_knot(degree, num_ctrlpts, clamped=True):
@@ -145,7 +144,7 @@ def compute_params_curve(points, centripetal=False):
     cds = [0.0 for _ in range(num_points + 1)]
     cds[-1] = 1.0
     for i in range(1, num_points):
-        distance = dist(points[i], points[i - 1])
+        distance = scalar_norm(points[i]-points[i - 1])
         cds[i] = np.sqrt(distance) if centripetal else distance
 
     # Find the total chord length
