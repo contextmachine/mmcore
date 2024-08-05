@@ -363,18 +363,18 @@ class Surface:
         return lambda t: start_uv + d_uv * interpl(t)
 
     def derivatives(self, uv):
+
         du_prev = uv - self._uh
         du_next = uv + self._uh
         dv_prev = uv - self._vh
         dv_next = uv + self._vh
         ders = np.empty((2, 3))
-        pt_prev_du = self.evaluate(du_prev)
-        pt_prev_dv = self.evaluate(dv_prev)
 
         #ders[0]=self.evaluate(uv)
+        pt_prev_du = self.evaluate(du_prev)
+        pt_prev_dv = self.evaluate(dv_prev)
         pt_next_du = self.evaluate(du_next)
         pt_next_dv = self.evaluate(dv_next)
-
         ders[0] = (pt_next_du - pt_prev_du) / 2 / DEFAULT_H
         ders[1] = (pt_next_dv - pt_prev_dv) / 2 / DEFAULT_H
 

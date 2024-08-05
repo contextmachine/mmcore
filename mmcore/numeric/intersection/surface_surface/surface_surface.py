@@ -78,7 +78,7 @@ def find_closest_points(surf1: Surface, surf2: Surface,  freeform):
             else:
                 # print(uv1, uv2)
 
-                res = freeform.solve( uv1, uv2)
+                res = freeform.solve( uv1, uv2, return_edges=False)
 
                 if res is not None:
                     (xyz1_new, uvb1_better, uvb2_better) = res
@@ -140,9 +140,10 @@ class SSXMethod:
     def calculate_derivatives_data(surface, uv):
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
 
-        pt = surface.evaluate(uv)
-        du = surface.derivative_u(uv)
-        dv = surface.derivative_v(uv)
+        pt=surface.evaluate(uv)
+        du,dv = surface.derivatives(uv)
+
+
         n = np.array(scalar_unit(scalar_cross(du, dv)))
 
         return SurfaceDerivativesData(uv, pt, du, dv, n)
@@ -231,11 +232,15 @@ class FreeFormMethod(SSXMethod):
         uv2 = np.array(uv2)
 
         for i in range(self.max_iter):
+            #print(i)
             intersection_step_data: IntersectionStepData = self.calculate_intersection_step_data(self.s1, self.s2,
                                                                                                 uv1,
                                                                                                 uv2)
 
             p1_better, mid, p2_better = self.refine_points(intersection_step_data)
+
+
+
             uv1 += improve_uv(intersection_step_data.first.du,
                                               intersection_step_data.first.dv,
                                               intersection_step_data.first.pt,
@@ -245,18 +250,19 @@ class FreeFormMethod(SSXMethod):
                                               intersection_step_data.second.dv,
                                               intersection_step_data.second.pt,
                                               mid)
+
             if any(self.handle_inside(*uv1,*uv2)):
                 if return_edges:
                     mid,uv1,uv2=self.boundary_terminators.get_closest(mid)
-
-
                     return  mid,uv1,uv2
                 else:
                     return
+
             d1, d2 = scalar_norm(intersection_step_data.first.pt - p1_better), scalar_norm(
-                   intersection_step_data.second.pt - p2_better)
+                intersection_step_data.second.pt - p2_better)
 
             if d1<self.tol and d2<self.tol:
+
                 return mid, uv1, uv2
 
 
@@ -392,6 +398,8 @@ class MarchingMethod(SSXMethod):
             return
 
         (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
+
+
         if use_kd:
             ixss.update(self.kd.query_ball_point(xyz1, step * 2))
 
@@ -436,7 +444,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
     freeform=FreeFormMethod(surf1,surf2,
         tol=tol,
         boundary_terminators=edge_terminator,
-                   max_iter=max_iter
+                   max_iter=9
     )
     res = find_closest_points(surf1, surf2, freeform)
     if res is None:
@@ -678,16 +686,16 @@ if __name__ == "__main__":
     # print(
     #    patch1._rc,
     # )
-
-    # yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    # yappi.start()
+    import yappi
+    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    yappi.start()
     s = time.time()
     TOL = 0.01
     cc = surface_ppi(patch1, patch2, TOL)
     print(time.time() - s)
-    # yappi.stop()
-    # func_stats = yappi.get_func_stats()
-    # func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
+    yappi.stop()
+    func_stats = yappi.get_func_stats()
+    func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
     # tolerance checks
 
