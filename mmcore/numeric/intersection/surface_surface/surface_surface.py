@@ -53,14 +53,17 @@ ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
 
 def find_closest_points(surf1: Surface, surf2: Surface,  freeform):
+    #print('\nfind_closest_points start\n---------------\n\n')
     min1max1: BoundingBox = surf1.tree.bounding_box
     min2max2: BoundingBox = surf2.tree.bounding_box
     interval1 = tuple(surf1.interval())
     interval2 = tuple(surf2.interval())
+
     if min1max1.intersect(min2max2):
         pts = []
         uvs1 = []
         uvs2 = []
+        index=0
 
         for first, second in intersect_bvh_objects(surf1.tree, surf2.tree):
             first: BVHNode
@@ -75,26 +78,29 @@ def find_closest_points(surf1: Surface, surf2: Surface,  freeform):
 
             if len(uv1) == 0 or len(uv2) == 0:
                 pass
+
             else:
-                # print(uv1, uv2)
+                # #print(uv1, uv2)
 
-                res = freeform.solve( uv1, uv2, return_edges=False)
+                    res = freeform.solve( uv1, uv2, return_edges=False)
 
-                if res is not None:
-                    (xyz1_new, uvb1_better, uvb2_better) = res
-                    if any(
-                            handle_inside(*uvb1_better, interval1)
-                            + handle_inside(*uvb2_better, interval2)
+                    if res is not None:
+                        (xyz1_new, uvb1_better, uvb2_better) = res
+                        if any(
+                                handle_inside(*uvb1_better, interval1)
+                                + handle_inside(*uvb2_better, interval2)
 
-                    ):
-                        pass
-                    # print(uvb1_better, uvb2_better)
-                    pts.append(xyz1_new)
-                    uvs1.append(uvb1_better)
-                    uvs2.append(uvb2_better)
-        #print(np.array(pts).tolist())
+                        ):
+                            pass
+                        # #print(uvb1_better, uvb2_better)
+                        pts.append(xyz1_new)
+                        uvs1.append(uvb1_better)
+                        uvs2.append(uvb2_better)
+                        #print(f'find_closest_points end {index} loop')
+                        index+=1
+        ##print(np.array(pts).tolist())
 
-
+        #print('\n\n---------------\n\nfind_closest_points end\n\n')
         return KDTree(np.array(pts)), np.array(uvs1), np.array(uvs2)
 
 
@@ -136,10 +142,10 @@ class SSXMethod:
                 getattr(self.s2, "interval", lambda: ((0.0, 1.0), (0.0, 1.0)))()
             )
 
-    @staticmethod
-    def calculate_derivatives_data(surface, uv):
+    @classmethod
+    def calculate_derivatives_data(cls,surface, uv):
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
-
+        #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
         pt=surface.evaluate(uv)
         du,dv = surface.derivatives(uv)
 
@@ -152,6 +158,7 @@ class SSXMethod:
     def calculate_intersection_step_data(
             cls, surface1, surface2, uv1, uv2
     ) -> IntersectionStepData:
+        #print(f'{cls.__name__}.calculate_intersection_step_data({surface1, surface2, uv1, uv2})')
         s1_data = cls.calculate_derivatives_data(surface1, uv1)
         s2_data = cls.calculate_derivatives_data(surface2, uv2)
         T = np.array(scalar_cross(s1_data.normal, s2_data.normal))
@@ -209,13 +216,14 @@ class FreeFormMethod(SSXMethod):
     def calculate_intersection_step_data(
             cls, surface1, surface2, uv1, uv2
     ) -> IntersectionStepData:
+        #print(f'FreeFormMethod.calculate_intersection_step_data({surface1, surface2, uv1, uv2})')
         s1_data = cls.calculate_derivatives_data(surface1, uv1)
         s2_data = cls.calculate_derivatives_data(surface2, uv2)
 
         return IntersectionStepData(s1_data, s2_data, None)
 
     def refine_points(self, step_data: IntersectionStepData):
-
+        #print(f'FreeFormMethod.refine_points({step_data})')
         ln = self.calculate_intersection_line(step_data)
 
         np1 = np.array(closest_point_on_ray((ln[0], ln[1]), step_data.first.pt))
@@ -224,6 +232,7 @@ class FreeFormMethod(SSXMethod):
         return np1, np1 + (np2 - np1) / 2, np2
 
     def solve(self, uv1, uv2, return_edges=False):
+        #print(f'FreeFormMethod.solve({uv1, uv2})')
 
         # sn = scalar_norm(pt1 - pt2)
         # if sn <( tol/2):
@@ -232,7 +241,7 @@ class FreeFormMethod(SSXMethod):
         uv2 = np.array(uv2)
 
         for i in range(self.max_iter):
-            #print(i)
+            ##print(i)
             intersection_step_data: IntersectionStepData = self.calculate_intersection_step_data(self.s1, self.s2,
                                                                                                 uv1,
                                                                                                 uv2)
@@ -299,6 +308,8 @@ class MarchingMethod(SSXMethod):
 
 
     def step(self, uv1, uv2):
+        #print(f'{self.__class__}.solve({uv1, uv2})')
+
         intersection_step_data: IntersectionStepData = (
             self.calculate_intersection_step_data(self.s1, self.s2, uv1, uv2)
         )
@@ -345,6 +356,7 @@ class MarchingMethod(SSXMethod):
         return new_pln
 
     def calculate_sectional_curvature(self, step_data: IntersectionStepData):
+        #print(f'{self.__class__}.calculate_sectional_curvature({step_data})')
         def sectional_tangent(veps):
             uv1_new = step_data.first.uv + improve_uv(
                 step_data.first.du,
@@ -358,6 +370,7 @@ class MarchingMethod(SSXMethod):
                 step_data.second.pt,
                 step_data.second.pt + veps,
             )
+
 
             n1, n2 = self.s1.normal(uv1_new), self.s2.normal(uv2_new)
             Tn = np.array(scalar_cross(n1, n2))
@@ -385,7 +398,7 @@ class MarchingMethod(SSXMethod):
         )
 
     def solve(self, initial_uv1, initial_uv2):
-
+        #print(f'{self.__class__}.solve({initial_uv1,initial_uv2})')
         use_kd = self.kd is not None
         ixss = set()
         xyz1_init, xyz2_init = self.s1.evaluate(initial_uv1), self.s2.evaluate(
@@ -435,20 +448,25 @@ class MarchingMethod(SSXMethod):
 
         return uvs, pts, steps, list(ixss), terminator
 
-
+times=[]
 def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
+    s=time.perf_counter_ns()
     edge_terminator = surface_surface_intersection_edge_terminator(
         surf1, surf2, tol=tol
     )
+    times.append(time.perf_counter_ns()-s)
 
     freeform=FreeFormMethod(surf1,surf2,
         tol=tol,
         boundary_terminators=edge_terminator,
                    max_iter=9
     )
+    s = time.perf_counter_ns()
     res = find_closest_points(surf1, surf2, freeform)
+    times.append(time.perf_counter_ns() - s)
+
     if res is None:
-        print(1)
+        #print(1)
         return
 
     kd, uvs1, uvs2 = res
@@ -527,6 +545,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
             else:
                 march.kd = kd = None
 
+    s=time.perf_counter_ns()
     for i in range(max_iter):
         if data.size == 0:
             break
@@ -538,6 +557,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
             continue
         else:
             curves.append(res)
+    times.append(time.perf_counter_ns() - s)
 
     return (
         curves,
@@ -597,6 +617,7 @@ def surface_intersection(
             curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0][:-1], 3)
             curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1][:-1], 3)
             curve.make_periodic()
+
             curve_on_surf1.make_periodic()
             curve_on_surf2.make_periodic()
         else:
@@ -681,54 +702,54 @@ if __name__ == "__main__":
     # from mmcore.geom.curves.cubic import CubicSpline
     # patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
     # patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
-    patch1.build_tree(10, 10)
-    patch2.build_tree(10, 10)
-    # print(
+    patch1.build_tree(3, 3)
+    patch2.build_tree(3, 3)
+    # #print(
     #    patch1._rc,
     # )
-    import yappi
-    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    yappi.start()
-    s = time.time()
+    #import yappi
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start()
+    s = time.perf_counter_ns()
     TOL = 0.01
     cc = surface_ppi(patch1, patch2, TOL)
-    print(time.time() - s)
-    yappi.stop()
-    func_stats = yappi.get_func_stats()
-    func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
+    print((time.perf_counter_ns() - s)*1e-9)
+    #yappi.stop()
+    #func_stats = yappi.get_func_stats()
+    #func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
     # tolerance checks
 
     pts_crv_1 = np.array(cc[0][0])
     pts_crv_2 = np.array(cc[0][1])
-
-    nrm = [
-        np.all(
-            norm(
-                patch1(closest_points_on_surface(patch1, pts_crv_1)) - pts_crv_1
-            )
-        ),
-        np.all(
-            norm(
-                patch1(closest_points_on_surface(patch1, pts_crv_2)) - pts_crv_2
-            )
-        ),
-        np.all(
-            norm(
-                patch2(closest_points_on_surface(patch2, pts_crv_1)) - pts_crv_1
-            )
-        ),
-        np.all(
-            norm(
-                patch2(closest_points_on_surface(patch2, pts_crv_2)) - pts_crv_2
-            )
-        ),
-    ]
-    print(all(nrm))
+    print([t*1e-9 for t in times])
+    #nrm = [
+    #    np.all(
+    #        norm(
+    #            patch1(closest_points_on_surface(patch1, pts_crv_1)) - pts_crv_1
+    #        )
+    #    ),
+    #    np.all(
+    #        norm(
+    #            patch1(closest_points_on_surface(patch1, pts_crv_2)) - pts_crv_2
+    #        )
+    #    ),
+    #    np.all(
+    #        norm(
+    #            patch2(closest_points_on_surface(patch2, pts_crv_1)) - pts_crv_1
+    #        )
+    #    ),
+    #    np.all(
+    #        norm(
+    #            patch2(closest_points_on_surface(patch2, pts_crv_2)) - pts_crv_2
+    #        )
+    #    ),
+    #]
+    ##print(all(nrm))
 
     print([np.array(c).tolist() for c in cc[0]])
-
-    # print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
-    res = surface_intersection(patch1, patch2, TOL)
+    #
+    ## #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
+    #res = surface_intersection(patch1, patch2, TOL)
 
     # -----------------
