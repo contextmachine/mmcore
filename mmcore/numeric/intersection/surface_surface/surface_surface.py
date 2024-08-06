@@ -450,20 +450,20 @@ class MarchingMethod(SSXMethod):
 
 times=[]
 def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
-    s=time.perf_counter_ns()
+    #s=time.perf_counter_ns()
     edge_terminator = surface_surface_intersection_edge_terminator(
         surf1, surf2, tol=tol
     )
-    times.append(time.perf_counter_ns()-s)
+    #times.append(time.perf_counter_ns()-s)
 
     freeform=FreeFormMethod(surf1,surf2,
         tol=tol,
         boundary_terminators=edge_terminator,
                    max_iter=9
     )
-    s = time.perf_counter_ns()
+    #s = time.perf_counter_ns()
     res = find_closest_points(surf1, surf2, freeform)
-    times.append(time.perf_counter_ns() - s)
+    #times.append(time.perf_counter_ns() - s)
 
     if res is None:
         #print(1)
@@ -545,7 +545,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
             else:
                 march.kd = kd = None
 
-    s=time.perf_counter_ns()
+    #s=time.perf_counter_ns()
     for i in range(max_iter):
         if data.size == 0:
             break
@@ -557,7 +557,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
             continue
         else:
             curves.append(res)
-    times.append(time.perf_counter_ns() - s)
+    ##times.append(time.perf_counter_ns() - s)
 
     return (
         curves,
