@@ -43,8 +43,8 @@ def jacobian(curve, surface, params, J):
 
 def _jac_cls(curve, surface, params, J):
     x = curve.derivative(params[0])
-    y = -1 * surface.derivative_u(params[1:])
-    z = -1 * surface.derivative_v(params[1:])
+    y,z  = -1 * surface.derivatives(params[1:])
+
     J[0, 0] = x[0]
     J[1, 0] = x[1]
     J[2, 0] = x[2]
