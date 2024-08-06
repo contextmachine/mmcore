@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import math
 from functools import lru_cache
 from typing import Callable, Optional
@@ -607,7 +608,12 @@ class Coons(Surface):
         #self._uv = np.array([0., 0.])
 
     def evaluate(self, uv):
-        return self._cached_eval(*uv)
+        #self.counter.__next__()
+        uv = np.array(uv)
+        #print(f'{self}.evaluate({uv})')
+        return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
+
+        #return self._cached_eval(*uv)
 
     def _evaluate(self, u, v):
         uv = np.array([u, v], dtype=float)

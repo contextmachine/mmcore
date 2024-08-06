@@ -73,6 +73,7 @@ def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface,
       :param surf2:
     :return: t params, uv's params of boundary surface , uv's params of surf2
     """
+    #print('surface_surface_intersection_edge_terminator')
     build_boundary_if_not_present(surf1)
     build_boundary_if_not_present(surf2)
     b1s2 = curve_surface_intersection(surf1.boundary, surf2,tol=tol)
