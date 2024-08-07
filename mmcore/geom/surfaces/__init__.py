@@ -150,7 +150,7 @@ class CurveOnSurface(Curve):
 from mmcore.geom.bvh import BVHNode, contains_point
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
 from mmcore.numeric.fdm import gradient as fgrdient
-
+from mmcore.geom.evaluator import surface_evaluator
 
 class Surface:
     _tree: Optional[BVHNode] = None
@@ -166,6 +166,7 @@ class Surface:
         self._vh = np.array([0.0, DEFAULT_H])
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
         self._boundary = None
+
 
     def build_boundary(self):
 
@@ -196,7 +197,8 @@ class Surface:
 
             initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
             return newtons_method(wrp1, initial)
-
+    def evaluate_v2(self, u,v):
+        return self.evaluate(np.array([u,v]))
     def implicit(self, pt):
         uv = self.inversion(pt)
         direction = pt - self.evaluate(uv)
@@ -218,88 +220,43 @@ class Surface:
         return self._boundary
 
     def derivative_u(self, uv):
-        if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
-            return (
-                    (self.evaluate(uv + self._uh) - self.evaluate(uv - self._uh))
-                    / 2
-                    / DEFAULT_H
-            )
-        elif uv[0] < DEFAULT_H:
-            return (self.evaluate(uv + self._uh) - self.evaluate(uv)) / DEFAULT_H
-        else:
-            return (self.evaluate(uv) - self.evaluate(uv - self._uh)) / DEFAULT_H
+        pt=np.empty((3,))
+        surface_evaluator.c_derivative_u(self.evaluate_v2, *uv, pt)
+        return pt
 
     def derivative_v(self, uv):
-        if (1 - DEFAULT_H) >= uv[1] >= DEFAULT_H:
-            return (
-                    (self.evaluate(uv + self._vh) - self.evaluate(uv - self._vh))
-                    / 2
-                    / DEFAULT_H
-            )
-        elif uv[1] < DEFAULT_H:
-            return (self.evaluate(uv + self._vh) - self.evaluate(uv)) / DEFAULT_H
-        else:
-            return (self.evaluate(uv) - self.evaluate(uv - self._vh)) / DEFAULT_H
+        pt = np.empty((3,))
+        surface_evaluator.c_derivative_v(self.evaluate_v2, *uv, pt)
+        return pt
 
     def second_derivative_uu(self, uv):
-        if (1 - DEFAULT_H) >= uv[0] >= DEFAULT_H:
-            return (
-                    (self.derivative_u(uv + self._uh) - self.derivative_u(uv - self._uh))
-                    / 2
-                    / DEFAULT_H
-            )
-        elif uv[0] < DEFAULT_H:
-            return (
-                    self.derivative_u(uv + self._uh) - self.derivative_u(uv)
-            ) / DEFAULT_H
-        else:
-            return (
-                    self.derivative_u(uv) - self.derivative_u(uv - self._uh)
-            ) / DEFAULT_H
+        pt = np.empty((3,))
+        surface_evaluator.c_derivative_uu(self.evaluate_v2, *uv, pt)
+        return pt
+
 
     def second_derivative_vv(self, uv):
-        if (1 - DEFAULT_H) >= uv[1] >= DEFAULT_H:
-            return (
-                    (self.derivative_v(uv + self._vh) - self.derivative_v(uv - self._vh))
-                    / 2
-                    / DEFAULT_H
-            )
-        elif uv[1] < DEFAULT_H:
-            return (
-                    self.derivative_v(uv + self._vh) - self.derivative_v(uv)
-            ) / DEFAULT_H
-        else:
-            return (
-                    self.derivative_v(uv) - self.derivative_v(uv - self._vh)
-            ) / DEFAULT_H
+        pt = np.empty((3,))
+        surface_evaluator.c_derivative_vv(self.evaluate_v2, *uv, pt)
+        return pt
 
     def second_derivative_uv(self, uv):
-        if (1 - DEFAULT_H) >= uv[1] >= DEFAULT_H:
-            return (
-                    (self.derivative_u(uv + self._vh) - self.derivative_u(uv - self._vh))
-                    / 2
-                    / DEFAULT_H
-            )
-        elif uv[1] < DEFAULT_H:
-            return (
-                    self.derivative_u(uv + self._vh) - self.derivative_u(uv)
-            ) / DEFAULT_H
-        else:
-            return (
-                    self.derivative_u(uv) - self.derivative_u(uv - self._vh)
-            ) / DEFAULT_H
+        pt = np.empty((3,))
+        surface_evaluator.c_derivative_uv(self.evaluate_v2, *uv, pt)
+        return pt
 
     def normal(self, uv):
-        du = self.derivative_u(uv)
-        dv = self.derivative_v(uv)
-        n = scalar_cross(du, dv)
-        return np.array(n) / scalar_norm(n)
+
+
+        return    surface_evaluator.derivatives_normal(self.evaluate_v2, *uv)[-1]
 
     def plane_at(self, uv):
-        orig = self.evaluate(uv)
-        du = scalar_unit(self.derivative_u(uv))
-        dn = scalar_unit(scalar_cross(du, self.derivative_v(uv)))
-        dv = scalar_cross(dn, du)
+        arr=surface_evaluator.origin_derivatives_normal(self.evaluate_v2,*uv)
+
+        arr[1]  = scalar_unit(arr[1])
+        arr[3] = scalar_unit(arr[3])
+        arr[2] = scalar_cross(arr[3],    arr[1])
+
 
         # n = evaluate_normal2(
         #    du,
@@ -308,7 +265,7 @@ class Surface:
         #    self.second_derivative_uv(uv),
         #    self.second_derivative_vv(uv),
         # )
-        return np.array((orig, du, dv, dn))
+        return arr
 
     def isocurve_u(self, u0: float, u1: float):
         return self.isocurve(u0, 0.0, u1, 1.0)
@@ -362,24 +319,27 @@ class Surface:
 
         interpl = interp1d(np.array([quad(lnt, -1., p)[0] for p in params]), params)
         return lambda t: start_uv + d_uv * interpl(t)
+    def second_derivatives(self,uv):
+         return surface_evaluator.second_derivatives(self.evaluate_v2, *uv)
 
     def derivatives(self, uv):
 
-        du_prev = uv - self._uh
-        du_next = uv + self._uh
-        dv_prev = uv - self._vh
-        dv_next = uv + self._vh
-        ders = np.empty((2, 3))
+        #du_prev = uv - self._uh
+        #du_next = uv + self._uh
+        #dv_prev = uv - self._vh
+        #dv_next = uv + self._vh
+        #ders = np.empty((2, 3))
+        #
+        ##ders[0]=self.evaluate(uv)
+        #pt_prev_du = self.evaluate(du_prev)
+        #pt_prev_dv = self.evaluate(dv_prev)
+        #pt_next_du = self.evaluate(du_next)
+        #pt_next_dv = self.evaluate(dv_next)
+        #ders[0] = (pt_next_du - pt_prev_du) / 2 / DEFAULT_H
+        #ders[1] = (pt_next_dv - pt_prev_dv) / 2 / DEFAULT_H
 
-        #ders[0]=self.evaluate(uv)
-        pt_prev_du = self.evaluate(du_prev)
-        pt_prev_dv = self.evaluate(dv_prev)
-        pt_next_du = self.evaluate(du_next)
-        pt_next_dv = self.evaluate(dv_next)
-        ders[0] = (pt_next_du - pt_prev_du) / 2 / DEFAULT_H
-        ders[1] = (pt_next_dv - pt_prev_dv) / 2 / DEFAULT_H
+        return surface_evaluator.derivatives(self.evaluate_v2, *uv)
 
-        return ders
 
     def __call__(self, uv) -> NDArray[float]:
         if uv.ndim == 1:
@@ -502,6 +462,10 @@ class Ruled(Surface):
         uc1uc2 = self._remap_uv * uv[0]
 
         return (1. - uv[1]) * self.c1.evaluate(uc1uc2[0]) + uv[1] * self.c2.evaluate(uc1uc2[1])
+    def evaluate_v2(self, u, v):
+        uc1uc2 = self._remap_uv * u
+
+        return (1. - v) * self.c1.evaluate(uc1uc2[0]) + v * self.c2.evaluate(uc1uc2[1])
 
 
 CRuled = parametric.Ruled
@@ -604,20 +568,20 @@ class Coons(Surface):
         #self._rc, self._rd = Ruled(self.c1, self.c2), Ruled(self.d2, self.d1)
 
         self._rcd = CBiLinear(self.pt0, self.pt1, self.pt2, self.pt3)
-        self._cached_eval = lru_cache(maxsize=None)(self._evaluate)
+        self._cached_eval = lru_cache(maxsize=None)(self.evaluate_v2)
         #self._uv = np.array([0., 0.])
 
     def evaluate(self, uv):
         #self.counter.__next__()
-        uv = np.array(uv)
+
         #print(f'{self}.evaluate({uv})')
-        return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
+        #return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
 
-        #return self._cached_eval(*uv)
+        return self._cached_eval(*uv)
 
-    def _evaluate(self, u, v):
-        uv = np.array([u, v], dtype=float)
-        return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
+    def evaluate_v2(self, u, v):
+
+        return self._rc.evaluate_v2(u,v) + self._rd.evaluate_v2(v,u) - self._rcd.evaluate_v2(u,v)
 
 
 """

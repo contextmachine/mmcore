@@ -17,6 +17,65 @@ import multiprocessing as mp
 
 from mmcore.numeric.fdm import bounded_fdm
 
+import math
+
+# Utility function to calculate the Euclidean distance between two points
+def dist(p1, p2):
+    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+# Utility function to find the closest distance in a strip
+def strip_closest(strip, d):
+    min_dist = d
+    strip.sort(key=lambda p: p[1])  # Sort strip according to y-coordinate
+
+    for i in range(len(strip)):
+        j = i + 1
+        while j < len(strip) and (strip[j][1] - strip[i][1]) < min_dist:
+            min_dist = min(min_dist, dist(strip[i], strip[j]))
+            j += 1
+
+    return min_dist
+
+# Recursive function to find the smallest distance
+def closest_util(points_sorted_x, points_sorted_y, n):
+    if n <= 3:
+        # Use brute force for small number of points
+        min_dist = float('inf')
+        for i in range(n):
+            for j in range(i + 1, n):
+                if dist(points_sorted_x[i], points_sorted_x[j]) < min_dist:
+                    min_dist = dist(points_sorted_x[i], points_sorted_x[j])
+        return min_dist
+
+    mid = n // 2
+    mid_point = points_sorted_x[mid]
+
+    points_sorted_y_left = [point for point in points_sorted_y if point[0] <= mid_point[0]]
+    points_sorted_y_right = [point for point in points_sorted_y if point[0] > mid_point[0]]
+
+    dl = closest_util(points_sorted_x[:mid], points_sorted_y_left, mid)
+    dr = closest_util(points_sorted_x[mid:], points_sorted_y_right, n - mid)
+
+    d = min(dl, dr)
+
+    strip = [point for point in points_sorted_y if abs(point[0] - mid_point[0]) < d]
+
+    return min(d, strip_closest(strip, d))
+
+# Function to find the closest pair of points
+def min_distance(points):
+    """
+    # Example usage
+    points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
+    min_dist = closest(points)
+    print(f"The smallest distance is {min_dist}")  # Output: The smallest distance is 1.4142135623730951
+    :param points: Set of points
+    :return: minimum distance between the closest points in set
+    """
+    points_sorted_x = sorted(points, key=lambda p: p[0])
+    points_sorted_y = sorted(points, key=lambda p: p[1])
+    return closest_util(points_sorted_x, points_sorted_y, len(points))
+
 
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
     """

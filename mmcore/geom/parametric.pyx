@@ -35,7 +35,7 @@ cdef class ParametricCurve:
         :param t:float
         :return: vector of first derivative   as numpy array of floats with shape (2,) for 2d case and (3,) for 3d case.
         """
-        print(np.asarray(result))
+        #print(np.asarray(result))
         cdef double[:] v1=np.zeros(result.shape)
         cdef double[:] v2=np.zeros(result.shape)
         cdef double t1,t2
@@ -224,6 +224,8 @@ cdef class ParametricCurve:
             self.cevaluate(t[i],result[i])
 
         return np.asarray(result)
+
+
 cdef class ReparametrizedCurve(ParametricCurve):
     cdef public ParametricCurve curve
     def __init__(self, ParametricCurve curve, tuple new_interval):
@@ -382,6 +384,12 @@ cdef class ParametricSurface:
         cdef double[:] res=np.empty(3)
         self.cevaluate(uv[0],uv[1],res)
         return np.asarray(res)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cpdef evaluate_v2(self, double u, double v):
+        cdef double[:] result=np.empty((3,))
+        self.cevaluate(u, v, result)
+        return np.array(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def plane_at(self, double[:] uv):
