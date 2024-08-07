@@ -23,7 +23,7 @@ from mmcore.numeric.vectors import scalar_unit
 
 from mmcore.numeric.fdm import DEFAULT_H
 from mmcore.numeric.intersection.surface_surface._terminator import TerminatorType
-
+from mmcore.geom.evaluator import surface_evaluator
 from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
 from mmcore.numeric.intersection.surface_surface._terminator import (
     surface_surface_intersection_edge_terminator,
@@ -147,7 +147,10 @@ class SSXMethod:
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
         #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
         pt=surface.evaluate(uv)
-        du,dv = surface.derivatives(uv)
+        du,dv=surface.derivatives(uv)
+
+
+
 
 
         n = np.array(scalar_unit(scalar_cross(du, dv)))
