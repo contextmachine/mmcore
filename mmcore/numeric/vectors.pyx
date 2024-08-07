@@ -279,8 +279,8 @@ cpdef multi_points_order(list points_list):
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef scalar_cross(double[:]vec_a,
-          double[:]vec_b):
+cpdef scalar_cross(double[:] vec_a,
+          double[:] vec_b):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((3,))
 
 
