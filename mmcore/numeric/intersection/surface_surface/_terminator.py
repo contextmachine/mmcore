@@ -1,3 +1,4 @@
+import warnings
 import weakref
 from collections import namedtuple
 
@@ -76,8 +77,17 @@ def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface,
     #print('surface_surface_intersection_edge_terminator')
     build_boundary_if_not_present(surf1)
     build_boundary_if_not_present(surf2)
-    b1s2 = curve_surface_intersection(surf1.boundary, surf2,tol=tol)
-    b2s1 = curve_surface_intersection(surf2.boundary, surf1,tol=tol)
+    try:
+        b1s2 = curve_surface_intersection(surf1.boundary, surf2,tol=tol)
+    except Exception as e:
+        warnings.warn(str(e))
+        b1s2=[]
+    try:
+        b2s1 = curve_surface_intersection(surf2.boundary, surf1, tol=tol)
+    except Exception as e:
+        warnings.warn(str(e))
+        b2s1 =[]
+
     trms = []
     xyz = []
     uv1 = []
