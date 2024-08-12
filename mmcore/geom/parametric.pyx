@@ -1,3 +1,11 @@
+#cython: boundscheck=False
+#cython: wraparound=False
+#cython: cdivision=True
+#cython: nonecheck=False
+#cython: overflowcheck=False
+#cython: embedsignature=True
+#cython: infer_types=False
+#cython: initializedcheck=False
 cimport cython
 import numpy as np
 cimport numpy as np
@@ -24,6 +32,8 @@ cdef class ParametricCurve:
 
     cpdef double[:] interval(self):
         return self._interval
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     def evaluate(self, t):
         cdef double[:] result =np.zeros((3,))
         self.cevaluate(t,result)

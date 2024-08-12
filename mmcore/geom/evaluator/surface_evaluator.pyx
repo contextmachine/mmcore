@@ -1,3 +1,11 @@
+#cython: boundscheck=False
+#cython: wraparound=False
+#cython: cdivision=True
+#cython: nonecheck=False
+#cython: overflowcheck=False
+#cython: embedsignature=True
+#cython: infer_types=False
+#cython: initializedcheck=False
 
 
 cimport cython
@@ -63,7 +71,7 @@ cpdef void c_derivative_v(callback, double u, double v, double[:] result):
 
      #result[0] =callback(u, v)
      a=callback(u,v1)
-     b=callback(u,v1)
+     b=callback(u,v2)
      result[ 0] = (b[0] - a[0]) / h2
      result[ 1] = (b[1] - a[1]) / h2
      result[ 2] = (b[2] - a[2]) / h2
@@ -185,6 +193,7 @@ cdef inline void c_derivatives(callback, double u, double v, double[:,:] result)
 @cython.wraparound(False)
 cdef inline void c_normal( double[:,:] result):
     cdef double n
+
     result[2, 0] = (result[0, 1] *result[1, 2]) - (result[0, 2] * result[1,1])
     result[2, 1] = (result[0, 2] *result[1, 0]) - (result[0, 0] * result[1,2])
     result[2, 2] = (result[0, 0] *result[1, 1]) - (result[0, 1] * result[1,0])
@@ -231,9 +240,10 @@ cdef inline void c_second_derivatives(callback, double u, double v, double[:,:] 
     result[1, 0] = (du1[0] - du0[0]) / h2
     result[1, 1] = (du1[1] - du0[1]) / h2
     result[1, 2] = (du1[2] - du0[2]) / h2
+
     result[2, 0] = (dv1[0] - dv0[0]) / h2
     result[2, 1] = (dv1[1] - dv0[1]) / h2
-    result[2, 2] = (du1[2] - du0[2]) / h2
+    result[2, 2] = (dv1[2] - dv0[2]) / h2
 
 
 
@@ -259,6 +269,8 @@ cdef inline void c_origin_derivatives_normal(callback, double u, double v, doubl
 
     cdef double[:] a
     cdef double[:] b
+
+    cdef double[:] pt=callback(u,v)
     cdef double n
     cdef double h2= 2 *DEFAULT_H
     cdef double u1,v1,u2,v2
@@ -269,7 +281,10 @@ cdef inline void c_origin_derivatives_normal(callback, double u, double v, doubl
     #result[0] =callback(u, v)
     a=callback(u1,v)
     b=callback(u2,v)
-    result[0] = callback(u, v)
+    result[0, 0] = pt[0]
+    result[0, 1] = pt[1]
+
+    result[0, 2] = pt[2]
 
     result[1, 0]= (b[0] - a[0]) /h2
     result[1, 1]= (b[1] - a[1]) / h2
@@ -282,11 +297,11 @@ cdef inline void c_origin_derivatives_normal(callback, double u, double v, doubl
     result[2, 2] = (b[2] - a[2]) /h2
 
 
-    result[3, 0] = (result[0, 1] * result[1, 2]) - (result[0, 2] * result[1, 1])
-    result[3, 1] = (result[0, 2] * result[1, 0]) - (result[0, 0] * result[1, 2])
-    result[3, 2] = (result[0, 0] * result[1, 1]) - (result[0, 1] * result[1, 0])
+    result[3, 0] = (result[1, 1] * result[2, 2]) - (result[1, 2] * result[2, 1])
+    result[3, 1] = (result[1, 2] * result[2, 0]) - (result[1, 0] * result[2, 2])
+    result[3, 2] = (result[1, 0] * result[2, 1]) - (result[1, 1] * result[2, 0])
 
-    n = sqrt(result[2, 0] ** 2 + result[2, 1] ** 2 + result[2, 2] ** 2)
+    n = sqrt(result[3, 0] ** 2 + result[3, 1] ** 2 + result[3, 2] ** 2)
     result[3, 0] /= n
     result[3, 1] /= n
     result[3, 2] /= n
