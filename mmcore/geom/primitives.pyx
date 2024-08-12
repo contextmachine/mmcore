@@ -1,3 +1,11 @@
+#cython: boundscheck=False
+#cython: wraparound=False
+#cython: cdivision=True
+#cython: nonecheck=False
+#cython: overflowcheck=False
+#cython: embedsignature=True
+#cython: infer_types=False
+#cython: initializedcheck=False
 cimport cython
 import numpy as np
 from libc.math cimport fabs, sqrt,fmin,fmax,pow,pi,sin,cos
@@ -546,5 +554,9 @@ cdef class Tube(ImplicitCylinder):
     def astuple(self):
         cdef tuple tpl = PyTuple_Pack(8, self.ox, self.oy, self.oz, self.ex, self.ey, self.ez, self._radius, self._thickness)
         return tpl
+
+
+
+
 
 

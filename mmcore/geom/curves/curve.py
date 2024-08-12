@@ -548,7 +548,7 @@ class ReparametrizedCurve(Curve):
     def __init__(self, curve:Curve, parametrization:interp1d):
         self.curve=curve
         self.parametrization=parametrization
-        self._interval = (0.,1.)
+        self._interval = parametrization.x.min(), parametrization.x.max()
     def evaluate_curve_parameter(self, t):
         return self.parametrization(t)
     def interval(self):

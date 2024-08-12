@@ -1,4 +1,12 @@
 # cython: language_level=3
+#cython: boundscheck=False
+#cython: wraparound=False
+#cython: cdivision=True
+#cython: nonecheck=False
+#cython: overflowcheck=False
+#cython: embedsignature=True
+#cython: infer_types=False
+#cython: initializedcheck=False
 import functools
 
 cimport cython
@@ -474,6 +482,7 @@ cdef class NURBSpline(ParametricCurve):
         return state
 
     def __setstate__(self,state):
+        cdef int i
         self._control_points=np.ones((len(state['_control_points']),4))
         for i in range(len(state['_control_points'])):
             self._control_points[i,0]=state['_control_points'][i][  0]

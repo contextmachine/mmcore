@@ -71,6 +71,7 @@ def newton_raphson(curve, surface, params, tol=1e-6, max_iter=100):
         F = difference(curve, surface, params)
         jac(curve, surface, params, J)
         delta = np.linalg.solve(J, -F)
+
         params = params + delta
         if scalar_norm(delta) < tol:
             return params

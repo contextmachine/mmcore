@@ -234,7 +234,8 @@ class Surface:
         surface_evaluator.c_derivative_uu(self.evaluate_v2, *uv, pt)
         return pt
 
-
+    def second_derivatives(self, u,v):
+        return surface_evaluator.second_derivatives(self.evaluate_v2,u,v)
     def second_derivative_vv(self, uv):
         pt = np.empty((3,))
         surface_evaluator.c_derivative_vv(self.evaluate_v2, *uv, pt)
@@ -248,14 +249,18 @@ class Surface:
     def normal(self, uv):
 
 
-        return    surface_evaluator.derivatives_normal(self.evaluate_v2, *uv)[-1]
+        return  surface_evaluator.derivatives_normal(self.evaluate_v2, *uv)[-1]
 
     def plane_at(self, uv):
+
         arr=surface_evaluator.origin_derivatives_normal(self.evaluate_v2,*uv)
 
-        arr[1]  = scalar_unit(arr[1])
-        arr[3] = scalar_unit(arr[3])
-        arr[2] = scalar_cross(arr[3],    arr[1])
+        arr[1] /= scalar_norm(arr[1])
+        arr[2] /= scalar_norm(arr[2])
+        arr[2]-= arr[1]*scalar_dot(arr[2],arr[1])
+
+
+        #n = scalar_cross(arr[0],    arr[1])
 
 
         # n = evaluate_normal2(
@@ -265,8 +270,8 @@ class Surface:
         #    self.second_derivative_uv(uv),
         #    self.second_derivative_vv(uv),
         # )
+        #return np.array([self.evaluate(uv),*arr,n])
         return arr
-
     def isocurve_u(self, u0: float, u1: float):
         return self.isocurve(u0, 0.0, u1, 1.0)
 
@@ -428,7 +433,7 @@ class LinearMap:
 
 from mmcore.geom import parametric
 
-
+from mmcore.geom.curves import ArcLengthParameterization
 class Ruled(Surface):
 
     def __init__(self, c1: Curve, c2: Curve):

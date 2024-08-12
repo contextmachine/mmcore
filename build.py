@@ -127,6 +127,13 @@ Extension(
         extra_link_args=link_args,
         include_dirs=include_dirs
 
+    ),Extension(
+        "mmcore.geom.surfaces.ellipsoid",
+        ["mmcore/geom/surfaces/ellipsoid.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
     )
 ]
 #Extension(
