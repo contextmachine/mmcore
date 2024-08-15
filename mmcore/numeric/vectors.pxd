@@ -15,7 +15,7 @@ cpdef dot(double[:,:] vec_a, double[:,:] vec_b)
 
 
 
-cpdef scalar_dot(double[:] vec_a,double[:] vec_b)
+cpdef double scalar_dot(double[:] vec_a,double[:] vec_b) noexcept nogil
 
 
 cpdef scalar_norm(double[:] vec)

@@ -229,13 +229,22 @@ evaluate_curvature_vec = np.vectorize(
 )
 
 
-def evaluate_jacobian(ds_o_ds, ds_o_dt, dt_o_dt):
-    a = ds_o_ds * dt_o_dt
-    b = ds_o_dt * ds_o_dt
+def evaluate_jacobian(du_o_du, du_o_dv, dv_o_dv):
+    """
+    S(u,v) - surface
+    du=S'u, dv=S'v
+    :param du_o_du:  du.dot(du)
+    :param du_o_dv:  du.dot( dv)
+    :param dv_o_dv:  dv.dot( dv)
+    :return: Jacobian determinant and status
+
+    """
+    a = du_o_du * dv_o_dv
+    b = du_o_dv * du_o_dv
     det = a - b
     if (
-            ds_o_ds <= dt_o_dt * np.finfo(float).eps
-            or dt_o_dt <= ds_o_ds * np.finfo(float).eps
+            du_o_du <= dv_o_dv * np.finfo(float).eps
+            or dv_o_dv <= du_o_du * np.finfo(float).eps
     ):
         # One of the partials is (numerically) zero w.r.t. the other partial - value of det is unreliable
         rc = False
@@ -288,9 +297,8 @@ def evaluate_normal(
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
     dot_product_gradient_v = scalar_dot(gradient_v, gradient_v)
 
-    determinant, jacobian_success = evaluate_jacobian(
-        dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
-    )
+    determinant, jacobian_success = evaluate_jacobian(dot_product_gradient_u, dot_product_gradient_uv,
+                                                      dot_product_gradient_v)
 
     if jacobian_success:
         return scalar_cross(gradient_u, gradient_v)
@@ -348,9 +356,8 @@ def evaluate_normal2(
     dot_product_gradient_u = scalar_dot(gradient_u, gradient_u)
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
     dot_product_gradient_v = scalar_dot(gradient_v, gradient_v)
-    determinant, jacobian_success = evaluate_jacobian(
-        dot_product_gradient_u, dot_product_gradient_uv, dot_product_gradient_v
-    )
+    determinant, jacobian_success = evaluate_jacobian(dot_product_gradient_u, dot_product_gradient_uv,
+                                                      dot_product_gradient_v)
     if jacobian_success:
         return scalar_cross(gradient_u, gradient_v)
     coeff_a, coeff_b = {

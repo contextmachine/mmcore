@@ -1,4 +1,4 @@
-# cython: language_level=3
+#cython: language_level=3
 #cython: boundscheck=False
 #cython: wraparound=False
 #cython: cdivision=True
@@ -7,6 +7,7 @@
 #cython: embedsignature=True
 #cython: infer_types=False
 #cython: initializedcheck=False
+
 import functools
 
 cimport cython
@@ -15,10 +16,11 @@ cimport numpy as cnp
 from libc.stdlib cimport malloc,free
 from mmcore.geom.parametric cimport ParametricCurve
 from mmcore.numeric cimport vectors,calgorithms
-from mmcore.geom.curves.deboor cimport cdeboor,cevaluate_nurbs,xyz
+
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
 cnp.import_array()
-
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
@@ -68,6 +70,8 @@ cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexce
         mid = (low + high) // 2
 
     return mid
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept nogil:
@@ -99,6 +103,8 @@ cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept no
     free(right)
 
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double* result,bint is_periodic) noexcept nogil:
@@ -142,6 +148,8 @@ cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, doubl
 
     free(N)
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U):
@@ -179,6 +187,8 @@ cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U):
 
     return N
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U):
@@ -252,6 +262,8 @@ cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U):
 
     return ders
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK,bint is_periodic):
@@ -285,6 +297,8 @@ cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u
 
     #return np.asarray(CK)
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, int r2, double[:, :, :] PK) :
@@ -324,6 +338,8 @@ cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, i
 
     #return np.asarray(PK)
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK, double[:, :,:] PK,bint is_periodic):
@@ -364,6 +380,8 @@ cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u
             for i in range(P.shape[1]):
                 CK[k, i] += bfuns[j, degree - k] * PK[k, j, i]
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void projective_to_cartesian(double[:] point, double[:] result)  noexcept nogil:
@@ -372,6 +390,8 @@ cdef void projective_to_cartesian(double[:] point, double[:] result)  noexcept n
     result[1]=point[1]/w
     result[2]=point[2]/w
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void projective_to_cartesian_ptr_ptr(double* point, double* result)  noexcept nogil:
@@ -379,6 +399,8 @@ cdef void projective_to_cartesian_ptr_ptr(double* point, double* result)  noexce
     result[0]=point[0]/w
     result[1]=point[1]/w
     result[2]=point[2]/w
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noexcept nogil:
@@ -541,6 +563,21 @@ cdef class NURBSpline(ParametricCurve):
         """
         This function generates default knots based on the number of control points
         :return: A numpy array of knots
+        
+        Notes
+        ------
+        **Difference with OpenNURBS**
+        
+        OpenNURBS uses a knots vector shorter by one knot on each side. 
+        The original explanation can be found in `opennurbs/opennurbs_evaluate_nurbs.h`.
+        [source](https://github.com/mcneel/opennurbs/blob/19df20038249fc40771dbd80201253a76100842c/opennurbs_evaluate_nurbs.h#L116-L148)
+        mmcore uses the standard knotvector length according to DeBoor and The NURBS Book.
+
+        **Difference with geomdl**
+        
+        Unlike geomdl, the knots vector is not automatically normalised from 0 to 1.
+        However, there are no restrictions on the use of the knots normalised vector. 
+
         """
         cdef int n = len(self._control_points)
         self._knots = np.concatenate((
@@ -622,14 +659,16 @@ cdef class NURBSpline(ParametricCurve):
         self._periodic = False
         self._evaluate_cached.cache_clear()
 
-
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void ctangent(self, double t,double[:] result):
         cdef double[:,:] ders=np.zeros((3,3))
         self.cderivatives2(t,2, ders)
         calgorithms.evaluate_tangent(ders[1],ders[2],result)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void ccurvature(self, double t,double[:] result):
@@ -638,6 +677,8 @@ cdef class NURBSpline(ParametricCurve):
            self.cderivatives2(t,2, ders)
            calgorithms.evaluate_curvature(ders[1],ders[2],ders[0],result)
 
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cevaluate(self, double t, double[:] result) noexcept nogil:
@@ -664,6 +705,8 @@ cdef class NURBSpline(ParametricCurve):
         result[2] = _result_buffer[2]
 
         free(_result_buffer)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cpdef evaluate4d(self, double t) :
@@ -693,8 +736,8 @@ cdef class NURBSpline(ParametricCurve):
         self._knots=knots
         self._evaluate_cached.cache_clear()
 
-
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cevaluate_ptr(self, double t, double *result ) noexcept nogil:
@@ -718,12 +761,8 @@ cdef class NURBSpline(ParametricCurve):
 
         result[3]=1.
 
-
-
-
-
-
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def _evaluate(self, double t):
@@ -731,11 +770,14 @@ cdef class NURBSpline(ParametricCurve):
         self.cevaluate(t, result)
 
         return np.asarray(result)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def evaluate(self, double t):
         return self._evaluate_cached(t)
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def evaluate_multi(self, double[:] t):
@@ -747,12 +789,16 @@ cdef class NURBSpline(ParametricCurve):
             self.cevaluate(t[i],result[i])
         return np.asarray(result)[:,:3]
 
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def derivative(self, t):
         cdef double[:] result =np.zeros((3,))
         self.cderivative(t,result)
         return np.asarray(result)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cderivatives1(self, double t, int d, double[:,:] CK ) :
@@ -769,6 +815,8 @@ cdef class NURBSpline(ParametricCurve):
         #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
         curve_derivs_alg1(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK,self._periodic)
 
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cderivatives2(self, double t, int d, double[:,:] CK ) :
@@ -787,9 +835,8 @@ cdef class NURBSpline(ParametricCurve):
 
            curve_derivs_alg2(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK, PK,self._periodic)
 
-
-
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cplane(self, double t, double[:,:] result):
@@ -812,6 +859,8 @@ cdef class NURBSpline(ParametricCurve):
         result[3,0] = (result[1][1] * result[2][2]) - (result[1][2] * result[2][1])
         result[3,1] = (result[1][2] * result[2][0]) - (result[1][0] * result[2][2])
         result[3,2] = (result[1][0] * result[2][1]) - (result[1][1] * result[2][0])
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cnormal(self, double t, double[:] result):
@@ -819,7 +868,8 @@ cdef class NURBSpline(ParametricCurve):
         self.cplane(t,vecs)
         result[:]=vecs[2,:]
 
-
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def derivatives2(self, double t, int d=1 ) :
@@ -837,6 +887,8 @@ cdef class NURBSpline(ParametricCurve):
 
         self.cderivatives2(t,d,CK)
         return np.asarray(CK)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def derivatives1(self, double t, int d=1 ) :
@@ -852,6 +904,8 @@ cdef class NURBSpline(ParametricCurve):
 
             self.cderivatives1(t,d, CK)
             return np.asarray(CK)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def derivative_control_points(self, double t, int d=1 ) :
@@ -868,6 +922,8 @@ cdef class NURBSpline(ParametricCurve):
             curve_deriv_cpts(self._degree, self._knots,self._control_points, d, span - self._degree, span, PK)
 
             return np.asarray(PK)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void cderivative(self, double t, double[:] result):
@@ -876,6 +932,8 @@ cdef class NURBSpline(ParametricCurve):
         result[0]=res[1][0]
         result[1] = res[1][1]
         result[2] = res[1][2]
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void csecond_derivative(self, double t, double[:] result):
@@ -886,6 +944,8 @@ cdef class NURBSpline(ParametricCurve):
             result[2]= res[2][2]
 
 
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef double[:] greville_abscissae(double[:] knots, int degree):

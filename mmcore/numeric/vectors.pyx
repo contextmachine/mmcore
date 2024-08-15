@@ -6,7 +6,7 @@
 #cython: embedsignature=True
 #cython: infer_types=False
 #cython: initializedcheck=False
-
+#cython: language_level=3
 
 import numpy as np
 cimport numpy as np
@@ -40,9 +40,11 @@ ctypedef np.float64_t DTYPE_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef dot_array_x_array(double[:,:]vec_a, double[:,:]vec_b):
     cdef double[:]res = np.empty((vec_a.shape[0],))
     cdef double item = 0.0
+    cdef int i,j
     for i in range(vec_a.shape[0]):
 
         item = 0.0
@@ -52,9 +54,11 @@ cpdef dot_array_x_array(double[:,:]vec_a, double[:,:]vec_b):
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef dot_vec_x_array(double[:]vec_a, double[:,:]vec_b):
     cdef double[:]res = np.empty((vec_b.shape[0],))
     cdef double item = 0.0
+    cdef int i, j
     for i in range(vec_b.shape[0]):
         item = 0.0
         for j in range(vec_a.shape[0]):
@@ -63,9 +67,11 @@ cpdef dot_vec_x_array(double[:]vec_a, double[:,:]vec_b):
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef dot_array_x_vec(double[:,:]vec_a, double[:]vec_b):
     cdef double[:]res = np.empty((vec_a.shape[0],))
     cdef double item = 0.0
+    cdef int i, j
     for i in range(vec_a.shape[0]):
         item = 0.0
         for j in range(vec_b.shape[0]):
@@ -75,9 +81,11 @@ cpdef dot_array_x_vec(double[:,:]vec_a, double[:]vec_b):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef dot(double[:,:]vec_a, double[:,:]vec_b):
     cdef double[:]res = np.empty((vec_a.shape[0],))
     cdef double item = 0.0
+    cdef int i, j
     for i in range(vec_a.shape[0]):
 
         item = 0.0
@@ -88,21 +96,34 @@ cpdef dot(double[:,:]vec_a, double[:,:]vec_b):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef scalar_dot(double[:] vec_a,
-                            double[:]  vec_b):
-    cdef long double res = 0.0
+@cython.cdivision(True)
+cpdef double scalar_dot(double[:] vec_a, double[:]  vec_b) noexcept nogil:
+    cdef double res = 0.0
+    cdef int  j
     for j in range(vec_a.shape[0]):
         res += vec_a[j] * vec_b[j]
     return res
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline double _dot_inl(double[:] vec_a,
+                            double[:]  vec_b) noexcept nogil:
+    cdef double res = 0.0
+    cdef int  j
+    for j in range(vec_a.shape[0]):
+        res += vec_a[j] * vec_b[j]
+    return res
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef scalar_norm(double[:]vec):
     cdef DTYPE_t res = 0.0
     cdef DTYPE_t res2 = 0.0
+    cdef int j
     for j in range(vec.shape[0]):
         res += (vec[j] ** 2)
     if cis_close(res, 0., RTOL, ATOL):
@@ -110,9 +131,11 @@ cpdef scalar_norm(double[:]vec):
     return sqrt(res)
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef scalar_normalize(double[:]vec):
     cdef double res = 0.
     cdef Py_ssize_t j
+
     for j in range(vec.shape[0]):
         res += (vec[j] ** 2)
 
@@ -125,10 +148,12 @@ cpdef scalar_normalize(double[:]vec):
     return 0
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef norm(double[:,:]vec):
     cdef double[:]res = np.empty((vec.shape[0],))
     cdef long double item = 0.0
     cdef long double component_sq = 0.0
+    cdef int i,j
     for i in range(vec.shape[0]):
         item = 0.0
         for j in range(vec.shape[1]):
@@ -140,11 +165,13 @@ cpdef norm(double[:,:]vec):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef unit(double[:,:]vec):
     cdef double[:,:]res = np.empty((vec.shape[0], vec.shape[1]))
     cdef long double item
     cdef long double component_sq = 0.0
     cdef long double nrm = 0.0
+    cdef int i, j,k
     for i in range(vec.shape[0]):
         item = 0.0
         for j in range(vec.shape[1]):
@@ -157,10 +184,11 @@ cpdef unit(double[:,:]vec):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cross(double[:,:]vec_a,
           double[:,:]vec_b):
     cdef double[:,:]res = np.empty((vec_a.shape[0], 3))
-
+    cdef int i
     for i in range(vec_a.shape[0]):
         res[i, 0] = (vec_a[i, 1] * vec_b[i, 2]) - (vec_a[i, 2] * vec_b[i, 1])
         res[i, 1] = (vec_a[i, 2] * vec_b[i, 0]) - (vec_a[i, 0] * vec_b[i, 2])
@@ -169,10 +197,12 @@ cpdef cross(double[:,:]vec_a,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef support_vector(double[:,:]vertices, double[:]direction):
     cdef double[:]support = np.zeros((direction.shape[0],))
     cdef  highest = -np.inf
     cdef long double dot_value = 0.0
+    cdef int i
     for i in range(vertices.shape[0]):
         dot_value = scalar_dot(vertices[i], direction)
         if dot_value > highest:
@@ -182,10 +212,12 @@ cpdef support_vector(double[:,:]vertices, double[:]direction):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef multi_support_vector(double[:,:]vertices, double[:,:]directions):
     cdef double[:,:]support = np.zeros((directions.shape[0], directions.shape[1]))
     cdef  highest = -np.inf
     cdef long double dot_value = 0.0
+    cdef int i,j
     for j in range(directions.shape[0]):
         highest = -np.inf
         for i in range(vertices.shape[0]):
@@ -198,10 +230,12 @@ cpdef multi_support_vector(double[:,:]vertices, double[:,:]directions):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef gram_schmidt(double[:,:]vec_a,
                  double[:,:]vec_b):
     cdef double[:,:]res = np.empty((vec_a.shape[0], vec_a.shape[1]))
     cdef long double item_dot
+    cdef int i,j,k
     for i in range(vec_a.shape[0]):
         item_dot = 0.0
         for j in range(vec_a.shape[1]):
@@ -212,8 +246,10 @@ cpdef gram_schmidt(double[:,:]vec_a,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef spherical_to_cartesian(double[:,:]rtp):
     cdef double[:,:]pts = np.empty((rtp.shape[0], 3))
+    cdef int i
     for i in range(rtp.shape[0]):
         pts[i, 0] = rtp[i, 0] * sin(rtp[i, 1]) * cos(rtp[i, 2])
         pts[i, 1] = rtp[i, 0] * sin(rtp[i, 1]) * sin(rtp[i, 2])
@@ -222,9 +258,11 @@ cpdef spherical_to_cartesian(double[:,:]rtp):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cartesian_to_spherical(double[:,:]xyz):
     cdef double[:,:]pts = np.empty((xyz.shape[0], 3))
     cdef long double XsqPlusYsq
+    cdef int i
     for i in range(xyz.shape[0]):
         XsqPlusYsq = xyz[i, 0] ** 2 + xyz[i, 1] ** 2
         pts[i, 0] = sqrt(XsqPlusYsq + xyz[i, 2] ** 2)
@@ -234,9 +272,11 @@ cpdef cartesian_to_spherical(double[:,:]xyz):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cylindrical_to_xyz(double[:,:]rpz):
     cdef double[:,:]pts = np.empty((rpz.shape[0], 3))
     cdef long double XsqPlusYsq
+    cdef int i
     for i in range(rpz.shape[0]):
         pts[i, 0] = rpz[i, 0] * cos(rpz[i, 1])
         pts[i, 1] = rpz[i, 0] * sin(rpz[i, 1])
@@ -246,9 +286,11 @@ cpdef cylindrical_to_xyz(double[:,:]rpz):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef courtesan_to_cylindrical(double[:,:]xyz):
     cdef double[:,:]pts = np.empty((xyz.shape[0], 3))
     cdef long double XsqPlusYsq
+    cdef int i
     for i in range(xyz.shape[0]):
         XsqPlusYsq = xyz[i, 0] ** 2 + xyz[i, 1] ** 2
         pts[i, 0] = sqrt(XsqPlusYsq + xyz[i, 2] ** 2)
@@ -257,19 +299,23 @@ cpdef courtesan_to_cylindrical(double[:,:]xyz):
     return pts
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef long double cdet(double[:,:]arr) :
     cdef long double res = 0.0
+    cdef int i
     for i in range(arr.shape[0] - 1):
         res += ((arr[i + 1][0] - arr[i][0]) * (arr[i + 1][1] + arr[i][1]))
     return res
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef det(double[:,:]arr):
     return cdet(arr)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef points_order(double[:,:]points):
     determinant = cdet(points)
     cdef long res = -1
@@ -281,11 +327,13 @@ cpdef points_order(double[:,:]points):
 
 cpdef multi_points_order(list points_list):
     cdef np.ndarray[long, ndim = 1] res = np.empty((len(points_list),), int)
+    cdef int i
     for i in range(len(points_list)):
         res[i] = points_order(points_list[i])
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef scalar_cross(double[:] vec_a,
           double[:] vec_b):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((3,))
@@ -297,11 +345,13 @@ cpdef scalar_cross(double[:] vec_a,
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef  scalar_unit(double[:]vec):
     cdef np.ndarray[DTYPE_t, ndim=1] res = np.empty((vec.shape[0],))
     cdef long double item=0.
     cdef long double component_sq = 0.0
     cdef long double nrm = 0.0
+    cdef int j,k
     for j in range(vec.shape[0]):
         component_sq = vec[j] ** 2
         item += component_sq
@@ -314,6 +364,7 @@ cpdef  scalar_unit(double[:]vec):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef int cinvert_jacobian(double[:,:] J, double[:,:] J_inv) noexcept nogil:
     cdef double a=J[0][0]
     cdef double b=J[0][1]
@@ -335,6 +386,7 @@ cpdef int cinvert_jacobian(double[:,:] J, double[:,:] J_inv) noexcept nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void cinvert_jacobian_vec(double[:,:,:] J, double[:,:,:] J_inv, int[:] status) noexcept nogil:
     cdef size_t i
     for i in range(J_inv.shape[0]):
@@ -342,6 +394,7 @@ cpdef void cinvert_jacobian_vec(double[:,:,:] J, double[:,:,:] J_inv, int[:] sta
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef invert_jacobian(J):
     cdef double[:,:] J_inv_m
     cdef double[:,:, :] J_inv
@@ -360,6 +413,7 @@ cpdef invert_jacobian(J):
         return J_inv, status
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef vector_projection(double[:] a, double[:] b):
     cdef double[:] res=np.empty((3,))
     bn=(b[0]**2 + b[1]**2 + b[2]**2)
@@ -370,6 +424,7 @@ cpdef vector_projection(double[:] a, double[:] b):
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef closest_point_on_ray( double[:] start, double[:] direction,  double[:] point):
     cdef double [:] res=np.empty((3,))
     cdef double [:] a=np.empty((3,))
@@ -384,6 +439,7 @@ cpdef closest_point_on_ray( double[:] start, double[:] direction,  double[:] poi
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef closest_point_on_line(double[:] start,double[:] end, double[:] point):
     cdef double [:] direction=np.empty((3,))
     cdef double [:] p=np.empty((3,))
@@ -396,6 +452,7 @@ cpdef closest_point_on_line(double[:] start,double[:] end, double[:] point):
     return vector_projection(p, direction)
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept nogil:
 
     cdef bint res
@@ -421,6 +478,7 @@ cdef inline double scalar_norm2d(double[3] vec_a):
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void scalar_gram_schmidt(double[:] vec_a,
                  double[:] vec_b, double[:] result) :
     cdef double[3] temp=np.zeros(3)
@@ -428,6 +486,8 @@ cpdef void scalar_gram_schmidt(double[:] vec_a,
     sub3d(vec_b, result, result)
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef void scalar_gram_schmidt_emplace(double[:] vec_a,
                  double[:] vec_b) noexcept nogil:
     cdef double delta=vec_b[0]* vec_a[0]+vec_b[1]* vec_a[1]+vec_b[2]* vec_a[2]
@@ -438,12 +498,14 @@ cdef void scalar_gram_schmidt_emplace(double[:] vec_a,
 """
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef double[:] scalar_gram_schmidt(double[:] vec_a,
                  double[:] vec_b) :
 
     return scalar_unit(vec_b - vec_a * scalar_dot(vec_b, vec_a))
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef double[:] make_perpendicular(double[:] vec_a,
                  double[:] vec_b):
     cdef double [:] res=np.empty(vec_a.shape)
@@ -456,6 +518,7 @@ cpdef double[:] make_perpendicular(double[:] vec_a,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef double[:] linear_combination_3d(double a, double[:] v1, double b, double[:] v2) :
     cdef double[:] res = np.empty( v1.shape)
     res[0]=v1[0]*a + b * v2[0]
@@ -521,6 +584,8 @@ cpdef function_GetPlaneEquation(v3d0, v3d1, v3d2):  #Exception wenn keine ebene
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef double dot3d(double [:]  vec_a, double [:]  vec_b) noexcept nogil:
     cdef double res = vec_a[0] * vec_b[0]+ vec_a[1] * vec_b[1]+ vec_a[2] * vec_b[2]
 
@@ -528,11 +593,15 @@ cdef double dot3d(double [:]  vec_a, double [:]  vec_b) noexcept nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef double norm3d(double [:] vec)noexcept nogil:
     cdef double res = sqrt(vec[0] ** 2+vec[1] ** 2+vec[2] ** 2)
     return res
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef void min3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
 
     res[0] = fmin(vec_a[0] ,vec_b[0])
@@ -577,6 +646,8 @@ cdef void add3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nog
     res[2] = vec_a[2] + vec_b[2]
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef void sub3d(double [:]  vec_a, double [:]  vec_b, double[:] res)noexcept nogil:
 
     res[0] = vec_a[0] - vec_b[0]
@@ -610,3 +681,44 @@ cdef void scalar_div3d(double [:]  vec_a, double  b, double[:] res) noexcept nog
     res[0] = vec_a[0] / b
     res[1] = vec_a[1] / b
     res[2] = vec_a[2] / b
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+cpdef decompose_vector(double [:] v,double [:] a, double [:] b):
+
+    cdef double[:,:] A=np.empty((2,2))
+    cdef double[:] y=np.empty((2,))
+    cdef double[:] xy=np.empty((2,))
+
+    A[0,0]=scalar_dot(a,a)
+    A[0,1]=scalar_dot(a, b)
+    A[1, 0] = A[0,1]
+    A[1, 1] =   scalar_dot(b, b)
+    y[0] = scalar_dot(a, v)
+    y[1] = scalar_dot(b,v)
+    solve2x2(A,y,xy)
+    return xy
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+def decompose_vectors(double[:,:] v, double[:] a, double[:] b, double[:,:] result=None):
+    cdef double[:,:] A=np.empty((2, 2))
+    cdef double[:] y=np.empty((2, ))
+    cdef int i;
+    if result is None:
+        result=np.empty((v.shape[0], 2))
+
+    for i in range(v.shape[0]):
+
+            A[0, 0]=_dot_inl(a, a)
+            A[0, 1]=_dot_inl(a, b)
+            A[1, 0] = A[0, 1]
+            A[1, 1] =  _dot_inl(b, b)
+            y[0] = _dot_inl(a, v[i])
+            y[1] = _dot_inl(b, v[i])
+            solve2x2(A, y, result[i])
+    return result

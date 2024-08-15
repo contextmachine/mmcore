@@ -15,6 +15,7 @@ from mmcore.numeric.vectors cimport sub3d
 cdef double DEFAULT_H=1e-3
 from mmcore.numeric cimport vectors
 from mmcore.numeric cimport calgorithms
+from mmcore.geom.evaluator cimport surface_evaluator
 from libc.math cimport fabs
 
 
@@ -27,6 +28,8 @@ cdef class ParametricCurve:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cevaluate(self, double t , double[:] result) noexcept nogil:
         pass
 
@@ -34,12 +37,16 @@ cdef class ParametricCurve:
         return self._interval
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def evaluate(self, t):
         cdef double[:] result =np.zeros((3,))
         self.cevaluate(t,result)
         return result
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative(self, double t, double[:] result) :
         """
         :param t:float
@@ -51,28 +58,15 @@ cdef class ParametricCurve:
         cdef double t1,t2
         cdef start=DEFAULT_H+self._interval[0]
         cdef end = self._interval[1]-DEFAULT_H
-        if end >= t >= start:
-            t1=t+DEFAULT_H
-            t2 = t - DEFAULT_H
-            self.cevaluate(t1,v1)
-            self.cevaluate(t2,v2)
-            vectors.sub3d(v1,v2, result)
-            vectors.scalar_div3d(result, 2*DEFAULT_H, result)
 
+        t1=t+DEFAULT_H
+        t2 = t - DEFAULT_H
+        self.cevaluate(t1,v1)
+        self.cevaluate(t2,v2)
+        result[0]=(v1[0]- v2[0])*(0.5*DEFAULT_H)
+        result[1] = (v1[1] - v2[1]) * (0.5 * DEFAULT_H)
+        result[2] = (v1[2] - v2[2]) * (0.5 * DEFAULT_H)
 
-        elif t <= start:
-            t1 = t + DEFAULT_H
-            self.cevaluate(t1, v1)
-            self.cevaluate(t, v2)
-            vectors.sub3d(v1, v2, result)
-            vectors.scalar_div3d(result,  DEFAULT_H, result)
-
-        else:
-            t2 = t - DEFAULT_H
-            self.cevaluate(t, v1)
-            self.cevaluate(t2, v2)
-            vectors.sub3d(v1, v2, result)
-            vectors.scalar_div3d(result, DEFAULT_H, result)
 
     cpdef double[:] end(self):
         cdef double[:] pt=np.empty((3,))
@@ -96,6 +90,8 @@ cdef class ParametricCurve:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative(self, double t, double[:] result):
             """
             :param t:float
@@ -109,24 +105,30 @@ cdef class ParametricCurve:
             t2 = t - DEFAULT_H
             self.cderivative(t1,v1)
             self.cderivative(t2,v2)
-
-            vectors.sub3d(v1,v2,result)
-            vectors.scalar_div3d(result, 2*DEFAULT_H, result)
+            result[0] = (v1[0] - v2[0]) * (0.5 * DEFAULT_H)
+            result[1] = (v1[1] - v2[1]) * (0.5 * DEFAULT_H)
+            result[2] = (v1[2] - v2[2]) * (0.5 * DEFAULT_H)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def derivative(self, t):
         cdef double[:] result =np.zeros((3,))
         self.cderivative(t,result)
         return np.asarray(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def second_derivative(self, t):
         cdef double[:] result =np.zeros((3,))
         self.csecond_derivative(t,result)
         return np.asarray(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void ccurvature(self, double t,double[:] result):
         cdef double[:,:] ders = np.zeros((3,3))
         self.cderivative(t, ders[0])
@@ -135,6 +137,8 @@ cdef class ParametricCurve:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void ctangent(self, double t,double[:] result):
         cdef double[:,:] ders = np.zeros((2,3))
         self.cderivative(t, ders[0])
@@ -142,6 +146,8 @@ cdef class ParametricCurve:
         calgorithms.evaluate_tangent(ders[0],ders[1],result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cnormal(self, double t,double[:] result):
         cdef double[:,:] ders = np.zeros((2,3))
         self.cderivative(t, ders[0])
@@ -168,14 +174,21 @@ cdef class ParametricCurve:
         #result[2] = (ders[0][0] * ders[1][1]) - (ders[0][1] * ders[1][0])
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cplanes(self, double[:] t, double[:,:,:] result):
         cdef int i
         for i in range(t.shape[0]):
             self.cplane(t[i],result[i])
 
+
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cplane(self, double t, double[:,:] result):
+
         self.cevaluate(t, result[0])
         self.cderivative(t,  result[1])
         self.csecond_derivative(t, result[2])
@@ -196,28 +209,55 @@ cdef class ParametricCurve:
         result[3, 1] = (result[1][2] * result[2][0]) - (result[1][0] * result[2][2])
         result[3, 2] = (result[1][0] * result[2][1]) - (result[1][1] * result[2][0])
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cpdef double[:] normal(self,double t):
         cdef double[:]result=np.zeros(3)
         self.cnormal(t,result)
         return result
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cpdef double[:] tangent(self,double t):
         cdef double[:]result=np.zeros(3)
         self.ctangent(t,result)
         return result
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cpdef double[:] curvature(self,double t):
         cdef double[:]result=np.zeros(3)
         self.ccurvature(t,result)
         return result
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def plane_at(self,double t):
         cdef double[:,:]result=np.zeros((4,3))
         self.cplane(t,result)
         return result
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def planes_at(self,double[:] t):
         cdef double[:,:,:]result=np.zeros((t.shape[0], 4,3))
         self.cplanes(t,result)
         return result
+
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def points(self, count=50):
         """
         :param count: The number of points to generate (default is 50)
@@ -244,6 +284,7 @@ cdef class ReparametrizedCurve(ParametricCurve):
         self._interval[1] = new_interval[1]
         self.curve=curve
 
+
 cdef class ParametricSurface:
 
     def __init__(self):
@@ -254,6 +295,8 @@ cdef class ParametricSurface:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_u(self, double u, double v,double[:] result):
         cdef double[:] dd=np.empty((3,))
         if (1. - DEFAULT_H) >= u >= DEFAULT_H:
@@ -278,6 +321,8 @@ cdef class ParametricSurface:
             vectors.scalar_div3d(result, DEFAULT_H, result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_v(self, double u, double v,double[:] result):
         cdef double[:] dd=np.empty((3,))
         if (1. - DEFAULT_H) >= v >= DEFAULT_H:
@@ -303,6 +348,8 @@ cdef class ParametricSurface:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_uu(self, double u, double v,double[:] result):
         cdef double[:] dd=np.empty((3,))
         if (1. - DEFAULT_H) >= u >= DEFAULT_H:
@@ -327,6 +374,8 @@ cdef class ParametricSurface:
             vectors.scalar_div3d(result, DEFAULT_H, result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_vv(self, double u, double v,double[:] result):
         cdef double[:] dd=np.empty((3,))
         if (1. - DEFAULT_H) >= v >= DEFAULT_H:
@@ -352,6 +401,8 @@ cdef class ParametricSurface:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_uv(self, double u, double v,double[:] result):
         cdef double[:] dd=np.empty((3,))
         if (1. - DEFAULT_H) >= v >= DEFAULT_H:
@@ -376,10 +427,14 @@ cdef class ParametricSurface:
             vectors.scalar_div3d(result, DEFAULT_H, result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cevaluate(self, double u, double v,double[:] result):
         pass
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cplane_at(self, double u, double v, double[:,:] result):
 
         orig = self.cevaluate(u, v,result[0] )
@@ -390,24 +445,32 @@ cdef class ParametricSurface:
         result[2,:] = vectors.scalar_cross(result[3], result[1])
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def evaluate(self, double[:] uv):
         cdef double[:] res=np.empty(3)
         self.cevaluate(uv[0],uv[1],res)
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cpdef evaluate_v2(self, double u, double v):
         cdef double[:] result=np.empty((3,))
         self.cevaluate(u, v, result)
         return np.array(result)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def plane_at(self, double[:] uv):
         cdef double[:,:] res=np.empty((4,3))
         self.cplane_at(uv[0],uv[1],res)
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def derivative_u(self, double[:] uv):
         cdef double[:] res=np.empty((3,))
         self.cderivative_u(uv[0],uv[1],res)
@@ -415,6 +478,8 @@ cdef class ParametricSurface:
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def derivative_v(self, double[:] uv):
         cdef double[:] res=np.empty((3,))
         self.cderivative_v(uv[0],uv[1],res)
@@ -422,6 +487,8 @@ cdef class ParametricSurface:
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def second_derivative_vv(self, double[:] uv):
         cdef double[:] res=np.empty((3,))
         self.csecond_derivative_vv(uv[0],uv[1],res)
@@ -429,6 +496,8 @@ cdef class ParametricSurface:
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def second_derivative_uu(self, double[:] uv):
         cdef double[:] res=np.empty((3,))
         self.csecond_derivative_uu(uv[0],uv[1],res)
@@ -436,6 +505,8 @@ cdef class ParametricSurface:
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def second_derivative_uv(self, double[:] uv):
         cdef double[:] res=np.empty((3,))
         self.csecond_derivative_uv(uv[0],uv[1],res)
@@ -443,12 +514,50 @@ cdef class ParametricSurface:
         return np.asarray(res)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def evaluate_multi(self, double[:,:] uv):
         cdef int i
         cdef double[:,:] res=np.empty((uv.shape[0],3))
         for i in range(uv.shape[0]):
             self.cevaluate(uv[i,0],uv[i,1],res[i])
         return np.asarray(res)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
+    def derivatives(self, double[:] uv, double[:,:] result=None):
+
+        cdef double[:] a
+        cdef double[:] b
+        cdef double h2= 2 *DEFAULT_H
+        cdef double u1,v1,u2,v2
+        cdef u=uv[0]
+        cdef v=uv[1]
+        if result is None:
+            result=np.empty((2,3))
+        u1=u-DEFAULT_H
+        u2=u+DEFAULT_H
+        v1=v-DEFAULT_H
+        v2=v+DEFAULT_H
+        #result[0] =callback(u, v)
+        a=self.evaluate_v2(u1,v)
+        b=self.evaluate_v2(u2,v)
+
+        result[0, 0]= (b[0] - a[0]) /h2
+        result[0, 1]= (b[1] - a[1]) / h2
+        result[0, 2] = (b[2] - a[2]) / h2
+        a = self.evaluate_v2(u, v1)
+        b = self.evaluate_v2(u, v2)
+
+        result[1, 0] = (b[0] - a[0]) / h2
+        result[1, 1] = (b[1] - a[1]) / h2
+        result[1, 2] = (b[2] - a[2]) /h2
+        return result
+
+
+
 cdef class Ruled(ParametricSurface):
     #cdef double _remap_u
     #cdef double _remap_v
@@ -464,6 +573,8 @@ cdef class Ruled(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cevaluate(self, double u,double v, double[:] result):
         cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
         cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
@@ -475,6 +586,8 @@ cdef class Ruled(ParametricSurface):
         result[2] = (1. - v) * temp[2] + v * result[2]
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_v(self, double u, double v, double[:] result ):
         cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
         cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
@@ -487,6 +600,8 @@ cdef class Ruled(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_u(self, double u, double v, double[:] result ):
         cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
         cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
@@ -506,6 +621,8 @@ cdef class Ruled(ParametricSurface):
         result[2] += temp[2]
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_uu(self, double u, double v, double[:] result ):
             cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
             cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
@@ -523,8 +640,11 @@ cdef class Ruled(ParametricSurface):
             result[0]+=temp[0]
             result[1] += temp[1]
             result[2] += temp[2]
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_vv(self, double u, double v, double[:] result ):
         result[0] = 0.
         result[1] = 0.
@@ -536,6 +656,8 @@ cdef class Ruled(ParametricSurface):
 cdef class RationalRuled(Ruled):
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cevaluate(self, double u,double v, double[:] result):
         cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
         cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
@@ -548,6 +670,8 @@ cdef class RationalRuled(Ruled):
         result[2] = (1. - v) * temp[2] + v * res[2]
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_v(self, double u, double v, double[:] result ):
         cdef double u1 = (u * (self.c0._interval[1] - self.c0._interval[0])) + self.c0._interval[0]
         cdef double u2 = (u * (self.c1._interval[1] - self.c1._interval[0])) + self.c1._interval[0]
@@ -571,6 +695,8 @@ cdef class BiLinear(ParametricSurface):
     
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cevaluate(self, double u,double v, double[:] result):
         result[0]=v * (u * self.b11[0] + self.b01[0] * (1 - u)) + (1 - v) * (
                     u * self.b10[0] + self.b00[0] * (1 - u))
@@ -580,6 +706,8 @@ cdef class BiLinear(ParametricSurface):
                 u * self.b10[2] + self.b00[2] * (1 - u))
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_u(self, double u,double v, double[:] result):
         
         result[0]= v * (-self.b01[0] + self.b11[0]) + (1 - v) * (-self.b00[0] + self.b10[0])
@@ -588,12 +716,16 @@ cdef class BiLinear(ParametricSurface):
         result[2] = v * (-self.b01[2] + self.b11[2]) + (1 - v) * (-self.b00[2] + self.b10[2])
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void cderivative_v(self, double u,double v, double[:] result):
         result[0] = -u * self.b10[0] + u * self.b11[0] - self.b00[0] * (1 - u) + self.b01[0] * (1 - u)
         result[1] = -u * self.b10[1] + u * self.b11[1] - self.b00[1] * (1 - u) + self.b01[1] * (1 - u)
         result[2] = -u * self.b10[2] + u * self.b11[2] - self.b00[2] * (1 - u) + self.b01[2] * (1 - u)
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_uv(self, double u,double v, double[:] result):
 
         result[0] =self.b00[0] - self.b01[0] - self.b10[0] + self.b11[0]    
@@ -603,6 +735,8 @@ cdef class BiLinear(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_vv(self, double u,double v, double[:] result):
         result[0] =0.0
         result[1] =0.0
@@ -611,6 +745,8 @@ cdef class BiLinear(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     cdef void csecond_derivative_uu(self, double u,double v, double[:] result):
         result[0] =0.0
         result[1] =0.0

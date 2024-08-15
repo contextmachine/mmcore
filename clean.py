@@ -2,6 +2,7 @@
 
 import os
 import glob
+import shutil
 
 
 def delete_files(pattern, path):
@@ -16,6 +17,8 @@ def delete_files(pattern, path):
 
 
 def clean_exts(exts):
+    shutil.rmtree("./build", ignore_errors=True)
+    print(f"builds has been deleted.")
     for ext in exts:
         for source in ext.sources:
 
