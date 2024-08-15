@@ -147,13 +147,9 @@ class SSXMethod:
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
         #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
         pt=surface.evaluate(uv)
-        du,dv=surface.derivatives(uv)
+        pt,du,dv,n=surface_evaluator.origin_derivatives_normal(surface.evaluate_v2,uv[0],uv[1])
 
-
-
-
-
-        n = np.array(scalar_unit(scalar_cross(du, dv)))
+        #n = np.array(scalar_unit(scalar_cross(du, dv)))
 
         return SurfaceDerivativesData(uv, pt, du, dv, n)
 

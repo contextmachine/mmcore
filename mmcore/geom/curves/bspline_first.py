@@ -8,6 +8,7 @@ def find_span(n, p, u, U):
     """
     Determine the knot span index.
     """
+    l=len(U)
     if u == U[n + 1]:
         return n  # Special case
 
@@ -21,8 +22,12 @@ def find_span(n, p, u, U):
 
     elif u < U[0]:
         return p
-
+    i=0
     while u < U[mid] or u >= U[mid + 1]:
+        if i>l:
+            raise ValueError(f"Unable to find a span by u= {u}, U={U} ")
+        i+=1
+
         if u < U[mid]:
             high = mid
         else:
@@ -35,24 +40,24 @@ def basis_funs(i, u, p, U):
     """
     Compute the nonvanishing basis functions.
     """
-    N = [0.0] * (p + 1)
-    left = [0.0] * (p + 1)
-    right = [0.0] * (p + 1)
+    pp = p + 1
+    N = [0.0] * pp
+    left = [0.0] * pp
+    right = [0.0] * pp
     N[0] = 1.0
 
-    for j in range(1, p + 1):
+    for j in range(1, pp):
         left[j] = u - U[i + 1 - j]
         right[j] = U[i + j] - u
         saved = 0.0
-        #print('bf',i + 1 - j)
 
         for r in range(j):
-
             temp = N[r] / (right[r + 1] + left[j - r])
             N[r] = saved + right[r + 1] * temp
             saved = left[j - r] * temp
 
         N[j] = saved
+
 
     return N
 
