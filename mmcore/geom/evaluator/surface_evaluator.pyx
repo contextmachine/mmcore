@@ -27,6 +27,8 @@ cdef inline void _cython_callback2(double u, double v,double[:] res):
     res[0]=cosu*sinv
     res[1] = sinu * sinv
     res[2] = cosv
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef double[:] cython_callback2(double u, double v):
@@ -42,8 +44,10 @@ cpdef void callback_map(double[:] u, double[:] v, double[:,:] result):
 #    return (f(x + h) - 2 * f(x) + f(x - h)) / (h ** 2)
 
 cdef double DEFAULT_H=1e-3
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void c_derivative_u(callback, double u, double v, double[:] result):
      cdef double[:] a
      cdef double[:] b
@@ -61,6 +65,7 @@ cpdef void c_derivative_u(callback, double u, double v, double[:] result):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void c_derivative_v(callback, double u, double v, double[:] result):
      cdef double[:] a
      cdef double[:] b
@@ -78,6 +83,7 @@ cpdef void c_derivative_v(callback, double u, double v, double[:] result):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void c_derivative_vv(callback, double u, double v, double[:] result):
 
 
@@ -97,13 +103,13 @@ cpdef void c_derivative_vv(callback, double u, double v, double[:] result):
      dv0 = callback(u, v1)
      dv1 = callback(u, v2)
 
-
-
      result[ 0] = (dv1[0] - 2 * pt[0] + dv0[0]) / h_sq
      result[ 1] = (dv1[1] - 2 * pt[1] + dv0[1]) / h_sq
      result[ 2] = (dv1[2] - 2 * pt[2] + dv0[2]) / h_sq
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void c_derivative_uu(callback, double u, double v, double[:] result):
 
 
@@ -128,6 +134,7 @@ cpdef void c_derivative_uu(callback, double u, double v, double[:] result):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef void c_derivative_uv(callback, double u, double v, double[:] result):
 
 
@@ -157,9 +164,9 @@ cpdef void c_derivative_uv(callback, double u, double v, double[:] result):
      result[ 1] = (du1v1[1] -  du1v0[1] -  du0v1[1] +  du0v0[1]) /  h2_sq
      result[ 2] = (du1v1[2] -  du1v0[2] -  du0v1[2] +  du0v0[2]) /  h2_sq
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void c_derivatives(callback, double u, double v, double[:,:] result):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -191,6 +198,7 @@ cdef inline void c_derivatives(callback, double u, double v, double[:,:] result)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void c_normal( double[:,:] result):
     cdef double n
 
@@ -206,6 +214,7 @@ cdef inline void c_normal( double[:,:] result):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void c_second_derivatives(callback, double u, double v, double[:,:] result):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -264,6 +273,7 @@ cdef inline void c_second_derivatives(callback, double u, double v, double[:,:] 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void c_origin_derivatives_normal(callback, double u, double v, double[:,:] result):
 
 
@@ -308,6 +318,7 @@ cdef inline void c_origin_derivatives_normal(callback, double u, double v, doubl
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray second_derivatives(callback, double u, double v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -319,9 +330,9 @@ cpdef cnp.ndarray second_derivatives(callback, double u, double v):
 
     return np.array(result)
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray derivatives_normal(callback, double u, double v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -337,6 +348,7 @@ cpdef cnp.ndarray derivatives_normal(callback, double u, double v):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray derivatives_normal_array(callback, double[:] u, double[:] v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -357,6 +369,7 @@ cpdef cnp.ndarray derivatives_normal_array(callback, double[:] u, double[:] v):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray origin_derivatives_normal(callback, double u, double v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -371,6 +384,7 @@ cpdef cnp.ndarray origin_derivatives_normal(callback, double u, double v):
     return np.array(result)
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray origin_derivatives_normal_array(callback,  double[:] u, double[:] v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -386,6 +400,7 @@ cpdef cnp.ndarray origin_derivatives_normal_array(callback,  double[:] u, double
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray second_derivatives_array(callback, double[:] u, double[:] v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -402,6 +417,7 @@ cpdef cnp.ndarray second_derivatives_array(callback, double[:] u, double[:] v):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray derivatives(callback, double u, double v):
     """
     Function that accepts a callback and calls it with a fixed argument.
@@ -415,6 +431,7 @@ cpdef cnp.ndarray derivatives(callback, double u, double v):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cpdef cnp.ndarray derivatives_array( callback, double[:] u, double[:] v):
     """
     Function that accepts a callback and calls it with a fixed argument.

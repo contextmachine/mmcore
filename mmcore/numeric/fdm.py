@@ -54,6 +54,9 @@ def fdm(f, method="central", h=DEFAULT_H):
     else:
         raise ValueError("Method must be 'central', 'forward' or 'backward'.")
 
+def derivate(f, t, *args, h=DEFAULT_H,**kwargs):
+    return (f(t + h,*args,**kwargs) - f(t - h,*args,**kwargs)) / (2 * h)
+
 
 def bounded_fdm(f, h=DEFAULT_H, bounds=(0., 1.)):
     _decimals = _DECIMALS

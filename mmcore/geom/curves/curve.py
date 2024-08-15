@@ -370,6 +370,17 @@ class Curve:
     def length_at(self, t):
         return self.evaluate(self.evaluate_parameter_at_length(t))
 
+    def step(self, t, tol=1e-3):
+
+
+
+        K = self.curvature(t)
+
+        r = 1 / np.linalg.norm(K)
+
+        step = np.sqrt(r ** 2 - (r - tol) ** 2) * 2
+
+        return step,K
 
 class TrimmedCurve(Curve):
     def __init__(self, curve: Curve, start: float = None, end: float = None):

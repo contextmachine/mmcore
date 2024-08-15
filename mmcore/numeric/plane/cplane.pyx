@@ -15,6 +15,8 @@ cnp.import_array()
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef int find_max_row(double[5][5] m, int i, int n) noexcept nogil:
     cdef int l= i
     cdef int r = n - 1
@@ -29,6 +31,8 @@ cdef int find_max_row(double[5][5] m, int i, int n) noexcept nogil:
     return l
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef int find_max_row_3x3(double[3][3] m, int i, int n) noexcept nogil:
     cdef int l= i
     cdef int r = n - 1
@@ -43,14 +47,17 @@ cdef int find_max_row_3x3(double[3][3] m, int i, int n) noexcept nogil:
     return l
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef void cevaluate_plane(double[:,:] pln, double[:] point, double[:] result) noexcept nogil:
     cdef int i
     for i in range(3):
         result[i]=  pln[0,i] +  pln[1, i] * point[0] + pln[2, i] * point[1] + pln[3, i] * point[2]
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef void cinverse_evaluate_plane(double[:,:] pln, double[:] point, double[:] result) noexcept nogil:
     cdef int i, j
     for i in range(3):
@@ -60,9 +67,10 @@ cpdef void cinverse_evaluate_plane(double[:,:] pln, double[:] point, double[:] r
 
 
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef double[:] evaluate_plane(double[:,:] pln, double[:] point):
 
     cdef double[:] result=np.empty((3,))
@@ -71,6 +79,8 @@ cpdef double[:] evaluate_plane(double[:,:] pln, double[:] point):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef double[:] inverse_evaluate_plane(double[:,:] pln, double[:] point):
     cdef double[:] result=np.empty((3,))
     cinverse_evaluate_plane(pln,point,result)
@@ -78,6 +88,8 @@ cpdef double[:] inverse_evaluate_plane(double[:,:] pln, double[:] point):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef double[:,:] evaluate_plane_arr(double[:,:] pln, double[:,:] points):
     cdef int i
     cdef double[:,:] result=np.empty((points.shape[0], 3,))
@@ -87,9 +99,10 @@ cpdef double[:,:] evaluate_plane_arr(double[:,:] pln, double[:,:] points):
         cevaluate_plane(pln, points[i], result[i])
     return result
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cpdef double[:,:] inverse_evaluate_plane_arr(double[:,:] pln, double[:,:]  points):
     cdef int i
     cdef double[:,:] result=np.empty((points.shape[0], 3,))
@@ -108,6 +121,8 @@ cpdef double[:,:] inverse_evaluate_plane_arr(double[:,:] pln, double[:,:]  point
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef void solve_system_5x5(double[5][5] m, double[5] v, double[5] x) noexcept nogil:
     cdef int i, j, k,h, max_row
     cdef int n = 5
@@ -147,6 +162,8 @@ cdef void solve_system_5x5(double[5][5] m, double[5] v, double[5] x) noexcept no
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef void solve_system_3x3(double[3][3] m, double[3] v, double[:] x) noexcept nogil:
     cdef int i, j, k,h, max_row
     cdef int n = 3
@@ -187,12 +204,16 @@ cdef void solve_system_3x3(double[3][3] m, double[3] v, double[:] x) noexcept no
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef inline void cross_product(double[:] v1, double[:] v2, double[:] res) noexcept nogil:
     res[0] = (v1[1] * v2[2]) - (v1[2] * v2[1])
     res[1] = (v1[2] * v2[0]) - (v1[0] * v2[2])
     res[2] = (v1[0] * v2[1]) - (v1[1] * v2[0])
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
 cdef inline double dot_product(double[:] v1, double[:] v2) noexcept nogil:
     return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
 @cython.boundscheck(False)
