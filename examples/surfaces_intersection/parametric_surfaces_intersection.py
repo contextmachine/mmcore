@@ -141,10 +141,12 @@ surfaces2 = [
 # Build BVH for each surface
 
 for surf in surfaces:
-    surf.build_tree(10, 10)
+
+        surf.build_tree(8, 8)
 
 for surf2 in surfaces2:
-    surf2.build_tree(10, 10)
+
+        surf2.build_tree(8, 8)
 import time
 
 # Find all intersection curves
