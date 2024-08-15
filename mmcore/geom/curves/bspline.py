@@ -388,14 +388,7 @@ class NURBSpline(CNURBSpline, Curve):
     def create_circle(cls, origin=(0., 0., 0.), radius=1, plane=WORLD_XY) -> "OCCNurbsCurve":
         """Construct a NURBS curve from a circle.
 
-        Parameters
-        ----------
-        circle : :class:`~compas.geometry.Circle`
-            The circle geometry.
 
-        Returns
-        -------
-        :class:`OCCNurbsCurve`
 
         """
 
