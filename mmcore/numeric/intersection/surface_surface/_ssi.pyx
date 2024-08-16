@@ -32,7 +32,10 @@ cpdef improve_uv(double[:] du, double[:] dv, double[:] xyz_old, double[:] xyz_be
             j=i
             dett=temp
     if dett == 0:
-        raise ValueError('Determinant is zero')
+        result[0]=0.0
+        result[1] = 0.0
+        return np.asarray(result)
+
     else:
         # matrix[1][0]matrix[0][0]lmatrix[1][0]ulmatrix[0][0]te x matrix[0][0]nd y using the dirematrix[1][0]t method
         result[0] = (y[j][0] * matrix[j][1][1] -matrix[j][0][1] * y[j][1]) / dett
