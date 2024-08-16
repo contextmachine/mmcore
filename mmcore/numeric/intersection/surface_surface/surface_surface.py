@@ -278,7 +278,7 @@ class FreeFormMethod(SSXMethod):
 
 
         warnings.warn("freeform not convergence")
-        return  mid, uv1, uv2
+        return
 
 
 class MarchingMethod(SSXMethod):
@@ -330,12 +330,13 @@ class MarchingMethod(SSXMethod):
                 step,
                 TerminatorType.EDGE,
             )
-        pt1_better, uv1_better, uv2_better = self.freeform.solve(uv1_better, uv2_better,return_edges=True)
-
+        res = self.freeform.solve(uv1_better, uv2_better,return_edges=True)
+        if res is not None:
+            pt_better,uv1_better, uv2_better=            res
 
         return (
-            (pt1_better, uv1_better),
-            (pt1_better, uv2_better),
+            (pt_better, uv1_better),
+            (pt_better, uv2_better),
             step,
             TerminatorType.STEP,
         )
