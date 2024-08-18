@@ -158,7 +158,7 @@ class Surface:
     def __init__(self):
         super().__init__()
         self._tree = None
-        self.evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
+        self._evaluate_multi = np.vectorize(self.evaluate, signature="(i)->(j)")
         self._grad = Grad(self)
         self._interval = np.array(self.interval())
 
@@ -167,7 +167,8 @@ class Surface:
         self._plane_at_multi = np.vectorize(self.plane_at, signature="(i)->(j)")
         self._boundary = None
 
-
+    def evaluate_multi(self, uv):
+        return self._evaluate_multi(uv)
     def build_boundary(self):
 
         u0, u1 = self._interval[0]
@@ -574,6 +575,7 @@ class Coons(Surface):
 
         self._rcd = CBiLinear(self.pt0, self.pt1, self.pt2, self.pt3)
         self._cached_eval = lru_cache(maxsize=None)(self.evaluate_v2)
+
         #self._uv = np.array([0., 0.])
 
     def evaluate(self, uv):
@@ -583,7 +585,6 @@ class Coons(Surface):
         #return self._rc.evaluate(uv) + self._rd.evaluate(uv[::-1]) - self._rcd.evaluate(uv)
 
         return self._cached_eval(*uv)
-
     def evaluate_v2(self, u, v):
 
         return self._rc.evaluate_v2(u,v) + self._rd.evaluate_v2(v,u) - self._rcd.evaluate_v2(u,v)

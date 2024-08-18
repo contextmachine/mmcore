@@ -1,6 +1,6 @@
 
 import numpy as np
-
+cpdef matmul_array(double[:,:,:] vec_a, double[:,:,:] vec_b)
 cpdef dot_array_x_array(double[:,:] vec_a, double[:,:] vec_b)
 
 

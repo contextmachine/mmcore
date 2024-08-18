@@ -55,6 +55,26 @@ cpdef dot_array_x_array(double[:,:]vec_a, double[:,:]vec_b):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+cpdef matmul_array(double[:,:,:] vec_a, double[:,:,:] vec_b):
+
+    cdef int i, j,k,w
+    cdef int l=vec_a.shape[0]
+    cdef int rows_A = vec_a.shape[1]
+    cdef int cols_A = vec_a.shape[2]
+    cdef int rows_B = vec_b.shape[1]
+    cdef int cols_B = vec_b.shape[2]
+    cdef double[:,:,:] result=np.empty((l,rows_A,cols_B))
+    for w in range(l):
+        for i in range(rows_A):
+            for j in range(cols_B):
+                for k in range(cols_A):
+                    result[w,i,j] += vec_a[w,i,k] * vec_b[w,k,j]
+
+    return np.array(result)
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
 cpdef dot_vec_x_array(double[:]vec_a, double[:,:]vec_b):
     cdef double[:]res = np.empty((vec_b.shape[0],))
     cdef double item = 0.0

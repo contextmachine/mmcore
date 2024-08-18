@@ -31,6 +31,88 @@ class BVHNode:
         self.object = object  # None for internal nodes, leaf node holds the object
 
 
+class BoundingRect:
+    def __init__(self, min_point, max_point):
+        self.min_point = min_point  # Should be a tuple (x_min, y_min, z_min)
+        self.max_point = max_point  # Should be a tuple (x_max, y_max, z_max)
+        self.center = np.average([min_point, max_point], axis=0)
+        self.dims = np.array(
+            [
+                self.max_point[0] - self.min_point[0],
+                self.max_point[1] - self.min_point[1]
+
+            ]
+        )
+    def area(self):
+        return self.dims[0]*  self.dims[1]
+    def intersect(self, other):
+        """Check if this bounding box intersects with another"""
+        return (
+            self.min_point[0] <= other.max_point[0]
+            and self.max_point[0] >= other.min_point[0]
+            and self.min_point[1] <= other.max_point[1]
+            and self.max_point[1] >= other.min_point[1]
+
+        )
+
+    def intersection(self, other):
+        """
+        Calculate the intersection of this bounding box with another bounding box.
+
+        :param other: The other bounding box to intersect with.
+        :return: A new BoundingBox representing the intersection, or None if there is no intersection.
+        """
+        # Calculate the maximum of the minimum points for each dimension
+        max_min_x = max(self.min_point[0], other.min_point[0])
+        max_min_y = max(self.min_point[1], other.min_point[1])
+
+
+        # Calculate the minimum of the maximum points for each dimension
+        min_max_x = min(self.max_point[0], other.max_point[0])
+        min_max_y = min(self.max_point[1], other.max_point[1])
+
+
+        # Check if the bounding boxes intersect
+        if max_min_x > min_max_x or max_min_y > min_max_y :
+            return None
+
+        # Create and return the intersection bounding box
+        intersection_min = (max_min_x, max_min_y)
+        intersection_max = (min_max_x, min_max_y)
+        return BoundingBox(intersection_min, intersection_max)
+
+    def merge(self, other):
+        """Create a new bounding box that contains both this and another bounding box"""
+        new_min = (
+            min(self.min_point[0], other.min_point[0]),
+            min(self.min_point[1], other.min_point[1])
+
+        )
+        new_max = (
+            max(self.max_point[0], other.max_point[0]),
+            max(self.max_point[1], other.max_point[1])
+
+        )
+        return BoundingBox(new_min, new_max)
+
+    def contains_point(self, point):
+        return all(
+            (
+                self.min_point[0] <= point[0],
+                self.min_point[1] <= point[1],
+
+                self.max_point[0] >= point[0],
+                self.max_point[1] >= point[1]
+
+            )
+        )
+
+    def __repr__(self):
+        return f"BoundingBox({self.min_point}, {self.max_point})"
+    def __or__(self, other):
+        return self.merge(other)
+    def __and__(self, other):
+        return self.intersection(other)
 
 
 class BoundingBox:
@@ -112,6 +194,10 @@ class BoundingBox:
 
     def __repr__(self):
         return f"BoundingBox({self.min_point}, {self.max_point})"
+    def __or__(self, other):
+        return self.merge(other)
+    def __and__(self, other):
+        return self.intersection(other)
 
 
 def split_objects(objects):

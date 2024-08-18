@@ -5,7 +5,7 @@ import sys
 import warnings
 from enum import Enum
 
-from mmcore.numeric.vectors import scalar_dot, scalar_norm
+from mmcore.numeric.vectors import scalar_dot, scalar_norm, norm
 from typing import Callable, Optional, Iterable
 
 import numpy as np
@@ -465,6 +465,61 @@ def hessian(f, point, h=DEFAULT_H):
     return H
 
 
+def hessian_multi(f, points, h=DEFAULT_H):
+    """
+    Calculate the Hessian matrix of a given function `f` at a given `point`.
+
+    :param f: The function to calculate the Hessian matrix for.
+    :param points: The points at which to calculate the Hessian matrix.
+    :param h: The step size for numerical differentiation. Default is `DEFAULT_H`.
+    :return: The Hessian matrix of `f` at `points` with shape (N,M,M) where N is a points count, and M os point size.
+
+    Example usage:
+    ```python
+    import numpy as np
+
+    def f(x):
+        return x[0]**2 + x[1]**2
+
+    points = np.random.random((100,2))
+    hessian_matrix = hessian_multi(f,  points )
+
+    print(hessian_matrix)
+    ```
+    """
+    points = np.array(points)
+    n = points.shape[-1]
+    H = np.zeros((points.shape[0], n, n))
+    fp = f(points.T)
+
+    for i in range(n):
+        for j in range(i, n):
+            if i == j:
+                forward_i = points.copy()
+                backward_i = points.copy()
+                forward_i[:,i] += h
+                backward_i[:,i] -= h
+                H[:,i, i] = (f(forward_i.T) - 2 * fp + f(backward_i.T)) / h ** 2
+            else:
+                forward_i_j = points.copy()
+                forward_i_j[:,i] += h
+                forward_i_j[:,j] += h
+
+                forward_i_backward_j = points.copy()
+                forward_i_backward_j[:,i] += h
+                forward_i_backward_j[:,j] -= h
+
+                backward_i_forward_j = points.copy()
+                backward_i_forward_j[:,i] -= h
+                backward_i_forward_j[:,j] += h
+
+                backward_i_j = points.copy()
+                backward_i_j[:,i] -= h
+                backward_i_j[:,j] -= h
+
+                H[:, i, j] = H[:, j, i] = (f(forward_i_j.T) - f(forward_i_backward_j.T) - f(backward_i_forward_j.T) + f(
+                    backward_i_j.T)) / (4 * h ** 2)
+    return H
 
 
 
@@ -479,6 +534,7 @@ def jac(fun, h=DEFAULT_H):
 
     return jac_wrap
 
+    return jac_wrap
 def gradient(f, point, h=DEFAULT_H):
     """
     :param f: A function that takes a point as input and returns a scalar value.
@@ -497,6 +553,28 @@ def gradient(f, point, h=DEFAULT_H):
         f_minus_h = f(point)
         point[i] += h
         grad[i] = (f_plus_h - f_minus_h) / (2 * h)
+    return grad
+def gradient_multi(f, points, h=DEFAULT_H):
+    """
+    :param f: A function that takes a point as input and returns a scalar value.
+    :param point: The point at which the gradient will be computed.
+    :param h: The step size used in the finite difference approximation of the gradient. (Default value is DEFAULT_H)
+
+    :return: The gradient of the function at the given point.
+    """
+    points = np.array(points)
+    grad = np.zeros(points.shape)
+
+    for i in range(points.shape[-1]):
+
+        points[:,i] += h
+        f_plus_h = f(points.T)
+
+        points[:,i] -= 2 * h
+        f_minus_h = f(points.T)
+        points[:,i] += h
+
+        grad[:,i] = ((f_plus_h - f_minus_h) / (2 * h))
     return grad
 
 class CriticalPointType(int,Enum):
@@ -545,7 +623,7 @@ def classify_critical_point_2d(hess)->CriticalPointType:
 
 
 
-def newtons_method(f, initial_point, tol=DEFAULT_H, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None):
+def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None):
     """
     Apply Newton's method to find the root of a function.
     The same powerful newton converging in a few iterations.
@@ -597,6 +675,81 @@ def newtons_method(f, initial_point, tol=DEFAULT_H, max_iter=100, no_warn=False,
     if full_return:
         return None, grad, H, H_inv, max_iter
     return None
+
+
+from mmcore.numeric.vectors import dot
+
+
+
+
+
+
+
+def multi_newtons_method(f, initial_point, tol=1e-6, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None):
+    """
+    Apply Newton's method to find the root of a function.
+    The same powerful newton converging in a few iterations.
+
+    :param f: The function for which the root is to be found.
+    :param initial_point: The initial point for the iteration.
+    :param tol: Tolerance for the stopping criterion. Default is DEFAULT_H.
+    :param max_iter: Maximum number of iterations. Default is 100.
+    :param no_warn: If True, suppress warnings. Default is False.
+    :param full_return: If True, return all intermediate variables. Default is False.
+    :param grad: The gradient of the function. If None, compute the gradient using the gradient function.
+    :param hess: The Hessian of the function. If None, compute the Hessian using the hessian function.
+    :return: The root of the function if found, None otherwise.
+
+    """
+    point = np.asarray(initial_point)
+    ixs = np.arange(len(point))
+    done = np.zeros(point.shape)
+
+    H = None
+    if grad is None:
+        _grad = lambda x: gradient_multi(f, x)
+    else:
+        _grad = grad
+    if hess is None:
+        hess = lambda x: hessian_multi(f, x)
+
+    else:
+        hess = hess
+    grad = None
+    for _ in range(max_iter):
+        grad = _grad(point)
+        H = hess(point)
+
+        try:
+
+            H_inv = np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            if not no_warn:
+                warnings.warn(f"Hessian is singular at the point {point}")
+            break
+        step = np.array([H_inv[i] @ grad[i] for i in range(len(point))])
+        # step2=matmul_array(H_inv[ixs],grad.reshape(grad.shape+(1,))).reshape(grad.shape)
+
+        new_point = point - step
+        pp = np.array(norm(new_point - point))
+
+        mask = np.bitwise_or(f(new_point.T) < tol, pp < tol)
+        neg_mask = np.bitwise_not(mask)
+        done[ixs[mask]] = new_point[mask]
+        point = new_point[neg_mask]
+
+        ixs = ixs[neg_mask]
+        if np.all(mask):
+            if full_return:
+                return done,grad, H,  H_inv, _
+            return done
+
+    if not no_warn:
+        warnings.warn(f"Iteration limit {max_iter} at {point} ")
+    if full_return:
+        return done,grad, H, H_inv, _
+    return done
+
 
 
 
