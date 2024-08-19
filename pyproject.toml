@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.38.0"
+version = "0.38.1"
 description = "mmcore"
 authors = ["Andrew Astakhov <aa@contextmachine.ru>", ]
 license = "Apache License Version 2.0"
@@ -17,7 +17,6 @@ earcut = { version = "^1.1.5" }
 scipy = {version = ">=1.9.0,<1.12.0"}
 pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
-
 
 
 [tool.poetry.build]
@@ -39,3 +38,7 @@ setuptools="*"
 max-line-length = 140
 ignore = ['E503', 'E504']
 
+[tool.poetry.extras]
+renderer = ["plotly", "kaleido"]
+ipython = ["ipython"]
+all = ["plotly", "kaleido","ipython"]
