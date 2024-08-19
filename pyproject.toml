@@ -39,6 +39,9 @@ max-line-length = 140
 ignore = ['E503', 'E504']
 
 [tool.poetry.extras]
-renderer = ["plotly", "kaleido"]
+renderer = ["renderer_dependency","plotly", "kaleido"]
 ipython = ["ipython"]
-all = ["plotly", "kaleido","ipython"]
+all = ["renderer_dependency","plotly", "kaleido","ipython"]
+
+[tool.poetry.plugins."mmcore.renderer"]
+"renderer" = "mmcore.renderer"
