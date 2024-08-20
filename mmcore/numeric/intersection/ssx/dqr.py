@@ -72,7 +72,7 @@ def find_intersections(
             for j in range(4):
                 if not visited[i, j]:
                     visited[i, j] = visited[j, i] = True
-                    if np.any(ixs[i]):
+                    if np.any(ixs[i]) and step>=2:
                         continue
                     else:
                         res = bounding_boxes_intersection(bboxes1[i], bboxes2[j])
