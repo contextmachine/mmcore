@@ -22,10 +22,10 @@ from mmcore.numeric import scalar_cross, scalar_norm
 from mmcore.numeric.vectors import scalar_unit
 
 from mmcore.numeric.fdm import DEFAULT_H
-from mmcore.numeric.intersection.surface_surface._terminator import TerminatorType
+from mmcore.numeric.intersection.ssx._terminator import TerminatorType
 from mmcore.geom.evaluator import surface_evaluator
 from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
-from mmcore.numeric.intersection.surface_surface._terminator import (
+from mmcore.numeric.intersection.ssx._terminator import (
     surface_surface_intersection_edge_terminator,
 )
 
@@ -44,7 +44,7 @@ class IntersectionStepData(NamedTuple):
 #
 #    return res
 
-from mmcore.numeric.intersection.surface_surface._ssi import improve_uv
+from mmcore.numeric.intersection.ssx._ssi import improve_uv
 
 
 

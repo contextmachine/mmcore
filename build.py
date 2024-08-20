@@ -114,8 +114,8 @@ Extension(
         include_dirs=include_dirs
 
     ),Extension(
-        "mmcore.numeric.intersection.surface_surface._ssi",
-        ["mmcore/numeric/intersection/surface_surface/_ssi.pyx"],
+        "mmcore.numeric.intersection.ssx._ssi",
+        ["mmcore/numeric/intersection/ssx/_ssi.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs
@@ -130,6 +130,13 @@ Extension(
     ),Extension(
         "mmcore.geom.surfaces.ellipsoid",
         ["mmcore/geom/surfaces/ellipsoid.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs
+
+    ),Extension(
+        "mmcore.numeric.romberg",
+        ["mmcore/numeric/romberg.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs
