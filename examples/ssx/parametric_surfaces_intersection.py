@@ -31,7 +31,7 @@ import numpy as np
 from mmcore.geom.bvh import intersect_bvh_objects
 from mmcore.geom.curves.bspline import interpolate_nurbs_curve
 from mmcore.geom.surfaces import Ruled, BiLinear
-from mmcore.numeric.intersection.surface_surface import surface_intersection
+from mmcore.numeric.intersection.ssx import surface_intersection
 
 # Define two test sets of surfaces to intersect with each other
 pts1 = (

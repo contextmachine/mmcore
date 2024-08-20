@@ -11,7 +11,7 @@ from enum import Enum
 
 from mmcore.numeric.vectors import scalar_norm
 
-from mmcore.numeric.intersection.curve_surface import curve_surface_intersection
+from mmcore.numeric.intersection.csx import curve_surface_intersection
 
 
 class TerminatorType(int, Enum):

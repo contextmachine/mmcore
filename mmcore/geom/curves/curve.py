@@ -290,10 +290,10 @@ class Curve:
             res = 0.
 
             for start, end in [bounds[0], s1], *divide_interval(s1, e1, 1).tolist(), [e1, bounds[1]]:
-                res += evaluate_length(self.derivative, start, end, epsabs=tol, epsrel=tol)[0]
+                res += evaluate_length(self.derivative, start, end,tol=tol)[0]
             return res
 
-        return evaluate_length(self.derivative, bounds[0], bounds[1], epsabs=tol, epsrel=tol)[0]
+        return evaluate_length(self.derivative, bounds[0], bounds[1], tol=tol)[0]
 
     def evaluate_length(self, bounds: tuple[float, float], tol: float = 1e-3) -> float:
         """
@@ -316,7 +316,7 @@ class Curve:
         if hasattr(self,'_length_evaluator'):
             return self._length_evaluator(length)
         else:
-            self._length_evaluator=length_evaluator(self)
+            self._length_evaluator=length_evaluator(self,tol)
 
 
         #start, end = self.interval()
@@ -547,12 +547,12 @@ def arc_length_reparameterization(curve):
     return interp1d(np.linspace(0.,1.,count),interp1d(lvals,params)(np.linspace(lvals.min(),lvals.max(),count)))
 
 
-def length_evaluator(curve):
+def length_evaluator(curve,tol):
     count=100
     start, end = curve.interval()
     params = np.linspace(start,end,count)
 
-    lvals = np.array( [curve.evaluate_length( (start,float(i))) for i in params])
+    lvals = np.array( [curve.evaluate_length( (start,float(i)),tol=tol) for i in params])
     return interp1d( lvals,params)
 
 class ReparametrizedCurve(Curve):

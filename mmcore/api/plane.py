@@ -7,7 +7,7 @@ import numpy as np
 from mmcore.api import Surface, Point3D, Vector3D, Line3D, InfiniteLine3D, Curve3D, ObjectCollection
 from mmcore.geom.vec import unit, cross, orthonormalize
 from mmcore.numeric.plane import evaluate_plane, inverse_evaluate_plane, plane_from_3pt, plane_from_normal2
-from mmcore.numeric.intersection.curve_curve import curve_x_plane
+from mmcore.numeric.intersection.ccx import curve_x_plane
 
 
 class Plane(Surface):

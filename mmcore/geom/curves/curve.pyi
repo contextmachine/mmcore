@@ -46,6 +46,9 @@ class Curve:
 
 
         """
+
+    def points(self, count:int=50) -> NDArray[float]:
+        ...
     def evaluate_multi(self, t: NDArray[float]) -> NDArray[float]:
         """
         Evaluate points on the curve at t values array
