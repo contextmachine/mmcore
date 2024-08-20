@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Callable, Optional
 
 import numpy as np
+from mmcore.numeric.routines._routines import uvs
 from numpy.typing import NDArray
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
@@ -19,6 +20,8 @@ from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H, newtons_method
 from mmcore.numeric.numeric import evaluate_normal2
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
+
+from mmcore.topo.mesh.tess import as_bvh, tessellate_surface
 
 
 class TwoPointForm:
@@ -325,8 +328,7 @@ class Surface:
 
         interpl = interp1d(np.array([quad(lnt, -1., p)[0] for p in params]), params)
         return lambda t: start_uv + d_uv * interpl(t)
-    def second_derivatives(self,uv):
-         return surface_evaluator.second_derivatives(self.evaluate_v2, *uv)
+
 
     def derivatives(self, uv):
 
@@ -361,6 +363,12 @@ class Surface:
         if self._tree is None:
             self.build_tree()
         return self._tree
+    def tess(self, u_count=10, v_count=10):
+        return tessellate_surface(self, u_count=u_count, v_count=v_count, calculate_density=True)
+
+    def points(self,count=(20,20)):
+        return self.evaluate_multi(uvs(*count,*self.interval()))
+
 
 
 from mmcore.geom.bvh import PQuad, build_bvh

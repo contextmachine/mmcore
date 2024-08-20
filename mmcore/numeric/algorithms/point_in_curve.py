@@ -2,7 +2,7 @@ from typing import Union
 
 import numpy as np
 
-from mmcore.numeric.intersection.curve_curve import curve_x_ray
+from mmcore.numeric.intersection.ccx import curve_x_ray
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.implicit import Implicit2D
 from mmcore.geom.polygon import is_point_in_polygon_bvh,polygon_build_bvh,segments_by_loop

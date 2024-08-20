@@ -7,6 +7,7 @@ from scipy.integrate import quad
 import numpy as np
 
 from mmcore.numeric.fdm import fdm
+from mmcore.numeric.romberg import romberg1d
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -77,15 +78,18 @@ evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()
 from scipy.integrate import quadrature
 
 
-def evaluate_length(first_der, t0: float, t1: float, **kwargs):
+def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
     """ """
 
-    def ds(t):
-        return scalar_norm(first_der(t))
-
-    return quad(ds, t0, t1, **kwargs)
 
 
+    if tol<1e-3:
+
+        return quad(lambda t: scalar_norm(first_der(t)), t0, t1, epsabs=tol,epsrel=tol)
+
+    else:
+
+        return romberg1d(lambda t: scalar_norm(first_der(t)), t0, t1, max_steps=32,acc=tol),tol
 
 
 from scipy.optimize import newton, bisect
@@ -627,10 +631,10 @@ if __name__ == '__main__':
     print(divmod(time.time() - s, 60))
 
     s = time.time()
-    print(bb.evaluate_parameter_at_length(rrr, tol=1e-8), (bb.interval()[1] - bb.interval()[0]) * 0.9)
+    print(bb.evaluate_parameter_at_length(rrr, tol=1e-3), (bb.interval()[1] - bb.interval()[0]) * 0.9)
     print(divmod(time.time() - s, 60))
     s = time.time()
 
     print(
-        bb.evaluate_parameter_at_length(rr, tol=1e-8), 0.23)
+        bb.evaluate_parameter_at_length(rr, tol=1e-3), 0.23)
     print(divmod(time.time() - s, 60))

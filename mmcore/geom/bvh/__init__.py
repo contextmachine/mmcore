@@ -515,6 +515,11 @@ class Quad(Object3D):
         self.pts = pts
         super().__init__(BoundingBox(*aabb(pts)))
 
+class PTriangle(Triangle):
+    def __init__(self, pts, uvs):
+
+        self.uvs = uvs
+        super().__init__(pts)
 
 class PQuad(Object3D):
     def __init__(self, pts, uvs):

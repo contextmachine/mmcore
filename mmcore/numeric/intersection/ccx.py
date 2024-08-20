@@ -19,8 +19,9 @@ from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
-from mmcore.numeric.plane import inverse_evaluate_plane
+
 from mmcore.numeric.routines import divide_interval
+__all__ = ["ccx",  "curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
 
 def _calculate_spline_tolerance(spline, default_tol=1e-3):
@@ -30,11 +31,11 @@ def _calculate_spline_tolerance(spline, default_tol=1e-3):
         return default_tol
 
 
-def curve_pii(
+def curve_pix(
         curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, default_tol=1e-3
 ) -> list[float]:
     """
-    PII (Parametric Implicit Intersection)
+    PI (Parametric X Implicit)
     ------
 
     The function finds the parameters where the parametric curve intersects some implicit form. It can be a curve,
@@ -60,7 +61,9 @@ def curve_pii(
 
 
         >>> import numpy as np
-        >>> from mmcore.numeric.intersection.curve_curve import curve_pii
+        >>> from mmcore.numeric.intersection.ccx import curve_pix
+
+
         >>> from mmcore.geom.curves import NURBSpline
 
 
@@ -88,7 +91,7 @@ def curve_pii(
 
     3. Calculate the parameters in which the parametric curve intersects the implicit curve.
 
-        >>> t = curve_pii(spline,cassini)
+        >>> t = curve_pix(spline,cassini)
         >>> t
         [0.9994211794774993, 2.5383824909241675, 4.858054223961756, 5.551602752306095]
 
@@ -111,7 +114,7 @@ def curve_pii(
 
     2. Repeat the items from the previous example
 
-        >>> t = curve_pii(spline, genus2)
+        >>> t = curve_pix(spline, genus2)
         >>> t
         [0.6522415161474464, 1.090339012572083]
 
@@ -134,30 +137,31 @@ def curve_pii(
 
 
 def curve_x_axis(curve, axis=1, step=0.5):
-    return curve_pii(curve, lambda xyz: xyz[axis], step=step)
+    return curve_pix(curve, lambda xyz: xyz[axis], step=step)
 
 def curve_x_ray(curve, orig, axis=1, step=0.5):
     orig=orig if isinstance(orig, np.ndarray) else np.array(orig,dtype=float)
-    return curve_pii(curve, lambda xyz: (orig-xyz)[axis], step=step)
+    return curve_pix(curve, lambda xyz: (orig - xyz)[axis], step=step)
 
 
 
-def curve_intersection(curve1, curve2, tol: float = 0.01):
+def ccx(curve1, curve2, tol: float = 0.01):
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
-        return curve_pii(curve2, curve1)
+        return curve_pix(curve2, curve1)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):
-        return curve_pii(curve1, curve2)
+        return curve_pix(curve1, curve2)
     elif hasattr(curve2, "evaluate") and hasattr(curve1, "evaluate"):
-        return curve_ppi(curve1, curve2, tol=tol)
+        return curve_ppx(curve1, curve2, tol=tol)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "implicit"):
-        raise curve_iii(
+        raise curve_iix(
             curve1, curve2)
     else:
         raise ValueError(
             "curves must have parametric or implicit form - evaluate(t) and implicit(xyz) methods. "
-            "If you want intersect a simple callables, use curve_pii, or curve_ppi function."
+            "If you want intersect a simple callables, use curve_PI, or curve_ppi function."
         )
 
+curve_curve_intersect = ccx
 
 def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, float]]:
     """
@@ -232,17 +236,17 @@ def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, 
     return list(zip(*all_intersections))
 
 
-def curve_ppi(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bounds2=None, eager=True) -> list[
+def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bounds2=None, eager=True) -> list[
     tuple[float, float]]:
     """
-    PPI (Parametric Parametric Intersection)
+    PP (Parametric X Parametric)
     ------
 
     Intersection for the two parametric curves.
     curve1 and curve2 can be any object with a parametric curve interface.
     However, in practice it is worth using only if both curves do not have implicit representation,
     most likely they are two B-splines or something similar.
-    Otherwise it is much more efficient to use PII (Parametric Implict Intersection).
+    Otherwise it is much more efficient to use PI (Parametric X Implict).
 
     The function uses a recursive divide-and-conquer approach to find intersections between two curves.
     It checks the AABB overlap of the curves and recursively splits them until the distance between the curves is within
@@ -288,7 +292,7 @@ def curve_ppi(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
 
 
 
-    >>> intersections = curve_ppi(first, second, 0.001)
+    >>> intersections = curve_ppx(first, second, 0.001)
     >>> print(intersections)
     [(0.600738525390625, 0.371673583984375)]
 
@@ -369,9 +373,9 @@ def curve_ppi(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
     return result
 
 
-def curve_iii(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
+def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
     """
-    III (Implicit Implicit Intersection)
+    II (Implicit X Implicit)
     ------
     Intersection for the two implicit curves. Requirements: both curves must have an `implicit` method
     with the following signature: `(xy:np.ndarray[2, dtype[float]]) -> float`
@@ -411,7 +415,7 @@ def curve_iii(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
     ...
 
     >>> c1,c2=Circle2D((0.,1),2),Circle2D((3.,3),3)
-    >>> intersections = curve_iii(c1,c2)
+    >>> intersections = curve_iix(c1,c2)
     >>> intersections
     [[1.8461538366698576, 0.2307692265580236], [0.0, 2.999999995]]
 
@@ -453,7 +457,7 @@ if __name__ == "__main__":
     import time
 
     s = time.time()
-    res = curve_ppi(aa, bb, 0.001, tol_bbox=0.1, eager=True)
+    res = curve_ppx(aa, bb, 0.001, tol_bbox=0.1, eager=True)
 
     print(time.time() - s)
 

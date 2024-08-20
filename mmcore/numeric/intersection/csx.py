@@ -7,7 +7,7 @@ from mmcore.geom.curves.curve import curve_bvh
 from mmcore.geom.surfaces import surface_bvh
 from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
-from mmcore.numeric.intersection.curve_curve import curve_pii
+from mmcore.numeric.intersection.ccx import curve_pix
 from mmcore.numeric.routines import uvs
 from scipy.spatial import KDTree
 
@@ -22,7 +22,7 @@ def difference(curve, surface, params):
 
 
 def curve_x_plane(curve, plane, axis=2, step=0.5):
-    return curve_pii(
+    return curve_pix(
         curve, lambda xyz: inverse_evaluate_plane(plane, xyz)[axis], step=step
     )
 
@@ -240,7 +240,7 @@ def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bound
 
 
 def curve_implicit_intersection(curve, surface, tol=1e-6):
-    return curve_pii(curve, surface, default_tol=tol)
+    return curve_pix(curve, surface, default_tol=tol)
 
 
 # Define parameter ranges and search for intersections

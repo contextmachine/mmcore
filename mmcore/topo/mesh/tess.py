@@ -3,13 +3,12 @@ from typing import Collection
 import numpy as np
 
 from mmcore.geom.polygon import is_point_in_polygon_bvh, polygon_build_bvh
-from mmcore.geom.surfaces import CurveOnSurface, Surface
 from mmcore.numeric.routines import uvs
 from mmcore.topo.mesh.triangle import triangulate
 from mmcore.topo.mesh.triangle.tri import segments_by_loop
 
 
-def tessellate_curve_on_surface(crv: CurveOnSurface, u_count=25, v_count=25, boundary_count=100):
+def tessellate_curve_on_surface(crv: 'CurveOnSurface', u_count=25, v_count=25, boundary_count=100):
     plgn = polygon = crv.curve(np.linspace(*tuple(crv.interval()), boundary_count))[..., :2]
 
     edges = [(polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))]
@@ -46,7 +45,7 @@ def tessellate_curve_on_surface(crv: CurveOnSurface, u_count=25, v_count=25, bou
     return trires
 
 
-def _process_trim(trim: CurveOnSurface, boundary_count=100):
+def _process_trim(trim: 'CurveOnSurface', boundary_count=100):
     polygon = trim.curve(np.linspace(*tuple(trim.interval()), boundary_count))[..., :2]
 
     edges = np.array([(i, (i + 1) % len(polygon)) for i in range(len(polygon))], dtype=np.int32)
@@ -73,7 +72,7 @@ def match_edge_cases(polygon, bounds, tol=1e-3):
               polygon[-1]])
 
 
-def calculate_uv_ratio(surf: Surface):
+def calculate_uv_ratio(surf: 'Surface'):
     (u_min, u_max), (v_min, v_max) = surf.interval()
 
     crv1 = surf.isoline_u((u_min + u_max) / 2)
@@ -83,8 +82,8 @@ def calculate_uv_ratio(surf: Surface):
     return l1 / l2, l1, l2
 
 
-def tessellate_surface(surface: Surface,
-                       trims: Collection[CurveOnSurface] = (),
+def tessellate_surface(surface: 'Surface',
+                       trims: Collection['CurveOnSurface'] = (),
                        u_count: int = None, v_count: int = None,
                        boundary_count: int = 100, calculate_density: bool = False):
     """
@@ -176,3 +175,12 @@ def as_polygons(triangulate_result):
     :return:
     """
     return triangulate_result['position'][triangulate_result['triangles']]
+from mmcore.geom.bvh import Object3D,BoundingBox,build_bvh,PTriangle
+def as_bvh(triangulate_result):
+    uvs=triangulate_result['vertices'][triangulate_result['triangles']]
+    pos=triangulate_result['position'][triangulate_result['triangles']]
+
+    return build_bvh([PTriangle(pos[i],uvs[i]) for i in range(len(uvs))])
+
+
+
