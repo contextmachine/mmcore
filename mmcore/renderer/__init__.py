@@ -124,9 +124,18 @@ class BaseRenderer:
             self.setup(obj, color_config=color_config,idx=i, density=100)
 
         return self.render(**kwargs)
-    def add_marker(self, pts, color="blue",size=4):
-        self.add(ptsarr=pts, name="", color=color, plot_type='marker',idx=len(self._plots),size=size)
-class Curve2DRenderer(BaseRenderer):
+    def add_marker(self, pts, color="blue",size=4,idx=None):
+        self.add(ptsarr=pts, name="", color=color, plot_type='marker',idx=idx if idx is not None else len(self._plots),size=size)
+
+    def add_curve(self, crv, color='black', idx=None):
+
+        if hasattr(crv, 'control_points') and self.config.display_ctrlpts:
+            self.add(ptsarr=crv.control_points, name="", color=color, plot_type='ctrlpts', idx=idx if idx is not None else len(self._plots))
+        if self.config.display_evalpts:
+            self.add(ptsarr=crv.points(), name="", color=color, plot_type='ctrlpts', idx=idx if idx is not None else len(self._plots))
+
+
+class Renderer2D(BaseRenderer):
     """ Plotly visualization module for 2D curves. """
     def __init__(self, config=RenderConfig(),**kwargs):
         super().__init__(config, **kwargs)
