@@ -16,7 +16,8 @@ from mmcore.numeric.divide_and_conquer import (
     iterative_divide_and_conquer_min,
 )
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_norm
-
+def normal_from_4pt(a,b,c,d):
+    return scalar_cross(c-a,d-b)
 
 def plane_on_curve(O, T, D2):
     """

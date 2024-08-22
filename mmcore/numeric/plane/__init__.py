@@ -6,10 +6,11 @@ from mmcore.numeric.plane.cplane import plane_plane_intersection, plane_plane_in
 import numpy as np
 
 from mmcore.func import vectorize
-from mmcore.geom.vec import dot, norm_sq, unit, cross, norm
+
 from mmcore.numeric.vectors import scalar_dot, dot_vec_x_array, scalar_norm, scalar_cross, scalar_unit, \
     vector_projection
-
+def norm_sq(v):
+    return scalar_dot(v,v)
 WORLD_XY = np.array([[0., 0., 0.],
                      [1., 0., 0.],
                      [0., 1., 0.],
@@ -74,9 +75,9 @@ def plane_from_normal2(origin, normal, tol=1e-5):
     if norm_sq(normal) <= tol:
         normal = np.array([0, 0, 1], dtype=float)
     else:
-        normal = unit(normal)
-    xaxis = unit(perp_to_vector(normal))
-    yaxis = unit(_mycross(xaxis, normal))
+        normal = scalar_unit(normal)
+    xaxis = scalar_unit(perp_to_vector(normal))
+    yaxis = scalar_unit(_mycross(xaxis, normal))
     return np.array([origin, xaxis, yaxis, normal])
 
 
@@ -98,6 +99,15 @@ def plane_from_3pt(pt0, pt1, pt2):
     # Generate a vector on the plane
     return np.array([pt0, xax, yax, N]), [a, b, c, d]
 
+def plane_from_eq(plane_eq):
+
+    a, b, c, d = plane_eq
+    # Normal vector to the plane
+    n = np.array([a, b, c])
+    N = scalar_unit(n)
+    origin = N*d
+    # Generate a vector on the plane
+    return origin,N
 
 def plane_eq_from_pts(pt0, pt1, pt2):
     """
