@@ -67,8 +67,8 @@ from mmcore.numeric.intersection.ccx import ccx
 
 res = ccx(cc, dd)
 
-from mmcore.renderer import Curve2DRenderer
+from mmcore.renderer import Renderer2D
 
-r = Curve2DRenderer()
+r = Renderer2D()
 r.add_marker(np.array([cc.evaluate(s) for s, t in res]), color="red", size=5)
 res = r([cc, dd], display_ctrlpts=False)
