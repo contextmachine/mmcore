@@ -134,14 +134,26 @@ Extension(
         extra_link_args=link_args,
         include_dirs=include_dirs
 
-    ),Extension(
-        "mmcore.numeric.romberg",
-        ["mmcore/numeric/romberg.pyx"],
+    ),   
+    Extension(
+        "mmcore.geom.nurbs.curve",
+        ["mmcore/geom/nurbs/curve.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
-        include_dirs=include_dirs
-
-    )
+        include_dirs=include_dirs),
+         
+    Extension(
+        "mmcore.geom.nurbs.algorithms",
+        ["mmcore/geom/nurbs/algorithms.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs),
+    Extension(
+        "mmcore.numeric.integrate.romberg",
+        ["mmcore/numeric/integrate/romberg.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs)
 ]
 #Extension(
 #        "mmcore.geom.mesh.mesh",

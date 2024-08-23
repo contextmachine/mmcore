@@ -19,8 +19,10 @@ from mmcore.numeric cimport vectors,calgorithms
 
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
 cnp.import_array()
+
+
+
 @cython.cdivision(True)
-@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
