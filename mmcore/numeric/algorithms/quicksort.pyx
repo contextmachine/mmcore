@@ -9,11 +9,11 @@
 cimport cython
 cimport numpy as cnp
 import numpy as np
+cimport mmcore.numeric.algorithms.quicksort
 cnp.import_array()
 
-cdef extern from "_quicksort.c" nogil:
-    void quickSort(double* arr, int low, int high)
-    void argSort(double* arr, int* indices, int low, int high)
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef void quicksort(double[:] arr)  noexcept nogil:
@@ -37,6 +37,7 @@ cpdef int[:] argsort(double[:] arr) :
     cdef int[:] indices=np.arange(n,dtype=np.intc)
     argSort(&arr[0], &indices[0],low,  high)
     return indices
+
 
 
 
