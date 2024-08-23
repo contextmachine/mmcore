@@ -22,9 +22,7 @@ def difference(curve, surface, params):
 
 
 def curve_x_plane(curve, plane, axis=2, step=0.5):
-    return curve_pix(
-        curve, lambda xyz: inverse_evaluate_plane(plane, xyz)[axis], step=step
-    )
+    return curve_pix(curve, lambda xyz: inverse_evaluate_plane(plane, xyz)[axis], step=step)
 
 
 # Define the Jacobian matrix for the Newton-Raphson method
@@ -240,7 +238,7 @@ def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bound
 
 
 def curve_implicit_intersection(curve, surface, tol=1e-6):
-    return curve_pix(curve, surface, default_tol=tol)
+    return curve_pix(curve, surface, tol=tol)
 
 
 # Define parameter ranges and search for intersections

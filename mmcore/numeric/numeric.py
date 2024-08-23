@@ -7,7 +7,7 @@ from scipy.integrate import quad
 import numpy as np
 
 from mmcore.numeric.fdm import fdm
-from mmcore.numeric.romberg import romberg1d
+from mmcore.numeric.integrate.romberg import romberg1d
 from mmcore.numeric.routines import divide_interval
 from mmcore.numeric.divide_and_conquer import (
     recursive_divide_and_conquer_min,
@@ -312,7 +312,7 @@ def evaluate_normal(
         2: [-1.0, 1.0],
         3: [-1.0, -1.0],
         4: [1.0, -1.0],
-    }.get(limit_direction, [1.0, 1.0])
+    }.get(limit_direction, [1.0, 1.0]) # type: ignore
 
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
     cross_product_v = scalar_cross(gradient_u, cross_vector_v)
@@ -369,7 +369,8 @@ def evaluate_normal2(
         2: [-1.0, 1.0],
         3: [-1.0, -1.0],
         4: [1.0, -1.0],
-    }.get(limit_direction, [1.0, 1.0])
+    }.get(limit_direction, [1.0, 1.0]) # type: ignore
+
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
     cross_product_v = scalar_cross(gradient_u, cross_vector_v)
     cross_vector_u = coeff_a * second_derivative_uu + coeff_b * second_derivative_uv
