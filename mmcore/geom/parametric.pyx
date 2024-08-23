@@ -275,6 +275,24 @@ cdef class ParametricCurve:
 
         return np.asarray(result)
 
+    
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def __call__(self, t, np.ndarray[double, ndim=2] res=None) :
+        cdef int l = 1 if isinstance(t,(float,int)) else len(t)
+        cdef int i
+
+        if res is None:  
+            res=np.zeros((l,3))
+        if l>1:
+            for i in range(l):
+                self.cevaluate(t[i],res[i])
+            return res
+        else:
+            self.cevaluate(t,res[i])
+            return res
+        
 
 cdef class ReparametrizedCurve(ParametricCurve):
     cdef public ParametricCurve curve

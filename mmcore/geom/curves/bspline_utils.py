@@ -14,8 +14,6 @@ from functools import lru_cache
 
 import numpy as np
 
-from mmcore.geom.curves.knot import knot_insertion
-
 
 def find_span(p, u, U):
     """
@@ -235,14 +233,6 @@ def calc_rational_curve_derivatives(Pders):
             v -= CK[k - i] * calcKoverI(k, i) * wders[i]
         CK.append(v / wders[0])
     return CK
-
-
-def insert_knot(self, t, num=1):
-    cpts, knots = knot_insertion(
-        self.degree, self.knots.tolist(), self._control_points, t, num=num
-    )
-    self.set(control_points=np.array(cpts), knots=np.array(knots))
-    return True
 
 
 bscache_stats = dict()

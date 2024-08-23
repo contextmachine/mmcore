@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import copy
 from copy import deepcopy
 import numpy as np
 from scipy.linalg import lu_solve,lu_factor
@@ -623,3 +626,68 @@ def knot_refinement(degree, knotvector, ctrlpts, **kwargs):
 
     # Return control points and knot vector after refinement
     return new_ctrlpts, new_kv
+
+
+def nurbs_split(self, t: float) -> tuple:
+    """
+    :param self:
+    :param t:
+    :return: a tuple of curve segments
+
+    """
+
+    # Keyword arguments
+    span_func = find_span_binsearch  # FindSpan implementation
+    insert_knot_func = insert_knot
+    knotvector = self.knots
+    # Find multiplicity of the knot and define how many times we need to add the knot
+    ks = (
+            span_func(self.degree, knotvector, len(self.control_points), t)
+            - self.degree
+            + 1
+    )
+    s = find_multiplicity(t, knotvector)
+    r = self.degree - s
+
+    # Create backups of the original curve
+    temp_obj = copy.deepcopy(self)
+
+    # Insert knot
+    insert_knot_func(temp_obj, t, num=r)
+
+    # Knot vectors
+    knot_span = (
+            find_span_linear(temp_obj.degree, temp_obj.knots, len(temp_obj.control_points), t) + 1
+    )
+    curve1_kv = list(temp_obj.knots.tolist()[0:knot_span])
+    curve1_kv.append(t)
+    curve2_kv = list(temp_obj.knots.tolist()[knot_span:])
+    for _ in range(0, temp_obj.degree + 1):
+        curve2_kv.insert(0, t)
+
+    # Control points (use Pw if rational)
+    cpts = temp_obj.control_points.tolist()
+    curve1_ctrlpts = cpts[0: ks + r]
+    curve2_ctrlpts = cpts[ks + r - 1:]
+
+    # Create a new curve for the first half
+    curve1 = temp_obj.__class__(
+        np.array(curve1_ctrlpts), knots=np.array(curve1_kv), degree=self.degree
+    )
+
+    # Create another curve fot the second half
+    curve2 = temp_obj.__class__(
+        np.array(curve2_ctrlpts), knots=np.array(curve2_kv), degree=self.degree
+    )
+
+    # Return the split curves
+
+    return curve1, curve2
+
+
+def insert_knot(self, t, num=1):
+    cpts, knots = knot_insertion(
+        self.degree, self.knots.tolist(), self._control_points, t, num=num
+    )
+    self.set(control_points=np.array(cpts), knots=np.array(knots))
+    return True
