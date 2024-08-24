@@ -7,16 +7,13 @@
 #cython: embedsignature=True
 #cython: infer_types=False
 #cython: initializedcheck=False
-# distutils: language = c++
+
 import functools
 
 cimport cython
 import numpy as np
 cimport numpy as cnp
 from libc.stdlib cimport malloc,free
-from libcpp.vector cimport vector
-from mmcore.geom.parametric cimport ParametricCurve
-from mmcore.numeric cimport vectors,calgorithms
 cimport mmcore.geom.nurbs.algorithms
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
@@ -472,97 +469,18 @@ cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=1e-07
         if fabs(difference) <= tol:
             mult += 1
     return mult
-from libcpp.vector cimport vector
-cdef class KnotVector:
-   
-    cdef vector[double] data
-    def __init__(self, int size=0) -> None:
-        
-        self.data.resize(size)
-    @staticmethod
-    cdef KnotVector from_array(double[:] arr):
-        cdef KnotVector vec=KnotVector.__new__(KnotVector)
-        cdef int sz=arr.shape[0]
-        vec.__init__(sz)
-        cdef int i
-        for i in range(sz):
-            vec.data[i]=arr[i]
-        return vec
-    
-    def __getitem__(self, item):
-        cdef int i, j,sz
-        cdef KnotVector sliced_vec
-        if isinstance(item, int):
-            if item < 0:
-                item += self.data.size()
-            if item < 0 or item >= self.data.size():
-                raise IndexError("Index out of range")
-            return self.data[item]
-        elif isinstance(item, slice):
-            start, stop, step = item.indices(self.data.size())
-            sliced_vec = KnotVector.__new__(KnotVector)
-            sz = len(range(start, stop, step))
-            sliced_vec.__init__(sz)
-           
-            for i, j in enumerate(range(start, stop, step)):
-                sliced_vec.data[i] = self.data[j]
-            return sliced_vec
-        else:
-            raise TypeError("Invalid argument type")
 
-    def __setitem__(self, item, value):
-        cdef int i, j
-        if isinstance(item, int):
-            if item < 0:
-                item += self.data.size()
-            if item < 0 or item >= self.data.size():
-                raise IndexError("Index out of range")
-            self.data[item] = value
-        elif isinstance(item, slice):
-           
-            start, stop, step = item.indices(self.data.size())
-            if not isinstance(value, KnotVector) or len(range(start, stop, step)) != value.get_size():
-                raise ValueError("Slice assignment must be of the same size")
-            
-            for i, j in enumerate(range(start, stop, step)):
-                self.data[j] = value.data[i]
-        else:
-            raise TypeError("Invalid argument type")
-   
-            
-    
-    @cython.wraparound(False)
-    cpdef void extend_array(self, double[:] arr):
-        cdef int n=arr.shape[0]
-        cdef int current=self.data.size()
-        cdef int new_size=n+current
-        self.data.resize(new_size)
-        cdef int i
-        for i in range( new_size):
-            self.data[current+i]=arr[i]
-    
-    cpdef int get_size(self):
-        return self.data.size()
-    @cython.cdivision(True) 
-    cpdef double[:] to_memview(self):
-
-      
-        cdef int current=self.data.size()
-        # cython: error=False
-        cdef double[:] arr=<double[:current]>(<double*>malloc(sizeof(double)* current))
-        cdef int i
-        for i in range( current):
-            self.data[current+i]=arr[i]
-        return arr
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1,bint is_periodic=0):
-    cdef int s = find_multiplicity(u, knotvector)
+cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0):
+   
     cdef int n = ctrlpts.shape[0]
-    cdef int k = find_span_inline( n, degree,  u, knotvector, is_periodic)
+    if span ==0:
+        span = find_span_inline( n, degree,  u, knotvector, is_periodic)
     
-    
+    if s==0:
+        s = find_multiplicity(u, knotvector)
     cdef int nq = n + num
     cdef int dim = ctrlpts.shape[1]
     
@@ -572,25 +490,25 @@ cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, dou
     cdef int i, j, L, idx
     cdef double alpha
     
-    for i in range(k - degree + 1):
+    for i in range(span - degree + 1):
         ctrlpts_new[i] = ctrlpts[i]
-    for i in range(k - s, n):
+    for i in range(span - s, n):
         ctrlpts_new[i + num] = ctrlpts[i]
     
     for i in range(degree - s + 1):
-        memcpy(&temp[i * dim], &ctrlpts[k - degree + i, 0], sizeof(double) * dim)
+        memcpy(&temp[i * dim], &ctrlpts[span - degree + i, 0], sizeof(double) * dim)
     
     for j in range(1, num + 1):
-        L = k - degree + j
+        L = span - degree + j
         for i in range(degree - j - s + 1):
-            alpha = knot_insertion_alpha(u, knotvector, k, i, L)
+            alpha = knot_insertion_alpha(u, knotvector, span, i, L)
             for idx in range(dim):
                 temp[i * dim + idx] = alpha * temp[(i + 1) * dim + idx] + (1.0 - alpha) * temp[i * dim + idx]
         memcpy(&ctrlpts_new[L, 0], &temp[0], sizeof(double) * dim)
-        memcpy(&ctrlpts_new[k + num - j - s, 0], &temp[(degree - j - s) * dim], sizeof(double) * dim)
+        memcpy(&ctrlpts_new[span + num - j - s, 0], &temp[(degree - j - s) * dim], sizeof(double) * dim)
     
-    L = k - degree + num
-    for i in range(L + 1, k - s):
+    L = span - degree + num
+    for i in range(L + 1, span - s):
         memcpy(&ctrlpts_new[i, 0], &temp[(i - L) * dim], sizeof(double) * dim)
     
     free(temp)
@@ -804,4 +722,5 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
         j -= 1
     
     return np.asarray(new_ctrlpts), np.asarray(new_kv)
+
 
