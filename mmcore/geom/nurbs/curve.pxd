@@ -76,4 +76,12 @@ cdef class NURBSCurve(ParametricCurve):
     cdef void cderivatives2(self, double t, int d, double[:,:] CK )
     cdef void cplane(self, double t, double[:,:] result)
     cdef void cnormal(self, double t, double[:] result)
+    cpdef void insert_knot(self, double param, int num)
+
+    cdef NURBSCurve ccopy(self)
+    cdef bytes cserialize(self)
+    @staticmethod
+    cdef NURBSCurve cdeserialize(const unsigned char[:] data)
+
 cpdef double[:] greville_abscissae(double[:] knots, int degree)
+cpdef tuple split_curve(NURBSCurve obj, double param) 

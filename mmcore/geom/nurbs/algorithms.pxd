@@ -123,7 +123,7 @@ cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_pe
         mid = (low + high) // 2
 
     return mid
-
+cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=*)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline double knot_insertion_alpha(double u, double[:] knotvector, int span, int idx, int leg)   nogil:
@@ -143,4 +143,4 @@ cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, doubl
 
 cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r)
 
-cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*,bint is_periodic=*)
+cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*)
