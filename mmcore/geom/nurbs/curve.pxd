@@ -23,7 +23,7 @@ cdef class NURBSCurve(ParametricCurve):
     cdef public object _evaluate_cached
     cdef double[:] _greville_abscissae
 
-  
+
     cpdef void set_degree(self, int val)
 
     cpdef int get_degree(self)
