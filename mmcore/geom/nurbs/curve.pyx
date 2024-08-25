@@ -13,6 +13,8 @@ import functools
 cimport cython
 import numpy as np
 cimport numpy as cnp
+from Cython.Shadow import sizeof
+
 from libc.stdlib cimport malloc,free,realloc
 from mmcore.geom.parametric cimport ParametricCurve
 from mmcore.numeric cimport vectors,calgorithms
@@ -21,11 +23,18 @@ from libc.math cimport fabs, sqrt,fmin,fmax,pow
 from libc.string cimport memcpy,memcmp
 from libc.stdint cimport uint32_t, int32_t
 cnp.import_array()
-
+cdef public char* MAGIC_BYTES=b"NRBC"
+cdef public uint32_t VERSION=1
+cdef int MAGIC_BYTES_SIZE=4
 cdef class NURBSCurve(ParametricCurve):
 
 
-
+    def __cinit__(self):
+        self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
+        self._knots=np.zeros((0,))
+        self._periodic=0
+        self._control_points=np.zeros((0,4))
+        self._interval=np.zeros((2,))
     def __reduce__(self):
         return (self.__class__, (np.asarray(self._control_points),self._degree,  np.asarray(self._knots),  self._periodic))
     def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None, bint periodic=0):
@@ -46,7 +55,7 @@ cdef class NURBSCurve(ParametricCurve):
         else:
             self._knots=knots
             self.knots_update_hook()
-        self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
+
         if  periodic:
             self.make_periodic()
 
@@ -575,7 +584,7 @@ cdef class NURBSCurve(ParametricCurve):
 
         # Compute new control points
 
-        self._control_points = knot_insertion(self._degree, self.knots,  self._control_points, t,
+        self._control_points = knot_insertion(self._degree, self._knots,  self._control_points, t,
                                                 count, s=s, span=span,is_periodic=self._periodic)
 
         # Update curve
@@ -613,7 +622,7 @@ cdef class NURBSCurve(ParametricCurve):
         # Create new NURBSCurve object
         cdef NURBSCurve new_curve = NURBSCurve.__new__(NURBSCurve)
         new_curve._control_points = new_control_points
-        new_curve._knots = new_knots
+        new_curve.knots = new_knots
         new_curve._degree = self._degree
         new_curve._periodic = self._periodic
         new_curve._interval[0] = self._interval[0]
@@ -627,7 +636,10 @@ cdef class NURBSCurve(ParametricCurve):
 
     # Method to call ccopy from Python
     def copy(self):
-        return self.ccopy()
+        cdef NURBSCurve crv = self.ccopy()
+
+        crv._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
+        return crv
     
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -639,11 +651,12 @@ cdef class NURBSCurve(ParametricCurve):
         
         # Calculate total size of the byte array
         cdef size_t total_size = (
-            8 +  # Magic bytes and version
-            4 +  # degree
-            4 +  # periodic flag
-            4 +  # number of control points
-            4 +  # number of knots
+            sizeof(MAGIC_BYTES) +
+            sizeof(uint32_t) + # Magic bytes and version
+            sizeof(uint32_t) +  # degree
+            sizeof(bint) +  # periodic flag
+            sizeof(uint32_t)+  # number of control points
+            sizeof(uint32_t) +  # number of knots
             n_ctrlpts * dim * sizeof(double) +  # control points
             n_knots * sizeof(double)  # knots
         )
@@ -651,24 +664,28 @@ cdef class NURBSCurve(ParametricCurve):
         # Allocate memory for the byte array
        
         cdef char* current = buffer
-        
+        cdef char* magic
+        magic=<char*>&(MAGIC_BYTES[0])
+        cdef uint32_t vers=<uint32_t> VERSION
         # Write magic bytes and version
-        memcpy(buffer, <void*>b'NRBS', 4)
-        buffer += 4
-        (<uint32_t*>buffer)[0] = 1  # version
-        current += 4
+        memcpy(buffer, magic, MAGIC_BYTES_SIZE)
+        current += MAGIC_BYTES_SIZE
+        (<uint32_t*>current)[0] = vers  # version
+        current += sizeof(uint32_t)
+
+
         
         # Write degree and periodic flag
-        (<int32_t*>current)[0] = self._degree
-        current += 4
-        (<int32_t*>current)[0] = self._periodic
-        current += 4
+        (<uint32_t*>current)[0] = self._degree
+        current += sizeof(uint32_t)
+        (<uint32_t*>current)[0] = self._periodic
+        current += sizeof(uint32_t)
         
         # Write number of control points and knots
-        (<int32_t*>current)[0] = n_ctrlpts
-        current += 4
-        (<int32_t*>current)[0] = n_knots
-        current += 4
+        (<uint32_t*>current)[0] = n_ctrlpts
+        current += sizeof(uint32_t)
+        (<uint32_t*>current)[0] = n_knots
+        current += sizeof(uint32_t)
         cdef double* src_ptr
         cdef double* dst_ptr
         
@@ -677,7 +694,7 @@ cdef class NURBSCurve(ParametricCurve):
         dst_ptr = &self._knots[0]
         # Write control points
         memcpy(current,src_ptr, n_ctrlpts * dim * sizeof(double))
-        current += n_ctrlpts * dim * sizeof(double)
+        current += (n_ctrlpts * dim * sizeof(double))
         
         # Write knots
         memcpy(current, dst_ptr, n_knots * sizeof(double))
@@ -703,26 +720,27 @@ cdef class NURBSCurve(ParametricCurve):
     cdef NURBSCurve cdeserialize(const unsigned char[:] data):
         cdef const char* buffer = <const char*>&data[0]
         cdef const char* current = buffer
-        
+        cdef int vers
         # Check magic bytes and version
-        if memcmp(current, b'NRBS', 4) != 0:
-            raise ValueError("Invalid magic bytes")
-        current += 4
-        if (<uint32_t*>current)[0] != 1:
-            raise ValueError("Unsupported version")
-        current += 4
+        if memcmp(current, MAGIC_BYTES, MAGIC_BYTES_SIZE) != 0:
+            raise ValueError(f"Invalid magic bytes: {current}")
+        current += MAGIC_BYTES_SIZE
+        vers=(<uint32_t*>current)[0]
+        if (<uint32_t*>current)[0] != VERSION:
+            raise ValueError(f"Unsupported version: {vers}")
+        current += sizeof(uint32_t)
         
         # Read degree and periodic flag
-        cdef int degree = (<int32_t*>current)[0]
-        current += 4
-        cdef bint periodic = (<int32_t*>current)[0]
-        current += 4
+        cdef int degree = (<uint32_t*>current)[0]
+        current += sizeof(uint32_t)
+        cdef bint periodic = (<uint32_t*>current)[0]
+        current += sizeof(uint32_t)
         
         # Read number of control points and knots
-        cdef int n_ctrlpts = (<int32_t*>current)[0]
-        current += 4
-        cdef int n_knots = (<int32_t*>current)[0]
-        current += 4
+        cdef int n_ctrlpts = (<uint32_t*>current)[0]
+        current += sizeof(uint32_t)
+        cdef int n_knots = (<uint32_t*>current)[0]
+        current += sizeof(uint32_t)
         
         # Allocate memory for control points and knots
         cdef double* control_points_data = <double*>malloc(n_ctrlpts * 4 * sizeof(double))
@@ -791,19 +809,20 @@ cpdef double[:] greville_abscissae(double[:] knots, int degree):
 @cython.nonecheck(False)
 @cython.cdivision(True)
 cpdef tuple split_curve(NURBSCurve obj, double param):
-    cdef int degree = obj.degree
-    cdef double[:] knotvector = obj.knots
-    cdef double[:, :] ctrlpts = obj.control_points
+    cdef int degree = obj._degree
+    cdef double[:] knotvector = obj._knots
+    cdef double[:, :] ctrlpts = obj._control_points
     cdef int n_ctrlpts = ctrlpts.shape[0]
     cdef int dim = ctrlpts.shape[1]
     cdef int ks, s, r, knot_span
     cdef int i, j
+    cdef bint is_periodic = obj.is_periodic()
     
     if param <= obj._interval[0] or param >= obj._interval[1]:
         
         raise ValueError("Cannot split from the domain edge")
     
-    ks = find_span_inline(n_ctrlpts - 1, degree, param, knotvector, obj.periodic) - degree + 1
+    ks = find_span_inline(n_ctrlpts - 1, degree, param, knotvector, is_periodic) - degree + 1
     s = find_multiplicity(param, knotvector)
     r = degree - s
     
@@ -812,18 +831,18 @@ cpdef tuple split_curve(NURBSCurve obj, double param):
     temp_obj.insert_knot(param, r)
     
     # Knot vectors
-    knot_span = find_span_inline(temp_obj.control_points.shape[0] - 1, degree, param, temp_obj.knots, temp_obj.periodic) + 1
-    cdef double[:] curve1_kv = np.empty(knot_span + 1, dtype=np.float64)
-    cdef double[:] curve2_kv = np.empty(temp_obj.knots.shape[0] - knot_span + degree + 1, dtype=np.float64)
+    knot_span = find_span_inline(temp_obj._control_points.shape[0] - 1, degree, param, temp_obj._knots, is_periodic) + 1
+    cdef double[:] curve1_kv = np.empty((knot_span + 1,), dtype=np.float64)
+    cdef double[:] curve2_kv = np.empty((temp_obj._knots.shape[0] - knot_span+  degree+ 1,), dtype=np.float64)
     
     for i in range(knot_span):
-        curve1_kv[i] = temp_obj.knots[i]
+        curve1_kv[i] = temp_obj._knots[i]
     curve1_kv[knot_span] = param
     
     for i in range(degree + 1):
         curve2_kv[i] = param
-    for i in range(temp_obj.knots.shape[0] - knot_span):
-        curve2_kv[i + degree + 1] = temp_obj.knots[i + knot_span]
+    for i in range(temp_obj._knots.shape[0] - knot_span):
+        curve2_kv[i + degree + 1] = temp_obj._knots[i + knot_span]
     
     # Control points
     cdef double[:, :] curve1_ctrlpts = np.empty((ks + r, dim), dtype=np.float64)
@@ -831,11 +850,11 @@ cpdef tuple split_curve(NURBSCurve obj, double param):
     
     for i in range(ks + r):
         for j in range(dim):
-            curve1_ctrlpts[i, j] = temp_obj.control_points[i, j]
+            curve1_ctrlpts[i, j] = temp_obj._control_points[i, j]
     
     for i in range(n_ctrlpts - ks - r + 1):
         for j in range(dim):
-            curve2_ctrlpts[i, j] = temp_obj.control_points[i + ks + r - 1, j]
+            curve2_ctrlpts[i, j] = temp_obj._control_points[i + ks + r - 1, j]
     
     # Create new curves
     cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts, degree, curve1_kv)

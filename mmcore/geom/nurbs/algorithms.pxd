@@ -18,15 +18,14 @@ cdef void basis_funs(int i, double u, int p, double[:] U, double* N) noexcept no
 
 cdef void curve_point(int n, int p, double[:] U, double[:, :] P, double u, double* result,bint is_periodic) noexcept nogil
 
-cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U)
+cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U)  
 
-cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U)
+cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U) 
 
-cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK,bint is_periodic)
+cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK,bint is_periodic) 
 
-cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, int r2, double[:, :, :] PK) 
-
-cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK, double[:, :,:] PK,bint is_periodic)
+cpdef void curve_deriv_cpts(int p, double[:] U, double[:, :] P, int d, int r1, int r2, double[:, :, :] PK)  
+cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK, double[:, :,:] PK,bint is_periodic) 
 
 cdef void projective_to_cartesian(double[:] point, double[:] result)  noexcept nogil
 cdef void projective_to_cartesian_ptr_ptr(double* point, double* result)  noexcept nogil
@@ -141,6 +140,7 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
 
 cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, double tol=*, int num=*,bint is_periodic=*)
 
-cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r)
+cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r) 
 
-cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*)
+cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*) 
+
