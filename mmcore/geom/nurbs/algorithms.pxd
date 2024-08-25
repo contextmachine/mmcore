@@ -144,3 +144,4 @@ cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int 
 
 cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*) 
 
+cdef void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v, double* result) noexcept nogil
