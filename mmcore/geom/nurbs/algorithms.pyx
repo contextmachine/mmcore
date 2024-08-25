@@ -8,9 +8,10 @@
 #cython: infer_types=False
 #cython: initializedcheck=False
 
-import functools
+
 
 cimport cython
+from mmcore cimport init_double_ptr,free_double_ptr
 import numpy as np
 cimport numpy as cnp
 from libc.stdlib cimport malloc,free
@@ -631,7 +632,7 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
     cdef int m = n + degree + 1
     cdef int dim = ctrlpts.shape[1]
     cdef double alpha
-    cdef int d, i,idx
+    cdef int d, i
 
     if knot_list is None:
         knot_list = np.array(knotvector[degree:-degree], dtype=np.float64)
@@ -685,7 +686,7 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
     cdef double[:, :] new_ctrlpts = np.zeros((n + r_val + 2, dim), dtype=np.float64)
     cdef double[:] new_kv = np.zeros(m + r_val + 2, dtype=np.float64)
     
-    cdef int j, k, l
+    cdef int j, k, l,idx,idx2
     for j in range(a - degree + 1):
         new_ctrlpts[j] = ctrlpts[j]
     for j in range(b - 1, n + 1):
@@ -723,4 +724,51 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
     
     return np.asarray(new_ctrlpts), np.asarray(new_kv)
 
+
+
+
+
+
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] kv1, double[:, :, :] cpts, int[:] cpsize, int[:] rs, int[:] ss, int deriv_order, double[:, :, :, :, :] PKL) :
+    cdef int du = min(degree[0], deriv_order)
+    cdef int dv = min(degree[1], deriv_order)
+    cdef int r = rs[1] - rs[0]
+    cdef int s = ss[1] - ss[0]
+    cdef int i, j, k, l, d,dd
+    cdef double[:, :, :] PKu = np.zeros((du + 1, r + 1, dim), dtype=np.double)
+    cdef double[:, :, :] PKuv = np.zeros((dv + 1, s + 1, dim), dtype=np.double)
+    cdef double[:, :] temp_cpts = np.zeros((cpsize[0], dim), dtype=np.double)
+
+    # Control points of the U derivatives of every U-curve
+    for j in range(ss[0], ss[1] + 1):
+        for i in range(cpsize[0]):
+            temp_cpts[i] = cpts[j + (cpsize[1] * i)]
+        
+        curve_deriv_cpts(degree[0], kv0, temp_cpts, du, rs[0], rs[1], PKu)
+
+        # Copy into output as the U partial derivatives
+        for k in range(du + 1):
+            for i in range(r - k + 1):
+                for d in range(dim):
+                    PKL[k, 0, i, j - ss[0], d] = PKu[k, i, d]
+
+    # Control points of the V derivatives of every U-differentiated V-curve
+    for k in range(du):
+        for i in range(r - k + 1):
+            dd = min(deriv_order - k, dv)
+
+            for j in range(s + 1):
+                for d in range(dim):
+                    temp_cpts[j, d] = PKL[k, 0, i, j, d]
+
+            curve_deriv_cpts(degree[1], kv1[ss[0]:], temp_cpts, dd, 0, s, PKuv)
+
+            # Copy into output
+            for l in range(1, dd + 1):
+                for j in range(s - l + 1):
+                    for d in range(dim):
+                        PKL[k, l, i, j, d] = PKuv[l, j, d]
 
