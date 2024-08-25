@@ -772,3 +772,61 @@ cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] k
                     for d in range(dim):
                         PKL[k, l, i, j, d] = PKuv[l, j, d]
 
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v, double* result) noexcept nogil:
+    cdef int uspan, vspan, k, l
+    cdef double* Nu = <double*>malloc((p + 1) * sizeof(double))
+    cdef double* Nv = <double*>malloc((q + 1) * sizeof(double))
+    cdef double* temp = <double*>malloc((q + 1) * sizeof(double))
+    cdef double Sw = 0.0, w = 0.0
+
+    if Nu is NULL or Nv is NULL or temp is NULL:
+        with gil:
+            raise MemoryError("Failed to allocate memory")
+
+    uspan = find_span(n, p, u, U, False)
+    basis_funs(uspan, u, p, U, Nu)
+
+    vspan = find_span(m, q, v, V, False)
+    basis_funs(vspan, v, q, V, Nv)
+
+    for l in range(q + 1):
+        temp[l] = 0.0
+        for k in range(p + 1):
+            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 3]
+
+    for l in range(q + 1):
+        w += Nv[l] * temp[l]
+
+    for l in range(q + 1):
+        temp[l] = 0.0
+        for k in range(p + 1):
+            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 0]
+    for l in range(q + 1):
+        result[0] += Nv[l] * temp[l]
+
+    for l in range(q + 1):
+        temp[l] = 0.0
+        for k in range(p + 1):
+            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 1]
+    for l in range(q + 1):
+        result[1] += Nv[l] * temp[l]
+
+    for l in range(q + 1):
+        temp[l] = 0.0
+        for k in range(p + 1):
+            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 2]
+    for l in range(q + 1):
+        result[2] += Nv[l] * temp[l]
+
+    result[0] /= w
+    result[1] /= w
+    result[2] /= w
+    result[3] = 1.0
+
+    free(Nu)
+    free(Nv)
+    free(temp)
