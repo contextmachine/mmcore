@@ -9,7 +9,6 @@
 #cython: initializedcheck=False
 
 
-
 cimport cython
 from mmcore cimport init_double_ptr,free_double_ptr
 import numpy as np
@@ -18,14 +17,979 @@ from libc.stdlib cimport malloc,free
 cimport mmcore.geom.nurbs.algorithms
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
-from libc.string cimport memcpy
+
 cnp.import_array()
+cdef public double[31][31] binomial_coefficients=[[1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  2.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  3.0,
+  3.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  4.0,
+  6.0,
+  4.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  5.0,
+  10.0,
+  10.0,
+  5.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  6.0,
+  15.0,
+  20.0,
+  15.0,
+  6.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  7.0,
+  21.0,
+  35.0,
+  35.0,
+  21.0,
+  7.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  8.0,
+  28.0,
+  56.0,
+  70.0,
+  56.0,
+  28.0,
+  8.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  9.0,
+  36.0,
+  84.0,
+  126.0,
+  126.0,
+  84.0,
+  36.0,
+  9.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  10.0,
+  45.0,
+  120.0,
+  210.0,
+  252.0,
+  210.0,
+  120.0,
+  45.0,
+  10.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  11.0,
+  55.0,
+  165.0,
+  330.0,
+  462.0,
+  462.0,
+  330.0,
+  165.0,
+  55.0,
+  11.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  12.0,
+  66.0,
+  220.0,
+  495.0,
+  792.0,
+  924.0,
+  792.0,
+  495.0,
+  220.0,
+  66.0,
+  12.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  13.0,
+  78.0,
+  286.0,
+  715.0,
+  1287.0,
+  1716.0,
+  1716.0,
+  1287.0,
+  715.0,
+  286.0,
+  78.0,
+  13.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  14.0,
+  91.0,
+  364.0,
+  1001.0,
+  2002.0,
+  3003.0,
+  3432.0,
+  3003.0,
+  2002.0,
+  1001.0,
+  364.0,
+  91.0,
+  14.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  15.0,
+  105.0,
+  455.0,
+  1365.0,
+  3003.0,
+  5005.0,
+  6435.0,
+  6435.0,
+  5005.0,
+  3003.0,
+  1365.0,
+  455.0,
+  105.0,
+  15.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  16.0,
+  120.0,
+  560.0,
+  1820.0,
+  4368.0,
+  8008.0,
+  11440.0,
+  12870.0,
+  11440.0,
+  8008.0,
+  4368.0,
+  1820.0,
+  560.0,
+  120.0,
+  16.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  17.0,
+  136.0,
+  680.0,
+  2380.0,
+  6188.0,
+  12376.0,
+  19448.0,
+  24310.0,
+  24310.0,
+  19448.0,
+  12376.0,
+  6188.0,
+  2380.0,
+  680.0,
+  136.0,
+  17.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  18.0,
+  153.0,
+  816.0,
+  3060.0,
+  8568.0,
+  18564.0,
+  31824.0,
+  43758.0,
+  48620.0,
+  43758.0,
+  31824.0,
+  18564.0,
+  8568.0,
+  3060.0,
+  816.0,
+  153.0,
+  18.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  19.0,
+  171.0,
+  969.0,
+  3876.0,
+  11628.0,
+  27132.0,
+  50388.0,
+  75582.0,
+  92378.0,
+  92378.0,
+  75582.0,
+  50388.0,
+  27132.0,
+  11628.0,
+  3876.0,
+  969.0,
+  171.0,
+  19.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  20.0,
+  190.0,
+  1140.0,
+  4845.0,
+  15504.0,
+  38760.0,
+  77520.0,
+  125970.0,
+  167960.0,
+  184756.0,
+  167960.0,
+  125970.0,
+  77520.0,
+  38760.0,
+  15504.0,
+  4845.0,
+  1140.0,
+  190.0,
+  20.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  21.0,
+  210.0,
+  1330.0,
+  5985.0,
+  20349.0,
+  54264.0,
+  116280.0,
+  203490.0,
+  293930.0,
+  352716.0,
+  352716.0,
+  293930.0,
+  203490.0,
+  116280.0,
+  54264.0,
+  20349.0,
+  5985.0,
+  1330.0,
+  210.0,
+  21.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  22.0,
+  231.0,
+  1540.0,
+  7315.0,
+  26334.0,
+  74613.0,
+  170544.0,
+  319770.0,
+  497420.0,
+  646646.0,
+  705432.0,
+  646646.0,
+  497420.0,
+  319770.0,
+  170544.0,
+  74613.0,
+  26334.0,
+  7315.0,
+  1540.0,
+  231.0,
+  22.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  23.0,
+  253.0,
+  1771.0,
+  8855.0,
+  33649.0,
+  100947.0,
+  245157.0,
+  490314.0,
+  817190.0,
+  1144066.0,
+  1352078.0,
+  1352078.0,
+  1144066.0,
+  817190.0,
+  490314.0,
+  245157.0,
+  100947.0,
+  33649.0,
+  8855.0,
+  1771.0,
+  253.0,
+  23.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  24.0,
+  276.0,
+  2024.0,
+  10626.0,
+  42504.0,
+  134596.0,
+  346104.0,
+  735471.0,
+  1307504.0,
+  1961256.0,
+  2496144.0,
+  2704156.0,
+  2496144.0,
+  1961256.0,
+  1307504.0,
+  735471.0,
+  346104.0,
+  134596.0,
+  42504.0,
+  10626.0,
+  2024.0,
+  276.0,
+  24.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  25.0,
+  300.0,
+  2300.0,
+  12650.0,
+  53130.0,
+  177100.0,
+  480700.0,
+  1081575.0,
+  2042975.0,
+  3268760.0,
+  4457400.0,
+  5200300.0,
+  5200300.0,
+  4457400.0,
+  3268760.0,
+  2042975.0,
+  1081575.0,
+  480700.0,
+  177100.0,
+  53130.0,
+  12650.0,
+  2300.0,
+  300.0,
+  25.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  26.0,
+  325.0,
+  2600.0,
+  14950.0,
+  65780.0,
+  230230.0,
+  657800.0,
+  1562275.0,
+  3124550.0,
+  5311735.0,
+  7726160.0,
+  9657700.0,
+  10400600.0,
+  9657700.0,
+  7726160.0,
+  5311735.0,
+  3124550.0,
+  1562275.0,
+  657800.0,
+  230230.0,
+  65780.0,
+  14950.0,
+  2600.0,
+  325.0,
+  26.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  27.0,
+  351.0,
+  2925.0,
+  17550.0,
+  80730.0,
+  296010.0,
+  888030.0,
+  2220075.0,
+  4686825.0,
+  8436285.0,
+  13037895.0,
+  17383860.0,
+  20058300.0,
+  20058300.0,
+  17383860.0,
+  13037895.0,
+  8436285.0,
+  4686825.0,
+  2220075.0,
+  888030.0,
+  296010.0,
+  80730.0,
+  17550.0,
+  2925.0,
+  351.0,
+  27.0,
+  1.0,
+  0.0,
+  0.0,
+  0.0],
+ [1.0,
+  28.0,
+  378.0,
+  3276.0,
+  20475.0,
+  98280.0,
+  376740.0,
+  1184040.0,
+  3108105.0,
+  6906900.0,
+  13123110.0,
+  21474180.0,
+  30421755.0,
+  37442160.0,
+  40116600.0,
+  37442160.0,
+  30421755.0,
+  21474180.0,
+  13123110.0,
+  6906900.0,
+  3108105.0,
+  1184040.0,
+  376740.0,
+  98280.0,
+  20475.0,
+  3276.0,
+  378.0,
+  28.0,
+  1.0,
+  0.0,
+  0.0],
+ [1.0,
+  29.0,
+  406.0,
+  3654.0,
+  23751.0,
+  118755.0,
+  475020.0,
+  1560780.0,
+  4292145.0,
+  10015005.0,
+  20030010.0,
+  34597290.0,
+  51895935.0,
+  67863915.0,
+  77558760.0,
+  77558760.0,
+  67863915.0,
+  51895935.0,
+  34597290.0,
+  20030010.0,
+  10015005.0,
+  4292145.0,
+  1560780.0,
+  475020.0,
+  118755.0,
+  23751.0,
+  3654.0,
+  406.0,
+  29.0,
+  1.0,
+  0.0],
+ [1.0,
+  30.0,
+  435.0,
+  4060.0,
+  27405.0,
+  142506.0,
+  593775.0,
+  2035800.0,
+  5852925.0,
+  14307150.0,
+  30045015.0,
+  54627300.0,
+  86493225.0,
+  119759850.0,
+  145422675.0,
+  155117520.0,
+  145422675.0,
+  119759850.0,
+  86493225.0,
+  54627300.0,
+  30045015.0,
+  14307150.0,
+  5852925.0,
+  2035800.0,
+  593775.0,
+  142506.0,
+  27405.0,
+  4060.0,
+  435.0,
+  30.0,
+  1.0]]
+
+@cython.cdivision(True)
+cdef public double binomial_coefficient(int i, int j) noexcept nogil:
+    return binomial_coefficients[i][j]
 
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
+cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
     """
     Determine the knot span index for a given parameter value `u`.
 
@@ -159,15 +1123,63 @@ cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U):
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U):
+cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U, double[:,:] ders =None):
     """
-    Compute the nonzero basis functions and their derivatives.
+    Compute the nonzero basis functions and their derivatives for a B-spline.
+
+    This function calculates the nonzero basis functions and their derivatives 
+    for a given parameter value `u` in a B-spline curve. The derivatives are 
+    computed up to the `n`-th derivative.
+
+    Parameters
+    ----------
+    i : int
+        The knot span index such that `U[i] <= u < U[i+1]`.
+    u : double
+        The parameter value at which the basis functions and their derivatives 
+        are evaluated.
+    p : int
+        The degree of the B-spline basis functions.
+    n : int
+        The number of derivatives to compute (0 for just the basis functions).
+    U : double[:]
+        The knot vector.
+
+    Returns
+    -------
+    double[:, :]
+        A 2D array `ders` of shape `(n+1, p+1)` where `ders[k, j]` contains the 
+        `k`-th derivative of the `j`-th nonzero basis function at `u`.
+
+    Notes
+    -----
+    - The algorithm is based on the approach described in "The NURBS Book" by 
+      Piegl and Tiller, which efficiently computes the derivatives using 
+      divided differences and recursive evaluation.
+    - The function utilizes several optimizations provided by Cython, such as 
+      disabling bounds checking and wraparound for faster execution.
+
+    Example
+    -------
+    Suppose we have a degree 3 B-spline (cubic) with a knot vector `U`, and we 
+    want to evaluate the basis functions and their first derivative at `u=0.5` 
+    for the knot span `i=3`:
+
+    .. code-block:: python
+
+        import numpy as np
+        cdef double[:] U = np.array([0, 0, 0, 0.5, 1, 1, 1], dtype=np.float64)
+        ders = ders_basis_funs(3, 0.5, 3, 1, U)
+        print(ders)
+
+    This will output the basis functions and their first derivative for the 
+    specified parameters.
     """
 
     cdef int pp=p+1
     cdef int nn = n + 1
     cdef int s1, s2
-    cdef double[:, :] ders = np.zeros((nn, pp))
+    
     cdef double[:, :] ndu = np.zeros((pp,pp))
     cdef double[:] left = np.zeros(pp)
     cdef double[:] right = np.zeros(pp)
@@ -176,6 +1188,8 @@ cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U):
 
     cdef int j, r, k, rk, pk, j1, j2
     cdef double saved, temp, d
+    if ders is None:
+        ders = np.zeros((nn, pp))
     for j in range(1, pp):
         left[j] = u - U[i + 1 - j]
         right[j] = U[i + j] - u
@@ -254,7 +1268,7 @@ cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u
     cdef int du = min(d, p)
     #cdef double[:, :] CK = np.zeros((du + 1, P.shape[1]))
     cdef int pp=p+1
-    cdef int span = find_span(n, p, u, U,is_periodic)
+    cdef int span = find_span_inline(n, p, u, U,is_periodic)
     cdef double[:, :] nders = ders_basis_funs(span, u, p, du, U)
 
     cdef int k, j, l
@@ -335,7 +1349,7 @@ cpdef void curve_derivs_alg2(int n, int p, double[:] U, double[:, :] P, double u
 
     #cdef double[:, :] CK = np.zeros((d + 1, dimension))
 
-    cdef int span = find_span(n, degree, u, knotvector,is_periodic)
+    cdef int span = find_span_inline(n, degree, u, knotvector,is_periodic)
     #cdef double[:, :, :] PK = np.zeros((d + 1, degree + 1, P.shape[1]))
 
     cdef double[:, :] bfuns = all_basis_funs(span, u, degree, knotvector)
@@ -654,7 +1668,67 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
-cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] kv1, double[:, :, :] cpts, int[:] cpsize, int[:] rs, int[:] ss, int deriv_order, double[:, :, :, :, :] PKL) :
+cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] kv1, double[:, :] cpts, int[:] cpsize, int[:] rs, int[:] ss, int deriv_order, double[:, :, :, :, :] PKL) :
+    """
+    Compute the control points of the partial derivatives of a B-spline surface.
+
+    This function calculates the control points of the partial derivatives up to a given order 
+    for a surface defined by tensor-product B-splines. The derivatives are computed with respect to the 
+    parametric directions (U and V) of the surface.
+
+    Parameters
+    ----------
+    dim : int
+        The dimensionality of the control points (e.g., 2 for 2D, 3 for 3D).
+
+    degree : int[:]
+        The degrees of the B-spline in the U and V directions.
+        `degree[0]` corresponds to the degree in the U direction, and 
+        `degree[1]` to the degree in the V direction.
+
+    kv0 : double[:]
+        Knot vector for the U direction.
+
+    kv1 : double[:]
+        Knot vector for the V direction.
+
+    cpts : double[:, :, :]
+        Array of control points for the B-spline surface. It has a shape 
+        of (nV, nU, dim), where nU and nV are the numbers of control points 
+        in the U and V directions, respectively.
+
+    cpsize : int[:]
+        Size of the control points array in each direction (U and V).
+        `cpsize[0]` gives the number of control points in the U direction, 
+        and `cpsize[1]` gives the number in the V direction.
+
+    rs : int[:]
+        Range of indices in the U direction to consider for derivative computation.
+        `rs[0]` is the start index, and `rs[1]` is the end index.
+
+    ss : int[:]
+        Range of indices in the V direction to consider for derivative computation.
+        `ss[0]` is the start index, and `ss[1]` is the end index.
+
+    deriv_order : int
+        The order of the highest derivative to compute. For example, if `deriv_order` is 2,
+        the function will compute the first and second derivatives.
+
+    PKL : double[:, :, :, :, :]
+        Output array to store the computed derivatives of the control points.
+        It has a shape of (du+1, dv+1, r+1, s+1, dim), where `du` and `dv` are 
+        the minimum of `degree[0]` and `degree[1]` with `deriv_order`, and `r` and `s` 
+        are the ranges of indices specified by `rs` and `ss`.
+
+    Notes
+    -----
+    - The function first computes the U-directional derivatives of the control points
+      for each V-curve and stores them in `PKL`.
+    - Then, it computes the V-directional derivatives of the already U-differentiated 
+      control points to complete the tensor-product differentiation.
+    - Cython decorators are used to disable bounds checking and enable division optimizations
+      for enhanced performance.
+    """
     cdef int du = min(degree[0], deriv_order)
     cdef int dv = min(degree[1], deriv_order)
     cdef int r = rs[1] - rs[0]
@@ -693,62 +1767,233 @@ cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] k
                 for j in range(s - l + 1):
                     for d in range(dim):
                         PKL[k, l, i, j, d] = PKuv[l, j, d]
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def surface_point_py(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u=0 , bint periodic_v=0, double[:] result=None):
+    if result is None:
+        result=np.zeros((4,))
+
+    surface_point(n,p,U,m,q,V,Pw,u,v,periodic_u,periodic_v,&result[0])
+    return np.array(result)
+
+
+
+
+
+@cython.cdivision(True)
+cdef inline int min_int(int a, int b) nogil:
+    return a if a < b else b
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef void surface_derivatives(int[2] degree, double[:, :] knotvector, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil:
+    """
+    Compute surface derivatives for a NURBS (Non-Uniform Rational B-Splines) surface.
+
+    This function calculates the derivatives of a NURBS surface at a given parametric point (u, v).
+    The derivatives up to a specified order are computed and stored in the provided array `SKL`.
+
+    Parameters
+    ----------
+    degree : int[2]
+        The degrees of the NURBS surface in the u and v directions.
+    knotvector : double[:, :]
+        The knot vectors for the u and v directions.
+    ctrlpts : double[:, :]
+        The control points of the NURBS surface, stored as a 2D array.
+    size : int[2]
+        The number of control points in the u and v directions.
+    u : double
+        The parametric coordinate in the u direction where derivatives are evaluated.
+    v : double
+        The parametric coordinate in the v direction where derivatives are evaluated.
+    deriv_order : int
+        The maximum order of derivatives to be computed.
+    SKL : double[:, :, :]
+        An array to store the computed derivatives. `SKL[k][l][i]` contains the derivative 
+        of order k in the u direction and l in the v direction for the ith coordinate 
+        of the surface point.
+
+    Notes
+    -----
+    - The function uses Cython directives to optimize performance, including disabling 
+      bounds checking, wraparound, and enabling C division.
+    - The algorithm follows the standard approach for computing NURBS surface derivatives 
+      using basis function derivatives.
+
+    Usage
+    -----
+    Example usage of this function might look like the following:
+
+    .. code-block:: python
+
+        import numpy as np
+
+        # Define parameters
+        degree = np.array([3, 3], dtype=np.int32)
+        knotvector = np.array([...], dtype=np.double)  # Define appropriate knot vectors
+        ctrlpts = np.array([...], dtype=np.double)    # Define appropriate control points
+        size = np.array([num_ctrlpts_u, num_ctrlpts_v], dtype=np.int32)
+        u = 0.5
+        v = 0.5
+        deriv_order = 2
+        SKL = np.zeros((deriv_order + 1, deriv_order + 1, 4), dtype=np.double)
+
+        # Call the function
+        surface_derivatives(degree, knotvector, ctrlpts, size, u, v, deriv_order, SKL)
+
+        # SKL now contains the derivatives of the surface at (u, v)
+
+    Performance Considerations
+    --------------------------
+    - Memory management is done manually using malloc/free to ensure efficiency.
+    - The `nogil` directive allows the function to be run in parallel threads in Python.
+    
+    References
+    ----------
+    - Piegl, L., & Tiller, W. (1997). The NURBS Book (2nd ed.). Springer.
+    """
+    cdef int dimension = 4
+    cdef int pdimension = 2
+    cdef double[2] uv
+    uv[0] = u
+    uv[1] = v
+
+    cdef int[2] d
+    d[0] = min_int(degree[0], deriv_order)
+    d[1] = min_int(degree[1], deriv_order)
+
+    cdef int[2] span
+    cdef double* basisdrv_u
+    cdef double* basisdrv_v
+    cdef double[:,:] mbasisdrv_u
+    cdef double[:,:] mbasisdrv_v
+    cdef int idx, k, i,s, r, cu, cv, l, dd
+    cdef double* temp
+    cdef int basisdrv_size_u, basisdrv_size_v
+
+    # Allocate memory and compute basis function derivatives for u and v directions
+    span[0] = find_span_inline(size[0], degree[0], u, knotvector[0], 0)
+    basisdrv_size_u = (d[0] + 1) * (degree[0] + 1)
+    basisdrv_u = <double*>malloc(basisdrv_size_u * sizeof(double))
+    with gil:
+        mbasisdrv_u=<double[:(d[0] + 1),:(degree[0] + 1)]>basisdrv_u
+   
+        ders_basis_funs(span[0], u, degree[0], d[0], knotvector[0], mbasisdrv_u)
+
+    span[1] = find_span_inline(size[1], degree[1], v, knotvector[1], 0)
+    basisdrv_size_v = (d[1] + 1) * (degree[1] + 1)
+    basisdrv_v = <double*>malloc(basisdrv_size_v * sizeof(double))
+    with gil:
+        mbasisdrv_v=<double[:(d[1] + 1),:(degree[1] + 1)]>basisdrv_v
+  
+        ders_basis_funs(span[1], v, degree[1], d[1], knotvector[1], mbasisdrv_v)
+
+    temp = <double*>malloc((degree[1] + 1) * dimension * sizeof(double))
+
+    for k in range(d[0] + 1):
+        for s in range(degree[1] + 1):
+            for i in range(dimension):
+                temp[s * dimension + i] = 0.0
+            for r in range(degree[0] + 1):
+                cu = span[0] - degree[0] + r
+                cv = span[1] - degree[1] + s
+                for i in range(dimension):
+                    temp[s * dimension + i] += basisdrv_u[k * (degree[0] + 1) + r] * ctrlpts[cv + (size[1] * cu)][i]
+
+        dd = min_int(deriv_order, d[1])
+        for l in range(dd + 1):
+            for s in range(degree[1] + 1):
+                for i in range(dimension):
+                    SKL[k][l][i] += basisdrv_v[l * (degree[1] + 1) + s] * temp[s * dimension + i]
+
+    free(temp)
+    free(basisdrv_u)
+    free(basisdrv_v)
+
 
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v, double* result) noexcept nogil:
-    cdef int uspan, vspan, k, l
-    cdef double* Nu = <double*>malloc((p + 1) * sizeof(double))
-    cdef double* Nv = <double*>malloc((q + 1) * sizeof(double))
-    cdef double* temp = <double*>malloc((q + 1) * sizeof(double))
-    cdef double Sw = 0.0, w = 0.0
+def surface_derivatives_py(tuple degree, 
+            double[:, :] knotvector, 
+            double[:, :] ctrlpts, 
+            tuple size, 
+            double u, double v, 
+            int deriv_order=0, 
+            double[:, :, :] SKL=None):
+    cdef int[2] deg
+    cdef int[2] sz
+    deg[0]=degree[0]
+    deg[1]=degree[1]
+    sz[0]=size[0]
+    sz[1]=size[1]
+    if SKL is None:
+        SKL = np.zeros((deriv_order + 1, deriv_order + 1, 4), dtype=np.double)
 
-    if Nu is NULL or Nv is NULL or temp is NULL:
-        with gil:
-            raise MemoryError("Failed to allocate memory")
+        # Call the function
 
-    uspan = find_span(n, p, u, U, False)
-    basis_funs(uspan, u, p, U, Nu)
+    surface_derivatives(deg,knotvector,ctrlpts,sz,u,v,deriv_order,SKL)
+    return np.array(SKL)
 
-    vspan = find_span(m, q, v, V, False)
-    basis_funs(vspan, v, q, V, Nv)
 
-    for l in range(q + 1):
-        temp[l] = 0.0
-        for k in range(p + 1):
-            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 3]
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+def rat_surface_derivs_py(double[:, :, :] SKLw, int deriv_order=0, double[:, :, :] SKL=None):
+    """
+    Computes the derivatives of a rational B-spline surface.
 
-    for l in range(q + 1):
-        w += Nv[l] * temp[l]
+    This function calculates the derivatives of a rational B-spline surface based on the given weighted surface derivative values (`SKLw`). 
+    The results are stored in the `SKL` array. The computation takes into account the specified derivative order, 
+    and optimizations are applied to speed up the calculation.
 
-    for l in range(q + 1):
-        temp[l] = 0.0
-        for k in range(p + 1):
-            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 0]
-    for l in range(q + 1):
-        result[0] += Nv[l] * temp[l]
+    Parameters
+    ----------
+    SKLw : double[:, :, :]
+        A 3D array containing the weighted surface derivatives. 
+        The array dimensions are (deriv_order + 1, deriv_order + 1, dimension).
+    deriv_order : int
+        The highest order of derivative to compute.
+    SKL : double[:, :, :]
+        A 3D array where the computed derivatives will be stored. 
+        The array dimensions are (deriv_order + 1, deriv_order + 1, dimension - 1).
 
-    for l in range(q + 1):
-        temp[l] = 0.0
-        for k in range(p + 1):
-            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 1]
-    for l in range(q + 1):
-        result[1] += Nv[l] * temp[l]
+    Notes
+    -----
+    - The function uses binomial coefficients to adjust the derivatives according to the rational formulation.
+    - The function is marked with `nogil` to allow multi-threading in Cython and to avoid Python's Global Interpreter Lock (GIL).
+    - Cython compiler directives are used to disable certain checks (e.g., bounds check, wraparound)
+     and enable C division for performance.
 
-    for l in range(q + 1):
-        temp[l] = 0.0
-        for k in range(p + 1):
-            temp[l] += Nu[k] * Pw[uspan - p + k, vspan - q + l, 2]
-    for l in range(q + 1):
-        result[2] += Nv[l] * temp[l]
+    No Return
+    ---------
+        The function operates in-place and does not return any values. The results are directly stored in the provided `SKL` array.
 
-    result[0] /= w
-    result[1] /= w
-    result[2] /= w
-    result[3] = 1.0
+    Examples
+    --------
+    Consider a scenario where you have a rational B-spline surface and you need to compute its derivatives up to the second order. 
+    You would call the function as follows:
 
-    free(Nu)
-    free(Nv)
-    free(temp)
+    .. code-block:: python
+
+        import numpy as np
+        cdef double[:, :, :] SKLw = np.zeros((3, 3, 4))
+        cdef double[:, :, :] SKL = np.zeros((3, 3, 3))
+        cdef int deriv_order = 2
+        
+        rat_surface_derivs(SKLw, deriv_order, SKL)
+    """
+    if SKL is None:
+
+    
+        SKL = np.zeros((SKLw.shape[0], SKLw.shape[1], 3))
+    rat_surface_derivs(SKLw,deriv_order,SKL)
+    return np.array(SKL)
+
+
+   
