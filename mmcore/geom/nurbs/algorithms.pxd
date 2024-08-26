@@ -270,8 +270,7 @@ cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int 
 cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*) 
 
 
-
-
+cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots_v, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
