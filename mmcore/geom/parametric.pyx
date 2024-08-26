@@ -575,6 +575,9 @@ cdef class ParametricSurface:
         return result
 
 
+    def interval(self):
+        cdef tuple inter=((self._interval[0][0],self._interval[0][1]),(self._interval[1][0],self._interval[1][1]))
+        return inter
 
 cdef class Ruled(ParametricSurface):
     #cdef double _remap_u

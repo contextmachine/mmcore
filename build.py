@@ -149,6 +149,12 @@ Extension(
         extra_link_args=link_args,
         include_dirs=include_dirs),
     Extension(
+        "mmcore.geom.nurbs.surface",
+        ["mmcore/geom/nurbs/surface.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs),
+    Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],
         extra_compile_args=compile_args,
