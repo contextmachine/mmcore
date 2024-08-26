@@ -10,10 +10,13 @@
 
 cimport cython
 cimport numpy as cnp
+from libc.string cimport memcpy
 cnp.import_array()
 from libc.stdlib cimport malloc,free
-cdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
+cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
 
+cdef public double[31][31] binomial_coefficients
+cdef public double binomial_coefficient(int i, int j) noexcept nogil
 
 @cython.cdivision(True)
 @cython.initializedcheck(False)
@@ -94,9 +97,55 @@ cdef inline void curve_point(int n, int p, double[:] U, double[:, :] P, double u
     free(N)
 
 
+
+
+
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef inline double[:, :] all_basis_funs_inline(int span, double u, int p, double* U, double[:, :] N) noexcept nogil:
+    """
+    Compute all nonzero basis functions and their derivatives up to the ith-degree basis function.
+
+    Parameters:
+    span (int): The knot span index.
+    u (double): The parameter value.
+    p (int): The degree of the basis functions.
+    U (double[:]): The knot vector.
+
+    Returns:
+    double[:, :]: The basis functions.
+    """
+
+    cdef int pp = p+1
+    
+    cdef double* left = <double*>malloc(sizeof(double)*pp)
+    cdef double* right = <double*>malloc(sizeof(double)*pp)
+    N[0, 0] = 1.0
+
+    cdef int j, r
+    cdef double saved, temp
+    for j in range(1, pp):
+        left[j] = u - U[span + 1 - j]
+        right[j] = U[span + j] - u
+        saved = 0.0
+        for r in range(j):
+            N[j, r] = right[r + 1] + left[j - r]
+            temp = N[r, j - 1] / N[j, r]
+            N[r, j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        N[j, j] = saved
+    free(left)
+    free(right)
+    return N
+
+
+
+
 cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U)
 
-cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U) 
+cpdef double[:, :] ders_basis_funs(int i, double u, int p, int n, double[:] U, double[:,:] ders=?) 
 
 cpdef void curve_derivs_alg1(int n, int p, double[:] U, double[:, :] P, double u, int d, double[:, :] CK,bint is_periodic) 
 
@@ -220,4 +269,136 @@ cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int 
 
 cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*) 
 
-cdef void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v, double* result) noexcept nogil
+
+
+
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u , bint periodic_v, double* result) :
+    cdef int uspan, vspan, k, l,i,cur_l
+    cdef int num_cols=4
+    cdef int temp_length=(q + 1)*num_cols
+    cdef double* Nu = <double*>malloc((p + 1) * sizeof(double))
+    cdef double* Nv = <double*>malloc((q + 1) * sizeof(double))
+    cdef double* temp = <double*>malloc(temp_length * sizeof(double))
+    cdef double  w = 0.0
+
+    uspan = find_span_inline(n, p, u, U, periodic_u)
+    basis_funs(uspan, u, p, U, Nu)
+
+    vspan = find_span_inline(m, q, v, V, periodic_v)
+    basis_funs(vspan, v, q, V, Nv)
+
+    for l in range(q + 1):
+        cur_l=l * num_cols
+        temp[cur_l + 0] = 0.0
+        temp[cur_l + 1] = 0.0
+        temp[cur_l + 2] = 0.0
+        temp[cur_l + 3] = 0.0
+        for k in range(p + 1):
+            for i in range(num_cols):
+                temp[cur_l+i] += Nu[k] * Pw[uspan - p + k][vspan - q + l][i]
+
+    for l in range(q + 1):
+        cur_l=l*num_cols
+        for i in range(num_cols):
+            result[i] += Nv[l] * temp[cur_l+i]
+
+    w= result[3]
+    result[0] /= w
+    result[1] /= w
+    result[2] /= w
+    result[3] /=w
+
+    free(Nu)
+    free(Nv)
+    free(temp)
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+cdef inline void rat_surface_derivs(double[:, :, :] SKLw, int deriv_order, double[:, :, :] SKL) noexcept nogil:
+    """
+    Computes the derivatives of a rational B-spline surface.
+
+    This function calculates the derivatives of a rational B-spline surface based on the given weighted surface derivative values (`SKLw`). 
+    The results are stored in the `SKL` array. The computation takes into account the specified derivative order, 
+    and optimizations are applied to speed up the calculation.
+
+    Parameters
+    ----------
+    SKLw : double[:, :, :]
+        A 3D array containing the weighted surface derivatives. 
+        The array dimensions are (deriv_order + 1, deriv_order + 1, dimension).
+    deriv_order : int
+        The highest order of derivative to compute.
+    SKL : double[:, :, :]
+        A 3D array where the computed derivatives will be stored. 
+        The array dimensions are (deriv_order + 1, deriv_order + 1, dimension - 1).
+
+    Notes
+    -----
+    - The function uses binomial coefficients to adjust the derivatives according to the rational formulation.
+    - The function is marked with `nogil` to allow multi-threading in Cython and to avoid Python's Global Interpreter Lock (GIL).
+    - Cython compiler directives are used to disable certain checks (e.g., bounds check, wraparound)
+     and enable C division for performance.
+
+    No Return
+    ---------
+        The function operates in-place and does not return any values. The results are directly stored in the provided `SKL` array.
+
+    Examples
+    --------
+    Consider a scenario where you have a rational B-spline surface and you need to compute its derivatives up to the second order. 
+    You would call the function as follows:
+
+    .. code-block:: python
+
+        import numpy as np
+        cdef double[:, :, :] SKLw = np.zeros((3, 3, 4))
+        cdef double[:, :, :] SKL = np.zeros((3, 3, 3))
+        cdef int deriv_order = 2
+        
+        rat_surface_derivs(SKLw, deriv_order, SKL)
+    """
+    cdef int dimension = 4
+    cdef int dm=3
+    cdef int do=deriv_order+1
+    cdef int k, l, j, i,d
+    cdef double* v = <double*>malloc(dimension * sizeof(double))
+    cdef double* v2 = <double*>malloc((dm) * sizeof(double))
+    cdef double bin_kl, bin_ki, bin_lj
+    
+    for k in range(do):
+        for l in range(do):
+            memcpy(v, &SKLw[k, l, 0], dimension * sizeof(double))
+            
+            for j in range(1, l + 1):
+                bin_lj = binomial_coefficient(l, j)
+                for d in range(dm):
+                    v[d] = v[d] - (bin_lj * SKLw[0, j, dm] * SKL[k, l-j, d])
+            
+            for i in range(1, k + 1):
+                bin_ki = binomial_coefficient(k, i)
+                for d in range(dm):
+                    v[d] = v[d] - (bin_ki * SKLw[i, 0, dm] * SKL[k-i, l, d])
+                
+                for d in range(dimension - 1):
+                    v2[d] = 0.0
+                
+                for j in range(1, l + 1):
+                    bin_lj = binomial_coefficient(l, j)
+                    for d in range(dimension - 1):
+                        v2[d] = v2[d] + (bin_lj * SKLw[i, j, dimension-1] * SKL[k-i, l-j, d])
+                
+                for d in range(dimension - 1):
+                    v[d] = v[d] - (bin_ki * v2[d])
+            
+            for d in range(dimension - 1):
+                SKL[k, l, d] = v[d] / SKLw[0, 0, dimension-1]
+    
+    free(v)
+    free(v2)
