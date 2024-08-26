@@ -1,5 +1,5 @@
 
-import numpy as np
+cimport cython
 cpdef matmul_array(double[:,:,:] vec_a, double[:,:,:] vec_b)
 cpdef dot_array_x_array(double[:,:] vec_a, double[:,:] vec_b)
 
@@ -215,3 +215,14 @@ cdef void scalar_add3d(double [:]  vec_a, double  b, double[:] res) noexcept nog
 cdef void scalar_mul3d(double [:]  vec_a, double  b, double[:] res)noexcept nogil
 
 cdef void scalar_div3d(double [:]  vec_a, double  b, double[:] res) noexcept nogil
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+cdef inline void cross_d1_3d(double[3] vec_a,double[3] vec_b, double[:] res) noexcept nogil:
+
+    res[ 0] = (vec_a[ 1] * vec_b[ 2]) - (vec_a[ 2] * vec_b[ 1])
+    res[ 1] = (vec_a[ 2] * vec_b[ 0]) - (vec_a[ 0] * vec_b[ 2])
+    res[ 2] = (vec_a[ 0] * vec_b[ 1]) - (vec_a[ 1] * vec_b[ 0])
+
