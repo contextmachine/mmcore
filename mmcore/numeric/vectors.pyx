@@ -7,10 +7,11 @@
 #cython: infer_types=False
 #cython: initializedcheck=False
 #cython: language_level=3
-
+cimport cython
+cimport mmcore.numeric.vectors
 import numpy as np
 cimport numpy as np
-cimport cython
+
 from libc.math cimport fabs, sqrt,fmin,fmax,pow
 
 cdef extern from "math.h":
@@ -725,7 +726,7 @@ cpdef decompose_vector(double [:] v,double [:] a, double [:] b):
 @cython.wraparound(False)
 @cython.cdivision(True)
 @cython.initializedcheck(False)
-def decompose_vectors(double[:,:] v, double[:] a, double[:] b, double[:,:] result=None):
+cpdef decompose_vectors(double[:,:] v, double[:] a, double[:] b, double[:,:] result=None):
     cdef double[:,:] A=np.empty((2, 2))
     cdef double[:] y=np.empty((2, ))
     cdef int i;
@@ -742,3 +743,25 @@ def decompose_vectors(double[:,:] v, double[:] a, double[:] b, double[:,:] resul
             y[1] = _dot_inl(b, v[i])
             solve2x2(A, y, result[i])
     return result
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+cpdef double[:] normal_from_4pt(double[:] a, double[:] b, double[:] c, double[:] d, double[:] result=None) noexcept nogil:
+    cdef double[3] temp1
+    cdef double[3] temp2
+    if result is None:
+        with gil:
+            result=np.empty((3,))
+    temp1[0] = c[0] - a[0]
+    temp1[1] = c[1] - a[1]
+    temp1[2] = c[2] - a[2]
+    temp2[0] = d[0] - b[0]
+    temp2[1] = d[1] - b[1]
+    temp2[2] = d[2] - b[2]
+    cross_d1_3d(temp1, temp2, result)
+    return result
+
+
+
+
