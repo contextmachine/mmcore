@@ -1788,7 +1788,7 @@ cdef inline int min_int(int a, int b) nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef void surface_derivatives(int[2] degree, double[:, :] knotvector, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil:
+cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots_v, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil:
     """
     Compute surface derivatives for a NURBS (Non-Uniform Rational B-Splines) surface.
 
@@ -1875,21 +1875,21 @@ cdef void surface_derivatives(int[2] degree, double[:, :] knotvector, double[:, 
     cdef int basisdrv_size_u, basisdrv_size_v
 
     # Allocate memory and compute basis function derivatives for u and v directions
-    span[0] = find_span_inline(size[0], degree[0], u, knotvector[0], 0)
+    span[0] = find_span_inline(size[0], degree[0], u, knots_u, 0)
     basisdrv_size_u = (d[0] + 1) * (degree[0] + 1)
     basisdrv_u = <double*>malloc(basisdrv_size_u * sizeof(double))
     with gil:
         mbasisdrv_u=<double[:(d[0] + 1),:(degree[0] + 1)]>basisdrv_u
    
-        ders_basis_funs(span[0], u, degree[0], d[0], knotvector[0], mbasisdrv_u)
+        ders_basis_funs(span[0], u, degree[0], d[0], knots_u, mbasisdrv_u)
 
-    span[1] = find_span_inline(size[1], degree[1], v, knotvector[1], 0)
+    span[1] = find_span_inline(size[1], degree[1], v, knots_v, 0)
     basisdrv_size_v = (d[1] + 1) * (degree[1] + 1)
     basisdrv_v = <double*>malloc(basisdrv_size_v * sizeof(double))
     with gil:
         mbasisdrv_v=<double[:(d[1] + 1),:(degree[1] + 1)]>basisdrv_v
   
-        ders_basis_funs(span[1], v, degree[1], d[1], knotvector[1], mbasisdrv_v)
+        ders_basis_funs(span[1], v, degree[1], d[1], knots_v, mbasisdrv_v)
 
     temp = <double*>malloc((degree[1] + 1) * dimension * sizeof(double))
 
@@ -1919,7 +1919,8 @@ cdef void surface_derivatives(int[2] degree, double[:, :] knotvector, double[:, 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def surface_derivatives_py(tuple degree, 
-            double[:, :] knotvector, 
+            double[:] knots_u, 
+            double[:] knots_v, 
             double[:, :] ctrlpts, 
             tuple size, 
             double u, double v, 
@@ -1936,7 +1937,7 @@ def surface_derivatives_py(tuple degree,
 
         # Call the function
 
-    surface_derivatives(deg,knotvector,ctrlpts,sz,u,v,deriv_order,SKL)
+    surface_derivatives(deg,knots_u,knots_v,ctrlpts,sz,u,v,deriv_order,SKL)
     return np.array(SKL)
 
 
