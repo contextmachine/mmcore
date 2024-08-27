@@ -13,7 +13,7 @@ import functools
 cimport cython
 import numpy as np
 cimport numpy as cnp
-from Cython.Shadow import sizeof
+
 
 from libc.stdlib cimport malloc,free,realloc
 from mmcore.geom.parametric cimport ParametricCurve

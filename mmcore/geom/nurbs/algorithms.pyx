@@ -1410,7 +1410,7 @@ cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=1e-07
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0):
+cpdef  knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0,double[:, :] result=None):
    
     cdef int n = ctrlpts.shape[0]
     if span ==0:
@@ -1420,17 +1420,20 @@ cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, dou
         s = find_multiplicity(u, knotvector)
     cdef int nq = n + num
     cdef int dim = ctrlpts.shape[1]
-    
-    cdef double[:, :] ctrlpts_new = np.zeros((nq, dim), dtype=np.float64)
+
+
     cdef double* temp = <double*>malloc(sizeof(double) * (degree + 1) * dim)
     
     cdef int i, j, L, idx
     cdef double alpha
+    if result is None:
+        result = np.zeros((nq, dim), dtype=np.float64)
+
     
     for i in range(span - degree + 1):
-        ctrlpts_new[i] = ctrlpts[i]
+        result[i] = ctrlpts[i]
     for i in range(span - s, n):
-        ctrlpts_new[i + num] = ctrlpts[i]
+        result[i + num] = ctrlpts[i]
     
     for i in range(degree - s + 1):
         memcpy(&temp[i * dim], &ctrlpts[span - degree + i, 0], sizeof(double) * dim)
@@ -1441,15 +1444,16 @@ cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, dou
             alpha = knot_insertion_alpha(u, knotvector, span, i, L)
             for idx in range(dim):
                 temp[i * dim + idx] = alpha * temp[(i + 1) * dim + idx] + (1.0 - alpha) * temp[i * dim + idx]
-        memcpy(&ctrlpts_new[L, 0], &temp[0], sizeof(double) * dim)
-        memcpy(&ctrlpts_new[span + num - j - s, 0], &temp[(degree - j - s) * dim], sizeof(double) * dim)
+        memcpy(&result[L, 0], &temp[0], sizeof(double) * dim)
+        memcpy(&result[span + num - j - s, 0], &temp[(degree - j - s) * dim], sizeof(double) * dim)
     
     L = span - degree + num
     for i in range(L + 1, span - s):
-        memcpy(&ctrlpts_new[i, 0], &temp[(i - L) * dim], sizeof(double) * dim)
+        memcpy(&result[i, 0], &temp[(i - L) * dim], sizeof(double) * dim)
     
     free(temp)
-    return np.asarray(ctrlpts_new)
+
+    return np.asarray(result)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
