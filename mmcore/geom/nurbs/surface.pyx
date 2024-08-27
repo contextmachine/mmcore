@@ -152,3 +152,7 @@ cdef class NURBSSurface(ParametricSurface):
         result[1] = res[1]
         result[2] = res[2]
         free(res)
+
+
+    def __dealloc__(self):
+        free(self._control_points_arr)
