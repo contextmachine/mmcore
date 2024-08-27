@@ -16,3 +16,10 @@ cdef class NURBSSurface(ParametricSurface):
     cpdef void _update_interval(self)
     cdef void generate_knots_u(self)
     cdef void generate_knots_v(self)
+    cdef void realloc_control_points(self, size_t new_size_u, size_t new_size_v) noexcept nogil
+    cdef NURBSSurface ccopy(self)
+    cpdef void insert_knot_u(self, double t, int r)
+    cpdef void insert_knot_v(self, double t, int r)
+    cdef void cnormalize_knots(self) noexcept nogil
+    cdef void cnormalize_knots_u(self) noexcept nogil
+    cdef void cnormalize_knots_v(self) noexcept nogil
