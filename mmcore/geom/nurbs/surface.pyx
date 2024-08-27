@@ -345,14 +345,14 @@ cdef class NURBSSurface(ParametricSurface):
 @cython.wraparound(False)
 @cython.cdivision(True)
 cpdef tuple split_surface_u(NURBSSurface obj, double param) :
-    cdef int size_u = obj.control_points.shape[0]
-    cdef int size_v = obj.control_points.shape[1]
+    cdef int size_u = obj.control_points_view.shape[0]
+    cdef int size_v = obj.control_points_view.shape[1]
     cdef int ks, s, r, knot_span
-    cdef double[:, :, :] cpts = obj.control_points
-    cdef double[:] knots_u = obj.knots_u
-    cdef double[:] knots_v = obj.knots_v
-    cdef int degree_u = obj.degree[0]
-    cdef int degree_v = obj.degree[1]
+    cdef double[:, :, :] cpts = obj.control_points_view
+    cdef double[:] knots_u = obj._knots_u
+    cdef double[:] knots_v = obj._knots_v
+    cdef int degree_u = obj._degree[0]
+    cdef int degree_v = obj._degree[1]
 
     ks = find_span_inline(size_u, degree_u, param, knots_u, 0) - degree_u + 1
     s = find_multiplicity(param, knots_u)
@@ -362,8 +362,8 @@ cpdef tuple split_surface_u(NURBSSurface obj, double param) :
     cdef NURBSSurface temp_obj = obj.copy()
     temp_obj.insert_knot_u(param, r)
 
-    cdef double[:, :, :] tcpts = temp_obj.control_points
-    cdef double[:] temp_knots_u = temp_obj.knots_u
+    cdef double[:, :, :] tcpts = temp_obj.control_points_view
+    cdef double[:] temp_knots_u = temp_obj._knots_u
 
     knot_span = find_span_inline(size_u, degree_u, param, temp_knots_u, 0) + 1
 
