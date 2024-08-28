@@ -442,7 +442,7 @@ cdef class Cylinder(ParametricSurface):
         return self._implicit_prim.bounds()
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cevaluate(self, double u, double v, double[:] result):
+    cdef void cevaluate(self, double u, double v, double[:] result) noexcept nogil:
             # Calculate the point on the cylinder surface for given t and theta
             cdef double cos_u=cos(u)
             cdef double sin_u = sin(u)
