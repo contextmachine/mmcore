@@ -23,3 +23,4 @@ cdef class NURBSSurface(ParametricSurface):
     cdef void cnormalize_knots(self) noexcept nogil
     cdef void cnormalize_knots_u(self) noexcept nogil
     cdef void cnormalize_knots_v(self) noexcept nogil
+    cpdef double[:,:] bbox(self)
