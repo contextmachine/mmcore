@@ -1564,7 +1564,6 @@ cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, doubl
 
 
 @cython.boundscheck(False)
-@cython.wraparound(False)
 @cython.cdivision(True)
 @cython.initializedcheck(False)
 cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlpts, double[:] knot_list=None,  double[:]  add_knot_list=None, int density=1, bint is_periodic=0) :
@@ -1776,9 +1775,9 @@ cpdef void surface_deriv_cpts(int dim, int[:] degree, double[:] kv0, double[:] k
 @cython.wraparound(False)
 def surface_point_py(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u=0 , bint periodic_v=0, double[:] result=None):
     if result is None:
-        result=np.zeros((4,))
+        result=np.zeros((3,))
 
-    surface_point(n,p,U,m,q,V,Pw,u,v,periodic_u,periodic_v,&result[0])
+    surface_point(n,p,U,m,q,V,Pw,u,v,periodic_u,periodic_v,result)
     return np.array(result)
 
 

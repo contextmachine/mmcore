@@ -446,8 +446,7 @@ cdef class ParametricSurface:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
-    @cython.initializedcheck(False)
-    cdef void cevaluate(self, double u, double v,double[:] result):
+    cdef void cevaluate(self, double u, double v,double[:] result) noexcept nogil:
         pass
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -474,7 +473,7 @@ cdef class ParametricSurface:
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     cpdef evaluate_v2(self, double u, double v):
-        cdef double[:] result=np.empty((3,))
+        cdef double[:] result=np.zeros((3,))
         self.cevaluate(u, v, result)
         return np.array(result)
     @cython.boundscheck(False)
@@ -595,13 +594,16 @@ cdef class Ruled(ParametricSurface):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
-    @cython.initializedcheck(False)
-    cdef void cevaluate(self, double u,double v, double[:] result):
+    cdef void cevaluate(self, double u,double v, double[:] result) noexcept nogil:
         cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
         cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
-        cdef double[:] temp=np.empty(3)
+        
+        cdef double[:] temp
+        with gil:
+            temp=np.zeros((3,))
         self.c0.cevaluate(u1,  temp)
         self.c1.cevaluate(u2, result)
+
         result[0] = (1. - v) * temp[0] + v * result[0]
         result[1] = (1. - v) * temp[1] + v * result[1]
         result[2] = (1. - v) * temp[2] + v * result[2]
@@ -679,11 +681,16 @@ cdef class RationalRuled(Ruled):
     @cython.wraparound(False)
     @cython.cdivision(True)
     @cython.initializedcheck(False)
-    cdef void cevaluate(self, double u,double v, double[:] result):
+    cdef void cevaluate(self, double u,double v, double[:] result) noexcept nogil:
         cdef double u1=(u*(self.c0._interval[1]-self.c0._interval[0]))+self.c0._interval[0]
         cdef double u2=(u*(self.c1._interval[1]-self.c1._interval[0]))+self.c1._interval[0]
-        cdef double[:] temp=np.empty(4)
-        cdef double[:] res=np.empty(4)
+        cdef double[:] temp
+        cdef double[:] res
+        with gil:
+
+            temp=np.empty(4)
+            res=np.empty(4)
+
         self.c0.cevaluate(u1,  temp)
         self.c1.cevaluate(u2, res)
         result[0] = (1. - v) * temp[0] + v * res[0]
@@ -718,7 +725,7 @@ cdef class BiLinear(ParametricSurface):
     @cython.wraparound(False)
     @cython.cdivision(True)
     @cython.initializedcheck(False)
-    cdef void cevaluate(self, double u,double v, double[:] result):
+    cdef void cevaluate(self, double u,double v, double[:] result) noexcept nogil:
         result[0]=v * (u * self.b11[0] + self.b01[0] * (1 - u)) + (1 - v) * (
                     u * self.b10[0] + self.b00[0] * (1 - u))
         result[1] = v * (u * self.b11[1] + self.b01[1] * (1 - u)) + (1 - v) * (

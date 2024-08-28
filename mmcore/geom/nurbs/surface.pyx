@@ -201,21 +201,14 @@ cdef class NURBSSurface(ParametricSurface):
             np.full(self._degree[1] + 1, nv - self._degree[1])
         ))
    
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    cdef void cevaluate(self, double u, double v,double[:] result) noexcept nogil:
+
+        surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, 0, 0, result)
 
 
- 
-    cdef void cevaluate(self, double u, double v,double[:] result):
-        cdef double* res=<double*>malloc(4*sizeof(double))
-        res[0]=0.
-        res[1]=0.
-        res[2]=0.
-        res[3] = 0.
-        surface_point(self._size[0],self._degree[0],self._knots_u,
-        self._size[1],self._degree[1],self._knots_v,self.control_points_view,u,v, 0, 0,res)
-        result[0]=res[0]
-        result[1] = res[1]
-        result[2] = res[2]
-        free(res)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
