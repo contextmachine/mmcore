@@ -247,6 +247,7 @@ cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_pe
         mid = (low + high) // 2
 
     return mid
+    
 cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=*)
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -275,7 +276,7 @@ cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u , bint periodic_v, double* result) :
+cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u , bint periodic_v, double[:] result) noexcept nogil :
     cdef int uspan, vspan, k, l,i,cur_l
     cdef int num_cols=4
     cdef int temp_length=(q + 1)*num_cols
@@ -283,7 +284,9 @@ cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:
     cdef double* Nv = <double*>malloc((q + 1) * sizeof(double))
     cdef double* temp = <double*>malloc(temp_length * sizeof(double))
     cdef double  w = 0.0
-
+    result[0]=0.
+    result[1]=0.
+    result[2]=0.
     uspan = find_span_inline(n, p, u, U, periodic_u)
     basis_funs(uspan, u, p, U, Nu)
 
@@ -302,14 +305,16 @@ cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:
 
     for l in range(q + 1):
         cur_l=l*num_cols
-        for i in range(num_cols):
+        for i in range(num_cols-1):
             result[i] += Nv[l] * temp[cur_l+i]
+        w+= Nv[l] * temp[cur_l+3]
 
-    w= result[3]
+
+
     result[0] /= w
     result[1] /= w
     result[2] /= w
-    result[3] /=w
+
 
     free(Nu)
     free(Nv)
