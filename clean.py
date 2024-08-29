@@ -3,6 +3,7 @@
 import os
 import glob
 import shutil
+from pathlib import Path
 
 
 def delete_files(pattern, path):
@@ -23,15 +24,22 @@ def clean_exts(exts):
         for source in ext.sources:
 
             c_file=source.replace('pyx','c')
+            cpp_file = source.replace('pyx', 'cpp')
+
             if c_file.endswith('triangle.c'):
                 pass
             else:
+
                 lib = source.replace('pyx', '*.**.so')
                 try:
                     os.remove(  c_file)
+
                     print(f"{  c_file} has been deleted.")
                 except OSError as e:
                     print(f"Error: {e.filename} - {e.strerror}.")
+                if Path(cpp_file).exists():
+                    os.remove(cpp_file)
+                    print(f"{cpp_file} has been deleted.")
                 print("/".join(lib.split('/')[:-1]))
                 delete_files( "*.so","./"+"/".join(lib.split('/')[:-1]))
 

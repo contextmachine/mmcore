@@ -93,3 +93,84 @@ double* uniqueSorted(double *arr, int n, int *new_len) {
 }
 
 
+int compare3(const void *a, const void *b) {
+    int diff = (*(int*)a - *(int*)b);
+    if (diff > 0) return 1;
+    else if (diff < 0) return -1;
+    else return 0;
+}
+
+// Function to sort and remove duplicates
+int* uniqueSortedInt(int *arr, int n, int *new_len) {
+    // If the array is empty or has one element, return it as is
+    if (n == 0) {
+        *new_len = 0;
+        return NULL;
+    }
+    if (n == 1) {
+        *new_len = 1;
+        int *result = (int*)malloc(sizeof(int));
+        result[0] = arr[0];
+        return result;
+    }
+
+    // Sort the array
+    qsort(arr, n, sizeof(int), compare3);
+
+    // Allocate memory for the unique sorted array
+    int *unique_arr = (int*)malloc(n * sizeof(int));
+    int j = 0;
+
+    // Add the first element
+    unique_arr[j++] = arr[0];
+
+    // Iterate over the sorted array and add only unique elements
+    for (int i = 1; i < n; i++) {
+        if (arr[i] != arr[i-1]) {
+            unique_arr[j++] = arr[i];
+        }
+    }
+
+    // Resize the memory to match the number of unique elements
+    unique_arr = (int*)realloc(unique_arr, j * sizeof(int));
+    *new_len = j;
+
+    return unique_arr;
+}
+
+void uniqueSortedIntEmplace(int *arr, int n, int *new_len,int *unique_arr ) {
+    // If the array is empty or has one element, return it as is
+    if (n == 0) {
+        *new_len = 0;
+        return;
+    }
+    if (n == 1) {
+        *new_len = 1;
+        int *result = (int*)malloc(sizeof(int));
+        result[0] = arr[0];
+        return ;
+    }
+
+    // Sort the array
+    qsort(arr, n, sizeof(int), compare3);
+
+    // Allocate memory for the unique sorted array
+    
+    int j = 0;
+
+    // Add the first element
+    unique_arr[j++] = arr[0];
+
+    // Iterate over the sorted array and add only unique elements
+    for (int i = 1; i < n; i++) {
+        if (arr[i] != arr[i-1]) {
+            unique_arr[j++] = arr[i];
+        }
+    }
+
+    // Resize the memory to match the number of unique elements
+    unique_arr = (int*)realloc(unique_arr, j * sizeof(int));
+    *new_len = j;
+
+   
+}

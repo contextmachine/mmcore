@@ -1,16 +1,10 @@
 #cython: language_level=3
-#cython: boundscheck=False
-#cython: wraparound=False
-#cython: cdivision=True
-#cython: nonecheck=False
-#cython: overflowcheck=False
-#cython: embedsignature=True
-#cython: infer_types=False
-#cython: initializedcheck=False
+
 
 cimport cython
 cimport numpy as cnp
 from libc.string cimport memcpy
+from libc.math cimport fabs
 cnp.import_array()
 from libc.stdlib cimport malloc,free
 cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
@@ -248,27 +242,41 @@ cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_pe
 
     return mid
     
-cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=*)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline double knot_insertion_alpha(double u, double[:] knotvector, int span, int idx, int leg)   nogil:
+@cython.initializedcheck(False)
+@cython.cdivision(True)
+cdef inline int find_multiplicity(double knot, double[:] knot_vector, double tol=1e-07) noexcept nogil:
+    cdef int mult=0
+    cdef int l=knot_vector.shape[0]
+    cdef int i
+    cdef double difference
+    for i in range(l):
+        difference=knot - knot_vector[i]
+        if fabs(difference) <= tol:
+            mult += 1
+    return mult
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef inline double knot_insertion_alpha(double u, double[:] knotvector, int span, int idx, int leg)  noexcept nogil:
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline double knot_removal_alpha_i(double u, int degree, double[:] knotvector, int num, int idx)   nogil:
+cdef inline double knot_removal_alpha_i(double u, int degree, double[:] knotvector, int num, int idx) noexcept  nogil:
     return (u - knotvector[idx]) / (knotvector[idx + degree + 1 + num] - knotvector[idx])
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline double knot_removal_alpha_j(double u, int degree, double[:] knotvector, int num, int idx)  nogil:
+cdef inline double knot_removal_alpha_j(double u, int degree, double[:] knotvector, int num, int idx) noexcept  nogil:
     return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
 
 cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlpts, double[:] knot_list=?,  double[:] add_knot_list=?, int density=*, bint is_periodic=*)
 
 cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, double tol=*, int num=*,bint is_periodic=*)
 
-cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r) 
+cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r) noexcept nogil
 
-cpdef knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*, double[:,:] result=?)
+cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*, double[:,:] result=?) noexcept nogil
 
 
 cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots_v, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil

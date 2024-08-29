@@ -1,12 +1,5 @@
 #cython: language_level=3
-#cython: boundscheck=False
-#cython: wraparound=False
-#cython: cdivision=True
-#cython: nonecheck=False
-#cython: overflowcheck=False
-#cython: embedsignature=True
-#cython: infer_types=False
-#cython: initializedcheck=False
+
 
 
 cimport cython
@@ -1392,25 +1385,11 @@ cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noex
     result[2]=point[2]/w
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.initializedcheck(False)
-@cython.cdivision(True)
-cpdef int find_multiplicity(double knot, double[:] knot_vector, double tol=1e-07):
-    cdef int mult=0
-    cdef int l=knot_vector.shape[0]
-    cdef int i
-    cdef double difference
-    for i in range(l):
-        difference=knot - knot_vector[i]
-        if fabs(difference) <= tol:
-            mult += 1
-    return mult
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef  knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0,double[:, :] result=None):
+cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0,double[:, :] result=None) noexcept nogil:
    
     cdef int n = ctrlpts.shape[0]
     if span ==0:
@@ -1427,7 +1406,8 @@ cpdef  knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, do
     cdef int i, j, L, idx
     cdef double alpha
     if result is None:
-        result = np.zeros((nq, dim), dtype=np.float64)
+        with gil:
+         result = np.zeros((nq, dim), dtype=np.float64)
 
     
     for i in range(span - degree + 1):
@@ -1453,13 +1433,15 @@ cpdef  knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, do
     
     free(temp)
 
-    return np.asarray(result)
+    return result
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r):
+cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r) noexcept nogil:
     cdef int kv_size = knotvector.shape[0]
-    cdef double[:] kv_updated = np.zeros(kv_size + r, dtype=np.float64)
+    cdef double[:]  kv_updated
+    with gil:
+      kv_updated  = np.zeros(kv_size + r, dtype=np.float64)
     
     cdef int i
     for i in range(span + 1):
@@ -1470,8 +1452,9 @@ cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int 
         kv_updated[i + r] = knotvector[i]
     
     return kv_updated
-
-cdef inline double point_distance(double* a, double* b ,int dim):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef inline double point_distance(double* a, double* b ,int dim) noexcept nogil:
     cdef int i
     cdef double temp=0.
     for i in range(dim):
