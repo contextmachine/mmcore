@@ -1,12 +1,3 @@
-# cython: language_level=3
-# cython: boundscheck=False
-# cython: wraparound=False
-# cython: cdivision=True
-# cython: nonecheck=False
-# cython: overflowcheck=False
-# cython: embedsignature=True
-# cython: infer_types=False
-# cython: initializedcheck=False
 # distutils: language = c++
 from libcpp.vector cimport vector
 cimport cython
@@ -18,6 +9,9 @@ cimport numpy as cnp
 import numpy as np
 from libc.string cimport memcpy
 cnp.import_array()
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void aabb(double[:,:] points, double[:,:] min_max_vals) noexcept nogil:
     """
     AABB (Axis-Aligned Bounding Box) of a point collection.
@@ -97,28 +91,43 @@ cdef class NURBSSurface(ParametricSurface):
         return np.array(self._knots_v)
     @property
     def control_points(self):
-        cdef cnp.ndarray[ndim=2,dtype=double] cp = self.control_points_flat_w[...,:-1]
+        cdef double w;
+        cdef int i,j
+        cdef double[:,:,:] pts=self.control_points_view[...,:3].copy()
+        for i in range(self.control_points_view.shape[0]):
+            for j in range(self.control_points_view.shape[1]):
+                w=self.control_points_view[i,j,3]
+                if w!=1.:
 
-        return cp.reshape((self._size[0],self._size[1],3))
+                    pts[i,j,0]/=w
+                    pts[i,j,1]/=w
+                    pts[i,j,2]/=w
+
+        return pts
 
 
     @property
     def control_points_flat(self):
-        cdef cnp.ndarray[ndim=2,dtype=double]  cp =self.control_points_flat_w[...,:3]
-        cp/= np.reshape(self.control_points_flat_w[...,3], (self.control_points_flat_view.shape[0],1))
-
-
-        return cp
+        cdef double w;
+        cdef int i
+        cdef double[:,:] pts=self.control_points_flat_view[...,:3].copy()
+        for i in range(self.control_points_flat_view.shape[0]):
+            w=self.control_points_flat_view[i,3]
+            if w!=1.:
+                pts[i,0]/=w
+                pts[i,1]/=w
+                pts[i,2]/=w
+        return pts
     @property
     def control_points_flat_w(self):
-        cdef cnp.ndarray[ndim=2,dtype=double] cp = np.array(self.control_points_flat_view)
-        return cp
+        
+        return self.control_points_flat_view
     @property
     def shape(self):
         return tuple(self._size)
     @property
     def control_points_w(self):
-        return np.array(self.control_points_view)
+        return self.control_points_view
     
     @knots_v.setter
     def knots_v(self,val):
@@ -134,14 +143,18 @@ cdef class NURBSSurface(ParametricSurface):
         self._degree[1]=val[1]
         self.generate_knots_u()
         self.generate_knots_v()
-        
-        
-    cpdef void _update_interval(self):
+
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void _update_interval(self) noexcept nogil:
         self._interval[0][0] = self._knots_u[self._degree[0]]
         self._interval[0][1] = self._knots_u[self._knots_u.shape[0] - self._degree[0]-1 ]
         self._interval[1][0] = self._knots_v[self._degree[1]]
         self._interval[1][1] = self._knots_v[self._knots_v.shape[0] - self._degree[1]-1 ]
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cdef void generate_knots_u(self):
         """
         This function generates default knots based on the number of control points
@@ -171,7 +184,9 @@ cdef class NURBSSurface(ParametricSurface):
             np.full(self._degree[0] + 1, nu - self._degree[0])
         ))
    
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cdef void generate_knots_v(self):
         """
         This function generates default knots based on the number of control points
@@ -205,7 +220,6 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cevaluate(self, double u, double v,double[:] result) noexcept nogil:
-
         surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, 0, 0, result)
 
 
@@ -213,7 +227,7 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.nonecheck(False)
-    cdef NURBSSurface ccopy(self):
+    cdef NURBSSurface ccopy(self) :
         cdef int n_ctrlpts_u = self._size[0]
         cdef int n_ctrlpts_v = self._size[1]
         cdef int n_knots_u = self._knots_u.shape[0]
@@ -228,6 +242,7 @@ cdef class NURBSSurface(ParametricSurface):
             free(new_control_points_arr)
             free(new_knots_u)
             free(new_knots_v)
+            
             raise MemoryError("Failed to allocate memory for surface copy")
 
         # Copy data using memcpy for efficiency
@@ -249,9 +264,9 @@ cdef class NURBSSurface(ParametricSurface):
 
         # Copy interval
         new_surface._interval = self._interval.copy()
-
-
+        
         return new_surface
+        
     cdef void realloc_control_points(self, size_t new_size_u, size_t new_size_v ) noexcept nogil:
 
         self._control_points_arr= <double*> realloc(self._control_points_arr, new_size_u*new_size_v*4*sizeof(double))
@@ -261,8 +276,11 @@ cdef class NURBSSurface(ParametricSurface):
         self._size[0]=new_size_u
         self._size[1] = new_size_v
 
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cdef void cnormalize_knots_u(self) noexcept nogil:
+
         cdef double mx=self._knots_u[self._knots_u.shape[0]-1]
         cdef double mn=self._knots_u[0]
         cdef double d=mx-mn
@@ -271,6 +289,9 @@ cdef class NURBSSurface(ParametricSurface):
         for i in range(self._knots_u.shape[0]):
             self._knots_u[i]=((self._knots_u[i]-mn)/d)
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cdef void cnormalize_knots_v(self) noexcept nogil:
         cdef double mx = self._knots_v[self._knots_v.shape[0] - 1]
         cdef double mn = self._knots_v[0]
@@ -279,12 +300,17 @@ cdef class NURBSSurface(ParametricSurface):
         for i in range(self._knots_v.shape[0]):
             self._knots_v[i] = ((self._knots_v[i] - mn) / d)
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cdef void cnormalize_knots(self) noexcept nogil:
         self.cnormalize_knots_u()
         self.cnormalize_knots_v()
 
-
-    def normalize_knots(self):
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def normalize_knots(self) :
         self.cnormalize_knots()
         self._update_interval()
 
@@ -296,26 +322,29 @@ cdef class NURBSSurface(ParametricSurface):
         # For example, if there was a cached evaluation function:
         # new_surface._evaluate_cached = functools.lru_cache(maxsize=None)(new_surface._evaluate)
         return new_surface
+
+
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
     cpdef void insert_knot_u(self, double t, int count):
-
-
+        cdef int v
 
         cdef int new_count_u = self._size[0] + count
         cdef int new_count_v = self._size[1]
+
         cdef double[:,:,:] cpts=self.control_points_view.copy()
-        
         cdef int span = find_span_inline(self._size[0]-1, 
             self._degree[0], t, self._knots_u, 0
         )
 
         # Compute new knot vector
         cdef double[:] k_v = knot_insertion_kv(self._knots_u, t, span, count)
-        cdef int s_u = find_multiplicity(t, self._knots_u)
-
+        cdef int s_u = find_multiplicity(t, self._knots_u,1e-8)
+      
         self._control_points_arr= <double*> realloc(self._control_points_arr, new_count_u*new_count_v*4*sizeof(double))
+        
         self.control_points_view=<double[:new_count_u,:new_count_v,:4]>self._control_points_arr
         self.control_points_flat_view = <double[:(new_count_u*new_count_v), :4]>self._control_points_arr
 
@@ -331,15 +360,20 @@ cdef class NURBSSurface(ParametricSurface):
             s_u,
             span,0,  self.control_points_view[:,v,:])
 
-
-
-
         # Update surface properties
         free(&self._knots_u[0])
         self._knots_u = k_v
         self._size[0] = new_count_u
         self._size[1] = new_count_v
         self._update_interval()
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)    
+    cdef void cbbox(self, double[:,:] result) noexcept nogil:
+        result[:]=0.
+        aabb(self.control_points_flat_view, result)
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -354,8 +388,8 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
-    cpdef void insert_knot_v(self, double t, int count):
-
+    cpdef void insert_knot_v(self, double t, int count) :
+        cdef int u
 
 
         cdef int new_count_u = self._size[0] 
@@ -366,11 +400,12 @@ cdef class NURBSSurface(ParametricSurface):
             self._degree[1], t, self._knots_v, 0
         )
 
-    # Compute new knot vector
+        # Compute new knot vector
         cdef double[:] k_v = knot_insertion_kv(self._knots_v, t, span, count)
-        cdef int s_v = find_multiplicity(t, self._knots_v)
+        cdef int s_v = find_multiplicity(t, self._knots_v,1e-8)
 
         self._control_points_arr= <double*> realloc(self._control_points_arr, new_count_u*new_count_v*4*sizeof(double))
+     
         self.control_points_view=<double[:new_count_u,:new_count_v,:4]>self._control_points_arr
         self.control_points_flat_view = <double[:(new_count_u*new_count_v), :4]>self._control_points_arr
 
@@ -384,12 +419,6 @@ cdef class NURBSSurface(ParametricSurface):
             count,
             s_v,
             span,0,self.control_points_view[u,:,:])
-
-
-
-        # Update surface properties
-
-
 
         free(&self._knots_v[0])
         self._knots_v = k_v
@@ -412,7 +441,7 @@ cpdef tuple split_surface_u(NURBSSurface obj, double param) :
     cdef int degree_v = obj._degree[1]
 
     ks = find_span_inline(size_u, degree_u, param, knots_u, 0) - degree_u + 1
-    s = find_multiplicity(param, knots_u)
+    s = find_multiplicity(param, knots_u, 1e-8)
     r = degree_u - s
 
     # Create a copy of the original surface and insert knot
@@ -505,7 +534,7 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param) :
     # Add param to the end of surf1_kv and beginning of surf2_kv
     cdef int j
     surf1_kv.push_back(param)
-    for j in range(degree_u+1):
+    for j in range(degree_v+1):
 
         surf2_kv.insert(surf2_kv.begin(), param);
 
@@ -519,6 +548,7 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param) :
 
     cdef double[:] surf1_kvm=np.empty(surf1_kv.size())
     cdef double[:] surf2_kvm=np.empty(surf2_kv.size())
+
     for i in range(surf1_kv.size()):
         surf1_kvm[i]=surf1_kv[i]
     for i in range(surf2_kv.size()):

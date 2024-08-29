@@ -25,7 +25,8 @@ define_macros = [
     ('TRILIBRARY', 1),
     ('ANSI_DECLARATORS', 1),
 ]
-
+if sys.platform == 'darwin':
+    compile_args += ['-mcpu=native', '-march=armv8-a+simd']
 
 # see pyproject.toml for other metadata
 
@@ -33,6 +34,28 @@ define_macros = [
 
 
 extensions = [
+    
+    
+    
+     Extension(
+        "mmcore.numeric.intersection.ssx.cydqr",
+        ["mmcore/numeric/intersection/ssx/cydqr.pyx"],
+       
+         language="c++",
+        extra_compile_args=["-std=c++11"]+compile_args,
+             extra_link_args=link_args,
+        include_dirs=include_dirs),
+    
+    
+    
+    Extension(
+        "mmcore.numeric.algorithms.cygjk",
+        ["mmcore/numeric/algorithms/cygjk.pyx"],
+       
+         language="c++",
+        extra_compile_args=["-std=c++11"]+compile_args,
+             extra_link_args=link_args,
+        include_dirs=include_dirs),
     Extension(
         "mmcore.numeric.vectors",
         ["mmcore/numeric/vectors.pyx"],
@@ -159,7 +182,8 @@ Extension(
         ["mmcore/numeric/integrate/romberg.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
-        include_dirs=include_dirs)
+        include_dirs=include_dirs),
+    
 ]
 #Extension(
 #        "mmcore.geom.mesh.mesh",
@@ -196,12 +220,12 @@ logo=r"""
 
 
 
-
+compiler_directives=dict(boundscheck=False,wraparound=False,cdivision=True,nonecheck=False,overflowcheck=False,initializedcheck=False,embedsignature=True)
 
 if __name__ == "__main__":
 
     print(logo)
-    ext_modules = cythonize(extensions, include_path=[numpy.get_include(), 'mmcore/cmmcore'])
+    ext_modules = cythonize(extensions, include_path=[numpy.get_include()], compiler_directives=compiler_directives)
     dist = Distribution({"ext_modules": ext_modules})
     cmd = build_ext(dist)
     cmd.ensure_finalized()
