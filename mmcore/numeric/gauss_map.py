@@ -1,8 +1,12 @@
-from scipy.special import comb
+from __future__ import annotations
 
 import numpy as np
-from mmcore.numeric.monominal import bezier_to_monomial, monomial_to_bezier
 
+from mmcore.numeric.intersection.ssx.cydqr import gjk
+from mmcore.numeric.monominal import bezier_to_monomial, monomial_to_bezier
+from mmcore.numeric.vectors import unit,cartesian_to_spherical
+
+from scipy.spatial import ConvexHull
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -50,23 +54,40 @@ def normalize_polynomial(v, epsilon=1e-10):
 
 
 
-def compute_gauss_map(control_points, target_degree=7):
+def compute_gauss_map(control_points):
     """Compute the Gauss map for a Bézier patch with degree elevation."""
     F = bezier_to_monomial(control_points)
     Fu = compute_partial_derivative(F, "u")
     Fv = compute_partial_derivative(F, "v")
-    print(Fu, Fv)
+
     N = cross_product(Fu, Fv)
 
-    print(N)
+
     # N_normalized = normalize_polynomial(N)
     # print(N_normalized)
     # N_normalized[np.isnan(N_normalized)]=0.
     gauss_map = monomial_to_bezier(N)
 
-    return  normalize_polynomial(gauss_map, 1e-7)
+    return  gauss_map
 
 
+class GaussMap:
+    #__slots__='_map','_unit_map', '_polar_map','_polar_convex_hull'
+    def __init__(self, bern_coeffs):
+        self._shape=bern_coeffs.shape
+        self._map = bern_coeffs
+        self.solve()
+
+
+
+    def solve(self):
+        self._polar_map_flat = np.array(cartesian_to_spherical(self._map.reshape((-1, 3))))
+        self._unit_polar_map = self._polar_map_flat.copy()
+        self._unit_polar_map[..., -1] = 1.
+        self.polar_convex_hull=ConvexHull(self._unit_polar_map)
+
+    def intersects(self, other:GaussMap):
+        gjk(self.polar_convex_hull.points[self.polar_convex_hull.vertices])
 
 
 """
