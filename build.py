@@ -1,3 +1,4 @@
+import platform
 import sys
 
 if sys.platform.startswith('win'):
@@ -26,7 +27,7 @@ define_macros = [
     ('ANSI_DECLARATORS', 1),
 ]
 if sys.platform == 'darwin':
-    compile_args += ['-mcpu=native', '-march=armv8-a+simd']
+    compile_args += ['-mcpu=native']
 
 # see pyproject.toml for other metadata
 
@@ -207,13 +208,14 @@ extensions.append(Extension(
     define_macros=define_macros,
     include_dirs=include_dirs))
 
-logo=r"""
+logo=rf"""
                                                 
        ____ ___  ____ ___  _________  ________ 
       / __ `__ \/ __ `__ \/ ___/ __ \/ ___/ _ \
      / / / / / / / / / / / /__/ /_/ / /  /  __/
     /_/ /_/ /_/_/ /_/ /_/\___/\____/_/   \___/ 
-                                               
+
+{platform.uname()}                                       
                                                 
 """
 
