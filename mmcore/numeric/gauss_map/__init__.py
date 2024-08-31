@@ -64,7 +64,7 @@ def compute_gauss_map(control_points, target_degree=7):
     # N_normalized[np.isnan(N_normalized)]=0.
     gauss_map = monomial_to_bezier(N)
 
-    return gauss_map, normalize_polynomial(gauss_map, 1e-7)
+    return  normalize_polynomial(gauss_map, 1e-7)
 
 
 
