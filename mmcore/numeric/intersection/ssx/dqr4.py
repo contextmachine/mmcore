@@ -207,12 +207,10 @@ def detect_intersection(surf1, surf2, tolerance=1e-3):
     return ints
 
 def bbox(surf: NURBSSurface):
-        return surf.bbox()
+    return surf.bbox()
 
 def convex_hull(surf: NURBSSurface):
-        # print(np.array(surf.control_points_flat[...,:3]))
-
-        return ConvexHull(np.array(surf.control_points_flat[..., :3]))
+    return ConvexHull(np.array(surf.control_points_flat[..., :3]))
 
 if __name__ == "__main__":
     # runfile('/Users/andrewastakhov/dev/mmcore-dev/mmcore/numeric/intersection/ssx/dqr4.py', wdir='/Users/andrewastakhov/dev/mmcore-dev')
