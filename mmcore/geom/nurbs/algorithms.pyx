@@ -977,6 +977,9 @@ cdef public double[31][31] binomial_coefficients=[[1.0,
 @cython.cdivision(True)
 cdef public double binomial_coefficient(int i, int j) noexcept nogil:
     return binomial_coefficients[i][j]
+@cython.cdivision(True)
+cpdef double binomial_coefficient_py(int i, int j):
+    return binomial_coefficients[i][j]
 
 
 @cython.cdivision(True)
