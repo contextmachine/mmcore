@@ -92,7 +92,42 @@ double* uniqueSorted(double *arr, int n, int *new_len) {
     return unique_arr;
 }
 
+int uniqueSortedByRef(double *arr, int n, int *new_len, double *result) {
+    // If the array is empty or has one element, return it as is
+    if (n == 0) {
+        *new_len = 0;
+        return 0;
+    }
+    if (n == 1) {
+        *new_len = 1;
+        result = (double*)realloc(result, sizeof(double));
+        result[0] = arr[0];
+        return 1;
+    }
 
+    // Sort the array
+    qsort(arr, n, sizeof(double), compare2);
+
+    // Allocate memory for the unique sorted array
+    result = (double*)realloc(result,n * sizeof(double));
+    int j = 0;
+
+    // Add the first element
+    result[j++] = arr[0];
+
+    // Iterate over the sorted array and add only unique elements
+    for (int i = 1; i < n; i++) {
+        if (arr[i] != arr[i-1]) {
+            result[j++] = arr[i];
+        }
+    }
+
+    // Resize the memory to match the number of unique elements
+    result = (double*)realloc(result, j * sizeof(double));
+    *new_len = j;
+
+    return 1;
+}
 int compare3(const void *a, const void *b) {
     int diff = (*(int*)a - *(int*)b);
     if (diff > 0) return 1;
