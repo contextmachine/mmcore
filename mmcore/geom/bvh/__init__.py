@@ -31,89 +31,6 @@ class BVHNode:
         self.object = object  # None for internal nodes, leaf node holds the object
 
 
-class BoundingRect:
-    def __init__(self, min_point, max_point):
-        self.min_point = min_point  # Should be a tuple (x_min, y_min, z_min)
-        self.max_point = max_point  # Should be a tuple (x_max, y_max, z_max)
-        self.center = np.average([min_point, max_point], axis=0)
-        self.dims = np.array(
-            [
-                self.max_point[0] - self.min_point[0],
-                self.max_point[1] - self.min_point[1]
-
-            ]
-        )
-    def area(self):
-        return self.dims[0]*  self.dims[1]
-    def intersect(self, other):
-        """Check if this bounding box intersects with another"""
-        return (
-            self.min_point[0] <= other.max_point[0]
-            and self.max_point[0] >= other.min_point[0]
-            and self.min_point[1] <= other.max_point[1]
-            and self.max_point[1] >= other.min_point[1]
-
-        )
-
-    def intersection(self, other):
-        """
-        Calculate the intersection of this bounding box with another bounding box.
-
-        :param other: The other bounding box to intersect with.
-        :return: A new BoundingBox representing the intersection, or None if there is no intersection.
-        """
-        # Calculate the maximum of the minimum points for each dimension
-        max_min_x = max(self.min_point[0], other.min_point[0])
-        max_min_y = max(self.min_point[1], other.min_point[1])
-
-
-        # Calculate the minimum of the maximum points for each dimension
-        min_max_x = min(self.max_point[0], other.max_point[0])
-        min_max_y = min(self.max_point[1], other.max_point[1])
-
-
-        # Check if the bounding boxes intersect
-        if max_min_x > min_max_x or max_min_y > min_max_y :
-            return None
-
-        # Create and return the intersection bounding box
-        intersection_min = (max_min_x, max_min_y)
-        intersection_max = (min_max_x, min_max_y)
-        return BoundingBox(intersection_min, intersection_max)
-
-    def merge(self, other):
-        """Create a new bounding box that contains both this and another bounding box"""
-        new_min = (
-            min(self.min_point[0], other.min_point[0]),
-            min(self.min_point[1], other.min_point[1])
-
-        )
-        new_max = (
-            max(self.max_point[0], other.max_point[0]),
-            max(self.max_point[1], other.max_point[1])
-
-        )
-        return BoundingBox(new_min, new_max)
-
-    def contains_point(self, point):
-        return all(
-            (
-                self.min_point[0] <= point[0],
-                self.min_point[1] <= point[1],
-
-                self.max_point[0] >= point[0],
-                self.max_point[1] >= point[1]
-
-            )
-        )
-
-    def __repr__(self):
-        return f"BoundingBox({self.min_point}, {self.max_point})"
-    def __or__(self, other):
-        return self.merge(other)
-    def __and__(self, other):
-        return self.intersection(other)
-
 
 class BoundingBox:
     def __init__(self, min_point, max_point):
@@ -230,6 +147,8 @@ def split_objects(objects):
     return objects[:mid_index], objects[mid_index:]
 
 
+def is_leaf(node: BVHNode):
+    return node.object is not None
 def build_bvh(objects):
     """Recursively build the BVH tree given a list of objects with bounding boxes"""
     if len(objects) == 1:
@@ -244,50 +163,6 @@ def build_bvh(objects):
     # Create and return internal node
     return BVHNode(merged_bounding_box, left=left_node, right=right_node)
 
-def intersect_bvh(node1, node2):
-    """
-    Find all intersecting bounding boxes between two BVH trees.
-    :param node1: Root of the first BVH tree
-    :param node2: Root of the second BVH tree
-    :return: List of intersecting bounding boxes
-
-    Note
-    ----
-    The `intersect_bvh` function efficiently finds all intersecting bounding boxes between two BVH trees
-    by simultaneously traversing both trees and pruning out non-intersecting subtrees. It returns a list of merged
-    bounding boxes representing the intersections.
-
-    The time complexity of this algorithm is O(n * m) in the worst case, where n and m are the number of nodes in the
-    two trees, respectively. However, in practice, the performance is much better due to the pruning of
-    non-intersecting subtrees, leading to a significant reduction in the number of comparisons.
-    """
-    intersections = []
-    stack = [(node1, node2)]
-
-    while stack:
-        n1, n2 = stack.pop()
-
-        if not n1.bounding_box.intersect(n2.bounding_box):
-            continue
-
-        if is_leaf(n1) and is_leaf(n2):
-
-            intersections.append(n1.bounding_box.intersection(n2.bounding_box))
-        else:
-            if not is_leaf(n1):
-                if not is_leaf(n2):
-                    stack.append((n1.left, n2.left))
-                    stack.append((n1.left, n2.right))
-                    stack.append((n1.right, n2.left))
-                    stack.append((n1.right, n2.right))
-                else:
-                    stack.append((n1.left, n2))
-                    stack.append((n1.right, n2))
-            else:
-                stack.append((n1, n2.left))
-                stack.append((n1, n2.right))
-
-    return intersections
 
 def intersect_bvh_objects(node1, node2):
     """
@@ -334,12 +209,31 @@ def intersect_bvh_objects(node1, node2):
     return intersections
 
 
+def intersect_bvh(node1, node2):
+    """
+    Find all intersecting bounding boxes between two BVH trees.
+    :param node1: Root of the first BVH tree
+    :param node2: Root of the second BVH tree
+    :return: List of intersecting bounding boxes
 
-def contains_point(bvh_root, pt):
-    results=[]
-    pt_box = BoundingBox(pt, pt)
-    traverse_bvh(bvh_root, pt_box,   results)
-    return results
+    Note
+    ----
+    The `intersect_bvh` function efficiently finds all intersecting bounding boxes between two BVH trees
+    by simultaneously traversing both trees and pruning out non-intersecting subtrees. It returns a list of merged
+    bounding boxes representing the intersections.
+
+    The time complexity of this algorithm is O(n * m) in the worst case, where n and m are the number of nodes in the
+    two trees, respectively. However, in practice, the performance is much better due to the pruning of
+    non-intersecting subtrees, leading to a significant reduction in the number of comparisons.
+    """
+
+    return [n1.bounding_box.intersection(n2.bounding_box) for n1,n2 in intersect_bvh_objects(node1,node2)]
+
+
+
+
+
+
 
 
 def traverse_bvh(node, target_bbox, results):
@@ -354,8 +248,13 @@ def traverse_bvh(node, target_bbox, results):
         traverse_bvh(node.right, target_bbox, results)
 
 
-def is_leaf(node: BVHNode):
-    return node.object is not None
+
+def contains_point(bvh_root, pt):
+    results=[]
+    pt_box = BoundingBox(pt, pt)
+    traverse_bvh(bvh_root, pt_box,   results)
+    return results
+
 
 
 
@@ -413,86 +312,13 @@ def traverse_all_objects_in_node(bvh_root, result):
 
 
 
-
-def sd_triangle(p: np.array, a: np.array, b: np.array, c: np.array):
-    ba = b - a
-    pa = p - a
-    cb = c - b
-    pb = p - b
-    ac = a - c
-    pc = p - c
-    nor = np.cross(ba, ac)
-    S = _check_normals(p, a, b, c, np.cross(ba, c - a))
-    condition = (
-        sign_func(scalar_dot(np.cross(ba, nor), pa))
-        + sign_func(scalar_dot(np.cross(cb, nor), pb))
-        + sign_func(scalar_dot(np.cross(ac, nor), pc))
-        < 2.0
-    )
-
-    if condition:
-        return (
-            np.sqrt(
-                min(
-                    min(
-                        dot2(ba * clamp(scalar_dot(ba, pa) / dot2(ba), 0.0, 1.0) - pa),
-                        dot2(cb * clamp(scalar_dot(cb, pb) / dot2(cb), 0.0, 1.0) - pb),
-                    ),
-                    dot2(ac * clamp(scalar_dot(ac, pc) / dot2(ac), 0.0, 1.0) - pc),
-                )
-            )
-            * S
-        )
-    else:
-        return np.sqrt(scalar_dot(nor, pa) * scalar_dot(nor, pa) / dot2(nor)) * S
-
 def sdBox(p: np.array, b: np.array):
     d = np.abs(p) - b
     return min(np.max([d[0], d[1], d[2]]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
 
 
 
-def sd_mesh(node, target_point, min_dist=np.inf):
-    target_point = (
-        target_point if isinstance(target_point, np.ndarray) else np.array(target_point)
-    )
-    minDist = min_dist
-    _sign = 1
-    stack = [node]
-    object3d = None
-    while True:
-        node = stack.pop()
-        sdb = sdBox(
-            node.bounding_box.center - target_point,
-            node.bounding_box.dims / 2,
-        )
 
-        if sdb <= abs(minDist):
-
-            if node.object is not None:
-
-                tri = node.object
-
-                _minDist = sd_triangle(target_point, tri.a, tri.b, tri.c)
-                if abs(_minDist) < abs(minDist):
-                    minDist = _minDist
-                    object3d = tri
-
-            else:
-                i = sorted([0, 1, 2], key=lambda x: node.bounding_box.dims[x])[-1]
-                closest = (
-                    [node.right, node.left]
-                    if target_point[i] < node.bounding_box.center[i]
-                    else [node.left, node.right]
-                )
-                for obj in closest:
-                    if obj is not None:
-
-                        stack.append(obj)
-
-        if len(stack) == 0:
-            break
-    return minDist, object3d
 def traverse_all_bbox(bvh_root, result):
     result.append(
         [tuple(bvh_root.bounding_box.min_point), tuple(bvh_root.bounding_box.max_point)]

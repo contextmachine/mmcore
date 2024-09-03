@@ -1,29 +1,20 @@
 #include <array>
-#include <cstdint>
 #include <vector>
 #include <limits>
 #include <cmath>
 #include <algorithm>
-
-#if defined(__ARM_NEON)
-#include <arm_neon.h>
-#elif defined(__AVX__)
-#include <immintrin.h>
-#endif
-
+#include <stdexcept>
 
 template<typename T>
 using Vec3 = std::array<T, 3>;
 
-typedef Vec3<float> Vec3_f;
-typedef Vec3<double> Vec3_d;
-
+using Vec3f = Vec3<float>;
+using Vec3d = Vec3<double>;
 
 template<typename T>
 inline T dot(const Vec3<T>& a, const Vec3<T>& b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
-
 
 template<typename T>
 inline Vec3<T> cross(const Vec3<T>& a, const Vec3<T>& b) {
@@ -40,29 +31,23 @@ inline Vec3<T> operator-(const Vec3<T>& a, const Vec3<T>& b) {
 }
 
 template<typename T>
-inline int support_vector(const std::vector<Vec3<T>>& vertices, const Vec3<T>& d, Vec3<T>& support) {
+inline int supportVector(const std::vector<Vec3<T>>& vertices, const Vec3<T>& d) {
     T highest = -std::numeric_limits<T>::max();
-    support[0]=0;
-    support[1]=0;
-    support[2]=0;
-    int support_i = -1;
+    int supportIndex = -1;
 
     for (size_t i = 0; i < vertices.size(); ++i) {
-        T dot_value = dot(vertices[i], d);
-        if (dot_value > highest) {
-            highest = dot_value;
-            support[0] = vertices[i][0];
-            support[1] = vertices[i][1];
-            support[2] = vertices[i][2];
-            support_i = i;
+        T dotValue = dot(vertices[i], d);
+        if (dotValue > highest) {
+            highest = dotValue;
+            supportIndex = static_cast<int>(i);
         }
     }
 
-    return support_i;
+    return supportIndex;
 }
 
 template<typename T>
-bool handle_simplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol) {
+bool handleSimplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol) {
     switch (simplex.size()) {
         case 2: {
             const auto& a = simplex[1];
@@ -93,12 +78,12 @@ bool handle_simplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol) {
                     d = cross(cross(ac, ao), ac);
                 } else {
                     simplex.erase(simplex.begin());
-                    return handle_simplex<T>(simplex, d, tol);
+                    return handleSimplex(simplex, d, tol);
                 }
             } else {
                 if (dot(cross(ab, abc), ao) > tol) {
                     simplex.erase(simplex.begin());
-                    return handle_simplex<T>(simplex, d, tol);
+                    return handleSimplex(simplex, d, tol);
                 } else {
                     if (dot(abc, ao) > tol) {
                         d = abc;
@@ -114,26 +99,26 @@ bool handle_simplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol) {
             const auto& a = simplex[3];
             const auto& b = simplex[2];
             const auto& c = simplex[1];
-            const auto& d_point = simplex[0];
+            const auto& dPoint = simplex[0];
 
             Vec3<T> ab = b - a;
             Vec3<T> ac = c - a;
-            Vec3<T> ad = d_point - a;
+            Vec3<T> ad = dPoint - a;
             Vec3<T> ao = {-a[0], -a[1], -a[2]};
 
-            Vec3<T> abc = cross<T>(ab, ac);
-            Vec3<T> acd = cross<T>(ac, ad);
-            Vec3<T> adb = cross<T>(ad, ab);
+            Vec3<T> abc = cross(ab, ac);
+            Vec3<T> acd = cross(ac, ad);
+            Vec3<T> adb = cross(ad, ab);
 
-            if (dot(abc, ao) > tol) {
+            if (dot(abc, ao) > 0) {
                 simplex.erase(simplex.begin());
-                return handle_simplex<T>(simplex, d, tol);
-            } else if (dot(acd, ao) > tol) {
+                return handleSimplex(simplex, d, tol);
+            } else if (dot(acd, ao) > 0) {
                 simplex.erase(simplex.begin() + 1);
-                return handle_simplex<T>(simplex, d, tol);
-            } else if (dot(adb, ao) > tol) {
+                return handleSimplex(simplex, d, tol);
+            } else if (dot(adb, ao) > 0) {
                 simplex.erase(simplex.begin() + 2);
-                return handle_simplex<T>(simplex, d, tol);
+                return handleSimplex(simplex, d, tol);
             } else {
                 return true;
             }
@@ -142,78 +127,63 @@ bool handle_simplex(std::vector<Vec3<T>>& simplex, Vec3<T>& d, T tol) {
     return false;
 }
 
-inline bool isVisited(bool* arr, const size_t cols, const size_t i, const size_t j) {
-        return arr[i * cols + j];
-    };
-inline Vec3_d& getVisited(Vec3_d* tt, const size_t cols, const size_t i, const size_t j) {
-        return tt[i * cols + j];
-    };
-inline void setVisited(bool* arr, Vec3<double>* tt, const size_t cols, const size_t i, const size_t j, const Vec3_d& val) {
-        arr[i * cols + j]=true;
-        tt[i*cols+j]=val;
-};
-bool gjk_collision_detection(const std::vector<Vec3<double>>& vertices1, const std::vector<Vec3<double>>& vertices2, double tol , size_t max_iter) {
-    if (max_iter == 0) {
-        max_iter = vertices1.size() * vertices2.size();
+template<typename T>
+bool gjk_collision_detection(const std::vector<Vec3<T>>& vertices1, const std::vector<Vec3<T>>& vertices2, T tol, size_t maxIter = 0) {
+    if (vertices1.empty() || vertices2.empty()) {
+        throw std::invalid_argument("Input vertex sets cannot be empty");
     }
-    const size_t rows=vertices1.size();
-    const size_t cols=vertices2.size();
-    bool* arr= new bool[rows * cols];
-    Vec3<double>* tt= new Vec3<double>[rows * cols];
 
-    std::vector<Vec3<double>> simplex;
-    simplex.reserve(4);  // Pre-allocate space for efficiency
+    if (maxIter == 0) {
+        maxIter = std::min(vertices1.size() * vertices2.size(), static_cast<size_t>(std::numeric_limits<size_t>::max()));
+    }
 
-    auto support = [&](const Vec3<double>& d, size_t &i_index, size_t &j_index) -> Vec3<double> {
-        Vec3<double> p1;
-        Vec3<double> p2;
-        i_index = support_vector<double>(vertices1, d, p1);
-        j_index = support_vector<double>(vertices2, {-d[0], -d[1], -d[2]}, p2);
-      
-        return p1 - p2;
-    };
-    size_t i,j;
-    Vec3<double> d = {0, 0, 1};
-    auto new_point=support(d, i,j);
-    setVisited(arr,tt,cols,i,j, new_point);
-    simplex.push_back(new_point);
-    d = {-simplex[0][0], -simplex[0][1], -simplex[0][2]};
-   
-    for (size_t iter = 0; iter < max_iter; ++iter) {
-        new_point = support(d,i,j );
-        if (isVisited(arr,cols, i,j)){
-            auto vec=new_point-getVisited(tt, cols, i,j);
+        const size_t rows = vertices1.size();
+        const size_t cols = vertices2.size();
+        std::vector<bool> visited(rows * cols, false);
+        std::vector<Vec3<T>> cache(rows * cols);
 
+        std::vector<Vec3<T>> simplex;
+        simplex.reserve(4);  // Pre-allocate space for efficiency
+
+        auto support = [&](const Vec3<T>& d) -> Vec3<T> {
+            int i = supportVector(vertices1, d);
+            int j = supportVector(vertices2, {-d[0], -d[1], -d[2]});
+            return vertices1[i] - vertices2[j];
+        };
+
+        Vec3<T> d = {1, 0, 0};
+        auto newPoint = support(d);
+        size_t index = static_cast<size_t>(supportVector(vertices1, d)) * cols + static_cast<size_t>(supportVector(vertices2, {-d[0], -d[1], -d[2]}));
+        visited[index] = true;
+        cache[index] = newPoint;
+        simplex.push_back(newPoint);
+        d = {-newPoint[0], -newPoint[1], -newPoint[2]};
+
+        for (size_t iter = 0; iter < maxIter; ++iter) {
+            newPoint = support(d);
+            index = static_cast<size_t>(supportVector(vertices1, d)) * cols + static_cast<size_t>(supportVector(vertices2, {-d[0], -d[1], -d[2]}));
             
-            if (dot(vec, vec)==0){
-                delete tt;
-                delete arr;
+            if (visited[index]) {
+                auto vec = cache[index] - newPoint;
+                auto normSquared = sqrt(vec[0]*vec[0] + vec[1]*vec[1] + vec[2]*vec[2]);
+                if (normSquared > tol) {
+                    return false;
+                }
+            } else {
+                visited[index] = true;
+                cache[index] = newPoint;
+            }
+
+            if (dot(newPoint, d) < 0) {
+                return false;
+            }
+
+            simplex.push_back(newPoint);
+
+            if (handleSimplex(simplex, d, tol)) {
                 return true;
             }
-        } else{
-            setVisited(arr,tt, cols,i,j, new_point);
         }
 
-
-        if (dot(new_point, d) < 0) {
-            delete tt;
-            delete arr;
-            return false;
-        }
-
-        simplex.push_back(new_point);
-
-        if (handle_simplex<double>(simplex, d, tol)) {
-            delete tt;
-            delete arr;
-            return true;
-        }
+        return false;
     }
-
-    delete tt;
-    delete arr;
-
-    return false;
-}
-
-

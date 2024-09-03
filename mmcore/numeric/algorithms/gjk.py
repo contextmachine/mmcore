@@ -1,7 +1,9 @@
+import warnings
+
 import numpy as np
 import sys
 
-from mmcore.numeric.vectors import scalar_dot,scalar_cross,dot
+from mmcore.numeric.vectors import scalar_dot,scalar_cross
 def dot2(v):
     return scalar_dot(v,v)
 
@@ -65,7 +67,7 @@ def support_vector(vertices: np.ndarray, d: np.ndarray) -> tuple[np.ndarray,int]
     return support,support_i
 
 
-def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=0., max_iter=None) -> bool:
+def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e-6, max_iter=None) -> bool:
     """GJK Collision Detection Algorithm
 
     :param vertices1: Vertices of the first convex shape (N x 3 for 3D)
@@ -84,14 +86,13 @@ def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=0.
         return p1 - p2, (i1, i2)
 
     # Initial direction (arbitrary)
-    d = np.array([0.0, 0.0, 1.0])
+    d = np.array([1.0, 0.0, 0.0])
     p, (i, j) = support(vertices1, vertices2, d)
     visited[i, j] = True
     visited_pts[i, j] = p
     # First point in the simplex
     simplex = [p]
-    if max_iter is None:
-        max_iter=len(vertices1)*len(vertices2)
+
     # Negate direction
     d = -simplex[0]
 
@@ -101,26 +102,32 @@ def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=0.
 
         if visited[i, j]:
             dd = visited_pts[i, j] - new_point
-            if scalar_dot(dd, dd)==0:
-               return True
-           
-           
+
+            if np.linalg.norm(dd) > tol:
+
+                return False
+
+
         else:
             visited[i, j] = True
             visited_pts[i, j] = new_point
 
         # If the new point doesn't pass the origin, no collision
         if scalar_dot(new_point, d) < 0:
+
             return False
 
         # Add new point to the simplex
         simplex.append(new_point)
 
         # Check the simplex
-        if handle_simplex(simplex, d, tol):
+        if handle_simplex(simplex, d, tol=tol):
+
             return True
+
+    warnings.warn('Max Iter')
+
     return False
-from mmcore.numeric.closest_point import closest_point_on_line
 
 
 def handle_simplex(simplex, d, tol=1e-6):
@@ -149,7 +156,7 @@ def handle_simplex(simplex, d, tol=1e-6):
         abc = scalar_cross(ab, ac)
 
         if scalar_dot(scalar_cross(abc, ac), ao) > tol:
-            if scalar_dot(ac, ao) > 0:
+            if scalar_dot(ac, ao) > tol:
                 simplex.pop(1)
                 d[:] = scalar_cross(scalar_cross(ac, ao), ac)
             else:
@@ -178,16 +185,18 @@ def handle_simplex(simplex, d, tol=1e-6):
         acd = scalar_cross(ac, ad)
         adb = scalar_cross(ad, ab)
 
-        if scalar_dot(abc, ao) > tol:
+        if scalar_dot(abc, ao) > 0:
             simplex.pop(0)
             return handle_simplex([simplex[2], simplex[1], simplex[0]], d)
-        elif scalar_dot(acd, ao) > tol:
+        elif scalar_dot(acd, ao) > 0:
             simplex.pop(1)
             return handle_simplex([simplex[2], simplex[1], simplex[0]], d)
-        elif scalar_dot(adb, ao) > tol:
+        elif scalar_dot(adb, ao) > 0:
             simplex.pop(2)
             return handle_simplex([simplex[2], simplex[1], simplex[0]], d)
         else:
-            return True
 
+            return True
+    else:
+        raise ValueError("Simplex >4")
     return False
