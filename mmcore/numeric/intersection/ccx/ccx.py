@@ -87,7 +87,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
         ...                  [1.217, 18.625, 0.0]])
         >>> pts2 = np.array([[61.974, 73.943, 0.0], [119.797, 4.443, 0.0]])
 
-        >>> from mmcore.geom.nurbs.curve import NURBSCurve
+        >>> from mmcore.geom.nurbs import NURBSCurve
         >>> nc1, nc2 = NURBSCurve(pts1, degree=1), NURBSCurve(pts2, degree=1)
         >>> ccx(nc1, nc2, tol=1e-3)
         [(0.4714, 0.1658), (0.4718, 0.1659), (1.4348, 0.3157), (1.4353, 0.3157),

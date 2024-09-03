@@ -27,6 +27,7 @@ define_macros = [
     ('ANSI_DECLARATORS', 1),
 ]
 if sys.platform == 'darwin':
+    print('Darwin')
     compile_args += ['-mcpu=native']
 
 # see pyproject.toml for other metadata
@@ -35,17 +36,28 @@ if sys.platform == 'darwin':
 
 
 extensions = [
-    
-    
-    
-     Extension(
-        "mmcore.numeric.intersection.ssx.cydqr",
-        ["mmcore/numeric/intersection/ssx/cydqr.pyx"],
-       
-         language="c++",
-        extra_compile_args=["-std=c++11"]+compile_args,
-             extra_link_args=link_args,
+
+    Extension(
+        "mmcore.geom.nurbs",
+        ["mmcore/geom/nurbs.pyx"],
+        language="c++",
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
         include_dirs=include_dirs),
+     Extension(
+        "mmcore.numeric.binom",
+        ["mmcore/numeric/binom.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs),
+     #Extension(
+     #   "mmcore.numeric.intersection.ssx.cydqr",
+     #   ["mmcore/numeric/intersection/ssx/cydqr.pyx"],
+     #
+     #    language="c++",
+     #   extra_compile_args=["-std=c++11"]+compile_args,
+     #        extra_link_args=link_args,
+     #   include_dirs=include_dirs),
     
     
     
@@ -159,25 +171,9 @@ Extension(
         include_dirs=include_dirs
 
     ),   
-    Extension(
-        "mmcore.geom.nurbs.curve",
-        ["mmcore/geom/nurbs/curve.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs),
-         
-    Extension(
-        "mmcore.geom.nurbs.algorithms",
-        ["mmcore/geom/nurbs/algorithms.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs),
-    Extension(
-        "mmcore.geom.nurbs.surface",
-        ["mmcore/geom/nurbs/surface.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs),
+
+
+
     Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],
