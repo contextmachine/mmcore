@@ -1,4 +1,4 @@
-import math
+# mmcore/numeric/intersection/ssx/dqr4.py
 
 import numpy as np
 from scipy.spatial import ConvexHull
