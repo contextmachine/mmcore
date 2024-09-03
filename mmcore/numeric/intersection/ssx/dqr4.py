@@ -1,20 +1,63 @@
 # mmcore/numeric/intersection/ssx/dqr4.py
+from math import sqrt
 
 import numpy as np
 from scipy.spatial import ConvexHull
 from mmcore.geom.nurbs import (
     NURBSSurface,
-    subdivide_surface,
+    subdivide_surface, split_surface_u, split_surface_v,
 )
 
 from mmcore.geom.nurbs import NURBSCurve
 from mmcore.numeric import  evaluate_length
 
-from mmcore.numeric.algorithms.cygjk import gjk
-from mmcore.numeric.vectors import normal_from_4pt
+#from mmcore.numeric.algorithms.gjk import gjk_collision_detection
+from mmcore.numeric.algorithms.cygjk import gjk as gjk_collision_detection
+#from mmcore.numeric.vectors import normal_from_4pt
 
 np.set_printoptions(suppress=True)
 from mmcore.numeric.vectors import scalar_norm, scalar_dot
+
+
+
+def decompose_surface(surface, decompose_dir="uv"):
+    def decompose_direction(srf, idx):
+        srf_list = []
+        knots = srf.knots_u if idx == 0 else srf.knots_v
+        degree = srf.degree[idx]
+        unique_knots = sorted(set(knots[degree + 1 : -(degree + 1)]))
+
+        while unique_knots:
+            knot = unique_knots[0]
+            if idx == 0:
+                srfs = split_surface_u(srf, knot)
+            else:
+                srfs = split_surface_v(srf, knot)
+            srf_list.append(srfs[0])
+            srf = srfs[1]
+            unique_knots = unique_knots[1:]
+        srf_list.append(srf)
+        return srf_list
+
+    if not isinstance(surface, NURBSSurface):
+        raise ValueError("Input must be an instance of NURBSSurface class")
+
+    surf = surface.copy()
+
+    if decompose_dir == "u":
+        return decompose_direction(surf, 0)
+    elif decompose_dir == "v":
+        return decompose_direction(surf, 1)
+    elif decompose_dir == "uv":
+        multi_surf = []
+        surfs_u = decompose_direction(surf, 0)
+        for sfu in surfs_u:
+            multi_surf += decompose_direction(sfu, 1)
+        return multi_surf
+    else:
+        raise ValueError(
+            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
+        )
 
 
 def calculate_parametric_tol(self: NURBSSurface, tol=0.1):
@@ -56,54 +99,54 @@ def find_intersections(
         v1_mid = (v1_range[0] + v1_range[1]) / 2
         u2_mid = (u2_range[0] + u2_range[1]) / 2
         v2_mid = (v2_range[0] + v2_range[1]) / 2
-        return [((u1_mid, v1_mid), (u2_mid, v2_mid))]
+        return [((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2) ]
 
     d1 = np.array(bbox1_max) - np.array(bbox1_min)
     d2 = np.array(bbox2_max) - np.array(bbox2_min)
-    if (max(d1) <= tolerance) and (max(d2) <= tolerance):
+    if (min(d1) <= tolerance) and (min(d2) <= tolerance):
         # Return a representative point (e.g., midpoint)
         u1_mid = (u1_range[0] + u1_range[1]) / 2
         v1_mid = (v1_range[0] + v1_range[1]) / 2
         u2_mid = (u2_range[0] + u2_range[1]) / 2
         v2_mid = (v2_range[0] + v2_range[1]) / 2
-        return [((u1_mid, v1_mid), (u2_mid, v2_mid))]
+        return [((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2) ]
 
-    n1 = np.zeros(3)
-
-    a1 = s1_control_points[0, 0, :]
-    b1 = s1_control_points[-1, 0, :]
-    c1 = s1_control_points[-1, -1, :]
-    d1 = s1_control_points[0, -1, :]
-    o1 = surface1.evaluate_v2(0.5, 0.5)
-
-    normal_from_4pt(a1, b1, c1, d1, n1)
-
-    n1 /= scalar_norm(n1)
-
-    d1 = -n1.dot(o1)
-
-    res1 = (
-        n1[0] * s1_control_points_flat[..., 0]
-        + n1[1] * s1_control_points_flat[..., 1]
-        + n1[2] * s1_control_points_flat[..., 2]
-        + d1
-    )
-
-    if np.all(np.abs(res1) <= tolerance):
-        res2 = (
-            n1[0] * s2_control_points_flat[..., 0]
-            + n1[1] * s2_control_points_flat[..., 1]
-            + n1[2] * s2_control_points_flat[..., 2]
-            + d1
-        )
-
-        if np.all(res2 < 0) or np.all(res2 > 0):
-            return []
+    #n1 = np.zeros(3)
+    #
+    #a1 = s1_control_points[0, 0, :]
+    #b1 = s1_control_points[-1, 0, :]
+    #c1 = s1_control_points[-1, -1, :]
+    #d1 = s1_control_points[0, -1, :]
+    #o1 = surface1.evaluate_v2(0.5, 0.5)
+    #
+    #normal_from_4pt(a1, b1, c1, d1, n1)
+    #
+    #n1 /= scalar_norm(n1)
+    #
+    #d1 = -n1.dot(o1)
+    #
+    #res1 = (
+    #    n1[0] * s1_control_points_flat[..., 0]
+    #    + n1[1] * s1_control_points_flat[..., 1]
+    #    + n1[2] * s1_control_points_flat[..., 2]
+    #    + d1
+    #)
+    #
+    #if np.all(np.abs(res1) <= tolerance):
+    #    res2 = (
+    #        n1[0] * s2_control_points_flat[..., 0]
+    #        + n1[1] * s2_control_points_flat[..., 1]
+    #        + n1[2] * s2_control_points_flat[..., 2]
+    #        + d1
+    #    )
+    #
+    #    if np.all(res2 < 0) or np.all(res2 > 0):
+    #        return []
 
     h1 = ConvexHull(s1_control_points_flat)
     h2 = ConvexHull(s2_control_points_flat)
 
-    gjk_res = gjk(h1.points[h1.vertices], h2.points[h2.vertices], tol=1e-8)
+    gjk_res = gjk_collision_detection(h1.points[h1.vertices], h2.points[h2.vertices], tol=1e-9,max_iter=20)
 
     if not gjk_res:
         # print("g n")
@@ -119,7 +162,7 @@ def find_intersections(
         u2_mid = (u2_range[0] + u2_range[1]) / 2
         v2_mid = (v2_range[0] + v2_range[1]) / 2
         return [
-            ((u1_mid, v1_mid), (u2_mid, v2_mid))
+            ((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2)
         ]  # This is a candidate intersection point
     #
     if (h1.volume <= (tolerance)) or (h2.volume <= (tolerance)):
@@ -128,7 +171,7 @@ def find_intersections(
         u2_mid = (u2_range[0] + u2_range[1]) / 2
         v2_mid = (v2_range[0] + v2_range[1]) / 2
         return [
-            ((u1_mid, v1_mid), (u2_mid, v2_mid))
+            ((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2)
         ]  # This is a candidate intersection point
     # Otherwise, subdivide the parameter domains
     u1_mid = (u1_range[0] + u1_range[1]) / 2
@@ -182,6 +225,8 @@ def bounding_boxes_intersect(bbox1_min, bbox1_max, bbox2_min, bbox2_max):
         and bbox1_min[2] <= bbox2_max[2]
     )
 
+def build_bvh_nurbs(surf):
+    surfs=decompose_surface(surf)
 
 
 def detect_intersection(surf1, surf2, tolerance=1e-3):
@@ -200,7 +245,7 @@ def detect_intersection(surf1, surf2, tolerance=1e-3):
         surf2,
         (0.0, 1.0),
         (0.0, 1.0),
-        tolerance,
+        sqrt(tolerance),
         0,
         max_depth,
     )
@@ -222,26 +267,30 @@ if __name__ == "__main__":
 
     import time
 
-    S1, S2 = ssx_test_data[2]
+    S1, S2 = ssx_test_data[1]
     # import yappi
     s = time.time()
     import yappi
 
-    yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
-    yappi.start()
-    ints = detect_intersection(S1, S2, 0.1)
+    #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
+    #yappi.start()
+    ints = detect_intersection(S1, S2, 0.01)
 
-    yappi.stop()
+    #yappi.stop()
     func_stats = yappi.get_func_stats()
-    func_stats.save(
-        f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type="pstat"
-    )
+    #func_stats.save(
+    #    f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type="pstat"
+    #)
 
     print(time.time() - s)
     pts1 = []
     pts2 = []
+    cpts=[]
     curvatures = []
-    for (i1, i2), (j1, j2) in ints:
+    for (i1, i2), (j1, j2),s1,s2 in ints:
         pts1.append(S1.evaluate_v2(i1, i2).tolist())
         pts2.append(S2.evaluate_v2(j1, j2).tolist())
+        cpts.extend([np.array(s1.control_points).tolist(),np.array(s2.control_points).tolist()])
     pts = [pts1, pts2]
+
+ 
