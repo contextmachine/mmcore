@@ -244,77 +244,6 @@ def build_bvh(objects):
     # Create and return internal node
     return BVHNode(merged_bounding_box, left=left_node, right=right_node)
 
-
-def traverse_bvh(node, target_bbox, results):
-    """Find all objects in the BVH tree that intersect with the given bounding box"""
-    if not node.bounding_box.intersect(target_bbox):
-        return
-    if node.object is not None:
-        results.append(node.object)
-    if node.left:
-        traverse_bvh(node.left, target_bbox, results)
-    if node.right:
-        traverse_bvh(node.right, target_bbox, results)
-
-
-def is_leaf(node: BVHNode):
-    return node.object is not None
-
-
-
-
-def traverse_bvh_point(node, target_point):
-    """Find all objects in the BVH tree that intersect with the given bounding box"""
-
-    if not node.bounding_box.contains_point(target_point):
-        return
-    if is_leaf(node):
-
-        return node
-
-    left = right = None
-    if node.left:
-
-        left = traverse_bvh_point(node.left, target_point)
-    if node.right:
-        right = traverse_bvh_point(node.right, target_point)
-
-    if left is None and right is None:
-
-        return node
-    elif left is None:
-
-        return right
-    elif right is None:
-        return left
-    else:
-
-        return node
-
-
-
-def traverse_leafs(bvh_root, result):
-    if bvh_root is None:
-        return
-    if bvh_root.object is not None:
-        result.append(bvh_root.object)
-        return
-    if bvh_root.left is not None:
-
-        traverse_leafs(bvh_root.left, result)
-    if bvh_root.right is not None:
-        traverse_leafs(bvh_root.right, result)
-
-
-def traverse_all_objects_in_node(bvh_root, result):
-
-    if bvh_root.object is not None:
-        result.append(bvh_root.object)
-    else:
-        traverse_all_objects_in_node(bvh_root.left, result)
-        traverse_all_objects_in_node(bvh_root.right, result)
-
-
 def intersect_bvh(node1, node2):
     """
     Find all intersecting bounding boxes between two BVH trees.
@@ -406,12 +335,83 @@ def intersect_bvh_objects(node1, node2):
 
 
 
-
 def contains_point(bvh_root, pt):
     results=[]
     pt_box = BoundingBox(pt, pt)
     traverse_bvh(bvh_root, pt_box,   results)
     return results
+
+
+def traverse_bvh(node, target_bbox, results):
+    """Find all objects in the BVH tree that intersect with the given bounding box"""
+    if not node.bounding_box.intersect(target_bbox):
+        return
+    if node.object is not None:
+        results.append(node.object)
+    if node.left:
+        traverse_bvh(node.left, target_bbox, results)
+    if node.right:
+        traverse_bvh(node.right, target_bbox, results)
+
+
+def is_leaf(node: BVHNode):
+    return node.object is not None
+
+
+
+
+def traverse_bvh_point(node, target_point):
+    """Find all objects in the BVH tree that intersect with the given bounding box"""
+
+    if not node.bounding_box.contains_point(target_point):
+        return
+    if is_leaf(node):
+
+        return node
+
+    left = right = None
+    if node.left:
+
+        left = traverse_bvh_point(node.left, target_point)
+    if node.right:
+        right = traverse_bvh_point(node.right, target_point)
+
+    if left is None and right is None:
+
+        return node
+    elif left is None:
+
+        return right
+    elif right is None:
+        return left
+    else:
+
+        return node
+
+
+
+def traverse_leafs(bvh_root, result):
+    if bvh_root is None:
+        return
+    if bvh_root.object is not None:
+        result.append(bvh_root.object)
+        return
+    if bvh_root.left is not None:
+
+        traverse_leafs(bvh_root.left, result)
+    if bvh_root.right is not None:
+        traverse_leafs(bvh_root.right, result)
+
+
+def traverse_all_objects_in_node(bvh_root, result):
+
+    if bvh_root.object is not None:
+        result.append(bvh_root.object)
+    else:
+        traverse_all_objects_in_node(bvh_root.left, result)
+        traverse_all_objects_in_node(bvh_root.right, result)
+
+
 
 
 def sd_triangle(p: np.array, a: np.array, b: np.array, c: np.array):
