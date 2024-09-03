@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.geom.tnurbs import NURBSSurface
+from mmcore.geom.nurbs import NURBSSurface
 from mmcore.numeric.intersection.ssx.cydqr import gjk
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit,cartesian_to_spherical

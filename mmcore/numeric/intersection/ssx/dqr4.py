@@ -2,12 +2,12 @@
 
 import numpy as np
 from scipy.spatial import ConvexHull
-from mmcore.geom.nurbs.surface import (
+from mmcore.geom.nurbs import (
     NURBSSurface,
     subdivide_surface,
 )
 
-from mmcore.geom.nurbs.curve import NURBSCurve
+from mmcore.geom.nurbs import NURBSCurve
 from mmcore.numeric import  evaluate_length
 
 from mmcore.numeric.algorithms.cygjk import gjk

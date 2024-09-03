@@ -7,7 +7,7 @@ from mmcore.numeric.vectors cimport scalar_norm, scalar_dot,sub3d,    cross_d1_3
 from mmcore.numeric.algorithms.cygjk cimport gjk_collision_detection,Vec3
 from libc.math cimport  fmin,fmax, sqrt,fabs,ceil
 
-from mmcore.geom.nurbs.surface cimport NURBSSurface,subdivide_surface
+from mmcore.geom.nurbs cimport NURBSSurface,subdivide_surface
 cimport numpy as cnp
 import numpy as np
 from scipy.spatial import ConvexHull
