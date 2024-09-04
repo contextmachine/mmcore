@@ -67,7 +67,7 @@ def support_vector(vertices: np.ndarray, d: np.ndarray) -> tuple[np.ndarray,int]
     return support,support_i
 
 
-def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e-6, max_iter=None) -> bool:
+def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e-6, max_iter=50) -> bool:
     """GJK Collision Detection Algorithm
 
     :param vertices1: Vertices of the first convex shape (N x 3 for 3D)
@@ -77,7 +77,7 @@ def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e
     :return: True if the convex shapes intersect, False otherwise
     """
     visited = np.zeros((vertices1.shape[0], vertices2.shape[0]), dtype=bool)
-    visited_pts = np.zeros((vertices1.shape[0], vertices2.shape[0], 3))
+    visited_pts = np.zeros((vertices1.shape[0], vertices2.shape[0], vertices1.shape[-1]))
 
     def support(vertices1, vertices2, d):
         """Compute the support point in Minkowski difference."""
@@ -86,7 +86,8 @@ def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e
         return p1 - p2, (i1, i2)
 
     # Initial direction (arbitrary)
-    d = np.array([1.0, 0.0, 0.0])
+    d = np.zeros(vertices1.shape[-1])
+    d[0]=1.
     p, (i, j) = support(vertices1, vertices2, d)
     visited[i, j] = True
     visited_pts[i, j] = p

@@ -56,7 +56,15 @@ class BoundingBox:
             and self.min_point[2] <= other.max_point[2]
             and self.max_point[2] >= other.min_point[2]
         )
-
+    def intersect_disjoint(self, other):
+        return (
+                self.min_point[0] < other.max_point[0]
+                and self.max_point[0] > other.min_point[0]
+                and self.min_point[1] < other.max_point[1]
+                and self.max_point[1] > other.min_point[1]
+                and self.min_point[2] < other.max_point[2]
+                and self.max_point[2] > other.min_point[2]
+        )
     def intersection(self, other):
         """
         Calculate the intersection of this bounding box with another bounding box.
