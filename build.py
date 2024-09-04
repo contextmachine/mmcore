@@ -41,7 +41,7 @@ extensions = [
         "mmcore.geom.nurbs",
         ["mmcore/geom/nurbs.pyx"],
         language="c++",
-        extra_compile_args=compile_args,
+        extra_compile_args= ["-std=c++17"]+compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs),
      Extension(
@@ -218,7 +218,7 @@ logo=rf"""
 
 
 
-compiler_directives=dict(boundscheck=False,wraparound=False,cdivision=True,nonecheck=False,overflowcheck=False,initializedcheck=False,embedsignature=True)
+compiler_directives=dict(boundscheck=False,wraparound=False,cdivision=True,nonecheck=False,overflowcheck=False,initializedcheck=False,embedsignature=True,language_level='3str')
 
 if __name__ == "__main__":
 
