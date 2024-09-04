@@ -1,8 +1,8 @@
 # mmcore/numeric/gauss_map.py
 from __future__ import annotations
-
-
 import numpy as np
+from scipy.optimize import linprog
+from scipy.spatial import ConvexHull
 
 from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface
 from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk, gjk_collision_detection
@@ -10,7 +10,7 @@ from mmcore.numeric.algorithms.quicksort import unique
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian
 from mmcore.numeric.algorithms.cygjk import gjk
-from scipy.spatial import ConvexHull
+
 
 
 def decompose_surface(surface, decompose_dir="uv"):
@@ -234,8 +234,6 @@ class GaussMap:
         return gjk_collision_detection(self.bounds(), other.bounds())
 
 
-import numpy as np
-from scipy.optimize import linprog
 
 
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
@@ -351,9 +349,7 @@ def find_common_side_vector(N1, N2):
 
 
 from mmcore.numeric.aabb import aabb, aabb_overlap
-from mmcore.geom.bvh import BoundingBox
-
-
+from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
 class DebugTree:
@@ -447,6 +443,10 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
             intersections.extend(res)
     return intersections
 
+class NURBSObject(Object3D):
+    def __init__(self, surface:NURBSSurface):
+        self.surface = surface
+        super().__init__(BoundingBox(*np.array(self.surface.bbox())))
 
 def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSurface, NURBSSurface]]:
     """
@@ -473,23 +473,28 @@ def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSu
         _.normalize_knots()
     for _ in s2d:
         _.normalize_knots()
-    for f in s1d:
-        for s in s2d:
+    tree1=build_bvh([NURBSObject(s) for s in s1d ])
+    tree2 = build_bvh([NURBSObject(s) for s in s2d])
+
+    for obj1,obj2 in intersect_bvh_objects(tree1,tree2):
+
+            f=obj1.object.surface
+            s=obj2.object.surface
             dddd = [False, False, False]
             subs[index].data = (f, s, dddd)
 
-            box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
+            #box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
             # Если хотябы одно условие не срабатывает то пара патчек исключается из рассмотрения.
 
-            if box1.intersect_disjoint(box2):
+            #if box1.intersect_disjoint(box2):
                 # Боксы пересекаются
-                dddd[0] = True
+                #dddd[0] = True
 
-                h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
+            h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
                     s.control_points_flat
                 )
 
-                if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+            if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
                     # Convex Hulls пересекаются
                     # Строим карты гаусса для дальнейших проверок
                     ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
@@ -510,7 +515,7 @@ def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSu
 
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
-    S1, S2 = td[1]
+    S1, S2 = td[2]
     dtr=DebugTree()
     res=detect_intersections(S1, S2, dtr)
     fff = []
