@@ -12,13 +12,12 @@ from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_ca
 from mmcore.numeric.algorithms.cygjk import gjk
 
 
-
 def decompose_surface(surface, decompose_dir="uv"):
     def decompose_direction(srf, idx):
         srf_list = []
         knots = srf.knots_u if idx == 0 else srf.knots_v
         degree = srf.degree[idx]
-        unique_knots = sorted(set(knots[degree + 1 : -(degree + 1)]))
+        unique_knots = sorted(set(knots[degree + 1: -(degree + 1)]))
 
         while unique_knots:
             knot = unique_knots[0]
@@ -53,7 +52,6 @@ def decompose_surface(surface, decompose_dir="uv"):
         )
 
 
-
 def compute_partial_derivative(coeffs, variable):
     """Compute partial derivative of monomial coefficients."""
     n, m, dim = coeffs.shape
@@ -76,13 +74,13 @@ def cross_product(a, b):
             for k in range(n):
                 for l in range(m):
                     result[i + k, j + l, 0] += (
-                        a[i, j, 1] * b[k, l, 2] - a[i, j, 2] * b[k, l, 1]
+                            a[i, j, 1] * b[k, l, 2] - a[i, j, 2] * b[k, l, 1]
                     )
                     result[i + k, j + l, 1] += (
-                        a[i, j, 2] * b[k, l, 0] - a[i, j, 0] * b[k, l, 2]
+                            a[i, j, 2] * b[k, l, 0] - a[i, j, 0] * b[k, l, 2]
                     )
                     result[i + k, j + l, 2] += (
-                        a[i, j, 0] * b[k, l, 1] - a[i, j, 1] * b[k, l, 0]
+                            a[i, j, 0] * b[k, l, 1] - a[i, j, 1] * b[k, l, 0]
                     )
 
     return result
@@ -104,8 +102,6 @@ def normalize_polynomial(v, epsilon=1e-10):
         return np.zeros_like(v)
     norm = np.sqrt(norm_squared / max_norm)
     return v / (norm[:, :, np.newaxis] * np.sqrt(max_norm))
-
-
 
 
 """
@@ -149,6 +145,8 @@ def compute_gauss_mapw(control_points, weights=None):
     gauss_map = monomial_to_bezier(N)
 
     return gauss_map
+
+
 def compute_gauss_map(control_points):
     """Compute the Gauss map for a Bézier patch with degree elevation."""
     F = bezier_to_monomial(control_points)
@@ -157,17 +155,16 @@ def compute_gauss_map(control_points):
 
     N = cross_product(Fu, Fv)
 
-
     # N_normalized = normalize_polynomial(N)
     # print(N_normalized)
     # N_normalized[np.isnan(N_normalized)]=0.
     gauss_map = monomial_to_bezier(N)
 
-    return  gauss_map
+    return gauss_map
 
 
 class GaussMap:
-    def __init__(self, mp: NURBSSurface,surf:NURBSSurface):
+    def __init__(self, mp: NURBSSurface, surf: NURBSSurface):
         self.surface = surf
         self._map = mp
 
@@ -178,28 +175,27 @@ class GaussMap:
         self.compute()
 
     @classmethod
-    def from_surf(cls,surf)  :
+    def from_surf(cls, surf):
         _map = compute_gauss_map(np.array(surf.control_points))
         #print((_map.tolist(),np.array(surf.control_points).tolist()))
         # Compute convex hull
-        return cls(NURBSSurface(np.array(unit(_map.reshape((-1,3)))).reshape(_map.shape),(_map.shape[0]-1,_map.shape[1]-1)), surf)
-
-
+        return cls(NURBSSurface(np.array(unit(_map.reshape((-1, 3)))).reshape(_map.shape),
+                                (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
     def subdivide(self):
+        srf = subdivide_surface(self.surface)
+        mp = subdivide_surface(self._map)
 
-        srf= subdivide_surface(self.surface)
-        mp= subdivide_surface(self._map)
-
-        ll=[]
+        ll = []
         for i in range(4):
-            f=mp[i]
-            s=srf[i]
+            f = mp[i]
+            s = srf[i]
 
             f.normalize_knots()
             s.normalize_knots()
-            ll.append(GaussMap(f,s))
+            ll.append(GaussMap(f, s))
         return ll
+
     def compute(self):
         # Convert NURBS to Bézier patches
 
@@ -217,12 +213,11 @@ class GaussMap:
 
         # Combine Gauss maps
 
-
         # Compute polar representation
         self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
 
         # Compute convex hull
-        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat) ),qhull_options='QJ')
+        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
 
     def bounds(self):
         """Compute bounds on the Gauss map."""
@@ -232,8 +227,6 @@ class GaussMap:
         """Check if this Gauss map intersects with another."""
 
         return gjk_collision_detection(self.bounds(), other.bounds())
-
-
 
 
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
@@ -334,6 +327,7 @@ def find_common_side_vector(N1, N2):
 
     return None
 
+
 # Usage example:
 # gm1 = GaussMap(surface1)
 # gm2 = GaussMap(surface2)
@@ -346,9 +340,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-
-
-from mmcore.numeric.aabb import aabb, aabb_overlap
+from mmcore.numeric.aabb import aabb
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -363,7 +355,6 @@ class DebugTree:
         for i in range(count):
             self.chidren.append(DebugTree(layer=self.layer + 1))
         return self.chidren
-
 
 
 def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
@@ -391,7 +382,6 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
         dddd[0] = True
 
         return []
-
 
     if np.linalg.norm(bb1.max_point - bb1.min_point) < tol:
         dddd[1] = True
@@ -427,7 +417,6 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
     if not ss:
         # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
 
-
         dddd[4] = True
         return [(g1.surface, g2.surface)]
     # Все тесты провалены, новый этап подразбиения
@@ -443,25 +432,101 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
             intersections.extend(res)
     return intersections
 
+
 class NURBSObject(Object3D):
-    def __init__(self, surface:NURBSSurface):
+    def __init__(self, surface: NURBSSurface):
         self.surface = surface
         super().__init__(BoundingBox(*np.array(self.surface.bbox())))
 
-def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSurface, NURBSSurface]]:
+
+def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
-    This implementation is robust and finds all intersections in a reasonable amount of time. It could also still be
-    optimized significantly. Currently it returns pairs of intersecting subpatches, this is likely to be changed.
-    The debug_tree argument accepts a special DebugTree object that records the state of the algorithm at each recursion
-    step, which makes debugging such a complex algorithm much easier. When the implementation is finished this argument
-    will disappear.
-    :param surf1: First Surface
+    Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
+    bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
+    intersecting subpatches of the surfaces.
+
+    Algorithm Overview:
+        1. Decomposes the input NURBS surfaces into smaller Bezier patches using a well-known algorithm.
+        2. Constructs a BVH (Bounding Volume Hierarchy) for both decomposed surfaces to enable efficient pairwise testing.
+        3. For each pair of potentially intersecting Bezier patches (as determined by BVH intersection tests), checks if
+           their convex hulls intersect using the GJK (Gilbert-Johnson-Keerthi) algorithm.
+        4. If convex hulls intersect, builds Gauss maps for further testing, including potential recursive subdivision
+           for patches that cannot be easily separated.
+        5. Records the state of the algorithm at each recursion step using the provided `debug_tree`.
+
+    Bezier Patch Decomposition:
+        The initial decomposition of the NURBS surface is not merely into smaller patches but specifically into **Bezier patches**.
+        This step is critical because the algorithm for constructing a Gauss map requires the surface to be expressed in the
+        monomial basis. NURBS surfaces, by default, are expressed in the non-monomial B-spline basis, but Bezier surfaces are
+        represented in the Bernstein basis, which can be decomposed into the monomial form. Therefore, decomposing the NURBS surface
+        into Bezier patches is a necessary precondition before constructing the Gauss map and performing the intersection tests.
+
+    :param surf1: The first NURBS surface.
     :type surf1: NURBSSurface
-    :param surf2: Second Surface
+    :param surf2: The second NURBS surface.
     :type surf2: NURBSSurface
-    :param debug_tree: Debugging tree
+    :param debug_tree: A debugging tree that stores the state of the algorithm at every recursive step. This is used for
+        tracing and debugging the intersection detection process. It is mainly for development purposes and may be removed
+        in the final implementation.
     :type debug_tree: DebugTree
-    :return: list[tuple[NURBSSurface, NURBSSurface]]
+
+    :returns: A list of tuples, where each tuple contains two NURBS surfaces (subpatches) that intersect.
+    :rtype: list[tuple[NURBSSurface, NURBSSurface]]
+
+    Detailed Workflow:
+        1. **Bezier Patch Decomposition:**
+           The input NURBS surfaces `surf1` and `surf2` are decomposed into **Bezier patches** using a well-known
+           decomposition algorithm. This decomposition is necessary because the Gauss map construction relies on the
+           Bernstein basis, which is a property of Bezier surfaces. The decomposition ensures that the patches can be
+           represented in monomial form for further geometric processing.
+
+        2. **Building BVH:**
+           A BVH is built for each set of Bezier patches using `build_bvh()`. This hierarchical structure allows for efficient
+           pruning of patch pairs that are unlikely to intersect based on their bounding volumes.
+
+        3. **BVH Intersection:**
+           The BVH structures for the two surfaces are traversed using `intersect_bvh_objects()`, which efficiently identifies
+           pairs of Bezier patches that have overlapping bounding volumes.
+
+        4. **Convex Hull Check (GJK Algorithm):**
+           For each pair of Bezier patches returned by the BVH intersection test, the convex hulls of the control points are
+           computed. The GJK algorithm is then used to check whether the convex hulls intersect. If the convex hulls do not
+           intersect, the patches are discarded.
+
+        5. **Gauss Map and Deep Intersection Check:**
+           If the convex hulls intersect, Gauss maps are constructed for both patches using `GaussMap.from_surf()`. These maps
+           help in further checking the intersection geometry. If the Gauss maps cannot be separated, the patches are considered
+           to intersect. In cases where additional refinement is necessary, the algorithm calls `_detect_intersections_deep()`
+           to perform recursive subdivision and deeper checks on the patches.
+
+    Example Usage:
+
+    .. code-block:: python
+
+        surface1 = NURBSSurface(...)  # Create first NURBS surface
+        surface2 = NURBSSurface(...)  # Create second NURBS surface
+        debug_tree = DebugTree()      # Initialize the debug tree for tracing
+
+        # Detect intersections between the two surfaces
+        intersections = detect_intersections(surface1, surface2, debug_tree)
+
+        # Process and output the results
+        for surf_pair in intersections:
+            surf1, surf2 = surf_pair
+            print(f"Intersecting surfaces: {surf1}, {surf2}")
+
+    Performance Considerations:
+        - The BVH structure significantly reduces the number of patch pairs that need to be checked, improving performance
+          compared to a brute-force approach.
+        - The convex hull and Gauss map checks allow for early elimination of non-intersecting patches, further speeding
+          up the process.
+
+    Notes:
+        - This method is designed for use with NURBS surfaces and leverages Bezier patch decomposition, which is crucial
+          for the construction of Gauss maps in the monomial basis.
+        - The current implementation strikes a balance between performance and robustness, but further optimization may
+          be possible, particularly in reducing the number of recursive subdivisions.
+
     """
     s1d = decompose_surface(surf1)
     s2d = decompose_surface(surf2)
@@ -473,51 +538,51 @@ def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSu
         _.normalize_knots()
     for _ in s2d:
         _.normalize_knots()
-    tree1=build_bvh([NURBSObject(s) for s in s1d ])
+    tree1 = build_bvh([NURBSObject(s) for s in s1d])
     tree2 = build_bvh([NURBSObject(s) for s in s2d])
 
-    for obj1,obj2 in intersect_bvh_objects(tree1,tree2):
+    for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
 
-            f=obj1.object.surface
-            s=obj2.object.surface
-            dddd = [False, False, False]
-            subs[index].data = (f, s, dddd)
+        f = obj1.object.surface
+        s = obj2.object.surface
+        dddd = [False, False, False]
+        subs[index].data = (f, s, dddd)
 
-            #box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
-            # Если хотябы одно условие не срабатывает то пара патчек исключается из рассмотрения.
+        #box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
+        # Если хотябы одно условие не срабатывает то пара патчек исключается из рассмотрения.
 
-            #if box1.intersect_disjoint(box2):
-                # Боксы пересекаются
-                #dddd[0] = True
+        #if box1.intersect_disjoint(box2):
+        # Боксы пересекаются
+        #dddd[0] = True
 
-            h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
-                    s.control_points_flat
-                )
+        h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
+            s.control_points_flat
+        )
 
-            if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
-                    # Convex Hulls пересекаются
-                    # Строим карты гаусса для дальнейших проверок
-                    ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
-                    dddd[1] = True
+        if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+            # Convex Hulls пересекаются
+            # Строим карты гаусса для дальнейших проверок
+            ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
+            dddd[1] = True
 
-                    p1, p2 = separate_gauss_maps(ff, ss)
+            p1, p2 = separate_gauss_maps(ff, ss)
 
-                    if (p1 is None) or (p2 is None):
-                            # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
-                            dddd[2] = True
-                            sbb = subs[index].subd(1)
-                            intersections.extend(_detect_intersections_deep(ss, ff, 0.1, sbb[0]))
+            if (p1 is None) or (p2 is None):
+                # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
+                dddd[2] = True
+                sbb = subs[index].subd(1)
+                intersections.extend(_detect_intersections_deep(ss, ff, 0.1, sbb[0]))
 
-
-            index+=1
+        index += 1
     return intersections
 
 
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
+
     S1, S2 = td[2]
-    dtr=DebugTree()
-    res=detect_intersections(S1, S2, dtr)
+    dtr = DebugTree()
+    res = detect_intersections(S1, S2, dtr)
     fff = []
     for i, j in res:
         ip = np.array(i.control_points)
@@ -530,10 +595,11 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
 
-    with open('../../tests/norm2.txt','w') as f:
+    with open('../../tests/norm2.txt', 'w') as f:
         print(fff, file=f)
 
-    def get_first_layer_dbg(dbg:DebugTree):
+
+    def get_first_layer_dbg(dbg: DebugTree):
         cnds = []
         for ch in dbg.chidren:
             if ch.data:
