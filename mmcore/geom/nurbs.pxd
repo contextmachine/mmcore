@@ -1,5 +1,5 @@
 #cython: language_level=3
-
+# distutils: language = c++
 
 cimport cython
 cimport numpy as cnp
@@ -7,9 +7,12 @@ cimport numpy as cnp
 from mmcore.geom.parametric cimport ParametricCurve,ParametricSurface
 from mmcore.numeric.binom cimport binomial_coefficient,binomial_coefficients
 from libc.stdlib cimport malloc,free
-
+from libcpp.vector cimport vector
 from libcpp.cmath cimport fabs
 from libc.string cimport memcpy
+
+
+
 cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
 
 

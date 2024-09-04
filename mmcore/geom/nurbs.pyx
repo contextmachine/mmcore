@@ -19,7 +19,21 @@ from  mmcore.numeric cimport calgorithms,vectors
 
 cnp.import_array()
 
+cdef extern from "_nurbs.cpp" nogil:
+    cdef cppclass NURBSSurfaceData:
+        double* control_points;
+        double* knots_u ;
+        double* knots_v;
+        int size_u;
+        int size_v;
+        int degree_u;
+        int degree_v;
+        NURBSSurfaceData();
+        NURBSSurfaceData(double* control_points, double* knots_u ,double* knots_v,int size_u,int size_v,int degree_u,int degree_v);
 
+    
+
+        
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
@@ -2445,3 +2459,84 @@ cpdef tuple subdivide_surface(NURBSSurface surface, double u=0.5,double v=0.5,bi
         surf21.normalize_knots()
         surf22.normalize_knots()
     return surf11,surf12,surf21,surf22
+
+
+cdef inline list decompose_direction(NURBSSurface srf, int idx):
+        cdef list srf_list = []
+        cdef double[:] knots = srf._knots_u if idx == 0 else srf._knots_v
+        cdef int degree = srf._degree[idx]
+        cdef double[:]  unique_knots = np.sort(np.unique(knots[degree + 1 : -(degree + 1)]))
+
+        while unique_knots.shape[0]>0:
+            knot = unique_knots[0]
+            if idx == 0:
+                srfs = split_surface_u(srf, knot)
+            else:
+                srfs = split_surface_v(srf, knot)
+            srf_list.append(srfs[0])
+            srf = srfs[1]
+            unique_knots = unique_knots[1:]
+        srf_list.append(srf)
+        return srf_list
+
+
+
+@cython.boundscheck(False)
+@cython.cdivision(True)
+def decompose_surface(surface, decompose_dir="uv",normalize_knots=True):
+    def decompose_direction(srf, idx):
+        srf_list = []
+        knots = srf.knots_u if idx == 0 else srf.knots_v
+        degree = srf.degree[idx]
+        unique_knots = sorted(set(knots[degree + 1 : -(degree + 1)]))
+
+        while unique_knots:
+            knot = unique_knots[0]
+            if idx == 0:
+                srfs = split_surface_u(srf, knot)
+            else:
+                srfs = split_surface_v(srf, knot)
+            srf_list.append(srfs[0])
+            srf = srfs[1]
+            unique_knots = unique_knots[1:]
+
+        srf_list.append(srf)
+        return srf_list
+
+    if not isinstance(surface, NURBSSurface):
+        raise ValueError("Input must be an instance of NURBSSurface class")
+
+    surf = surface.copy()
+    surf.normalize_knots()
+    if decompose_dir == "u":
+        surfs_u=decompose_direction(surf, 0)
+        if normalize_knots:
+            for srg in surfs_u:
+                srg.normalize_knots()
+        return surfs_u
+    elif decompose_dir == "v":
+        surfs_v=decompose_direction(surf, 1)
+        if normalize_knots:
+            for srg in surfs_v:
+                srg.normalize_knots()
+        return surfs_v
+
+
+    elif decompose_dir == "uv":
+        multi_surf = []
+        surfs_u = decompose_direction(surf, 0)
+
+        for sfu in surfs_u:
+            dsf=decompose_direction(sfu, 1)
+            if normalize_knots:
+                for srg in dsf:
+                    srg.normalize_knots()
+                    multi_surf.append(srg)
+            else:
+                multi_surf+=dsf
+        return multi_surf
+    else:
+        raise ValueError(
+            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
+        )
+
