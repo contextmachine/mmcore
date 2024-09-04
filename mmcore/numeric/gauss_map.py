@@ -9,7 +9,7 @@ from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk, gjk_co
 from mmcore.numeric.algorithms.quicksort import unique
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian
-
+from mmcore.numeric.algorithms.cygjk import gjk
 from scipy.spatial import ConvexHull
 
 
@@ -222,7 +222,7 @@ class GaussMap:
         self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
 
         # Compute convex hull
-        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)))
+        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat) ),qhull_options='QJ')
 
     def bounds(self):
         """Compute bounds on the Gauss map."""
@@ -370,7 +370,20 @@ class DebugTree:
 
 
 
-def find_ixs(g1, g2, tol=0.1, dbg: DebugTree = None):
+def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
+    """
+    Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
+    Существует три варианта завершения:
+    1. Патчи являются разделимыми (вернет пустой список)
+    2. Патчи имеют одно тривиальное пересечение (граница одного патча явно пересекается с другим)
+    3. Патчи пересекаются в одной точке. (В этом случае при релаксации будет найдено конкретное положение этой точки)
+
+    :param g1:
+    :param g2:
+    :param tol:
+    :param dbg:
+    :return:
+    """
     bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
         *np.array(g2.surface.bbox())
     )
@@ -378,27 +391,34 @@ def find_ixs(g1, g2, tol=0.1, dbg: DebugTree = None):
     dbg.data = (g1, g2, dddd)
 
     if not bb1.intersect_disjoint(bb2):
-
+        # ББокы не пересекаются
         dddd[0] = True
 
         return []
+
+
     if np.linalg.norm(bb1.max_point - bb1.min_point) < tol:
-
         dddd[1] = True
-
+        # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
-    if bb1.intersection(bb2).volume() < tol:
-
-
+    if min(bb1.intersection(bb2).dims) < tol:
+        # Бокс не маленький, но очень плоский. объекты не пересекаются
         dddd[2] = True
 
+        return []
+    h1, h2 = ConvexHull(g1.surface.control_points_flat), ConvexHull(
+        g2.surface.control_points_flat
+    )
+    if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+        # Поверхности не пересекаются
+        dddd[3] = True
         return []
 
     bb11, bb21 = BoundingBox(*np.array(aabb(g1.bounds()))), BoundingBox(
         *np.array(aabb(g2.bounds()))
     )
     if not bb11.intersect(bb21):
-
+        # Поверхности вероятнее всего пересекаются и не содержать петель
         dddd[3] = True
         return [(g1.surface, g2.surface)]
 
@@ -409,39 +429,46 @@ def find_ixs(g1, g2, tol=0.1, dbg: DebugTree = None):
     #    print('gg')
     #    return []
     if not ss:
+        # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
 
 
         dddd[4] = True
         return [(g1.surface, g2.surface)]
-
+    # Все тесты провалены, новый этап подразбиения
     g11 = g1.subdivide()
     g12 = g2.subdivide()
     dbg1 = dbg.subd(16)
     ii = 0
     for gg in g11:
         for gh in g12:
-            res = find_ixs(gg, gh, tol, dbg1[ii])
+            res = _detect_intersections_deep(gg, gh, tol, dbg1[ii])
             ii += 1
 
             intersections.extend(res)
     return intersections
 
 
-
-from mmcore.numeric.algorithms.cygjk import gjk
-
-
-
-
-
-
-def detect_loops(surf1,surf2, debug_tree:DebugTree):
+def detect_intersections(surf1, surf2, debug_tree:DebugTree)->list[tuple[NURBSSurface, NURBSSurface]]:
+    """
+    This implementation is robust and finds all intersections in a reasonable amount of time. It could also still be
+    optimized significantly. Currently it returns pairs of intersecting subpatches, this is likely to be changed.
+    The debug_tree argument accepts a special DebugTree object that records the state of the algorithm at each recursion
+    step, which makes debugging such a complex algorithm much easier. When the implementation is finished this argument
+    will disappear.
+    :param surf1: First Surface
+    :type surf1: NURBSSurface
+    :param surf2: Second Surface
+    :type surf2: NURBSSurface
+    :param debug_tree: Debugging tree
+    :type debug_tree: DebugTree
+    :return: list[tuple[NURBSSurface, NURBSSurface]]
+    """
     s1d = decompose_surface(surf1)
     s2d = decompose_surface(surf2)
 
     subs = debug_tree.subd(len(s1d) * len(s2d))
-    ii = 0
-    iii = []
+    index = 0
+    intersections = []
     for _ in s1d:
         _.normalize_knots()
     for _ in s2d:
@@ -449,11 +476,13 @@ def detect_loops(surf1,surf2, debug_tree:DebugTree):
     for f in s1d:
         for s in s2d:
             dddd = [False, False, False]
-            subs[ii].data = (f, s, dddd)
+            subs[index].data = (f, s, dddd)
 
             box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
-            if box1.intersect_disjoint(box2):
+            # Если хотябы одно условие не срабатывает то пара патчек исключается из рассмотрения.
 
+            if box1.intersect_disjoint(box2):
+                # Боксы пересекаются
                 dddd[0] = True
 
                 h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
@@ -461,25 +490,29 @@ def detect_loops(surf1,surf2, debug_tree:DebugTree):
                 )
 
                 if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+                    # Convex Hulls пересекаются
+                    # Строим карты гаусса для дальнейших проверок
                     ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
                     dddd[1] = True
 
-
-
                     p1, p2 = separate_gauss_maps(ff, ss)
+
                     if (p1 is None) or (p2 is None):
+                            # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
                             dddd[2] = True
-                            sbb = subs[ii].subd(1)
-                            iii.extend(find_ixs(ss, ff, 0.1, sbb[0]))
-            ii+=1
-    return iii
+                            sbb = subs[index].subd(1)
+                            intersections.extend(_detect_intersections_deep(ss, ff, 0.1, sbb[0]))
+
+
+            index+=1
+    return intersections
 
 
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
-    S1, S2 = td[2]
+    S1, S2 = td[1]
     dtr=DebugTree()
-    res=detect_loops(S1,S2,dtr)
+    res=detect_intersections(S1, S2, dtr)
     fff = []
     for i, j in res:
         ip = np.array(i.control_points)
