@@ -4,12 +4,54 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.geom.nurbs import NURBSSurface
-from mmcore.numeric.intersection.ssx.cydqr import gjk
+from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface
+from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk, gjk_collision_detection
+from mmcore.numeric.algorithms.quicksort import unique
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
-from mmcore.numeric.vectors import unit,cartesian_to_spherical
+from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian
 
 from scipy.spatial import ConvexHull
+
+
+def decompose_surface(surface, decompose_dir="uv"):
+    def decompose_direction(srf, idx):
+        srf_list = []
+        knots = srf.knots_u if idx == 0 else srf.knots_v
+        degree = srf.degree[idx]
+        unique_knots = sorted(set(knots[degree + 1 : -(degree + 1)]))
+
+        while unique_knots:
+            knot = unique_knots[0]
+            if idx == 0:
+                srfs = split_surface_u(srf, knot)
+            else:
+                srfs = split_surface_v(srf, knot)
+            srf_list.append(srfs[0])
+            srf = srfs[1]
+            unique_knots = unique_knots[1:]
+        srf_list.append(srf)
+        return srf_list
+
+    if not isinstance(surface, NURBSSurface):
+        raise ValueError("Input must be an instance of NURBSSurface class")
+
+    surf = surface.copy()
+
+    if decompose_dir == "u":
+        return decompose_direction(surf, 0)
+    elif decompose_dir == "v":
+        return decompose_direction(surf, 1)
+    elif decompose_dir == "uv":
+        multi_surf = []
+        surfs_u = decompose_direction(surf, 0)
+        for sfu in surfs_u:
+            multi_surf += decompose_direction(sfu, 1)
+        return multi_surf
+    else:
+        raise ValueError(
+            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
+        )
+
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -46,6 +88,14 @@ def cross_product(a, b):
     return result
 
 
+def is_bezier(surface: NURBSSurface):
+    kv, ku = unique(surface.knots_u).shape[0], unique(surface.knots_u).shape[0]
+    if kv.shape[0] < 2 or ku.shape[0] < 2:
+        raise ValueError("Degenerated patch")
+
+    return kv.shape[0] == 2 and ku.shape[0] == 2
+
+
 def normalize_polynomial(v, epsilon=1e-10):
     """Normalize a 3D vector polynomial with improved stability."""
     norm_squared = v[:, :, 0] ** 2 + v[:, :, 1] ** 2 + v[:, :, 2] ** 2
@@ -75,7 +125,7 @@ print(gauss_map)
 """
 
 
-def compute_gauss_map(control_points, weights=None):
+def compute_gauss_mapw(control_points, weights=None):
     """Compute the Gauss map for a rational Bézier patch."""
     if weights is not None:
         # Convert to homogeneous coordinates
@@ -95,46 +145,93 @@ def compute_gauss_map(control_points, weights=None):
         Fv = Fv / (w ** 2)[:, :, np.newaxis]
 
     N = cross_product(Fu, Fv)
-    N_normalized = normalize_polynomial(N)
-    gauss_map = monomial_to_bezier(N_normalized)
+    #N_normalized = normalize_polynomial(N)
+    gauss_map = monomial_to_bezier(N)
 
     return gauss_map
+def compute_gauss_map(control_points):
+    """Compute the Gauss map for a Bézier patch with degree elevation."""
+    F = bezier_to_monomial(control_points)
+    Fu = compute_partial_derivative(F, "u")
+    Fv = compute_partial_derivative(F, "v")
+
+    N = cross_product(Fu, Fv)
+
+
+    # N_normalized = normalize_polynomial(N)
+    # print(N_normalized)
+    # N_normalized[np.isnan(N_normalized)]=0.
+    gauss_map = monomial_to_bezier(N)
+
+    return  gauss_map
 
 
 class GaussMap:
-    def __init__(self, surface: NURBSSurface):
-        self.surface = surface
-        self._map = None
+    def __init__(self, mp: NURBSSurface,surf:NURBSSurface):
+        self.surface = surf
+        self._map = mp
+
         self._polar_map = None
         self._polar_convex_hull = None
+        self.children = []
+        self.bezier_patches = []
         self.compute()
 
+    @classmethod
+    def from_surf(cls,surf)  :
+        _map = compute_gauss_map(np.array(surf.control_points))
+        #print((_map.tolist(),np.array(surf.control_points).tolist()))
+        # Compute convex hull
+        return cls(NURBSSurface(np.array(unit(_map.reshape((-1,3)))).reshape(_map.shape),(_map.shape[0]-1,_map.shape[1]-1)), surf)
+
+
+
+    def subdivide(self):
+
+        srf= subdivide_surface(self.surface)
+        mp= subdivide_surface(self._map)
+
+        ll=[]
+        for i in range(4):
+            f=mp[i]
+            s=srf[i]
+
+            f.normalize_knots()
+            s.normalize_knots()
+            ll.append(GaussMap(f,s))
+        return ll
     def compute(self):
         # Convert NURBS to Bézier patches
-        bezier_patches = surface_to_bezier(self.surface)
 
+        #self.bezier_patches = decompose_surface(self.surface)
+        #_map=compute_gauss_map(np.array(self.surface.control_points))
+        #self._map=NURBSSurface(_map,(_map.shape[0]-1,_map.shape[1]-1))
+        #_polar_map = cartesian_to_spherical(unit(_map.control_points_flat))
+        #_polar_convex_hull = ConvexHull(_polar_map, qhull_options='QJ')
         # Compute Gauss map for each Bézier patch
-        gauss_maps = []
-        for patch in bezier_patches:
-            gm = compute_gauss_map(patch.control_points, patch.weights)
-            gauss_maps.append(gm)
+        #gauss_maps = []
+        #for patch in self.bezier_patches:
+        #    gm = compute_gauss_map(np.array(patch.control_points))
+        #    gm=np.array(unit(gm.reshape((-1,3))))
+        #    gauss_maps.append(gm)
 
         # Combine Gauss maps
-        self._map = np.concatenate(gauss_maps, axis=0)
+
 
         # Compute polar representation
-        self._polar_map = cartesian_to_spherical(self._map.reshape((-1, 3)))
+        self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
 
         # Compute convex hull
-        self._polar_convex_hull = ConvexHull(self._polar_map)
+        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)))
 
     def bounds(self):
         """Compute bounds on the Gauss map."""
-        return self._polar_convex_hull.points[self._polar_convex_hull.vertices]
+        return np.array(self._polar_convex_hull.points[self._polar_convex_hull.vertices])
 
     def intersects(self, other: GaussMap):
         """Check if this Gauss map intersects with another."""
-        return gjk(self.bounds(), other.bounds())
+
+        return gjk_collision_detection(self.bounds(), other.bounds())
 
 
 import numpy as np
@@ -145,7 +242,7 @@ def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
     """
     Solve a linear programming problem using scipy's linprog function.
     """
-    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, method='revised simplex')
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, method='highs')
     return res.x if res.success else None
 
 
@@ -249,3 +346,162 @@ def find_common_side_vector(N1, N2):
 #     print("P2:", P2)
 # else:
 #     print("Gauss maps cannot be separated")
+
+
+
+
+from mmcore.numeric.aabb import aabb, aabb_overlap
+from mmcore.geom.bvh import BoundingBox
+
+
+
+
+class DebugTree:
+
+    def __init__(self, data=None, layer=0):
+        self.layer = layer
+        self.data = data
+        self.chidren = []
+
+    def subd(self, count):
+        for i in range(count):
+            self.chidren.append(DebugTree(layer=self.layer + 1))
+        return self.chidren
+
+
+
+def find_ixs(g1, g2, tol=0.1, dbg: DebugTree = None):
+    bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
+        *np.array(g2.surface.bbox())
+    )
+    dddd = [False, False, False, False, False]
+    dbg.data = (g1, g2, dddd)
+
+    if not bb1.intersect_disjoint(bb2):
+
+        dddd[0] = True
+
+        return []
+    if np.linalg.norm(bb1.max_point - bb1.min_point) < tol:
+
+        dddd[1] = True
+
+        return [(g1.surface, g2.surface)]
+    if bb1.intersection(bb2).volume() < tol:
+
+
+        dddd[2] = True
+
+        return []
+
+    bb11, bb21 = BoundingBox(*np.array(aabb(g1.bounds()))), BoundingBox(
+        *np.array(aabb(g2.bounds()))
+    )
+    if not bb11.intersect(bb21):
+
+        dddd[3] = True
+        return [(g1.surface, g2.surface)]
+
+    intersections = []
+    ss = g1.intersects(g2)
+    # n1, n2 = separate_gauss_maps(g1,g2)
+    # if (n1 is not None) or (n2 is not None):
+    #    print('gg')
+    #    return []
+    if not ss:
+
+
+        dddd[4] = True
+        return [(g1.surface, g2.surface)]
+
+    g11 = g1.subdivide()
+    g12 = g2.subdivide()
+    dbg1 = dbg.subd(16)
+    ii = 0
+    for gg in g11:
+        for gh in g12:
+            res = find_ixs(gg, gh, tol, dbg1[ii])
+            ii += 1
+
+            intersections.extend(res)
+    return intersections
+
+
+
+from mmcore.numeric.algorithms.cygjk import gjk
+
+
+
+
+
+
+def detect_loops(surf1,surf2, debug_tree:DebugTree):
+    s1d = decompose_surface(surf1)
+    s2d = decompose_surface(surf2)
+
+    subs = debug_tree.subd(len(s1d) * len(s2d))
+    ii = 0
+    iii = []
+    for _ in s1d:
+        _.normalize_knots()
+    for _ in s2d:
+        _.normalize_knots()
+    for f in s1d:
+        for s in s2d:
+            dddd = [False, False, False]
+            subs[ii].data = (f, s, dddd)
+
+            box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
+            if box1.intersect_disjoint(box2):
+
+                dddd[0] = True
+
+                h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
+                    s.control_points_flat
+                )
+
+                if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+                    ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
+                    dddd[1] = True
+
+
+
+                    p1, p2 = separate_gauss_maps(ff, ss)
+                    if (p1 is None) or (p2 is None):
+                            dddd[2] = True
+                            sbb = subs[ii].subd(1)
+                            iii.extend(find_ixs(ss, ff, 0.1, sbb[0]))
+            ii+=1
+    return iii
+
+
+if __name__ == "__main__":
+    from mmcore._test_data import ssx as td
+    S1, S2 = td[2]
+    dtr=DebugTree()
+    res=detect_loops(S1,S2,dtr)
+    fff = []
+    for i, j in res:
+        ip = np.array(i.control_points)
+        jp = np.array(j.control_points)
+
+        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
+            import warnings
+
+            warnings.warn("NAN")
+        else:
+            fff.append((ip.tolist(), jp.tolist()))
+
+    with open('../../tests/norm2.txt','w') as f:
+        print(fff, file=f)
+
+    def get_first_layer_dbg(dbg:DebugTree):
+        cnds = []
+        for ch in dbg.chidren:
+            if ch.data:
+
+                if all(ch.data[-1]):
+                    cnds.append(
+                        [np.array(ch.data[0].control_points).tolist(), np.array(ch.data[1].control_points).tolist()])
+
+        return cnds

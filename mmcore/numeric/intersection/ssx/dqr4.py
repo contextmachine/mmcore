@@ -5,59 +5,23 @@ import numpy as np
 from scipy.spatial import ConvexHull
 from mmcore.geom.nurbs import (
     NURBSSurface,
-    subdivide_surface, split_surface_u, split_surface_v,
+    subdivide_surface
 )
 
-from mmcore.geom.nurbs import NURBSCurve
+from mmcore.geom.nurbs import NURBSCurve,decompose_surface
 from mmcore.numeric import  evaluate_length
 
 #from mmcore.numeric.algorithms.gjk import gjk_collision_detection
 from mmcore.numeric.algorithms.cygjk import gjk as gjk_collision_detection
+
+from mmcore.numeric.gauss_map import GaussMap
+
 #from mmcore.numeric.vectors import normal_from_4pt
 
 np.set_printoptions(suppress=True)
 from mmcore.numeric.vectors import scalar_norm, scalar_dot
 
 
-
-def decompose_surface(surface, decompose_dir="uv"):
-    def decompose_direction(srf, idx):
-        srf_list = []
-        knots = srf.knots_u if idx == 0 else srf.knots_v
-        degree = srf.degree[idx]
-        unique_knots = sorted(set(knots[degree + 1 : -(degree + 1)]))
-
-        while unique_knots:
-            knot = unique_knots[0]
-            if idx == 0:
-                srfs = split_surface_u(srf, knot)
-            else:
-                srfs = split_surface_v(srf, knot)
-            srf_list.append(srfs[0])
-            srf = srfs[1]
-            unique_knots = unique_knots[1:]
-        srf_list.append(srf)
-        return srf_list
-
-    if not isinstance(surface, NURBSSurface):
-        raise ValueError("Input must be an instance of NURBSSurface class")
-
-    surf = surface.copy()
-
-    if decompose_dir == "u":
-        return decompose_direction(surf, 0)
-    elif decompose_dir == "v":
-        return decompose_direction(surf, 1)
-    elif decompose_dir == "uv":
-        multi_surf = []
-        surfs_u = decompose_direction(surf, 0)
-        for sfu in surfs_u:
-            multi_surf += decompose_direction(sfu, 1)
-        return multi_surf
-    else:
-        raise ValueError(
-            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
-        )
 
 
 def calculate_parametric_tol(self: NURBSSurface, tol=0.1):
@@ -151,7 +115,9 @@ def find_intersections(
     if not gjk_res:
         # print("g n")
         return []
-
+    gauss1,gauss2=GaussMap.from_surf(surface1),GaussMap.from_surf(surface2)
+    if not gauss1.intersects(gauss2):
+        return []
     # Check stopping criterion
     if (u1_range[1] - u1_range[0]) < (tolerance) and (v1_range[1] - v1_range[0]) < (
         tolerance
