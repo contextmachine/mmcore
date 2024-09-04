@@ -5,7 +5,7 @@ from scipy.special import comb
 from itertools import product
 from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import Surface
-from mmcore.geom.nurbs.algorithms import binomial_coefficient_py
+from mmcore.numeric.binom import binomial_coefficient_py
 
 
 def bpmat(n, method="mmcore"):
@@ -41,6 +41,8 @@ def bezier_to_monomial(control_points, bmethod="mmcore"):
 def monomial_to_bezier(monomial_coeffs, bmethod="mmcore"):
     """Convert monomial coefficients to Bézier patch control points."""
     n, m, dim = monomial_coeffs.shape
+    #print(n - 1)
+    #print(m-1)
     Mu_inv = np.linalg.inv(bpmat(n - 1, method=bmethod))
     Mv_inv = np.linalg.inv(bpmat(m - 1, method=bmethod))
 
