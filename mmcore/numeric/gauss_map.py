@@ -189,7 +189,7 @@ class GaussMap:
         self._polar_convex_hull = None
         self.children = []
         self.bezier_patches = []
-        self.compute()
+        #self.compute()
 
     @classmethod
     def from_surf(cls, surf):
@@ -237,6 +237,7 @@ class GaussMap:
         #self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
 
         # Compute convex hull
+
         self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
 
     def bounds(self):
@@ -360,7 +361,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb
+from mmcore.numeric.aabb import aabb, aabb_overlap
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -376,7 +377,8 @@ class DebugTree:
             self.chidren.append(DebugTree(layer=self.layer + 1))
         return self.chidren
 
-
+def aabb_intersection(bb1,bb2):
+    return np.array([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
 def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
@@ -391,23 +393,27 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     :param dbg:
     :return:
     """
-    bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
-        *np.array(g2.surface.bbox())
-    )
+    #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
+    #    *np.array(g2.surface.bbox())
+    #)
+    bb1=np.array(g1.surface.bbox())
+    bb2=np.array(g2.surface.bbox())
     dddd = [False, False, False, False, False]
     dbg.data = (g1, g2, dddd)
 
-    if not bb1.intersect_disjoint(bb2):
+    if not aabb_overlap(bb1,bb2):
         # ББокы не пересекаются
         dddd[0] = True
 
         return []
 
-    if scalar_norm(bb1.max_point - bb1.min_point) < tol:
+    if scalar_norm(bb1[1] - bb1[0]) < tol:
         dddd[1] = True
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
-    if min(bb1.intersection(bb2).dims) < tol:
+    ii=aabb_intersection(bb1,bb2)
+
+    if np.min(ii[1]-ii[0]) < tol:
         # Бокс не маленький, но очень плоский. объекты не пересекаются
         dddd[2] = True
 
@@ -424,11 +430,13 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
         # Поверхности не пересекаются
         dddd[3] = True
         return []
+    if g1._polar_convex_hull is None:
+        g1.compute()
+    if g2._polar_convex_hull is None:
+        g2.compute()
+    bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
 
-    bb11, bb21 = BoundingBox(*np.array(aabb(g1.bounds()))), BoundingBox(
-        *np.array(aabb(g2.bounds()))
-    )
-    if not bb11.intersect(bb21):
+    if not aabb_overlap(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
         dddd[3] = True
         return [(g1.surface, g2.surface)]

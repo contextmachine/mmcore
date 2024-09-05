@@ -34,16 +34,12 @@ class BVHNode:
 
 class BoundingBox:
     def __init__(self, min_point, max_point):
-        self.min_point = min_point  # Should be a tuple (x_min, y_min, z_min)
-        self.max_point = max_point  # Should be a tuple (x_max, y_max, z_max)
-        self.center = np.average([min_point, max_point], axis=0)
-        self.dims = np.array(
-            [
-                self.max_point[0] - self.min_point[0],
-                self.max_point[1] - self.min_point[1],
-                self.max_point[2] - self.min_point[2],
-            ]
-        )
+        self.min_point = np.array(min_point)  # Should be a tuple (x_min, y_min, z_min)
+        self.max_point = np.array(max_point)  # Should be a tuple (x_max, y_max, z_max)
+        self.center = (self.min_point+ self.max_point)*0,5
+        self.dims = self.max_point - self.min_point
+
+
     def volume(self):
         return self.dims[0]*  self.dims[1]*  self.dims[2]
     def intersect(self, other):
