@@ -5,11 +5,28 @@ from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
 from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface
-from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk, gjk_collision_detection
+from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
-from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian
+from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
+
+
+def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
+
+    corner_points = [surf(u_min, v_min), surf(u_min, v_max), surf(u_max, v_min), surf(u_max, v_max)]
+    center_point = surf((u_min + u_max) / 2, (v_min + v_max) / 2)
+
+    # Compute the plane defined by the three corner points
+    normal = np.cross(corner_points[1] - corner_points[0], corner_points[2] - corner_points[0])
+    normal = normal / scalar_norm(normal)
+    d = -scalar_dot(normal, corner_points[0])
+
+    # Check the distance of the center point from the plane
+    distance = np.abs(scalar_dot(normal, center_point) + d)
+    # Define an appropriate tolerance for flatness
+
+    return distance < tolerance
 
 
 def decompose_surface(surface, decompose_dir="uv"):
@@ -185,16 +202,19 @@ class GaussMap:
     def subdivide(self):
         srf = subdivide_surface(self.surface)
         mp = subdivide_surface(self._map)
+        if len(self.children)==0:
+            self.children = []
+            for i in range(4):
+                f = mp[i]
+                s = srf[i]
 
-        ll = []
-        for i in range(4):
-            f = mp[i]
-            s = srf[i]
+                f.normalize_knots()
+                s.normalize_knots()
+                self.children.append(GaussMap(f, s))
 
-            f.normalize_knots()
-            s.normalize_knots()
-            ll.append(GaussMap(f, s))
-        return ll
+            return  self.children
+        else:
+            return self.children
 
     def compute(self):
         # Convert NURBS to Bézier patches
@@ -214,7 +234,7 @@ class GaussMap:
         # Combine Gauss maps
 
         # Compute polar representation
-        self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
+        #self._polar_map = cartesian_to_spherical(unit(self._map.control_points_flat))
 
         # Compute convex hull
         self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
@@ -226,7 +246,7 @@ class GaussMap:
     def intersects(self, other: GaussMap):
         """Check if this Gauss map intersects with another."""
 
-        return gjk_collision_detection(self.bounds(), other.bounds())
+        return gjk(self.bounds(), other.bounds())
 
 
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
@@ -288,8 +308,8 @@ def find_separating_vector(N1, N2):
     if result is not None:
         P1 = result[:3]
         epsilon = result[3]
-        if np.linalg.norm(P1) > 1e-6 and epsilon < 0:  # Check if the solution is valid
-            return P1 / np.linalg.norm(P1)  # Normalize P1
+        if scalar_norm(P1) > 1e-6 and epsilon < 0:  # Check if the solution is valid
+            return P1 / scalar_norm(P1)  # Normalize P1
 
     return None
 
@@ -322,8 +342,8 @@ def find_common_side_vector(N1, N2):
     if result is not None:
         P2 = result[:3]
         epsilon = result[3]
-        if np.linalg.norm(P2) > 1e-6 and epsilon < 0:  # Check if the solution is valid
-            return P2 / np.linalg.norm(P2)  # Normalize P2
+        if scalar_norm(P2) > 1e-6 and epsilon < 0:  # Check if the solution is valid
+            return P2 / scalar_norm(P2)  # Normalize P2
 
     return None
 
@@ -357,7 +377,7 @@ class DebugTree:
         return self.chidren
 
 
-def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
+def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
     Существует три варианта завершения:
@@ -383,7 +403,7 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
 
         return []
 
-    if np.linalg.norm(bb1.max_point - bb1.min_point) < tol:
+    if scalar_norm(bb1.max_point - bb1.min_point) < tol:
         dddd[1] = True
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
@@ -392,9 +412,14 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
         dddd[2] = True
 
         return []
-    h1, h2 = ConvexHull(g1.surface.control_points_flat), ConvexHull(
-        g2.surface.control_points_flat
-    )
+    #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
+    #    print('f')
+    #    return [g1.surface, g2.surface]
+    if id(g1.surface) not in chs:
+        chs[id(g1.surface)] =  ConvexHull(g1.surface.control_points_flat)
+    if id(g2.surface) not in chs:
+        chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
+    h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
     if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
         # Поверхности не пересекаются
         dddd[3] = True
@@ -409,24 +434,25 @@ def _detect_intersections_deep(g1, g2, tol=0.1, dbg: DebugTree = None):
         return [(g1.surface, g2.surface)]
 
     intersections = []
-    ss = g1.intersects(g2)
-    # n1, n2 = separate_gauss_maps(g1,g2)
-    # if (n1 is not None) or (n2 is not None):
-    #    print('gg')
-    #    return []
-    if not ss:
-        # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
+    #ss = g1.intersects(g2)
+    n1, n2 = separate_gauss_maps(g1,g2)
+    if (n1 is not None) and (n2 is not None):
 
-        dddd[4] = True
-        return [(g1.surface, g2.surface)]
+        return []
+    #if not ss:
+    #    # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
+
+    #    dddd[4] = True
+    #    return [(g1.surface, g2.surface)]
     # Все тесты провалены, новый этап подразбиения
     g11 = g1.subdivide()
     g12 = g2.subdivide()
+
     dbg1 = dbg.subd(16)
     ii = 0
     for gg in g11:
         for gh in g12:
-            res = _detect_intersections_deep(gg, gh, tol, dbg1[ii])
+            res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
             ii += 1
 
             intersections.extend(res)
@@ -540,7 +566,7 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
         _.normalize_knots()
     tree1 = build_bvh([NURBSObject(s) for s in s1d])
     tree2 = build_bvh([NURBSObject(s) for s in s2d])
-
+    gauss_maps=dict()
     for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
 
         f = obj1.object.surface
@@ -548,30 +574,28 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
         dddd = [False, False, False]
         subs[index].data = (f, s, dddd)
 
-        #box1, box2 = BoundingBox(*np.array(f.bbox())), BoundingBox(*np.array(s.bbox()))
-        # Если хотябы одно условие не срабатывает то пара патчек исключается из рассмотрения.
-
-        #if box1.intersect_disjoint(box2):
-        # Боксы пересекаются
-        #dddd[0] = True
-
         h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
             s.control_points_flat
         )
+        chs=dict()
 
-        if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+        if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок
-            ss, ff = GaussMap.from_surf(f), GaussMap.from_surf(s)
+            if id(f) not in gauss_maps:
+                gauss_maps[id(f)]=GaussMap.from_surf(f)
+            if id(s) not in gauss_maps:
+                gauss_maps[id(s)]=GaussMap.from_surf(s)
+            ss, ff =gauss_maps[id(f)], gauss_maps[id(s)]
             dddd[1] = True
 
-            p1, p2 = separate_gauss_maps(ff, ss)
+            #p1, p2 = separate_gauss_maps(ff, ss)
 
-            if (p1 is None) or (p2 is None):
+            #if (p1 is None) or (p2 is None):
                 # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
-                dddd[2] = True
-                sbb = subs[index].subd(1)
-                intersections.extend(_detect_intersections_deep(ss, ff, 0.1, sbb[0]))
+            dddd[2] = True
+            sbb = subs[index].subd(1)
+            intersections.extend(_detect_intersections_deep(ss, ff, chs,0.1, sbb[0]))
 
         index += 1
     return intersections
@@ -582,7 +606,10 @@ if __name__ == "__main__":
 
     S1, S2 = td[2]
     dtr = DebugTree()
+    import time
+    s=time.time()
     res = detect_intersections(S1, S2, dtr)
+    print(time.time()-s)
     fff = []
     for i, j in res:
         ip = np.array(i.control_points)
