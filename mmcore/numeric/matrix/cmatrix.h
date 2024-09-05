@@ -30,6 +30,8 @@ void set_matrix_from_array(matrix *m, double *arr) {
 }
 
 // Function to set matrix values from a two-dimensional array
+#ifndef _WIN32
+// For non-Windows platforms, use VLAs
 void set_matrix_from_array2d(matrix *m, double arr[m->rows][m->columns]) {
     for (int i = 0; i < m->rows; i++) {
         for (int j = 0; j < m->columns; j++) {
@@ -37,6 +39,16 @@ void set_matrix_from_array2d(matrix *m, double arr[m->rows][m->columns]) {
         }
     }
 }
+#else
+// For Windows, use dynamically allocated 2D array (double **)
+void set_matrix_from_array2d(matrix *m, double **arr) {
+    for (int i = 0; i < m->rows; i++) {
+        for (int j = 0; j < m->columns; j++) {
+            MAT_PTR(m, i, j) = arr[i][j]; // Copy element from 2D array to matrix
+        }
+    }
+}
+#endif //_WIN32
 
 // Function to create and initialize a matrix
 matrix create_matrix(int rows, int columns) {
@@ -114,7 +126,18 @@ int LU_decomposition(matrix *A, int *P) {
 
 // Function to solve Ax = b using LU decomposition
 void LU_solve(matrix *A, int *P, double *b, double *x) {
+    #ifdef _WIN32
+    // Use malloc for Windows
+    double *y = (double *)malloc(A->rows * sizeof(double));
+    if (y == NULL) {
+        // Handle allocation failure
+        return;
+    }
+    #else
+    // Use VLAs for non-Windows
     double y[A->rows];
+    #endif
+
     int i, j;
 
     // Forward substitution to solve Ly = Pb
@@ -136,12 +159,26 @@ void LU_solve(matrix *A, int *P, double *b, double *x) {
 
         x[i] /= MAT_PTR(A, i, i);
     }
+    #ifdef _WIN32
+    // Free dynamically allocated memory on Windows
+    free(y);
+    #endif
 }
 
 // Function to calculate the inverse of a matrix
 int invert_matrix(matrix *A, matrix *inverse) {
+    #ifdef _WIN32
+    double *b = (double *)malloc(A->rows * sizeof(double));
+    double *x = (double *)malloc(A->rows * sizeof(double));
+    int *P = (int *)malloc(A->rows * sizeof(int));
+    if (b == NULL || x == NULL || P == NULL) {
+        // Handle allocation failure
+        return 0;
+    }
+    #else
     double b[A->rows], x[A->rows];
     int P[A->rows];
+    #endif
     int i, j;
 
     // Perform LU decomposition
@@ -164,6 +201,11 @@ int invert_matrix(matrix *A, matrix *inverse) {
             MAT_PTR(inverse, j, i) = x[j];
         }
     }
+    #ifdef _WIN32
+    free(b);
+    free(x);
+    free(P);
+    #endif
 
     return 1;
 }

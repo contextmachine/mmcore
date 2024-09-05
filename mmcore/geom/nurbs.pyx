@@ -638,13 +638,15 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
             rknots[2 * i] = knot_list[i]
             rknots[2 * i + 1] = knot_list[i] + (knot_list[i + 1] - knot_list[i]) / 2.0
 
-        rknots[-1] = knot_list[-1]
+        rknots[rknots_size-1] = knot_list[new_knot_len-1]
         knot_list = rknots
         usz = rknots_size
     cdef double[:] X = np.zeros(knot_list.shape[0] * degree, dtype=np.float64)
     cdef int x_count = 0
-    cdef int s, r
-    for mk in knot_list:
+    cdef int s, r ,ki
+
+    for ki in range(knot_list.shape[0]):
+        mk=knot_list[ki]
         s = find_multiplicity(mk, knotvector)
         r = degree - s
         for _ in range(r):
