@@ -379,6 +379,8 @@ class DebugTree:
 
 def aabb_intersection(bb1,bb2):
     return np.array([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
+
+
 def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
@@ -398,24 +400,24 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     #)
     bb1=np.array(g1.surface.bbox())
     bb2=np.array(g2.surface.bbox())
-    dddd = [False, False, False, False, False]
-    dbg.data = (g1, g2, dddd)
+    #dddd = [False, False, False, False, False]
+    #dbg.data = (g1, g2, dddd)
 
     if not aabb_overlap(bb1,bb2):
         # ББокы не пересекаются
-        dddd[0] = True
+        #dddd[0] = True
 
         return []
 
     if scalar_norm(bb1[1] - bb1[0]) < tol:
-        dddd[1] = True
+        #dddd[1] = True
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
     ii=aabb_intersection(bb1,bb2)
 
     if np.min(ii[1]-ii[0]) < tol:
         # Бокс не маленький, но очень плоский. объекты не пересекаются
-        dddd[2] = True
+        #dddd[2] = True
 
         return []
     #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
@@ -428,7 +430,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
     if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
         # Поверхности не пересекаются
-        dddd[3] = True
+        #dddd[3] = True
         return []
     if g1._polar_convex_hull is None:
         g1.compute()
@@ -438,7 +440,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
 
     if not aabb_overlap(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
-        dddd[3] = True
+        #dddd[3] = True
         return [(g1.surface, g2.surface)]
 
     intersections = []
@@ -456,11 +458,12 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     g11 = g1.subdivide()
     g12 = g2.subdivide()
 
-    dbg1 = dbg.subd(16)
+    #dbg1 = dbg.subd(16)
     ii = 0
     for gg in g11:
         for gh in g12:
-            res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
+            #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
+            res = _detect_intersections_deep(gg, gh, chs,tol=tol)
             ii += 1
 
             intersections.extend(res)
@@ -473,7 +476,7 @@ class NURBSObject(Object3D):
         super().__init__(BoundingBox(*np.array(self.surface.bbox())))
 
 
-def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURBSSurface, NURBSSurface]]:
+def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
     Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
     bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
@@ -565,7 +568,7 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
     s1d = decompose_surface(surf1)
     s2d = decompose_surface(surf2)
 
-    subs = debug_tree.subd(len(s1d) * len(s2d))
+    #subs = debug_tree.subd(len(s1d) * len(s2d))
     index = 0
     intersections = []
     for _ in s1d:
@@ -579,8 +582,8 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
 
         f = obj1.object.surface
         s = obj2.object.surface
-        dddd = [False, False, False]
-        subs[index].data = (f, s, dddd)
+        #dddd = [False, False, False]
+        #subs[index].data = (f, s, dddd)
 
         h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
             s.control_points_flat
@@ -594,17 +597,20 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
                 gauss_maps[id(f)]=GaussMap.from_surf(f)
             if id(s) not in gauss_maps:
                 gauss_maps[id(s)]=GaussMap.from_surf(s)
+
             ss, ff =gauss_maps[id(f)], gauss_maps[id(s)]
-            dddd[1] = True
+            ss.compute()
+            ff.compute()
+            #dddd[1] = True
 
-            #p1, p2 = separate_gauss_maps(ff, ss)
+            p1, p2 = separate_gauss_maps(ff, ss)
 
-            #if (p1 is None) or (p2 is None):
+            if (p1 is None) or (p2 is None):
                 # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
-            dddd[2] = True
-            sbb = subs[index].subd(1)
-            intersections.extend(_detect_intersections_deep(ss, ff, chs,0.1, sbb[0]))
-
+                #dddd[2] = True
+                #sbb = subs[index].subd(1)
+                #
+                intersections.extend(_detect_intersections_deep(ss, ff, chs, 0.1))
         index += 1
     return intersections
 
@@ -612,11 +618,32 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree) -> list[tuple[NURB
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
-    S1, S2 = td[2]
-    dtr = DebugTree()
+    S1, S2 = td[1]
+
     import time
     s=time.time()
-    res = detect_intersections(S1, S2, dtr)
+    res = detect_intersections(S1, S2)
+    print(time.time()-s)
+    fff = []
+    for i, j in res:
+        ip = np.array(i.control_points)
+        jp = np.array(j.control_points)
+
+        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
+            import warnings
+
+            warnings.warn("NAN")
+        else:
+            fff.append((ip.tolist(), jp.tolist()))
+
+    with open('../../tests/norm1.txt', 'w') as f:
+        print(fff, file=f)
+
+    S1, S2 = td[2]
+
+    import time
+    s=time.time()
+    res = detect_intersections(S1, S2)
     print(time.time()-s)
     fff = []
     for i, j in res:
