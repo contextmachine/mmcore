@@ -283,7 +283,7 @@ cdef class ParametricCurve:
                 self.cevaluate(t[i],res[i])
             return res
         else:
-            self.cevaluate(t,res[i])
+            self.cevaluate(t,res[0])
             return res
         
 
