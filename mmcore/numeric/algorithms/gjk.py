@@ -17,14 +17,14 @@ def udTriangle(p, a, b, c):
 
     nor = np.cross(ba, ac)
 
-    sign_sum = (np.sign(np.dot(np.cross(ba, nor), pa)) +
-                np.sign(np.dot(np.cross(cb, nor), pb)) +
-                np.sign(np.dot(np.cross(ac, nor), pc)))
+    sign_sum = (np.sign(scalar_dot(np.cross(ba, nor), pa)) +
+                np.sign(scalar_dot(np.cross(cb, nor), pb)) +
+                np.sign(scalar_dot(np.cross(ac, nor), pc)))
 
     if sign_sum < 2.0:
-        ba_dot_pa = np.dot(ba, pa)
-        cb_dot_pb = np.dot(cb, pb)
-        ac_dot_pc = np.dot(ac, pc)
+        ba_dot_pa = scalar_dot(ba, pa)
+        cb_dot_pb = scalar_dot(cb, pb)
+        ac_dot_pc = scalar_dot(ac, pc)
 
         t1 = np.clip(ba_dot_pa / dot2(ba), 0.0, 1.0)
         t2 = np.clip(cb_dot_pb / dot2(cb), 0.0, 1.0)
@@ -36,7 +36,7 @@ def udTriangle(p, a, b, c):
 
         return np.sqrt(min(scalar_dot(v1,v1), scalar_dot(v2,v2), scalar_dot(v3,v3)))
     else:
-        nor_dot_pa = np.dot(nor, pa)
+        nor_dot_pa = scalar_dot(nor, pa)
         return np.sqrt(nor_dot_pa * nor_dot_pa / scalar_dot(nor,nor))
 
 
@@ -57,7 +57,7 @@ def support_vector(vertices: np.ndarray, d: np.ndarray) -> tuple[np.ndarray,int]
     support = np.zeros(d.shape, dtype=float)
     support_i=-1
     for i,v in enumerate(vertices):
-        dot_value = np.dot(v, d)
+        dot_value = scalar_dot(v, d)
 
         if dot_value > highest:
             highest = dot_value
@@ -126,7 +126,7 @@ def gjk_collision_detection(vertices1: np.ndarray, vertices2: np.ndarray, tol=1e
 
             return True
 
-    warnings.warn('Max Iter')
+    #warnings.warn('Max Iter')
 
     return False
 
