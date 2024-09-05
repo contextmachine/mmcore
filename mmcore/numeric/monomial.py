@@ -6,8 +6,8 @@ from itertools import product
 from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric.binom import binomial_coefficient_py
-
-
+from functools import lru_cache
+@lru_cache(maxsize=None)
 def bpmat(n, method="mmcore"):
 
     """Create Bernstein to monomial conversion matrix.
@@ -23,6 +23,7 @@ def bpmat(n, method="mmcore"):
             for j in range(n + 1)
         ]
     )
+
 
 
 def bezier_to_monomial(control_points, bmethod="mmcore"):
