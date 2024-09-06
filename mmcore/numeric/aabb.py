@@ -55,24 +55,24 @@ def aabb_overlap(
         and box1[1][2] >= box2[0][2]
     )
 
-
-def aabb(points: np.ndarray):
-    """
-     AABB (Axis-Aligned Bounding Box) of a point collection.
-    :param points: Points
-    :rtype: np.ndarray[(N, K), np.dtype[float]] where:
-        - N is a points count.
-        - K is the number of dims. For example in 3d case (x,y,z) K=3.
-    :return: AABB of a point collection.
-    :rtype: np.ndarray[(2, K), np.dtype[float]] at [a1_min, a2_min, ... an_min],[a1_max, a2_max, ... an_max],
-    """
-
-    return np.array(
-        (
-            np.min(points, axis=len(points.shape) - 2),
-            np.max(points, axis=len(points.shape) - 2),
-        )
-    )
+from mmcore.numeric._aabb import aabb
+#def aabb(points: np.ndarray):
+#    """
+#     AABB (Axis-Aligned Bounding Box) of a point collection.
+#    :param points: Points
+#    :rtype: np.ndarray[(N, K), np.dtype[float]] where:
+#        - N is a points count.
+#        - K is the number of dims. For example in 3d case (x,y,z) K=3.
+#    :return: AABB of a point collection.
+#    :rtype: np.ndarray[(2, K), np.dtype[float]] at [a1_min, a2_min, ... an_min],[a1_max, a2_max, ... an_max],
+#    """
+#
+#    return np.array(
+#        (
+#            np.min(points, axis=len(points.shape) - 2),
+#            np.max(points, axis=len(points.shape) - 2),
+#        )
+#    )
 
 
 def curve_aabb(curve, bounds=None, tol=1e-2):
