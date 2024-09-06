@@ -361,7 +361,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb, aabb_overlap
+from mmcore.numeric.aabb import aabb,aabb_overlap
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -378,7 +378,7 @@ class DebugTree:
         return self.chidren
 
 def aabb_intersection(bb1,bb2):
-    return np.array([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
+    return np.asarray([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
 
 
 def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
@@ -473,7 +473,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
 class NURBSObject(Object3D):
     def __init__(self, surface: NURBSSurface):
         self.surface = surface
-        super().__init__(BoundingBox(*np.array(self.surface.bbox())))
+        super().__init__(BoundingBox(*np.asarray(self.surface.bbox())))
 
 
 def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
