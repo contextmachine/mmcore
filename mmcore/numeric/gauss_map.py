@@ -4,7 +4,7 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
-from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface
+from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface  ,decompose_surface
 from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
@@ -29,44 +29,44 @@ def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
     return distance < tolerance
 
 
-def decompose_surface(surface, decompose_dir="uv"):
-    def decompose_direction(srf, idx):
-        srf_list = []
-        knots = srf.knots_u if idx == 0 else srf.knots_v
-        degree = srf.degree[idx]
-        unique_knots = sorted(set(knots[degree + 1: -(degree + 1)]))
-
-        while unique_knots:
-            knot = unique_knots[0]
-            if idx == 0:
-                srfs = split_surface_u(srf, knot)
-            else:
-                srfs = split_surface_v(srf, knot)
-            srf_list.append(srfs[0])
-            srf = srfs[1]
-            unique_knots = unique_knots[1:]
-        srf_list.append(srf)
-        return srf_list
-
-    if not isinstance(surface, NURBSSurface):
-        raise ValueError("Input must be an instance of NURBSSurface class")
-
-    surf = surface.copy()
-
-    if decompose_dir == "u":
-        return decompose_direction(surf, 0)
-    elif decompose_dir == "v":
-        return decompose_direction(surf, 1)
-    elif decompose_dir == "uv":
-        multi_surf = []
-        surfs_u = decompose_direction(surf, 0)
-        for sfu in surfs_u:
-            multi_surf += decompose_direction(sfu, 1)
-        return multi_surf
-    else:
-        raise ValueError(
-            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
-        )
+#def decompose_surface(surface, decompose_dir="uv"):
+#    def decompose_direction(srf, idx):
+#        srf_list = []
+#        knots = srf.knots_u if idx == 0 else srf.knots_v
+#        degree = srf.degree[idx]
+#        unique_knots = sorted(set(knots[degree + 1: -(degree + 1)]))
+#
+#        while unique_knots:
+#            knot = unique_knots[0]
+#            if idx == 0:
+#                srfs = split_surface_u(srf, knot)
+#            else:
+#                srfs = split_surface_v(srf, knot)
+#            srf_list.append(srfs[0])
+#            srf = srfs[1]
+#            unique_knots = unique_knots[1:]
+#        srf_list.append(srf)
+#        return srf_list
+#
+#    if not isinstance(surface, NURBSSurface):
+#        raise ValueError("Input must be an instance of NURBSSurface class")
+#
+#    surf = surface.copy()
+#
+#    if decompose_dir == "u":
+#        return decompose_direction(surf, 0)
+#    elif decompose_dir == "v":
+#        return decompose_direction(surf, 1)
+#    elif decompose_dir == "uv":
+#        multi_surf = []
+#        surfs_u = decompose_direction(surf, 0)
+#        for sfu in surfs_u:
+#            multi_surf += decompose_direction(sfu, 1)
+#        return multi_surf
+#    else:
+#        raise ValueError(
+#            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
+#        )
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -184,7 +184,7 @@ class GaussMap:
     def __init__(self, mp: NURBSSurface, surf: NURBSSurface):
         self.surface = surf
         self._map = mp
-
+        self.hull=None
         self._polar_map = None
         self._polar_convex_hull = None
         self.children = []
@@ -200,16 +200,16 @@ class GaussMap:
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
     def subdivide(self):
-        srf = subdivide_surface(self.surface)
-        mp = subdivide_surface(self._map)
+        srf = subdivide_surface(self.surface,normalize_knots=True)
+        mp = subdivide_surface(self._map,normalize_knots=True)
         if len(self.children)==0:
             self.children = []
             for i in range(4):
                 f = mp[i]
                 s = srf[i]
 
-                f.normalize_knots()
-                s.normalize_knots()
+                #f.normalize_knots()
+                #s.normalize_knots()
                 self.children.append(GaussMap(f, s))
 
             return  self.children
@@ -239,10 +239,11 @@ class GaussMap:
         # Compute convex hull
 
         self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
+        self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
 
     def bounds(self):
         """Compute bounds on the Gauss map."""
-        return np.array(self._polar_convex_hull.points[self._polar_convex_hull.vertices])
+        return self.hull
 
     def intersects(self, other: GaussMap):
         """Check if this Gauss map intersects with another."""
@@ -571,10 +572,10 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple
     #subs = debug_tree.subd(len(s1d) * len(s2d))
     index = 0
     intersections = []
-    for _ in s1d:
-        _.normalize_knots()
-    for _ in s2d:
-        _.normalize_knots()
+    #for _ in s1d:
+    #    _.normalize_knots()
+    #for _ in s2d:
+    #    _.normalize_knots()
     tree1 = build_bvh([NURBSObject(s) for s in s1d])
     tree2 = build_bvh([NURBSObject(s) for s in s2d])
     gauss_maps=dict()
