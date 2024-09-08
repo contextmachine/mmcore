@@ -1,17 +1,22 @@
+from typing import Union
+
 import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
+
+
+from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric.algorithms.cygjk import gjk
 
 
-__all__=['spatial_separability']
+__all__=['spatial_separability','SpatialSeparabilityTest']
 class SpatialSeparabilityTest:
     def __init__(self, object1, object2):
         self.object1 = object1
         self.object2 = object2
-        self.bounding_points1 = object1.get_bounding_points()
-        self.bounding_points2 = object2.get_bounding_points()
+        self.bounding_points1 = self.get_bounding_points(object1)
+        self.bounding_points2 = self.get_bounding_points(object2)
         self.bbox1 = self._compute_bounding_box(self.bounding_points1)
         self.bbox2 = self._compute_bounding_box(self.bounding_points2)
 
@@ -21,7 +26,14 @@ class SpatialSeparabilityTest:
 
     def bounding_box_test(self):
         return not aabb_intersect(self.bbox1, self.bbox2)
+    @staticmethod
+    def get_bounding_points(self:Union[NURBSSurface,NURBSCurve]):
 
+        return self.control_points_flat[self._vertices]
+
+    @staticmethod
+    def get_corner_points(self:NURBSSurface):
+        return self.control_points[[0, -1, -1, 0], [0, 0, -1, -1]]
 
     def bounding_plane_test(self):
         if isinstance(self.object1, Surface) and isinstance(self.object2, Surface):
@@ -36,7 +48,7 @@ class SpatialSeparabilityTest:
         return False
 
     def _compute_bounding_plane_normal(self, surface):
-        A, B, C, D = surface.get_corner_points()
+        A, B, C, D = self.get_corner_points(surface)
         return np.cross(C - A, D - B)
 
     def _plane_separates(self, normal, points1, points2):
@@ -128,16 +140,71 @@ class Curve(GeometricObject):
     def get_bounding_points(self):
         return self.control_points
 
-def spatial_separability(points1,pointa2, tol=1e-8):
-    bb1=aabb(points1)
-    bb2=aabb(pointa2)
-    if not aabb_intersect(bb1,bb2):
+
+def spatial_separability(points1, points2, tol=1e-8):
+    """
+    Test for spatial separability of two sets of points using axis-aligned bounding boxes and the GJK algorithm.
+
+    This algorithm is based on the spatial separability method discussed in section 4.2 of
+    "Robust and Efficient Surface Intersection for Solid Modeling" by Michael Edward Hohmeyer B.A.
+
+    **Key Differences:**
+
+    - Instead of the linear solver originally proposed by Hohmeyer, this implementation uses the GJK (Gilbert-Johnson-Keerthi) algorithm as a more efficient test.
+    - GJK is both faster and can handle more cases of separability compared to the linear solver.
+    - The original :class:`SpatialSeparabilityTest` class is included for reference and comparison,
+    but is not well-suited for direct API use with flat sets of control points. The `spatial_separability`
+    function adapts the approach for simpler use cases.
+
+    :param points1:
+        A set of points (control points) representing the first geometric object.
+        Expected shape is (n, 3), where n is the number of points.
+    :type points1: np.ndarray
+
+    :param points2:
+        A set of points (control points) representing the second geometric object.
+        Expected shape is (m, 3), where m is the number of points.
+    :type points2: np.ndarray
+
+    :param tol:
+        Tolerance for the GJK algorithm. Defaults to 1e-8.
+    :type tol: float, optional
+
+    :return:
+        True if the two sets of points are spatially separable, meaning there is no intersection between them.
+    :rtype: bool
+
+    **Notes:**
+
+    - The method first checks the axis-aligned bounding boxes (AABB) of both point sets.
+    - If the AABBs do not intersect, the objects are immediately considered separable.
+    - If the AABBs intersect, the GJK algorithm is used as an additional, more thorough test for separability.
+
+    **Examples:**
+
+    .. code-block:: python
+
+        >>> points1 = np.random.rand(10, 3)  # Random set of points representing the first object
+        >>> points2 = np.random.rand(8, 3)   # Random set of points representing the second object
+        >>> result = spatial_separability(points1, points2)
+        >>> print(result)
+        True
+    """
+    # Compute the axis-aligned bounding boxes (AABB) for both point sets
+    bb1 = aabb(points1)
+    bb2 = aabb(points2)
+
+    # If bounding boxes do not intersect, the objects are separable
+    if not aabb_intersect(bb1, bb2):
         return True
-    gjk_res=gjk(points1,pointa2,tol=tol)
+
+    # Use the GJK algorithm for a more detailed check of separability
+    gjk_res = gjk(points1, points2, tol=tol)
     if not gjk_res:
         return True
 
     return False
+
 
 # Example usage
 if __name__ == "__main__":
