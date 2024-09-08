@@ -72,8 +72,74 @@ def separating_circles_test(points1, points2, center):
     return not res.success  # True if no separating plane was found
 
 
-def spherical_separability_test(surface_points, curve_points, intersection_point):
-    """Perform full spherical separability test."""
+def spherical_separability(surface_points, curve_points, intersection_point):
+    """
+    Perform a spherical separability test between a NURBS surface and curve, given a known intersection point.
+    This test is based on the method described in section 4.3, "Spherical Separability" by Michael Edward Hohmeyer.
+
+    **Overview**:
+
+    This test projects the control points of both the surface and curve onto a unit sphere centered at the intersection
+    point and checks if their spherical projections intersect anywhere other than at the given intersection point.
+
+    The algorithm implements two tests:
+
+    1. A fast spherical bounding box test, which provides an initial check for separability.
+    2. If the bounding box test fails, a more accurate separating circles test is performed, based on linear programming.
+
+    Parameters
+    ----------
+    :param surface_points:
+        A 2D array of control points representing the surface, excluding the intersection point.
+    :type surface_points: np.ndarray
+
+    :param curve_points:
+        A 2D array of control points representing the curve, excluding the intersection point.
+    :type curve_points: np.ndarray
+
+    :param intersection_point:
+        The known intersection point between the surface and the curve. This point will be excluded from the separability tests.
+    :type intersection_point: np.ndarray
+
+    Returns
+    -------
+    :return:
+        True if the surface and curve are separable and intersect only at the given intersection point.
+        False if they intersect at additional points.
+    :rtype: bool
+
+    Notes
+    -----
+    - The function performs two stages of separability testing: an initial bounding box test and a more accurate
+      separating circles test if necessary.
+    - The spherical bounding box test is analogous to axis-aligned bounding box tests in 3D space, and is computationally inexpensive.
+    - The separating circles test uses a linear programming approach to determine whether the curve and surface projections
+      onto the sphere are separable.
+
+    Example
+    -------
+    .. code-block:: python
+
+        surface_points = np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
+        curve_points = np.array([[0, 0, 1], [1, 1, 2]])
+        intersection_point = np.array([1, 1, 1])
+
+        result = spherical_separability(surface_points, curve_points, intersection_point)
+        print(result)  # Output: True or False depending on separability.
+
+    **Algorithm Reference**:
+
+    - "Spherical Separability" as described in section 4.3 of "Robust and Efficient Surface Intersection for Solid Modeling"
+      by Michael Edward Hohmeyer (University of California, 1986).
+
+    **Notes**:
+
+    - The function assumes that the `surface_points` and `curve_points` are in 3D space and excludes the `intersection_point`
+      before running the separability tests.
+    - The bounding box test is significantly faster but less accurate. If this test fails, the more accurate but
+      computationally expensive separating circles test is run.
+    """
+
     # Remove the intersection point from both sets
     surface_points = surface_points[
         ~np.all(surface_points == intersection_point, axis=1)
@@ -86,5 +152,3 @@ def spherical_separability_test(surface_points, curve_points, intersection_point
 
     # If bounding box test fails, use the more expensive separating circles test
     return separating_circles_test(surface_points, curve_points, intersection_point)
-
-spherical_separability=spherical_separability_test
