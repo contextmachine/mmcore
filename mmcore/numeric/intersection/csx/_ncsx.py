@@ -28,6 +28,10 @@ def normalize_curve_knots(curve):
 
 
 class NURBSCurveSurfaceIntersector:
+    """
+    The ground of the implementation was based on the description of the algorithm from the  "4.5 Intersecting Curves and Surfaces. Robust and Efficient Surface Intersection for Solid Modeling By Michael Edward Hohmeyer B.A. (University of California) 1986"
+
+    """
     __slots__ = ['curve','surface','intersections','tolerance','ptol']
     def __init__(
         self, curve: NURBSCurve, surface: NURBSSurface, tolerance=1e-3, ptol=1e-7

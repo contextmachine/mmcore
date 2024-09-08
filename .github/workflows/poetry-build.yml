@@ -12,10 +12,10 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ "ubuntu-latest", "macos-latest", "windows-latest", "macos-14" ]
+        os: [ "ubuntu-latest", "macos-latest", "windows-latest"]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         exclude:
-          - os: macos-14
+          - os: macos-latest
             python-version: "3.9"
 
     defaults:
