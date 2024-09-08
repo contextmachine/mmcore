@@ -281,7 +281,7 @@ cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, doubl
 
 cpdef double[:] knot_insertion_kv(double[:] knotvector, double u, int span, int r) noexcept nogil
 
-cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=*, int s=*, int span=*, bint is_periodic=*, double[:,:] result=?) noexcept nogil
+cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num, int s, int span, bint is_periodic=*, double[:,:] result=?) noexcept nogil
 
 
 cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots_v, double[:, :] ctrlpts, int[2] size, double u, double v, int deriv_order, double[:, :, :] SKL) noexcept nogil
