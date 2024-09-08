@@ -2,8 +2,10 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 from mmcore.numeric.aabb import aabb_intersect,aabb
+from mmcore.numeric.algorithms.cygjk import gjk
 
 
+__all__=['spatial_separability']
 class SpatialSeparabilityTest:
     def __init__(self, object1, object2):
         self.object1 = object1
@@ -70,7 +72,7 @@ class SpatialSeparabilityTest:
             a, b, c, d, lp_epsilon = result.x
             plane_normal = np.array([a, b, c])
             norm = np.linalg.norm(plane_normal)
-            print(norm)
+
             if norm < epsilon:  # Check if the normal vector is essentially zero
                 return False, None
 
@@ -141,7 +143,7 @@ def spatial_separability(points1,pointa2, tol=1e-8):
 if __name__ == "__main__":
     # Create two non-intersecting surfaces
     import time
-    from mmcore.numeric.algorithms.cygjk import gjk
+
     surface1 = Surface(
         [
             [[0, 0, 0], [1, 0, 0], [2, 0, 0]],
