@@ -275,6 +275,91 @@ def divide_and_conquer_min_2d_vectorized(f, x_range, y_range, tol=1e-6):
 
 
 
+def divide_and_conquer_min_3d(f, x_range, y_range, z_range, tol=1e-3):
+    """
+    :param f: The function to minimize. Should take three arguments, f(x, y, z), and return a scalar value.
+    :param x_range: The range of x values to search for the minimum. Should be a tuple (x_min, x_max).
+    :param y_range: The range of y values to search for the minimum. Should be a tuple (y_min, y_max).
+    :param z_range: The range of z values to search for the minimum. Should be a tuple (z_min, z_max).
+    :param tol: The tolerance for the search. The search will stop when the range of x, y, and z values is smaller than this tolerance.
+    :return: The coordinates (x, y, z) of the minimum point found.
+
+    This method implements a divide-and-conquer approach to find the minimum point of a 3D function within a given range.
+    It starts with the entire range and iteratively divides it into smaller subranges until the range becomes smaller than the specified tolerance.
+    At each iteration, the method evaluates the function at corners and midpoints of the edges, and selects the subrange that contains the minimum value.
+    The method continues to divide this selected subrange until the range becomes smaller than the tolerance.
+    """
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    z_min, z_max = z_range
+
+    while (x_max - x_min) > tol or (y_max - y_min) > tol or (z_max - z_min) > tol:
+        x_mid = (x_min + x_max) / 2
+        y_mid = (y_min + y_max) / 2
+        z_mid = (z_min + z_max) / 2
+
+        # Evaluate the function at the corners of the cube and midpoints of the edges
+        f000 = f(x_min, y_min, z_min)
+        f100 = f(x_max, y_min, z_min)
+        f010 = f(x_min, y_max, z_min)
+        f110 = f(x_max, y_max, z_min)
+        f001 = f(x_min, y_min, z_max)
+        f101 = f(x_max, y_min, z_max)
+        f011 = f(x_min, y_max, z_max)
+        f111 = f(x_max, y_max, z_max)
+
+        f_mid_x_min_y_min = f(x_mid, y_min, z_min)
+        f_mid_x_max_y_min = f(x_mid, y_max, z_min)
+        f_mid_x_min_y_max = f(x_min, y_mid, z_min)
+        f_mid_x_max_y_max = f(x_max, y_mid, z_min)
+        f_mid_z_min = f(x_mid, y_mid, z_min)
+
+        f_mid_x_min_z_max = f(x_min, y_min, z_mid)
+        f_mid_x_max_z_max = f(x_max, y_min, z_mid)
+        f_mid_y_min_z_max = f(x_min, y_max, z_mid)
+        f_mid_y_max_z_max = f(x_max, y_max, z_mid)
+        f_mid_z_max = f(x_mid, y_mid, z_max)
+
+        f_mid_xyz = f(x_mid, y_mid, z_mid)
+
+        # Create a list of (value, coordinates) pairs
+        candidates = [
+            (f000, (x_min, y_min, z_min)),
+            (f100, (x_max, y_min, z_min)),
+            (f010, (x_min, y_max, z_min)),
+            (f110, (x_max, y_max, z_min)),
+            (f001, (x_min, y_min, z_max)),
+            (f101, (x_max, y_min, z_max)),
+            (f011, (x_min, y_max, z_max)),
+            (f111, (x_max, y_max, z_max)),
+            (f_mid_x_min_y_min, (x_mid, y_min, z_min)),
+            (f_mid_x_max_y_min, (x_mid, y_max, z_min)),
+            (f_mid_x_min_y_max, (x_min, y_mid, z_min)),
+            (f_mid_x_max_y_max, (x_max, y_mid, z_min)),
+            (f_mid_z_min, (x_mid, y_mid, z_min)),
+            (f_mid_x_min_z_max, (x_min, y_min, z_mid)),
+            (f_mid_x_max_z_max, (x_max, y_min, z_mid)),
+            (f_mid_y_min_z_max, (x_min, y_max, z_mid)),
+            (f_mid_y_max_z_max, (x_max, y_max, z_mid)),
+            (f_mid_z_max, (x_mid, y_mid, z_max)),
+            (f_mid_xyz, (x_mid, y_mid, z_mid))
+        ]
+
+        # Find the minimum value and its coordinates
+        min_val, min_coords = min(candidates, key=lambda item: item[0])
+        x_min, x_max = min_coords[0] - (x_max - x_min) / 4, min_coords[0] + (x_max - x_min) / 4
+        y_min, y_max = min_coords[1] - (y_max - y_min) / 4, min_coords[1] + (y_max - y_min) / 4
+        z_min, z_max = min_coords[2] - (z_max - z_min) / 4, min_coords[2] + (z_max - z_min) / 4
+
+        # Ensure the search space does not collapse below tolerance
+        x_min = max(x_min, x_range[0])
+        x_max = min(x_max, x_range[1])
+        y_min = max(y_min, y_range[0])
+        y_max = min(y_max, y_range[1])
+        z_min = max(z_min, z_range[0])
+        z_max = min(z_max, z_range[1])
+
+    return (x_min + x_max) / 2, (y_min + y_max) / 2, (z_min + z_max) / 2
 
 from mmcore.numeric.fdm import newtons_method, classify_critical_point_2d, CriticalPointType
 
