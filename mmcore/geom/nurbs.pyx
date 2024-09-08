@@ -445,14 +445,9 @@ cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noex
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num=1, int s=0, int span=0, bint is_periodic=0,double[:, :] result=None) noexcept nogil:
+cpdef double[:,:] knot_insertion(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, int num, int s, int span, bint is_periodic=0,double[:, :] result=None) noexcept nogil:
 
     cdef int n = ctrlpts.shape[0]
-    if span ==0:
-        span = find_span_inline( n, degree,  u, knotvector, is_periodic)
-
-    if s==0:
-        s = find_multiplicity(u, knotvector)
     cdef int nq = n + num
     cdef int dim = ctrlpts.shape[1]
 
@@ -1592,23 +1587,25 @@ cdef class NURBSCurve(ParametricCurve):
         # Start curve knot insertion
         cdef int n = self._control_points.shape[0] - 1
 
-        # Find knot multiplicity
-        cdef int s = find_multiplicity(t, self._knots)
+        cdef double[:,:] cpts = self._control_points.copy()
 
         # Find knot span
         cdef int span = find_span_inline(n, self._degree, t, self._knots,self._periodic)
-
+        cdef int s_u = find_multiplicity(t, self._knots, 1e-12)
         # Compute new knot vector
-        self._knots = knot_insertion_kv(self._knots, t,   span, count)
+        k_v = knot_insertion_kv(self._knots, t,   span, count)
 
         # Compute new control points
 
-        self._control_points = knot_insertion(self._degree, self._knots,  self._control_points, t,
-                                                count, s=s, span=span,is_periodic=self._periodic)
+        self._control_points = knot_insertion(self._degree,
+                                              self._knots,
+                                              cpts,
+                                              t,
+                                                count, s_u, span,is_periodic=self._periodic)
 
         # Update curve
 
-
+        self._knots=k_v
         self.knots_update_hook()
         self._evaluate_cached.cache_clear()
 
