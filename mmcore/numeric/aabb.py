@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-
+from mmcore.numeric._aabb import aabb,aabb_intersect,aabb_intersection
 from mmcore.numeric.numeric import curve_bound_points, curve_bound_points2
 from mmcore.numeric.routines import cartesian_product
-
+__all__=["aabb", "aabb_intersect","aabb_intersection", "point_in_aabb", "aabb_overlap",'curve_aabb','curve_aabb2','curve_aabb_eager']
 @np.vectorize(signature="(i),(i)->(j,i)")
 def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
@@ -55,7 +55,7 @@ def aabb_overlap(
         and box1[1][2] >= box2[0][2]
     )
 
-from mmcore.numeric._aabb import aabb
+
 #def aabb(points: np.ndarray):
 #    """
 #     AABB (Axis-Aligned Bounding Box) of a point collection.
@@ -96,6 +96,7 @@ def curve_aabb(curve, bounds=None, tol=1e-2):
 def curve_aabb2(curve, bounds=None):
     tmin,mins=curve_bound_points2(curve, bounds=bounds, tol=1e-5)
     tmax,maxs=curve_bound_points2(curve, bounds=bounds,neg=True, tol=1e-5)
+
     return aabb(np.array([mins.min(axis=0),maxs.max(axis=0)]))
 
 

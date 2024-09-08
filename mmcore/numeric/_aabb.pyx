@@ -2,6 +2,7 @@
 cimport cython
 import numpy as np
 cimport numpy as cnp
+from libc.math cimport fmin,fmax
 cnp.import_array()
 
 @cython.boundscheck(False)
@@ -47,3 +48,69 @@ def aabb(double[:,:] pts, double[:,:] bb=None):
 
     caabb(pts,bb[0],bb[1])
     return bb
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline bint caabb_intersect(double[:,:] bb1, double[:,:] bb2) noexcept nogil:
+    cdef bint temp
+    for i in range(bb1.shape[1]):
+        temp = (bb1[0][i] <= bb2[1][i] ) and (bb1[1][i] >= bb2[0][i])
+        if temp ==0:
+            return temp
+    return temp
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline bint caabb_intersect_3d(double[:,:] bb1, double[:,:] bb2) noexcept nogil:
+    cdef bint temp=(bb1[0][0] <= bb2[1][0] ) and (bb1[1][0] >= bb2[0][0])  and (bb1[0][1] <= bb2[1][1] ) and (bb1[1][1] >= bb2[0][1]) and (bb1[0][2] <= bb2[1][2] ) and (bb1[1][2] >= bb2[0][2])
+    return temp
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def aabb_intersect(double[:,:] bb1, double[:,:] bb2):
+    cdef bint result
+    if bb1.shape[1]==3:
+        result=caabb_intersect_3d(bb1,bb2)
+    else:
+        result=caabb_intersect(bb1,bb2)
+    return result
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline bint caabb_intersection_3d(double[:,:] self, double[:,:] other, double[:,:] result) noexcept nogil:
+    cdef double max_min_x = fmax(self[0][0], other[0][0])
+    cdef double max_min_y = fmax(self[0][1], other[0][1])
+    cdef double max_min_z = fmax(self[0][2], other[0][2])
+
+
+    cdef double min_max_x = fmin(self[1][0], other[1][0])
+    cdef double min_max_y = fmin(self[1][1], other[1][1])
+    cdef double min_max_z = fmin(self[1][2], other[1][2])
+    cdef bint r=0
+    if max_min_x > min_max_x or max_min_y > min_max_y or max_min_z > min_max_z:
+        return r
+    result[0,0]=max_min_x
+    result[0,1]=max_min_y
+    result[0,2]=max_min_z
+    result[1,0]=min_max_x
+    result[1,1]=min_max_y
+    result[1,2]=min_max_z
+    r =1
+    return r
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def aabb_intersection(double[:,:] bb1, double[:,:] bb2, cnp.ndarray[double, ndim=2] result=None):
+    cdef bint success
+    if result is None:
+        result = np.zeros((2,3))
+    success=caabb_intersection_3d(bb1,bb2,result)
+    if success:
+        return result
+    else:
+        return None
