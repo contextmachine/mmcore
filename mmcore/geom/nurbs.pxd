@@ -440,7 +440,7 @@ cdef class NURBSCurve(ParametricCurve):
 
     cpdef knots_update_hook(self)
 
-
+    cdef void cnormalize_knots(self)
     cdef void generate_knots_periodic(self)
     cpdef void make_periodic(self)
 
@@ -448,34 +448,21 @@ cdef class NURBSCurve(ParametricCurve):
 
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts)
 
-
-
     cpdef void make_open(self)
-
-
 
     cdef void ctangent(self, double t,double[:] result)
 
-
-
     cdef void ccurvature(self, double t,double[:] result)
-
-
 
     cdef void cevaluate(self, double t, double[:] result) noexcept nogil
 
     cpdef evaluate4d(self, double t)
-
-
     cpdef set(self, double[:,:] control_points, double[:] knots )
 
 
     cdef void cevaluate_ptr(self, double t, double *result ) noexcept nogil
 
-
-
     cdef void cderivative(self, double t, double[:] result)
-
 
     cdef void csecond_derivative(self, double t, double[:] result)
 
@@ -490,8 +477,11 @@ cdef class NURBSCurve(ParametricCurve):
     @staticmethod
     cdef NURBSCurve cdeserialize(const unsigned char[:] data)
 
+
+
+
 cpdef double[:] greville_abscissae(double[:] knots, int degree)
-cpdef tuple split_curve(NURBSCurve obj, double param, double tol=*)
+cpdef tuple split_curve(NURBSCurve obj, double param, double tol=*, bint normalize_knots=*)
 
 
 cdef class NURBSSurface(ParametricSurface):
@@ -521,4 +511,4 @@ cdef class NURBSSurface(ParametricSurface):
 
 cpdef tuple split_surface_u(NURBSSurface obj, double param,double tol=*)
 cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=*)
-cpdef tuple subdivide_surface(NURBSSurface surface, double u=*,double v=*, bint normalize_knots=*,double tol=*)
+cpdef tuple subdivide_surface(NURBSSurface surface, double u=*,double v=*, double tol=*,bint normalize_knots=*)
