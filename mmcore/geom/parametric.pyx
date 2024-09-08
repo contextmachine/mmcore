@@ -1,8 +1,8 @@
 
 cimport cython
 import numpy as np
-cimport numpy as np
-np.import_array()
+cimport numpy as cnp
+cnp.import_array()
 from mmcore.numeric.vectors cimport sub3d
 
 cdef double DEFAULT_H=1e-3
@@ -10,7 +10,14 @@ from mmcore.numeric cimport vectors
 from mmcore.numeric cimport calgorithms
 from mmcore.geom.evaluator cimport surface_evaluator
 from libc.math cimport fabs
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef  inline void cross_inl(double[:] vec_a,double[:] vec_b,double[:] res ) noexcept nogil:
 
+    res[ 0] = (vec_a[ 1] * vec_b[ 2]) - (vec_a[ 2] * vec_b[ 1])
+    res[ 1] = (vec_a[ 2] * vec_b[ 0]) - (vec_a[ 0] * vec_b[ 2])
+    res[ 2] = (vec_a[ 0] * vec_b[ 1]) - (vec_a[ 1] * vec_b[ 0])
 
 
 cdef class ParametricCurve:
@@ -272,7 +279,7 @@ cdef class ParametricCurve:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
-    def __call__(self, t, np.ndarray[double, ndim=2] res=None) :
+    def __call__(self, t, cnp.ndarray[double, ndim=2] res=None) :
         cdef int l = 1 if isinstance(t,(float,int)) else len(t)
         cdef int i
 
@@ -566,10 +573,65 @@ cdef class ParametricSurface:
         result[1, 2] = (b[2] - a[2]) /h2
         return result
 
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
     def interval(self):
         cdef tuple inter=((self._interval[0][0],self._interval[0][1]),(self._interval[1][0],self._interval[1][1]))
         return inter
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
+    cdef  cderivatives(self,double u, double v, double[:,:] result ):
+        cdef double[:] a=np.zeros(3)
+        cdef double[:] b=np.zeros(3)
+        cdef double h2= 2 *DEFAULT_H
+        cdef double u1,v1,u2,v2
+        u1=u-DEFAULT_H
+        u2=u+DEFAULT_H
+        v1=v-DEFAULT_H
+        v2=v+DEFAULT_H
+        #result[0] =callback(u, v)
+        self.cevaluate(u1,v,a)
+        self.cevaluate(u2,v,b)
+
+
+        result[0, 0]= (b[0] - a[0]) /h2
+        result[0, 1]= (b[1] - a[1]) / h2
+        result[0, 2] = (b[2] - a[2]) / h2
+        self.cevaluate(u, v1, a)
+        self.cevaluate(u, v2, b)
+
+        result[1, 0] = (b[0] - a[0]) / h2
+        result[1, 1] = (b[1] - a[1]) / h2
+        result[1, 2] = (b[2] - a[2]) /h2
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
+    cdef cnormal(self, double u, double v, double[:] result):
+        cdef double[:,:] ders=np.zeros([2,3])
+        self.cderivatives(u,v,ders)
+        cross_inl(ders[0],ders[1],result)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
+    def normal(self, double[:] uv, cnp.ndarray[double, ndim=1] result=None):
+
+        if result is None:
+            result=np.empty(3)
+        self.cnormal(uv[0],uv[1],result)
+
+
+        return result
+
+
 
 cdef class Ruled(ParametricSurface):
     #cdef double _remap_u
