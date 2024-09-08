@@ -238,9 +238,10 @@ class GaussMap:
 
         # Compute convex hull
 
-        self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
-
+        #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
+        self._polar_convex_hull=np.array(unit(self._map.control_points_flat))
+        #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
+        self.hull =self._polar_convex_hull
     def bounds(self):
         """Compute bounds on the Gauss map."""
         return self.hull
@@ -362,7 +363,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb,aabb_overlap
+from mmcore.numeric.aabb import aabb,aabb_overlap,aabb_intersect,aabb_intersection
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -378,11 +379,11 @@ class DebugTree:
             self.chidren.append(DebugTree(layer=self.layer + 1))
         return self.chidren
 
-def aabb_intersection(bb1,bb2):
-    return np.asarray([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
+#def aabb_intersection(bb1,bb2):
+#    return np.asarray([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
 
 
-def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
+def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
     Существует три варианта завершения:
@@ -399,22 +400,25 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
     #    *np.array(g2.surface.bbox())
     #)
-    bb1=np.array(g1.surface.bbox())
-    bb2=np.array(g2.surface.bbox())
+    bb1=np.array(aabb(g1.surface.control_points_flat))
+    bb2=np.array(aabb(g2.surface.control_points_flat))
     #dddd = [False, False, False, False, False]
     #dbg.data = (g1, g2, dddd)
 
-    if not aabb_overlap(bb1,bb2):
+    if not aabb_intersect(bb1,bb2):
         # ББокы не пересекаются
         #dddd[0] = True
 
         return []
+    diag=bb1[1] - bb1[0]
 
-    if scalar_norm(bb1[1] - bb1[0]) < tol:
+    if scalar_norm(diag) < tol:
         #dddd[1] = True
+
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
-    ii=aabb_intersection(bb1,bb2)
+    ii=np.zeros((2,3))
+    aabb_intersection(bb1,bb2,ii)
 
     if np.min(ii[1]-ii[0]) < tol:
         # Бокс не маленький, но очень плоский. объекты не пересекаются
@@ -424,12 +428,13 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
     #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
     #    print('f')
     #    return [g1.surface, g2.surface]
-    if id(g1.surface) not in chs:
-        chs[id(g1.surface)] =  ConvexHull(g1.surface.control_points_flat)
-    if id(g2.surface) not in chs:
-        chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
-    h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
-    if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+    #if id(g1.surface) not in chs:
+    #    chs[id(g1.surface)] =  ConvexHull(g1.surface.control_points_flat)
+    #if id(g2.surface) not in chs:
+    #    chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
+    #h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
+    #if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+    if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-8, 25):
         # Поверхности не пересекаются
         #dddd[3] = True
         return []
@@ -439,7 +444,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.1, dbg: DebugTree = None):
         g2.compute()
     bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
 
-    if not aabb_overlap(bb21,bb11):
+    if not aabb_intersect(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
         #dddd[3] = True
         return [(g1.surface, g2.surface)]
@@ -477,7 +482,7 @@ class NURBSObject(Object3D):
         super().__init__(BoundingBox(*np.asarray(self.surface.bbox())))
 
 
-def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
+def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
     Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
     bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
@@ -586,12 +591,13 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple
         #dddd = [False, False, False]
         #subs[index].data = (f, s, dddd)
 
-        h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
-            s.control_points_flat
-        )
+        #h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
+        #    s.control_points_flat
+        #)
         chs=dict()
 
-        if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
+        #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
+        if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок
             if id(f) not in gauss_maps:
@@ -611,7 +617,7 @@ def detect_intersections(surf1, surf2, debug_tree: DebugTree=None) -> list[tuple
                 #dddd[2] = True
                 #sbb = subs[index].subd(1)
                 #
-                intersections.extend(_detect_intersections_deep(ss, ff, chs, 0.1))
+                intersections.extend(_detect_intersections_deep(ss, ff, chs, tol=tol))
         index += 1
     return intersections
 
@@ -620,10 +626,10 @@ if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
     S1, S2 = td[1]
-
+    TOL=1e-1
     import time
     s=time.time()
-    res = detect_intersections(S1, S2)
+    res = detect_intersections(S1, S2,TOL)
     print(time.time()-s)
     fff = []
     for i, j in res:
@@ -644,7 +650,7 @@ if __name__ == "__main__":
 
     import time
     s=time.time()
-    res = detect_intersections(S1, S2)
+    res = detect_intersections(S1, S2,TOL)
     print(time.time()-s)
     fff = []
     for i, j in res:
