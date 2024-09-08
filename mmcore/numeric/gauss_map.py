@@ -4,9 +4,12 @@ import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
 
-from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface  ,decompose_surface
+from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface, decompose_surface, \
+     find_span, basis_functions, NURBSCurve
 from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
+
+from mmcore.numeric.intersection.csx import nurbs_csx
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
@@ -67,6 +70,53 @@ def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 #        raise ValueError(
 #            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
 #        )
+def extract_isocurve(
+        surface: NURBSSurface, param: float, direction: str = "u"
+) -> NURBSCurve:
+    """
+    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
+    Args:
+    surface (NURBSSurface): The input NURBS surface.
+    param (float): The parameter value at which to extract the isocurve.
+    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
+    Returns:
+    NURBSCurve: The extracted isocurve as a NURBS curve.
+    Raises:
+    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
+    """
+    if direction not in ["u", "v"]:
+        raise ValueError("Direction must be either 'u' or 'v'.")
+    interval = surface.interval()
+    if direction == "u":
+        knots = surface.knots_v
+        degree = surface.degree[1]
+        param_range = interval[1]
+        n = surface.shape[1] - 1
+        m = surface.shape[0]
+    else:  # direction == 'v'
+        knots = surface.knots_u
+        degree = surface.degree[0]
+        param_range = interval[0]
+        n = surface.shape[0] - 1
+        m = surface.shape[1]
+    if param < param_range[0] or param > param_range[1]:
+        raise ValueError(f"Parameter {param} is out of range {param_range}")
+    span = find_span(n, degree, param, knots, 0)
+    basis = basis_functions(span, param, degree, knots)
+    control_points = np.zeros((m, 4))
+    if direction == "u":
+        for i in range(n):
+            for j in range(degree + 1):
+                idx = min(max(span - degree + j, 0), n)
+                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
+        return NURBSCurve(control_points, surface.degree[0], surface.knots_u)
+
+    else:  # direction == 'v'
+        for i in range(m):
+            for j in range(degree + 1):
+                idx = min(max(span - degree + j, 0), n)
+                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
+        return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -598,6 +648,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
 
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
         if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
+
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок
             if id(f) not in gauss_maps:
@@ -609,6 +660,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             ss.compute()
             ff.compute()
             #dddd[1] = True
+
 
             p1, p2 = separate_gauss_maps(ff, ss)
 
@@ -625,7 +677,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
-    S1, S2 = td[1]
+    S1, S2 = td[2]
     TOL=1e-1
     import time
     s=time.time()
@@ -646,16 +698,22 @@ if __name__ == "__main__":
     with open('../../tests/norm1.txt', 'w') as f:
         print(fff, file=f)
 
-    S1, S2 = td[2]
+    S1, S2 = td[1]
 
     import time
     s=time.time()
     res = detect_intersections(S1, S2,TOL)
     print(time.time()-s)
     fff = []
+
+    ptss=[]
     for i, j in res:
         ip = np.array(i.control_points)
         jp = np.array(j.control_points)
+
+
+
+
 
         if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
             import warnings
@@ -663,11 +721,39 @@ if __name__ == "__main__":
             warnings.warn("NAN")
         else:
             fff.append((ip.tolist(), jp.tolist()))
+        ff=False
+        for l in (lambda : extract_isocurve(i,0.,'v'),
+                  lambda :extract_isocurve(i, 0., 'u'),
+                  lambda :extract_isocurve(i, 1., 'u'),
+                  lambda :extract_isocurve(i, 1., 'v')):
+            c=l()
+            #print([c.control_points.tolist(),np.array(j.control_points_flat
+            #      ).tolist()])
 
+            res=nurbs_csx(c,j,tol=TOL,ptol=1e-5)
+
+            if len(res)>0:
+                    for oo in res:
+
+                        ptss.append(c.evaluate(oo[2][0]).tolist())
+
+                    ff=True
+
+                    continue
+            #print(ptss)
+        if not ff:
+            for l in (lambda: extract_isocurve(j, 0., 'u'),
+                  lambda: extract_isocurve(j, 0., 'v'),
+                  lambda: extract_isocurve(j, 1., 'u'),
+                  lambda: extract_isocurve(j, 1., 'v')):
+                c = l()
+                res = nurbs_csx(c, i,tol=TOL,ptol=TOL)
+                for oo in res:
+                    ptss.append(c.evaluate(oo[2][0]).tolist())
     with open('../../tests/norm2.txt', 'w') as f:
         print(fff, file=f)
 
-
+    print(ptss)
     def get_first_layer_dbg(dbg: DebugTree):
         cnds = []
         for ch in dbg.chidren:
