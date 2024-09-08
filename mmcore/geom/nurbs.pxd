@@ -519,6 +519,6 @@ cdef class NURBSSurface(ParametricSurface):
     cdef void cbbox(self, double[:,:] result) noexcept nogil
     cpdef double[:,:] bbox(self)
 
-cpdef tuple split_surface_u(NURBSSurface obj, double param)
-cpdef tuple split_surface_v(NURBSSurface obj, double param)
-cpdef tuple subdivide_surface(NURBSSurface surface, double u=*,double v=*, bint normalize_knots=*)
+cpdef tuple split_surface_u(NURBSSurface obj, double param,double tol=*)
+cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=*)
+cpdef tuple subdivide_surface(NURBSSurface surface, double u=*,double v=*, bint normalize_knots=*,double tol=*)
