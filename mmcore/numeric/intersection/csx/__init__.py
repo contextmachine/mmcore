@@ -4,6 +4,7 @@ from mmcore.numeric.vectors import scalar_norm, norm
 from numpy._typing import NDArray
 
 from mmcore.geom.curves.curve import curve_bvh
+from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 from mmcore.geom.surfaces import surface_bvh
 from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
@@ -239,6 +240,20 @@ def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bound
 
 def curve_implicit_intersection(curve, surface, tol=1e-6):
     return curve_pix(curve, surface, tol=tol)
+from ._ncsx import nurbs_csx
+
+
+def csx(curve, surface, tol=1e-3,ptol=1e-6):
+    if isinstance(curve,NURBSCurve ) and isinstance(surface, NURBSSurface):
+        ixs=nurbs_csx(curve, surface, tol=tol, ptol=ptol)
+        ixs.sort(key=lambda x: x[2][0])
+        typs, pts,params=zip(*ixs)
+
+        return np.array(params)
+    elif hasattr(surface,'implicit'):
+        return curve_implicit_intersection(curve,surface,tol=ptol)
+    else:
+        return curve_surface_intersection(curve, surface, tol)
 
 
 # Define parameter ranges and search for intersections
