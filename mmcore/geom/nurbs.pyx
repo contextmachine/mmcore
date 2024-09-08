@@ -32,6 +32,39 @@ cdef extern from "_nurbs.cpp" nogil:
         NURBSSurfaceData(double* control_points, double* knots_u ,double* knots_v,int size_u,int size_v,int degree_u,int degree_v);
 
     
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline void aabb(double[:,:] points, double[:,:] min_max_vals) noexcept nogil:
+    """
+    AABB (Axis-Aligned Bounding Box) of a point collection.
+    :param points: Points
+    :rtype: np.ndarray[(2, K), np.dtype[float]] where:
+        - N is a points count.
+        - K is the number of dims. For example in 3d case (x,y,z) K=3.
+    :return: AABB of a point collection.
+    :rtype: np.ndarray[(2, K), np.dtype[float]] at [a1_min, a2_min, ... an_min],[a1_max, a2_max, ... an_max],
+    """
+
+    cdef int K = 3
+    cdef int N = points.shape[0]
+    #cdef double[:,:] min_max_vals = np.empty((2,K), dtype=np.float64)
+    cdef double p
+    cdef int i, j
+
+    # Initialize min_vals and max_vals with the first point's coordinates
+    for i in range(K):
+        min_max_vals[0][i] = (points[0, i]/points[0, 3])
+        min_max_vals[1][i] = (points[0, i]/points[0, 3])
+
+    # Find the min and max for each dimension
+    for j in range(1, N):
+        for i in range(K):
+            p=(points[j, i]/points[j, 3])
+            if  p < min_max_vals[0][i]:
+                min_max_vals[0][i] =  p
+            if  p > min_max_vals[1][i]:
+                min_max_vals[1][i] =  p
 
         
 
@@ -1728,6 +1761,25 @@ cdef class NURBSCurve(ParametricCurve):
 
 
         return res
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    cdef void cnormalize_knots(self):
+        cdef double start=self._knots[0]
+        cdef double end = self._knots[self._knots.shape[0]-1]
+        cdef double d=end-start
+        cdef int i
+        for i in range(len(self._knots)):
+            self._knots[i]=(self._knots[i]-start)/d
+        self.knots_update_hook()
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def normalize_knots(self):
+        self.cnormalize_knots()
+        
+        self._evaluate_cached.cache_clear()
 
     @staticmethod
     @cython.boundscheck(False)
@@ -1795,7 +1847,14 @@ cdef class NURBSCurve(ParametricCurve):
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError("Input must be bytes or bytearray")
         return NURBSCurve.cdeserialize(data)
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def bbox(self,double[:,:] result=None):
+        if result is None:
+            result=np.zeros((2,3))
+        aabb(self._control_points, result)
+        return result
 
 @cython.cdivision(True)
 @cython.initializedcheck(False)
@@ -1820,7 +1879,7 @@ cpdef double[:] greville_abscissae(double[:] knots, int degree):
 @cython.wraparound(False)
 @cython.nonecheck(False)
 @cython.cdivision(True)
-cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7):
+cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint normalize_knots=True):
 
     cdef int degree = obj._degree
     cdef double[:] knotvector = obj._knots
@@ -1842,7 +1901,7 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7):
     r = degree - s
 
     # Insert knot
-    cdef NURBSCurve temp_obj = obj.copy()
+    cdef NURBSCurve temp_obj = obj.ccopy()
     temp_obj.insert_knot(param, r)
 
     # Knot vectors
@@ -1869,44 +1928,16 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7):
     # Create new curves
     cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts, degree, curve1_kv)
     cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts, degree, curve2_kv)
+    if normalize_knots:
+        curve1.cnormalize_knots()
+        curve1.knots_update_hook()
+        curve2.cnormalize_knots()
+        curve2.knots_update_hook()
 
     return curve1, curve2
 
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-cdef inline void aabb(double[:,:] points, double[:,:] min_max_vals) noexcept nogil:
-    """
-    AABB (Axis-Aligned Bounding Box) of a point collection.
-    :param points: Points
-    :rtype: np.ndarray[(2, K), np.dtype[float]] where:
-        - N is a points count.
-        - K is the number of dims. For example in 3d case (x,y,z) K=3.
-    :return: AABB of a point collection.
-    :rtype: np.ndarray[(2, K), np.dtype[float]] at [a1_min, a2_min, ... an_min],[a1_max, a2_max, ... an_max],
-    """
-
-    cdef int K = 3
-    cdef int N = points.shape[0]
-    #cdef double[:,:] min_max_vals = np.empty((2,K), dtype=np.float64)
-    cdef double p
-    cdef int i, j
-
-    # Initialize min_vals and max_vals with the first point's coordinates
-    for i in range(K):
-        min_max_vals[0][i] = (points[0, i]/points[0, 3])
-        min_max_vals[1][i] = (points[0, i]/points[0, 3])
-
-    # Find the min and max for each dimension
-    for j in range(1, N):
-        for i in range(K):
-            p=(points[j, i]/points[j, 3])
-            if  p < min_max_vals[0][i]:
-                min_max_vals[0][i] =  p
-            if  p > min_max_vals[1][i]:
-                min_max_vals[1][i] =  p
 
 
 
@@ -2441,7 +2472,7 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=1e-7) :
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cpdef tuple subdivide_surface(NURBSSurface surface, double u=0.5,double v=0.5,bint normalize_knots=True,double tol=1e-7):
+cpdef tuple subdivide_surface(NURBSSurface surface, double u=0.5,double v=0.5,double tol=1e-7,bint normalize_knots=True):
     cdef tuple surfs1 = split_surface_u(surface, u,tol)
     cdef NURBSSurface surf1, surf2, surf11, surf12, surf21, surf22
     surf1= surfs1[0]
@@ -2539,4 +2570,101 @@ def decompose_surface(surface, decompose_dir="uv",normalize_knots=True):
         raise ValueError(
             f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
         )
+
+
+cdef class CurveCurveEq:
+    cdef public NURBSCurve curve1
+    cdef public NURBSCurve curve2
+    __slots__=['curve1', 'curve2']
+
+    def __init__(self, NURBSCurve curve1, NURBSCurve curve2):
+        self.curve1=curve1
+        self.curve2=curve2
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    cpdef double evaluate(self, double[:] x):
+
+        cdef double t=x[0]
+        cdef double s = x[1]
+
+        cdef double[:,:] pts = np.zeros((3,3))
+        self.curve1.cevaluate(t,pts[0])
+        self.curve2.cevaluate(s,pts[1])
+        pts[2,0]= pts[0,0]-pts[1,0]
+        pts[2,1]= pts[0,1] - pts[1,1]
+        pts[2, 2] = pts[0, 2] - pts[1, 2]
+        cdef double res=pts[2,0]*pts[2,0]+pts[2,1]*pts[2,1]+pts[2,2]*pts[2,2]
+        return res
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def __call__(self,double[:] x):
+        return self.evaluate(x)
+
+cdef class CurveSurfaceEq:
+    cdef public NURBSCurve curve
+    cdef public NURBSSurface surface
+    __slots__=['curve', 'surface']
+
+    def __init__(self, NURBSCurve curve, NURBSSurface surface):
+        self.curve=curve
+        self.surface=surface
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    cpdef double evaluate(self, double[:] x):
+
+        cdef double t=x[0]
+        cdef double u = x[1]
+        cdef double v = x[2]
+        cdef double[:,:] pts = np.zeros((3,3))
+        self.curve.cevaluate(t,pts[0])
+        self.surface.cevaluate(u,v,pts[1])
+        pts[2,0]= pts[0,0]-pts[1,0]
+        pts[2,1]= pts[0,1] - pts[1,1]
+        pts[2, 2] = pts[0, 2] - pts[1, 2]
+        cdef double res=pts[2,0]*pts[2,0]+pts[2,1]*pts[2,1]+pts[2,2]*pts[2,2]
+        return res
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def __call__(self,double[:] x):
+        return self.evaluate(x)
+
+
+cdef class SurfaceSurfaceEq:
+    cdef public NURBSSurface surface1
+    cdef public NURBSSurface surface2
+    __slots__=['surface1', 'surface2']
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def __init__(self, NURBSSurface surf1, NURBSSurface surf2):
+        self.surface1=surf1
+        self.surface2=surf2
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    cpdef double evaluate(self, double[:] x):
+
+        cdef double s =x[0]
+        cdef double t = x[1]
+        cdef double u = x[2]
+        cdef double v = x[3]
+        cdef double[:,:] pts = np.zeros((3,3))
+        self.surface1.cevaluate(s,t,pts[0])
+        self.surface2.cevaluate(u,v,pts[1])
+        pts[2,0]= pts[0,0]-pts[1,0]
+        pts[2,1]= pts[0,1] - pts[1,1]
+        pts[2, 2] = pts[0, 2] - pts[1, 2]
+        cdef double res=pts[2,0]*pts[2,0]+pts[2,1]*pts[2,1]+pts[2,2]*pts[2,2]
+        return res
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    def __call__(self,double[:] x):
+        return self.evaluate(x)
+
 
