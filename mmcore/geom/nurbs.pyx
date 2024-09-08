@@ -166,6 +166,16 @@ cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexc
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def basis_functions(int i, double u, int p, double[:] U):
+    cdef double[:] Nu =np.zeros(p+1)
+    basis_funs(i,u,p,U, &Nu[0])
+    return np.array(Nu)
+
+
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cpdef double[:, :] all_basis_funs(int span, double u, int p, double[:] U):
     """
     Compute all nonzero basis functions and their derivatives up to the ith-degree basis function.
@@ -2668,3 +2678,60 @@ cdef class SurfaceSurfaceEq:
         return self.evaluate(x)
 
 
+
+
+def extract_isocurve(
+        surface: NURBSSurface, param: float, direction: str = "u"
+) -> NURBSCurve:
+    """
+    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
+
+    Args:
+    surface (NURBSSurface): The input NURBS surface.
+    param (float): The parameter value at which to extract the isocurve.
+    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
+
+    Returns:
+    NURBSCurve: The extracted isocurve as a NURBS curve.
+
+    Raises:
+    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
+    """
+    if direction not in ["u", "v"]:
+        raise ValueError("Direction must be either 'u' or 'v'.")
+
+    cdef double[:,:] interval = surface._interval
+    if direction == "u":
+        knots = surface.knots_v
+        degree = surface.degree[0]
+        param_range = interval[1]
+        n = surface.shape[1] - 1
+        m = surface.shape[0]
+    else:  # direction == 'v'
+        knots = surface.knots_u
+        degree = surface.degree[1]
+        param_range = interval[0]
+        n = surface.shape[0] - 1
+        m = surface.shape[1]
+
+    if param < param_range[0] or param > param_range[1]:
+        raise ValueError(f"Parameter {param} is out of range {param_range}")
+
+    span = find_span(n, degree, param, knots, 0)
+    basis = basis_functions(span, param, degree, knots)
+
+    control_points = np.zeros((m, 4))
+
+    if direction == "u":
+        for i in range(m):
+            for j in range(degree + 1):
+                idx = min(max(span - degree + j, 0), n)
+                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
+    else:  # direction == 'v'
+        for i in range(m):
+            for j in range(degree + 1):
+                idx = min(max(span - degree + j, 0), n)
+
+                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
+
+    return NURBSCurve(control_points, degree, knots)
