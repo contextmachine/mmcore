@@ -3,7 +3,7 @@ import numpy as np
 from mmcore.numeric._aabb import aabb
 
 
-from mmcore.numeric.newthon import newtons_method
+from mmcore.numeric.newthon.cnewthon import newtons_method
 
 from mmcore.geom.nurbs import (
     NURBSCurve,
@@ -136,8 +136,7 @@ class NURBSCurveSurfaceIntersector:
         result = newtons_method(
             equation,
             np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),
-            max_iter=5,
-            no_warn=True,
+            max_iter=5
         )
 
         # print(result)

@@ -7,10 +7,12 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
+from mmcore.numeric import scalar_norm
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
+from mmcore.geom.nurbs import NURBSCurve, split_curve_multiple, split_curve
 
 __all__ = ["ccx", "curve_curve_intersect", "curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
@@ -239,12 +241,15 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
     """
     def recursive_intersect(c1, c2, t1_range, t2_range, tol):
         # print(c1.interval(), t1_range, c2.interval(), t2_range)
+
+
         if eager:
             if not aabb_overlap(
                     curve_aabb_eager(c1, bounds=t1_range, cnt=8),
                     curve_aabb_eager(c2, bounds=t2_range, cnt=8),
             ):
                 return []
+
         else:
             if not aabb_overlap(
                     curve_aabb(c1, bounds=t1_range, tol=tol_bbox),

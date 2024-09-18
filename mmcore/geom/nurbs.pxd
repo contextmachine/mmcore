@@ -10,11 +10,21 @@ from libc.stdlib cimport malloc,free
 from libcpp.vector cimport vector
 from libcpp.cmath cimport fabs
 from libc.string cimport memcpy
-
+from libcpp.limits cimport numeric_limits
 
 
 cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
 
+
+
+cdef inline double calc_epsilon(double x) noexcept nogil:
+    cdef double relative_epsilon = numeric_limits[double].epsilon() * fabs(x)
+    cdef double absolute_epsilon =  numeric_limits[double].denorm_min();
+    cdef double delta = 1e-12;
+    if (fabs(x) < delta):
+        return absolute_epsilon
+    else:
+        return relative_epsilon
 
 
 @cython.cdivision(True)
@@ -249,16 +259,17 @@ cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_pe
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-@cython.initializedcheck(False)
 @cython.cdivision(True)
-cdef inline int find_multiplicity(double knot, double[:] knot_vector, double tol=1e-07) noexcept nogil:
+cdef inline int find_multiplicity(double knot, double[:] knot_vector, double tol) noexcept nogil:
     cdef int mult=0
     cdef int l=knot_vector.shape[0]
     cdef int i
     cdef double difference
+    cdef double eps
     for i in range(l):
-        difference=knot - knot_vector[i]
-        if fabs(difference) <= tol:
+        eps=calc_epsilon(knot_vector[i])
+        difference = knot - knot_vector[i]
+        if fabs(difference) <= calc_epsilon(knot_vector[i]):
             mult += 1
     return mult
 

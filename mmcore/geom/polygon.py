@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Any
 from mmcore.numeric.aabb import aabb, aabb_overlap, point_in_aabb
 from mmcore.geom.vec import *
@@ -722,8 +723,10 @@ class BVHNode:
         self.right = right
         self.edge = edge  # None for non-leaf nodes
 
+@lru_cache(maxsize=None)
+def polygon_build_bvh(polygon):
+    edges=tuple((polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon)))
 
-def polygon_build_bvh(edges):
     def build_recursive(objects):
         if len(objects) == 1:
             return BVHNode(objects[0][0], edge=objects[0][1])
@@ -743,28 +746,27 @@ def polygon_build_bvh(edges):
     return build_recursive(bounding_boxes)
 
 
-def is_point_in_polygon_bvh(bvh_root, point):
+def is_point_in_polygon_bvh(polygon, point):
     """
 
     :param point:
-    :param bvh_root:
+    :param polygon:
     :return:
 
     Example
     ------
     >>> polygon = [[6.2473630632829034, -4.6501623869364659], [4.5977790726622780, -7.9013992636043762], [5.6974884793053437, -8.4180460064619140], [6.4988720101896780, -7.0222670191270575], [5.9886117822374212, -6.7365615003726074], [6.4174018118259593, -6.0076576582442573], [7.3332739860138512, -6.4369235139392975], [6.0892830654991226, -8.6939253124958800], [7.130368038925603, -9.3282139115414324], [8.8187717638415339, -5.7738251567346959]]
-    >>> edges = [(polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))]
-    >>> bvh_root = polygon_build_bvh(edges)
 
     >>> points = (6.2697549308428240, -7.0629610641788423),(6.6607986921973108, -6.4609212083145193)
 
-    >>> result=[is_point_in_polygon_bvh( bvh_root,point) for point in points]
+    >>> result=[is_point_in_polygon_bvh( polygon,point) for point in points]
     >>> print(result)  # Output: [True, False]
     [True, False]
     """
     x, y = point
     intersections = 0
 
+    bvh_root = polygon_build_bvh(tuple(tuple(pt) for pt in polygon))
     def intersect_ray(node):
         nonlocal intersections
         if node is None or not node.bounding_box.intersects_ray(x, y):

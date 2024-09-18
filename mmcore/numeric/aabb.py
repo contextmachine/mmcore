@@ -91,6 +91,9 @@ def curve_aabb(curve, bounds=None, tol=1e-2):
     :rtype np.ndarray with shape (2, K).
     """
 
+
+
+
     return aabb(curve(curve_bound_points(curve, bounds=bounds, tol=tol)))
 
 def curve_aabb2(curve, bounds=None):

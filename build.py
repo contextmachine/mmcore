@@ -1,5 +1,7 @@
 import platform
 import sys
+import os
+sys.path.append(os.getcwd())
 
 if sys.platform.startswith("win"):
     import pyMSVC
@@ -15,11 +17,15 @@ from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
 
 from Cython.Build import cythonize
-
+def check_rhinocode(): # interpretor
+    for p in sys.path:
+        if '.rhinocode' in p:
+            return True
+    return False
 compile_args = ["-O3"]
 cpp_compile_args = ["-std=c++17"]
 link_args = []
-include_dirs = [numpy.get_include()]
+include_dirs = [numpy.get_include(),os.getcwd()]
 define_macros = [
     ("VOID", "void"),
     ("REAL", "double"),
@@ -27,9 +33,11 @@ define_macros = [
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
 ]
-if sys.platform == "darwin":
+if sys.platform == "darwin" and not sys.path:
+
     print("Darwin")
-    compile_args += ["-mcpu=native"]
+    compile_args += ["-mcpu=native"]+["-march=armv8-a+simd"]
+
 
 if sys.platform == "win32":
     cpp_compile_args[0] = "/std:c++17"
@@ -40,6 +48,20 @@ if sys.platform == "win32":
 
 
 extensions = [
+    Extension(
+        "mmcore.numeric.newthon.cnewthon",
+        ["mmcore/numeric/newthon/cnewthon.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+        Extension(
+        "mmcore.collision",
+        ["mmcore/collision/__init__.pyx"],
+        extra_compile_args=compile_args+cpp_compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
     Extension(
         "mmcore.numeric._aabb",
         ["mmcore/numeric/_aabb.pyx"],
@@ -206,6 +228,7 @@ link_args = []
 include_dirs = [*include_dirs, "mmcore/topo/mesh/triangle-c"]
 if sys.platform == "darwin":
     link_args += ["-mno-sse", "-mno-sse2", "-mno-sse3"]
+
 extensions.append(
     Extension(
         "mmcore.topo.mesh.triangle.core",

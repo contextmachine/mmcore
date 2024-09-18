@@ -245,10 +245,13 @@ def local_to_world(pt, pln=WORLD_XY):
     z += pt[2] * pln.zaxis
     return z
 
-
+def plane_signed_distance(plane_equation, pts):
+        a, b, c, d = plane_equation
+        return np.array([a * x + b * y + c * z + d for x, y, z in pts])
 def world_to_local(pt, pln):
     """ """
     return np.array([pln.xaxis, pln.yaxis, pln.zaxis]) @ (np.array(pt) - pln.origin)
+
 
 
 def rotate(pln): ...
