@@ -2,6 +2,9 @@
 cimport cython
 import numpy as np
 cimport numpy as cnp
+
+from mmcore.numeric.interval import _interval
+
 cnp.import_array()
 from mmcore.numeric.vectors cimport sub3d
 
@@ -33,8 +36,10 @@ cdef class ParametricCurve:
     cdef void cevaluate(self, double t , double[:] result) noexcept nogil:
         pass
 
-    cpdef double[:] interval(self):
-        return self._interval
+    def interval(self):
+        cdef tuple interv=(self._interval[0],self._interval[1])
+        return interv
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -265,8 +270,8 @@ cdef class ParametricCurve:
         """
         cdef int cnt=count
         cdef double[:,:] result=np.empty((cnt,3))
-        cdef double[:] _interval = self.interval()
-        cdef double[:] t=   np.linspace(  _interval[0],  _interval[1], cnt)
+
+        cdef double[:] t=   np.linspace(  self._interval[0],   self._interval[1], cnt)
         cdef int i
 
 

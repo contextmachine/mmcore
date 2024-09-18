@@ -4,6 +4,10 @@ import numpy as np
 from scipy.optimize import bisect
 
 
+from mmcore.numeric.fdm import newtons_method, classify_critical_point_2d, CriticalPointType
+
+
+
 
 
 def recursive_divide_and_conquer_min(fun, bounds, tol):
@@ -133,6 +137,8 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
 
 
 
+
+import itertools
 
 
 
@@ -273,8 +279,6 @@ def divide_and_conquer_min_2d_vectorized(f, x_range, y_range, tol=1e-6):
     return (x_min + x_max) / 2, (y_min + y_max) / 2
 
 
-
-
 def divide_and_conquer_min_3d(f, x_range, y_range, z_range, tol=1e-3):
     """
     :param f: The function to minimize. Should take three arguments, f(x, y, z), and return a scalar value.
@@ -361,13 +365,67 @@ def divide_and_conquer_min_3d(f, x_range, y_range, z_range, tol=1e-3):
 
     return (x_min + x_max) / 2, (y_min + y_max) / 2, (z_min + z_max) / 2
 
-from mmcore.numeric.fdm import newtons_method, classify_critical_point_2d, CriticalPointType
+
+def divide_and_conquer_min_nd(f, bounds, tol=1e-6):
+    """
+    Generalized divide-and-conquer method to find the minimum of a function in n dimensions, with the function returning
+    2 curves for 2D and 4 surfaces for 3D.
+
+    :param f: The function to minimize. Should take n arguments and return a scalar value.
+    :param bounds: A list of tuples [(x_min, x_max), (y_min, y_max), ..., (z_min, z_max)] defining the range for each variable.
+    :param tol: The tolerance for the search. The search will stop when the range of all variables is smaller than this tolerance.
+    :return: A list of coordinates representing the minimum point found.
+    """
+
+    n_vars = len(bounds)  # Number of variables
+    mins, maxs = zip(*bounds)  # Separate mins and maxs for each variable
+
+    while any((maxs[i] - mins[i]) > tol for i in range(n_vars)):
+        mids = [(mins[i] + maxs[i]) / 2 for i in range(n_vars)]
+
+        # Evaluate function depending on the dimensionality of the problem
+        candidates = []
+
+        # For the 2D case, consider dividing along one dimension to generate two curves
+        if n_vars == 2:
+            for i in range(n_vars):
+                for corner in [0, 1]:
+                    point = [mins[j] if j != i else (mins[i] + maxs[i]) / 2 for j in range(n_vars)]
+                    candidates.append((f(*point), point))
+
+        # For the 3D case, consider dividing along two dimensions to generate four surfaces
+        elif n_vars == 3:
+            for corner in itertools.product([0, 1], repeat=2):  # Generate four surfaces
+                point = [mins[i] if corner[i % 2] == 0 else maxs[i] for i in range(n_vars)]
+                candidates.append((f(*point), point))
+
+        # For higher dimensions, we consider more flexible subdivision strategies
+        else:
+            for corner in itertools.product([0, 1], repeat=n_vars):
+                # Generate all corner points
+                point = [mins[i] if corner[i] == 0 else maxs[i] for i in range(n_vars)]
+                candidates.append((f(*point), point))
+
+        # Find the minimum value and its coordinates
+        min_val, min_coords = min(candidates, key=lambda item: item[0])
+
+        # Update the bounds around the minimum point
+        new_bounds = []
+        for i in range(n_vars):
+            range_size = (maxs[i] - mins[i]) / 4
+            new_min = min_coords[i] - range_size
+            new_max = min_coords[i] + range_size
+            new_bounds.append((max(new_min, bounds[i][0]), min(new_max, bounds[i][1])))
+
+        # Unpack the new bounds
+        mins, maxs = zip(*new_bounds)
+
+    # Return the midpoint of the final subrange
+    return [(mins[i] + maxs[i]) / 2 for i in range(n_vars)]
 
 
 
-
-
-def find_all_minima(f, x_range, y_range, grid_density=10, tol=1e-6):
+def find_all_minima(f, x_range, y_range, grid_density=11, tol=1e-6):
     """
 
     :param f: The function to find minima for. It should be a function of two variables.
@@ -432,7 +490,7 @@ def find_all_minima(f, x_range, y_range, grid_density=10, tol=1e-6):
             (min_point[1] - tol, min_point[1] + tol),
             tol,
         )
-        print(min_point, local_min)
+        #print(min_point, local_min)
         refined_minima.append(
             (local_min[0], local_min[1], f(local_min[0], local_min[1]))
         )

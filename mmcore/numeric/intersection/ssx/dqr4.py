@@ -107,10 +107,10 @@ def find_intersections(
     #    if np.all(res2 < 0) or np.all(res2 > 0):
     #        return []
 
-    h1 = ConvexHull(s1_control_points_flat)
-    h2 = ConvexHull(s2_control_points_flat)
+    h1 = convex_hull(s1_control_points_flat)
+    h2 = convex_hull(s2_control_points_flat)
 
-    gjk_res = gjk_collision_detection(h1.points[h1.vertices], h2.points[h2.vertices], tol=1e-9,max_iter=20)
+    gjk_res = gjk_collision_detection(h1, h2, tol=1e-9,max_iter=20)
 
     if not gjk_res:
         # print("g n")
@@ -130,15 +130,15 @@ def find_intersections(
         return [
             ((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2)
         ]  # This is a candidate intersection point
-    #
-    if (h1.volume <= (tolerance)) or (h2.volume <= (tolerance)):
-        u1_mid = (u1_range[0] + u1_range[1]) / 2
-        v1_mid = (v1_range[0] + v1_range[1]) / 2
-        u2_mid = (u2_range[0] + u2_range[1]) / 2
-        v2_mid = (v2_range[0] + v2_range[1]) / 2
-        return [
-            ((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2)
-        ]  # This is a candidate intersection point
+
+    #if (h1.volume <= (tolerance)) or (h2.volume <= (tolerance)):
+    #    u1_mid = (u1_range[0] + u1_range[1]) / 2
+    #    v1_mid = (v1_range[0] + v1_range[1]) / 2
+    #    u2_mid = (u2_range[0] + u2_range[1]) / 2
+    #    v2_mid = (v2_range[0] + v2_range[1]) / 2
+    #    return [
+    #        ((u1_mid, v1_mid), (u2_mid, v2_mid),surface1,surface2)
+    #    ]  # This is a candidate intersection point
     # Otherwise, subdivide the parameter domains
     u1_mid = (u1_range[0] + u1_range[1]) / 2
     v1_mid = (v1_range[0] + v1_range[1]) / 2
@@ -219,9 +219,9 @@ def detect_intersection(surf1, surf2, tolerance=1e-3):
 
 def bbox(surf: NURBSSurface):
     return surf.bbox()
-
+from mmcore.collision import convex_hull as chull
 def convex_hull(surf: NURBSSurface):
-    return ConvexHull(np.array(surf.control_points_flat[..., :3]))
+    return chull(surf.control_points_flat[..., :3])
 
 if __name__ == "__main__":
     # runfile('/Users/andrewastakhov/dev/mmcore-dev/mmcore/numeric/intersection/ssx/dqr4.py', wdir='/Users/andrewastakhov/dev/mmcore-dev')
