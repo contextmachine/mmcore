@@ -6,6 +6,8 @@ from scipy.spatial import ConvexHull
 
 from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface, decompose_surface, \
      find_span, basis_functions, NURBSCurve
+
+from mmcore.collision import convex_hull, CGJK
 from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 
@@ -289,7 +291,7 @@ class GaussMap:
         # Compute convex hull
 
         #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self._polar_convex_hull=np.array(unit(self._map.control_points_flat))
+        self._polar_convex_hull=np.array(convex_hull(unit(self._map.control_points_flat)))
         #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
         self.hull =self._polar_convex_hull
     def bounds(self):
@@ -678,11 +680,11 @@ if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
     S1, S2 = td[2]
-    TOL=1e-1
+    TOL=1e-2
     import time
-    s=time.time()
+    s=time.perf_counter_ns()
     res = detect_intersections(S1, S2,TOL)
-    print(time.time()-s)
+    print((time.perf_counter_ns()-s)*1e-9)
     fff = []
     for i, j in res:
         ip = np.array(i.control_points)
@@ -701,11 +703,11 @@ if __name__ == "__main__":
     S1, S2 = td[1]
 
     import time
-    s=time.time()
+    s=time.perf_counter_ns()
     res = detect_intersections(S1, S2,TOL)
-    print(time.time()-s)
+    print((time.perf_counter_ns()-s)*1e-9)
     fff = []
-
+    s=time.perf_counter_ns()
     ptss=[]
     for i, j in res:
         ip = np.array(i.control_points)
@@ -750,6 +752,8 @@ if __name__ == "__main__":
                 res = nurbs_csx(c, i,tol=TOL,ptol=TOL)
                 for oo in res:
                     ptss.append(c.evaluate(oo[2][0]).tolist())
+    print((time.perf_counter_ns() - s) * 1e-9)
+
     with open('../../tests/norm2.txt', 'w') as f:
         print(fff, file=f)
 

@@ -6,6 +6,8 @@ from scipy.spatial import ConvexHull
 
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
+
+from mmcore.collision import CGJK
 from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric.algorithms.cygjk import gjk
 
@@ -141,7 +143,7 @@ class Curve(GeometricObject):
         return self.control_points
 
 
-def spatial_separability(points1, points2, tol=1e-8):
+def spatial_separability(points1, points2, tol=1e-6):
     """
     Test for spatial separability of two sets of points using axis-aligned bounding boxes and the GJK algorithm.
 

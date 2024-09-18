@@ -6,7 +6,7 @@ cdef class ParametricCurve:
 
     cdef void cevaluate(self, double t , double[:] result)  noexcept nogil
 
-    cpdef double[:] interval(self)
+
 
     cpdef double[:] start(self)
     cpdef double[:]  end(self)
