@@ -122,7 +122,7 @@ class CurveOnSurface(Curve):
             self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:, :2]
         self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in
                        range(len(self._polygon))]
-        self._bvh_uv_root = polygon_build_bvh(self._edges)
+        self._bvh_uv_root = polygon_build_bvh(tuple(tuple(i) for i in self._edges))
 
     def plane_at(self, t):
         O = self.evaluate(t)
@@ -178,6 +178,7 @@ class Surface:
         v0, v1 = self._interval[1]
         boundary_curve = NURBSpline(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0, 0.]]),
                                     degree=1)
+
 
         self._boundary = CurveOnSurface(self, boundary_curve, interval=tuple(boundary_curve.interval()))
         self._boundary.build_uv_bvh()
@@ -504,7 +505,6 @@ def Ruled(c1, c2):
 
 
 from mmcore.geom.curves.bspline import NURBSpline
-from mmcore.geom.curves.cubic import CubicSpline
 
 
 class Coons(Surface):

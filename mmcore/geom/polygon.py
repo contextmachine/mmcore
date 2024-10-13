@@ -723,7 +723,7 @@ class BVHNode:
         self.right = right
         self.edge = edge  # None for non-leaf nodes
 
-@lru_cache(maxsize=None)
+#@lru_cache(maxsize=None)
 def polygon_build_bvh(polygon):
     edges=tuple((polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon)))
 

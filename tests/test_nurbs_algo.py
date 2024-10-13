@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.geom.nurbs.algorithms import knot_insertion,knot_refinement,knot_removal
+from mmcore.geom.nurbs import knot_insertion,knot_refinement,knot_removal
 knots=np.array([0., 0., 0., 0., 1., 2., 3., 4., 5., 6., 7., 7., 7., 7.])
 degree=3
 cpts=np.array([[0.21513631, 0.35926084, 0.26489785],
