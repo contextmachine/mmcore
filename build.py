@@ -17,7 +17,7 @@ from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
 
 from Cython.Build import cythonize
-c
+
 def check_rhinocode(): # interpretor
     for p in sys.path:
         if '.rhinocode' in p:
