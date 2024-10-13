@@ -101,7 +101,7 @@ class NURBSCurveSurfaceIntersector:
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
 
-            surfaces = subdivide_surface(surface, u, v, normalize_knots=False)
+            surfaces = subdivide_surface(surface, u, v, tol=self.ptol, normalize_knots=False)
 
             for s in surfaces:
                 for c in [curve1, curve2]:

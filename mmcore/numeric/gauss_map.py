@@ -490,9 +490,9 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
         # Поверхности не пересекаются
         #dddd[3] = True
         return []
-    if g1._polar_convex_hull is None:
+    if g1.hull is None:
         g1.compute()
-    if g2._polar_convex_hull is None:
+    if g2.hull is None:
         g2.compute()
     bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
 

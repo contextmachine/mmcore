@@ -150,6 +150,7 @@ def cross_product_monomial(a_coeffs, b_coeffs):
     n, m = n1 + n2 - 1, m1 + m2 - 1
 
     result = np.zeros((n, m, 3))
+    print(list(product(range(n1), range(m1), range(n2), range(m2))))
 
     for i1, j1, i2, j2 in product(range(n1), range(m1), range(n2), range(m2)):
         i, j = i1 + i2, j1 + j2

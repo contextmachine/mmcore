@@ -3,7 +3,7 @@ cimport cython
 cimport numpy as cnp
 import numpy as np
 cimport mmcore.numeric.algorithms.quicksort
-from cvxpy import reshape
+
 cnp.import_array()
 
 

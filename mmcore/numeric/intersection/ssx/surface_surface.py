@@ -2,12 +2,14 @@ import itertools
 import time
 import warnings
 
+from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import CurveOnSurface, Surface
 from scipy.spatial import KDTree
 
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
-from mmcore.numeric.closest_point import closest_point_on_ray, closest_points_on_surface
+from mmcore.numeric.closest_point import closest_point_on_ray, closest_points_on_surface, closest_point_on_surface
+from mmcore.numeric.intersection.csx import nurbs_csx
 
 from mmcore.numeric.plane import plane_plane_intersect
 
@@ -51,8 +53,48 @@ from mmcore.numeric.intersection.ssx._ssi import improve_uv
 SurfaceStuff = namedtuple("SurfaceStuff", ["surf", "kd", "pts", "uv", "bbox"])
 ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
+from mmcore.numeric.gauss_map import detect_intersections, extract_isocurve
+
+
+def find_closest_points_nurbs(surf1: NURBSSurface, surf2: NURBSSurface,tol=1e-3):
+    uvsi = []
+    uvsj = []
+    pts=[]
+    for i, j in detect_intersections(surf1, surf2):
+
+        for ii,l in enumerate((extract_isocurve(i, 0., 'v'),
+                  extract_isocurve(i, 0., 'u'),
+                  extract_isocurve(i, 1., 'u'),
+                  extract_isocurve(i, 1., 'v'))):
+            try:
+                res = nurbs_csx(l, j, tol=tol, ptol=1e-5)
+            except Exception as e:
+                continue
+
+            if len(res)>0:
+                _,ptt,res=zip(*res)
+                res=np.array(res)
+                uvj=res[0, 1:]
+                if ii==0:
+                    uvi=np.array([res[0,0],0.])
+                elif ii == 1:
+                    uvi = np.array([0., res[0, 0]])
+                elif ii == 2:
+                    uvi = np.array([1., res[0, 0]])
+                else:
+                    uvi = np.array([ res[0, 0],1.])
+                pt=j.evaluate(uvj)
+                pts.append(pt)
+
+                uvsi.append(uvi)
+                uvsj.append(uvj)
+    if len(pts)>0:
+        print(np.array(pts),np.array(uvsi), np.array(uvsj))
+        return KDTree(np.array(pts)), np.array(uvsi), np.array(uvsj)
 
 def find_closest_points(surf1: Surface, surf2: Surface,  freeform):
+    if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
+        return find_closest_points_nurbs(surf1, surf2)
     #print('\nfind_closest_points start\n---------------\n\n')
     min1max1: BoundingBox = surf1.tree.bounding_box
     min2max2: BoundingBox = surf2.tree.bounding_box
@@ -702,27 +744,30 @@ if __name__ == "__main__":
     # from mmcore.geom.curves.cubic import CubicSpline
     # patch1 = Coons(*(CubicSpline(*pts) for pts in pts1))
     # patch2 = Coons(*(CubicSpline(*pts) for pts in pts2))
-    patch1.build_tree(3, 3)
-    patch2.build_tree(3, 3)
+    #patch1.build_tree(3, 3)
+    #patch2.build_tree(3, 3)
     # #print(
     #    patch1._rc,
     # )
     #import yappi
     #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
     #yappi.start()
-    s = time.perf_counter_ns()
+    #s = time.perf_counter_ns()
     TOL = 0.01
-    cc = surface_ppi(patch1, patch2, TOL)
-    print((time.perf_counter_ns() - s)*1e-9)
+
+
+    #cc = surface_ppi(patch1, patch2, TOL)
+    #print((time.perf_counter_ns() - s)*1e-9)
     #yappi.stop()
     #func_stats = yappi.get_func_stats()
     #func_stats.save(f"{__file__.replace('.py', '')}_{int(time.time())}.pstat", type='pstat')
 
     # tolerance checks
+    from mmcore._test_data import ssx as td
 
-    pts_crv_1 = np.array(cc[0][0])
-    pts_crv_2 = np.array(cc[0][1])
-    print([t*1e-9 for t in times])
+    #pts_crv_1 = np.array(cc[0][0])
+    #pts_crv_2 = np.array(cc[0][1])
+    #print([t*1e-9 for t in times])
     #nrm = [
     #    np.all(
     #        norm(
@@ -747,9 +792,15 @@ if __name__ == "__main__":
     #]
     ##print(all(nrm))
 
-    print([np.array(c).tolist() for c in cc[0]])
+    #print([np.array(c).tolist() for c in cc[0]])
     #
     ## #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     #res = surface_intersection(patch1, patch2, TOL)
+    s1,s2=td[2]
+    s = time.perf_counter_ns()
 
+    cc =    surface_ppi(s1,s2,TOL)
+    e=(time.perf_counter_ns()-s)*1e-9
+    print(e)
+    print([np.array(c).tolist() for c in cc[0]])
     # -----------------

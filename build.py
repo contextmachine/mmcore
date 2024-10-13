@@ -17,6 +17,7 @@ from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
 
 from Cython.Build import cythonize
+c
 def check_rhinocode(): # interpretor
     for p in sys.path:
         if '.rhinocode' in p:
@@ -36,7 +37,7 @@ define_macros = [
 if sys.platform == "darwin" and not sys.path:
 
     print("Darwin")
-    compile_args += ["-mcpu=native"]+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=apple-m1"]+["-march=armv8-a+simd"]
 
 
 if sys.platform == "win32":
@@ -49,6 +50,7 @@ if sys.platform == "win32":
 
 extensions = [
     Extension(
+
         "mmcore.numeric.newthon.cnewthon",
         ["mmcore/numeric/newthon/cnewthon.pyx"],
         extra_compile_args=compile_args,
