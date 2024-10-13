@@ -244,6 +244,7 @@ def closest_points_on_surface(surface, pts, tol=1e-6):
     :param tol: The tolerance value for the division and conquest algorithm. Default is 1e-6.
     :return: The closest points on the surface corresponding to the given set of points as a numpy array of (u, v) pairs.
     """
+
     surface.build_tree(10, 10)
 
     def objective(u, v):
