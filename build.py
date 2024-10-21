@@ -57,13 +57,7 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-        Extension(
-        "mmcore.collision",
-        ["mmcore/collision/__init__.pyx"],
-        extra_compile_args=compile_args+cpp_compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+
     Extension(
         "mmcore.numeric._aabb",
         ["mmcore/numeric/_aabb.pyx"],

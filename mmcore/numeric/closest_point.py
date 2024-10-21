@@ -20,63 +20,114 @@ from mmcore.numeric.fdm import bounded_fdm
 import math
 
 # Utility function to calculate the Euclidean distance between two points
+import math
+
+
+# Utility function to calculate the Euclidean distance between two points
 def dist(p1, p2):
     return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 
+
 # Utility function to find the closest distance in a strip
 def strip_closest(strip, d):
-    min_dist = d
-    strip.sort(key=lambda p: p[1])  # Sort strip according to y-coordinate
+    min_dist = d[0]
+    pair = d[1]
 
+    # Sort the strip according to y-coordinate
+    strip.sort(key=lambda p: p[1])
+
+    # Compare each point with the next points within min_dist in the strip
     for i in range(len(strip)):
         j = i + 1
         while j < len(strip) and (strip[j][1] - strip[i][1]) < min_dist:
-            min_dist = min(min_dist, dist(strip[i], strip[j]))
+            current_dist = dist(strip[i], strip[j])
+            if current_dist < min_dist:
+                min_dist = current_dist
+                pair = (strip[i][2], strip[j][2])  # Store the indices of the closest pair
             j += 1
 
-    return min_dist
+    return (min_dist, pair)
 
-# Recursive function to find the smallest distance
+
+# Recursive function to find the smallest distance and the corresponding pair of indices
 def closest_util(points_sorted_x, points_sorted_y, n):
+    # Base case: Use brute force for 3 or fewer points
     if n <= 3:
-        # Use brute force for small number of points
         min_dist = float('inf')
+        pair = (-1, -1)
         for i in range(n):
             for j in range(i + 1, n):
-                if dist(points_sorted_x[i], points_sorted_x[j]) < min_dist:
-                    min_dist = dist(points_sorted_x[i], points_sorted_x[j])
-        return min_dist
+                current_dist = dist(points_sorted_x[i], points_sorted_x[j])
+                if current_dist < min_dist:
+                    min_dist = current_dist
+                    pair = (points_sorted_x[i][2], points_sorted_x[j][2])  # Store indices
+        return (min_dist, pair)
 
+    # Find the middle point
     mid = n // 2
     mid_point = points_sorted_x[mid]
 
+    # Divide points_sorted_y into left and right halves
     points_sorted_y_left = [point for point in points_sorted_y if point[0] <= mid_point[0]]
     points_sorted_y_right = [point for point in points_sorted_y if point[0] > mid_point[0]]
 
+    # Recursively find the smallest distances in the left and right halves
     dl = closest_util(points_sorted_x[:mid], points_sorted_y_left, mid)
     dr = closest_util(points_sorted_x[mid:], points_sorted_y_right, n - mid)
 
-    d = min(dl, dr)
+    # Determine the smaller distance and the corresponding pair
+    if dl[0] < dr[0]:
+        d = dl
+    else:
+        d = dr
 
-    strip = [point for point in points_sorted_y if abs(point[0] - mid_point[0]) < d]
+    # Build the strip of points within distance d from the midline
+    strip = [point for point in points_sorted_y if abs(point[0] - mid_point[0]) < d[0]]
 
-    return min(d, strip_closest(strip, d))
+    # Find the closest pair in the strip
+    strip_closest_dist = strip_closest(strip, d)
 
-# Function to find the closest pair of points
+    # Return the overall minimum distance and the corresponding pair
+    if strip_closest_dist[0] < d[0]:
+        return strip_closest_dist
+    else:
+        return d
+
+
+# Function to find the closest pair of points and their indices
 def min_distance(points):
     """
+    Finds the smallest distance between any two points in the given list and returns the distance along with the indices of the points.
+
     # Example usage
     points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
-    min_dist = closest(points)
-    print(f"The smallest distance is {min_dist}")  # Output: The smallest distance is 1.4142135623730951
-    :param points: Set of points
-    :return: minimum distance between the closest points in set
+    min_dist, pair = min_distance(points)
+    print(f"The smallest distance is {min_dist} between points at indices {pair}")
+    # Output: The smallest distance is 1.4142135623730951 between points at indices (0, 5)
+
+    :param points: List of tuples representing the points [(x1, y1), (x2, y2), ...]
+    :return: A tuple containing the minimum distance and a tuple of the two point indices
     """
-    points_sorted_x = sorted(points, key=lambda p: p[0])
-    points_sorted_y = sorted(points, key=lambda p: p[1])
-    return closest_util(points_sorted_x, points_sorted_y, len(points))
+    # Enumerate points to keep track of their original indices
+    enumerated_points = list(enumerate(points))
+
+    # Represent each point as (x, y, index)
+    points_with_index = [(x, y, idx) for idx, (x, y) in enumerated_points]
+
+    # Sort the points based on x and y coordinates
+    points_sorted_x = sorted(points_with_index, key=lambda p: p[0])
+    points_sorted_y = sorted(points_with_index, key=lambda p: p[1])
+
+    # Use the recursive utility to find the closest pair
+    return closest_util(points_sorted_x, points_sorted_y, len(points_sorted_x))
 
 
+# Example usage
+if __name__ == "__main__":
+    points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
+    min_dist, pair = min_distance(points)
+    print(f"The smallest distance is {min_dist} between points at indices {pair}")
+    # Expected Output: The smallest distance is 1.4142135623730951 between points at indices (0, 5)
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
     """
     Find the foot point on the parametric surface S(s, t) closest to the given point P.
