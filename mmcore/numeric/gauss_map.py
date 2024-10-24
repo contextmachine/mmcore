@@ -7,7 +7,7 @@ from scipy.spatial import ConvexHull
 from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface, decompose_surface, \
      find_span, basis_functions, NURBSCurve
 
-from mmcore.collision import convex_hull, CGJK
+
 from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 
@@ -16,6 +16,9 @@ from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
 
+from scipy.spatial import ConvexHull
+def convex_hull(pts):
+    return np.array(pts)[ConvexHull(np.array(pts),qhull_options='QJ' ).vertices]
 
 def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 
@@ -103,15 +106,16 @@ def extract_isocurve(
         m = surface.shape[1]
     if param < param_range[0] or param > param_range[1]:
         raise ValueError(f"Parameter {param} is out of range {param_range}")
+    #print(tuple(interval),param,knots)
     span = find_span(n, degree, param, knots, 0)
     basis = basis_functions(span, param, degree, knots)
     control_points = np.zeros((m, 4))
     if direction == "u":
-        for i in range(n):
+        for i in range(m):
             for j in range(degree + 1):
                 idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
-        return NURBSCurve(control_points, surface.degree[0], surface.knots_u)
+                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[span - degree + j, i, :])
+        return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
 
     else:  # direction == 'v'
         for i in range(m):
@@ -171,7 +175,6 @@ def normalize_polynomial(v, epsilon=1e-10):
         return np.zeros_like(v)
     norm = np.sqrt(norm_squared / max_norm)
     return v / (norm[:, :, np.newaxis] * np.sqrt(max_norm))
-
 
 """
 # Example usage and verification
@@ -238,7 +241,7 @@ class GaussMap:
         self._map = mp
         self.hull=None
         self._polar_map = None
-        self._polar_convex_hull = None
+        self._convex_hull_on_sphere = None
         self.children = []
         self.bezier_patches = []
         #self.compute()
@@ -291,9 +294,9 @@ class GaussMap:
         # Compute convex hull
 
         #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self._polar_convex_hull=np.array(convex_hull(unit(self._map.control_points_flat)))
+        self._convex_hull_on_sphere=np.array(convex_hull(unit(self._map.control_points_flat)))
         #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
-        self.hull =self._polar_convex_hull
+        self.hull =self._convex_hull_on_sphere
     def bounds(self):
         """Compute bounds on the Gauss map."""
         return self.hull
@@ -679,7 +682,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
-    S1, S2 = td[2]
+    S1, S2 = td[1]
     TOL=1e-2
     import time
     s=time.perf_counter_ns()
