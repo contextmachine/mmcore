@@ -92,37 +92,56 @@ def extract_isocurve(
     if direction not in ["u", "v"]:
         raise ValueError("Direction must be either 'u' or 'v'.")
     interval = surface.interval()
+    
     if direction == "u":
-        knots = surface.knots_v
-        degree = surface.degree[1]
-        param_range = interval[1]
-        n = surface.shape[1] - 1
-        m = surface.shape[0]
-    else:  # direction == 'v'
-        knots = surface.knots_u
-        degree = surface.degree[0]
-        param_range = interval[0]
-        n = surface.shape[0] - 1
+        # For u-direction: we fix u and vary v
+        # First check if the u parameter is in range
+        param_range = interval[0]  # u range
+        if param < param_range[0] or param > param_range[1]:
+            raise ValueError(f"Parameter {param} is out of range {param_range}")
+            
+        # Find the span and basis functions in u direction (the direction we're fixing)
+        n_u = surface.shape[0] - 1  # number of control points in u direction - 1
+        degree_u = surface.degree[0]
+        span = find_span(n_u, degree_u, param, surface.knots_u, 0)
+        basis = basis_functions(span, param, degree_u, surface.knots_u)
+        
+        # The resulting curve will have as many control points as the surface has in v direction
         m = surface.shape[1]
-    if param < param_range[0] or param > param_range[1]:
-        raise ValueError(f"Parameter {param} is out of range {param_range}")
-    #print(tuple(interval),param,knots)
-    span = find_span(n, degree, param, knots, 0)
-    basis = basis_functions(span, param, degree, knots)
-    control_points = np.zeros((m, 4))
-    if direction == "u":
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[span - degree + j, i, :])
+        control_points = np.zeros((m, 4))
+        
+        # Compute control points for the extracted curve
+        for i in range(m):  # iterate over v direction
+            for j in range(degree_u + 1):  # combine with basis functions
+                control_points[i] += basis[j] * surface.control_points_w[span - degree_u + j, i]
+                
+        # Return curve with v-direction degree and knots since we're varying in v
         return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
 
     else:  # direction == 'v'
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
-        return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
+        # For v-direction: we fix v and vary u
+        # First check if the v parameter is in range
+        param_range = interval[1]  # v range
+        if param < param_range[0] or param > param_range[1]:
+            raise ValueError(f"Parameter {param} is out of range {param_range}")
+            
+        # Find the span and basis functions in v direction (the direction we're fixing)
+        n_v = surface.shape[1] - 1  # number of control points in v direction - 1
+        degree_v = surface.degree[1]
+        span = find_span(n_v, degree_v, param, surface.knots_v, 0)
+        basis = basis_functions(span, param, degree_v, surface.knots_v)
+        
+        # The resulting curve will have as many control points as the surface has in u direction
+        m = surface.shape[0]
+        control_points = np.zeros((m, 4))
+        
+        # Compute control points for the extracted curve
+        for i in range(m):  # iterate over u direction
+            for j in range(degree_v + 1):  # combine with basis functions
+                control_points[i] += basis[j] * surface.control_points_w[i, span - degree_v + j]
+                
+        # Return curve with u-direction degree and knots since we're varying in u
+        return NURBSCurve(control_points, surface.degree[0], surface.knots_u)
 
 
 def compute_partial_derivative(coeffs, variable):
