@@ -14,3 +14,4 @@ mmcore.egg-info
 mmcore/numeric/optimize/
 mmcore/numeric/optimize/__init__.py
 dist
+.computer-use-demo
