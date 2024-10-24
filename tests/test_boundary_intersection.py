@@ -10,7 +10,7 @@ from mmcore.numeric.intersection.ssx.boundary_intersection import (
     sort_boundary_intersections,
     IntersectionPoint
 )
-from mmcore._test_data import ssx as test_surfaces
+
 from test_nurbs_curve import control_points
 
 
