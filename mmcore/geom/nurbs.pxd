@@ -81,7 +81,7 @@ cdef inline void curve_point(int n, int p, double[:] U, double[:, :] P, double u
 
     cdef int pp = p + 1
     cdef int i, j
-    cdef int span = find_span(n, p, u, U,is_periodic)
+    cdef int span = find_span_inline(n, p, u, U,is_periodic)
     cdef double* N = <double*>malloc(sizeof(double)*pp)
     cdef double sum_of_weights=0.
     cdef double b
