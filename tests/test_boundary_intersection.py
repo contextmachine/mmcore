@@ -63,6 +63,7 @@ def test_find_boundary_intersections():
     # Check that all intersection points lie on both surfaces
     tol = 1e-6
     for intersection in intersections:
+
         # Point should lie on both surfaces
 
         pt1 = surf1.evaluate(intersection.get_start_params()[0])
