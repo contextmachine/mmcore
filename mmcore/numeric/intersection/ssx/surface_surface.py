@@ -53,7 +53,8 @@ from mmcore.numeric.intersection.ssx._ssi import improve_uv
 SurfaceStuff = namedtuple("SurfaceStuff", ["surf", "kd", "pts", "uv", "bbox"])
 ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
-from mmcore.numeric.gauss_map import detect_intersections, extract_isocurve
+from mmcore.numeric.gauss_map import detect_intersections
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 
 
 def find_closest_points_nurbs(surf1: NURBSSurface, surf2: NURBSSurface,tol=1e-3):

@@ -2,18 +2,15 @@
 from __future__ import annotations
 import numpy as np
 from scipy.optimize import linprog
-from scipy.spatial import ConvexHull
 
-from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface, decompose_surface, \
-     find_span, basis_functions, NURBSCurve
+from mmcore.geom.nurbs import NURBSSurface, subdivide_surface, decompose_surface
 
-
-from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 
 from mmcore.numeric.intersection.csx import nurbs_csx
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
-from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian, scalar_dot, scalar_norm
+from mmcore.numeric.vectors import unit, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
 
 from scipy.spatial import ConvexHull
@@ -75,73 +72,6 @@ def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 #        raise ValueError(
 #            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
 #        )
-def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
-    """
-    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
-    Args:
-    surface (NURBSSurface): The input NURBS surface.
-    param (float): The parameter value at which to extract the isocurve.
-    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
-    Returns:
-    NURBSCurve: The extracted isocurve as a NURBS curve.
-    Raises:
-    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
-    """
-    if direction not in ["u", "v"]:
-        raise ValueError("Direction must be either 'u' or 'v'.")
-    interval = surface.interval()
-    
-    if direction == "u":
-        # For u-direction: we fix u and vary v
-        # First check if the u parameter is in range
-        param_range = interval[0]  # u range
-        if param < param_range[0] or param > param_range[1]:
-            raise ValueError(f"Parameter {param} is out of range {param_range}")
-            
-        # Find the span and basis functions in u direction (the direction we're fixing)
-        n_u = surface.shape[0] - 1  # number of control points in u direction - 1
-        degree_u = surface.degree[0]
-        span = find_span(n_u, degree_u, param, surface.knots_u, 0)
-        basis = basis_functions(span, param, degree_u, surface.knots_u)
-        
-        # The resulting curve will have as many control points as the surface has in v direction
-        m = surface.shape[1]
-        control_points = np.zeros((m, 4))
-        
-        # Compute control points for the extracted curve
-        for i in range(m):  # iterate over v direction
-            for j in range(degree_u + 1):  # combine with basis functions
-                control_points[i] += basis[j] * surface.control_points_w[span - degree_u + j, i]
-                
-        # Return curve with v-direction degree and knots since we're varying in v
-        return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
-
-    else:  # direction == 'v'
-        # For v-direction: we fix v and vary u
-        # First check if the v parameter is in range
-        param_range = interval[1]  # v range
-        if param < param_range[0] or param > param_range[1]:
-            raise ValueError(f"Parameter {param} is out of range {param_range}")
-            
-        # Find the span and basis functions in v direction (the direction we're fixing)
-        n_v = surface.shape[1] - 1  # number of control points in v direction - 1
-        degree_v = surface.degree[1]
-        span = find_span(n_v, degree_v, param, surface.knots_v, 0)
-        basis = basis_functions(span, param, degree_v, surface.knots_v)
-        
-        # The resulting curve will have as many control points as the surface has in u direction
-        m = surface.shape[0]
-        control_points = np.zeros((m, 4))
-        
-        # Compute control points for the extracted curve
-        for i in range(m):  # iterate over u direction
-            for j in range(degree_v + 1):  # combine with basis functions
-                control_points[i] += basis[j] * surface.control_points_w[i, span - degree_v + j]
-                
-        # Return curve with u-direction degree and knots since we're varying in u
-        return NURBSCurve(control_points, surface.degree[0], surface.knots_u)
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -437,7 +367,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb,aabb_overlap,aabb_intersect,aabb_intersection
+from mmcore.numeric.aabb import aabb, aabb_intersect,aabb_intersection
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -746,10 +676,10 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
         ff=False
-        for l in (lambda : extract_isocurve(i,0.,'v'),
-                  lambda :extract_isocurve(i, 0., 'u'),
-                  lambda :extract_isocurve(i, 1., 'u'),
-                  lambda :extract_isocurve(i, 1., 'v')):
+        for l in (lambda : extract_isocurve(i, 0., 'v'),
+                  lambda : extract_isocurve(i, 0., 'u'),
+                  lambda : extract_isocurve(i, 1., 'u'),
+                  lambda : extract_isocurve(i, 1., 'v')):
             c=l()
             #print([c.control_points.tolist(),np.array(j.control_points_flat
             #      ).tolist()])
