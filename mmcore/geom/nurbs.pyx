@@ -10,8 +10,9 @@ from libc.stdlib cimport malloc,free,realloc
 cimport numpy as cnp
 import numpy as np
 from libc.string cimport memcpy,memcmp
-from libcpp.cmath cimport sqrt,fabs,fmax,fminf,fmin,pow
+from libc.math cimport sqrt,fabs,fmax,fminf,fmin,pow
 from libc.stdint cimport uint32_t,int32_t
+
 cimport mmcore.geom.nurbs
 
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
@@ -31,7 +32,7 @@ cdef extern from "_nurbs.cpp" nogil:
         NURBSSurfaceData();
         NURBSSurfaceData(double* control_points, double* knots_u ,double* knots_v,int size_u,int size_v,int degree_u,int degree_v);
 
-    
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -66,7 +67,7 @@ cdef inline void aabb(double[:,:] points, double[:,:] min_max_vals) noexcept nog
             if  p > min_max_vals[1][i]:
                 min_max_vals[1][i] =  p
 
-        
+
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
@@ -562,7 +563,7 @@ cdef inline double point_distance(double* a, double* b ,int dim) noexcept nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, double tol=1e-4, int num=1,bint is_periodic=0):
-    cdef int s = find_multiplicity(u, knotvector,1e-7)
+    cdef int s = find_multiplicity(u, knotvector,1e-12)
     cdef int n = ctrlpts.shape[0]
     #n, degree,  u, knotvector, is_periodic
     cdef int r = find_span_inline(n, degree,  u, knotvector,is_periodic)
@@ -685,7 +686,7 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
 
     for ki in range(knot_list.shape[0]):
         mk=knot_list[ki]
-        s = find_multiplicity(mk, knotvector,1e-7)
+        s = find_multiplicity(mk, knotvector,1e-12)
         r = degree - s
         for _ in range(r):
             X[x_count] = mk
@@ -1277,8 +1278,8 @@ cdef class NURBSCurve(ParametricCurve):
         self.knots_update_hook()
 
     cdef _update_interval(self):
-        self._interval[0] = self._knots[self._degree]
-        self._interval[1] = self._knots[self._knots.shape[0] - self._degree-1 ]
+        self._interval[0] =  np.min(self._knots)
+        self._interval[1] = np.max(self._knots)
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
         cdef int n = len(cpts)
         cdef int i
@@ -1628,28 +1629,31 @@ cdef class NURBSCurve(ParametricCurve):
         """
 
         # Start curve knot insertion
-        cdef int n = self._control_points.shape[0] - 1
-
+        cdef int n = self._control_points.shape[0]
+        cdef int new_count = n + count
         cdef double[:,:] cpts = self._control_points.copy()
 
         # Find knot span
-        cdef int span = find_span_inline(n, self._degree, t, self._knots,self._periodic)
-        cdef int s_u = find_multiplicity(t, self._knots, 1e-7)
+        cdef int span = find_span_inline(n-1, self._degree, t, self._knots,0)
+        cdef double[:] k_v = knot_insertion_kv(self._knots, t, span, count)
+        cdef int s_u = find_multiplicity(t, self._knots, 1e-12)
         # Compute new knot vector
-        k_v = knot_insertion_kv(self._knots, t,   span, count)
+        self._control_points=np.empty((new_count,4))
+
 
         # Compute new control points
 
-        self._control_points = knot_insertion(self._degree,
+        knot_insertion(self._degree,
                                               self._knots,
                                               cpts,
                                               t,
-                                                count, s_u, span,is_periodic=self._periodic)
+                                                count, s_u, span,0,self._control_points  )
 
         # Update curve
 
         self._knots=k_v
-        self.knots_update_hook()
+        self._update_interval()
+
         self._evaluate_cached.cache_clear()
 
     @cython.boundscheck(False)
@@ -1775,12 +1779,12 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cnormalize_knots(self):
-        cdef double start=self._knots[0]
-        cdef double end = self._knots[self._knots.shape[0]-1]
-        cdef double d=end-start
+        cdef double start=np.min(self._knots)
+        cdef double end = np.max(self._knots)
+        cdef double d=1/(end-start)
         cdef int i
         for i in range(len(self._knots)):
-            self._knots[i]=(self._knots[i]-start)/d
+            self._knots[i]=((self._knots[i]-start)*d)
         self.knots_update_hook()
 
     @cython.boundscheck(False)
@@ -1788,7 +1792,7 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.cdivision(True)
     def normalize_knots(self):
         self.cnormalize_knots()
-        
+
         self._evaluate_cached.cache_clear()
 
     @staticmethod
@@ -1866,6 +1870,9 @@ cdef class NURBSCurve(ParametricCurve):
         aabb(self._control_points, result)
         return result
 
+    def astuple(self):
+        cdef tuple res=(self.control_points.tolist(), self.knots.tolist(), self._degree, self._periodic)
+        return res
 @cython.cdivision(True)
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
@@ -1887,9 +1894,8 @@ cpdef double[:] greville_abscissae(double[:] knots, int degree):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-@cython.nonecheck(False)
 @cython.cdivision(True)
-cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint normalize_knots=True):
+cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint normalize_knots=False):
 
     cdef int degree = obj._degree
     cdef double[:] knotvector = obj._knots
@@ -1898,46 +1904,72 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint norma
     cdef int dim = ctrlpts.shape[1]
     cdef int ks, s, r, knot_span
     cdef int i, j
-    cdef bint is_periodic = obj.is_periodic()
+    cdef bint is_periodic = 0
 
     if param<=obj._interval[0] or param>=obj._interval[1] or fabs(param - obj._interval[0])<=tol or fabs(param -obj._interval[1])<=tol:
 
 
-        raise ValueError("Cannot split from the domain edge")
+        raise ValueError("Cannot split from the domain edge ")
 
-    ks = find_span_inline(n_ctrlpts-1 , degree, param, knotvector, is_periodic) - degree + 1
+    ks = find_span_inline(n_ctrlpts , degree, param, knotvector, 0) - degree + 1
 
-    s = find_multiplicity(param, knotvector,tol)
+    s = find_multiplicity(param, knotvector,1e-12)
     r = degree - s
+
 
     # Insert knot
     cdef NURBSCurve temp_obj = obj.ccopy()
-    temp_obj.insert_knot(param, r)
 
+
+    temp_obj.insert_knot(param, r)
+    cdef double[:, :] tcpts = temp_obj._control_points
+    cdef double[:] temp_knots = temp_obj._knots
     # Knot vectors
-    knot_span = find_span_inline(temp_obj._control_points.shape[0]-1 , degree, param, temp_obj._knots, is_periodic) + 1
-    cdef double[:] curve1_kv = np.empty((knot_span + 1,), dtype=np.float64)
-    cdef double[:] curve2_kv = np.empty((temp_obj._knots.shape[0] - knot_span+  degree+ 1,), dtype=np.float64)
+    knot_span = find_span_inline(temp_obj._control_points.shape[0] , degree, param, temp_knots, 0) + 1
+    #cdef double[:] curve1_kv = np.empty((knot_span + 1,), dtype=np.float64)
+    #cdef double[:] curve2_kv = np.empty((temp_obj._knots.shape[0] - knot_span+  degree+ 1,), dtype=np.float64)
+    cdef vector[double] surf1_kv = vector[double](knot_span )
+    cdef vector[double] surf2_kv = vector[double](temp_knots.shape[0] - knot_span)
+
 
     for i in range(knot_span):
-        curve1_kv[i] = temp_obj._knots[i]
-    curve1_kv[knot_span] = param
+        surf1_kv[i] = temp_knots[i]
+    for i in range(temp_knots.shape[0] - knot_span):
 
-    for i in range(degree + 1):
-        curve2_kv[i] = param
-    for i in range(temp_obj._knots.shape[0] - knot_span):
-        curve2_kv[i + degree + 1] = temp_obj._knots[i + knot_span]
+        surf2_kv[i] = temp_knots[i + knot_span]
+
+    # Add param to the end of surf1_kv and beginning of surf2_kv
+
+    surf1_kv.push_back(param)
+    for j in range(degree+1):
+
+        surf2_kv.insert(surf2_kv.begin(), param);
+
+
+
+
+
+    # Create control points for the two new surfaces
+
+    cdef double[:] surf1_kvm=np.empty(surf1_kv.size())
+    cdef double[:] surf2_kvm=np.empty(surf2_kv.size())
+    for i in range(surf1_kv.size()):
+        surf1_kvm[i]=surf1_kv[i]
+    for i in range(surf2_kv.size()):
+        surf2_kvm[i]=surf2_kv[i]
+
+
 
     # Control points
 
-    cdef double[:, :] curve1_ctrlpts = temp_obj._control_points[:ks + r,  :].copy()
-    cdef double[:, :] curve2_ctrlpts = temp_obj._control_points[ks + r - 1:,:].copy()
+    cdef double[:, :] curve1_ctrlpts = tcpts[:ks + r,  :]
+    cdef double[:, :] curve2_ctrlpts = tcpts[ks + r - 1:,:]
 
 
 
     # Create new curves
-    cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts, degree, curve1_kv)
-    cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts, degree, curve2_kv)
+    cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts.copy(), degree, surf1_kvm,0)
+    cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts.copy(), degree,  surf2_kvm,0)
     if normalize_knots:
         curve1.cnormalize_knots()
         curve1.knots_update_hook()
@@ -1947,8 +1979,78 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint norma
     return curve1, curve2
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cpdef tuple split_curve2(NURBSCurve obj, double param, double tol=1e-12):
+    cdef int degree = obj._degree
+    cdef double[:] knotvector = obj._knots
+    cdef double[:, :] ctrlpts = obj._control_points
+    cdef int n_ctrlpts = ctrlpts.shape[0]
+    cdef int dim = ctrlpts.shape[1]
+    cdef int ks, s, r, knot_span
+    cdef int i
+    cdef bint is_periodic = 0
 
+    if (param <= obj._interval[0] or param >= obj._interval[1] or
+        fabs(param - obj._interval[0]) <= tol or fabs(param - obj._interval[1]) <= tol):
+        raise ValueError("Cannot split from the domain edge")
 
+    ks = find_span_inline(n_ctrlpts, degree, param, knotvector, 0) - degree + 1
+    s = find_multiplicity(param, knotvector, 1e-12)
+    r = degree - s
+
+    # Insert knot
+    cdef NURBSCurve temp_obj = obj.ccopy()
+    temp_obj.insert_knot(param, r)
+    cdef double[:, :] tcpts = temp_obj._control_points
+    cdef double[:] temp_knots = temp_obj._knots
+
+    # Knot vectors
+    knot_span = find_span_inline(temp_obj._control_points.shape[0], degree, param, temp_knots, 0) + 1
+
+    # Calculate sizes of new knot vectors
+    cdef int nknots1 = knot_span + 1  # +1 to include param at the end
+    cdef int nknots2 = (temp_knots.shape[0] - knot_span) + (degree + 1)  # + degree+1 for param repetitions
+
+    cdef double[:] surf1_kv = np.empty(nknots1, dtype=np.float64)
+    cdef double[:] surf2_kv = np.empty(nknots2, dtype=np.float64)
+
+    # Fill surf1_kv
+    for i in range(knot_span):
+        surf1_kv[i] = temp_knots[i]
+    surf1_kv[knot_span] = param  # Add param at the end
+
+    # Fill surf2_kv
+    for i in range(degree + 1):
+        surf2_kv[i] = param  # Insert param at the beginning
+    for i in range(temp_knots.shape[0] - knot_span):
+        surf2_kv[i + degree + 1] = temp_knots[i + knot_span]
+
+    # Control points
+    cdef double[:, :] curve1_ctrlpts = tcpts[:ks + r, :]
+    cdef double[:, :] curve2_ctrlpts = tcpts[ks + r - 1:, :]
+
+    # Create new curves
+    cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts.copy(), degree, surf1_kv, 0)
+    cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts.copy(), degree, surf2_kv, 0)
+
+    return curve1, curve2
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cpdef list split_curve_multiple(NURBSCurve crv, double[:] params):
+    cdef list crvs = []
+    cdef NURBSCurve temp=crv
+    cdef int i
+    cdef tuple tpl
+    for i in range(params.shape[0]):
+        tpl = split_curve2(crv, params[i] )
+        crv=tpl[1]
+        crvs.append(tpl[0])
+    crvs.append(crv)
+    return crvs
 
 
 cdef class NURBSSurface(ParametricSurface):
@@ -2357,11 +2459,11 @@ cpdef tuple split_surface_u(NURBSSurface obj, double param, double tol=1e-7) :
 
         raise ValueError("Cannot split from the domain edge")
     ks = find_span_inline(size_u, degree_u, param, knots_u, 0) - degree_u + 1
-    s = find_multiplicity(param, knots_u, tol)
+    s = find_multiplicity(param, knots_u, 1e-12)
     r = degree_u - s
 
     # Create a copy of the original surface and insert knot
-    cdef NURBSSurface temp_obj = obj.copy()
+    cdef NURBSSurface temp_obj = obj.ccopy()
     temp_obj.insert_knot_u(param, r)
 
     cdef double[:, :, :] tcpts = temp_obj.control_points_view
@@ -2426,7 +2528,7 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=1e-7) :
             param - obj._interval[1][1]) <= tol:
         raise ValueError("Cannot split from the domain edge")
     ks = find_span_inline(size_v, degree_v, param, knots_v, 0) - degree_v + 1
-    s = find_multiplicity(param, knots_v,tol=tol)
+    s = find_multiplicity(param, knots_v,1e-12)
     r = degree_v - s
 
     # Create a copy of the original surface and insert knot
@@ -2678,60 +2780,3 @@ cdef class SurfaceSurfaceEq:
         return self.evaluate(x)
 
 
-
-
-def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
-    """
-    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
-
-    Args:
-    surface (NURBSSurface): The input NURBS surface.
-    param (float): The parameter value at which to extract the isocurve.
-    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
-
-    Returns:
-    NURBSCurve: The extracted isocurve as a NURBS curve.
-
-    Raises:
-    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
-    """
-    if direction not in ["u", "v"]:
-        raise ValueError("Direction must be either 'u' or 'v'.")
-
-    cdef double[:,:] interval = surface._interval
-    if direction == "u":
-        knots = surface.knots_v
-        degree = surface.degree[0]
-        param_range = interval[1]
-        n = surface.shape[1] - 1
-        m = surface.shape[0]
-    else:  # direction == 'v'
-        knots = surface.knots_u
-        degree = surface.degree[1]
-        param_range = interval[0]
-        n = surface.shape[0] - 1
-        m = surface.shape[1]
-
-    if param < param_range[0] or param > param_range[1]:
-        raise ValueError(f"Parameter {param} is out of range {param_range}")
-
-    span = find_span(n, degree, param, knots, 0)
-    basis = basis_functions(span, param, degree, knots)
-
-    control_points = np.zeros((m, 4))
-
-    if direction == "u":
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
-    else:  # direction == 'v'
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
-
-    return NURBSCurve(control_points, degree, knots)
