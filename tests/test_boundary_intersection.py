@@ -89,21 +89,21 @@ def test_sort_boundary_intersections():
             curve_param=0.5,
             surface_params=(0.5, 0.0),
             boundary_index=0,
-            is_from_first_surface=True
+            is_from_first_surface=True,interval=((0.,1.),(0.,1.))
         ),
         IntersectionPoint(
             point=np.array([1.0, 1.0, 0.0]),
             curve_param=0.5,
             surface_params=(0.5, 1.0),
             boundary_index=1,
-            is_from_first_surface=True
+            is_from_first_surface=True,interval=((0.,1.),(0.,1.))
         ),
         IntersectionPoint(
             point=np.array([0.0, 0.5, 0.0]),
             curve_param=0.5,
             surface_params=(0.0, 0.5),
             boundary_index=2,
-            is_from_first_surface=False
+            is_from_first_surface=False,interval=((0.,1.),(0.,1.))
         )
     ]
     
