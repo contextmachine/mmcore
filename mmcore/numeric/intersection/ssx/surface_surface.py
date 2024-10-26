@@ -13,7 +13,7 @@ from mmcore.numeric.intersection.csx import nurbs_csx
 
 from mmcore.numeric.plane import plane_plane_intersect
 
-from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
+from mmcore.geom.curves.bspline import NURBSpline
 
 import numpy as np
 from mmcore.numeric.vectors import norm
@@ -54,7 +54,7 @@ SurfaceStuff = namedtuple("SurfaceStuff", ["surf", "kd", "pts", "uv", "bbox"])
 ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
 from mmcore.numeric.gauss_map import detect_intersections
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections
 
 
 def find_closest_points_nurbs(surf1: NURBSSurface, surf2: NURBSSurface,tol=1e-3):
@@ -490,6 +490,16 @@ class MarchingMethod(SSXMethod):
                 break
 
         return uvs, pts, steps, list(ixss), terminator
+def find_start_points_nurbs(surf1, surf2,tol=1e-3):
+    xyz=[]
+    u1=[]
+    u2=[]
+    for s1,s2 in detect_intersections(surf1, surf2, tol=tol):
+        for pt in find_boundary_intersections(s1,s2,1e-6):
+            xyz.append(pt.point)
+            u1.append(pt.surface1_params)
+            u2.append(pt.surface2_params)
+    return KDTree(np.array(xyz)),np.array(u1),np.array(u2)
 
 times=[]
 def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
@@ -505,7 +515,10 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.1, max_iter=500):
                    max_iter=9
     )
     #s = time.perf_counter_ns()
-    res = find_closest_points(surf1, surf2, freeform)
+    if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
+        res = find_start_points_nurbs(surf1,surf2,tol=tol)
+    else:
+        res = find_closest_points(surf1, surf2, freeform)
     #times.append(time.perf_counter_ns() - s)
 
     if res is None:
