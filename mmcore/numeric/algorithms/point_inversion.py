@@ -123,10 +123,10 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
     """
 
     def f(uv: NDArray[float]) -> float:
-        return scalar_dot(surface.derivative_u(uv), surface(uv) - P)
+        return scalar_dot(surface.derivative_u(uv), surface.evaluate(uv) - P)
 
     def g(uv: NDArray[float]) -> float:
-        return scalar_dot(surface.derivative_v(uv), surface(uv) - P)
+        return scalar_dot(surface.derivative_v(uv), surface.evaluate(uv) - P)
 
     ui, vi = u0, v0
     uivi = np.array([u0, v0])
