@@ -3,7 +3,7 @@ import pytest
 
 from mmcore.geom.nurbs import NURBSSurface
 
-from mmcore.geom.implicit.tree import implicit_find_features
+
 from mmcore.numeric.intersection.ssx.boundary_intersection import (
     extract_surface_boundaries,
     find_boundary_intersections,
@@ -11,7 +11,7 @@ from mmcore.numeric.intersection.ssx.boundary_intersection import (
     IntersectionPoint
 )
 
-from test_nurbs_curve import control_points
+
 
 
 def create_test_surface1() -> NURBSSurface:
@@ -63,14 +63,22 @@ def test_find_boundary_intersections():
     # Check that all intersection points lie on both surfaces
     tol = 1e-6
     for intersection in intersections:
-
-        # Point should lie on both surfaces
-
-        pt1 = surf1.evaluate(intersection.get_start_params()[0])
-        pt2 = surf2.evaluate(intersection.get_start_params()[1])
-        print(pt1, pt2)
-        assert np.allclose(pt1, pt2, atol=tol), "Intersection point should lie on both surfaces"
-        assert np.allclose(intersection.point, pt1, atol=tol), "Stored point should match surface evaluation"
+        # Check that all points lie on both surfaces using surface1_params and surface2_params
+        pt1 = surf1.evaluate(np.array(intersection.surface1_params))
+        pt2 = surf2.evaluate(np.array(intersection.surface2_params))
+        
+        print(f"Point: {intersection.point}")
+        print(f"Surface1 evaluation at {intersection.surface1_params}: {pt1}")
+        print(f"Surface2 evaluation at {intersection.surface2_params}: {pt2}")
+        
+        assert np.allclose(pt1, intersection.point, atol=tol), "Point should lie on first surface"
+        assert np.allclose(pt2, intersection.point, atol=tol), "Point should lie on second surface"
+        assert np.allclose(pt1, pt2, atol=tol), "Evaluations should match each other"
+        
+        # Verify that get_start_params still works correctly for backward compatibility
+        start_params = intersection.get_start_params()
+        assert np.allclose(surf1.evaluate(start_params[0]), intersection.point, atol=tol), "get_start_params should give correct parameters for first surface"
+        assert np.allclose(surf2.evaluate(start_params[1]), intersection.point, atol=tol), "get_start_params should give correct parameters for second surface"
 
 def test_sort_boundary_intersections():
     """Test sorting boundary intersections into sequences"""
