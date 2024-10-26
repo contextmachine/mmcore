@@ -6,8 +6,10 @@ import numpy as np
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
 from mmcore.geom.bvh import contains_point
+from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric import divide_interval
+from mmcore.numeric.aabb import aabb_overlap
 from mmcore.numeric.fdm import PDE, newtons_method
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
     divide_and_conquer_min_2d_vectorized
@@ -257,6 +259,14 @@ def closest_point_on_line(line, point):
     direction = end - start
     return start + vector_projection(point - start, direction)
 
+def closest_point_on_nurbs_surface(self:NURBSSurface,pt,tol=1e-3):
+
+
+    def f(u,v):
+            d=self.evaluate_v2(u,v)-pt
+            return scalar_dot(d,d)
+
+    return divide_and_conquer_min_2d(f, *self.interval(), tol=tol)
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
     if bounds is None:

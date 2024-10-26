@@ -507,7 +507,7 @@ cdef class NURBSSurface(ParametricSurface):
     cdef double[:,:,:] control_points_view
     cdef double[:,:] control_points_flat_view
 
-    cdef void _update_interval(self) noexcept nogil
+    cdef void _update_interval(self)
     cdef void generate_knots_u(self)
     cdef void generate_knots_v(self)
     cdef void realloc_control_points(self, size_t new_size_u, size_t new_size_v) noexcept nogil

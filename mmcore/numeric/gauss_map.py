@@ -7,6 +7,7 @@ from mmcore.geom.nurbs import NURBSSurface, subdivide_surface, decompose_surface
 
 from mmcore.numeric.algorithms.quicksort import unique
 
+from mmcore.numeric.algorithms.surface_area import v_min
 from mmcore.numeric.intersection.csx import nurbs_csx
 from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
@@ -204,8 +205,20 @@ class GaussMap:
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
     def subdivide(self):
-        srf = subdivide_surface(self.surface,normalize_knots=True)
-        mp = subdivide_surface(self._map,normalize_knots=True)
+        (umin, umax), (vmin, vmax) = self.surface.interval()
+        umid = (umin + umax) * 0.5
+        vmid = (vmin + vmax) * 0.5
+        (mumin, mumax), (mvmin, mvmax) = self._map.interval()
+        mumid = (mumin + mumax) * 0.5
+        mvmid = (mvmin + mvmax) * 0.5
+        try:
+
+            srf = subdivide_surface(self.surface,umid,vmid,tol=1e-12,normalize_knots=False)
+            mp = subdivide_surface(self._map,mumid, mvmid,tol=1e-12, normalize_knots=False)
+        except ValueError as err:
+            print(self.surface.interval())
+            print(self._map.interval())
+            raise err
         if len(self.children)==0:
             self.children = []
             for i in range(4):
@@ -465,6 +478,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     #    dddd[4] = True
     #    return [(g1.surface, g2.surface)]
     # Все тесты провалены, новый этап подразбиения
+    #print('ddd', g1.surface.interval(), g2.surface.interval())
     g11 = g1.subdivide()
     g12 = g2.subdivide()
 
@@ -472,6 +486,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     ii = 0
     for gg in g11:
         for gh in g12:
+            #print('dd',gg.surface.interval(),gh.surface.interval())
             #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
             res = _detect_intersections_deep(gg, gh, chs,tol=tol)
             ii += 1
@@ -575,8 +590,8 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
           be possible, particularly in reducing the number of recursive subdivisions.
 
     """
-    s1d = decompose_surface(surf1)
-    s2d = decompose_surface(surf2)
+    s1d = decompose_surface(surf1, normalize_knots=False )
+    s2d = decompose_surface(surf2, normalize_knots=False)
 
     #subs = debug_tree.subd(len(s1d) * len(s2d))
     index = 0
@@ -599,7 +614,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
         #    s.control_points_flat
         #)
         chs=dict()
-
+        #print('k',f.interval(),s.interval())
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
         if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
 
@@ -614,6 +629,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             ss.compute()
             ff.compute()
             #dddd[1] = True
+
 
 
             p1, p2 = separate_gauss_maps(ff, ss)
@@ -652,7 +668,7 @@ if __name__ == "__main__":
     with open('../../tests/norm1.txt', 'w') as f:
         print(fff, file=f)
 
-    S1, S2 = td[1]
+    S1, S2 = td[2]
 
     import time
     s=time.perf_counter_ns()
@@ -676,10 +692,11 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
         ff=False
-        for l in (lambda : extract_isocurve(i, 0., 'v'),
-                  lambda : extract_isocurve(i, 0., 'u'),
-                  lambda : extract_isocurve(i, 1., 'u'),
-                  lambda : extract_isocurve(i, 1., 'v')):
+        (umin,umax),(v_min,v_max)=i.interval()
+        for l in (lambda : extract_isocurve(i, v_min, 'v'),
+                  lambda : extract_isocurve(i, umin, 'u'),
+                  lambda : extract_isocurve(i, umax, 'u'),
+                  lambda : extract_isocurve(i, v_max, 'v')):
             c=l()
             #print([c.control_points.tolist(),np.array(j.control_points_flat
             #      ).tolist()])
@@ -696,12 +713,13 @@ if __name__ == "__main__":
                     continue
             #print(ptss)
         if not ff:
-            for l in (lambda: extract_isocurve(j, 0., 'u'),
-                  lambda: extract_isocurve(j, 0., 'v'),
-                  lambda: extract_isocurve(j, 1., 'u'),
-                  lambda: extract_isocurve(j, 1., 'v')):
+            (umin, umax), (v_min, v_max) = j.interval()
+            for l in (lambda : extract_isocurve(j, v_min, 'v'),
+                  lambda : extract_isocurve(j, umin, 'u'),
+                  lambda : extract_isocurve(j, umax, 'u'),
+                  lambda : extract_isocurve(j, v_max, 'v')):
                 c = l()
-                res = nurbs_csx(c, i,tol=TOL,ptol=TOL)
+                res = nurbs_csx(c, i,tol=TOL,ptol=1e-7)
                 for oo in res:
                     ptss.append(c.evaluate(oo[2][0]).tolist())
     print((time.perf_counter_ns() - s) * 1e-9)
