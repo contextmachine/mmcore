@@ -118,7 +118,7 @@ class NURBSCurveSurfaceIntersector:
                 for c in [curve1, curve2]:
                     self._curve_surface_intersect(c, s)
 
-    def _no_new_intersections(self, curve, surface):
+    def _no_new_intersections(self, curve, surface,):
         # Implement separability test from section 4.2
         # Return True if curve and surface don't intersect except at already discovered points
 
@@ -127,6 +127,8 @@ class NURBSCurveSurfaceIntersector:
             np.array(surface.control_points_flat),
             tol=self.tolerance,
         )
+
+
 
     def _get_interior_intersections(self, curve, surface):
         # Return list of already discovered intersection points interior to curve or surface

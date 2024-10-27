@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Any
+
 from mmcore.numeric.aabb import aabb, aabb_overlap, point_in_aabb
 from mmcore.geom.vec import *
 import numpy as np
@@ -786,3 +787,138 @@ def is_point_in_polygon_bvh(polygon, point):
 
     intersect_ray(bvh_root)
     return intersections % 2 == 1
+
+
+import numpy as np
+from typing import List
+
+import numpy as np
+from typing import List
+
+
+def next_to_top(hull: List[np.ndarray]) -> np.ndarray:
+    """Get the second element from the top of the hull stack."""
+    p = hull[-1]
+    hull.pop()
+    res = hull[-1]
+    hull.append(p)
+    return res
+
+
+def dist_sq(p1: np.ndarray, p2: np.ndarray) -> float:
+    """Calculate squared distance between two points."""
+    diff = p1 - p2
+    return np.dot(diff, diff)
+
+
+def orientation(p: np.ndarray, q: np.ndarray, r: np.ndarray) -> int:
+    """
+    Find orientation of ordered triplet (p, q, r).
+    Returns:
+     0 --> p, q and r are collinear
+     1 --> Clockwise
+     2 --> Counterclockwise
+    """
+    val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
+    epsilon = 1e-9
+    if abs(val) < epsilon:
+        return 0  # collinear
+    return 1 if val > 0 else 2  # clock or counterclock wise
+
+
+def polar_angle(p0: np.ndarray, p: np.ndarray) -> float:
+    """Calculate the polar angle between p0p and the x-axis."""
+    return np.arctan2(p[1] - p0[1], p[0] - p0[0])
+
+
+def convex_hull2d(points: np.ndarray) -> np.ndarray:
+    """
+    Compute the convex hull of a set of 2D points using Graham's Scan algorithm.
+
+    Args:
+        points: numpy array of shape (n, 2) containing 2D points
+
+    Returns:
+        numpy array of shape (m, 2) containing points forming the convex hull
+    """
+    if not isinstance(points, np.ndarray):
+        points = np.array(points)
+
+    n = len(points)
+    if n < 3:
+        return points
+
+    # Find the bottommost point (and leftmost if there is a tie)
+    ymin = 0
+    for i in range(1, n):
+        if (points[i, 1] < points[ymin, 1] or
+                (abs(points[i, 1] - points[ymin, 1]) < 1e-9 and points[i, 0] < points[ymin, 0])):
+            ymin = i
+
+    # Place the bottom-most point at first position
+    points = points.copy()  # Create a copy to avoid modifying input
+    points[0], points[ymin] = points[ymin].copy(), points[0].copy()
+
+    # Sort points based on polar angle and distance
+    p0 = points[0]
+    other_points = points[1:]
+    # Sort by polar angle and distance
+    angles = np.array([polar_angle(p0, p) for p in other_points])
+    distances = np.array([dist_sq(p0, p) for p in other_points])
+    indices = np.lexsort((distances, angles))
+    points[1:] = other_points[indices]
+
+    # Initialize the stack with first three points
+    stack = [points[0]]
+
+    # Process all points
+    for i in range(1, n):
+        while len(stack) > 1 and orientation(stack[-2], stack[-1], points[i]) != 2:
+            stack.pop()
+        stack.append(points[i])
+
+    return np.array(stack)
+import matplotlib.pyplot as plt
+
+if __name__ == "__main__":
+    # Example points
+    test_points = np.array([
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [4, 4],
+        [0, 2],
+        [1, 3],
+        [3, 1],
+        [3, 3]
+    ])
+
+    hull = convex_hull2d(test_points)
+
+    print("Convex Hull points:")
+    print(hull)
+
+    # Optional: Visualize the result using matplotlib
+    import matplotlib.pyplot as plt
+
+
+    def plot_convex_hull(points, hull):
+        plt.figure(figsize=(10, 10))
+
+        # Plot all points
+        plt.scatter(points[:, 0], points[:, 1], c='b', label='Points')
+
+        # Plot hull points
+        plt.scatter(hull[:, 0], hull[:, 1], c='r', label='Hull')
+
+        # Plot hull edges
+        hull_points = np.vstack((hull, hull[0]))  # Close the polygon
+        plt.plot(hull_points[:, 0], hull_points[:, 1], 'r-', label='Hull edges')
+
+        plt.legend()
+        plt.grid(True)
+        plt.axis('equal')
+        plt.show()
+
+
+    plot_convex_hull(test_points, hull)

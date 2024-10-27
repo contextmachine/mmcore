@@ -1,1 +1,3 @@
-from ._interval import Interval
+from ._interval import Interval,Comparison
+
+
