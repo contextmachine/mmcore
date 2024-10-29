@@ -40,10 +40,11 @@ class NURBSCurveSurfaceIntersector:
     def __init__(
         self, curve: NURBSCurve, surface: NURBSSurface, tolerance=1e-3, ptol=1e-7
     ):
-        self.curve: NURBSCurve = curve.copy()
-        self.surface: NURBSSurface = surface.copy()
+        self.curve: NURBSCurve = curve
+        self.surface: NURBSSurface = surface
         # normalize_curve_knots(self.curve)
         # self.surface.normalize_knots()
+
         self.tolerance: float = tolerance
         self.intersections = []
         self.ptol = ptol
@@ -66,16 +67,22 @@ class NURBSCurveSurfaceIntersector:
         # interior_intersections = self._get_interior_intersections(curve, surface)
 
         new_point = self._find_new_intersection(curve, surface)
-
+        (u0, u1), (v0, v1) = surface.interval()
         if new_point is None:
             t0, t1 = curve.interval()
-            (u0, u1), (v0, v1) = surface.interval()
+
 
             curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5, normalize_knots=False)
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
+            u,v=(u0 + u1) * 0.5, (v0 + v1) * 0.5
+
+
+            if abs(u - u0) < self.ptol or abs(u - u1) < self.ptol or abs(v - v0) < self.ptol or abs(v - v1) < self.ptol:
+
+                return
             surface1, surface2, surface3, surface4 = subdivide_surface(
-                surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, normalize_knots=False
+                surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
             )
             self._curve_surface_intersect(curve1, surface1)
             self._curve_surface_intersect(curve1, surface2)
@@ -90,14 +97,18 @@ class NURBSCurveSurfaceIntersector:
 
             if self._is_degenerate(new_point[1], curve, surface):
                 self.intersections.append(("degenerate", point, (t, u, v)))
+
             else:
                 self.intersections.append(("transversal", point, (t, u, v)))
+            if abs(u-u0)<self.ptol or abs(u-u1)<self.ptol or  abs(v-v0)<self.ptol or  abs(v-v1)<self.ptol:
+
+                return
             if spherical_separability(
                 np.array(surface.control_points_flat), curve.control_points, point
             ):
                 return
 
-            curve1, curve2 = split_curve(curve, t, normalize_knots=False)
+            curve1, curve2 = split_curve(curve, t, tol=self.ptol,normalize_knots=False)
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
 
@@ -107,7 +118,7 @@ class NURBSCurveSurfaceIntersector:
                 for c in [curve1, curve2]:
                     self._curve_surface_intersect(c, s)
 
-    def _no_new_intersections(self, curve, surface):
+    def _no_new_intersections(self, curve, surface,):
         # Implement separability test from section 4.2
         # Return True if curve and surface don't intersect except at already discovered points
 
@@ -116,6 +127,8 @@ class NURBSCurveSurfaceIntersector:
             np.array(surface.control_points_flat),
             tol=self.tolerance,
         )
+
+
 
     def _get_interior_intersections(self, curve, surface):
         # Return list of already discovered intersection points interior to curve or surface

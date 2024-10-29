@@ -2,6 +2,13 @@ import numpy as np
 from scipy.optimize import linprog
 
 __all__=['spherical_separability']
+
+from mmcore.geom.nurbs import subdivide_surface, split_curve, NURBSSurface, NURBSCurve
+
+from mmcore.numeric.vectors import unit, dot, scalar_norm, scalar_unit
+from mmcore.numeric.interval import Interval,Comparison
+
+
 def project_to_sphere(points, center):
     """Project points onto a unit sphere centered at 'center'."""
     vectors = points - center
@@ -152,3 +159,142 @@ def spherical_separability(surface_points, curve_points, intersection_point):
 
     # If bounding box test fails, use the more expensive separating circles test
     return separating_circles_test(surface_points, curve_points, intersection_point)
+
+
+def center_projection_to_xy(origin, point):
+    """
+    Projects a 3D point onto a 2D plane using central projection.
+
+    Args:
+        origin: List or tuple of 3 elements [x, y, z] representing the projection origin
+        point: List or tuple of 3 elements [x, y, z] representing the point to project
+
+    Returns:
+        List of 2 elements [x, y] representing the projected 2D point
+    """
+    # If the z-coordinates are the same, no projection is needed
+    if origin[2] == point[2]:
+        return [point[0], point[1]]
+
+    # Calculate the scaling factor
+    t = -origin[2] / (point[2] - origin[2])
+
+    # Calculate the projected point
+    projected_x = origin[0] + t * (point[0] - origin[0])
+    projected_y = origin[1] + t * (point[1] - origin[1])
+
+    return np.array([projected_x, projected_y])
+from mmcore.geom.polygon import convex_hull2d
+def project_poly(poly, vec):
+    vec=np.array(vec)
+    poly=np.array(poly)
+    return np.array([projection_param_t(p,vec) for p in poly])
+
+def hull_sides(hull1):
+    hh=[hull1[i] - hull1[(i + 1) % len(hull1)] for i in range(len(hull1))]
+    return hh+[(y, -x) for (x,y) in hh  ]
+from mmcore.numeric.vectors import vector_projection, dot
+
+def projection(a,b):
+    """
+    project a onto b
+    Args:
+        a:
+        b:
+
+    Returns:
+
+    """
+    return b*np.dot(a,b)/np.dot(b,b)
+
+
+def projection_param_t(A, B):
+    A = np.array(A)
+    B = np.array(B)
+
+    # Calculate the parameter t for the projection of A onto the ray B
+    t = np.dot(A, B) / np.dot(B, B)
+    return t
+def ch2d_sep(hull1,hull2):
+    sides=np.array(unit(np.array(hull_sides(hull1)+hull_sides(hull2))))
+
+    z1=np.zeros((hull1.shape[0],2))
+    z2 = np.zeros((hull2.shape[0], 2))
+
+    z1[:,:2]=hull1
+    z2[:, :2] = hull2
+    proj1=np.array([project_poly(hull1,side)for side in sides])
+    proj2 = np.array([project_poly(hull2, side) for side in sides])
+
+
+    #proj1=np.array(dot(np.repeat(sides,len(z1),axis=0),np.tile(z1,(len(sides),1)))).reshape((len(z1),len(sides)))
+    #proj2=np.array(dot(np.repeat(sides,len(z2),axis=0),np.tile(z2,(len(sides),1)))).reshape((len(z2),len(sides)))
+
+    for i,j in zip(np.column_stack([np.min(proj1,axis=-1), np.max(proj1,axis=-1)]),np.column_stack([np.min(proj2, axis=-1), np.max(proj2, axis=-1)])):
+
+
+        start1,end1=sorted(i)
+        start2, end2 = sorted(j)
+
+        if not (start1 < end2 and start2 < end1):
+
+            return True
+    return False  # not separable
+
+def sph_sep(surface,curve,t,u,v):
+    ss:tuple[NURBSSurface,NURBSSurface,NURBSSurface,NURBSSurface]=subdivide_surface(surface,u,v,tol=1e-12,normalize_knots=False)
+    cc:tuple[NURBSCurve,NURBSCurve]=split_curve(curve,t,tol=1e-12,normalize_knots=False)
+    p=surface.evaluate(np.array([u,v]))
+    ptss=[]
+    ptcc=[]
+    for j in range(2):
+        ptc = np.array(cc[j].control_points)
+
+        _ptc = []
+        for pt in  ptc:
+            if np.allclose(pt,p):
+                continue
+            else:
+                print(pt-p)
+                pr=center_projection_to_xy([0.,0.,1.], scalar_unit(pt-p))
+                print(pr)
+                _ptc.append(pr)
+
+        ptcc.append(convex_hull2d(np.array(_ptc)))
+
+    for i in range(4):
+
+        pts=np.array(ss[i].control_points_flat)
+
+        _pts=[]
+
+        for pt in  pts:
+            if np.allclose(pt, p):
+                continue
+            else:
+          
+                _pts.append(center_projection_to_xy([0.,0.,1.], scalar_unit(pt-p)))
+
+
+        ptss.append(convex_hull2d(np.array(_pts)))
+
+        #pts=pts[np.where(~np.all(np.isclose(pts[...,:-1] , 0), axis=-1))]
+
+
+
+
+    candidates=[]
+    for i in range(4):
+        for j in range(2):
+
+            if not ch2d_sep(ptss[i],ptcc[j]):
+                print((ptss[i].tolist(),ptcc[j].tolist()))
+
+
+                candidates.append((ss[i],cc[j]))
+            else:
+                ...
+
+
+
+    return ss,cc,candidates

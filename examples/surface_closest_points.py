@@ -117,7 +117,7 @@ cpts = np.array(
 surface = create_ruled_from_points(cpts, degree=3)
 # Generate random points within the bounding box of control points
 pts_count = 100
-min_point, max_point = aabb(cpts.reshape(-1, 3)) * 1.25
+min_point, max_point = np.array(aabb(cpts.reshape(-1, 3)) )* 1.25
 pts = np.zeros((pts_count, 3))
 pts[..., 0] = np.random.uniform(min_point[0], max_point[0], size=pts_count)
 pts[..., 1] = np.random.uniform(min_point[1], max_point[1], size=pts_count)

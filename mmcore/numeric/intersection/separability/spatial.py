@@ -7,7 +7,7 @@ from scipy.spatial import ConvexHull
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
-from mmcore.collision import CGJK
+
 from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric.algorithms.cygjk import gjk
 

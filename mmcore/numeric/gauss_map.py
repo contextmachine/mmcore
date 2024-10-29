@@ -2,20 +2,21 @@
 from __future__ import annotations
 import numpy as np
 from scipy.optimize import linprog
-from scipy.spatial import ConvexHull
 
-from mmcore.geom.nurbs import NURBSSurface, split_surface_v, split_surface_u, subdivide_surface, decompose_surface, \
-     find_span, basis_functions, NURBSCurve
+from mmcore.geom.nurbs import NURBSSurface, subdivide_surface, decompose_surface
 
-from mmcore.collision import convex_hull, CGJK
-from mmcore.numeric.algorithms.gjk import gjk_collision_detection as gjk_collision_detection
 from mmcore.numeric.algorithms.quicksort import unique
 
+from mmcore.numeric.algorithms.surface_area import v_min
 from mmcore.numeric.intersection.csx import nurbs_csx
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
-from mmcore.numeric.vectors import unit, cartesian_to_spherical, spherical_to_cartesian, scalar_dot, scalar_norm
+from mmcore.numeric.vectors import unit, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
 
+from scipy.spatial import ConvexHull
+def convex_hull(pts):
+    return np.array(pts)[ConvexHull(np.array(pts),qhull_options='QJ' ).vertices]
 
 def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 
@@ -72,53 +73,6 @@ def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 #        raise ValueError(
 #            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
 #        )
-def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
-    """
-    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
-    Args:
-    surface (NURBSSurface): The input NURBS surface.
-    param (float): The parameter value at which to extract the isocurve.
-    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
-    Returns:
-    NURBSCurve: The extracted isocurve as a NURBS curve.
-    Raises:
-    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
-    """
-    if direction not in ["u", "v"]:
-        raise ValueError("Direction must be either 'u' or 'v'.")
-    interval = surface.interval()
-    if direction == "u":
-        knots = surface.knots_v
-        degree = surface.degree[1]
-        param_range = interval[1]
-        n = surface.shape[1] - 1
-        m = surface.shape[0]
-    else:  # direction == 'v'
-        knots = surface.knots_u
-        degree = surface.degree[0]
-        param_range = interval[0]
-        n = surface.shape[0] - 1
-        m = surface.shape[1]
-    if param < param_range[0] or param > param_range[1]:
-        raise ValueError(f"Parameter {param} is out of range {param_range}")
-    span = find_span(n, degree, param, knots, 0)
-    basis = basis_functions(span, param, degree, knots)
-    control_points = np.zeros((m, 4))
-    if direction == "u":
-        for i in range(n):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
-        return NURBSCurve(control_points, surface.degree[0], surface.knots_u)
-
-    else:  # direction == 'v'
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
-        return NURBSCurve(control_points, surface.degree[1], surface.knots_v)
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -171,7 +125,6 @@ def normalize_polynomial(v, epsilon=1e-10):
         return np.zeros_like(v)
     norm = np.sqrt(norm_squared / max_norm)
     return v / (norm[:, :, np.newaxis] * np.sqrt(max_norm))
-
 
 """
 # Example usage and verification
@@ -238,7 +191,7 @@ class GaussMap:
         self._map = mp
         self.hull=None
         self._polar_map = None
-        self._polar_convex_hull = None
+        self._convex_hull_on_sphere = None
         self.children = []
         self.bezier_patches = []
         #self.compute()
@@ -252,8 +205,20 @@ class GaussMap:
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
     def subdivide(self):
-        srf = subdivide_surface(self.surface,normalize_knots=True)
-        mp = subdivide_surface(self._map,normalize_knots=True)
+        (umin, umax), (vmin, vmax) = self.surface.interval()
+        umid = (umin + umax) * 0.5
+        vmid = (vmin + vmax) * 0.5
+        (mumin, mumax), (mvmin, mvmax) = self._map.interval()
+        mumid = (mumin + mumax) * 0.5
+        mvmid = (mvmin + mvmax) * 0.5
+        try:
+
+            srf = subdivide_surface(self.surface,umid,vmid,tol=1e-12,normalize_knots=False)
+            mp = subdivide_surface(self._map,mumid, mvmid,tol=1e-12, normalize_knots=False)
+        except ValueError as err:
+            print(self.surface.interval())
+            print(self._map.interval())
+            raise err
         if len(self.children)==0:
             self.children = []
             for i in range(4):
@@ -291,9 +256,9 @@ class GaussMap:
         # Compute convex hull
 
         #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self._polar_convex_hull=np.array(convex_hull(unit(self._map.control_points_flat)))
+        self._convex_hull_on_sphere=np.array(convex_hull(unit(self._map.control_points_flat)))
         #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
-        self.hull =self._polar_convex_hull
+        self.hull =self._convex_hull_on_sphere
     def bounds(self):
         """Compute bounds on the Gauss map."""
         return self.hull
@@ -415,7 +380,7 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb,aabb_overlap,aabb_intersect,aabb_intersection
+from mmcore.numeric.aabb import aabb, aabb_intersect,aabb_intersection
 from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
 
 
@@ -513,6 +478,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     #    dddd[4] = True
     #    return [(g1.surface, g2.surface)]
     # Все тесты провалены, новый этап подразбиения
+    #print('ddd', g1.surface.interval(), g2.surface.interval())
     g11 = g1.subdivide()
     g12 = g2.subdivide()
 
@@ -520,6 +486,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     ii = 0
     for gg in g11:
         for gh in g12:
+            #print('dd',gg.surface.interval(),gh.surface.interval())
             #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
             res = _detect_intersections_deep(gg, gh, chs,tol=tol)
             ii += 1
@@ -623,8 +590,8 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
           be possible, particularly in reducing the number of recursive subdivisions.
 
     """
-    s1d = decompose_surface(surf1)
-    s2d = decompose_surface(surf2)
+    s1d = decompose_surface(surf1, normalize_knots=False )
+    s2d = decompose_surface(surf2, normalize_knots=False)
 
     #subs = debug_tree.subd(len(s1d) * len(s2d))
     index = 0
@@ -647,7 +614,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
         #    s.control_points_flat
         #)
         chs=dict()
-
+        #print('k',f.interval(),s.interval())
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
         if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
 
@@ -662,6 +629,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             ss.compute()
             ff.compute()
             #dddd[1] = True
+
 
 
             p1, p2 = separate_gauss_maps(ff, ss)
@@ -679,7 +647,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
-    S1, S2 = td[2]
+    S1, S2 = td[1]
     TOL=1e-2
     import time
     s=time.perf_counter_ns()
@@ -700,7 +668,7 @@ if __name__ == "__main__":
     with open('../../tests/norm1.txt', 'w') as f:
         print(fff, file=f)
 
-    S1, S2 = td[1]
+    S1, S2 = td[2]
 
     import time
     s=time.perf_counter_ns()
@@ -724,10 +692,11 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
         ff=False
-        for l in (lambda : extract_isocurve(i,0.,'v'),
-                  lambda :extract_isocurve(i, 0., 'u'),
-                  lambda :extract_isocurve(i, 1., 'u'),
-                  lambda :extract_isocurve(i, 1., 'v')):
+        (umin,umax),(v_min,v_max)=i.interval()
+        for l in (lambda : extract_isocurve(i, v_min, 'v'),
+                  lambda : extract_isocurve(i, umin, 'u'),
+                  lambda : extract_isocurve(i, umax, 'u'),
+                  lambda : extract_isocurve(i, v_max, 'v')):
             c=l()
             #print([c.control_points.tolist(),np.array(j.control_points_flat
             #      ).tolist()])
@@ -744,12 +713,13 @@ if __name__ == "__main__":
                     continue
             #print(ptss)
         if not ff:
-            for l in (lambda: extract_isocurve(j, 0., 'u'),
-                  lambda: extract_isocurve(j, 0., 'v'),
-                  lambda: extract_isocurve(j, 1., 'u'),
-                  lambda: extract_isocurve(j, 1., 'v')):
+            (umin, umax), (v_min, v_max) = j.interval()
+            for l in (lambda : extract_isocurve(j, v_min, 'v'),
+                  lambda : extract_isocurve(j, umin, 'u'),
+                  lambda : extract_isocurve(j, umax, 'u'),
+                  lambda : extract_isocurve(j, v_max, 'v')):
                 c = l()
-                res = nurbs_csx(c, i,tol=TOL,ptol=TOL)
+                res = nurbs_csx(c, i,tol=TOL,ptol=1e-7)
                 for oo in res:
                     ptss.append(c.evaluate(oo[2][0]).tolist())
     print((time.perf_counter_ns() - s) * 1e-9)

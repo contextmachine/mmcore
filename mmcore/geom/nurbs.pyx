@@ -32,7 +32,7 @@ cdef extern from "_nurbs.cpp" nogil:
         NURBSSurfaceData();
         NURBSSurfaceData(double* control_points, double* knots_u ,double* knots_v,int size_u,int size_v,int degree_u,int degree_v);
 
-    
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -67,7 +67,7 @@ cdef inline void aabb(double[:,:] points, double[:,:] min_max_vals) noexcept nog
             if  p > min_max_vals[1][i]:
                 min_max_vals[1][i] =  p
 
-        
+
 
 @cython.cdivision(True)
 @cython.boundscheck(False)
@@ -1792,7 +1792,7 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.cdivision(True)
     def normalize_knots(self):
         self.cnormalize_knots()
-        
+
         self._evaluate_cached.cache_clear()
 
     @staticmethod
@@ -2155,11 +2155,11 @@ cdef class NURBSSurface(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void _update_interval(self) noexcept nogil:
-        self._interval[0][0] = self._knots_u[self._degree[0]]
-        self._interval[0][1] = self._knots_u[self._knots_u.shape[0] - self._degree[0]-1 ]
-        self._interval[1][0] = self._knots_v[self._degree[1]]
-        self._interval[1][1] = self._knots_v[self._knots_v.shape[0] - self._degree[1]-1 ]
+    cdef void _update_interval(self) :
+        self._interval[0][0] = np.min(self._knots_u)
+        self._interval[0][1] = np.max(self._knots_u)
+        self._interval[1][0] = np.min(self._knots_v)
+        self._interval[1][1] = np.max(self._knots_v)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -2279,8 +2279,8 @@ cdef class NURBSSurface(ParametricSurface):
 
         self._control_points_arr= <double*> realloc(self._control_points_arr, new_size_u*new_size_v*4*sizeof(double))
         with gil:
-            self.control_points_view=<double[:new_size_u,:new_size_v,:4]>self._control_points_arr
-            self.control_points_flat_view = <double[:(new_size_u*new_size_v), :4]>self._control_points_arr
+            self._control_points_view=<double[:new_size_u,:new_size_v,:4]>self._control_points_arr
+            self._control_points_flat_view = <double[:(new_size_u*new_size_v), :4]>self._control_points_arr
         self._size[0]=new_size_u
         self._size[1] = new_size_v
 
@@ -2505,7 +2505,7 @@ cpdef tuple split_surface_u(NURBSSurface obj, double param, double tol=1e-7) :
         surf2_kvm[i]=surf2_kv[i]
 
     # Create new surfaces
-    cdef NURBSSurface surf1 = NURBSSurface(np.asarray(surf1_ctrlpts.copy()), (degree_u, degree_v),surf1_kvm,knots_v.copy() )
+    cdef NURBSSurface surf1 = NURBSSurface(np.asarray(surf1_ctrlpts.copy()), (degree_u, degree_v),surf1_kvm, knots_v.copy() )
     cdef NURBSSurface surf2 = NURBSSurface(np.asarray(surf2_ctrlpts.copy()), (degree_u, degree_v), surf2_kvm, knots_v.copy())
 
 
@@ -2584,7 +2584,7 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=1e-7) :
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cpdef tuple subdivide_surface(NURBSSurface surface, double u=0.5,double v=0.5,double tol=1e-7,bint normalize_knots=True):
+cpdef tuple subdivide_surface(NURBSSurface surface, double u=0.5,double v=0.5,double tol=1e-7,bint normalize_knots=False):
     cdef tuple surfs1 = split_surface_u(surface, u,tol)
     cdef NURBSSurface surf1, surf2, surf11, surf12, surf21, surf22
     surf1= surfs1[0]
@@ -2626,7 +2626,7 @@ cdef inline list decompose_direction(NURBSSurface srf, int idx,double tol=1e-7):
 
 @cython.boundscheck(False)
 @cython.cdivision(True)
-def decompose_surface(surface, decompose_dir="uv",normalize_knots=True):
+def decompose_surface(surface, decompose_dir="uv",normalize_knots=False):
     def decompose_direction(srf, idx):
         srf_list = []
         knots = srf.knots_u if idx == 0 else srf.knots_v
@@ -2650,18 +2650,14 @@ def decompose_surface(surface, decompose_dir="uv",normalize_knots=True):
         raise ValueError("Input must be an instance of NURBSSurface class")
 
     surf = surface.copy()
-    surf.normalize_knots()
+
     if decompose_dir == "u":
         surfs_u=decompose_direction(surf, 0)
-        if normalize_knots:
-            for srg in surfs_u:
-                srg.normalize_knots()
+
         return surfs_u
     elif decompose_dir == "v":
         surfs_v=decompose_direction(surf, 1)
-        if normalize_knots:
-            for srg in surfs_v:
-                srg.normalize_knots()
+
         return surfs_v
 
 
@@ -2669,14 +2665,11 @@ def decompose_surface(surface, decompose_dir="uv",normalize_knots=True):
         multi_surf = []
         surfs_u = decompose_direction(surf, 0)
 
+
         for sfu in surfs_u:
             dsf=decompose_direction(sfu, 1)
-            if normalize_knots:
-                for srg in dsf:
-                    srg.normalize_knots()
-                    multi_surf.append(srg)
-            else:
-                multi_surf+=dsf
+
+            multi_surf+=dsf
         return multi_surf
     else:
         raise ValueError(
@@ -2780,60 +2773,3 @@ cdef class SurfaceSurfaceEq:
         return self.evaluate(x)
 
 
-
-
-def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
-    """
-    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
-
-    Args:
-    surface (NURBSSurface): The input NURBS surface.
-    param (float): The parameter value at which to extract the isocurve.
-    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
-
-    Returns:
-    NURBSCurve: The extracted isocurve as a NURBS curve.
-
-    Raises:
-    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
-    """
-    if direction not in ["u", "v"]:
-        raise ValueError("Direction must be either 'u' or 'v'.")
-
-    cdef double[:,:] interval = surface._interval
-    if direction == "u":
-        knots = surface.knots_v
-        degree = surface.degree[0]
-        param_range = interval[1]
-        n = surface.shape[1] - 1
-        m = surface.shape[0]
-    else:  # direction == 'v'
-        knots = surface.knots_u
-        degree = surface.degree[1]
-        param_range = interval[0]
-        n = surface.shape[0] - 1
-        m = surface.shape[1]
-
-    if param < param_range[0] or param > param_range[1]:
-        raise ValueError(f"Parameter {param} is out of range {param_range}")
-
-    span = find_span(n, degree, param, knots, 0)
-    basis = basis_functions(span, param, degree, knots)
-
-    control_points = np.zeros((m, 4))
-
-    if direction == "u":
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[i, idx, :])
-    else:  # direction == 'v'
-        for i in range(m):
-            for j in range(degree + 1):
-                idx = min(max(span - degree + j, 0), n)
-
-                control_points[i] += np.asarray(basis[j]) * np.asarray(surface.control_points_w[idx, i, :])
-
-    return NURBSCurve(control_points, degree, knots)
