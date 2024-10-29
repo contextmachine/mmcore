@@ -11,8 +11,9 @@ from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.intersection.ccx import curve_pix
 from mmcore.numeric.routines import uvs
 from scipy.spatial import KDTree
+from mmcore.numeric.intersection.csx._ncsx  import nurbs_csx
 
-__all__ = ['curve_surface_ppi', 'closest_curve_surface_ppi']
+__all__ = ['curve_surface_ppi', 'closest_curve_surface_ppi','nurbs_csx','curve_surface_intersection']
 
 
 # Define the difference function
@@ -227,7 +228,8 @@ def closest_curve_surface_ppi(curve, surface, initial_guess, tol=1e-6,  max_iter
 
 
 def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bounds=None):
-
+    if isinstance(curve, NURBSCurve) and isinstance(surface, NURBSSurface):
+        return nurbs_csx(curve, surface, tol=tol)
     (umin, umax), (vmin, vmax) = surface.interval() if uv_bounds is None else uv_bounds
     (tmin, tmax) = curve.interval() if  t_bounds is None else  t_bounds
     res=[]
@@ -240,7 +242,7 @@ def curve_surface_intersection(curve, surface, tol=1e-6, t_bounds=None, uv_bound
 
 def curve_implicit_intersection(curve, surface, tol=1e-6):
     return curve_pix(curve, surface, tol=tol)
-from ._ncsx import nurbs_csx
+
 
 
 def csx(curve, surface, tol=1e-3,ptol=1e-6):

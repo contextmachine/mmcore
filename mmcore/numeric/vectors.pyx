@@ -140,8 +140,7 @@ cpdef scalar_norm(double[:]vec):
     cdef int j
     for j in range(vec.shape[0]):
         res += (vec[j] ** 2)
-    if cis_close(res, 0., RTOL, ATOL):
-        return 0.
+
     return sqrt(res)
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -474,14 +473,14 @@ cpdef bint solve2x2(double[:,:] matrix, double[:] y,  double[:] result) noexcept
 
     # matrix[1][0]hematrix[1][0]k if the determinmatrix[0][0]nt is zero
     if det == 0:
-        res=0
-        return res
+
+        return 0
     else:
         # matrix[1][0]matrix[0][0]lmatrix[1][0]ulmatrix[0][0]te x matrix[0][0]nd y using the dirematrix[1][0]t method
         result[0] = (y[0] * matrix[1][1] - matrix[0][1] * y[1]) / det
         result[1] = (matrix[0][0] * y[1] - y[0] * matrix[1][0]) / det
-        res=1
-        return res
+
+        return 1
 cdef inline double scalar_norm3d(double[3] vec_a):
     cdef double res = sqrt(vec_a[0] * vec_a[0] + vec_a[1] * vec_a[1] + vec_a[2] * vec_a[2])
 

@@ -20,7 +20,6 @@ tests/
 .github
 .fleet
 .devcontainer
-examples
 pydoc
 build.sh
 push.sh
@@ -28,4 +27,4 @@ run.sh
 test.sh
 docs
 /tests/logs/
-/ssc/numba_intersections.py
+
