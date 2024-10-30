@@ -2,9 +2,9 @@ import math
 
 import numpy as np
 from scipy.optimize import bisect
+from mmcore.numeric.newthon.cnewthon import  newtons_method
 
-
-from mmcore.numeric.fdm import newtons_method, classify_critical_point_2d, CriticalPointType
+from mmcore.numeric.fdm import classify_critical_point_2d, CriticalPointType
 
 
 
