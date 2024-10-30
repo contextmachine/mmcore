@@ -5,6 +5,9 @@
 cimport cython
 import numpy as np
 cimport numpy as cnp
+
+
+
 cnp.import_array()
 from libc.math cimport fabs
 
@@ -15,7 +18,7 @@ ctypedef cnp.float64_t DTYPE_t
 
 cdef double DEFAULT_H = 1e-5
 
-cdef inline void swap_rows(double[:, ::1] LU, Py_ssize_t row1, Py_ssize_t row2) noexcept nogil:
+cdef inline void swap_rows(double[:, :] LU, Py_ssize_t row1, Py_ssize_t row2) noexcept nogil:
     cdef Py_ssize_t n = LU.shape[1]
     cdef Py_ssize_t j
     cdef double temp
@@ -24,7 +27,7 @@ cdef inline void swap_rows(double[:, ::1] LU, Py_ssize_t row1, Py_ssize_t row2) 
         LU[row1, j] = LU[row2, j]
         LU[row2, j] = temp
 
-cdef inline bint solve(double[:, ::1] A, double[::1] b, double[::1] result):
+cdef inline bint solve(double[:, :] A, double[:] b, double[:] result):
     """
     Solve the linear system Ax = b using LU decomposition with partial pivoting.
     Returns True if successful, False if the matrix is singular.
@@ -33,9 +36,9 @@ cdef inline bint solve(double[:, ::1] A, double[::1] b, double[::1] result):
     cdef Py_ssize_t i, j, k, max_row
     cdef double sum, temp, pivot
     cdef int temp_pivot
-    cdef double[::1] y = np.empty(n, dtype=np.float64)
-    cdef double[:, ::1] LU = np.copy(A)
-    cdef int[::1] pivots = np.arange(n, dtype=np.intc)
+    cdef double[:] y = np.empty(n, dtype=np.float64)
+    cdef double[:, :] LU = np.copy(A)
+    cdef int[:] pivots = np.arange(n, dtype=np.intc)
 
     # LU Decomposition with partial pivoting
     for k in range(n):
@@ -65,7 +68,7 @@ cdef inline bint solve(double[:, ::1] A, double[::1] b, double[::1] result):
 
     # Forward substitution to solve L y = P b
     # Apply the permutation to b
-    cdef double[::1] b_permuted = np.empty(n, dtype=np.float64)
+    cdef double[:] b_permuted = np.empty(n, dtype=np.float64)
     for i in range(n):
         b_permuted[i] = b[pivots[i]]
 
@@ -87,8 +90,10 @@ cdef inline bint solve(double[:, ::1] A, double[::1] b, double[::1] result):
         result[i] = sum / LU[i, i]
 
     return True
-
-def hessian(f, double[::1] point, double h=DEFAULT_H):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def hessian(f, double[:] point, double h=DEFAULT_H):
     """
     Calculate the Hessian matrix of a given function `f` at a given `point`.
 
@@ -99,12 +104,12 @@ def hessian(f, double[::1] point, double h=DEFAULT_H):
     """
     cdef Py_ssize_t n = point.shape[0]
     cdef cnp.ndarray[DTYPE_t, ndim=2] H = np.zeros((n, n), dtype=np.float64)
-    cdef double[:, ::1] H_view = H
+    cdef double[:, :] H_view = H
     cdef double fp = f(point)
     cdef Py_ssize_t i, j
     cdef double f1, f2, f3, f4
     cdef double temp_i, temp_j
-    cdef double[::1] point_copy = point.copy()
+    cdef double[:] point_copy = point.copy()
 
     for i in range(n):
         temp_i = point_copy[i]
@@ -137,8 +142,10 @@ def hessian(f, double[::1] point, double h=DEFAULT_H):
             point_copy[j] = temp_j
             H_view[i, j] = H_view[j, i] = (f1 - f2 - f3 + f4) / (4 * h * h)
     return H
-
-def gradient(f, double[::1] point, double h=DEFAULT_H):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def gradient(f, double[:] point, double h=DEFAULT_H):
     """
     Compute the gradient of a function at a given point.
 
@@ -149,11 +156,11 @@ def gradient(f, double[::1] point, double h=DEFAULT_H):
     """
     cdef Py_ssize_t n = point.shape[0]
     cdef cnp.ndarray[DTYPE_t, ndim=1] grad = np.zeros(n, dtype=np.float64)
-    cdef double[::1] grad_view = grad
+    cdef double[:] grad_view = grad
     cdef double f_plus_h, f_minus_h
     cdef Py_ssize_t i
     cdef double temp_i
-    cdef double[::1] point_copy = point.copy()
+    cdef double[:] point_copy = point.copy()
 
     for i in range(n):
         temp_i = point_copy[i]
@@ -165,7 +172,8 @@ def gradient(f, double[::1] point, double h=DEFAULT_H):
         grad_view[i] = (f_plus_h - f_minus_h) / (2 * h)
     return grad
 
-def newtons_method(f, double[::1] initial_point, double tol=1e-5, int max_iter=100, bint no_warn=False, bint full_return=False, grad=None, hess=None):
+
+def newtons_method(f, double[:] initial_point, double tol=1e-5, int max_iter=100, bint no_warn=False, bint full_return=False):
     """
     Apply Newton's method to find the root of a function.
 
@@ -180,48 +188,41 @@ def newtons_method(f, double[::1] initial_point, double tol=1e-5, int max_iter=1
     :return: The root of the function if found, None otherwise.
     """
     cdef Py_ssize_t n = initial_point.shape[0]
-    cdef cnp.ndarray[DTYPE_t, ndim=1] point = np.copy(initial_point)
-    cdef double[::1] point_view = point
+    cdef double[:] point = np.copy(initial_point)
+    cdef double[:] point_view = point
     cdef int k
-    cdef cnp.ndarray[DTYPE_t, ndim=1] grad_vec
-    cdef double[::1] grad_view
-    cdef cnp.ndarray[DTYPE_t, ndim=2] H_mat
-    cdef double[:, ::1] H_view
-    cdef cnp.ndarray[DTYPE_t, ndim=1] step
-    cdef double[::1] step_view
+    cdef double[:] grad_vec
+    cdef double[:] grad_view
+    cdef double[:, :] H_mat
+    cdef double[:, :] H_view
+    cdef double[:] step=np.zeros((initial_point.shape[0],))
+    cdef double[:] step_view
     cdef double norm_diff
     cdef bint success
 
-    if grad is None:
-        _grad = gradient
-    else:
-        _grad = grad
-
-    if hess is None:
-        _hess = hessian
-    else:
-        _hess = hess
+  
 
     for k in range(max_iter):
-        grad_vec = _grad(f, point_view)
+        grad_vec = gradient(f, point_view)
         grad_view = grad_vec
-        H_mat = _hess(f, point_view)
+        H_mat = hessian(f, point_view)
         H_view = H_mat
         # Allocate step vector
-        step = np.empty_like(grad_vec)
-        step_view = step
+        for i in range(step.shape[0]):
+            step[i] = 0
+      
 
             # Solve H_mat * step = grad_vec
-        success = solve(H_view, grad_view, step_view)
+        success = solve(H_view, grad_view, step)
         if not success:
              break
         # Update the point: point = point - step
         for i in range(n):
-            point_view[i] -= step_view[i]
+            point_view[i] -= step[i]
         # Check convergence
         norm_diff = 0.0
         for i in range(n):
-            norm_diff += step_view[i] * step_view[i]
+            norm_diff += step[i] * step[i]
         norm_diff = norm_diff ** 0.5
         if norm_diff < tol:
             if full_return:
