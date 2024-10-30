@@ -27,7 +27,31 @@ def bpmat(n, method="mmcore"):
 
 
 def bezier_to_monomial(control_points, bmethod="mmcore"):
-    """Convert Bézier patch control points to monomial coefficients."""
+    """
+    Convert Bezier curve control points to monomial coefficients.
+
+    Args:
+        control_points (np.ndarray): A 3D array of shape (n, m, dim) containing the
+            control points of the Bezier curve.
+        bmethod (str): A string indicating the basis transformation method to use.
+            Default is "mmcore".
+
+    Returns:
+        np.ndarray: A 3D array of shape (n, m, dim) containing the monomial
+            coefficients.
+
+    Raises:
+        ValueError: If the shape of control_points does not correspond to a 3D array.
+
+    Usage Example:
+        >>> control_points = np.array([[[0, 0.,1.], [1, 2, 3.]], [[2, 3, 1.], [4, 5, 7.]]])
+        >>> monomial_coeffs = bezier_to_monomial(control_points, bmethod="mmcore")
+        >>> print(monomial_coeffs)
+        [[[0. 0. 1.]
+          [1. 2. 2.]]
+         [[2. 3. 0.]
+          [1. 0. 4.]]]
+    """
     n, m, dim = control_points.shape
     Mu = bpmat(n - 1,method=bmethod)
     Mv = bpmat(m - 1,method=bmethod)
@@ -40,7 +64,26 @@ def bezier_to_monomial(control_points, bmethod="mmcore"):
 
 
 def monomial_to_bezier(monomial_coeffs, bmethod="mmcore"):
-    """Convert monomial coefficients to Bézier patch control points."""
+    """
+    Converts a tensor of monomial coefficients to Bezier control points.
+
+    This function transforms monomial coefficients into corresponding Bezier control points
+    using specified basis transformation methods.
+
+    Args:
+        monomial_coeffs (ndarray): A 3D tensor of shape (n, m, dim) containing the monomial coefficients.
+        bmethod (str, optional): The basis transformation method to use. Default is "mmcore".
+
+    Returns:
+        ndarray: A 3D tensor of shape (n, m, dim) containing the Bezier control points.
+
+    Raises:
+        ValueError: If the input monomial_coeffs tensor does not have the required shape.
+
+    Usage Example:
+        >>> monomial_coeffs = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        >>> control_points = monomial_to_bezier(monomial_coeffs, bmethod="mmcore")
+    """
     n, m, dim = monomial_coeffs.shape
     #print(n - 1)
     #print(m-1)
@@ -216,6 +259,9 @@ def normal_vector_monomial(coeffs):
 
 
 class Monomial2D(Surface):
+    """
+    Represents a 2D monomial surface with various conversion and operation methods.
+    """
     def __init__(self, coeffs):
         super().__init__()
 
@@ -224,6 +270,21 @@ class Monomial2D(Surface):
         return evaluate_monomial2d(self.coeffs, uv[0], uv[1])
 
     def to_bernstein_basis(self):
+        """
+        Converts the polynomial coefficients from the monomial basis to the Bernstein basis.
+
+        Returns:
+            list: A list of coefficients in the Bernstein basis.
+
+        Example:
+            >>> m = Monomial2D(np.array([
+            ...     [[0, 0, 0], [0, 0, 0], [1, 3, 1]],
+            ...     [[0, -1, -2], [2, 0, 0], [0, 0, 0]],
+            ...     [[1, 2, 3], [0, 0, 0], [0, 0, 0]],
+            ... ]))
+            >>> bernstein_coeffs = polynomial.to_bernstein_basis()
+            >>> print(bernstein_coeffs)
+        """
         return monomial_to_bezier(self.coeffs)
 
     @classmethod

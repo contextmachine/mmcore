@@ -878,7 +878,7 @@ def convex_hull2d(points: np.ndarray) -> np.ndarray:
         stack.append(points[i])
 
     return np.array(stack)
-import matplotlib.pyplot as plt
+
 
 if __name__ == "__main__":
     # Example points
