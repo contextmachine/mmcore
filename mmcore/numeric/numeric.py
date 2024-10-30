@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
-
+from mmcore.numeric.newthon.cnewthon import newtons_method
 from mmcore.numeric.fdm import fdm
 from mmcore.numeric.integrate.romberg import romberg1d
 from mmcore.numeric.routines import divide_interval
@@ -133,8 +133,11 @@ def evaluate_parameter_from_length(
     #return newton(
     #    func, t0, tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
     #)
-    res = iterative_divide_and_conquer_min(func, (t0, t1_limit), t1_limit * 2)
-
+    res = iterative_divide_and_conquer_min(func, (t0, t1_limit), np.sqrt(tol))
+    if fprime is None:
+        fprime= fdm(func)
+    if fprime2 is None:
+        fprime2 = fdm(fprime)
     return newton(
         func, res[0], tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
     )

@@ -789,7 +789,7 @@ if __name__ == '__main__':
     bb = np.array(y)
     t11 = Cylinder(aa[0], aa[1], z)
     t21 = Cylinder(bb[0], bb[1], u)
-    from mmcore.numeric.fdm import newtons_method, Grad
+
 
 
     def uu(xyz):

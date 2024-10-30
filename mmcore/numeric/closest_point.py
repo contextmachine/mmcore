@@ -10,7 +10,8 @@ from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric import divide_interval
 from mmcore.numeric.aabb import aabb_overlap
-from mmcore.numeric.fdm import PDE, newtons_method
+from mmcore.numeric.fdm import PDE
+from mmcore.numeric.newthon.cnewthon import newtons_method
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
     divide_and_conquer_min_2d_vectorized
 
