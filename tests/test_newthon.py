@@ -34,4 +34,4 @@ def test_newthon():
     dist2 = np.linalg.norm(surf.evaluate(res1) - pt)
     print(res2, dist2)
     assert np.abs(dist1-dist2)<tolerance
-    assert np.all(np.abs(np.array(res1)-    np.array(res2))<tolerance)
+    assert np.all(np.abs(np.array(res1)-np.array(res2))<tolerance)
