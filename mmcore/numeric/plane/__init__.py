@@ -5,7 +5,7 @@ from mmcore.numeric.plane.cplane import plane_plane_intersection, plane_plane_in
     inverse_evaluate_plane, plane_plane_plane_intersect,inverse_evaluate_plane_arr,evaluate_plane_arr,plane_plane_plane_intersect_points_and_normals
 import numpy as np
 
-from mmcore.func import vectorize
+
 
 from mmcore.numeric.vectors import scalar_dot, dot_vec_x_array, scalar_norm, scalar_cross, scalar_unit, \
     vector_projection
@@ -134,7 +134,7 @@ v3=-x0*x4 + x0*y2*z1 - x1*x5 + x1*y0*z2 - x2*x3 + x2*y1*z0
              1] * pt0[2]])
 
 
-@vectorize(excluded=[1], signature="(i)->(i)")
+
 def perp_to_vector(v, tol=1e-5):
     if norm_sq(v) >= tol:
         if (abs(v[0]) >= tol) or (abs(v[1]) >= tol):
