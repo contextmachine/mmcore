@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from scipy.interpolate import interp1d
 
-from mmcore.geom.vec import norm_sq, cross, norm, unit, gram_schmidt
+from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
 from mmcore.numeric.newthon.cnewthon import newtons_method
@@ -15,6 +15,8 @@ from mmcore.numeric.divide_and_conquer import (
     test_all_roots,
     iterative_divide_and_conquer_min,
 )
+def norm_sq(v):
+    return scalar_dot(v,v)
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_norm
 def normal_from_4pt(a,b,c,d):
     return scalar_cross(c-a,d-b)

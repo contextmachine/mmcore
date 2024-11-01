@@ -222,7 +222,6 @@ class BaseLine3D(Curve3D, metaclass=ABCMeta):
         """
         pass
 
-    @vectorize(excluded=[0], signature="()->(i)")
     def __call__(self, t):
         return self.start_point._array + self.direction._array * t
 
@@ -520,7 +519,6 @@ class Line3D(BaseLine3D):
         """
         ...
 
-    @vectorize(excluded=[0], signature="()->(i)")
     def __call__(self, t):
         return self.start_point._array + self.direction._array * t
 

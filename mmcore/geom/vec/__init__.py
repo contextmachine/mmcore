@@ -29,13 +29,18 @@ import os
 
 import numpy as np
 
-from mmcore.func import vectorize
+
+
+import mmcore.numeric.vectors as vectors
+
 
 
 DEBUG_MODE = os.getenv('DEBUG_MODE')
 
 
-@vectorize(signature='(i),(i)->()')
+
+
+
 def angle(a, b):
     """
     Calculate the angle between two vectors.
@@ -47,6 +52,7 @@ def angle(a, b):
     :return: Angle between the two vectors
     :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
     """
+
     if DEBUG_MODE:
         if (not 0.9999 <= np.linalg.norm(a) <= 1.0001) or (not 0.9999 <= np.linalg.norm(b) <= 1.0001):
             raise ValueError("Both input vectors must be normalized.")
@@ -58,26 +64,24 @@ def angle(a, b):
     return np.arccos(np.dot(a, b))
 
 
-@vectorize(signature='(i),(i),(i)->()')
+
 def angle3pt(a, b, c):
     ba = unit(a - b)
     bc = unit(c - b)
     return angle(ba, bc)
 
 
-@vectorize(signature='(i),(i),(i)->()')
 def dot3pt(a, b, c):
     ba = unit(a - b)
     bc = unit(c - b)
     return dot(ba, bc)
 
 
-@vectorize(signature='(i)->()')
+
 def norm_sq(v):
     return np.sum(v ** 2)
 
 
-@vectorize(signature='(i)->()')
 def norm(v):
     """
     .. function:: norm(v)
@@ -91,10 +95,15 @@ def norm(v):
         :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
 
     """
-    return np.sqrt(np.sum(v ** 2))
+    if v.shape[-1]==2:
+        return np.hypot(v[...,0],v[...,1])
+    elif len(v.shape)==1:
+        return vectors.scalar_norm(v)
+    else:
+        return np.array(vectors.norm(v))
 
 
-@vectorize(signature='(i),(i)->()')
+
 def dist(a, b):
     """
     :param a: a vector representing the first point
@@ -112,7 +121,7 @@ def dist(a, b):
     return norm(a - b)
 
 
-@vectorize(signature='(i)->(i)')
+
 def unit(v: 'list|tuple|np.ndarray') -> np.ndarray:
     """
     :param v: The input vector
@@ -121,7 +130,7 @@ def unit(v: 'list|tuple|np.ndarray') -> np.ndarray:
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
 
-    return v / norm(v)
+    return np.array(vectors.scalar_unit(v) )if len(v.shape)==1 else np.array(vectors.unit(v))
 
 
 def projection_length(a, b):
@@ -129,7 +138,6 @@ def projection_length(a, b):
     return dot(a, b) / nb
 
 
-@vectorize(signature='(i),(i)->(i)')
 def cross(a, b):
     """
     :param a: The first vector a
@@ -140,10 +148,9 @@ def cross(a, b):
     :rtype: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     """
 
-    return np.cross(a, b)
+    return vectors.scalar_cross(a, b)
 
 
-@vectorize(signature='(i),(i)->()')
 def dot(a, b):
     """
     :param a: First input array.
@@ -153,10 +160,8 @@ def dot(a, b):
     :return: The dot product of `a` and `b`.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    return np.dot(a, b)
+    return scalar_dot(a, b)
 
-
-@vectorize(signature='(i)->(i)')
 def perp2d(v):
     """
     Calculate the perpendicular vector to the given 2D vector.
@@ -173,7 +178,6 @@ def perp2d(v):
     return v2
 
 
-@vectorize(signature='(i),()->(i)')
 def scale_vector(vec, length):
     """
     :param vec: The input vector to be scaled.
@@ -186,7 +190,7 @@ def scale_vector(vec, length):
     return vec * length
 
 
-@vectorize(excluded=[0], signature='(i)->(i)')
+
 def add_multiply_vectors(a, b):
     """
         This method adds two vectors element-wise and returns the result.
@@ -207,7 +211,7 @@ def add_multiply_vectors(a, b):
     return a + b
 
 
-@vectorize(signature='()->(i,i)')
+
 def rotate_matrix(a):
     """
         This method adds two vectors element-wise and returns the result.
@@ -239,7 +243,6 @@ def rotate_matrix(a):
 # 	}
 
 
-@vectorize(signature='(i),(i)->(i)')
 def gram_schmidt(v1: np.ndarray, v2: np.ndarray):
     """
     Applies the Gram-Schmidt process to the given vectors v1 and v2.
@@ -256,7 +259,7 @@ def gram_schmidt(v1: np.ndarray, v2: np.ndarray):
     return v2 - v1 * dot(v2, v1)
 
 
-@vectorize(signature='(i),(i)->(i)')
+
 def make_perpendicular(v1, v2):
     if v1.shape[-1] == 2:
         return np.array([-v1[1], v1[0]])
