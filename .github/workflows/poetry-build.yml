@@ -50,13 +50,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
-
-      - name: Set up Clang 19
-        if: ${{ matrix.os != 'windows-latest' }}
-        uses: egor-tensin/setup-clang@v1
-        with:
-          version: '19'
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.
 
       - name: Configure environment variables
         if: ${{ matrix.os == 'ubuntu-latest' }}
