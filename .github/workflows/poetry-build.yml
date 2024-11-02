@@ -17,7 +17,7 @@ jobs:
         exclude:
           - os: macos-latest
             python-version: "3.9"
-          -
+      
 
     defaults:
       run:
@@ -50,20 +50,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.
 
-      - name: Set up Clang 19
-        if: ${{ matrix.os != 'windows-latest' }}
-        uses: egor-tensin/setup-clang@v1
-        with:
-          version: '19'
-
-      - name: Configure environment variables
-        if: ${{ matrix.os != 'windows-latest' }}
-        run: |
-          echo "CC=clang" >> $GITHUB_ENV
-          echo "CXX=clang++" >> $GITHUB_ENV
-
+      
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
 
