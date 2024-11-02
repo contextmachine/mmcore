@@ -6,7 +6,7 @@ cimport cython
 from libcpp.vector cimport vector
 
 from libc.stdlib cimport malloc,free,realloc
-
+from cython.operator cimport dereference as deref
 cimport numpy as cnp
 import numpy as np
 from libc.string cimport memcpy,memcmp
@@ -17,6 +17,7 @@ cimport mmcore.geom.nurbs
 
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
 from  mmcore.numeric cimport calgorithms,vectors
+
 
 cnp.import_array()
 
@@ -1079,6 +1080,18 @@ def rat_surface_derivs_py(double[:, :, :] SKLw, int deriv_order=0, double[:, :, 
     rat_surface_derivs(SKLw,deriv_order,SKL)
     return np.array(SKL)
 
+cdef void normalize_parameter_range(double start, double end ,double* t1, double* t2 ):
+    cdef double temp=0
+    cdef double temp1= deref(t1)
+    cdef double temp2= deref(t2)
+    if temp1 > temp2:
+        temp=temp1
+        temp1=temp2
+        temp2=temp
+
+    t1[0] = fmax(start, fmin(end, temp1))
+    t2[0] = fmax(start, fmin(end, temp2))
+
 
 
 cdef public char* MAGIC_BYTES=b"NRBC"
@@ -1873,6 +1886,71 @@ cdef class NURBSCurve(ParametricCurve):
     def astuple(self):
         cdef tuple res=(self.control_points.tolist(), self.knots.tolist(), self._degree, self._periodic)
         return res
+
+    cpdef int multiply_knot(self, double t):
+        """
+        Insert a knot until desired multiplicity is reached.
+        Returns number of insertions performed.
+        """
+        cdef int insertions_needed=0
+        cdef int current_mult = find_multiplicity(t, self._knots, 1e-10)
+
+
+        insertions_needed = self._degree - current_mult
+        if insertions_needed > 0:
+            self.insert_knot(t, insertions_needed)
+
+        return insertions_needed
+
+    cpdef NURBSCurve trim(self, double t1, double t2 ):
+        """
+        Trim a NURBS curve to the given parameter range.
+
+   
+        :param t1: Start parameter
+        :param t2: End parameter  
+        :param copy: If True, create new curve, else modify in place
+        :return: Trimmed NURBS curve
+        """
+
+        # Normalize parameter range
+        normalize_parameter_range(self._interval[0], self._interval[1], &t1, &t2)
+
+        # Handle degenerate cases
+        if abs(t2 - t1) < 1e-10:
+            raise ValueError("Invalid trim range - start and end parameters too close")
+
+        # Make copy if requested
+
+        curve = self.ccopy()
+
+        # Insert knots at trim points with multiplicity = degree
+        curve.multiply_knot( t1)
+        curve.multiply_knot( t2)
+
+        # Find spans corresponding to trim points
+        cdef bint per=curve.is_periodic()
+        cdef int span1 = find_span_inline(curve._knots.shape[0] - 1, curve._degree, t1, curve._knots, per)
+        cdef int span2 = find_span_inline(curve._knots.shape[0] - 1, curve._degree, t2, curve._knots, per)
+
+        # Extract relevant control points and knots
+        cdef double[:,:] new_cpts = curve._control_points[span1 - curve._degree:span2 + 1]
+        cdef double[:]        new_knots = curve._knots[span1:span2 + curve._degree + 2]
+
+        # Shift knot vector to start at 0
+        cdef double shift = new_knots[0]
+        cdef int i
+        for i in range(new_knots.shape[0]):
+            new_knots[i]-=shift
+
+
+        # Update curve data
+        curve._control_points = new_cpts
+        curve._knots = new_knots
+        curve._interval[0] = new_knots[0]
+        curve._interval[1] = new_knots[new_knots.shape[0]-1]
+
+        return curve
 @cython.cdivision(True)
 @cython.initializedcheck(False)
 @cython.boundscheck(False)

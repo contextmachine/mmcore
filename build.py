@@ -266,7 +266,9 @@ compiler_directives = dict(
 if __name__ == "__main__":
     print(logo)
     ext_modules = cythonize(
+
         extensions,
+        nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
         compiler_directives=compiler_directives,
     )
