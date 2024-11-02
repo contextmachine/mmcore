@@ -17,11 +17,13 @@ jobs:
         exclude:
           - os: macos-latest
             python-version: "3.9"
+      
 
     defaults:
       run:
         shell: bash
     runs-on: ${{ matrix.os }}
+
 
     steps:
       - name: Check out repository

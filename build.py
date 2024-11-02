@@ -34,12 +34,15 @@ define_macros = [
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
 ]
-if sys.platform == "darwin" and not sys.path:
+if sys.platform == "darwin" :
 
     print("Darwin")
-    compile_args += ["-mcpu=apple-m1"]+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=apple-m1"]#+["-march=armv8-a+simd"]
 
-
+elif sys.platform == "linux" and platform.machine() == "aarch64" :
+    compile_args+=["-march=armv8-a+simd"]
+else:
+    pass
 if sys.platform == "win32":
     cpp_compile_args[0] = "/std:c++17"
     compile_args[0] = "/O2"
@@ -266,7 +269,9 @@ compiler_directives = dict(
 if __name__ == "__main__":
     print(logo)
     ext_modules = cythonize(
+
         extensions,
+        nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
         compiler_directives=compiler_directives,
     )
