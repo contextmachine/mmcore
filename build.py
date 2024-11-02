@@ -34,7 +34,7 @@ define_macros = [
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
 ]
-if sys.platform == "darwin" and not sys.path:
+if sys.platform == "darwin" :
 
     print("Darwin")
     compile_args += ["-mcpu=apple-m1"]+["-march=armv8-a+simd"]
