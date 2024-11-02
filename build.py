@@ -37,7 +37,7 @@ define_macros = [
 if sys.platform == "darwin" :
 
     print("Darwin")
-    compile_args += ["-mcpu=apple-m1"]+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=apple-m1"]#+["-march=armv8-a+simd"]
 
 
 if sys.platform == "win32":
