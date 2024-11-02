@@ -12,8 +12,9 @@ from numpy._typing import ArrayLike
 from scipy.optimize import newton
 
 from mmcore.geom.bvh import PSegment, build_bvh
-from mmcore.geom.vec import unit, cross
-
+from mmcore.numeric.vectors import scalar_unit,scalar_cross
+unit=scalar_unit
+cross=scalar_cross
 from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
     evaluate_length, iterative_divide_and_conquer_min
 

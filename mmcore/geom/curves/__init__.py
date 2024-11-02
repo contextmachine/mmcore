@@ -3,6 +3,10 @@ import numpy as np
 from numpy.typing import ArrayLike
 from mmcore.geom.curves.curve import Curve,ArcLengthParameterization
 from mmcore.geom.curves.bspline import NURBSpline
+from mmcore.geom.nurbs import NURBSCurve
+
+# Add trim method to NURBSCurve
+
 
 from mmcore.geom.curves.bspline_utils import (
     calc_b_spline_point,

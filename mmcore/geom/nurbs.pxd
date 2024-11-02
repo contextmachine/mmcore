@@ -487,6 +487,8 @@ cdef class NURBSCurve(ParametricCurve):
     cdef bytes cserialize(self)
     @staticmethod
     cdef NURBSCurve cdeserialize(const unsigned char[:] data)
+    cpdef int multiply_knot(self, double t)
+    cpdef NURBSCurve trim(self, double t1, double t2)
 
 
 
@@ -519,7 +521,6 @@ cdef class NURBSSurface(ParametricSurface):
     cdef void cnormalize_knots_v(self) noexcept nogil
     cdef void cbbox(self, double[:,:] result) noexcept nogil
     cpdef double[:,:] bbox(self)
-
 cpdef tuple split_surface_u(NURBSSurface obj, double param,double tol=*)
 cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=*)
 cpdef tuple subdivide_surface(NURBSSurface surface, double u=*,double v=*, double tol=*,bint normalize_knots=*)

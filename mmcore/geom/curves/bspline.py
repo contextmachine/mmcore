@@ -351,7 +351,7 @@ class NURBSpline(CNURBSpline, Curve):
 
 from .knot import interpolate_curve
 
-
+from mmcore.geom.nurbs import NURBSCurve
 def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
     degree = min(len(points) - 1, degree)
 
@@ -361,6 +361,6 @@ def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
 
         z[:, :cpts.shape[1]] = cpts
         cpts = z
-    spl = NURBSpline(cpts, degree=degree, knots=knots)
+    spl = NURBSCurve(cpts, degree=degree, knots=knots)
     #spl.knots=np.array(knots,dtype=float)
     return spl
