@@ -50,9 +50,8 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
 
-      
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
 
