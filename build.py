@@ -39,7 +39,10 @@ if sys.platform == "darwin" :
     print("Darwin")
     compile_args += ["-mcpu=apple-m1"]#+["-march=armv8-a+simd"]
 
-
+elif sys.platform == "linux" and platform.machine() == "aarch64" :
+    compile_args+=["-march=armv8-a+simd"]
+else:
+    pass
 if sys.platform == "win32":
     cpp_compile_args[0] = "/std:c++17"
     compile_args[0] = "/O2"
