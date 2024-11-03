@@ -636,6 +636,19 @@ cdef class ParametricSurface:
 
         return result
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.initializedcheck(False)
+    def normal_multi(self, double[:,:] uv, cnp.ndarray[double, ndim=2] result=None):
+        cdef size_t i;
+        if result is None:
+            result=np.empty((uv.shape[0],3))
+        for i in range(uv.shape[0]):
+            self.cnormal(uv[i,0],uv[i,1],result[i])
+
+
+        return result
 
 
 cdef class Ruled(ParametricSurface):

@@ -300,7 +300,7 @@ cdef void surface_derivatives(int[2] degree, double[:] knots_u,  double[:] knots
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u , bint periodic_v, double[:] result) noexcept nogil :
+cdef inline void surface_point(int n, int p, double[:] U, int m, int q, double[:] V, double[:, :, :] Pw, double u, double v,  bint periodic_u , bint periodic_v, double* result) noexcept nogil :
     cdef int uspan, vspan, k, l,i,cur_l
     cdef int num_cols=4
     cdef int temp_length=(q + 1)*num_cols
@@ -440,8 +440,8 @@ cdef class NURBSCurve(ParametricCurve):
     cdef bint _periodic
     cdef public object _evaluate_cached
     cdef double[:] _greville_abscissae
-
-
+    @staticmethod
+    cdef NURBSCurve create(double[:,:] control_points, int degree, double[:] knots, bint periodic)
     cpdef void set_degree(self, int val)
 
     cpdef int get_degree(self)
@@ -508,7 +508,8 @@ cdef class NURBSSurface(ParametricSurface):
 
     cdef double[:,:,:] control_points_view
     cdef double[:,:] control_points_flat_view
-
+    @staticmethod
+    cdef NURBSSurface create(double[:,:,:] control_points, int degree_u,int degree_v, double[:] knots_u, double[:] knots_v)
     cdef void _update_interval(self)
     cdef void generate_knots_u(self)
     cdef void generate_knots_v(self)
@@ -520,6 +521,8 @@ cdef class NURBSSurface(ParametricSurface):
     cdef void cnormalize_knots_u(self) noexcept nogil
     cdef void cnormalize_knots_v(self) noexcept nogil
     cdef void cbbox(self, double[:,:] result) noexcept nogil
+    cdef void cevaluate(self, double u, double v, double[:] result) noexcept nogil
+
     cpdef double[:,:] bbox(self)
 cpdef tuple split_surface_u(NURBSSurface obj, double param,double tol=*)
 cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=*)

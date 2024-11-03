@@ -16,6 +16,8 @@ from libc.stdint cimport uint32_t,int32_t
 cimport mmcore.geom.nurbs
 
 from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
+
+
 from  mmcore.numeric cimport calgorithms,vectors
 
 
@@ -858,7 +860,7 @@ def surface_point_py(int n, int p, double[:] U, int m, int q, double[:] V, doubl
     if result is None:
         result=np.zeros((3,))
 
-    surface_point(n,p,U,m,q,V,Pw,u,v,periodic_u,periodic_v,result)
+    surface_point(n,p,U,m,q,V,Pw,u,v,periodic_u,periodic_v,&result[0])
     return np.array(result)
 
 
@@ -1098,8 +1100,28 @@ cdef public char* MAGIC_BYTES=b"NRBC"
 cdef public uint32_t VERSION=1
 cdef int MAGIC_BYTES_SIZE=4
 cdef class NURBSCurve(ParametricCurve):
+    @staticmethod
+    cdef NURBSCurve create(double[:,:] control_points, int degree, double[:] knots, bint periodic):
+        cdef NURBSCurve self = NURBSCurve.__new__(NURBSCurve)
+        self._degree = degree
+        self._periodic = periodic
+        self._control_points = np.ones((control_points.shape[0], 4))
 
+        if control_points.shape[1] == 4:
 
+            self._control_points[:, :] = control_points
+        else:
+            self._control_points[:, :-1] = control_points
+
+        if knots is None:
+            self.generate_knots()
+        else:
+            self._knots = knots
+            self.knots_update_hook()
+
+        if periodic:
+            self.make_periodic()
+        return self
     def __cinit__(self):
         self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
         self._knots=np.zeros((0,))
@@ -1107,9 +1129,9 @@ cdef class NURBSCurve(ParametricCurve):
         self._control_points=np.zeros((0,4))
         self._interval=np.zeros((2,))
     def __reduce__(self):
-        return (self.__class__, (np.asarray(self._control_points),self._degree,  np.asarray(self._knots),  self._periodic))
+        return (NURBSCurve, (np.asarray(self._control_points),self._degree,  np.asarray(self._knots),  self._periodic))
     def __init__(self, double[:,:] control_points, int degree=3, double[:] knots=None, bint periodic=0):
-        super().__init__()
+
         self._degree = degree
         self._periodic = periodic
         self._control_points = np.ones((control_points.shape[0], 4))
@@ -1135,7 +1157,8 @@ cdef class NURBSCurve(ParametricCurve):
 
 
     def __deepcopy__(self, memodict={}):
-        obj=self.__class__(control_points=self.control_points.copy(), degree=self._degree, knots=np.asarray(self._knots).copy())
+
+        obj=self.ccopy()
 
         obj.weights=self.weights
 
@@ -1291,8 +1314,8 @@ cdef class NURBSCurve(ParametricCurve):
         self.knots_update_hook()
 
     cdef _update_interval(self):
-        self._interval[0] =  np.min(self._knots)
-        self._interval[1] = np.max(self._knots)
+        self._interval[0] =  self._knots[0]
+        self._interval[1] = self._knots[self._knots.shape[0]-1]
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
         cdef int n = len(cpts)
         cdef int i
@@ -2046,8 +2069,8 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint norma
 
 
     # Create new curves
-    cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts.copy(), degree, surf1_kvm,0)
-    cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts.copy(), degree,  surf2_kvm,0)
+    cdef NURBSCurve curve1 = NURBSCurve.create(curve1_ctrlpts.copy(), degree, surf1_kvm,0)
+    cdef NURBSCurve curve2 = NURBSCurve.create(curve2_ctrlpts.copy(), degree,  surf2_kvm,0)
     if normalize_knots:
         curve1.cnormalize_knots()
         curve1.knots_update_hook()
@@ -2110,8 +2133,8 @@ cpdef tuple split_curve2(NURBSCurve obj, double param, double tol=1e-12):
     cdef double[:, :] curve2_ctrlpts = tcpts[ks + r - 1:, :]
 
     # Create new curves
-    cdef NURBSCurve curve1 = NURBSCurve(curve1_ctrlpts.copy(), degree, surf1_kv, 0)
-    cdef NURBSCurve curve2 = NURBSCurve(curve2_ctrlpts.copy(), degree, surf2_kv, 0)
+    cdef NURBSCurve curve1 = NURBSCurve.create(curve1_ctrlpts.copy(), degree, surf1_kv, 0)
+    cdef NURBSCurve curve2 = NURBSCurve.create(curve2_ctrlpts.copy(), degree, surf2_kv, 0)
 
     return curve1, curve2
 
@@ -2132,6 +2155,40 @@ cpdef list split_curve_multiple(NURBSCurve crv, double[:] params):
 
 
 cdef class NURBSSurface(ParametricSurface):
+    @staticmethod
+    cdef NURBSSurface create(double[:,:,:] control_points, int degree_u,int degree_v, double[:] knots_u, double[:] knots_v):
+        cdef NURBSSurface self = NURBSSurface.__new__(NURBSSurface)
+        self._interval=np.zeros((2,2))
+        self._size =[control_points.shape[0],control_points.shape[1]]
+        self._degree=[degree_u,degree_v]
+
+        cdef int cpt_count=  self._size[0]*  self._size[1]
+        self._control_points_arr=<double*>malloc(self._size[0]*self._size[1]*4*sizeof(double))
+        self.control_points_view=<double[:control_points.shape[0],:control_points.shape[1],:4 ]>self._control_points_arr
+        self.control_points_flat_view=<double[:cpt_count,:4 ]>self._control_points_arr
+        cdef int i, j, k
+        if control_points.shape[2]<4:
+            for i in range(cpt_count):
+                self.control_points_flat_view[i][3]=1.
+
+        for i in range(control_points.shape[0]):
+            for j in range(control_points.shape[1]):
+                for k in range(control_points.shape[2]):
+                    self.control_points_view[i][j][k]=control_points[i][j][k]
+
+
+
+
+        if knots_u is None:
+            self.generate_knots_u()
+        else:
+            self._knots_u=knots_u
+        if knots_v is None:
+            self.generate_knots_v()
+        else:
+            self._knots_v=knots_v
+        self._update_interval()
+        return self
     def __init__(self, double[:,:,:] control_points, tuple degree, double[:] knots_u=None, double[:] knots_v=None ):
         super().__init__()
         self._interval=np.zeros((2,2))
@@ -2234,10 +2291,10 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef void _update_interval(self) :
-        self._interval[0][0] = np.min(self._knots_u)
-        self._interval[0][1] = np.max(self._knots_u)
-        self._interval[1][0] = np.min(self._knots_v)
-        self._interval[1][1] = np.max(self._knots_v)
+        self._interval[0][0] = self._knots_u[0]
+        self._interval[0][1] = self._knots_u[self._knots_u.shape[0]-1]
+        self._interval[1][0] = self._knots_v[0]
+        self._interval[1][1] = self._knots_v[self._knots_v.shape[0]-1]
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -2306,7 +2363,7 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cevaluate(self, double u, double v,double[:] result) noexcept nogil:
-        surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, 0, 0, result)
+        surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, 0, 0, &result[0])
 
 
 
@@ -2583,8 +2640,8 @@ cpdef tuple split_surface_u(NURBSSurface obj, double param, double tol=1e-7) :
         surf2_kvm[i]=surf2_kv[i]
 
     # Create new surfaces
-    cdef NURBSSurface surf1 = NURBSSurface(np.asarray(surf1_ctrlpts.copy()), (degree_u, degree_v),surf1_kvm, knots_v.copy() )
-    cdef NURBSSurface surf2 = NURBSSurface(np.asarray(surf2_ctrlpts.copy()), (degree_u, degree_v), surf2_kvm, knots_v.copy())
+    cdef NURBSSurface surf1 = NURBSSurface.create(np.asarray(surf1_ctrlpts.copy()), degree_u, degree_v,surf1_kvm, knots_v.copy() )
+    cdef NURBSSurface surf2 = NURBSSurface.create(np.asarray(surf2_ctrlpts.copy()), degree_u, degree_v, surf2_kvm, knots_v.copy())
 
 
     return surf1, surf2
@@ -2653,8 +2710,8 @@ cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=1e-7) :
             surf2_kvm[i]=surf2_kv[i]
 
     # Create new surfaces
-    cdef NURBSSurface surf1 = NURBSSurface(surf1_ctrlpts.copy(), (degree_u, degree_v), knots_u.copy(), surf1_kvm)
-    cdef NURBSSurface surf2 = NURBSSurface(surf2_ctrlpts.copy(), (degree_u, degree_v), knots_u.copy(),surf2_kvm)
+    cdef NURBSSurface surf1 = NURBSSurface.create(surf1_ctrlpts.copy(), degree_u, degree_v, knots_u.copy(), surf1_kvm)
+    cdef NURBSSurface surf2 = NURBSSurface.create(surf2_ctrlpts.copy(), degree_u, degree_v, knots_u.copy(),surf2_kvm)
 
     return surf1, surf2
 
@@ -2755,36 +2812,7 @@ def decompose_surface(surface, decompose_dir="uv",normalize_knots=False):
         )
 
 
-cdef class CurveCurveEq:
-    cdef public NURBSCurve curve1
-    cdef public NURBSCurve curve2
-    __slots__=['curve1', 'curve2']
 
-    def __init__(self, NURBSCurve curve1, NURBSCurve curve2):
-        self.curve1=curve1
-        self.curve2=curve2
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    @cython.cdivision(True)
-    cpdef double evaluate(self, double[:] x):
-
-        cdef double t=x[0]
-        cdef double s = x[1]
-
-        cdef double[:,:] pts = np.zeros((3,3))
-        self.curve1.cevaluate(t,pts[0])
-        self.curve2.cevaluate(s,pts[1])
-        pts[2,0]= pts[0,0]-pts[1,0]
-        pts[2,1]= pts[0,1] - pts[1,1]
-        pts[2, 2] = pts[0, 2] - pts[1, 2]
-        cdef double res=pts[2,0]*pts[2,0]+pts[2,1]*pts[2,1]+pts[2,2]*pts[2,2]
-        return res
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    @cython.cdivision(True)
-    def __call__(self,double[:] x):
-        return self.evaluate(x)
 
 cdef class CurveSurfaceEq:
     cdef public NURBSCurve curve
