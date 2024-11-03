@@ -361,6 +361,6 @@ def interpolate_nurbs_curve(points, degree=3, use_centripetal=False):
 
         z[:, :cpts.shape[1]] = cpts
         cpts = z
-    spl = NURBSCurve(cpts, degree=degree, knots=knots)
+    spl = NURBSCurve(np.array(cpts), degree=degree, knots=np.array(knots))
     #spl.knots=np.array(knots,dtype=float)
     return spl
