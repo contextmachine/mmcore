@@ -1,74 +1,174 @@
-# mmcore (WIP)
+# mmcore
+
 [![poetry-build](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/poetry-build.yml)
 [![Docker](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/contextmachine/mmcore/actions/workflows/docker-publish.yml) 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![pip downloads](https://img.shields.io/pypi/dm/mmcore)](https://pypi.python.org/project/mmcore)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mmcore.svg)](https://pypi.python.org/project/mmcore)
 
+![](notes/images/img.png)
+
 ## Overview
-mmcore is a modern CAD engine written in python and currently at the prototype stage. The main goal is to make CAD capabilities available and as easy to use as scipy, scikit-learn and other popular libraries. 
 
-mmcore is a common python package that just needs pip to install. mmcore has only two packages as required dependencies: numpy and scipy. Like any python software, mmcore can run seamlessly in cloud environments, command line scripts, and on familiar consumer platforms. This in itself provides automation capabilities that far exceed those of existing proprietary software. Server architecture allows for flexible deployment of the CAD engine in the cloud, on private networks, or embedded in other applications. This enables new use cases such as design simulation/optimization with massively parallelism, integration with PLM and manufacturing systems, and collaborative design over the Internet.
+mmcore is a modern CAD engine written in Python with performance-critical parts implemented in Cython. The main goal is to make advanced CAD capabilities as accessible and easy to use as popular scientific computing libraries like scipy and scikit-learn.
 
+The library provides a comprehensive set of geometric modeling tools, numerical algorithms, and optimization methods specifically designed for CAD applications. It features efficient implementations of NURBS geometry, surface analysis, intersection algorithms, and more.
 
-mmcore does not currently guarantee backwards compatibility and does not provide a stable api. The current API will be modified!
+**Note:** mmcore is under active development and does not currently guarantee backwards compatibility. The API may change significantly between versions.
+
+## Key Features
+
+- **Geometric Modeling**
+  - Complete NURBS curves and surfaces implementation
+  - Advanced surface analysis with fundamental forms
+  - Comprehensive intersection algorithms
+  - Implicit geometry support with boolean operations
+  - Primitive shapes and surface analysis tools
+
+- **Numerical Methods**
+  - General purpose optimization algorithms (Newton method, divide-and-conquer)
+  - Robust numerical integration (RK45 and alternatives)
+  - Interval arithmetic support
+  - Advanced intersection algorithms for curves and surfaces
+  - CAD-specific computational geometry algorithms
+  
+- **Performance Optimization**
+  - Critical algorithms implemented in C/C++/Cython 
+  - Fastest NURBS implementation in python.
+  - BVH (Bounding Volume Hierarchy) for efficient spatial queries
+  - Vectorized operations outperforming numpy for 2D-4D cases
+
+## Implementation Examples
+
+### 1. Surface Point Projection
+```python
+from mmcore.geom.surfaces import Ruled
+from mmcore.numeric import surface_closest_point_vectorized_approach
+
+# Create a ruled surface
+surface = create_ruled_from_points(control_points, degree=3)
+
+# Find closest points on surface (vectorized for performance)
+closest_points = surface_closest_point_vectorized_approach(surface, points)
+```
+
+### 2. Implicit Geometry
+```python
+from mmcore.geom.implicit import Implicit2D
+
+class Circle(Implicit2D):
+    def __init__(self, center, radius):
+        self.center = center
+        self.radius = radius
+        
+    def implicit(self, xy):
+        x, y = xy
+        return (x - self.center[0])**2 + (y - self.center[1])**2 - self.radius**2
+```
 
 ## Installation
 
-To install a version from this particular branch, use the following:
-
-### CPython 
+### Using pip (Python 3.9+)
 
 ```bash
 python3 -m pip install --user --force-reinstall git+https://github.com/contextmachine/mmcore.git@tiny
 ```
-All versions from 3.9 onwards are supported.
-### PyPy
-Since we can support pypy3 on this branch you can 
+
+### PyPy Support
 ```bash
 pypy3 -m pip install --user --force-reinstall git+https://github.com/contextmachine/mmcore.git@tiny
 ```
-At this point, don't expect much performance improvement as we are still using a lot of numpy (we will move away from this in the future, but not to the detriment of performance on the cpython version)
+
 ### Docker
 ```bash
 docker pull ghcr.io/contextmachine/mmcore.git:tiny
 ```
 
+## Project Structure
 
-## Content
-Some useful hints:
-- `mmcore.api` - User API like common CAD systems.
+### Core Modules
 
-- `mmcore.geom` - Data structures representing geometric objects
-  - `mmcore.geom.curves` - Representations of curves in parametric form
-  - `mmcore.geom.curves.curve` - Basic curve class in parametric form that implements many useful methods
-  - `mmcore.geom.curves.bspline` - **B-Spline** curves and **NURBS** curves
-  - `mmcore.geom.surfaces` - Representations of surfaces in parametric form
-  - `mmcore.geom.implicit` - Implicit representations  of curves and surfaces  
-  - `mmcore.geom.implicit.dc` - **Adaptive Dual Contouring** algorithm, so far in 2D. 
-  - `mmcore.geom.implicit.tree` - Octree approximation for shapes in implicit form (like libfive).  
-  - `mmcore.geom.bvh` - Implementation of BVH tree construction and queries. This can be extremely useful for intersectionb nearest neighbor search and other spatial tasks. 
-  - `mmcore.geom.primitives` -Built-in high-performance primitives 
-- `mmcore.numeric` - Implementation of fundamental numeric CAD algorithms and some data structures.
-  - `mmcore.numeric.fdm` - Automatic differentiation using **Finite Difference Method**. This also includes the gradient, jac, hessian calculation methods.
-  - `mmcore.numeric.marching` - Marching method
-  - `mmcore.numeric.plane` - Useful procedures for working with planes and coordinate systems
-  - `mmcore.numeric.algorithms` - Fundamental CAD algorithms such as `curve_point`, `surface_point`, `intersection_curve_point`, `point_inversion` and others
-  - `mmcore.numeric.closest_point` - Currently includes implementation of the algorithm for finding the **Closest Point on Curve**, **Parametric Surface Foot Point Algorithm** [[4]](Geometry and Algorithms for COMPUTER AIDED DESIGN, p. 94), etc.
-  - `mmcore.numeric.curve_intersection` - Algorithms for finding all intersection points between two curves. All cases (Implicit-Implicit,Parametric-Implicit,Parametric-Parametric) are provided.
-  - `mmcore.numeric.surface_intersection` - Algorithms for finding all intersection curves between two Surface. AThe following cases are currently available: Implicit-Implicit, Parametric-Parametric(Work in progress) are provided.
+- **mmcore.geom**: Geometric primitives and operations
+  - `nurbs.pyx/pxd`: NURBS curves and surfaces implementation
+  - `surfaces`: Surface analysis and fundamental forms
+  - `primitives`: Basic geometric primitives
+  - `implicit`: Implicit geometry with boolean operations
+  - `bvh`: Spatial acceleration structures
 
-## Benchmarks
-We managed to run several benchmarks and the results are shown in the figure. I measured the speed of the operation of finding all curves of intersection of two solid tubes with some wall thickness. You can see an illustration of this operation next to the table. We compared the capabilities of `mmcore` with Rhino, since Rhino is available on macos. These benchmarks are not exhaustive but emphasize the possibility of achieving competitive CAD engine performance on python.
-
-| task  size | cpu  | 	Rhino 8 (sec.) | 	mmcore (sec.) | 	 Rhino 8 (sec./it.)	 | mmcore (sec./it.) |
-|------------|------|-----------------|----------------|-----------------------|-------------------|
-| 1          | 	 1	 | 0.027           | 	0.033         | 	0.027                | 	0.033            |
-| 100        | 	 1	 | 2.685           | 	1.571         | 	0.027                | 	0.016            |
-| 100        | 	10	 | 0.938           | 	0.275         | 	0.0095               | 	0.0027           |
-| 1000       | 	10	 | 13.4            | 	2.313         | 	0.0134               | 	0.0023           |
+- **mmcore.numeric**: Algorithms and computations
+  - `algorithms`: Optimization and fundamental CAD algorithms
+  - `integrate`: Numerical integration (RK45 and others)
+  - `interval`: Interval arithmetic implementation
+  - `intersections`: Comprehensive intersection algorithms (curve x curve, curve x surface, surface x surface)
+  - `vectors`: High-performance vector operations
   
+  
+### Additional Components
+
+- **mmcore.api**: High-level interface for common operations (WIP)
+- **mmcore.renderer**: Visualization capabilities  (WIP)
+- **mmcore.topo**: Topological operations and mesh handling  (WIP)
+
+## Getting Started
+
+1. Start with the basic examples in `examples/`:
+   - `surface_closest_points.py`: Surface analysis and optimization
+   - `primitives/`: Basic geometric shape creation
+   - `ssx/`: Surface-surface intersection examples
+   - `implicit_intersections.py`: Working with implicit geometry
+
+2. Check the comprehensive tutorials in `notes/`:
+   - [surface_closest_point.md](./notes/surface_closest_point.md): Detailed algorithm explanations
+   - Additional implementation examples and best practices
+
+## Dependencies
+
+### Core Requirements
+- Python >= 3.9
+- numpy
+- scipy
+- earcut
+- pyquaternion
+- more-itertools
+
+### Optional Components
+- Development: Cython
+- Visualization: plotly, kaleido, pyopengl, pyrr, glfw
+- Interactive: IPython
+
+## Performance Benchmarks
+
+Comparison with Rhino 8 for intersection curve computation between solid tubes:
+
+| Task Size | CPU Cores | Rhino 8 (sec.) | mmcore (sec.) | Speed Ratio |
+|-----------|-----------|----------------|---------------|-------------|
+| 1         | 1         | 0.027         | 0.033         | 0.82x       |
+| 100       | 1         | 2.685         | 1.571         | 1.71x       |
+| 100       | 10        | 0.938         | 0.275         | 3.41x       |
+| 1000      | 10        | 13.4          | 2.313         | 5.79x       |
+
+Results show mmcore excels particularly in parallel processing and batch operations.
+
 <img src="notes/images/implicit_tubes_intersection.png" width="300"/>
 
-## Tutorials
-You can also check out one of the [first detailed tutorial](./notes/surface_closest_point.md) with the implementation of a couple of CAD algorithms using `mmcore`
+*Figure: Visualization of tube intersection test case*
+
+## Known Deprecations
+
+1. Use `mmcore.numeric.vectors` instead of `mmcore.geom.vec` for vector operations
+2. Prefer `NURBSCurve` over `NURBSSpline` for better algorithms and serialization
+3. For curve-surface intersection, use `mmcore/numeric/intersections/csx/_ncsx.py`
+4. Surface-surface intersection (SSX) implementation is currently reliable only for NURBS surfaces
+
+## Contributing
+
+Contributions are welcome! Please note:
+
+1. The project is under active development
+2. Breaking changes may occur between versions
+3. Test all changes thoroughly before submitting
+4. Follow the existing code style and documentation patterns
+
+## License
+
+Licensed under the Apache License, Version 2.0 - see [LICENSE](LICENSE) for details.
