@@ -12,7 +12,7 @@ from mmcore.geom.nurbs import NURBSSurface, NURBSCurve, find_span, basis_functio
 
 from mmcore.numeric.algorithms.surface_area import v_max
 from mmcore.numeric.intersection.csx import nurbs_csx
-from tests.test_nurbs_algo import degree
+
 
 
 def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:

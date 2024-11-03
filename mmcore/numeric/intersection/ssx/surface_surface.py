@@ -10,7 +10,7 @@ from scipy.spatial import KDTree
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric.vectors import solve2x2,det
-
+from mmcore.numeric.intersection.ssx._ssi import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.closest_point import closest_point_on_ray, closest_points_on_surface, closest_point_on_surface, \
     closest_point_on_nurbs_surface
@@ -41,7 +41,7 @@ SurfaceDerivativesData = namedtuple(
 )
 
 
-def improve_uv(du, dv, xyz_old, xyz_better):
+def improve_uv(du, dv, xyz_old, xyz_better, res):
     dxdu, dydu, dzdu = du
     dxdv, dydv, dzdv = dv
 
@@ -52,9 +52,23 @@ def improve_uv(du, dv, xyz_old, xyz_better):
     yz = np.array([[dydu, dydv], [dzdu, dzdv]]), [delta[1], delta[2]]
 
     max_det = max([xy, xz, yz], key=lambda Ab: det(Ab[0]))
-    res=np.zeros(2)
-    solve2x2(max_det[0], np.array(max_det[1]), res)
-    return res
+
+
+    return solve2x2(max_det[0], np.array(max_det[1]), res)
+
+def improve_uv_robust(surf, uv_old,du, dv, xyz_old, xyz_better, uv_better=None):
+        if uv_better is None:
+            uv_better=np.zeros(2)
+
+        success_first = cimprove_uv(du, dv, xyz_old, xyz_better, uv_better)
+
+        if success_first == 1:
+            uv_better[:] = point_inversion_surface(surf, xyz_better,*uv_old, 1e-6, 1e-6)
+        else:
+            uv_better += uv_old
+
+        return uv_better
+
 
 class IntersectionStepData(NamedTuple):
     first: SurfaceDerivativesData
@@ -193,8 +207,11 @@ class SSXMethod:
 
 
     def improve_uvs(self,step_data: IntersectionStepData, pt_better: np.ndarray):
-        uvb1_better = point_inversion_surface(self.s1,pt_better,*step_data.first.uv,1e-6,1e-6)
-        uvb2_better = point_inversion_surface(self.s2,pt_better,*step_data.second.uv,1e-6,1e-6)
+
+        uvb1_better = improve_uv_robust(self.s1, step_data.first.uv, step_data.first.du, step_data.first.dv,step_data.first.pt,pt_better )
+        uvb2_better = improve_uv_robust(self.s2, step_data.second.uv,step_data.second.du, step_data.second.dv, step_data.second.pt, pt_better)
+
+
 
         return uvb1_better, uvb2_better
 
@@ -376,6 +393,7 @@ class MarchingMethod(SSXMethod):
     def calculate_sectional_curvature(self, step_data: IntersectionStepData):
         #print(f'{self.__class__}.calculate_sectional_curvature({step_data})')
         def sectional_tangent(veps):
+
             uv1_new = point_inversion_surface(self.s1, step_data.first.pt + veps, *step_data.first.uv,1e-6,1e-6)
 
             uv2_new = point_inversion_surface(self.s2, step_data.second.pt + veps, *step_data.second.uv,1e-6,1e-6)
@@ -747,16 +765,26 @@ if __name__ == "__main__":
     #
     ## #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     #res = surface_intersection(patch1, patch2, TOL)
-    s1,s2=td[2]
+    s1,s2=td[1]
     s = time.perf_counter_ns()
 
     cc =    surface_ppi(s1,s2,TOL)
     e=(time.perf_counter_ns()-s)*1e-9
-    print(e)
-    #print([np.array(c).tolist() for c in cc[0]])
+    #s1= NURBSSurface(s1.control_points+np.array([[1000.,0.,1000.]]), degree=tuple(s1.degree))
+    #s2= NURBSSurface(s2.control_points + np.array([[1000., 0., 1000.]]), degree=tuple(s2.degree))
+    #st1 = time.perf_counter_ns()
+    #cc2 =    surface_ppi(s1,s2,TOL)
+    #e1=(time.perf_counter_ns()-st1)*1e-9
+
+    print([np.array(c).tolist() for c in cc[0]])
     # -----------------
+
     with open('crz2.json', 'w') as f:
         import json
 
-        json.dump([np.array(c).tolist() for c in cc[0]], f)
+        res=[np.array(c).tolist() for c in cc[0]]
+        print(res)
+        json.dump(res, f)
 
+    print("\n\n\n","-"*80,"\n",e)
+    #print(e1)

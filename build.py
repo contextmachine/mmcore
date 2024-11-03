@@ -23,7 +23,7 @@ def check_rhinocode(): # interpretor
         if '.rhinocode' in p:
             return True
     return False
-compile_args = ["-O3"]
+compile_args = ["-O3","-DNPY_NO_DEPRECATED_API=NPY_2_0_API_VERSION"]
 cpp_compile_args = ["-std=c++17"]
 link_args = []
 include_dirs = [numpy.get_include(),os.getcwd()]
