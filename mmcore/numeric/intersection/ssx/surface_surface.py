@@ -4,6 +4,8 @@ import warnings
 from dataclasses import dataclass
 
 from mmcore.geom.nurbs import NURBSSurface
+from scipy.integrate import solve_bvp, solve_ivp
+
 from mmcore.geom.surfaces import CurveOnSurface, Surface
 from scipy.spatial import KDTree
 
@@ -185,8 +187,8 @@ class SSXMethod:
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
         #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
         pt=surface.evaluate(uv)
-        du=surface.derivative_u(uv)
-        dv=surface.derivative_v(uv)
+        du,dv=surface.derivatives(uv)
+        #dv=surface.derivative_v(uv)
 
         n=np.cross(du,dv)
 
@@ -393,10 +395,10 @@ class MarchingMethod(SSXMethod):
     def calculate_sectional_curvature(self, step_data: IntersectionStepData):
         #print(f'{self.__class__}.calculate_sectional_curvature({step_data})')
         def sectional_tangent(veps):
+            uv1_new, uv2_new= self.improve_uvs(step_data,step_data.first.pt + veps)
+            #uv1_new = point_inversion_surface(self.s1, step_data.first.pt + veps, *step_data.first.uv,1e-6,1e-6)
 
-            uv1_new = point_inversion_surface(self.s1, step_data.first.pt + veps, *step_data.first.uv,1e-6,1e-6)
-
-            uv2_new = point_inversion_surface(self.s2, step_data.second.pt + veps, *step_data.second.uv,1e-6,1e-6)
+            #uv2_new = point_inversion_surface(self.s2, step_data.second.pt + veps, *step_data.second.uv,1e-6,1e-6)
 
 
 
@@ -497,10 +499,11 @@ def find_start_points_nurbs(surf1, surf2,tol=1e-3):
 
                 u1.append(pt.surface1_params)
                 u2.append(pt.surface2_params)
+    if len(xyz)>0:
 
-
-    return KDTree(np.array(xyz)),np.array(u1),np.array(u2)
-
+        return KDTree(np.array(xyz)),np.array(u1),np.array(u2)
+    else:
+        return
 times=[]
 def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
     #s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
@@ -518,6 +521,8 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
     if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
         res = find_start_points_nurbs(surf1,surf2,tol=tol)
         #print(res[0].data.tolist())
+        if res is None:
+            return
     else:
         res = find_closest_points(surf1, surf2, freeform)
     #times.append(time.perf_counter_ns() - s)
@@ -642,7 +647,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
 
 
 
-def surface_intersection(
+def ssx(
         surf1: Surface, surf2: Surface, tol: float = 0.01, max_iter: int = 500
 ) -> list[tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]:
     """
@@ -767,9 +772,9 @@ if __name__ == "__main__":
     #res = surface_intersection(patch1, patch2, TOL)
     s1,s2=td[1]
     s = time.perf_counter_ns()
-
     cc =    surface_ppi(s1,s2,TOL)
     e=(time.perf_counter_ns()-s)*1e-9
+
     #s1= NURBSSurface(s1.control_points+np.array([[1000.,0.,1000.]]), degree=tuple(s1.degree))
     #s2= NURBSSurface(s2.control_points + np.array([[1000., 0., 1000.]]), degree=tuple(s2.degree))
     #st1 = time.perf_counter_ns()
@@ -786,5 +791,13 @@ if __name__ == "__main__":
         print(res)
         json.dump(res, f)
 
+    print("\n\n\n","-"*80,"\n",e)
+    s = time.perf_counter_ns()
+
+    res=ssx(s1,s2,TOL)
+    e=(time.perf_counter_ns()-s)*1e-9
+    print("\nSSX:\n")
+    for rr in res:
+        print(rr)
     print("\n\n\n","-"*80,"\n",e)
     #print(e1)

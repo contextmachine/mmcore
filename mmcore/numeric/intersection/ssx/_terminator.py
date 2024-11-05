@@ -126,7 +126,7 @@ def build_boundary_if_not_present(surface: Surface):
     if surface.boundary is None:
         surface.build_boundary()
 
-# Deprecated !!!
+
 def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface, tol=1e-3) -> Terminator:
     """
     Find intersection points between surface boundaries.
@@ -147,8 +147,10 @@ def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface,
             if not tuple(l.point) in xyz and not l.surface1_params in uv1 and not l.surface2_params  in uv2:
 
                 xyz.append(tuple(l.point))
-                uv1.append(closest_point_on_nurbs_surface( surf1, l.point, tol=tol))
-                uv2.append(closest_point_on_nurbs_surface( surf2, l.point, tol=tol))
+                #print(l.surface1_params,closest_point_on_nurbs_surface( surf1, l.point, tol=tol))
+                #print(l.surface2_params, closest_point_on_nurbs_surface(surf2, l.point, tol=tol))
+                uv1.append(l.surface1_params)
+                uv2.append(l.surface2_params)
                 #uv1.append(l.surface1_params)
                 #uv2.append(l.surface2_params)
 
