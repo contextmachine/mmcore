@@ -31,7 +31,7 @@ import numpy as np
 from mmcore.geom.bvh import intersect_bvh_objects
 from mmcore.geom.curves.bspline import interpolate_nurbs_curve
 from mmcore.geom.nurbs import NURBSCurve
-from mmcore.numeric.intersection.ssx import surface_intersection
+from mmcore.numeric.intersection.ssx import ssx
 
 # Define two test sets of surfaces to intersect with each other
 pts1 = (
@@ -156,7 +156,7 @@ intersections = dict()
 for i, surf1 in enumerate(surfaces):
     for j, surf2 in enumerate(surfaces2):
         if len(intersect_bvh_objects(surf1._tree, surf2._tree)) > 0:
-            res = surface_intersection(surf1, surf2, tol=0.01)
+            res = ssx(surf1, surf2, tol=0.01)
             if res is None:
                 pass
             else:
