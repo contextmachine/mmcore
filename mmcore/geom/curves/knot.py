@@ -189,7 +189,8 @@ def interpolate_curve(points, degree,  use_centripetal=False):
 
     # Do global interpolation
     matrix_a = np.array(build_coefficient_matrix( points,degree, kv, uk))
-    ctrlpts = lu_solve(lu_factor(matrix_a),points)
+    ctrlpts=np.linalg.lstsq(matrix_a, points)[0]
+    #ctrlpts = lu_solve(lu_factor(matrix_a),points)
 
     # Generate B-spline curve
 

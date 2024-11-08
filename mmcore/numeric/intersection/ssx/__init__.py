@@ -1,2 +1,2 @@
-from mmcore.numeric.intersection.ssx.surface_surface import surface_intersection,surface_ppi
-__all__=['surface_intersection','surface_ppi']
+from mmcore.numeric.intersection.ssx.surface_surface import ssx,surface_ppi
+__all__=['ssx', 'surface_ppi']
