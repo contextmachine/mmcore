@@ -394,7 +394,7 @@ class CADRenderer:
     def add_nurbs_curve(self, crv: NURBSCurve, color=(0., 1., 1.), thickness=1.0, **kwargs):
         res = np.array(
             crv.evaluate_multi(np.linspace(*crv.interval(), len(crv.knots) * 5)), dtype=np.float32)
-        print(res)
+        #print(res)
         self.add_wire(
             res,
             color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
