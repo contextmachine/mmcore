@@ -45,3 +45,32 @@ all = ["renderer","ipython"]
 
 [tool.poetry.plugins."mmcore.renderer"]
 "renderer" = "mmcore.renderer"
+
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312','py313']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.github
+  | \gen
+  | \.idea
+  | \.svn
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.nox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | .computer_use_demo
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
