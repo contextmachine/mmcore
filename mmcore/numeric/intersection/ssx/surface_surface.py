@@ -200,8 +200,8 @@ class SSXMethod:
         pt=np.array(surface.evaluate(uv))
         du,dv=np.array(surface.derivatives(uv))
         #dv=surface.derivative_v(uv)
-
-        n=np.cross(du,dv)
+        n = np.array(scalar_cross(du, dv))
+        #n=np.cross(du,dv)
 
         #n = np.array(scalar_unit(scalar_cross(du, dv)))
 
@@ -333,10 +333,8 @@ class FreeFormMethod(SSXMethod):
             #    return mid, uv1, uv2
 
         print("freeform not convergence")
-        print(_initialuvs)
-        print(intersection_step_data.first.pt,intersection_step_data.second.pt)
-        print(intersection_step_data.first.uv, intersection_step_data.second.uv)
 
+        
         return
 from mmcore.numeric.newthon.cnewthon import newtons_method as cnewtons_method
 
