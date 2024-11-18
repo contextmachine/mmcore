@@ -2,6 +2,10 @@ import numpy as np
 import warnings
 
 from mmcore.numeric.newthon.cnewthon import hessian
+
+from mmcore.numeric.vectors import scalar_dot
+
+
 def newtons_method22(F, J_F, initial_point, tol=1e-5, max_iter=100):
     """
     Apply Newton's method to solve F(point) = 0.
@@ -30,90 +34,98 @@ def newtons_method22(F, J_F, initial_point, tol=1e-5, max_iter=100):
     return point
 from mmcore._test_data import ssx
 s1,s2=ssx[2]
-def f(x):
-    u, v, s, t = x
-    p = s1.evaluate_v2(u, v)
-    q = s2.evaluate_v2(s, t)
-    return np.linalg.norm(p - q)**2
+def opt1(s1,s2,initial_point,orig,normal):
 
-def h(x):
-    u, v, s, t = x
-    p = s1.evaluate_v2(u, v)
-    q = s2.evaluate_v2(s, t)
-    m = (p + q) / 2  # Midpoint
-    return a * m[0] + b * m[1] + c * m[2] + d
+    def f(x):
+        u, v, s, t = x
+        p = s1.evaluate_v2(u, v)
+        q = s2.evaluate_v2(s, t)
+        return np.linalg.norm(p - q)**2
 
-
-def grad_f(x):
-    u, v, s, t = x
-    # Compute the gradient of f with respect to u, v, s, t.
-    # This requires the derivatives of s1 and s2 with respect to their parameters.
-    # Let's assume you've defined functions that compute these derivatives:
-    dp_du = s1.derivative_u(np.array([u, v]))
-    dp_dv = s1.derivative_v(np.array([u, v]))
-    dq_ds = s2.derivative_u(np.array([s, t]))
-    dq_dt = s2.derivative_v(np.array([s, t]))
-    p = s1.evaluate_v2(u, v)
-    q = s2.evaluate_v2(s, t)
-    diff = p - q
-    grad_u = 2 * np.dot(diff, dp_du)
-    grad_v = 2 * np.dot(diff, dp_dv)
-    grad_s = -2 * np.dot(diff, dq_ds)
-    grad_t = -2 * np.dot(diff, dq_dt)
-    return np.array([grad_u, grad_v, grad_s, grad_t])
-def grad_h(x):
-    u, v, s, t = x
-    dp_du = s1.derivative_u(np.array([u, v]))
-    dp_dv  = s1.derivative_v(np.array([u, v]))
-    dq_ds = s2.derivative_u(np.array([s, t]))
-    dq_dt = s2.derivative_v(np.array([s, t]))
-    # Gradient of m w.r.t variables
-    dm_du = dp_du / 2
-    dm_dv = dp_dv / 2
-    dm_ds = dq_ds / 2
-    dm_dt = dq_dt / 2
-    # Gradient of h w.r.t variables
-    grad_u = a * dm_du[0] + b * dm_du[1] + c * dm_du[2]
-    grad_v = a * dm_dv[0] + b * dm_dv[1] + c * dm_dv[2]
-    grad_s = a * dm_ds[0] + b * dm_ds[1] + c * dm_ds[2]
-    grad_t = a * dm_dt[0] + b * dm_dt[1] + c * dm_dt[2]
-    return np.array([grad_u, grad_v, grad_s, grad_t])
-def F(point):
-    x = point[:-1]  # variables u, v, s, t
-    lambd = point[-1]  # Lagrange multiplier
-    grad_f_val = grad_f(x)
-    grad_h_val = grad_h(x)
-    h_val = h(x)
-    F_val = np.concatenate([grad_f_val - lambd * grad_h_val, [-h_val]])
-    return F_val
-
-def J_F(point):
-    x = point[:-1]
-    lambd = point[-1]
-    # Compute Hessians
-    H_f = hessian(f, x)  # Hessian of f w.r.t x
-    H_h = hessian(h, x)   # Hessian of h w.r.t x (often zero if h is linear)
-    grad_h_val = grad_h(x)
-    # Build the Jacobian matrix
-    n = len(x)
-    JF = np.zeros((n+1, n+1))
-    # Top-left block: Hessian of the Lagrangian w.r.t x
-    JF[:n, :n] = H_f - lambd * H_h
-    # Top-right block: -grad_h^T
-    JF[:n, n] = -grad_h_val
-    # Bottom-left block: -grad_h
-    JF[n, :n] = -grad_h_val
-    # Bottom-right corner is zero
-    return JF
+    def h(x):
+        u, v, s, t = x
+        p = s1.evaluate_v2(u, v)
+        q = s2.evaluate_v2(s, t)
+        m = (p + q) / 2  # Midpoint
+        d1=scalar_dot(p-np.array(orig),normal)
+        d2=scalar_dot(q - np.array(orig), normal)
+        if abs(d1)>d2:
+            return d1
+        else:
+            return d2
 
 
-a, b, c, d = 1., 2., 3., 4.  # Example plane coefficients
 
-initial_point = np.array([0.5,0.5,0.5,0.5, 0.0])
+    def grad_f(x):
+        u, v, s, t = x
+        # Compute the gradient of f with respect to u, v, s, t.
+        # This requires the derivatives of s1 and s2 with respect to their parameters.
+        # Let's assume you've defined functions that compute these derivatives:
+        dp_du = s1.derivative_u(np.array([u, v]))
+        dp_dv = s1.derivative_v(np.array([u, v]))
+        dq_ds = s2.derivative_u(np.array([s, t]))
+        dq_dt = s2.derivative_v(np.array([s, t]))
+        p = s1.evaluate_v2(u, v)
+        q = s2.evaluate_v2(s, t)
+        diff = p - q
+        grad_u = 2 * np.dot(diff, dp_du)
+        grad_v = 2 * np.dot(diff, dp_dv)
+        grad_s = -2 * np.dot(diff, dq_ds)
+        grad_t = -2 * np.dot(diff, dq_dt)
+        return np.array([grad_u, grad_v, grad_s, grad_t])
+    def grad_h(x):
+        u, v, s, t = x
+        dp_du = s1.derivative_u(np.array([u, v]))
+        dp_dv  = s1.derivative_v(np.array([u, v]))
+        dq_ds = s2.derivative_u(np.array([s, t]))
+        dq_dt = s2.derivative_v(np.array([s, t]))
+        # Gradient of m w.r.t variables
+        dm_du = dp_du / 2
+        dm_dv = dp_dv / 2
+        dm_ds = dq_ds / 2
+        dm_dt = dq_dt / 2
+        # Gradient of h w.r.t variables
+        grad_u = normal[0] * dm_du[0] + normal[1] * dm_du[1] + normal[2] * dm_du[2]
+        grad_v = normal[0] * dm_dv[0] + normal[1] * dm_dv[1] + normal[2] * dm_dv[2]
+        grad_s = normal[0] * dm_ds[0] + normal[1] * dm_ds[1] + normal[2] * dm_ds[2]
+        grad_t = normal[0] * dm_dt[0] + normal[1] * dm_dt[1] + normal[2] * dm_dt[2]
+        return np.array([grad_u, grad_v, grad_s, grad_t])
+    def F(point):
+        x = point[:-1]  # variables u, v, s, t
+        lambd = point[-1]  # Lagrange multiplier
+        grad_f_val = grad_f(x)
+        grad_h_val = grad_h(x)
+        h_val = h(x)
+        F_val = np.concatenate([grad_f_val - lambd * grad_h_val, [-h_val]])
+        return F_val
 
-solution = newtons_method22(F, J_F, initial_point)
+    def J_F(point):
+        x = point[:-1]
+        lambd = point[-1]
+        # Compute Hessians
+        H_f = hessian(f, x)  # Hessian of f w.r.t x
+        H_h = hessian(h, x)   # Hessian of h w.r.t x (often zero if h is linear)
+        grad_h_val = grad_h(x)
+        # Build the Jacobian matrix
+        n = len(x)
+        JF = np.zeros((n+1, n+1))
+        # Top-left block: Hessian of the Lagrangian w.r.t x
+        JF[:n, :n] = H_f - lambd * H_h
+        # Top-right block: -grad_h^T
+        JF[:n, n] = -grad_h_val
+        # Bottom-left block: -grad_h
+        JF[n, :n] = -grad_h_val
+        # Bottom-right corner is zero
+        return JF
 
-u_sol, v_sol, s_sol, t_sol, lambda_sol = solution
+    return newtons_method22(F, J_F, np.array([*initial_point,0.1]))[:-1]
+#a, b, c, d = 1., 2., 3., 4.  # Example plane coefficients
+
+#initial_point = np.array([0.5,0.5,0.5,0.5, 0.0])
+
+#solution = newtons_method22(F, J_F, initial_point)
+
+#u_sol, v_sol, s_sol, t_sol, lambda_sol = solution
 
 import numpy as np
 import warnings

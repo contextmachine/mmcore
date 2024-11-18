@@ -420,8 +420,8 @@ class MarchingMethod(SSXMethod):
         T = ders.tangent
 
 
-        mid_pt = (pt1 + pt2) * 0.5
-        new_pln = np.array([mid_pt + T * self.side * step, n1, n2, T])
+        #mid_pt = (pt1 + pt2) * 0.5
+        new_pln = np.array([pt2 + T * self.side * step, n1, n2, T])
         return new_pln
 
     def calculate_sectional_curvature(self, step_data: IntersectionStepData):
@@ -849,9 +849,13 @@ if __name__ == "__main__":
             renderer=CADRenderer(background_color=DEFAULT_DARK_BACKGROUND_COLOR)
             renderer.add_nurbs_surface(s1,color=(0.6, 0.6, 0.6))
             renderer.add_nurbs_surface(s2,color=(0.6, 0.6, 0.6))
+            np.set_printoptions(suppress=True)
             for i,crv in enumerate(res):
                 res=np.array(crv[0].evaluate_multi(np.linspace(*crv[0].interval(),len(crv[0].knots)*5 )))
+                ptss=crv[0].evaluate_multi(np.linspace(*crv[0].interval(), 10))
 
+                print(np.array(norm(np.array(s1.evaluate_multi(np.array([closest_point_on_nurbs_surface(s1,p,tol=1e-8) for p in ptss])))-ptss)))
+                print(np.array(norm(np.array(s2.evaluate_multi(np.array([closest_point_on_nurbs_surface(s2,p,tol=1e-8) for p in ptss]))) - ptss)))
                 renderer.add_wire(np.asarray(cc[0][i],dtype=np.float32), color=np.array((1., 1., 1.), np.float32))
                 #renderer.add_nurbs_curve(crv[0],np.array((1., 1., 1.)))
             renderer.run()

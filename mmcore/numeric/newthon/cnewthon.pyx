@@ -11,7 +11,6 @@ cimport numpy as cnp
 cnp.import_array()
 from libc.math cimport fabs
 
-from cpython cimport PyErr_WarnEx
 
 
 ctypedef cnp.float64_t DTYPE_t
@@ -223,6 +222,7 @@ def newtons_method(f, double[:] initial_point, double tol=1e-5, int max_iter=100
         norm_diff = 0.0
         for i in range(n):
             norm_diff += step[i] * step[i]
+
         norm_diff = norm_diff ** 0.5
         if norm_diff < tol:
             if full_return:
