@@ -17,6 +17,7 @@ earcut = { version = "^1.1.5" }
 scipy = {version = "*"}
 pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
+steputils = "^0.1"
 
 
 [tool.poetry.build]
