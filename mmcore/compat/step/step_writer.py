@@ -1,23 +1,15 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from enum import Enum
-from typing import Any
 
+from typing import Any
+from mmcore import __version__
 from steputils import p21
 from itertools import count
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
-from dataclasses import dataclass,field,InitVar
 
-from mmcore.geom.polygon import orientation
 from mmcore.numeric.intersection.ssx.boundary_intersection import extract_surface_boundaries
-COMPLEX_ENTITY_INSTANCE='COMPLEX_ENTITY_INSTANCE'
-CARTESIAN_POINT="CARTESIAN_POINT"
-VERTEX_POINT="VERTEX_POINT"
-ANY=p21.UnsetParameter('*')
-import re
 
-import re
 
 
 import re
@@ -149,10 +141,6 @@ def process_token(token):
 
 
 
-
-@dataclass
-class STEPEntity:
-    name:str
 def get_knot_multiplicities(knots):
     unique_knots = []
     multiplicities = []
@@ -176,48 +164,15 @@ def get_knot_multiplicities(knots):
     multiplicities.append(count)
 
     return unique_knots, multiplicities
+
+COMPLEX_ENTITY_INSTANCE='COMPLEX_ENTITY_INSTANCE'
+CARTESIAN_POINT="CARTESIAN_POINT"
+VERTEX_POINT="VERTEX_POINT"
+
+ANY=p21.UnsetParameter('*')
 UNSPECIFIED=p21.Enumeration('.UNSPECIFIED.')
 FALSE=p21.Enumeration(".F.")
 TRUE=p21.Enumeration(".T.")
-class BsplineCurveForm(str,Enum):
-    polyline_form=".polyline_form.".upper()
-    circular_arc=".circular_arc.".upper()
-    elliptic_arc=".elliptic_arc.".upper()
-    parabolic_arc=".parabolic_arc.".upper()
-    hyperbolic_arc=".hyperbolic_arc.".upper()
-    unspecified=".unspecified.".upper()
-
-@dataclass
-class STEPBsplineCurve(STEPEntity):
-    degree:int
-    control_points:list[p21.Reference]
-    b_spline_curve_form:BsplineCurveForm
-    closed_curve: bool
-    self_intersect:bool
-    knot_multiplicities:list[int]
-    knots:list[float] #unique knots
-
-    # inline void getKnotMultiplicities(const std::vector<double>& knots,
-    #                                   std::vector<double>& unique_knots,
-    #                                   std::vector<int>& multiplicities) {
-    #     unique_knots.clear();
-    #     multiplicities.clear();
-    #     if (knots.empty()) return;
-    #     double last_knot = knots[0];
-    #     int count = 1;
-    #     for (std::size_t i = 1; i < knots.size(); ++i) {
-    #         if (fabs(knots[i] - last_knot) < 1e-8) {
-    #             ++count;
-    #         } else {
-    #             unique_knots.push_back(last_knot);
-    #             multiplicities.push_back(count);
-    #             last_knot = knots[i];
-    #             count = 1;
-    #         }
-    #     }
-    #     unique_knots.push_back(last_knot);
-    #     multiplicities.push_back(count);
-    # }
 
 
 def get_knot_multiplicities(knots):
@@ -239,8 +194,7 @@ def get_knot_multiplicities(knots):
     multiplicities.append(count)
     return unique_knots, multiplicities
 
-class STEPBsplineCurveWithKnots:
-    ...
+
 class StepWriter:
     def __init__(self, step_file:p21.StepFile=None):
         if step_file is None:
@@ -249,7 +203,8 @@ class StepWriter:
         self.step_file.data=[p21.DataSection()]
         self.step_file.header=p21.HeaderSection(entities=OrderedDict(
             {'FILE_DESCRIPTION': p21.entity('FILE_DESCRIPTION', (('',), '2;1')),
-             'FILE_NAME':p21.entity('FILE_NAME', ('nc', '2024-11-15T02:15:59+03:00', ('',), ('',), 'ST-DEVELOPER v19.2', 'mmcore', '')),
+
+             'FILE_NAME':p21.entity('FILE_NAME', ('nc', '2024-11-15T02:15:59+03:00', ('Unspecified',), ('Unspecified',), f'mmcore@{__version__}',  'Unspecified', '')),
              'FILE_SCHEMA':p21.entity('FILE_SCHEMA',(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 3 1 4 }',),))
 
              }))
@@ -257,14 +212,7 @@ class StepWriter:
         self._counter=count()
         self._last_ref=self._counter.__next__()
         self.last_ref=p21.Reference(f'#{self._last_ref}')
-        # 1=APPLICATION_CONTEXT('core data for automotive mechanical design processes');
-        # 2=APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,#1);
-        # 3=PRODUCT_CONTEXT('',#1,'mechanical');
-        # 4=PRODUCT('Document','Document',$,(#3));
-        # 5=PRODUCT_DEFINITION_FORMATION('',$,#4);
-        # 6=PRODUCT_DEFINITION_CONTEXT('part definition',#1,'design');
-        # 7=PRODUCT_DEFINITION('design',$,#5,#6);
-        # 8=PRODUCT_DEFINITION_SHAPE('',$,#7);
+
 
         self._1 = self.add_entity(
             p21.entity('APPLICATION_CONTEXT', ('core data for automotive mechanical design processes',)))
@@ -507,12 +455,6 @@ class StepWriter:
         _497 = self.add_entity(p21.entity("SURFACE_STYLE_USAGE", (p21.Enumeration('.BOTH.'), _498)))
         _496 = self.add_entity(p21.entity("PRESENTATION_STYLE_ASSIGNMENT", ((_497,),)))
         _495 = self.add_entity(p21.entity("STYLED_ITEM", ('', (_496,), shell_based_surface_model)))
-
-
-
-
-
-
         _503 = self.add_entity(
             p21.entity("MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION", ('', (_495,), self._context3)))
         _504 = self.add_entity(p21.entity("PRESENTATION_LAYER_ASSIGNMENT", ('Default', '', (shell_based_surface_model,))))
@@ -528,4 +470,17 @@ class StepWriter:
 
         self.step_file.data[0].instances.update({entity_id:p21.complex_entity_instance(entity_id, entities)})
         return entity_id
+
+if __name__ =="__main__":
+    from pathlib import Path
+    import sys
+    sys.path.append(Path(__file__).parent.parent.parent.__str__())
+
+    from mmcore._test_data import ssx
+
+    we = StepWriter()
+    refs = we.add_nurbs_surface(ssx[1][0], 'mysurf')
+    refs = we.add_nurbs_surface(ssx[1][1], 'mysurf1')
+    with open('step-test1.step', 'w') as f:
+        we.step_file.write(f)
 
