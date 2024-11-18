@@ -141,29 +141,6 @@ def process_token(token):
 
 
 
-def get_knot_multiplicities(knots):
-    unique_knots = []
-    multiplicities = []
-
-    if not knots:
-        return unique_knots, multiplicities
-
-    last_knot = knots[0]
-    count = 1
-
-    for i in range(1, len(knots)):
-        if abs(knots[i] - last_knot) < 1e-8:
-            count += 1
-        else:
-            unique_knots.append(last_knot)
-            multiplicities.append(count)
-            last_knot = knots[i]
-            count = 1
-
-    unique_knots.append(last_knot)
-    multiplicities.append(count)
-
-    return unique_knots, multiplicities
 
 COMPLEX_ENTITY_INSTANCE='COMPLEX_ENTITY_INSTANCE'
 CARTESIAN_POINT="CARTESIAN_POINT"
@@ -196,11 +173,59 @@ def get_knot_multiplicities(knots):
 
 
 class StepWriter:
-    def __init__(self, step_file:p21.StepFile=None):
+    """
+    Represents a writer for STEP files, which are used for exchanging digital information related to 3D models.
+
+    This class provides methods to create and manipulate entities within a STEP file, allowing users to define complex 3D models with geometric and topological information. The class initializes with a default structure and provides various methods to add specific STEP entities. It maintains internal counters and references to ensure the uniqueness of STEP entities and provides functionality to output the final STEP file format.
+
+    Attributes:
+        step_file (p21.StepFile): The STEP file object being manipulated.
+        tolerance (float): The tolerance value for geometric measurements.
+        world_plane (tuple): Defines the world plane in 3D space.
+        last_ref (p21.Reference): The last created reference for STEP entities.
+
+    Methods:
+        __init__(step_file: p21.StepFile = None, tolerance: float = 1e-7, world_plane: tuple = ((0., 0., 0.), (1., 0., 0.), (0., 1., 0.), (0., 0., 1.))):
+            Initializes the StepWriter with default values and prepares the initial STEP file structure.
+        write(fl: Any):
+            Writes the current STEP file data to the given output.
+        next_ref():
+            Generates and returns the next unique reference for a STEP entity.
+        add_nurbs_curve(curve: NURBSCurve, name: str = ''):
+            Adds a NURBS curve entity to the STEP file.
+        issteptype(obj):
+            Checks if the given object is of a STEP type (Reference, SimpleEntityInstance, ComplexEntityInstance).
+        typeof(ref: p21.Reference):
+            Gets the STEP entity type of the given reference.
+        add_edge_curve(start, end, geometry, same_sense: bool = True, name: str = ''):
+            Adds an edge curve entity to the STEP file.
+        add_vertex_point(pt: p21.Reference | Any, name: str = ''):
+            Adds a vertex point entity to the STEP file.
+        add_oriented_edge(edge, start: Any = ANY, end: Any = ANY, orientation: bool = True, name: str = ''):
+            Adds an oriented edge entity to the STEP file.
+        add_edge_loop(edges, name: str = ''):
+            Adds an edge loop entity to the STEP file.
+        add_face_bound(loop, orientation: bool = TRUE, name: str = ''):
+            Adds a face bound entity to the STEP file.
+        add_open_shell(faces, name: str = ''):
+            Adds an open shell entity to the STEP file.
+        add_advanced_face(loops, face_geometry, same_sense: bool = TRUE, name: str = ''):
+            Adds an advanced face entity to the STEP file.
+        add_shell_based_surface_model(shells, name: str = ''):
+            Adds a shell-based surface model entity to the STEP file.
+        add_manifold_surface_shape_representation(representations, context: Any = None, name: str = ''):
+            Adds a manifold surface shape representation entity to the STEP file.
+        add_units():
+            Adds units of measurement to the STEP file.
+        add_context3():
+            Adds the default geometric representation context to the STEP file.
+    """
+    def __init__(self, step_file:p21.StepFile=None, tolerance=1e-7,world_plane= ((0.,0.,0.),(1.,0.,0.),(0.,1.,0.),(0.,0.,1.))):
         if step_file is None:
             step_file=p21.StepFile()
         self.step_file=step_file
         self.step_file.data=[p21.DataSection()]
+        self.tolerance=tolerance
         self.step_file.header=p21.HeaderSection(entities=OrderedDict(
             {'FILE_DESCRIPTION': p21.entity('FILE_DESCRIPTION', (('',), '2;1')),
 
@@ -226,15 +251,18 @@ class StepWriter:
         self._8 = self.add_entity(p21.entity('PRODUCT_DEFINITION_SHAPE', ('', p21.UnsetParameter('$'), self._7)))
         self._context3=None
         self._context3= self.add_context3()
-        self.world_plane=self.add_plane([(0.,0.,0.),(1.,0.,0.),(0.,1.,0.),(0.,0.,1.)])
+        self.world_plane=self.add_plane(world_plane)
         #self.base_shape_representation=self.add_shape_representation((self.world_plane[-2],self.world_plane[-1]), self._context3,'Document')
+
+    def write(self,fl):
+        return self.step_file.write(fl)
 
     def next_ref(self):
         self._last_ref=        self._counter.__next__()
         self.last_ref=p21.Reference(f'#{self._last_ref}')
         return self.last_ref
 
-    def add_nurbs_curve(self, curve:NURBSCurve, name:str=''):
+    def add_b_spline_curve_with_knots(self, curve:NURBSCurve, name:str=''):
         unique_knots,mult= get_knot_multiplicities(curve.knots.tolist())
         return self.add_entity(p21.entity('B_SPLINE_CURVE_WITH_KNOTS',
                                           (
@@ -354,11 +382,6 @@ class StepWriter:
         p21.entity('SI_UNIT',(p21.UnsetParameter('$'), p21.Enumeration('.RADIAN.')))
         ])
 
-        #DIMENSIONAL_EXPONENTS=self.add_entity(p21.entity('DIMENSIONAL_EXPONENTS',(0.,0.,0.,0.,0.,0.,0.)))
-        # 57=PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.01745329252),#55);
-        # 58=(
-
-
 
         p59=self.add_complex_entity(
             [p21.entity(
@@ -367,7 +390,7 @@ class StepWriter:
         p21.entity('SOLID_ANGLE_UNIT', ())]
         )
 
-        UNCERTAINTY_MEASURE_WITH_UNIT=self.add_entity(p21.entity('UNCERTAINTY_MEASURE_WITH_UNIT',(p21.entity('LENGTH_MEASURE',(1e-7,)),LENGTH_UNITS,'','maximum tolerance')))
+        UNCERTAINTY_MEASURE_WITH_UNIT=self.add_entity(p21.entity('UNCERTAINTY_MEASURE_WITH_UNIT',(p21.entity('LENGTH_MEASURE',(self.tolerance,)),LENGTH_UNITS,'','maximum tolerance')))
 
         return (LENGTH_UNITS,ANGLE_UNITS,p59,UNCERTAINTY_MEASURE_WITH_UNIT)
     def add_context3(self):
@@ -394,7 +417,7 @@ class StepWriter:
 
         return (origin, xaxis,yaxis,xy)
 
-    def add_nurbs_surface(self, surf:NURBSSurface, name:str=''):
+    def add_nurbs_surface(self, surf:NURBSSurface,color=(0.5,0.5,0.5), name:str=''):
 
         unique_knots_u, mult_u = get_knot_multiplicities(surf.knots_u.tolist())
         unique_knots_v, mult_v = get_knot_multiplicities(surf.knots_v.tolist())
@@ -409,7 +432,7 @@ class StepWriter:
                                 self.add_edge_curve(
                                     self.add_cartesian_point(tuple(boundary.start())),
                                     self.add_cartesian_point(tuple(boundary.end())),
-                                    self.add_nurbs_curve(boundary)
+                                    self.add_b_spline_curve_with_knots(boundary)
                                 )
                             ) for boundary in boundaries])),
                         ),
@@ -426,7 +449,7 @@ class StepWriter:
                         name
                     ),
                 ),),),name)
-        self.add_surface_style(shell)
+        self.add_surface_style(shell,color=color)
         return shell
     def add_shape_representation(self, items, context_of_items=None, name:str=''):
         return self.add_entity(p21.entity('SHAPE_REPRESENTATION', (name, items, context_of_items if context_of_items is not None else self.add_context3())))
@@ -479,8 +502,8 @@ if __name__ =="__main__":
     from mmcore._test_data import ssx
 
     we = StepWriter()
-    refs = we.add_nurbs_surface(ssx[1][0], 'mysurf')
-    refs = we.add_nurbs_surface(ssx[1][1], 'mysurf1')
+    ref1 = we.add_nurbs_surface(ssx[1][0], (0.8,0.8,0.8),'surface1')
+    ref2 = we.add_nurbs_surface(ssx[1][1], (1.,1.0,0.),'surface2')
     with open('step-test1.step', 'w') as f:
         we.step_file.write(f)
 
