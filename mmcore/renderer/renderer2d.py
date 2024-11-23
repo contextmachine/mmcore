@@ -6,9 +6,8 @@ import numpy as np
 
 from plotly import graph_objs
 from dataclasses import dataclass
+from typing import TypedDict
 
-
-from mmcore.geom.curves.curve import Curve
 
 
 class RenderConfigOverrides(TypedDict):
@@ -48,7 +47,7 @@ class RenderConfig:
     axes_equal:bool=True
     display_ctrlpts: bool = True
     display_bbox: bool = False
-    figure_size:tuple[int,int]=(720, 720)
+    figure_size:tuple[int,int]=(1080 , 1080)
     trim_size:int=1
     line_width:int=2
     ctrlpts_offset:float=2.
@@ -132,6 +131,7 @@ class BaseRenderer:
         if hasattr(crv, 'control_points') and self.config.display_ctrlpts:
             self.add(ptsarr=crv.control_points, name="", color=color, plot_type='ctrlpts', idx=idx if idx is not None else len(self._plots))
         if self.config.display_evalpts:
+
             self.add(ptsarr=crv.points(), name="", color=color, plot_type='ctrlpts', idx=idx if idx is not None else len(self._plots))
 
 

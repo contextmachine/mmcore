@@ -35,8 +35,6 @@ define_macros = [
     ("ANSI_DECLARATORS", 1),
 ]
 if sys.platform == "darwin" :
-
-    print("Darwin")
     compile_args += ["-mcpu=apple-m1"]#+["-march=armv8-a+simd"]
 
 elif sys.platform == "linux" and platform.machine() == "aarch64" :
@@ -274,6 +272,7 @@ if __name__ == "__main__":
         nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
         compiler_directives=compiler_directives,
+        force=True
     )
     dist = Distribution({"ext_modules": ext_modules})
     cmd = build_ext(dist)
