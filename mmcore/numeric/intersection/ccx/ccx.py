@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Callable
 
 import numpy as np
@@ -192,8 +193,11 @@ def curve_pix(curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, 
     return roots
 
 
-
-
+def _categorize_with_defaultdict(data, labels):
+    grouped = defaultdict(list)
+    for d, l in zip(data, labels):
+        grouped[l].append(d)
+    return dict(grouped)
 def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bounds2=None, eager=True) -> list[
     tuple[float, float]]:
     """
@@ -313,7 +317,9 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
             recursive_intersect(curve1, curve2, curve1_bounds, curve2_bounds, tol)
         )
 
-    return result
+    _,index=np.unique(np.round(result,int(np.abs(np.log10(tol)))), return_inverse=True,axis=0)
+    return sorted((tuple(np.average(val,axis=0)) for val in _categorize_with_defaultdict(result, index.tolist()).values()),key=lambda x:x[0])
+
 
 
 def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
