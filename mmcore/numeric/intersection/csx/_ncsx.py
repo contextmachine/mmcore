@@ -84,14 +84,7 @@ class NURBSCurveSurfaceIntersector:
             surface1, surface2, surface3, surface4 = subdivide_surface(
                 surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
             )
-            self._curve_surface_intersect(curve1, surface1)
-            self._curve_surface_intersect(curve1, surface2)
-            self._curve_surface_intersect(curve1, surface3)
-            self._curve_surface_intersect(curve1, surface4)
-            self._curve_surface_intersect(curve2, surface1)
-            self._curve_surface_intersect(curve2, surface2)
-            self._curve_surface_intersect(curve2, surface3)
-            self._curve_surface_intersect(curve2, surface4)
+
         else:
             point, (t, u, v) = new_point
 
@@ -112,13 +105,18 @@ class NURBSCurveSurfaceIntersector:
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
 
-            surfaces = subdivide_surface(surface, u, v, tol=self.ptol, normalize_knots=False)
+            surface1, surface2, surface3, surface4  = subdivide_surface(surface, u, v, tol=self.ptol, normalize_knots=False)
 
-            for s in surfaces:
-                for c in [curve1, curve2]:
-                    self._curve_surface_intersect(c, s)
+        self._curve_surface_intersect(curve1, surface1)
+        self._curve_surface_intersect(curve1, surface2)
+        self._curve_surface_intersect(curve1, surface3)
+        self._curve_surface_intersect(curve1, surface4)
+        self._curve_surface_intersect(curve2, surface1)
+        self._curve_surface_intersect(curve2, surface2)
+        self._curve_surface_intersect(curve2, surface3)
+        self._curve_surface_intersect(curve2, surface4)
 
-    def _no_new_intersections(self, curve, surface,):
+    def _no_new_intersections(self, curve, surface):
         # Implement separability test from section 4.2
         # Return True if curve and surface don't intersect except at already discovered points
 
