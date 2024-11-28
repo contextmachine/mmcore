@@ -1,21 +1,26 @@
+import copy
 import itertools
+import sys
 import time
 import warnings
+from array import array
 from dataclasses import dataclass
 
-from mmcore.geom.nurbs import NURBSSurface
+from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
 from scipy.integrate import solve_bvp, solve_ivp
 
 from mmcore.geom.surfaces import CurveOnSurface, Surface
 from scipy.spatial import KDTree
 
-from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode
+from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode, Triangle
 from mmcore.geom.surfaces import Surface, Coons
-from mmcore.numeric.vectors import solve2x2,det
+from mmcore.numeric.vectors import solve2x2,det,scalar_dot,scalar_norm
 from mmcore.numeric.intersection.ssx._ssi import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
+
 from mmcore.numeric.closest_point import closest_point_on_ray, closest_points_on_surface, closest_point_on_surface, \
     closest_point_on_nurbs_surface
+from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_nd
 from mmcore.numeric.intersection.csx import nurbs_csx
 
 from mmcore.numeric.plane import plane_plane_intersect
@@ -37,10 +42,16 @@ from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
 from mmcore.numeric.intersection.ssx._terminator import (
     surface_surface_intersection_edge_terminator,
 )
+from mmcore.numeric.fdm import newtons_method
+from numpy.typing import NDArray
+@dataclass(slots=True)
+class SurfaceDerivativesData:
+    uv:NDArray[float]
+    pt: NDArray[float]
+    du: NDArray[float]
+    dv: NDArray[float]
+    normal: NDArray[float]
 
-SurfaceDerivativesData = namedtuple(
-    "SurfaceDerivativesData", ["uv", "pt", "du", "dv", "normal"]
-)
 
 
 def improve_uv(du, dv, xyz_old, xyz_better, res):
@@ -71,8 +82,8 @@ def improve_uv_robust(surf, uv_old,du, dv, xyz_old, xyz_better, uv_better=None):
 
         return uv_better
 
-
-class IntersectionStepData(NamedTuple):
+@dataclass(slots=True)
+class IntersectionStepData:
     first: SurfaceDerivativesData
     second: SurfaceDerivativesData
     tangent: Optional[np.ndarray]
@@ -186,11 +197,11 @@ class SSXMethod:
     def calculate_derivatives_data(cls,surface:NURBSSurface, uv):
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
         #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
-        pt=surface.evaluate(uv)
-        du,dv=surface.derivatives(uv)
+        pt=np.array(surface.evaluate(uv))
+        du,dv=np.array(surface.derivatives(uv))
         #dv=surface.derivative_v(uv)
-
-        n=np.cross(du,dv)
+        n = np.array(scalar_cross(du, dv))
+        #n=np.cross(du,dv)
 
         #n = np.array(scalar_unit(scalar_cross(du, dv)))
 
@@ -291,25 +302,41 @@ class FreeFormMethod(SSXMethod):
             p1_better, mid, p2_better = self.refine_points(intersection_step_data)
 
             uv1,uv2=self.improve_uvs(intersection_step_data,mid)
+            d1 = scalar_norm( mid - intersection_step_data.first.pt)
+            d2 = scalar_norm( mid - intersection_step_data.second.pt)
+
+
+            intersection_step_data.first.uv=uv1
+            intersection_step_data.second.uv=uv2
+            intersection_step_data.first.pt = mid
+            intersection_step_data.second.pt = mid
 
 
             if any(self.handle_inside(*uv1,*uv2)):
                 if return_edges:
                     mid,uv1,uv2=self.boundary_terminators.get_closest(mid)
+                    print(1,  i,d1,d2,mid, uv1, uv2)
                     return  mid,uv1,uv2
                 else:
                     return
-
-            d1, d2 = scalar_norm(intersection_step_data.first.pt - p1_better), scalar_norm(
-                intersection_step_data.second.pt - p2_better)
-
-            if d1<self.tol and d2<self.tol:
-
+            if (d1 < self.tol) and (d2 < self.tol):
+                print(2, i,d1,d2, mid, uv1, uv2)
                 return mid, uv1, uv2
 
-        warnings.warn("freeform not convergence")
-        return
+            #d1, d2 = scalar_norm(mid- p1_better), scalar_norm(
+            #   mid - p2_better)
 
+            #if d1<self.tol and d2<self.tol:
+
+            #    print(3, i, d1,d2, mid,uv1,uv2)
+
+            #    return mid, uv1, uv2
+
+        print("freeform not convergence")
+
+        
+        return
+from mmcore.numeric.newthon.cnewthon import newtons_method as cnewtons_method
 
 class MarchingMethod(SSXMethod):
     def __init__(
@@ -362,10 +389,15 @@ class MarchingMethod(SSXMethod):
                 step,
                 TerminatorType.EDGE,
             )
+
         #
+
+        #if scalar_norm(np.array(self.s1.evaluate(uv1_better)) - np.array(self.s2.evaluate(uv2_better)))>=self.tol:
+        #    print("BAD")
+
         #res = self.freeform.solve(uv1_better, uv2_better,return_edges=True)
         #if res is not None:
-        #    pt_better,uv1_better, uv2_better=            res
+        #   pt_better,uv1_better, uv2_better=            res
 
         return (
             (pt_better, uv1_better),
@@ -388,8 +420,8 @@ class MarchingMethod(SSXMethod):
         T = ders.tangent
 
 
-        mid_pt = (pt1 + pt2) * 0.5
-        new_pln = np.array([mid_pt + T * self.side * step, n1, n2, T])
+        #mid_pt = (pt1 + pt2) * 0.5
+        new_pln = np.array([pt2 + T * self.side * step, n1, n2, T])
         return new_pln
 
     def calculate_sectional_curvature(self, step_data: IntersectionStepData):
@@ -435,6 +467,7 @@ class MarchingMethod(SSXMethod):
                 new_pln[-1],
             )
         )
+
 
     def solve(self, initial_uv1, initial_uv2):
         #print(f'{self.__class__}.solve({initial_uv1,initial_uv2})')
@@ -649,7 +682,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
 
 def ssx(
         surf1: Surface, surf2: Surface, tol: float = 0.01, max_iter: int = 500
-) -> list[tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]:
+) -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -666,7 +699,7 @@ def ssx(
     :type curvature_step: bool
     :return: A list of tuples, where each tuple contains an interpolated spatial NURBS curve intersection and the corresponding objects
              CurveOnSurface objects for surf1 and surf2.
-    :rtype: list[tuple[NURBSpline, CurveOnSurface, CurveOnSurface]]
+    :rtype: list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]
 
     Note
     -----
@@ -691,10 +724,10 @@ def ssx(
         if all([terminator is TerminatorType.LOOP for terminator in terminators[i]]):
             curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0][:-1], 3)
             curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1][:-1], 3)
-            curve.make_periodic()
+            #curve.make_periodic()
 
-            curve_on_surf1.make_periodic()
-            curve_on_surf2.make_periodic()
+            #curve_on_surf1.make_periodic()
+            #curve_on_surf2.make_periodic()
         else:
             curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0], 3)
             curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1], 3)
@@ -727,7 +760,7 @@ if __name__ == "__main__":
     #yappi.set_clock_type("wall")  # Use set_clock_type("wall") for wall time
     #yappi.start()
     #s = time.perf_counter_ns()
-    TOL = 0.01
+    TOL = 0.001
 
 
     #cc = surface_ppi(patch1, patch2, TOL)
@@ -770,7 +803,7 @@ if __name__ == "__main__":
     #
     ## #print([patch1(uvs(20, 20)).tolist(), patch2(uvs(20, 20)).tolist()])
     #res = surface_intersection(patch1, patch2, TOL)
-    s1,s2=td[1]
+    s1,s2=td[2]
     s = time.perf_counter_ns()
     cc =    surface_ppi(s1,s2,TOL)
     e=(time.perf_counter_ns()-s)*1e-9
@@ -780,24 +813,51 @@ if __name__ == "__main__":
     #st1 = time.perf_counter_ns()
     #cc2 =    surface_ppi(s1,s2,TOL)
     #e1=(time.perf_counter_ns()-st1)*1e-9
-
     print([np.array(c).tolist() for c in cc[0]])
+    if len(sys.argv) < 2:
+        print([np.array(c).tolist() for c in cc[0]])
     # -----------------
 
-    with open('crz2.json', 'w') as f:
-        import json
+        with open('crz2.json', 'w') as f:
+            import json
 
-        res=[np.array(c).tolist() for c in cc[0]]
-        print(res)
-        json.dump(res, f)
+            res=[np.array(c).tolist() for c in cc[0]]
+            print(res)
+            json.dump(res, f)
+
 
     print("\n\n\n","-"*80,"\n",e)
     s = time.perf_counter_ns()
 
     res=ssx(s1,s2,TOL)
+
     e=(time.perf_counter_ns()-s)*1e-9
-    print("\nSSX:\n")
-    for rr in res:
-        print(rr)
+    if len(sys.argv) < 2:
+        print("\nSSX:\n")
+        for rr in res:
+            print(rr)
     print("\n\n\n","-"*80,"\n",e)
+    def check_argv(arg,kw=None):
+        if arg in sys.argv:
+            return True
+        elif kw is not None and kw in sys.argv:
+            return True
+        return False
+    if not len(sys.argv) < 2:
+        if check_argv('-v','--view'):
+            from mmcore.renderer.renderer3dv2 import CADRenderer,DEFAULT_DARK_BACKGROUND_COLOR
+            renderer=CADRenderer(background_color=DEFAULT_DARK_BACKGROUND_COLOR)
+            renderer.add_nurbs_surface(s1,color=(0.6, 0.6, 0.6))
+            renderer.add_nurbs_surface(s2,color=(0.6, 0.6, 0.6))
+            np.set_printoptions(suppress=True)
+            for i,crv in enumerate(res):
+                res=np.array(crv[0].evaluate_multi(np.linspace(*crv[0].interval(),len(crv[0].knots)*5 )))
+                ptss=crv[0].evaluate_multi(np.linspace(*crv[0].interval(), 10))
+
+                print(np.array(norm(np.array(s1.evaluate_multi(np.array([closest_point_on_nurbs_surface(s1,p,tol=1e-8) for p in ptss])))-ptss)))
+                print(np.array(norm(np.array(s2.evaluate_multi(np.array([closest_point_on_nurbs_surface(s2,p,tol=1e-8) for p in ptss]))) - ptss)))
+                renderer.add_wire(np.asarray(cc[0][i],dtype=np.float32), color=np.array((1., 1., 1.), np.float32))
+                #renderer.add_nurbs_curve(crv[0],np.array((1., 1., 1.)))
+            renderer.run()
+
     #print(e1)

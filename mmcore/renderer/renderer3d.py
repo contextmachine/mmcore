@@ -736,7 +736,7 @@ if __name__ == "__main__":
     from mmcore.numeric.intersection.ssx import surface_ppi
 
     # Add intersection curves as wires
-    cc = surface_ppi(*ssx_data[1])
+    cc = surface_ppi(*ssx_data[2])
     for c in cc[0]:
         viewer.add_wire(
             np.array(c, np.float32),
@@ -745,7 +745,7 @@ if __name__ == "__main__":
         )
 
     # Add NURBS surfaces with material properties
-    for surf in ssx_data[1]:
+    for surf in ssx_data[2]:
         material = {
             'ambient': np.array([1.5,1.5,1.5], dtype=np.float32),
             'diffuse': np.array([0.4, 0.4, 0.41], dtype=np.float32),
