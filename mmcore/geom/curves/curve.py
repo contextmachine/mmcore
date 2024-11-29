@@ -9,34 +9,18 @@ from typing import Union, Any, Callable
 
 import numpy as np
 from numpy._typing import ArrayLike
-from scipy.optimize import newton
 
 from mmcore.geom.bvh import PSegment, build_bvh
+from mmcore.numeric import circle_of_curvature
 from mmcore.numeric.vectors import scalar_unit,scalar_cross
 unit=scalar_unit
 cross=scalar_cross
 from mmcore.numeric.numeric import normal_at, evaluate_tangent, evaluate_curvature, plane_on_curve, divide_interval, \
-    evaluate_length, iterative_divide_and_conquer_min
+    evaluate_length
 
 from mmcore.numeric.fdm import DEFAULT_H, fdm
 
 TOLERANCE = 1e-4
-
-
-def circle_of_curvature(curve: Curve, t: float):
-    origin = curve(t)
-    T, K, success = evaluate_curvature(curve.derivative(t), curve.second_derivative(t))
-
-    N = unit(K)
-    B = cross(T, N)
-    k = np.linalg.norm(K)
-    R = 1 / k
-
-    return (
-        origin, R,
-        np.array([origin + N * R, T, N, B])
-
-    )  # Plane of curvature circle, Radius of curvature circle
 
 
 class Curve:

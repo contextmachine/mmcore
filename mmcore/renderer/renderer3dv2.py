@@ -3,7 +3,7 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 import pyrr
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 from typing import List, Tuple
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
@@ -43,10 +43,19 @@ def nurbs_surface_wireframe_view(surf: NURBSSurface):
     v_iso = extract_isocurve(surf, (v_min + v_max) * 0.5, direction='v')
     boundaries = extract_surface_boundaries(surf)
     return boundaries, (u_iso, v_iso)
-
-
+from numpy.typing import NDArray
+@dataclass
+class Camera:
+    pos:NDArray[np.float32]=field(default_factory=lambda : np.array([150.0,150.0, 150.0], dtype=np.float32))
+    target: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0,0.0, 0.0], dtype=np.float32))
+    up: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0, 1.0, 0.0], dtype=np.float32))
+    zoom:float=1.
+    near:float = 0.1
+    far:float = 100000.0
+    is_panning:bool = False
 class CADRenderer:
-    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR):
+    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:Camera=None):
+
         # Initialize window
         self._background_color = background_color
         if not glfw.init():
@@ -72,13 +81,15 @@ class CADRenderer:
         print("GLSL version:", glGetString(GL_SHADING_LANGUAGE_VERSION).decode())
 
         # Camera settings
-        self.camera_pos = np.array([150.0, 150.0, 150.0], dtype=np.float32)
-        self.camera_target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        self.zoom = 1.0  # This will control orthographic size
-        self.is_panning = False
-        self.near = 0.1
-        self.far = 100000.0
+        if camera is None:
+            camera=Camera()
+        self.camera_pos = camera.pos
+        self.camera_target = camera.target
+        self.camera_up = camera.up
+        self.zoom =camera.zoom
+        self.is_panning = camera.is_panning
+        self.near = camera.near
+        self.far = camera.far
 
         # Mouse interaction
         self.is_dragging = False
@@ -395,9 +406,8 @@ class CADRenderer:
         res = np.array(
             crv.evaluate_multi(np.linspace(*crv.interval(), len(crv.knots) * 5)), dtype=np.float32)
         #print(res)
-        self.add_wire(
-            res,
-            color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
+        self.add_wire(res,color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
+
 
     def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=1.0):
         boundaries, isolines = nurbs_surface_wireframe_view(surf)

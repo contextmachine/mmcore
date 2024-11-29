@@ -4,7 +4,7 @@ from OpenGL.GL import *
 from OpenGL.GL import shaders
 import pyrr
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
 
@@ -17,6 +17,7 @@ from mmcore.numeric.intersection.ssx.boundary_intersection import (
     sort_boundary_intersections,
     IntersectionPoint
 )
+from mmcore.topo.mesh.tess import tessellate_surface
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
 DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.
@@ -52,8 +53,7 @@ class Surface:
     vao: int  # Vertex Array Object
     vbo_vertices: int  # Vertex Buffer Object for vertices
     vbo_normals: int  # Vertex Buffer Object for normals
-
-
+    owner:Any
 @dataclass
 class Light:
     direction: np.ndarray  # 3D vector
@@ -469,7 +469,8 @@ class CADRenderer:
             material=material,
             vao=vao,
             vbo_vertices=vbo_vertices,
-            vbo_normals=vbo_normals
+            vbo_normals=vbo_normals,
+            owner=surface
         ))
 
     def add_nurbs_curve(self, crv: NURBSCurve, color=(0., 1., 1.), thickness=0.05, **kwargs):
@@ -630,8 +631,11 @@ class CADRenderer:
             # Assuming the surface is rendered as a grid of triangles
             # You might need to adjust the drawing mode and count based on how you sampled the surface
             # Here, using GL_TRIANGLES for simplicity
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, len(surface.vertices))
+            triangulate_result=tess=tessellate_surface(surface)
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, triangulate_result['position'])
+            glDrawArrays(GL_INDEX_ARRAY, 0,triangulate_result['triangles'])
             glBindVertexArray(0)
+
 
         glUseProgram(0)
 

@@ -645,3 +645,19 @@ if __name__ == '__main__':
     print(
         bb.evaluate_parameter_at_length(rr, tol=1e-3), 0.23)
     print(divmod(time.time() - s, 60))
+
+
+def circle_of_curvature(curve, t: float):
+    origin = curve.evaluate(t)
+    T, K, success = evaluate_curvature(curve.derivative(t), curve.second_derivative(t))
+
+    N = K/scalar_norm(K)
+    B = scalar_cross(T, N)
+    k = scalar_norm(K)
+    R = 1 / k
+
+    return (
+        origin, R,
+        np.array([origin + N * R, T, N, B])
+
+    )  # Plane of curvature circle, Radius of curvature circle
