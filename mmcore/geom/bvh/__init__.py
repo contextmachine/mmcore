@@ -1,8 +1,16 @@
+import itertools
+from functools import reduce
+
 import numpy as np
 
 from mmcore.numeric._aabb import aabb
+from mpmath import mnorm
+from shapely import centroid
+
 
 class Object3D:
+
+
     def __init__(self, bounding_box):
         self.bounding_box = bounding_box
 
@@ -16,14 +24,136 @@ class BVHNode:
         self.object = object  # None for internal nodes, leaf node holds the object
 
 
+_BBOX_CORNERS_BINARY_COMBS={
+    1:np.array([[0], [1]],dtype=int),
+    2:np.array([[0, 0], [0, 1], [1, 0], [1, 1]],dtype=int),
+    3:np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]],dtype=int),
+    4:np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1], [0, 1, 0, 0], [0, 1, 0, 1], [0, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0], [1, 0, 0, 1], [1, 0, 1, 0], [1, 0, 1, 1], [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]],dtype=int)
+}
+
+
+def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray:
+    """
+    Returns all corners of an Axis-Aligned Bounding Box (AABB) defined by two points using NumPy.
+
+    Parameters:
+    - point1: A NumPy array representing the first corner of the AABB.
+    - point2: A NumPy array representing the opposite corner of the AABB.
+
+    Returns:
+    - A NumPy array of shape (2^N, N), where N is the number of dimensions. Each row represents a corner of the AABB.
+
+    Raises:
+    - ValueError: If the input points do not have the same dimensionality.
+    """
+    if point1.shape != point2.shape:
+        raise ValueError("Both points must have the same number of dimensions.")
+
+    # Ensure input points are 1-D arrays
+    point1 = point1.flatten()
+    point2 = point2.flatten()
+
+    # Determine the minimum and maximum for each dimension
+    min_coords = np.minimum(point1, point2)
+    max_coords = np.maximum(point1, point2)
+
+    # Stack min and max coordinates for each dimension
+    bounds = np.stack((min_coords, max_coords), axis=1)
+
+    # Generate all combinations using binary representations
+    num_dims = bounds.shape[0]
+    if num_dims in _BBOX_CORNERS_BINARY_COMBS:
+        binary_combinations=_BBOX_CORNERS_BINARY_COMBS[num_dims]
+    else:
+        num_corners = 2 ** num_dims
+        # Generate binary representations from 0 to 2^N - 1
+        binary_combinations = np.array([list(map(int, bin(i)[2:].zfill(num_dims))) for i in range(num_corners)])
+        _BBOX_CORNERS_BINARY_COMBS[num_dims]=binary_combinations
+
+        print(binary_combinations.tolist())
+    # Use binary combinations to select min or max for each dimension
+    corners = bounds[np.arange(num_dims), binary_combinations]
+
+    return corners
 
 class BoundingBox:
+
     def __init__(self, min_point, max_point):
         self.min_point = np.array(min_point)  # Should be a tuple (x_min, y_min, z_min)
         self.max_point = np.array(max_point)  # Should be a tuple (x_max, y_max, z_max)
-        self.center = (self.min_point+ self.max_point)*0,5
+        self.center = (self.min_point + self.max_point) * 0.5
         self.dims = self.max_point - self.min_point
 
+    def split(self, axis=0, parameter=0.5):
+        left=BoundingBox(np.copy(self.min_point),np.copy(self.max_point))
+        right=BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
+        #print(axis,parameter)
+        right.min_point[axis] =left.max_point[axis]=(self.min_point[axis] + self.max_point[axis])*parameter
+
+        return left,right
+
+    def get_corners(self):
+
+        return get_aabb_corners_numpy(self.min_point,self.max_point)
+
+    def is_finite(self)->bool:
+        """Finite Values: All coordinates should be finite numbers (not NaN or infinite)"""
+        return np.all(np.isfinite(self.min_point)) and np.all( np.isfinite(self.max_point))
+    def is_non_zero_volume(self)->bool:
+        """Non-zero Volume: The box should have positive, non-zero extent in all dimensions (i.e., max_point[i] > min_point[i] for all i)"""
+        return np.all(self.max_point>self.min_point)
+
+    def is_consistency(self)->bool:
+        """Dimensional Consistency: min_point should be less than or equal to max_point in all dimensions (x,y,z)"""
+        return np.all(self.max_point>=self.min_point)
+    def is_valid(self)->bool:
+        return self.is_finite() and self.is_non_zero_volume() and self.is_consistency()
+
+    def split4(self, axis1,axis2, parameter1=0.5,parameter2=0.5):
+        """
+
+
+            (0,2)-------(1,2)-------(2,2)
+              |           |           |
+              |     c     |     d     |             a:  (0,0),(1,1)
+              |           |           |             b:  (1,0),(2,1)
+            (0,1)-------(1,1)-------(2,1)           c:  (0,1),(1,2)
+              |           |           |             d:  (1,1),(2,2)
+              |     a     |     b     |
+              |           |           |
+            (0,0)-------(1,0)-------(2,0)
+
+
+        """
+        a,b=self.split(axis2,parameter1)
+        return a.split(axis1,parameter2)+b.split(axis1,parameter2)
+
+    def split8(self, axis1=0,axis2=1,axis3=2,parameter1=0.5, parameter2=0.5, parameter3=0.5):
+        """
+
+                 (0,2,1)-----(1,2,1)-----(2,2,1)
+                  / |           |           |
+                /   |     g     |     h     |
+           (0,2,0)-----(1,2,0)-----(2,2,0)  |
+              |  (0,1,1)--|--(1,1,1)--|--(2,1,1)                a:  (0,0,0),(1,1,0)
+              |     c     |     d     |     |                   b:  (1,0,0),(2,1,0)
+        e ----|-----|---→ |     |     | ←----------f            c:  (0,1,0),(1,2,0)
+           (0,1,0)-----(1,1,0)-----(2,1,0)  |                   d:  (1,1,0),(2,2,0)
+              |  (0,0,1)--|--(1,0,1)--|--(2,0,1)                e:  (0,0,1),(1,1,1)
+              |   /   a   |     b     |   /                     f:  (1,0,1),(2,1,1)
+              | /         |           | /                       g:  (0,1,1),(1,2,1)
+           (0,0,0)-----(1,0,0)-----(2,0,0)                      h:  (1,1,1),(2,2,1)
+
+
+        """
+        return  list(reduce(lambda x,y: x+y,(item.split(axis1,parameter1) for item in self.split4(axis2,axis3,parameter2,parameter3))))
+
+    def evaluate(self, uvh):
+        return (self.min_point + self.max_point) *uvh
+
+    def centroid(self):
+        cent = (self.min_point + self.max_point) / 2
+        return cent
 
     def volume(self):
         return self.dims[0]*  self.dims[1]*  self.dims[2]
@@ -104,7 +234,8 @@ class BoundingBox:
         return self.merge(other)
     def __and__(self, other):
         return self.intersection(other)
-
+    def __array__(self,dtype=None):
+        return np.array([self.min_point,self.max_point],dtype=dtype)
 
 def split_objects(objects):
     """Splits list of objects into two halves"""
@@ -138,6 +269,7 @@ def split_objects(objects):
 
 def is_leaf(node: BVHNode):
     return node.object is not None
+
 def build_bvh(objects):
     """Recursively build the BVH tree given a list of objects with bounding boxes"""
     if len(objects) == 1:
@@ -216,6 +348,8 @@ def intersect_bvh(node1, node2):
     non-intersecting subtrees, leading to a significant reduction in the number of comparisons.
     """
 
+
+
     return [n1.bounding_box.intersection(n2.bounding_box) for n1,n2 in intersect_bvh_objects(node1,node2)]
 
 
@@ -275,8 +409,92 @@ def traverse_bvh_point(node, target_point):
     else:
 
         return node
+class BVHCluster(Object3D):
+    def __init__(self,  nodes=()):
+
+        self.nodes=list(nodes)
+        if len(self.nodes)==0:
+            super().__init__(BoundingBox([np.inf,np.inf,np.inf],[-np.inf,-np.inf,-np.inf]))
+        else:
+            super().__init__(reduce(lambda x,y:x.merge(y), (node.bounding_box for node in self.nodes )))
 
 
+
+    @property
+    def ixs(self):
+
+
+        return list(itertools.chain.from_iterable(n.ixs for n in self.nodes))
+    def merge(self, cluster:'BVHCluster'):
+
+        return BVHCluster(self.nodes+cluster.nodes)
+
+    def merge_if_overlap(self, cluster: 'BVHCluster'):
+        if self.bounding_box.intersect(cluster.bounding_box):
+            clust=self.merge(cluster)
+            return [clust]
+        else:
+            return [self,cluster]
+    @staticmethod
+    def build(nodes)->tuple[list['BVHCluster'],list[int]]:
+
+        clusts=[]
+        ixs=[]
+        for i,n in enumerate(nodes):
+            #print(f'{i} , {n.bounding_box}:' )
+            done=False
+            j=0
+            while not done:
+                if j==len(clusts):
+
+                    if hasattr(n, 'nodes'):
+                        ixs.append([])
+                        for n in n.nodes:
+                            ixs[-1].extend(n.ixs)
+                        clusts.append(n)
+                    else:
+                        ixs.append([*n.ixs])
+                        clusts.append(BVHCluster([n]))
+
+                    #print(f'\t{i} x {j+1}(new), {clusts[-1].bounding_box} : True')
+                    break
+
+                cl=clusts[j]
+
+
+                if cl.bounding_box.intersect(n.bounding_box):
+                        #print(i, 'to' ,j)
+
+                        ixs[j].extend(n.ixs)
+                        if hasattr(n,'nodes'):
+                            cl.nodes.extend(n.nodes)
+                        else:
+                            cl.nodes.append(n)
+                        cl.bounding_box=cl.bounding_box.merge(n.bounding_box)
+                        done=True
+                        #print(f'\t{i} x {j }, {clusts[-1].bounding_box} : True')
+
+
+                else:
+                    pass
+                    #print(f'\t{i} x {j}, {cl.bounding_box} : False')
+
+                j+=1
+
+
+        return clusts,ixs
+
+
+
+
+
+
+
+
+def traverse_leafs_groups(bvh_root:BVHNode)->list[BVHCluster]:
+    leafs=[]
+    traverse_leafs(bvh_root,leafs)
+    return BVHCluster.build(leafs)
 
 def traverse_leafs(bvh_root, result):
     if bvh_root is None:

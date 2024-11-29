@@ -125,12 +125,8 @@ def min_distance(points):
     return closest_util(points_sorted_x, points_sorted_y, len(points_sorted_x))
 
 
-# Example usage
-if __name__ == "__main__":
-    points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
-    min_dist, pair = min_distance(points)
-    print(f"The smallest distance is {min_dist} between points at indices {pair}")
-    # Expected Output: The smallest distance is 1.4142135623730951 between points at indices (0, 5)
+
+
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
     """
     Find the foot point on the parametric surface S(s, t) closest to the given point P.
@@ -365,7 +361,7 @@ def closest_point_on_surface_batched(surface, pts, tol=1e-6):
     )
     return uvs.T
 
-
+# Example usage
 __all__ = ["closest_point_on_curve",
 
            "closest_point_on_line",
@@ -375,3 +371,8 @@ __all__ = ["closest_point_on_curve",
            "closest_points_on_curve_mp",
            "local_closest_point_on_curve"
            ]
+if __name__ == "__main__":
+    points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
+    min_dist, pair = min_distance(points)
+    print(f"The smallest distance is {min_dist} between points at indices {pair}")
+    # Expected Output: The smallest distance is 1.4142135623730951 between points at indices (0, 5)

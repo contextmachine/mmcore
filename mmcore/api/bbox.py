@@ -8,8 +8,7 @@ from mmcore.api._base import Base
 from mmcore.api._base_vectors import BaseVector
 
 from mmcore.api.vectors import Point2D, Point3D
-from mmcore.func import vectorize
-from mmcore.numeric import cartesian_product
+
 from mmcore.numeric.aabb import aabb,box_from_intervals
 
 
