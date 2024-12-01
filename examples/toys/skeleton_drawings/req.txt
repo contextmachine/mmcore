@@ -1,0 +1,3 @@
+Pillow
+opencv-python
+rhino3dm

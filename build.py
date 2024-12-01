@@ -271,8 +271,8 @@ if __name__ == "__main__":
         extensions,
         nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
-        compiler_directives=compiler_directives,
-        force=True
+        compiler_directives=compiler_directives
+
     )
     dist = Distribution({"ext_modules": ext_modules})
     cmd = build_ext(dist)

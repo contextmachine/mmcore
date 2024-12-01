@@ -123,7 +123,7 @@ def tessellate_surface(surface: 'Surface',
         elif v_count is None:
             v_count = u_count
 
-    uv_interval = ((u_min, v_min), (u_max, v_max)) = surface.interval()
+    uv_interval = ((u_min, v_min), (u_max, v_max)) = surface
 
     boundary = np.array([*np.linspace((u_min, v_min), (u_max, v_min), u_count),
                          *np.linspace((u_max, v_min), (u_max, v_max), v_count),
