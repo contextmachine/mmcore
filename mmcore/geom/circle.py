@@ -1,10 +1,7 @@
 import numpy as np
 from mmcore.geom.curves import Curve
 from mmcore.geom.implicit import Implicit2D
-from mmcore.func import vectorize
-from math import cos, sin, pi
-from mmcore.geom.vec import unit
-from mmcore.numeric.plane import inverse_evaluate_plane
+
 
 _IDENTITY = np.eye(3)
 PI05 = 1.5707963267948966
@@ -39,7 +36,7 @@ class Circle2D(Curve, Implicit2D):
     """
 
     def __init__(self, origin=None, r=1.):
-        super().__init__(autodiff=False)
+        super().__init__()
 
         self.origin = (
             origin if isinstance(origin, np.ndarray) else np.array(origin)) if origin is not None else np.zeros(2,
