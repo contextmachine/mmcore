@@ -2210,6 +2210,9 @@ cdef class NURBSSurface(ParametricSurface):
                     self.control_points_view[i][j][k]=control_points[i][j][k]
 
 
+        def interval(self):
+            cdef tuple inter=self._interval
+            return inter
 
 
         if knots_u is None:
