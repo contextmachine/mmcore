@@ -967,3 +967,6 @@ def join_two_curves(curve1:NURBSCurve, curve2:NURBSCurve,tol:float=1e-5):
         cpts2  # Include all points of second curve
     ])
     return NURBSCurve(new_cpts, degree, new_knots)
+
+
+
