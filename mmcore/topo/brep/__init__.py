@@ -1,34 +1,120 @@
+from __future__ import annotations
+from numpy.typing import NDArray
 import numpy as np
 from mmcore.geom.bvh import BVHNode, build_bvh
+from mmcore.geom.proto import CurveProtocol, SurfaceProtocol
 from mmcore.geom.surfaces import surface_bvh,Surface,CurveOnSurface
 from mmcore.geom.implicit.tree import ImplicitTree3D
-
+from dataclasses import dataclass,field,InitVar
+@dataclass(slots=True, unsafe_hash=True)
 class Vertex:
-    def __init__(self, point):
-        self.point = np.array(point)
-        self.edges = []
+    represented_by:int
 
+@dataclass(slots=True, unsafe_hash=True)
 class Edge:
-    def __init__(self, start_vertex, end_vertex, curve):
-        self.start_vertex = start_vertex
-        self.end_vertex = end_vertex
-        self.curve = curve
-        self.faces = []
 
 
-class Face:
-    def __init__(self, surface):
-        self.surface = surface
-        self.loops = []
-        self.implicit_tree = None
+    represented_by: int
+    bounded_by:list[Vertex]=field(default_factory=list)
 
-    def build_implicit_tree(self, depth=3):
 
-        self.implicit_tree = ImplicitTree3D(self.surface, depth)
-
+@dataclass(slots=True, unsafe_hash=True, frozen=True)
 class Loop:
+    edges:list[Edge]=field(default_factory=list)
+
+
+@dataclass(slots=True, unsafe_hash=True)
+class Face:
+    represented_by: int
+    bounded_by:list[Loop]=field(default_factory=list)
+
+
+@dataclass(slots=True, unsafe_hash=True, frozen=True)
+class Shell:
+    faces:list[Face]=field(default_factory=list)
+
+
+@dataclass(slots=True, unsafe_hash=True, frozen=True)
+class Solid:
+    bounded_by:list[Shell]=field(default_factory=list)
+
+@dataclass(slots=True, unsafe_hash=True, frozen=True)
+class BRepGeometry:
+    points:list[NDArray[float]]=field(default_factory=list)
+    curves:list[CurveProtocol]=field(default_factory=list)
+    surfaces: list[SurfaceProtocol]=field(default_factory=list)
+
+
+import itertools
+
+
+class Sparce(dict):
     def __init__(self):
-        self.edges = []
+
+        super().__init__()
+        self._rc = dict()
+
+    def __setitem__(self, key, value):
+        a, b = key
+        if a not in self._rc:
+            self._rc[a] = []
+        if b not in self._rc:
+            self._rc[b] = []
+        if b not in self._rc[a]:
+            self._rc[a].append(b)
+        if a not in self._rc[b]:
+            self._rc[b].append(a)
+        super().__setitem__(key, value)
+        super().__setitem__((b, a), value)
+
+    def __getitem__(self, item):
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            return super().__getitem__(item)
+        else:
+            return {k: self.get((item, k), None) for k in self._rc.keys()}
+
+@dataclass(slots=True, unsafe_hash=True, frozen=True)
+class BRepTopology:
+    solids:list[Solid]=field(default_factory=list)
+    shells:list[Shell]=field(default_factory=list)
+    faces:list[Face]=field(default_factory=list)
+    loops:list[Loop]=field(default_factory=list)
+    edges:list[Edge]=field(default_factory=list)
+    vertices:list[Vertex]=field(default_factory=list)
+    def add_vertex(self, representation:int):
+        v=Vertex(representation)
+        self.vertices.append(v)
+        return v
+
+    def add_edge(self, representation: int,start:Vertex,end:Vertex):
+        v = Edge(representation,[start,end])
+        self.edges.append(v)
+        return v
+
+    def add_loop(self, edges:list[Edge]):
+        v = Loop(edges)
+        self.loops.append(v)
+        return v
+    def add_face(self, representation:int, bounded_by:list[Loop]):
+        v = Face(representation, bounded_by)
+        self.faces.append(v)
+        return v
+    def add_shell(self, faces:list[Face]):
+        v = Shell(faces)
+        self.shells.append(v)
+        return v
+    def add_solid(self, shells:list[Shell]):
+        v = Solid(shells)
+        self.solids.append(v)
+        return v
+@dataclass(slots=True, unsafe_hash=True)
+class BRep:
+    geometry:BRepGeometry=field(default_factory=BRepGeometry)
+    topology:BRepTopology=field(default_factory=BRepTopology)
+
+
+
+
 
 class BRepStructure:
     def __init__(self):
