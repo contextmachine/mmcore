@@ -1,5 +1,6 @@
 # Skeleton To Drawing Example
 An example script that generates a drawing in 3dm format from a rasterized image of a drawing.
+
 <img alt="Image to tracing" height="512" src="data/image-25.png" />
 
 Make sure you have mmcore installed. To do this in the root of the repository:
