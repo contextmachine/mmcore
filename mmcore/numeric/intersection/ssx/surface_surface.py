@@ -33,16 +33,16 @@ from collections import namedtuple
 from typing import NamedTuple, Optional, Tuple
 
 from mmcore.numeric import scalar_cross, scalar_norm
-from mmcore.numeric.vectors import scalar_unit
+
 
 from mmcore.numeric.fdm import DEFAULT_H
 from mmcore.numeric.intersection.ssx._terminator import TerminatorType
-from mmcore.geom.evaluator import surface_evaluator
+
 from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
 from mmcore.numeric.intersection.ssx._terminator import (
     surface_surface_intersection_edge_terminator,
 )
-from mmcore.numeric.fdm import newtons_method
+
 from numpy.typing import NDArray
 @dataclass(slots=True)
 class SurfaceDerivativesData:
@@ -69,14 +69,14 @@ def improve_uv(du, dv, xyz_old, xyz_better, res):
 
     return solve2x2(max_det[0], np.array(max_det[1]), res)
 
-def improve_uv_robust(surf, uv_old,du, dv, xyz_old, xyz_better, uv_better=None):
+def improve_uv_robust(surf, uv_old,du, dv, xyz_old, xyz_better, uv_better=None, ptol=1e-6):
         if uv_better is None:
             uv_better=np.zeros(2)
 
         success_first = cimprove_uv(du, dv, xyz_old, xyz_better, uv_better)
 
         if success_first == 1:
-            uv_better[:] = point_inversion_surface(surf, xyz_better,*uv_old, 1e-6, 1e-6)
+            uv_better[:] = point_inversion_surface(surf, xyz_better,*uv_old, ptol, ptol)
         else:
             uv_better += uv_old
 
@@ -336,7 +336,7 @@ class FreeFormMethod(SSXMethod):
 
         
         return
-from mmcore.numeric.newthon.cnewthon import newtons_method as cnewtons_method
+from mmcore.numeric.newton.cnewton import newtons_method as cnewtons_method
 
 class MarchingMethod(SSXMethod):
     def __init__(
@@ -851,13 +851,8 @@ if __name__ == "__main__":
             renderer.add_nurbs_surface(s2,color=(0.6, 0.6, 0.6))
             np.set_printoptions(suppress=True)
             for i,crv in enumerate(res):
-                res=np.array(crv[0].evaluate_multi(np.linspace(*crv[0].interval(),len(crv[0].knots)*5 )))
-                ptss=crv[0].evaluate_multi(np.linspace(*crv[0].interval(), 10))
-
-                print(np.array(norm(np.array(s1.evaluate_multi(np.array([closest_point_on_nurbs_surface(s1,p,tol=1e-8) for p in ptss])))-ptss)))
-                print(np.array(norm(np.array(s2.evaluate_multi(np.array([closest_point_on_nurbs_surface(s2,p,tol=1e-8) for p in ptss]))) - ptss)))
-                renderer.add_wire(np.asarray(cc[0][i],dtype=np.float32), color=np.array((1., 1., 1.), np.float32))
-                #renderer.add_nurbs_curve(crv[0],np.array((1., 1., 1.)))
+                #renderer.add_wire(np.asarray(cc[0][i],dtype=np.float32), color=np.array((1., 1., 1.), np.float32))
+                renderer.add_nurbs_curve(crv[0],np.array((1., 1., 1.)))
             renderer.run()
 
-    #print(e1)
+

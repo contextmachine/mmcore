@@ -1,7 +1,7 @@
 import numpy as np
 import warnings
 
-from mmcore.numeric.newthon.cnewthon import hessian
+from mmcore.numeric.newton.cnewton import hessian
 
 from mmcore.numeric.vectors import scalar_dot
 

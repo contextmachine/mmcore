@@ -52,8 +52,8 @@ if sys.platform == "win32":
 extensions = [
     Extension(
 
-        "mmcore.numeric.newthon.cnewthon",
-        ["mmcore/numeric/newthon/cnewthon.pyx"],
+        "mmcore.numeric.newton.cnewton",
+        ["mmcore/numeric/newton/cnewton.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -66,14 +66,7 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    #Extension(
-    #    "mmcore.geom.bvh.cbvh",
-    #    ["mmcore/geom/bvh/cbvh.pyx"],
-    #    language="c++",
-    #    extra_compile_args=cpp_compile_args + compile_args+["-march=armv8-a+simd"] if sys.platform == "darwin" else compile_args,
-    #    extra_link_args=link_args,
-    #    include_dirs=include_dirs,
-    #),
+
     Extension(
         "mmcore.geom.nurbs",
         ["mmcore/geom/nurbs.pyx"],

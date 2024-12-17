@@ -15,7 +15,7 @@ from libc.math cimport fabs
 
 ctypedef cnp.float64_t DTYPE_t
 
-cdef double DEFAULT_H = 1e-5
+cdef double DEFAULT_H = 1e-7
 
 cdef inline void swap_rows(double[:, :] LU, Py_ssize_t row1, Py_ssize_t row2) noexcept nogil:
     cdef Py_ssize_t n = LU.shape[1]
