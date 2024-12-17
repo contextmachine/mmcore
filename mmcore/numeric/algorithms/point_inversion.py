@@ -35,13 +35,14 @@ def point_inversion_curve(curve: Curve, P: np.ndarray, u0: float, tol1: float, t
     """
 
     def f(C_point, C_prime) -> float:
+
         return scalar_dot(C_prime, C_point - P)
 
     def f_prime(C_point, C_prime, C_double_prime) -> float:
 
         return scalar_dot(C_double_prime, C_point - P) + scalar_dot(C_prime, C_prime)
 
-    C_point = curve(u0)
+    C_point = curve.evaluate(u0)
     C_prime = curve.derivative(u0)
     C_double_prime = curve.second_derivative(u0)
     ui = u0
@@ -57,7 +58,7 @@ def point_inversion_curve(curve: Curve, P: np.ndarray, u0: float, tol1: float, t
 
         if abs(ui1 - ui) * scalar_norm(C_prime) <= tol1:
             break
-        C_point = curve(ui1)
+        C_point = curve.evaluate(ui1)
 
         if scalar_norm(C_point - P) <= tol1:
             break

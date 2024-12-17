@@ -3,9 +3,7 @@ from functools import reduce
 
 import numpy as np
 
-from mmcore.numeric._aabb import aabb
-from mpmath import mnorm
-from shapely import centroid
+from mmcore.numeric._aabb import aabb,aabb_intersect
 
 
 class Object3D:
@@ -83,7 +81,7 @@ class BoundingBox:
         self.max_point = np.array(max_point)  # Should be a tuple (x_max, y_max, z_max)
         self.center = (self.min_point + self.max_point) * 0.5
         self.dims = self.max_point - self.min_point
-
+        self._arr=np.array([    self.min_point,    self.max_point])
     def split(self, axis=0, parameter=0.5):
         left=BoundingBox(np.copy(self.min_point),np.copy(self.max_point))
         right=BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
@@ -159,14 +157,7 @@ class BoundingBox:
         return self.dims[0]*  self.dims[1]*  self.dims[2]
     def intersect(self, other):
         """Check if this bounding box intersects with another"""
-        return (
-            self.min_point[0] <= other.max_point[0]
-            and self.max_point[0] >= other.min_point[0]
-            and self.min_point[1] <= other.max_point[1]
-            and self.max_point[1] >= other.min_point[1]
-            and self.min_point[2] <= other.max_point[2]
-            and self.max_point[2] >= other.min_point[2]
-        )
+        return aabb_intersect(self._arr,other._arr)
     def intersect_disjoint(self, other):
         return (
                 self.min_point[0] < other.max_point[0]

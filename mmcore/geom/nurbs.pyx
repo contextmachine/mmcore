@@ -2190,6 +2190,12 @@ cpdef list split_curve_multiple(NURBSCurve crv, double[:] params):
     crvs.append(crv)
     return crvs
 
+@cython.boundscheck(False)
+@cython.cdivision(True)
+def decompose_curve(NURBSCurve crv):
+    cdef double[:] params=np.unique(crv._knots)[1:][:-1]
+    cdef list curves=split_curve_multiple(crv,params)
+    return curves
 
 cdef class NURBSSurface(ParametricSurface):
     @staticmethod
