@@ -26,7 +26,7 @@ RUN pip install --user --no-cache-dir .
 FROM python:3.12-slim
 LABEL org.opencontainers.image.source=https://github.com/contextmachine/mmcore
 LABEL org.opencontainers.image.description="mmcore, the modern cad/cam engine"
-LABEL autor="Andrew Astakhov <sthv.developer@gmail.com>
+LABEL autor="Andrew Astakhov <sthv.developer@gmail.com>"
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PATH=/root/.local/bin:$PATH
