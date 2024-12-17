@@ -485,7 +485,7 @@ def gradient(f, point, h=DEFAULT_H):
     return grad
 
 
-def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None):
+def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,h=1e-5):
     """
     Apply Newton's method to find the root of a function.
     The same powerful newton converging in a few iterations.
@@ -505,11 +505,11 @@ def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, f
     H_inv=None
     H=None
     if grad is None:
-        _grad=lambda x: gradient(f, x)
+        _grad=lambda x: gradient(f, x,h)
     else:
         _grad=grad
     if hess is None:
-        hess=lambda x: hessian(f, x)
+        hess=lambda x: hessian(f, x,h)
 
     else:
         hess=hess

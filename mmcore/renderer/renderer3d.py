@@ -1,6 +1,6 @@
 import glfw
 import numpy as np
-from OpenGL.GL import *
+
 from OpenGL.GL import shaders
 import pyrr
 from dataclasses import dataclass

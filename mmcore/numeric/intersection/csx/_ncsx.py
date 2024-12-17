@@ -3,7 +3,7 @@ import numpy as np
 from mmcore.numeric._aabb import aabb
 
 
-from mmcore.numeric.newthon.cnewthon import newtons_method
+from mmcore.numeric.newton.cnewton import newtons_method
 
 from mmcore.geom.nurbs import (
     NURBSCurve,
