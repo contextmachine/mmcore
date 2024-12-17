@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
-from mmcore.numeric.newthon.cnewthon import newtons_method
+from mmcore.numeric.newton.cnewton import newtons_method
 from mmcore.numeric.fdm import fdm
 from mmcore.numeric.integrate.romberg import romberg1d
 from mmcore.numeric.routines import divide_interval

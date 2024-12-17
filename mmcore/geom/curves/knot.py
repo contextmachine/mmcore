@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import lu_solve,lu_factor
 from mmcore.numeric.vectors import norm, scalar_norm
 
-from mmcore.geom.nurbs import NURBSCurve
+from mmcore.geom.nurbs import NURBSCurve,decompose_curve
 
 from mmcore.numeric.binom import binomial_coefficient_py
 
@@ -193,8 +193,8 @@ def interpolate_curve(points, degree,  use_centripetal=False):
 
     # Do global interpolation
     matrix_a = np.array(build_coefficient_matrix( points,degree, kv, uk))
-    ctrlpts=np.linalg.lstsq(matrix_a, points)[0]
-    #ctrlpts = lu_solve(lu_factor(matrix_a),points)
+    #ctrlpts=np.linalg.lstsq(matrix_a, points)[0]
+    ctrlpts = lu_solve(lu_factor(matrix_a),points)
 
     # Generate B-spline curve
 
@@ -696,14 +696,57 @@ def insert_knot(self, t, num=1):
     )
     self.set(control_points=np.array(cpts), knots=np.array(knots))
     return True
-import numpy as np
 
 
 
-import numpy as np
+def compose_curves(curves):
+    """
+    """
+    # Get keyword arguments
 
 
+    # Validate input
 
+    kv = []  # new knot vector
+    cpts = []  # new control points array
+    wgts = []  # new weights array
+    kv_connected = []  # superfluous knots to be removed
+    pdomain_end = 0
+
+    # Loop though the curves
+    for arg in curves:
+        arg=arg.copy()
+        arg.normalize_knots()
+
+        knots=arg.knots.tolist()
+        control_points=arg.control_points.tolist()
+        weights = arg.weights.tolist()
+        # Process knot vectors
+        if not kv:
+            kv += list(knots[:-(arg.degree + 1)])  # get rid of the last superfluous knot to maintain split curve notation
+            cpts += list(control_points)
+            # Process control points
+            wgts += list(weights)
+
+        else:
+            tmp_kv = [pdomain_end + k for k in knots[1:-(arg.degree + 1)]]
+            kv += tmp_kv
+            cpts += list(control_points[1:])
+            # Process control points
+
+            wgts += list(weights[1:])
+
+        pdomain_end += knots[-1]
+        kv_connected.append(pdomain_end)
+
+    # Fix curve by appending the last knot to the end
+    kv += [pdomain_end for _ in range(arg.degree + 1)]
+    # Remove the last knot from knot insertion list
+    kv_connected.pop()
+    cp=np.zeros((len(cpts),4))
+    cp[:,:3]=cpts
+    cp[:, 3]=wgts
+    return np.array(kv), cp, np.array(kv_connected)
 def degree_elevate(n, p, U, Pw, t):
     """
     Degree elevate a B-spline curve t times.
@@ -883,12 +926,20 @@ def degree_elevate(n, p, U, Pw, t):
 
     nh = mh - ph - 1
 
-    # Trim arrays to actual size
+
+
     Uh = Uh[:kind + ph + 1]
     Qw = Qw[:cind]
 
     return nh, Uh, Qw
 from mmcore.geom.nurbs import reverse_curve
+def degree_elevate_bez(curve, t:int):
+    el = degree_elevate(curve.control_points.shape[0] - 1, curve.degree, curve.knots, curve.control_points, t)
+    nc = NURBSCurve(np.array(el[2]), curve.degree + t, np.array(el[1]), curve.periodic)
+    nc.knots = np.array(el[1])
+    return nc
+
+
 def degree_elevate_curve(curve, t:int):
     """
     Elevate the degree of a NURBS curve by t degrees.
@@ -905,11 +956,173 @@ def degree_elevate_curve(curve, t:int):
     NURBSCurve: New curve with elevated degree
     """
 
-    el=degree_elevate(curve.control_points.shape[0] - 1, curve.degree, curve.knots, curve.control_points, t)
-    print(el)
-    nc=NURBSCurve(np.array(el[2]), curve.degree+t, np.array(el[1]), curve.periodic)
-    nc.knots=np.array(el[1])
+    crvs=[degree_elevate_bez(curve, t) for curve in decompose_curve(curve)]
+    deg=crvs[0].degree
+    knots,control_points,k=compose_curves(crvs)
+
+    nc=NURBSCurve(control_points,deg,knots=knots,periodic=curve.periodic)
+
     return nc
+
+
+import numpy as np
+
+
+def find_knot_span(n, p, u, U):
+    """
+    Find the knot span index for a given parameter value.
+
+    Parameters:
+    -----------
+    n : int
+        Number of control points minus 1
+    p : int
+        Degree of the curve
+    u : float
+        Parameter value
+    U : array-like
+        Knot vector
+
+    Returns:
+    --------
+    int : Index of the knot span
+    """
+    # Special case for u at the end of the curve
+    if u == U[n + 1]:
+        return n
+
+    # Binary search to find knot span
+    low = p
+    high = n + 1
+    mid = (low + high) // 2
+
+    while u < U[mid] or u >= U[mid + 1]:
+        if u < U[mid]:
+            high = mid
+        else:
+            low = mid
+        mid = (low + high) // 2
+
+    return mid
+
+
+def knot_refinement2(n, p, U, Pw, X):
+    """
+    Refine a B-spline curve by inserting new knots.
+
+    Parameters:
+    -----------
+    n : int
+        Number of control points minus 1
+    p : int
+        Degree of the curve
+    U : array-like
+        Current knot vector
+    Pw : array-like
+        Current control points
+    X : array-like
+        New knots to insert (must be sorted)
+
+    Returns:
+    --------
+    tuple : (new control points, new knot vector)
+    """
+    U = np.array(U, dtype=float)
+    Pw = np.array(Pw, dtype=float)
+    X = np.array(X, dtype=float)
+
+    # Get number of new knots
+    r = len(X) - 1
+    m = n + p + 1
+
+    # Initialize new arrays
+    nq = n + r + 1
+    Qw = np.zeros((nq + 1, Pw.shape[1]))
+    Ubar = np.zeros(len(U) + len(X))
+
+    # Save unaltered control points and knots
+    for i in range(0, p + 1):
+        Qw[i] = Pw[i]
+    for i in range(n - p, n + 1):
+        Qw[i + r + 1] = Pw[i]
+    for i in range(0, p + 1):
+        Ubar[i] = U[0]
+    for i in range(len(U) - p - 1, len(U)):
+        Ubar[i + r + 1] = U[-1]
+
+    # Initialize variables for refinement
+    i = p
+    j = r
+    k = p + 1
+
+    # Initialize local arrays
+    Rw = np.zeros((p + 1, Pw.shape[1]))
+
+    # Main refinement loop
+    while j >= 0:  # Insert knots
+        while X[j] <= U[i] and i > 0:
+            Qw[k] = Pw[i - 1]
+            Ubar[k] = U[i]
+            k -= 1
+            i -= 1
+
+        # Save current control point
+        for l in range(p, -1, -1):
+            Rw[l] = Pw[i - p + l]
+
+        # Insert knot
+        for l in range(1, p + 1):
+            if i - p + l <= 0:
+                continue
+
+            # Compute alpha
+            alpha = (X[j] - U[i - p + l]) / (U[i + l] - U[i - p + l])
+
+            # Update control points
+            Rw[l] = alpha * Rw[l] + (1.0 - alpha) * Rw[l - 1]
+
+        # Load refined control points into final array
+        Qw[k] = Rw[p]
+        Ubar[k] = X[j]
+
+        k -= 1
+        j -= 1
+
+    # Set remaining control points and knots
+    while i > 0:
+        Qw[k] = Pw[i - 1]
+        Ubar[k] = U[i]
+        k -= 1
+        i -= 1
+
+    return Qw, Ubar
+
+
+def refine_curve(curve, new_knots):
+    """
+    Refine a NURBS curve by inserting new knots.
+
+    Parameters:
+    -----------
+    curve : NURBSCurve
+        The curve to refine
+    new_knots : array-like
+        New knots to insert (must be sorted)
+
+    Returns:
+    --------
+    NURBSCurve : Refined curve
+    """
+    n = curve.control_points.shape[0] - 1
+    print(curve.knots,new_knots)
+    Qw, Ubar = knot_refinement2(n,curve.degree, curve.knots,
+                               curve.control_points, new_knots)
+
+    # Create new curve with refined knots
+    from mmcore.geom.nurbs import NURBSCurve
+    print('u',Ubar)
+    return NURBSCurve(np.array(Qw), curve.degree, np.array(Ubar), curve.periodic)
+
 def join_two_curves(curve1:NURBSCurve, curve2:NURBSCurve,tol:float=1e-5):
     start_1=np.array(curve1.start())
     start_2 = np.array(curve2.start())
@@ -969,4 +1182,91 @@ def join_two_curves(curve1:NURBSCurve, curve2:NURBSCurve,tol:float=1e-5):
     return NURBSCurve(new_cpts, degree, new_knots)
 
 
+import numpy as np
 
+
+def merge_knot_vectors(knots1, knots2):
+    """
+    Merge two knot vectors, maintaining multiplicities
+    """
+    # Combine unique knots from both vectors
+    all_knots = np.unique(np.concatenate([knots1, knots2]))
+
+    # For each knot, take maximum multiplicity from either vector
+    result = []
+    for knot in all_knots:
+        mult1 = np.sum(np.isclose(knots1, knot))
+        mult2 = np.sum(np.isclose(knots2, knot))
+        result.extend([knot] * max(mult1, mult2))
+
+    return np.array(result)
+
+def make_curves_compatible(curve1, curve2):
+    """
+    Make two NURBS curves compatible for ruled surface construction
+
+    Parameters:
+    curve1, curve2: dict with keys:
+        - control_points: nx4 array (x,y,z,w)
+        - degree: int
+        - knots: array of knot values
+
+    Returns:
+    tuple of two modified curves with same degree, knots and number of control points
+    """
+    # 1. Degree elevation to match highest degree
+    p1, p2 = curve1.degree, curve2.degree
+    if p1 < p2:
+        curve1 = degree_elevate_curve(curve1, p2 - p1)
+    elif p2 < p1:
+        curve2 = degree_elevate_curve(curve2, p1 - p2)
+
+    # 2. Merge knot vectors
+    unified_knots = merge_knot_vectors(curve1.knots, curve2.knots)
+
+    # 3. Knot refinement to match knot vectors
+    curve1 = refine_curve(curve1, unified_knots)
+    curve2 = refine_curve(curve2, unified_knots)
+    print(len(curve1.control_points))
+    print(len(curve2.control_points))
+    return curve1, curve2
+
+
+def create_ruled_surface(curve1, curve2):
+    """
+    Create a ruled surface between two NURBS curves
+
+    Parameters:
+    curve1, curve2: dict with keys:
+        - control_points: nx4 array (x,y,z,w)
+        - degree: int
+        - knots: array of knot values
+
+    Returns:
+    dict with keys:
+        - control_points: nxmx4 array
+        - degrees: (u_degree, v_degree)
+        - knots: (u_knots, v_knots)
+    """
+    # Make curves compatible
+    c1, c2 = make_curves_compatible(curve1, curve2)
+
+    # Create surface control points
+    n = len(c1.control_points)
+    control_points = np.zeros((n, 2, 4))  # nx2x4 array
+    print(n)
+
+    # Fill control points
+    for i in range(n):
+        control_points[i, 0] = np.array(c1._control_points)[i]
+        control_points[i, 1] = np.array(c2._control_points)[i]
+
+    # Create surface knot vectors
+    u_knots = c1.knots  # Same for both curves now
+    v_knots = np.array([0, 0, 1, 1])  # Linear interpolation in v direction
+
+    return {
+        'control_points': control_points,
+        'degrees': (c1['degree'], 1),  # Linear in v direction
+        'knots': (u_knots, v_knots)
+    }

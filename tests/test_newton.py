@@ -1,5 +1,5 @@
 import numpy as np
-from mmcore.numeric.newthon.cnewthon import newtons_method as cnewthon_method
+from mmcore.numeric.newton.cnewton import newtons_method as cnewthon_method
 from mmcore.numeric.fdm import newtons_method
 from mmcore._test_data import ssx as ssx_cases
 import time
