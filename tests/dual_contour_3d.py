@@ -86,8 +86,12 @@ class V3:
         return math.sqrt(self.x*self.x+self.y*self.y+self.z*self.z)
 
     def normalize(self):
-        d = self.norm()
-        return V3(self.x / d, self.y / d, self.z / d)
+        d = self.norm(
+        )
+        if d!=0:
+            return V3(self.x / d, self.y / d, self.z / d)
+        else:
+            return V3(0.,0.,0.)
 
     def astuple(self):
         return self.x, self.y, self.z
@@ -297,7 +301,6 @@ def solve_qef_2d(x, y, positions, normals, cell_size, clip,boundary, bias,bias_s
 
     return V2(v[0], v[1])
 
-
 def solve_qef_3d(x, y, z, positions, normals, cell_size,clip, boundary, bias,bias_strength):
     # The error term we are trying to minimize is sum( dot(x-v[i], n[i]) ^ 2)
     # This should be minimized over the unit square with top left point (x, y)
@@ -447,8 +450,6 @@ def dual_contour_3d_find_best_vertex(f, f_normal, x, y, z, cell_size, adaptive,c
         normals.append([n.x, n.y, n.z])
 
     return solve_qef_3d(x, y, z, changes, normals, cell_size, clip,  boundary, bias,bias_strength)
-
-
 
 def dual_contour_3d(f, f_normal, xmin, xmax, ymin, ymax, zmin, zmax,cell_size, adaptive, clip,  boundary, bias,bias_strength):
     """Iterates over a cells of size one between the specified range, and evaluates f and f_normal to produce

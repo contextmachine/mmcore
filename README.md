@@ -153,6 +153,16 @@ Results show mmcore excels particularly in parallel processing and batch operati
 
 *Figure: Visualization of tube intersection test case*
 
+## Recent Updates (v0.50.3)
+
+1. Enhanced Surface-Surface Intersection (SSX) algorithms with improved robustness
+2. Updated STEP file writing capabilities
+3. Improved BVH (Bounding Volume Hierarchy) implementation
+4. Enhanced 3D renderer with new features
+5. BREP handling improvements
+6. Added new examples for NURBS-NURBS intersection
+7. General test suite improvements and cleanup
+
 ## Known Deprecations
 
 1. Use `mmcore.numeric.vectors` instead of `mmcore.geom.vec` for vector operations
