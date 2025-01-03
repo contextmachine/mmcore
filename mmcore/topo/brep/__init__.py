@@ -2,10 +2,15 @@ from __future__ import annotations
 from numpy.typing import NDArray
 import numpy as np
 from mmcore.geom.bvh import BVHNode, build_bvh
+from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.proto import CurveProtocol, SurfaceProtocol
 from mmcore.geom.surfaces import surface_bvh,Surface,CurveOnSurface
 from mmcore.geom.implicit.tree import ImplicitTree3D
 from dataclasses import dataclass,field,InitVar
+
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_surface_boundaries
+
+
 @dataclass(slots=True, unsafe_hash=True)
 class Vertex:
     represented_by:int
@@ -43,9 +48,6 @@ class BRepGeometry:
     points:list[NDArray[float]]=field(default_factory=list)
     curves:list[CurveProtocol]=field(default_factory=list)
     surfaces: list[SurfaceProtocol]=field(default_factory=list)
-
-
-import itertools
 
 
 class Sparce(dict):
@@ -107,12 +109,44 @@ class BRepTopology:
         v = Solid(shells)
         self.solids.append(v)
         return v
+
 @dataclass(slots=True, unsafe_hash=True)
 class BRep:
     geometry:BRepGeometry=field(default_factory=BRepGeometry)
     topology:BRepTopology=field(default_factory=BRepTopology)
 
 
+def nurbs_surf_to_brep(surf:NURBSSurface):
+
+
+    geom=BRepGeometry()
+    boundaries = extract_surface_boundaries(surf)
+    geom.surfaces.append(surf)
+    face=Face(0)
+    loop=Loop()
+
+    for i,boundary in enumerate(boundaries):
+        geom.curves.append(boundary)
+        start,end=np.array(boundary.start()),np.array(boundary.end())
+        edge=Edge(i, [None,None])
+
+        for j,pt in enumerate([start,end]):
+            if len(geom.points)==0:
+                geom.points.append(tuple(pt))
+                edge.bounded_by[j] = Vertex(0)
+            else:
+                if tuple(pt) in geom.points:
+                    edge.bounded_by[j]=Vertex(geom.points.index(tuple(pt)))
+                else:
+                    edge.bounded_by[j] = Vertex(len(geom.points))
+                    geom.points.append(
+                        tuple(pt)
+                    )
+
+
+        loop.edges.append(edge)
+    face.bounded_by.append(loop)
+    return Shell([face]),geom
 
 
 

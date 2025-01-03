@@ -20,7 +20,7 @@ WORKDIR /mmcore
 
 COPY . .
 
-RUN pip install --user --no-cache-dir .
+RUN pip wheel install --user --no-cache-dir .
 
 # Stage 2: Final
 FROM python:3.12-slim
