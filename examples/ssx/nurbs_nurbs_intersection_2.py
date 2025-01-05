@@ -929,13 +929,17 @@ print(f'intersection computed at: {time.time() - s} sec.')
 print(f'\n({s1} X \n\t{s2}):')
 
 for i, (spatial, uv1, uv2) in enumerate(result):
-        print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
-        cpts=(spatial.control_points).tolist()
-        cpts_repr = repr(cpts)
-        if len(cpts)>4:
-            cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-        print(f'\t\tcontrol points: {cpts_repr}')
-        print(f'\t\tdegree: {spatial.degree}')
+            print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
+            cpts=(spatial.control_points).tolist()
+            cpts_repr = repr(cpts)
+            if len(cpts)>4:
+                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
+            print(f'\t\tcontrol points: {cpts_repr}')
+            print(f'\t\tdegree: {spatial.degree}')
+            with open(f'ssx_result-{i}.bin', 'wb') as f:
+                f.write(spatial.serialize())
+
+
 
 
 try:
@@ -955,6 +959,7 @@ try:
 
 
     renderer.run()
+
 except ModuleNotFoundError as err:
     print("mmcore.renderer is not installed, skip preview.")
 except ImportError as err:

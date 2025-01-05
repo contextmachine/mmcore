@@ -1,8 +1,9 @@
-from enum import IntEnum
+from __future__ import annotations
+from typing import TypeVar
 
 import numpy as np
 from mmcore.numeric.routines._routines import uvs
-
+from numpy.typing import NDArray
 
 def point_grid_2d(count_u, count_v, bounds_u=(0., 1.), bounds_v=(0., 1.)):
     u, v = np.linspace(*bounds_u, count_u), np.linspace(*bounds_v, count_v)
@@ -169,3 +170,11 @@ def cubic_spline(control_points: np.ndarray[(4, 2), np.dtype[float]]
 def divide_interval(start, end, step=1.):
     a = np.arange(start, end, step)
     return np.c_[a, a + step]
+T=TypeVar("T")
+
+def column_concat(a:NDArray[T],b:NDArray[T]|T)->NDArray[T]:
+    if a.shape[0] == b.shape[0]:
+        return np.c_[a,b]
+    b=np.atleast_2d(b)
+    return np.c_[a,np.broadcast_to(b, (a.shape[0],*b.shape[1:])) ]
+

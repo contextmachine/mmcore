@@ -2,18 +2,29 @@
 # cython: wraparound=False
 # cython: nonecheck=False
 # cython: cdivision=True
+#cython: boundscheck=False, wraparound=False, cdivision=True
 cimport cython
 import numpy as np
 cimport numpy as cnp
 
+cimport numpy as np
 
-
+# We will use typed memoryviews instead of raw NumPy arrays for speed.
+# However, we still need to import the numpy module on the Python side.
 cnp.import_array()
+
+# For convenience, define a couple of type aliases:
+ctypedef double DTYPE_t
+# We will store vectors as 1D memoryviews of doubles
+# and matrices as 2D memoryviews of doubles.
+
+
+
 from libc.math cimport fabs
 
 
 
-ctypedef cnp.float64_t DTYPE_t
+
 
 cdef double DEFAULT_H = 1e-7
 
@@ -219,15 +230,287 @@ def newtons_method(f, double[:] initial_point, double tol=1e-5, int max_iter=100
         for i in range(n):
             point_view[i] -= step[i]
         # Check convergence
-        norm_diff = 0.0
+        norm_diff = 0
         for i in range(n):
             norm_diff += step[i] * step[i]
 
-        norm_diff = norm_diff ** 0.5
-        if norm_diff < tol:
+        if norm_diff < (tol*tol):
             if full_return:
                 return point, grad_view, H_view, k
             return point
     if full_return:
         return None, grad_view, H_view, max_iter
     return None
+
+
+
+
+############################################################
+# 2. Linear Algebra Routines
+############################################################
+
+
+cdef inline double _abs_val(double x) noexcept nogil :
+    """Compute absolute value of x (double)."""
+    if x < 0:
+        return -x
+    return x
+
+
+
+cdef inline int lu_factorize(double[:, ::1] A,
+                 int n,
+                 int[::1] pivot_indices) noexcept nogil:
+    """
+    Perform an LU decomposition of A in place with partial pivoting.
+
+    A becomes the combined L and U factors (Doolittle's method):
+       A[i, j] for i > j : L[i, j]
+       A[i, j] for i <= j: U[i, j]
+
+    pivot_indices will store the row swaps performed during pivoting.
+    Return 0 if successful, or 1 if a singular matrix is encountered.
+    """
+    cdef:
+        int i, j, k, pivot
+        double max_val, tmp
+
+    # Initialize the pivot indices as the identity permutation
+    for i in range(n):
+        pivot_indices[i] = i
+
+    for k in range(n):
+        # 1. Find the pivot row
+        pivot = k
+        max_val = _abs_val(A[pivot_indices[k], k])
+        for i in range(k+1, n):
+            tmp = _abs_val(A[pivot_indices[i], k])
+            if tmp > max_val:
+                pivot = i
+                max_val = tmp
+
+        # Check for singular matrix
+        if max_val == 0.0:
+            return 1  # singular
+
+        # 2. Swap pivot row if needed
+        if pivot != k:
+            tmp = pivot_indices[k]
+            pivot_indices[k] = pivot_indices[pivot]
+            pivot_indices[pivot] = <int> tmp
+
+        # 3. Perform elimination
+        for i in range(k+1, n):
+            # L factor
+            A[pivot_indices[i], k] /= A[pivot_indices[k], k]
+            tmp = A[pivot_indices[i], k]
+            for j in range(k+1, n):
+                A[pivot_indices[i], j] -= tmp * A[pivot_indices[k], j]
+
+    return 0
+
+
+
+cdef inline int lu_solve(double[:, ::1] A,
+             int n,
+             int[::1] pivot_indices,
+             double[::1] b) noexcept nogil:
+    """
+    Solve A x = b after A has been LU-factorized in place.
+    pivot_indices is the list of row permutations done during factorization.
+    b is modified in place to become the solution x.
+    Return 0 if successful, 1 if unsuccessful (e.g., singular).
+    """
+    cdef:
+        int i, j
+        double sum_val
+
+    # 1. Forward substitution for L
+    for i in range(n):
+        sum_val = b[pivot_indices[i]]
+        for j in range(i):
+            sum_val -= A[pivot_indices[i], j] * b[pivot_indices[j]]
+        b[pivot_indices[i]] = sum_val
+
+    # 2. Back substitution for U
+    for i in reversed(range(n)):
+        sum_val = b[pivot_indices[i]]
+        for j in range(i+1, n):
+            sum_val -= A[pivot_indices[i], j] * b[pivot_indices[j]]
+        if A[pivot_indices[i], i] == 0.0:
+            return 1  # singular
+        b[pivot_indices[i]] = sum_val / A[pivot_indices[i], i]
+
+    return 0
+
+
+
+cdef inline int solve_linear_system(double[:, ::1] A,
+                        double[::1] b,
+                        int n) :
+    """
+    Helper that factors A (n x n) in place, then solves for x in Ax=b.
+    The solution is written back into b.
+    Return 0 if successful, 1 if singular or error.
+    """
+    cdef int[::1] pivot_indices = np.zeros(n, dtype=np.intc)  # for row pivots
+    cdef int info = lu_factorize(A, n, pivot_indices)
+    if info != 0:
+        return 1  # singular
+    info = lu_solve(A, n, pivot_indices, b)
+    if info != 0:
+        return 1  # singular
+    return 0
+
+
+
+cdef inline int invert_matrix(double[:, ::1] A,
+                  double[:, ::1] A_inv,
+                  int n) :
+    """
+    Compute the inverse of A (n x n) into A_inv by:
+      1) Factorizing A (in-place).
+      2) Solving n systems A * e_i = x_i (the columns of the identity).
+      3) x_i becomes the corresponding column of A_inv.
+
+    We do *not* want to clobber the user-provided A, so we make a local copy.
+    Return 0 if successful, 1 if singular or error.
+    """
+    cdef:
+        int i, j, info
+        int[::1] pivot_indices = np.zeros(n, dtype=np.intc)
+        double[:, ::1] A_copy = np.zeros((n, n), dtype=np.float64)
+        double[::1] col = np.zeros(n, dtype=np.float64)
+
+    # Copy A into A_copy
+    for i in range(n):
+        for j in range(n):
+            A_copy[i, j] = A[i, j]
+
+    # Factor A_copy in place
+    info = lu_factorize(A_copy, n, pivot_indices)
+    if info != 0:
+        return 1  # singular
+
+    # For each column of the identity, solve
+    # A_copy * x = e_i. The solution x is the i-th column of A_inv.
+    for i in range(n):
+        # Set up e_i in col
+        for j in range(n):
+            col[j] = 0.0
+        col[i] = 1.0
+
+        # Solve the system
+        info = lu_solve(A_copy, n, pivot_indices, col)
+        if info != 0:
+            return 1  # singular
+
+        # Write col to A_inv[:, i]
+        for j in range(n):
+            A_inv[j, i] = col[j]
+
+    return 0
+
+
+############################################################
+# 3. Norm and Newton's Method
+############################################################
+
+
+cdef inline double euclidean_norm(double[::1] vec, int n) noexcept nogil:
+    """
+    Compute the Euclidean norm of vec of length n.
+    """
+    cdef:
+        int i
+        double sum_sq = 0.0
+
+    for i in range(n):
+        sum_sq += vec[i] * vec[i]
+    return sum_sq**0.5
+
+
+@cython.boundscheck(True)
+@cython.wraparound(True)
+def newton_method2(
+        object f,      # Python callable: f(x) -> np.ndarray of shape (n,)
+        object jac,    # Python callable: jac(x) -> np.ndarray of shape (n,n)
+        np.ndarray[np.float64_t, ndim=1] x0,
+        double tol=1e-7,
+        int max_iter=100
+    ):
+    """
+    Perform Newton's method to find a root of f(x)=0 using the user-supplied
+    Jacobian. Both f and jac must be callables.  x0 is the initial guess.
+    tol is the tolerance. max_iter is the maximum number of iterations.
+
+    Returns the solution as a NumPy array of shape (n,).
+    Raises a ValueError if the method fails (e.g., singular Jacobian).
+    """
+    cdef:
+        int i, k, n
+        double[:, ::1] J
+        double[:, ::1] J_inv
+        double[::1] fx
+        double[::1] delta
+        double norm_delta
+
+    # Extract dimension
+    n = x0.shape[0]
+
+    # We'll keep x in a typed memoryview for speed
+    cdef double[::1] x = np.array(x0, dtype=np.float64)  # copy initial guess
+
+    # Allocate needed workspace
+    fx = np.zeros(n, dtype=np.float64)
+    delta = np.zeros(n, dtype=np.float64)
+    J = np.zeros((n, n), dtype=np.float64)
+    J_inv = np.zeros((n, n), dtype=np.float64)
+
+    for k in range(max_iter):
+        # 1) Evaluate f at x
+        fx_np = f(np.asarray(x))  # call Python function
+        if fx_np.shape[0] != n:
+            raise ValueError("f(x) returned an array of incorrect shape.")
+        # Copy fx_np into fx
+        for i in range(n):
+            fx[i] = fx_np[i]
+
+        # Check stopping condition
+        if euclidean_norm(fx, n) < tol:
+            # We are close enough to root
+            return np.asarray(x)
+
+        # 2) Evaluate the Jacobian at x
+        jac_np = jac(np.asarray(x))  # call Python Jacobian
+        if jac_np.shape != (n, n):
+            raise ValueError("jac(x) returned an array of incorrect shape.")
+        # Copy jac_np into J
+        for i in range(n):
+            for j in range(n):
+                J[i, j] = jac_np[i, j]
+
+        # 3) Compute inverse of the Jacobian
+        if invert_matrix(J, J_inv, n) != 0:
+            raise ValueError("Jacobian is singular or nearly singular at iteration %d" % k)
+
+        # 4) delta = J_inv * f(x)
+        #    We'll use delta as a stand-in for that product
+        #    i.e., delta <- J_inv @ fx
+        for i in range(n):
+            delta[i] = 0.0
+        for i in range(n):
+            for j in range(n):
+                delta[i] += J_inv[i, j] * fx[j]
+
+        # 5) x_{k+1} = x_k - delta
+        for i in range(n):
+            x[i] = x[i] - delta[i]
+
+        # Check if the step itself is small
+        norm_delta = euclidean_norm(delta, n)
+        if norm_delta < tol:
+            return np.asarray(x)
+
+    # If we exit the loop without returning, we failed to converge
+    raise ValueError("Newton's method did not converge in %d iterations." % max_iter)
