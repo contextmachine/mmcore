@@ -1,19 +1,20 @@
 import itertools
 import os
+from typing import Optional
 
 import numpy as np
 
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
-from mmcore.geom.bvh import contains_point, Object3D
-from mmcore.geom.nurbs import NURBSSurface, decompose_surface
+from mmcore.geom.bvh import contains_point, Object3D, find_closest
+from mmcore.geom.nurbs import NURBSSurface, decompose_surface, NURBSCurve, split_curve
 
 from mmcore.geom.polygon import BoundingBox
 from mmcore.geom.surfaces import Surface
-from mmcore.numeric import divide_interval
+from mmcore.numeric.numeric import divide_interval, evaluate_curvature
 from mmcore.numeric.aabb import aabb_overlap
-from mmcore.numeric.fdm import PDE
-from mmcore.numeric.newton.cnewton import newtons_method
+from mmcore.numeric.fdm import PDE,newtons_method
+
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
     divide_and_conquer_min_2d_vectorized
 
@@ -125,7 +126,65 @@ def min_distance(points):
 
     # Use the recursive utility to find the closest pair
     return closest_util(points_sorted_x, points_sorted_y, len(points_sorted_x))
+from mmcore.geom.nurbs import decompose_curve,greville_abscissae
+from mmcore.numeric.newton import cnewton
 
+from mmcore.geom.bvh import NURBSCurveObject3D, build_bvh,_find_closest_vicinity,BVHNode
+from numpy.typing import NDArray
+class _BVHN(BVHNode):
+    object: Optional[NURBSCurveObject3D]
+def _find_cls(bvh:_BVHN, point):
+    if bvh.object is not None:
+        sd=sdBox(point - bvh.bounding_box.min_point, bvh.bounding_box.dims)
+
+
+
+    if bvh.left is not None and bvh.right is not None:
+
+        left_sd = sdBox(point - bvh.left.bounding_box.min_point, bvh.left.bounding_box.dims)
+        right_sd = sdBox(point - bvh.right.bounding_box.min_point, bvh.right.bounding_box.dims)
+        if left_sd < right_sd:
+            return _find_closest_vicinity(bvh.left, point)
+        elif left_sd > right_sd:
+            return _find_closest_vicinity(bvh.right, point)
+        else:
+            left, left_sd = _find_closest_vicinity(bvh.left, point)
+            right, right_sd = _find_closest_vicinity(bvh.right, point)
+            if left_sd <= right_sd:
+                return left_sd
+            else:
+                return right_sd
+
+
+from mmcore.numeric.newton.bounded import bounded_newtons_method
+
+
+def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1e-6, on_curve=False)->tuple[bool, tuple[float,float]]:
+
+
+    bvh = build_bvh([NURBSCurveObject3D(c) for c in decompose_curve(curve)])
+    rr = find_closest(bvh, point, breadth=not on_curve)
+
+
+    if rr is None or len(rr[0])==0:
+        return False,closest_point_on_nurbs_curve(curve,point,tol,on_curve=False)[1]
+    def inner(crv):
+        nonlocal tol
+        a,b=crv.interval()
+
+
+        def objective(t):
+            d = (curve.evaluate(t[0]) - point)
+            return scalar_dot(d, d)
+        if on_curve:
+            res=bounded_newtons_method(objective, [sum([a,b]) / 2], [(a,b)], tol=tol, min_value=0.)
+        else:
+            res=newtons_method(objective, np.array([(a+ b)/2]), tol=tol)
+            print(res)
+
+
+        return res, objective(res)
+    return True,sorted((inner(_curve.curve) for _curve in rr[0]),key=lambda x: x[1])[0]
 
 
 

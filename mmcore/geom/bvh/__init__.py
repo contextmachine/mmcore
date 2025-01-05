@@ -1,12 +1,13 @@
-import itertools
-from functools import reduce
+from __future__ import annotations
 
 import numpy as np
 
 from mmcore.numeric._aabb import aabb,aabb_intersect
+from numpy._typing import NDArray
 
 
 class Object3D:
+
 
 
     def __init__(self, bounding_box):
@@ -162,13 +163,11 @@ class BoundingBox:
         return BoundingBox(new_min, new_max)
 
     def contains_point(self, point):
-        return (self.min_point[0] <= point[0] <= self.max_point[0] and
-                self.min_point[1] <= point[1] <= self.max_point[1] and
-                self.min_point[2] <= point[2] <= self.max_point[2])
+        return bool(np.all(self.min_point<=point)and np.all(point<=self.max_point))
     def contains_points(self, points):
         return ((self.min_point[0] <= points[...,0]) & (points[...,0] <= self.max_point[0] )&
                 ((self.min_point[1] <= points[...,1]) & (points[...,1] <= self.max_point[1])) &
-                ((self.min_point[2] <= points[...,2])&( points[...,2]<= self.max_point[2])))
+                ((self.min_point[2] <= points[...,2])& ( points[...,2]<= self.max_point[2])))
     def get_edges(self):
         """
         Return all edges of the box as a list of arrays,
@@ -218,6 +217,20 @@ class BoundingBox:
             return self._arr.__array__(dtype=dtype)
 
         return self._arr.__array__(dtype=dtype,copy=copy)
+
+    def size_metric(self):
+        """
+
+        Returns: the bbox size metric, even if bbox has insufficient dimensionality .
+        Example for three dimensions: If bbox has no dimensions close to 0, it will return volume, if one of the 3d bbox dimensions is close to zero, it will return area, etc.
+        -------
+
+        """
+        m=1.
+        for dim in self.dims:
+            if not np.isclose(dim,0):
+                m*=dim
+        return m
 
 
 def split_objects(objects):
@@ -339,6 +352,108 @@ def intersect_bvh(node1, node2):
 
 
 
+def _find_closest_vicinity(bvh:BVHNode, point:NDArray[float])-> tuple[list[Object3D],float] | None:
+
+
+    if bvh.object is not None:
+        return [bvh.object],sd_aabb( bvh.bounding_box._arr,point )
+    if not bvh.bounding_box.contains_point(point):
+        return
+    if (bvh.left is not None) and (bvh.right is not None):
+
+        l,r=bvh.left.bounding_box.contains_point(point) ,bvh.right.bounding_box.contains_point(point)
+
+        if l and (not r):
+
+            return _find_closest_vicinity(bvh.left, point)
+        elif (not l) and  r:
+
+            return _find_closest_vicinity(bvh.right, point)
+        elif l and r :
+
+
+
+
+
+                r1=_find_closest_vicinity(bvh.left, point)
+                r2=_find_closest_vicinity(bvh.right, point)
+                if (r1 is not None) and (r2 is not None):
+                    
+                    left,left_sd= r1
+                    right,right_sd=r2
+                    if left_sd<right_sd:
+                        return left,left_sd
+                    elif left_sd>right_sd:
+                        return right,right_sd
+                    else:
+
+
+
+                        # It is possible if the point lies in the intersection zone of two bboxes.
+                        # In this case we can't make a decision, because in fact we need to check both objects
+                        return left+right,left_sd
+                elif r1 is None and r2 is not None:
+                    return r2
+                elif r2 is None and r1 is not None:
+
+                    return r1
+                else:
+                   return
+        #If we're here, then the point is inside the parent's box, but not inside any of the children.
+
+
+    elif bvh.left is not None :
+        return _find_closest_vicinity(bvh.left, point)
+    elif bvh.right is not None:
+        return _find_closest_vicinity(bvh.right, point)
+
+    else:
+        raise ValueError(f"Empty BVH node with bbox: {bvh.bounding_box._arr.tolist()}")
+
+
+def _find_closest_breadth(bvh:BVHNode, point:NDArray[float])->tuple[list[Object3D],float]:
+    if bvh.object is not None:
+        return [bvh.object],sd_aabb( bvh.bounding_box._arr,point )
+
+    if (bvh.left is not None) and (bvh.right is None):
+        return _find_closest_breadth(bvh.left, point)
+    elif (bvh.left is None) and (bvh.right is not None):
+        return _find_closest_breadth(bvh.right, point)
+    elif  (bvh.left is  None) and (bvh.right is  None):
+        raise ValueError(f"Empty BVH node with bbox: {bvh.bounding_box._arr.tolist()}")
+    elif (bvh.left is not None) and (bvh.right  is not None):
+        left_sd=sd_aabb(bvh.left.bounding_box._arr, point)
+        right_sd = sd_aabb(bvh.right.bounding_box._arr, point)
+        if left_sd<right_sd:
+            return _find_closest_breadth(
+                bvh.left,point
+            )
+        elif left_sd>right_sd:
+            return _find_closest_breadth(
+                bvh.right,point
+            )
+        else:
+            left_obj, left_sd=_find_closest_breadth(
+                bvh.left, point
+            )
+            right_obj, right_sd=_find_closest_breadth(
+                bvh.right, point
+            )
+            if left_sd<right_sd:
+                return left_obj,left_sd
+            elif left_sd>right_sd:
+                return right_obj,right_sd
+            else:
+                return left_obj+right_obj,left_sd
+
+    else:
+        raise ValueError(f"Unknown condition: {bvh.bounding_box._arr.tolist()}, {bvh.left},{bvh.right}")
+
+def find_closest(bvh:BVHNode, point:NDArray[float], breadth:bool=True)->tuple[list[Object3D],float]|None:
+    if breadth:
+        return _find_closest_breadth(bvh, point)
+    else:
+        return _find_closest_vicinity(bvh, point)
 
 
 
@@ -449,10 +564,13 @@ def traverse_all_objects_in_node(bvh_root, result):
 
 def sdBox(p: np.array, b: np.array):
     d = np.abs(p) - b
-    print(d)
+
     return min(np.max([d[0], d[1], d[2]]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
 
 
+def sd_aabb(bbox, pt):
+    cnt=(bbox[0]+bbox[1])/2
+    return sdBox( pt-cnt,bbox[1]-cnt)
 
 
 def traverse_all_bbox(bvh_root, result):
@@ -495,3 +613,26 @@ class PSegment(Object3D):
         self.pts = pts
         self.t = t
         super().__init__(BoundingBox(*aabb(pts)))
+
+
+from mmcore.geom.nurbs import NURBSCurve,split_curve
+
+class NURBSCurveObject3D(Object3D):
+    def __init__(self, curve:NURBSCurve):
+        super().__init__(BoundingBox(*np.array(curve.bbox())))
+        self.curve=curve
+
+    def split(self, t:float=None):
+        if t is None:
+            t0,t1=self.curve.interval()
+            t=(t0+t1)/2
+        try:
+            crv1,crv2=split_curve(self.curve,t, normalize_knots=False,tol=1e-12)
+        except ValueError as err:
+            print(
+                t
+            )
+            raise err
+        return NURBSCurveObject3D(crv1),NURBSCurveObject3D(crv2)
+
+

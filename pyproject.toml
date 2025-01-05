@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.50.3"
+version = "0.50.4"
 description = "mmcore"
 authors = ["Andrew Astakhov <sthv.developer@gmail.com>", ]
 license = "Apache License Version 2.0"
@@ -14,17 +14,17 @@ readme = "README.md"
 python = ">=3.9,<4.0"
 numpy = { version = "^2.0.2" }
 earcut = { version = "^1.1.5" }
-scipy = {version = "<1.15"}
+scipy = {version = "*"}
 pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
 steputils = "^0.1"
 # Optional Deps
-ipython = { version = "*",optional=true}
-plotly = { version = "*",optional=true}
-pyrr = { version = "*",optional=true}
-glfw = { version = "*",optional=true}
-pyopengl = { version = "*",optional=true}
-rhino3dm = { version = "^8.9.0",optional=true}
+ipython = { version = "*", optional=true}
+plotly = { version = "*", optional=true}
+pyrr = { version = "*", optional=true}
+glfw = { version = "*", optional=true}
+pyopengl = { version = "*", optional=true}
+rhino3dm = { version = "^8.9.0", optional=true}
 
 
 [tool.poetry.group.dev.dependencies]
