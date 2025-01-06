@@ -9,10 +9,9 @@ from mmcore.geom.nurbs import NURBSSurface
 from mmcore.geom.surfaces import CurveOnSurface, Surface
 from enum import Enum
 from mmcore.numeric.vectors import scalar_norm
-from mmcore.numeric.closest_point import closest_points_on_surface, closest_point_on_surface_batched, \
-    closest_point_on_nurbs_surface
-from mmcore.numeric.intersection.csx import curve_surface_intersection, nurbs_csx
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections
+
+from mmcore.numeric.intersection.csx import curve_surface_intersection
+from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
 
 
 class TerminatorType(int, Enum):
@@ -127,7 +126,7 @@ def build_boundary_if_not_present(surface: Surface):
         surface.build_boundary()
 
 
-def surface_surface_intersection_edge_terminator(surf1: Surface, surf2: Surface, tol=1e-3) -> Terminator:
+def surface_surface_boundary_intersection(surf1: Surface, surf2: Surface, tol=1e-3) -> Terminator:
     """
     Find intersection points between surface boundaries.
     

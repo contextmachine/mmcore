@@ -279,8 +279,8 @@ def _line_search_zoom(f, grad, x, d, f0, g0, lower_bounds, upper_bounds, alpha_l
     return alpha_lo, x_lo, False
 
 
-def bounded_newtons_method(f, initial_point, bounds, tol=1e-5, max_iter=100, no_warn=False,
-                           full_return=False, grad=None, hess=None, h=1e-5):
+def bounded_newtons_method(f, initial_point, bounds, tol=1e-5, step_tol=1e-8, gtol=1e-8,max_iter=100, no_warn=False,
+                           full_return=False, grad=None, hess=None, h=1e-5, min_value=None):
     """
     A bounded version of Newton's method that:
     - Uses numerical gradients and Hessians if not provided.
@@ -323,7 +323,7 @@ def bounded_newtons_method(f, initial_point, bounds, tol=1e-5, max_iter=100, no_
         H = _hess(point)
 
         # Check convergence by gradient norm
-        if scalar_norm(g) < tol:
+        if scalar_norm(g) < gtol:
             if full_return:
                 return point, g, H, np.linalg.inv(H) if np.linalg.cond(H) < 1 / 1e-8 else None, it
             return point
@@ -362,7 +362,12 @@ def bounded_newtons_method(f, initial_point, bounds, tol=1e-5, max_iter=100, no_
             # After fallback, we continue
 
         # Check step size
-        if scalar_norm(new_point - point) < tol:
+        if min_value is not None:
+            if f(point)-min_value < tol:
+                if full_return:
+                    return new_point, g, H, H_inv, it
+                return new_point
+        if scalar_norm(new_point - point) < step_tol :
             if full_return:
                 return new_point, g, H, H_inv, it
             return new_point

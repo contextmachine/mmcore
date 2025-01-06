@@ -6,8 +6,9 @@ import pyrr
 from dataclasses import dataclass,field
 from typing import List, Tuple
 
+from mmcore.geom.bvh import BoundingBox
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
-from mmcore.numeric.algorithms.surface_area import u_min, u_max, v_min, v_max
+from mmcore.numeric.vectors import scalar_unit,gram_schmidt
 
 from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 
@@ -45,14 +46,19 @@ def nurbs_surface_wireframe_view(surf: NURBSSurface):
     return boundaries, (u_iso, v_iso)
 from numpy.typing import NDArray
 @dataclass
+class BoundingSphere:
+    origin:field(default_factory=lambda : np.array([0.,0.,0.], dtype=np.float32))
+    radius:float = 0.
+@dataclass
 class Camera:
     pos:NDArray[np.float32]=field(default_factory=lambda : np.array([150.0,150.0, 150.0], dtype=np.float32))
     target: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0,0.0, 0.0], dtype=np.float32))
     up: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0, 1.0, 0.0], dtype=np.float32))
     zoom:float=1.
-    near:float = 0.1
-    far:float = 100000.0
+    near:float = 0.01
+    far:float = 1000000.0
     is_panning:bool = False
+import multiprocessing as mp
 class CADRenderer:
     def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:Camera=None):
 
@@ -60,7 +66,9 @@ class CADRenderer:
         self._background_color = background_color
         if not glfw.init():
             raise RuntimeError("Failed to initialize GLFW")
-
+        if camera is None:
+            camera=Camera()
+        self.bsf=BoundingSphere(camera.target,0.)
         # Configure GLFW for macOS compatibility
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -213,13 +221,39 @@ class CADRenderer:
             print(f"Shader setup error: {e}")
             raise
 
+
     def add_point(self, position: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), size: float = 5.0):
         """Add a point to the scene"""
         self.points.append(Point(position, color, size))
+        self.camera_target=self.bsf.origin=(self.camera_target+position)/2
+
+        nrms = np.linalg.norm([p.position -self.camera_target for p in self.points - self.camera_target], axis=1)
+        i = np.argmax(nrms)
+        if nrms[i] > self.bsf.radius:
+            self.bsf.radius=nrms[i]
+        view_vec = scalar_unit(np.array(self.camera_pos - self.camera_target,dtype=float))
+
+        self.camera_pos = np.asarray(self.camera_target + view_vec *     self.bsf.radius * 2,dtype=np.float32)
 
     def add_wire(self, vertices: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), thickness: float = 1.0):
         """Add a wire (curve) to the scene"""
         self.wires.append(Wire(vertices, color, thickness))
+        self.camera_target = np.average([self.camera_target,vertices[0],vertices[1]], axis=0)
+
+        self.camera_target = self.bsf.origin=np.average([self.camera_target,vertices[0],vertices[1]], axis=0)
+        p = []
+        nrms=np.linalg.norm(
+            [(w.vertices[1]+w.vertices[0])/2 - self.camera_target for w in self.wires], axis=1)
+
+
+
+        i = np.argmax(nrms)
+        if nrms[i] > self.bsf.radius:
+            self.bsf.radius = nrms[i]
+        view_vec = scalar_unit(np.array(self.camera_pos - self.camera_target, dtype=float))
+
+        self.camera_pos = np.asarray(self.camera_target +view_vec * self.bsf.radius * 2, dtype=np.float32)
+
 
     def _mouse_move_callback(self, window, x, y):
         # Scale cursor position for Retina displays
@@ -288,7 +322,7 @@ class CADRenderer:
 
         # Create orthographic projection matrix
         # Note: zoom controls the visible area size
-        projection = pyrr.matrix44.create_orthogonal_projection(
+        self.projection = pyrr.matrix44.create_orthogonal_projection(
             left=-self.zoom * aspect,
             right=self.zoom * aspect,
             bottom=-self.zoom,
@@ -299,13 +333,13 @@ class CADRenderer:
         )
 
         # Create view matrix
-        view = pyrr.matrix44.create_look_at(
+        self.view = pyrr.matrix44.create_look_at(
             self.camera_pos,
             self.camera_target,
             self.camera_up,
             dtype=np.float32
         )
-        model = pyrr.matrix44.create_identity(dtype=np.float32)
+        self.model = pyrr.matrix44.create_identity(dtype=np.float32)
 
         # Use shader program and set uniforms
         glUseProgram(self.shader_program)
@@ -313,26 +347,31 @@ class CADRenderer:
         # Set matrices in shader
         glUniformMatrix4fv(
             glGetUniformLocation(self.shader_program, "projection"),
-            1, GL_FALSE, projection
+            1, GL_FALSE, self.projection
         )
         glUniformMatrix4fv(
             glGetUniformLocation(self.shader_program, "view"),
-            1, GL_FALSE, view
+            1, GL_FALSE, self.view
         )
         glUniformMatrix4fv(
             glGetUniformLocation(self.shader_program, "model"),
-            1, GL_FALSE, model
+            1, GL_FALSE, self.model
         )
+        if len(self.points)>100:
+            # Render points
+            with mp.Pool(8) as pool:
+                pool.map(self.render_point, self.points)
+        else:
+            [self.render_point(p) for p in self.points]
+        if len(self.wires) > 100:
+            with mp.Pool(8) as pool:
+                pool.map(self.render_point, self.points)
+        else:
+            # Render wires
+            for wire in self.wires:
+                self.render_wire(wire)
 
-        # Render points
-        for point in self.points:
-            self.render_point(point)
-
-        # Render wires
-        for wire in self.wires:
-            self.render_wire(wire)
-
-    def render_point(self, point: Point):
+    def render_point(self, points: Point):
         """Render a single point"""
         glPointSize(point.size * 2)  # Multiply by 2 for Retina displays
 
@@ -369,6 +408,7 @@ class CADRenderer:
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
 
+
         # Create and bind VBO for vertices
         vertex_vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo)
@@ -392,6 +432,8 @@ class CADRenderer:
         # Cleanup
         glDeleteBuffers(1, [vertex_vbo, color_vbo])
         glDeleteVertexArrays(1, [vao])
+
+
 
     def run(self):
         """Main application loop"""

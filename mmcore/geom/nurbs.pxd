@@ -1,20 +1,21 @@
 #cython: language_level=3
 # distutils: language = c++
+# cython: boundscheck=False, wraparound=False
 
 cimport cython
-cimport numpy as cnp
+
 
 from mmcore.geom.parametric cimport ParametricCurve,ParametricSurface
 from mmcore.numeric.binom cimport binomial_coefficient,binomial_coefficients
 from libc.stdlib cimport malloc,free
 from libcpp.vector cimport vector
-from libcpp.cmath cimport fabs
+from libcpp.cmath cimport fabs,fmin,fmax,round
 from libc.string cimport memcpy
 from libcpp.limits cimport numeric_limits
 
 
-cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
 
+cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil
 
 
 cdef inline double calc_epsilon(double x) noexcept nogil:
@@ -104,8 +105,6 @@ cdef inline void curve_point(int n, int p, double[:] U, double[:, :] P, double u
 
 
     free(N)
-
-
 
 
 

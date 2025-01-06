@@ -40,7 +40,7 @@ from mmcore.numeric.intersection.ssx._terminator import TerminatorType
 
 from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
 from mmcore.numeric.intersection.ssx._terminator import (
-    surface_surface_intersection_edge_terminator,
+    surface_surface_boundary_intersection,
 )
 
 from numpy.typing import NDArray
@@ -521,6 +521,8 @@ class MarchingMethod(SSXMethod):
                 break
 
         return uvs, pts, steps, list(ixss), terminator
+
+
 def find_start_points_nurbs(surf1, surf2,tol=1e-3):
     xyz=[]
     u1=[]
@@ -538,9 +540,10 @@ def find_start_points_nurbs(surf1, surf2,tol=1e-3):
     else:
         return
 times=[]
+
 def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
     #s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
-    edge_terminator = surface_surface_intersection_edge_terminator(
+    edge_terminator = surface_surface_boundary_intersection(
         surf1, surf2, tol=tol
     )
     #times.append(time.perf_counter_ns()-s)
