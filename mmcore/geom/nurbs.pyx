@@ -1099,6 +1099,8 @@ cdef void normalize_parameter_range(double start, double end ,double* t1, double
 cdef public char* MAGIC_BYTES=b"NRBC"
 cdef public uint32_t VERSION=1
 cdef int MAGIC_BYTES_SIZE=4
+
+
 cdef class NURBSCurve(ParametricCurve):
     @staticmethod
     cdef NURBSCurve create(double[:,:] control_points, int degree, double[:] knots, bint periodic):
@@ -1153,8 +1155,30 @@ cdef class NURBSCurve(ParametricCurve):
             self.make_periodic()
 
 
+    @cython.initializedcheck(False)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def geometry_hash(self, check_interval=False):
+        cdef bytes k = np.ascontiguousarray(self._knots).tobytes()
+        cdef bytes pts = np.ascontiguousarray(self._control_points).tobytes()
+        cdef double t0 = self._interval[0]
+        cdef double t1 = self._interval[1]
+        cdef tuple itms
+        if check_interval:
+            itms=(self._degree, k, pts,t0,t1)
+        else:
+            itms = (self._degree, k, pts)
+        return hash(itms)
 
 
+
+
+    def __hash__(self):
+
+
+        return self.geometry_hash(check_interval=True)
+    def __eq__(self, other):
+        return self.__hash__()==other.__hash__()
 
     def __deepcopy__(self, memodict={}):
 
@@ -2001,7 +2025,7 @@ def reverse_curve(curve: NURBSCurve) -> NURBSCurve:
     # Reverse and adjust knot vector
     cdef double[:] new_knots = np.zeros_like(curve._knots)
     cdef double a = curve._knots[0]
-    cdef double b = curve._knots[-1]
+    cdef double b = curve._knots[curve._knots.shape[0]-1]
     cdef int i
     for i in range(len(curve._knots)):
         new_knots[i] = a + b - curve._knots[-(i+1)]
@@ -2193,7 +2217,8 @@ cpdef list split_curve_multiple(NURBSCurve crv, double[:] params):
 @cython.boundscheck(False)
 @cython.cdivision(True)
 def decompose_curve(NURBSCurve crv):
-    cdef double[:] params=np.unique(crv._knots)[1:][:-1]
+    cdef double[:] params=np.unique(crv._knots)
+    params=params[1:][:params.shape[0]-2]
     cdef list curves=split_curve_multiple(crv,params)
     return curves
 
@@ -2503,6 +2528,28 @@ cdef class NURBSSurface(ParametricSurface):
         self.cnormalize_knots()
         self._update_interval()
 
+    @cython.initializedcheck(False)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def geometry_hash(self, check_interval=False):
+        cdef bytes ku = np.ascontiguousarray(self._knots_u).tobytes()
+        cdef bytes kv = np.ascontiguousarray(self._knots_v).tobytes()
+        cdef bytes pts = np.ascontiguousarray(self._control_points).tobytes()
+        cdef double u0 = self._interval[0][0]
+        cdef double u1 = self._interval[0][1]
+        cdef double v0 = self._interval[1][0]
+        cdef double v1 = self._interval[1][1]
+        cdef tuple itms
+        if check_interval:
+            itms = (self._degree[0], self._degree[1],ku,kv, pts, u0,u1,v0,v1)
+        else:
+            itms = (self._degree[0], self._degree[1],self._degree, ku,kv, pts)
+        return hash(itms)
+    def __hash__(self):
+        return self.geometry_hash(check_interval=True)
+
+    def __eq__(self, other):
+        return self.__hash__()==other.__hash__()
 
 
     def copy(self):

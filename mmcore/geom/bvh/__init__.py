@@ -1,12 +1,13 @@
-import itertools
-from functools import reduce
+from __future__ import annotations
 
 import numpy as np
 
 from mmcore.numeric._aabb import aabb,aabb_intersect
+from numpy._typing import NDArray
 
 
 class Object3D:
+
 
 
     def __init__(self, bounding_box):
@@ -28,7 +29,8 @@ _BBOX_CORNERS_BINARY_COMBS={
     3:np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]],dtype=int),
     4:np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1], [0, 1, 0, 0], [0, 1, 0, 1], [0, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0], [1, 0, 0, 1], [1, 0, 1, 0], [1, 0, 1, 1], [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]],dtype=int)
 }
-
+import numpy as np
+from functools import reduce
 
 def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray:
     """
@@ -74,127 +76,80 @@ def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray
 
     return corners
 
-class BoundingBox:
 
+
+class BoundingBox:
     def __init__(self, min_point, max_point):
-        self.min_point = np.array(min_point)  # Should be a tuple (x_min, y_min, z_min)
-        self.max_point = np.array(max_point)  # Should be a tuple (x_max, y_max, z_max)
+        self.min_point = np.array(min_point, dtype=float)  # (x_min, y_min, z_min)
+        self.max_point = np.array(max_point, dtype=float)  # (x_max, y_max, z_max)
         self.center = (self.min_point + self.max_point) * 0.5
         self.dims = self.max_point - self.min_point
-        self._arr=np.array([    self.min_point,    self.max_point])
-    def split(self, axis=0, parameter=0.5):
-        left=BoundingBox(np.copy(self.min_point),np.copy(self.max_point))
-        right=BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
-        #print(axis,parameter)
-        right.min_point[axis] =left.max_point[axis]=(self.min_point[axis] + self.max_point[axis])*parameter
+        self._arr=np.array([self.min_point, self.max_point], dtype=np.float32)
 
-        return left,right
+    def split(self, axis=0, parameter=0.5):
+        left = BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
+        right = BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
+        right.min_point[axis] = left.max_point[axis] = (self.min_point[axis] + self.max_point[axis])*parameter
+        return left, right
 
     def get_corners(self):
-
-        return get_aabb_corners_numpy(self.min_point,self.max_point)
+        return get_aabb_corners_numpy(self.min_point, self.max_point)
 
     def is_finite(self)->bool:
-        """Finite Values: All coordinates should be finite numbers (not NaN or infinite)"""
-        return np.all(np.isfinite(self.min_point)) and np.all( np.isfinite(self.max_point))
+        return np.all(np.isfinite(self.min_point)) and np.all(np.isfinite(self.max_point))
+
     def is_non_zero_volume(self)->bool:
-        """Non-zero Volume: The box should have positive, non-zero extent in all dimensions (i.e., max_point[i] > min_point[i] for all i)"""
-        return np.all(self.max_point>self.min_point)
+        return np.all(self.max_point > self.min_point)
 
     def is_consistency(self)->bool:
-        """Dimensional Consistency: min_point should be less than or equal to max_point in all dimensions (x,y,z)"""
-        return np.all(self.max_point>=self.min_point)
+        return np.all(self.max_point >= self.min_point)
+
     def is_valid(self)->bool:
         return self.is_finite() and self.is_non_zero_volume() and self.is_consistency()
 
-    def split4(self, axis1,axis2, parameter1=0.5,parameter2=0.5):
-        """
+    def split4(self, axis1, axis2, parameter1=0.5, parameter2=0.5):
+        a,b = self.split(axis2, parameter1)
+        return a.split(axis1,parameter2) + b.split(axis1,parameter2)
 
-
-            (0,2)-------(1,2)-------(2,2)
-              |           |           |
-              |     c     |     d     |             a:  (0,0),(1,1)
-              |           |           |             b:  (1,0),(2,1)
-            (0,1)-------(1,1)-------(2,1)           c:  (0,1),(1,2)
-              |           |           |             d:  (1,1),(2,2)
-              |     a     |     b     |
-              |           |           |
-            (0,0)-------(1,0)-------(2,0)
-
-
-        """
-        a,b=self.split(axis2,parameter1)
-        return a.split(axis1,parameter2)+b.split(axis1,parameter2)
-
-    def split8(self, axis1=0,axis2=1,axis3=2,parameter1=0.5, parameter2=0.5, parameter3=0.5):
-        """
-
-                 (0,2,1)-----(1,2,1)-----(2,2,1)
-                  / |           |           |
-                /   |     g     |     h     |
-           (0,2,0)-----(1,2,0)-----(2,2,0)  |
-              |  (0,1,1)--|--(1,1,1)--|--(2,1,1)                a:  (0,0,0),(1,1,0)
-              |     c     |     d     |     |                   b:  (1,0,0),(2,1,0)
-        e ----|-----|---→ |     |     | ←----------f            c:  (0,1,0),(1,2,0)
-           (0,1,0)-----(1,1,0)-----(2,1,0)  |                   d:  (1,1,0),(2,2,0)
-              |  (0,0,1)--|--(1,0,1)--|--(2,0,1)                e:  (0,0,1),(1,1,1)
-              |   /   a   |     b     |   /                     f:  (1,0,1),(2,1,1)
-              | /         |           | /                       g:  (0,1,1),(1,2,1)
-           (0,0,0)-----(1,0,0)-----(2,0,0)                      h:  (1,1,1),(2,2,1)
-
-
-        """
-        return  list(reduce(lambda x,y: x+y,(item.split(axis1,parameter1) for item in self.split4(axis2,axis3,parameter2,parameter3))))
+    def split8(self, axis1=0, axis2=1, axis3=2, parameter1=0.5, parameter2=0.5, parameter3=0.5):
+        return list(reduce(lambda x,y: x+y, (item.split(axis1, parameter1) for item in self.split4(axis2, axis3, parameter2, parameter3))))
 
     def evaluate(self, uvh):
-        return (self.min_point + self.max_point) *uvh
+        return (self.min_point + self.max_point)*uvh
 
     def centroid(self):
-        cent = (self.min_point + self.max_point) / 2
-        return cent
+        return (self.min_point + self.max_point)*0.5
 
     def volume(self):
-        return self.dims[0]*  self.dims[1]*  self.dims[2]
+        return self.dims[0]*self.dims[1]*self.dims[2]
+
     def intersect(self, other):
-        """Check if this bounding box intersects with another"""
-        return aabb_intersect(self._arr,other._arr)
+        return aabb_intersect(np.asarray(self._arr,dtype=float), np.asarray(other._arr,dtype=float))
+
     def intersect_disjoint(self, other):
         return (
-                self.min_point[0] < other.max_point[0]
-                and self.max_point[0] > other.min_point[0]
-                and self.min_point[1] < other.max_point[1]
-                and self.max_point[1] > other.min_point[1]
-                and self.min_point[2] < other.max_point[2]
-                and self.max_point[2] > other.min_point[2]
+            self.min_point[0] < other.max_point[0] and
+            self.max_point[0] > other.min_point[0] and
+            self.min_point[1] < other.max_point[1] and
+            self.max_point[1] > other.min_point[1] and
+            self.min_point[2] < other.max_point[2] and
+            self.max_point[2] > other.min_point[2]
         )
-    def intersection(self, other):
-        """
-        Calculate the intersection of this bounding box with another bounding box.
 
-        :param other: The other bounding box to intersect with.
-        :return: A new BoundingBox representing the intersection, or None if there is no intersection.
-        """
-        # Calculate the maximum of the minimum points for each dimension
+    def intersection(self, other):
         max_min_x = max(self.min_point[0], other.min_point[0])
         max_min_y = max(self.min_point[1], other.min_point[1])
         max_min_z = max(self.min_point[2], other.min_point[2])
-
-        # Calculate the minimum of the maximum points for each dimension
         min_max_x = min(self.max_point[0], other.max_point[0])
         min_max_y = min(self.max_point[1], other.max_point[1])
         min_max_z = min(self.max_point[2], other.max_point[2])
 
-        # Check if the bounding boxes intersect
         if max_min_x > min_max_x or max_min_y > min_max_y or max_min_z > min_max_z:
             return None
 
-        # Create and return the intersection bounding box
-        intersection_min = (max_min_x, max_min_y, max_min_z)
-        intersection_max = (min_max_x, min_max_y, min_max_z)
-        return BoundingBox(intersection_min, intersection_max)
+        return BoundingBox((max_min_x, max_min_y, max_min_z),(min_max_x, min_max_y, min_max_z))
 
     def merge(self, other):
-        """Create a new bounding box that contains both this and another bounding box"""
         new_min = (
             min(self.min_point[0], other.min_point[0]),
             min(self.min_point[1], other.min_point[1]),
@@ -208,25 +163,75 @@ class BoundingBox:
         return BoundingBox(new_min, new_max)
 
     def contains_point(self, point):
-        return all(
-            (
-                self.min_point[0] <= point[0],
-                self.min_point[1] <= point[1],
-                self.min_point[2] <= point[2],
-                self.max_point[0] >= point[0],
-                self.max_point[1] >= point[1],
-                self.max_point[2] >= point[2],
-            )
-        )
+        return bool(np.all(self.min_point<=point)and np.all(point<=self.max_point))
+    def contains_points(self, points):
+        return ((self.min_point[0] <= points[...,0]) & (points[...,0] <= self.max_point[0] )&
+                ((self.min_point[1] <= points[...,1]) & (points[...,1] <= self.max_point[1])) &
+                ((self.min_point[2] <= points[...,2])& ( points[...,2]<= self.max_point[2])))
+    def get_edges(self):
+        """
+        Return all edges of the box as a list of arrays,
+        each edge is [start_corner, end_corner] with shape (2, 3).
+        """
+        c = self.get_corners()
+        edges_indices = [
+            (0,1), (2,3), (4,5), (6,7),  # x-direction edges
+            (0,2), (1,3), (4,6), (5,7),  # y-direction edges
+            (0,4), (1,5), (2,6), (3,7)   # z-direction edges
+        ]
+        edges = []
+        for (i1, i2) in edges_indices:
+            edges.append(np.array([c[i1], c[i2]]))
+        return edges
+
+    def get_faces(self):
+        """
+        Return all faces of the box as a list of arrays,
+        each face is a quadrilateral represented by 4 corners (4, 3).
+        """
+        c = self.get_corners()
+        faces_indices = [
+            (0,1,3,2),  # bottom (z-min)
+            (4,5,7,6),  # top (z-max)
+            (0,1,5,4),  # front (y-min)
+            (2,3,7,6),  # back (y-max)
+            (0,2,6,4),  # left (x-min)
+            (1,3,7,5)   # right (x-max)
+        ]
+        faces = []
+        for (i1, i2, i3, i4) in faces_indices:
+            faces.append(np.array([c[i1], c[i2], c[i3], c[i4]]))
+        return faces
 
     def __repr__(self):
         return f"BoundingBox({self.min_point}, {self.max_point})"
+
     def __or__(self, other):
         return self.merge(other)
+
     def __and__(self, other):
         return self.intersection(other)
-    def __array__(self,dtype=None):
-        return np.array([self.min_point,self.max_point],dtype=dtype)
+
+    def __array__(self,dtype=None,copy=None):
+        if int(np.__version__[0])<2:
+            return self._arr.__array__(dtype=dtype)
+
+        return self._arr.__array__(dtype=dtype,copy=copy)
+
+    def size_metric(self):
+        """
+
+        Returns: the bbox size metric, even if bbox has insufficient dimensionality .
+        Example for three dimensions: If bbox has no dimensions close to 0, it will return volume, if one of the 3d bbox dimensions is close to zero, it will return area, etc.
+        -------
+
+        """
+        m=1.
+        for dim in self.dims:
+            if not np.isclose(dim,0):
+                m*=dim
+        return m
+
 
 def split_objects(objects):
     """Splits list of objects into two halves"""
@@ -347,20 +352,141 @@ def intersect_bvh(node1, node2):
 
 
 
+def _find_closest_vicinity(bvh:BVHNode, point:NDArray[float])-> tuple[list[Object3D],float] | None:
+
+
+    if bvh.object is not None:
+        return [bvh.object],sd_aabb( bvh.bounding_box._arr,point )
+    if not bvh.bounding_box.contains_point(point):
+        return
+    if (bvh.left is not None) and (bvh.right is not None):
+
+        l,r=bvh.left.bounding_box.contains_point(point) ,bvh.right.bounding_box.contains_point(point)
+
+        if l and (not r):
+
+            return _find_closest_vicinity(bvh.left, point)
+        elif (not l) and  r:
+
+            return _find_closest_vicinity(bvh.right, point)
+        elif l and r :
+
+
+
+
+
+                r1=_find_closest_vicinity(bvh.left, point)
+                r2=_find_closest_vicinity(bvh.right, point)
+                if (r1 is not None) and (r2 is not None):
+                    
+                    left,left_sd= r1
+                    right,right_sd=r2
+                    if left_sd<right_sd:
+                        return left,left_sd
+                    elif left_sd>right_sd:
+                        return right,right_sd
+                    else:
+
+
+
+                        # It is possible if the point lies in the intersection zone of two bboxes.
+                        # In this case we can't make a decision, because in fact we need to check both objects
+                        return left+right,left_sd
+                elif r1 is None and r2 is not None:
+                    return r2
+                elif r2 is None and r1 is not None:
+
+                    return r1
+                else:
+                   return
+        #If we're here, then the point is inside the parent's box, but not inside any of the children.
+
+
+    elif bvh.left is not None :
+        return _find_closest_vicinity(bvh.left, point)
+    elif bvh.right is not None:
+        return _find_closest_vicinity(bvh.right, point)
+
+    else:
+        raise ValueError(f"Empty BVH node with bbox: {bvh.bounding_box._arr.tolist()}")
+
+
+def _find_closest_breadth(bvh:BVHNode, point:NDArray[float])->tuple[list[Object3D],float]:
+    if bvh.object is not None:
+        return [bvh.object],sd_aabb( bvh.bounding_box._arr,point )
+
+    if (bvh.left is not None) and (bvh.right is None):
+        return _find_closest_breadth(bvh.left, point)
+    elif (bvh.left is None) and (bvh.right is not None):
+        return _find_closest_breadth(bvh.right, point)
+    elif  (bvh.left is  None) and (bvh.right is  None):
+        raise ValueError(f"Empty BVH node with bbox: {bvh.bounding_box._arr.tolist()}")
+    elif (bvh.left is not None) and (bvh.right  is not None):
+        left_sd=sd_aabb(bvh.left.bounding_box._arr, point)
+        right_sd = sd_aabb(bvh.right.bounding_box._arr, point)
+        if left_sd<right_sd:
+            return _find_closest_breadth(
+                bvh.left,point
+            )
+        elif left_sd>right_sd:
+            return _find_closest_breadth(
+                bvh.right,point
+            )
+        else:
+            left_obj, left_sd=_find_closest_breadth(
+                bvh.left, point
+            )
+            right_obj, right_sd=_find_closest_breadth(
+                bvh.right, point
+            )
+            if left_sd<right_sd:
+                return left_obj,left_sd
+            elif left_sd>right_sd:
+                return right_obj,right_sd
+            else:
+                return left_obj+right_obj,left_sd
+
+    else:
+        raise ValueError(f"Unknown condition: {bvh.bounding_box._arr.tolist()}, {bvh.left},{bvh.right}")
+
+def find_closest(bvh:BVHNode, point:NDArray[float], breadth:bool=True)->tuple[list[Object3D],float]|None:
+    if breadth:
+        return _find_closest_breadth(bvh, point)
+    else:
+        return _find_closest_vicinity(bvh, point)
 
 
 
 def traverse_bvh(node, target_bbox, results):
     """Find all objects in the BVH tree that intersect with the given bounding box"""
+
     if not node.bounding_box.intersect(target_bbox):
         return
     if node.object is not None:
         results.append(node.object)
+
     if node.left:
         traverse_bvh(node.left, target_bbox, results)
     if node.right:
         traverse_bvh(node.right, target_bbox, results)
 
+
+def traverse_bvh2(node, target_bbox, results):
+    """Find all objects in the BVH tree that intersect with the given bounding box"""
+
+    if not node.bounding_box.intersect(target_bbox):
+        return
+    if node.object is not None:
+        results.append(node.object)
+    l = len(results)
+    if node.left:
+        traverse_bvh(node.left, target_bbox, results)
+    if node.right:
+        traverse_bvh(node.right, target_bbox, results)
+
+    if l == len(results):
+        results.append(node.object)
+        return
 
 
 def contains_point(bvh_root, pt):
@@ -369,6 +495,11 @@ def contains_point(bvh_root, pt):
     traverse_bvh(bvh_root, pt_box,   results)
     return results
 
+def contains_point2(bvh_root, pt):
+    results=[]
+    pt_box = BoundingBox(pt, pt)
+    traverse_bvh2(bvh_root, pt_box,   results)
+    return results
 
 
 
@@ -400,80 +531,6 @@ def traverse_bvh_point(node, target_point):
     else:
 
         return node
-class BVHCluster(Object3D):
-    def __init__(self,  nodes=()):
-
-        self.nodes=list(nodes)
-        if len(self.nodes)==0:
-            super().__init__(BoundingBox([np.inf,np.inf,np.inf],[-np.inf,-np.inf,-np.inf]))
-        else:
-            super().__init__(reduce(lambda x,y:x.merge(y), (node.bounding_box for node in self.nodes )))
-
-
-
-    @property
-    def ixs(self):
-
-
-        return list(itertools.chain.from_iterable(n.ixs for n in self.nodes))
-    def merge(self, cluster:'BVHCluster'):
-
-        return BVHCluster(self.nodes+cluster.nodes)
-
-    def merge_if_overlap(self, cluster: 'BVHCluster'):
-        if self.bounding_box.intersect(cluster.bounding_box):
-            clust=self.merge(cluster)
-            return [clust]
-        else:
-            return [self,cluster]
-    @staticmethod
-    def build(nodes)->tuple[list['BVHCluster'],list[int]]:
-
-        clusts=[]
-        ixs=[]
-        for i,n in enumerate(nodes):
-            #print(f'{i} , {n.bounding_box}:' )
-            done=False
-            j=0
-            while not done:
-                if j==len(clusts):
-
-                    if hasattr(n, 'nodes'):
-                        ixs.append([])
-                        for n in n.nodes:
-                            ixs[-1].extend(n.ixs)
-                        clusts.append(n)
-                    else:
-                        ixs.append([*n.ixs])
-                        clusts.append(BVHCluster([n]))
-
-                    #print(f'\t{i} x {j+1}(new), {clusts[-1].bounding_box} : True')
-                    break
-
-                cl=clusts[j]
-
-
-                if cl.bounding_box.intersect(n.bounding_box):
-                        #print(i, 'to' ,j)
-
-                        ixs[j].extend(n.ixs)
-                        if hasattr(n,'nodes'):
-                            cl.nodes.extend(n.nodes)
-                        else:
-                            cl.nodes.append(n)
-                        cl.bounding_box=cl.bounding_box.merge(n.bounding_box)
-                        done=True
-                        #print(f'\t{i} x {j }, {clusts[-1].bounding_box} : True')
-
-
-                else:
-                    pass
-                    #print(f'\t{i} x {j}, {cl.bounding_box} : False')
-
-                j+=1
-
-
-        return clusts,ixs
 
 
 
@@ -481,11 +538,6 @@ class BVHCluster(Object3D):
 
 
 
-
-def traverse_leafs_groups(bvh_root:BVHNode)->list[BVHCluster]:
-    leafs=[]
-    traverse_leafs(bvh_root,leafs)
-    return BVHCluster.build(leafs)
 
 def traverse_leafs(bvh_root, result):
     if bvh_root is None:
@@ -512,9 +564,13 @@ def traverse_all_objects_in_node(bvh_root, result):
 
 def sdBox(p: np.array, b: np.array):
     d = np.abs(p) - b
+
     return min(np.max([d[0], d[1], d[2]]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
 
 
+def sd_aabb(bbox, pt):
+    cnt=(bbox[0]+bbox[1])/2
+    return sdBox( pt-cnt,bbox[1]-cnt)
 
 
 def traverse_all_bbox(bvh_root, result):
@@ -557,3 +613,26 @@ class PSegment(Object3D):
         self.pts = pts
         self.t = t
         super().__init__(BoundingBox(*aabb(pts)))
+
+
+from mmcore.geom.nurbs import NURBSCurve,split_curve
+
+class NURBSCurveObject3D(Object3D):
+    def __init__(self, curve:NURBSCurve):
+        super().__init__(BoundingBox(*np.array(curve.bbox())))
+        self.curve=curve
+
+    def split(self, t:float=None):
+        if t is None:
+            t0,t1=self.curve.interval()
+            t=(t0+t1)/2
+        try:
+            crv1,crv2=split_curve(self.curve,t, normalize_knots=False,tol=1e-12)
+        except ValueError as err:
+            print(
+                t
+            )
+            raise err
+        return NURBSCurveObject3D(crv1),NURBSCurveObject3D(crv2)
+
+

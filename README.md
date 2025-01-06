@@ -153,6 +153,17 @@ Results show mmcore excels particularly in parallel processing and batch operati
 
 *Figure: Visualization of tube intersection test case*
 
+## Recent Updates (v0.50.4)
+
+1. Added new adaptive mesh generation functionality
+2. Enhanced NURBS core implementation with improved performance
+3. Optimized closest point computation algorithms
+4. Updated Newton method solver with better convergence
+5. Improved BVH (Bounding Volume Hierarchy) implementation
+6. Enhanced BREP topology handling
+7. Refactored numeric routines for better efficiency
+8. Added new example: NURBS-NURBS intersection improvements
+
 ## Known Deprecations
 
 1. Use `mmcore.numeric.vectors` instead of `mmcore.geom.vec` for vector operations

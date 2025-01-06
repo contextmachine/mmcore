@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scipy.interpolate import interp1d
+
 
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
@@ -78,7 +78,7 @@ def evaluate_tangent(D1, D2):
 
 evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()")
 
-from scipy.integrate import quadrature
+
 
 
 def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
@@ -95,7 +95,7 @@ def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
         return romberg1d(lambda t: scalar_norm(first_der(t)), t0, t1, max_steps=32,acc=tol),tol
 
 
-from scipy.optimize import newton, bisect
+from scipy.optimize import newton
 
 
 def evaluate_parameter_from_length(

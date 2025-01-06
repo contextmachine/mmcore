@@ -278,6 +278,7 @@ class StepWriter:
                                             )
                                           )
                                )
+
     def issteptype(self, obj):
         return type(obj) in (p21.Reference,p21.SimpleEntityInstance,p21.ComplexEntityInstance)
 
@@ -417,40 +418,7 @@ class StepWriter:
 
         return (origin, xaxis,yaxis,xy)
 
-    def add_nurbs_surface(self, surf:NURBSSurface,color=(0.5,0.5,0.5), name:str=''):
 
-        unique_knots_u, mult_u = get_knot_multiplicities(surf.knots_u.tolist())
-        unique_knots_v, mult_v = get_knot_multiplicities(surf.knots_v.tolist())
-        boundaries=extract_surface_boundaries(surf)
-        shell= self.add_shell_based_surface_model(
-                (self.add_open_shell(
-                    (self.add_advanced_face(
-                        (
-                        self.add_face_bound(
-                        self.add_edge_loop([
-                            self.add_oriented_edge(
-                                self.add_edge_curve(
-                                    self.add_cartesian_point(tuple(boundary.start())),
-                                    self.add_cartesian_point(tuple(boundary.end())),
-                                    self.add_b_spline_curve_with_knots(boundary)
-                                )
-                            ) for boundary in boundaries])),
-                        ),
-                        self.add_entity(
-                            p21.entity('B_SPLINE_SURFACE_WITH_KNOTS',(
-                                name,
-                                int(surf.degree[0]),int(surf.degree[1]),
-                                [[self.add_cartesian_point(pt) for pt in pts] for pts in surf.control_points],
-                                UNSPECIFIED,FALSE,FALSE,FALSE, mult_u,mult_v,unique_knots_u,unique_knots_v,UNSPECIFIED
-                                )
-                            )
-                        ),
-                        TRUE,
-                        name
-                    ),
-                ),),),name)
-        self.add_surface_style(shell,color=color)
-        return shell
     def add_shape_representation(self, items, context_of_items=None, name:str=''):
         return self.add_entity(p21.entity('SHAPE_REPRESENTATION', (name, items, context_of_items if context_of_items is not None else self.add_context3())))
 
@@ -493,6 +461,49 @@ class StepWriter:
 
         self.step_file.data[0].instances.update({entity_id:p21.complex_entity_instance(entity_id, entities)})
         return entity_id
+
+    def add_nurbs_surface(self, surf:NURBSSurface,color=(0.5,0.5,0.5), name:str=''):
+
+        unique_knots_u, mult_u = get_knot_multiplicities(surf.knots_u.tolist())
+        unique_knots_v, mult_v = get_knot_multiplicities(surf.knots_v.tolist())
+        boundaries=extract_surface_boundaries(surf)
+        shell= self.add_shell_based_surface_model(
+                (self.add_open_shell(
+                    (self.add_advanced_face(
+                        (
+                        self.add_face_bound(
+                        self.add_edge_loop([
+                            self.add_oriented_edge(
+                                self.add_edge_curve(
+                                    self.add_cartesian_point(tuple(boundary.start())),
+                                    self.add_cartesian_point(tuple(boundary.end())),
+                                    self.add_b_spline_curve_with_knots(boundary)
+                                )
+                            ) for boundary in boundaries])),
+                        ),
+                        self.add_entity(
+                            p21.entity('B_SPLINE_SURFACE_WITH_KNOTS',(
+                                name,
+                                int(surf.degree[0]),int(surf.degree[1]),
+                                [[self.add_cartesian_point(pt) for pt in pts] for pts in surf.control_points],
+                                UNSPECIFIED,FALSE,FALSE,FALSE, mult_u,mult_v,unique_knots_u,unique_knots_v,UNSPECIFIED
+                                )
+                            )
+                        ),
+                        TRUE,
+                        name
+                    ),
+                ),),),name)
+        self.add_surface_style(shell,color=color)
+        return shell
+    def add_nurbs_curve(self,curve:NURBSCurve):
+        oriented_edge=self.add_oriented_edge(
+            self.add_edge_curve(
+                self.add_cartesian_point(tuple(curve.start())),
+                self.add_cartesian_point(tuple(curve.end())),
+                self.add_b_spline_curve_with_knots(curve)
+            ))
+        return oriented_edge
 
 if __name__ =="__main__":
     from pathlib import Path

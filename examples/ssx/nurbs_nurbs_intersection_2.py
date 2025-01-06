@@ -1,12 +1,11 @@
-"""This example demonstrates how to use the `NURBSSurface` class from the `mmcore` package to create NURBS (Non-Uniform
-Rational B-Splines) surfaces and how to write them to a STEP file using `StepWriter`."""
+import time
+
 import numpy as np
+
 from mmcore.geom.nurbs import NURBSSurface
-from mmcore.compat.step.step_writer import StepWriter
+from mmcore.numeric.intersection.ssx import ssx
 
-# 1. **Defining NURBS Surfaces**:
-
-surf1 = NURBSSurface(
+s1 = NURBSSurface(
     **{
         "control_points": np.array(
             [
@@ -463,7 +462,7 @@ surf1 = NURBSSurface(
     }
 )
 
-surf2 = NURBSSurface(
+s2 = NURBSSurface(
     **{
         "control_points": np.array(
             [
@@ -919,14 +918,51 @@ surf2 = NURBSSurface(
     }
 )
 
+s=time.time()
+result=ssx(s1,s2,0.001)
 
-# 3. **Writing to STEP File**:
-#     - Initialize a `StepWriter`.
-#     - Add both NURBS surfaces to the `StepWriter`.
-#     - Write the surfaces to a STEP file named `example.step`.
-step_writer = StepWriter()
-step_writer.add_nurbs_surface(surf1, color=(0.5,0.5,0.5),name='surf1')
-step_writer.add_nurbs_surface(surf2, color=(0.1,0.5,0.5), name='surf2')
 
-with open('example.step', 'w') as f:
-    step_writer.write(f)
+
+print(f'intersection computed at: {time.time() - s} sec.')
+
+
+print(f'\n({s1} X \n\t{s2}):')
+
+for i, (spatial, uv1, uv2) in enumerate(result):
+            print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
+            cpts=(spatial.control_points).tolist()
+            cpts_repr = repr(cpts)
+            if len(cpts)>4:
+                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
+            print(f'\t\tcontrol points: {cpts_repr}')
+            print(f'\t\tdegree: {spatial.degree}')
+            with open(f'ssx_result-{i}.bin', 'wb') as f:
+                f.write(spatial.serialize())
+
+
+
+
+try:
+    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+
+    print(dir(Camera))
+    centr=np.average(s1.control_points_flat, axis=0)
+    renderer=CADRenderer(camera=Camera( zoom=75.
+        )
+    )
+
+    renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
+    renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+
+    for (crv,uv1,uv2) in result:
+        renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
+
+
+    renderer.run()
+
+except ModuleNotFoundError as err:
+    print("mmcore.renderer is not installed, skip preview.")
+except ImportError as err:
+    print("mmcore.renderer is not installed, skip preview.")
+except Exception as err:
+    raise err
