@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.50.4"
+version = "0.50.5"
 description = "mmcore"
 authors = ["Andrew Astakhov <sthv.developer@gmail.com>", ]
 license = "Apache License Version 2.0"
