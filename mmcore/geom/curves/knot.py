@@ -3,14 +3,17 @@ from __future__ import annotations
 import copy
 from copy import deepcopy
 import numpy as np
+from numpy.typing import NDArray
 from scipy.linalg import lu_solve,lu_factor
 from mmcore.numeric.vectors import norm, scalar_norm
 
-from mmcore.geom.nurbs import NURBSCurve,decompose_curve
+from mmcore.geom.nurbs import NURBSCurve, decompose_curve, knot_removal, knot_insertion_alpha_py, \
+    knot_removal_alpha_i_py, knot_removal_alpha_j_py, NURBSSurface
 
 from mmcore.numeric.binom import binomial_coefficient_py
 
-
+def point_distance(pt1,pt2):
+    return scalar_norm(np.array(pt1)-np.array(pt2))
 def generate_knot(degree, num_ctrlpts, clamped=True):
     """ Generates an equally spaced knot vector.
 
@@ -348,7 +351,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     return mult
 
 
-def knot_insertion_alpha(u, knotvector, span, idx, leg):
+def knot_insertion_alpknot_removalha(u, knotvector, span, idx, leg):
     """ Computes :math:`\\alpha` coefficient for knot insertion algorithm.
 
     :param u: knot
@@ -416,7 +419,7 @@ def knot_insertion(degree, knotvector, ctrlpts, u, num=1, **kwargs)->tuple:
     for j in range(1, num + 1):
         L = k - degree + j
         for i in range(0, degree - j - s + 1):
-            alpha = knot_insertion_alpha(u, tuple(knotvector), k, i, L)
+            alpha = knot_insertion_alpha_py(u, tuple(knotvector), k, i, L)
             if isinstance(temp[i][0], float):
                 temp[i][:] = [alpha * elem2 + (1.0 - alpha) * elem1 for elem1, elem2 in zip(temp[i], temp[i + 1])]
             else:
@@ -506,7 +509,7 @@ def curve_deriv_cpts(dim, degree, kv, cpts, rs, deriv_order=0):
     return PK
 
 
-def knot_refinement(degree, knotvector, ctrlpts, **kwargs):
+def knot_refinement1(degree, knotvector, ctrlpts, **kwargs):
     """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
 
     Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
@@ -617,6 +620,7 @@ def knot_refinement(degree, knotvector, ctrlpts, **kwargs):
             if abs(alpha) < tol:
                 new_ctrlpts[idx - 1] = deepcopy(new_ctrlpts[idx])
             else:
+                print()
                 alpha = alpha / (new_kv[k + l] - knotvector[i - degree + l])
                 if isinstance(ctrlpts[0][0], float):
                     new_ctrlpts[idx - 1] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
@@ -711,7 +715,8 @@ def compose_curves(curves):
     cpts = []  # new control points array
     wgts = []  # new weights array
     kv_connected = []  # superfluous knots to be removed
-    pdomain_end = 0
+
+    pdomain_end = 0.
 
     # Loop though the curves
     for arg in curves:
@@ -735,8 +740,9 @@ def compose_curves(curves):
             # Process control points
 
             wgts += list(weights[1:])
+        dstart,dend=arg.interval()
+        pdomain_end += (dend-dstart)
 
-        pdomain_end += knots[-1]
         kv_connected.append(pdomain_end)
 
     # Fix curve by appending the last knot to the end
@@ -747,222 +753,168 @@ def compose_curves(curves):
     cp[:,:3]=cpts
     cp[:, 3]=wgts
     return np.array(kv), cp, np.array(kv_connected)
-def degree_elevate(n, p, U, Pw, t):
+def _compose_curves_no_knots_updates(curves):
     """
-    Degree elevate a B-spline curve t times.
-
-    Parameters:
-    -----------
-    n : int
-        Number of control points minus 1
-    p : int
-        Degree of the curve
-    U : array-like
-        Knot vector
-    Pw : array-like
-        Control points
-    t : int
-        Number of times to elevate the degree
-
-    Returns:
-    --------
-    nh : int
-        New number of control points minus 1
-    Uh : array-like
-        New knot vector
-    Qw : array-like
-        New control points
     """
-    # Convert inputs to numpy arrays if they aren't already
-    U = np.array(U, dtype=float)
-    Pw = np.array(Pw, dtype=float)
+    # Get keyword arguments
 
-    # Initialize arrays and variables
-    m = n + p + 1
-    ph = p + t
-    ph2 = ph // 2
 
-    # Initialize bezalfs array for degree elevation coefficients
-    bezalfs = np.zeros((ph + 1, p + 1))
-    bezalfs[0, 0] = bezalfs[ph, p] = 1.0
+    # Validate input
 
-    # Compute Bézier degree elevation coefficients
-    for i in range(1, ph2 + 1):
-        inv = 1.0 / binomial_coefficient_py(ph, i)
-        mpi = min(p, i)
+    kv = []  # new knot vector
+    cpts = []  # new control points array
+    wgts = []  # new weights array
+    kv_connected = []  # superfluous knots to be removed
 
-        for j in range(max(0, i - t), mpi + 1):
-            bezalfs[i, j] = inv * binomial_coefficient_py(p, j) * binomial_coefficient_py(t, i - j)
+    pdomain_end = curves[0].interval()[0]
 
-    for i in range(ph2 + 1, ph):
-        mpi = min(p, i)
-        for j in range(max(0, i - t), mpi + 1):
-            bezalfs[i, j] = bezalfs[ph - i, p - j]
+    # Loop though the curves
+    for arg in curves:
+        #arg=arg.copy()
+        #arg.normalize_knots()
 
-    # Initialize output arrays
-    mh = ph
-    kind = ph + 1
-    r = -1
-    a = p
-    b = p + 1
-    cind = 1
-    ua = U[0]
+        knots=arg.knots.tolist()
+        control_points=arg.control_points.tolist()
+        weights = arg.weights.tolist()
+        # Process knot vectors
+        if not kv:
+            kv += list(knots[:-(arg.degree + 1)])  # get rid of the last superfluous knot to maintain split curve notation
+            cpts += list(control_points)
+            # Process control points
+            wgts += list(weights)
 
-    # Calculate the size needed for Qw
-    # The maximum size needed will be n + t * (p + 1) + 1
-    max_qw_size = n + t * (p + 1) + 1
-    Qw = np.zeros((max_qw_size,3))
-    Qw[0] = Pw[0]
-
-    # Initialize Uh array (maximum size will be m + ph + 1)
-    max_uh_size = m + ph + 1
-    Uh = np.full(max_uh_size, ua)
-
-    # Initialize bpts array with first Bézier segment
-    bpts = np.zeros((p + 1,3))
-    bpts[:p + 1] = Pw[:p + 1]
-
-    # Initialize ebpts array
-    ebpts = np.zeros((p + 1,3))
-
-    # Main loop through knot vector
-    while b < m:
-        i = b
-        while b < m and U[b] == U[b + 1]:
-            b += 1
-        mul = b - i + 1
-        mh += mul * t
-        ub = U[b]
-        oldr = r
-        r = p - mul
-
-        # Insert knot u(b) r times
-        if oldr > 0:
-            lbz = (oldr + 2) // 2
         else:
-            lbz = 1
+            tmp_kv = [k for k in knots[1:-(arg.degree + 1)]]
+            kv += tmp_kv
+            cpts += list(control_points[1:])
+            # Process control points
 
-        if r > 0:
-            rbz = ph - (r + 1) // 2
-        else:
-            rbz = ph
+            wgts += list(weights[1:])
+        dstart,dend=arg.interval()
+        pdomain_end=dend
 
-        if r > 0:
-            # Insert knot to get Bézier segment
-            numer = ub - ua
-            for k in range(p, mul, -1):
-                alfs = numer / (U[a + k] - ua)
-                bpts[k] = alfs * bpts[k] + (1.0 - alfs) * bpts[k - 1]
+        kv_connected.append(pdomain_end)
 
-            for j in range(1, r + 1):
-                save = r - j
-                s = mul + j
-                for k in range(p, s - 1, -1):
-                    bpts[k] = (ub - U[a + k]) / (U[a + k + j] - U[a + k]) * bpts[k] + \
-                              (U[a + k + j] - ub) / (U[a + k + j] - U[a + k]) * bpts[k - 1]
-                if b < m:
-                    bpts[s - 1] = bpts[p]
+    # Fix curve by appending the last knot to the end
+    kv += [pdomain_end for _ in range(arg.degree + 1)]
+    # Remove the last knot from knot insertion list
+    kv_connected.pop()
+    cp=np.zeros((len(cpts),4))
+    cp[:,:3]=cpts
+    cp[:, 3]=wgts
+    return np.array(kv), cp, np.array(kv_connected)
 
-        # Degree elevate Bézier
-        for i in range(lbz, ph + 1):
-            ebpts = np.zeros((3,))
-            mpi = min(p, i)
-            for j in range(max(0, i - t), mpi + 1):
-                ebpts += bezalfs[i, j] * bpts[j]
-            if cind + i - lbz < max_qw_size:
-                Qw[cind + i - lbz] = ebpts
+def degree_elevate_curve(curve:NURBSCurve, num:int=1):
+    """ Applies degree elevation and degree reduction algorithms to spline geometries.
 
-        # Remove knot u=U[a] oldr times
-        if oldr > 1:
-            first = kind - 2
-            last = kind
-            den = ub - ua
-            bet = (ub - Uh[kind - 1]) / den
+    :param obj: spline geometry
+    :type obj: abstract.SplineGeometry
+    :param param: operation definition
+    :type param: list, tuple
+    :return: updated spline geometry
+    """
 
-            for tr in range(1, oldr):
-                i = first
-                j = last
-                kj = j - kind + 1
-                while j - i > tr:
-                    if i < cind:
-                        alf = (ub - Uh[i]) / (ua - Uh[i])
-                        Qw[i] = alf * Qw[i] + (1.0 - alf) * Qw[i - 1]
-                    if j >= lbz:
-                        if j - tr <= kind - ph + oldr:
-                            gam = (ub - Uh[j - tr]) / den
-                            ebpts = gam * Qw[kj] + (1.0 - gam) * Qw[kj + 1]
-                        else:
-                            ebpts = bet * Qw[kj] + (1.0 - bet) * Qw[kj + 1]
-                        Qw[kj] = ebpts
-                    i += 1
-                    j -= 1
-                    kj -= 1
-                first -= 1
-                last += 1
+    # Start curve degree manipulation operations
 
-        if a != p:
-            for i in range(ph - oldr):
-                if kind < max_uh_size:
-                    Uh[kind] = ua
-                    kind += 1
 
-        for j in range(lbz, rbz + 1):
-            if cind < max_qw_size:
-                Qw[cind] = ebpts
-                cind += 1
+        # Find multiplicity of the internal knots
+    int_knots = set(curve.knots[curve.degree + 1:-(curve.degree + 1)])
+    mult_arr = []
+    for ik in int_knots:
+        s = find_multiplicity(ik, curve.knots)
+        mult_arr.append(s)
 
-        if b < m:
-            for j in range(r):
-                bpts[j] = Pw[b - p + j]
-            for j in range(r, p + 1):
-                bpts[j] = Pw[b - p + j]
-            a = b
-            b += 1
-            ua = ub
-        else:
-            for i in range(ph + 1):
-                if kind + i < max_uh_size:
-                    Uh[kind + i] = ub
 
-    nh = mh - ph - 1
+    # Decompose the input by knot insertion
+    crv_list = decompose_curve(curve)
+
+
+    # If parameter is positive, apply degree elevation. Otherwise, apply degree reduction
+    crv_list_new=[]
+    # Loop through to apply degree elevation
+    for crv in crv_list:
+
+            new_cpts,new_deg = degree_elevation_bez( crv.control_pointsw,crv.degree, num=num)
+            new_kv=np.zeros((crv.knots.shape[0]+num*2,))
+
+            new_kv[:num]=crv.knots[0]
+            new_kv[-num:] = crv.knots[-1]
+
+            new_kv[num:][:-num]=crv.knots
+
+            crv_new=NURBSCurve(new_cpts,new_deg,knots=new_kv)
+
+            crv_list_new.append(crv_new)
 
 
 
-    Uh = Uh[:kind + ph + 1]
-    Qw = Qw[:cind]
 
-    return nh, Uh, Qw
+    # Compute new degree
+    nd = curve.degree + num
+
+    # Number of knot removals
+    num_knots_removals = curve.degree + 1
+
+
+    # Link curves together (reverse of decomposition)
+    kv, cpts, knots_connected = _compose_curves_no_knots_updates(crv_list_new)
+
+    # Organize control points (if necessary)
+    #ctrlpts = compatibility.combine_ctrlpts_weights(cpts, ws) if obj.rational else cpts
+
+
+
+
+
+
+    return NURBSCurve(np.array(cpts), nd, knots=np.array(kv))
+
+
 from mmcore.geom.nurbs import reverse_curve
-def degree_elevate_bez(curve, t:int):
-    el = degree_elevate(curve.control_points.shape[0] - 1, curve.degree, curve.knots, curve.control_points, t)
-    nc = NURBSCurve(np.array(el[2]), curve.degree + t, np.array(el[1]), curve.periodic)
-    nc.knots = np.array(el[1])
-    return nc
 
 
-def degree_elevate_curve(curve, t:int):
+
+def degree_elevation_bez(points:NDArray[float], degree:int, num:int=1)->tuple[NDArray[float], int]:
     """
-    Elevate the degree of a NURBS curve by t degrees.
+    Elevates the degree of a Bézier curve by a specified number of times.
 
-    Parameters:
-    -----------
-    curve: NURBSCurve
-        The curve to elevate
-    t: int
-        Number of degrees to elevate by
+    This function computes the degree elevation for Bézier curves, increasing the
+    degree while keeping the curve's shape intact. The degree elevation increases
+    the number of control points, but ensures the resulting Bézier curve is equivalent
+    to the original. This operation is repeated `num` times.
 
-    Returns:
-    --------
-    NURBSCurve: New curve with elevated degree
+    :param points: Control points of the Bézier curve. The array should have a shape
+        of (degree + 1, n), where `degree` is the degree of the Bézier curve and `n`
+        is the dimension of each control point.
+    :param degree: Degree of the input Bézier curve. Must be consistent with the number
+        of control points provided in `points`.
+    :param num: Number of times to elevate the degree of the Bézier curve. Default is 1.
+    :return: A tuple consisting of the new control points and the elevated degree:
+        - new_points (NDArray[float]): Array of the Bézier curve's control points after
+          degree elevation.
+        - elevated_degree (int): The new degree of the Bézier curve after the operation.
+    :raises ValueError: If the number of provided control points does not match
+        degree + 1, since piecewise geometry is not supported by this operation.
     """
+    if points.shape[0] != (degree + 1):
+        raise ValueError(
+            "Current operation do not support piecewise geometry, control points count must be equal degree+1.")
+    new_points_num = degree + 1 + num
+    new_points = np.zeros((new_points_num, points.shape[1]))
 
-    crvs=[degree_elevate_bez(curve, t) for curve in decompose_curve(curve)]
-    deg=crvs[0].degree
-    knots,control_points,k=compose_curves(crvs)
+    for i in range(0, new_points_num):
+        start = max(0, (i - num))
+        end = min(degree, i)
+        for j in range(start, end + 1):
+            coeff = (binomial_coefficient_py(degree, j) * binomial_coefficient_py(num,
+                                                                                  (i - j))) / binomial_coefficient_py(
+                (degree + num), i)
 
-    nc=NURBSCurve(control_points,deg,knots=knots,periodic=curve.periodic)
+            new_points[i] += (coeff * points[j])
 
-    return nc
+
+    return new_points, degree + num
+
 
 
 import numpy as np
@@ -1113,15 +1065,20 @@ def refine_curve(curve, new_knots):
     --------
     NURBSCurve : Refined curve
     """
-    n = curve.control_points.shape[0] - 1
-    print(curve.knots,new_knots)
-    Qw, Ubar = knot_refinement2(n,curve.degree, curve.knots,
-                               curve.control_points, new_knots)
+    curve=curve.copy()
 
-    # Create new curve with refined knots
-    from mmcore.geom.nurbs import NURBSCurve
-    print('u',Ubar)
-    return NURBSCurve(np.array(Qw), curve.degree, np.array(Ubar), curve.periodic)
+
+    old=np.copy(curve.knots)
+    for i,k in enumerate(new_knots):
+
+        if old[0]>k:
+
+
+            curve.insert_knot(k,1)
+        else:
+            old=np.delete(old,0)
+
+    return curve
 
 def join_two_curves(curve1:NURBSCurve, curve2:NURBSCurve,tol:float=1e-5):
     start_1=np.array(curve1.start())
@@ -1201,72 +1158,4 @@ def merge_knot_vectors(knots1, knots2):
 
     return np.array(result)
 
-def make_curves_compatible(curve1, curve2):
-    """
-    Make two NURBS curves compatible for ruled surface construction
 
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    tuple of two modified curves with same degree, knots and number of control points
-    """
-    # 1. Degree elevation to match highest degree
-    p1, p2 = curve1.degree, curve2.degree
-    if p1 < p2:
-        curve1 = degree_elevate_curve(curve1, p2 - p1)
-    elif p2 < p1:
-        curve2 = degree_elevate_curve(curve2, p1 - p2)
-
-    # 2. Merge knot vectors
-    unified_knots = merge_knot_vectors(curve1.knots, curve2.knots)
-
-    # 3. Knot refinement to match knot vectors
-    curve1 = refine_curve(curve1, unified_knots)
-    curve2 = refine_curve(curve2, unified_knots)
-    print(len(curve1.control_points))
-    print(len(curve2.control_points))
-    return curve1, curve2
-
-
-def create_ruled_surface(curve1, curve2):
-    """
-    Create a ruled surface between two NURBS curves
-
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    dict with keys:
-        - control_points: nxmx4 array
-        - degrees: (u_degree, v_degree)
-        - knots: (u_knots, v_knots)
-    """
-    # Make curves compatible
-    c1, c2 = make_curves_compatible(curve1, curve2)
-
-    # Create surface control points
-    n = len(c1.control_points)
-    control_points = np.zeros((n, 2, 4))  # nx2x4 array
-    print(n)
-
-    # Fill control points
-    for i in range(n):
-        control_points[i, 0] = np.array(c1._control_points)[i]
-        control_points[i, 1] = np.array(c2._control_points)[i]
-
-    # Create surface knot vectors
-    u_knots = c1.knots  # Same for both curves now
-    v_knots = np.array([0, 0, 1, 1])  # Linear interpolation in v direction
-
-    return {
-        'control_points': control_points,
-        'degrees': (c1['degree'], 1),  # Linear in v direction
-        'knots': (u_knots, v_knots)
-    }
