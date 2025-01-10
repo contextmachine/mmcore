@@ -1,8 +1,8 @@
 from __future__ import annotations
-
+from numpy.typing import NDArray
 from math import sqrt
 from mmcore.numeric.plane.cplane import plane_plane_intersection, plane_plane_intersect, evaluate_plane, \
-    inverse_evaluate_plane, plane_plane_plane_intersect,inverse_evaluate_plane_arr,evaluate_plane_arr,plane_plane_plane_intersect_points_and_normals
+    inverse_evaluate_plane, plane_plane_plane_intersect,inverse_evaluate_plane_arr,evaluate_plane_arr,plane_plane_plane_intersect_points_and_normals,ray_plane_intersection
 import numpy as np
 
 
@@ -178,7 +178,7 @@ def _mycross(a, b):
 #    return point_line, direction_line
 
 
-def plane_line_intersect(plane: np.ndarray, line, tol=1e-15, full_return=False):
+def plane_line_intersection(plane: np.ndarray, line, tol=1e-15, full_return=False):
     ray_origin, ray_direction = line
     ndotu = plane[-1].dot(ray_direction)
     if abs(ndotu) < tol:
@@ -191,6 +191,22 @@ def plane_line_intersect(plane: np.ndarray, line, tol=1e-15, full_return=False):
     if full_return:
         return w, si, Psi
     return Psi
+
+
+def plane_ray_intersection(plane, ray):
+    """
+
+    :param plane: A plane represented by a origin and a normal
+    :param ray: A ray represented by a origin and a direction
+    :return: intersection point
+    """
+    if plane.shape[0]==4:
+
+        pln=np.zeros((2,3))
+        pln[0,:]=plane[0,:]
+        pln[1,:] = plane[3,:]
+
+    return ray_plane_intersection(pln,ray)
 
 
 #def plane_plane_plane_intersect(self, other, third, tol=1e-15):
