@@ -47,13 +47,21 @@ if sys.platform == "win32":
 
 
 # see pyproject.toml for other metadata
-
+# mmcore/numeric/algorithms/moller.pyx
 
 extensions = [
     Extension(
 
         "mmcore.numeric.newton.cnewton",
         ["mmcore/numeric/newton/cnewton.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+
+        "mmcore.numeric.algorithms.moller",
+        ["mmcore/numeric/algorithms/moller.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,

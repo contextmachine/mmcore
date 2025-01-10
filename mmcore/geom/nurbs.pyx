@@ -487,8 +487,24 @@ cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noex
     result[1]=point[1]/w
     result[2]=point[2]/w
 
-
-
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def knot_insertion_alpha_py(double u, double[:] knotvector, int span, int idx, int leg):
+    return knot_insertion_alpha(u,knotvector,span,idx,leg)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def knot_removal_alpha_i_py(double u, int degree, double[:] knotvector, int num, int idx):
+    return knot_removal_alpha_i(u,degree,knotvector,num,idx)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def knot_removal_alpha_j_py(double u, int degree, double[:] knotvector, int num, int idx):
+    return knot_removal_alpha_j(u,degree,knotvector,num,idx)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -569,7 +585,7 @@ cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, doubl
     cdef int s = find_multiplicity(u, knotvector,1e-12)
     cdef int n = ctrlpts.shape[0]
     #n, degree,  u, knotvector, is_periodic
-    cdef int r = find_span_inline(n, degree,  u, knotvector,is_periodic)
+    cdef int r = find_span_inline(n-1, degree,  u, knotvector,is_periodic)
 
     cdef int first = r - degree
     cdef int last = r - s
@@ -1257,15 +1273,28 @@ cdef class NURBSCurve(ParametricCurve):
         return np.asarray(self._control_points[:,:-1])
 
 
+    @property
+    def control_pointsw(self):
+        return np.asarray(self._control_points)
+
     @control_points.setter
     def control_points(self, control_points):
+        if control_points.shape[0]<(self._degree+1):
+            raise ValueError("The number of control points cannot be less than degree+1.")
+        if not control_points.shape[0]==self._control_points.shape[0]:
+            raise ValueError("You cannot change the number of control points of the NURBS curve. "
+                             "If you know what you are doing, assign control points directly by setting the _control_points attribute value. "
+                             "However, you will have to clear caches, update the knots and possibly the periodicity.")
+
         self._control_points = np.ones((control_points.shape[0],4))
         if control_points.shape[1]==4:
-            self._control_points[:]=control_points
+                self._control_points[:]=control_points
         else:
 
-            self._control_points[:, :control_points.shape[1]] = control_points
+                self._control_points[:, :control_points.shape[1]] = control_points
+
         self._evaluate_cached.cache_clear()
+
 
 
 
@@ -1274,6 +1303,7 @@ cdef class NURBSCurve(ParametricCurve):
         return np.asarray(self._knots)
     @knots.setter
     def knots(self, double[:] v):
+
         self._knots=v
         self.knots_update_hook()
         self._evaluate_cached.cache_clear()
@@ -1319,6 +1349,7 @@ cdef class NURBSCurve(ParametricCurve):
         ))
 
         self.knots_update_hook()
+
     cpdef knots_update_hook(self):
         self._update_interval()
         self._greville_abscissae = greville_abscissae(self.knots,self.degree
