@@ -29,4 +29,3 @@ docs
 /tests/logs/
 
 /.cadence/
-/mmcore/geom/nurbs.pxd
