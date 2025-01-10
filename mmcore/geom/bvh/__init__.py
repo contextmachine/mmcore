@@ -1,90 +1,31 @@
 from __future__ import annotations
+from functools import reduce
 
 import numpy as np
+from numpy.typing import NDArray
 
-from mmcore.numeric._aabb import aabb,aabb_intersect
-from numpy._typing import NDArray
-
-
-class Object3D:
-
+from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip
+from mmcore.geom.nurbs import NURBSCurve,split_curve
+from mmcore.numeric.vectors import scalar_unit,scalar_norm,scalar_dot
 
 
-    def __init__(self, bounding_box):
-        self.bounding_box = bounding_box
-
-
-
-class BVHNode:
-    def __init__(self, bounding_box, left=None, right=None, object=None):
-        self.bounding_box = bounding_box
-        self.left = left
-        self.right = right
-        self.object = object  # None for internal nodes, leaf node holds the object
-
-
+MAX_FLOAT64=MAX_PYFLOAT=float(np.finfo(float).max)
 _BBOX_CORNERS_BINARY_COMBS={
     1:np.array([[0], [1]],dtype=int),
     2:np.array([[0, 0], [0, 1], [1, 0], [1, 1]],dtype=int),
     3:np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]],dtype=int),
     4:np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1], [0, 1, 0, 0], [0, 1, 0, 1], [0, 1, 1, 0], [0, 1, 1, 1], [1, 0, 0, 0], [1, 0, 0, 1], [1, 0, 1, 0], [1, 0, 1, 1], [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]],dtype=int)
 }
-import numpy as np
-from functools import reduce
 
-def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray:
-    """
-    Returns all corners of an Axis-Aligned Bounding Box (AABB) defined by two points using NumPy.
-
-    Parameters:
-    - point1: A NumPy array representing the first corner of the AABB.
-    - point2: A NumPy array representing the opposite corner of the AABB.
-
-    Returns:
-    - A NumPy array of shape (2^N, N), where N is the number of dimensions. Each row represents a corner of the AABB.
-
-    Raises:
-    - ValueError: If the input points do not have the same dimensionality.
-    """
-    if point1.shape != point2.shape:
-        raise ValueError("Both points must have the same number of dimensions.")
-
-    # Ensure input points are 1-D arrays
-    point1 = point1.flatten()
-    point2 = point2.flatten()
-
-    # Determine the minimum and maximum for each dimension
-    min_coords = np.minimum(point1, point2)
-    max_coords = np.maximum(point1, point2)
-
-    # Stack min and max coordinates for each dimension
-    bounds = np.stack((min_coords, max_coords), axis=1)
-
-    # Generate all combinations using binary representations
-    num_dims = bounds.shape[0]
-    if num_dims in _BBOX_CORNERS_BINARY_COMBS:
-        binary_combinations=_BBOX_CORNERS_BINARY_COMBS[num_dims]
-    else:
-        num_corners = 2 ** num_dims
-        # Generate binary representations from 0 to 2^N - 1
-        binary_combinations = np.array([list(map(int, bin(i)[2:].zfill(num_dims))) for i in range(num_corners)])
-        _BBOX_CORNERS_BINARY_COMBS[num_dims]=binary_combinations
-
-        print(binary_combinations.tolist())
-    # Use binary combinations to select min or max for each dimension
-    corners = bounds[np.arange(num_dims), binary_combinations]
-
-    return corners
-
-
-
+# BBox
 class BoundingBox:
+    __slots__ = ('min_point', 'max_point', 'center', 'dims','_arr')
     def __init__(self, min_point, max_point):
         self.min_point = np.array(min_point, dtype=float)  # (x_min, y_min, z_min)
         self.max_point = np.array(max_point, dtype=float)  # (x_max, y_max, z_max)
         self.center = (self.min_point + self.max_point) * 0.5
         self.dims = self.max_point - self.min_point
-        self._arr=np.array([self.min_point, self.max_point], dtype=np.float32)
+        self._arr=np.array([self.min_point, self.max_point], dtype=float)
 
     def split(self, axis=0, parameter=0.5):
         left = BoundingBox(np.copy(self.min_point), np.copy(self.max_point))
@@ -232,6 +173,164 @@ class BoundingBox:
                 m*=dim
         return m
 
+# Object3D subclasses
+class Object3D:
+
+    __slots__=('bounding_box','value')
+
+    def __init__(self, bounding_box, *, value=None):
+        self.bounding_box = bounding_box
+        self.value=value
+
+class Triangle(Object3D):
+    __slots__=('bounding_box','value','pts','a','b','c')
+
+    def __init__(self, geom, **kwargs):
+        self.pts = geom
+        self.a, self.b, self.c = self.pts[0], self.pts[1], self.pts[2]
+        super(Triangle, self).__init__(BoundingBox(*aabb(geom)),**kwargs)
+
+class Quad(Object3D):
+    __slots__ = ('bounding_box', 'value', 'pts')
+    def __init__(self, pts, **kwargs):
+        self.pts = pts
+        super().__init__(BoundingBox(*aabb(pts)), **kwargs)
+
+class PTriangle(Triangle):
+    __slots__=('bounding_box','value','pts','a','b','c','uvs')
+    def __init__(self, pts, uvs, **kwargs):
+
+        self.uvs = uvs
+        super().__init__(pts,**kwargs)
+
+class PQuad(Quad):
+    __slots__ = ('bounding_box', 'value', 'pts','uvs')
+    def __init__(self, pts, uvs,**kwargs):
+
+        self.uvs = uvs
+        super().__init__(pts,**kwargs)
+
+class PSegment(Object3D):
+    __slots__ = ('bounding_box', 'value', 'pts', 't')
+    def __init__(self, pts, t,**kwargs):
+        self.pts = pts
+        self.t = t
+        super().__init__(BoundingBox(*aabb(pts)),**kwargs)
+
+class NURBSCurveObject3D(Object3D):
+    __slots__ = ('bounding_box', 'value', 'curve')
+    def __init__(self, curve:NURBSCurve,**kwargs):
+        super().__init__(BoundingBox(*np.array(curve.bbox()),**kwargs))
+        self.curve=curve
+
+    def split(self, t:float=None):
+        if t is None:
+            t0,t1=self.curve.interval()
+            t=(t0+t1)/2
+        try:
+            crv1,crv2=split_curve(self.curve,t, normalize_knots=False,tol=1e-12)
+        except ValueError as err:
+            print(
+                t
+            )
+            raise err
+        return NURBSCurveObject3D(crv1),NURBSCurveObject3D(crv2)
+
+class Segment(Object3D):
+    __slots__ = ('bounding_box', 'value', '_arr','start', 'end', 'direction')
+    def __init__(self, start: NDArray[np.floating], end: NDArray[np.floating],**kwargs):
+        self._arr=np.array([start,end])
+
+        self.start = self._arr[0,:]
+        self.end = self._arr[1,:]
+        self.direction=end-start
+
+        super().__init__(BoundingBox(*np.array(aabb(np.array([self.start,self.end])))),**kwargs)
+
+    def evaluate(self, t:float):
+        return self.start+self.direction*t
+    def subdivide(self, t:float=0.5):
+        pt = self.start+self.direction*t
+        return Segment(self.start, pt), Segment(pt, self.end)
+
+    def clip(self, bbox:BoundingBox)->Segment|None:
+        t=segment_aabb_intersect(bbox._arr,self._arr)
+        if t is not None:
+            start,end=self.evaluate(t[0]), self.evaluate(t[1])
+            return Segment(start, end)
+
+
+    def __arr__(self, dtype=None,copy=None):
+        return self._arr.__array__(dtype,copy=copy)
+
+    def __iter__(self):
+        return iter(self._arr.tolist())
+    def length_sq(self):
+        return scalar_dot(self.direction,self.direction)
+    def length(self):
+        return scalar_norm(self.direction)
+    def is_zero(self):
+        return scalar_dot(self.direction,self.direction)<1e-15
+
+class Ray(Segment):
+    __slots__ = ('bounding_box', 'value', '_arr', 'start', 'end', 'direction')
+    def __init__(self, start: NDArray[np.floating], direction, **kwargs):
+        direction=np.array(scalar_unit(direction))
+        super().__init__(start, start+direction*MAX_FLOAT64, **kwargs)
+
+# BVHNode
+class BVHNode:
+    __slots__ = ('bounding_box', 'left','right','object')
+    def __init__(self, bounding_box, left=None, right=None, object=None):
+        self.bounding_box = bounding_box
+        self.left = left
+        self.right = right
+        self.object = object  # None for internal nodes, leaf node holds the object
+
+# Functions
+def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray:
+    """
+    Returns all corners of an Axis-Aligned Bounding Box (AABB) defined by two points using NumPy.
+
+    Parameters:
+    - point1: A NumPy array representing the first corner of the AABB.
+    - point2: A NumPy array representing the opposite corner of the AABB.
+
+    Returns:
+    - A NumPy array of shape (2^N, N), where N is the number of dimensions. Each row represents a corner of the AABB.
+
+    Raises:
+    - ValueError: If the input points do not have the same dimensionality.
+    """
+    if point1.shape != point2.shape:
+        raise ValueError("Both points must have the same number of dimensions.")
+
+    # Ensure input points are 1-D arrays
+    point1 = point1.flatten()
+    point2 = point2.flatten()
+
+    # Determine the minimum and maximum for each dimension
+    min_coords = np.minimum(point1, point2)
+    max_coords = np.maximum(point1, point2)
+
+    # Stack min and max coordinates for each dimension
+    bounds = np.stack((min_coords, max_coords), axis=1)
+
+    # Generate all combinations using binary representations
+    num_dims = bounds.shape[0]
+    if num_dims in _BBOX_CORNERS_BINARY_COMBS:
+        binary_combinations=_BBOX_CORNERS_BINARY_COMBS[num_dims]
+    else:
+        num_corners = 2 ** num_dims
+        # Generate binary representations from 0 to 2^N - 1
+        binary_combinations = np.array([list(map(int, bin(i)[2:].zfill(num_dims))) for i in range(num_corners)])
+        _BBOX_CORNERS_BINARY_COMBS[num_dims]=binary_combinations
+
+        print(binary_combinations.tolist())
+    # Use binary combinations to select min or max for each dimension
+    corners = bounds[np.arange(num_dims), binary_combinations]
+
+    return corners
 
 def split_objects(objects):
     """Splits list of objects into two halves"""
@@ -262,7 +361,6 @@ def split_objects(objects):
     mid_index = len(objects) // 2
     return objects[:mid_index], objects[mid_index:]
 
-
 def is_leaf(node: BVHNode):
     return node.object is not None
 
@@ -279,7 +377,6 @@ def build_bvh(objects):
     merged_bounding_box = left_node.bounding_box.merge(right_node.bounding_box)
     # Create and return internal node
     return BVHNode(merged_bounding_box, left=left_node, right=right_node)
-
 
 def intersect_bvh_objects(node1, node2):
     """
@@ -325,7 +422,6 @@ def intersect_bvh_objects(node1, node2):
 
     return intersections
 
-
 def intersect_bvh(node1, node2):
     """
     Find all intersecting bounding boxes between two BVH trees.
@@ -347,10 +443,6 @@ def intersect_bvh(node1, node2):
 
 
     return [n1.bounding_box.intersection(n2.bounding_box) for n1,n2 in intersect_bvh_objects(node1,node2)]
-
-
-
-
 
 def _find_closest_vicinity(bvh:BVHNode, point:NDArray[float])-> tuple[list[Object3D],float] | None:
 
@@ -410,7 +502,6 @@ def _find_closest_vicinity(bvh:BVHNode, point:NDArray[float])-> tuple[list[Objec
     else:
         raise ValueError(f"Empty BVH node with bbox: {bvh.bounding_box._arr.tolist()}")
 
-
 def _find_closest_breadth(bvh:BVHNode, point:NDArray[float])->tuple[list[Object3D],float]:
     if bvh.object is not None:
         return [bvh.object],sd_aabb( bvh.bounding_box._arr,point )
@@ -455,8 +546,6 @@ def find_closest(bvh:BVHNode, point:NDArray[float], breadth:bool=True)->tuple[li
     else:
         return _find_closest_vicinity(bvh, point)
 
-
-
 def traverse_bvh(node, target_bbox, results):
     """Find all objects in the BVH tree that intersect with the given bounding box"""
 
@@ -469,7 +558,6 @@ def traverse_bvh(node, target_bbox, results):
         traverse_bvh(node.left, target_bbox, results)
     if node.right:
         traverse_bvh(node.right, target_bbox, results)
-
 
 def traverse_bvh2(node, target_bbox, results):
     """Find all objects in the BVH tree that intersect with the given bounding box"""
@@ -488,7 +576,6 @@ def traverse_bvh2(node, target_bbox, results):
         results.append(node.object)
         return
 
-
 def contains_point(bvh_root, pt):
     results=[]
     pt_box = BoundingBox(pt, pt)
@@ -500,9 +587,6 @@ def contains_point2(bvh_root, pt):
     pt_box = BoundingBox(pt, pt)
     traverse_bvh2(bvh_root, pt_box,   results)
     return results
-
-
-
 
 def traverse_bvh_point(node, target_point):
     """Find all objects in the BVH tree that intersect with the given bounding box"""
@@ -532,13 +616,6 @@ def traverse_bvh_point(node, target_point):
 
         return node
 
-
-
-
-
-
-
-
 def traverse_leafs(bvh_root, result):
     if bvh_root is None:
         return
@@ -551,7 +628,6 @@ def traverse_leafs(bvh_root, result):
     if bvh_root.right is not None:
         traverse_leafs(bvh_root.right, result)
 
-
 def traverse_all_objects_in_node(bvh_root, result):
 
     if bvh_root.object is not None:
@@ -560,18 +636,14 @@ def traverse_all_objects_in_node(bvh_root, result):
         traverse_all_objects_in_node(bvh_root.left, result)
         traverse_all_objects_in_node(bvh_root.right, result)
 
-
-
 def sdBox(p: np.array, b: np.array):
     d = np.abs(p) - b
 
     return min(np.max([d[0], d[1], d[2]]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
 
-
 def sd_aabb(bbox, pt):
     cnt=(bbox[0]+bbox[1])/2
     return sdBox( pt-cnt,bbox[1]-cnt)
-
 
 def traverse_all_bbox(bvh_root, result):
     result.append(
@@ -583,56 +655,84 @@ def traverse_all_bbox(bvh_root, result):
         traverse_all_bbox(bvh_root.left, result)
         traverse_all_bbox(bvh_root.right, result)
 
+def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
+    if not isinstance(segment,np.ndarray):
+        segment=np.array(segment)
 
-class Triangle(Object3D):
-    def __init__(self, geom):
-        self.pts = geom
-        self.a, self.b, self.c = self.pts[0], self.pts[1], self.pts[2]
-        super(Triangle, self).__init__(BoundingBox(*aabb(geom)))
+    intersections = []
+    stack = [(bvh, segment)]
 
-class Quad(Object3D):
-    def __init__(self, pts):
-        self.pts = pts
-        super().__init__(BoundingBox(*aabb(pts)))
+    while stack:
+        current_bvh, current_segment = stack.pop()
+        bb=aabb(segment)
 
-class PTriangle(Triangle):
-    def __init__(self, pts, uvs):
+        if not aabb_intersect(current_bvh.bounding_box._arr,bb):
+            continue
 
-        self.uvs = uvs
-        super().__init__(pts)
+        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment )
+        if current_segment is None:
+            continue
 
-class PQuad(Object3D):
-    def __init__(self, pts, uvs):
-        self.pts = pts
-        self.uvs = uvs
-        super().__init__(BoundingBox(*aabb(pts)))
+        if current_bvh.object is not None:
+            intersections.append((current_bvh.object, current_segment))
+        else:
+            stack.append((current_bvh.left, current_segment))
+            stack.append((current_bvh.right, current_segment))
 
-
-class PSegment(Object3D):
-    def __init__(self, pts, t):
-        self.pts = pts
-        self.t = t
-        super().__init__(BoundingBox(*aabb(pts)))
+    return intersections
 
 
-from mmcore.geom.nurbs import NURBSCurve,split_curve
+# perf history
+# 495417
+# 458500
+# 436042
+# 388833
+# 374375
+# 344167
+# 320625
+# 147500
+# 139292
+# 138250
+# 120625
 
-class NURBSCurveObject3D(Object3D):
-    def __init__(self, curve:NURBSCurve):
-        super().__init__(BoundingBox(*np.array(curve.bbox())))
-        self.curve=curve
+def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
+    """
+    Determines the intersection of a BVH (Bounding Volume Hierarchy) node with a given ray.
+    Calculates whether the ray interacts with the BVH bounding volume. In case there is an
+    intersection, it further evaluates segment intersections to return the results. The
+    method utilizes AABB (Axis-Aligned Bounding Box) clipping for determining segments of
+    intersection before recursively checking against child nodes.
 
-    def split(self, t:float=None):
-        if t is None:
-            t0,t1=self.curve.interval()
-            t=(t0+t1)/2
-        try:
-            crv1,crv2=split_curve(self.curve,t, normalize_knots=False,tol=1e-12)
-        except ValueError as err:
-            print(
-                t
-            )
-            raise err
-        return NURBSCurveObject3D(crv1),NURBSCurveObject3D(crv2)
+    :param bvh: The root node of the bounding volume hierarchy that represents the scene or
+                object's spatial subdivision.
+    :type bvh: BVHNode
+    :param ray: Represents the ray to test for intersection with the BVH volumes.
+    :type ray: Ray
+    :return: A list of intersected primitives or nodes derived from the BVH where the ray
+             intersects, or an empty list if no intersections are found.
+    :rtype: list
+    """
+    segm=segment_aabb_clip(bvh.bounding_box._arr, ray._arr)
+    if segm is None:
+        return []
+    else:
+        return bvh_segment_intersection(bvh,segm)
+
+def build_bvh_from_mesh(points:NDArray[float],indices:NDArray[int]):
+    return build_bvh([Triangle(tri) for tri in points[indices]])
+from mmcore.numeric.algorithms.moller import intersect_triangle_segment
+
+def bvh_triangle_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
+    maybe = []
+    for tri,segm in bvh_ray_intersection(triangles_bvh,ray):
+
+        point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1])
+        if flag==0:
+
+            continue
+        maybe.append(point)
+    return np.unique(maybe,axis=0)
+
+
 
 

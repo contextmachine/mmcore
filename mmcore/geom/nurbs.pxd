@@ -435,7 +435,7 @@ cdef inline void rat_surface_derivs(double[:, :, :] SKLw, int deriv_order, doubl
 cdef class NURBSCurve(ParametricCurve):
     cdef public double[:,:] _control_points
     cdef public int _degree
-    cdef double[:] _knots
+    cdef public double[:] _knots
     cdef bint _periodic
     cdef public object _evaluate_cached
     cdef double[:] _greville_abscissae
