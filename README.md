@@ -153,16 +153,27 @@ Results show mmcore excels particularly in parallel processing and batch operati
 
 *Figure: Visualization of tube intersection test case*
 
-## Recent Updates (v0.50.4)
+## Recent Updates (v0.52.0)
 
-1. Added new adaptive mesh generation functionality
-2. Enhanced NURBS core implementation with improved performance
-3. Optimized closest point computation algorithms
-4. Updated Newton method solver with better convergence
-5. Improved BVH (Bounding Volume Hierarchy) implementation
-6. Enhanced BREP topology handling
-7. Refactored numeric routines for better efficiency
-8. Added new example: NURBS-NURBS intersection improvements
+1. Enhanced ray and geometry intersection capabilities
+   - Added efficient ray-plane intersection algorithms
+   - Implemented Möller–Trumbore triangle-segment intersection
+   - Enhanced AABB utilities with ray/segment intersections
+   
+2. Improved BVH implementation and spatial queries
+   - Optimized bounding volume hierarchy operations
+   - Enhanced spatial acceleration structures
+   - Improved query performance for ray-casting and intersections
+
+3. Added new geometric construction utilities
+   - Implemented ruled surface construction between NURBS curves
+   - Added Union-Find data structure for topology operations
+   - Enhanced NURBS knot manipulation and degree elevation
+
+4. Performance optimizations
+   - Streamlined Cython configurations for numeric utilities
+   - Improved intersection algorithm efficiency
+   - Enhanced NURBS operations performance
 
 ## Known Deprecations
 
