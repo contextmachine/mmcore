@@ -1,8 +1,4 @@
-# cython: boundscheck=False
-# cython: wraparound=False
-# cython: cdivision=True
-# cython: nonecheck=False
-# cython: initializedcheck=False
+#cython: boundscheck=False, wraparound=False, cdivision=True
 
 cimport cython
 from libc.math cimport fabs,sqrt
