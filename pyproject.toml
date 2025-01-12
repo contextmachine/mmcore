@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.52.0"
+version = "0.52.1"
 description = "mmcore"
 authors = ["Andrew Astakhov <sthv.developer@gmail.com>", ]
 license = "Apache License Version 2.0"
@@ -14,7 +14,10 @@ readme = "README.md"
 python = ">=3.9,<4.0"
 numpy = { version = "^2.0.2" }
 earcut = { version = "^1.1.5" }
-scipy = {version = "*"}
+scipy = [
+{ version = "<=1.13", markers = "python_version < '3.10'" },
+{ version = ">1.13", markers = "python_version >= '3.10'" }
+]
 pyquaternion = "^0.9.9"
 more-itertools = "^10.1.0"
 steputils = "^0.1"
