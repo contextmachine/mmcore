@@ -15,7 +15,6 @@ on:
 jobs:
   upload_pypi:
     runs-on: ubuntu-latest
-    needs: build
     environment:
       name: poetry
       url: https://pypi.org/p/mmcore
