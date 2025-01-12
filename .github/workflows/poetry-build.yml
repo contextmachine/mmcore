@@ -2,34 +2,30 @@ name: poetry-build
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - "*"
+  pull_request:
+    branches:
+      - "master"
 
 jobs:
   build:
     strategy:
       matrix:
-        os: [ "ubuntu-latest", "macos-latest", "windows-latest", "macos-14" ]
+        os: [ "ubuntu-latest", "macos-latest", "windows-latest"]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         exclude:
-          - os: macos-14
+          - os: macos-latest
             python-version: "3.9"
+      
 
     defaults:
       run:
         shell: bash
     runs-on: ${{ matrix.os }}
-    environment:
-      name: poetry
-      url: https://pypi.org/p/mmcore
 
-    permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-    
 
     steps:
-      #----------------------------------------------
-      #       check-out repo and set-up python
-      #----------------------------------------------
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Extract branch name
@@ -42,37 +38,51 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          continue-on-error: true
-
 
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
+
       - name: Load cached venv
         id: cached-pip-wheels
         uses: actions/cache@v3
         with:
           path: ~/.cache
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
+
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
-      - name: Install library
-        run: poetry install --no-interaction
+
       - name: Poetry build
         run: |
           source $VENV
           poetry build
-      - name: artifactname
+
+      - name: Artifact name
         id: artifactname
         run: |
           cd dist
-          echo "wheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
-      - name: artifact wheels
+          echo "wheelfile=$(ls *.whl | head -1)" >> $GITHUB_OUTPUT
+
+      - name: Modify artifact name
+        id: modify_name
+        run: |
+          ARTIFACT_NAME="${{ steps.artifactname.outputs.wheelfile }}"
+          EXTENSION="${ARTIFACT_NAME##*.}"
+          BASENAME="${ARTIFACT_NAME%.*}"
+          NEW_NAME="${BASENAME}-${{ github.run_id }}.${EXTENSION}"
+          echo "new_wheelfile_name=$NEW_NAME" >> $GITHUB_OUTPUT
+         
+
+      - name: Debug artifact name
+        run: |
+          echo "New artifact name: ${{  steps.modify_name.outputs.new_wheelfile_name }}"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4.3.1
         with:
           path: dist
-          name: ${{ steps.artifactname.outputs.wheelfile }}
+          name: ${{  steps.modify_name.outputs.new_wheelfile_name }}
           overwrite: true
-

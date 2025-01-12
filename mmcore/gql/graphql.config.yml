@@ -1,3 +1,0 @@
-schema: http://51.250.47.166:8080/v1/graphql
-documents: '**/*.graphql'
-headers: {"x-hasura-admin-secret": "mysecretkey"}

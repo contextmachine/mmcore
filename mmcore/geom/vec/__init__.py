@@ -29,12 +29,18 @@ import os
 
 import numpy as np
 
-from mmcore.func import vectorize
+
+
+import mmcore.numeric.vectors as vectors
+
+
 
 DEBUG_MODE = os.getenv('DEBUG_MODE')
 
 
-@vectorize(signature='(i),(i)->()')
+
+
+
 def angle(a, b):
     """
     Calculate the angle between two vectors.
@@ -46,6 +52,7 @@ def angle(a, b):
     :return: Angle between the two vectors
     :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
     """
+
     if DEBUG_MODE:
         if (not 0.9999 <= np.linalg.norm(a) <= 1.0001) or (not 0.9999 <= np.linalg.norm(b) <= 1.0001):
             raise ValueError("Both input vectors must be normalized.")
@@ -57,21 +64,24 @@ def angle(a, b):
     return np.arccos(np.dot(a, b))
 
 
-@vectorize(signature='(i),(i),(i)->()')
+
 def angle3pt(a, b, c):
     ba = unit(a - b)
     bc = unit(c - b)
     return angle(ba, bc)
 
 
-@vectorize(signature='(i),(i),(i)->()')
 def dot3pt(a, b, c):
     ba = unit(a - b)
     bc = unit(c - b)
     return dot(ba, bc)
 
 
-@vectorize(signature='(i)->()')
+
+def norm_sq(v):
+    return np.sum(v ** 2)
+
+
 def norm(v):
     """
     .. function:: norm(v)
@@ -85,10 +95,15 @@ def norm(v):
         :rtype: float | numpy.ndarray[Any, numpy.dtype[float]]
 
     """
-    return np.sqrt(np.sum(v ** 2))
+    if v.shape[-1]==2:
+        return np.hypot(v[...,0],v[...,1])
+    elif len(v.shape)==1:
+        return vectors.scalar_norm(v)
+    else:
+        return np.array(vectors.norm(v))
 
 
-@vectorize(signature='(i),(i)->()')
+
 def dist(a, b):
     """
     :param a: a vector representing the first point
@@ -106,22 +121,23 @@ def dist(a, b):
     return norm(a - b)
 
 
-@vectorize(signature='(i)->(i)')
-def unit(v: 'list|tuple|np.ndarray'):
+
+def unit(v: 'list|tuple|np.ndarray') -> np.ndarray:
     """
     :param v: The input vector
     :type v: numpy.ndarray[Any, numpy.dtype[float]]
     :return: The normalized vector
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    if DEBUG_MODE:
-        if np.isclose(np.linalg.norm(v), 0):
-            raise ValueError("Input vector must not be a zero vector.")
 
-    return v / norm(v)
+    return np.array(vectors.scalar_unit(v) )if len(v.shape)==1 else np.array(vectors.unit(v))
 
 
-@vectorize(signature='(i),(i)->(i)')
+def projection_length(a, b):
+    nb = norm(b)
+    return dot(a, b) / nb
+
+
 def cross(a, b):
     """
     :param a: The first vector a
@@ -131,10 +147,10 @@ def cross(a, b):
     :return: The cross product of vectors a and b
     :rtype: numpy.ndarray[Any, numpy.dtype[float]] or array-like
     """
-    return np.cross(a, b)
+
+    return vectors.scalar_cross(a, b)
 
 
-@vectorize(signature='(i),(i)->()')
 def dot(a, b):
     """
     :param a: First input array.
@@ -144,11 +160,8 @@ def dot(a, b):
     :return: The dot product of `a` and `b`.
     :rtype: numpy.ndarray[Any, numpy.dtype[float]]
     """
-    return np.dot(a, b)
+    return scalar_dot(a, b)
 
-
-
-@vectorize(signature='(i)->(i)')
 def perp2d(v):
     """
     Calculate the perpendicular vector to the given 2D vector.
@@ -165,7 +178,6 @@ def perp2d(v):
     return v2
 
 
-@vectorize(signature='(i),()->(i)')
 def scale_vector(vec, length):
     """
     :param vec: The input vector to be scaled.
@@ -178,7 +190,7 @@ def scale_vector(vec, length):
     return vec * length
 
 
-@vectorize(excluded=[0], signature='(i)->(i)')
+
 def add_multiply_vectors(a, b):
     """
         This method adds two vectors element-wise and returns the result.
@@ -199,7 +211,7 @@ def add_multiply_vectors(a, b):
     return a + b
 
 
-@vectorize(signature='()->(i,i)')
+
 def rotate_matrix(a):
     """
         This method adds two vectors element-wise and returns the result.
@@ -231,8 +243,7 @@ def rotate_matrix(a):
 # 	}
 
 
-@vectorize(signature='(i),(i)->(i)')
-def gram_schmidt(v1, v2):
+def gram_schmidt(v1: np.ndarray, v2: np.ndarray):
     """
     Applies the Gram-Schmidt process to the given vectors v1 and v2.
 
@@ -243,8 +254,17 @@ def gram_schmidt(v1, v2):
     :return: The orthogonalized vector obtained by applying the Gram-Schmidt process.
     :rtype: numpy.ndarray
     """
+
     v1, v2 = unit(v1), unit(v2)
     return v2 - v1 * dot(v2, v1)
+
+
+
+def make_perpendicular(v1, v2):
+    if v1.shape[-1] == 2:
+        return np.array([-v1[1], v1[0]])
+    else:
+        return gram_schmidt(v1, v2)
 
 
 def clamp(self, min, max):
@@ -257,3 +277,46 @@ def expand(self, pt):
     # assumes min < max, componentwise
 
     return np.array([np.min([self[0], pt[0]]), np.max([self[1], pt[1]])])
+
+
+import numpy as np
+
+
+def orthonormalize(u, v, w):
+    """
+    Preserves the first vector , and leads the other two vectors to orthogonal state.
+
+    :param u:
+    :param v:
+    :param w:
+    :return:
+
+    >>> u = np.array([0.483475, -0.855379, 0.185952])
+    >>> v = np.array([-0.999987, 0.005068, 0])
+    >>> w = np.array([0., 0., -1.])
+    >>> orthonormalize(u, v, w)
+Out:
+(array([ 0.48347513, -0.85537923,  0.18595205]),
+ array([-0.87535743, -0.47217812,  0.10390953]),
+ array([-0.00107956, -0.21301218, -0.97704895]))
+    """
+    u = u / np.linalg.norm(u)  # Ensure u is a unit vector
+    v -= u * np.dot(u, v)  # Make v orthogonal to u
+
+    # Re-normalize v in case it's very close to zero
+    if (np.linalg.norm(v) > 1e-10):
+        v /= np.linalg.norm(v)
+    else:
+        raise ValueError('Vectors u and v are parallel')
+
+    # w vector
+    w -= u * np.dot(u, w)
+    w -= v * np.dot(v, w)
+
+    # Re-normalize w
+    if (np.linalg.norm(w) > 1e-10):
+        w /= np.linalg.norm(w)
+    else:
+        raise ValueError('Vector w is in the plane of vectors u and v')
+
+    return (u, v, w)

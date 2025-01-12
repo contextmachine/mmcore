@@ -1,3 +1,0 @@
-# Plane
-
-Start typing here...

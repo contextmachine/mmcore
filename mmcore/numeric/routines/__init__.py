@@ -1,6 +1,52 @@
-from enum import IntEnum
+from __future__ import annotations
+from typing import TypeVar
 
 import numpy as np
+from mmcore.numeric.routines._routines import uvs
+from numpy.typing import NDArray
+
+def point_grid_2d(count_u, count_v, bounds_u=(0., 1.), bounds_v=(0., 1.)):
+    u, v = np.linspace(*bounds_u, count_u), np.linspace(*bounds_v, count_v)
+    z = np.zeros((count_u, count_v, 2), dtype=float)
+    for i in range(count_u):
+        for j in range(count_v):
+            z[i, j, :] = u[i], v[j]
+    return z
+
+
+def nd_min(a, b):
+    a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
+    if a_cond and b_cond:
+        a[a > b] = b[a > b]
+        return a
+    elif a_cond:
+        a[a > b] = b
+        return a
+    elif b_cond:
+        b[b > a] = a
+        return b
+    else:
+        return min(a, b)
+
+
+def nd_max(a, b):
+    a_cond, b_cond = isinstance(a, np.ndarray), isinstance(b, np.ndarray)
+    if a_cond and b_cond:
+        a[a < b] = b[a < b]
+        return a
+    elif a_cond:
+        a[a < b] = b
+        return a
+    elif b_cond:
+        b[b < a] = a
+        return b
+    else:
+        return max(a, b)
+
+
+def find_similar(value, values):
+    r = np.abs(values - value)
+    return np.where(r == np.min(r))[0]
 
 
 def cartesian_product(*arrays):
@@ -20,6 +66,7 @@ def split_by_shapes(arr, target_shapes):
 
 def insert_in_tuple(tpl, i, val):
     return *tpl[:i], val, *tpl[i:]
+
 
 def add_dim(arr, val):
     first, *other = arr.shape
@@ -67,8 +114,9 @@ def split_dim(arr, index: int, val: int, insert_at='before'):
     method = _shape_insertion_method[insert_at]
 
     return arr.reshape(method(arr.shape, index, val))
-def remove_dim(arr, count=1):
 
+
+def remove_dim(arr, count=1):
     return arr.reshape((np.prod(arr.shape[:count + 1]), *arr.shape[count + 1:]))
 
 
@@ -117,3 +165,16 @@ def cubic_spline(control_points: np.ndarray[(4, 2), np.dtype[float]]
                 + p1 * (t ** 3))
 
     return np.vectorize(inner, signature='()->(i)')
+
+
+def divide_interval(start, end, step=1.):
+    a = np.arange(start, end, step)
+    return np.c_[a, a + step]
+T=TypeVar("T")
+
+def column_concat(a:NDArray[T],b:NDArray[T]|T)->NDArray[T]:
+    if a.shape[0] == b.shape[0]:
+        return np.c_[a,b]
+    b=np.atleast_2d(b)
+    return np.c_[a,np.broadcast_to(b, (a.shape[0],*b.shape[1:])) ]
+

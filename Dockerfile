@@ -7,32 +7,34 @@
 # -------+------------------------+----------------------------------+------------------------------------------------+
 # CMD    | exec_cmd p1_cmd	      | /bin/sh -c exec_entry p1_entry   | exec_entry p1_entry /bin/sh -c exec_cmd p1_cmd |
 
+# Stage 1: Build
+FROM python:3.12-slim AS builder
 
-FROM buildpack-deps as deps
-LABEL org.opencontainers.image.source=https://github.com/contextmachine/mmcore
-LABEL org.opencontainers.image.description="mmcore"
-LABEL autor="Andrew Astakhov <aa@contextmachine.ru> <aw.astakhov@gmail.com>"
-# Для выполнения директивы ниже вам необходимо указать `syntax=docker/dockerfile:1` в начале файла
-# 🐍 Setup micromamba.
-# ⚙️ Source: https://hub.docker.com/r/mambaorg/micromamba
-#COPY --chown=root:root env.yaml /tmp/env.yaml
-
-#RUN micromamba install -y -n base -f /tmp/env.yaml && \
-#    micromamba clean --all --yes
-# 🐳 Setting pre-build params and environment variables.
-# ⚙️ Please set you environment globals :)
-
-
-RUN apt update -y && apt install python3.11-full -y && apt install python3-pip -y
-
-FROM deps
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    g++\
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /mmcore
-COPY --link . .
-#RUN apt update && apt -y install npm nodejs
-EXPOSE 7711
 
-RUN python3.11 -m pip install -e . --break-system-packages
+COPY . .
+
+RUN pip install --user --no-cache-dir .
+
+# Stage 2: Final
+FROM python:3.12-slim
+LABEL org.opencontainers.image.source=https://github.com/contextmachine/mmcore
+LABEL org.opencontainers.image.description="mmcore, the modern cad/cam engine"
+LABEL autor="Andrew Astakhov <sthv.developer@gmail.com>"
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PATH=/root/.local/bin:$PATH
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /root/.local
 
 
-#ENTRYPOINT ["python3", "-m", "mmcore.serve", "--serve-start=true"]
+EXPOSE 8000
+# Define the entrypoint
+ENTRYPOINT ["/bin/bash"]
