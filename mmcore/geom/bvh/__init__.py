@@ -710,6 +710,41 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
     return intersections
 
 
+#  72208
+def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|Segment):
+    if not isinstance(segment,np.ndarray):
+        segment=np.array(segment)
+
+
+    stack = [(bvh, segment)]
+
+    while stack:
+        current_bvh, current_segment = stack.pop()
+        bb=aabb(segment)
+
+        if not aabb_intersect(current_bvh.bounding_box._arr,bb):
+            continue
+
+        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment )
+
+        if current_segment is None:
+            continue
+
+        if current_bvh.object is not None:
+
+            point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1])
+            if flag!=0:
+                return True,point,current_bvh.object
+
+        else:
+
+            stack.append((current_bvh.left, current_segment))
+            stack.append((current_bvh.right, current_segment))
+
+
+    return False,None,None
+
+
 # perf history
 # 495417
 # 458500
@@ -722,6 +757,7 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
 # 139292
 # 138250
 # 120625
+
 from mmcore.numeric.vectors import dot_array_x_vec
 def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
     """
@@ -750,13 +786,35 @@ def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
 
         return result
 
+
 def build_bvh_from_mesh(points:NDArray[float],indices:NDArray[int]):
     return build_bvh([Triangle(tri) for tri in points[indices]])
 from mmcore.numeric.algorithms.moller import intersect_triangle_segment
 
-def bvh_triangle_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
+def mesh_bvh_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
+    """
+    Determines the intersection points where a ray intersects with the triangles
+    within a bounding volume hierarchy (BVH). The function processes a ray,
+    determines intersections with a BVH structure, and evaluates each triangle
+    intersection, returning a list of intersected points, triangles, and their
+    respective distances sorted by proximity from the ray origin.
+
+    :param triangles_bvh: A bounding volume hierarchy (BVH) node that contains the
+                          spatial hierarchy and triangle geometry for intersection
+                          testing.
+    :type triangles_bvh: BVHNode
+    :param ray: The ray to be tested for intersection with the BVH and contained
+                triangles.
+    :type ray: Ray
+    :return: A list of tuples representing the intersection data. Each tuple
+             contains the intersection point, the intersected triangle, and the
+             scalar distance from the ray origin.
+    :rtype: list[tuple[Point, Triangle, float]]
+    """
     maybe = []
     segment = segment_aabb_clip(triangles_bvh.bounding_box._arr, ray._arr)
+    if segment is None:
+        return maybe
     direction=segment[1]-segment[0]
     for tri,segm in bvh_segment_intersection(triangles_bvh,segment):
 
@@ -775,4 +833,17 @@ def bvh_triangle_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
 
 
 
+
+def mesh_bvh_segment_intersection_one(mesh_bvh:BVHNode, segment:NDArray[float])->tuple[NDArray[float],Triangle] | None:
+    """
+
+    :param mesh_bvh: BVH with Triangle instances in leafs
+    :param segment: numpy array with shape (2,3) e.g. [start_point,end_point]
+
+    :return: the first intersection found in the form (point,triangle) or None if no intersection is found.
+    :rtype: tuple[ndarray[(3,),float], Triangle] | None
+    """
+    success, point, tri = bvh_triangle_segment_intersection_one(mesh_bvh,segment)
+    if success:
+        return point,tri
 
