@@ -8,6 +8,7 @@ from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_a
 from mmcore.geom.nurbs import NURBSCurve,split_curve
 from mmcore.numeric.vectors import scalar_unit,scalar_norm,scalar_dot
 
+from mmcore.numeric.interval import Interval
 
 MAX_FLOAT64=MAX_PYFLOAT=float(np.finfo(float).max)
 _BBOX_CORNERS_BINARY_COMBS={
@@ -655,6 +656,30 @@ def traverse_all_bbox(bvh_root, result):
         traverse_all_bbox(bvh_root.left, result)
         traverse_all_bbox(bvh_root.right, result)
 
+
+
+
+def bvh_segment_intersection_recursive(bvh:BVHNode,segment:Segment):
+
+
+    def inner(bvh,segment, ints):
+        if not bvh.bounding_box.intersect(segment.bounding_box):
+            return
+        segment=segment.clip(bvh.bounding_box)
+        if segment is None :
+            return
+        if bvh.object is not None:
+            ints.append((bvh,segment))
+            return
+        else:
+            inner(bvh.left, segment, ints)
+            inner(bvh.right, segment, ints)
+
+    intersections=[]
+    inner(bvh,segment,intersections)
+    return intersections
+
+
 def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
     if not isinstance(segment,np.ndarray):
         segment=np.array(segment)
@@ -670,14 +695,17 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
             continue
 
         current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment )
+
         if current_segment is None:
             continue
 
         if current_bvh.object is not None:
             intersections.append((current_bvh.object, current_segment))
         else:
+
             stack.append((current_bvh.left, current_segment))
             stack.append((current_bvh.right, current_segment))
+
 
     return intersections
 
@@ -694,7 +722,7 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
 # 139292
 # 138250
 # 120625
-
+from mmcore.numeric.vectors import dot_array_x_vec
 def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
     """
     Determines the intersection of a BVH (Bounding Volume Hierarchy) node with a given ray.
@@ -716,7 +744,11 @@ def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
     if segm is None:
         return []
     else:
-        return bvh_segment_intersection(bvh,segm)
+        result=bvh_segment_intersection(bvh,segm)
+
+
+
+        return result
 
 def build_bvh_from_mesh(points:NDArray[float],indices:NDArray[int]):
     return build_bvh([Triangle(tri) for tri in points[indices]])
@@ -724,14 +756,22 @@ from mmcore.numeric.algorithms.moller import intersect_triangle_segment
 
 def bvh_triangle_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
     maybe = []
-    for tri,segm in bvh_ray_intersection(triangles_bvh,ray):
+    segment = segment_aabb_clip(triangles_bvh.bounding_box._arr, ray._arr)
+    direction=segment[1]-segment[0]
+    for tri,segm in bvh_segment_intersection(triangles_bvh,segment):
+
 
         point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1])
         if flag==0:
 
             continue
-        maybe.append(point)
-    return np.unique(maybe,axis=0)
+        #if len(maybe)>0 and scalar_dot(maybe[-1]-point)<1e-8:
+        #    maybe.append(point)
+
+        maybe.append((point,tri,scalar_dot(point-ray.start,direction)))
+
+    maybe.sort(key=lambda x:x[-1])
+    return maybe
 
 
 
