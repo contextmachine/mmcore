@@ -1,9 +1,0 @@
-###
-GRAPHQL http://localhost:8081/v2/graphql
-
-{
-  root
-}
-
-{
-}

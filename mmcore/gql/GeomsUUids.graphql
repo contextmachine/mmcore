@@ -1,5 +1,0 @@
-query GeomsUUids {
-    buffgeom_attributes {
-        uuid
-    }
-}

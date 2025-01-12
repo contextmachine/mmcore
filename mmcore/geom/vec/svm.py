@@ -5,10 +5,10 @@ import numpy as np
 from scipy.optimize._minimize import minimize_scalar, _minimize_scalar_bounded
 
 from mmcore.geom.vec import dot
-from mmcore.func import vectorize
 
 
-@vectorize(signature='(i, j),(j)->(j)')
+
+
 def support_vector(vertices: np.ndarray[Any, np.dtype[float]], d: np.ndarray[Any, np.dtype[float]]) -> np.ndarray[
     Any, np.dtype[float]]:
     """Support Vector Method
@@ -63,7 +63,7 @@ def curve_support_vector(curve, bounds=np.array([0, 1]), **props):
     :rtype:
     """
 
-    @vectorize(signature='(i)->()')
+
     def wrap(vector):
         def objective(t):
             return -1 * dot(vector, curve(t))

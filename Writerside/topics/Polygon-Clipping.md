@@ -1,3 +1,0 @@
-# Clipping
-
-Start typing here...
