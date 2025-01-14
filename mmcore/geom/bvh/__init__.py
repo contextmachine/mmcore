@@ -7,8 +7,8 @@ from numpy.typing import NDArray
 from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip
 from mmcore.geom.nurbs import NURBSCurve,split_curve
 from mmcore.numeric.vectors import scalar_unit,scalar_norm,scalar_dot
+from mmcore.numeric.algorithms.moller import intersect_triangles_segment_one
 
-from mmcore.numeric.interval import Interval
 
 MAX_FLOAT64=MAX_PYFLOAT=float(np.finfo(float).max)
 _BBOX_CORNERS_BINARY_COMBS={
@@ -103,6 +103,19 @@ class BoundingBox:
             max(self.max_point[2], other.max_point[2]),
         )
         return BoundingBox(new_min, new_max)
+    def expand(self, other:BoundingBox):
+        new_min = (
+            min(self.min_point[0], other.min_point[0]),
+            min(self.min_point[1], other.min_point[1]),
+            min(self.min_point[2], other.min_point[2]),
+        )
+        new_max = (
+            max(self.max_point[0], other.max_point[0]),
+            max(self.max_point[1], other.max_point[1]),
+            max(self.max_point[2], other.max_point[2]),
+        )
+        self.min_point[:]=new_min
+        self.max_point[:]=new_max
 
     def contains_point(self, point):
         return bool(np.all(self.min_point<=point)and np.all(point<=self.max_point))
@@ -281,12 +294,13 @@ class Ray(Segment):
 
 # BVHNode
 class BVHNode:
-    __slots__ = ('bounding_box', 'left','right','object')
-    def __init__(self, bounding_box, left=None, right=None, object=None):
+    __slots__ = ('bounding_box', 'left','right','object',"max_objects_in_leaf")
+    def __init__(self, bounding_box, left=None, right=None, object=None,max_objects_in_leaf=1):
         self.bounding_box = bounding_box
         self.left = left
         self.right = right
         self.object = object  # None for internal nodes, leaf node holds the object
+        self.max_objects_in_leaf=max_objects_in_leaf
 
 # Functions
 def get_aabb_corners_numpy(point1: np.ndarray, point2: np.ndarray) -> np.ndarray:
@@ -364,20 +378,48 @@ def split_objects(objects):
 
 def is_leaf(node: BVHNode):
     return node.object is not None
+class CompoundObject3D(Object3D):
+    def __init__(self, objects:list[Object3D],**kwargs):
 
-def build_bvh(objects):
+        if len(objects)==0:
+
+                raise ValueError("Empty objects list in CompoundObject3D")
+        self._arr=np.zeros((len(objects)*2,3))
+        self.objects =[]
+        for i in range(len(objects)):
+            self._arr[i*2:i*2+2,:]=objects[i].bounding_box._arr
+            self.objects.append(objects[i])
+
+
+        super().__init__(BoundingBox(*aabb(self._arr)),**kwargs)
+
+
+
+
+
+def build_bvh(objects, objects_in_leaf=1):
     """Recursively build the BVH tree given a list of objects with bounding boxes"""
-    if len(objects) == 1:
+
+
+    if len(objects) == 1 and objects_in_leaf==1:
         # Leaf node
-        return BVHNode(objects[0].bounding_box, object=objects[0])
+
+        return BVHNode(objects[0].bounding_box, object=objects[0],max_objects_in_leaf=objects_in_leaf)
+
+    elif len(objects) <= objects_in_leaf:
+        co=CompoundObject3D(objects)
+        return BVHNode(co.bounding_box,object=co,max_objects_in_leaf=objects_in_leaf)
+
+
+
     # Recursively build internal nodes
     left_objs, right_objs = split_objects(objects)
-    left_node = build_bvh(left_objs)
-    right_node = build_bvh(right_objs)
+    left_node = build_bvh(left_objs, objects_in_leaf)
+    right_node = build_bvh(right_objs, objects_in_leaf)
     # Merge bounding boxes
     merged_bounding_box = left_node.bounding_box.merge(right_node.bounding_box)
     # Create and return internal node
-    return BVHNode(merged_bounding_box, left=left_node, right=right_node)
+    return BVHNode(merged_bounding_box, left=left_node, right=right_node,max_objects_in_leaf=objects_in_leaf)
 
 def intersect_bvh_objects(node1, node2):
     """
@@ -717,7 +759,12 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
 
 
     stack = [(bvh, segment)]
+    compound=bvh.max_objects_in_leaf>1
 
+    if compound:
+        a = np.zeros((bvh.max_objects_in_leaf,3))
+        b = np.zeros((bvh.max_objects_in_leaf,3))
+        c = np.zeros((bvh.max_objects_in_leaf,3))
     while stack:
         current_bvh, current_segment = stack.pop()
         bb=aabb(segment)
@@ -732,7 +779,21 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
 
         if current_bvh.object is not None:
 
-            point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1])
+            if compound:
+
+                a[:] = 0
+                b[:] = 0
+                c[:] = 0
+                current_size=len(current_bvh.object.objects)
+                for ixs in range(current_size):
+                    a[ixs]=current_bvh.object.objects[ixs].a
+                    b[ixs]= current_bvh.object.objects[ixs].b
+                    c[ixs] = current_bvh.object.objects[ixs].c
+
+                point, flag = intersect_triangles_segment_one(a[:current_size], b[:current_size],
+                                                         c[:current_size], current_segment[0], current_segment[1])
+            else:
+                point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1])
             if flag!=0:
                 return True,point,current_bvh.object
 
@@ -787,8 +848,13 @@ def bvh_ray_intersection(bvh:BVHNode, ray:Ray):
         return result
 
 
-def build_bvh_from_mesh(points:NDArray[float],indices:NDArray[int]):
-    return build_bvh([Triangle(tri) for tri in points[indices]])
+def build_bvh_from_mesh(points:NDArray[float],indices:NDArray[int], triangles_in_leaf=1):
+
+    return build_bvh([Triangle(tri) for tri in points[indices]],objects_in_leaf=triangles_in_leaf)
+def build_bvh_from_triangles(triangles:list[Triangle], triangles_in_leaf=1):
+
+    return build_bvh(triangles,objects_in_leaf=triangles_in_leaf)
+
 from mmcore.numeric.algorithms.moller import intersect_triangle_segment
 
 def mesh_bvh_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
@@ -817,6 +883,7 @@ def mesh_bvh_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
         return maybe
     direction=segment[1]-segment[0]
     for tri,segm in bvh_segment_intersection(triangles_bvh,segment):
+
 
 
         point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1])
