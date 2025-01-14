@@ -234,8 +234,8 @@ def intersect_triangle_segment(
         return (None, 0)
 
     # Classify the intersection
-    flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
-
+    #flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
+    flag=1
     return (np.array([c_I[0], c_I[1], c_I[2]], dtype=np.float64), flag)
 
 def intersect_triangles_segment_one(
