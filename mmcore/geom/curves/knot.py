@@ -184,6 +184,7 @@ def interpolate_curve(points, degree,  use_centripetal=False):
     """
     # Keyword arguments
 
+    points=np.unique(points,axis=0)
 
     # Number of control points
     num_points = len(points)

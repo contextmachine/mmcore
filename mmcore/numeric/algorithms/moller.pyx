@@ -35,7 +35,6 @@ Usage Example:
 cimport cython
 cimport numpy as cnp
 import numpy as np
-
 from libc.math cimport fabs
 
 # Define a small epsilon for floating point comparisons
@@ -238,3 +237,56 @@ def intersect_triangle_segment(
     flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
 
     return (np.array([c_I[0], c_I[1], c_I[2]], dtype=np.float64), flag)
+
+def intersect_triangles_segment_one(
+    cnp.ndarray[cnp.float64_t, ndim=2] V0,
+    cnp.ndarray[cnp.float64_t, ndim=2] V1,
+    cnp.ndarray[cnp.float64_t, ndim=2] V2,
+    cnp.ndarray[cnp.float64_t, ndim=1] S,
+    cnp.ndarray[cnp.float64_t, ndim=1] E
+):
+    """
+    Intersect a 3D triangle with a segment.
+
+    Parameters
+    ----------
+    V0, V1, V2 : ndarray of shape (3,), dtype float64
+        Triangle vertices.
+    S, E : ndarray of shape (3,), dtype float64
+        Segment start and end points.
+
+    Returns
+    -------
+    intersection_point : ndarray of shape (3,) or None
+        The intersection point in 3D space.
+    flag : int
+        Intersection type flag:
+            0: No intersection
+            1: Intersection at a vertex
+            2: Intersection along an edge
+            4: Intersection within the interior
+    """
+    cdef int tris=V0.shape[0]
+
+    cdef double[3] c_V0, c_V1, c_V2, c_S, c_E, c_I
+    cdef int exists, flag
+    cdef int ixs,i
+    for i in range(3):
+        c_S[i] = S[i]
+        c_E[i] = E[i]
+    # Copy inputs to C arrays
+    for ixs in range(tris):
+
+        for i in range(3):
+            c_V0[i] = V0[ixs][i]
+            c_V1[i] = V1[ixs][i]
+            c_V2[i] = V2[ixs][i]
+
+        # Perform intersection
+        exists = _intersect_triangle_segment(c_V0, c_V1, c_V2, c_S, c_E, c_I)
+        if exists:
+            # Classify the intersection
+            #flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
+            flag=1
+            return (np.array([c_I[0], c_I[1], c_I[2]], dtype=np.float64), flag)
+    return (None, 0)

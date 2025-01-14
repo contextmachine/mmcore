@@ -35,7 +35,7 @@ define_macros = [
     ("ANSI_DECLARATORS", 1),
 ]
 if sys.platform == "darwin" :
-    compile_args += ["-mcpu=apple-m1"]#+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=apple-m1",'-fvectorize','-Rpass=loop-vectorize']#+["-march=armv8-a+simd"]
 
 elif sys.platform == "linux" and platform.machine() == "aarch64" :
     compile_args+=["-march=armv8-a+simd"]
@@ -268,7 +268,6 @@ compiler_directives = dict(
 if __name__ == "__main__":
     print(logo)
     ext_modules = cythonize(
-
         extensions,
         nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
