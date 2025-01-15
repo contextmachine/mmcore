@@ -186,13 +186,15 @@ cdef inline int _intersect_triangle_segment(
     I[2] = S[2] + t * dir_z
 
     return 1
-
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def intersect_triangle_segment(
-    cnp.ndarray[cnp.float64_t, ndim=1] V0,
-    cnp.ndarray[cnp.float64_t, ndim=1] V1,
-    cnp.ndarray[cnp.float64_t, ndim=1] V2,
-    cnp.ndarray[cnp.float64_t, ndim=1] S,
-    cnp.ndarray[cnp.float64_t, ndim=1] E
+    double[:] V0,
+      double[:] V1,
+      double[:]V2,
+      double[:] S,
+      double[:] E,
+        double[:] out
 ):
     """
     Intersect a 3D triangle with a segment.
@@ -220,12 +222,24 @@ def intersect_triangle_segment(
 
     # Copy inputs to C arrays
     cdef int i
-    for i in range(3):
-        c_V0[i] = V0[i]
-        c_V1[i] = V1[i]
-        c_V2[i] = V2[i]
-        c_S[i]  = S[i]
-        c_E[i]  = E[i]
+    
+    c_V0[0] = V0[0]
+    c_V1[0] = V1[0]
+    c_V2[0] = V2[0]
+    c_S[0]  = S[0]
+    c_E[0]  = E[0]
+
+    c_V0[1] = V0[1]       
+    c_V1[1] = V1[1]       
+    c_V2[1] = V2[1]       
+    c_S[1]  = S[1]        
+    c_E[1]  = E[1]        
+    
+    c_V0[2] = V0[2]       
+    c_V1[2] = V1[2]       
+    c_V2[2] = V2[2]       
+    c_S[2]  = S[2]        
+    c_E[2]  = E[2]        
 
     # Perform intersection
     exists = _intersect_triangle_segment(c_V0, c_V1, c_V2, c_S, c_E, c_I)
@@ -236,14 +250,16 @@ def intersect_triangle_segment(
     # Classify the intersection
     #flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
     flag=1
-    return (np.array([c_I[0], c_I[1], c_I[2]], dtype=np.float64), flag)
+    out[:]=c_I
+    return (out, flag)
 
 def intersect_triangles_segment_one(
-    cnp.ndarray[cnp.float64_t, ndim=2] V0,
-    cnp.ndarray[cnp.float64_t, ndim=2] V1,
-    cnp.ndarray[cnp.float64_t, ndim=2] V2,
-    cnp.ndarray[cnp.float64_t, ndim=1] S,
-    cnp.ndarray[cnp.float64_t, ndim=1] E
+    double[:,:] V0,
+    double[:,:] V1,
+    double[:,:] V2,
+    double[:] S,
+    double[:] E,
+        double[:] out
 ):
     """
     Intersect a 3D triangle with a segment.
@@ -271,16 +287,28 @@ def intersect_triangles_segment_one(
     cdef double[3] c_V0, c_V1, c_V2, c_S, c_E, c_I
     cdef int exists, flag
     cdef int ixs,i
-    for i in range(3):
-        c_S[i] = S[i]
-        c_E[i] = E[i]
+    
+    c_S[0] = S[0]
+    c_E[0] = E[0]
+    c_S[1] = S[1]  
+    c_E[1] = E[1]  
+    c_S[ 2] = S[ 2]  
+    c_E[ 2] = E[ 2]  
     # Copy inputs to C arrays
     for ixs in range(tris):
 
-        for i in range(3):
-            c_V0[i] = V0[ixs][i]
-            c_V1[i] = V1[ixs][i]
-            c_V2[i] = V2[ixs][i]
+        
+        c_V0[0] = V0[ixs][0]
+        c_V1[0] = V1[ixs][0]
+        c_V2[0] = V2[ixs][0]
+        
+        c_V0[1] = V0[ixs][1]
+        c_V1[1] = V1[ixs][1]
+        c_V2[1] = V2[ixs][1]
+        
+        c_V0[2] = V0[ixs][2]
+        c_V1[2] = V1[ixs][2]
+        c_V2[2] = V2[ixs][2]
 
         # Perform intersection
         exists = _intersect_triangle_segment(c_V0, c_V1, c_V2, c_S, c_E, c_I)
@@ -288,5 +316,6 @@ def intersect_triangles_segment_one(
             # Classify the intersection
             #flag = _classify_intersection(c_I, c_V0, c_V1, c_V2)
             flag=1
-            return (np.array([c_I[0], c_I[1], c_I[2]], dtype=np.float64), flag)
+            out[:]=c_I
+            return (out, flag)
     return (None, 0)
