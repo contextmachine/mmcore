@@ -105,7 +105,7 @@ cdef inline bint caabb_intersection_3d(double[:,:] self, double[:,:] other, doub
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def aabb_intersection(double[:,:] bb1, double[:,:] bb2, cnp.ndarray[double, ndim=2] result=None):
+def aabb_intersection(double[:,:] bb1, double[:,:] bb2, double[:,:] result=None):
     cdef bint success
     if result is None:
         result = np.zeros((2,3))
@@ -191,9 +191,9 @@ cdef inline double _ray_aabb_intersect(
 @cython.wraparound(False)
 @cython.cdivision(True)
 def ray_aabb_intersect(
-        cnp.ndarray[double, ndim=2] bb,
-        cnp.ndarray[double, ndim=1] ray_origin,
-        cnp.ndarray[double, ndim=1] ray_dir
+        double[:,:] bb,
+        double[:] ray_origin,
+        double[:] ray_dir
 ):
     """
     Ray vs. 3D AABB intersection.
@@ -217,15 +217,24 @@ def ray_aabb_intersect(
         int i
         double tmin
         double tmax
-
+                        
     # Copy input
-    for i in range(3):
-        bmin[i] = bb[0][i]
-        bmax[i] = bb[1][i]
-        ro[i] = ray_origin[i]
-        rd[i] = ray_dir[i]
-
-    t = _ray_aabb_intersect(bmin, bmax, ro, rd, &tmin,&tmax)
+    with nogil:
+        bmin[0] = bb[0, 0];
+        bmin[1] = bb[0, 1];
+        bmin[2] = bb[0, 2]
+        bmax[0] = bb[1, 0];
+        bmax[1] = bb[1, 1];
+        bmax[2] = bb[1, 2]
+        ro[0] = ray_origin[0]
+        ro[1] = ray_origin[1]
+        ro[2] = ray_origin[2]
+        rd[0] = ray_dir[0]
+        rd[1] = ray_dir[1]
+        rd[2] = ray_dir[2]
+     
+    
+        t = _ray_aabb_intersect(bmin, bmax, ro, rd, &tmin,&tmax)
     if t >= 0:
 
             if tmin<= 0:
@@ -309,15 +318,14 @@ cdef inline int _segment_aabb_intersect(
     if fabs(clip_min - clip_max) < 1e-15:
         # It's effectively a single intersection
         return 1
-    else:
+    return 2
 
-        return 2
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
 def segment_aabb_intersect(
-        cnp.ndarray[double, ndim=2] bb,
-        cnp.ndarray[double, ndim=2] seg
+        double[:,:] bb,
+        double[:,:] seg
 
 ):
     """
@@ -342,18 +350,30 @@ def segment_aabb_intersect(
     cdef:
         double[3] bmin, bmax, s, e
         double t_out[2]
+
+
         int i, n
-    for i in range(3):
-        bmin[i] = bb[0][i]
-        bmax[i] = bb[1][i]
-        s[i] = seg[0][i]
-        e[i] = seg[1][i]
-    n = _segment_aabb_intersect(bmin, bmax, s, e, t_out)
+    with nogil:
+        bmin[0] = bb[0, 0];
+        bmin[1] = bb[0, 1];
+        bmin[2] = bb[0, 2]
+        bmax[0] = bb[1, 0];
+        bmax[1] = bb[1, 1];
+        bmax[2] = bb[1, 2]
+        s[0] = seg[0, 0];
+        s[1] = seg[0, 1];
+        s[2] = seg[0, 2]
+        e[0] = seg[1, 0];
+        e[1] = seg[1, 1];
+        e[2] = seg[1, 2]
+        n = _segment_aabb_intersect(bmin, bmax, s, e, t_out)
     if n > 0:
-        if t_out[0] <= 0:
-            t_out[0]=0.
-        if t_out[1]>=1.:
-            t_out[1]=1.
+        with nogil:
+            if t_out[0] <= 0:
+                t_out[0]=0.
+            if t_out[1]>=1.:
+                t_out[1]=1.
+
         return [t_out[0],t_out[1]]
 
 
@@ -362,31 +382,44 @@ def segment_aabb_intersect(
 @cython.wraparound(False)
 @cython.cdivision(True)
 def segment_aabb_clip(
-        cnp.ndarray[double, ndim=2] bb,
-        cnp.ndarray[double, ndim=2] seg,
-        cnp.ndarray[double, ndim=2] out=None):
+        double[:,:] bb,
+        double[:,:]  seg,
+        double[:,:]  out):
     cdef:
         double[3] bmin, bmax, s, e
         double t_out[2]
         int i, n
-    if out is None:
 
-        out=np.zeros((2,3))
-
-
-    for i in range(3):
-        bmin[i] = bb[0][i]
-        bmax[i] = bb[1][i]
-        s[i] =  seg[0][i]
-        e[i] = seg[1][i]
-    n = _segment_aabb_intersect(bmin, bmax, s, e, t_out)
+    with nogil:
+        bmin[0] = bb[0, 0];
+        bmin[1] = bb[0, 1];
+        bmin[2] = bb[0, 2]
+        bmax[0] = bb[1, 0];
+        bmax[1] = bb[1, 1];
+        bmax[2] = bb[1, 2]
+        s[0] = seg[0, 0];
+        s[1] = seg[0, 1];
+        s[2] = seg[0, 2]
+        e[0] = seg[1, 0];
+        e[1] = seg[1, 1];
+        e[2] = seg[1, 2]
+        n = _segment_aabb_intersect(bmin, bmax, s, e, t_out)
     if n > 0:
-        if t_out[0] <= 0:
-            t_out[0] = 0.
-        if t_out[1] >= 1.:
-            t_out[1] = 1.
-        for i in range(3):
-            out[0][i]=s[i]+(e[i]-s[i])*t_out[0]
-            out[1][i] = s[i] + (e[i] - s[i]) * t_out[1]
+        with nogil:
+            if t_out[0] <= 0:
+                t_out[0] = 0.
+            if t_out[1] >= 1.:
+                t_out[1] = 1.
+            
+            out[0, 0]=s[ 0]+(e[ 0]-s[ 0])*t_out[0]
+            out[1, 0] = s[ 0] + (e[ 0] - s[ 0]) * t_out[1]
+
+            out[0, 1]=s[1]+(e[ 1]-s[ 1])*t_out[0]
+            out[1, 1] = s[1] + (e[ 1] - s[ 1]) * t_out[1]
+        
+            out[0, 2]=s[ 2]+(e[ 2]-s[ 2])*t_out[0]
+            out[1, 2] = s[ 2] + (e[ 2] - s[ 2]) * t_out[1]
+
+        
         return out
     return None

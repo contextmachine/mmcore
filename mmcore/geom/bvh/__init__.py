@@ -728,7 +728,7 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
 
     intersections = []
     stack = [(bvh, segment)]
-
+    out=np.zeros((2,3))
     while stack:
         current_bvh, current_segment = stack.pop()
         bb=aabb(segment)
@@ -736,7 +736,7 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
         if not aabb_intersect(current_bvh.bounding_box._arr,bb):
             continue
 
-        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment )
+        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment, out )
 
         if current_segment is None:
             continue
@@ -765,6 +765,8 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
         a = np.zeros((bvh.max_objects_in_leaf,3))
         b = np.zeros((bvh.max_objects_in_leaf,3))
         c = np.zeros((bvh.max_objects_in_leaf,3))
+    out = np.empty((2, 3))
+    out_point=np.empty((3,))
     while stack:
         current_bvh, current_segment = stack.pop()
         bb=aabb(segment)
@@ -772,7 +774,7 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
         if not aabb_intersect(current_bvh.bounding_box._arr,bb):
             continue
 
-        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment )
+        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment,out )
 
         if current_segment is None:
             continue
@@ -791,11 +793,11 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
                     c[ixs] = current_bvh.object.objects[ixs].c
 
                 point, flag = intersect_triangles_segment_one(a[:current_size], b[:current_size],
-                                                         c[:current_size], current_segment[0], current_segment[1])
+                                                         c[:current_size], current_segment[0], current_segment[1],out_point)
             else:
-                point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1])
+                point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1],out_point)
             if flag!=0:
-                return True,point,current_bvh.object
+                return True,np.array(point),current_bvh.object
 
         else:
 
@@ -878,15 +880,18 @@ def mesh_bvh_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
     :rtype: list[tuple[Point, Triangle, float]]
     """
     maybe = []
-    segment = segment_aabb_clip(triangles_bvh.bounding_box._arr, ray._arr)
+    segment_out = np.empty((2,3))
+    segment = segment_aabb_clip(triangles_bvh.bounding_box._arr, ray._arr,segment_out)
     if segment is None:
         return maybe
+    segment=segment_out
     direction=segment[1]-segment[0]
+    out=np.empty((3,))
     for tri,segm in bvh_segment_intersection(triangles_bvh,segment):
 
 
 
-        point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1])
+        point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1],out)
         if flag==0:
 
             continue
