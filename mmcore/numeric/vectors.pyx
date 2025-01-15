@@ -18,6 +18,7 @@ cdef double ATOL=1.e-18
 cdef bint cis_close(double a, double b, double atol, double rtol):
     cdef bint result=fabs(a - b) <= (atol + rtol * fabs(b))
     return result
+
 cpdef bint is_close(double a, double b=0., double atol=ATOL, double rtol=RTOL):
     cdef bint result=fabs(a - b) <= (atol + rtol * fabs(b))
     return result

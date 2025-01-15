@@ -4,7 +4,8 @@ from functools import reduce
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip
+from mmcore.numeric._aabb import aabb_intersect_fast_3d
+from mmcore.numeric.aabb import aabb,aabb_intersect,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip,aabb_segm3d
 from mmcore.geom.nurbs import NURBSCurve,split_curve
 from mmcore.numeric.vectors import scalar_unit,scalar_norm,scalar_dot
 from mmcore.numeric.algorithms.moller import intersect_triangles_segment_one
@@ -728,21 +729,24 @@ def bvh_segment_intersection(bvh: BVHNode, segment:NDArray[float]|Segment):
 
     intersections = []
     stack = [(bvh, segment)]
-    out=np.zeros((2,3))
+
+    bb = np.empty((2, 3))
+
     while stack:
         current_bvh, current_segment = stack.pop()
-        bb=aabb(segment)
+        aabb_segm3d(current_segment[0],current_segment[1],bb)
 
         if not aabb_intersect(current_bvh.bounding_box._arr,bb):
             continue
+        out = np.zeros((2, 3))
+        _current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment, out )
 
-        current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment, out )
-
-        if current_segment is None:
+        if _current_segment is None:
             continue
 
         if current_bvh.object is not None:
-            intersections.append((current_bvh.object, current_segment))
+            intersections.append((current_bvh.object, segment))
+
         else:
 
             stack.append((current_bvh.left, current_segment))
@@ -765,22 +769,23 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
         a = np.zeros((bvh.max_objects_in_leaf,3))
         b = np.zeros((bvh.max_objects_in_leaf,3))
         c = np.zeros((bvh.max_objects_in_leaf,3))
-    out = np.empty((2, 3))
-    out_point=np.empty((3,))
+
+    bb=np.empty((2,3))
+
     while stack:
         current_bvh, current_segment = stack.pop()
-        bb=aabb(segment)
+        aabb_segm3d(current_segment[0],current_segment[1],bb)
 
-        if not aabb_intersect(current_bvh.bounding_box._arr,bb):
+        if not aabb_intersect_fast_3d(current_bvh.bounding_box._arr,bb):
             continue
-
+        out = np.empty((2, 3))
         current_segment = segment_aabb_clip(current_bvh.bounding_box._arr, segment,out )
 
         if current_segment is None:
             continue
 
         if current_bvh.object is not None:
-
+            out_point = np.empty((3,))
             if compound:
 
                 a[:] = 0
@@ -793,11 +798,11 @@ def bvh_triangle_segment_intersection_one(bvh: BVHNode, segment:NDArray[float]|S
                     c[ixs] = current_bvh.object.objects[ixs].c
 
                 point, flag = intersect_triangles_segment_one(a[:current_size], b[:current_size],
-                                                         c[:current_size], current_segment[0], current_segment[1],out_point)
+                                                         c[:current_size], current_segment[0], current_segment[1], out_point)
             else:
-                point,flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1],out_point)
+                flag=intersect_triangle_segment(current_bvh.object.a,current_bvh.object.b,current_bvh.object.c,current_segment[0],current_segment[1],out_point)
             if flag!=0:
-                return True,np.array(point),current_bvh.object
+                return True,out_point,current_bvh.object
 
         else:
 
@@ -886,19 +891,18 @@ def mesh_bvh_ray_intersection(triangles_bvh:BVHNode,ray:Ray):
         return maybe
     segment=segment_out
     direction=segment[1]-segment[0]
-    out=np.empty((3,))
+
     for tri,segm in bvh_segment_intersection(triangles_bvh,segment):
 
-
-
-        point,flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1],out)
+        out = np.empty((3,))
+        flag=intersect_triangle_segment(tri.pts[0],tri.pts[1],tri.pts[2],segm[0],segm[1],out)
         if flag==0:
 
             continue
         #if len(maybe)>0 and scalar_dot(maybe[-1]-point)<1e-8:
         #    maybe.append(point)
 
-        maybe.append((point,tri,scalar_dot(point-ray.start,direction)))
+        maybe.append((np.array(out),tri,scalar_dot(out-ray.start,direction)))
 
     maybe.sort(key=lambda x:x[-1])
     return maybe

@@ -3,11 +3,50 @@ cimport cython
 import numpy as np
 cimport numpy as cnp
 from libc.math cimport fmin,fmax,fabs
+
 cnp.import_array()
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
+cdef inline void caabb_segm2d( double[:] start, double[:] end,  double[:,:] out ) noexcept nogil:
+    out[0,0]=fmin(start[0],end[0])
+    out[0,1]=fmin(start[1],end[1])
+
+    out[1, 0] = fmax(start[0], end[0])
+    out[1, 1] = fmax(start[1], end[1])
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
+cdef inline void caabb_segm3d( double[:] start, double[:] end,  double[:,:] out ) noexcept nogil:
+    out[0,0]=fmin(start[0],end[0])
+    out[0,1]=fmin(start[1],end[1])
+    out[0,2]=fmin(start[2],end[2])
+    out[1, 0] = fmax(start[0], end[0])
+    out[1, 1] = fmax(start[1], end[1])
+    out[1, 2] = fmax(start[2], end[2])
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
+def aabb_segm3d(double[:] start, double[:] end,  double[:,:] out):
+    with nogil:
+        caabb_segm3d(start,end,out)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 cdef inline void caabb(double[:,:] points, double[:] min_point, double[:] max_point) noexcept nogil:
     """
     AABB (Axis-Aligned Bounding Box) of a point collection.
@@ -63,6 +102,23 @@ cdef inline bint caabb_intersect(double[:,:] bb1, double[:,:] bb2) noexcept nogi
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
+cpdef bint aabb_intersect_fast_3d(double[:,:] bb1, double[:,:] bb2) noexcept nogil:
+    cdef bint temp1 = bb1[0,0] <= bb2[1,0]
+    cdef bint temp2 = bb1[1,0] >= bb2[0,0]
+    cdef bint temp3 = bb1[0,1] <= bb2[1,1]
+    cdef bint temp4 = bb1[1,1] >= bb2[0,1]
+    cdef bint temp5 = bb1[0,2] <= bb2[1,2]
+    cdef bint temp6 = bb1[1,2] >= bb2[0,2]
+    cdef bint temp= temp1 and temp2 and temp3 and temp4 and temp5 and temp6
+    return temp
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 cdef inline bint caabb_intersect_3d(double[:,:] bb1, double[:,:] bb2) noexcept nogil:
     cdef bint temp=(bb1[0][0] <= bb2[1][0] ) and (bb1[1][0] >= bb2[0][0])  and (bb1[0][1] <= bb2[1][1] ) and (bb1[1][1] >= bb2[0][1]) and (bb1[0][2] <= bb2[1][2] ) and (bb1[1][2] >= bb2[0][2])
     return temp
@@ -70,6 +126,8 @@ cdef inline bint caabb_intersect_3d(double[:,:] bb1, double[:,:] bb2) noexcept n
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 def aabb_intersect(double[:,:] bb1, double[:,:] bb2):
     cdef bint result
     if bb1.shape[1]==3:
@@ -77,10 +135,11 @@ def aabb_intersect(double[:,:] bb1, double[:,:] bb2):
     else:
         result=caabb_intersect(bb1,bb2)
     return result
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 cdef inline bint caabb_intersection_3d(double[:,:] self, double[:,:] other, double[:,:] result) noexcept nogil:
     cdef double max_min_x = fmax(self[0][0], other[0][0])
     cdef double max_min_y = fmax(self[0][1], other[0][1])
@@ -105,6 +164,8 @@ cdef inline bint caabb_intersection_3d(double[:,:] self, double[:,:] other, doub
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 def aabb_intersection(double[:,:] bb1, double[:,:] bb2, double[:,:] result=None):
     cdef bint success
     if result is None:
@@ -118,10 +179,11 @@ def aabb_intersection(double[:,:] bb1, double[:,:] bb2, double[:,:] result=None)
 
 
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 cdef inline double _ray_aabb_intersect(
         double[3] bmin,
         double[3] bmax,
@@ -190,6 +252,8 @@ cdef inline double _ray_aabb_intersect(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 def ray_aabb_intersect(
         double[:,:] bb,
         double[:] ray_origin,
@@ -249,6 +313,8 @@ def ray_aabb_intersect(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 cdef inline int _segment_aabb_intersect(
         double[3] bmin,
         double[3] bmax,
@@ -323,6 +389,8 @@ cdef inline int _segment_aabb_intersect(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 def segment_aabb_intersect(
         double[:,:] bb,
         double[:,:] seg
@@ -381,6 +449,8 @@ def segment_aabb_intersect(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+@cython.initializedcheck(False)
+@cython.nonecheck(True)
 def segment_aabb_clip(
         double[:,:] bb,
         double[:,:]  seg,
