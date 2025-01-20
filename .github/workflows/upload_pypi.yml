@@ -5,11 +5,11 @@ on:
     tags:
       - 'v*.*.*'
     branches:
-      - 'master'
+      - 'tiny'
 
   workflow_run:
     workflows:
-      - poetry-build # Name of the triggering workflow
+      - build # Name of the triggering workflow
     types:
       - completed
 jobs:
