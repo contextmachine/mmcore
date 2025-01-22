@@ -29,3 +29,5 @@ docs
 /tests/logs/
 
 /.cadence/
+*.gh
+*.3dm

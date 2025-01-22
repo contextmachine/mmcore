@@ -15,3 +15,5 @@ mmcore/numeric/optimize/
 mmcore/numeric/optimize/__init__.py
 dist
 .computer-use-demo
+*.gh
+*.3dm
