@@ -9,7 +9,7 @@ on:
 
   workflow_run:
     workflows:
-      - build # Name of the triggering workflow
+      - poetry-build # Name of the triggering workflow
     types:
       - completed
 jobs:
