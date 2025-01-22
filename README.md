@@ -32,7 +32,6 @@
   * [Dependencies](#dependencies)
     * [Core Requirements](#core-requirements)
     * [Optional Components](#optional-components)
-  * [Recent Updates (v0.52.0)](#recent-updates-v0520)
   * [Known Deprecations](#known-deprecations)
   * [Contributing](#contributing)
   * [License](#license)
@@ -121,7 +120,7 @@ docker pull ghcr.io/contextmachine/mmcore.git:tiny
    - `ssx/`: Surface-surface intersection examples
    - `implicit_intersections.py`: Working with implicit geometry
 
-2. Check the short introduction in the [Implementation Examples](#implementation-examples):
+3. Check the short introduction in the [Implementation Examples](#implementation-examples):
    - [surface_closest_point.md](./notes/surface_closest_point.md): Detailed algorithm explanations
    - Additional implementation examples and best practices
 
@@ -228,10 +227,10 @@ Comparison with Rhino 8 for intersection curves computation between solid tubes:
 
 | Task Size | CPU Cores | Rhino 8 (sec.) | mmcore (sec.) | Speed Ratio |
 |-----------|-----------|----------------|---------------|-------------|
-| 1         | 1         | 0.027         | 0.033         | 0.82x       |
-| 100       | 1         | 2.685         | 1.571         | 1.71x       |
-| 100       | 10        | 0.938         | 0.275         | 3.41x       |
-| 1000      | 10        | 13.4          | 2.313         | 5.79x       |
+| 1         | 1         | 0.027          | 0.033         | 0.82x       |
+| 100       | 1         | 2.685          | 1.571         | 1.71x       |
+| 100       | 10        | 0.938          | 0.275         | 3.41x       |
+| 1000      | 10        | 13.4           | 2.313         | 5.79x       |
 
 *In mmcore we use implicit representations, in Rhino tubes are represented by BReps.*
 
@@ -254,6 +253,7 @@ You can find the full code for this example here [examples/ssx/implicit_intersec
 - earcut
 - pyquaternion
 - more-itertools
+- steputils
 
 ### Optional Components
 - Development: Cython
@@ -261,27 +261,6 @@ You can find the full code for this example here [examples/ssx/implicit_intersec
 - Interactive: IPython
 
 
-## Recent Updates (v0.52.0)
-
-1. Enhanced ray and geometry intersection capabilities
-   - Added efficient ray-plane intersection algorithms
-   - Implemented Möller–Trumbore triangle-segment intersection
-   - Enhanced AABB utilities with ray/segment intersections
-   
-2. Improved BVH implementation and spatial queries
-   - Optimized bounding volume hierarchy operations
-   - Enhanced spatial acceleration structures
-   - Improved query performance for ray-casting and intersections
-
-3. Added new geometric construction utilities
-   - Implemented ruled surface construction between NURBS curves
-   - Added Union-Find data structure for topology operations
-   - Enhanced NURBS knot manipulation and degree elevation
-
-4. Performance optimizations
-   - Streamlined Cython configurations for numeric utilities
-   - Improved intersection algorithm efficiency
-   - Enhanced NURBS operations performance
 
 ## Known Deprecations
 
@@ -298,6 +277,7 @@ Contributions are welcome! Please note:
 2. Breaking changes may occur between versions
 3. Test all changes thoroughly before submitting
 4. Follow the existing code style and documentation patterns
+
 
 ## License
 

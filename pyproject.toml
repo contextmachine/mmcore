@@ -57,20 +57,20 @@ all = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "ipython", "rhino3dm"]
 
 [tool.black]
 line-length = 140
-target-version = ['py39', 'py310', 'py311', 'py312','py313']
+target-version = ['py39', 'py310', 'py311', 'py312', 'py313']
 include = '\.pyi?$'
 exclude = '''
 /(
-    \.git
-  | \.github
-  | \gen
-  | \.idea
-  | \.svn
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.nox
-  | \.venv
+    .git
+  | .github
+  | gen
+  | .idea
+  | .svn
+  | .hg
+  | .mypy_cache
+  | .tox
+  | .nox
+  | .venv
   | _build
   | buck-out
   | build
