@@ -22,16 +22,13 @@ jobs:
 
     steps:
 
-      - uses: actions/checkout@v4
-      - name: Debug artifact name
-        run: |
-          echo "Artifact name: ${{github.triggering_actor.steps.modify_name.outputs.new_wheelfile_name}}"
 
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: ${{github.triggering_actor.steps.modify_name.outputs.new_wheelfile_name}}
           path: dist
+
+      - name: Display structure of downloaded files
+        run: ls -R dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
