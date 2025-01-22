@@ -51,6 +51,14 @@ if sys.platform == "win32":
 
 extensions = [
     Extension(
+        "mmcore.geom.nurbsv2",
+        ["mmcore/geom/nurbsv2.pyx"],
+        language="c++",
+        extra_compile_args=cpp_compile_args + compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
 
         "mmcore.numeric.newton.cnewton",
         ["mmcore/numeric/newton/cnewton.pyx"],

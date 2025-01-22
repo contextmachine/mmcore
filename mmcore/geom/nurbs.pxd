@@ -12,6 +12,16 @@ from libcpp.vector cimport vector
 from libcpp.cmath cimport fabs,fmin,fmax,round
 from libc.string cimport memcpy
 from libcpp.limits cimport numeric_limits
+from mmcore.geom.curves.knot import find_span_linear
+
+cdef inline int find_span_linear_search(int n, int p, double u, double[:] U) noexcept nogil:
+    cdef int span=p+1
+    cdef int num_cpts=n+1
+    while (span<num_cpts) and (U[span]<=u):
+        span+=1
+    span-=1
+    return span
+
 
 
 
@@ -82,7 +92,7 @@ cdef inline void curve_point(int n, int p, double[:] U, double[:, :] P, double u
 
     cdef int pp = p + 1
     cdef int i, j
-    cdef int span = find_span_inline(n, p, u, U,is_periodic)
+    cdef int span = find_span_linear_search(n, p, u, U)
     cdef double* N = <double*>malloc(sizeof(double)*pp)
     cdef double sum_of_weights=0.
     cdef double b
@@ -92,11 +102,13 @@ cdef inline void curve_point(int n, int p, double[:] U, double[:, :] P, double u
     basis_funs(span, u, p, U, N)
 
     for i in range(pp):
+
         b = N[i] * P[span - p + i, 3]
         sum_of_weights +=  b
         result[0] += (b * P[span - p + i, 0])
         result[1] += (b * P[span - p + i, 1])
         result[2] += (b * P[span - p + i, 2])
+
 
     result[0]/=sum_of_weights
     result[1]/=sum_of_weights
@@ -166,81 +178,31 @@ cdef void projective_to_cartesian_ptr_mem(double* point, double[:] result)  noex
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_periodic) nogil:
+cdef inline int find_span_inline(int n, int p, double u, double[:] U, bint is_periodic) noexcept nogil:
     """
-    Determine the knot span index for a given parameter value `u`.
-
-    This function finds the knot span index `i` such that the parameter `u` 
-    lies within the interval [U[i], U[i+1]] in the knot vector `U`. 
-    The knot vector `U` is assumed to be non-decreasing and the parameter 
-    `u` is within the range `[U[p], U[n+1]]`.
-
-    Parameters
-    ----------
-    n : int
-        The maximum index of the knot span, typically the number of basis functions minus one.
-    p : int
-        The degree of the B-spline or NURBS.
-    u : float
-        The parameter value for which the span index is to be found.
-    U : list of float
-        The knot vector, a non-decreasing sequence of real numbers.
-
-    Returns
-    -------
-    int
-        The index `i` such that `U[i] <= u < U[i+1]`, where `i` is the knot span.
-
-    Raises
-    ------
-    ValueError
-        If the parameter `u` is outside the bounds of the knot vector `U` or 
-        if the function fails to find a valid span within the maximum iterations.
-
-    Notes
-    -----
-    The function employs a binary search algorithm to efficiently locate 
-    the knot span. It handles special cases where `u` is exactly equal to 
-    the last value in `U` and when `u` is outside the range of `U`.
-
-    Example
-    -------
-    >>> U = [0, 0, 0, 0.5, 1, 1, 1]
-    >>> find_span(4, 2, 0.3, U)
-    2
-
-    >>> find_span(4, 2, 0.5, U)
-    3
+    Determine the knot span index for a parameter value `u`, with optional periodic handling.
     """
     cdef double U_min = U[p]
     cdef double U_max = U[n+1]
     cdef double period
 
-
-    if is_periodic :
-        # Wrap u to be within the valid range for periodic and closed curves
-
-        period= U_max - U_min
+    if is_periodic:
+        # Wrap u into [U_min, U_max)
+        period = U_max - U_min
         while u < U_min:
             u += period
-        while u > U_max:
+        while u >= U_max:   # use >= so that if u == U_max, it wraps to U_min
             u -= period
-
     else:
-        # Clamp u to be within the valid range for open curves
-
+        # Clamp for non-periodic
         if u >= U[n+1]:
-
             return n
-
         elif u < U[0]:
-
             return p
 
-        # Handle special case for the upper boundary
-    if u == U[n + 1]:
+    # Handle special case for the upper boundary
+    if u == U[n+1]:
         return n
-
 
     # Binary search for the correct knot span
     cdef int low = p
@@ -444,6 +406,7 @@ cdef class NURBSCurve(ParametricCurve):
     cpdef void set_degree(self, int val)
 
     cpdef int get_degree(self)
+    cpdef bint is_periodic_full(self)
     cpdef bint is_periodic(self)
 
     cdef void generate_knots(self)
@@ -454,7 +417,7 @@ cdef class NURBSCurve(ParametricCurve):
     cdef void generate_knots_periodic(self)
     cpdef void make_periodic(self)
 
-    cdef _update_interval(self)
+    cdef void  _update_interval(self) noexcept nogil
 
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts)
 
@@ -503,15 +466,21 @@ cdef class NURBSSurface(ParametricSurface):
 
     cdef int[2] _size
     cdef int[2] _degree
+    cdef bint _periodic_u
+    cdef bint _periodic_v
 
 
     cdef double[:,:,:] control_points_view
     cdef double[:,:] control_points_flat_view
     @staticmethod
     cdef NURBSSurface create(double[:,:,:] control_points, int degree_u,int degree_v, double[:] knots_u, double[:] knots_v)
-    cdef void _update_interval(self)
+    cdef void _update_interval(self) noexcept nogil
     cdef void generate_knots_u(self)
     cdef void generate_knots_v(self)
+    cdef void generate_knots_periodic_u(self)
+    cdef void generate_knots_periodic_v(self)
+    cpdef void make_periodic_u(self)
+    cpdef void make_periodic_v(self)
     cdef void realloc_control_points(self, size_t new_size_u, size_t new_size_v) noexcept nogil
     cdef NURBSSurface ccopy(self)
     cpdef void insert_knot_u(self, double t, int count)
@@ -521,7 +490,8 @@ cdef class NURBSSurface(ParametricSurface):
     cdef void cnormalize_knots_v(self) noexcept nogil
     cdef void cbbox(self, double[:,:] result) noexcept nogil
     cdef void cevaluate(self, double u, double v, double[:] result) noexcept nogil
-
+    cpdef bint is_periodic_u(self)
+    cpdef bint is_periodic_v(self)
     cpdef double[:,:] bbox(self)
 cpdef tuple split_surface_u(NURBSSurface obj, double param,double tol=*)
 cpdef tuple split_surface_v(NURBSSurface obj, double param,double tol=*)

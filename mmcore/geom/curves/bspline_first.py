@@ -12,8 +12,6 @@ def find_span(n, p, u, U):
     if u == U[n + 1]:
         return n  # Special case
 
-
-
     low = p
     high = n + 1
     mid = (low + high) // 2
@@ -77,12 +75,14 @@ def curve_point(n, p, U, P, u):
     list of float: The computed curve point.
     """
     span = find_span(n, p, u, U)
+    print('span', span)
     N = basis_funs(span, u, p, U)
     C = [0.0] * len(P[0])
 
     for i in range(p + 1):
         for j in range(len(C)):
-            #print('cp', span - p + i, P)
+
+            print(f'cp {["x","y","z","w"][j]}:', span - p + i, P[span - p + i][j])
             C[j] += N[i] * P[span - p + i][j]
 
     return C

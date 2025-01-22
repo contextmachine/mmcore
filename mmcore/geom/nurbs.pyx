@@ -15,25 +15,11 @@ from libc.stdint cimport uint32_t,int32_t
 
 cimport mmcore.geom.nurbs
 
-from mmcore.numeric.algorithms.quicksort cimport uniqueSorted
-
-
 from  mmcore.numeric cimport calgorithms,vectors
 
 
 cnp.import_array()
 
-cdef extern from "_nurbs.cpp" nogil:
-    cdef cppclass NURBSSurfaceData:
-        double* control_points;
-        double* knots_u ;
-        double* knots_v;
-        int size_u;
-        int size_v;
-        int degree_u;
-        int degree_v;
-        NURBSSurfaceData();
-        NURBSSurfaceData(double* control_points, double* knots_u ,double* knots_v,int size_u,int size_v,int degree_u,int degree_v);
 
 
 @cython.boundscheck(False)
@@ -121,49 +107,7 @@ cpdef int find_span(int n, int p, double u, double[:] U, bint is_periodic) noexc
     >>> find_span(4, 2, 0.5, U)
     3
     """
-    cdef double U_min = U[p]
-    cdef double U_max = U[n+1]
-    cdef double period
-
-
-    if is_periodic :
-        # Wrap u to be within the valid range for periodic and closed curves
-
-        period= U_max - U_min
-        while u < U_min:
-            u += period
-        while u > U_max:
-            u -= period
-
-    else:
-        # Clamp u to be within the valid range for open curves
-
-        if u >= U[n+1]:
-
-            return n
-
-        elif u < U[0]:
-
-            return p
-
-        # Handle special case for the upper boundary
-    if u == U[n + 1]:
-        return n
-
-
-    # Binary search for the correct knot span
-    cdef int low = p
-    cdef int high = n + 1
-    cdef int mid = (low + high) // 2
-
-    while u < U[mid] or u >= U[mid + 1]:
-        if u < U[mid]:
-            high = mid
-        else:
-            low = mid
-        mid = (low + high) // 2
-
-    return mid
+    return find_span_linear_search(n,p,u,U)
 
 
 @cython.cdivision(True)
@@ -680,9 +624,10 @@ cpdef tuple knot_refinement(int degree, double[:] knotvector, double[:, :] ctrlp
     cdef int usz=knot_list.shape[0]
     cdef int new_knot_len
 
-    cdef double* sorted_knots=uniqueSorted(&knot_list[0],usz, &new_knot_len )
+    knot_list=np.unique(knot_list)
+    new_knot_len = knot_list.shape[0]
 
-    knot_list = <double[:new_knot_len]>sorted_knots
+
 
 
     cdef double[:] rknots
@@ -1131,14 +1076,23 @@ cdef class NURBSCurve(ParametricCurve):
         else:
             self._control_points[:, :-1] = control_points
 
+
         if knots is None:
             self.generate_knots()
         else:
             self._knots = knots
-            self.knots_update_hook()
 
         if periodic:
-            self.make_periodic()
+            if self.is_periodic_full():
+                self._periodic=True
+                if knots is not None:
+                    self.knots_update_hook()
+
+            else:
+
+                self.make_periodic()
+
+
         return self
     def __cinit__(self):
         self._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
@@ -1167,9 +1121,15 @@ cdef class NURBSCurve(ParametricCurve):
             self._knots=knots
             self.knots_update_hook()
 
-        if  periodic:
-            self.make_periodic()
+        if periodic:
+            if self.is_periodic_full():
+                self._periodic = True
+                if knots is not None:
+                    self.knots_update_hook()
 
+            else:
+
+                self.make_periodic()
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -1217,15 +1177,16 @@ cdef class NURBSCurve(ParametricCurve):
     def degree(self,v):
         cdef int val=int(v)
         self.set_degree(val)
-
     cpdef bint is_periodic(self):
+        return self._periodic
+    cpdef bint is_periodic_full(self):
         """
         Check if the NURBS curve is periodic
         """
         cdef bint res = True
         cdef int i,j
         cdef double[:,:] part1=self._control_points[:self._degree]
-        cdef double[:,:] part2= self._control_points[-self._degree:]
+        cdef double[:,:] part2= self._control_points[self._control_points.shape[0]-self._degree:]
         for j in range(part1.shape[0]):
 
             for i in range(4):
@@ -1355,22 +1316,31 @@ cdef class NURBSCurve(ParametricCurve):
         self._greville_abscissae = greville_abscissae(self.knots,self.degree
                                                       )
 
-
     cdef void generate_knots_periodic(self):
         """
-        This function generates knots for a periodic NURBS curve
+        Generates a uniform knot vector for a periodic curve by simply setting 
+        self._knots[i] = i. The domain for one full revolution then becomes 
+        [p, n], where n = len(self._control_points) - self._degree.
         """
-        cdef int i
-        cdef int n = len(self._control_points)
-        cdef int m = n + self.degree + 1
-        self._knots = np.zeros(m)
-        for i in range(m):
-            self._knots[i] = i - self.degree
-        self.knots_update_hook()
+        cdef int n = len(self._control_points)  # after we've duplicated cpts
+        cdef int m = n + self._degree + 1  # total # of knots
+        self._knots = np.zeros(m, dtype=np.float64)
 
-    cdef _update_interval(self):
-        self._interval[0] =  self._knots[0]
-        self._interval[1] = self._knots[self._knots.shape[0]-1]
+        cdef int i
+        for i in range(m):
+            self._knots[i] = i  # uniform spacing from 0..m-1
+
+        self.knots_update_hook()  # calls _update_interval internally
+
+    cdef void _update_interval(self) noexcept nogil:
+        if self._periodic:
+            self._interval[0] =  self._knots[self._degree]
+            self._interval[1] = self._knots[self._control_points.shape[0]]
+        else:
+            self._interval[0] = self._knots[self._degree]
+            self._interval[1] = self._knots[self._control_points.shape[0]-self._degree]
+
+
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
         cdef int n = len(cpts)
         cdef int i
@@ -1380,33 +1350,44 @@ cdef class NURBSCurve(ParametricCurve):
         for i in range(self.degree):
             new_control_points[n + i, :] = cpts[i, :]
         return new_control_points
+    # ------------------------------
+    # C. Making the curve periodic
+    # ------------------------------
     cpdef void make_periodic(self):
-        """
-        Modify the NURBS curve to make it periodic
-        """
+           """
+           Modifies the NURBS curve to be periodic (closed). Replicates the first 
+           degree control points at the end, and creates a periodic knot vector.
+           """
+           if self.is_periodic():
+               return
 
-        if self.is_periodic():
-            return
-        cdef int n = len(self.control_points)
-        cdef int new_n = n + self.degree
-        cdef double[:,:] new_control_points = np.zeros((new_n, 4))
-        cdef int i
-        # Copy the original control points
+           # original number of control points
+           cdef int n_original = len(self._control_points)
 
-        new_control_points[:n, :] = self._control_points
+           # new number: replicate first 'degree' cpts at the end
+           cdef int new_n = n_original + self._degree
+           cdef double[:,:] new_control_points = np.zeros((new_n, 4), dtype=np.float64)
 
-        # Add the first degree control points to the end to make it periodic
-        for i in range(self.degree):
-            new_control_points[n + i, :] = self._control_points[i, :]
+           cdef int i
+           # copy the original
+           for i in range(n_original):
+               new_control_points[i,:] = self._control_points[i,:]
 
-        self._control_points = new_control_points
-        self.generate_knots_periodic()
+           # replicate the first 'degree' points
+           for i in range(self._degree):
+               new_control_points[n_original + i, :] = self._control_points[i, :]
 
-        self._periodic=True
-        self._evaluate_cached.cache_clear()
+           # swap in the new cpts array
+           self._control_points = new_control_points
+           self._periodic = True
+           # generate the new periodic knots
+           self.generate_knots_periodic()
+
+           # mark it as periodic
 
 
-
+           # clear any caches
+           self._evaluate_cached.cache_clear()
 
 
     cpdef void make_open(self):
@@ -1455,7 +1436,7 @@ cdef class NURBSCurve(ParametricCurve):
         """
         cdef double w
         cdef double* _result_buffer=<double*>malloc(sizeof(double)*4)
-        cdef int n= len(self._control_points)-1
+        cdef int n= self._control_points.shape[0]-1
         #cdef double * res = <double *> malloc(sizeof(double) * 4)
 
         _result_buffer[0] = 0.
@@ -1470,6 +1451,7 @@ cdef class NURBSCurve(ParametricCurve):
         result[2] = _result_buffer[2]
 
         free(_result_buffer)
+
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -1531,10 +1513,10 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def _evaluate(self, double t):
-        cdef cnp.ndarray[double,ndim=1] result =np.zeros((3,))
+        cdef double[:] result =np.zeros((3,))
         self.cevaluate(t, result)
 
-        return result
+        return np.array(result)
 
     @cython.cdivision(True)
     @cython.initializedcheck(False)
@@ -1548,22 +1530,22 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def evaluate_multi(self, double[:] t):
-        cdef cnp.ndarray[double, ndim=2] result=np.empty((t.shape[0],4))
+        cdef double[ :,:] result=np.empty((t.shape[0],4))
         cdef int i;
         for i in range(t.shape[0]):
 
 
             self.cevaluate(t[i],result[i])
-        return result[:,:3]
+        return np.ascontiguousarray(result[:,:3])
 
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def derivative(self, t):
-        cdef cnp.ndarray[double, ndim=1] result =np.zeros((3,))
+        cdef double[ :]  result =np.zeros((3,))
         self.cderivative(t,result)
-        return result
+        return np.array(result)
 
 
     @cython.cdivision(True)
@@ -1870,13 +1852,40 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cnormalize_knots(self):
-        cdef double start=np.min(self._knots)
-        cdef double end = np.max(self._knots)
-        cdef double d=1/(end-start)
+        """
+        Normalize so that the 'active' domain (the fundamental period 
+        for periodic, or the full domain for non-periodic) maps to [0, 1].
+        """
+        cdef int n_active
+        cdef double start
+        cdef double end
+        cdef double d
         cdef int i
-        for i in range(len(self._knots)):
-            self._knots[i]=((self._knots[i]-start)*d)
+        if self._periodic:
+            n_active = len(self._control_points) - self._degree
+            start = self._knots[self._degree]
+            end   = self._knots[n_active]
+            d     = end - start
+
+
+            for i in range(self._knots.shape[0]):
+                self._knots[i] = (self._knots[i] - start) / d
+
+            # after normalization, domain is [0, 1]
+
+
+        else:
+            # regular non-periodic normalization
+            start = self._knots[0]
+            end   = self._knots[self._knots.shape[0] - 1]
+            d     = end - start
+
+
+            for i in range(self._knots.shape[0]):
+                self._knots[i] = (self._knots[i] - start) / d
+
         self.knots_update_hook()
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -2254,6 +2263,19 @@ def decompose_curve(NURBSCurve crv):
     return curves
 
 cdef class NURBSSurface(ParametricSurface):
+
+    def __cinit__(self):
+        # By default, surfaces are not periodic in either direction
+        self._periodic_u = False
+        self._periodic_v = False
+        # the rest of your usual initialization
+
+    # Example getters
+    cpdef bint is_periodic_u(self):
+        return self._periodic_u
+
+    cpdef bint is_periodic_v(self):
+        return self._periodic_v
     @staticmethod
     cdef NURBSSurface create(double[:,:,:] control_points, int degree_u,int degree_v, double[:] knots_u, double[:] knots_v):
         cdef NURBSSurface self = NURBSSurface.__new__(NURBSSurface)
@@ -2323,6 +2345,110 @@ cdef class NURBSSurface(ParametricSurface):
         else:
             self._knots_v=knots_v
         self._update_interval()
+    cdef void generate_knots_periodic_u(self):
+        """
+        Example method for generating uniform periodic knots in the U-direction.
+        We assume we've already replicated the first p columns of control points at the end.
+        """
+        cdef int n_u = self._size[0]    # after replication
+        cdef int m_u = n_u + self._degree[0] + 1
+        self._knots_u = np.zeros(m_u, dtype=np.float64)
+
+        cdef int i
+        for i in range(m_u):
+            self._knots_u[i] = i
+
+    cdef void generate_knots_periodic_v(self):
+        """
+        Example method for generating uniform periodic knots in the V-direction.
+        We assume we've already replicated the first p rows in the V direction at the end.
+        """
+        cdef int n_v = self._size[1]
+        cdef int m_v = n_v + self._degree[1] + 1
+        self._knots_v = np.zeros(m_v, dtype=np.float64)
+
+        cdef int i
+        for i in range(m_v):
+            self._knots_v[i] = i
+
+    #
+    # Making the surface periodic in U or V
+    #
+    cpdef void make_periodic_u(self):
+        """
+        Replicate the first 'degree_u' columns of control points at the end, 
+        and generate periodic knots in u. Then set self._periodic_u = True.
+        """
+        if self._periodic_u:
+            return  # already periodic in U
+
+        cdef int deg_u = self._degree[0]
+        cdef int num_u = self._size[0]         # old # of control points in U
+        cdef int new_u = num_u + deg_u         # new # after replication
+        cdef int num_v = self._size[1]
+
+        # We re-allocate the control-points array (since it's a C-level array).
+        # Save the old, copy to new with replication.
+        cdef double[:, :, :] old_view = self.control_points_view.copy()
+
+        # Reallocate
+        self.realloc_control_points(new_u, num_v)
+
+        cdef int i, j, cidx
+        # copy old cpts
+        for i in range(num_u):
+            for j in range(num_v):
+                self.control_points_view[i, j, :] = old_view[i, j, :]
+
+        # replicate first deg_u columns
+        for i in range(deg_u):
+            for j in range(num_v):
+                self.control_points_view[num_u + i, j, :] = old_view[i, j, :]
+
+        # create periodic knots in U
+        self.generate_knots_periodic_u()
+
+        # set periodic flag
+        self._periodic_u = True
+
+        # update intervals
+        self._update_interval()
+
+    cpdef void make_periodic_v(self):
+        """
+        Replicate the first 'degree_v' rows of control points at the end, 
+        and generate periodic knots in v. Then set self._periodic_v = True.
+        """
+        if self._periodic_v:
+            return  # already periodic in V
+
+        cdef int deg_v = self._degree[1]
+        cdef int num_v = self._size[1]
+        cdef int new_v = num_v + deg_v
+        cdef int num_u = self._size[0]
+
+        cdef double[:, :, :] old_view = self.control_points_view.copy()
+
+        self.realloc_control_points(num_u, new_v)
+
+        cdef int i, j
+        # copy old cpts
+        for i in range(num_u):
+            for j in range(num_v):
+                self.control_points_view[i, j, :] = old_view[i, j, :]
+
+        # replicate first deg_v rows
+        for j in range(deg_v):
+            for i in range(num_u):
+                self.control_points_view[i, num_v + j, :] = old_view[i, j, :]
+
+        self.generate_knots_periodic_v()
+
+        self._periodic_v = True
+
+        self._update_interval()
+
+
     @property
     def knots_u(self):
         return np.array(self._knots_u)
@@ -2392,11 +2518,20 @@ cdef class NURBSSurface(ParametricSurface):
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void _update_interval(self) :
-        self._interval[0][0] = self._knots_u[0]
-        self._interval[0][1] = self._knots_u[self._knots_u.shape[0]-1]
-        self._interval[1][0] = self._knots_v[0]
-        self._interval[1][1] = self._knots_v[self._knots_v.shape[0]-1]
+    cdef void _update_interval(self) noexcept nogil:
+        if self._periodic_u:
+            self._interval[0][0] = self._knots_u[self._degree[0]]
+            self._interval[0][1] = self._knots_u[self._size[0]]
+        else:
+            self._interval[0][0] = self._knots_u[self._degree[0]]
+            self._interval[0][1] = self._knots_u[self._size[0]-self._degree[0]]
+        if self._periodic_v:
+            self._interval[1][0] = self._knots_v[self._degree[1]]
+            self._interval[1][1] = self._knots_v[self._size[1] ]
+        else:
+            self._interval[1][0] = self._knots_v[self._degree[1]]
+            self._interval[1][1] = self._knots_v[self._size[1]-self._degree[1]]
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -2465,7 +2600,7 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cevaluate(self, double u, double v,double[:] result) noexcept nogil:
-        surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, 0, 0, &result[0])
+        surface_point(self._size[0]-1,self._degree[0],self._knots_u,self._size[1]-1,self._degree[1],self._knots_v, self.control_points_view, u,v, self._periodic_u, self._periodic_v, &result[0])
 
 
 
@@ -2525,25 +2660,47 @@ cdef class NURBSSurface(ParametricSurface):
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cnormalize_knots_u(self) noexcept nogil:
-
-        cdef double mx=self._knots_u[self._knots_u.shape[0]-1]
-        cdef double mn=self._knots_u[0]
-        cdef double d=mx-mn
+        cdef int n_u_active
+        cdef double start_u
+        cdef double end_u
+        cdef double du
         cdef int i
 
+        n_u_active = self._size[0] - self._degree[0]
+        start_u = self._knots_u[self._degree[0]]
+        end_u = self._knots_u[n_u_active]
+        du = end_u - start_u
+
         for i in range(self._knots_u.shape[0]):
-            self._knots_u[i]=((self._knots_u[i]-mn)/d)
+            self._knots_u[i] = (self._knots_u[i] - start_u) / du
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
     cdef void cnormalize_knots_v(self) noexcept nogil:
-        cdef double mx = self._knots_v[self._knots_v.shape[0] - 1]
-        cdef double mn = self._knots_v[0]
-        cdef double d = mx - mn
-        cdef int i
-        for i in range(self._knots_v.shape[0]):
-            self._knots_v[i] = ((self._knots_v[i] - mn) / d)
+        cdef int n_v_active
+        cdef double start_v
+        cdef double end_v
+        cdef double dv
+        cdef int j
+        # V-direction
+
+        n_v_active = self._size[1] - self._degree[1]
+        start_v = self._knots_v[self._degree[1]]
+        end_v = self._knots_v[n_v_active]
+        dv = end_v - start_v
+
+        for j in range(self._knots_v.shape[0]):
+            self._knots_v[j] = (self._knots_v[j] - start_v) / dv
+
+
+
+
+
+
+
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
