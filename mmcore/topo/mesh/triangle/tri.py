@@ -1,4 +1,4 @@
-
+from __future__ import *
 
 from mmcore.topo.mesh.triangle.core import triang
 
@@ -189,7 +189,8 @@ def segments_by_loop(loop, start_index=0):
 
 def prepare_args(boundaries, holes):
     _max = 0
-    data = dict(vertices=np.r_[*boundaries, *holes], holes=np.zeros((len(holes), 2)))
+
+    data = dict(vertices=np.concatenate(list(boundaries)+ list(holes)), holes=np.zeros((len(holes), 2)))
     edges = []
     for boundary in boundaries:
         if np.allclose(boundary[0], boundary[-1]):
