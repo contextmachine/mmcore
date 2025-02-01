@@ -98,8 +98,8 @@ class IntersectionStepData:
 SurfaceStuff = namedtuple("SurfaceStuff", ["surf", "kd", "pts", "uv", "bbox"])
 ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
-from mmcore.numeric.gauss_map import detect_intersections
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections
+from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
+from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
 
 
 def find_closest_points(surf1: Surface, surf2: Surface,  freeform):

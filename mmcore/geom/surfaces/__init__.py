@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
 
+from mmcore.geom.curves.bspline_first import NURBSCurve
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.parametric import BiLinear as CBiLinear
@@ -115,6 +116,7 @@ class CurveOnSurface(Curve):
                 self._polygon = self.curve.evaluate_multi(np.arange(*self.curve.interval()))[:, :2]
 
             elif hasattr(self.curve, 'points'):
+
                 self._polygon = self.curve.points()[:, :2]
 
             else:
@@ -123,7 +125,7 @@ class CurveOnSurface(Curve):
             self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:, :2]
         self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in
                        range(len(self._polygon))]
-        self._bvh_uv_root = polygon_build_bvh(tuple(tuple(i) for i in self._edges))
+        self._bvh_uv_root = polygon_build_bvh(self._polygon)
 
     def plane_at(self, t):
         O = self.evaluate(t)
@@ -177,7 +179,7 @@ class Surface:
 
         u0, u1 = self._interval[0]
         v0, v1 = self._interval[1]
-        boundary_curve = NURBSpline(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0, 0.]]),
+        boundary_curve = NURBSCurve(np.array([[u0, v0, 0.], [u1, v0, 0.], [u1, v1, 0.], [u0, v1, 0.], [u0, v0, 0.]]),
                                     degree=1)
 
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import dataclasses
 import functools
 import math
@@ -5,14 +6,42 @@ import sys
 import warnings
 from enum import Enum
 
+
 from mmcore.numeric.vectors import scalar_dot, scalar_norm, norm
-from typing import Callable, Optional, Iterable
+from typing import Callable, Optional, Iterable,Literal
 
 import numpy as np
 from scipy.optimize import minimize
 
-DEFAULT_H = 1e-3
-_DECIMALS = 5
+FloatType=Literal["float32","float64"]
+
+_MACHINE_EPS:dict[FloatType, float]={
+'float32':np.finfo(np.float32).eps.item(),
+'float64':np.finfo(np.float64).eps.item(),
+
+}
+
+_MACHINE_EPS_SQ:dict[FloatType, float]={
+'float32':np.sqrt(np.finfo(np.float32).eps).item(),
+'float64':np.sqrt(np.finfo(np.float64).eps).item(),
+
+}
+_MACHINE_DECIMALS:dict[FloatType, int]={
+'float32':np.finfo(np.float32).precision,
+'float64':np.finfo(np.float64).precision,
+
+}
+
+_MACHINE_DECIMALS_SQ:dict[FloatType, int]={
+'float32':math.ceil(np.finfo(np.float32).precision/2),
+'float64':math.ceil(np.finfo(np.float64).precision/2),
+
+}
+
+
+
+DEFAULT_H = _MACHINE_EPS_SQ['float64']
+_DECIMALS = _MACHINE_DECIMALS_SQ['float64']
 from scipy.sparse import eye, csr_matrix
 
 _PDE_H = csr_matrix(eye(128))
