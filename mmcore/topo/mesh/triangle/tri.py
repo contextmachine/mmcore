@@ -1,4 +1,4 @@
-from __future__ import *
+
 
 from mmcore.topo.mesh.triangle.core import triang
 

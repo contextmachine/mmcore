@@ -178,3 +178,5 @@ def column_concat(a:NDArray[T],b:NDArray[T]|T)->NDArray[T]:
     b=np.atleast_2d(b)
     return np.c_[a,np.broadcast_to(b, (a.shape[0],*b.shape[1:])) ]
 
+def flatten_except_last(arr):
+    return arr.reshape(-1, arr.shape[-1])

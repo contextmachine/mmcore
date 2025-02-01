@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.52.3"
+version = "0.53.0"
 description = "mmcore"
 authors = ["Andrew Astakhov <sthv.developer@gmail.com>", ]
 license = "Apache License Version 2.0"
@@ -28,7 +28,7 @@ pyrr = { version = "*", optional=true}
 glfw = { version = "*", optional=true}
 pyopengl = { version = "*", optional=true}
 rhino3dm = { version = "^8.9.0", optional=true}
-
+torch = { version = "*", optional=true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.2"
@@ -48,12 +48,15 @@ script = 'build.py'
 renderer = "mmcore.renderer"
 [tool.poetry.plugins."mmcore.rhino"]
 rhino = "mmcore.rhino"
+[tool.poetry.plugins."mmcore.torch"]
+torch = "mmcore.torch"
 
 [tool.poetry.extras]
-ipython=["ipython"]
+torch=["torch"]
 rhino=["rhino3dm","mmcore.rhino"]
 renderer = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "mmcore.renderer"]
-all = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "ipython", "rhino3dm"]
+all = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "ipython", "rhino3dm", "torch"]
+
 
 [tool.black]
 line-length = 140
