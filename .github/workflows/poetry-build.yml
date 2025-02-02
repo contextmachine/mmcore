@@ -65,23 +65,13 @@ jobs:
           cd dist
           echo "wheelfile=$(ls *.whl | head -1)" >> $GITHUB_OUTPUT
 
-      - name: Modify artifact name
-        id: modify_name
-        run: |
-          ARTIFACT_NAME="${{ steps.artifactname.outputs.wheelfile }}"
-          EXTENSION="${ARTIFACT_NAME##*.}"
-          BASENAME="${ARTIFACT_NAME%.*}"
-          NEW_NAME="${BASENAME}-${{ github.run_id }}.${EXTENSION}"
-          echo "new_wheelfile_name=$NEW_NAME" >> $GITHUB_OUTPUT
-         
-
       - name: Debug artifact name
         run: |
-          echo "New artifact name: ${{  steps.modify_name.outputs.new_wheelfile_name }}"
+          echo "Artifact name: ${{  steps.artifactname.outputs.wheelfile}}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4.3.1
         with:
           path: dist
-          name: ${{  steps.modify_name.outputs.new_wheelfile_name }}
+          name: ${{  steps.artifactname.outputs.wheelfile }}
           overwrite: true
