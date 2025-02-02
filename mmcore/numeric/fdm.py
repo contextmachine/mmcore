@@ -26,6 +26,11 @@ _MACHINE_EPS_SQ:dict[FloatType, float]={
 'float64':np.sqrt(np.finfo(np.float64).eps).item(),
 
 }
+_MACHINE_EPS_CBRT:dict[FloatType, float]={
+'float32':np.cbrt(np.finfo(np.float32).eps).item(),
+'float64':np.cbrt(np.finfo(np.float64).eps).item(),
+
+}
 _MACHINE_DECIMALS:dict[FloatType, int]={
 'float32':np.finfo(np.float32).precision,
 'float64':np.finfo(np.float64).precision,
@@ -39,9 +44,11 @@ _MACHINE_DECIMALS_SQ:dict[FloatType, int]={
 }
 
 
+def _get_decimals(x:float)->int:
+    return int(math.ceil(-math.log10(x)))
 
-DEFAULT_H = _MACHINE_EPS_SQ['float64']
-_DECIMALS = _MACHINE_DECIMALS_SQ['float64']
+DEFAULT_H = _MACHINE_EPS_CBRT['float64'] #  (Sauer, Timothy (2012). Numerical Analysis. Pearson. p.248.)[https://en.wikipedia.org/wiki/Numerical_differentiation#cite_ref-7]
+_DECIMALS = _get_decimals(DEFAULT_H)
 from scipy.sparse import eye, csr_matrix
 
 _PDE_H = csr_matrix(eye(128))
