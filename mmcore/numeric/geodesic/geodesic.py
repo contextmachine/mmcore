@@ -1,5 +1,9 @@
 import numpy as np
 from scipy.integrate import solve_ivp
+
+from mmcore.geom.nurbs import NURBSSurface
+
+
 def compute_metric(surface, uv):
     r_u = np.array(surface.derivative_u(np.array(uv)))
     r_v = np.array(surface.derivative_v(np.array(uv)))
@@ -10,13 +14,14 @@ def compute_metric(surface, uv):
 
 
 def compute_metric_derivatives(surface:NURBSSurface, uv):
+    uv=np.array(uv)
     # Compute first derivatives
-    r_u = np.array(surface.derivative_u(np.array(uv)))
-    r_v = np.array(surface.derivative_v(np.array(uv)))
+    r_u = np.array(surface.derivative_u(uv))
+    r_v = np.array(surface.derivative_v(uv))
     # Compute second derivatives
-    r_uu = np.array(surface.second_derivative_uu(np.array(uv)))
-    r_uv = np.array(surface.second_derivative_uv(np.array(uv)))
-    r_vv = np.array(surface.second_derivative_vv(np.array(uv)))
+    r_uu = np.array(surface.second_derivative_uu(uv))
+    r_uv = np.array(surface.second_derivative_uv(uv))
+    r_vv = np.array(surface.second_derivative_vv(uv))
 
     # Metric components
     #E = np.dot(r_u, r_u)
@@ -60,6 +65,7 @@ def compute_christoffel_symbols(surface, uv):
 def geodesic_equations(s, y, surface):
     # y is the state vector [u, v, p, q]
     u, v, p, q = y
+    print(s)
     # Compute Christoffel symbols at (u, v)
     Gamma_111, Gamma_112, Gamma_122, Gamma_211, Gamma_212, Gamma_222 = compute_christoffel_symbols(surface, (u, v))
 

@@ -108,7 +108,10 @@ for i, (spatial, uv1, uv2) in enumerate(result):
             cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
         print(f'\t\tcontrol points: {cpts_repr}')
         print(f'\t\tdegree: {spatial.degree}')
-
+with open("ssx1.txt",'w') as tf:
+    for i, (spatial, uv1, uv2) in enumerate(result):
+            cpts = (spatial.control_points).tolist()
+            tf.write(repr(cpts))
 
 try:
     from mmcore.renderer.renderer3dv2 import CADRenderer,Camera

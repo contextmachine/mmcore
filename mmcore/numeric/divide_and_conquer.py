@@ -134,7 +134,56 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
     x_min = (low + high) / 2
 
     return x_min, fun(x_min)
+_invphi = (math.sqrt(5) - 1) / 2  # approximately 0.61803398875
+def golden_section_search(fun, bounds, tol):
+    """
+    Find the minimum value of a unimodal function on a closed interval using the Golden Section Search.
 
+    Parameters:
+        fun   : A callable function f(x) assumed to be unimodal on the interval.
+        bounds: A tuple (a, b) representing the lower and upper bounds of the interval.
+        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < tol.
+
+    Returns:
+        A tuple (x_min, f_min) where x_min is the approximate location of the minimum and f_min = fun(x_min).
+
+    The algorithm reuses function evaluations so that each iteration requires only one new evaluation,
+    achieving a logarithmic convergence rate in terms of the interval width.
+    """
+    a, b = bounds
+    # The constant invphi is 1/phi, where phi is the golden ratio (~1.618)
+
+
+    # Compute the two interior points
+    c = b - _invphi * (b - a)
+    d = a + _invphi * (b - a)
+    fc = fun(c)
+    fd = fun(d)
+
+    # Loop until the current interval is small enough
+    while (b - a) > tol:
+        if fc < fd:
+            # The minimum is in [a, d]
+            b = d
+            d = c
+            fd = fc
+            c = b - _invphi * (b - a)
+            fc = fun(c)
+        else:
+            # The minimum is in [c, b]
+            a = c
+            c = d
+            fc = fd
+            d = a + _invphi * (b - a)
+            fd = fun(d)
+
+    # At this point, the minimum is approximately in [a, b].
+    # To be robust, check the endpoints as well as the midpoint.
+    x_mid = (a + b) / 2
+    candidates = [(a, fun(a)), (x_mid, fun(x_mid)), (b, fun(b))]
+    x_min, f_min = min(candidates, key=lambda pair: pair[1])
+
+    return x_min, f_min
 
 
 

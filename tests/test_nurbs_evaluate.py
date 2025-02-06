@@ -18,7 +18,6 @@ import numpy as np
 import math
 from collections import namedtuple
 
-from geomdl import helpers
 
 np.set_printoptions(suppress=True)
 from typing import TypedDict
@@ -337,9 +336,9 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2):
     print(p, U, span_u, u, d_order)
     du = min(d_order, p)
     dv = min(d_order, q)
-    ders_u = np.array(helpers.basis_function_ders(p, U, span_u, u, du))
+    ders_u = np.array(basis_function_ders(p, U, span_u, u, du))
     print(q, V, span_v, v, d_order)
-    ders_v = np.array(helpers.basis_function_ders(q, V, span_v, v, dv))
+    ders_v = np.array(basis_function_ders(q, V, span_v, v, dv))
     print("DU", ders_u)
     print("DV", ders_v)
 

@@ -14,7 +14,7 @@ from scipy.spatial import KDTree
 
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode, Triangle
 from mmcore.geom.surfaces import Surface, Coons
-from mmcore.numeric.vectors import solve2x2,det,scalar_dot,scalar_norm
+from mmcore.numeric.vectors import solve2x2, det, scalar_dot, scalar_norm, scalar_unit, vector_projection
 from mmcore.numeric.intersection.ssx._ssi import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 
@@ -35,7 +35,7 @@ from typing import NamedTuple, Optional, Tuple
 from mmcore.numeric import scalar_cross, scalar_norm
 
 
-from mmcore.numeric.fdm import DEFAULT_H
+from mmcore.numeric.fdm import DEFAULT_H, fdm
 from mmcore.numeric.intersection.ssx._terminator import TerminatorType
 
 from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
@@ -76,9 +76,12 @@ def improve_uv_robust(surf, uv_old,du, dv, xyz_old, xyz_better, uv_better=None, 
         success_first = cimprove_uv(du, dv, xyz_old, xyz_better, uv_better)
 
         if success_first == 1:
+
             uv_better[:] = point_inversion_surface(surf, xyz_better,*uv_old, ptol, ptol)
         else:
+
             uv_better += uv_old
+
 
         return uv_better
 
@@ -87,11 +90,73 @@ class IntersectionStepData:
     first: SurfaceDerivativesData
     second: SurfaceDerivativesData
     tangent: Optional[np.ndarray]
+    step:float=None
 
 
 #def improve_uv(du, dv, xyz_old, xyz_better):
 #
 #    return res
+
+from mmcore.numeric.fdm import _MACHINE_EPS_SQ,_MACHINE_EPS
+
+_FLOAT64_MACHINE_EPS_SQ = _MACHINE_EPS_SQ['float64']
+_FLOAT64_MACHINE_EPS = _MACHINE_EPS['float64']
+from scipy.optimize import minimize,OptimizeResult
+
+from mmcore.numeric.plane import plane_from_normal_origin
+from  mmcore.numeric.plane import distance as distance_to_plane
+def _improve_uv_constr(surf1,surf2, data: IntersectionStepData,xyz_better,tol=1e-9,
+                      **kwargs)->tuple[bool, tuple[NDArray[float],NDArray[float]]]:
+    T=data.tangent.copy()
+    T/=scalar_norm(T)
+
+
+    def fun(x):
+        nonlocal surf1, surf2, data, xyz_better
+
+
+        u1_d, v1_d , u2_d, v2_d= x
+
+        u1, v1 = data.first.uv
+        u2, v2 = data.second.uv
+
+
+        pt1 = surf1.evaluate_v2(u1 + u1_d, v1 + v1_d)
+
+        pt2=surf2.evaluate_v2(u2 + u2_d, v2 + v2_d)
+
+        d=pt1 - pt2
+
+
+        return np.dot(d,d)
+    def constr(x):
+        nonlocal surf1,surf2,data,xyz_better
+        u1_d, v1_d , u2_d, v2_d= x
+        u1,v1=data.first.uv
+
+        pt1=surf1.evaluate_v2(u1+u1_d, v1+v1_d)
+
+
+
+
+        d1= np.abs(np.dot(pt1-xyz_better,T))
+
+        return d1
+
+
+
+    #SLSQP,trust-constr
+    res:OptimizeResult=minimize(fun, np.array([tol,tol,tol,tol]),method="SLSQP", constraints={"type":"ineq", "fun":constr })
+    #print("OPT",res)
+    if not res.success :
+        if res.fun<tol:
+            return True, (data.first.uv + res.x[:2], data.second.uv + res.x[2:])
+        else:
+
+            print(res)
+
+    return res.success,     (data.first.uv+res.x[:2], data.second.uv+res.x[2:])
+
 
 
 
@@ -100,7 +165,13 @@ ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
 from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
-
+def _arr_tolist_reqursive(data):
+    if isinstance(data,np.ndarray):
+        return data.tolist()
+    elif isinstance(data,(tuple,list)):
+        return [_arr_tolist_reqursive(d) for d in data]
+    else:
+        return data
 
 def find_closest_points(surf1: Surface, surf2: Surface,  freeform):
 
@@ -161,7 +232,7 @@ def handle_inside(u1, v1, bounds):
         not (bounds[1][0] <= v1 <= bounds[1][1])
 
     )
-
+from dataclasses import astuple
 
 class SSXMethod:
     def __init__(
@@ -197,8 +268,8 @@ class SSXMethod:
     def calculate_derivatives_data(cls,surface:NURBSSurface, uv):
         # TODO: вероятно нужно сделать оптимизированную версию для некоторых примитивов дальше использовать plane_at, а если его нет то вычислять самостоятельно
         #print(f'{cls.__name__}.calculate_derivatives_data({surface,uv})')
-        pt=np.array(surface.evaluate(uv))
-        du,dv=np.array(surface.derivatives(uv))
+        pt=np.array(surface.evaluate_v2(*uv))
+        du,dv=np.array(surface.derivative_u(np.array(uv))),np.array(surface.derivative_v(np.array(uv)))
         #dv=surface.derivative_v(uv)
         n = np.array(scalar_cross(du, dv))
         #n=np.cross(du,dv)
@@ -214,19 +285,39 @@ class SSXMethod:
         #print(f'{cls.__name__}.calculate_intersection_step_data({surface1, surface2, uv1, uv2})')
         s1_data = cls.calculate_derivatives_data(surface1, uv1)
         s2_data = cls.calculate_derivatives_data(surface2, uv2)
+
         T = np.array(scalar_cross(s1_data.normal, s2_data.normal))
         T /= scalar_norm(T)
+
         return IntersectionStepData(s1_data, s2_data, T)
+    @classmethod
+    def update_intersection_step_data(
+            cls, surface1, surface2, uv1, uv2,data:IntersectionStepData
+    ) :
+        #print(f'{cls.__name__}.calculate_intersection_step_data({surface1, surface2, uv1, uv2})')
+        data.first = cls.calculate_derivatives_data(surface1, uv1)
+        data.second = cls.calculate_derivatives_data(surface2, uv2)
+
+        T = np.array(scalar_cross( data.first .normal, data.second.normal))
+        T /= scalar_norm(T)
+        data.tangent=T
 
 
-    def improve_uvs(self,step_data: IntersectionStepData, pt_better: np.ndarray):
-
-        uvb1_better = improve_uv_robust(self.s1, step_data.first.uv, step_data.first.du, step_data.first.dv,step_data.first.pt,pt_better )
-        uvb2_better = improve_uv_robust(self.s2, step_data.second.uv,step_data.second.du, step_data.second.dv, step_data.second.pt, pt_better)
 
 
 
-        return uvb1_better, uvb2_better
+
+
+
+
+    def improve_uvs(self,step_data: IntersectionStepData, pt_better: np.ndarray, depth=0,max_depth=10):
+        uvb1_better=np.zeros(2)
+        improve_uv_robust(self.s1,step_data.first.uv,step_data.first.du, step_data.first.dv, step_data.first.pt, pt_better, uvb1_better)
+        uvb2_better=np.zeros(2)
+        improve_uv_robust(self.s2,step_data.second.uv,step_data.second.du, step_data.second.dv, step_data.second.pt, pt_better,uvb2_better)
+
+
+        return uvb1_better,uvb2_better
 
     def handle_inside(self, u1, v1, u2, v2):
         return (
@@ -336,7 +427,52 @@ class FreeFormMethod(SSXMethod):
 
         
         return
-from mmcore.numeric.newton.cnewton import newtons_method as cnewtons_method
+from mmcore.numeric.newton.cnewton import newtons_method as cnewtons_method, gradient
+import numpy as np
+
+
+def find_circle_center(P, Q, tP, tQ):
+    """
+    Given two points P and Q (as 3-element arrays) on a circle,
+    and the unit tangent vectors tP and tQ at those points,
+    this function returns the center C of the circle.
+
+    The method uses the following conditions:
+      1. (C - P) · tP = 0  (radius is perpendicular to the tangent at P)
+      2. (C - Q) · tQ = 0  (radius is perpendicular to the tangent at Q)
+      3. |C - P| = |C - Q|  (points P and Q are equidistant from the center)
+
+    These conditions lead to the linear system:
+        [tP      ]   [C]   = [P · tP]
+        [tQ      ] * [ ] =  [Q · tQ]
+        [Q - P   ]   [ ]   = [0.5*(Q·Q - P·P)]
+    """
+    # Ensure inputs are numpy arrays
+    P = np.asarray(P, dtype=float)
+    Q = np.asarray(Q, dtype=float)
+    tP = np.asarray(tP, dtype=float)
+    tQ = np.asarray(tQ, dtype=float)
+
+    # Construct the 3x3 matrix A with rows tP, tQ, and (Q - P)
+    A = np.vstack([tP, tQ, Q - P])
+
+    # Construct the right-hand side vector b
+    b = np.array([
+        np.dot(P, tP),
+        np.dot(Q, tQ),
+        0.5 * (np.dot(Q, Q) - np.dot(P, P))
+    ])
+
+    # Solve the linear system A * C = b for C
+    try:
+        C = np.linalg.solve(A, b)
+    except np.linalg.LinAlgError:
+        raise ValueError("The given data is degenerate; the system does not have a unique solution.")
+
+    return C
+
+
+
 
 class MarchingMethod(SSXMethod):
     def __init__(
@@ -361,57 +497,62 @@ class MarchingMethod(SSXMethod):
         self.fdm_h = fdm_h
         self.boundary_terminators = boundary_terminators
         self.freeform=freeform
-
+        self.steps=[]
+        self.max_step_grow=1000
+        self.min_step=self.tol*10
 
     def step(self, uv1, uv2):
         #print(f'{self.__class__}.solve({uv1, uv2})')
 
-        intersection_step_data: IntersectionStepData = (
-            self.calculate_intersection_step_data(self.s1, self.s2, uv1, uv2)
-        )
+        intersection_step_data=self.calculate_intersection_step_data(self.s1,self.s2,uv1, uv2)
+        intersection_step_data.tangent = np.array(scalar_unit(intersection_step_data.tangent))
+
         #print('initial_data',intersection_step_data)
         curvature_vector = self.calculate_sectional_curvature(intersection_step_data)
-        step = self.calculate_step(curvature_vector)
-        pt_better = self.refine_point(intersection_step_data, step=step)
-        if pt_better is None:
-            return
+        _step = self.calculate_step(curvature_vector)
 
-        uv1_better, uv2_better = self.improve_uvs(intersection_step_data, pt_better)
+        intersection_step_data.step=_step
+        pt_better=intersection_step_data.first.pt+intersection_step_data.tangent*  _step
+        #pt_better = self.refine_point(intersection_step_data, step=step)
 
 
+        new_step_data= self.refine_step_data(uv1,uv2,pt_better)
+        if scalar_norm(new_step_data.first.pt-intersection_step_data.first.pt)<_FLOAT64_MACHINE_EPS:
+            pt_better = intersection_step_data.first.pt + intersection_step_data.tangent * _step/2
+            new_step_data = self.refine_step_data(uv1, uv2, pt_better)
+            if scalar_norm(new_step_data.first.pt - intersection_step_data.first.pt) < _FLOAT64_MACHINE_EPS:
+                raise ValueError(f'stuck in {new_step_data.first.pt}')
+
+        self.steps.append(intersection_step_data)
         is_edge, (pt_better, uv1_better, uv2_better) = self.handle_edge(
-            pt_better, uv1_better, uv2_better
+            pt_better, new_step_data.first.uv,  new_step_data.second.uv,
         )
+        term =      TerminatorType.STEP
         if is_edge:
-            return (
-                (pt_better, uv1_better),
-                (pt_better, uv2_better),
-                step,
-                TerminatorType.EDGE,
-            )
+            self.update_intersection_step_data(self.s1,self.s2,uv1_better, uv2_better, new_step_data)
+            term=      TerminatorType.EDGE
 
-        #
-
-        #if scalar_norm(np.array(self.s1.evaluate(uv1_better)) - np.array(self.s2.evaluate(uv2_better)))>=self.tol:
-        #    print("BAD")
-
-        #res = self.freeform.solve(uv1_better, uv2_better,return_edges=True)
-        #if res is not None:
-        #   pt_better,uv1_better, uv2_better=            res
 
         return (
-            (pt_better, uv1_better),
-            (pt_better, uv2_better),
-            step,
-            TerminatorType.STEP,
+            (new_step_data.first.pt, new_step_data.first.uv,),
+            (new_step_data.second.pt, new_step_data.second.uv),
+            _step,
+
+            term
         )
 
     def calculate_step(self, curvature_vector):
         K = scalar_norm(curvature_vector)
-
+        #print(curvature_vector)
         r = 1 / K
 
         step = np.sqrt(r ** 2 - (r - self.tol) ** 2) * 2
+        step=max(step,self.min_step)
+        if (step/self.steps[-1].step)>self.max_step_grow:
+            print('c;amp step', step,self.steps[-1].step*self.max_step_grow)
+            step=self.steps[-1].step*self.max_step_grow
+
+
         return step
 
     def calculate_new_plane(self, ders: IntersectionStepData, step):
@@ -444,12 +585,16 @@ class MarchingMethod(SSXMethod):
 
             return Tn
 
-        vesp = step_data.tangent
+        vesp = step_data.tangent * self.min_step
 
-        curvature_vector = (sectional_tangent(vesp) - step_data.tangent) / (
-            scalar_norm(vesp)
+
+        curvature_vector = (sectional_tangent(vesp) - self.steps[-1].tangent) / (
+            scalar_norm(vesp) + self.steps[-1].step
         )
+        #vesp = step_data.tangent*DEFAULT_H
+        #step_data, step_data.first.pt
 
+        #print("curvature_vector",curvature_vector)
 
 
         return curvature_vector
@@ -467,34 +612,68 @@ class MarchingMethod(SSXMethod):
                 new_pln[-1],
             )
         )
+    def refine_step_data(self,uv1,uv2, target_pt ):
+        intdata=self.calculate_intersection_step_data(self.s1, self.s2, uv1,uv2)
 
+        while True:
+
+            uv1_new, uv2_new = self.improve_uvs(intdata, target_pt)
+            d1,d2=intdata.first.uv - uv1_new, intdata.second.uv - uv2_new
+            self.update_intersection_step_data(self.s1, self.s2, uv1_new, uv2_new, intdata)
+            if scalar_norm(d1)<self.tol or scalar_norm(d2)<self.tol :
+                break
+
+
+            d = intdata.first.pt - intdata.second.pt
+            #print( intdata.first.pt , intdata.second.pt, v, end=" "*10+"\r",flush=True)
+            #print(d)
+            if scalar_norm(d) < self.tol:
+                break
+
+            #uv1_new, uv2_new = self.improve_uvs(intdata, target_pt)
+
+            print("done")
+        return intdata
 
     def solve(self, initial_uv1, initial_uv2):
+        self.steps.clear()
         #print(f'{self.__class__}.solve({initial_uv1,initial_uv2})')
         use_kd = self.kd is not None
         ixss = set()
+        intdata=self.calculate_intersection_step_data(self.s1,self.s2, initial_uv1, initial_uv2)
 
-        xyz1_init, xyz2_init = self.s1.evaluate(initial_uv1), self.s2.evaluate(
-            initial_uv2
-        )
-        ixss.add(0)
-        res = self.step(initial_uv1, initial_uv2)
+        xyz1_init, xyz2_init = intdata.first.pt, intdata.second.pt
+        intdata.step=self.min_step
+        ptnew=xyz1_init + intdata.tangent * intdata.step
 
-        if res is None:
-            return
+        self.steps.append(intdata)
 
-        (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
+        intdata1=self.refine_step_data( initial_uv1, initial_uv2, ptnew)
+        #print(  xyz1_init, xyz2_init,ptnew )
+        #if scalar_norm(intdata1.first.pt-intdata.first.pt)<_FLOAT64_MACHINE_EPS or scalar_norm(intdata1.second.pt-intdata.second.pt)<_FLOAT64_MACHINE_EPS :
+        #    return
+
+
+        uv1_new, uv2_new = intdata1.first.uv, intdata1.second.uv
+
+        xyz1=intdata.first.pt
+        xyz2 = intdata.second.pt
+
+        terminator=None
+
 
 
         if use_kd:
-            ixss.update(self.kd.query_ball_point(xyz1, step * 2))
+            ixss.update(self.kd.query_ball_point(xyz1,  intdata.step ))
 
-        uvs = [(uv1_new, uv2_new)]
+        uvs = [(  uv1_new,uv2_new)]
         pts = [xyz1]
 
-        steps = [step]
+        steps = [ intdata.step]
+
         if terminator is TerminatorType.EDGE:
             return uvs, pts, steps, list(ixss), terminator
+
         for i in range(self.max_iter):
             uv1, uv2 = uv1_new, uv2_new
 
@@ -506,20 +685,20 @@ class MarchingMethod(SSXMethod):
             (xyz1, uv1_new), (xyz2, uv2_new), step, terminator = res
             pts.append(xyz1)
             uvs.append((uv1_new, uv2_new))
-            steps.append(step)
+            _r=(steps[-1] + step) / 2
             if use_kd:
-                ixss.update(self.kd.query_ball_point(xyz1, step * 2))
-
+                ixss.update(self.kd.query_ball_point(xyz1,  _r))
+            steps.append(step)
             if terminator is TerminatorType.EDGE:
                 break
 
-            if scalar_norm(xyz1 - xyz1_init) < step:
+            if scalar_norm(xyz1 - xyz1_init) <  _r:
                 pts.append(pts[0])
 
                 uvs.append((initial_uv1, initial_uv2))
                 terminator = TerminatorType.LOOP
                 break
-
+        #print(self.steps)
         return uvs, pts, steps, list(ixss), terminator
 
 
@@ -587,7 +766,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
     )
 
     def _next():
-        nonlocal ii, kd, data, uvs1, uvs2, l
+        nonlocal ii, kd, data, uvs1, uvs2, l,march
 
         march.side = 1
 
@@ -722,6 +901,7 @@ def ssx(
     curves, curves_uvs, stepss, terminators = res
     results = []
     for i, curve_pts in enumerate(curves):
+        #print(i,_arr_tolist_reqursive(curve_pts))
         curve = interpolate_nurbs_curve(curve_pts, 3)
 
         if all([terminator is TerminatorType.LOOP for terminator in terminators[i]]):

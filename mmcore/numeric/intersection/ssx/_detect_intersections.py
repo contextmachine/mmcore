@@ -12,6 +12,7 @@ from scipy.optimize import linprog
 
 from mmcore.numeric.gauss_map import GaussMap
 from mmcore.geom.bvh import BoundingBox, Object3D
+
 from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 
 
@@ -387,7 +388,7 @@ def get_first_layer_dbg(dbg: DebugTree):
     return cnds
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
-
+    from mmcore.numeric.intersection.csx import nurbs_csx
     S1, S2 = td[1]
     TOL=1e-2
     import time
