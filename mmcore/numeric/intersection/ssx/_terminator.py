@@ -10,8 +10,8 @@ from mmcore.geom.surfaces import CurveOnSurface, Surface
 from enum import Enum
 from mmcore.numeric.vectors import scalar_norm
 
-from mmcore.numeric.intersection.csx import curve_surface_intersection
-from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
+from mmcore.numeric.intersection.csx import curve_surface_intersection, nurbs_csx
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections
 
 
 class TerminatorType(int, Enum):

@@ -219,7 +219,7 @@ def detect_intersection(surf1, surf2, tolerance=1e-3):
 
 def bbox(surf: NURBSSurface):
     return surf.bbox()
-from mmcore.collision import convex_hull as chull
+
 def convex_hull(surf: NURBSSurface):
     return chull(surf.control_points_flat[..., :3])
 
