@@ -167,7 +167,35 @@ def compute_params_curve(points, centripetal=False):
 
     return uk
 
-def interpolate_curve(points, degree,  use_centripetal=False):
+from mmcore.numeric.vectors import norm
+def _remove_adjacent_duplicates(points, tol=1e-5):
+    """
+    Remove adjacent duplicates (or almost duplicates) from an array of points.
+
+    Parameters:
+        points (np.ndarray): A 2D numpy array of shape (n_points, 3) where each row is [x, y, z].
+        tol (float): Tolerance for comparing points. Two points are considered equal if
+                     the Euclidean distance between them is <= tol.
+
+    Returns:
+        np.ndarray: The array of points with consecutive duplicates removed.
+    """
+    if points.shape[0] == 0:
+        return points
+
+    # Compute the Euclidean distance between consecutive points.
+    # np.diff(points, axis=0) gives an array of differences between consecutive rows.
+    diffs = np.array(norm(np.diff(points, axis=0)))
+
+    # Create a boolean mask:
+    # Always keep the first point.
+    # For each subsequent point, keep it only if the distance from the previous point is > tol.
+    mask = np.concatenate(([True], diffs > tol))
+
+    return points[mask]
+
+
+def interpolate_curve(points, degree,  use_centripetal=False, tol=1e-5):
     """ Curve interpolation through the data points.
 
     Please refer to Algorithm A9.1 on The NURBS Book (2nd Edition), pp.369-370 for details.
@@ -184,7 +212,8 @@ def interpolate_curve(points, degree,  use_centripetal=False):
     """
     # Keyword arguments
 
-    points=np.unique(points,axis=0)
+    points=_remove_adjacent_duplicates(np.array(points),tol=tol
+                                       )
 
     # Number of control points
     num_points = len(points)
