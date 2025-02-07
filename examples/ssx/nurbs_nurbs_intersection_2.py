@@ -936,8 +936,6 @@ for i, (spatial, uv1, uv2) in enumerate(result):
                 cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
             print(f'\t\tcontrol points: {cpts_repr}')
             print(f'\t\tdegree: {spatial.degree}')
-            with open(f'ssx_result-{i}.bin', 'wb') as f:
-                f.write(spatial.serialize())
 
 
 
