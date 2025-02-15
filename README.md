@@ -190,8 +190,22 @@ result = ssx(surface1,surface2,tol=0.001)
 ```
 
 You can find full examples at [examples/ssx/nurbs_nurbs_intersection_1.py](examples/ssx/nurbs_nurbs_intersection_1.py) and [examples/ssx/nurbs_nurbs_intersection_2.py](examples/ssx/nurbs_nurbs_intersection_2.py).
-To display the output of the algorithm install the viewer plugin with `pip install "mmcore[renderer]"` or 
-`pip install "mmcore[all]"`.
+To display the output of the algorithm install the viewer plugin with:
+```
+git clone https://github.com/contextmachine/mmcore@tiny.git
+cd mmcore
+python3 -m venv venv
+source venv/bin/activate
+pip install ".[renderer]"
+``` 
+or
+```
+git clone https://github.com/contextmachine/mmcore@tiny.git
+cd mmcore
+python3 -m venv venv
+source venv/bin/activate
+pip install ".[all]"
+``` 
 
 
 ### 5. Implicit Representation
