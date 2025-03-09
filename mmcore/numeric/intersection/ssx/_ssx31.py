@@ -18,24 +18,25 @@ from __future__ import annotations
 from typing import Callable, Any
 
 import numpy as np
-from collections import namedtuple
+
 
 from numpy import ndarray, dtype
-from scipy.integrate import solve_ivp
+
 from scipy.spatial import KDTree
 
-from mmcore.numeric.geodesic.offset import evaluate_nurbs_surface
+
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
 from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
-from mmcore.numeric.vectors import scalar_unit
 
+from mmcore.geom._nurbs_eval import evaluate_nurbs_surface,NURBSSurfaceTuple
 # =========================
 # Existing Definitions
 # =========================
 
 # NURBS surface representation using a namedtuple.
-NURBSSurfaceTuple = namedtuple("NURBSSurfaceTuple", ["order_u", "order_v", "knot_u", "knot_v", "control_points", "weights"])
+
 from mmcore.geom import nurbs
+
 def _join_weights(pts,weights):
     cpts=np.zeros((*pts.shape[:-1],pts.shape[-1]+1) )
     for i in range(pts.shape[0]):
@@ -604,7 +605,7 @@ def trace_intersection_curve(
 # Example Usage (for production, integrate with robust initial point finder)
 # -------------------------------------------------------------------
 
-def trace_intersection_curves(surf1,surf2, h_initial=0.1,tol=1e-3,spt=1e-3):
+def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, h_initial=0.1,tol=1e-3,spt=1e-3):
 
     res = find_initial_intersection_points(surf1, surf2, tol)
     branches=[]
@@ -656,6 +657,17 @@ def trace_intersection_curves(surf1,surf2, h_initial=0.1,tol=1e-3,spt=1e-3):
             branches.append((curve_pts, params1, params2, encl))
 
     return branches
+
+def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,h_initial=0.1,tol=1e-3,spt=1e-3):
+    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
+                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
+                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
+
+    surf2 = NURBSSurfaceTuple(order_u=s2.degree[0] + 1, order_v=s2.degree[1] + 1, knot_u=s2.knots_u.tolist(),
+                              knot_v=s2.knots_v.tolist(), control_points=np.array(s2.control_points),
+                              weights=np.ascontiguousarray(s2.control_points_w[..., -1]))
+
+    return trace_intersection_curves(surf1,surf2,h_initial,tol,spt)
 
 
 if __name__ == "__main__":
