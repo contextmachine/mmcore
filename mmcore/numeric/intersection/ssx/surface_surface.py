@@ -507,127 +507,22 @@ def find_start_points_nurbs(surf1, surf2, tol=1e-3):
 
 times = []
 
+from mmcore.numeric.intersection.ssx._ssx31 import nurbs_trace_intersection_curves as _nurbs_trace_intersection_curves
+def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, spt=0.001):
 
-def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, max_iter=500):
     # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
-    edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
+    #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
     # times.append(time.perf_counter_ns()-s)
 
-    freeform = FreeFormMethod(surf1, surf2, tol=tol, boundary_terminators=edge_terminator, max_iter=19)
+    #freeform = FreeFormMethod(surf1, surf2, tol=tol, boundary_terminators=edge_terminator, max_iter=19)
     # s = time.perf_counter_ns()
     if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
-        res = find_start_points_nurbs(surf1, surf2, tol=tol)
-        # print(res[0].data.tolist())
-        if res is None:
-            return
+        return _nurbs_trace_intersection_curves(surf1,surf2,h_initial=0.1,tol=tol,spt=spt)
+
     else:
-        res = find_closest_points(surf1, surf2, freeform)
-    # times.append(time.perf_counter_ns() - s)
+        raise NotImplemented()
 
-    if res is None:
-        # print(1)
-        return
-
-    kd, uvs1, uvs2 = res
-
-    curves = []
-    curves_uvs = []
-    terminators = []
-    stepss = []
-    data = kd.data
-    ii = 0
-    l = len(uvs2)
-    march = MarchingMethod(surf1, surf2, kd=kd, tol=tol, side=1, boundary_terminators=edge_terminator, freeform=freeform)
-
-    def _next():
-        nonlocal ii, kd, data, uvs1, uvs2, l
-
-        march.side = 1
-
-        ress = march.solve(uvs1[0], uvs2[0])
-        ii += 1
-
-        if ress is not None:
-            start = np.copy(data[0])
-
-            start_uv = np.array([np.copy(uvs1[0]), np.copy(uvs2[0])])
-
-            if ress[-1] != TerminatorType.LOOP:
-                march.side = -1
-
-                ress_back = march.solve(uvs1[0], uvs2[0])
-
-                if ress_back is not None:
-                    uv_s, pts, steps, ixss, terminator = ress
-                    uvsb, ptsb, stepsb, ixssb, terminator_back = ress_back
-                    # print(ress_back)
-                    # print(uvsb)
-                    rmv = np.unique(ixss + ixssb)
-
-                    # print(rmv)
-                    if len(rmv) == 0:
-                        rmv = np.array([0], dtype=int)
-
-                    data = np.delete(data, rmv, axis=0)
-                    uvs1 = np.delete(uvs1, rmv, axis=0)
-                    uvs2 = np.delete(uvs2, rmv, axis=0)
-
-                    if len(data.shape) == 2:
-                        march.kd = kd = KDTree(data)
-                    else:
-                        march.kd = kd = None
-                    terminators.append([terminator_back, terminator])
-                    curves_uvs.append(list(itertools.chain(reversed(uvsb), [start_uv], uv_s)))
-                    stepss.append(list(itertools.chain(reversed(stepsb), steps)))
-
-                    return list(itertools.chain(reversed(ptsb), [start], pts))
-
-            uv_s, pts, steps, ixss, terminator = ress
-            rmv = np.array(ixss, dtype=int)
-            # print(rmv)
-            data = np.delete(data, rmv, axis=0)
-            uvs1 = np.delete(uvs1, rmv, axis=0)
-            uvs2 = np.delete(uvs2, rmv, axis=0)
-            if len(data.shape) == 2:
-                march.kd = kd = KDTree(data)
-            else:
-                march.kd = kd = None
-            terminators.append([terminator])
-            curves_uvs.append([start_uv] + list(uv_s))
-            stepss.append(steps)
-            return [start] + list(pts)
-        else:
-            uvs1 = np.delete(uvs1, 0, axis=0)
-            uvs2 = np.delete(uvs2, 0, axis=0)
-            data = np.delete(data, 0, axis=0)
-            if len(data.shape) == 2:
-                march.kd = kd = KDTree(data)
-            else:
-                march.kd = kd = None
-
-    # s=time.perf_counter_ns()
-    for i in range(max_iter):
-        if data.size == 0:
-            break
-        if ii >= l:
-            break
-
-        res = _next()
-        if res is None:
-            continue
-        else:
-            curves.append(res)
-    ##times.append(time.perf_counter_ns() - s)
-
-    return (
-        curves,
-        [[np.array(crv, dtype=float) for crv in zip(*curve_uv)] for curve_uv in curves_uvs],
-        stepss,
-        terminators,
-    )
-
-
-def ssx(surf1: Surface, surf2: Surface, tol: float = 0.01, max_iter: int = 500) -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
+def ssx(surf1: Surface, surf2: Surface, tol: float = 0.001, spt=0.001) -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -657,25 +552,19 @@ def ssx(surf1: Surface, surf2: Surface, tol: float = 0.01, max_iter: int = 500) 
         3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
-    res = surface_ppi(surf1, surf2, tol=tol, max_iter=max_iter)
+    res = surface_ppi(surf1, surf2, tol=tol,spt=spt)
     if res is None:
         return []
 
-    curves, curves_uvs, stepss, terminators = res
+    curves, curves1_uvs,curves2_uvs, _= zip(*res)
     results = []
     for i, curve_pts in enumerate(curves):
         curve = interpolate_nurbs_curve(curve_pts, 3)
 
-        if all([terminator is TerminatorType.LOOP for terminator in terminators[i]]):
-            curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0][:-1], 3)
-            curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1][:-1], 3)
-            # curve.make_periodic()
 
-            # curve_on_surf1.make_periodic()
-            # curve_on_surf2.make_periodic()
-        else:
-            curve_on_surf1 = interpolate_nurbs_curve(curves_uvs[i][0], 3)
-            curve_on_surf2 = interpolate_nurbs_curve(curves_uvs[i][1], 3)
+        curve_on_surf1 = interpolate_nurbs_curve(curves1_uvs[i][:-1], 3)
+        curve_on_surf2 = interpolate_nurbs_curve(curves2_uvs[i][:-1], 3)
+
         results.append(
             (
                 curve,
