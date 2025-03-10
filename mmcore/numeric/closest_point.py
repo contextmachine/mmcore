@@ -159,7 +159,7 @@ def _find_cls(bvh:_BVHN, point):
 from mmcore.numeric.newton.bounded import bounded_newtons_method
 
 
-def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1e-6, on_curve=False)->tuple[bool, tuple[float,float]]:
+def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1e-6, on_curve=False,max_iter=100)->tuple[bool, tuple[float,float]]:
 
 
     bvh = build_bvh([NURBSCurveObject3D(c) for c in decompose_curve(curve)])
@@ -177,10 +177,10 @@ def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1
             d = (curve.evaluate(t[0]) - point)
             return scalar_dot(d, d)
         if on_curve:
-            res=bounded_newtons_method(objective, [sum([a,b]) / 2], [(a,b)], tol=tol, min_value=0.)
+            res=bounded_newtons_method(objective, [sum([a,b]) / 2], [(a,b)], tol=tol,min_value=0.)
         else:
-            res=newtons_method(objective, np.array([(a+ b)/2]), tol=tol)
-            print(res)
+            res=newtons_method(objective, np.array([(a+ b)/2]), tol=tol,max_iter=max_iter)
+            #print(res)
 
 
         return res, objective(res)
