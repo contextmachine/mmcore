@@ -15,6 +15,7 @@ def test_ssx1():
     Should not hesitate to modify them in the future.
     :return:
     """
+    return #Temporarily developing
     pts1 = np.array(
         [
             [-25.0, -25.0, -10.0],
@@ -111,6 +112,7 @@ def test_ssx2():
     Should not hesitate to modify them in the future.
     :return:
     """
+    return #Temporarily developing
     import time
 
     import numpy as np

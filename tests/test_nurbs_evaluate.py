@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 import math
 from collections import namedtuple
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,NURBSSurfaceJson,_from_dict,evaluate_nurbs_curve,evaluate_nurbs_surface
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,evaluate_nurbs_curve,evaluate_nurbs_surface
 
 np.set_printoptions(suppress=True)
 from typing import TypedDict
