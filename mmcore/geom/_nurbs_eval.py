@@ -1,6 +1,9 @@
+import math
+
+import numpy as np
 
 from collections import namedtuple
-
+from typing import TypedDict
 
 
 
@@ -20,42 +23,10 @@ def join_weights(surf:NURBSSurfaceTuple):
 
 
 
-import numpy as np
-import math
-from collections import namedtuple
 
 
 np.set_printoptions(suppress=True)
-from typing import TypedDict
 
-# ---------------------------------------------------------------------------
-# The implementation to be tested.
-# (Normally you would import this from your module.)
-# ---------------------------------------------------------------------------
-
-
-
-class NURBSSurfaceJson(TypedDict):
-    control_points: list[list[float]]
-    knots_u: list[float]
-    knots_v: list[float]
-    size: list[float]
-    degree: list[float]
-
-
-def _from_dict(data: NURBSSurfaceJson) -> NURBSSurfaceTuple:
-    degu, degv = data["degree"]
-    dim = len(data["control_points"][0])
-    cpts = np.array(data["control_points"], dtype=float).reshape((*data["size"], dim))
-
-    return NURBSSurfaceTuple(
-        order_u=degu + 1,
-        order_v=degv + 1,
-        knot_u=data["knots_u"],
-        knot_v=data["knots_v"],
-        control_points=cpts[..., :-1].tolist(),
-        weights=np.ascontiguousarray(cpts[..., -1]),
-    )
 
 
 def compute_left_right_arrays(degree, knot, knot_vector, span):
@@ -309,7 +280,73 @@ def basis_function_ders(degree, knot_vector, span, knot, order):
     ders = apply_factorial_scaling(ders, degree, order)
     return ders
 
-
+def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order):
+    """
+    Compute the derivatives of B-spline (or NURBS) basis functions using numpy for efficiency.
+    Args:
+        degree (int): The degree p of the basis functions.
+        knot_vector (array-like): The knot vector U.
+        span (int): The knot span index.
+        knot (float): The parameter value u at which to evaluate.
+        order (int): The maximum derivative order to compute.
+    Returns:
+        np.ndarray: A 2D array 'ders' of shape (order+1, degree+1) where ders[k, j]
+                    is the k-th derivative of the j-th basis function.
+    """
+    knot_vector = np.asarray(knot_vector, dtype=float)
+    # Precompute left/right arrays using vectorized slicing.
+    left = np.empty(degree + 1, dtype=float)
+    right = np.empty(degree + 1, dtype=float)
+    left[0] = 0.0
+    right[0] = 0.0
+    j_arr = np.arange(1, degree + 1)
+    left[1:] = knot - knot_vector[span + 1 - j_arr]
+    right[1:] = knot_vector[span + j_arr] - knot
+    # Build the 'ndu' table.
+    ndu = np.zeros((degree + 1, degree + 1), dtype=float)
+    ndu[0, 0] = 1.0
+    for j in range(1, degree + 1):
+        saved = 0.0
+        for r in range(j):
+            ndu[j, r] = right[r + 1] + left[j - r]
+            temp = ndu[r, j - 1] / ndu[j, r]
+            ndu[r, j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        ndu[j, j] = saved
+    # Compute unscaled derivative coefficients.
+    ders = np.zeros((order + 1, degree + 1), dtype=float)
+    for r in range(degree + 1):
+        d_coeffs = np.zeros(order + 1, dtype=float)
+        d_coeffs[0] = ndu[r, degree]
+        a = np.zeros((2, order + 1), dtype=float)
+        a[0, 0] = 1.0
+        s1 = 0  # current row in temporary array 'a'
+        s2 = 1  # next row in 'a'
+        for k in range(1, order + 1):
+            d = 0.0
+            rk = r - k
+            pk = degree - k
+            if r >= k:
+                a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
+                d = a[s2, 0] * ndu[rk, pk]
+            j1 = 1 if rk >= -1 else -rk
+            j2 = k - 1 if (r - 1) <= pk else degree - r
+            for j in range(j1, j2 + 1):
+                a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
+                d += a[s2, j] * ndu[rk + j, pk]
+            if r <= pk:
+                a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
+                d += a[s2, k] * ndu[r, pk]
+            d_coeffs[k] = d
+            s1, s2 = s2, s1  # swap rows
+        ders[:, r] = d_coeffs
+    # Factorial scaling: scale k-th derivative by degree*(degree-1)*...*(degree-k+1)
+    scales = np.empty(order + 1, dtype=float)
+    scales[0] = 1.0
+    for k in range(1, order + 1):
+        scales[k] = scales[k - 1] * (degree - k + 1)
+    ders[1:, :] *= scales[1:, np.newaxis]
+    return ders
 def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
     span = degree + 1  # knot span index starts from zero
     while span < num_ctrlpts and knot_vector[span] <= knot:
@@ -325,9 +362,6 @@ def evaluate_nurbs_curve(curve, u, d_order=2):
       'C1' : the first derivative,
       'C2' : the second derivative.
     """
-
-
-
     p = curve.order - 1
     n = len(curve.control_points)
     U = curve.knot[:]  # assume knot vector is a list or numpy array
@@ -335,8 +369,8 @@ def evaluate_nurbs_curve(curve, u, d_order=2):
     d = min(d_order, p)
 
     # Compute basis functions and their derivatives.
-    # Assumes existence of a function 'basis_function_ders'
-    ders = np.array(basis_function_ders(p, U, span, u, d))
+    # Assumes existence of a function 'compute_basis_function_derivatives_np'
+    ders = np.array(compute_basis_function_derivatives_np(p, U, span, u, d))
     # ders has shape (d+1, p+1)
 
     dim = len(curve.control_points[0])
@@ -396,6 +430,7 @@ def evaluate_nurbs_curve_array(curve:NURBSCurveTuple, t, d_order=0):
 
     return np.array(list(evaluate_nurbs_curve(curve,t,d_order).values()))
 
+
 def evaluate_nurbs_surface(surface, u, v, d_order=2):
     """
     Evaluate a rational NURBS surface at (u,v). Returns a dictionary SKL with keys:
@@ -421,9 +456,9 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2):
     #print(p, U, span_u, u, d_order)
     du = min(d_order, p)
     dv = min(d_order, q)
-    ders_u = np.array(basis_function_ders(p, U, span_u, u, du))
+    ders_u = np.array(compute_basis_function_derivatives_np(p, U, span_u, u, du))
     #print(q, V, span_v, v, d_order)
-    ders_v = np.array(basis_function_ders(q, V, span_v, v, dv))
+    ders_v = np.array(compute_basis_function_derivatives_np(q, V, span_v, v, dv))
     #print("DU", ders_u)
     #print("DV", ders_v)
 
