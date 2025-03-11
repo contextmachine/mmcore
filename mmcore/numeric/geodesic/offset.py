@@ -1,16 +1,19 @@
-
 from collections import namedtuple
 
 import math
 import numpy as np
-from mmcore.geom._nurbs_eval import evaluate_nurbs_surface, evaluate_nurbs_curve_array, evaluate_nurbs_curve,NURBSCurveTuple,NURBSSurfaceTuple,BSplineCurveTuple
+from mmcore.geom._nurbs_eval import (
+    evaluate_nurbs_surface,
+    evaluate_nurbs_curve_array,
+    evaluate_nurbs_curve,
+    NURBSCurveTuple,
+    NURBSSurfaceTuple,
+    BSplineCurveTuple,
+)
 
 # ======================================================================
 # Namedtuple definitions for NURBS surface and curve representations.
 # ======================================================================
-
-
-
 
 
 # =============================================================================
@@ -29,13 +32,15 @@ def adams_integrate(f, y0, s0, s_end, tol, args=()):
     S_hist = [s]
     Y_hist = [y.copy()]
     F_hist = [f(s, y, *args)]
+
     # Bootstrap: use RK4 to obtain max_order points.
     def rk4_step(s, y, h):
         k1 = f(s, y, *args)
-        k2 = f(s + h/2.0, y + h/2.0 * k1, *args)
-        k3 = f(s + h/2.0, y + h/2.0 * k2, *args)
+        k2 = f(s + h / 2.0, y + h / 2.0 * k1, *args)
+        k3 = f(s + h / 2.0, y + h / 2.0 * k2, *args)
         k4 = f(s + h, y + h * k3, *args)
-        return y + h/6.0*(k1 + 2*k2 + 2*k3 + k4)
+        return y + h / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
+
     while len(S_hist) < max_order and s < s_end:
         if s + h > s_end:
             h = s_end - s
@@ -49,15 +54,15 @@ def adams_integrate(f, y0, s0, s_end, tol, args=()):
         if s + h > s_end:
             h = s_end - s
         # Adams-Bashforth 4-step predictor:
-        f_n   = F_hist[-1]
-        f_n1  = F_hist[-2]
-        f_n2  = F_hist[-3]
-        f_n3  = F_hist[-4]
-        y_pred = Y_hist[-1] + h/24.0*(55*f_n - 59*f_n1 + 37*f_n2 - 9*f_n3)
+        f_n = F_hist[-1]
+        f_n1 = F_hist[-2]
+        f_n2 = F_hist[-3]
+        f_n3 = F_hist[-4]
+        y_pred = Y_hist[-1] + h / 24.0 * (55 * f_n - 59 * f_n1 + 37 * f_n2 - 9 * f_n3)
         s_pred = s + h
         f_pred = f(s_pred, y_pred, *args)
         # Adams-Moulton 3-step corrector:
-        y_corr = Y_hist[-1] + h/24.0*(9*f_pred + 19*f_n - 5*f_n1 + f_n2)
+        y_corr = Y_hist[-1] + h / 24.0 * (9 * f_pred + 19 * f_n - 5 * f_n1 + f_n2)
         err = np.linalg.norm(y_corr - y_pred)
         if err < tol:
             # Accept the step.
@@ -74,13 +79,14 @@ def adams_integrate(f, y0, s0, s_end, tol, args=()):
             if err == 0:
                 fac = 2
             else:
-                fac = min(2, max(0.5, 0.9*(tol/err)**(1/4)))
+                fac = min(2, max(0.5, 0.9 * (tol / err) ** (1 / 4)))
             h = h * fac
         else:
             # Reject step and reduce h.
-            fac = max(0.1, 0.9*(tol/err)**(1/4))
+            fac = max(0.1, 0.9 * (tol / err) ** (1 / 4))
             h = h * fac
     return y
+
 
 # =============================================================================
 # 5. Geodesic ODE system (in the surface parameter domain)
@@ -99,11 +105,11 @@ def geodesic_ode(s, y, surface):
     """
     u, v, u1, v1 = y
     derivs = evaluate_nurbs_surface(surface, u, v, d_order=2)
-    r_u = np.array(derivs['Su'])
-    r_v = np.array(derivs['Sv'])
-    r_uu = np.array(derivs['Suu'])
-    r_uv = np.array(derivs['Suv'])
-    r_vv = np.array(derivs['Svv'])
+    r_u = np.array(derivs["Su"])
+    r_v = np.array(derivs["Sv"])
+    r_uu = np.array(derivs["Suu"])
+    r_uv = np.array(derivs["Suv"])
+    r_vv = np.array(derivs["Svv"])
     g11 = np.dot(r_u, r_u)
     g12 = np.dot(r_u, r_v)
     g22 = np.dot(r_v, r_v)
@@ -120,9 +126,10 @@ def geodesic_ode(s, y, surface):
     e22 = np.dot(n, np.cross(r_vv, r_vv)) / norm_cross  # identically 0
     du_ds = u1
     dv_ds = v1
-    du1_ds = -d11*u1*u1 - 2*d12*u1*v1 - d22*v1*v1
-    dv1_ds = -e11*u1*u1 - 2*e12*u1*v1 - e22*v1*v1
+    du1_ds = -d11 * u1 * u1 - 2 * d12 * u1 * v1 - d22 * v1 * v1
+    dv1_ds = -e11 * u1 * u1 - 2 * e12 * u1 * v1 - e22 * v1 * v1
     return np.array([du_ds, dv_ds, du1_ds, dv1_ds])
+
 
 # =============================================================================
 # 6. Computation of initial geodesic conditions at a given progenitor parameter.
@@ -137,16 +144,16 @@ def compute_initial_geodesic_state(t, progenitor_curve, surface):
     """
     # Evaluate progenitor curve (which lies in parameter space)
     R = evaluate_nurbs_curve_array(progenitor_curve, t, d_order=1)
-    #print(R)
-    uv = R[0]         # [u0, v0]
-    dR_dt = R[1]      # [du/dt, dv/dt]
+    # print(R)
+    uv = R[0]  # [u0, v0]
+    dR_dt = R[1]  # [du/dt, dv/dt]
     u0, v0 = uv[0], uv[1]
-    #print(uv)
+    # print(uv)
     du_dt, dv_dt = dR_dt[0], dR_dt[1]
     # Evaluate the surface first derivatives at (u0,v0)
     derivs = evaluate_nurbs_surface(surface, u0, v0, d_order=1)
-    r_u = np.array(derivs['Su'])
-    r_v = np.array(derivs['Sv'])
+    r_u = np.array(derivs["Su"])
+    r_v = np.array(derivs["Sv"])
     # Progenitor tangent in 3D: t_3d = du_dt * r_u + dv_dt * r_v.
     t_3d = du_dt * r_u + dv_dt * r_v
     # Compute b = (r_u x r_v) x t_3d.
@@ -162,12 +169,13 @@ def compute_initial_geodesic_state(t, progenitor_curve, surface):
     sol = np.linalg.solve(G, rhs)
     U1, V1 = sol[0], sol[1]
     # Normalize the vector (U1,V1) in the metric: sqrt(g11*U1^2 + 2*g12*U1*V1 + g22*V1^2)
-    norm_factor = math.sqrt(g11*U1*U1 + 2*g12*U1*V1 + g22*V1*V1)
+    norm_factor = math.sqrt(g11 * U1 * U1 + 2 * g12 * U1 * V1 + g22 * V1 * V1)
     if norm_factor == 0:
         norm_factor = 1e-8
     u1 = U1 / norm_factor
     v1 = V1 / norm_factor
     return np.array([u0, v0, u1, v1])
+
 
 # =============================================================================
 # 7. Compute one offset point by integrating the geodesic ODE.
@@ -185,6 +193,7 @@ def compute_offset_point(t, progenitor_curve, surface, g_func, adams_tol=1e-6):
     y_final = adams_integrate(lambda s, y: geodesic_ode(s, y, surface), y0, 0.0, g_dist, adams_tol)
     return y_final
 
+
 # =============================================================================
 # 8. B-spline interpolation of the offset curve in parameter space.
 # =============================================================================
@@ -193,36 +202,36 @@ def bspline_basis(j, L, t, knot):
     Evaluate the j-th B-spline basis function of order L at parameter value t using Cox-de Boor.
     """
     if L == 1:
-        if (knot[j] <= t < knot[j+1]) or (t == knot[-1] and t == knot[j+1]):
+        if (knot[j] <= t < knot[j + 1]) or (t == knot[-1] and t == knot[j + 1]):
             return 1.0
         else:
             return 0.0
     else:
-        denom1 = knot[j+L-1] - knot[j]
+        denom1 = knot[j + L - 1] - knot[j]
         term1 = 0.0
         if denom1 != 0:
-            term1 = (t - knot[j]) / denom1 * bspline_basis(j, L-1, t, knot)
-        denom2 = knot[j+L] - knot[j+1]
+            term1 = (t - knot[j]) / denom1 * bspline_basis(j, L - 1, t, knot)
+        denom2 = knot[j + L] - knot[j + 1]
         term2 = 0.0
         if denom2 != 0:
-            term2 = (knot[j+L] - t) / denom2 * bspline_basis(j+1, L-1, t, knot)
+            term2 = (knot[j + L] - t) / denom2 * bspline_basis(j + 1, L - 1, t, knot)
         return term1 + term2
+
 
 def _evaluate_bspline_curve(curve, t):
     """
     Evaluate a (non-rational) B-spline curve at parameter value t.
     """
-    #crv1=curve
-    #curve=BSpline.Curve()
-    #curve.degree=crv1.order-1
+    # crv1=curve
+    # curve=BSpline.Curve()
+    # curve.degree=crv1.order-1
     #
     #
-    #curve.ctrlpts = crv1.control_points.tolist()
-    #curve.knotvector = crv1.knot.tolist()
-    if isinstance(curve,BSplineCurveTuple):
-        curve=NURBSCurveTuple(*curve, np.ones(curve.control_points.shape[:-1],dtype=float))
-    return np.array(evaluate_nurbs_curve(curve, t, d_order=0)['C'])
-
+    # curve.ctrlpts = crv1.control_points.tolist()
+    # curve.knotvector = crv1.knot.tolist()
+    if isinstance(curve, BSplineCurveTuple):
+        curve = NURBSCurveTuple(*curve, np.ones(curve.control_points.shape[:-1], dtype=float))
+    return np.array(evaluate_nurbs_curve(curve, t, d_order=0)["C"])
 
 
 def _evaluate_bspline_curve_derivative(curve, t):
@@ -232,7 +241,7 @@ def _evaluate_bspline_curve_derivative(curve, t):
     """
     if isinstance(curve, BSplineCurveTuple):
         curve = NURBSCurveTuple(*curve, np.ones(curve.control_points.shape[:-1], dtype=float))
-    return np.array(evaluate_nurbs_curve(curve, t, d_order=1)['C1'])
+    return np.array(evaluate_nurbs_curve(curve, t, d_order=1)["C1"])
 
 
 def compute_knot_vector(points, L):
@@ -252,13 +261,14 @@ def compute_knot_vector(points, L):
     for i in range(n - L + 1):
         seg_sum = 0.0
         for j in range(i, i + L - 1):
-            seg_sum += np.linalg.norm(points[j+1] - points[j])
+            seg_sum += np.linalg.norm(points[j + 1] - points[j])
         segments.append(seg_sum)
         total += seg_sum
     for i in range(n - L):
-        knot[i+L] = knot[i+L-1] + segments[i] / total
-    #print(knot)
+        knot[i + L] = knot[i + L - 1] + segments[i] / total
+    # print(knot)
     return knot
+
 
 def compute_parameter_values(knot, n, L):
     """
@@ -267,8 +277,9 @@ def compute_parameter_values(knot, n, L):
     """
     xi = np.zeros(n)
     for i in range(n):
-        xi[i] = np.sum(knot[i+1 : i+L]) / (L - 1)
+        xi[i] = np.sum(knot[i + 1 : i + L]) / (L - 1)
     return xi
+
 
 def assemble_interpolation_matrix(xi, knot, n, L):
     """
@@ -279,6 +290,7 @@ def assemble_interpolation_matrix(xi, knot, n, L):
         for j in range(n):
             N_matrix[i, j] = bspline_basis(j, L, xi[i], knot)
     return N_matrix
+
 
 def fit_bspline_interpolation(points, L):
     """
@@ -293,6 +305,7 @@ def fit_bspline_interpolation(points, L):
     Q = np.linalg.solve(N_matrix, np.array(points))
     return BSplineCurveTuple(order=L, knot=knot, control_points=Q)
 
+
 # =============================================================================
 # 9. Mapping and tangent computations (Eqs. 47, 48, and 49)
 # =============================================================================
@@ -306,6 +319,7 @@ def map_curve_to_surface(bspline_curve, surface, t):
     S = evaluate_nurbs_surface(surface, uv[0], uv[1], d_order=0)
     return S
 
+
 def compute_tangent_vector(bspline_curve, surface, t):
     """
     Compute the 3D tangent vector at parameter t on the offset curve, as in Eq. (47).
@@ -315,9 +329,10 @@ def compute_tangent_vector(bspline_curve, surface, t):
     deriv_uv = _evaluate_bspline_curve_derivative(bspline_curve, t)
     uv = _evaluate_bspline_curve(bspline_curve, t)
     derivs = evaluate_nurbs_surface(surface, uv[0], uv[1], d_order=1)
-    r_u = np.array(derivs['Su'])
-    r_v = np.array(derivs['Sv'])
+    r_u = np.array(derivs["Su"])
+    r_v = np.array(derivs["Sv"])
     return deriv_uv[0] * r_u + deriv_uv[1] * r_v
+
 
 def compute_normal_vector(surface, uv, geodesic_deriv):
     """
@@ -325,11 +340,15 @@ def compute_normal_vector(surface, uv, geodesic_deriv):
     the geodesic derivative (u1, v1). Here s_i = (r_u x r_v) x g_i.
     """
     derivs = evaluate_nurbs_surface(surface, uv[0], uv[1], d_order=1)
-    r_u = np.array(derivs['Su'])
-    r_v = np.array(derivs['Sv'])
+    r_u = np.array(derivs["Su"])
+    r_v = np.array(derivs["Sv"])
     g_i = geodesic_deriv[0] * r_u + geodesic_deriv[1] * r_v
     return np.cross(np.cross(r_u, r_v), g_i)
+
+
 _invphi = (math.sqrt(5) - 1) / 2
+
+
 def golden_section_search(fun, bounds, tol):
     """
     Find the minimum value of a unimodal function on a closed interval using the Golden Section Search.
@@ -347,7 +366,6 @@ def golden_section_search(fun, bounds, tol):
     """
     a, b = bounds
     # The constant invphi is 1/phi, where phi is the golden ratio (~1.618)
-
 
     # Compute the two interior points
     c = b - _invphi * (b - a)
@@ -381,7 +399,6 @@ def golden_section_search(fun, bounds, tol):
     return x_min, f_min
 
 
-
 # =============================================================================
 # 10. Descent method (using cubic interpolation) for minimum distance (Eq. 51)
 # =============================================================================
@@ -391,24 +408,27 @@ def find_min_distance(R_l, bspline_curve, surface, tol=1e-6, max_iter=50):
     r(S_L(t)) defined by the B-spline curve in parameter space mapped onto the surface.
     This descent method uses a simple (cubic interpolation based) line search.
     """
+
     def f(t):
         S_t = map_curve_to_surface(bspline_curve, surface, t)
-        #print(R_l,S_t)
-        #print(t, R_l["S"], S_t['S'], R_l["S"]-S_t['S'])
-        res=np.linalg.norm(R_l["S"] - S_t['S'])
-        print(f'f: {t}, {res}',flush=True,end=' '*80+'\r')
+        # print(R_l,S_t)
+        # print(t, R_l["S"], S_t['S'], R_l["S"]-S_t['S'])
+        res = np.linalg.norm(R_l["S"] - S_t["S"])
+        # print(f'f: {t}, {res}',flush=True,end=' '*80+'\r')
         return res
 
-    t_current,f_t=golden_section_search(f, (0.,1.), tol)
+    t_current, f_t = golden_section_search(f, (0.0, 1.0), tol)
 
-    #print("\rTC", (t_current,f_t),)
+    # print("\rTC", (t_current,f_t),)
     return f_t
 
 
 # =============================================================================
 # 11. Main iterative process to approximate the offset curve.
 # =============================================================================
-def approximate_offset_curve(progenitor_curve, surface, g_func, epsilon1, epsilon2, bspline_order=4, initial_sample_count=5, adams_tol=1e-6):
+def approximate_offset_curve(
+    progenitor_curve, surface, g_func, epsilon1, epsilon2, bspline_order=4, initial_sample_count=5, adams_tol=1e-6
+):
     """
     Given a progenitor curve (in the surface parameter space) and a NURBS surface,
     construct an offset curve (lying on the surface) by:
@@ -458,36 +478,35 @@ def approximate_offset_curve(progenitor_curve, surface, g_func, epsilon1, epsilo
                 cos_phi = abs(np.dot(t_vec, s_vec)) / (norm_t * norm_s)
                 cos_phi = max(-1.0, min(1.0, cos_phi))
                 phi = math.degrees(math.acos(cos_phi))
-            #print('nt,ns,phi:',norm_t,norm_s, phi)
+            # print('nt,ns,phi:',norm_t,norm_s, phi)
 
             if phi > epsilon1:
                 refine_needed = True
                 idx = list(T_sorted).index(t)
-                print('angle fail', phi, t)
+                # print('angle fail', phi, t)
                 if idx > 0:
-                    t_prev = T_sorted[idx-1]
+                    t_prev = T_sorted[idx - 1]
                     new_T.add((t_prev + t) / 2.0)
 
                 if idx < len(T_sorted) - 1:
-                    t_next = T_sorted[idx+1]
+                    t_next = T_sorted[idx + 1]
                     new_T.add((t + t_next) / 2.0)
 
-
-        #print(new_T)
+        # print(new_T)
         # Additional terminal point check.
-        for i in range(len(T_sorted)-1):
-            t_mid = (T_sorted[i] + T_sorted[i+1]) / 2.0
+        for i in range(len(T_sorted) - 1):
+            t_mid = (T_sorted[i] + T_sorted[i + 1]) / 2.0
             if t_mid not in offset_data:
                 y_final = compute_offset_point(t_mid, progenitor_curve, surface, g_func, adams_tol)
                 offset_data[t_mid] = (y_final[:2], y_final[2:])
             R_l = map_curve_to_surface(bspline_curve, surface, t_mid)
-            #print(t_mid,end=' ')
+            # print(t_mid,end=' ')
             mu = find_min_distance(R_l, bspline_curve, surface, tol=1e-6)
-            #print(mu)
+            # print(mu)
             if mu > epsilon2:
                 refine_needed = True
                 new_T.add(t_mid)
-                print('term fail', mu,t_mid)
+                # print('term fail', mu,t_mid)
         if not refine_needed:
             converged = True
         else:
@@ -505,47 +524,55 @@ def approximate_offset_curve(progenitor_curve, surface, g_func, epsilon1, epsilo
         offset_points_3d.append(point_3d)
     return np.array(offset_points_3d), bspline_curve
 
+
 # =============================================================================
 # 12. Example applications
 # =============================================================================
-if __name__ == '__main__':
+if __name__ == "__main__":
     # --------------------------
     # Example 1: One octant of a sphere.
     # --------------------------
     # The spherical patch (radius = 2.0) is given as a rational quadratic Bézier surface.
     # The control points are given in 3D and the weights are provided separately.
-    cp_sphere = np.array([
-        [[2.0, 0.0, 0, 1.0], [1.4142135623730951, 0.0, 1.4142135623730949, 0.70710678118654757], [0.0, 0.0, 2.0, 1.0]],
-        [[1.4142135623730951, 1.4142135623730949, 0., 0.70710678118654757], [1., 1.0, 1.0, 0.5],[0.0, 0.0, 1.4142135623730951, 0.70710678118654757]],[ [0, 2.0, 0, 1.0],
-         [0, 1.4142135623730951, 1.4142135623730949, 0.70710678118654757],[0.0, 0.0, 2.0, 1.0]]], dtype=float)
-    weights_sphere =  cp_sphere[...,-1]
+    cp_sphere = np.array(
+        [
+            [[2.0, 0.0, 0, 1.0], [1.4142135623730951, 0.0, 1.4142135623730949, 0.70710678118654757], [0.0, 0.0, 2.0, 1.0]],
+            [
+                [1.4142135623730951, 1.4142135623730949, 0.0, 0.70710678118654757],
+                [1.0, 1.0, 1.0, 0.5],
+                [0.0, 0.0, 1.4142135623730951, 0.70710678118654757],
+            ],
+            [[0, 2.0, 0, 1.0], [0, 1.4142135623730951, 1.4142135623730949, 0.70710678118654757], [0.0, 0.0, 2.0, 1.0]],
+        ],
+        dtype=float,
+    )
+    weights_sphere = cp_sphere[..., -1]
     # For a quadratic Bézier surface the order is 3 in both directions.
     knot_u = np.array([0, 0, 0, 1, 1, 1], dtype=float)
     knot_v = np.array([0, 0, 0, 1, 1, 1], dtype=float)
-    sphere = NURBSSurfaceTuple(order_u=3, order_v=3, knot_u=knot_u, knot_v=knot_v,
-                               control_points=np.ascontiguousarray(cp_sphere[...,:-1]), weights=weights_sphere)
+    sphere = NURBSSurfaceTuple(
+        order_u=3, order_v=3, knot_u=knot_u, knot_v=knot_v, control_points=np.ascontiguousarray(cp_sphere[..., :-1]), weights=weights_sphere
+    )
     # The progenitor curve is the circle corresponding to v = 0.5 in parameter space,
     # represented as a linear (order 2) B-spline curve from (0, 0.5) to (1, 0.5).
     cp_progenitor = np.array([[0, 0.5], [1, 0.5]], dtype=float)
     weights_progenitor = np.array([1.0, 1.0], dtype=float)
     knot_progenitor = np.array([0, 0, 1, 1], dtype=float)
-    progenitor_curve = NURBSCurveTuple(order=2, knot=knot_progenitor,
-                                       control_points=cp_progenitor, weights=weights_progenitor)
+    progenitor_curve = NURBSCurveTuple(order=2, knot=knot_progenitor, control_points=cp_progenitor, weights=weights_progenitor)
     # Define the offset distance function g(t) = 0.2 (constant).
     g_func = lambda t: 0.2
-    epsilon1 = 2.0       # angle tolerance in degrees
-    epsilon2 = 0.0001    # distance tolerance
-    initial_3d=[]
-    for i in np.linspace(0.,1.,30):
-        uv =evaluate_nurbs_curve(progenitor_curve,i,d_order=0)['C']
+    epsilon1 = 2.0  # angle tolerance in degrees
+    epsilon2 = 0.0001  # distance tolerance
+    initial_3d = []
+    for i in np.linspace(0.0, 1.0, 30):
+        uv = evaluate_nurbs_curve(progenitor_curve, i, d_order=0)["C"]
 
-        initial_3d.append(evaluate_nurbs_surface(sphere,uv[0],uv[1], 0)['S'])
+        initial_3d.append(evaluate_nurbs_surface(sphere, uv[0], uv[1], 0)["S"])
 
     offset_pts_3d, bspline_curve_param = approximate_offset_curve(
-        progenitor_curve, sphere, g_func, epsilon1, epsilon2,
-        bspline_order=4, initial_sample_count=5, adams_tol=1e-3)
+        progenitor_curve, sphere, g_func, epsilon1, epsilon2, bspline_order=4, initial_sample_count=5, adams_tol=1e-3
+    )
     print("Example 1: Offset curve (3D points) on one octant of a sphere:")
-
 
     print(np.array(initial_3d).tolist())
     print(offset_pts_3d.tolist())
@@ -554,90 +581,78 @@ if __name__ == '__main__':
     # Example 2: Open curve on one quarter of a cylindrical surface.
     # --------------------------
     # Here the cylindrical surface is given as a quadratic rational Bézier patch (order 3 x 2).
-    cp_cylinder = np.array([
-        [[0, 2, 0], [0, 2, 2]],
-        [[math.sqrt(2), math.sqrt(2), 0], [math.sqrt(2), math.sqrt(2), math.sqrt(2)]],
-        [[2, 0, 0], [2, 0, 2]]
-    ], dtype=float)
-    weights_cylinder = np.array([
-        [1.0, 1.0],
-        [1.0/math.sqrt(2), 1.0/math.sqrt(2)],
-        [1.0, 1.0]
-    ], dtype=float)
-    knot_u_cyl = np.array([0,0,0,1,1,1], dtype=float)  # order 3 in u
-    knot_v_cyl = np.array([0,0,1,1], dtype=float)        # order 2 in v
-    cylinder = NURBSSurfaceTuple(order_u=3, order_v=2, knot_u=knot_u_cyl, knot_v=knot_v_cyl,
-                                 control_points=cp_cylinder, weights=weights_cylinder)
+    cp_cylinder = np.array(
+        [[[0, 2, 0], [0, 2, 2]], [[math.sqrt(2), math.sqrt(2), 0], [math.sqrt(2), math.sqrt(2), math.sqrt(2)]], [[2, 0, 0], [2, 0, 2]]],
+        dtype=float,
+    )
+    weights_cylinder = np.array([[1.0, 1.0], [1.0 / math.sqrt(2), 1.0 / math.sqrt(2)], [1.0, 1.0]], dtype=float)
+    knot_u_cyl = np.array([0, 0, 0, 1, 1, 1], dtype=float)  # order 3 in u
+    knot_v_cyl = np.array([0, 0, 1, 1], dtype=float)  # order 2 in v
+    cylinder = NURBSSurfaceTuple(
+        order_u=3, order_v=2, knot_u=knot_u_cyl, knot_v=knot_v_cyl, control_points=cp_cylinder, weights=weights_cylinder
+    )
     # The progenitor curve is a fourth-order integral Bézier curve in the parameter space.
-    cp_prog_cyl = np.array([[0.45, 0.20],
-                            [0.40, 0.80],
-                            [0.60, 0.80],
-                            [0.55, 0.20]], dtype=float)
+    cp_prog_cyl = np.array([[0.45, 0.20], [0.40, 0.80], [0.60, 0.80], [0.55, 0.20]], dtype=float)
     weights_prog_cyl = np.array([1.0, 1.0, 1.0, 1.0], dtype=float)
-    knot_prog_cyl = np.array([0,0,0,0,1,1,1,1], dtype=float)
-    progenitor_curve_cyl = NURBSCurveTuple(order=4, knot=knot_prog_cyl,
-                                           control_points=cp_prog_cyl, weights=weights_prog_cyl)
+    knot_prog_cyl = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=float)
+    progenitor_curve_cyl = NURBSCurveTuple(order=4, knot=knot_prog_cyl, control_points=cp_prog_cyl, weights=weights_prog_cyl)
     # Here we use the same offset distance g(t) = 0.2.
     offset_pts_cyl_3d, bspline_curve_param_cyl = approximate_offset_curve(
-        progenitor_curve_cyl, cylinder, g_func, epsilon1, epsilon2,
-        bspline_order=4, initial_sample_count=6, adams_tol=1e-3)
+        progenitor_curve_cyl, cylinder, g_func, epsilon1, epsilon2, bspline_order=4, initial_sample_count=6, adams_tol=1e-3
+    )
     print("\nExample 2: Offset curve (3D points) on one quarter of a cylinder:")
-    initial_3d=[]
+    initial_3d = []
     print(cylinder)
-    for i in np.linspace(0.,1.,30):
-        uv =_evaluate_bspline_curve(progenitor_curve_cyl, i)
+    for i in np.linspace(0.0, 1.0, 30):
+        uv = _evaluate_bspline_curve(progenitor_curve_cyl, i)
 
-        initial_3d.append(evaluate_nurbs_surface(cylinder,uv[0],uv[1], 0)['S'])
-
-
+        initial_3d.append(evaluate_nurbs_surface(cylinder, uv[0], uv[1], 0)["S"])
 
     print(np.array(initial_3d).tolist())
     print(offset_pts_cyl_3d.tolist())
-
 
     # --------------------------
     # Example 3: Offset curve on an integral B-spline surface patch (order 7 x 5).
     # --------------------------
     # The control polyhedron is given by a 7x6 lattice (the coordinates are provided).
-    cp_surface = np.array([
-        [[0, 0, 10],   [5, 10, 20],   [10, 20, 25],  [5, 30, 15],   [0, 40, 0],    [5, 50, -10]],
-        [[20, -5, 15], [25, 5, 20],    [20, 15, 25],  [15, 25, 30],  [20, 35, 25],  [25, 45, 10]],
-        [[45, 5, 20],  [40, 15, 30],   [35, 25, 45],  [40, 35, 40],  [45, 45, 30],  [35, 55, 15]],
-        [[60, 0, 40],  [65, 10, 45],   [60, 20, 50],  [55, 30, 60],  [55, 40, 40],  [60, 50, 30]],
-        [[75, -5, 25], [80, 5, 30],    [85, 15, 40],  [80, 25, 45],  [75, 35, 35],  [70, 45, 20]],
-        [[100, 0, 20], [105, 10, 25],  [110, 20, 30], [105, 30, 35], [100, 40, 28], [95, 50, 15]],
-        [[125, 5, 15], [130, 15, 20],  [130, 25, 25], [125, 35, 20], [125, 45, 10], [120, 55, -5]]
-    ], dtype=float)
+    cp_surface = np.array(
+        [
+            [[0, 0, 10], [5, 10, 20], [10, 20, 25], [5, 30, 15], [0, 40, 0], [5, 50, -10]],
+            [[20, -5, 15], [25, 5, 20], [20, 15, 25], [15, 25, 30], [20, 35, 25], [25, 45, 10]],
+            [[45, 5, 20], [40, 15, 30], [35, 25, 45], [40, 35, 40], [45, 45, 30], [35, 55, 15]],
+            [[60, 0, 40], [65, 10, 45], [60, 20, 50], [55, 30, 60], [55, 40, 40], [60, 50, 30]],
+            [[75, -5, 25], [80, 5, 30], [85, 15, 40], [80, 25, 45], [75, 35, 35], [70, 45, 20]],
+            [[100, 0, 20], [105, 10, 25], [110, 20, 30], [105, 30, 35], [100, 40, 28], [95, 50, 15]],
+            [[125, 5, 15], [130, 15, 20], [130, 25, 25], [125, 35, 20], [125, 45, 10], [120, 55, -5]],
+        ],
+        dtype=float,
+    )
     # The weights are taken as 1 (or you can assign positive real numbers).
-    weights_surface = np.ones((7,6), dtype=float)
-    knot_u_surf = np.array([0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 1.], dtype=float)
-    knot_v_surf = np.array([0., 0., 0., 0., 0., 0.5, 1., 1., 1., 1., 1.], dtype=float)
-    surface3 = NURBSSurfaceTuple(order_u=7, order_v=5, knot_u=knot_u_surf, knot_v=knot_v_surf,
-                                 control_points=cp_surface, weights=weights_surface)
+    weights_surface = np.ones((7, 6), dtype=float)
+    knot_u_surf = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=float)
+    knot_v_surf = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=float)
+    surface3 = NURBSSurfaceTuple(
+        order_u=7, order_v=5, knot_u=knot_u_surf, knot_v=knot_v_surf, control_points=cp_surface, weights=weights_surface
+    )
     # The progenitor curve is a cubic Bézier curve in the parameter space.
-    cp_prog_surf = np.array([[0.1, 0.1],
-                             [0.4, 0.3],
-                             [0.7, 0.6],
-                             [0.5, 0.8]], dtype=float)
+    cp_prog_surf = np.array([[0.1, 0.1], [0.4, 0.3], [0.7, 0.6], [0.5, 0.8]], dtype=float)
     weights_prog_surf = np.array([1.0, 1.0, 1.0, 1.0], dtype=float)
-    knot_prog_surf = np.array([0,0,0,0,1,1,1,1], dtype=float)
-    progenitor_curve_surf = NURBSCurveTuple(order=4, knot=knot_prog_surf,
-                                            control_points=cp_prog_surf, weights=weights_prog_surf)
+    knot_prog_surf = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=float)
+    progenitor_curve_surf = NURBSCurveTuple(order=4, knot=knot_prog_surf, control_points=cp_prog_surf, weights=weights_prog_surf)
     # Set offset distance g(t) = 2.5.
     g_func3 = lambda t: 2.5
     epsilon1_3 = 4.5  # degrees
     epsilon2_3 = 0.0001
     offset_pts_surf_3d, bspline_curve_param_surf = approximate_offset_curve(
-        progenitor_curve_surf, surface3, g_func3, epsilon1_3, epsilon2_3,
-        bspline_order=4, initial_sample_count=6, adams_tol=1e-5)
+        progenitor_curve_surf, surface3, g_func3, epsilon1_3, epsilon2_3, bspline_order=4, initial_sample_count=6, adams_tol=1e-5
+    )
     print("\nExample 3: Offset curve (3D points) on an integral B-spline surface patch:")
     initial_3d = []
     print(surface3)
-    for i in np.linspace(0., 1., 30):
+    for i in np.linspace(0.0, 1.0, 30):
         uv = _evaluate_bspline_curve(progenitor_curve_surf, i)
 
-        initial_3d.append(evaluate_nurbs_surface(surface3, uv[0], uv[1], 0)['S'])
+        initial_3d.append(evaluate_nurbs_surface(surface3, uv[0], uv[1], 0)["S"])
 
     print(np.array(initial_3d).tolist())
     print(offset_pts_surf_3d.tolist())
-
