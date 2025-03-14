@@ -93,43 +93,71 @@ def adams_integrate(f, y0, s0, s_end, tol, args=()):
 # =============================================================================
 def geodesic_ode(s, y, surface):
     """
-    Given y = [u, v, u1, v1] (where u1, v1 are the derivatives with respect to arc-length s),
-    compute the derivative y' with respect to s.
-    Implements the system:
+    Computes the ODE system for geodesics on a NURBS surface.
+
+    Input:
+      y = [u, v, u1, v1]
+          where (u,v) are the surface parameters and (u1, v1) are the derivatives with respect to arc-length s.
+
+    The geodesic equations in local coordinates (u,v) are:
       du/ds   = u1,
       dv/ds   = v1,
-      du1/ds  = -d11*u1^2 - 2*d12*u1*v1 - d22*v1^2,
-      dv1/ds  = -e11*u1^2 - 2*e12*u1*v1 - e22*v1^2.
-    The coefficients d11, d12, d22 are computed from the surface second derivatives;
-    e11, e12, e22 are defined as in the paper.
+      du1/ds  = -Γ^u_uu*u1^2 - 2Γ^u_uv*u1*v1 - Γ^u_vv*v1^2,
+      dv1/ds  = -Γ^v_uu*u1^2 - 2Γ^v_uv*u1*v1 - Γ^v_vv*v1^2.
+
+    Here the Christoffel symbols are computed using:
+      Γ^u_{ij} = g^{11} <r_{ij}, r_u> + g^{12} <r_{ij}, r_v>,
+      Γ^v_{ij} = g^{12} <r_{ij}, r_u> + g^{22} <r_{ij}, r_v>,
+    where r_u, r_v are the first partial derivatives of the surface and
+          r_uu, r_uv, r_vv are the second partial derivatives.
     """
+
+
+    # Unpack state
     u, v, u1, v1 = y
+
+    # Evaluate the surface and its derivatives up to second order.
     derivs = evaluate_nurbs_surface(surface, u, v, d_order=2)
     r_u = np.array(derivs["Su"])
     r_v = np.array(derivs["Sv"])
     r_uu = np.array(derivs["Suu"])
     r_uv = np.array(derivs["Suv"])
     r_vv = np.array(derivs["Svv"])
+
+    # Compute metric coefficients (first fundamental form)
     g11 = np.dot(r_u, r_u)
     g12 = np.dot(r_u, r_v)
     g22 = np.dot(r_v, r_v)
-    cross_ru_rv = np.cross(r_u, r_v)
-    norm_cross = np.linalg.norm(cross_ru_rv)
-    if norm_cross == 0:
-        norm_cross = 1e-8
-    n = cross_ru_rv / norm_cross
-    d11 = np.dot(n, np.cross(r_uu, r_v)) / norm_cross
-    d12 = np.dot(n, np.cross(r_uv, r_v)) / norm_cross
-    d22 = np.dot(n, np.cross(r_vv, r_v)) / norm_cross
-    e11 = np.dot(n, np.cross(r_uu, r_uu)) / norm_cross  # identically 0
-    e12 = np.dot(n, np.cross(r_uv, r_uv)) / norm_cross  # identically 0
-    e22 = np.dot(n, np.cross(r_vv, r_vv)) / norm_cross  # identically 0
+
+    # Determinant of the metric (avoid division by zero)
+    det = g11 * g22 - g12 ** 2
+    if abs(det) < 1e-8:
+        det = 1e-8
+
+    # Inverse metric components
+    g11_inv = g22 / det
+    g12_inv = -g12 / det
+    g22_inv = g11 / det
+
+    # Compute Christoffel symbols using the formula:
+    # Γ^i_{jk} = sum_m g^{im} <r_{jk}, r_m>
+    # For i = 1 (u-coordinate):
+    Gamma_u_uu = g11_inv * np.dot(r_uu, r_u) + g12_inv * np.dot(r_uu, r_v)
+    Gamma_u_uv = g11_inv * np.dot(r_uv, r_u) + g12_inv * np.dot(r_uv, r_v)
+    Gamma_u_vv = g11_inv * np.dot(r_vv, r_u) + g12_inv * np.dot(r_vv, r_v)
+
+    # For i = 2 (v-coordinate):
+    Gamma_v_uu = g12_inv * np.dot(r_uu, r_u) + g22_inv * np.dot(r_uu, r_v)
+    Gamma_v_uv = g12_inv * np.dot(r_uv, r_u) + g22_inv * np.dot(r_uv, r_v)
+    Gamma_v_vv = g12_inv * np.dot(r_vv, r_u) + g22_inv * np.dot(r_vv, r_v)
+
+    # ODE system for geodesics:
     du_ds = u1
     dv_ds = v1
-    du1_ds = -d11 * u1 * u1 - 2 * d12 * u1 * v1 - d22 * v1 * v1
-    dv1_ds = -e11 * u1 * u1 - 2 * e12 * u1 * v1 - e22 * v1 * v1
-    return np.array([du_ds, dv_ds, du1_ds, dv1_ds])
+    du1_ds = - (Gamma_u_uu * u1 ** 2 + 2 * Gamma_u_uv * u1 * v1 + Gamma_u_vv * v1 ** 2)
+    dv1_ds = - (Gamma_v_uu * u1 ** 2 + 2 * Gamma_v_uv * u1 * v1 + Gamma_v_vv * v1 ** 2)
 
+    return np.array([du_ds, dv_ds, du1_ds, dv1_ds])
 
 # =============================================================================
 # 6. Computation of initial geodesic conditions at a given progenitor parameter.
@@ -641,7 +669,7 @@ if __name__ == "__main__":
     progenitor_curve_surf = NURBSCurveTuple(order=4, knot=knot_prog_surf, control_points=cp_prog_surf, weights=weights_prog_surf)
     # Set offset distance g(t) = 2.5.
     g_func3 = lambda t: 2.5
-    epsilon1_3 = 4.5  # degrees
+    epsilon1_3 = 2.5  # degrees
     epsilon2_3 = 0.0001
     offset_pts_surf_3d, bspline_curve_param_surf = approximate_offset_curve(
         progenitor_curve_surf, surface3, g_func3, epsilon1_3, epsilon2_3, bspline_order=4, initial_sample_count=6, adams_tol=1e-5
