@@ -65,7 +65,6 @@ def compute_christoffel_symbols(surface, uv):
 def geodesic_equations(s, y, surface):
     # y is the state vector [u, v, p, q]
     u, v, p, q = y
-    print(s)
     # Compute Christoffel symbols at (u, v)
     Gamma_111, Gamma_112, Gamma_122, Gamma_211, Gamma_212, Gamma_222 = compute_christoffel_symbols(surface, (u, v))
 
