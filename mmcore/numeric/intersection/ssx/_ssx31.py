@@ -15,7 +15,7 @@ Date: [Today's Date]
 """
 from __future__ import annotations
 
-from typing import Callable, Any
+from typing import Callable, Any,Literal
 
 import numpy as np
 
@@ -36,6 +36,8 @@ from mmcore.geom._nurbs_eval import evaluate_nurbs_surface,NURBSSurfaceTuple
 # NURBS surface representation using a namedtuple.
 
 from mmcore.geom import nurbs
+from mmcore.numeric.vectors import vector_projection
+
 
 def _join_weights(pts,weights):
     cpts=np.zeros((*pts.shape[:-1],pts.shape[-1]+1) )
@@ -45,11 +47,16 @@ def _join_weights(pts,weights):
             cpts[i,j,-1]=weights[i,j]
     return cpts
 
-def _tuple_to_nurbs(surf:NURBSSurfaceTuple):
+def _nurbs_to_tuple(s1):
+    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
+                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
+                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
+    return surf1
+
+def _tuple_to_nurbs(surf):
     degree=surf.order_u-1,surf.order_v-1
     pts=_join_weights(surf.control_points,surf.weights)
     return nurbs.NURBSSurface(pts, degree,np.array(surf.knot_u),np.array(surf.knot_v))
-
 def find_initial_intersection_points(surf1, surf2, tol=1e-3) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
@@ -68,10 +75,15 @@ def find_initial_intersection_points(surf1, surf2, tol=1e-3) -> tuple[np.ndarray
     xyz = []
     u1 = []
     u2 = []
-    ns1=_tuple_to_nurbs(surf1)
-    ns2=_tuple_to_nurbs(surf2)
+    ns1=surf1
+    ns2=surf2
+    if isinstance(surf1,tuple):
+        ns1=_tuple_to_nurbs(surf1)
+    if isinstance(surf1,tuple):
+        ns2=_tuple_to_nurbs(surf2)
+
     for s1, s2 in detect_intersections(ns1, ns2, tol=tol):
-        for pt in find_boundary_intersections(s1, s2, tol):
+        for pt in find_boundary_intersections(s1, s2):
             if tuple(pt.point) not in xyz:
                 xyz.append(tuple(pt.point))
 
@@ -172,7 +184,7 @@ def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NU
 # Intersection ODE Function (Formulation of the ODE System)
 # -------------------------------------------------------------------
 
-def intersection_ode(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, tol: float = 1e-6) -> np.ndarray:
+def intersection_ode(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, tol: float = 1e-8) -> np.ndarray:
     """
     Compute the derivative of the intersection curve in parametric space.
     The state vector x = [sigma, t, u, v] corresponds to parameters on surf1 and surf2.
@@ -344,6 +356,186 @@ class _InitPointsTreeWrapper:
 
 
 
+def _intersection_curve_tangents(s1,s2,s,t,u,v):
+    d1=evaluate_nurbs_surface(s1, s,t, 1)
+    d2=evaluate_nurbs_surface(s2, u,v, 1)
+    d=np.linalg.norm(d1['S']-d2['S'])
+    n1 = np.cross(d1['Su'], d1['Sv'])
+    n2= np.cross(d2['Su'], d2['Sv'])
+    n1/=np.linalg.norm(n1)
+    n2 /=np.linalg.norm(n2)
+    t1=np.cross(n1,n2)
+    t1/=np.linalg.norm(t1)
+
+
+
+    return t1,d1['S'],d2['S'],n1,n2
+
+
+import math
+
+
+def _distance(p, q):
+    """Compute the Euclidean _distance between two points."""
+
+    return np.linalg.norm(p-q)
+
+def points_equal(p, q, tol,spt):
+    """Return True if the _distance between points p and q is less than tol."""
+
+    rr= (_distance(   p[0], q[0]) < spt ) ,(_distance(p[1], q[1])<tol) , ( np.abs(1.-np.dot(p[2], q[2]))<tol)
+
+    return np.all(rr)
+
+def reverse_polyline(polyline):
+    """
+    Reverse a polyline structure.
+
+    polyline is a tuple (points, seg_info) where:
+      - points is a list of points,
+      - seg_info is a list of tuples (segment_index, flip).
+
+    When reversing, the list of points is reversed and each flip flag is inverted.
+    """
+    points, seg_info = polyline
+    rev_points = list(reversed(points))
+    rev_seg_info = [(seg_idx, not flip) for seg_idx, flip in reversed(seg_info)]
+    return (rev_points, rev_seg_info)
+
+
+def join_segments_with_info(segments, tol, spt):
+    """
+    Join connected segments into polylines and keep track of segment indices and orientation.
+
+    Parameters:
+        segments: list of segments, where each segment is defined as (p1, p2)
+                  with p1 and p2 being coordinate tuples (e.g. (x, y)).
+        tol: error tolerance. Two points are considered identical if their distance is less than tol.
+
+    Returns:
+        A list of tuples, one per polyline. Each tuple is:
+          (polyline_points, segments_info)
+        where polyline_points is a list of points defining the polyline, and segments_info is a list
+        of (segment_index, flip) tuples in the order that segments appear along the polyline.
+        The flip flag is True if the segment was added in reverse.
+    """
+    # Initialize each segment as its own polyline.
+    # Each polyline is a tuple: (points, segments_info)
+    # For a segment given as (p1, p2), we use points = [p1, p2] and segments_info = [(index, False)]
+    polylines = [(list(seg), [(idx, False)]) for idx, seg in enumerate(segments)]
+
+    changed=True
+    while changed:
+        changed = False
+        i = 0
+
+        while i < len(polylines):
+            poly1 = polylines[i]
+            points1, seg_info1 = poly1
+            # If polyline is closed, do not try to merge further.
+            if points_equal(points1[0], points1[-1], tol, spt):
+                i += 1
+                continue
+
+            j = i + 1
+            while j < len(polylines):
+                poly2 = polylines[j]
+                points2, seg_info2 = poly2
+                # Skip poly2 if it is closed.
+                if points_equal(points2[0], points2[-1], tol,spt):
+                    j += 1
+                    continue
+
+                merged = None
+                new_points = None
+                new_seg_info = None
+
+                # Case 1: End of poly1 equals beginning of poly2.
+                if points_equal(points1[-1], points2[0], tol,spt):
+                    new_points = points1 + points2[1:]
+                    new_seg_info = seg_info1 + seg_info2
+                    merged = True
+                # Case 2: End of poly1 equals end of poly2 -> reverse poly2.
+                elif points_equal(points1[-1], points2[-1], tol,spt):
+                    rev_poly2 = reverse_polyline(poly2)
+                    new_points = points1 + rev_poly2[0][1:]
+                    new_seg_info = seg_info1 + rev_poly2[1]
+                    merged = True
+                # Case 3: Beginning of poly1 equals end of poly2.
+                elif points_equal(points1[0], points2[-1], tol,spt):
+                    new_points = points2 + points1[1:]
+                    new_seg_info = seg_info2 + seg_info1
+                    merged = True
+                # Case 4: Beginning of poly1 equals beginning of poly2 -> reverse poly2.
+                elif points_equal(points1[0], points2[0], tol,spt):
+                    rev_poly2 = reverse_polyline(poly2)
+                    new_points = rev_poly2[0] + points1[1:]
+                    new_seg_info = rev_poly2[1] + seg_info1
+                    merged = True
+
+                if merged:
+                    # Replace poly1 with the merged polyline.
+                    polylines[i] = (new_points, new_seg_info)
+
+                    # Remove poly2.
+                    polylines.pop(j)
+                    changed = True
+                    # Break inner loop to restart scanning from the beginning.
+                    break
+                else:
+                    j += 1
+            if not changed:
+                i += 1
+            else:
+                # Restart the outer loop if a merge occurred.
+                break
+
+    return polylines
+
+
+from mmcore.geom.curves.knot import interpolate_curve
+from mmcore.numeric.geodesic.offset import bspline_basis,evaluate_nurbs_curve,_evaluate_bspline_curve,golden_section_search
+
+
+def _subd(s1, s2, uv1_start, uv1_end, uv2_start, uv2_end, tol=1e-3,spt=1e-2):
+
+    pt1_start = evaluate_nurbs_surface(s1, *uv1_start, 0)['S']
+    pt1_end = evaluate_nurbs_surface(s1, *uv1_end, 0)['S']
+
+    if np.linalg.norm(pt1_start-pt1_end)<(spt*2):
+        return [pt1_start, pt1_end], [uv1_start, uv1_end], [uv2_start, uv2_end]
+    uv1_mid=(uv1_end+uv1_start)/2
+    uv2_mid=(uv2_end + uv2_start)/2
+
+
+
+    #du1=uv1_end-uv1_start
+    #du2 = uv2_end - uv2_start
+    stuv, pt1, *_ = refine_intersection_point(np.array([*uv1_mid, *uv2_mid]), s1, s2,spt=tol, max_iter=100)
+
+
+
+    #x_min, f_min=    golden_section_search(mindist,(0.,1.),1e-3)
+
+
+    #print([pt1_start.tolist(),pt_mid.tolist(),pt_mid_real.tolist(),pt1_end.tolist()])
+
+
+    if abs(np.linalg.norm(pt1['S']-((pt1_start+pt1_end)*0.5)))<(spt*2):
+        return [pt1_start ,pt1_end],[uv1_start, uv1_end],[uv2_start,uv2_end]
+
+    else:
+        #print(x_min,f_min)
+        #uv1_mid = du1 * x_min + uv1_start
+        #uv2_mid = du2 * x_min + uv2_start
+        uv1_mid=stuv[:2]
+        uv2_mid = stuv[2:]
+        pts_l,uvs1_l,uvs2_l=_subd(s1, s2, uv1_start,uv1_mid, uv2_start, uv2_mid, spt)
+        pts_r,uvs1_r,uvs2_r=_subd(s1, s2, uv1_mid, uv1_end, uv2_mid, uv2_end, spt)
+        return pts_l+pts_r[1:], uvs1_l+uvs1_r[1:], uvs2_l+uvs2_r[1:]
+
+
+
 
 
 def validated_ode_solver(
@@ -447,6 +639,40 @@ def validated_ode_solver(
         # Increase step size moderately for efficiency.
 
         h = min(h * 1.5, s_max - s) if check_smax else h*1.5
+        if (x[0] < interval_u_1[0] or x[0] > interval_u_1[1] or
+                x[1] < interval_v_1[0] or x[1] > interval_v_1[1] or
+                x[2] < interval_u_2[0] or x[2] > interval_u_2[1] or
+                x[3] < interval_v_2[0] or x[3] > interval_v_2[1]):
+            solution.pop(-1)
+            enclosures.pop(-1)
+            termination_reason = 1
+            if check_tree:
+
+                tree = context["init_points_tree"]
+                if isinstance(tree, KDTree):
+                    pt = x_new
+                    ddd, ixs = tree.query(pt, 1
+                                          )
+                    solution.append(tree.data[ixs].copy())
+                    pts = np.delete(tree.data, ixs, axis=0)
+                    # print(f'Cull initial points: {ixs}')
+
+                    if pts.size == 0:
+                        check_tree = False
+                        context["init_points_tree"] = None
+
+                    elif len(pts) == 1:
+                        # print('pts',pts)
+                        context["init_points_tree"] = pts[0]
+                        check_tree = True
+                    else:
+                        context["init_points_tree"] = KDTree(pts)
+                elif isinstance(tree, np.ndarray):
+                    pts = context["init_points_tree"]
+
+                    context["init_points_tree"] = None
+                    check_tree = False
+                    solution.append(pts)
 
         # Terminate if any parametric coordinate goes outside the [0, 1] domain.
         if check_tree:
@@ -485,17 +711,6 @@ def validated_ode_solver(
                     if np.linalg.norm(pt-pts)<=(h/2):
                         context["init_points_tree"] = None
                         check_tree = False
-
-                        if (x[0] < interval_u_1[0] or x[0] > interval_u_1[1] or
-                                x[1] < interval_v_1[0] or x[1] > interval_v_1[1] or
-                                x[2] < interval_u_2[0] or x[2] > interval_u_2[1] or
-                                x[3] < interval_v_2[0] or x[3] > interval_v_2[1]):
-                            solution.pop(-1)
-
-                            solution.append(pts)
-
-                            break
-
 
 
 
@@ -609,14 +824,16 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, h
 
     res = find_initial_intersection_points(surf1, surf2, tol)
     branches=[]
+
     if res is not None:
         init_points, init_uv1, init_uv2 = res
         initial_xs = np.zeros((init_uv1.shape[0], 4))
         initial_xs[..., :2] = init_uv1
         initial_xs[..., 2:] = init_uv2
         initial_points_tree = KDTree(initial_xs)
-
+        #print(len(res))
         context = dict(init_points_tree=initial_points_tree)
+
         while   context['init_points_tree'] is not None:
 
 
@@ -631,7 +848,7 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, h
                 elif len(pts) == 1:
 
 
-                    context["init_points_tree"] = pts[0]
+                    context["init_points_tree"] = pts
                 else:
                     context["init_points_tree"] = KDTree(pts)
             elif isinstance(context['init_points_tree'], np.ndarray):
@@ -657,8 +874,9 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, h
             branches.append((curve_pts, params1, params2, encl))
 
     return branches
+SamplingMethod=Literal['marching','subdivide']
 
-def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,h_initial=0.1,tol=1e-3,spt=1e-3):
+def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,h_initial=0.1,tol=1e-3,spt=1e-3,sampling_method:SamplingMethod='marching'):
     surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
                               knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
                               weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
@@ -666,8 +884,94 @@ def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,
     surf2 = NURBSSurfaceTuple(order_u=s2.degree[0] + 1, order_v=s2.degree[1] + 1, knot_u=s2.knots_u.tolist(),
                               knot_v=s2.knots_v.tolist(), control_points=np.array(s2.control_points),
                               weights=np.ascontiguousarray(s2.control_points_w[..., -1]))
+    if sampling_method=='marching':
+        return trace_intersection_curves(surf1,surf2,h_initial,tol,spt)
+    else:
+        return _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=tol, spt=spt)
 
-    return trace_intersection_curves(surf1,surf2,h_initial,tol,spt)
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """
+    A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
+    :param surf1: First NURBS surface
+    :param surf2: Second NURBS surface
+    :param tol: Tolerance
+    :returns: None if no intersections are found or tuple of three numpy arrays of equal length:
+      - cartesian points (x,y,z) with shape (N,3),
+      - points in parametric coordinates of the first surface (u,v) with shape (N,2),
+      - points in parametric coordinates of the second surface (u,v) with shape (N,2)
+    """
+    # Placeholder implementation.
+    # In production this function must robustly compute initial intersection points.
+    # For this implementation, we assume at least one intersection exists.
+    # Here, we simply return a dummy intersection at the center of the parametric domain.
+
+    ns1=surf1
+    ns2=surf2
+    if isinstance(surf1,tuple):
+        ns1=_tuple_to_nurbs(surf1)
+    if isinstance(surf1,tuple):
+        ns2=_tuple_to_nurbs(surf2)
+    branches=[]
+    items=detect_intersections(ns1, ns2, tol=tol)
+    beams=[]
+
+
+    for i,(s1, s2) in enumerate(items):
+
+        stars_points=find_boundary_intersections(s1, s2, tol)
+        #print([p.point.tolist() for p in stars_points])
+        if len(stars_points)>2:
+            print(stars_points)
+            raise ValueError("Length starts points can not be >2")
+        if len(stars_points)<2:
+            continue
+        pt_start=stars_points[0]
+        pt_end = stars_points[-1]
+        st1 = _nurbs_to_tuple(s1)
+        st2 = _nurbs_to_tuple(s2)
+        tangent_start,*_=_intersection_curve_tangents(st1,st2,*pt_start.surface1_params,*pt_start.surface2_params)
+        tangent_end,*_=_intersection_curve_tangents(st1,st2,*pt_end.surface1_params,*pt_end.surface2_params)
+        beams.append(
+            ([pt_start.point, np.array([*pt_start.surface1_params,*pt_start.surface2_params]),tangent_start],[pt_end.point, np.array([*pt_end.surface1_params, *pt_end.surface2_params]), tangent_end]))
+        #print([pt_start.point.tolist(),pt_end.point.tolist()])
+
+
+
+
+
+        curve_points,params_surf1,params_surf2=_subd(st1, st2, np.array(pt_start.surface1_params), np.array(pt_end.surface1_params), np.array(pt_start.surface2_params), np.array(pt_end.surface2_params),tol=tol, spt=spt)
+
+        branches.append((np.array(curve_points),
+                np.array(params_surf1),
+                np.array(params_surf2))
+                )
+    branches_joined=[]
+    ppp=join_segments_with_info(beams, spt, spt)
+
+    for pts, seg_info in ppp:
+
+        branch_pt=[]
+        branch_uv1=[]
+        branch_uv2=[]
+        for segm,flip in seg_info:
+            pts,uv1,uv2=branches[segm]
+            if flip:
+                pts,uv1,uv2=list(reversed(pts)),list(reversed(uv1)),list(reversed(uv2))
+
+            if len(branch_pt)==0:
+                branch_pt.extend(pts)
+                branch_uv1.extend(uv1)
+                branch_uv2.extend(uv2)
+
+            else:
+                branch_pt.extend(pts[1:])
+                branch_uv1.extend(uv1[1:])
+                branch_uv2.extend(uv2[1:])
+
+        branches_joined.append((branch_pt,branch_uv1,branch_uv2))
+
+
+    return branches_joined
 
 
 if __name__ == "__main__":
