@@ -1,20 +1,234 @@
+from __future__ import annotations
+
+
 import math
 
 import numpy as np
 
 from collections import namedtuple
-from typing import TypedDict
+from typing import TypedDict, NamedTuple
+
+from mmcore.geom import nurbs
 
 
 np.set_printoptions(suppress=True)
 
-
 # ======================================================================
 # Namedtuple definitions for NURBS surface and curve representations.
 # ======================================================================
-BSplineCurveTuple = namedtuple("BSplineCurveTuple", ["order", "knot", "control_points"])
-NURBSCurveTuple = namedtuple("NURBSCurveTuple", ["order", "knot", "control_points", "weights"])
-NURBSSurfaceTuple = namedtuple("NURBSSurfaceTuple", ["order_u", "order_v", "knot_u", "knot_v", "control_points", "weights"])
+class BSplineCurveTuple(NamedTuple):
+    order:int
+    knot:NDArray[float]
+    control_points:NDArray[float]
+
+
+class NURBSCurveTuple(NamedTuple):
+    order:int
+    knot:NDArray[float]
+    control_points:NDArray[float]
+    weights:NDArray[float]
+
+class BSplineSurfaceTuple(NamedTuple):
+    order_u:int
+    order_v: int
+    knot_u:NDArray[float]
+    knot_v:NDArray[float]
+    control_points:NDArray[float]
+
+class NURBSSurfaceTuple(NamedTuple):
+    order_u:int
+    order_v: int
+    knot_u:NDArray[float]
+    knot_v:NDArray[float]
+    control_points:NDArray[float]
+    weights:NDArray[float]
+
+def nurbs_interval(knots, degree:int)->tuple[float,float] :
+    """
+    Calculate the effective parameter interval for a NURBS curve (or a surface in one direction)
+    given its knot vector and degree.
+
+    Parameters:
+        knots (list or tuple of float): The knot vector.
+        degree (int): The degree of the NURBS curve (or surface in the specific direction).
+
+    Returns:
+        tuple: A tuple (u_start, u_end) representing the active interval [u_p, u_{n+1}].
+
+    Raises:
+        ValueError: If the knot vector length is not consistent with the degree.
+    """
+    num_knots = len(knots)
+    # The number of control points (n+1) can be calculated from the knot vector length:
+    num_control_points = num_knots - degree - 1
+
+    if num_control_points < 1:
+        raise ValueError("Invalid knot vector or degree: not enough knots for the given degree.")
+
+    # The effective interval is [knots[degree], knots[control_points]]
+    return (float(knots[degree]),float( knots[num_control_points]))
+
+def _curve_degree(self:BSplineCurveTuple|NURBSCurveTuple)->int:
+    return self.order-1
+
+def _curve_interval(self:BSplineCurveTuple|NURBSCurveTuple)->tuple[float,float]:
+    _=_curve_degree(self)
+    return nurbs_interval(self.knot,_)
+
+
+def _surface_degree(self: BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[int,int]:
+    return self.order_u - 1,self.order_v - 1
+
+def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[float,float],tuple[float,float]]:
+    _u,_v=_surface_degree(self)
+    return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
+
+
+# Construction
+def _process_knots(knots):
+    #if isinstance(knots,list):
+    #    return list(knots)
+    #else:
+    #    return np.asarray(knots).tolist()
+    return np.array(knots,dtype=float)
+
+def nurbs_surface(control_points, knots_u, knots_v, degree: tuple[int, int] | None = None, *, weights=None,
+                  order: tuple[int, int] | None = None, **kwargs)->NURBSSurfaceTuple:
+    """
+    Generates a NURBS (Non-Uniform Rational B-Splines) surface representation by processing
+    control points, knot vectors, degree or order, and optional weights. It ensures proper
+    initialization and normalization of the input data and returns a tuple containing the
+    required components to represent the NURBS surface.
+
+    :param control_points: A 2D array-like structure representing the coordinates of the
+        control points for the surface.
+    :param knots_u: A 1D array-like structure or sequence of numbers specifying the knot
+        vector along the u-direction.
+    :param knots_v: A 1D array-like structure or sequence of numbers specifying the knot
+        vector along the v-direction.
+    :param degree: An optional tuple of two integers representing the degree of the NURBS
+        surface along the u and v directions respectively. Defaults to None.
+    :param weights: An optional 2D array-like structure of weights corresponding to the
+        control points. Defaults to an array of ones if not provided.
+    :param order: An optional tuple of integers indicating the orders in the u and v
+        directions. If not provided, it defaults to computed orders based on the control
+        points or degree.
+    :param kwargs: Additional keyword arguments that might be passed but are not used in
+        this function.
+    :return: A NURBSSurfaceTuple with the following elements:
+        - Order in the u-direction.
+        - Order in the v-direction.
+        - Processed knot vector in the u-direction.
+        - Processed knot vector in the v-direction.
+        - Control points as a 2D array without weights (if they were provided).
+        - Computed or provided weights for the control points.
+    :rtype: NURBSSurfaceTuple
+    """
+    control_points=np.array(control_points,dtype=float)
+
+    u_size,v_size=control_points.shape[0],control_points.shape[1]
+    if degree is not None:
+        order_u,order_v=degree[0]+1,degree[1]+1
+    elif order is not None:
+        order_u, order_v=order
+    else:
+        order_u, order_v =min(u_size, 4),min(v_size, 4)
+    if weights is None:
+        if control_points.shape[-1]==4:
+            weights=np.ascontiguousarray(control_points[...,-1])
+            control_points=np.ascontiguousarray(control_points[...,:-1])
+
+        else:
+            weights=np.ones((u_size,v_size),dtype=float)
+    else:
+        weights=np.array(weights,dtype=float)
+
+    knots_u=_process_knots(knots_u)
+    knots_v=_process_knots(knots_v)
+    return NURBSSurfaceTuple(order_u, order_v, knots_u , knots_v, control_points, weights)
+
+
+def nurbs_curve(control_points, knots, degree: int| None = None, *, weights=None,
+                  order: int| None = None, **kwargs)->NURBSCurveTuple:
+    """
+    Constructs a Non-Uniform Rational B-Spline (NURBS) curve using the provided
+    control points, knot vector, degree, and optional weights.
+
+    This method initializes a NURBS representation based on the given information
+    about control points, knot sequence, and order. The degree can be specified
+    directly, or derived from the order parameter. If weights are not defined, all
+    weights are set to 1 by default unless the control points include them as a
+    fourth dimension. The function also processes the knot vector to ensure
+    compatibility.
+
+    :param control_points: Array-like collection of control points that define
+        the shape of the curve. If weights are embedded as the fourth dimension,
+        they will be extracted automatically.
+    :type control_points: numpy.ndarray
+    :param knots: The knot vector specifying parameter dividers.
+    :type knots: array-like
+    :param degree: Degree of the NURBS curve. If provided, it is used to calculate
+        the order by adding 1.
+    :type degree: int, optional
+    :param weights: Optional weights for the control points. Defaults to 1 if
+        omitted or extracted from the control points if provided in 4D.
+    :type weights: numpy.ndarray, optional
+    :param order: The order of the NURBS curve, equal to degree + 1. Either degree
+        or order must be provided.
+    :type order: int, optional
+    :param kwargs: Additional arguments for further customization of the NURBS
+        curve initialization process.
+    :type kwargs: dict
+    :return: An instance of `NURBSCurveTuple` containing the order, processed
+        knots, control points, and weights.
+    :rtype: NURBSCurveTuple
+    """
+    control_points = np.array(control_points, dtype=float)
+
+    size = control_points.shape[0]
+    if degree is not None:
+        order = degree + 1
+    elif order is not None:
+        pass
+    else:
+        order= min(size, 4)
+    if weights is None:
+        if control_points.shape[-1] == 4:
+            weights = np.ascontiguousarray(control_points[..., -1])
+            control_points = np.ascontiguousarray(control_points[..., :-1])
+
+        else:
+            weights = np.ones((size,), dtype=float)
+    knots = _process_knots(knots)
+
+    return NURBSCurveTuple(order, knots, control_points,
+                             weights)
+
+
+# Conversion
+def _join_weights(pts,weights):
+    cpts=np.zeros((*pts.shape[:-1],pts.shape[-1]+1) )
+    for i in range(pts.shape[0]):
+        for j in range(pts.shape[1]):
+            cpts[i,j,:-1]=pts[i,j]
+            cpts[i,j,-1]=weights[i,j]
+    return cpts
+
+
+def _nurbs_to_tuple(s1):
+    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
+                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
+                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
+    return surf1
+
+
+def _tuple_to_nurbs(surf):
+    degree=surf.order_u-1,surf.order_v-1
+    pts=_join_weights(surf.control_points,surf.weights)
+    return nurbs.NURBSSurface(pts, degree,np.array(surf.knot_u),np.array(surf.knot_v))
+
+
+# Operations
 
 
 def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):

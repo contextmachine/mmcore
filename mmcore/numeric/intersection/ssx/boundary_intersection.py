@@ -5,6 +5,7 @@ with another surface.
 """
 from __future__ import annotations
 
+
 from typing import List, Tuple, Optional
 import numpy as np
 
@@ -73,6 +74,7 @@ class IntersectionPoint:
             
         # Keep this for backward compatibility
         self.surface_params = surface_params
+        self.stuv=np.array([self.surface1_params[0], self.surface1_params[1],self.surface2_params[0],self.surface2_params[1] ])
         
     def get_start_params(self) -> Tuple[np.ndarray, np.ndarray]:
         """
