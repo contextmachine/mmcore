@@ -72,7 +72,7 @@ class NURBSCurveSurfaceIntersector:
             t0, t1 = curve.interval()
 
 
-            curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5, normalize_knots=False)
+            curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5,tol=1e-12, normalize_knots=False)
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
             u,v=(u0 + u1) * 0.5, (v0 + v1) * 0.5
@@ -101,7 +101,7 @@ class NURBSCurveSurfaceIntersector:
             ):
                 return
 
-            curve1, curve2 = split_curve(curve, t, tol=self.ptol,normalize_knots=False)
+            curve1, curve2 = split_curve(curve, t,tol=1e-12,normalize_knots=False)
             # normalize_curve_knots(curve1)
             # normalize_curve_knots(curve2)
 

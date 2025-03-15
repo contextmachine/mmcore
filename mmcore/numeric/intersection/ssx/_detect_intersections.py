@@ -348,7 +348,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
         chs=dict()
         #print('k',f.interval(),s.interval())
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
-        if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
+        if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 50):
 
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок

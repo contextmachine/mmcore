@@ -91,7 +91,7 @@ pts2 = pts2.reshape((6, len(pts2) // 6, 3))
 s21 = NURBSSurface(pts1, (3, 3))
 s22 = NURBSSurface(pts2, (3, 3))
 s=time.time()
-result=ssx(s21,s22,0.001)
+result=ssx(s21,s22,tol=1e-3,spt=0.01, sampling_method='marching')
 
 
 

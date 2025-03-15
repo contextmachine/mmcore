@@ -919,7 +919,7 @@ s2 = NURBSSurface(
 )
 
 s=time.time()
-result=ssx(s1,s2,0.001)
+result=ssx(s1,s2,tol=0.001,spt=0.01,sampling_method='marching')
 
 
 
