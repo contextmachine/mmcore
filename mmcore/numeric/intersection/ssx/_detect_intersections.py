@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from mmcore.geom.nurbs import NURBSSurface, decompose_surface
-from mmcore.numeric._aabb import aabb, aabb_intersect, aabb_intersection
+from mmcore.numeric._aabb import aabb, aabb_intersect, aabb_intersection,aabb_intersect_fast_3d
 from mmcore.numeric.algorithms.cygjk import gjk
 
 from mmcore.geom.bvh import build_bvh, intersect_bvh_objects
@@ -138,7 +138,7 @@ def find_common_side_vector(N1, N2):
     return None
 
 
-def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None):
+def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
     Существует три варианта завершения:
@@ -160,7 +160,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     #dddd = [False, False, False, False, False]
     #dbg.data = (g1, g2, dddd)
 
-    if not aabb_intersect(bb1,bb2):
+    if not aabb_intersect_fast_3d(bb1,bb2):
         # ББокы не пересекаются
         #dddd[0] = True
 
@@ -175,11 +175,11 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
     ii=np.zeros((2,3))
     aabb_intersection(bb1,bb2,ii)
 
-    if np.min(ii[1]-ii[0]) < tol:
-        # Бокс не маленький, но очень плоский. объекты не пересекаются
-        #dddd[2] = True
-
-        return []
+    #if np.min(ii[1]-ii[0]) < tol:
+    #    # Бокс не маленький, но очень плоский. объекты не пересекаются
+    #    #dddd[2] = True
+    #
+    #    return []
     #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
     #    print('f')
     #    return [g1.surface, g2.surface]
@@ -199,7 +199,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
         g2.compute()
     bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
 
-    if not aabb_intersect(bb21,bb11):
+    if not aabb_intersect_fast_3d(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
         #dddd[3] = True
         return [(g1.surface, g2.surface)]
@@ -232,7 +232,7 @@ def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None)
             intersections.extend(res)
     return intersections
 
-
+from .boundary_intersection import find_boundary_intersections
 def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
     Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
@@ -335,6 +335,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
     tree1 = build_bvh([NURBSObject(s) for s in s1d])
     tree2 = build_bvh([NURBSObject(s) for s in s2d])
     gauss_maps=dict()
+
     for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
 
         f = obj1.object.surface
@@ -348,7 +349,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
         chs=dict()
         #print('k',f.interval(),s.interval())
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
-        if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 50):
+        if gjk(f.control_points_flat, s.control_points_flat, 1e-8,  50):
 
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок
@@ -362,6 +363,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             ff.compute()
             #dddd[1] = True
 
+            #ff.intersects(ss)
 
 
             p1, p2 = separate_gauss_maps(ff, ss)
@@ -372,6 +374,12 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
                 #sbb = subs[index].subd(1)
                 #
                 intersections.extend(_detect_intersections_deep(ss, ff, chs, tol=tol))
+            else:
+                intersections.append((f, s))
+        else:
+            l=find_boundary_intersections(s,f,tol)
+            if len(l)>0:
+                intersections.append((f, s))
         index += 1
     return intersections
 
