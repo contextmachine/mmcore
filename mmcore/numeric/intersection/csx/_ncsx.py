@@ -149,7 +149,7 @@ class NURBSCurveSurfaceIntersector:
         result = newtons_method(
             equation,
             np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),
-            max_iter=15
+            max_iter=5
         )
 
         # print(result)
@@ -186,7 +186,7 @@ class NURBSCurveSurfaceIntersector:
         surface_normal = surface.normal(np.array([u, v]))
         surface_normal /= scalar_norm(surface_normal)
         # print(surface_normal,curve_tangent)
-        return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.ptol
+        return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.tolerance
 
 
 def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):

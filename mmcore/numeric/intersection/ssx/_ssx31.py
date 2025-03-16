@@ -604,7 +604,10 @@ def _project_point_to_segment(p, a, b):
 
     return distance, is_on_segment
 from mmcore.numeric.intersection.ssx.boundary_intersection import IntersectionPoint
+
 def check_boundary_intersections_condition(x0,x, interval_u_1,interval_v_1,interval_u_2,interval_v_2):
+    x=x
+    x0=x0
     first_condition=(x[0] < interval_u_1[0] or x[0] > interval_u_1[1] or
      x[1] < interval_v_1[0] or x[1] > interval_v_1[1] or
      x[2] < interval_u_2[0] or x[2] > interval_u_2[1] or
@@ -614,7 +617,8 @@ def check_boundary_intersections_condition(x0,x, interval_u_1,interval_v_1,inter
                        x0[2] < interval_u_2[0] or x0[2] > interval_u_2[1] or
                        x0[3] < interval_v_2[0] or x0[3] > interval_v_2[1])
     return first_condition and second_condition
-
+def _expand_interval(interv,val):
+    return interv[0]-val,interv[1]+val
 def check_boundary_intersections(boundary_intersection_points:list[IntersectionPoint], interval_u_1,interval_v_1,interval_u_2,interval_v_2, surface1,surface2,current, prev, tol,spt, use_spt=True):
         x=current
         x0=prev
@@ -658,6 +662,7 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                             print(dist1,dist2,in_segment1,in_segment2,tol)
                             print([intersection_point.point.tolist(), intersection_point.stuv.tolist(),x.tolist(), x0.tolist()])
                         else:
+
                             print('FAIL',x,x0,dist1,dist2, in_segment1,in_segment2,t1,t2,intersection_point.stuv)
                     if len(new_candidates) == 0:
                         continue
@@ -668,16 +673,20 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
 
 
 
+
                     x_stack.append(((x0,pt0),(x_mid,pt1['S']),new_candidates))
                     x_stack.append(((x_mid,pt1['S']), (x,pt),new_candidates))
 
 
                 else:
                     continue
-
-            return True,0
-            #raise ValueError(
-            #    "The area boundary has been reached, but the boundary intersection point has not been found")
+            pt0 = evaluate_nurbs_surface(
+                surface1, x0[0], x0[1], 0)["S"]
+            pt = evaluate_nurbs_surface(
+                surface1, x[0], x[1], 0)["S"]
+            print([pt0.tolist(),pt.tolist(),[ b.point.tolist() for b in boundary_intersection_points]])
+            raise ValueError(
+                "The area boundary has been reached, but the boundary intersection point has not been found")
 
         else:
 
@@ -794,21 +803,31 @@ def validated_ode_solver(
         solution.append(x_new)
         enclosures.append(enclosure)
         habs=np.abs(h)
+
+
         s += habs
         x_prev=x.copy()
         x = x_new.copy()
 
-        # Increase step size moderately for efficiency.
 
         success, bp_index = check_boundary_intersections(boundary_intersections, interval_u_1,interval_v_1,interval_u_2,interval_v_2,surf1,surf2,x,x_prev, tol=tol, spt=spt, use_spt=boundary_check_spt)
-        if success:
-            solution.pop(-1)
-            enclosures.pop(-1)
-            termination_reason = 1
-            solution.append(boundary_intersections[bp_index].stuv)
-            x= boundary_intersections[bp_index].stuv.copy()
 
-            del boundary_intersections[bp_index]
+        if success:
+                print("B",[boundary_intersections[bp_index].stuv.tolist(), x_prev.tolist()])
+                if np.allclose(boundary_intersections[bp_index].stuv,x_prev):
+                    print('reverse')
+                    solution.pop(-1)
+                    enclosures.pop(-1)
+                    x=x_prev
+                    h=-h
+        else:
+                    solution.pop(-1)
+                    enclosures.pop(-1)
+                    termination_reason = 1
+                    solution.append(boundary_intersections[bp_index].stuv.copy())
+                    x_new= boundary_intersections[bp_index].stuv.copy()
+                    x=x_new.copy()
+                    del boundary_intersections[bp_index]
 
         h = np.copysign(h,min(np.abs(h * 2.), s_max - s)) if check_smax else h*2.
 
@@ -991,6 +1010,12 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
             curve_pts, params1, params2, encl, termination_reason = trace_intersection_curve(
                 surf1, surf2, init_point,  boundary_intersections, s_max=-1, h_initial=h_initial, tol=tol, spt=spt, context=context,boundary_check_spt=boundary_check_spt
             )
+            if (termination_reason == 1):
+                print("CC",len(curve_pts),np.array(curve_pts).tolist(), [b.point.tolist()for b in boundary_intersections])
+
+
+
+
 
             if (termination_reason == 1) and backward:
                 #init_point_xyz = evaluate_nurbs_surface(surf1, init_point[0], init_point[1], 0)['S']
@@ -1002,6 +1027,8 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
 
 
                 curve_pts, params1, params2, encl=np.array([*reversed(curve_pts2),*curve_pts[1:]]),np.array([*reversed(params12), *params1[1:]]),np.array([*reversed(params22),*params2[1:]]),[*reversed(encl2),encl[1:]]
+
+
             print("END", context,i)
 
 
@@ -1053,13 +1080,13 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
     branches=[]
-    items=detect_intersections(ns1, ns2, tol=1e-5)
+    items=detect_intersections(ns1, ns2, tol=spt)
     beams=[]
 
 
     for i,(s1, s2) in enumerate(items):
 
-        stars_points=find_boundary_intersections(s1, s2,tol=spt,ptol=1e-12)
+        stars_points=find_boundary_intersections(s1, s2,tol=spt,ptol=tol)
         print('p',[p.point.tolist() for p in stars_points])
 
 
@@ -1083,12 +1110,13 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
                 init_uv2[i]=pt.surface2_params
 
 
-            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,backward=False,boundary_check_spt=True):
+            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,backward=False,boundary_check_spt=False):
                 curve_pts, params1, params2=np.array(curve_pts), np.array(params1), np.array(params2)
                 branches.append((curve_pts,
                                  params1,
                                  params2)
                                 )
+
                 tangent_start, *_ = _intersection_curve_tangents(st1, st2, params1[0][0],params1[0][1],params2[0][0],params2[0][1])
                 tangent_end, *_ = _intersection_curve_tangents(st1, st2, params1[-1][0], params1[-1][1], params2[-1][0],
                                                                  params2[-1][1])
