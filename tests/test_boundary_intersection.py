@@ -11,7 +11,7 @@ from mmcore.numeric.intersection.ssx.boundary_intersection import (
     IntersectionPoint
 
 )
-from test_nurbs_algo import degree
+
 
 
 def create_test_surface1() -> NURBSSurface:
