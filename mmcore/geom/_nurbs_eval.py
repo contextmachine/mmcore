@@ -86,11 +86,6 @@ class EvaluateSurfaceData(TypedDict):
     Suv: NDArray[float]
     Svv: NDArray[float]
 
-
-
-
-
-
 def nurbs_interval(knots, degree:int)->tuple[float,float] :
     """
     Calculate the effective parameter interval for a NURBS curve (or a surface in one direction)
@@ -546,6 +541,7 @@ def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->
 
     recalculate=evaluate_curvature(data['C1'], data['C2'],data['K'],data['Ut'])
     return data
+
 
 '''
 def join_weights(surf:NURBSSurfaceTuple):
