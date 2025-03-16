@@ -78,16 +78,8 @@ cpdef bint intersection_curve_point(Implicit3D surf1, Implicit3D surf2,  double[
 @cython.wraparound(False)   # Turn off negative indexing
 @cython.cdivision(True)
 @cython.initializedcheck(False)
-cpdef bint evaluate_curvature(
-    """
-         Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and
-         second derivative.
-    """
-    double[:] derivative,
-    double[:] second_derivative, 
-    double[:] unit_tangent_vector, 
-    double[:] curvature_vector) noexcept nogil:
-
+cpdef bint evaluate_curvature(double[:] derivative,double[:] second_derivative, double[:] unit_tangent_vector, double[:] curvature_vector) noexcept nogil:
+    """Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and second derivative."""
     cdef int n = derivative.shape[0]
     cdef double norm_derivative, negative_second_derivative_dot_tangent, inverse_norm_derivative_squared
     cdef bint recalculate_condition
