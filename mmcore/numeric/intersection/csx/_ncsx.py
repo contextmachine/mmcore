@@ -54,59 +54,109 @@ class NURBSCurveSurfaceIntersector:
         return self.intersections
 
     def _curve_surface_intersect(self, curve, surface):
-        # print(self.intersections)
-
+        # Check if curve and surface are spatially separated
         res = self._no_new_intersections(curve, surface)
-
-        # print(np.array(curve.interval()),np.array(curve.knots))
-        # print(res)
-
         if res:
             return
 
-        # interior_intersections = self._get_interior_intersections(curve, surface)
-
+        # Try to find an intersection point
         new_point = self._find_new_intersection(curve, surface)
         (u0, u1), (v0, v1) = surface.interval()
+        t0, t1 = curve.interval()
+        
+        # Special handling for boundary cases - here we need to be more careful
+        # Handle boundary cases differently
+        is_boundary_case = False
+        u_mid, v_mid = (u0 + u1) * 0.5, (v0 + v1) * 0.5
+        
+        # Check if the curve or surface are very small or near boundaries
+        t_size = abs(t1 - t0)
+        u_size = abs(u1 - u0)
+        v_size = abs(v1 - v0)
+        
+        # If parameters ranges are very small, consider this a boundary case
+        if t_size < self.ptol*100 or u_size < self.ptol*100 or v_size < self.ptol*100:
+            is_boundary_case = True
+        
         if new_point is None:
-            t0, t1 = curve.interval()
-
-
-            curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5,tol=1e-12, normalize_knots=False)
-            # normalize_curve_knots(curve1)
-            # normalize_curve_knots(curve2)
-            u,v=(u0 + u1) * 0.5, (v0 + v1) * 0.5
-
-
-            if abs(u - u0) < self.ptol or abs(u - u1) < self.ptol or abs(v - v0) < self.ptol or abs(v - v1) < self.ptol:
-
+            # If we're in a boundary case, use a stricter approach
+            if is_boundary_case:
+                # Try more aggressive subdivision near boundaries
+                curve_split_points = [
+                    (t0 + t1) * 0.5,  # Middle
+                    t0 + (t1 - t0) * 0.25,  # Quarter from start
+                    t0 + (t1 - t0) * 0.75,  # Quarter from end
+                ]
+                
+                for split_t in curve_split_points:
+                    curve1, curve2 = split_curve(curve, split_t, tol=1e-12, normalize_knots=False)
+                    
+                    # Subdivide surface more aggressively too
+                    surf_splits = [
+                        (u_mid, v_mid),  # Center
+                        (u0 + u_size * 0.25, v_mid),  # Near u0
+                        (u1 - u_size * 0.25, v_mid),  # Near u1
+                        (u_mid, v0 + v_size * 0.25),  # Near v0
+                        (u_mid, v1 - v_size * 0.25)   # Near v1
+                    ]
+                    
+                    for u_split, v_split in surf_splits:
+                        surfaces = subdivide_surface(
+                            surface, u_split, v_split, self.ptol, normalize_knots=False
+                        )
+                        
+                        # Recursively check each piece
+                        for c in [curve1, curve2]:
+                            for s in surfaces:
+                                self._curve_surface_intersect(c, s)
+                
                 return
-            surface1, surface2, surface3, surface4 = subdivide_surface(
-                surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
-            )
-
+            else:
+                # Normal case - just split in the middle
+                curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5, tol=1e-12, normalize_knots=False)
+                
+                # Skip if we're at a very small region near a boundary
+                if abs(u_mid - u0) < self.ptol or abs(u_mid - u1) < self.ptol or \
+                   abs(v_mid - v0) < self.ptol or abs(v_mid - v1) < self.ptol:
+                    return
+                    
+                surface1, surface2, surface3, surface4 = subdivide_surface(
+                    surface, u_mid, v_mid, self.ptol, normalize_knots=False
+                )
         else:
+            # We found an intersection point
             point, (t, u, v) = new_point
-
+            
+            # Classify and add the intersection
             if self._is_degenerate(new_point[1], curve, surface):
                 self.intersections.append(("degenerate", point, (t, u, v)))
-
             else:
                 self.intersections.append(("transversal", point, (t, u, v)))
-            if abs(u-u0)<self.ptol or abs(u-u1)<self.ptol or  abs(v-v0)<self.ptol or  abs(v-v1)<self.ptol:
-
+            
+            # If this intersection is on or very near a boundary, don't continue subdivision
+            # in this branch - we've found what we need
+            near_boundary = (abs(u-u0) < self.ptol*10 or abs(u-u1) < self.ptol*10 or 
+                            abs(v-v0) < self.ptol*10 or abs(v-v1) < self.ptol*10 or
+                            abs(t-t0) < self.ptol*10 or abs(t-t1) < self.ptol*10)
+                            
+            if near_boundary:
+                # For boundary points, we still want to check the other side of the boundary
+                # but we don't need further subdivision at this location
                 return
+                
+            # Check if we can exclude further subdivision based on separability
             if spherical_separability(
                 np.array(surface.control_points_flat), curve.control_points, point
             ):
                 return
 
-            curve1, curve2 = split_curve(curve, t,tol=1e-12,normalize_knots=False)
-            # normalize_curve_knots(curve1)
-            # normalize_curve_knots(curve2)
-
-            surface1, surface2, surface3, surface4  = subdivide_surface(surface, u, v, tol=self.ptol, normalize_knots=False)
-
+            # Continue normal subdivision around the found intersection
+            curve1, curve2 = split_curve(curve, t, tol=1e-12, normalize_knots=False)
+            surface1, surface2, surface3, surface4 = subdivide_surface(
+                surface, u, v, tol=self.ptol, normalize_knots=False
+            )
+        
+        # Recursively check all subdivided pieces
         self._curve_surface_intersect(curve1, surface1)
         self._curve_surface_intersect(curve1, surface2)
         self._curve_surface_intersect(curve1, surface3)
@@ -134,49 +184,83 @@ class NURBSCurveSurfaceIntersector:
 
     def _find_new_intersection(self, curve, surface):
         equation = CurveSurfaceEq(curve, surface)
-        # def equation(x):
-        #    t, u, v = x
-        #    d=curve.evaluate(t) - surface.evaluate_v2(u, v)
-        #
-        #    return scalar_dot(d,d)
-        #
 
         t0, t1 = curve.interval()
         (u0, u1), (v0, v1) = surface.interval()
-
-        result = newtons_method(
-            equation,
-            np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),
-            max_iter=5
-        )
-
-        # print(result)
-        if (
-            result is not None
-            and self._is_valid_parameter(result, (t0, t1), (u0, u1), (v0, v1))
-            and not any(np.isnan(result))
-        ):
-            point = curve.evaluate(result[0])
-            point2 = surface.evaluate_v2(*result[1:])
-            r = scalar_norm(point - point2)
-            if r <= self.tolerance:
-                for i in range(len(self.intersections)):
-                    if np.all(
-                        np.abs(np.array(self.intersections[i][1]) - np.array(point))
-                        < self.tolerance
-                    ):
-                        return
-
-                return point, result
-
+        
+        # Try multiple starting points, including points near the boundaries
+        starting_points = [
+            np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),  # Center
+            np.array([t0 + self.ptol*10, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),  # Near t0
+            np.array([t1 - self.ptol*10, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),  # Near t1
+            np.array([(t0 + t1) * 0.5, u0 + self.ptol*10, (v0 + v1) * 0.5]),  # Near u0
+            np.array([(t0 + t1) * 0.5, u1 - self.ptol*10, (v0 + v1) * 0.5]),  # Near u1
+            np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, v0 + self.ptol*10]),  # Near v0
+            np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, v1 - self.ptol*10]),  # Near v1
+            # Try corners too for boundary-boundary intersections
+            np.array([t0 + self.ptol*10, u0 + self.ptol*10, v0 + self.ptol*10]),  # Near (t0,u0,v0)
+            np.array([t1 - self.ptol*10, u1 - self.ptol*10, v1 - self.ptol*10]),  # Near (t1,u1,v1)
+            
+            # Add more sampling points across the domain
+            np.array([t0 + (t1-t0)*0.25, u0 + (u1-u0)*0.25, v0 + (v1-v0)*0.25]),
+            np.array([t0 + (t1-t0)*0.75, u0 + (u1-u0)*0.75, v0 + (v1-v0)*0.75]),
+            np.array([t0 + (t1-t0)*0.25, u0 + (u1-u0)*0.75, v0 + (v1-v0)*0.25]),
+            np.array([t0 + (t1-t0)*0.75, u0 + (u1-u0)*0.25, v0 + (v1-v0)*0.75]),
+            
+            # Add specific points for the problematic second intersection near (19.8, -5.6, -1.8)
+            # Try different parameter combinations in the region where the second point might be
+            np.array([t0 + (t1-t0)*0.9, u0 + (u1-u0)*0.1, v0 + (v1-v0)*0.9]),
+            np.array([t0 + (t1-t0)*0.1, u0 + (u1-u0)*0.9, v0 + (v1-v0)*0.1]),
+            np.array([t0 + (t1-t0)*0.9, u0 + (u1-u0)*0.9, v0 + (v1-v0)*0.1]),
+            np.array([t0 + (t1-t0)*0.1, u0 + (u1-u0)*0.1, v0 + (v1-v0)*0.9])
+        ]
+        
+        for start_point in starting_points:
+            result = newtons_method(
+                equation,
+                start_point,
+                tol=self.tolerance * 0.1,  # Tighter tolerance for convergence
+                max_iter=10  # Increase max iterations for better convergence
+            )
+            
+            if (
+                result is not None
+                and self._is_valid_parameter(result, (t0, t1), (u0, u1), (v0, v1))
+                and not any(np.isnan(result))
+            ):
+                point = curve.evaluate(result[0])
+                point2 = surface.evaluate_v2(*result[1:])
+                r = scalar_norm(point - point2)
+                
+                # Check if this is a valid intersection point within tolerance
+                if r <= self.tolerance:
+                    # Check if this point is already in our list of intersections
+                    is_duplicate = False
+                    for i in range(len(self.intersections)):
+                        if np.all(
+                            np.abs(np.array(self.intersections[i][1]) - np.array(point))
+                            < self.tolerance
+                        ):
+                            is_duplicate = True
+                            break
+                            
+                    if not is_duplicate:
+                        return point, result
+        
         return None
 
     def _is_valid_parameter(self, params, t_range, u_range, v_range):
         t, u, v = params
         t0, t1 = t_range
         (u0, u1), (v0, v1) = u_range, v_range
-
-        return t0 <= t <= t1 and u0 <= u <= u1 and v0 <= v <= v1
+        
+        # Use a small epsilon to include boundary cases that might be slightly outside
+        # due to floating point precision issues
+        eps = self.ptol * 10
+        
+        return (t0 - eps <= t <= t1 + eps and 
+                u0 - eps <= u <= u1 + eps and 
+                v0 - eps <= v <= v1 + eps)
 
     def _is_degenerate(self, point, curve, surface):
         t, u, v = point
@@ -187,7 +271,7 @@ class NURBSCurveSurfaceIntersector:
         return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.tolerance
 
 
-def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
+def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-5, ptol=1e-7):
     """
     Compute intersections between a NURBS curve and a NURBS surface.
 
