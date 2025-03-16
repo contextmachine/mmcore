@@ -2,15 +2,16 @@ from __future__ import annotations
 
 
 import math
+import warnings
 
 import numpy as np
 
-from collections import namedtuple
-from typing import TypedDict, NamedTuple
 
+from typing import TypedDict, NamedTuple
+from numpy.typing import NDArray
 from mmcore.geom import nurbs
 
-
+from mmcore.numeric.calgorithms import evaluate_curvature
 np.set_printoptions(suppress=True)
 
 # ======================================================================
@@ -42,6 +43,53 @@ class NURBSSurfaceTuple(NamedTuple):
     knot_v:NDArray[float]
     control_points:NDArray[float]
     weights:NDArray[float]
+
+class EvaluateCurveData(TypedDict):
+    """
+    :ivar C: Point at.
+    :type C: numpy.ndarray[float]
+    :ivar C1: First derivative.
+    :type C1: numpy.ndarray[float]
+    :ivar C2: Second derivative
+    :type C2: numpy.ndarray[float]
+    """
+    C:NDArray[float]
+    C1: NDArray[float]
+    C2: NDArray[float]
+
+class EvaluateCurveDifferentialData(TypedDict):
+    """
+    :ivar C: Point at.
+    :type C: numpy.ndarray[float]
+    :ivar C1: First derivative.
+    :type C1: numpy.ndarray[float]
+    :ivar C2: Second derivative
+    :type C2: numpy.ndarray[float]
+    :ivar K:  RCurvature vector
+    :type K: numpy.ndarray[float]
+    :ivar Ut: Unit tangent vector
+    :type Ut: numpy.ndarray[float]
+    """
+    C:NDArray[float]
+    C1: NDArray[float]
+    C2: NDArray[float]
+    K: NDArray[float]
+    Ut:NDArray[float]
+
+
+class EvaluateSurfaceData(TypedDict):
+
+    S:NDArray[float]
+    Su: NDArray[float]
+    Sv: NDArray[float]
+    Suu: NDArray[float]
+    Suv: NDArray[float]
+    Svv: NDArray[float]
+
+
+
+
+
 
 def nurbs_interval(knots, degree:int)->tuple[float,float] :
     """
@@ -204,6 +252,13 @@ def nurbs_curve(control_points, knots, degree: int| None = None, *, weights=None
     return NURBSCurveTuple(order, knots, control_points,
                              weights)
 
+def _join_weights_1d(pts,weights):
+    cpts=np.zeros((pts.shape[0],pts.shape[1]+1) )
+    for i in range(pts.shape[0]):
+
+        cpts[i,:-1]=pts[i]
+        cpts[i,-1]=weights[i]
+    return cpts
 
 # Conversion
 def _join_weights(pts,weights):
@@ -215,17 +270,38 @@ def _join_weights(pts,weights):
     return cpts
 
 
-def _nurbs_to_tuple(s1):
-    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
+def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
+    if isinstance(s1,nurbs.NURBSSurface):
+        surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
                               knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
                               weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
-    return surf1
+        return surf1
+    elif isinstance(s1,nurbs.NURBSCurve):
+        curve1 = NURBSCurveTuple(order=s1.degree + 1,knot=s1.knots.tolist(),
+                                  control_points=np.array(s1.control_points),
+                                  weights=s1.weights)
+        return curve1
+    else:
+
+        raise TypeError(f"Arguments must be {nurbs.NURBSCurve.__module__}.{nurbs.NURBSCurve.__name__} or {nurbs.NURBSSurface.__module__}.{nurbs.NURBSSurface.__name__}, not {type(s1).__name__}")
 
 
-def _tuple_to_nurbs(surf):
-    degree=surf.order_u-1,surf.order_v-1
-    pts=_join_weights(surf.control_points,surf.weights)
-    return nurbs.NURBSSurface(pts, degree,np.array(surf.knot_u),np.array(surf.knot_v))
+def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NURBSSurfaceTuple):
+    if isinstance(obj,(NURBSSurfaceTuple,BSplineSurfaceTuple)):
+        degree=obj.order_u-1,obj.order_v-1
+
+        pts=_join_weights(obj.control_points,obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
+
+        return nurbs.NURBSSurface(pts, degree,np.array(obj.knot_u),np.array(obj.knot_v))
+    elif isinstance(obj,(NURBSCurveTuple,BSplineCurveTuple)):
+        degree = obj.order - 1
+
+        pts = _join_weights_1d(obj.control_points, obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
+
+        return nurbs.NURBSCurve(pts, degree,knots=np.array(obj.knot))
+    else:
+        raise TypeError(
+            f"Arguments must be {BSplineCurveTuple.__name__}|{NURBSCurveTuple.__name__}|{BSplineSurfaceTuple.__name__}|{NURBSSurfaceTuple.__name__}, not {type(obj).__name__}")
 
 
 # Operations
@@ -307,7 +383,7 @@ def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order
     return ders
 
 
-def evaluate_nurbs_curve(curve, u, d_order=2):
+def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
     """
     Evaluate a rational NURBS curve at parameter u.
     Returns a dictionary with keys:
@@ -323,12 +399,12 @@ def evaluate_nurbs_curve(curve, u, d_order=2):
 
     # Compute basis functions and their derivatives.
     # Assumes existence of a function 'compute_basis_function_derivatives_np'
-    ders = np.array(compute_basis_function_derivatives_np(p, U, span, u, d))
+    ders = np.array(compute_basis_function_derivatives_np(p, U, span, u, d),dtype=float)
     # ders has shape (d+1, p+1)
 
     dim = len(curve.control_points[0])
     # Allocate homogeneous derivatives d_hom[k] for k = 0, 1, ..., d.
-    d_hom = [np.zeros(dim + 1) for _ in range(d + 1)]
+    d_hom = [np.zeros(dim + 1,dtype=float) for _ in range(d + 1)]
     for k in range(d + 1):
         for j in range(p + 1):
             i = span - p + j
@@ -340,7 +416,7 @@ def evaluate_nurbs_curve(curve, u, d_order=2):
             H[dim] = w
             d_hom[k] += ders[k, j] * H
 
-    result = {}
+    result:EvaluateCurveData = {}
     # Dehomogenize to get the point on the curve.
     C = d_hom[0][:dim] / d_hom[0][dim]
     result["C"] = C
@@ -350,14 +426,14 @@ def evaluate_nurbs_curve(curve, u, d_order=2):
         C1 = (d_hom[1][:dim] - d_hom[1][dim] * C) / d_hom[0][dim]
         result["C1"] = C1
     else:
-        result["C1"] = np.zeros(dim)
+        result["C1"] = np.zeros(dim,dtype=float)
 
     # Second derivative.
     if d >= 2:
         C2 = (d_hom[2][:dim] - d_hom[2][dim] * C) / d_hom[0][dim] - 2 * (d_hom[1][dim] / d_hom[0][dim]) * result["C1"]
         result["C2"] = C2
     else:
-        result["C2"] = np.zeros(dim)
+        result["C2"] = np.zeros(dim,dtype=float)
 
     return result
 
@@ -371,7 +447,7 @@ def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
     return np.array(list(evaluate_nurbs_curve(curve, t, d_order).values()))
 
 
-def evaluate_nurbs_surface(surface, u, v, d_order=2):
+def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
     """
     Evaluate a rational NURBS surface at (u,v). Returns a dictionary SKL with keys:
       'S'   : the 3D (or n–dimensional) point,
@@ -395,17 +471,17 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2):
     # print(p, U, span_u, u, d_order)
     du = min(d_order, p)
     dv = min(d_order, q)
-    ders_u = np.array(compute_basis_function_derivatives_np(p, U, span_u, u, du))
+    ders_u = np.array(compute_basis_function_derivatives_np(p, U, span_u, u, du),dtype=float)
     # print(q, V, span_v, v, d_order)
-    ders_v = np.array(compute_basis_function_derivatives_np(q, V, span_v, v, dv))
+    ders_v = np.array(compute_basis_function_derivatives_np(q, V, span_v, v, dv),dtype=float)
     # print("DU", ders_u)
     # print("DV", ders_v)
 
-    SKL = {}
+    SKL:EvaluateSurfaceData = {}
     dim = len(surface1.control_points[0][0])
     # print(surface)
     # Allocate and initialize homogeneous derivatives.
-    d = [[np.zeros(dim + 1) for l in range(dv + 1)] for k in range(du + 1)]
+    d = [[np.zeros(dim + 1,dtype=float) for l in range(dv + 1)] for k in range(du + 1)]
     for k in range(du + 1):
         for l in range(dv + 1):
             d[k][l] = np.zeros(dim + 1)
@@ -427,11 +503,11 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2):
                 d[i][j] += ders_v[j, l] * temp[i]
     # Dehomogenize
     SKL["S"] = d[0][0][:dim] / d[0][0][dim]
-    SKL["Su"] = np.zeros(dim)
-    SKL["Sv"] = np.zeros(dim)
-    SKL["Suu"] = np.zeros(dim)
-    SKL["Suv"] = np.zeros(dim)
-    SKL["Svv"] = np.zeros(dim)
+    SKL["Su"] = np.zeros(dim,dtype=float)
+    SKL["Sv"] = np.zeros(dim,dtype=float)
+    SKL["Suu"] = np.zeros(dim,dtype=float)
+    SKL["Suv"] = np.zeros(dim,dtype=float)
+    SKL["Svv"] = np.zeros(dim,dtype=float)
     if du >= 1:
         Su = (d[1][0][:dim] - d[1][0][dim] * SKL["S"]) / d[0][0][dim]
 
@@ -460,6 +536,16 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2):
     # print(SKL)
     return SKL
 
+def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->EvaluateCurveDifferentialData:
+    if data is None:
+        data=EvaluateCurveDifferentialData(**evaluate_nurbs_curve(curve, u, d_order=2))
+
+    dim=data['C'].shape[0]
+    data['K']=np.zeros(dim,dtype=float)
+    data['Ut'] = np.zeros(dim, dtype=float)
+
+    recalculate=evaluate_curvature(data['C1'], data['C2'],data['K'],data['Ut'])
+    return data
 
 '''
 def join_weights(surf:NURBSSurfaceTuple):
