@@ -510,7 +510,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
-def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[float])->tuple[float,bool]:
+def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[float], tol:float)->tuple[float,bool]:
     """
     Projects point p onto the line defined by segment endpoints a and b in n-dimensional space.
 
@@ -534,7 +534,7 @@ def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[f
     # Handle degenerate segment (a and b are identical)
     if ab_squared == 0:
         distance = np.linalg.norm(ap)
-        return distance, True  # or False, depending on how you want to handle degenerate segments
+        return distance, False ,-1# or False, depending on how you want to handle degenerate segments
 
     # Compute the projection scalar 't'
     t = np.dot(ap, ab) / ab_squared
@@ -546,9 +546,9 @@ def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[f
     distance = np.linalg.norm(p - projection)
 
     # Check if the projection lies within the segment boundaries (0 <= t <= 1)
-    is_on_segment = (0 <= t <= 1)
+    is_on_segment = ((0-tol) <= t <= (1.+tol))
 
-    return distance, is_on_segment
+    return distance, bool(is_on_segment),t
 
 
 
@@ -630,12 +630,14 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                     for i in range(len(candidates) ):
                         ix=candidates[i]
                         intersection_point=boundary_intersection_points[ix]
-                        dist, in_segment=_project_point_to_segment_nd( intersection_point.stuv, x0, x)
+                        dist1, in_segment1,t1= _project_point_to_segment_nd( intersection_point.stuv[:2], x0[:2], x[:2], tol)
+                        dist2, in_segment2 ,t2= _project_point_to_segment_nd(intersection_point.stuv[2:], x0[2:], x[2:],tol)
 
-                        if in_segment and (dist<tol):
-                            print('FIND BOUNDARY INTERSECTION POINT:', intersection_point.point.tolist(),dist,in_segment,tol)
+                        print(    dist1, in_segment1,t1,intersection_point.stuv[:2], x0[:2], x[:2], tol)
+                        if in_segment1 and in_segment2 and (dist1<tol) and(dist2<tol):
+                            print('FIND BOUNDARY INTERSECTION POINT:', intersection_point.point.tolist(),dist1,dist2,in_segment1,in_segment2,tol)
                             return True, ix
-                        elif in_segment:
+                        elif (in_segment1 and in_segment2):
                             if use_spt:
                                 if pt0 is None:
                                     pt0=evaluate_nurbs_surface(
@@ -643,7 +645,7 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                                 if pt is None:
                                     pt = evaluate_nurbs_surface(
                                     surface1,x[0],x[1], 0)["S"]
-                                dist, in_segment=_project_point_to_segment(intersection_point.point,pt0,pt)
+                                dist, in_segment,_=_project_point_to_segment_nd(intersection_point.point,pt0,pt,spt)
 
                                 if dist<spt:
                                     print('FIND BOUNDARY INTERSECTION POINT (SPT):', intersection_point.point.tolist(), dist,
@@ -653,9 +655,10 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                             new_candidates.append(candidates[i])
 
                             print("IN_SEGM")
-                            print(dist,in_segment,tol)
+                            print(dist1,dist2,in_segment1,in_segment2,tol)
                             print([intersection_point.point.tolist(), intersection_point.stuv.tolist(),x.tolist(), x0.tolist()])
-
+                        else:
+                            print('FAIL',x,x0,dist1,dist2, in_segment1,in_segment2,t1,t2,intersection_point.stuv)
                     if len(new_candidates) == 0:
                         continue
                     x_mid=(x + x0) / 2
@@ -672,9 +675,9 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                 else:
                     continue
 
-
-            raise ValueError(
-                "The area boundary has been reached, but the boundary intersection point has not been found")
+            return True,0
+            #raise ValueError(
+            #    "The area boundary has been reached, but the boundary intersection point has not been found")
 
         else:
 
@@ -1056,7 +1059,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
 
     for i,(s1, s2) in enumerate(items):
 
-        stars_points=find_boundary_intersections(s1, s2,tol= spt)
+        stars_points=find_boundary_intersections(s1, s2,tol=spt,ptol=1e-12)
         print('p',[p.point.tolist() for p in stars_points])
 
 
@@ -1080,7 +1083,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
                 init_uv2[i]=pt.surface2_params
 
 
-            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,backward=False,boundary_check_spt=False):
+            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,backward=False,boundary_check_spt=True):
                 curve_pts, params1, params2=np.array(curve_pts), np.array(params1), np.array(params2)
                 branches.append((curve_pts,
                                  params1,

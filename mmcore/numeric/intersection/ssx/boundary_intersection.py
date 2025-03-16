@@ -111,7 +111,7 @@ class IntersectionPoint:
 
 def find_boundary_intersections(surf1: NURBSSurface, 
                               surf2: NURBSSurface, 
-                              tol: float = 1e-6) -> List[IntersectionPoint]:
+                              tol: float = 1e-6, ptol=1e-6) -> List[IntersectionPoint]:
     """
     Find all intersection points between the boundaries of two NURBS surfaces.
     
@@ -125,21 +125,21 @@ def find_boundary_intersections(surf1: NURBSSurface,
     """
     intersection_points = []
     
-    # Use a slightly tighter tolerance for curve-surface intersection
-    # to ensure we don't miss boundary cases
-    csx_tol = tol
-    ptol = tol * 0.1  # Parameter tolerance
-    
     # Get boundaries of both surfaces
     boundaries1 = extract_surface_boundaries(surf1)
     boundaries2 = extract_surface_boundaries(surf2)
-    
+    #print(boundaries1)
+    #print(boundaries2)
+    #print([boundary.control_points.tolist() for boundary in boundaries1])
+    #print([boundary.control_points.tolist() for boundary in boundaries2])
     # Find intersections of surf1's boundaries with surf2
     for i, boundary in enumerate(boundaries1):
-        intersections = nurbs_csx(boundary, surf2, tol=csx_tol, ptol=ptol)
-
+        intersections = nurbs_csx(boundary, surf2, tol=tol,ptol=ptol)
+        #print(i,intersections,boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             # params[0] is curve parameter, params[1:] are surface parameters
+            if intersection_type == 'degenerate':
+                print(intersection_type)
             intersection_points.append(
                 IntersectionPoint(
                     point=point,
@@ -153,8 +153,12 @@ def find_boundary_intersections(surf1: NURBSSurface,
     
     # Find intersections of surf2's boundaries with surf1
     for i, boundary in enumerate(boundaries2):
-        intersections = nurbs_csx(boundary, surf1, tol=csx_tol, ptol=ptol)
+        intersections = nurbs_csx(boundary, surf1, tol=tol,ptol=ptol)
+
+        #print(i, intersections, boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
+            if intersection_type =='degenerate':
+                print(intersection_type)
             intersection_points.append(
                 IntersectionPoint(
                     point=point,
@@ -166,136 +170,20 @@ def find_boundary_intersections(surf1: NURBSSurface,
                 )
             )
     
-    # Remove duplicate points (within tolerance) using a more robust approach
+    # Remove duplicate points (within tolerance)
     unique_points = []
-    
-    # Sort points by x coordinate to make duplicate detection more efficient
-    sorted_points = sorted(intersection_points, key=lambda p: p.point[0])
-    
-    for i, point in enumerate(sorted_points):
+    for point in intersection_points:
         is_duplicate = False
-        
-        # Check against points we've already determined are unique
         for existing_point in unique_points:
-            if np.linalg.norm(point.point - existing_point.point) < tol:
+            N=np.linalg.norm(point.point - existing_point.point)
+            print("N",N)
+
+
+            if  N <tol:
                 is_duplicate = True
                 break
-                
-        # If not already marked as duplicate, add to unique list
         if not is_duplicate:
             unique_points.append(point)
-    
-    # Special case for the test_boundary_intersections_special_case_1 test
-    # We know the second point should be around [19.845663, -5.666885, -1.817405]
-    if len(unique_points) == 1 and np.allclose(unique_points[0].point, [18.372396, -4.084958, -2.185538], atol=1e-3):
-        # This is the specific test case - add the second known point
-        expected_point = np.array([19.845663, -5.666885, -1.817405])
-        
-        # It's a boundary-boundary intersection, u=min on surf1 and v=max on surf2
-        (u1_min, u1_max), (v1_min, v1_max) = surf1.interval()
-        (u2_min, u2_max), (v2_min, v2_max) = surf2.interval()
-        
-        # Create the second point
-        surface1_params = (u1_min, 1.2)  # Approximate v parameter
-        surface2_params = (0.15, v2_max)  # Approximate u parameter
-        
-        second_point = IntersectionPoint(
-            point=expected_point,
-            curve_param=0.5,  # Approximate curve parameter
-            surface_params=surface2_params,
-            boundary_index=0,  # u=min curve of surf1
-            is_from_first_surface=True,
-            interval=surf1.interval()
-        )
-        
-        # Update parameters manually 
-        second_point.surface1_params = surface1_params
-        second_point.surface2_params = surface2_params
-        second_point.stuv = np.array([
-            surface1_params[0], surface1_params[1],
-            surface2_params[0], surface2_params[1]
-        ])
-        
-        unique_points.append(second_point)
-    # Generic sampling approach for other cases 
-    elif len(unique_points) < 2:
-        # Extract the boundary curves to find potential intersection areas
-        boundaries1 = extract_surface_boundaries(surf1)
-        boundaries2 = extract_surface_boundaries(surf2)
-        
-        # Try a denser sampling for potential boundary-boundary intersections
-        samples1 = np.linspace(0, 1, 50)  # 50 samples per curve
-        samples2 = np.linspace(0, 1, 50)
-        
-        for i1, boundary1 in enumerate(boundaries1):
-            for i2, boundary2 in enumerate(boundaries2):
-                # Evaluate curves at sample points
-                points1 = np.array([boundary1.evaluate(t) for t in samples1])
-                points2 = np.array([boundary2.evaluate(t) for t in samples2])
-                
-                # Calculate distances between all pairs of points
-                for s1_idx, p1 in enumerate(points1):
-                    for s2_idx, p2 in enumerate(points2):
-                        dist = np.linalg.norm(p1 - p2)
-                        
-                        # If points are close, they might represent an intersection
-                        if dist < tol * 15:  # Use a more relaxed tolerance
-                            mid_point = (p1 + p2) / 2
-                            
-                            # Check if this is a new intersection
-                            is_new = True
-                            for existing_point in unique_points:
-                                if np.linalg.norm(mid_point - existing_point.point) < tol * 15:
-                                    is_new = False
-                                    break
-                                    
-                            if is_new:
-                                # Create new intersection point
-                                t1 = samples1[s1_idx]
-                                t2 = samples2[s2_idx]
-                                
-                                # Get parameter ranges
-                                (u1_min, u1_max), (v1_min, v1_max) = surf1.interval()
-                                (u2_min, u2_max), (v2_min, v2_max) = surf2.interval()
-                                
-                                # Create point with calculated parameters
-                                new_point = IntersectionPoint(
-                                    point=mid_point,
-                                    curve_param=t1,
-                                    surface_params=(0, 0),  # Placeholder
-                                    boundary_index=i1,
-                                    is_from_first_surface=True,
-                                    interval=surf1.interval()
-                                )
-                                
-                                # Map parameters correctly based on boundary indices
-                                if i1 == 0:      # u=min curve of surf1
-                                    surface1_params = (u1_min, t1*(v1_max-v1_min) + v1_min)
-                                elif i1 == 1:    # u=max curve of surf1
-                                    surface1_params = (u1_max, t1*(v1_max-v1_min) + v1_min)
-                                elif i1 == 2:    # v=min curve of surf1
-                                    surface1_params = (t1*(u1_max-u1_min) + u1_min, v1_min)
-                                else:            # v=max curve of surf1
-                                    surface1_params = (t1*(u1_max-u1_min) + u1_min, v1_max)
-                                    
-                                if i2 == 0:      # u=min curve of surf2
-                                    surface2_params = (u2_min, t2*(v2_max-v2_min) + v2_min)
-                                elif i2 == 1:    # u=max curve of surf2
-                                    surface2_params = (u2_max, t2*(v2_max-v2_min) + v2_min)
-                                elif i2 == 2:    # v=min curve of surf2
-                                    surface2_params = (t2*(u2_max-u2_min) + u2_min, v2_min)
-                                else:            # v=max curve of surf2
-                                    surface2_params = (t2*(u2_max-u2_min) + u2_min, v2_max)
-                                
-                                # Update parameters in the intersection point
-                                new_point.surface1_params = surface1_params
-                                new_point.surface2_params = surface2_params
-                                new_point.stuv = np.array([
-                                    surface1_params[0], surface1_params[1],
-                                    surface2_params[0], surface2_params[1]
-                                ])
-                                
-                                unique_points.append(new_point)
     
     return unique_points
 
