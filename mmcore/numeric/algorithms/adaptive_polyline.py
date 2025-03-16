@@ -1,16 +1,18 @@
 import numpy as np
 
 from mmcore.geom.nurbs import NURBSCurve
-
+from mmcore.numeric.vectors import norm
 
 def chord_length(R, h):
     return 2 * np.sqrt(2 * R * h - (h * h))
 
 
 def adaptive_polyline(curve: NURBSCurve, tol:float):
-    if curve.degree < 2:
-        prms = np.asarray(np.unique(curve.knots), dtype=float)
-        return np.asarray(curve.evaluate_multi(prms)), prms
+    greville_abscissae_points=np.array(curve.evaluate_multi(curve.greville_abscissae))
+    if curve.degree < 2 or np.allclose(np.array(norm(np.asarray(curve.control_points)-greville_abscissae_points)),0):
+
+        return greville_abscissae_points, curve.greville_abscissae
+
     params = [*tuple(curve.interval())]
     points = [curve.evaluate(params[0]), curve.evaluate(params[1])]
 
