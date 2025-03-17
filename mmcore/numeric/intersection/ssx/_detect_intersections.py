@@ -152,6 +152,7 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     :param dbg:
     :return:
     """
+    print('Deep')
     #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
     #    *np.array(g2.surface.bbox())
     #)
@@ -163,17 +164,17 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     if not aabb_intersect_fast_3d(bb1,bb2):
         # ББокы не пересекаются
         #dddd[0] = True
-
+        print('ББокы не пересекаются??', aabb_intersect_fast_3d(bb1,bb2),bb1,bb2)
         return []
     diag=bb1[1] - bb1[0]
 
-    if scalar_norm(diag) < tol:
+    if scalar_norm(diag) < 1e-5:
         #dddd[1] = True
-
+        print('diag')
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
-    ii=np.zeros((2,3))
-    aabb_intersection(bb1,bb2,ii)
+    #ii=np.zeros((2,3))
+    #aabb_intersection(bb1,bb2,ii)
 
     #if np.min(ii[1]-ii[0]) < tol:
     #    # Бокс не маленький, но очень плоский. объекты не пересекаются
@@ -189,10 +190,11 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     #    chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
     #h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
     #if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
-    if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-8, 25):
-        # Поверхности не пересекаются
-        #dddd[3] = True
-        return []
+    #if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-5, 50):
+    #    # Поверхности не пересекаются
+    #    #dddd[3] = True
+    #    print('gjk')
+    #    return []
     if g1.hull is None:
         g1.compute()
     if g2.hull is None:
@@ -202,14 +204,16 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     if not aabb_intersect_fast_3d(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
         #dddd[3] = True
+        print('not aabb',  aabb_intersect_fast_3d(bb21,bb11))
         return [(g1.surface, g2.surface)]
 
     intersections = []
     #ss = g1.intersects(g2)
     n1, n2 = separate_gauss_maps(g1,g2)
-    if (n1 is not None) and (n2 is not None):
 
-        return []
+    if not ((n1  is None) or (n2  is None)):
+        print('gm')
+        return [(g1.surface, g2.surface)]
     #if not ss:
     #    # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
 
@@ -332,8 +336,8 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
     #    _.normalize_knots()
     #for _ in s2d:
     #    _.normalize_knots()
-    tree1 = build_bvh([NURBSObject(s) for s in s1d])
-    tree2 = build_bvh([NURBSObject(s) for s in s2d])
+    tree1 = build_bvh([NURBSObject(s1) for s1 in s1d])
+    tree2 = build_bvh([NURBSObject(s2) for s2 in s2d])
     gauss_maps=dict()
 
     for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
@@ -358,7 +362,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             if id(s) not in gauss_maps:
                 gauss_maps[id(s)]=GaussMap.from_surf(s)
 
-            ss, ff =gauss_maps[id(f)], gauss_maps[id(s)]
+            ss, ff =gauss_maps[id(s)], gauss_maps[id(f)]
             ss.compute()
             ff.compute()
             #dddd[1] = True
@@ -373,13 +377,13 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
                 #dddd[2] = True
                 #sbb = subs[index].subd(1)
                 #
-                intersections.extend(_detect_intersections_deep(ss, ff, chs, tol=tol))
+                intersections.extend(_detect_intersections_deep(ff, ss, chs, tol=tol))
             else:
-                intersections.append((f, s))
+                intersections.append(( f,s))
         else:
-            l=find_boundary_intersections(s,f,tol)
+            l=find_boundary_intersections(f,s,tol)
             if len(l)>0:
-                intersections.append((f, s))
+                intersections.append(( f,s))
         index += 1
     return intersections
 
