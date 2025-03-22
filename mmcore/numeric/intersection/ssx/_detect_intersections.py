@@ -152,7 +152,7 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     :param dbg:
     :return:
     """
-    print('Deep')
+    #print('Deep')
     #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
     #    *np.array(g2.surface.bbox())
     #)
@@ -164,13 +164,13 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     if not aabb_intersect_fast_3d(bb1,bb2):
         # ББокы не пересекаются
         #dddd[0] = True
-        print('ББокы не пересекаются??', aabb_intersect_fast_3d(bb1,bb2),bb1,bb2)
+        #print('ББокы не пересекаются??', aabb_intersect_fast_3d(bb1,bb2),bb1,bb2)
         return []
     diag=bb1[1] - bb1[0]
 
     if scalar_norm(diag) < 1e-5:
         #dddd[1] = True
-        print('diag')
+        #print('diag')
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
         return [(g1.surface, g2.surface)]
     #ii=np.zeros((2,3))
@@ -199,12 +199,18 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
         g1.compute()
     if g2.hull is None:
         g2.compute()
-    bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
 
-    if not aabb_intersect_fast_3d(bb21,bb11):
+    bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
+    bb12=aabb(-g1.bounds())
+    bb22=aabb(-g2.bounds())
+    if ((not aabb_intersect_fast_3d(bb21, bb11)) and
+    (not aabb_intersect_fast_3d(bb22, bb12)) and
+    (not aabb_intersect_fast_3d(bb21, bb12)) and
+     (not aabb_intersect_fast_3d(bb22, bb11))):
+        #if not aabb_intersect(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
         #dddd[3] = True
-        print('not aabb',  aabb_intersect_fast_3d(bb21,bb11))
+        #print('not aabb',  aabb_intersect_fast_3d(bb21,bb11))
         return [(g1.surface, g2.surface)]
 
     intersections = []
@@ -212,7 +218,7 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
     n1, n2 = separate_gauss_maps(g1,g2)
 
     if not ((n1  is None) or (n2  is None)):
-        print('gm')
+        #print('gm')
         return [(g1.surface, g2.surface)]
     #if not ss:
     #    # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
@@ -353,6 +359,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
         chs=dict()
         #print('k',f.interval(),s.interval())
         #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
+
         if gjk(f.control_points_flat, s.control_points_flat, 1e-8,  50):
 
             # Convex Hulls пересекаются
@@ -371,7 +378,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
 
 
             p1, p2 = separate_gauss_maps(ff, ss)
-
+            #print(p1,p2)
             if (p1 is None) or (p2 is None):
                 # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
                 #dddd[2] = True

@@ -176,10 +176,10 @@ def find_boundary_intersections(surf1: NURBSSurface,
         is_duplicate = False
         for existing_point in unique_points:
             N=np.linalg.norm(point.point - existing_point.point)
-            print("N",N)
+            #print("N",N)
 
 
-            if  N <tol:
+            if  N < tol:
                 is_duplicate = True
                 break
         if not is_duplicate:
@@ -311,7 +311,5 @@ def extract_isocurve(
         cc = NURBSCurve(control_points, surface.degree[0],surface.knots_u)
         #print('i',cc.knots,cc.interval())
         #cc.knots = surface.knots_u
-
-
         # Return curve with u-direction degree and knots since we're varying in u
         return cc

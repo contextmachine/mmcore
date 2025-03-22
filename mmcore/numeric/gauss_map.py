@@ -231,7 +231,7 @@ class GaussMap:
 
             return  self.children
         else:
-            print("SSS")
+            #print("SSS")
             return self.children
 
     def compute(self):

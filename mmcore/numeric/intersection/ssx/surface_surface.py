@@ -27,6 +27,7 @@ from mmcore.numeric.closest_point import (
 )
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_nd
 from mmcore.numeric.intersection.csx import nurbs_csx
+from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
 
 from mmcore.numeric.plane import plane_plane_intersect
 
