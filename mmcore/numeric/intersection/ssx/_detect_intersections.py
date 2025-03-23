@@ -388,7 +388,7 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
             else:
                 intersections.append(( f,s))
         else:
-            l=find_boundary_intersections(f,s,tol)
+            l=find_boundary_intersections(f,s,1e-7,1e-7)
             if len(l)>0:
                 intersections.append(( f,s))
         index += 1

@@ -510,8 +510,8 @@ def find_start_points_nurbs(surf1, surf2, tol=1e-3):
 
 times = []
 
-from mmcore.numeric.intersection.ssx._ssx31 import nurbs_trace_intersection_curves as _nurbs_trace_intersection_curves,SamplingMethod
-def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, spt=0.001, sampling_method:SamplingMethod="subdivide"):
+from mmcore.numeric.intersection.ssx._ssx31 import _nurbs_trace_intersection_curves_v2 as _nurbs_trace_intersection_curves,SamplingMethod
+def surface_ppi(surf1: Surface, surf2: Surface, tol=1e-7, spt=0.001, sampling_method:SamplingMethod="subdivide"):
 
     # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
     #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
@@ -520,12 +520,12 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=0.001, spt=0.001, sampling_m
     #freeform = FreeFormMethod(surf1, surf2, tol=tol, boundary_terminators=edge_terminator, max_iter=19)
     # s = time.perf_counter_ns()
     if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
-        return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt, sampling_method=sampling_method)
+        return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt)
 
     else:
         raise NotImplemented()
 
-def ssx(surf1: Surface, surf2: Surface, tol: float = 0.001, spt=0.001, sampling_method:SamplingMethod="subdivide") -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
+def ssx(surf1: Surface, surf2: Surface, tol: float = 1e-7, spt=0.001, sampling_method:SamplingMethod="subdivide") -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -558,10 +558,10 @@ def ssx(surf1: Surface, surf2: Surface, tol: float = 0.001, spt=0.001, sampling_
     res = surface_ppi(surf1, surf2, tol=tol,spt=spt,sampling_method=sampling_method)
     if res is None:
         return []
-
+    curves,pts=res
     #curves, curves1_uvs,curves2_uvs, _= zip(*res)
     results = []
-    for i, curve_dt in enumerate(res):
+    for i, curve_dt in enumerate(curves):
 
         curve_pts, curve_uvs1, curve_uvs2=curve_dt[0],curve_dt[1],curve_dt[2]
         curve = interpolate_nurbs_curve(curve_pts, 3)

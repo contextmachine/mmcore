@@ -947,7 +947,7 @@ def trace_intersection_curve(
 # Example Usage (for production, integrate with robust initial point finder)
 # -------------------------------------------------------------------
 
-def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
+def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.01,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
 
 
         branches=[]
@@ -1046,7 +1046,7 @@ def _compare_robust(a, b, tol):
     max_val=a+tol
     return (min_val<=b) and (b<=max_val)
 
-def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs) :
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-7,spt=1e-3,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
     :param surf1: First NURBS surface
@@ -1065,14 +1065,14 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
     branches=[]
-    items=detect_intersections(ns1, ns2, tol=spt)
+    items=detect_intersections(ns1, ns2, tol=tol)
     beams=[]
     (smin,smax),(tmin,tmax)=ns1.interval()
     (umin, umax), (vmin, vmax) = ns1.interval()
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
-        stars_points:list[IntersectionPoint]=find_boundary_intersections(s1, s2,tol=spt,ptol=tol)
+        stars_points:list[IntersectionPoint]=find_boundary_intersections(s1, s2,tol=1e-7,ptol=1e-7)
 
         #print('p',[p.point.tolist() for p in stars_points])
 
@@ -1095,6 +1095,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-6,spt=1e-3,**kwargs
         elif len(stars_points)>2:
 
             bnd_points=list(stars_points[1:])
+
             st1 = _nurbs_to_tuple(s1)
             st2 = _nurbs_to_tuple(s2)
             l=len(stars_points)
