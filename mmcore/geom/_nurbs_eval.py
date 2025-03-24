@@ -127,6 +127,262 @@ def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[f
     return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
 
 
+# Operations
+
+
+def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
+    span = degree + 1  # knot span index starts from zero
+    while span < num_ctrlpts and knot_vector[span] <= knot:
+        span += 1
+    return span - 1
+
+
+def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order):
+    """
+    Compute the derivatives of B-spline (or NURBS) basis functions using numpy for efficiency.
+    Args:
+        degree (int): The degree p of the basis functions.
+        knot_vector (array-like): The knot vector U.
+        span (int): The knot span index.
+        knot (float): The parameter value u at which to evaluate.
+        order (int): The maximum derivative order to compute.
+    Returns:
+        np.ndarray: A 2D array 'ders' of shape (order+1, degree+1) where ders[k, j]
+                    is the k-th derivative of the j-th basis function.
+    """
+    knot_vector = np.asarray(knot_vector, dtype=float)
+    # Precompute left/right arrays using vectorized slicing.
+    left = np.empty(degree + 1, dtype=float)
+    right = np.empty(degree + 1, dtype=float)
+    left[0] = 0.0
+    right[0] = 0.0
+    j_arr = np.arange(1, degree + 1)
+    left[1:] = knot - knot_vector[span + 1 - j_arr]
+    right[1:] = knot_vector[span + j_arr] - knot
+    # Build the 'ndu' table.
+    ndu = np.zeros((degree + 1, degree + 1), dtype=float)
+    ndu[0, 0] = 1.0
+    for j in range(1, degree + 1):
+        saved = 0.0
+        for r in range(j):
+            ndu[j, r] = right[r + 1] + left[j - r]
+            temp = ndu[r, j - 1] / ndu[j, r]
+            ndu[r, j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        ndu[j, j] = saved
+    # Compute unscaled derivative coefficients.
+    ders = np.zeros((order + 1, degree + 1), dtype=float)
+    for r in range(degree + 1):
+        d_coeffs = np.zeros(order + 1, dtype=float)
+        d_coeffs[0] = ndu[r, degree]
+        a = np.zeros((2, order + 1), dtype=float)
+        a[0, 0] = 1.0
+        s1 = 0  # current row in temporary array 'a'
+        s2 = 1  # next row in 'a'
+        for k in range(1, order + 1):
+            d = 0.0
+            rk = r - k
+            pk = degree - k
+            if r >= k:
+                a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
+                d = a[s2, 0] * ndu[rk, pk]
+            j1 = 1 if rk >= -1 else -rk
+            j2 = k - 1 if (r - 1) <= pk else degree - r
+            for j in range(j1, j2 + 1):
+                a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
+                d += a[s2, j] * ndu[rk + j, pk]
+            if r <= pk:
+                a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
+                d += a[s2, k] * ndu[r, pk]
+            d_coeffs[k] = d
+            s1, s2 = s2, s1  # swap rows
+        ders[:, r] = d_coeffs
+    # Factorial scaling: scale k-th derivative by degree*(degree-1)*...*(degree-k+1)
+    scales = np.empty(order + 1, dtype=float)
+    scales[0] = 1.0
+    for k in range(1, order + 1):
+        scales[k] = scales[k - 1] * (degree - k + 1)
+    ders[1:, :] *= scales[1:, np.newaxis]
+    return ders
+
+
+def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
+    """
+    Evaluate a rational NURBS curve at parameter u.
+    Returns a dictionary with keys:
+      'C'  : the evaluated point,
+      'C1' : the first derivative,
+      'C2' : the second derivative.
+    """
+    p = curve.order - 1
+    n = len(curve.control_points)
+    U = curve.knot[:]  # assume knot vector is a list or numpy array
+    span = _find_span_linear(p, U, n, u)
+    d = min(d_order, p)
+
+    # Compute basis functions and their derivatives.
+    # Assumes existence of a function 'compute_basis_function_derivatives_np'
+    ders = np.array(compute_basis_function_derivatives_np(p, U, span, u, d),dtype=float)
+    # ders has shape (d+1, p+1)
+
+    dim = len(curve.control_points[0])
+    # Allocate homogeneous derivatives d_hom[k] for k = 0, 1, ..., d.
+    d_hom = [np.zeros(dim + 1,dtype=float) for _ in range(d + 1)]
+    for k in range(d + 1):
+        for j in range(p + 1):
+            i = span - p + j
+            P = np.array(curve.control_points[i])
+            w = curve.weights[i]
+            # Form the homogeneous coordinate [w*P, w]
+            H = np.zeros(dim + 1)
+            H[:dim] = P * w
+            H[dim] = w
+            d_hom[k] += ders[k, j] * H
+
+    result:EvaluateCurveData = {}
+    # Dehomogenize to get the point on the curve.
+    C = d_hom[0][:dim] / d_hom[0][dim]
+    result["C"] = C
+
+    # First derivative.
+    if d >= 1:
+        C1 = (d_hom[1][:dim] - d_hom[1][dim] * C) / d_hom[0][dim]
+        result["C1"] = C1
+    else:
+        result["C1"] = np.zeros(dim,dtype=float)
+
+    # Second derivative.
+    if d >= 2:
+        C2 = (d_hom[2][:dim] - d_hom[2][dim] * C) / d_hom[0][dim] - 2 * (d_hom[1][dim] / d_hom[0][dim]) * result["C1"]
+        result["C2"] = C2
+    else:
+        result["C2"] = np.zeros(dim,dtype=float)
+
+    return result
+
+def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
+    """
+    Evaluate a rational NURBS surface at (u,v). Returns a dictionary SKL with keys:
+      'S'   : the 3D (or n–dimensional) point,
+      'Su'  : first derivative in u,
+      'Sv'  : first derivative in v,
+      'Suu' : second derivative in u,
+      'Suv' : mixed second derivative,
+      'Svv' : second derivative in v.
+    """
+
+    # print(surface, u, v)
+    surface1 = surface
+    p = surface1.order_u - 1
+    q = surface1.order_v - 1
+    nu = len(surface1.control_points)
+    nv = len(surface1.control_points[0])
+    U = surface1.knot_u[:]  # assume these are already lists/numpy arrays
+    V = surface1.knot_v[:]
+    span_u = _find_span_linear(p, U, nu, u)
+    span_v = _find_span_linear(q, V, nv, v)
+    # print(p, U, span_u, u, d_order)
+    du = min(d_order, p)
+    dv = min(d_order, q)
+    ders_u = np.array(compute_basis_function_derivatives_np(p, U, span_u, u, du),dtype=float)
+    # print(q, V, span_v, v, d_order)
+    ders_v = np.array(compute_basis_function_derivatives_np(q, V, span_v, v, dv),dtype=float)
+    # print("DU", ders_u)
+    # print("DV", ders_v)
+
+    SKL:EvaluateSurfaceData = {}
+    dim = len(surface1.control_points[0][0])
+    # print(surface)
+    # Allocate and initialize homogeneous derivatives.
+    d = [[np.zeros(dim + 1,dtype=float) for l in range(dv + 1)] for k in range(du + 1)]
+    for k in range(du + 1):
+        for l in range(dv + 1):
+            d[k][l] = np.zeros(dim + 1)
+    # Compute homogeneous surface derivatives d[k][l]
+    for l in range(q + 1):
+        temp = [np.zeros(dim + 1) for i in range(du + 1)]
+        for k in range(p + 1):
+            i_index = span_u - p + k
+            j_index = span_v - q + l
+            cp = np.array(surface1.control_points[i_index][j_index])
+            w = surface1.weights[i_index, j_index]
+            tmp = np.zeros(dim + 1)
+            tmp[:dim] = cp
+            tmp[dim] = w
+            for i in range(du + 1):
+                temp[i] += ders_u[i, k] * tmp
+        for j in range(dv + 1):
+            for i in range(du + 1):
+                d[i][j] += ders_v[j, l] * temp[i]
+    # Dehomogenize
+    SKL["S"] = d[0][0][:dim] / d[0][0][dim]
+    SKL["Su"] = np.zeros(dim,dtype=float)
+    SKL["Sv"] = np.zeros(dim,dtype=float)
+    SKL["Suu"] = np.zeros(dim,dtype=float)
+    SKL["Suv"] = np.zeros(dim,dtype=float)
+    SKL["Svv"] = np.zeros(dim,dtype=float)
+    if du >= 1:
+        Su = (d[1][0][:dim] - d[1][0][dim] * SKL["S"]) / d[0][0][dim]
+
+        SKL["Su"] = Su
+
+    if dv >= 1:
+        Sv = (d[0][1][:dim] - d[0][1][dim] * SKL["S"]) / d[0][0][dim]
+        SKL["Sv"] = Sv
+    if du >= 2:
+        Suu = (d[2][0][:dim] - d[2][0][dim] * SKL["S"]) / d[0][0][dim] - 2 * (d[1][0][dim] / d[0][0][dim]) * SKL["Su"]
+        SKL["Suu"] = Suu
+
+    if dv >= 2:
+
+        Svv = (d[0][2][:dim] - d[0][2][dim] * SKL["S"]) / d[0][0][dim] - 2 * (d[0][1][dim] / d[0][0][dim]) * SKL["Sv"]
+
+        SKL["Svv"] = Svv
+
+    if du >= 2 or dv >= 2:
+        Suv = (
+            (d[1][1][:dim] - d[1][1][dim] * SKL["S"]) / d[0][0][dim]
+            - (d[1][0][dim] / d[0][0][dim]) * SKL["Sv"]
+            - (d[0][1][dim] / d[0][0][dim]) * SKL["Su"]
+        )
+        SKL["Suv"] = Suv
+    # print(SKL)
+    return SKL
+
+def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]:
+    p = curve.order - 1
+    U = curve.knot
+    pts = curve.control_points
+    n = len(pts)
+    span = _find_span_linear(p, U, n, u)
+    d = [pts[span - p + i].copy() for i in range(p + 1)]
+    for r in range(1, p + 1):
+        for i in range(p, r - 1, -1):
+            alpha = (u - U[span - p + i]) / (U[i + span - r + 1] - U[span - p + i])
+            d[i] = (1 - alpha) * d[i - 1] + alpha * d[i]
+    return d[p]
+
+def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
+    """
+    Evaluate a NURBS curve (which may be rational) at parameter value t.
+    d_order = 0 returns only the point; d_order = 1 returns [point, derivative].
+    Works in any dimension.
+    """
+    return np.array(list(evaluate_nurbs_curve(curve, t, d_order).values()))
+
+
+
+def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->EvaluateCurveDifferentialData:
+    if data is None:
+        data=EvaluateCurveDifferentialData(**evaluate_nurbs_curve(curve, u, d_order=2))
+
+    dim=data['C'].shape[0]
+    data['K']=np.zeros(dim,dtype=float)
+    data['Ut'] = np.zeros(dim, dtype=float)
+
+    recalculate=evaluate_curvature(data['C1'], data['C2'],data['K'],data['Ut'])
+    return data
+
 # Construction
 def _process_knots(knots):
     #if isinstance(knots,list):
@@ -297,251 +553,6 @@ def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NU
     else:
         raise TypeError(
             f"Arguments must be {BSplineCurveTuple.__name__}|{NURBSCurveTuple.__name__}|{BSplineSurfaceTuple.__name__}|{NURBSSurfaceTuple.__name__}, not {type(obj).__name__}")
-
-
-# Operations
-
-
-def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
-    span = degree + 1  # knot span index starts from zero
-    while span < num_ctrlpts and knot_vector[span] <= knot:
-        span += 1
-    return span - 1
-
-
-def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order):
-    """
-    Compute the derivatives of B-spline (or NURBS) basis functions using numpy for efficiency.
-    Args:
-        degree (int): The degree p of the basis functions.
-        knot_vector (array-like): The knot vector U.
-        span (int): The knot span index.
-        knot (float): The parameter value u at which to evaluate.
-        order (int): The maximum derivative order to compute.
-    Returns:
-        np.ndarray: A 2D array 'ders' of shape (order+1, degree+1) where ders[k, j]
-                    is the k-th derivative of the j-th basis function.
-    """
-    knot_vector = np.asarray(knot_vector, dtype=float)
-    # Precompute left/right arrays using vectorized slicing.
-    left = np.empty(degree + 1, dtype=float)
-    right = np.empty(degree + 1, dtype=float)
-    left[0] = 0.0
-    right[0] = 0.0
-    j_arr = np.arange(1, degree + 1)
-    left[1:] = knot - knot_vector[span + 1 - j_arr]
-    right[1:] = knot_vector[span + j_arr] - knot
-    # Build the 'ndu' table.
-    ndu = np.zeros((degree + 1, degree + 1), dtype=float)
-    ndu[0, 0] = 1.0
-    for j in range(1, degree + 1):
-        saved = 0.0
-        for r in range(j):
-            ndu[j, r] = right[r + 1] + left[j - r]
-            temp = ndu[r, j - 1] / ndu[j, r]
-            ndu[r, j] = saved + right[r + 1] * temp
-            saved = left[j - r] * temp
-        ndu[j, j] = saved
-    # Compute unscaled derivative coefficients.
-    ders = np.zeros((order + 1, degree + 1), dtype=float)
-    for r in range(degree + 1):
-        d_coeffs = np.zeros(order + 1, dtype=float)
-        d_coeffs[0] = ndu[r, degree]
-        a = np.zeros((2, order + 1), dtype=float)
-        a[0, 0] = 1.0
-        s1 = 0  # current row in temporary array 'a'
-        s2 = 1  # next row in 'a'
-        for k in range(1, order + 1):
-            d = 0.0
-            rk = r - k
-            pk = degree - k
-            if r >= k:
-                a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
-                d = a[s2, 0] * ndu[rk, pk]
-            j1 = 1 if rk >= -1 else -rk
-            j2 = k - 1 if (r - 1) <= pk else degree - r
-            for j in range(j1, j2 + 1):
-                a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
-                d += a[s2, j] * ndu[rk + j, pk]
-            if r <= pk:
-                a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
-                d += a[s2, k] * ndu[r, pk]
-            d_coeffs[k] = d
-            s1, s2 = s2, s1  # swap rows
-        ders[:, r] = d_coeffs
-    # Factorial scaling: scale k-th derivative by degree*(degree-1)*...*(degree-k+1)
-    scales = np.empty(order + 1, dtype=float)
-    scales[0] = 1.0
-    for k in range(1, order + 1):
-        scales[k] = scales[k - 1] * (degree - k + 1)
-    ders[1:, :] *= scales[1:, np.newaxis]
-    return ders
-
-
-def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
-    """
-    Evaluate a rational NURBS curve at parameter u.
-    Returns a dictionary with keys:
-      'C'  : the evaluated point,
-      'C1' : the first derivative,
-      'C2' : the second derivative.
-    """
-    p = curve.order - 1
-    n = len(curve.control_points)
-    U = curve.knot[:]  # assume knot vector is a list or numpy array
-    span = _find_span_linear(p, U, n, u)
-    d = min(d_order, p)
-
-    # Compute basis functions and their derivatives.
-    # Assumes existence of a function 'compute_basis_function_derivatives_np'
-    ders = np.array(compute_basis_function_derivatives_np(p, U, span, u, d),dtype=float)
-    # ders has shape (d+1, p+1)
-
-    dim = len(curve.control_points[0])
-    # Allocate homogeneous derivatives d_hom[k] for k = 0, 1, ..., d.
-    d_hom = [np.zeros(dim + 1,dtype=float) for _ in range(d + 1)]
-    for k in range(d + 1):
-        for j in range(p + 1):
-            i = span - p + j
-            P = np.array(curve.control_points[i])
-            w = curve.weights[i]
-            # Form the homogeneous coordinate [w*P, w]
-            H = np.zeros(dim + 1)
-            H[:dim] = P * w
-            H[dim] = w
-            d_hom[k] += ders[k, j] * H
-
-    result:EvaluateCurveData = {}
-    # Dehomogenize to get the point on the curve.
-    C = d_hom[0][:dim] / d_hom[0][dim]
-    result["C"] = C
-
-    # First derivative.
-    if d >= 1:
-        C1 = (d_hom[1][:dim] - d_hom[1][dim] * C) / d_hom[0][dim]
-        result["C1"] = C1
-    else:
-        result["C1"] = np.zeros(dim,dtype=float)
-
-    # Second derivative.
-    if d >= 2:
-        C2 = (d_hom[2][:dim] - d_hom[2][dim] * C) / d_hom[0][dim] - 2 * (d_hom[1][dim] / d_hom[0][dim]) * result["C1"]
-        result["C2"] = C2
-    else:
-        result["C2"] = np.zeros(dim,dtype=float)
-
-    return result
-
-
-def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
-    """
-    Evaluate a NURBS curve (which may be rational) at parameter value t.
-    d_order = 0 returns only the point; d_order = 1 returns [point, derivative].
-    Works in any dimension.
-    """
-    return np.array(list(evaluate_nurbs_curve(curve, t, d_order).values()))
-
-
-def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
-    """
-    Evaluate a rational NURBS surface at (u,v). Returns a dictionary SKL with keys:
-      'S'   : the 3D (or n–dimensional) point,
-      'Su'  : first derivative in u,
-      'Sv'  : first derivative in v,
-      'Suu' : second derivative in u,
-      'Suv' : mixed second derivative,
-      'Svv' : second derivative in v.
-    """
-
-    # print(surface, u, v)
-    surface1 = surface
-    p = surface1.order_u - 1
-    q = surface1.order_v - 1
-    nu = len(surface1.control_points)
-    nv = len(surface1.control_points[0])
-    U = surface1.knot_u[:]  # assume these are already lists/numpy arrays
-    V = surface1.knot_v[:]
-    span_u = _find_span_linear(p, U, nu, u)
-    span_v = _find_span_linear(q, V, nv, v)
-    # print(p, U, span_u, u, d_order)
-    du = min(d_order, p)
-    dv = min(d_order, q)
-    ders_u = np.array(compute_basis_function_derivatives_np(p, U, span_u, u, du),dtype=float)
-    # print(q, V, span_v, v, d_order)
-    ders_v = np.array(compute_basis_function_derivatives_np(q, V, span_v, v, dv),dtype=float)
-    # print("DU", ders_u)
-    # print("DV", ders_v)
-
-    SKL:EvaluateSurfaceData = {}
-    dim = len(surface1.control_points[0][0])
-    # print(surface)
-    # Allocate and initialize homogeneous derivatives.
-    d = [[np.zeros(dim + 1,dtype=float) for l in range(dv + 1)] for k in range(du + 1)]
-    for k in range(du + 1):
-        for l in range(dv + 1):
-            d[k][l] = np.zeros(dim + 1)
-    # Compute homogeneous surface derivatives d[k][l]
-    for l in range(q + 1):
-        temp = [np.zeros(dim + 1) for i in range(du + 1)]
-        for k in range(p + 1):
-            i_index = span_u - p + k
-            j_index = span_v - q + l
-            cp = np.array(surface1.control_points[i_index][j_index])
-            w = surface1.weights[i_index, j_index]
-            tmp = np.zeros(dim + 1)
-            tmp[:dim] = cp
-            tmp[dim] = w
-            for i in range(du + 1):
-                temp[i] += ders_u[i, k] * tmp
-        for j in range(dv + 1):
-            for i in range(du + 1):
-                d[i][j] += ders_v[j, l] * temp[i]
-    # Dehomogenize
-    SKL["S"] = d[0][0][:dim] / d[0][0][dim]
-    SKL["Su"] = np.zeros(dim,dtype=float)
-    SKL["Sv"] = np.zeros(dim,dtype=float)
-    SKL["Suu"] = np.zeros(dim,dtype=float)
-    SKL["Suv"] = np.zeros(dim,dtype=float)
-    SKL["Svv"] = np.zeros(dim,dtype=float)
-    if du >= 1:
-        Su = (d[1][0][:dim] - d[1][0][dim] * SKL["S"]) / d[0][0][dim]
-
-        SKL["Su"] = Su
-
-    if dv >= 1:
-        Sv = (d[0][1][:dim] - d[0][1][dim] * SKL["S"]) / d[0][0][dim]
-        SKL["Sv"] = Sv
-    if du >= 2:
-        Suu = (d[2][0][:dim] - d[2][0][dim] * SKL["S"]) / d[0][0][dim] - 2 * (d[1][0][dim] / d[0][0][dim]) * SKL["Su"]
-        SKL["Suu"] = Suu
-
-    if dv >= 2:
-
-        Svv = (d[0][2][:dim] - d[0][2][dim] * SKL["S"]) / d[0][0][dim] - 2 * (d[0][1][dim] / d[0][0][dim]) * SKL["Sv"]
-
-        SKL["Svv"] = Svv
-
-    if du >= 2 or dv >= 2:
-        Suv = (
-            (d[1][1][:dim] - d[1][1][dim] * SKL["S"]) / d[0][0][dim]
-            - (d[1][0][dim] / d[0][0][dim]) * SKL["Sv"]
-            - (d[0][1][dim] / d[0][0][dim]) * SKL["Su"]
-        )
-        SKL["Suv"] = Suv
-    # print(SKL)
-    return SKL
-
-def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->EvaluateCurveDifferentialData:
-    if data is None:
-        data=EvaluateCurveDifferentialData(**evaluate_nurbs_curve(curve, u, d_order=2))
-
-    dim=data['C'].shape[0]
-    data['K']=np.zeros(dim,dtype=float)
-    data['Ut'] = np.zeros(dim, dtype=float)
-
-    recalculate=evaluate_curvature(data['C1'], data['C2'],data['K'],data['Ut'])
-    return data
-
 
 '''
 def join_weights(surf:NURBSSurfaceTuple):
