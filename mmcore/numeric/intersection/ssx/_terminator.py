@@ -142,7 +142,7 @@ def surface_surface_boundary_intersection(surf1: Surface, surf2: Surface, tol=1e
         uv1 = []
         uv2 = []
         xyz = []
-        for l in find_boundary_intersections(surf1, surf2, tol=tol):
+        for l in find_boundary_intersections(surf1, surf2, spt=tol):
             if not tuple(l.point) in xyz and not l.surface1_params in uv1 and not l.surface2_params  in uv2:
 
                 xyz.append(tuple(l.point))

@@ -127,7 +127,7 @@ def test_boundary_intersections_special_case_1():
     surf2 = nurbs_surface(cpts2, [0.0, 0.0, 0.0, 0.0, 0.25, 0.25, 0.25, 0.25],
                           [2.0, 2.0, 2.0, 2.0, 2.25, 2.25, 2.25, 2.25], degree=(3, 3))
     pts=sorted([[18.372396, -4.084958, -2.185538],[19.845663, -5.666885, -1.817405]],key=lambda x: x[0])
-    res=find_boundary_intersections(_tuple_to_nurbs(surf1),_tuple_to_nurbs(surf2),tol=1e-5)
+    res= find_boundary_intersections(_tuple_to_nurbs(surf1), _tuple_to_nurbs(surf2), spt=1e-5)
 
 
     # Should group points into sequences of 1 or 2 points

@@ -138,7 +138,7 @@ def find_common_side_vector(N1, N2):
     return None
 
 
-def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None):
+def _detect_intersections_deep(g1, g2, chs:dict, spt=0.01,tol=1e-5, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
     Существует три варианта завершения:
@@ -168,7 +168,7 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
         return []
     diag=bb1[1] - bb1[0]
 
-    if scalar_norm(diag) < 1e-5:
+    if scalar_norm(diag) < spt:
         #dddd[1] = True
         #print('diag')
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
@@ -236,14 +236,14 @@ def _detect_intersections_deep(g1, g2, chs:dict, tol=0.01, dbg: DebugTree = None
         for gh in g12:
             #print('dd',gg.surface.interval(),gh.surface.interval())
             #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
-            res = _detect_intersections_deep(gg, gh, chs,tol=tol)
+            res = _detect_intersections_deep(gg, gh, chs,spt=spt,tol=tol)
             ii += 1
 
             intersections.extend(res)
     return intersections
 
 from .boundary_intersection import find_boundary_intersections
-def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
+def detect_intersections(surf1, surf2, spt=0.1,tol=1e-5, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
     Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
     bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
@@ -384,12 +384,13 @@ def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> l
                 #dddd[2] = True
                 #sbb = subs[index].subd(1)
                 #
-                intersections.extend(_detect_intersections_deep(ff, ss, chs, tol=tol))
+                intersections.extend(_detect_intersections_deep(ff, ss, chs, spt=spt,tol=tol))
             else:
                 intersections.append(( f,s))
         else:
-            l=find_boundary_intersections(f,s,1e-7,1e-7)
+            l= find_boundary_intersections(f, s, 1e-6, 1e-6)
             if len(l)>0:
+
                 intersections.append(( f,s))
         index += 1
     return intersections

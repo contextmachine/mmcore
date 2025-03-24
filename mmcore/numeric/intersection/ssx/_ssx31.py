@@ -57,9 +57,9 @@ def find_initial_intersection_points(surf1, surf2, tol=1e-3) -> tuple[np.ndarray
         ns1= _tuple_to_nurbs(surf1)
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
-    boundary_intersections=find_boundary_intersections(ns1, ns2, tol=tol)
+    boundary_intersections= find_boundary_intersections(ns1, ns2, spt=tol)
     for s1, s2 in detect_intersections(ns1, ns2, tol=tol):
-        for pt in find_boundary_intersections(s1, s2, tol=tol):
+        for pt in find_boundary_intersections(s1, s2, spt=tol):
 
             xyz.append(tuple(pt.point))
             u1.append(pt.surface1_params)
@@ -947,7 +947,7 @@ def trace_intersection_curve(
 # Example Usage (for production, integrate with robust initial point finder)
 # -------------------------------------------------------------------
 
-def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.01,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
+def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
 
 
         branches=[]
@@ -1046,7 +1046,7 @@ def _compare_robust(a, b, tol):
     max_val=a+tol
     return (min_val<=b) and (b<=max_val)
 
-def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-7,spt=1e-3,**kwargs) :
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
     :param surf1: First NURBS surface
@@ -1065,14 +1065,14 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-7,spt=1e-3,**kwargs
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
     branches=[]
-    items=detect_intersections(ns1, ns2, tol=tol)
+    items=detect_intersections(ns1, ns2, spt=spt, tol=tol)
     beams=[]
     (smin,smax),(tmin,tmax)=ns1.interval()
     (umin, umax), (vmin, vmax) = ns1.interval()
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
-        stars_points:list[IntersectionPoint]=find_boundary_intersections(s1, s2,tol=1e-7,ptol=1e-7)
+        stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=min(1e-6, spt),tol=min(1e-6, tol))
 
         #print('p',[p.point.tolist() for p in stars_points])
 
@@ -1109,9 +1109,19 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-7,spt=1e-3,**kwargs
                 init_points[i]=pt.point
                 init_uv1[i]=pt.surface1_params
                 init_uv2[i]=pt.surface2_params
+            min_uvd=np.inf
+            for uv1 in init_uv1:
+                for uv2 in init_uv1:
+                    uvd=np.min(uv1-uv2)
+                    if uvd<min_uvd:
+                        min_uvd=uvd
+            for uv1 in init_uv2:
+                for uv2 in init_uv2:
+                    uvd=np.min(uv1-uv2)
+                    if uvd<min_uvd:
+                        min_uvd=uvd
 
-
-            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,backward=False,boundary_check_spt=False):
+            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,h_initial= min_uvd/3,backward=False,boundary_check_spt=False):
                 curve_pts, params1, params2=np.array(curve_pts), np.array(params1), np.array(params2)
                 branches.append((curve_pts,
                                  params1,
@@ -1147,7 +1157,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=1e-7,spt=1e-3,**kwargs
                     np.array(params_surf2))
                     )
     branches_joined=[]
-    ppp=join_segments_with_info(beams, spt, spt)
+    ppp=join_segments_with_info(beams, tol, spt)
 
 
     isolated_points_indexes_to_delete = set()

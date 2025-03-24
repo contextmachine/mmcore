@@ -24,7 +24,7 @@ from mmcore.numeric.intersection.ssx import ssx
 
 
 s=time.time()
-result=ssx(s1,s2,tol=1e-4,spt=0.001,sampling_method='subdivide')
+result=ssx(s1,s2,tol=1e-4,spt=0.001)
 
 
 
@@ -34,7 +34,7 @@ print(f'intersection computed at: {time.time() - s} sec.')
 
 print(f'\n({s1} X \n\t{s2}):')
 
-for i, (spatial, uv1, uv2) in enumerate(result):
+for i, (spatial, uv1, uv2) in enumerate(result[0]):
             print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
             cpts=(spatial.control_points).tolist()
             cpts_repr = repr(cpts)
@@ -58,7 +58,7 @@ try:
     renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
     renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
 
-    for (crv,uv1,uv2) in result:
+    for (crv,uv1,uv2) in result[0]:
         renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
 
 

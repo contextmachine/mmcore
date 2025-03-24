@@ -1,287 +1,111 @@
 import numpy as np
 
-from mmcore.numeric._aabb import aabb
+from mmcore.geom.nurbs import subdivide_surface, split_curve,NURBSCurve,NURBSSurface,CurveSurfaceEq
+from mmcore.numeric.aabb import aabb_intersect_fast_3d
+from mmcore.numeric.newton.cnewton import newtons_method
+
+from mmcore.numeric.algorithms.adaptive_polyline import chord_length
+from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_3d
+from ._ncsx_new_intersections_test import new_intersection_candidates
+
+def int_cs( initial_curve, initial_surface,spt=1e-3, tol=1e-7, debug=False,**kwargs):
+    stack = [(initial_surface, initial_curve)]
+    results=[]
+    while stack:
+
+        _surface, _curve = stack.pop()
+        if not aabb_intersect_fast_3d(_surface.bbox(), _curve.bbox()):
+            continue
+        t0, t1 = _curve.interval()
+        (u0, u1), (v0, v1) = _surface.interval()
 
 
-from mmcore.numeric.fdm import newtons_method
-from mmcore.numeric.newton.bounded import bounded_newtons_method
+        t_mid = (t1 - t0) * 0.5 + t0
+        u_mid = (u1 - u0) * 0.5 + u0
+        v_mid = (v1 - v0) * 0.5 + v0
 
-from mmcore.geom.nurbs import (
-    NURBSCurve,
-    NURBSSurface,
-    split_surface_v,
-    split_surface_u,
-    split_curve,
-    subdivide_surface,
-    CurveSurfaceEq,
-)
+        surf_curve_eq=CurveSurfaceEq(_curve,_surface)
 
-from mmcore.numeric import scalar_dot
-from mmcore.numeric.vectors import scalar_unit, scalar_norm
+        if surf_curve_eq(np.array([t_mid, u_mid, v_mid]))<=spt:
 
-from mmcore.numeric.intersection.csx._ncsx_new_intersections_test import new_intersection_candidates
-from mmcore.numeric.intersection.separability.spatial import spatial_separability
-from mmcore.numeric.intersection.separability.spherical import spherical_separability
+            result = newtons_method(surf_curve_eq, np.array([t_mid, u_mid, v_mid]),tol=min(tol,1e-8),max_iter=5
+                                )
 
-__all__ = ["nurbs_csx", "NURBSCurveSurfaceIntersector"]
+            if result is None:
+                #print('n', t_mid,u_mid,v_mid)
+                for s in subdivide_surface(_surface, u_mid, v_mid, tol=1e-12, normalize_knots=False):
+                    for c in split_curve(_curve, t_mid, tol=1e-12, normalize_knots=False):
+                        stack.append((s, c))
+                continue
 
 
-def normalize_curve_knots(curve):
-    k = curve.knots
-    curve.knots = (k - k[0]) / (k[-1] - k[0])
-    curve.knots_update_hook()
+            t, u, v = result
+            if not (t0 <= t <= t1 and u0 <= u <= u1 and v0 <= v <= v1):
+                continue
+            if debug:
 
-from scipy.optimize import minimize
-class NURBSCurveSurfaceIntersector:
-    """
-    The ground of the implementation was based on the description of the algorithm from the  "4.5 Intersecting Curves and Surfaces. Robust and Efficient Surface Intersection for Solid Modeling By Michael Edward Hohmeyer B.A. (University of California) 1986"
+                print(t, u, v)
 
-    """
+            if not any([all([abs(_t - t) < tol , abs(_u - u) < tol  , abs(_v - v)< tol ])  for  int_type, xyz,(_t, _u, _v) in results]):
+                #print('g', t, u, v)
+                crv_pt = np.array(_curve.evaluate(t))
+                surf_pt = np.array(_surface.evaluate_v2(u, v))
+                d = surf_pt - crv_pt
 
-    __slots__ = ["curve", "surface", "intersections", "spt", "tol"]
+                dn = np.linalg.norm(d)
 
-    def __init__(
-        self, curve: NURBSCurve, surface: NURBSSurface, spt=1e-3, tol=1e-7
-    ):
-        self.curve: NURBSCurve = curve
-        self.surface: NURBSSurface = surface
-        # normalize_curve_knots(self.curve)
-        # self.surface.normalize_knots()
+                if dn < spt:
 
-        self.spt: float =  spt
-        self.intersections = []
-        self.tol = tol
-
-    def intersect(self):
-        self._curve_surface_intersect(self.curve, self.surface)
-        return self.intersections
-
-    def _curve_surface_intersect(self, curve, surface):
-        # print(self.intersections)
-
-        res = self._no_new_intersections(curve, surface)
-
-        # print(np.array(curve.interval()),np.array(curve.knots))
-        # print(res)
-
-        if res:
-            return
-
-        # interior_intersections = self._get_interior_intersections(curve, surface)
-
-        new_point = self._find_new_intersection(curve, surface)
-        (u0, u1), (v0, v1) = surface.interval()
-        if new_point is None:
-            t0, t1 = curve.interval()
-
-            dt=abs(t1-t0)/2
-            if dt<self.ptol:
-                return
-            curve1, curve2 = split_curve(curve, (t0 + t1) * 0.5,tol=1e-12, normalize_knots=False)
-            # normalize_curve_knots(curve1)
-            # normalize_curve_knots(curve2)
-            u,v=(u0 + u1) * 0.5, (v0 + v1) * 0.5
+                    results.append(("transversal",surf_pt,(t, u, v)))
+                    if (u - u0) < 1e-11 or (v - v0) < 1e-11 or (t - t0) < 1e-11 or (u1 - u) < 1e-11 or (v1 - v) < 1e-11 or (t1 - t) < 1e-11:
+                        continue
+                    cand = new_intersection_candidates(_surface, _curve, u, v, t, surf_pt)
+                    if debug:
+                        print(len(cand))
+                    stack.extend(cand)
+                    continue
 
 
-            if abs(u - u0) < self.ptol or abs(u - u1) < self.ptol or abs(v - v0) < self.ptol or abs(v - v1) < self.ptol:
-
-                return
-            surface1, surface2, surface3, surface4 = subdivide_surface(
-                surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
-            )
+        if (u_mid - u0) < 1e-11 or (v_mid - v0) < 1e-11 or (t_mid - t0) < 1e-11:
+            continue
 
         else:
-            point, (t, u, v) = new_point
-
-            if self._is_degenerate(new_point[1], curve, surface):
-                self.intersections.append(("degenerate", point, (t, u, v)))
-
-            else:
-                self.intersections.append(("transversal", point, (t, u, v)))
-            if abs(u-u0)<self.ptol or abs(u-u1)<self.ptol or  abs(v-v0)<self.ptol or  abs(v-v1)<self.ptol:
-
-                return
-            if spherical_separability(
-                np.array(surface.control_points_flat), curve.control_points, point
-            ):
-                return
-
-            curve1, curve2 = split_curve(curve, t,tol=1e-12,normalize_knots=False)
-            # normalize_curve_knots(curve1)
-            # normalize_curve_knots(curve2)
-
-            surface1, surface2, surface3, surface4  = subdivide_surface(surface, u, v, tol=1e-12, normalize_knots=False)
-
-        self._curve_surface_intersect(curve1, surface1)
-        self._curve_surface_intersect(curve1, surface2)
-        self._curve_surface_intersect(curve1, surface3)
-        self._curve_surface_intersect(curve1, surface4)
-        self._curve_surface_intersect(curve2, surface1)
-        self._curve_surface_intersect(curve2, surface2)
-        self._curve_surface_intersect(curve2, surface3)
-        self._curve_surface_intersect(curve2, surface4)
-
-    def _new_intersections_candidates(self, curve, surface, t,u,v,xyz):
-        return new_intersection_candidates(surface,curve,u,v,t,xyz)
+            for s in subdivide_surface(_surface, u_mid, v_mid, tol=1e-12, normalize_knots=False):
+                for c in split_curve(_curve, t_mid, tol=1e-12, normalize_knots=False):
+                    stack.append((s, c))
 
 
+    return sorted(results,key=lambda x:x[2][0])
 
-    def _get_interior_intersections(self, curve, surface):
-        # Return list of already discovered intersection points interior to curve or surface
-        return self.intersections
-
-    def _find_new_intersection(self, curve, surface):
-        """
-
-        :param curve:
-        :param surface:
-        :return:
-        """
-        equation = CurveSurfaceEq(curve, surface)
-
-
-
-        t0, t1 = curve.interval()
-        (u0, u1), (v0, v1) = surface.interval()
-        result =bounded_newtons_method( equation,  np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),[(t0,t1),(u0,u1),(v0,v1)], min_value=0.)
-
-
-
-
-
-        return result
-
-    def _is_valid_parameter(self, params, t_range, u_range, v_range):
-        t, u, v = params
-        t0, t1 = t_range
-        (u0, u1), (v0, v1) = u_range, v_range
-
-        return t0 <= t <= t1 and u0 <= u <= u1 and v0 <= v <= v1
-
-    def _is_degenerate(self, point, curve, surface):
-        t, u, v = point
-        curve_tangent = curve.tangent(t)
-        surface_normal = surface.normal(np.array([u, v]))
-        surface_normal /= scalar_norm(surface_normal)
-        # print(surface_normal,curve_tangent)
-        return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.tolerance
-
-
-def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
-    """
-    Compute intersections between a NURBS curve and a NURBS surface.
-
-    This function serves as the primary interface for detecting intersections between a NURBS curve and a NURBS surface.
-    The underlying implementation is based on recursive subdivision and numerical methods,
-    leveraging the following steps:
-
-    1. **Recursive Subdivision**: The curve and surface are recursively subdivided into smaller regions,
-    allowing for more accurate and efficient detection of intersections.
-    2. **Separability Tests**: For each subdivision, a spatial separability test (based on bounding box and convex hull
-    checks) is applied. If separability is confirmed, no further subdivision or intersection testing is required.
-    3. **Intersection Detection**: Newton's method is used to refine intersection points once subdivisions are small
-    enough, ensuring that the intersection points are calculated with high precision.
-
-    **Key Implementation Details**:
-
-    - The separability test prevents unnecessary subdivision when the curve and surface are sufficiently far apart.
-    - If a new intersection point is found, it is classified either as a "transversal" or "degenerate" intersection,
-    depending on the angle between the curve's tangent and the surface's normal.
-    - The intersection process stops when either the desired tolerance (`tol`) or the precision tolerance (`ptol`) is
-    reached.
-    - Recursive subdivision ensures that no intersections are missed, even for complex geometries.
-
-    **Algorithmic Foundation**:
-
-    This implementation is based on the work described in section 4.5 of "Robust and Efficient Surface Intersection for Solid Modeling" by Michael Edward Hohmeyer B.A. (University of California, 1986).
-    The method efficiently handles intersections for NURBS-based geometries, making it suitable for CAD and solid
-    modeling applications.
-
-    **Parameters**:
-
-    :param curve:
-    The NURBS curve to intersect with the surface. This curve is represented by a series of control points, knots, and a
-    degree.
-    :type curve: mmcore.geom.nurbs.NURBSCurve
-
-    :param surface:
-    The NURBS surface to intersect with the curve. The surface is defined by its control points, a knot vector in both
-    the `u` and `v` directions, and degrees in both directions.
-    :type surface: mmcore.geom.nurbs.NURBSSurface
-
-    :param tol:
-    The tolerance used to determine the accuracy of intersection points. Smaller tolerance values result in higher
-    precision but may increase computational cost.
-    :type tol: float, optional
-
-    :param ptol:
-    Precision tolerance used during separability tests to avoid numerical errors in intersection detection.
-    The default is 1e-6.
-    :type ptol: float, optional
-
-    **Returns**:
-
-    :return:
-    A list of intersection points between the curve and surface. Each intersection is represented as a tuple of the form:
-    - `("type", point, (t, u, v))`
-    where `type` can be 'transversal' or 'degenerate', `point` is the 3D coordinates of the intersection,
-    and `(t, u, v)` are the parametric coordinates of the intersection.
-    :rtype: list
-
-    **Example**:
-
-    .. code-block:: python
-
-    # Example usage of nurbs_csx
-    curve = NURBSCurve(control_points=[...], knots=[...], degree=3)
-    surface = NURBSSurface(control_points=[...], knots_u=[...], knots_v=[...], degree_u=3, degree_v=3)
-
-    intersections = nurbs_csx(curve, surface, tol=1e-4, ptol=1e-7)
-    for intersection in intersections:
-    print(intersection)
-
-    **Notes**:
-
-    - The algorithm will subdivide the curve and surface recursively until it either finds an intersection or determines
-    that no intersection exists within the provided tolerance.
-    - For complex surfaces or highly curved regions, consider adjusting the `tol` parameter to increase precision.
-    - The classification of intersections as "transversal" or "degenerate" helps distinguish between cases where the
-    curve crosses the surface tangentially versus at a sharper angle.
-
-    **Limitations**:
-
-    - This method assumes that both the curve and surface are properly defined and their parameterizations are valid.
-    - Very high precision (`ptol` values smaller than 1e-15) may lead to longer computation times or convergence issues.
-    """
-    intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, ptol=ptol)
-    intersector.intersect()
-    return intersector.intersections
 
 
 if __name__ == "__main__":
-    from mmcore._test_data import csx as test_data
-    import time
+    cpts = np.array(
+        [[-9.1796875, 13.229166666666666, -4.5186767578125], [-9.1796875, 14.739583333333332, -4.49395751953125],
+         [-9.1796875, 16.432291666666664, -4.580108642578125], [-9.1796875, 18.372395833333332, -4.8531036376953125]]
+    )
+    spts = np.array([[[-5.849180481790346, 18.372395833333336, -1.5018374203712104],
+                      [-5.858792686592141, 16.432291666666668, -2.719633841323509],
+                      [-5.871782152540512, 14.739583333333334, -3.1229032219131403],
+                      [-5.8852911971268185, 13.229166666666668, -3.116512598566417]],
+                     [[-6.88688536134276, 18.372395833333336, -1.6832837287863824],
+                      [-6.894094514944105, 16.432291666666668, -2.9325012796112815],
+                      [-6.9038366144053835, 14.739583333333334, -3.3409109281989706],
+                      [-6.913968397845114, 13.229166666666668, -3.3217200441495054]],
+                     [[-7.97766402100707, 18.372395833333336, -2.2658223298287345],
+                      [-7.983070886208079, 16.432291666666668, -3.617300740689732],
+                      [-7.990377460804037, 14.739583333333334, -4.0455099012702895],
+                      [-7.997976298383835, 13.229166666666668, -3.992029157974829]],
+                     [[-9.1863730157553, 18.372395833333336, -2.7409113689805125],
+                      [-9.190428164656058, 16.432291666666668, -4.174381706229336],
+                      [-9.195908095603027, 14.739583333333334, -4.61538352236864],
+                      [-9.201607223787876, 13.229166666666668, -4.527011611303911]]]
+                    )
 
-    S1, C1 = test_data[0]
-    intersector = NURBSCurveSurfaceIntersector(C1, S1)
-    s = time.time()
-    res = intersector.intersect()
-    e1 = time.time() - s
-    print([pt.tolist() for (t, pt, prm) in res])
-    S1, C2 = test_data[1]
-    intersector = NURBSCurveSurfaceIntersector(C2, S1)
-    s = time.time()
-    res = intersector.intersect()
-    e2 = time.time() - s
-    res.sort(key=lambda x: x[2][0])
-    print([pt.tolist() for (t, pt, prm) in res])
-    print(e1, e2, sep="\n")
-    ts = []
-    uvs = []
-    typs = []
-    for t, pt, prm in res:
-        typs.append(t)
-        ts.append(prm[0])
-        uvs.append(prm[1:])
-    print(ts)
-    print(uvs)
+    u, v, t = 0.9939461136471586, 0.995759608283125, 0.004240391716877873
+    surf = NURBSSurface(np.array(spts), (3, 3))
+
+    surf.normalize_knots()
+
+    curve = NURBSCurve(cpts)
+    ress = new_intersection_candidates(surf, curve, u, v, t, np.array(surf.evaluate_v2(u, v)))

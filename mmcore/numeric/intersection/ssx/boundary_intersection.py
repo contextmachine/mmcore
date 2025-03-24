@@ -14,7 +14,7 @@ from mmcore.geom.nurbs import NURBSSurface, NURBSCurve, find_span, basis_functio
 from mmcore.numeric.algorithms.surface_area import v_max
 from mmcore.numeric.intersection.csx import nurbs_csx
 
-
+from mmcore.numeric.intersection.csx._ncsx2 import int_cs
 
 def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
     """
@@ -109,19 +109,19 @@ class IntersectionPoint:
         else:  # v=1 curve
             return (param, vmax)
 
-def find_boundary_intersections(surf1: NURBSSurface, 
-                              surf2: NURBSSurface, 
-                              tol: float = 1e-6, ptol=1e-6) -> List[IntersectionPoint]:
+def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: float = 1e-6, tol=1e-6) -> List[IntersectionPoint]:
     """
     Find all intersection points between the boundaries of two NURBS surfaces.
     
     Args:
         surf1 (NURBSSurface): First NURBS surface
         surf2 (NURBSSurface): Second NURBS surface
-        tol (float): Tolerance for intersection detection
+        spt (float): Spatial tolerance
+        tol (float): Parameter tolerance
         
     Returns:
         List[IntersectionPoint]: List of found intersection points
+
     """
     intersection_points = []
     
@@ -134,7 +134,8 @@ def find_boundary_intersections(surf1: NURBSSurface,
     #print([boundary.control_points.tolist() for boundary in boundaries2])
     # Find intersections of surf1's boundaries with surf2
     for i, boundary in enumerate(boundaries1):
-        intersections = nurbs_csx(boundary, surf2, tol=tol,ptol=ptol)
+        intersections = nurbs_csx(boundary, surf2, tol=spt, ptol=tol)
+        #intersections =int_cs(boundary,surf2,tol=tol,spt=spt)
         #print(i,intersections,boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             # params[0] is curve parameter, params[1:] are surface parameters
@@ -153,8 +154,8 @@ def find_boundary_intersections(surf1: NURBSSurface,
     
     # Find intersections of surf2's boundaries with surf1
     for i, boundary in enumerate(boundaries2):
-        intersections = nurbs_csx(boundary, surf1, tol=tol,ptol=ptol)
-
+        intersections = nurbs_csx(boundary, surf1, tol=spt, ptol=tol)
+        #intersections = int_cs(boundary, surf1, tol=tol, spt=spt)
         #print(i, intersections, boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             if intersection_type =='degenerate':
@@ -175,13 +176,14 @@ def find_boundary_intersections(surf1: NURBSSurface,
     for point in intersection_points:
         is_duplicate = False
         for existing_point in unique_points:
-            N=np.linalg.norm(point.point - existing_point.point)
+            N=np.linalg.norm(point.stuv - existing_point.stuv)
             #print("N",N)
 
 
             if  N < tol:
                 is_duplicate = True
                 break
+            ...
         if not is_duplicate:
             unique_points.append(point)
     

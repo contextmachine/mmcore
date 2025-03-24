@@ -10,6 +10,7 @@ from mmcore.geom.bvh import BoundingBox
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
 from mmcore.numeric.vectors import scalar_unit,gram_schmidt
 
+from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
 from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 
 from mmcore.numeric.intersection.ssx.boundary_intersection import (
@@ -22,6 +23,53 @@ from mmcore.numeric.intersection.ssx.boundary_intersection import (
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
 DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.
 
+def create_isolines(u_vals, v_vals):
+    """
+    Create three lists of isolines for the domain defined by u_vals and v_vals:
+      1) boundary_isolines:   (direction, parameter) at the min and max of each set
+      2) param_isolines:      (direction, parameter) for each 'internal' parameter in the sets
+      3) midpoint_isolines:   (direction, parameter) for midpoints of each interval,
+                              skipping duplicates
+    Returns
+    -------
+    boundary_isolines, param_isolines, midpoint_isolines : 3 lists of (dir, param) tuples
+    """
+    # --- 1) BOUNDARY ISOLINES ---
+    # For u and v, the boundaries are just the first and last values in each list
+    boundary_set = set()
+    boundary_set.add(("u", u_vals[0]))
+    boundary_set.add(("u", u_vals[-1]))
+    boundary_set.add(("v", v_vals[0]))
+    boundary_set.add(("v", v_vals[-1]))
+    # --- 2) PARAMETER ISOLINES (INTERNAL) ---
+    # These are all the values except the boundary in each list
+    param_set = set()
+    for val in u_vals[1:-1]:
+        param_set.add(("u", val))
+    for val in v_vals[1:-1]:
+        param_set.add(("v", val))
+    # --- 3) MIDPOINT ISOLINES ---
+    # For each consecutive pair (a, b), take midpoint m = 0.5*(a + b),
+    # but skip if that midpoint is exactly one of the existing lines
+    midpoint_set = set()
+    def add_midpoints(values, direction):
+        for i in range(len(values) - 1):
+            a = values[i]
+            b = values[i + 1]
+            m = 0.5 * (a + b)
+            candidate = (direction, m)
+            # Only add if not already in boundary_set or param_set
+            if candidate not in boundary_set and candidate not in param_set:
+                midpoint_set.add(candidate)
+    add_midpoints(u_vals, "u")
+    add_midpoints(v_vals, "v")
+    # Convert each set to a sorted list (sorted by direction first, then parameter).
+    # Sorting by direction ensures all ("u", ...) come before ("v", ...).
+    # You can adjust sorting logic if you prefer a different order.
+    boundary_isolines = sorted(boundary_set, key=lambda x: (x[0], x[1]))
+    param_isolines = sorted(param_set, key=lambda x: (x[0], x[1]))
+    midpoint_isolines = sorted(midpoint_set, key=lambda x: (x[0], x[1]))
+    return boundary_isolines, param_isolines, midpoint_isolines
 
 @dataclass
 class Point:
@@ -39,11 +87,20 @@ class Wire:
 
 def nurbs_surface_wireframe_view(surf: NURBSSurface):
     (u_min, u_max), (v_min, v_max) = surf.interval()
+    boundaries = []
+    ku=np.unique(surf.knots_u)
+    kv=np.unique(surf.knots_v)
+    ku1,ku2=ku[:-1],ku[1:]
+    kv1, kv2 = kv[:-1], kv[1:]
+    bnd, par, mid =create_isolines(ku,kv)
+    bnd_c=[extract_isocurve(surf,param, direction=direction) for direction,param in bnd]
+    par_c=[]#[extract_isocurve(surf,param, direction=direction) for direction,param in par]
+    mid_c=[]
+    #mid_c=[extract_isocurve(surf,param, direction=direction) for direction,param in mid]
 
-    u_iso = extract_isocurve(surf, (u_min + u_max) * 0.5, direction='u')
-    v_iso = extract_isocurve(surf, (v_min + v_max) * 0.5, direction='v')
-    boundaries = extract_surface_boundaries(surf)
-    return boundaries, (u_iso, v_iso)
+
+
+    return bnd_c,par_c,mid_c
 from numpy.typing import NDArray
 @dataclass
 class BoundingSphere:
@@ -176,6 +233,7 @@ class CADRenderer:
           #version 410
           in vec3 vertex_color;
           out vec4 FragColor;
+          
           void main() {
               FragColor = vec4(vertex_color, 1.0);
           }
@@ -452,10 +510,11 @@ class CADRenderer:
 
 
     def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=1.0):
-        boundaries, isolines = nurbs_surface_wireframe_view(surf)
-
+        boundaries, isolines,mid_iso = nurbs_surface_wireframe_view(surf)
+        #for iso in mid_iso:
+        #    self.add_nurbs_curve(iso, (np.array(color) * 0.1).tolist(), thickness)
         for iso in isolines:
-            self.add_nurbs_curve(iso, (np.array(color) * 0.5).tolist(), thickness)
+            self.add_nurbs_curve(iso, (np.array(color) * 0.3).tolist(), thickness)
         for b in boundaries:
             self.add_nurbs_curve(b, color, thickness)
 

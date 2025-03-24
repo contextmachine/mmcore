@@ -928,7 +928,7 @@ print(f'intersection computed at: {time.time() - s} sec.')
 
 print(f'\n({s1} X \n\t{s2}):')
 
-for i, (spatial, uv1, uv2) in enumerate(result):
+for i, (spatial, uv1, uv2) in enumerate(result[0]):
             print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
             cpts=(spatial.control_points).tolist()
             cpts_repr = repr(cpts)
@@ -939,24 +939,25 @@ for i, (spatial, uv1, uv2) in enumerate(result):
 
 
 
-
+RENDER=False
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+    if RENDER:
+        from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
 
-    print(dir(Camera))
-    centr=np.average(s1.control_points_flat, axis=0)
-    renderer=CADRenderer(camera=Camera( zoom=75.
+        print(dir(Camera))
+        centr=np.average(s1.control_points_flat, axis=0)
+        renderer=CADRenderer(camera=Camera( zoom=75.
+            )
         )
-    )
 
-    renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
-    renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+        renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
+        renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
 
-    for (crv,uv1,uv2) in result:
-        renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
+        for (crv,uv1,uv2) in result[0]:
+            renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
 
 
-    renderer.run()
+        renderer.run()
 
 except ModuleNotFoundError as err:
     print("mmcore.renderer is not installed, skip preview.")

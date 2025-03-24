@@ -1,7 +1,7 @@
 import numpy as np
 
 from mmcore.numeric.intersection.separability.spherical import spherical_separability,separating_circles_test
-from mmcore.numeric.aabb import aabb_intersect_fast_3d
+from mmcore.numeric.aabb import aabb_intersect_fast_3d,aabb
 from mmcore.geom.nurbs import (
     NURBSCurve,
     NURBSSurface,
@@ -14,26 +14,20 @@ from mmcore.geom.nurbs import (
 from ._ch2d import convex_hulls_intersect,convex_hull
 from ._steriographic_projection import stereographic_projection
 def _has_new_int_patch_segm(surface,curve, xyz):
-    if not aabb_intersect_fast_3d(curve.bbox(),surface.bbox()):
+
+
+    def sorter(x):
+        d=xyz - x
+        return np.dot(d,d)
+    curve_points=np.array(sorted(curve.control_points,key=sorter)[1:])
+    surf_points = np.array(sorted(surface.control_points_flat, key=sorter)[1:])
+
+    if not aabb_intersect_fast_3d(aabb(curve_points),aabb(surf_points)):
         return False
-    curve_d=[]
-    surface_d=[]
-    for cpt in np.array(curve.control_points):
-        d = cpt - xyz
-
-        if not np.all(np.abs(d)<1e-12):
-            curve_d.append(d / np.linalg.norm(d))
-
-
-    for cpt in np.array(surface.control_points_flat):
-        d = cpt - xyz
-        if not  np.all(np.abs(d)<1e-12):
-            surface_d.append(d / np.linalg.norm(d))
-
-
-
-    curve_d2d= stereographic_projection(np.array(curve_d)).tolist()
-    surf_d2d = stereographic_projection(np.array(surface_d)).tolist()
+    curve_d = curve_points - xyz.reshape((-1, 3))
+    surf_d = surf_points - xyz.reshape((-1, 3))
+    curve_d2d= stereographic_projection(curve_d).tolist()
+    surf_d2d = stereographic_projection(surf_d).tolist()
     #print([curve_d2d,surf_d2d])
     ch_curve=convex_hull(curve_d2d, 1e-15)
     ch_surf=convex_hull(surf_d2d,1e-15)
