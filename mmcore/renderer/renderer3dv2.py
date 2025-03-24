@@ -87,20 +87,11 @@ class Wire:
 
 def nurbs_surface_wireframe_view(surf: NURBSSurface):
     (u_min, u_max), (v_min, v_max) = surf.interval()
-    boundaries = []
-    ku=np.unique(surf.knots_u)
-    kv=np.unique(surf.knots_v)
-    ku1,ku2=ku[:-1],ku[1:]
-    kv1, kv2 = kv[:-1], kv[1:]
-    bnd, par, mid =create_isolines(ku,kv)
-    bnd_c=[extract_isocurve(surf,param, direction=direction) for direction,param in bnd]
-    par_c=[]#[extract_isocurve(surf,param, direction=direction) for direction,param in par]
-    mid_c=[]
-    #mid_c=[extract_isocurve(surf,param, direction=direction) for direction,param in mid]
 
-
-
-    return bnd_c,par_c,mid_c
+    u_iso = extract_isocurve(surf, (u_min + u_max) * 0.5, direction='u')
+    v_iso = extract_isocurve(surf, (v_min + v_max) * 0.5, direction='v')
+    boundaries = extract_surface_boundaries(surf)
+    return boundaries, [u_iso, v_iso],[]
 from numpy.typing import NDArray
 @dataclass
 class BoundingSphere:

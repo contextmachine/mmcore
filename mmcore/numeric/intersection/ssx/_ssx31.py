@@ -724,7 +724,8 @@ def validated_ode_solver(
     interval_u_2 = surf2.knot_u[surf2.order_u - 1], surf2.knot_u[len(surf2.control_points) + 1]
     interval_v_2 = surf2.knot_v[surf2.order_v - 1], surf2.knot_v[len(surf2.control_points[0]) + 1]
     s = 0.0
-    h = min(abs(h_initial),(interval_u_1[1]-interval_u_1[0])/10,(interval_v_1[1]-interval_v_1[0])/10,(interval_u_2[1]-interval_u_2[0])/10,(interval_v_2[1]-interval_v_2[0])/10)
+    h =h_initial
+
 
     x = np.array(x0, dtype=float)
     initial=x
@@ -751,17 +752,27 @@ def validated_ode_solver(
         check_tree = context.get("init_points_tree") is not None
     check_smax=s_max!=-1
     termination_reason=0
-
+    iteration=-1
     while s < s_max if check_smax else True:
+        iteration+=1
+
         # Attempt a full step of size h using Euler's method.
         f_x = f(x, surf1, surf2, tol)
+
         x_full = x + h * f_x
 
+        if (iteration == 0) and (x_full[0] < interval_u_1[0] or x_full[0] > interval_u_1[1] or
+                                 x_full[1] < interval_v_1[0] or x_full[1] > interval_v_1[1] or
+                                 x_full[2] < interval_u_2[0] or x_full[2] > interval_u_2[1] or
+                                 x_full[3] < interval_v_2[0] or x_full[3] > interval_v_2[1]):
+            h=-h
+            continue
         # Perform step doubling: two half-steps.
         f_x_half = f(x, surf1, surf2, tol)
         x_half = x + (h / 2.0) * f_x_half
         f_x_half2 = f(x_half, surf1, surf2, tol)
         x_half2 = x_half + (h / 2.0) * f_x_half2
+
 
         # Estimate local error.
         error_estimate = np.linalg.norm(x_half2 - x_full)
@@ -776,6 +787,7 @@ def validated_ode_solver(
         x_new = x_half2.copy()
         # Apply iterative point refinement until ||S0 - S1|| < spt.
         x_new,p_eval,q_eval,error = refine_intersection_point(x_new, surf1, surf2, spt=spt, max_iter=100)
+
 
 
 

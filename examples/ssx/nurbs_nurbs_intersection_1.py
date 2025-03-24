@@ -91,7 +91,7 @@ pts2 = pts2.reshape((6, len(pts2) // 6, 3))
 s21 = NURBSSurface(pts1, (3, 3))
 s22 = NURBSSurface(pts2, (3, 3))
 s=time.time()
-curves,pts=ssx(s21,s22,tol=1e-5,spt=0.01)
+curves,pts=ssx(s21,s22,tol=1e-7,spt=0.001)
 
 
 
@@ -108,6 +108,7 @@ for i, (spatial, uv1, uv2) in enumerate(curves):
             cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
         print(f'\t\tcontrol points: {cpts_repr}')
         print(f'\t\tdegree: {spatial.degree}')
+print('isolated_points: ', pts)
 with open("ssx1.txt",'w') as tf:
     for i, (spatial, uv1, uv2) in enumerate(curves
                                             ):
