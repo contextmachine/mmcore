@@ -204,13 +204,13 @@ class GaussMap:
         return cls(NURBSSurface(np.array(unit(_map.reshape((-1, 3)))).reshape(_map.shape),
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
-    def subdivide(self):
+    def subdivide(self, u=0.5,v=0.5):
         (umin, umax), (vmin, vmax) = self.surface.interval()
-        umid = umin+(( umax-umin ) * 0.5)
-        vmid = vmin+(( vmax-vmin ) * 0.5)
+        umid = umin+(( umax-umin ) * u)
+        vmid = vmin+(( vmax-vmin ) * v)
         (mumin, mumax), (mvmin, mvmax) = self._map.interval()
-        mumid = mumin+(( mumax-mumin ) * 0.5)
-        mvmid = mvmin+(( mvmax-mvmin ) * 0.5)
+        mumid = mumin+(( mumax-mumin ) * u)
+        mvmid = mvmin+(( mvmax-mvmin ) * v)
         try:
 
             srf = subdivide_surface(self.surface,umid,vmid,tol=1e-12,normalize_knots=False)

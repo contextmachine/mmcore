@@ -91,7 +91,7 @@ pts2 = pts2.reshape((6, len(pts2) // 6, 3))
 s21 = NURBSSurface(pts1, (3, 3))
 s22 = NURBSSurface(pts2, (3, 3))
 s=time.time()
-result=ssx(s21,s22,tol=1e-5,spt=0.01, sampling_method='subdivide')
+curves,pts=ssx(s21,s22,tol=1e-5,spt=0.01)
 
 
 
@@ -100,7 +100,7 @@ print(f'intersection computed at: {time.time() - s} sec.')
 
 print(f'\n({s21} X \n\t{s22}):')
 
-for i, (spatial, uv1, uv2) in enumerate(result):
+for i, (spatial, uv1, uv2) in enumerate(curves):
         print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
         cpts=(spatial.control_points).tolist()
         cpts_repr = repr(cpts)
@@ -109,7 +109,8 @@ for i, (spatial, uv1, uv2) in enumerate(result):
         print(f'\t\tcontrol points: {cpts_repr}')
         print(f'\t\tdegree: {spatial.degree}')
 with open("ssx1.txt",'w') as tf:
-    for i, (spatial, uv1, uv2) in enumerate(result):
+    for i, (spatial, uv1, uv2) in enumerate(curves
+                                            ):
             cpts = (spatial.control_points).tolist()
             tf.write(repr(cpts))
 
@@ -125,7 +126,7 @@ try:
     renderer.add_nurbs_surface(s21,color=(1.,1.,1.))
     renderer.add_nurbs_surface(s22,color=(1.,1.,1.))
 
-    for (crv,uv1,uv2) in result:
+    for (crv,uv1,uv2) in curves:
         renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
 
 

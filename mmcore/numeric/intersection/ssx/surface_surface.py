@@ -107,7 +107,8 @@ ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
 
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections
+from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections, \
+    IntersectionPoint
 
 
 def find_closest_points(surf1: Surface, surf2: Surface, freeform):
@@ -511,7 +512,7 @@ def find_start_points_nurbs(surf1, surf2, tol=1e-3):
 times = []
 
 from mmcore.numeric.intersection.ssx._ssx31 import _nurbs_trace_intersection_curves_v2 as _nurbs_trace_intersection_curves,SamplingMethod
-def surface_ppi(surf1: Surface, surf2: Surface, tol=1e-7, spt=0.001, sampling_method:SamplingMethod="subdivide"):
+def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7,  **kwargs):
 
     # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
     #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
@@ -525,7 +526,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, tol=1e-7, spt=0.001, sampling_me
     else:
         raise NotImplemented()
 
-def ssx(surf1: Surface, surf2: Surface, tol: float = 1e-7, spt=0.001, sampling_method:SamplingMethod="subdivide") -> list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]:
+def ssx(surf1: Surface, surf2: Surface,  spt=0.001,tol: float = 1e-7, **kwargs) -> tuple[list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]],list[IntersectionPoint]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -555,9 +556,9 @@ def ssx(surf1: Surface, surf2: Surface, tol: float = 1e-7, spt=0.001, sampling_m
         3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
-    res = surface_ppi(surf1, surf2, tol=tol,spt=spt,sampling_method=sampling_method)
+    res = surface_ppi(surf1, surf2, tol=tol,spt=spt)
     if res is None:
-        return []
+        return [],[]
     curves,pts=res
     #curves, curves1_uvs,curves2_uvs, _= zip(*res)
     results = []
@@ -578,7 +579,7 @@ def ssx(surf1: Surface, surf2: Surface, tol: float = 1e-7, spt=0.001, sampling_m
             )
         )
 
-    return results
+    return results, pts
 
 
 if __name__ == "__main__":

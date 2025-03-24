@@ -39,7 +39,7 @@ def test_boundary_intersections_special_case_1():
     print("Surface 2 control points shape:", nurbs_surf2.control_points.shape)
     
     # Use higher tolerance for this specific hard case
-    res=find_boundary_intersections(nurbs_surf1, nurbs_surf2, tol=1e-4, ptol=1e-6)
+    res= find_boundary_intersections(nurbs_surf1, nurbs_surf2, spt=1e-4, spt=1e-6)
 
     sorted_res:list[IntersectionPoint] = sorted(res, key=lambda x: x.point[0])  # Now we do not test the order, so in order to avoid false negatives, we perform an obvious sorting, which guarantees that the order of points of the expected and actual results will coincide
     sorted_res_xyz=[]
@@ -124,7 +124,7 @@ def test_boundary_intersections_special_case_2():
     print("Surface 2 control points shape:", nurbs_surf2.control_points.shape)
 
     # Use higher tolerance for this specific hard case
-    res = find_boundary_intersections(nurbs_surf1, nurbs_surf2, tol=1e-4, ptol=1e-6)
+    res = find_boundary_intersections(nurbs_surf1, nurbs_surf2, spt=1e-4, spt=1e-6)
 
     sorted_res: list[IntersectionPoint] = res
        # Now we do not test the order, so in order to avoid false negatives, we perform an obvious sorting, which guarantees that the order of points of the expected and actual results will coincide
