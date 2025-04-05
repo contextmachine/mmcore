@@ -668,8 +668,13 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
             pt = evaluate_nurbs_surface(
                 surface1, x[0], x[1], 0)["S"]
             #print([pt0.tolist(),pt.tolist(),[ b.point.tolist() for b in boundary_intersection_points]])
+
+
+
             raise ValueError(
-                "The area boundary has been reached, but the boundary intersection point has not been found")
+                "The area boundary has been reached, but the boundary intersection point has not been found: "+(f"\n\nboundary intersection points:\n{[pt.point.tolist() for pt in boundary_intersection_points]}\n"
+             f"surfaces control points:\n{ [surface1.control_points.tolist(),surface2.control_points.tolist()]}\n"
+             f"last marching step (xyz, next_xyz):\n{np.array([pt0, pt]).tolist()}\n"))
 
         else:
 
@@ -1084,7 +1089,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
-        stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=min(1e-6, spt),tol=min(1e-6, tol))
+        stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=spt,tol=tol)
 
         #print('p',[p.point.tolist() for p in stars_points])
 

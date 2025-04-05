@@ -1,7 +1,6 @@
 import numpy as np
 
-from mmcore.numeric._aabb import aabb
-
+from mmcore.numeric._aabb import aabb, aabb_intersection
 
 from mmcore.numeric.newton.cnewton import newtons_method
 
@@ -22,11 +21,28 @@ from mmcore.numeric.intersection.separability.spherical import spherical_separab
 
 __all__ = ["nurbs_csx", "NURBSCurveSurfaceIntersector"]
 
-
+from mmcore.numeric.log_scaling import to_log,from_log
 def normalize_curve_knots(curve):
     k = curve.knots
     curve.knots = (k - k[0]) / (k[-1] - k[0])
     curve.knots_update_hook()
+
+def _surf_to_log_space(surf:NURBSSurface)->NURBSSurface:
+
+    cptsw = np.array(surf.control_points_w)
+    cpts = to_log(cptsw[..., :-1])
+    cptsw[..., :-1] = cpts
+
+    return NURBSSurface(cpts, degree=tuple(surf.degree), knots_u=surf.knots_u,knots_v=surf.knots_v)
+
+
+def _curve_to_log_space(curve:NURBSCurve):
+
+    cptsw=np.array(curve.control_pointsw)
+    cpts=to_log(cptsw[..., :-1])
+    cptsw[..., :-1]=cpts
+
+    return NURBSCurve(cpts,degree=curve.degree,knots=curve.knots)
 
 
 class NURBSCurveSurfaceIntersector:
@@ -35,20 +51,25 @@ class NURBSCurveSurfaceIntersector:
 
     """
 
-    __slots__ = ["curve", "surface", "intersections", "tolerance", "ptol"]
+    __slots__ = ["curve", "surface", 'initial_curve', 'initial_surface',"intersections", "tolerance", "ptol",'_equation']
 
     def __init__(
         self, curve: NURBSCurve, surface: NURBSSurface, tolerance=1e-3, ptol=1e-7
     ):
-        self.curve: NURBSCurve = curve
-        self.surface: NURBSSurface = surface
+
+        self.initial_curve: NURBSCurve=curve
+        self.initial_surface : NURBSSurface= surface
+
+        self.curve: NURBSCurve = self.initial_curve
+        self.surface: NURBSSurface =self.initial_surface
+
         # normalize_curve_knots(self.curve)
         # self.surface.normalize_knots()
 
         self.tolerance: float = tolerance
         self.intersections = []
         self.ptol = ptol
-
+        self._equation=CurveSurfaceEq(self.initial_curve, self.initial_surface)
     def intersect(self):
         self._curve_surface_intersect(self.curve, self.surface)
         return self.intersections
@@ -87,10 +108,12 @@ class NURBSCurveSurfaceIntersector:
                 surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
             )
 
+
         else:
             point, (t, u, v) = new_point
 
             if self._is_degenerate(new_point[1], curve, surface):
+
                 self.intersections.append(("degenerate", point, (t, u, v)))
 
             else:
@@ -135,19 +158,24 @@ class NURBSCurveSurfaceIntersector:
         return self.intersections
 
     def _find_new_intersection(self, curve, surface):
-        equation = CurveSurfaceEq(curve, surface)
-        # def equation(x):
-        #    t, u, v = x
-        #    d=curve.evaluate(t) - surface.evaluate_v2(u, v)
-        #
-        #    return scalar_dot(d,d)
-        #
 
+
+        #
+        bb1=np.array(curve.bbox())
+        bb2=np.array(surface.bbox())
+        bb1[0]-=self.tolerance
+        bb1[1] += self.tolerance
+        bb2[0] -= self.tolerance
+        bb2[1] += self.tolerance
+        if not aabb_intersection(bb1,bb2):
+            return
+
+        #equation = CurveSurfaceEq(curve, surface)
         t0, t1 = curve.interval()
         (u0, u1), (v0, v1) = surface.interval()
 
         result = newtons_method(
-            equation,
+            self._equation,
             np.array([(t0 + t1) * 0.5, (u0 + u1) * 0.5, (v0 + v1) * 0.5]),
             max_iter=5
         )
@@ -158,17 +186,31 @@ class NURBSCurveSurfaceIntersector:
             and self._is_valid_parameter(result, (t0, t1), (u0, u1), (v0, v1))
             and not any(np.isnan(result))
         ):
-            point = curve.evaluate(result[0])
-            point2 = surface.evaluate_v2(*result[1:])
-            r = scalar_norm(point - point2)
-            if r <= self.tolerance:
-                for i in range(len(self.intersections)):
-                    if np.all(
-                        np.abs(np.array(self.intersections[i][1]) - np.array(point))
-                        < self.tolerance
-                    ):
-                        return
+            #point = curve.evaluate(result[0])
+            #point2 = surface.evaluate_v2(*result[1:])
 
+            result = np.asarray(result)
+            #point = self.initial_curve.evaluate(result[0])
+            #point2 = self.initial_surface.evaluate_v2(result[1],result[2])
+            result = newtons_method(
+                self._equation,
+                result
+
+            )
+            if result is None or np.any(np.isnan(result)) :
+                return
+            r=self._equation(result)**0.5
+
+            if r <= self.tolerance:
+
+                for i in range(len(self.intersections)):
+                        tuv=np.asarray(self.intersections[i][2])
+                        if np.all(
+                                (result-tuv)<self.ptol) :
+
+                            return
+
+                point = self.initial_curve.evaluate(result[0])
                 return point, result
 
         return None
