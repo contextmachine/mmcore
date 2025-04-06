@@ -1,24 +1,17 @@
+
 import glfw
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 import pyrr
 from dataclasses import dataclass,field
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
-from mmcore.geom.bvh import BoundingBox
+
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
-from mmcore.numeric.vectors import scalar_unit,gram_schmidt
 
-from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
-
-from mmcore.numeric.intersection.ssx.boundary_intersection import (
-    extract_surface_boundaries,
-    find_boundary_intersections,
-    sort_boundary_intersections,
-    IntersectionPoint
-)
+from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
+from mmcore.topo.mesh.tess import tessellate_surface
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
 DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.
@@ -84,6 +77,13 @@ class Wire:
     color: np.ndarray  # RGB vector
     thickness: float
 
+@dataclass
+class Mesh:
+    vertices: np.ndarray  # Nx3 array of vertices
+    triangles: np.ndarray  # Mx3 array of triangle indices
+    color: np.ndarray  # RGBA vector (with alpha for transparency)
+    wireframe_color: Optional[np.ndarray] = None  # RGB vector for wireframe, if None will use a darker version of color
+
 
 def nurbs_surface_wireframe_view(surf: NURBSSurface):
     (u_min, u_max), (v_min, v_max) = surf.interval()
@@ -97,6 +97,37 @@ from numpy.typing import NDArray
 class BoundingSphere:
     origin:field(default_factory=lambda : np.array([0.,0.,0.], dtype=np.float32))
     radius:float = 0.
+
+    def compute_from_geometries(self, points=None, wires=None, meshes=None):
+        """Compute bounding sphere from existing geometries"""
+        all_points = []
+
+        # Add all points
+        if points:
+            for point in points:
+                all_points.append(point.position)
+
+        # Add wire vertices
+        if wires:
+            for wire in wires:
+                all_points.extend(wire.vertices)
+
+        # Add mesh vertices
+        if meshes:
+            for mesh in meshes:
+                all_points.extend(mesh.vertices)
+
+        if not all_points:
+            return
+
+        # Compute center and radius
+        all_points = np.array(all_points)
+        self.origin = np.mean(all_points, axis=0)
+
+        # Calculate radius as the max distance from any point to the center
+        if len(all_points) > 0:
+            distances = np.linalg.norm(all_points - self.origin, axis=1)
+            self.radius = np.max(distances)
 @dataclass
 class Camera:
     pos:NDArray[np.float32]=field(default_factory=lambda : np.array([150.0,150.0, 150.0], dtype=np.float32))
@@ -106,6 +137,30 @@ class Camera:
     near:float = 0.01
     far:float = 1000000.0
     is_panning:bool = False
+
+    def position_from_bounding_sphere(self, sphere: BoundingSphere):
+        """Position camera based on bounding sphere to ensure geometry is in view
+
+        Similar to the JS code:
+        const cameraOffset = new Vector3(0, radius * 1.5, radius * 2.5);
+        const newCamPos = new Vector3().addVectors(center, cameraOffset);
+        camera.position.copy(newCamPos);
+        camera.lookAt(center);
+        """
+        if sphere.radius <= 0:
+            return
+
+        # Set target to sphere center
+        self.target = np.array(sphere.origin, dtype=np.float32)
+
+        # Define camera offset (similar to JS example)
+        camera_offset = np.array([0, sphere.radius * 1.5, sphere.radius * 2.5], dtype=np.float32)
+
+        # Position camera
+        self.pos = np.array(sphere.origin + camera_offset, dtype=np.float32)
+
+        # Adjust zoom based on radius (optional)
+        self.zoom = max(1.0, sphere.radius * 1.5)
 import multiprocessing as mp
 class CADRenderer:
     def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:Camera=None):
@@ -117,6 +172,7 @@ class CADRenderer:
         if camera is None:
             camera=Camera()
         self.bsf=BoundingSphere(camera.target,0.)
+        self.auto_position_camera = True
         # Configure GLFW for macOS compatibility
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -152,9 +208,7 @@ class CADRenderer:
         self.last_mouse_pos = np.array([0.0, 0.0])
         self.snap_distance = 0.1
 
-        # Geometry storage
-        self.points: List[Point] = []
-        self.wires: List[Wire] = []
+        # Geometry storage is already initialized above
 
         # Setup callbacks
         self.setup_callbacks()
@@ -165,12 +219,25 @@ class CADRenderer:
         # Enable depth testing
         glEnable(GL_DEPTH_TEST)
 
+        # Enable alpha blending for transparent surfaces
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        # Enable polygon offset for wireframes to avoid z-fighting
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(1.0, 1.0)
+
         # Create and bind a default VAO
         self.default_vao = glGenVertexArrays(1)
         glBindVertexArray(self.default_vao)
         # For macOS Retina displays
         self.framebuffer_size = glfw.get_framebuffer_size(self.window)
         glViewport(0, 0, self.framebuffer_size[0], self.framebuffer_size[1])
+
+        # Initialize with empty geometry collections
+        self.points: List[Point] = []
+        self.wires: List[Wire] = []
+        self.meshes: List[Mesh] = []
 
     def setup_callbacks(self):
         glfw.set_mouse_button_callback(self.window, self._mouse_button_callback)
@@ -208,11 +275,11 @@ class CADRenderer:
         vertex_shader_source = """
           #version 410
           layout (location = 0) in vec3 position;
-          layout (location = 1) in vec3 color;
+          layout (location = 1) in vec4 color;
           uniform mat4 model;
           uniform mat4 view;
           uniform mat4 projection;
-          out vec3 vertex_color;
+          out vec4 vertex_color;
           void main() {
               gl_Position = projection * view * model * vec4(position, 1.0);
               vertex_color = color;
@@ -222,11 +289,11 @@ class CADRenderer:
         # macOS compatible fragment shader
         fragment_shader_source = """
           #version 410
-          in vec3 vertex_color;
+          in vec4 vertex_color;
           out vec4 FragColor;
-          
+
           void main() {
-              FragColor = vec4(vertex_color, 1.0);
+              FragColor = vertex_color;
           }
           """
 
@@ -271,37 +338,63 @@ class CADRenderer:
             raise
 
 
+    def update_camera_position(self):
+        """Update camera position based on scene geometry"""
+        if not self.auto_position_camera:
+            return
+
+        # Compute bounding sphere from all geometry
+        self.bsf.compute_from_geometries(self.points, self.wires, self.meshes)
+
+        # Use Camera class method to position camera from bounding sphere
+        if self.bsf.radius > 0:
+            camera_data = Camera(
+                pos=self.camera_pos,
+                target=self.camera_target,
+                up=self.camera_up,
+                zoom=self.zoom,
+                near=self.near,
+                far=self.far
+            )
+            camera_data.position_from_bounding_sphere(self.bsf)
+
+            # Update renderer camera properties
+            self.camera_pos = camera_data.pos
+            self.camera_target = camera_data.target
+            self.zoom = camera_data.zoom
+
+    def add_mesh(self, vertices: np.ndarray, triangles: np.ndarray,
+                 color: np.ndarray = np.array([0.5, 0.5, 0.5, 0.5]),
+                 wireframe_color: Optional[np.ndarray] = np.array([0.0, 0.0, 0.0])):
+        """Add a mesh to the scene"""
+        # Ensure vertices are float32
+        vertices = np.array(vertices, dtype=np.float32)
+
+        # Ensure triangles are uint32
+        triangles = np.array(triangles, dtype=np.uint32)
+
+        # If color doesn't have alpha, add 0.5 alpha
+        if len(color) == 3:
+            color = np.append(color, 0.5)
+        color = np.array(color, dtype=np.float32)
+
+        # If wireframe color is provided, ensure it's RGB
+        if wireframe_color is not None:
+            wireframe_color = np.array(wireframe_color[:3], dtype=np.float32)
+
+        # Add mesh to the scene
+        self.meshes.append(Mesh(vertices, triangles, color, wireframe_color))
+        self.update_camera_position()
+
     def add_point(self, position: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), size: float = 5.0):
         """Add a point to the scene"""
         self.points.append(Point(position, color, size))
-        self.camera_target=self.bsf.origin=(self.camera_target+position)/2
-
-        nrms = np.linalg.norm([p.position -self.camera_target for p in self.points - self.camera_target], axis=1)
-        i = np.argmax(nrms)
-        if nrms[i] > self.bsf.radius:
-            self.bsf.radius=nrms[i]
-        view_vec = scalar_unit(np.array(self.camera_pos - self.camera_target,dtype=float))
-
-        self.camera_pos = np.asarray(self.camera_target + view_vec *     self.bsf.radius * 2,dtype=np.float32)
+        self.update_camera_position()
 
     def add_wire(self, vertices: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), thickness: float = 1.0):
         """Add a wire (curve) to the scene"""
         self.wires.append(Wire(vertices, color, thickness))
-        self.camera_target = np.average([self.camera_target,vertices[0],vertices[1]], axis=0)
-
-        self.camera_target = self.bsf.origin=np.average([self.camera_target,vertices[0],vertices[1]], axis=0)
-        p = []
-        nrms=np.linalg.norm(
-            [(w.vertices[1]+w.vertices[0])/2 - self.camera_target for w in self.wires], axis=1)
-
-
-
-        i = np.argmax(nrms)
-        if nrms[i] > self.bsf.radius:
-            self.bsf.radius = nrms[i]
-        view_vec = scalar_unit(np.array(self.camera_pos - self.camera_target, dtype=float))
-
-        self.camera_pos = np.asarray(self.camera_target +view_vec * self.bsf.radius * 2, dtype=np.float32)
+        self.update_camera_position()
 
 
     def _mouse_move_callback(self, window, x, y):
@@ -360,6 +453,61 @@ class CADRenderer:
 
         return right / np.linalg.norm(right)
 
+    def render_mesh(self, mesh: Mesh):
+        """Render a single mesh with transparency"""
+        # Create and bind VAO
+        vao = glGenVertexArrays(1)
+        glBindVertexArray(vao)
+
+        # Create and bind VBO for vertices
+        vertex_vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo)
+        glBufferData(GL_ARRAY_BUFFER, mesh.vertices.nbytes, mesh.vertices, GL_STATIC_DRAW)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        glEnableVertexAttribArray(0)
+
+        # Create array of colors (one for each vertex) with transparency
+        colors = np.tile(mesh.color, (len(mesh.vertices), 1))
+
+        # Create and bind VBO for colors
+        color_vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, color_vbo)
+        glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, None)
+        glEnableVertexAttribArray(1)
+
+        # Create and bind element buffer object (EBO)
+        ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh.triangles.nbytes, mesh.triangles, GL_STATIC_DRAW)
+
+        # Draw mesh with filled triangles
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+        glDrawElements(GL_TRIANGLES, len(mesh.triangles) * 3, GL_UNSIGNED_INT, None)
+
+        # If wireframe is requested, draw wireframe on top
+        if mesh.wireframe_color is not None:
+            # Create wireframe color array (one for each vertex)
+            wf_color = np.zeros((len(mesh.vertices), 4), dtype=np.float32)
+            wf_color[:, :3] = np.tile(mesh.wireframe_color, (len(mesh.vertices), 1))
+            wf_color[:, 3] = 1.0  # Full opacity for wireframe
+
+            # Update color buffer
+            glBindBuffer(GL_ARRAY_BUFFER, color_vbo)
+            glBufferData(GL_ARRAY_BUFFER, wf_color.nbytes, wf_color, GL_STATIC_DRAW)
+
+            # Draw wireframe
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+            glLineWidth(1.0)
+            glDrawElements(GL_TRIANGLES, len(mesh.triangles) * 3, GL_UNSIGNED_INT, None)
+
+            # Reset polygon mode
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+
+        # Cleanup
+        glDeleteBuffers(1, [vertex_vbo, color_vbo, ebo])
+        glDeleteVertexArrays(1, [vao])
+
     def render(self):
         """Main render function"""
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -406,21 +554,28 @@ class CADRenderer:
             glGetUniformLocation(self.shader_program, "model"),
             1, GL_FALSE, self.model
         )
+
+        # First render meshes (transparent surfaces)
+        for mesh in self.meshes:
+            self.render_mesh(mesh)
+
+        # Then render points and wires
         if len(self.points)>100:
             # Render points
             with mp.Pool(8) as pool:
                 pool.map(self.render_point, self.points)
         else:
             [self.render_point(p) for p in self.points]
+
         if len(self.wires) > 100:
             with mp.Pool(8) as pool:
-                pool.map(self.render_point, self.points)
+                pool.map(self.render_wire, self.wires)
         else:
             # Render wires
             for wire in self.wires:
                 self.render_wire(wire)
 
-    def render_point(self, points: Point):
+    def render_point(self, point: Point):
         """Render a single point"""
         glPointSize(point.size * 2)  # Multiply by 2 for Retina displays
 
@@ -435,11 +590,16 @@ class CADRenderer:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(0)
 
+        # Convert RGB to RGBA with full opacity
+        color_rgba = np.zeros(4, dtype=np.float32)
+        color_rgba[:3] = point.color
+        color_rgba[3] = 1.0  # Full opacity
+
         # Create and bind VBO for color
         color_vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, color_vbo)
-        glBufferData(GL_ARRAY_BUFFER, point.color.nbytes, point.color, GL_STATIC_DRAW)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
+        glBufferData(GL_ARRAY_BUFFER, color_rgba.nbytes, color_rgba, GL_STATIC_DRAW)
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(1)
 
         # Draw point
@@ -457,7 +617,6 @@ class CADRenderer:
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
 
-
         # Create and bind VBO for vertices
         vertex_vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vertex_vbo)
@@ -465,14 +624,16 @@ class CADRenderer:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(0)
 
-        # Create array of colors (one for each vertex)
-        colors = np.tile(wire.color, (len(wire.vertices), 1))
+        # Convert RGB to RGBA with full opacity for each vertex
+        color_rgba = np.zeros((len(wire.vertices), 4), dtype=np.float32)
+        color_rgba[:, :3] = np.tile(wire.color, (len(wire.vertices), 1))
+        color_rgba[:, 3] = 1.0  # Full opacity
 
         # Create and bind VBO for colors
         color_vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, color_vbo)
-        glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors, GL_STATIC_DRAW)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
+        glBufferData(GL_ARRAY_BUFFER, color_rgba.nbytes, color_rgba, GL_STATIC_DRAW)
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, None)
         glEnableVertexAttribArray(1)
 
         # Draw wire
@@ -500,18 +661,59 @@ class CADRenderer:
         self.add_wire(res,color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
 
 
-    def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=1.0):
-        boundaries, isolines,mid_iso = nurbs_surface_wireframe_view(surf)
-        #for iso in mid_iso:
-        #    self.add_nurbs_curve(iso, (np.array(color) * 0.1).tolist(), thickness)
+    def add_nurbs_surface_mesh(self, surf: NURBSSurface,
+                               color=(0.5, 0.5, 0.5, 0.5),
+                               wireframe_color=(0.0, 0.0, 0.0)
+                              ):
+        """Add a NURBS surface as a transparent mesh with wireframe"""
+        # Tessellate the surface
+        tessellation = tessellate_surface(surf)
+
+        # Extract mesh data
+        vertices = tessellation["position"]
+        triangles = tessellation["triangles"]
+
+        # Add mesh to the scene
+        self.add_mesh(vertices, triangles, color=color, wireframe_color=wireframe_color)
+
+        return tessellation
+
+    def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=1.0,
+                          render_as_mesh=True, surface_color=(0.5, 0.5, 0.9, 0.05)):
+        """Add a NURBS surface to the scene
+
+        Args:
+            surf: The NURBS surface to add
+            color: Color for wireframe curves
+            thickness: Thickness for wireframe curves
+            render_as_mesh: Whether to render as transparent mesh (default: True)
+            surface_color: Color for surface mesh (RGBA with alpha) if render_as_mesh is True
+        """
+        # Add wireframe representation
+        boundaries, isolines, mid_iso = nurbs_surface_wireframe_view(surf)
         for iso in isolines:
-            self.add_nurbs_curve(iso, (np.array(color) * 0.3).tolist(), thickness)
+            self.add_nurbs_curve(iso, (np.array(color[:3]) * 0.3).tolist(), thickness)
         for b in boundaries:
-            self.add_nurbs_curve(b, color, thickness)
+            self.add_nurbs_curve(b, color[:3], thickness)
 
-    def add_geometry(self, geometry, color=(1., 1., 1.), thickness: float = 1.0):
+        # If requested, add mesh representation
+        if render_as_mesh:
+            self.add_nurbs_surface_mesh(surf, color=surface_color, wireframe_color=None)
+
+    def add_geometry(self, geometry, color=(1., 1., 1.), thickness: float = 1.0, **kwargs):
+        """Add geometry to the scene and update camera position
+
+        Args:
+            geometry: The geometry to add (NURBSCurve or NURBSSurface)
+            color: Color for wireframe or curves
+            thickness: Thickness for wireframe or curves
+            **kwargs: Additional parameters:
+                - render_as_mesh: Whether to render surfaces as transparent mesh (default: True)
+                - surface_color: Color for surface mesh (RGBA with alpha) if render_as_mesh is True
+                - u_count: Number of u divisions for surface tessellation
+                - v_count: Number of v divisions for surface tessellation
+        """
         dispatch = {
-
             NURBSCurve: self.add_nurbs_curve,
             NURBSSurface: self.add_nurbs_surface,
         }
@@ -519,7 +721,20 @@ class CADRenderer:
         if fun is None:
             raise KeyError(f"{type(geometry).__name__} is not supported")
         else:
-            fun(geometry, color, thickness)
+            if isinstance(geometry, NURBSSurface):
+                # Pass additional parameters for surface rendering
+                fun(geometry, color, thickness, **kwargs)
+            else:
+                fun(geometry, color, thickness)
+
+        # Camera will be automatically updated by the lower-level methods
+
+    def set_auto_camera_positioning(self, enabled=True):
+        """Enable or disable automatic camera positioning"""
+        self.auto_position_camera = enabled
+        if enabled:
+            # Update camera position based on current geometry
+            self.update_camera_position()
 
 
 if __name__ == "__main__":
@@ -529,32 +744,30 @@ if __name__ == "__main__":
 
     from mmcore.numeric.intersection.ssx import surface_ppi
 
-    # Add a point at origin
-
-    np.average(np.array(ssx_data[2][0].control_points_flat))
+    # Get the test surfaces
     s1, s2 = ssx_data[2]
 
-    cc = surface_ppi(*ssx_data[2])
-    print(cc[0])
-    for c in cc[0]:
-        print('\nwire\n', c, '\n')
-        viewer.add_wire(np.array(c, np.float32), color=np.array((1., 1., 1.), np.float32), thickness=1.)
+    # Add the surfaces with transparency
+    viewer.add_geometry(s1,
+                        color=(0.2, 0.2, 0.2),
+                        thickness=1.5,
+                        render_as_mesh=True,
+                        surface_color=(0.3, 0.7, 0.9, 0.5))  # Blue transparent
 
-    for i in ssx_data[2]:
-        viewer.add_geometry(i, color=(0.6, 0.6, 0.6), thickness=1.)
-    #
-    ## Add a simple wire (triangle)
-    # wire_vertices = np.array([
-    #    [0.0, 0.0, 0.0],
-    #    [1.0, 1.0, 0.0],
-    #    [2.0, 0.0, 0.0]
-    # ], dtype=np.float32)
-    #
-    # viewer.add_wire(
-    #    vertices=wire_vertices,
-    #    color=np.array([0.0, 1.0, 0.0], dtype=np.float32),  # Green
-    #    thickness=1.0
-    # )
+    viewer.add_geometry(s2,
+                        color=(0.2, 0.2, 0.2),
+                        thickness=1.5,
+                        render_as_mesh=True,
+                        surface_color=(0.9, 0.5, 0.3, 0.5))  # Orange transparent
+
+    # Get the intersection curves
+    cc = surface_ppi(*ssx_data[2])
+
+    # Add intersection curves with white color
+    for c in cc[0]:
+        viewer.add_wire(np.array(c, np.float32),
+                        color=np.array((1., 1., 1.), np.float32),
+                        thickness=2.0)
 
     # Run the viewer
     viewer.run()

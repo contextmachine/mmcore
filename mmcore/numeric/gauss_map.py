@@ -9,7 +9,7 @@ from mmcore.numeric.algorithms.quicksort import unique
 
 from mmcore.numeric.algorithms.surface_area import v_min
 from mmcore.numeric.intersection.csx import nurbs_csx
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
+from mmcore.geom.nurbs_iso import extract_isocurve
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk

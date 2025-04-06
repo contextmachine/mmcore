@@ -8,9 +8,7 @@ from steputils import p21
 from itertools import count
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_surface_boundaries
-
-
+from mmcore.geom.nurbs_iso import extract_surface_boundaries
 
 import re
 

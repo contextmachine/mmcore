@@ -24,7 +24,7 @@ from mmcore.numeric.intersection.ssx import ssx
 
 
 s=time.time()
-result=ssx(s1,s2,tol=1e-4,spt=0.001)
+result=ssx(s1,s2,tol=1e-7,spt=0.001)
 
 
 

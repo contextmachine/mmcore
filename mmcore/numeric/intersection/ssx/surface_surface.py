@@ -107,8 +107,9 @@ ClosestSurfaces = namedtuple("ClosestSurfaces", ["a", "b"])
 
 
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve, find_boundary_intersections, \
+from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections, \
     IntersectionPoint
+from mmcore.geom.nurbs_iso import extract_isocurve
 
 
 def find_closest_points(surf1: Surface, surf2: Surface, freeform):
