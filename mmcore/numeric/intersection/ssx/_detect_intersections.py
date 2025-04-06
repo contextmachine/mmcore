@@ -13,7 +13,7 @@ from scipy.optimize import linprog
 from mmcore.numeric.gauss_map import GaussMap
 from mmcore.geom.bvh import BoundingBox, Object3D
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
+from mmcore.geom.nurbs_iso import extract_isocurve
 
 
 class DebugTree:

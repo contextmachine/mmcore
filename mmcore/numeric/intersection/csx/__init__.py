@@ -3,9 +3,9 @@ import numpy as np
 from mmcore.numeric.vectors import scalar_norm, norm
 from numpy._typing import NDArray
 
-from mmcore.geom.curves.curve import curve_bvh
+
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
-from mmcore.geom.surfaces import surface_bvh
+
 from mmcore.numeric.plane import inverse_evaluate_plane
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 from mmcore.numeric.intersection.ccx import curve_pix

@@ -5,13 +5,12 @@ from mmcore.geom.nurbs import NURBSSurface
 
 
 from mmcore.numeric.intersection.ssx.boundary_intersection import (
-    extract_surface_boundaries,
     find_boundary_intersections,
     sort_boundary_intersections,
     IntersectionPoint
 
 )
-
+from mmcore.geom.nurbs_iso import extract_surface_boundaries
 
 
 def create_test_surface1() -> NURBSSurface:

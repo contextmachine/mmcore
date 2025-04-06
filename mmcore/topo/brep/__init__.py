@@ -15,7 +15,7 @@ from mmcore.geom.implicit.tree import ImplicitTree3D
 from dataclasses import dataclass,field,InitVar
 
 from mmcore.numeric.vectors import scalar_norm
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_surface_boundaries
+from mmcore.geom.nurbs_iso import extract_surface_boundaries
 
 T = TypeVar('T')
 

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
+from mmcore.geom.nurbs_iso import extract_isocurve
 from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
 
 @pytest.fixture

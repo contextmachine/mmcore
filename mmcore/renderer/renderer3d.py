@@ -8,15 +8,12 @@ from typing import List, Tuple, Any
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
 
-
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
-
 from mmcore.numeric.intersection.ssx.boundary_intersection import (
-    extract_surface_boundaries,
     find_boundary_intersections,
     sort_boundary_intersections,
     IntersectionPoint
 )
+from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
 from mmcore.topo.mesh.tess import tessellate_surface
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
