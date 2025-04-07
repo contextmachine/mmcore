@@ -126,9 +126,16 @@ def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[f
     _u,_v=_surface_degree(self)
     return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
 
+def _copy_curve(curve:BSplineCurveTuple|NURBSCurveTuple)->BSplineCurveTuple|NURBSCurveTuple:
+    cpts=np.copy(curve.control_points)
+    knots=np.copy(curve.knot)
+    if isinstance(curve,NURBSCurveTuple):
+        return NURBSCurveTuple(curve.order,knots,cpts, np.copy(curve.weights))
+
+    return BSplineCurveTuple(curve.order,knots,cpts)
+
 
 # Operations
-
 
 def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
     span = degree + 1  # knot span index starts from zero
@@ -504,21 +511,106 @@ def nurbs_curve(control_points, knots, degree: int| None = None, *, weights=None
                              weights)
 
 def _join_weights_1d(pts,weights):
+    """Join control points and weights, but does not apply homogeneous transformation."""
     cpts=np.zeros((pts.shape[0],pts.shape[1]+1) )
     for i in range(pts.shape[0]):
-
         cpts[i,:-1]=pts[i]
         cpts[i,-1]=weights[i]
     return cpts
 
-# Conversion
+def to_homogeneous_1d(control_points, weights):
+    """Convert curve control points to homogeneous coordinates by multiplying by weights.
+    
+    Args:
+        control_points: Array of control points (Nx3 or NxD)
+        weights: Array of weights (N)
+        
+    Returns:
+        Array of homogeneous control points (Nx(D+1)) where last column is weight
+    """
+    dim = control_points.shape[1]
+    result = np.zeros((len(control_points), dim + 1))
+    for i in range(len(control_points)):
+        # Multiply xyz by weight
+        result[i, :-1] = control_points[i] * weights[i]
+        # Store weight as last coordinate
+        result[i, -1] = weights[i]
+    return result
+
+def from_homogeneous_1d(homogeneous_points):
+    """Convert homogeneous control points back to Cartesian coordinates.
+    
+    Args:
+        homogeneous_points: Array of homogeneous control points (Nx(D+1))
+        
+    Returns:
+        Tuple of (control_points, weights) where:
+        - control_points: Array of control points (NxD)
+        - weights: Array of weights (N)
+    """
+    _cpt = np.asarray(homogeneous_points)
+    weights = np.ascontiguousarray(_cpt[..., -1])
+    dim = _cpt.shape[1] - 1
+    
+    control_points = np.zeros((_cpt.shape[0], dim))
+    for i in range(_cpt.shape[0]):
+        # Divide homogeneous coordinates by weight
+        control_points[i] = _cpt[i, :-1] / _cpt[i, -1]
+    
+    return np.ascontiguousarray(control_points), weights
+
+# Conversion for surfaces
 def _join_weights(pts,weights):
+    """Join control points and weights for surfaces, but does not apply homogeneous transformation."""
     cpts=np.zeros((*pts.shape[:-1],pts.shape[-1]+1) )
     for i in range(pts.shape[0]):
         for j in range(pts.shape[1]):
             cpts[i,j,:-1]=pts[i,j]
             cpts[i,j,-1]=weights[i,j]
     return cpts
+
+def to_homogeneous_2d(control_points, weights):
+    """Convert surface control points to homogeneous coordinates by multiplying by weights.
+    
+    Args:
+        control_points: Array of control points (MxNx3 or MxNxD)
+        weights: Array of weights (MxN)
+        
+    Returns:
+        Array of homogeneous control points (MxNx(D+1)) where last column is weight
+    """
+    dim = control_points.shape[2]
+    result = np.zeros((control_points.shape[0], control_points.shape[1], dim + 1))
+    for i in range(control_points.shape[0]):
+        for j in range(control_points.shape[1]):
+            # Multiply xyz by weight
+            result[i, j, :-1] = control_points[i, j] * weights[i, j]
+            # Store weight as last coordinate
+            result[i, j, -1] = weights[i, j]
+    return result
+
+def from_homogeneous_2d(homogeneous_points):
+    """Convert homogeneous surface control points back to Cartesian coordinates.
+    
+    Args:
+        homogeneous_points: Array of homogeneous control points (MxNx(D+1))
+        
+    Returns:
+        Tuple of (control_points, weights) where:
+        - control_points: Array of control points (MxNxD)
+        - weights: Array of weights (MxN)
+    """
+    _cpt = np.asarray(homogeneous_points)
+    weights = np.ascontiguousarray(_cpt[..., -1])
+    dim = _cpt.shape[2] - 1
+    
+    control_points = np.zeros((_cpt.shape[0], _cpt.shape[1], dim))
+    for i in range(_cpt.shape[0]):
+        for j in range(_cpt.shape[1]):
+            # Divide homogeneous coordinates by weight
+            control_points[i, j] = _cpt[i, j, :-1] / _cpt[i, j, -1]
+    
+    return np.ascontiguousarray(control_points), weights
 
 
 def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
