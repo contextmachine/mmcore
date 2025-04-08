@@ -134,6 +134,14 @@ def _copy_curve(curve:BSplineCurveTuple|NURBSCurveTuple)->BSplineCurveTuple|NURB
 
     return BSplineCurveTuple(curve.order,knots,cpts)
 
+def _copy_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple)->BSplineSurfaceTuple|NURBSSurfaceTuple:
+    cpts=np.copy(surface.control_points)
+    knots_u=np.copy(surface.knot_u)
+    knots_v = np.copy(surface.knot_v)
+    if isinstance(surface,NURBSSurfaceTuple):
+        return NURBSSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts,np.copy(surface.weights))
+
+    return BSplineSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts)
 
 # Operations
 
