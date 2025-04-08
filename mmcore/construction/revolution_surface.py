@@ -1,6 +1,8 @@
 import numpy as np
 import math
 
+from mmcore.geom._nurbs_construct import circle
+from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
 __all__=["make_revolved_surf"]
 def point_to_line(S, T, P):
     """
@@ -213,6 +215,143 @@ def make_revolved_surf(S, T, theta, m, Pj, wj):
     return n, U, Pij, wij
 
 
+
+def make_revolved_surface(profile_curve, axis, interval):
+    """
+    Create a NURBS surface of revolution by rotating a profile (generating) curve about an axis.
+
+    Parameters:
+        profile_curve : NURBSCurveTuple
+            The generating (or profile) curve. It is assumed to be defined in space and to represent
+            the null section at rotation angle "start_angle". It should have attributes:
+                - control_points: a numpy array of shape (num_profile, 3)
+                - weights: a numpy array of shape (num_profile,)
+                - knot: the knot vector in the v-direction (1D numpy array)
+                - order: the order (degree + 1) of the curve.
+        axis : tuple/list of two points
+            Two points defining the axis of revolution. The first point is the base (S) and the second
+            point gives the direction (from which a normalized vector T is computed).
+        interval : tuple (start_angle, end_angle) in radians
+            The angular interval over which the profile curve is revolved.
+            (For a full revolution use (0, 2*pi).)
+
+    Returns:
+        NURBSSurfaceTuple object representing the revolved surface.
+    """
+    # Compute the axis: S is the base point and T is the normalized direction.
+    S = np.array(axis[0], dtype=float)
+    axis_dir = np.array(axis[1], dtype=float) - S
+    T = axis_dir / np.linalg.norm(axis_dir)
+
+    # Unpack the interval.
+    start_angle, end_angle = interval
+    total_angle = end_angle - start_angle
+    if total_angle <= 0 or total_angle > 2 * math.pi:
+        raise ValueError("Interval must be positive and no more than 2*pi radians.")
+
+    # Determine the number of arc segments (narcs) based on the total revolution angle.
+    # We require each arc segment to be at most 90° (pi/2 radians).
+    if total_angle <= math.pi / 2:
+        narcs = 1
+    elif total_angle <= math.pi:
+        narcs = 2
+    elif total_angle <= (3 * math.pi / 2):
+        narcs = 3
+    else:
+        narcs = 4
+
+    dtheta = total_angle / narcs
+    wm = math.cos(dtheta / 2.0)  # weight for the mid-arc control points
+
+    # Precompute angles for the arc segments (including the starting angle)
+    angles = [start_angle + i * dtheta for i in range(narcs + 1)]
+    cosines = [math.cos(a) for a in angles]
+    sines = [math.sin(a) for a in angles]
+
+    # Extract the profile curve data.
+    Pj = profile_curve.control_points  # Expected shape: (num_profile, 3)
+    wj = profile_curve.weights  # Expected shape: (num_profile,)
+    num_profile = Pj.shape[0]
+
+    # In the revolution direction (u-direction) we will have (2*narcs + 1) rows.
+    num_rows = 2 * narcs + 1
+
+    # Set up 2D grids (lists) for the surface control points and weights.
+    Pij = [[None for _ in range(num_profile)] for _ in range(num_rows)]
+    wij = [[None for _ in range(num_profile)] for _ in range(num_rows)]
+
+    # For each control point of the profile curve, build its "swept" curve.
+    for j in range(num_profile):
+        P_orig = np.array(Pj[j], dtype=float)
+        weight_profile = wj[j]
+        # Find the projection of the profile point onto the axis.
+        O = point_to_line(S, T, P_orig)
+        X = P_orig - O
+        r = np.linalg.norm(X)
+        if r < 1e-8:
+            # The point lies on the axis and remains unchanged upon revolution.
+            for i in range(num_rows):
+                Pij[i][j] = P_orig.copy()
+                wij[i][j] = weight_profile
+        else:
+            # Compute unit vector from the axis to the profile point.
+            Ux = X / r
+            # Determine Y so that {Ux, Y} form a right-handed basis in the plane perpendicular to T.
+            Y = np.cross(T, Ux)
+            if np.linalg.norm(Y) < 1e-8:
+                # Fallback in the unlikely event that T and Ux are collinear.
+                Y = np.cross(T, [1, 0, 0]) if abs(T[0]) < 0.9 else np.cross(T, [0, 1, 0])
+            Y = Y / np.linalg.norm(Y)
+
+            # The profile curve is assumed to correspond to the start angle.
+            P0 = O + r * (math.cos(start_angle) * Ux + math.sin(start_angle) * Y)
+            Pij[0][j] = P0.copy()
+            wij[0][j] = weight_profile
+            # Compute the tangent direction at P0 with respect to rotation.
+            T0 = -math.sin(start_angle) * Ux + math.cos(start_angle) * Y
+            index = 1
+            for i in range(1, narcs + 1):
+                # Compute the control point at the end of the current arc segment.
+                P2 = O + r * (cosines[i] * Ux + sines[i] * Y)
+                Pij[index + 1][j] = P2.copy()
+                wij[index + 1][j] = weight_profile
+                # Compute the tangent direction at P2.
+                T2 = -sines[i] * Ux + cosines[i] * Y
+                # Compute the intermediate control point as the intersection of the tangent lines.
+                P1 = intersect_3d_lines(P0, T0, P2, T2)
+                Pij[index][j] = P1.copy()
+                wij[index][j] = wm * weight_profile
+                index += 2
+                # Prepare for the next arc segment if any.
+                if i < narcs:
+                    P0 = P2.copy()
+                    T0 = T2.copy()
+
+    # Build the knot vector in the u direction.
+    # For a quadratic curve (degree 2, order 3), the u-direction knot vector is constructed in clamped form.
+    U = [0.0, 0.0, 0.0]
+    for i in range(1, narcs):
+        knot_val = i / float(narcs)
+        U.extend([knot_val, knot_val])
+    U.extend([1.0, 1.0, 1.0])
+    knot_u = np.array(U, dtype=float)
+
+    # Use the original profile curve's knot vector and order in the v direction.
+    knot_v = profile_curve.knot
+    order_u = 3  # Quadratic in the revolution (u) direction.
+    order_v = profile_curve.order
+
+    # Convert the control net and weights (currently stored as lists of lists)
+    # into numpy arrays. The control net will have shape (num_rows, num_profile, 3)
+    control_points = np.empty((num_rows, num_profile, 3), dtype=float)
+    weights = np.empty((num_rows, num_profile), dtype=float)
+    for i in range(num_rows):
+        for j in range(num_profile):
+            control_points[i, j, :] = Pij[i][j]
+            weights[i, j] = wij[i][j]
+
+    return NURBSSurfaceTuple(order_u, order_v, knot_u, knot_v, control_points, weights)
+
 def make_torus(R, r):
     """
     Constructs a torus centered at the origin with major radius R and tube radius r.
@@ -229,18 +368,9 @@ def make_torus(R, r):
             The tube (minor) radius of the torus.
 
     Returns:
-        n : int
-            n = 2*narcs, so that there are (n+1) control points in the u (revolution) direction.
-        U : list of floats
-            The knot vector in the u direction.
-        Pij : 2D list of numpy arrays
-            The control points of the NURBS surface of the torus.
-        wij : 2D list of floats
-            The weights corresponding to each control point.
+        NurbsSurfaceTuple
 
-    The resulting NURBS surface represents a torus with the standard parameterization:
-        X(u,v) = ((R + r*cos(v))*cos(u), (R + r*cos(v))*sin(u), r*sin(v)),
-    where u and v are the two parametric directions.
+
     """
     # Use the z-axis as the axis of revolution.
     S = np.array([0.0, 0.0, 0.0])
@@ -283,7 +413,117 @@ def make_torus(R, r):
     # Construct the torus as a surface of revolution.
     n, U, Pij, wij = make_revolved_surf(S, T, theta, m, Pj, wj)
 
-    return  (np.array(U)*2*np.pi).tolist(), (np.array(V)*2*np.pi).tolist(), Pij, wij
+    return  NURBSSurfaceTuple(3,3,(np.array(U)*2*np.pi).tolist(), (np.array(V)*2*np.pi).tolist(), Pij, wij)
+
+
+def torus(major_radius=1.0, minor_radius=0.25,
+          start_angle=0.0, end_angle=2 * math.pi,
+          center=None, normal=None, xaxis=None, yaxis=None):
+    """
+    Generates a torus as a NURBS surface.
+
+    Parameters:
+      major_radius : float
+          The radius of the major (sweeping) circle: the distance from the torus center
+          to the center of the tube.
+      minor_radius : float
+          The radius of the tube (i.e. the profile curve).
+      start_angle, end_angle : float
+          The angular interval (in radians) over which the torus is generated.
+          For a full torus use (0, 2*pi).
+      center : array-like of 3 floats, optional
+          The center of the torus (i.e. the center of the major circle). Defaults to [0,0,0].
+      normal : array-like of 3 floats, optional
+          The normal vector defining the plane of the major circle.
+      xaxis, yaxis : array-like of 3 floats, optional
+          The in‑plane coordinate system for the major circle. If provided, these are used directly.
+          Otherwise, if a normal is provided, an orthonormal basis is constructed.
+          If neither is provided, defaults to the xy‑plane.
+
+    Returns:
+      A NURBSSurfaceTuple representing the torus.
+
+    Process:
+      1. Build the axis for revolution from the torus center along the given normal.
+      2. Construct the profile (tube) circle. Its center is computed as:
+             profile_center = center + major_radius * xaxis
+         and its normal is calculated as the normalized vector (profile_center - center),
+         so that the profile circle’s plane is perpendicular to the major circle’s plane.
+      3. Generate the revolved surface from the profile curve.
+    """
+    # --- Determine the torus coordinate system ---
+    if center is None:
+        center = np.array([0.0, 0.0, 0.0])
+    else:
+        center = np.array(center, dtype=float)
+
+    # Option 1: use provided xaxis and yaxis if available.
+    if (xaxis is not None) and (yaxis is not None):
+        xaxis = np.array(xaxis, dtype=float)
+        yaxis = np.array(yaxis, dtype=float)
+        xaxis = xaxis / np.linalg.norm(xaxis)
+        yaxis = yaxis / np.linalg.norm(yaxis)
+    # Option 2: if normal is provided, generate an in‑plane basis.
+    elif normal is not None:
+        normal = np.array(normal, dtype=float)
+        normal = normal / np.linalg.norm(normal)
+        # Construct an in‑plane xaxis.
+        if abs(normal[0]) < 1e-6 and abs(normal[1]) < 1e-6:
+            xaxis = np.array([1.0, 0.0, 0.0])
+        else:
+            xaxis = np.cross([0, 0, 1], normal)
+            if np.linalg.norm(xaxis) < 1e-6:
+                xaxis = np.array([1.0, 0.0, 0.0])
+            else:
+                xaxis = xaxis / np.linalg.norm(xaxis)
+        # yaxis is chosen to complete the right-handed system.
+        yaxis = np.cross(normal, xaxis)
+        yaxis = yaxis / np.linalg.norm(yaxis)
+    else:
+        # Default to the xy-plane.
+        xaxis = np.array([1.0, 0.0, 0.0])
+        yaxis = np.array([0.0, 1.0, 0.0])
+        normal = np.cross(xaxis, yaxis)
+        normal = normal / np.linalg.norm(normal)
+
+    # --- Build the axis for the revolution ---
+    # The torus is generated by revolving the profile curve about an axis that passes through 'center'
+    # in the direction of 'normal'.
+    S = center.copy()  # base point on the axis
+    T = normal.copy()  # direction of the axis (normalized)
+    axis = (S, S + T)  # the axis expressed as two points
+
+    # --- Generate the profile (tube) curve ---
+    # The profile curve (a circle) is positioned at:
+    profile_center = center + major_radius * xaxis
+
+    # CORRECT THE PROFILE CIRCLE ORIENTATION:
+    # The profile circle’s plane should be perpendicular to the radial direction from
+    # the torus center to the profile center. Hence its normal is:
+
+    profile_normal = yaxis
+
+    # Choose an in‑plane basis for the profile circle.
+    # A natural choice is to let the first in‑plane direction be T (the torus’s axis);
+    # then the second is the cross of profile_normal and T.
+    profile_xaxis = T.copy()
+    profile_yaxis = np.cross(profile_normal, T)
+    profile_yaxis = profile_yaxis / np.linalg.norm(profile_yaxis)
+
+    # Now generate the profile curve (a full circle representing the tube cross‑section)
+    profile_curve = circle(radius=minor_radius,
+                           start_angle=0.0,
+                           end_angle=2 * math.pi,
+                           center=profile_center,
+                           normal=profile_normal,  # Use the computed profile normal.
+                           xaxis=profile_xaxis,
+                           yaxis=profile_yaxis)
+
+    # --- Create the torus as a revolved surface ---
+    # The profile is swept about the torus axis using the supplied angular interval.
+    torus_surface = make_revolved_surface(profile_curve, axis, (start_angle, end_angle))
+
+    return torus_surface
 
 
 # ==========================
