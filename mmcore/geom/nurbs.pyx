@@ -2363,6 +2363,7 @@ cdef class NURBSSurface(ParametricSurface):
                 pts[i,1]/=w
                 pts[i,2]/=w
         return pts
+
     @property
     def control_points_flat_w(self):
 

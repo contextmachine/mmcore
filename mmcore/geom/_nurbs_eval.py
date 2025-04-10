@@ -242,7 +242,11 @@ def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
 
     dim = len(curve.control_points[0])
     # Allocate homogeneous derivatives d_hom[k] for k = 0, 1, ..., d.
-    d_hom = [np.zeros(dim + 1,dtype=float) for _ in range(d + 1)]
+    d_hom = np.zeros((d + 1,dim+1))
+
+
+
+
     for k in range(d + 1):
         for j in range(p + 1):
             i = span - p + j
@@ -256,7 +260,7 @@ def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
 
     result:EvaluateCurveData = {}
     # Dehomogenize to get the point on the curve.
-    C = d_hom[0][:dim] / d_hom[0][dim]
+    C = d_hom[0,:dim] / d_hom[0,dim]
     result["C"] = C
 
     # First derivative.
@@ -287,7 +291,9 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
     """
 
     # print(surface, u, v)
-    surface1 = surface
+
+    surface1=surface
+    hcpts=to_homogeneous_2d(surface1.control_points,surface1.weights)
     p = surface1.order_u - 1
     q = surface1.order_v - 1
     nu = len(surface1.control_points)
@@ -319,7 +325,7 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
         for k in range(p + 1):
             i_index = span_u - p + k
             j_index = span_v - q + l
-            cp = np.array(surface1.control_points[i_index][j_index])
+            cp = np.array(hcpts[i_index][j_index])
             w = surface1.weights[i_index, j_index]
             tmp = np.zeros(dim + 1)
             tmp[:dim] = cp

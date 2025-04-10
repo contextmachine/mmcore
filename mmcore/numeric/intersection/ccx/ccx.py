@@ -321,7 +321,6 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
     return sorted((tuple(np.average(val,axis=0)) for val in _categorize_with_defaultdict(result, index.tolist()).values()),key=lambda x:x[0])
 
 
-
 def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
     """
     Find intersections between two implicit curves (Implicit X Implicit).
@@ -373,10 +372,6 @@ def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
         tree = ImplicitTree2D(lambda v: min(curve1.implicit(v), curve2.implicit(v)), depth=4)
         tree.build()
     return list(implicit_find_features((curve1, curve2), tree.border, atol=atol, rtol=rtol))
-
-
-
-
 
 
 def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, float]]:

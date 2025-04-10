@@ -501,7 +501,7 @@ def torus(major_radius=1.0, minor_radius=0.25,
     # The profile circle’s plane should be perpendicular to the radial direction from
     # the torus center to the profile center. Hence its normal is:
 
-    profile_normal = yaxis
+    profile_normal = -yaxis
 
     # Choose an in‑plane basis for the profile circle.
     # A natural choice is to let the first in‑plane direction be T (the torus’s axis);
@@ -530,6 +530,7 @@ def torus(major_radius=1.0, minor_radius=0.25,
 # Example usage (for testing)
 # ==========================
 if __name__ == "__main__":
+
     # Example parameters for the torus:
     R = 3.0  # major radius
     r = 1.0  # tube (minor) radius
