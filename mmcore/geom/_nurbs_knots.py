@@ -67,8 +67,6 @@ def knot_insertion_alpknot_removalha(u, knotvector, span, idx, leg):
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 
 
-
-
 def knot_insertion_kv(knotvector, u, span, r):
     """ Computes the knot vector of the rational/non-rational spline after knot insertion.
 
@@ -99,8 +97,6 @@ def knot_insertion_kv(knotvector, u, span, r):
 
     # Return the new knot vector
     return kv_updated
-
-
 
 
 def knot_insertion(degree, knotvector, ctrlpts, u, num:int=1, span=None,s=None,**kwargs):

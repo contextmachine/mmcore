@@ -293,7 +293,7 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
     # print(surface, u, v)
 
     surface1=surface
-    hcpts=to_homogeneous_2d(surface1.control_points,surface1.weights)
+
     p = surface1.order_u - 1
     q = surface1.order_v - 1
     nu = len(surface1.control_points)
@@ -325,8 +325,9 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
         for k in range(p + 1):
             i_index = span_u - p + k
             j_index = span_v - q + l
-            cp = np.array(hcpts[i_index][j_index])
             w = surface1.weights[i_index, j_index]
+            cp = np.array(surface1.control_points[i_index][j_index])*w
+
             tmp = np.zeros(dim + 1)
             tmp[:dim] = cp
             tmp[dim] = w
