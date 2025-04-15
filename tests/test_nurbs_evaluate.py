@@ -42,7 +42,7 @@ def cylinder(radius, h):
     )
 
     return NURBSSurfaceTuple(
-        3, 2, [0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0], rr[..., :-1].tolist(), rr[..., -1]
+        3, 2, [0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0], (rr[..., :-1]/(rr[..., -1][...,np.newaxis])).tolist(), rr[..., -1]
     )
 
 
@@ -154,7 +154,7 @@ class TestEvaluateNURBSSurface(unittest.TestCase):
         # Assign weights:
         # w00=1, w01=2, w10=3, w11=4.
         weights = np.array([[1.0, 2.0], [3.0, 4.0]])
-        surf = NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=[0, 0, 1, 1], knot_v=[0, 0, 1, 1], control_points=ctrl_pts, weights=weights)
+        surf = NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=[0, 0, 1, 1], knot_v=[0, 0, 1, 1], control_points=ctrl_pts/weights[...,np.newaxis], weights=weights)
         # Evaluate at (u,v) = (0.3,0.7)
         u, v = 0.3, 0.7
         SKL = evaluate_nurbs_surface(surf, u, v, d_order=2)
@@ -203,7 +203,7 @@ class TestEvaluateNURBSSurface(unittest.TestCase):
         ctrl_pts = [[(0.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0)], [(1.0, 0.0, 0.0, 0.0), (1.0, 1.0, 0.0, 0.0)]]
         # Weights: w00=1, w01=2, w10=3, w11=4.
         weights = np.array([[1.0, 2.0], [3.0, 4.0]])
-        surf = NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=[0, 0, 1, 1], knot_v=[0, 0, 1, 1], control_points=ctrl_pts, weights=weights)
+        surf = NURBSSurfaceTuple(order_u=2, order_v=2, knot_u=[0, 0, 1, 1], knot_v=[0, 0, 1, 1], control_points=ctrl_pts/weights[...,np.newaxis], weights=weights)
         # Evaluate at (u,v) = (0.5,0.5)
         u, v = 0.5, 0.5
         SKL = evaluate_nurbs_surface(surf, u, v, d_order=2)
