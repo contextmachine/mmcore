@@ -18,108 +18,91 @@ class Interval:
     __slots__ = ("low", "upp")
 
     def __init__(self, low, upp=None):
-        if isinstance(low, tuple) and upp is None:
-            self.low, self.upp = low
+        if isinstance(low,tuple) and upp is None:
+            low,upp=low
         elif upp is None:
-            self.low = self.upp = low
-        else:
-            self.low = low
-            self.upp = upp
+            upp=low
+        if low>upp: low,upp=upp,low
+        self.low=float(low); self.upp=float(upp)
+    def width(self): return self.upp-self.low
+    def mid(self): return (self.low+self.upp)/2
+    def _subdivide_step(self):
+        m=self.mid(); return Interval(self.low,m), Interval(m,self.upp)
+
+    # ------------ representation ------------
+    def __repr__(self): return f"Interval({self.low:g}, {self.upp:g})"
+    # ------------ elementary ops ------------
+    # arithmetic
+    def __add__(self,o):
+        if isinstance(o,Interval): return Interval(self.low+o.low,self.upp+o.upp)
+        return Interval(self.low+o,self.upp+o)
+    __radd__=__add__
+    def __sub__(self,o):
+        if isinstance(o,Interval): return Interval(self.low-o.low,self.upp-o.upp)
+        return Interval(self.low-o,self.upp-o)
+    def __rsub__(self,o):
+        if isinstance(o,Interval): return Interval(o.low-self.low,o.upp-self.upp)
+        return Interval(o-self.low,o-self.upp)
+    def __mul__(self,o):
+        if isinstance(o,Interval):
+            P=[self.low*o.low,self.low*o.upp,self.upp*o.low,self.upp*o.upp]
+            return Interval(min(P),max(P))
+        return Interval(self.low*o,self.upp*o)
+    __rmul__ = __mul__
+
+    def __truediv__(self, o):
+        if isinstance(o, Interval):
+            if o.low <= 0 <= o.upp: raise ZeroDivisionError
+            return self * Interval(1 / o.upp, 1 / o.low)
+        return Interval(self.low / o, self.upp / o)
+
+    def __rtruediv__(self, o):
+        if self.low <= 0 <= self.upp: raise ZeroDivisionError
+        return Interval(o / self.low, o / self.upp) if o >= 0 else Interval(o / self.upp, o / self.low)
+
+    def __pow__(self, n: int):
+        if n % 2 == 0:
+            lo = self.low ** n;
+            hi = self.upp ** n
+            if self.low <= 0 <= self.upp: lo = 0
+            return Interval(min(lo, hi), max(lo, hi))
+        return Interval(self.low ** n, self.upp ** n)
 
 
-    def __repr__(self):
-        return f"Interval({self.low}, {self.upp})"
-
-    def __add__(self, other):
-        if isinstance(other, self.__class__):
-            return Interval(self.low + other.low, self.upp + other.upp)
-        return Interval(self.low + other, self.upp + other)
-
-    def __radd__(self, other):
-        if isinstance(other, self.__class__):
-            return Interval(self.low + other.low, self.upp + other.upp)
-        return Interval(self.low + other, self.upp + other)
-
-    def __sub__(self, other):
-        if isinstance(other, Interval):
-            return Interval(self.low - other.low, self.upp - other.upp)
-        return Interval(self.low - other, self.upp - other)
-
-    def __mul__(self, other):
-        if isinstance(other, Interval):
-            products = [self.low * other.low, self.low * other.upp, self.upp * other.low, self.upp * other.upp]
-            return Interval(min(products), max(products))
-        return Interval(self.low * other, self.upp * other)
-
-    def __truediv__(self, other):
-        if isinstance(other, Interval):
-
-            reciprocals = [1 / other.low, 1 / other.upp]
-            return self * Interval(min(reciprocals), max(reciprocals))
-        return Interval(self.low / other, self.upp / other)
-
-    def __contains__(self, item):
-        if isinstance(item, Interval):
-            return self.low <= item.low and self.upp >= item.upp
-        return self.low <= item <= self.upp
+    # ------------ comparisons ------------
+    def __contains__(self,x):
+        if isinstance(x,Interval):
+            return self.low<=x.low and self.upp>=x.upp
+        return self.low<=x<=self.upp
 
     def compare(self, other):
         if isinstance(other, Interval):
-            if self.upp < other.low:
-                return Comparison.TRUE  # Definitely less than
-            elif self.low > other.upp:
-                return Comparison.FALSE  # Definitely greater than
-            else:
-                return Comparison.MAYBE  # Overlapping intervals, uncertain comparison
+            if self.upp < other.low: return Comparison.TRUE
+            if self.low > other.upp: return Comparison.FALSE
+            return Comparison.MAYBE
         return Comparison.TRUE if self.upp < other else Comparison.FALSE
-
-    def __lt__(self, other):
-        comp = self.compare(other)
-        return comp == Comparison.TRUE  # Only return True if it's definitively less
-
-    def __le__(self, other):
-        comp = self.compare(other)
-        return comp in (Comparison.TRUE, Comparison.MAYBE)  # True if less or uncertain
-
-    def __gt__(self, other):
-        comp = self.compare(other)
-        return comp == Comparison.FALSE  # Only return True if it's definitively greater
-
-    def __ge__(self, other):
-        comp = self.compare(other)
-        return comp in (Comparison.FALSE, Comparison.MAYBE)  # True if greater or uncertain
-
-
-
-    def lower(self):
-        return Interval(self.low, self.low)
-
-    def upper(self):
-        return Interval(self.upp, self.upp)
-
-    def _subdivide_step(self):
-        mid = (self.low + self.upp) * 0.5
-
-        return Interval(self.low, mid), Interval(
-            mid, self.upp
-        )
-
-    def subdivide(self, steps=1):
-        res = [self]
-        for _ in range(steps):
-            subd = []
-            for j in res:
-                subd.extend(j._subdivide_step())
-            res = subd
-        return res
+    def __le__(self,other): return self.compare(other)!=Comparison.FALSE
+    def __gt__(self,other): return self.compare(other)==Comparison.FALSE
+    def __ge__(self,other): return self.compare(other)!=Comparison.TRUE
+    # ------------ helpers ------------
+    def intersect(self,other):
+        new_low=max(self.low, other.low)
+        new_upp=min(self.upp, other.upp)
+        if new_low>new_upp:
+            return None
+        return Interval(new_low,new_upp)
+    # allow &
+    def __neg__(self): return Interval(-self.upp, -self.low)
+    # intersection
+    def __and__(self,o):
+        lo=max(self.low,o.low); hi=min(self.upp,o.upp)
+        return None if lo>hi else Interval(lo,hi)
+    # merging
+    def hull(self,other):
+        return Interval(min(self.low,other.low), max(self.upp,other.upp))
 
     def evaluate(self, t):
         return self.low + (self.upp - self.low) * t
-
-    def __and__(self, other):
-        if isinstance(other, Interval):
-            return Interval(max(self.low, other.low), min(self.upp, other.upp))
-        return Interval(max(self.low, other), min(self.upp, other))
 
     def __or__(self, other):
         if isinstance(other, Interval):
@@ -197,8 +180,80 @@ class Interval:
     def __array__(self, dtype=None):
         return np.array(self.to_tuple(), dtype=dtype)
 
-    def __pow__(self, exp):
-        if exp % 2 == 0:
-            return Interval(min(self.low ** exp, self.upp ** exp), max(self.low ** exp, self.upp ** exp))
-        else:
-            return Interval(self.low ** exp, self.upp ** exp)
+    #def __pow__(self, exp):
+    #    if exp % 2 == 0:
+    #        return Interval(min(self.low ** exp, self.upp ** exp), max(self.low ** exp, self.upp ** exp))
+    #    else:
+    #        return Interval(self.low ** exp, self.upp ** exp)
+    # ordering
+    def __lt__(self,other): return (self.low,self.upp)<(other.low,other.upp)
+
+
+# ───────────────────────────────────────────────────────────────
+#  0.  One–dimensional interval type  (your class + small fixes)
+# ───────────────────────────────────────────────────────────────
+from enum import Enum
+from functools import total_ordering
+import math, itertools
+# … ⟨-- paste your original Interval class here, but add three tiny things
+#      * a correct even-power rule (handles the “crosses 0” case)
+#      * unary minus  __neg__
+#      * _subdivide_step  (mid-point bisection) ⟩
+#
+#  All other operators stay exactly as you wrote them
+# ───────────────────────────────────────────────────────────────
+
+
+# ───────────────────────────────────────────────────────────────
+# 1.  A light “box” wrapper for ℝⁿ intervals
+# ───────────────────────────────────────────────────────────────
+class IntervalND:
+    """
+    Axis-aligned box in ℝⁿ:  [x0_low,x0_up] × … × [xn_low,xn_up]
+    Implemented as a list of Interval objects.
+    """
+    def __init__(self, intervals):
+        self.iv = list(intervals)               # List[Interval]
+
+    # helpers ---------------------------------------------------
+    def mid(self):
+        return [r.mid() for r in self.iv]       # centre point (float list)
+    def width(self):
+        return max(r.width() for r in self.iv)  # max edge length
+    def copy(self):
+        return IntervalND([Interval(r.low, r.upp) for r in self.iv])
+
+    # intersection "&" -----------------------------------------
+    def __and__(self, other):
+        new = [a & b for a, b in zip(self.iv, other.iv)]
+        if any(i is None for i in new):         # disjoint → empty
+            return None
+        return IntervalND(new)
+
+    # preferred splitting:  bisect the *widest* edge -----------
+    def bisect(self):
+        k = max(range(len(self.iv)), key=lambda i: self.iv[i].width())
+        left_i, right_i = self.iv[k]._subdivide_step()
+        L = self.copy(); L.iv[k] = left_i
+        R = self.copy(); R.iv[k] = right_i
+        return L, R
+
+    # cosmetics ------------------------------------------------
+    def as_tuple(self):
+        return tuple((i.low, i.upp) for i in self.iv)
+    def __repr__(self):
+        return "IntervalND(" + ", ".join(repr(i) for i in self.iv) + ")"
+
+    def __array__(self, dtype=None,*args,**kwargs):
+        return np.array(self.as_tuple(),dtype, *args,**kwargs)
+
+
+    def subdivide(self):
+        widths = [iv.width() for iv in self.iv]
+        k = max(range(len(widths)), key=widths.__getitem__)
+        l, r = self.iv[k]._subdivide_step()
+        left = self.iv.copy();
+        left[k] = l
+        right = self.iv.copy();
+        right[k] = r
+        return IntervalND(left), IntervalND(right)
