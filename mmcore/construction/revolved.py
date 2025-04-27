@@ -351,6 +351,7 @@ def make_revolved_surface(profile_curve, axis, interval):
             weights[i, j] = wij[i][j]
 
     return NURBSSurfaceTuple(order_u, order_v, knot_u, knot_v, control_points, weights)
+revolved=Revolved=make_revolved_surface
 
 def make_torus(R, r):
     """
@@ -414,6 +415,7 @@ def make_torus(R, r):
     n, U, Pij, wij = make_revolved_surf(S, T, theta, m, Pj, wj)
 
     return  NURBSSurfaceTuple(3,3,(np.array(U)*2*np.pi).tolist(), (np.array(V)*2*np.pi).tolist(), Pij, wij)
+
 
 
 def torus(major_radius=1.0, minor_radius=0.25,

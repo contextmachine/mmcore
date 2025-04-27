@@ -1100,12 +1100,11 @@ def refine_curve(curve, new_knots):
 
     old=np.copy(curve.knots)
     for i,k in enumerate(new_knots):
-
         if old[0]>k:
-
 
             curve.insert_knot(k,1)
         else:
+
             old=np.delete(old,0)
 
     return curve

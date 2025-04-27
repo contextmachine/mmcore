@@ -14,8 +14,10 @@ def int_cs( initial_curve, initial_surface,spt=1e-3, tol=1e-7, debug=False,**kwa
     while stack:
 
         _surface, _curve = stack.pop()
-        if not aabb_intersect_fast_3d(_surface.bbox(), _curve.bbox()):
+        sbb,cbb=_surface.bbox(), _curve.bbox()
+        if not aabb_intersect_fast_3d(sbb, cbb):
             continue
+
         t0, t1 = _curve.interval()
         (u0, u1), (v0, v1) = _surface.interval()
 

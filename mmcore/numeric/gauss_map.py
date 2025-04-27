@@ -299,10 +299,13 @@ class GaussMap:
 
     @classmethod
     def from_surf(cls, surf):
-        _map = compute_gauss_map(np.array(surf.control_points))
+        _map = compute_gauss_map_rational(np.array(surf.control_points_w))
         #print((_map.tolist(),np.array(surf.control_points).tolist()))
         # Compute convex hull
-        return cls(NURBSSurface(np.array(unit(_map.reshape((-1, 3)))).reshape(_map.shape),
+        _map_flat=_map.reshape((-1, 4))
+        _map_pt=_map_flat[...,:-1]/_map_flat[...,-1][...,-1]
+
+        return cls(NURBSSurface(np.array(unit( _map_pt)).reshape((*_map.shape[:-1],3)),
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
     def subdivide(self, u=0.5,v=0.5):
