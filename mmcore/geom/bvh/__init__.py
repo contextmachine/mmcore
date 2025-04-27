@@ -514,7 +514,7 @@ def _find_closest_vicinity(bvh:BVHNode, point:NDArray[float])-> tuple[list[Objec
                 r1=_find_closest_vicinity(bvh.left, point)
                 r2=_find_closest_vicinity(bvh.right, point)
                 if (r1 is not None) and (r2 is not None):
-                    
+
                     left,left_sd= r1
                     right,right_sd=r2
                     if left_sd<right_sd:
@@ -683,7 +683,8 @@ def traverse_all_objects_in_node(bvh_root, result):
 def sdBox(p: np.array, b: np.array):
     d = np.abs(p) - b
 
-    return min(np.max([d[0], d[1], d[2]]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
+    return min(np.max([d[0], d[1], d]), 0.0) + np.linalg.norm(np.maximum(d, 0.0))
+
 
 def sd_aabb(bbox, pt):
     cnt=(bbox[0]+bbox[1])/2
