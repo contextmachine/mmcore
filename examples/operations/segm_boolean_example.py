@@ -2,8 +2,7 @@ import itertools
 import json
 import numpy as np
 
-from mmcore.topo.mesh.triangle.plot import regions
-from mmcore.topo.operations.curve_boolean import segment_boolean
+from mmcore.topo.curve_boolean import segment_boolean
 from pathlib import Path
 path=Path(__file__).parent/'segm_boolean_test_data.json'
 with open(path, "r") as f:
