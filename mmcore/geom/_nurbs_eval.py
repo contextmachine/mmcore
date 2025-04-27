@@ -152,6 +152,35 @@ def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
     return span - 1
 
 
+def bspline_basis(j, degree, knot_vector, u):
+    """
+    Recursively compute the B-spline basis function N_{j,degree}(u) using the Cox–de Boor formula.
+
+    Parameters:
+        j           : index of the basis function.
+        degree      : degree of the basis function.
+        knot_vector : array of knot values.
+        u           : parameter at which to evaluate.
+
+    Returns:
+        Value of the basis function.
+    """
+    if degree == 0:
+        # Special care at the right endpoint.
+        if knot_vector[j] <= u < knot_vector[j + 1] or (u == knot_vector[-1] and u == knot_vector[j + 1]):
+            return 1.0
+        else:
+            return 0.0
+    denom1 = knot_vector[j + degree] - knot_vector[j]
+    denom2 = knot_vector[j + degree + 1] - knot_vector[j + 1]
+    term1 = 0.0
+    term2 = 0.0
+    if denom1 != 0:
+        term1 = (u - knot_vector[j]) / denom1 * bspline_basis(j, degree - 1, knot_vector, u)
+    if denom2 != 0:
+        term2 = (knot_vector[j + degree + 1] - u) / denom2 * bspline_basis(j + 1, degree - 1, knot_vector, u)
+    return term1 + term2
+
 def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order):
     """
     Compute the derivatives of B-spline (or NURBS) basis functions using numpy for efficiency.
@@ -563,6 +592,7 @@ def from_homogeneous_1d(homogeneous_points):
         - control_points: Array of control points (NxD)
         - weights: Array of weights (N)
     """
+    #print(homogeneous_points)
     _cpt = np.asarray(homogeneous_points)
     weights = np.ascontiguousarray(_cpt[..., -1])
     dim = _cpt.shape[1] - 1
