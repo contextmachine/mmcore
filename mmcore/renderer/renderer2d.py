@@ -1,4 +1,3 @@
-
 import sys
 import warnings
 
@@ -7,7 +6,6 @@ import numpy as np
 from plotly import graph_objs
 from dataclasses import dataclass
 from typing import TypedDict
-
 
 
 class RenderConfigOverrides(TypedDict):
@@ -32,7 +30,6 @@ class RenderColorsConfig:
     trims:  str= "black"
     ctrlpts:  str= "black"
     display_bbox:  str= "aqua"
-
 
 
 @dataclass
@@ -107,20 +104,28 @@ class BaseRenderer:
             color_config = RenderColorsConfig()
             warnings.warn('color config ignored')
         return color_config
-    def setup(self, obj, color_config=None,idx=0, density=100):
+    def setup(self, obj, color_config=None,idx=0, density=100,color=None):
 
         color_config=self._prepare_color_config(color_config)
         if hasattr(obj,'control_points') and self.config.display_ctrlpts:
-            self.add(ptsarr=obj.control_points, name="", color=color_config.ctrlpts, plot_type='ctrlpts',idx=idx)
+            self.add(ptsarr=obj.control_points, name="", color=color_config.ctrlpts if color is None else color, plot_type='ctrlpts',idx=idx)
         if self.config.display_evalpts:
-            self.add(ptsarr=obj.points(density), name="", color=color_config.evalpts, plot_type='evalpts',idx=idx)
+            self.add(ptsarr=obj.points(density), name="", color=color_config.evalpts if color is None else color, plot_type='evalpts',idx=idx)
 
         # Data requested by the visualization module
-    def __call__(self, objs,color_config=None, density=100,*args, **kwargs):
+    def __call__(self, objs,color_config=None,colors:list=None, density=100,*args, linewidth=None,**kwargs):
+        if colors is None:
+            colors=[None]*len(objs)
+        elif isinstance(colors,str):
+            colors=[colors]*len(objs)
+        if linewidth is None:
+            linewidth = [None] * len(objs)
+        elif isinstance(linewidth, int):
+            linewidth = [linewidth] * len(objs)
         self.update_config(**kwargs)
         for i,obj in enumerate(objs):
 
-            self.setup(obj, color_config=color_config,idx=i, density=100)
+            self.setup(obj, color_config=color_config,idx=i, density=100,color=colors[i],linewidth=linewidth[i])
 
         return self.render(**kwargs)
     def add_marker(self, pts, color="blue",size=4,idx=None):
@@ -140,28 +145,29 @@ class Renderer2D(BaseRenderer):
     def __init__(self, config=RenderConfig(),**kwargs):
         super().__init__(config, **kwargs)
 
-    def setup(self, obj, color_config=None,idx=0, density=100):
-        s,e=obj.interval()
+    def setup(self, obj, color_config=None,idx=0, density=100,color=None,linewidth=None):
 
-        density*= int(e-s)
         color_config = self._prepare_color_config(color_config)
-        if hasattr(obj, 'control_points') and self.config.display_ctrlpts:
-            self.add(ptsarr=obj.control_points, name="", color=color_config.ctrlpts, plot_type='ctrlpts', idx=idx)
+        if isinstance(obj,np.ndarray) :
+
+            self.add(ptsarr=obj, name="", color=color_config.ctrlpts if color is None else color, plot_type="evalpts", idx=idx, linewidth=self.config.line_width if linewidth is None else linewidth)
+            return
+        s, e = obj.interval()
+
+        density *= int(e - s)
+        if hasattr(obj, "control_points") and self.config.display_ctrlpts:
+            self.add(ptsarr=obj.control_points, name="", color=color_config.ctrlpts if color is None else color, plot_type="ctrlpts", idx=idx)
         if self.config.display_evalpts:
-            self.add(ptsarr=obj.points(density), name="", color=color_config.evalpts, plot_type='evalpts', idx=idx)
+            self.add(ptsarr=obj.points(density), name="", color=color_config.ctrlpts if color is None else color, plot_type='evalpts', idx=idx)
 
     def render(self, **kwargs:RenderConfigOverrides):
         """ Plots the curve and the control points polygon. """
         self.update_config(**kwargs)
-       
 
         # Initialize variables
 
-
-
         # Generate the figure
         fig = graph_objs.Figure( )
-
 
         for plot in self._plots[::-1]:
             pts = np.array(plot['ptsarr'],dtype=self.config.dtype)
@@ -191,7 +197,6 @@ class Renderer2D(BaseRenderer):
                     )
                 ))
 
-
             # Plot evaluated points
             if plot['type'] == 'evalpts' :
                 fig.add_trace( graph_objs.Scatter(
@@ -201,10 +206,9 @@ class Renderer2D(BaseRenderer):
                     mode='lines',
                     line=dict(
                         color=plot['color'],
-                        width=self.config.line_width
+                        width=plot.get('linewidth',self.config.line_width)
                     )
                 ))
-
 
             # Plot bounding box
             if plot['type'] == 'bbox':
@@ -218,7 +222,6 @@ class Renderer2D(BaseRenderer):
                         dash='dashdot',
                     )
                 ))
-
 
             # Plot extras
             if plot['type'] == 'extras':
@@ -259,7 +262,6 @@ class Renderer2D(BaseRenderer):
 
         fig.update_layout(plot_layout)
         return fig
-
 
 
 class Curve3DRenderer(BaseRenderer):
