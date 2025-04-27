@@ -45,8 +45,8 @@ def interval_newton(f_scalar, df_interval, X:Interval, tol=1e-10, max_depth=30):
 # 2.  Multivariate Interval‑Newton (scalar equation f(x)=0)
 # ───────────────────────────────────────────────────────────────
 def interval_newton_nd(
-        f_scalar,          # f(p)  – ordinary float evaluation at a point list
-        f_interval,        # f(B)  – interval evaluation on a IntervalND
+        f,          # f(p)  – ordinary float evaluation at a point list
+
         grad_interval,     # ∇f(B) – list[Interval] of partial derivatives
         domain   : IntervalND,
         tol      = 1e-8,   # stop when every edge of the IntervalND < tol
@@ -58,11 +58,11 @@ def interval_newton_nd(
     roots = []
     def solve(B: IntervalND, depth: int):
         # 2.1  discard IntervalNDes whose image doesn’t straddle 0
-        if 0 not in f_interval(B):
+        if 0 not in f(B):
             return
         # 2.2  Newton contraction:  xi  ←  mi − f(m) / ∂f/∂xi(B)
         m  = B.mid()
-        fm = f_scalar(m)
+        fm = f(m)
         gB = grad_interval(B)
         contracted = []
         for i, (I, gI) in enumerate(zip(B.iv, gB)):
