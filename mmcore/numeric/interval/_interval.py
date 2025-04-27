@@ -237,7 +237,8 @@ class IntervalND:
         L = self.copy(); L.iv[k] = left_i
         R = self.copy(); R.iv[k] = right_i
         return L, R
-
+    def __iter__(self):
+        return iter(self.iv)
     # cosmetics ------------------------------------------------
     def as_tuple(self):
         return tuple((i.low, i.upp) for i in self.iv)

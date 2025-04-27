@@ -1,12 +1,9 @@
 from mmcore.numeric.interval import Interval,IntervalND,interval_newton_nd
 
-def f3_scalar(p):
+def f3(p):
     u, v, t = p
     return (u-0.5)**2 + (v+1)**2 + (t-0.2)**2
 
-def f3_interval(B: IntervalND):
-    u, v, t = B.iv
-    return (u-0.5)**2 + (v+1)**2 + (t-0.2)**2
 
 def grad3_interval(B: IntervalND):
     u, v, t = B.iv
@@ -15,8 +12,8 @@ def grad3_interval(B: IntervalND):
 search_domain = IntervalND([Interval(-1, 2), Interval(-3, 1), Interval(-2, 3)])
 
 roots = interval_newton_nd(
-            f_scalar      = f3_scalar,
-            f_interval     = f3_interval,
+            f     = f3,
+
             grad_interval  = grad3_interval,
             domain         = search_domain,
             tol            = 1e-3,    # < 1 mm in CAD terms
