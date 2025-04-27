@@ -24,6 +24,7 @@ steputils = "^0.1"
 # Optional Deps
 ipython = { version = "*", optional=true}
 plotly = { version = "*", optional=true}
+kaleido = { version = "*", optional=true}
 pyrr = { version = "*", optional=true}
 glfw = { version = "*", optional=true}
 pyopengl = { version = "*", optional=true}
