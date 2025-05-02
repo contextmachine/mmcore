@@ -40,6 +40,14 @@ def normalize_knots_curve(curve:NURBSCurveTuple):
 
 
     return curve._replace(knot=knots)
+def normalize_knots_curve_inplace(curve:NURBSCurveTuple):
+    curve.knot[:]=normalize_knots(curve.knot,curve.order-1)
+
+
+def normalize_knots_surface_inplace(surf:NURBSSurfaceTuple):
+    surf.knot_u[:]=normalize_knots(surf.knot_u,surf.order_u-1)
+    surf.knot_v[:]=normalize_knots(surf.knot_v,surf.order_v-1)
+
 def knot_insertion_alpha( u,  knotvector,  span,  idx, leg):
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 
@@ -1203,3 +1211,50 @@ def refine_curve(curve:NURBSCurveTuple, new_knots, density:int=0,**kwargs):
     new_cptsw,new_knots=knot_refinement(curve.order-1, np.asarray(curve.knot,dtype=float).tolist(),cptsw.tolist(),density=density, add_knot_list=np.asarray(new_knots,dtype=float).tolist(),**kwargs)
     new_cpts,new_weights=from_homogeneous_1d(np.asarray(new_cptsw))
     return curve._replace(knot=np.asarray(new_knots,dtype=float),control_points=new_cpts,weights=new_weights)
+
+
+def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
+    """
+    Reverse the direction of a NURBS curve by flipping the control points, weights,
+    and recalculating the knot vector.
+    
+    Parameters:
+    -----------
+    curve: NURBSCurveTuple
+        The NURBS curve to reverse
+        
+    Returns:
+    --------
+    NURBSCurveTuple
+        The reversed curve
+    """
+    # Create copies of data to avoid modifying the original curve
+    control_points = np.copy(curve.control_points)
+    weights = np.copy(curve.weights)
+    knots = np.copy(curve.knot)
+    
+    # Reverse control points and weights
+    control_points = np.flip(control_points, axis=0)
+    weights = np.flip(weights, axis=0)
+    
+    # Calculate the reversed knot vector
+    # The idea is to maintain the correct parametrization
+    # First, normalize the original knot vector to [0, 1]
+    a, b = nurbs_interval(knots, curve.order - 1)
+    knot_span = b - a
+    
+    # Compute the reversed knot vector
+    # We use the formula k'_i = a + b - k_{n-i}
+    # where n is the last index of the knot vector
+    n = len(knots) - 1
+    reversed_knots = np.zeros_like(knots)
+    for i in range(len(knots)):
+        reversed_knots[i] = a + b - knots[n - i]
+    
+    # Return the new NURBSCurveTuple with reversed components
+    return NURBSCurveTuple(
+        order=curve.order,
+        knot=reversed_knots,
+        control_points=control_points,
+        weights=weights
+    )

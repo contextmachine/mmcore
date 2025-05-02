@@ -5,7 +5,7 @@ from collections import namedtuple
 import numpy as np
 import math
 
-from mmcore.api import NurbsSurface
+
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, from_homogeneous_2d
 from mmcore.geom._nurbs_knots import degree_elevate_curve, generate_knots,normalize_knots_curve, refine_curve,_copy_curve,normalize_knots_curve,from_homogeneous_1d,to_homogeneous_1d,knot_refinement,degree_elevation,_bezier_knots,nurbs_interval
 

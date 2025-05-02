@@ -2699,7 +2699,21 @@ cdef class NURBSSurface(ParametricSurface):
             free(self._control_points_arr)
 
 
+    @property
+    def rational_control_points(self):
+        cdef cnp.ndarray[double, dim=3] cpt = np.copy(self.control_points_view)
+        return cpt
+    @property
+    def weights(self):
+        cdef cnp.ndarray[double, dim=2] cpt = np.zeros((self.control_points_view.shape[0],self.control_points_view.shape[1]))
+        cdef size_t i,j
 
+        for i in range(self.control_points_view.shape[0]):
+
+            for j in range(self.control_points_view.shape[1]):
+                cpt[i,j]=self.control_points_view[i,j, 3]
+
+        return cpt
 
 
 @cython.boundscheck(False)

@@ -29,6 +29,16 @@ class NURBSCurveTuple(NamedTuple):
     control_points:NDArray[float]
     weights:NDArray[float]
 
+    def start(self):
+
+        return evaluate_nurbs_curve(self,self.knot[self.order-1],0)['C']
+    def end(self):
+
+        return evaluate_nurbs_curve(self,self.knot[self.control_points.shape[0]],0)['C']
+
+    @property
+    def degree(self):
+        return self.order-1
 class BSplineSurfaceTuple(NamedTuple):
     order_u:int
     order_v: int
@@ -43,7 +53,15 @@ class NURBSSurfaceTuple(NamedTuple):
     knot_v:NDArray[float]
     control_points:NDArray[float]
     weights:NDArray[float]
-
+    @property
+    def knots_u(self):
+        return self.knot_u
+    @property
+    def knots_v(self):
+        return self.knot_v
+    @property
+    def degree(self):
+        return (self.order_u-1,self.order_v-1)
 class EvaluateCurveData(TypedDict):
     """
     :ivar C: Point at.
@@ -86,6 +104,7 @@ class EvaluateSurfaceData(TypedDict):
     Suv: NDArray[float]
     Svv: NDArray[float]
 
+
 def nurbs_interval(knots, degree:int)->tuple[float,float] :
     """
     Calculate the effective parameter interval for a NURBS curve (or a surface in one direction)
@@ -111,37 +130,94 @@ def nurbs_interval(knots, degree:int)->tuple[float,float] :
     # The effective interval is [knots[degree], knots[control_points]]
     return (float(knots[degree]),float( knots[num_control_points]))
 
-def _curve_degree(self:BSplineCurveTuple|NURBSCurveTuple)->int:
-    return self.order-1
 
-def _curve_interval(self:BSplineCurveTuple|NURBSCurveTuple)->tuple[float,float]:
-    _=_curve_degree(self)
-    return nurbs_interval(self.knot,_)
+def to_homogeneous_1d(control_points, weights):
+    """Convert curve control points to homogeneous coordinates by multiplying by weights.
+
+    Args:
+        control_points: Array of control points (Nx3 or NxD)
+        weights: Array of weights (N)
+
+    Returns:
+        Array of homogeneous control points (Nx(D+1)) where last column is weight
+    """
+    dim = control_points.shape[1]
+    result = np.zeros((len(control_points), dim + 1))
+    for i in range(len(control_points)):
+        # Multiply xyz by weight
+        result[i, :-1] = control_points[i] * weights[i]
+        # Store weight as last coordinate
+        result[i, -1] = weights[i]
+    return result
 
 
-def _surface_degree(self: BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[int,int]:
-    return self.order_u - 1,self.order_v - 1
+def from_homogeneous_1d(homogeneous_points):
+    """Convert homogeneous control points back to Cartesian coordinates.
 
-def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[float,float],tuple[float,float]]:
-    _u,_v=_surface_degree(self)
-    return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
+    Args:
+        homogeneous_points: Array of homogeneous control points (Nx(D+1))
 
-def _copy_curve(curve:BSplineCurveTuple|NURBSCurveTuple)->BSplineCurveTuple|NURBSCurveTuple:
-    cpts=np.copy(curve.control_points)
-    knots=np.copy(curve.knot)
-    if isinstance(curve,NURBSCurveTuple):
-        return NURBSCurveTuple(curve.order,knots,cpts, np.copy(curve.weights))
+    Returns:
+        Tuple of (control_points, weights) where:
+        - control_points: Array of control points (NxD)
+        - weights: Array of weights (N)
+    """
+    # print(homogeneous_points)
+    _cpt = np.asarray(homogeneous_points)
+    weights = np.ascontiguousarray(_cpt[..., -1])
+    dim = _cpt.shape[1] - 1
 
-    return BSplineCurveTuple(curve.order,knots,cpts)
+    control_points = np.zeros((_cpt.shape[0], dim))
+    for i in range(_cpt.shape[0]):
+        # Divide homogeneous coordinates by weight
+        control_points[i] = _cpt[i, :-1] / _cpt[i, -1]
 
-def _copy_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple)->BSplineSurfaceTuple|NURBSSurfaceTuple:
-    cpts=np.copy(surface.control_points)
-    knots_u=np.copy(surface.knot_u)
-    knots_v = np.copy(surface.knot_v)
-    if isinstance(surface,NURBSSurfaceTuple):
-        return NURBSSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts,np.copy(surface.weights))
+    return np.ascontiguousarray(control_points), weights
 
-    return BSplineSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts)
+
+def to_homogeneous_2d(control_points, weights):
+    """Convert surface control points to homogeneous coordinates by multiplying by weights.
+
+    Args:
+        control_points: Array of control points (MxNx3 or MxNxD)
+        weights: Array of weights (MxN)
+
+    Returns:
+        Array of homogeneous control points (MxNx(D+1)) where last column is weight
+    """
+    dim = control_points.shape[2]
+    result = np.zeros((control_points.shape[0], control_points.shape[1], dim + 1))
+    for i in range(control_points.shape[0]):
+        for j in range(control_points.shape[1]):
+            # Multiply xyz by weight
+            result[i, j, :-1] = control_points[i, j] * weights[i, j]
+            # Store weight as last coordinate
+            result[i, j, -1] = weights[i, j]
+    return result
+
+
+def from_homogeneous_2d(homogeneous_points):
+    """Convert homogeneous surface control points back to Cartesian coordinates.
+
+    Args:
+        homogeneous_points: Array of homogeneous control points (MxNx(D+1))
+
+    Returns:
+        Tuple of (control_points, weights) where:
+        - control_points: Array of control points (MxNxD)
+        - weights: Array of weights (MxN)
+    """
+    _cpt = np.asarray(homogeneous_points)
+    weights = np.ascontiguousarray(_cpt[..., -1])
+    dim = _cpt.shape[2] - 1
+
+    control_points = np.zeros((_cpt.shape[0], _cpt.shape[1], dim))
+    for i in range(_cpt.shape[0]):
+        for j in range(_cpt.shape[1]):
+            # Divide homogeneous coordinates by weight
+            control_points[i, j] = _cpt[i, j, :-1] / _cpt[i, j, -1]
+
+    return np.ascontiguousarray(control_points), weights
 
 # Operations
 
@@ -151,35 +227,6 @@ def _find_span_linear(degree, knot_vector, num_ctrlpts, knot, **kwargs):
         span += 1
     return span - 1
 
-
-def bspline_basis(j, degree, knot_vector, u):
-    """
-    Recursively compute the B-spline basis function N_{j,degree}(u) using the Cox–de Boor formula.
-
-    Parameters:
-        j           : index of the basis function.
-        degree      : degree of the basis function.
-        knot_vector : array of knot values.
-        u           : parameter at which to evaluate.
-
-    Returns:
-        Value of the basis function.
-    """
-    if degree == 0:
-        # Special care at the right endpoint.
-        if knot_vector[j] <= u < knot_vector[j + 1] or (u == knot_vector[-1] and u == knot_vector[j + 1]):
-            return 1.0
-        else:
-            return 0.0
-    denom1 = knot_vector[j + degree] - knot_vector[j]
-    denom2 = knot_vector[j + degree + 1] - knot_vector[j + 1]
-    term1 = 0.0
-    term2 = 0.0
-    if denom1 != 0:
-        term1 = (u - knot_vector[j]) / denom1 * bspline_basis(j, degree - 1, knot_vector, u)
-    if denom2 != 0:
-        term2 = (knot_vector[j + degree + 1] - u) / denom2 * bspline_basis(j + 1, degree - 1, knot_vector, u)
-    return term1 + term2
 
 def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order):
     """
@@ -250,7 +297,7 @@ def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order
     return ders
 
 
-def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
+def evaluate_nurbs_curve(curve:NURBSCurveTuple, u, d_order=2)->EvaluateCurveData:
     """
     Evaluate a rational NURBS curve at parameter u.
     Returns a dictionary with keys:
@@ -308,7 +355,7 @@ def evaluate_nurbs_curve(curve, u, d_order=2)->EvaluateCurveData:
 
     return result
 
-def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
+def evaluate_nurbs_surface(surface:NURBSSurfaceTuple, u, v, d_order=2)->EvaluateSurfaceData:
     """
     Evaluate a rational NURBS surface at (u,v). Returns a dictionary SKL with keys:
       'S'   : the 3D (or n–dimensional) point,
@@ -400,6 +447,7 @@ def evaluate_nurbs_surface(surface, u, v, d_order=2)->EvaluateSurfaceData:
     # print(SKL)
     return SKL
 
+
 def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]:
     p = curve.order - 1
     U = curve.knot
@@ -413,6 +461,36 @@ def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]
             d[i] = (1 - alpha) * d[i - 1] + alpha * d[i]
     return d[p]
 
+
+def bspline_basis(j, degree, knot_vector, u):
+    """
+    Recursively compute the B-spline basis function N_{j,degree}(u) using the Cox–de Boor formula.
+
+    Parameters:
+        j           : index of the basis function.
+        degree      : degree of the basis function.
+        knot_vector : array of knot values.
+        u           : parameter at which to evaluate.
+
+    Returns:
+        Value of the basis function.
+    """
+    if degree == 0:
+        # Special care at the right endpoint.
+        if knot_vector[j] <= u < knot_vector[j + 1] or (u == knot_vector[-1] and u == knot_vector[j + 1]):
+            return 1.0
+        else:
+            return 0.0
+    denom1 = knot_vector[j + degree] - knot_vector[j]
+    denom2 = knot_vector[j + degree + 1] - knot_vector[j + 1]
+    term1 = 0.0
+    term2 = 0.0
+    if denom1 != 0:
+        term1 = (u - knot_vector[j]) / denom1 * bspline_basis(j, degree - 1, knot_vector, u)
+    if denom2 != 0:
+        term2 = (knot_vector[j + degree + 1] - u) / denom2 * bspline_basis(j + 1, degree - 1, knot_vector, u)
+    return term1 + term2
+
 def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
     """
     Evaluate a NURBS curve (which may be rational) at parameter value t.
@@ -420,7 +498,6 @@ def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
     Works in any dimension.
     """
     return np.array(list(evaluate_nurbs_curve(curve, t, d_order).values()))
-
 
 
 def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->EvaluateCurveDifferentialData:
@@ -433,6 +510,39 @@ def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->
 
     recalculate=evaluate_curvature(data['C1'], data['C2'],data['K'],data['Ut'])
     return data
+
+
+def _curve_degree(self:BSplineCurveTuple|NURBSCurveTuple)->int:
+    return self.order-1
+
+def _curve_interval(self:BSplineCurveTuple|NURBSCurveTuple)->tuple[float,float]:
+    _=_curve_degree(self)
+    return nurbs_interval(self.knot,_)
+
+def _surface_degree(self: BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[int,int]:
+    return self.order_u - 1,self.order_v - 1
+
+def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[float,float],tuple[float,float]]:
+    _u,_v=_surface_degree(self)
+    return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
+
+def _copy_curve(curve:BSplineCurveTuple|NURBSCurveTuple)->BSplineCurveTuple|NURBSCurveTuple:
+    cpts=np.copy(curve.control_points)
+    knots=np.copy(curve.knot)
+    if isinstance(curve,NURBSCurveTuple):
+        return NURBSCurveTuple(curve.order,knots,cpts, np.copy(curve.weights))
+
+    return BSplineCurveTuple(curve.order,knots,cpts)
+
+def _copy_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple)->BSplineSurfaceTuple|NURBSSurfaceTuple:
+    cpts=np.copy(surface.control_points)
+    knots_u=np.copy(surface.knot_u)
+    knots_v = np.copy(surface.knot_v)
+    if isinstance(surface,NURBSSurfaceTuple):
+        return NURBSSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts,np.copy(surface.weights))
+
+    return BSplineSurfaceTuple(surface.order_u,surface.order_v,knots_u,knots_v,cpts)
+
 
 # Construction
 def _process_knots(knots):
@@ -562,47 +672,6 @@ def _join_weights_1d(pts,weights):
         cpts[i,-1]=weights[i]
     return cpts
 
-def to_homogeneous_1d(control_points, weights):
-    """Convert curve control points to homogeneous coordinates by multiplying by weights.
-    
-    Args:
-        control_points: Array of control points (Nx3 or NxD)
-        weights: Array of weights (N)
-        
-    Returns:
-        Array of homogeneous control points (Nx(D+1)) where last column is weight
-    """
-    dim = control_points.shape[1]
-    result = np.zeros((len(control_points), dim + 1))
-    for i in range(len(control_points)):
-        # Multiply xyz by weight
-        result[i, :-1] = control_points[i] * weights[i]
-        # Store weight as last coordinate
-        result[i, -1] = weights[i]
-    return result
-
-def from_homogeneous_1d(homogeneous_points):
-    """Convert homogeneous control points back to Cartesian coordinates.
-    
-    Args:
-        homogeneous_points: Array of homogeneous control points (Nx(D+1))
-        
-    Returns:
-        Tuple of (control_points, weights) where:
-        - control_points: Array of control points (NxD)
-        - weights: Array of weights (N)
-    """
-    #print(homogeneous_points)
-    _cpt = np.asarray(homogeneous_points)
-    weights = np.ascontiguousarray(_cpt[..., -1])
-    dim = _cpt.shape[1] - 1
-    
-    control_points = np.zeros((_cpt.shape[0], dim))
-    for i in range(_cpt.shape[0]):
-        # Divide homogeneous coordinates by weight
-        control_points[i] = _cpt[i, :-1] / _cpt[i, -1]
-    
-    return np.ascontiguousarray(control_points), weights
 
 # Conversion for surfaces
 def _join_weights(pts,weights):
@@ -613,49 +682,6 @@ def _join_weights(pts,weights):
             cpts[i,j,:-1]=pts[i,j]
             cpts[i,j,-1]=weights[i,j]
     return cpts
-
-def to_homogeneous_2d(control_points, weights):
-    """Convert surface control points to homogeneous coordinates by multiplying by weights.
-    
-    Args:
-        control_points: Array of control points (MxNx3 or MxNxD)
-        weights: Array of weights (MxN)
-        
-    Returns:
-        Array of homogeneous control points (MxNx(D+1)) where last column is weight
-    """
-    dim = control_points.shape[2]
-    result = np.zeros((control_points.shape[0], control_points.shape[1], dim + 1))
-    for i in range(control_points.shape[0]):
-        for j in range(control_points.shape[1]):
-            # Multiply xyz by weight
-            result[i, j, :-1] = control_points[i, j] * weights[i, j]
-            # Store weight as last coordinate
-            result[i, j, -1] = weights[i, j]
-    return result
-
-def from_homogeneous_2d(homogeneous_points):
-    """Convert homogeneous surface control points back to Cartesian coordinates.
-    
-    Args:
-        homogeneous_points: Array of homogeneous control points (MxNx(D+1))
-        
-    Returns:
-        Tuple of (control_points, weights) where:
-        - control_points: Array of control points (MxNxD)
-        - weights: Array of weights (MxN)
-    """
-    _cpt = np.asarray(homogeneous_points)
-    weights = np.ascontiguousarray(_cpt[..., -1])
-    dim = _cpt.shape[2] - 1
-    
-    control_points = np.zeros((_cpt.shape[0], _cpt.shape[1], dim))
-    for i in range(_cpt.shape[0]):
-        for j in range(_cpt.shape[1]):
-            # Divide homogeneous coordinates by weight
-            control_points[i, j] = _cpt[i, j, :-1] / _cpt[i, j, -1]
-    
-    return np.ascontiguousarray(control_points), weights
 
 
 def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
@@ -678,13 +704,13 @@ def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NU
     if isinstance(obj,(NURBSSurfaceTuple,BSplineSurfaceTuple)):
         degree=obj.order_u-1,obj.order_v-1
 
-        pts=_join_weights(obj.control_points,obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
+        pts= to_homogeneous_2d(obj.control_points,obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
 
         return nurbs.NURBSSurface(pts, degree,np.array(obj.knot_u),np.array(obj.knot_v))
     elif isinstance(obj,(NURBSCurveTuple,BSplineCurveTuple)):
         degree = obj.order - 1
 
-        pts = _join_weights_1d(obj.control_points, obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
+        pts = to_homogeneous_1d(obj.control_points, obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
 
         return nurbs.NURBSCurve(pts, degree,knots=np.array(obj.knot))
     else:
