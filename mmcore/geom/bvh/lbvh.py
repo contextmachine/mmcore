@@ -51,7 +51,11 @@ class AABB:
         """Return True if this box intersects with another."""
         # No intersection if one is completely to one side of the other
         return not (np.any(self.max <= other.min) or np.any(self.min >= other.max))
-
+    def offset(self, d:float):
+        return AABB(self.min-d,self.max+d)
+    def offset_inplace(self, d:float):
+        self.min-=d
+        self.max+=d
 
 @dataclasses.dataclass
 class BVHNode:
