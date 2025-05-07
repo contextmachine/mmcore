@@ -5,6 +5,7 @@ from collections import namedtuple
 import numpy as np
 import math
 
+from numpy._typing import NDArray
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, from_homogeneous_2d
 from mmcore.geom._nurbs_knots import degree_elevate_curve, generate_knots,normalize_knots_curve, refine_curve,_copy_curve,normalize_knots_curve,from_homogeneous_1d,to_homogeneous_1d,knot_refinement,degree_elevation,_bezier_knots,nurbs_interval
@@ -135,11 +136,6 @@ def circle(radius=1.0, start_angle=0.0, end_angle=2 * math.pi, center=None, norm
     return NURBSCurveTuple(3, knot_vector, control_points_global, weights)
 
 
-
-
-
-
-
 def make_curves_compatible(curve1, curve2):
     """
     Make two NURBS curves compatible for ruled surface construction
@@ -263,9 +259,8 @@ def ruled(curve1:NURBSCurveTuple, curve2:NURBSCurveTuple)->NURBSSurfaceTuple:
 
     # Fill control points
 
-    for i in range(n):
-        control_points[i, 0, :] = np.array(c1._control_points)[i]
-        control_points[i, 1, :] = np.array(c2._control_points)[i]
+    control_points[:, 0, :] =  to_homogeneous_1d(c1.control_points,c1.weights)
+    control_points[:, 1, :] =  to_homogeneous_1d(c2.control_points,c1.weights)
 
     # Create surface knot vectors
     u_knots = c1.knots  # Same for both curves now
@@ -279,7 +274,7 @@ def ruled(curve1:NURBSCurveTuple, curve2:NURBSCurveTuple)->NURBSSurfaceTuple:
                               weights=np.ascontiguousarray(control_points[...,-1]))
 from mmcore.geom._nurbs_interp import interpolate_curve,fair_interpolate_curve
 
-from typing import NamedTuple,Literal
+from typing import NamedTuple, Literal, List
 from enum import Enum,auto
 LoftType=Literal['normal', 'loose','straight']
 
@@ -290,63 +285,191 @@ def default_loft_options()->LoftOptions:
     return LoftOptions(LoftType.NORMAL)
 
 
-def loft(curves:list[NURBSCurveTuple], loft_type:LoftType='normal', **kwargs)->NURBSSurfaceTuple:
+def loft(curves: list[NURBSCurveTuple],
+         degree_v: int = 3,
+         v_params: list[float] | None = None
+         ) -> NURBSSurfaceTuple:
     """
-    Generates a ruled surface between two given NURBS curves. A ruled surface is a
-    surface created by linear interpolation between corresponding points on two
-    curves. This function assumes that the input curves are NURBS curves and processes
-    them to make them compatible before producing the NURBS surface. If the input
-    curves have different knot vectors or control points, they will be modified to
-    produce a valid ruled surface.
-
-    :param curves: list of curves
-    :param loft_type: Loft type
-
-
-
-    :return: A NURBS ruled surface created between the two input curves.
-    :rtype: NURBSSurfaceTuple
+    Creates a tensor-product NURBS surface whose v-isocurves
+    are **exactly** the given curves.
     """
-    # Make curves compatible
 
-    compat_curves=make_curves_compatible_multiple(curves)
-    u_count=compat_curves[0].control_points.shape[0]
-    degree_u=compat_curves[0].order-1
-    knots_u=compat_curves[0].knot
-    grid_cptsw=np.zeros((u_count,len(curves),4))
-    surf_cptsw=[None for i in range(u_count)]
-    print(loft_type)
-    if loft_type == 'straight':
-        kn=generate_knots(len(curves), 1)
-        knots_v = [kn for i in range(u_count)]
-        degree_v = 1
-    else:
-        knots_v = [None for i in range(u_count)]
-        degree_v=3
+    # -- 0. Compatibility in U
+    curves = make_curves_compatible_multiple(curves)
+    v_count = len(curves)                       # number of section curves
+    u_count = curves[0].control_points.shape[0] # ctrlpts per curve
 
-    for i in  range(len(curves)):
-        crv = compat_curves[i]
-        grid_cptsw[:, i, :]=to_homogeneous_1d(crv.control_points,crv.weights)
+    order_u  = curves[0].order                  # already degree+1
+    knots_u  = curves[0].knot
 
-    for i in range(u_count):
+    # -- 1. Choose parameter values v_i   (Rhino: uniform, chord-length, …)
+    if v_params is None:
+        v_params = np.linspace(0.0, 1.0, v_count, dtype=float)
+    assert len(v_params) == v_count
+
+    # -- 2. Build the control-point *grid* in [v][u][4] order  ★
+    grid4 = np.empty((v_count, u_count, 4))
+    for i, crv in enumerate(curves):
+        grid4[i, :, :] = to_homogeneous_1d(crv.control_points, crv.weights)
+
+    # -- 3. Interpolate every U-column with **one shared** knot vector in V  ★
+    order_v = degree_v + 1
+    kv_v    = None
+    for j in range(u_count):
+        ctrl4, kv_v = interpolate_curve(
+            grid4[:, j, :],             # data points for this column
+            degree_v,
+            params=v_params,
+            return_knots=True
+        )
+        grid4[:, j, :] = ctrl4          # overwrite the column with its ctrl pts
+
+    # -- 4. Back to Euclidean ctrl pts + weights
+    ctrlpts, wts = from_homogeneous_2d(grid4)
+
+    # -- 5. Assemble the surface  (orders, knots, lattice)
+    return NURBSSurfaceTuple(
+        order_u, order_v,               # u-order, v-order
+        knots_u, kv_v,                  # common knot vectors
+        ctrlpts, wts                    # [v][u][3] and [v][u]
+    )
 
 
-        if loft_type =="normal":
+# ---------------------------------------------------------------------
+#  Basic B-spline / NURBS utilities
+# ---------------------------------------------------------------------
 
 
-            surf_cptsw[i] ,            knots_v[i] =fair_interpolate_curve(grid_cptsw[i, :, :], degree_v, lambda_reg=0.0001)
-        elif loft_type == "loose":
+from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,bspline_basis
+# ---------------------------------------------------------------------
+#  Gordon-surface construction
+# ---------------------------------------------------------------------
+def bspline_basis_vector(knot: NDArray[np.float64],
+                         degree: int,
+                         u: float) -> NDArray[np.float64]:
+    """Return the complete vector [N_0(u), …, N_{K-1}(u)]."""
+    K = len(knot) - degree - 1           # number of non-zero one-dim. bases
+    return np.fromiter((bspline_basis(j, degree, knot, u) for j in range(K)),
+                       dtype=float, count=K)
 
-            knots_v[i] = generate_knots(grid_cptsw[i, :, :].shape[0], degree_v)
-            surf_cptsw[i] = grid_cptsw[i, :, :]
-        elif loft_type ==  'straight':
-            knots_v[i] =np.array([0.0,0.0, 1.,1.])
-            surf_cptsw[i]=grid_cptsw[i,:,:]
+# ----------------------------------------------------------------------
+#  Curve evaluation (unchanged logic)
+# ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+#  Gordon surface construction
+# ----------------------------------------------------------------------
+def construct_gordon_surface(
+    curves_u: List[NURBSCurveTuple],
+    curves_v: List[NURBSCurveTuple],
+    v_params: NDArray[np.float64],
+    u_params: NDArray[np.float64]
+) -> NURBSSurfaceTuple:
+    # 1 - unify knots/degree separately for each family
+    C = make_curves_compatible_multiple(curves_u)   # (m+1) curves
+    D = make_curves_compatible_multiple(curves_v)   # (n+1) curves
+    m1, n1 = len(C), len(D)
 
+    if len(v_params) != m1 or len(u_params) != n1:
+        raise ValueError("v_params length must equal len(curves_u) and "
+                         "u_params length must equal len(curves_v).")
 
-        else:
-            raise TypeError(f"Unknown loft type: {loft_type}")
+    p, U = C[0].order - 1, C[0].knot
+    q, V = D[0].order - 1, D[0].knot
+    K_u  = len(U) - p - 1
+    K_v  = len(V) - q - 1
+    dim  = C[0].control_points.shape[1]
 
-    print(knots_v)
-    return NURBSSurfaceTuple(degree_u+1,degree_v+1,knots_u,np.asarray(knots_v[0]),*from_homogeneous_2d(surf_cptsw))
+    # 2 - intersection grid
+    P_corner = np.empty((m1, n1, dim))
+    for i, cur in enumerate(C):
+        P_corner[i] = [evaluate_nurbs_curve(cur, uj,0)['C'] for uj in u_params]
+
+    # 3 - basis-value matrices  (collocation)
+    Bv = np.stack([bspline_basis_vector(V, q, v) for v in v_params])  # (m1, K_v)
+    Bu = np.stack([bspline_basis_vector(U, p, u) for u in u_params])  # (n1, K_u)
+
+    #   Moore–Penrose gives min-norm Λ,Κ that satisfy interpolation conditions
+    Λ = (np.linalg.pinv(Bv) @ np.eye(m1)).T      # (m1, K_v)
+    Κ = (np.linalg.pinv(Bu) @ np.eye(n1)).T      # (n1, K_u)
+
+    # 4 - gather compatible control nets
+    CP_u = np.stack([c.control_points for c in C])   # (m1, K_u, dim)
+    W_u  = np.stack([c.weights for c in C])          # (m1, K_u)
+
+    CP_v = np.stack([d.control_points for d in D])   # (n1, K_v, dim)
+    W_v  = np.stack([d.weights for d in D])          # (n1, K_v)
+
+    # 5 - build partial homogeneous sums
+    W_su   = np.zeros((K_u, K_v)); Pw_su  = np.zeros((K_u, K_v, dim))
+    W_sv   = np.zeros((K_u, K_v)); Pw_sv  = np.zeros((K_u, K_v, dim))
+    W_suv  = np.zeros((K_u, K_v)); Pw_suv = np.zeros((K_u, K_v, dim))
+
+    # 5a  sweep rows
+    for i in range(m1):
+        lam = Λ[i]                                # (K_v,)
+        w   = W_u[i][:, None]                     # (K_u,1)
+        W_su  += w @ lam[None, :]                 # rank-1 outer product
+        Pw_su += (w @ lam[None, :])[:, :, None] * CP_u[i][:, None, :]
+
+    # 5b  sweep columns
+    for j in range(n1):
+        kap = Κ[j]                                # (K_u,)
+        w   = W_v[j][None, :]                     # (1,K_v)
+        W_sv  += kap[:, None] @ w                 # rank-1 outer product
+        Pw_sv += (kap[:, None] @ w)[:, :, None] * CP_v[j][None, :, :]
+
+    # 5c  bilinear correction
+    for i in range(m1):
+        lam = Λ[i]                                # (K_v,)
+        for j in range(n1):
+            kap = Κ[j]                            # (K_u,)
+            outer = kap[:, None] * lam[None, :]   # (K_u,K_v)
+            W_suv  += outer
+            Pw_suv += outer[:, :, None] * P_corner[i, j]
+
+    # 6 - combine and dehomogenise
+    W_tot = W_su + W_sv - W_suv
+    if np.any(np.abs(W_tot) < np.finfo(float).eps):
+        raise ZeroDivisionError("Composite weight vanished — check input data.")
+    CP_tot = (Pw_su + Pw_sv - Pw_suv) / W_tot[:, :, None]
+
+    # 7 - package as a NURBS surface
+    return NURBSSurfaceTuple(
+        order_u       = C[0].order,
+        order_v       = D[0].order,
+        knot_u        = U,
+        knot_v        = V,
+        control_points= CP_tot,
+        weights       = W_tot
+    )
+
+# ---------------------------------------
+#  The module exposes construct_gordon_surface as the main entry
+# ---------------------------------------------------------------------
+if __name__=='__main__':
+    pts_v = [
+        [[-5.0, 10.0, 2.0], [-10.0, 0.0, 2.0], [0.0, -20.0, -2.0], [10.0, 0.0, 2.0], [5.0, 10.0, 2.0]],
+        [[-5.0, 10.0, 0.0], [-10.0, 0.0, 0.0], [0.0, -10.0, 0.0], [10.0, 0.0, 0.0], [5.0, 10.0, 0.0]],
+    ]
+    w_v = [[1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0]]
+    knots_v = [[0.0, 0.0, 0.0, 0.0, 11.5, 23.0, 23.0, 23.0, 23.0], [0.0, 0.0, 0.0, 0.0, 11.5, 23.0, 23.0, 23.0, 23.0]]
+    degs_v = [3, 3]
+    v_crvs = [NURBSCurveTuple(d + 1, np.array(k), np.array(p), np.array(w)) for d, k, p, w in zip(degs_v, knots_v, pts_v, w_v)]
+
+    pts_u = [
+        [[-5.0, 10.0, 2.0], [-5.0, 10.0, 0.0]],
+        [[0.0, -10.0, 0.0], [0.0, -8.0, -1.0], [0.0, -7.0, -1.0], [3.9648774381914339e-11, -5.0, 0.0]],
+        [[5.0, 10.0, 2.0], [5.0, 10.0, 0.0]],
+    ]
+    w_u = [[1.0, 1.0], [1.0, 1.0, 1.0, 1.0], [1.0, 1.0]]
+    knots_u = [[0.0, 0.0, 2.0, 2.0], [0.0, 0.0, 0.0, 0.0, 5.0, 5.0, 5.0, 5.0], [0.0, 0.0, 2.0, 2.0]]
+    degs_u = [1, 3, 1]
+
+    u_crvs = [NURBSCurveTuple(d + 1, np.array(k), np.array(p), np.array(w)) for d, k, p, w in zip(degs_u, knots_u, pts_u, w_u)]
+
+    print(u_crvs)
+
+    res = construct_gordon_surface(u_crvs, v_crvs, np.linspace(0, 1, 3), np.linspace(0, 1, 2))
+
+    print(res)
