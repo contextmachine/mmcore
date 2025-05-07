@@ -2701,11 +2701,10 @@ cdef class NURBSSurface(ParametricSurface):
 
     @property
     def rational_control_points(self):
-        cdef cnp.ndarray[double, dim=3] cpt = np.copy(self.control_points_view)
-        return cpt
+        return np.copy(self.control_points_view)
     @property
     def weights(self):
-        cdef cnp.ndarray[double, dim=2] cpt = np.zeros((self.control_points_view.shape[0],self.control_points_view.shape[1]))
+        cdef cnp.ndarray[double, ndim=2] cpt = np.zeros((self.control_points_view.shape[0],self.control_points_view.shape[1]))
         cdef size_t i,j
 
         for i in range(self.control_points_view.shape[0]):
