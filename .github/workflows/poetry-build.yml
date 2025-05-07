@@ -2,17 +2,14 @@ name: poetry-build
 
 on:
   push:
-    branches:
-      - "*"
-  pull_request:
-    branches:
-      - "master"
+    branches: [ "master","dev", "tiny", "0.53.0"]
+
 
 jobs:
   build:
     strategy:
       matrix:
-        os: [ "ubuntu-latest", "macos-latest", "windows-latest"]
+        os: [ "ubuntu-latest", "macos-latest", "windows-latest" ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         exclude:
           - os: windows-latest
@@ -38,12 +35,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+
+
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
           virtualenvs-create: true
           virtualenvs-in-project: true
-
       - name: Load cached venv
         id: cached-pip-wheels
         uses: actions/cache@v3
@@ -63,7 +61,7 @@ jobs:
         id: artifactname
         run: |
           cd dist
-          echo "wheelfile=$(ls *.whl | head -1)" >> $GITHUB_OUTPUT
+          echo "wheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
 
       - name: Debug artifact name
         run: |
@@ -75,3 +73,49 @@ jobs:
           path: dist
           name: ${{  steps.artifactname.outputs.wheelfile }}
           overwrite: true
+  upload_pypi:
+    needs: [ build ]
+    if: ${{ github.ref == 'refs/heads/tiny' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mmcore/
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mmcore-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
+
+  upload_test_pypi:
+    needs: [ build ]
+    if: ${{ startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: test-pypi
+      url: https://test.pypi.org/project/mmcore/
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mmcore-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          user: __token__
+          password: ${{ secrets.TEST_PYPI_TOKEN }}
