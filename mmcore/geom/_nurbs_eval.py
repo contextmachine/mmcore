@@ -295,8 +295,9 @@ def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order
         scales[k] = scales[k - 1] * (degree - k + 1)
     ders[1:, :] *= scales[1:, np.newaxis]
     return ders
-
-
+from mmcore.numeric.aabb import aabb
+def nurbs_bbox(obj:NURBSSurfaceTuple|NURBSCurveTuple|BSplineSurfaceTuple|BSplineCurveTuple):
+    return aabb(obj.control_points    )
 def evaluate_nurbs_curve(curve:NURBSCurveTuple, u, d_order=2)->EvaluateCurveData:
     """
     Evaluate a rational NURBS curve at parameter u.
@@ -716,6 +717,7 @@ def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NU
     else:
         raise TypeError(
             f"Arguments must be {BSplineCurveTuple.__name__}|{NURBSCurveTuple.__name__}|{BSplineSurfaceTuple.__name__}|{NURBSSurfaceTuple.__name__}, not {type(obj).__name__}")
+
 
 '''
 def join_weights(surf:NURBSSurfaceTuple):

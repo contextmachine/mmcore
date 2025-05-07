@@ -114,3 +114,4 @@ def curve_aabb_eager(curve, bounds=None, cnt=8):
 
     vals = np.linspace(*bounds, cnt, dtype=float)
     return aabb(curve(vals))
+

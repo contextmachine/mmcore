@@ -444,3 +444,31 @@ def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):
 
                     stack.append(node.right)
     return ints
+def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True):
+    root1:BVHNode=bvh1.get_root()
+    root2:BVHNode=bvh2.get_root()
+    stack=[(root1, root2)]
+    res=[]
+    while stack:
+        a,b=stack.pop(0)
+        if not exact:
+            is_inter=a.bbox.intersects(b.bbox)
+        else:
+            is_inter = a.bbox.intersects_exact(b.bbox)
+        if not is_inter:
+            continue
+        elif a.is_leaf() and b.is_leaf():
+            res.append((a,b))
+        elif a.is_leaf() :
+
+            stack.append((a,bvh2.nodes[b.left]))
+            stack.append((a,bvh2.nodes[b.right]))
+        elif b.is_leaf():
+            stack.append(( bvh1.nodes[a.left],b))
+            stack.append(( bvh1.nodes[a.right],b))
+        else:
+            for first in [bvh1.nodes[a.left],bvh1.nodes[a.right]]:
+                for second in [ bvh2.nodes[b.left], bvh2.nodes[b.right]] :
+                    stack.append((first, second))
+    return res
+
