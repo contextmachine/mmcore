@@ -112,6 +112,16 @@ class Body:
     id: int = field(default_factory=_AutoID.next, init=False)
 
 
+def check_euler(m: BRep):
+    V = len(m.V)
+    E = len(m.E)
+    F = len(m.F)
+    L = len(m.L)
+    S = len(m.S)
+    G = len(m.B)
+    return V - E + F - (L - F) - 2 * (S - G)
+
+
 # ---------------------------------------------------------------------------
 #  Model container + Euler operators
 # ---------------------------------------------------------------------------
@@ -134,6 +144,7 @@ class BRep:
         he_id = start
         while True:
             yield he_id
+
             he_id = self.HE[he_id].next
             if he_id == start:
                 break
@@ -142,7 +153,9 @@ class BRep:
         start = start_he
         he_id = start
         while True:
+
             yield he_id
+            #print(self.HE[he_id])
             he_id = self.HE[he_id].next
             if he_id == start:
                 break
@@ -188,117 +201,13 @@ class BRep:
         face.shell = shell.id
         return v1, v2, e, loop, face, shell
 
-    def KEVVLS(self, shell_id: int):
-        if shell_id not in self.S:
-            raise KeyError("Shell not found")
-        shell = self.S[shell_id]
-        if len(shell.faces) != 1:
-            raise ValueError("shell not produced by MEVVLS")
-        face_id = shell.faces[0]
-        face = self.F[face_id]
-        loop_id = face.outer
-        loop = self.L[loop_id]
-        he_ids = list(self._loop_halfedges(loop_id))
-        if len(he_ids) != 2:
-            raise ValueError("Unexpected loop length for MEVVLS")
-        edge_id = self.HE[he_ids[0]].edge
-        v_ids = [self.E[edge_id].v_start, self.E[edge_id].v_end]
-        # --- deletions ---
-        del self.S[shell_id]
-        del self.F[face_id]
-        del self.L[loop_id]
-        for hid in he_ids:
-            del self.HE[hid]
-        del self.E[edge_id]
-        for vid in v_ids:
-            del self.V[vid]
-
-    # ============================================================
-    #  MEV – Make Edge & Vertex, inside loop L, from existing vertex v_from
-    # ============================================================
-    def MEV(self, loop_id: int, v_from: int, p_new: Tuple[float, float, float]) -> tuple[Vertex, Edge]:
-        if loop_id not in self.L:
-            raise KeyError("Loop not found")
-        if v_from not in self.V:
-            raise KeyError("Vertex not found")
-        # 1. locate half‑edge whose head == v_from
-        he_from = None
-        for hid in self._loop_halfedges(loop_id):
-            if self.HE[hid].vert == v_from:
-                he_from = self.HE[hid]
-                break
-        if he_from is None:
-            raise ValueError("Vertex not on given loop")
-        he_prev = self.HE[he_from.prev]
-
-        # 2. create vertex & edge
-        v_new = Vertex(p_new)
-        self.V[v_new.id] = v_new
-
-        e = Edge(v_from, v_new.id, Curve3D(), (0.0, 1.0))
-        self.E[e.id] = e
-        # 3. create half‑edges
-
-        he_fwd = HalfEdge(e.id, he_from.face, loop_id, prev=he_prev.id, vert=v_from, orient=he_prev.orient)
-
-        he_rev = HalfEdge(e.id, he_from.face, loop_id, prev=he_fwd.id, next=he_from.id, vert=v_new.id, orient=he_fwd.orient)
-        he_fwd.twin=he_rev.id
-        he_rev.twin = he_fwd.id
-        self.HE[he_fwd.id] = he_fwd
-        self.HE[he_rev.id] = he_rev
-        he_fwd.next = he_rev.id
-        he_prev.next = he_fwd.id
-        he_from.prev = he_prev.id
-
-        return v_new, e
-
-    # ============================================================
-    #  KEV – inverse of above (remove dangling vertex + edge from loop)
-    # ============================================================
-    def KEV(self, loop_id: int, v_id: int):
-        if loop_id not in self.L:
-            raise KeyError("Loop not found")
-        if v_id not in self.V:
-            raise KeyError("Vertex not found")
-        # find half‑edge in loop ending at v_id (head)
-        he_del = None
-        for hid in self._loop_halfedges(loop_id):
-            if self.HE[hid].vert == v_id:
-                he_del = self.HE[hid]
-                break
-        if he_del is None:
-            raise ValueError("Vertex not on loop")
-        # check degree of vertex =1 and edge used only by these two half‑edges
-        edge_id = he_del.edge
-
-        he_prev = self.HE[he_del.prev]
-        if he_prev.edge != edge_id:
-            raise ValueError(f"prev he diff e: {he_prev}, {he_del}")
-        print(he_prev.twin, he_del.id)
-        # ensure no other half‑edges use this edge
-
-        # ensure vertex not referenced elsewhere
-
-        self.HE[he_prev.prev].next = he_del.next
-        self.HE[he_del.next].prev = he_prev.prev
-        if self.L[loop_id].he == he_del.id:
-            self.L[loop_id].he = he_del.next
-
-            # adjust loop anchor if needed
-
-        # --- delete records ---
-
-        del self.HE[he_del.id]
-        del self.HE[he_prev.id]
-        del self.E[edge_id]
-        del self.V[v_id]
-
     def _shift_loop_to_vertex(self, l: Loop, v: Vertex) -> tuple[bool, HalfEdge]:
         start: int = l.he
         current = l.he
         while True:
 
             he = self.HE[current]
+            #print(he)
             if he.vert == v.id:
                 return True, he
             current = he.next
@@ -306,14 +215,18 @@ class BRep:
             if current == start:
                 return False, he
 
+    # ============================================================
+    #  MEV – Make Edge & Vertex, inside loop L, from existing vertex v_from
+    # ============================================================
     def _walk_to_vertex(self, he: HalfEdge, v: Vertex) -> tuple[list[HalfEdge], HalfEdge]:
 
         start: int = he.id
         current = start
         lst = []
         while True:
-            h = self.HE[current]
 
+            h = self.HE[current]
+            #print(h)
             if h.vert == v.id:
 
                 return lst, h
@@ -321,8 +234,12 @@ class BRep:
             current = h.next
 
             if current == start:
-                raise ValueError("v not in Loop")
+                loop=self.L[he.loop]
+                raise ValueError(f"v: {v} not in Loop: {loop}, {list( self.HE[he_id].vert for he_id in self._loop_halfedges(he.loop))}")
 
+    # ============================================================
+    #  KEV – inverse of above (remove dangling vertex + edge from loop)
+    # ============================================================
     def new_halfedge(
         self,
         edge: int,
@@ -374,86 +291,621 @@ class BRep:
         self.V[v.id] = v
         return v
 
+    def KEVVLS(self, shell_id: int):
+        if shell_id not in self.S:
+            raise KeyError("Shell not found")
+        shell = self.S[shell_id]
+        if len(shell.faces) != 1:
+            raise ValueError("shell not produced by MEVVLS")
+        face_id = shell.faces[0]
+        face = self.F[face_id]
+        loop_id = face.outer
+        loop = self.L[loop_id]
+        he_ids = list(self._loop_halfedges(loop_id))
+        if len(he_ids) != 2:
+            raise ValueError("Unexpected loop length for MEVVLS")
+        edge_id = self.HE[he_ids[0]].edge
+        v_ids = [self.E[edge_id].v_start, self.E[edge_id].v_end]
+        # --- deletions ---
+        del self.S[shell_id]
+        del self.F[face_id]
+        del self.L[loop_id]
+        for hid in he_ids:
+            del self.HE[hid]
+        del self.E[edge_id]
+        for vid in v_ids:
+            del self.V[vid]
+
+    # ---------------------------------------------------------------------------
+    #  MEL – Make-Edge-Loop  (split one loop into two)
+    # ---------------------------------------------------------------------------
     def MEL(self, loop_id: int, v1_id: int, v2_id: int) -> tuple[Edge, Loop]:
         """
-         +E, +L
-        :param loop_id:
-        :param v1_id:
-        :param v2_id:
-        :return:
+        Insert an edge between *v1* and *v2*, both on the same loop *loop_id*,
+        thereby splitting that loop into two:
+
+            ΔE = +1     ΔL = +1     (no face is created here)
+
+        Returns
+        -------
+        (Edge, Loop)
+            The newly created *Edge* record and the newly created *Loop*
+            (the one whose entry half-edge runs CCW from v2 → … → v1).
         """
-        loop: Loop = self.L[loop_id]
-        v1: Vertex = self.V[v1_id]
-        v2: Vertex = self.V[v2_id]
-        success, he_start = self._shift_loop_to_vertex(loop, v1)
-        loop.he=he_start.id
-        if not success:
-            raise ValueError("v1 not in Loop")
-        assert he_start.vert==v1.id
+        # ----------  sanity checks  ------------------------------------------------
+        if loop_id not in self.L:
+            raise KeyError("Loop not found")
+        if v1_id == v2_id:
+            raise ValueError("Vertices must be distinct")
+        if v1_id not in self.V or v2_id not in self.V:
+            raise KeyError("Vertex not found")
 
-        # he_start.prev
-        hedges_v1_to_v2, he_v2 = self._walk_to_vertex(he_start, v2)
+        loop1 = self.L[loop_id]
+        face_id = loop1.face
 
-        assert he_v2.vert == v2.id
-        l2 =self.new_loop(face=loop.face, he=he_v2.id, is_outer=False)
+        # ----------  locate reference half-edges  ---------------------------------
+        he_v1 = None
+        for hid in self._loop_halfedges(loop_id):
+            if self.HE[hid].vert == v1_id:
+                he_v1 = self.HE[hid]
+                break
+        if he_v1 is None:
+            raise ValueError("v1 not on the given loop")
 
-        e_new =self.new_edge(v1_id,v2_id,Curve3D(),(0.0, 1.0))
+        # walk CCW to find the half-edge whose *head* is v2
+        tmp, he_v2 = self._walk_to_vertex(he_v1, self.V[v2_id])
 
-        he_new_l1 = self.new_halfedge(e_new.id, face=loop.face, loop=loop_id, vert=v2_id, orient=True)
-        he_new_l2 = self.new_halfedge(e_new.id, face=loop.face, loop=l2.id, vert=v1_id, orient=False)
-        l2.he=he_new_l2.id
+        # adjacent vertices would give a degenerate split
+        if he_v1.next == he_v2.id or he_v2.next == he_v1.id:
+            raise ValueError("Vertices are adjacent – cannot split loop")
 
-        he_new_l1.twin=he_new_l2.id
-        he_new_l2.twin=he_new_l1.id
-        he_v2.prev=self.HE[he_start.twin].next=he_new_l2.id
-        he_new_l2.prev=self.HE[he_start.twin].id
-        he_new_l2.next=he_v2.id
+        he_v1_next = he_v1.next  # cache before we touch it
+        he_v2_next = he_v2.next
 
-        he_start.prev=self.HE[he_v2.twin].next=he_new_l1.id
-        he_new_l1.prev=self.HE[he_v2.twin].id
-        he_new_l1.next=he_start.id
-        for he_id in self._cycle_halfedges(he_start.id):
-            self.HE[he_id].loop=loop_id
-        for he_id in self._cycle_halfedges(he_v2.id):
-            self.HE[he_id].loop=l2.id
+        # ----------  create new edge + twin half-edges  ---------------------------
+        e_new = self.new_edge(v1_id, v2_id, Curve3D(), (0.0, 1.0))
 
-        return e_new, l2
+        he_uv = self.new_halfedge(e_new.id, face=face_id, loop=loop_id, vert=v2_id, orient=True)  # v1 → v2  (stays in loop-1)
 
-    def KEL(self, edge1_id:int, loop2_id:int) :
+        he_vu = self.new_halfedge(e_new.id, face=face_id, loop=None, vert=v1_id, orient=False)  # v2 → v1  (will belong to loop-2)
+
+        he_uv.twin = he_vu.id
+        he_vu.twin = he_uv.id
+
+        # ----------  splice half-edges for loop-1  --------------------------------
+        # …v1_prev → he_v1 → he_uv → he_v2_next…
+        self.HE[he_v1.id].next = he_uv.id
+        he_uv.prev = he_v1.id
+        he_uv.next = he_v2_next
+        self.HE[he_v2_next].prev = he_uv.id
+
+        # ----------  splice half-edges for prospective loop-2  --------------------
+        # …v2 → he_vu → he_v1_next…
+        self.HE[he_v2.id].next = he_vu.id
+        he_vu.prev = he_v2.id
+        he_vu.next = he_v1_next
+        self.HE[he_v1_next].prev = he_vu.id
+
+        # ----------  construct the second loop & retag its edges ------------------
+        loop2 = self.new_loop(face=face_id, he=he_vu.id, is_outer=loop1.is_outer)
+        he_vu.loop = loop2.id
+
+        cur = he_vu.next
+        while cur != he_vu.id:  # walk until we close
+            self.HE[cur].loop = loop2.id
+            cur = self.HE[cur].next
+
+        return e_new, loop2
+
+    # ---------------------------------------------------------------------------
+    #  KEL – Kill-Edge-Loop  (merge two sister loops back into one)
+    # ---------------------------------------------------------------------------
+    def KEL(self, edge_id: int, loop2_id: int) -> int:
         """
-         +E, +L
-        :param loop_id:
-        :param v1_id:
-        :param v2_id:
-        :return:
+        Remove *edge_id* (whose two sides bound loops *loop_keep* and *loop2_id*),
+        delete *loop2_id*, and merge everything into *loop_keep*.
+
+            ΔE = −1     ΔL = −1
+
+        Returns
+        -------
+        int
+            The ID of the surviving loop (useful when chaining operators).
         """
-        loop2: Loop = self.L[loop2_id]
-        edge1:Edge=self.E[edge1_id]
+        # ----------  sanity checks  ------------------------------------------------
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+        if loop2_id not in self.L:
+            raise KeyError("Loop not found")
 
-        v1: Vertex = self.V[edge1.v_start]
+        # grab the two half-edges that realise *edge_id*
+        he_list = [he for he in self.HE.values() if he.edge == edge_id]
+        if len(he_list) != 2:
+            raise ValueError("Edge should be referenced by exactly two half-edges")
 
-        success, he_l2 = self._shift_loop_to_vertex(loop2, v1)
-        print(self.L[he_l2.loop])
+        he_a, he_b = he_list
+        if he_a.loop == loop2_id and he_b.loop != loop2_id:
+            he_loop2, he_keep = he_a, he_b
+        elif he_b.loop == loop2_id and he_a.loop != loop2_id:
+            he_loop2, he_keep = he_b, he_a
+        else:
+            raise ValueError("Edge does not separate the specified loops")
 
-        he_l1=self.HE[he_l2.twin]
-        print(self.L[he_l1.loop])
+        loop_keep_id = he_keep.loop
 
-        loop = he_l1.loop
-        self.HE[he_l2.next].prev= self.HE[he_l1.prev].id
-        self.HE[he_l2.prev].next = self.HE[he_l1.next].id
+        # neighbours next/prev around the edge ends
+        p_keep = self.HE[he_keep.prev]
+        n_keep = self.HE[he_keep.next]
+        p_del = self.HE[he_loop2.prev]
+        n_del = self.HE[he_loop2.next]
 
-        self.HE[he_l1.next].prev= he_l2.prev
-        self.HE[he_l1.prev].next = he_l2.next
+        # ----------  stitch the rings together  -----------------------------------
+        # connect p_keep → n_del   and   p_del → n_keep
+        p_keep.next = n_del.id
+        n_del.prev = p_keep.id
 
-        del self.HE[he_l1.id]
-        del self.HE[he_l2.id]
-        del self.E[edge1_id]
+        p_del.next = n_keep.id
+        n_keep.prev = p_del.id
+
+        # ----------  retag former loop-2 edges to loop-keep  ----------------------
+        cur = n_del.id
+        while True:
+            self.HE[cur].loop = loop_keep_id
+            cur = self.HE[cur].next
+            if cur == n_del.id:
+                break
+
+        # ----------  update anchor if necessary  ----------------------------------
+        loop_keep = self.L[loop_keep_id]
+        if loop_keep.he in (he_keep.id, he_loop2.id):
+            loop_keep.he = n_keep.id  # any HE on the merged ring is fine
+
+        # ----------  destroy topological records  ---------------------------------
+        del self.HE[he_keep.id]
+        del self.HE[he_loop2.id]
+        del self.E[edge_id]
         del self.L[loop2_id]
 
+        return loop_keep_id
 
-        for he_id in self._cycle_halfedges(  he_l1.next):
-            self.HE[he_id].loop=loop
+    # ============================================================
+    #  MEV – Make-Edge-and-Vertex  (v_from ➜ v_new inside loop L)
+    # ============================================================
+    def MEV(
+        self,
+        loop_id: int,
+        v_from: int,
+        p_new: Tuple[float, float, float],
+    ) -> tuple[Vertex, Edge]:
+        """
+        Insert a *dangling* edge (v_from → v_new) inside outer loop *loop_id*.
 
+        Returns
+        -------
+        (Vertex, Edge)
+            The brand-new vertex V_new and the edge E_new that connects it
+            to the existing vertex v_from.
+        """
+        # ---------- look-ups & validations ----------
+        if loop_id not in self.L:
+            raise KeyError("Loop not found")
+        if v_from not in self.V:
+            raise KeyError("Start vertex not found")
+
+        loop = self.L[loop_id]
+
+        # half-edge whose *head* is v_from (⇒ last edge before the new one)
+        he_prev_id = next(
+            (hid for hid in self._loop_halfedges(loop_id) if self.HE[hid].vert == v_from),
+            None,
+        )
+        if he_prev_id is None:
+            raise ValueError("v_from is not on the supplied loop")
+
+        he_prev = self.HE[he_prev_id]  # … → v_from
+        he_next = self.HE[he_prev.next]  # v_from → …
+
+        # ---------- create topological entities ----------
+        v_new = self.new_vertex(p_new)
+        e_new = self.new_edge(v_from, v_new.id, Curve3D(), (0.0, 1.0))
+
+        # half-edge v_from → v_new  (heads at v_new)
+        he_fwd = self.new_halfedge(
+            edge=e_new.id,
+            face=he_prev.face,
+            loop=loop_id,
+            prev=he_prev_id,
+            next=None,  # wired below
+            twin=None,  # wired below
+            vert=v_new.id,
+            orient=True,
+        )
+        # half-edge v_new → v_from  (heads back at v_from)
+        he_rev = self.new_halfedge(
+            edge=e_new.id,
+            face=he_prev.face,
+            loop=loop_id,
+            prev=he_fwd.id,
+            next=he_next.id,
+            twin=he_fwd.id,  # temporary – completed after creation
+            vert=v_from,
+            orient=False,
+        )
+        he_fwd.twin = he_rev.id
+
+        # ---------- splice into the loop ----------
+        he_fwd.next = he_rev.id
+
+        he_prev.next = he_fwd.id
+        he_next.prev = he_rev.id
+
+        return v_new, e_new
+
+    # ============================================================
+    #  KEV – Kill-Edge-and-Vertex  (inverse of MEV)
+    # ============================================================
+    def KEV(self, loop_id: int, v_id: int) -> None:
+        """
+        Delete a *dangling* vertex V and its incident edge.
+        Preconditions
+        ------------
+        * V must have degree 1 (exactly one incident edge).
+        * That edge must lie on `loop_id`.
+        """
+        if loop_id not in self.L:
+            raise KeyError("Loop not found")
+        if v_id not in self.V:
+            raise KeyError("Vertex not found")
+
+        # two half-edges that use the dangling edge
+        he_in_id = next(
+            (hid for hid in self._loop_halfedges(loop_id) if self.HE[hid].vert == v_id),
+            None,
+        )
+        if he_in_id is None:
+            raise ValueError("Vertex not on the supplied loop")
+
+        he_in = self.HE[he_in_id]  # … → V
+        he_out = self.HE[he_in.prev]  # V → …
+
+        # sanity check: edge used only by these two half-edges
+        edge_id = he_in.edge
+        if not self._edge_single_use(edge_id, {he_in_id, he_out.id}):
+            raise ValueError("Vertex is not of degree 1")
+
+        # bypass the dangling pair
+        self.HE[he_out.prev].next = he_in.next
+        self.HE[he_in.next].prev = he_out.prev
+
+        # scrub data-base
+        del self.HE[he_in_id]
+        del self.HE[he_out.id]
+        del self.E[edge_id]
+        del self.V[v_id]
+
+    # ============================================================
+    #  MVE – Make-Vertex-on-Edge  (split edge at *point_new*)
+    # ============================================================
+    def MVE(
+        self,
+        edge_id: int,
+        point_new: Tuple[float, float, float],
+    ) -> tuple[Vertex, Edge]:
+        """
+        Split *edge_id* at `point_new`.
+
+        After the call:
+        * *edge_id* spans  (v_start → V_new)
+        * new edge E2 spans (V_new → old_v_end)
+
+        Returns
+        -------
+        (Vertex, Edge)
+            The inserted vertex V_new and the new edge E2.
+        """
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+
+        E1 = self.E[edge_id]
+        v_start, v_end_old = E1.v_start, E1.v_end
+
+        # two half-edges of E1
+        he_fwd = next(h for h in self.HE.values() if h.edge == edge_id and h.vert == v_end_old)  # v_start → v_end_old
+        he_rev = self.HE[he_fwd.twin]  # v_end_old → v_start
+
+        # ---------- create new entities ----------
+        V_new = self.new_vertex(point_new)
+        E2 = self.new_edge(V_new.id, v_end_old, E1.geom, (0.0, 1.0))
+
+        # ---------- update original edge & its HE pair ----------
+        E1.v_end = V_new.id  # edge now stops at the new vertex
+        he_fwd.vert = V_new.id  # head = V_new           (v_start → V_new)
+
+        # he_rev becomes half-edge of E2 (v_end_old → V_new)
+        he_rev.edge = E2.id
+        he_rev.vert = V_new.id  # head = V_new
+
+        # ---------- add the missing twin of E2 (V_new → v_end_old) ----------
+        he_new = self.new_halfedge(
+            edge=E2.id,
+            face=he_fwd.face,
+            loop=he_fwd.loop,
+            prev=he_fwd.id,
+            next=he_fwd.next,
+            twin=he_rev.id,
+            vert=v_end_old,
+            orient=he_fwd.orient,
+        )
+        he_rev.twin = he_new.id
+
+        # ---------- stitch into loop ----------
+        self.HE[he_fwd.next].prev = he_new.id
+        he_fwd.next = he_new.id
+
+        return V_new, E2
+
+    # ============================================================
+    #  KVE – Kill-Vertex-on-Edge  (inverse of MVE)
+    # ============================================================
+    def KVE(self, edge_id: int, v_id: int) -> None:
+        """
+        Undo a previous *MVE*:
+        merge the two edges incident to *v_id* back into a single edge *edge_id*
+        and delete *v_id*.
+
+        Preconditions
+        ------------
+        * vertex v_id has degree 2,
+          incident to edges *edge_id* and exactly one other edge.
+        """
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+        if v_id not in self.V:
+            raise KeyError("Vertex not found")
+
+        # identify the two edges sharing v_id
+        incident_hes = [he for he in self.HE.values() if he.vert == v_id]
+        if len(incident_hes) != 2:
+            raise ValueError("Vertex degree is not 2")
+
+        he1, he2 = incident_hes
+        other_e_id = he2.edge if he1.edge == edge_id else he1.edge
+
+        # half-edges of the *other* edge
+        other_hes = [he for he in self.HE.values() if he.edge == other_e_id]
+        if len(other_hes) != 2:
+            raise RuntimeError("Corrupted edge data")
+
+        # ------------------------------------------------------------------
+        #  1) Re-wire half-edge ring: bypass the pair that references other_e
+        # ------------------------------------------------------------------
+        for he in other_hes:
+            self.HE[he.prev].next = he.next
+            self.HE[he.next].prev = he.prev
+
+        # ------------------------------------------------------------------
+        #  2) Update surviving edge (edge_id) to span the two remote vertices
+        # ------------------------------------------------------------------
+        E1 = self.E[edge_id]
+        v_keep = E1.v_start if E1.v_start != v_id else E1.v_end
+        v_other = self.E[other_e_id].v_start if self.E[other_e_id].v_start != v_id else self.E[other_e_id].v_end
+        if E1.v_start == v_id:
+            E1.v_start = v_other
+        else:
+            E1.v_end = v_other
+
+        # fix the head-vertex fields on the remaining HE pair of edge_id
+        for he in (h for h in self.HE.values() if h.edge == edge_id):
+            if he.vert == v_id:
+                he.vert = v_other
+
+        # ------------------------------------------------------------------
+        #  3) delete doomed records
+        # ------------------------------------------------------------------
+        for he in other_hes:
+            del self.HE[he.id]
+        del self.E[other_e_id]
+        del self.V[v_id]
+
+    def MELF(self, loop_id:int, v1_id: int, v2_id: int )->tuple[Edge,Loop,Face]:
+
+        loop=self.L[loop_id]
+        if not loop.is_outer:
+            raise ValueError('loop must be outer')
+        edge,loop2=self.MEL(loop_id,v1_id,v2_id)
+
+        face = self.new_face( loop2.id, [], self.F[loop.face].shell, same_sense=True, surf=self.F[loop.face].surf)
+        self.S[self.F[loop.face].shell].faces.append(face.id)
+        return edge, loop2, face
+
+    def KELF(self,  edge1_id:int, loop2_id:int):
+
+        loop2=self.L[loop2_id]
+        face=self.F[loop2.face]
+        shell=self.S[face.shell]
+        shell.faces.remove(face.id)
+
+        del self.F[loop2.face]
+        loop2.face=None
+        self.KEL(edge1_id,loop2_id)
+    def get_edge_he(self, edge_id)->HalfEdge:
+        E=self.E[edge_id]
+        for k,v in self.HE.items():
+
+            if v.edge==edge_id and v.vert==E.v_start:
+                return v
+        raise ValueError('no he')
+
+    # ============================================================
+    #  MEKH  – Make-Edge / Kill-Hole
+    #         outer_loop ⟷ hole_loop  (v_out → v_hole)
+    # ============================================================
+    def MEKH(
+        self,
+        outer_loop_id: int,
+        hole_loop_id: int,
+        v_outer_id: int,
+        v_hole_id: int,
+    ) -> Edge:
+        """Add an edge between *v_outer* (on an outer loop) and
+        *v_hole* (on a hole loop) and delete the hole loop."""
+        o_loop = self.L[outer_loop_id]
+        h_loop = self.L[hole_loop_id]
+
+        if not o_loop.is_outer or h_loop.is_outer:
+            raise ValueError("Loop classes must be (outer, hole)")
+        if o_loop.face != h_loop.face:
+            raise ValueError("Both loops have to belong to the same face")
+
+        # ---- locate anchoring half-edges -------------------------------------------------
+        ok, he_o = self._shift_loop_to_vertex(o_loop, self.V[v_outer_id])
+        if not ok:
+            raise ValueError("v_outer_id not on outer loop")
+        ok, he_h = self._shift_loop_to_vertex(h_loop, self.V[v_hole_id])
+        if not ok:
+            raise ValueError("v_hole_id not on hole loop")
+
+        he_o_prev = self.HE[he_o.prev]
+        he_h_prev = self.HE[he_h.prev]
+
+        # ---- make edge + half-edges ------------------------------------------------------
+        e_new = self.new_edge(v_outer_id, v_hole_id, Curve3D(), (0.0, 1.0))
+        he_out2hole = self.new_halfedge(
+            e_new.id, face=o_loop.face, loop=outer_loop_id, vert=v_hole_id, orient=True
+        )
+        he_hole2out = self.new_halfedge(
+            e_new.id, face=o_loop.face, loop=outer_loop_id, vert=v_outer_id, orient=False
+        )
+        he_out2hole.twin, he_hole2out.twin = he_hole2out.id, he_out2hole.id
+
+        # ---- splice into the two boundary cycles -----------------------------------------
+        # (outer loop side)
+        he_o_prev.next = he_out2hole.id
+        he_out2hole.prev = he_o_prev.id
+        he_out2hole.next = he_h.id
+        he_h.prev = he_out2hole.id
+
+        # (hole loop side)
+        he_h_prev.next = he_hole2out.id
+        he_hole2out.prev = he_h_prev.id
+        he_hole2out.next = he_o.id
+        he_o.prev = he_hole2out.id
+
+        # ---- move every half-edge of the old hole loop to the outer loop -----------------
+        for hid in list(self._loop_halfedges(hole_loop_id)):
+            self.HE[hid].loop = outer_loop_id
+
+        # ---- drop the hole loop from topology --------------------------------------------
+        face = self.F[o_loop.face]
+        face.inners.remove(hole_loop_id)
+        del self.L[hole_loop_id]
+
+        return e_new
+
+    # ============================================================
+    #  KEMH  – Kill-Edge / Make-Hole   (inverse of MEKH)
+    # ============================================================
+    def KEMH(self, edge_id: int) -> Loop:
+        """Remove a bridge edge that currently joins an outer boundary
+        with what will become a hole, creating a new hole loop."""
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+
+        # 1. grab the two half-edges and their surrounding pointers
+        he_a = self.get_edge_he(edge_id)        # goes v_start → v_end
+        he_b = self.HE[he_a.twin]               # opposite orientation
+
+        loop_id = he_a.loop
+        loop_outer = self.L[loop_id]
+        face_id = loop_outer.face
+
+        # 2. split the ring into two independent cycles
+        a_prev, a_next = self.HE[he_a.prev], self.HE[he_a.next]
+        b_prev, b_next = self.HE[he_b.prev], self.HE[he_b.next]
+
+        a_prev.next, b_next.prev = b_next.id, a_prev.id
+        b_prev.next, a_next.prev = a_next.id, b_prev.id
+
+        # 3. create the new hole loop, starting from b_next
+        l_hole = self.new_loop(face=face_id, he=b_next.id, is_outer=False)
+
+        # relabel half-edges that now belong to the hole
+        for hid in self._cycle_halfedges(b_next.id):
+            self.HE[hid].loop = l_hole.id
+
+        # 4. update face data: the hole moves into *inners*
+        self.F[face_id].inners.append(l_hole.id)
+
+        # 5. erase the edge and its half-edges
+        del self.HE[he_a.id], self.HE[he_b.id]
+        del self.E[edge_id]
+
+        return l_hole
+
+    # ============================================================
+    #  MPKH  – Make-Peripheral / Kill-Hole
+    #          (promote *hole_loop_id* to its own shell)
+    # ============================================================
+    def MPKH(self, hole_loop_id: int) -> tuple[Face, Shell]:
+        hl = self.L[hole_loop_id]
+        if hl.is_outer:
+            raise ValueError("Given loop is not a hole")
+        face_old = self.F[hl.face]
+        shell_old = self.S[face_old.shell]
+
+        # 1. detach from old face
+        face_old.inners.remove(hole_loop_id)
+
+        # 2. promote loop & build new face + shell
+        hl.is_outer = True
+        f_new = self.new_face(outer=hole_loop_id, shell=None,
+                              inners=[], same_sense=face_old.same_sense,
+                              surf=face_old.surf)
+        s_new = self.new_shell(faces=[f_new.id], body=shell_old.body)
+        f_new.shell = s_new.id
+        hl.face = f_new.id
+        self.B[shell_old.body].shells.append(s_new.id)
+        self.S[s_new.id] = s_new
+
+        # 3. patch all half-edges to point at the new face
+        for hid in self._loop_halfedges(hole_loop_id):
+            self.HE[hid].face = f_new.id
+
+        return f_new, s_new
+
+    # ============================================================
+    #  KPMH  – Kill-Peripheral / Make-Hole   (inverse of MPKH)
+    #          host_loop absorbs *periph_loop* as a hole
+    # ============================================================
+    def KPMH(self, host_loop_id: int, periph_loop_id: int) -> None:
+        host_loop = self.L[host_loop_id]
+        per_loop = self.L[periph_loop_id]
+        if not (host_loop.is_outer and per_loop.is_outer):
+            raise ValueError("Both loops must currently be peripheral")
+        if host_loop.face == per_loop.face:
+            raise ValueError("periph_loop already belongs to host face")
+
+        face_host = self.F[host_loop.face]
+        face_per = self.F[per_loop.face]
+        shell_per = self.S[face_per.shell]
+
+        # 1. transfer the loop
+        per_loop.is_outer = False
+        per_loop.face = face_host.id
+        face_host.inners.append(periph_loop_id)
+
+        for hid in self._loop_halfedges(periph_loop_id):
+            self.HE[hid].face = face_host.id
+
+        # 2. remove the now-empty peripheral face
+        shell_per.faces.remove(face_per.id)
+        del self.F[face_per.id]
+
+        # 3. if its shell becomes empty, cull the shell too
+        if not shell_per.faces:
+            body = self.B[shell_per.body]
+            body.shells.remove(shell_per.id)
+            del self.S[shell_per.id]
 
 # ---------------------------------------------------------------------------
 #  Quick smoke test
@@ -470,12 +922,105 @@ if __name__ == "__main__":
 
     print("After KEV  →", m.summary())
 
+    
 
-def check_euler(m: BRep):
-    V = len(m.V)
-    E = len(m.E)
-    F = len(m.F)
-    L = len(m.L)
-    S = len(m.S)
-    G = len(m.B)
-    return V - E + F - (L - F) - 2 * (S - G)
+    
+
+
+    
+    def block(W, D, H):
+        m = BRep()
+        V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
+        print("#", 1)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+    
+        print(list(m._loop_halfedges(L1.id)))
+        V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
+    
+        print("#", 2)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print(list(m._loop_halfedges(L1.id)))
+        V4, E3 = m.MEV(L1.id, V3.id, p_new=(D / 2, -W / 2, 0))
+        print("#", 3)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print(list(m._loop_halfedges(L1.id)))
+        E4, L2 = m.MEL(L1.id, V4.id, V1.id)
+        print("#", 4)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+
+    
+        V5, E5 = m.MEV(L1.id, V1.id, p_new=(D / 2, W / 2, H))
+        print("#", 5)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+
+        print(V2)
+    
+        V6, E6 = m.MEV(L1.id, V3.id, p_new=(-D / 2, -W / 2, H))
+        print("#", 6)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+
+        V7, E7 = m.MEV(L1.id, V4.id, p_new=(D / 2, -W / 2, H))
+        print("#", 7)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+
+    
+        V8, E8 = m.MEV(L1.id, V2.id, p_new=(-D / 2, W / 2, H))
+        print("#", 8)
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+    
+        E9, L3 = m.MEL(L1.id, V6.id, V7.id)
+        print("#", 9)
+    
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
+    
+        print(V6, V7)
+        print("\n\n\n")
+        E10, L4 = m.MEL(L1.id, V8.id, V6.id)
+        print("#", 10)
+        print(list(m._loop_halfedges(L1.id)))
+        print(list(m._loop_halfedges(L2.id)))
+        print(list(m._loop_halfedges(L3.id)))
+        print(list(m._loop_halfedges(L4.id)))
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
+    
+        E11, L5 = m.MEL(L1.id, V7.id, V5.id)
+        print("#", 11)
+        print(list(m._loop_halfedges(L1.id)))
+        print(list(m._loop_halfedges(L2.id)))
+        print(list(m._loop_halfedges(L3.id)))
+        print(list(m._loop_halfedges(L4.id)))
+        print(list(m._loop_halfedges(L5.id)))
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
+    
+        E12, L6 = m.MEL(L1.id, V8.id, V5.id)
+        print()
+        print(list(m._loop_halfedges(L1.id)))
+        print(list(m._loop_halfedges(L2.id)))
+        print(list(m._loop_halfedges(L3.id)))
+        print(list(m._loop_halfedges(L4.id)))
+        print(list(m._loop_halfedges(L5.id)))
+        print(list(m._loop_halfedges(L6.id)))
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L6.id)])
+    
+        return m
+    
+    mm=block(1.,1.,1.)
