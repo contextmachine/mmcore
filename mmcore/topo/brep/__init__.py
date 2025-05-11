@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 #  Minimal geometry placeholders (replace with real NURBS later)
@@ -155,7 +157,7 @@ class BRep:
         while True:
 
             yield he_id
-            #print(self.HE[he_id])
+            # print(self.HE[he_id])
             he_id = self.HE[he_id].next
             if he_id == start:
                 break
@@ -207,7 +209,7 @@ class BRep:
         while True:
 
             he = self.HE[current]
-            #print(he)
+            # print(he)
             if he.vert == v.id:
                 return True, he
             current = he.next
@@ -226,7 +228,7 @@ class BRep:
         while True:
 
             h = self.HE[current]
-            #print(h)
+            # print(h)
             if h.vert == v.id:
 
                 return lst, h
@@ -290,6 +292,14 @@ class BRep:
         v = Vertex(point=point, tol=tol)
         self.V[v.id] = v
         return v
+    def _edge_split(self, edge_id: int, v_new: int) -> tuple[Edge, HalfEdge, HalfEdge]:
+        """
+        Split an edge *edge_id* into two edges, one going from its start to
+        *v_new* and the other from *v_new* to its end.
+        """
+        E=self.E[edge_id]
+        self.new_edge(E.v_start, v_new, E.geom, E.param)
+        E.v_start=v_new
 
     def KEVVLS(self, shell_id: int):
         if shell_id not in self.S:
@@ -586,125 +596,140 @@ class BRep:
         del self.E[edge_id]
         del self.V[v_id]
 
-    # ============================================================
-    #  MVE – Make-Vertex-on-Edge  (split edge at *point_new*)
-    # ============================================================
     def MVE(
         self,
         edge_id: int,
         point_new: Tuple[float, float, float],
     ) -> tuple[Vertex, Edge]:
         """
-        Split *edge_id* at `point_new`.
-
-        After the call:
-        * *edge_id* spans  (v_start → V_new)
-        * new edge E2 spans (V_new → old_v_end)
-
-        Returns
-        -------
-        (Vertex, Edge)
-            The inserted vertex V_new and the new edge E2.
+        Split edge `edge_id` at `point_new`.
+          - The original edge E1 is shortened to (v_start → V_new).
+          - The new edge E2 spans (V_new → old_v_end).
+        Both half-edges of E2 are spliced into the same loop, and
+        all .next/.prev/.twin invariants are preserved.
+        Returns (V_new, E2).
         """
+        # 1) look up the original edge + its two half-edges
         if edge_id not in self.E:
             raise KeyError("Edge not found")
-
         E1 = self.E[edge_id]
-        v_start, v_end_old = E1.v_start, E1.v_end
+        v_start, v_old_end = E1.v_start, E1.v_end
 
-        # two half-edges of E1
-        he_fwd = next(h for h in self.HE.values() if h.edge == edge_id and h.vert == v_end_old)  # v_start → v_end_old
-        he_rev = self.HE[he_fwd.twin]  # v_end_old → v_start
+        hes = [he for he in self.HE.values() if he.edge == edge_id]
+        if len(hes) != 2:
+            raise ValueError("Edge should have exactly two half-edges")
 
-        # ---------- create new entities ----------
+        # identify which half-edge currently “points to” the old end
+        he_fwd = next(he for he in hes if he.vert == v_old_end)
+        he_rev = self.HE[he_fwd.twin]
+
+        loop_id = he_fwd.loop
+        if loop_id is None:
+            raise ValueError("Edge is not part of any loop")
+
+        face_id = he_fwd.face
+
+        # 2) create the new vertex and the new edge
         V_new = self.new_vertex(point_new)
-        E2 = self.new_edge(V_new.id, v_end_old, E1.geom, (0.0, 1.0))
+        E2 = self.new_edge(V_new.id, v_old_end, E1.geom, E1.param)
 
-        # ---------- update original edge & its HE pair ----------
-        E1.v_end = V_new.id  # edge now stops at the new vertex
-        he_fwd.vert = V_new.id  # head = V_new           (v_start → V_new)
+        # 3) shorten E1 so that it now ends at V_new
+        E1.v_end = V_new.id
+        he_fwd.vert = V_new.id
 
-        # he_rev becomes half-edge of E2 (v_end_old → V_new)
-        he_rev.edge = E2.id
-        he_rev.vert = V_new.id  # head = V_new
-
-        # ---------- add the missing twin of E2 (V_new → v_end_old) ----------
-        he_new = self.new_halfedge(
+        # 4) create the two new half-edges for E2 (forward + reverse)
+        he2_fwd = self.new_halfedge(
             edge=E2.id,
-            face=he_fwd.face,
-            loop=he_fwd.loop,
-            prev=he_fwd.id,
-            next=he_fwd.next,
-            twin=he_rev.id,
-            vert=v_end_old,
-            orient=he_fwd.orient,
+            face=face_id,
+            loop=loop_id,
+            vert=v_old_end,
+            orient=True,
         )
-        he_rev.twin = he_new.id
+        he2_rev = self.new_halfedge(
+            edge=E2.id,
+            face=face_id,
+            loop=loop_id,
+            vert=V_new.id,
+            orient=False,
+        )
+        he2_fwd.twin = he2_rev.id
+        he2_rev.twin = he2_fwd.id
 
-        # ---------- stitch into loop ----------
-        self.HE[he_fwd.next].prev = he_new.id
-        he_fwd.next = he_new.id
+        # 5) splice he2_fwd in immediately after he_fwd
+        old_next = he_fwd.next
+        he_fwd.next = he2_fwd.id
+        he2_fwd.prev = he_fwd.id
+        he2_fwd.next = old_next
+        self.HE[old_next].prev = he2_fwd.id
+
+        # 6) splice he2_rev in immediately before he_rev  ← fixed
+        old_prev2 = he_rev.prev
+        self.HE[old_prev2].next = he2_rev.id
+        he2_rev.prev           = old_prev2
+        he2_rev.next           = he_rev.id
+        he_rev.prev            = he2_rev.id
 
         return V_new, E2
 
-    # ============================================================
-    #  KVE – Kill-Vertex-on-Edge  (inverse of MVE)
-    # ============================================================
     def KVE(self, edge_id: int, v_id: int) -> None:
         """
-        Undo a previous *MVE*:
-        merge the two edges incident to *v_id* back into a single edge *edge_id*
-        and delete *v_id*.
-
-        Preconditions
-        ------------
-        * vertex v_id has degree 2,
-          incident to edges *edge_id* and exactly one other edge.
+        Undo a previous MVE: merge the two edges incident to v_id back into
+        a single edge edge_id and delete v_id.  Always leaves loop.he pointing
+        at a valid half-edge.
         """
+        # --- sanity checks --------------------------------------------------------
         if edge_id not in self.E:
             raise KeyError("Edge not found")
         if v_id not in self.V:
             raise KeyError("Vertex not found")
 
-        # identify the two edges sharing v_id
+        # --- find the two half-edges that meet at v_id --------------------------
         incident_hes = [he for he in self.HE.values() if he.vert == v_id]
         if len(incident_hes) != 2:
             raise ValueError("Vertex degree is not 2")
 
         he1, he2 = incident_hes
+        # identify which one is on the "other" edge we inserted
         other_e_id = he2.edge if he1.edge == edge_id else he1.edge
 
-        # half-edges of the *other* edge
+        # --- grab both half-edges of that other edge ----------------------------
         other_hes = [he for he in self.HE.values() if he.edge == other_e_id]
         if len(other_hes) != 2:
             raise RuntimeError("Corrupted edge data")
 
-        # ------------------------------------------------------------------
-        #  1) Re-wire half-edge ring: bypass the pair that references other_e
-        # ------------------------------------------------------------------
+        # they both live in the same loop
+        loop_id = other_hes[0].loop
+        loop = self.L[loop_id]
+
+        # --- 1) splice out the two half-edges of other_e_id ---------------------
         for he in other_hes:
             self.HE[he.prev].next = he.next
             self.HE[he.next].prev = he.prev
 
-        # ------------------------------------------------------------------
-        #  2) Update surviving edge (edge_id) to span the two remote vertices
-        # ------------------------------------------------------------------
+        # --- 2) retarget the surviving edge to span the two original verts -------
         E1 = self.E[edge_id]
+        # v_keep is the original start/end that isn't v_id
         v_keep = E1.v_start if E1.v_start != v_id else E1.v_end
+        # v_other is the far end of the other edge
         v_other = self.E[other_e_id].v_start if self.E[other_e_id].v_start != v_id else self.E[other_e_id].v_end
         if E1.v_start == v_id:
             E1.v_start = v_other
         else:
             E1.v_end = v_other
 
-        # fix the head-vertex fields on the remaining HE pair of edge_id
+        # fix the vert-heads on the two remaining half-edges of E1
         for he in (h for h in self.HE.values() if h.edge == edge_id):
             if he.vert == v_id:
                 he.vert = v_other
 
-        # ------------------------------------------------------------------
-        #  3) delete doomed records
-        # ------------------------------------------------------------------
+        # --- 3) ensure loop.he isn’t pointing at a deleted half-edge ----------
+        dead_ids = {he.id for he in other_hes}
+        if loop.he in dead_ids:
+            # pick the one half-edge at v_id that belongs to E1
+            surviving_he = he1 if he1.edge == edge_id else he2
+            loop.he = surviving_he.id
+
+        # --- 4) finally delete the stub edge, its half-edges, and the vertex ---
         for he in other_hes:
             del self.HE[he.id]
         del self.E[other_e_id]
@@ -909,6 +934,130 @@ class BRep:
             body = self.B[shell_per.body]
             body.shells.remove(shell_per.id)
             del self.S[shell_per.id]
+    def MZEV(self, loop1_id: int, loop2_id: int, v_id: int) -> tuple[Edge, Vertex]:
+        """
+        Make Zero-length Edge and Vertex:
+        Split vertex v_id into v_id and a new vertex v2, connecting them by a zero-length edge e1.
+        Inserts one half-edge of e1 into loop1 and its twin into loop2.
+        Returns (e1, v2).
+        """
+        # --- lookups & validations ------------------------------------------------
+        if loop1_id not in self.L or loop2_id not in self.L:
+            raise KeyError("Loop not found")
+        if v_id not in self.V:
+            raise KeyError("Vertex not found")
+
+        # locate the half-edge in loop1 whose head is v_id
+        he1_prev_id = next(
+            (hid for hid in self._loop_halfedges(loop1_id)
+             if self.HE[hid].vert == v_id),
+            None
+        )
+        if he1_prev_id is None:
+            raise ValueError("Vertex not on loop1")
+        he1_prev = self.HE[he1_prev_id]
+        he1_next_id = he1_prev.next
+
+        # locate the half-edge in loop2 whose head is v_id
+        he2_prev_id = next(
+            (hid for hid in self._loop_halfedges(loop2_id)
+             if self.HE[hid].vert == v_id),
+            None
+        )
+        if he2_prev_id is None:
+            raise ValueError("Vertex not on loop2")
+        he2_prev = self.HE[he2_prev_id]
+        he2_next_id = he2_prev.next
+
+        # --- create new vertex & zero-length edge ---------------------------------
+        v_orig = self.V[v_id]
+        v2 = self.new_vertex(v_orig.point)
+        e1 = self.new_edge(v_id, v2.id, Curve3D(), (0.0, 1.0))
+
+        # --- create the two new half-edges & link them as twins ------------------
+        # loop1 half-edge: oriented v1 -> v2
+        he1 = self.new_halfedge(
+            edge=e1.id,
+            face=self.L[loop1_id].face,
+            loop=loop1_id,
+            prev=he1_prev_id,
+            next=he1_next_id,
+            twin=None,
+            vert=v2.id,
+            orient=True,
+        )
+        # loop2 half-edge: oriented v2 -> v1
+        he2 = self.new_halfedge(
+            edge=e1.id,
+            face=self.L[loop2_id].face,
+            loop=loop2_id,
+            prev=he2_prev_id,
+            next=he2_next_id,
+            twin=he1.id,
+            vert=v_id,
+            orient=False,
+        )
+        he1.twin = he2.id
+
+        # --- splice each new half-edge into its loop -----------------------------
+        # loop1 splice
+        he1_prev.next = he1.id
+        self.HE[he1_next_id].prev = he1.id
+
+        # loop2 splice
+        he2_prev.next = he2.id
+        self.HE[he2_next_id].prev = he2.id
+
+        return e1, v2
+
+    def KZEV(self, edge_id: int) -> None:
+        """
+        Kill Zero-length Edge and Vertex:
+        Remove a zero-length edge edge_id and its degree-1 vertex.
+        """
+        # --- validations ----------------------------------------------------------
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+        # capture endpoints before removal
+        e1 = self.E[edge_id]
+        v1, v2 = e1.v_start, e1.v_end
+
+        # find the two half-edges of this zero-length edge
+        hes = [he for he in self.HE.values() if he.edge == edge_id]
+        if len(hes) != 2:
+            raise ValueError("Edge should have exactly two half-edges")
+        he1, he2 = hes
+
+        # --- bypass each half-edge in its loop -----------------------------------
+        # loop1
+        self.HE[he1.prev].next = he1.next
+        self.HE[he1.next].prev = he1.prev
+        loop1 = self.L[he1.loop]
+        if loop1.he in (he1.id, he2.id):
+            loop1.he = he1.next
+
+        # loop2
+        self.HE[he2.prev].next = he2.next
+        self.HE[he2.next].prev = he2.prev
+        loop2 = self.L[he2.loop]
+        if loop2.he in (he1.id, he2.id):
+            loop2.he = he2.next
+
+        # --- remove topological records ------------------------------------------
+        del self.HE[he1.id]
+        del self.HE[he2.id]
+        del self.E[edge_id]
+
+        # delete the degree-1 vertex
+        deg1 = sum(1 for h in self.HE.values() if h.vert == v1)
+        deg2 = sum(1 for h in self.HE.values() if h.vert == v2)
+        # v2 was created in MZEV and has degree 1, so it should be the dead one
+        if deg2 == 0:
+            del self.V[v2]
+        elif deg1 == 0:
+            del self.V[v1]
+        else:
+            raise ValueError("No degree-1 vertex to kill")
 
 # ---------------------------------------------------------------------------
 #  Quick smoke test
@@ -1018,7 +1167,6 @@ if __name__ == "__main__":
 
         return m
 
-    
     def box(W, D, H):
         m = BRep()
         V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
@@ -1035,6 +1183,30 @@ if __name__ == "__main__":
         E12, L6 = m.MEL(L1.id, V8.id, V5.id)
         return m
     m=box(1,1,1)
-    
-    for l in m.L.values():
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(l.id)])
+    def mve_kve_test(brep:BRep):
+        print(get_loops_points(brep))
+        edges=[v for v in brep.E.values()]
+        edge = brep.E[edges[0].id]
+        v1, v2 = brep.V[edge.v_start], brep.V[edge.v_end]
+
+        v1, v2 = np.array(v1.point), np.array(v2.point)
+        mid_pt = tuple((v1 + (v2 - v1) * 0.5).tolist())
+        V_new, E_new = brep.MVE(edge.id, mid_pt)
+
+        print(get_loops_points(brep))
+        brep.KVE(E_new.id,V_new.id)
+        print(get_loops_points(brep))
+    def split_box(brep:BRep ):
+        edges = [v for v in brep.E.values()]
+        split_edges = [edges[i] for i in [0, 2, 8, 10]]
+        # [[brep.V[v.v_start].point, brep.V[v.v_end].point] for v in split_edges]
+        for edge in split_edges:
+            v1,v2=brep.V[edge.v_start], brep.V[edge.v_end]
+            v1,v2=np.array(v1.point),np.array(v2.point)
+            mid_pt=tuple((v1+(v2-v1)*0.5).tolist())
+            print(mid_pt)
+            V_new,E_new=brep.MVE(edge.id,mid_pt)
+
+    def get_loops_points(m:BRep):
+
+        return [[m.V[m.HE[i].vert].point for i in m._loop_halfedges(l.id)] for l in m.L.values()]
