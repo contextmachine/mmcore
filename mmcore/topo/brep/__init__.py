@@ -394,7 +394,10 @@ class BRep:
         while cur != he_vu.id:  # walk until we close
             self.HE[cur].loop = loop2.id
             cur = self.HE[cur].next
-
+        if self.HE[loop1.he].loop != loop_id:
+            # the old anchor has wandered into loop2,
+            # so point it at he_uv (which we know is in loop1)
+            loop1.he = he_uv.id
         return e_new, loop2
 
     # ---------------------------------------------------------------------------
@@ -911,32 +914,16 @@ class BRep:
 #  Quick smoke test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    m = BRep()
-    v1,v2,edge1,loop,face,shell = m.MEVVLS((0, 0, 0), (1, 0, 0))
 
-    print("Before MEV →", m.summary())
-    v3,edge2 = m.MEV(loop.id, v1.id, (1, 1, 0))
-    print("After MEV  →", m.summary())
-    # now delete the new vertex
-    m.KEV(loop.id, v3.id)
-
-    print("After KEV  →", m.summary())
-
-    
-
-    
-
-
-    
     def block(W, D, H):
         m = BRep()
         V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
         print("#", 1)
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-    
+
         print(list(m._loop_halfedges(L1.id)))
         V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
-    
+
         print("#", 2)
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print(list(m._loop_halfedges(L1.id)))
@@ -949,40 +936,48 @@ if __name__ == "__main__":
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
 
-    
-        V5, E5 = m.MEV(L1.id, V1.id, p_new=(D / 2, W / 2, H))
+        V5, E5 = m.MEV(L1.id, V1.id, p_new=(V1.point[0],V1.point[1],H))
         print("#", 5)
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
 
         print(V2)
-    
-        V6, E6 = m.MEV(L1.id, V3.id, p_new=(-D / 2, -W / 2, H))
+
+        V6, E6 = m.MEV(L1.id, V2.id, p_new=(V2.point[0],V2.point[1], H))
         print("#", 6)
+
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
 
-        V7, E7 = m.MEV(L1.id, V4.id, p_new=(D / 2, -W / 2, H))
+        V7, E7 = m.MEV(L1.id, V3.id, p_new=(V3.point[0],V3.point[1], H))
         print("#", 7)
+
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
 
-    
-        V8, E8 = m.MEV(L1.id, V2.id, p_new=(-D / 2, W / 2, H))
+        V8, E8 = m.MEV(L1.id, V4.id, p_new=(V4.point[0],V4.point[1], H))
+
         print("#", 8)
+        for i, (k, v) in enumerate(m.V.items()):
+            print(f"V{i}: {v}")
+        print(list(m._loop_halfedges(L1.id)))
+        print(list(m._loop_halfedges(L2.id)))
+
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-    
-        E9, L3 = m.MEL(L1.id, V6.id, V7.id)
+
+        E9, L3 = m.MEL(L1.id, V8.id, V5.id)
         print("#", 9)
-    
+        print(list(m._loop_halfedges(L1.id)))
+        print(list(m._loop_halfedges(L2.id)))
+        print(list(m._loop_halfedges(L3.id)))
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
-    
+
         print(V6, V7)
         print("\n\n\n")
-        E10, L4 = m.MEL(L1.id, V8.id, V6.id)
+        E10, L4 = m.MEL(L1.id, V7.id, V8.id)
         print("#", 10)
         print(list(m._loop_halfedges(L1.id)))
         print(list(m._loop_halfedges(L2.id)))
@@ -992,8 +987,8 @@ if __name__ == "__main__":
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
-    
-        E11, L5 = m.MEL(L1.id, V7.id, V5.id)
+
+        E11, L5 = m.MEL(L1.id, V6.id, V7.id)
         print("#", 11)
         print(list(m._loop_halfedges(L1.id)))
         print(list(m._loop_halfedges(L2.id)))
@@ -1005,9 +1000,9 @@ if __name__ == "__main__":
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
-    
-        E12, L6 = m.MEL(L1.id, V8.id, V5.id)
-        print()
+
+        E12, L6 = m.MEL(L1.id, V6.id, V5.id)
+
         print(list(m._loop_halfedges(L1.id)))
         print(list(m._loop_halfedges(L2.id)))
         print(list(m._loop_halfedges(L3.id)))
@@ -1020,7 +1015,26 @@ if __name__ == "__main__":
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
         print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L6.id)])
-    
+
         return m
+
     
-    mm=block(1.,1.,1.)
+    def box(W, D, H):
+        m = BRep()
+        V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
+        V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
+        V4, E3 = m.MEV(L1.id, V3.id, p_new=(D / 2, -W / 2, 0))
+        E4, L2 = m.MEL(L1.id, V4.id, V1.id)
+        V5, E5 = m.MEV(L1.id, V1.id, p_new=(V1.point[0], V1.point[1], H))
+        V6, E6 = m.MEV(L1.id, V2.id, p_new=(V2.point[0], V2.point[1], H))
+        V7, E7 = m.MEV(L1.id, V3.id, p_new=(V3.point[0], V3.point[1], H))
+        V8, E8 = m.MEV(L1.id, V4.id, p_new=(V4.point[0], V4.point[1], H))
+        E9, L3 = m.MEL(L1.id, V5.id, V6.id)
+        E10, L4 = m.MEL(L1.id, V6.id, V7.id)
+        E11, L5 = m.MEL(L1.id, V7.id, V8.id)
+        E12, L6 = m.MEL(L1.id, V8.id, V5.id)
+        return m
+    m=box(1,1,1)
+    
+    for l in m.L.values():
+        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(l.id)])
