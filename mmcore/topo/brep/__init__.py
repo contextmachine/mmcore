@@ -1,21 +1,15 @@
 """brep_primitives.py – B‑rep skeleton + Euler operators
 ========================================================
-Data structures compatible with Parasolid/ACIS/CGM/OpenCascade/BMesh +
-**four low‑level Euler operators**:
+Data structures compatible with Parasolid/ACIS/CGM/OpenCascade/BMesh
 
-* **MEVVLS** / **KEVVLS** – make/kill Edge‑Vertex‑Vertex‑Loop‑Shell
-  (wire shell of two vertices and one edge)
-* **MEV**  / **KEV**  – make/kill Edge‑Vertex inside an existing Loop
-  (classic operator to grow a wire/face by adding one vertex and a new
-  edge emanating from a given vertex on the loop)
 
-Only topology manipulation – no geometric calculations beyond a
-placeholder straight‑line `Curve3D`.
 """
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -34,18 +28,13 @@ class Curve2D: ...
 class Surface: ...
 
 
-# ---------------------------------------------------------------------------
-#  Auto‑increment ID helper
-# ---------------------------------------------------------------------------
-class _AutoID:
-    _seq: int = 0
-
-    @classmethod
-    def next(cls) -> int:
-        cls._seq += 1
-        return cls._seq
-
-
+_V_AUTOID=itertools.count()
+_E_AUTOID=itertools.count()
+_HE_AUTOID=itertools.count()
+_L_AUTOID=itertools.count()
+_F_AUTOID=itertools.count()
+_S_AUTOID=itertools.count()
+_B_AUTOID=itertools.count()
 # ---------------------------------------------------------------------------
 #  Topological dataclasses
 # ---------------------------------------------------------------------------
@@ -53,7 +42,7 @@ class _AutoID:
 class Vertex:
     point: Tuple[float, float, float]
     tol: float = 1e-6
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_V_AUTOID), init=False)
 
 
 @dataclass
@@ -62,7 +51,7 @@ class Edge:
     v_end: int
     geom: Curve3D
     param: Tuple[float, float]
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_E_AUTOID), init=False)
 
 
 @dataclass
@@ -76,7 +65,7 @@ class HalfEdge:
     vert: Optional[int] = None  # head vertex
     orient: bool = True
     pcurve: Optional[Curve2D] = None
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_HE_AUTOID), init=False)
 
 
 @dataclass
@@ -84,7 +73,7 @@ class Loop:
     face: Optional[int]
     he: int  # entry half‑edge id
     is_outer: bool = True
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_L_AUTOID), init=False)
 
 
 @dataclass
@@ -95,7 +84,7 @@ class Face:
     shell: Optional[int] = None
     same_sense: bool = True
     surf: Optional[Surface]=None
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_F_AUTOID), init=False)
 
 
 @dataclass
@@ -103,7 +92,7 @@ class Shell:
     faces: List[int]
     body: Optional[int] = None
     closed: bool = False
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_S_AUTOID), init=False)
 
 
 @dataclass
@@ -111,7 +100,7 @@ class Body:
     shells: List[int]
     lump_type: str = "solid"
     attributes: Dict[str, Any] = field(default_factory=dict)
-    id: int = field(default_factory=_AutoID.next, init=False)
+    id: int = field(default_factory=lambda :next(_S_AUTOID),  init=False)
 
 
 def check_euler(m: BRep):
@@ -202,7 +191,13 @@ class BRep:
         self.S[shell.id] = shell
         face.shell = shell.id
         return v1, v2, e, loop, face, shell
-
+    def he_points(self, he:HalfEdge):
+        return [self.V[he.vert].point   , self.V[self.HE[he.twin].vert].point]
+    def edge_points(self, edge:Edge):
+        return [self.V[edge.v_start].point  ,self.V[edge.v_end].point]
+    def loop_points(self, loop:Loop):
+        return [self.V[self.HE[i].vert].point for i in self._loop_halfedges(loop.id)]
+    
     def _shift_loop_to_vertex(self, l: Loop, v: Vertex) -> tuple[bool, HalfEdge]:
         start: int = l.he
         current = l.he
@@ -238,7 +233,7 @@ class BRep:
             if current == start:
                 loop=self.L[he.loop]
                 raise ValueError(f"v: {v} not in Loop: {loop}, {list( self.HE[he_id].vert for he_id in self._loop_halfedges(he.loop))}")
-
+    
     # ============================================================
     #  KEV – inverse of above (remove dangling vertex + edge from loop)
     # ============================================================
@@ -366,8 +361,7 @@ class BRep:
         tmp, he_v2 = self._walk_to_vertex(he_v1, self.V[v2_id])
 
         # adjacent vertices would give a degenerate split
-        if he_v1.next == he_v2.id or he_v2.next == he_v1.id:
-            raise ValueError("Vertices are adjacent – cannot split loop")
+        ##    raise ValueError("Vertices are adjacent – cannot split loop")
 
         he_v1_next = he_v1.next  # cache before we touch it
         he_v2_next = he_v2.next
@@ -743,7 +737,9 @@ class BRep:
         edge,loop2=self.MEL(loop_id,v1_id,v2_id)
 
         face = self.new_face( loop2.id, [], self.F[loop.face].shell, same_sense=True, surf=self.F[loop.face].surf)
+        loop2.face=face.id
         self.S[self.F[loop.face].shell].faces.append(face.id)
+        
         return edge, loop2, face
 
     def KELF(self,  edge1_id:int, loop2_id:int):
@@ -760,9 +756,49 @@ class BRep:
         E=self.E[edge_id]
         for k,v in self.HE.items():
 
-            if v.edge==edge_id and v.vert==E.v_start:
+            if v.edge==edge_id and v.vert==E.v_end:
                 return v
         raise ValueError('no he')
+    
+    def get_edge_loops(self, edge_id: int) -> tuple[Loop, Loop]:
+        """
+        Get the left and right loops that contain the given edge.
+
+        Parameters
+        ----------
+        edge_id : int
+            The ID of the edge to find loops for
+
+        Returns
+        -------
+        tuple[Loop, Loop]
+            A tuple containing the left and right loops (Loop objects)
+
+        Raises
+        ------
+        KeyError
+            If the edge is not found
+        ValueError
+            If the edge doesn't have exactly two half-edges
+        """
+        if edge_id not in self.E:
+            raise KeyError("Edge not found")
+
+        # Find the two half-edges associated with this edge
+        he_list = [he for he in self.HE.values() if he.edge == edge_id]
+        if len(he_list) != 2:
+            raise ValueError("Edge should be referenced by exactly two half-edges")
+
+        he1, he2 = he_list
+
+        # Get the loops these half-edges belong to
+        if he1.loop is None or he2.loop is None:
+            raise ValueError("One or both half-edges don't belong to a loop")
+
+        loop1 = self.L[he1.loop]
+        loop2 = self.L[he2.loop]
+
+        return loop1, loop2
 
     # ============================================================
     #  MEKH  – Make-Edge / Kill-Hole
@@ -1059,130 +1095,26 @@ class BRep:
         else:
             raise ValueError("No degree-1 vertex to kill")
 
-# ---------------------------------------------------------------------------
-#  Quick smoke test
-# ---------------------------------------------------------------------------
+
+def box(W, D, H):
+    m = BRep()
+    V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
+    V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
+    V4, E3 = m.MEV(L1.id, V3.id, p_new=(D / 2, -W / 2, 0))
+    E4, L2  ,F2= m.MELF(L1.id, V4.id, V1.id)
+    V5, E5 = m.MEV(L1.id, V1.id, p_new=(V1.point[0], V1.point[1], H))
+    V6, E6 = m.MEV(L1.id, V2.id, p_new=(V2.point[0], V2.point[1], H))
+    V7, E7 = m.MEV(L1.id, V3.id, p_new=(V3.point[0], V3.point[1], H))
+    V8, E8 = m.MEV(L1.id, V4.id, p_new=(V4.point[0], V4.point[1], H))
+    E9, L3 ,F3= m.MELF(L1.id, V5.id, V6.id)
+    E10, L4,F4 = m.MELF(L1.id, V6.id, V7.id)
+    E11, L5,F5 = m.MELF(L1.id, V7.id, V8.id)
+    E12, L6 ,F6= m.MELF(L1.id, V8.id, V5.id)
+    return m
+
+
 if __name__ == "__main__":
-
-    def block(W, D, H):
-        m = BRep()
-        V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
-        print("#", 1)
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-
-        print(list(m._loop_halfedges(L1.id)))
-        V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
-
-        print("#", 2)
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print(list(m._loop_halfedges(L1.id)))
-        V4, E3 = m.MEV(L1.id, V3.id, p_new=(D / 2, -W / 2, 0))
-        print("#", 3)
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print(list(m._loop_halfedges(L1.id)))
-        E4, L2 = m.MEL(L1.id, V4.id, V1.id)
-        print("#", 4)
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-
-        V5, E5 = m.MEV(L1.id, V1.id, p_new=(V1.point[0],V1.point[1],H))
-        print("#", 5)
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-
-        print(V2)
-
-        V6, E6 = m.MEV(L1.id, V2.id, p_new=(V2.point[0],V2.point[1], H))
-        print("#", 6)
-
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-
-        V7, E7 = m.MEV(L1.id, V3.id, p_new=(V3.point[0],V3.point[1], H))
-        print("#", 7)
-
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-
-        V8, E8 = m.MEV(L1.id, V4.id, p_new=(V4.point[0],V4.point[1], H))
-
-        print("#", 8)
-        for i, (k, v) in enumerate(m.V.items()):
-            print(f"V{i}: {v}")
-        print(list(m._loop_halfedges(L1.id)))
-        print(list(m._loop_halfedges(L2.id)))
-
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-
-        E9, L3 = m.MEL(L1.id, V8.id, V5.id)
-        print("#", 9)
-        print(list(m._loop_halfedges(L1.id)))
-        print(list(m._loop_halfedges(L2.id)))
-        print(list(m._loop_halfedges(L3.id)))
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
-
-        print(V6, V7)
-        print("\n\n\n")
-        E10, L4 = m.MEL(L1.id, V7.id, V8.id)
-        print("#", 10)
-        print(list(m._loop_halfedges(L1.id)))
-        print(list(m._loop_halfedges(L2.id)))
-        print(list(m._loop_halfedges(L3.id)))
-        print(list(m._loop_halfedges(L4.id)))
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
-
-        E11, L5 = m.MEL(L1.id, V6.id, V7.id)
-        print("#", 11)
-        print(list(m._loop_halfedges(L1.id)))
-        print(list(m._loop_halfedges(L2.id)))
-        print(list(m._loop_halfedges(L3.id)))
-        print(list(m._loop_halfedges(L4.id)))
-        print(list(m._loop_halfedges(L5.id)))
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
-
-        E12, L6 = m.MEL(L1.id, V6.id, V5.id)
-
-        print(list(m._loop_halfedges(L1.id)))
-        print(list(m._loop_halfedges(L2.id)))
-        print(list(m._loop_halfedges(L3.id)))
-        print(list(m._loop_halfedges(L4.id)))
-        print(list(m._loop_halfedges(L5.id)))
-        print(list(m._loop_halfedges(L6.id)))
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L2.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L3.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L4.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L5.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(L6.id)])
-
-        return m
-
-    def box(W, D, H):
-        m = BRep()
-        V1, V2, E1, L1, F, S = m.MEVVLS((D / 2, W / 2, 0.0), (-D / 2, W / 2, 0.0))
-        V3, E2 = m.MEV(L1.id, V2.id, p_new=(-D / 2, -W / 2, 0))
-        V4, E3 = m.MEV(L1.id, V3.id, p_new=(D / 2, -W / 2, 0))
-        E4, L2 = m.MEL(L1.id, V4.id, V1.id)
-        V5, E5 = m.MEV(L1.id, V1.id, p_new=(V1.point[0], V1.point[1], H))
-        V6, E6 = m.MEV(L1.id, V2.id, p_new=(V2.point[0], V2.point[1], H))
-        V7, E7 = m.MEV(L1.id, V3.id, p_new=(V3.point[0], V3.point[1], H))
-        V8, E8 = m.MEV(L1.id, V4.id, p_new=(V4.point[0], V4.point[1], H))
-        E9, L3 = m.MEL(L1.id, V5.id, V6.id)
-        E10, L4 = m.MEL(L1.id, V6.id, V7.id)
-        E11, L5 = m.MEL(L1.id, V7.id, V8.id)
-        E12, L6 = m.MEL(L1.id, V8.id, V5.id)
-        return m
-    m=box(1,1,1)
+    from mmcore.numeric.plane import plane_line_intersection
     def mve_kve_test(brep:BRep):
         print(get_loops_points(brep))
         edges=[v for v in brep.E.values()]
@@ -1196,17 +1128,88 @@ if __name__ == "__main__":
         print(get_loops_points(brep))
         brep.KVE(E_new.id,V_new.id)
         print(get_loops_points(brep))
-    def split_box(brep:BRep ):
-        edges = [v for v in brep.E.values()]
-        split_edges = [edges[i] for i in [0, 2, 8, 10]]
-        # [[brep.V[v.v_start].point, brep.V[v.v_end].point] for v in split_edges]
-        for edge in split_edges:
-            v1,v2=brep.V[edge.v_start], brep.V[edge.v_end]
-            v1,v2=np.array(v1.point),np.array(v2.point)
-            mid_pt=tuple((v1+(v2-v1)*0.5).tolist())
-            print(mid_pt)
-            V_new,E_new=brep.MVE(edge.id,mid_pt)
+
+    def split_box(brep:BRep, plane:tuple ):
+   
+
+    
+        hedges: list[HalfEdge] = [v for v in brep.HE.values()]
+        split_edges = []
+        split_pts = []
+        origin, normal = plane
+
+  
+        he_inters = dict()
+        verts = []
+        per_loop = dict()
+        mid_zero_edges = dict()
+        per_he = dict()
+        per_he_twin = dict()
+        while hedges:
+            he = hedges.pop(0)
+
+            start, end = np.array(brep.he_points(he))
+
+            if (np.dot(start - origin, normal) * np.dot(end - origin, normal)) < 0:
+                # he is inter
+
+                split_edges.append(he)
+                twin = brep.HE[he.twin]
+
+                pt_new = (plane_line_intersection(plane, (start, end - start), full_return=False) + (end - start) * 0.1).tolist()
+
+                new_v, new_edge = brep.MVE(he.edge, pt_new)
+                new_edge_mid, new_v_next = brep.MZEV(he.loop, twin.loop, new_v.id)
+                mid_zero_edges[new_edge_mid.id] = (he.loop, twin.loop)
+
+                if he.loop not in per_loop:
+                    per_loop[he.loop] = []
+                if twin.loop not in per_loop:
+                    per_loop[twin.loop] = []
+                per_he[he.id] = new_v_next
+                per_he_twin[he.twin] = new_v
+
+                per_loop[he.loop].append(new_v_next)
+                per_loop[twin.loop].append(new_v)
+        per_he_twin = per_he_twin
+
+        print("ddd")
+        per_he_it = list(per_he.items())
+        per_he_twin_it = list(per_he_twin.items())
+        print([brep.HE[i[0]].loop for i in per_he_twin_it])
+        print([brep.HE[i[0]].loop for i in per_he_it])
+
+        for loop_id, verts in per_loop.items():
+            loop = brep.L[loop_id]
+
+            new_edge, new_loop, new_face = brep.MELF(loop_id, verts[1].id, verts[0].id)
+            
 
     def get_loops_points(m:BRep):
 
         return [[m.V[m.HE[i].vert].point for i in m._loop_halfedges(l.id)] for l in m.L.values()]
+
+    def test_get_edge_loops():
+        # Create a simple box model
+        m = box(1, 1, 1)
+
+        # Get an edge from the model
+        edge_id = next(iter(m.E.keys()))
+
+        # Get the loops for this edge
+        try:
+            loop1, loop2 = m.get_edge_loops(edge_id)
+            print(f"Edge {edge_id} is contained in loops {loop1.id} and {loop2.id}")
+
+            # Print the vertices of each loop to verify
+            print(f"Loop {loop1.id} vertices: {[m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)]}")
+            print(f"Loop {loop2.id} vertices: {[m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop2.id)]}")
+
+            return True
+        except Exception as e:
+            print(f"Error testing get_edge_loops: {e}")
+            return False
+    # Run the test for get_edge_loops
+    print("\n=== Testing get_edge_loops ===")
+    test_result = test_get_edge_loops()
+    print(f"Test {'passed' if test_result else 'failed'}")

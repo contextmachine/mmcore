@@ -13,6 +13,7 @@ regions=segment_boolean(data,tol=0.05)
 print(f'{len(regions)} regions have been extracted:')
 for i,region in enumerate(regions):
     print(f'Region {i} containing {len(region)} segments.')
+print(regions)
 try:
 
     from mmcore.renderer.renderer2d import Renderer2D,RenderColorsConfig
