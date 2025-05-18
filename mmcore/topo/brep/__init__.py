@@ -103,15 +103,6 @@ class Body:
     id: int = field(default_factory=lambda :next(_S_AUTOID),  init=False)
 
 
-def check_euler(m: BRep):
-    V = len(m.V)
-    E = len(m.E)
-    F = len(m.F)
-    L = len(m.L)
-    S = len(m.S)
-    G = len(m.B)
-    return V - E + F - (L - F) - 2 * (S - G)
-
 
 # ---------------------------------------------------------------------------
 #  Model container + Euler operators
@@ -197,7 +188,7 @@ class BRep:
         return [self.V[edge.v_start].point  ,self.V[edge.v_end].point]
     def loop_points(self, loop:Loop):
         return [self.V[self.HE[i].vert].point for i in self._loop_halfedges(loop.id)]
-    
+
     def _shift_loop_to_vertex(self, l: Loop, v: Vertex) -> tuple[bool, HalfEdge]:
         start: int = l.he
         current = l.he
@@ -233,7 +224,7 @@ class BRep:
             if current == start:
                 loop=self.L[he.loop]
                 raise ValueError(f"v: {v} not in Loop: {loop}, {list( self.HE[he_id].vert for he_id in self._loop_halfedges(he.loop))}")
-    
+
     # ============================================================
     #  KEV – inverse of above (remove dangling vertex + edge from loop)
     # ============================================================
@@ -295,6 +286,9 @@ class BRep:
         E=self.E[edge_id]
         self.new_edge(E.v_start, v_new, E.geom, E.param)
         E.v_start=v_new
+
+    def get_loop_first_vertex(self, loop: Loop)->Vertex:
+        return self.V[self.HE[self.HE[loop.he].twin].vert]
 
     def KEVVLS(self, shell_id: int):
         if shell_id not in self.S:
@@ -729,6 +723,75 @@ class BRep:
         del self.E[other_e_id]
         del self.V[v_id]
 
+
+
+    def euler_characteristic(self) -> tuple[int, Dict[int, int]]:
+            """
+            Compute the Euler characteristic χ = V - E + F for each shell,
+            and return (total_χ, per_shell_χ_dict).
+
+            Returns
+            -------
+            total_chi : int
+                The sum of χ over all shells (i.e. χ of the disjoint union of
+                boundary surfaces).
+            per_shell_chi : Dict[int,int]
+                Mapping shell_id → χ_shell.
+            """
+            per_shell = {}
+            total = 0
+
+            for s_id, shell in self.S.items():
+                # 1) Faces on this shell
+                face_ids = shell.faces
+                F_count = len(face_ids)
+
+                # 2) Traverse loops of each face to collect boundary edges & verts
+                edge_set = set()
+                vert_set = set()
+
+                for f_id in face_ids:
+                    face = self.F[f_id]
+                    loops = [face.outer] + face.inners
+                    for loop_id in loops:
+                        for he_id in self._loop_halfedges(loop_id):
+                            he = self.HE[he_id]
+                            edge_set.add(he.edge)
+                            vert_set.add(he.vert)
+
+                E_count = len(edge_set)
+                V_count = len(vert_set)
+
+                chi = V_count - E_count + F_count
+                per_shell[s_id] = chi
+                total += chi
+
+            return total, per_shell
+
+    def topology_check(self) -> int:
+        """
+            Returns (V - E + F) - sum_s(2 - 2*g_s).
+            Here each shell's genus g_s is inferred as
+              (# of inner loops on its faces) // 2.
+            If the model is topologically consistent, this will return 0.
+            """
+        # 1) Compute LHS = V - E + F
+        V = len(self.V)
+        E = len(self.E)
+        F = len(self.F)
+        lhs = V - E + F
+
+        # 2) Compute RHS = sum over shells of (2 - 2*g_s)
+        rhs_total = 0
+        for s_id, shell in self.S.items():
+            # count all inner loops on this shell’s faces
+            hole_loops = sum(len(self.F[f_id].inners) for f_id in shell.faces)
+            # each tunnel gives two inner loops → genus = tunnels = hole_loops//2
+            g_s = hole_loops // 2
+            rhs_total += 2 - 2 * g_s
+
+        return lhs - rhs_total
+
     def MELF(self, loop_id:int, v1_id: int, v2_id: int )->tuple[Edge,Loop,Face]:
 
         loop=self.L[loop_id]
@@ -739,7 +802,7 @@ class BRep:
         face = self.new_face( loop2.id, [], self.F[loop.face].shell, same_sense=True, surf=self.F[loop.face].surf)
         loop2.face=face.id
         self.S[self.F[loop.face].shell].faces.append(face.id)
-        
+
         return edge, loop2, face
 
     def KELF(self,  edge1_id:int, loop2_id:int):
@@ -759,7 +822,7 @@ class BRep:
             if v.edge==edge_id and v.vert==E.v_end:
                 return v
         raise ValueError('no he')
-    
+
     def get_edge_loops(self, edge_id: int) -> tuple[Loop, Loop]:
         """
         Get the left and right loops that contain the given edge.
