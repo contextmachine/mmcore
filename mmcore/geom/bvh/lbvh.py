@@ -241,8 +241,8 @@ class BVH:
 
         return dct
 
-def build_bvh(bboxes)->BVH:
-    tree = BVH()
+def build_bvh(bboxes,  max_objects_in_leaf:int=1)->BVH:
+    tree = BVH(max_objects_in_leaf=max_objects_in_leaf)
     tree.build(bboxes)
     return tree
 
