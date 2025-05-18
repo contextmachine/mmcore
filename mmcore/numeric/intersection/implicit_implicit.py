@@ -29,8 +29,12 @@ def mgrid3d(bounds, x_count, y_count, z_count):
 
 
 class ImplicitIntersectionCurve(Implicit3D):
-    def __init__(self, surf1: Implicit3D, surf2: Implicit3D, tol=1e-6):
+    def __init__(self, surf1: Implicit3D, surf2: Implicit3D, tol=1e-6,step=None):
+        
         super().__init__()
+        if step is None:
+            step=DEFAULT_STEP
+        self.step=step
         self.surf1 = surf1
         self.surf2 = surf2
         self.tol = tol
@@ -73,7 +77,7 @@ class ImplicitIntersectionCurve(Implicit3D):
                                         self.surf2.gradient, tol=self.tol)
 
     def __iter__(self):
-        return ImplicitIntersectionCurveIterator(self, step=DEFAULT_STEP, workers=-1)
+        return ImplicitIntersectionCurveIterator(self, step=self.step, workers=-1)
 
 
 class ImplicitIntersectionCurveIterator:
@@ -96,8 +100,10 @@ class ImplicitIntersectionCurveIterator:
 
     def __init__(self, crv: ImplicitIntersectionCurve, step=0.2, workers=-1, debug=None, clear_debug=True, **kwargs):
         self.crv = crv
-
-        self.step = step
+        if self.crv.step!=DEFAULT_STEP:
+            self.step=self.crv.step=step
+        else:
+            self.step = step
         self._kws = kwargs
         self._kdtree = None
         self.pop_queue = set()
@@ -121,7 +127,7 @@ class ImplicitIntersectionCurveIterator:
                                                       q0=pt,
                                                       grad1=self.crv.surf1.gradient, grad2=self.crv.surf2.gradient,
                                                       no_err=True,
-                                                      max_iter=8,
+                                                      max_iter=50,
                                                       tol=self.crv.tol)
                 if success:
                     arr.append(p)
@@ -136,7 +142,7 @@ class ImplicitIntersectionCurveIterator:
                                                       pt,
                                                       self.crv.surf1.gradient, self.crv.surf2.gradient,
                                                       no_err=True,
-                                                      max_iter=8,
+                                                      max_iter=50,
                                                       tol=self.crv.tol)
                 if success:
                     arr.append(p)
@@ -144,7 +150,7 @@ class ImplicitIntersectionCurveIterator:
         return np.array(arr)
 
     def trace_curve_point(self, point, step):
-        res = self._kdtree.query_ball_point(point, step, workers=self.workers)
+        res = self._kdtree.query_ball_point(point, step*2, workers=self.workers)
         self.pop_queue.update({*res})
 
     def rebuild_tree(self):
@@ -176,7 +182,7 @@ class ImplicitIntersectionCurveIterator:
                                                      grad_f1=self.crv.surf1.gradient,
                                                      grad_f2=self.crv.surf2.gradient,
                                                      step=self.step,
-                                                     point_callback=lambda pt: self.trace_curve_point(pt,
+                   tol=self.crv.tol,                         point_callback=lambda pt: self.trace_curve_point(pt,
                                                                                                       step=self.step) if self._kdtree is not None else None,
                                                      **self._kws).tolist()
             self.initial_point = self.rebuild_tree()
