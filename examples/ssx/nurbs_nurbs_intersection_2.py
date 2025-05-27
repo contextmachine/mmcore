@@ -939,7 +939,7 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 
 
 
-RENDER=False
+RENDER=True
 try:
     if RENDER:
         from mmcore.renderer.renderer3dv2 import CADRenderer,Camera

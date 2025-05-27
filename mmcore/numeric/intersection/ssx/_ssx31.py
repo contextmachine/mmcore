@@ -313,7 +313,6 @@ def intersection_ode(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfac
 # -------------------------------------------------------------------
 
 
-
 def _intersection_curve_tangents(s1,s2,s,t,u,v):
     d1=evaluate_nurbs_surface(s1, s,t, 1)
     d2=evaluate_nurbs_surface(s2, u,v, 1)
@@ -534,8 +533,6 @@ def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[f
     return distance, bool(is_on_segment),t
 
 
-
-
 def _project_point_to_segment(p, a, b):
     """
     Projects point p onto the line defined by segment endpoints a and b in 3D.
@@ -685,8 +682,6 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
             #raise ValueError("The area boundary has been reached, but the boundary intersection point has not been found")
 
             return False, -1
-
-
 
 
 def validated_ode_solver(
@@ -1062,7 +1057,8 @@ def _compare_robust(a, b, tol):
     min_val=a-tol
     max_val=a+tol
     return (min_val<=b) and (b<=max_val)
-
+import logging
+_logger=logging.getLogger('mmcore')
 def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
@@ -1083,6 +1079,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
         ns2= _tuple_to_nurbs(surf2)
     branches=[]
     items=detect_intersections(ns1, ns2, spt=spt, tol=tol)
+    _logger.debug('detected intersections: %s', items)
     beams=[]
     (smin,smax),(tmin,tmax)=ns1.interval()
     (umin, umax), (vmin, vmax) = ns1.interval()
@@ -1090,12 +1087,14 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
     for i,(s1, s2) in enumerate(items):
 
         stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=spt,tol=tol)
-
-        #print('p',[p.point.tolist() for p in stars_points])
+        _logger.debug(f"finded boundary_intersections {i}, len starts points: {len(stars_points)}")
+        # print('p',[p.point.tolist() for p in stars_points])
 
         if len(stars_points)==0:
+            _logger.debug(f"pass")
             continue
         elif len(stars_points)==1:
+
             # Здесь мы должны проверить что точка находится на границе одной из исходных поверхностей.
             # Так как предполагается что сингулярные точки мы проверили ранее,
             # любое пересечение дающее одну точку не на границе одной из исходных поверхностей, является вырожденной
@@ -1105,13 +1104,22 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
              or _compare_robust(tmin, t, tol=tol) or _compare_robust(tmax, t, tol=tol)
              or _compare_robust(umin, u, tol=tol) or _compare_robust(umax, u, tol=tol)
              or _compare_robust(vmin, v, tol=tol) or _compare_robust(vmax, v, tol=tol)) :
-                # Точка находится на границе исходных поверхностей и если ни одна ветвь не придет в нее, то мы вернем ее как изолированную точку.
+                # Точка находится на границе исходных поверхностей и если ни -900
+                # одна ветвь не придет в нее, то мы вернем ее как изолированную точку.
                 isolated_points.append(stars_points[0])
-
+                _logger.debug(f"isolated")
+            else:
+                _logger.debug(f"not isolated: {stars_points[0].point.tolist()}")
             continue
         elif len(stars_points)>2:
 
-            bnd_points=list(stars_points[1:])
+            if (len(stars_points)%2)==1:
+
+                _logger.critical(f"hard case: {[s.point.tolist() for s in stars_points]}. An odd number of boundary intersection points")
+                continue
+            _logger.debug(f"hard case: {[s.point.tolist() for s in stars_points]}")
+
+            bnd_points = list(stars_points[1:])
 
             st1 = _nurbs_to_tuple(s1)
             st2 = _nurbs_to_tuple(s2)
@@ -1122,7 +1130,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
 
             for i in range(l):
                 pt=stars_points[i]
-                #print('ss',pt.point.tolist())
+                # print('ss',pt.point.tolist())
                 init_points[i]=pt.point
                 init_uv1[i]=pt.surface1_params
                 init_uv2[i]=pt.surface2_params
@@ -1154,8 +1162,8 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
                     [curve_pts[-1], np.array([params1[-1][0], params1[-1][1], params2[-1][0], params2[-1][1]]),
                      tangent_end]))
 
-
         else:
+            _logger.debug(f"base case: {[s.point.tolist() for s in stars_points]}")
             pt_start=stars_points[0]
             pt_end = stars_points[-1]
             st1 = _nurbs_to_tuple(s1)
@@ -1165,7 +1173,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
             tangent_end,*_=_intersection_curve_tangents(st1,st2,*pt_end.surface1_params,*pt_end.surface2_params)
             beams.append(
                 ([pt_start.point, np.array([pt_start.surface1_params[0],pt_start.surface1_params[1],pt_start.surface2_params[0],pt_start.surface2_params[1]]),tangent_start],[pt_end.point, np.array([pt_end.surface1_params[0],pt_end.surface1_params[1],  pt_end.surface2_params[0],  pt_end.surface2_params[1]]), tangent_end]))
-            #print([pt_start.point.tolist(),pt_end.point.tolist()])
+            # print([pt_start.point.tolist(),pt_end.point.tolist()])
 
             curve_points,params_surf1,params_surf2=_subd(st1, st2, np.array(pt_start.surface1_params), np.array(pt_end.surface1_params), np.array(pt_start.surface2_params), np.array(pt_end.surface2_params),tol=tol, spt=spt)
 
@@ -1173,9 +1181,10 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
                     np.array(params_surf1),
                     np.array(params_surf2))
                     )
+    _logger.debug(f"end tracing")
+
     branches_joined=[]
     ppp=join_segments_with_info(beams, tol, spt)
-
 
     isolated_points_indexes_to_delete = set()
     for pts, seg_info in ppp:
@@ -1203,7 +1212,6 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
             pass
         else:
 
-
             stuv_start=np.array([branch_uv1[0][0], branch_uv1[0][1], branch_uv2[0][0], branch_uv2[0][1]])
             stuv_end=np.array([branch_uv1[-1][0], branch_uv1[-1][1], branch_uv2[-1][0], branch_uv2[-1][1]])
             for i,pt in enumerate(isolated_points):
@@ -1213,20 +1221,14 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
 
                 elif (np.linalg.norm(stuv_end - pt.stuv) < tol):
 
-
                     isolated_points_indexes_to_delete.add(i)
 
-
-
-
-
-    #isolated_points_arr=np.array(isolated_points,dtype=object)
+    # isolated_points_arr=np.array(isolated_points,dtype=object)
 
     real_isolated_points:list[IntersectionPoint]=(np.array(isolated_points, dtype=IntersectionPoint)[
         list(set(range(len(isolated_points))) - isolated_points_indexes_to_delete)]).tolist()
 
     return branches_joined, real_isolated_points
-
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from mmcore.geom.nurbs import NURBSCurve
 import numpy as np
 crv1=NURBSCurve(np.array(pts1))
 crv2=NURBSCurve(np.array(pts2))
-from mmcore.construction.ruled import ruled
+from mmcore.construction import ruled
 s1=ruled(crv1,crv2)
 s2=ruled(NURBSCurve(np.array([[-19.866327395603214, 1.6639891981988859, -0.026559537166892966], [-13.079018853432281, 24.600246438290654, -14.581989677486053]]
          ),1),
