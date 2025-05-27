@@ -4,4 +4,5 @@ from mmcore.geom._nurbs_construct import circle
 from ._ruled import ruled
 from ._torus import torus
 from ._revolved import revolved
-__all__=['ruled','revolved','torus', 'circle']
+from ._cylinder import cylinder_surface_2pt,cylinder_surface
+__all__=['ruled','revolved','torus', 'circle','cylinder_surface','cylinder_surface_2pt']

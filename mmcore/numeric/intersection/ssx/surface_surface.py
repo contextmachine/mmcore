@@ -525,8 +525,9 @@ def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7,  **kwargs):
         return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt)
 
     else:
-        raise NotImplemented()
-
+        raise NotImplemented
+import logging
+_logger=logging.getLogger('mmcore')
 def ssx(surf1: Surface, surf2: Surface,  spt=0.001,tol: float = 1e-7, **kwargs) -> tuple[list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]],list[IntersectionPoint]]:
     """
     Calculate the intersection of two parametric surfaces.

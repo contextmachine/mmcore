@@ -31,7 +31,7 @@ def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
     v1_curve = extract_isocurve(surface, v_max, 'v')  # u-direction curve at v=1
 
     return [u0_curve, u1_curve, v0_curve, v1_curve]
-
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
 
 def extract_isocurve(
         surface: NURBSSurface, param: float, direction: str = "u"
@@ -50,8 +50,11 @@ def extract_isocurve(
 
     if direction not in ["u", "v"]:
         raise ValueError("Direction must be either 'u' or 'v'.")
+    st = _nurbs_to_tuple(surface)
+    ct=_extract_isocurve_tuple(st,param,direction)
+    return _tuple_to_nurbs(ct)
     interval = surface.interval()
-    #print('ij', surface.knots_u, surface.knots_v, surface.interval())
+    # print('ij', surface.knots_u, surface.knots_v, surface.interval())
     if direction == "u":
         # For u-direction: we fix u and vary v
         # First check if the u parameter is in range
@@ -77,9 +80,9 @@ def extract_isocurve(
             # Return curve with v-direction degree and knots since we're varying in v
 
         cc=NURBSCurve(control_points, degree=surface.degree[1],knots=surface.knots_v)
-        #cc.knots=surface.knots_v
+        # cc.knots=surface.knots_v
 
-        #print('j', cc.knots,cc.interval())
+        # print('j', cc.knots,cc.interval())
         return cc
 
     else:  # direction == 'v'
@@ -104,8 +107,8 @@ def extract_isocurve(
             for j in range(degree_v + 1):  # combine with basis functions
                 control_points[i] += basis[j] * surface.control_points_w[i, span - degree_v + j]
         cc = NURBSCurve(control_points, surface.degree[0],surface.knots_u)
-        #print('i',cc.knots,cc.interval())
-        #cc.knots = surface.knots_u
+        # print('i',cc.knots,cc.interval())
+        # cc.knots = surface.knots_u
         # Return curve with u-direction degree and knots since we're varying in u
         return cc
 
@@ -210,4 +213,3 @@ def extract_surface_boundaries_tuple(surface: NURBSSurfaceTuple) -> List[NURBSCu
     v1_curve = _extract_isocurve_tuple(surface, v_max, 'v')  # u-direction curve at v=1
 
     return [u0_curve, u1_curve, v0_curve, v1_curve]
-
