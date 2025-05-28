@@ -211,7 +211,7 @@ def interpolate_curve(points, degree,  use_centripetal=False, tol=1e-5):
     :rtype: tuple[list, list, int]
     """
     # Keyword arguments
-    print(len(points))
+    #print(len(points))
     points=_remove_adjacent_duplicates(np.array(points),tol=tol
                                        )
 

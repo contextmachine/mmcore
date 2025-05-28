@@ -224,8 +224,10 @@ class CADRenderer:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
         # Enable polygon offset for wireframes to avoid z-fighting
+
         glEnable(GL_POLYGON_OFFSET_FILL)
-        glPolygonOffset(1.0, 1.0)
+
+        glPolygonOffset(3, GL_POLYGON_OFFSET_UNITS)
 
         # Create and bind a default VAO
         self.default_vao = glGenVertexArrays(1)
@@ -560,14 +562,14 @@ class CADRenderer:
             self.render_mesh(mesh)
 
         # Then render points and wires
-        if len(self.points)>100:
+        if len(self.points)>10000:
             # Render points
             with mp.Pool(8) as pool:
                 pool.map(self.render_point, self.points)
         else:
             [self.render_point(p) for p in self.points]
 
-        if len(self.wires) > 100:
+        if len(self.wires) > 10000:
             with mp.Pool(8) as pool:
                 pool.map(self.render_wire, self.wires)
         else:
@@ -692,7 +694,7 @@ class CADRenderer:
         # Add wireframe representation
         boundaries, isolines, mid_iso = nurbs_surface_wireframe_view(surf)
         for iso in isolines:
-            self.add_nurbs_curve(iso, (np.array(color[:3]) * 0.3).tolist(), thickness)
+            self.add_nurbs_curve(iso, (np.array(color[:3]) * 0.5).tolist(), thickness)
         for b in boundaries:
             self.add_nurbs_curve(b, color[:3], thickness)
 
