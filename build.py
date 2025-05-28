@@ -191,8 +191,8 @@ extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.numeric.intersection.ssx._ssi",
-        ["mmcore/numeric/intersection/ssx/_ssi.pyx"],
+        "mmcore.numeric.intersection.ssx._ssx_utils",
+        ["mmcore/numeric/intersection/ssx/_ssx_utils.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
