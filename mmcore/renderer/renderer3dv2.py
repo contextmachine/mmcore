@@ -134,7 +134,7 @@ class Camera:
     target: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0,0.0, 0.0], dtype=np.float32))
     up: NDArray[np.float32]=field(default_factory=lambda : np.array([0.0, 1.0, 0.0], dtype=np.float32))
     zoom:float=1.
-    near:float = 0.01
+    near:float = 0.1
     far:float = 1000000.0
     is_panning:bool = False
 
