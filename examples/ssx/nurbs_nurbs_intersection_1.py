@@ -114,27 +114,28 @@ with open("ssx1.txt",'w') as tf:
                                             ):
             cpts = (spatial.control_points).tolist()
             tf.write(repr(cpts))
-
-try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
-
-    print(dir(Camera))
-    centr=np.average(s21.control_points_flat, axis=0)
-    renderer=CADRenderer(camera=Camera( zoom=75.
+RENDER=True
+if RENDER:
+    try:
+        from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+    
+        print(dir(Camera))
+        centr=np.average(s21.control_points_flat, axis=0)
+        renderer=CADRenderer(camera=Camera( zoom=75.
+            )
         )
-    )
-
-    renderer.add_nurbs_surface(s21,color=(1.,1.,1.))
-    renderer.add_nurbs_surface(s22,color=(1.,1.,1.))
-
-    for (crv,uv1,uv2) in curves:
-        renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
-
-
-    renderer.run()
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+    
+        renderer.add_nurbs_surface(s21,color=(1.,1.,1.))
+        renderer.add_nurbs_surface(s22,color=(1.,1.,1.))
+    
+        for (crv,uv1,uv2) in curves:
+            renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
+    
+    
+        renderer.run()
+    except ModuleNotFoundError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except ImportError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except Exception as err:
+        raise err
