@@ -117,6 +117,7 @@ def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: f
             # params[0] is curve parameter, params[1:] are surface parameters
             if intersection_type == 'degenerate':
                 print(intersection_type)
+            
             intersection_points.append(
                 IntersectionPoint(
                     point=point,

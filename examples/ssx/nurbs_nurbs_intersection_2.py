@@ -952,7 +952,8 @@ try:
         )
 
         renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
-        renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+       
+        renderer.add_nurbs_surface(s2,color=(1.,1.,1.), render_as_mesh=False)
 
         for (crv,uv1,uv2) in result[0]:
             renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
