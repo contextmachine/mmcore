@@ -16,7 +16,7 @@ from scipy.spatial import KDTree
 from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode, Triangle
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric.vectors import solve2x2, det, scalar_dot, scalar_norm
-from mmcore.numeric.intersection.ssx._ssi import improve_uv as cimprove_uv
+from mmcore.numeric.intersection.ssx._ssx_utils import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 
 from mmcore.numeric.closest_point import (
@@ -513,7 +513,7 @@ def find_start_points_nurbs(surf1, surf2, tol=1e-3):
 times = []
 
 from mmcore.numeric.intersection.ssx._ssx31 import _nurbs_trace_intersection_curves_v2 as _nurbs_trace_intersection_curves,SamplingMethod
-def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7,  **kwargs):
+def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7, tan_tol=1e-3, **kwargs):
 
     # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
     #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
@@ -522,7 +522,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7,  **kwargs):
     #freeform = FreeFormMethod(surf1, surf2, tol=tol, boundary_terminators=edge_terminator, max_iter=19)
     # s = time.perf_counter_ns()
     if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
-        return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt)
+        return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt,tan_tol=tan_tol)
 
     else:
         raise NotImplemented

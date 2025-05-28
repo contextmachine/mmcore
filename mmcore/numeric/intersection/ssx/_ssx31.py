@@ -23,7 +23,7 @@ import numpy as np
 from numpy import ndarray, dtype
 
 from scipy.spatial import KDTree
-
+from mmcore.numeric.intersection.ssx._ssx_utils import points_equal
 from mmcore.geom.curves.curve_bool import unique_with_tolerance
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
 from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections, IntersectionPoint
@@ -333,14 +333,82 @@ def _distance(p, q):
     """Compute the Euclidean _distance between two points."""
 
     return np.linalg.norm(p-q)
+import numpy as np
+import logging
 
-def points_equal(p, q, tol,spt):
-    """Return True if the _distance between points p and q is less than tol."""
 
-    rr= (_distance(   p[0], q[0]) < spt ) ,(_distance(p[1], q[1])<tol) , ( np.abs(1.-np.dot(p[2], q[2]))<tol)
 
-    return np.all(rr)
+'''
+def _param_dist_edge_wrap(stuv1, stuv2,
+                          param_min: np.ndarray,
+                          param_max: np.ndarray,
+                          tol: float) -> float:
+    """
+    For each parameter i in 0..3:
+      - if |stuv1[i] - stuv2[i]| < tol, dist_i = |…|
+      - elif (|stuv1[i]-min_i|<tol and |stuv2[i]-max_i|<tol)
+         or (|stuv2[i]-min_i|<tol and |stuv1[i]-max_i|<tol):
+           dist_i = 0
+      - else dist_i = |stuv1[i] - stuv2[i]|
+    Return max_i dist_i.
+    """
+ 
+    mins  = param_min
+    maxs  = param_max
+    delta = np.abs(stuv1 - stuv2)
 
+    # Is a wrap-around match?
+    at_min_1 = np.abs(stuv1 - mins) < tol
+    at_max_1 = np.abs(stuv1 - maxs) < tol
+    at_min_2 = np.abs(stuv2 - mins) < tol
+    at_max_2 = np.abs(stuv2 - maxs) < tol
+
+    wrap_match = (at_min_1 & at_max_2) | (at_max_1 & at_min_2)
+
+    # If direct close, keep delta; else if wrap_match then zero; else keep delta
+    # So we can just zero out the ones that wrap.
+    effective = delta * (~wrap_match)
+    
+
+    #_logger.debug(f"_param_dist_edge_wrap deltas={delta}, wrap={wrap_match}, eff={effective}")
+    return float(np.max(effective))
+
+
+def points_equal(p, q,
+                 spt:  float,
+                 param_tol: float,
+                 tan_tol:   float,
+                 param_min: np.ndarray,
+                 param_max: np.ndarray) -> bool:
+    """
+    p, q = (xyz 3-vector,
+            stuv 4-vector,
+            tangent 3-vector)
+    param_min, param_max = arrays of length 4 giving the natural [min,max]
+      for s,t,u,v from each surface’s clamped knot-span.
+    """
+    xyz1, stuv1, tan1 = p
+    xyz2, stuv2, tan2 = q
+
+    # 1) Cartesian
+    cart_d = np.linalg.norm(xyz1 - xyz2)
+
+    # 2) Parametric w/ edge-wrap
+    param_d = _param_dist_edge_wrap(stuv1, stuv2,
+                                    param_min, param_max,
+                                    tol=param_tol)
+
+    # 3) Tangent misalignment
+    dot   = float(np.dot(tan1, tan2))
+    tan_d = 1.0 - abs(dot)
+
+    #_logger.debug(f"cart_d={cart_d}, param_d={param_d}, tan_d={tan_d} (dot={dot})")
+
+    return (cart_d < spt and
+            param_d < param_tol and
+            tan_d < tan_tol)
+
+'''
 def reverse_polyline(polyline):
     """
     Reverse a polyline structure.
@@ -357,15 +425,16 @@ def reverse_polyline(polyline):
     return (rev_points, rev_seg_info)
 
 
-def join_segments_with_info(segments, tol, spt):
+def join_segments_with_info(segments, tol, spt, tan_tol, interval1,interval2):
     """
     Join connected segments into polylines and keep track of segment indices and orientation.
 
     Parameters:
         segments: list of segments, where each segment is defined as (p1, p2)
                   with p1 and p2 being coordinate tuples (e.g. (x, y)).
-        tol: error tolerance. Two points are considered identical if their distance is less than tol.
-
+        tol: error parameter tolerance. Two points are considered identical if their distance is less than tol.
+        spt: error spatial tolerance.
+        tan_tol: error tolerance for unit tangent alignment.
     Returns:
         A list of tuples, one per polyline. Each tuple is:
           (polyline_points, segments_info)
@@ -376,8 +445,12 @@ def join_segments_with_info(segments, tol, spt):
     # Initialize each segment as its own polyline.
     # Each polyline is a tuple: (points, segments_info)
     # For a segment given as (p1, p2), we use points = [p1, p2] and segments_info = [(index, False)]
+    (smin,smax),(tmin,tmax)=interval1
+    (umin, umax), (vmin, vmax) = interval2
+    #param_min= np.array((smin,tmin,umin,vmin),dtype=float)
+    #param_max = np.array((smax, tmax, umax, vmax),dtype=float)
     polylines = [(list(seg), [(idx, False)]) for idx, seg in enumerate(segments)]
-
+    
     changed=True
     while changed:
         changed = False
@@ -386,8 +459,9 @@ def join_segments_with_info(segments, tol, spt):
         while i < len(polylines):
             poly1 = polylines[i]
             points1, seg_info1 = poly1
+            
             # If polyline is closed, do not try to merge further.
-            if points_equal(points1[0], points1[-1], tol, spt):
+            if points_equal(tuple(points1[0]), tuple(points1[-1]),  param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                 i += 1
                 continue
 
@@ -396,7 +470,7 @@ def join_segments_with_info(segments, tol, spt):
                 poly2 = polylines[j]
                 points2, seg_info2 = poly2
                 # Skip poly2 if it is closed.
-                if points_equal(points2[0], points2[-1], tol,spt):
+                if points_equal(tuple(points2[0]), tuple(points2[-1]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     j += 1
                     continue
 
@@ -405,23 +479,23 @@ def join_segments_with_info(segments, tol, spt):
                 new_seg_info = None
 
                 # Case 1: End of poly1 equals beginning of poly2.
-                if points_equal(points1[-1], points2[0], tol,spt):
+                if points_equal(tuple(points1[-1]), tuple(points2[0]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     new_points = points1 + points2[1:]
                     new_seg_info = seg_info1 + seg_info2
                     merged = True
                 # Case 2: End of poly1 equals end of poly2 -> reverse poly2.
-                elif points_equal(points1[-1], points2[-1], tol,spt):
+                elif points_equal(tuple(points1[-1]), tuple(points2[-1]),  param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     rev_poly2 = reverse_polyline(poly2)
                     new_points = points1 + rev_poly2[0][1:]
                     new_seg_info = seg_info1 + rev_poly2[1]
                     merged = True
                 # Case 3: Beginning of poly1 equals end of poly2.
-                elif points_equal(points1[0], points2[-1], tol,spt):
+                elif points_equal(tuple(points1[0]), tuple(points2[-1]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     new_points = points2 + points1[1:]
                     new_seg_info = seg_info2 + seg_info1
                     merged = True
                 # Case 4: Beginning of poly1 equals beginning of poly2 -> reverse poly2.
-                elif points_equal(points1[0], points2[0], tol,spt):
+                elif points_equal(tuple(points1[0]), tuple(points2[0]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     rev_poly2 = reverse_polyline(poly2)
                     new_points = rev_poly2[0] + points1[1:]
                     new_seg_info = rev_poly2[1] + seg_info1
@@ -1059,7 +1133,7 @@ def _compare_robust(a, b, tol):
     return (min_val<=b) and (b<=max_val)
 import logging
 _logger=logging.getLogger('mmcore')
-def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs) :
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol=1e-3,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
     :param surf1: First NURBS surface
@@ -1081,8 +1155,8 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
     items=detect_intersections(ns1, ns2, spt=spt, tol=tol)
     _logger.debug('detected intersections: %s', items)
     beams=[]
-    (smin,smax),(tmin,tmax)=ns1.interval()
-    (umin, umax), (vmin, vmax) = ns1.interval()
+    (smin,smax),(tmin,tmax)=s1_interval=ns1.interval()
+    (umin, umax), (vmin, vmax) = s2_interval=ns2.interval()
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
@@ -1184,7 +1258,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
     _logger.debug(f"end tracing")
 
     branches_joined=[]
-    ppp=join_segments_with_info(beams, tol, spt)
+    ppp=join_segments_with_info(beams, tol=tol, spt=spt, tan_tol=tan_tol, interval1=s1_interval,interval2=s2_interval)
 
     isolated_points_indexes_to_delete = set()
     for pts, seg_info in ppp:
@@ -1211,15 +1285,16 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
         if np.linalg.norm([ds,dt,du,dv])<tol :
             pass
         else:
-
+            pt_start=np.array(branch_pt[0])
+            pt_end=np.array(branch_pt[-1])
             stuv_start=np.array([branch_uv1[0][0], branch_uv1[0][1], branch_uv2[0][0], branch_uv2[0][1]])
             stuv_end=np.array([branch_uv1[-1][0], branch_uv1[-1][1], branch_uv2[-1][0], branch_uv2[-1][1]])
             for i,pt in enumerate(isolated_points):
-
-                if (np.linalg.norm(stuv_start-pt.stuv)<tol):
+            
+                if (np.linalg.norm(stuv_start-pt.stuv)<tol or np.linalg.norm(pt_start-pt.point)<spt):
                     isolated_points_indexes_to_delete.add(i)
 
-                elif (np.linalg.norm(stuv_end - pt.stuv) < tol):
+                elif (np.linalg.norm(stuv_end - pt.stuv) < tol)or np.linalg.norm(pt_end-pt.point)<spt:
 
                     isolated_points_indexes_to_delete.add(i)
 

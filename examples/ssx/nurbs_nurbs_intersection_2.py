@@ -917,7 +917,8 @@ s2 = NURBSSurface(
 
     }
 )
-
+import logging
+#logging.basicConfig(level=logging.DEBUG)
 s=time.time()
 result=ssx(s1,s2,tol=1e-4,spt=0.01)
 

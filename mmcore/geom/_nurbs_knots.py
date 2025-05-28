@@ -85,25 +85,6 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     return mult
 
 
-def knot_insertion_alpknot_removalha(u, knotvector, span, idx, leg):
-    """ Computes :math:`\\alpha` coefficient for knot insertion algorithm.
-
-    :param u: knot
-    :type u: float
-    :param knotvector: knot vector
-    :type knotvector: tuple
-    :param span: knot span
-    :type span: int
-    :param idx: index value (degree-dependent)
-    :type idx: int
-    :param leg: i-th leg of the control points polygon
-    :type leg: int
-    :return: coefficient value
-    :rtype: float
-    """
-    return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
-
-
 def knot_insertion_kv(knotvector, u, span, r):
     """ Computes the knot vector of the rational/non-rational spline after knot insertion.
 
