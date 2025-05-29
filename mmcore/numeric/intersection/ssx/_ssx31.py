@@ -32,7 +32,7 @@ from mmcore.geom._nurbs_eval import evaluate_nurbs_surface, NURBSSurfaceTuple, _
 
 from mmcore.geom import nurbs
 
-
+_DEFAULT_ANGLE_TOL=0.0523
 def find_initial_intersection_points(surf1, surf2, tol=1e-3) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[IntersectionPoint]] | None:
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
@@ -91,8 +91,42 @@ def det3(v1: np.ndarray, v2: np.ndarray, v3: np.ndarray) -> float:
     """Compute the determinant of three 3D vectors."""
     return np.linalg.det(np.column_stack((v1, v2, v3)))
 
+def normal_angle_gap(n1, n2):
+    """
+    Compute sin(theta) between normals n1 and n2:
+        sin θ = ||n1 × n2|| / (||n1|| · ||n2||)
+    """
+    n1 = np.asarray(n1, dtype=float)
+    n2 = np.asarray(n2, dtype=float)
+    num = np.linalg.norm(np.cross(n1, n2))
+    den = np.linalg.norm(n1) * np.linalg.norm(n2)
+    return num / den
 
-def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
+def normal_distance_gap(n, S1, S2):
+    """
+    Compute the scalar projection of the residual (S1 - S2) on normal n:
+        |n · (S1 - S2)| / ||n||
+    If n is already unit-length you can omit the division by ||n||.
+    """
+ 
+    diff = S1- S2
+    return abs(np.dot(n, diff))
+
+def within_normal_gap(n1, n2, S1, S2, eps_theta, eps_n):
+    """
+    Check whether either gap metrics is below its threshold:
+      sin θ ≤ eps_theta
+      OR
+      |n1·(S1−S2)| ≤ eps_n
+    """
+    if normal_angle_gap(n1, n2) <= eps_theta:
+        return True
+    if normal_distance_gap(n1, S1, S2) <= eps_n:
+        return True
+    return False
+def calculate_eps_n(spt, angle_tol):
+    return (spt**2)/(angle_tol+10e-12)
+def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, eps_n=None,angle_tol=0.052,max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
     """
     Refine an approximate intersection point onto the true intersection by iterating until
     the difference between the two surface evaluations is below the Same Point Tolerance (SPT).
@@ -121,6 +155,8 @@ def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NU
     x_current = np.array(x, dtype=float)
     p_eval, q_eval=dict(),dict()
     error=-1
+    if eps_n is None:
+        eps_n=calculate_eps_n(spt,angle_tol)
     while iteration < max_iter:
         s, t, u, v = x_current
 
@@ -131,9 +167,15 @@ def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NU
         S0 = np.array(p_eval["S"])
         S1 = np.array(q_eval["S"])
         error = np.linalg.norm(S0 - S1)
-
+        n1=np.cross(p_eval["Su"], p_eval["Sv"])
+        n1/=np.linalg.norm(n1)
+        
+        n2 = np.cross(q_eval["Su"], q_eval["Sv"])
+        n2/=np.linalg.norm(n2)
         # Check convergence.
-        if error < spt:
+        if (error<spt) and within_normal_gap(n1,n2, p_eval['S'],q_eval['S'], angle_tol,eps_n) :
+            
+        
             break
 
         # Compute the average of the two surface evaluations.
@@ -335,7 +377,6 @@ def _distance(p, q):
     return np.linalg.norm(p-q)
 import numpy as np
 import logging
-
 
 
 '''
@@ -674,7 +715,7 @@ def check_boundary_intersections_condition(x0,x, interval_u_1,interval_v_1,inter
     return first_condition and second_condition
 def _expand_interval(interv,val):
     return interv[0]-val,interv[1]+val
-def check_boundary_intersections(boundary_intersection_points:list[IntersectionPoint], interval_u_1,interval_v_1,interval_u_2,interval_v_2, surface1,surface2,current, prev, tol,spt, use_spt=True):
+def check_boundary_intersections(boundary_intersection_points:list[IntersectionPoint], interval_u_1,interval_v_1,interval_u_2,interval_v_2, surface1,surface2,current, prev, tol,spt, use_spt=True, eps_n=None,angle_tol=_DEFAULT_ANGLE_TOL):
         x=current
         x0=prev
 
@@ -723,7 +764,7 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                         continue
                     x_mid=(x + x0) / 2
 
-                    x_mid, pt1,pt2,_=refine_intersection_point(x_mid,surface1,surface2, spt=spt, max_iter=100
+                    x_mid, pt1,pt2,_=refine_intersection_point(x_mid,surface1,surface2, spt=spt, max_iter=100,angle_tol=angle_tol,eps_n=eps_n
                                             )
 
 
@@ -770,8 +811,9 @@ def validated_ode_solver(
         spt:float,
         boundary_intersections=None,
         context:dict|None=None,
-        boundary_check_spt=True
-
+        boundary_check_spt=True,
+        angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n:float=None,
 ) -> tuple[np.ndarray, list[np.ndarray], int]:
     """
     A validated ODE solver that marches along the intersection curve by solving the ODE system:
@@ -793,6 +835,8 @@ def validated_ode_solver(
          - A numpy array of states along the marching path.
          - A list of interval enclosures (each as a 2x4 numpy array: lower and upper bounds)
            for the corresponding state.
+           :param eps_n:
+           :param angle_tol:
     """
     interval_u_1=surf1.knot_u[surf1.order_u-1],surf1.knot_u[len(surf1.control_points)+1]
     interval_v_1 = surf1.knot_v[surf1.order_v-1],surf1.knot_v[len(surf1.control_points[0])+1]
@@ -861,7 +905,7 @@ def validated_ode_solver(
         # Accept the step with the more accurate two-half-step result.
         x_new = x_half2.copy()
         # Apply iterative point refinement until ||S0 - S1|| < spt.
-        x_new,p_eval,q_eval,error = refine_intersection_point(x_new, surf1, surf2, spt=spt, max_iter=100)
+        x_new,p_eval,q_eval,error = refine_intersection_point(x_new, surf1, surf2, spt=spt, max_iter=100, eps_n=eps_n,angle_tol=angle_tol)
 
 
 
@@ -880,7 +924,8 @@ def validated_ode_solver(
         x = x_new.copy()
 
 
-        success, bp_index = check_boundary_intersections(boundary_intersections, interval_u_1,interval_v_1,interval_u_2,interval_v_2,surf1,surf2,x,x_prev, tol=tol, spt=spt, use_spt=boundary_check_spt)
+        success, bp_index = check_boundary_intersections(boundary_intersections, interval_u_1,interval_v_1,interval_u_2,interval_v_2,surf1,surf2,x,x_prev, tol=tol, spt=spt, use_spt=boundary_check_spt,eps_n=eps_n,angle_tol=angle_tol)
+    
 
         if success:
                 #print("B",[boundary_intersections[bp_index].stuv.tolist(), x_prev.tolist()])
@@ -949,7 +994,7 @@ def validated_ode_solver(
                 current_tangent=np.cross(n1,n2)
                 current_tangent/=np.linalg.norm(current_tangent)
 
-                if ((1.-np.dot(initial_tangent,current_tangent))<=0.1):
+                if ((1.-abs(np.dot(initial_tangent,current_tangent)))<=0.01):
                     termination_reason=2
                     break
 
@@ -970,8 +1015,10 @@ def trace_intersection_curve(
         h_initial: float = 0.1,
         tol: float = 1e-6,
         spt: float = 1e-3,
+
         context:dict|None=None,
-        boundary_check_spt=True
+        boundary_check_spt=True,         angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n=None
 
 ) -> tuple[ndarray[Any, dtype[Any]], ndarray[Any, dtype[Any]], ndarray[Any, dtype[Any]], list[ndarray], int]:
     """
@@ -989,7 +1036,7 @@ def trace_intersection_curve(
         h_initial  : Initial step size for the ODE solver.
         tol        : Tolerance for error control and ODE validation.
         spt        : Same Point Tolerance for point refinement.
-
+     
     Returns:
         A tuple containing:
          - curve_points: An (N,3) numpy array of points in 3D model space along the intersection.
@@ -997,22 +1044,14 @@ def trace_intersection_curve(
          - params_surf2: An (N,2) numpy array of parametric coordinates on surf2.
          - enclosures : A list of interval enclosures (each a 2x4 numpy array) in the parametric space.
          - termination_reason: int
+        
     """
 
 
-    states, enclosures,term_reason = validated_ode_solver(
-        f=intersection_ode,
-        x0=init_params,
-        surf1=surf1,
-        surf2=surf2,
-        s_max=s_max,
-        h_initial=h_initial,
-        tol=tol,
-        spt=spt,
-        boundary_intersections=boundary_intersections,
-        context=context,
-        boundary_check_spt=boundary_check_spt
-    )
+    states, enclosures,term_reason = validated_ode_solver(f=intersection_ode, x0=init_params, surf1=surf1, surf2=surf2,
+                                                          s_max=s_max, h_initial=h_initial, tol=tol, spt=spt,
+                                                          boundary_intersections=boundary_intersections,
+                                                          context=context, boundary_check_spt=boundary_check_spt,eps_n=eps_n,angle_tol=angle_tol)
 
     curve_points = []
     params_surf1 = []
@@ -1034,7 +1073,8 @@ def trace_intersection_curve(
 # Example Usage (for production, integrate with robust initial point finder)
 # -------------------------------------------------------------------
 
-def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
+def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True,         angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n=None ):
 
 
         branches=[]
@@ -1077,9 +1117,13 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
 
             #init_point_xyz = evaluate_nurbs_surface(surf1, init_point[0], init_point[1], 0)['S']
 
-            curve_pts, params1, params2, encl, termination_reason = trace_intersection_curve(
-                surf1, surf2, init_point,  boundary_intersections, s_max=-1, h_initial=h_initial, tol=tol, spt=spt, context=context,boundary_check_spt=boundary_check_spt
-            )
+            curve_pts, params1, params2, encl, termination_reason = trace_intersection_curve(surf1, surf2, init_point,
+                                                                                             boundary_intersections,
+                                                                                             s_max=-1,
+                                                                                             h_initial=h_initial,
+                                                                                             tol=tol, spt=spt,
+                                                                                             context=context,angle_tol=angle_tol,eps_n=eps_n,
+                                                                                             boundary_check_spt=boundary_check_spt)
             if (termination_reason == 1):
                 #print("CC",len(curve_pts),np.array(curve_pts).tolist(), [b.point.tolist()for b in boundary_intersections])
                 ...
@@ -1091,9 +1135,14 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
                 #init_point_xyz = evaluate_nurbs_surface(surf1, init_point[0], init_point[1], 0)['S']
                 #print(1, init_point_xyz.tolist())
 
-                curve_pts2, params12, params22, encl2, termination_reason2 = trace_intersection_curve(
-                    surf1, surf2, init_point, boundary_intersections,s_max=-1, h_initial=-h_initial, tol=tol, spt=spt, context=context,boundary_check_spt=boundary_check_spt
-                )
+                curve_pts2, params12, params22, encl2, termination_reason2 = trace_intersection_curve(surf1, surf2,
+                                                                                                      init_point,
+                                                                                                      boundary_intersections,
+                                                                                                      s_max=-1,
+                                                                                                      h_initial=-h_initial,
+                                                                                                      tol=tol, spt=spt,
+                                                                                                      context=context,angle_tol=angle_tol,eps_n=eps_n,
+                                                                                                      boundary_check_spt=boundary_check_spt)
 
 
                 curve_pts, params1, params2, encl=np.array([*reversed(curve_pts2),*curve_pts[1:]]),np.array([*reversed(params12), *params1[1:]]),np.array([*reversed(params22),*params2[1:]]),[*reversed(encl2),encl[1:]]
@@ -1109,24 +1158,6 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
         return branches
 SamplingMethod=Literal['marching','subdivide']
 
-def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,h_initial=0.1,tol=1e-3,spt=1e-3,sampling_method:SamplingMethod='marching'):
-    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
-                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
-                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
-
-    surf2 = NURBSSurfaceTuple(order_u=s2.degree[0] + 1, order_v=s2.degree[1] + 1, knot_u=s2.knots_u.tolist(),
-                              knot_v=s2.knots_v.tolist(), control_points=np.array(s2.control_points),
-                              weights=np.ascontiguousarray(s2.control_points_w[..., -1]))
-    if sampling_method=='marching':
-        res = find_initial_intersection_points(surf1, surf2, tol)
-        if res is not None:
-            init_points, init_uv1, init_uv2, boundary_intersections = res
-            return trace_intersection_curves(surf1,surf2, init_points, init_uv1, init_uv2, boundary_intersections ,h_initial,tol,spt)
-        else:
-            return None
-    else:
-        return _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=tol, spt=spt)
-
 
 def _compare_robust(a, b, tol):
     min_val=a-tol
@@ -1134,7 +1165,7 @@ def _compare_robust(a, b, tol):
     return (min_val<=b) and (b<=max_val)
 import logging
 _logger=logging.getLogger('mmcore')
-def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol=1e-3,**kwargs) :
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol=1e-3,angle_tol:float=_DEFAULT_ANGLE_TOL,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
     :param surf1: First NURBS surface
@@ -1152,6 +1183,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
         ns1= _tuple_to_nurbs(surf1)
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
+    eps_n=calculate_eps_n(spt,angle_tol)
     branches=[]
     items=detect_intersections(ns1, ns2, spt=spt, tol=tol)
     _logger.debug('detected intersections: %s', items)
@@ -1187,7 +1219,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
                 _logger.debug(f"not isolated: {stars_points[0].point.tolist()}")
             continue
         # OLDVALUE: elif len(stars_points)>2: (Кажется, что в текущей реализации marching ведет себя всегда лучше подгонки. В дальнейшем, можно рассмотреть более умную диспетчеризацию. Например, использовать подгонку на участках с малой кривизной, или большим углом между нормалями.
-        elif len(stars_points)>1:
+        elif len(stars_points)>2:
 
             if (len(stars_points)%2)==1:
 
@@ -1222,7 +1254,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
                     if uvd<min_uvd:
                         min_uvd=uvd
 
-            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,h_initial= min_uvd/3,backward=False,boundary_check_spt=False):
+            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,h_initial= tol,backward=False,boundary_check_spt=False, eps_n=eps_n,angle_tol=angle_tol):
                 curve_pts, params1, params2=np.array(curve_pts), np.array(params1), np.array(params2)
                 branches.append((curve_pts,
                                  params1,
@@ -1306,6 +1338,3 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
         list(set(range(len(isolated_points))) - isolated_points_indexes_to_delete)]).tolist()
 
     return branches_joined, real_isolated_points
-
-
-
