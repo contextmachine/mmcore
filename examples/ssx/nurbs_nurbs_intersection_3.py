@@ -19,7 +19,7 @@ NURBSCurve(np.array([[8.2292140025329292, 1.6639891981988872, 11.166654499054477
 ),1))
 
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
-from mmcore.numeric.intersection.ssx._ssx31 import nurbs_trace_intersection_curves
+
 from mmcore.numeric.intersection.ssx import ssx
 
 

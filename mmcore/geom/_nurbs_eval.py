@@ -687,6 +687,7 @@ def _join_weights(pts,weights):
 
 def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
     if isinstance(s1,nurbs.NURBSSurface):
+        
         surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
                               knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
                               weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
@@ -706,7 +707,7 @@ def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NU
     if isinstance(obj,(NURBSSurfaceTuple,BSplineSurfaceTuple)):
         degree=obj.order_u-1,obj.order_v-1
 
-        pts= to_homogeneous_2d(obj.control_points,obj.weights) if isinstance(obj,NURBSSurfaceTuple) else obj.control_points
+        pts= to_homogeneous_2d(obj.control_points,obj.weights)
 
         return nurbs.NURBSSurface(pts, degree,np.array(obj.knot_u),np.array(obj.knot_v))
     elif isinstance(obj,(NURBSCurveTuple,BSplineCurveTuple)):
