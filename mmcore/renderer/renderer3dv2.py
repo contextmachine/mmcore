@@ -11,7 +11,7 @@ from typing import List, Tuple, Optional
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
 
 from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
-from mmcore.topo.mesh.tess import tessellate_surface
+from mmcore.topo.mesh.tess import tessellate_surface,surface_to_mesh
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
 DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.
@@ -669,11 +669,11 @@ class CADRenderer:
                               ):
         """Add a NURBS surface as a transparent mesh with wireframe"""
         # Tessellate the surface
-        tessellation = tessellate_surface(surf)
+        tessellation = surface_to_mesh(surf,0.1)
 
         # Extract mesh data
         vertices = tessellation["position"]
-        triangles = tessellation["triangles"]
+        triangles = tessellation["faces"]
 
         # Add mesh to the scene
         self.add_mesh(vertices, triangles, color=color, wireframe_color=wireframe_color)
@@ -681,7 +681,7 @@ class CADRenderer:
         return tessellation
 
     def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=1.0,
-                          render_as_mesh=True, surface_color=(0.5, 0.5, 0.9, 0.05)):
+                          render_as_mesh=True, surface_color=(0.5, 0.5, 0.9, 0.05), draw_isolies:bool=True):
         """Add a NURBS surface to the scene
 
         Args:
@@ -693,8 +693,9 @@ class CADRenderer:
         """
         # Add wireframe representation
         boundaries, isolines, mid_iso = nurbs_surface_wireframe_view(surf)
-        for iso in isolines:
-            self.add_nurbs_curve(iso, (np.array(color[:3]) * 0.5).tolist(), thickness)
+        if draw_isolies:
+            for iso in isolines:
+                self.add_nurbs_curve(iso, (np.array(color[:3]) * 0.5).tolist(), thickness)
         for b in boundaries:
             self.add_nurbs_curve(b, color[:3], thickness)
 
