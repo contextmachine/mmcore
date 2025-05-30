@@ -7,7 +7,7 @@ if sys.platform.startswith("win"):
     import pyMSVC
 
     environment = pyMSVC.setup_environment()
-    print(environment)
+    #print(environment)
 
 import setuptools
 import numpy
