@@ -225,7 +225,7 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
 
         if i > max_iter:
             if not no_err:
-                raise ValueError(f'Maximum iterations exceeded, No convergence {d}')
+                raise ValueError(f'Maximum iterations exceeded, No convergence {d} (tol={tol})')
             else:
                 success = False
                 break

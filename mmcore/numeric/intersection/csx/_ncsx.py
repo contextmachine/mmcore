@@ -1,6 +1,6 @@
 import numpy as np
 
-from mmcore.numeric._aabb import aabb, aabb_intersection
+from mmcore.numeric._aabb import aabb, aabb_intersection,aabb_intersect_fast_3d
 
 from mmcore.numeric.newton.cnewton import newtons_method
 
@@ -167,7 +167,7 @@ class NURBSCurveSurfaceIntersector:
         bb1[1] += self.tolerance
         bb2[0] -= self.tolerance
         bb2[1] += self.tolerance
-        if not aabb_intersection(bb1,bb2):
+        if not aabb_intersect_fast_3d(bb1,bb2):
             return
 
         #equation = CurveSurfaceEq(curve, surface)
@@ -230,7 +230,7 @@ class NURBSCurveSurfaceIntersector:
         # print(surface_normal,curve_tangent)
         return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.tolerance
 
-
+from ._ncsx2 import int_cs
 def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
     """
     Compute intersections between a NURBS curve and a NURBS surface.

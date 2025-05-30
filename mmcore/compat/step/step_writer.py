@@ -3,12 +3,16 @@ from __future__ import annotations
 from collections import OrderedDict
 
 from typing import Any
+
+import numpy as np
+
 from mmcore import __version__
 from steputils import p21
 from itertools import count
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
-from mmcore.geom.nurbs_iso import extract_surface_boundaries
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, NURBSCurveTuple
+from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_surface_boundaries_tuple
 
 import re
 
@@ -138,8 +142,6 @@ def process_token(token):
     return token
 
 
-
-
 COMPLEX_ENTITY_INSTANCE='COMPLEX_ENTITY_INSTANCE'
 CARTESIAN_POINT="CARTESIAN_POINT"
 VERTEX_POINT="VERTEX_POINT"
@@ -158,7 +160,7 @@ def get_knot_multiplicities(knots):
     last_knot = knots[0]
     count = 1
     for i in range(1, len(knots)):
-        if abs(knots[i] - last_knot) < 1e-8:
+        if abs(knots[i] - last_knot) < 1e-12:
             count += 1
         else:
             unique_knots.append(last_knot)
@@ -167,6 +169,7 @@ def get_knot_multiplicities(knots):
             count = 1
     unique_knots.append(last_knot)
     multiplicities.append(count)
+
     return unique_knots, multiplicities
 
 
@@ -218,7 +221,7 @@ class StepWriter:
         add_context3():
             Adds the default geometric representation context to the STEP file.
     """
-    def __init__(self, step_file:p21.StepFile=None, tolerance=1e-7,world_plane= ((0.,0.,0.),(1.,0.,0.),(0.,1.,0.),(0.,0.,1.))):
+    def __init__(self, step_file:p21.StepFile=None, tolerance=1e-5,world_plane= ((0.,0.,0.),(1.,0.,0.),(0.,1.,0.),(0.,0.,1.))):
         if step_file is None:
             step_file=p21.StepFile()
         self.step_file=step_file
@@ -236,7 +239,6 @@ class StepWriter:
         self._last_ref=self._counter.__next__()
         self.last_ref=p21.Reference(f'#{self._last_ref}')
 
-
         self._1 = self.add_entity(
             p21.entity('APPLICATION_CONTEXT', ('core data for automotive mechanical design processes',)))
         self._2 = self.add_entity(
@@ -250,7 +252,7 @@ class StepWriter:
         self._context3=None
         self._context3= self.add_context3()
         self.world_plane=self.add_plane(world_plane)
-        #self.base_shape_representation=self.add_shape_representation((self.world_plane[-2],self.world_plane[-1]), self._context3,'Document')
+        # self.base_shape_representation=self.add_shape_representation((self.world_plane[-2],self.world_plane[-1]), self._context3,'Document')
 
     def write(self,fl):
         return self.step_file.write(fl)
@@ -276,10 +278,34 @@ class StepWriter:
                                             )
                                           )
                                )
+    def add_rational_b_spline_curve_with_knots(self, curve:NURBSCurve|NURBSCurveTuple, curve_form=UNSPECIFIED,closed_curve:bool=False,self_intersect:bool=False,name:str=''):
+
+        weights=curve.weights.tolist()
+
+        unique_knots,mult= get_knot_multiplicities(curve.knots.tolist() if isinstance(curve,NURBSCurve) else curve.knot.tolist() )
+        return self.add_complex_entity(
+            [
+                p21.entity("BOUNDED_CURVE".upper(), ()),
+                p21.entity(
+                    "B_SPLINE_CURVE",
+                    (
+                        int(curve.degree),
+                        [self.add_cartesian_point(pt) for pt in curve.control_points],
+                        curve_form,
+                        TRUE if closed_curve else FALSE,
+                        TRUE if self_intersect else FALSE,
+                    ),
+                ),
+
+                p21.entity("GEOMETRIC_REPRESENTATION_ITEM", ()),
+                p21.entity("B_SPLINE_CURVE_WITH_KNOTS", (mult, unique_knots, UNSPECIFIED)),
+                p21.entity("RATIONAL_B_SPLINE_CURVE", (weights,)),
+                p21.entity("REPRESENTATION_ITEM", (name,)),
+            ]
+        )
 
     def issteptype(self, obj):
-        return type(obj) in (p21.Reference,p21.SimpleEntityInstance,p21.ComplexEntityInstance)
-
+        return type(obj) in (p21.Reference, p21.SimpleEntityInstance, p21.ComplexEntityInstance)
 
     def typeof(self, ref:p21.Reference):
         item=self.step_file.data[0].instances[ref]
@@ -288,7 +314,7 @@ class StepWriter:
         elif hasattr(item,'entities'):
             return COMPLEX_ENTITY_INSTANCE
         else:
-           raise ValueError(f'{type(ref)} is not STEP type.')
+            raise ValueError(f'{type(ref)} is not STEP type.')
     def add_edge_curve(self, start, end, geometry, same_sense=True, name:str=''):
         if same_sense==True:
             same_sense=TRUE
@@ -340,6 +366,10 @@ class StepWriter:
         return self.add_entity(p21.entity(
             "OPEN_SHELL", (name, faces)
         ))
+    def add_closed_shell(self, faces,name:str=''):
+        return self.add_entity(p21.entity(
+            "CLOSED_SHELL", (name, faces)
+        ))
 
     def add_advanced_face(self, loops, face_geometry, same_sense=TRUE,name:str=''):
         return self.add_entity(p21.entity(
@@ -359,7 +389,6 @@ class StepWriter:
     def add_units(self):
         # 54=(
 
-
         LENGTH_UNITS=self.add_complex_entity([p21.entity('LENGTH_UNIT',
                                  ()
                                  ),
@@ -372,7 +401,6 @@ class StepWriter:
                         )
                       ])
 
-
         ANGLE_UNITS=self.add_complex_entity([
         p21.entity(
             'NAMED_UNIT', (ANY,)),
@@ -380,7 +408,6 @@ class StepWriter:
             'PLANE_ANGLE_UNIT',()),
         p21.entity('SI_UNIT',(p21.UnsetParameter('$'), p21.Enumeration('.RADIAN.')))
         ])
-
 
         p59=self.add_complex_entity(
             [p21.entity(
@@ -415,7 +442,6 @@ class StepWriter:
         xy=self.add_axis_axis2_placement_3d(origin,xaxis,yaxis)
 
         return (origin, xaxis,yaxis,xy)
-
 
     def add_shape_representation(self, items, context_of_items=None, name:str=''):
         return self.add_entity(p21.entity('SHAPE_REPRESENTATION', (name, items, context_of_items if context_of_items is not None else self.add_context3())))
@@ -460,14 +486,16 @@ class StepWriter:
         self.step_file.data[0].instances.update({entity_id:p21.complex_entity_instance(entity_id, entities)})
         return entity_id
 
-    def add_nurbs_surface(self, surf:NURBSSurface,color=(0.5,0.5,0.5), name:str=''):
+    def add_bspline_surface(self, surf:NURBSSurface,color=(0.5,0.5,0.5), name:str=''):
 
         unique_knots_u, mult_u = get_knot_multiplicities(surf.knots_u.tolist())
         unique_knots_v, mult_v = get_knot_multiplicities(surf.knots_v.tolist())
         boundaries=extract_surface_boundaries(surf)
+
         shell= self.add_shell_based_surface_model(
                 (self.add_open_shell(
-                    (self.add_advanced_face(
+                    (
+                        self.add_advanced_face(
                         (
                         self.add_face_bound(
                         self.add_edge_loop([
@@ -477,7 +505,8 @@ class StepWriter:
                                     self.add_cartesian_point(tuple(boundary.end())),
                                     self.add_b_spline_curve_with_knots(boundary)
                                 )
-                            ) for boundary in boundaries])),
+                            ) for boundary in boundaries])
+                        ),
                         ),
                         self.add_entity(
                             p21.entity('B_SPLINE_SURFACE_WITH_KNOTS',(
@@ -488,6 +517,70 @@ class StepWriter:
                                 )
                             )
                         ),
+                        FALSE,
+                        name
+                    ),
+                ),),),name)
+        self.add_surface_style(shell,color=color)
+        return shell
+    def add_rational_bspline_surface(self,surf,u_closed:bool=False,v_closed:bool=False,surface_form=UNSPECIFIED,self_intersect:bool=False,name=""):
+        unique_knots_u, mult_u = get_knot_multiplicities(surf.knots_u.tolist())
+        unique_knots_v, mult_v = get_knot_multiplicities(surf.knots_v.tolist())
+        if isinstance(surf,NURBSSurfaceTuple):
+            weights = surf.weights
+            control_points = surf.control_points
+        else:
+            cptsw=np.array(surf.control_points_w)
+            weights = cptsw[..., -1]
+            control_points=cptsw[...,:-1]/weights[...,np.newaxis]
+
+        return self.add_complex_entity(
+            [
+                p21.entity("BOUNDED_SURFACE", []),
+                p21.entity(
+                    "B_SPLINE_SURFACE",
+                    (
+                        int(surf.degree[0]),
+                        int(surf.degree[1]),
+                        [[self.add_cartesian_point(pt) for pt in pts] for pts in control_points],
+                        surface_form,
+                        TRUE if u_closed else FALSE,
+                        TRUE if v_closed else FALSE,
+                        TRUE if self_intersect else FALSE,
+                    ),
+                ),
+                p21.entity("B_SPLINE_SURFACE_WITH_KNOTS", (mult_u, mult_v, unique_knots_u, unique_knots_v, UNSPECIFIED)),
+                p21.entity("GEOMETRIC_REPRESENTATION_ITEM", []),
+                p21.entity("RATIONAL_B_SPLINE_SURFACE", (weights.tolist(),)),
+                p21.entity("REPRESENTATION_ITEM", [name]),
+                p21.entity("SURFACE", [])
+            ]
+        )
+
+    def add_nurbs_surface(self, surf:NURBSSurface|NURBSSurfaceTuple,color=(0.5,0.5,0.5), u_closed: bool = False,
+                                 v_closed: bool = False,name:str=''):
+        if isinstance(surf,NURBSSurfaceTuple):
+            # surf=_tuple_to_nurbs(surf)
+            boundaries = extract_surface_boundaries_tuple(surf)
+        else:
+            boundaries=extract_surface_boundaries(surf)
+
+        shell= self.add_shell_based_surface_model(
+                (self.add_open_shell(
+                    (self.add_advanced_face(
+                        (
+                        self.add_face_bound(
+                        self.add_edge_loop([
+                            self.add_oriented_edge(
+                                self.add_edge_curve(
+                                    self.add_cartesian_point(tuple(boundary.start())),
+                                    self.add_cartesian_point(tuple(boundary.end())),
+                                    self.add_rational_b_spline_curve_with_knots(boundary, closed_curve=u_closed if i<2 else v_closed )
+                                )
+                            ) for i,boundary in enumerate(boundaries)])),
+                        ),
+
+                        self.add_rational_bspline_surface(surf,u_closed,v_closed),
                         TRUE,
                         name
                     ),
@@ -499,7 +592,8 @@ class StepWriter:
             self.add_edge_curve(
                 self.add_cartesian_point(tuple(curve.start())),
                 self.add_cartesian_point(tuple(curve.end())),
-                self.add_b_spline_curve_with_knots(curve)
+                self.add_rational_bspline_surface(curve)
+
             ))
         return oriented_edge
 
@@ -515,4 +609,3 @@ if __name__ =="__main__":
     ref2 = we.add_nurbs_surface(ssx[1][1], (1.,1.0,0.),'surface2')
     with open('step-test1.step', 'w') as f:
         we.step_file.write(f)
-

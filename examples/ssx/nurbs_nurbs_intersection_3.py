@@ -11,7 +11,7 @@ from mmcore.geom.nurbs import NURBSCurve
 import numpy as np
 crv1=NURBSCurve(np.array(pts1))
 crv2=NURBSCurve(np.array(pts2))
-from mmcore.construction.ruled import ruled
+from mmcore.construction import ruled
 s1=ruled(crv1,crv2)
 s2=ruled(NURBSCurve(np.array([[-19.866327395603214, 1.6639891981988859, -0.026559537166892966], [-13.079018853432281, 24.600246438290654, -14.581989677486053]]
          ),1),
@@ -19,7 +19,7 @@ NURBSCurve(np.array([[8.2292140025329292, 1.6639891981988872, 11.166654499054477
 ),1))
 
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
-from mmcore.numeric.intersection.ssx._ssx31 import nurbs_trace_intersection_curves
+
 from mmcore.numeric.intersection.ssx import ssx
 
 
@@ -38,35 +38,35 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
             print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
             cpts=(spatial.control_points).tolist()
             cpts_repr = repr(cpts)
-            if len(cpts)>4:
-                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
+            #if len(cpts)>4:
+            #    cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
             print(f'\t\tcontrol points: {cpts_repr}')
             print(f'\t\tdegree: {spatial.degree}')
 
 
-
-
-try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
-
-    print(dir(Camera))
-    centr=np.average(s1.control_points_flat, axis=0)
-    renderer=CADRenderer(camera=Camera( zoom=75.
+RENDER=True
+if RENDER:
+    try:
+        from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+    
+        print(dir(Camera))
+        centr=np.average(s1.control_points_flat, axis=0)
+        renderer=CADRenderer(camera=Camera( zoom=75.
+            )
         )
-    )
-
-    renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
-    renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
-
-    for (crv,uv1,uv2) in result[0]:
-        renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
-
-
-    renderer.run()
-
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+    
+        renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
+        renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+    
+        for (crv,uv1,uv2) in result[0]:
+            renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
+    
+    
+        renderer.run()
+    
+    except ModuleNotFoundError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except ImportError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except Exception as err:
+        raise err

@@ -51,7 +51,11 @@ class AABB:
         """Return True if this box intersects with another."""
         # No intersection if one is completely to one side of the other
         return not (np.any(self.max <= other.min) or np.any(self.min >= other.max))
-
+    def offset(self, d:float):
+        return AABB(self.min-d,self.max+d)
+    def offset_inplace(self, d:float):
+        self.min-=d
+        self.max+=d
 
 @dataclasses.dataclass
 class BVHNode:
@@ -237,8 +241,8 @@ class BVH:
 
         return dct
 
-def build_bvh(bboxes)->BVH:
-    tree = BVH()
+def build_bvh(bboxes,  max_objects_in_leaf:int=1)->BVH:
+    tree = BVH(max_objects_in_leaf=max_objects_in_leaf)
     tree.build(bboxes)
     return tree
 
@@ -440,3 +444,31 @@ def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):
 
                     stack.append(node.right)
     return ints
+def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True):
+    root1:BVHNode=bvh1.get_root()
+    root2:BVHNode=bvh2.get_root()
+    stack=[(root1, root2)]
+    res=[]
+    while stack:
+        a,b=stack.pop(0)
+        if not exact:
+            is_inter=a.bbox.intersects(b.bbox)
+        else:
+            is_inter = a.bbox.intersects_exact(b.bbox)
+        if not is_inter:
+            continue
+        elif a.is_leaf() and b.is_leaf():
+            res.append((a,b))
+        elif a.is_leaf() :
+
+            stack.append((a,bvh2.nodes[b.left]))
+            stack.append((a,bvh2.nodes[b.right]))
+        elif b.is_leaf():
+            stack.append(( bvh1.nodes[a.left],b))
+            stack.append(( bvh1.nodes[a.right],b))
+        else:
+            for first in [bvh1.nodes[a.left],bvh1.nodes[a.right]]:
+                for second in [ bvh2.nodes[b.left], bvh2.nodes[b.right]] :
+                    stack.append((first, second))
+    return res
+

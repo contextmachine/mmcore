@@ -11,6 +11,11 @@ __all__=["aabb", "aabb_intersect","aabb_intersection", "point_in_aabb", "aabb_ov
 def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
 
+def aabb_offset(bbox, d):
+    bb=np.copy(bbox)
+    bb[1]+=d
+    bb[0]-=d
+    return bb
 
 def point_in_aabb(bbox,point):
     if bbox.shape[-1]==2:
@@ -109,3 +114,4 @@ def curve_aabb_eager(curve, bounds=None, cnt=8):
 
     vals = np.linspace(*bounds, cnt, dtype=float)
     return aabb(curve(vals))
+

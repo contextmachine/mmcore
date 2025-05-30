@@ -23,7 +23,7 @@ import numpy as np
 from numpy import ndarray, dtype
 
 from scipy.spatial import KDTree
-
+from mmcore.numeric.intersection.ssx._ssx_utils import points_equal
 from mmcore.geom.curves.curve_bool import unique_with_tolerance
 from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
 from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections, IntersectionPoint
@@ -32,7 +32,7 @@ from mmcore.geom._nurbs_eval import evaluate_nurbs_surface, NURBSSurfaceTuple, _
 
 from mmcore.geom import nurbs
 
-
+_DEFAULT_ANGLE_TOL=0.0523
 def find_initial_intersection_points(surf1, surf2, tol=1e-3) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[IntersectionPoint]] | None:
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
@@ -91,36 +91,78 @@ def det3(v1: np.ndarray, v2: np.ndarray, v3: np.ndarray) -> float:
     """Compute the determinant of three 3D vectors."""
     return np.linalg.det(np.column_stack((v1, v2, v3)))
 
-
-def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
+def normal_angle_gap(n1, n2):
     """
-    Refine an approximate intersection point onto the true intersection by iterating until
-    the difference between the two surface evaluations is below the Same Point Tolerance (SPT).
+    Compute sin(theta) between normals n1 and n2:
+        sin θ = ||n1 × n2|| / (||n1|| · ||n2||)
+    """
+    n1 = np.asarray(n1, dtype=float)
+    n2 = np.asarray(n2, dtype=float)
+    num = np.linalg.norm(np.cross(n1, n2))
+    den = np.linalg.norm(n1) * np.linalg.norm(n2)
+    return num / den
 
-    Given an approximate parameter vector x = [s, t, u, v] for surfaces S0 and S1, we iteratively
-    compute the corresponding surface points and adjust the parameters by solving the linearized
-    systems:
+def normal_distance_gap(n, S1, S2):
+    """
+    Compute the scalar projection of the residual (S1 - S2) on normal n:
+        |n · (S1 - S2)| / ||n||
+    If n is already unit-length you can omit the division by ||n||.
+    """
+ 
+    diff = S1- S2
+    return abs(np.dot(n, diff))
 
-        J0 * Δ(s,t) = (P_avg - S0(s,t))
-        J1 * Δ(u,v) = (P_avg - S1(u,v))
+def within_normal_gap(n1, n2, S1, S2, eps_theta, eps_n):
+    """
+    Check whether either gap metrics is below its threshold:
+      sin θ ≤ eps_theta
+      OR
+      |n1·(S1−S2)| ≤ eps_n
+    """
+    if normal_angle_gap(n1, n2) <= eps_theta:
+        return True
+    if normal_distance_gap(n1, S1, S2) <= eps_n:
+        return True
+    return False
+def calculate_eps_n(spt, angle_tol):
+    return (spt**2)/(angle_tol+10e-12)
+def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, eps_n=None,angle_tol=0.052,max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
+    """
+    Refines the intersection point of two NURBS surfaces to a higher accuracy using an
+    iterative approach. The function computes the intersection refinement by minimizing
+    the distance between the evaluated points on the two surfaces while considering normal
+    vector alignment, ensuring the refinement achieves geometric consistency and convergence
+    within a specified tolerance.
 
-    where P_avg = (S0 + S1)/2 and J0, J1 are the 3×2 Jacobians (first derivatives)
-    of S0 and S1, respectively. The corrections are computed in a least-squares sense
-    via the pseudoinverse.
-
-    Iteration continues until ||S0(s,t) - S1(u,v)|| < spt or until max_iter iterations are reached.
-
-    :param x: Current approximate parameters [s, t, u, v].
-    :param surf1: First NURBS surface S0.
-    :param surf2: Second NURBS surface S1.
-    :param spt: Same Point Tolerance; iteration stops when ||S0 - S1|| < spt.
-    :param max_iter: Maximum number of refinement iterations.
-    :return: Refined parameter vector [s, t, u, v].
+    :param x: Initial guess for the intersection parameter vector, in the form [s, t, u, v].
+    :type x: numpy.ndarray
+    :param surf1: The first NURBS surface to be used in the intersection refinement.
+    :type surf1: NURBSSurfaceTuple
+    :param surf2: The second NURBS surface to be used in the intersection refinement.
+    :type surf2: NURBSSurfaceTuple
+    :param spt: Convergence tolerance for geometric proximity between the surfaces.
+    :type spt: float
+    :param eps_n: Tolerance for normal vector alignment. If None, it will be computed
+                  based on `spt` and `angle_tol`.
+    :type eps_n: float or None
+    :param angle_tol: Angular tolerance for the alignment of surface normal vectors,
+                      given in radians.
+    :type angle_tol: float
+    :param max_iter: Maximum number of iterations allowed for refining the intersection.
+    :type max_iter: int
+    :return: A tuple containing:
+             - Refined parameter vector `x` ([s, t, u, v]) as a numpy array.
+             - Evaluation results for the first surface as a dictionary.
+             - Evaluation results for the second surface as a dictionary.
+             - Final error metric between the surfaces after refinement.
+    :rtype: tuple[numpy.ndarray, dict, dict, float]
     """
     iteration = 0
     x_current = np.array(x, dtype=float)
     p_eval, q_eval=dict(),dict()
     error=-1
+    if eps_n is None:
+        eps_n=calculate_eps_n(spt,angle_tol)
     while iteration < max_iter:
         s, t, u, v = x_current
 
@@ -131,9 +173,15 @@ def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NU
         S0 = np.array(p_eval["S"])
         S1 = np.array(q_eval["S"])
         error = np.linalg.norm(S0 - S1)
-
+        n1=np.cross(p_eval["Su"], p_eval["Sv"])
+        n1/=np.linalg.norm(n1)
+        
+        n2 = np.cross(q_eval["Su"], q_eval["Sv"])
+        n2/=np.linalg.norm(n2)
         # Check convergence.
-        if error < spt:
+        if (error<spt) and within_normal_gap(n1,n2, p_eval['S'],q_eval['S'], angle_tol,eps_n) :
+            
+        
             break
 
         # Compute the average of the two surface evaluations.
@@ -313,7 +361,6 @@ def intersection_ode(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfac
 # -------------------------------------------------------------------
 
 
-
 def _intersection_curve_tangents(s1,s2,s,t,u,v):
     d1=evaluate_nurbs_surface(s1, s,t, 1)
     d2=evaluate_nurbs_surface(s2, u,v, 1)
@@ -334,14 +381,81 @@ def _distance(p, q):
     """Compute the Euclidean _distance between two points."""
 
     return np.linalg.norm(p-q)
+import numpy as np
+import logging
 
-def points_equal(p, q, tol,spt):
-    """Return True if the _distance between points p and q is less than tol."""
 
-    rr= (_distance(   p[0], q[0]) < spt ) ,(_distance(p[1], q[1])<tol) , ( np.abs(1.-np.dot(p[2], q[2]))<tol)
+'''
+def _param_dist_edge_wrap(stuv1, stuv2,
+                          param_min: np.ndarray,
+                          param_max: np.ndarray,
+                          tol: float) -> float:
+    """
+    For each parameter i in 0..3:
+      - if |stuv1[i] - stuv2[i]| < tol, dist_i = |…|
+      - elif (|stuv1[i]-min_i|<tol and |stuv2[i]-max_i|<tol)
+         or (|stuv2[i]-min_i|<tol and |stuv1[i]-max_i|<tol):
+           dist_i = 0
+      - else dist_i = |stuv1[i] - stuv2[i]|
+    Return max_i dist_i.
+    """
+ 
+    mins  = param_min
+    maxs  = param_max
+    delta = np.abs(stuv1 - stuv2)
 
-    return np.all(rr)
+    # Is a wrap-around match?
+    at_min_1 = np.abs(stuv1 - mins) < tol
+    at_max_1 = np.abs(stuv1 - maxs) < tol
+    at_min_2 = np.abs(stuv2 - mins) < tol
+    at_max_2 = np.abs(stuv2 - maxs) < tol
 
+    wrap_match = (at_min_1 & at_max_2) | (at_max_1 & at_min_2)
+
+    # If direct close, keep delta; else if wrap_match then zero; else keep delta
+    # So we can just zero out the ones that wrap.
+    effective = delta * (~wrap_match)
+    
+
+    #_logger.debug(f"_param_dist_edge_wrap deltas={delta}, wrap={wrap_match}, eff={effective}")
+    return float(np.max(effective))
+
+
+def points_equal(p, q,
+                 spt:  float,
+                 param_tol: float,
+                 tan_tol:   float,
+                 param_min: np.ndarray,
+                 param_max: np.ndarray) -> bool:
+    """
+    p, q = (xyz 3-vector,
+            stuv 4-vector,
+            tangent 3-vector)
+    param_min, param_max = arrays of length 4 giving the natural [min,max]
+      for s,t,u,v from each surface’s clamped knot-span.
+    """
+    xyz1, stuv1, tan1 = p
+    xyz2, stuv2, tan2 = q
+
+    # 1) Cartesian
+    cart_d = np.linalg.norm(xyz1 - xyz2)
+
+    # 2) Parametric w/ edge-wrap
+    param_d = _param_dist_edge_wrap(stuv1, stuv2,
+                                    param_min, param_max,
+                                    tol=param_tol)
+
+    # 3) Tangent misalignment
+    dot   = float(np.dot(tan1, tan2))
+    tan_d = 1.0 - abs(dot)
+
+    #_logger.debug(f"cart_d={cart_d}, param_d={param_d}, tan_d={tan_d} (dot={dot})")
+
+    return (cart_d < spt and
+            param_d < param_tol and
+            tan_d < tan_tol)
+
+'''
 def reverse_polyline(polyline):
     """
     Reverse a polyline structure.
@@ -358,15 +472,16 @@ def reverse_polyline(polyline):
     return (rev_points, rev_seg_info)
 
 
-def join_segments_with_info(segments, tol, spt):
+def join_segments_with_info(segments, tol, spt, tan_tol, interval1,interval2):
     """
     Join connected segments into polylines and keep track of segment indices and orientation.
 
     Parameters:
         segments: list of segments, where each segment is defined as (p1, p2)
                   with p1 and p2 being coordinate tuples (e.g. (x, y)).
-        tol: error tolerance. Two points are considered identical if their distance is less than tol.
-
+        tol: error parameter tolerance. Two points are considered identical if their distance is less than tol.
+        spt: error spatial tolerance.
+        tan_tol: error tolerance for unit tangent alignment.
     Returns:
         A list of tuples, one per polyline. Each tuple is:
           (polyline_points, segments_info)
@@ -377,8 +492,12 @@ def join_segments_with_info(segments, tol, spt):
     # Initialize each segment as its own polyline.
     # Each polyline is a tuple: (points, segments_info)
     # For a segment given as (p1, p2), we use points = [p1, p2] and segments_info = [(index, False)]
+    (smin,smax),(tmin,tmax)=interval1
+    (umin, umax), (vmin, vmax) = interval2
+    #param_min= np.array((smin,tmin,umin,vmin),dtype=float)
+    #param_max = np.array((smax, tmax, umax, vmax),dtype=float)
     polylines = [(list(seg), [(idx, False)]) for idx, seg in enumerate(segments)]
-
+    
     changed=True
     while changed:
         changed = False
@@ -387,8 +506,9 @@ def join_segments_with_info(segments, tol, spt):
         while i < len(polylines):
             poly1 = polylines[i]
             points1, seg_info1 = poly1
+            
             # If polyline is closed, do not try to merge further.
-            if points_equal(points1[0], points1[-1], tol, spt):
+            if points_equal(tuple(points1[0]), tuple(points1[-1]),  param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                 i += 1
                 continue
 
@@ -397,7 +517,7 @@ def join_segments_with_info(segments, tol, spt):
                 poly2 = polylines[j]
                 points2, seg_info2 = poly2
                 # Skip poly2 if it is closed.
-                if points_equal(points2[0], points2[-1], tol,spt):
+                if points_equal(tuple(points2[0]), tuple(points2[-1]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     j += 1
                     continue
 
@@ -406,23 +526,23 @@ def join_segments_with_info(segments, tol, spt):
                 new_seg_info = None
 
                 # Case 1: End of poly1 equals beginning of poly2.
-                if points_equal(points1[-1], points2[0], tol,spt):
+                if points_equal(tuple(points1[-1]), tuple(points2[0]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     new_points = points1 + points2[1:]
                     new_seg_info = seg_info1 + seg_info2
                     merged = True
                 # Case 2: End of poly1 equals end of poly2 -> reverse poly2.
-                elif points_equal(points1[-1], points2[-1], tol,spt):
+                elif points_equal(tuple(points1[-1]), tuple(points2[-1]),  param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     rev_poly2 = reverse_polyline(poly2)
                     new_points = points1 + rev_poly2[0][1:]
                     new_seg_info = seg_info1 + rev_poly2[1]
                     merged = True
                 # Case 3: Beginning of poly1 equals end of poly2.
-                elif points_equal(points1[0], points2[-1], tol,spt):
+                elif points_equal(tuple(points1[0]), tuple(points2[-1]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     new_points = points2 + points1[1:]
                     new_seg_info = seg_info2 + seg_info1
                     merged = True
                 # Case 4: Beginning of poly1 equals beginning of poly2 -> reverse poly2.
-                elif points_equal(points1[0], points2[0], tol,spt):
+                elif points_equal(tuple(points1[0]), tuple(points2[0]), param_tol=tol,spt=spt, tan_tol=tan_tol,s_min=smin,t_min=tmin,u_min=umin,v_min=vmin,s_max=smax,t_max=tmax,u_max=umax,v_max=vmax):
                     rev_poly2 = reverse_polyline(poly2)
                     new_points = rev_poly2[0] + points1[1:]
                     new_seg_info = rev_poly2[1] + seg_info1
@@ -454,9 +574,10 @@ def _subd(s1, s2, uv1_start, uv1_end, uv2_start, uv2_end, tol=1e-3,spt=1e-2, rec
     pt1_start = evaluate_nurbs_surface(s1, *uv1_start, 0)['S']
     pt1_end = evaluate_nurbs_surface(s1, *uv1_end, 0)['S']
 
-    if np.linalg.norm(pt1_start-pt1_end)<(spt*2):
+    if np.linalg.norm(pt1_start-pt1_end)<(spt):
         return [pt1_start, pt1_end], [uv1_start, uv1_end], [uv2_start, uv2_end]
     if recursion_limit==0:
+       
         return [pt1_start, pt1_end], [uv1_start, uv1_end], [uv2_start, uv2_end]
     uv1_mid=(uv1_end+uv1_start)/2
     uv2_mid=(uv2_end + uv2_start)/2
@@ -475,7 +596,7 @@ def _subd(s1, s2, uv1_start, uv1_end, uv2_start, uv2_end, tol=1e-3,spt=1e-2, rec
     #print([pt1_start.tolist(),pt_mid.tolist(),pt_mid_real.tolist(),pt1_end.tolist()])
 
 
-    if abs(np.linalg.norm(pt1['S']-((pt1_start+pt1_end)*0.5)))<(spt*2):
+    if abs(np.linalg.norm(pt1['S']-((pt1_start+pt1_end)*0.5)))<(spt):
         return [pt1_start ,pt1_end],[uv1_start, uv1_end],[uv2_start,uv2_end]
 
     else:
@@ -493,7 +614,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
-def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[float], tol:float)->tuple[float,bool]:
+def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[float], tol:float)->tuple[float,bool,float]:
     """
     Projects point p onto the line defined by segment endpoints a and b in n-dimensional space.
 
@@ -532,8 +653,6 @@ def _project_point_to_segment_nd(p:NDArray[float], a:NDArray[float], b:NDArray[f
     is_on_segment = ((0-tol) <= t <= (1.+tol))
 
     return distance, bool(is_on_segment),t
-
-
 
 
 def _project_point_to_segment(p, a, b):
@@ -602,7 +721,7 @@ def check_boundary_intersections_condition(x0,x, interval_u_1,interval_v_1,inter
     return first_condition and second_condition
 def _expand_interval(interv,val):
     return interv[0]-val,interv[1]+val
-def check_boundary_intersections(boundary_intersection_points:list[IntersectionPoint], interval_u_1,interval_v_1,interval_u_2,interval_v_2, surface1,surface2,current, prev, tol,spt, use_spt=True):
+def check_boundary_intersections(boundary_intersection_points:list[IntersectionPoint], interval_u_1,interval_v_1,interval_u_2,interval_v_2, surface1,surface2,current, prev, tol,spt, use_spt=True, eps_n=None,angle_tol=_DEFAULT_ANGLE_TOL):
         x=current
         x0=prev
 
@@ -651,7 +770,7 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                         continue
                     x_mid=(x + x0) / 2
 
-                    x_mid, pt1,pt2,_=refine_intersection_point(x_mid,surface1,surface2, spt=spt, max_iter=100
+                    x_mid, pt1,pt2,_=refine_intersection_point(x_mid,surface1,surface2, spt=spt, max_iter=100,angle_tol=angle_tol,eps_n=eps_n
                                             )
 
 
@@ -687,8 +806,6 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
             return False, -1
 
 
-
-
 def validated_ode_solver(
         f,
         x0: np.ndarray,
@@ -700,8 +817,9 @@ def validated_ode_solver(
         spt:float,
         boundary_intersections=None,
         context:dict|None=None,
-        boundary_check_spt=True
-
+        boundary_check_spt=True,
+        angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n:float=None,
 ) -> tuple[np.ndarray, list[np.ndarray], int]:
     """
     A validated ODE solver that marches along the intersection curve by solving the ODE system:
@@ -723,6 +841,8 @@ def validated_ode_solver(
          - A numpy array of states along the marching path.
          - A list of interval enclosures (each as a 2x4 numpy array: lower and upper bounds)
            for the corresponding state.
+           :param eps_n:
+           :param angle_tol:
     """
     interval_u_1=surf1.knot_u[surf1.order_u-1],surf1.knot_u[len(surf1.control_points)+1]
     interval_v_1 = surf1.knot_v[surf1.order_v-1],surf1.knot_v[len(surf1.control_points[0])+1]
@@ -791,7 +911,7 @@ def validated_ode_solver(
         # Accept the step with the more accurate two-half-step result.
         x_new = x_half2.copy()
         # Apply iterative point refinement until ||S0 - S1|| < spt.
-        x_new,p_eval,q_eval,error = refine_intersection_point(x_new, surf1, surf2, spt=spt, max_iter=100)
+        x_new,p_eval,q_eval,error = refine_intersection_point(x_new, surf1, surf2, spt=spt, max_iter=100, eps_n=eps_n,angle_tol=angle_tol)
 
 
 
@@ -810,7 +930,8 @@ def validated_ode_solver(
         x = x_new.copy()
 
 
-        success, bp_index = check_boundary_intersections(boundary_intersections, interval_u_1,interval_v_1,interval_u_2,interval_v_2,surf1,surf2,x,x_prev, tol=tol, spt=spt, use_spt=boundary_check_spt)
+        success, bp_index = check_boundary_intersections(boundary_intersections, interval_u_1,interval_v_1,interval_u_2,interval_v_2,surf1,surf2,x,x_prev, tol=tol, spt=spt, use_spt=boundary_check_spt,eps_n=eps_n,angle_tol=angle_tol)
+    
 
         if success:
                 #print("B",[boundary_intersections[bp_index].stuv.tolist(), x_prev.tolist()])
@@ -879,7 +1000,7 @@ def validated_ode_solver(
                 current_tangent=np.cross(n1,n2)
                 current_tangent/=np.linalg.norm(current_tangent)
 
-                if ((1.-np.dot(initial_tangent,current_tangent))<=0.1):
+                if ((1.-abs(np.dot(initial_tangent,current_tangent)))<=0.01):
                     termination_reason=2
                     break
 
@@ -900,8 +1021,10 @@ def trace_intersection_curve(
         h_initial: float = 0.1,
         tol: float = 1e-6,
         spt: float = 1e-3,
+
         context:dict|None=None,
-        boundary_check_spt=True
+        boundary_check_spt=True,         angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n=None
 
 ) -> tuple[ndarray[Any, dtype[Any]], ndarray[Any, dtype[Any]], ndarray[Any, dtype[Any]], list[ndarray], int]:
     """
@@ -919,7 +1042,7 @@ def trace_intersection_curve(
         h_initial  : Initial step size for the ODE solver.
         tol        : Tolerance for error control and ODE validation.
         spt        : Same Point Tolerance for point refinement.
-
+     
     Returns:
         A tuple containing:
          - curve_points: An (N,3) numpy array of points in 3D model space along the intersection.
@@ -927,22 +1050,14 @@ def trace_intersection_curve(
          - params_surf2: An (N,2) numpy array of parametric coordinates on surf2.
          - enclosures : A list of interval enclosures (each a 2x4 numpy array) in the parametric space.
          - termination_reason: int
+        
     """
 
 
-    states, enclosures,term_reason = validated_ode_solver(
-        f=intersection_ode,
-        x0=init_params,
-        surf1=surf1,
-        surf2=surf2,
-        s_max=s_max,
-        h_initial=h_initial,
-        tol=tol,
-        spt=spt,
-        boundary_intersections=boundary_intersections,
-        context=context,
-        boundary_check_spt=boundary_check_spt
-    )
+    states, enclosures,term_reason = validated_ode_solver(f=intersection_ode, x0=init_params, surf1=surf1, surf2=surf2,
+                                                          s_max=s_max, h_initial=h_initial, tol=tol, spt=spt,
+                                                          boundary_intersections=boundary_intersections,
+                                                          context=context, boundary_check_spt=boundary_check_spt,eps_n=eps_n,angle_tol=angle_tol)
 
     curve_points = []
     params_surf1 = []
@@ -964,7 +1079,8 @@ def trace_intersection_curve(
 # Example Usage (for production, integrate with robust initial point finder)
 # -------------------------------------------------------------------
 
-def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True):
+def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, init_points, init_uv1, init_uv2,boundary_intersections, h_initial=0.1,tol=1e-3,spt=1e-3, backward=True, boundary_check_spt=True,         angle_tol:float=_DEFAULT_ANGLE_TOL,
+        eps_n=None ):
 
 
         branches=[]
@@ -1007,9 +1123,13 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
 
             #init_point_xyz = evaluate_nurbs_surface(surf1, init_point[0], init_point[1], 0)['S']
 
-            curve_pts, params1, params2, encl, termination_reason = trace_intersection_curve(
-                surf1, surf2, init_point,  boundary_intersections, s_max=-1, h_initial=h_initial, tol=tol, spt=spt, context=context,boundary_check_spt=boundary_check_spt
-            )
+            curve_pts, params1, params2, encl, termination_reason = trace_intersection_curve(surf1, surf2, init_point,
+                                                                                             boundary_intersections,
+                                                                                             s_max=-1,
+                                                                                             h_initial=h_initial,
+                                                                                             tol=tol, spt=spt,
+                                                                                             context=context,angle_tol=angle_tol,eps_n=eps_n,
+                                                                                             boundary_check_spt=boundary_check_spt)
             if (termination_reason == 1):
                 #print("CC",len(curve_pts),np.array(curve_pts).tolist(), [b.point.tolist()for b in boundary_intersections])
                 ...
@@ -1021,9 +1141,14 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
                 #init_point_xyz = evaluate_nurbs_surface(surf1, init_point[0], init_point[1], 0)['S']
                 #print(1, init_point_xyz.tolist())
 
-                curve_pts2, params12, params22, encl2, termination_reason2 = trace_intersection_curve(
-                    surf1, surf2, init_point, boundary_intersections,s_max=-1, h_initial=-h_initial, tol=tol, spt=spt, context=context,boundary_check_spt=boundary_check_spt
-                )
+                curve_pts2, params12, params22, encl2, termination_reason2 = trace_intersection_curve(surf1, surf2,
+                                                                                                      init_point,
+                                                                                                      boundary_intersections,
+                                                                                                      s_max=-1,
+                                                                                                      h_initial=-h_initial,
+                                                                                                      tol=tol, spt=spt,
+                                                                                                      context=context,angle_tol=angle_tol,eps_n=eps_n,
+                                                                                                      boundary_check_spt=boundary_check_spt)
 
 
                 curve_pts, params1, params2, encl=np.array([*reversed(curve_pts2),*curve_pts[1:]]),np.array([*reversed(params12), *params1[1:]]),np.array([*reversed(params22),*params2[1:]]),[*reversed(encl2),encl[1:]]
@@ -1039,31 +1164,14 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
         return branches
 SamplingMethod=Literal['marching','subdivide']
 
-def nurbs_trace_intersection_curves(s1:nurbs.NURBSSurface,s2:nurbs.NURBSSurface,h_initial=0.1,tol=1e-3,spt=1e-3,sampling_method:SamplingMethod='marching'):
-    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
-                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
-                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
-
-    surf2 = NURBSSurfaceTuple(order_u=s2.degree[0] + 1, order_v=s2.degree[1] + 1, knot_u=s2.knots_u.tolist(),
-                              knot_v=s2.knots_v.tolist(), control_points=np.array(s2.control_points),
-                              weights=np.ascontiguousarray(s2.control_points_w[..., -1]))
-    if sampling_method=='marching':
-        res = find_initial_intersection_points(surf1, surf2, tol)
-        if res is not None:
-            init_points, init_uv1, init_uv2, boundary_intersections = res
-            return trace_intersection_curves(surf1,surf2, init_points, init_uv1, init_uv2, boundary_intersections ,h_initial,tol,spt)
-        else:
-            return None
-    else:
-        return _nurbs_trace_intersection_curves_v2(surf1, surf2, tol=tol, spt=spt)
-
 
 def _compare_robust(a, b, tol):
     min_val=a-tol
     max_val=a+tol
     return (min_val<=b) and (b<=max_val)
-
-def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs) :
+import logging
+_logger=logging.getLogger('mmcore')
+def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol=1e-3,angle_tol:float=_DEFAULT_ANGLE_TOL,**kwargs) :
     """
     A robust method that returns at least one point on each of the intersection branches of two NURBS Surfaces.
     :param surf1: First NURBS surface
@@ -1081,21 +1189,25 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
         ns1= _tuple_to_nurbs(surf1)
     if isinstance(surf1,tuple):
         ns2= _tuple_to_nurbs(surf2)
+    eps_n=calculate_eps_n(spt,angle_tol)
     branches=[]
     items=detect_intersections(ns1, ns2, spt=spt, tol=tol)
+    _logger.debug('detected intersections: %s', items)
     beams=[]
-    (smin,smax),(tmin,tmax)=ns1.interval()
-    (umin, umax), (vmin, vmax) = ns1.interval()
+    (smin,smax),(tmin,tmax)=s1_interval=ns1.interval()
+    (umin, umax), (vmin, vmax) = s2_interval=ns2.interval()
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
         stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=spt,tol=tol)
-
-        #print('p',[p.point.tolist() for p in stars_points])
+        _logger.debug(f"finded boundary_intersections {i}, len starts points: {len(stars_points)}")
+        # print('p',[p.point.tolist() for p in stars_points])
 
         if len(stars_points)==0:
+            _logger.debug(f"pass")
             continue
         elif len(stars_points)==1:
+
             # Здесь мы должны проверить что точка находится на границе одной из исходных поверхностей.
             # Так как предполагается что сингулярные точки мы проверили ранее,
             # любое пересечение дающее одну точку не на границе одной из исходных поверхностей, является вырожденной
@@ -1105,13 +1217,23 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
              or _compare_robust(tmin, t, tol=tol) or _compare_robust(tmax, t, tol=tol)
              or _compare_robust(umin, u, tol=tol) or _compare_robust(umax, u, tol=tol)
              or _compare_robust(vmin, v, tol=tol) or _compare_robust(vmax, v, tol=tol)) :
-                # Точка находится на границе исходных поверхностей и если ни одна ветвь не придет в нее, то мы вернем ее как изолированную точку.
+                # Точка находится на границе исходных поверхностей и если ни -900
+                # одна ветвь не придет в нее, то мы вернем ее как изолированную точку.
                 isolated_points.append(stars_points[0])
-
+                _logger.debug(f"isolated")
+            else:
+                _logger.debug(f"not isolated: {stars_points[0].point.tolist()}")
             continue
+        # OLDVALUE: elif len(stars_points)>2: (Кажется, что в текущей реализации marching ведет себя всегда лучше подгонки. В дальнейшем, можно рассмотреть более умную диспетчеризацию. Например, использовать подгонку на участках с малой кривизной, или большим углом между нормалями.
         elif len(stars_points)>2:
 
-            bnd_points=list(stars_points[1:])
+            if (len(stars_points)%2)==1:
+
+                _logger.critical(f"hard case: {[s.point.tolist() for s in stars_points]}. An odd number of boundary intersection points")
+                continue
+            _logger.debug(f"hard case: {[s.point.tolist() for s in stars_points]}")
+
+            bnd_points = list(stars_points[1:])
 
             st1 = _nurbs_to_tuple(s1)
             st2 = _nurbs_to_tuple(s2)
@@ -1122,7 +1244,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
 
             for i in range(l):
                 pt=stars_points[i]
-                #print('ss',pt.point.tolist())
+                # print('ss',pt.point.tolist())
                 init_points[i]=pt.point
                 init_uv1[i]=pt.surface1_params
                 init_uv2[i]=pt.surface2_params
@@ -1138,7 +1260,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
                     if uvd<min_uvd:
                         min_uvd=uvd
 
-            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,h_initial= min_uvd/3,backward=False,boundary_check_spt=False):
+            for (curve_pts, params1, params2, encl) in trace_intersection_curves( st1, st2,init_points,init_uv1,init_uv2,boundary_intersections=bnd_points, tol=tol,spt=spt,h_initial= tol,backward=False,boundary_check_spt=False, eps_n=eps_n,angle_tol=angle_tol):
                 curve_pts, params1, params2=np.array(curve_pts), np.array(params1), np.array(params2)
                 branches.append((curve_pts,
                                  params1,
@@ -1154,8 +1276,8 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
                     [curve_pts[-1], np.array([params1[-1][0], params1[-1][1], params2[-1][0], params2[-1][1]]),
                      tangent_end]))
 
-
         else:
+            _logger.debug(f"base case: {[s.point.tolist() for s in stars_points]}")
             pt_start=stars_points[0]
             pt_end = stars_points[-1]
             st1 = _nurbs_to_tuple(s1)
@@ -1165,7 +1287,7 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
             tangent_end,*_=_intersection_curve_tangents(st1,st2,*pt_end.surface1_params,*pt_end.surface2_params)
             beams.append(
                 ([pt_start.point, np.array([pt_start.surface1_params[0],pt_start.surface1_params[1],pt_start.surface2_params[0],pt_start.surface2_params[1]]),tangent_start],[pt_end.point, np.array([pt_end.surface1_params[0],pt_end.surface1_params[1],  pt_end.surface2_params[0],  pt_end.surface2_params[1]]), tangent_end]))
-            #print([pt_start.point.tolist(),pt_end.point.tolist()])
+            # print([pt_start.point.tolist(),pt_end.point.tolist()])
 
             curve_points,params_surf1,params_surf2=_subd(st1, st2, np.array(pt_start.surface1_params), np.array(pt_end.surface1_params), np.array(pt_start.surface2_params), np.array(pt_end.surface2_params),tol=tol, spt=spt)
 
@@ -1173,9 +1295,10 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
                     np.array(params_surf1),
                     np.array(params_surf2))
                     )
-    branches_joined=[]
-    ppp=join_segments_with_info(beams, tol, spt)
+    _logger.debug(f"end tracing")
 
+    branches_joined=[]
+    ppp=join_segments_with_info(beams, tol=tol, spt=spt, tan_tol=tan_tol, interval1=s1_interval,interval2=s2_interval)
 
     isolated_points_indexes_to_delete = set()
     for pts, seg_info in ppp:
@@ -1202,1088 +1325,22 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7,**kwargs
         if np.linalg.norm([ds,dt,du,dv])<tol :
             pass
         else:
-
-
+            pt_start=np.array(branch_pt[0])
+            pt_end=np.array(branch_pt[-1])
             stuv_start=np.array([branch_uv1[0][0], branch_uv1[0][1], branch_uv2[0][0], branch_uv2[0][1]])
             stuv_end=np.array([branch_uv1[-1][0], branch_uv1[-1][1], branch_uv2[-1][0], branch_uv2[-1][1]])
             for i,pt in enumerate(isolated_points):
-
-                if (np.linalg.norm(stuv_start-pt.stuv)<tol):
+            
+                if (np.linalg.norm(stuv_start-pt.stuv)<tol or np.linalg.norm(pt_start-pt.point)<spt):
                     isolated_points_indexes_to_delete.add(i)
 
-                elif (np.linalg.norm(stuv_end - pt.stuv) < tol):
-
+                elif (np.linalg.norm(stuv_end - pt.stuv) < tol)or np.linalg.norm(pt_end-pt.point)<spt:
 
                     isolated_points_indexes_to_delete.add(i)
 
-
-
-
-
-    #isolated_points_arr=np.array(isolated_points,dtype=object)
+    # isolated_points_arr=np.array(isolated_points,dtype=object)
 
     real_isolated_points:list[IntersectionPoint]=(np.array(isolated_points, dtype=IntersectionPoint)[
         list(set(range(len(isolated_points))) - isolated_points_indexes_to_delete)]).tolist()
 
     return branches_joined, real_isolated_points
-
-
-
-if __name__ == "__main__":
-    # Example: Assume surf1 and surf2 are defined NURBSSurface objects.
-    # The function find_initial_intersection_points is assumed to provide at least
-    # one starting point on each intersection branch.
-    #
-    # For demonstration, suppose we have obtained an initial point:
-    #
-    #   init_point = np.array([0.3, 0.2, 0.7, 0.8])
-    #
-    # And we wish to trace the intersection curve with the following parameters:
-    #
-    #   s_max = 1.0, h_initial = 0.01, tol = 1e-6
-    #
-    # Replace the following dummy surfaces with actual NURBS surface definitions.
-    pts1 = np.array(
-        [
-            [-25.0, -25.0, -10.0],
-            [-25.0, -15.0, -5.0],
-            [-25.0, -5.0, 0.0],
-            [-25.0, 5.0, 0.0],
-            [-25.0, 15.0, -5.0],
-            [-25.0, 25.0, -10.0],
-            [-15.0, -25.0, -8.0],
-            [-15.0, -15.0, -4.0],
-            [-15.0, -5.0, -4.0],
-            [-15.0, 5.0, -4.0],
-            [-15.0, 15.0, -4.0],
-            [-15.0, 25.0, -8.0],
-            [-5.0, -25.0, -5.0],
-            [-5.0, -15.0, -3.0],
-            [-5.0, -5.0, -8.0],
-            [-5.0, 5.0, -8.0],
-            [-5.0, 15.0, -3.0],
-            [-5.0, 25.0, -5.0],
-            [5.0, -25.0, -3.0],
-            [5.0, -15.0, -2.0],
-            [5.0, -5.0, -8.0],
-            [5.0, 5.0, -8.0],
-            [5.0, 15.0, -2.0],
-            [5.0, 25.0, -3.0],
-            [15.0, -25.0, -8.0],
-            [15.0, -15.0, -4.0],
-            [15.0, -5.0, -4.0],
-            [15.0, 5.0, -4.0],
-            [15.0, 15.0, -4.0],
-            [15.0, 25.0, -8.0],
-            [25.0, -25.0, -10.0],
-            [25.0, -15.0, -5.0],
-            [25.0, -5.0, 2.0],
-            [25.0, 5.0, 2.0],
-            [25.0, 15.0, -5.0],
-            [25.0, 25.0, -10.0],
-        ]
-    )
-    pts1 = pts1.reshape((6, len(pts1) // 6, 3))
-    pts2 = np.array(
-        [
-            [25.0, 14.774795467423544, 5.5476189978794661],
-            [25.0, 10.618169208735296, -15.132510312735601],
-            [25.0, 1.8288992061686002, -13.545426491756078],
-            [25.0, 9.8715747661086723, 14.261864686419623],
-            [25.0, -15.0, 5.0],
-            [25.0, -25.0, 5.0],
-            [15.0, 25.0, 1.8481369394623908],
-            [15.0, 15.0, 5.0],
-            [15.0, 5.0, -1.4589623860307768],
-            [15.0, -5.0, -1.9177595746260625],
-            [15.0, -15.0, -30.948650572598954],
-            [15.0, -25.0, 5.0],
-            [5.0, 25.0, 5.0],
-            [5.0, 15.0, -29.589097491066767],
-            [3.8028908181980938, 5.0, 5.0],
-            [5.0, -5.0, 5.0],
-            [5.0, -15.0, 5.0],
-            [5.0, -25.0, 5.0],
-            [-5.0, 25.0, 5.0],
-            [-5.0, 15.0, 5.0],
-            [-5.0, 5.0, 5.0],
-            [-5.0, -5.0, -27.394523521151221],
-            [-5.0, -15.0, 5.0],
-            [-5.0, -25.0, 5.0],
-            [-15.0, 25.0, 5.0],
-            [-15.0, 15.0, -23.968082282285287],
-            [-15.0, 5.0, 5.0],
-            [-15.0, -5.0, 5.0],
-            [-15.0, -15.0, -18.334465891060319],
-            [-15.0, -25.0, 5.0],
-            [-25.0, 25.0, 5.0],
-            [-25.0, 15.0, 14.302789083068138],
-            [-25.0, 5.0, 5.0],
-            [-25.0, -5.0, 5.0],
-            [-25.0, -15.0, 5.0],
-            [-25.0, -25.0, 5.0],
-        ]
-    )
-
-    pts2 = pts2.reshape((6, len(pts2) // 6, 3))
-    s21 = nurbs.NURBSSurface(pts1, (3, 3))
-    s22 = nurbs.NURBSSurface(pts2, (3, 3))
-
-    surf1 = NURBSSurfaceTuple(order_u=s21.degree[0] + 1, order_v=s21.degree[1] + 1, knot_u=s21.knots_u.tolist(),
-                              knot_v=s21.knots_v.tolist(), control_points=np.array(s21.control_points),
-                              weights=np.ascontiguousarray(s21.control_points_w[..., -1]))
-
-    surf2 = NURBSSurfaceTuple(order_u=s22.degree[0] + 1, order_v=s22.degree[1] + 1, knot_u=s22.knots_u.tolist(),
-                              knot_v=s22.knots_v.tolist(), control_points=np.array(s22.control_points),
-                              weights=np.ascontiguousarray(s22.control_points_w[..., -1]))
-
-    # Assume an initial intersection point has been determined.
-    res= find_initial_intersection_points(surf1,surf2,1e-3)
-
-    if res is not None:
-        init_points, init_uv1, init_uv2 = res
-        initial_xs=np.zeros((init_uv1.shape[0],4))
-        initial_xs[...,:2]=init_uv1
-        initial_xs[...,2:]=init_uv2
-        initial_points_tree=KDTree(initial_xs)
-
-        context=dict(init_points_tree=initial_points_tree)
-        init_point=np.array([*init_uv1[0], *init_uv2[0]])
-        # Trace the intersection curve.
-        print(init_point)
-        curve_pts, params1, params2, encl,termination_reason = trace_intersection_curve(
-            surf1, surf2, init_point, s_max=100.0, h_initial=0.1, tol=1e-2,spt=1e-2,context=context
-        )
-        print(context['init_points_tree'].data.tolist())
-        # For production use, further processing and robust visualization would follow.
-        print("3D Intersection Curve Points:")
-        print(curve_pts.tolist())
-
-        # The enclosures list contains rigorous interval bounds for each marching step.
-
-    branches=nurbs_trace_intersection_curves(surf1, surf2,tol=1e-3,spt=1e-2)
-    print(f"{len(branches)} intersection curves")
-    print([branch[0].tolist() for branch in branches])
-
-    s1 = nurbs.NURBSSurface(
-        **{
-            "control_points": np.array(
-                [
-                    [
-                        [65.66864862623089, 93.74205665737186, 41.41100531879138, 1.0],
-                        [65.66864862623089, 93.74205665737186, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [65.70381308003529, 92.80184185418611, 41.41100531879138, 1.0],
-                        [65.70381308003529, 92.80184185418611, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [65.93866781565862, 90.93344804677268, 41.41100531879138, 1.0],
-                        [65.93866781565862, 90.93344804677268, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [66.76764474869523, 88.25139426624095, 41.41100531879138, 1.0],
-                        [66.76764474869523, 88.25139426624095, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [68.04240133132686, 85.7698431189295, 41.41100531879138, 1.0],
-                        [68.04240133132686, 85.7698431189295, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [69.71866508308432, 83.5616093222356, 41.41100531879138, 1.0],
-                        [69.71866508308432, 83.5616093222356, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [71.7405653611562, 81.69030895188432, 41.41100531879138, 1.0],
-                        [71.7405653611562, 81.69030895188432, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [74.04239056810582, 80.208508216853, 41.41100531879138, 1.0],
-                        [74.04239056810582, 80.208508216853, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.55073895845743, 79.1562631175434, 41.41100531879138, 1.0],
-                        [76.55073895845743, 79.1562631175434, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [79.18684761002137, 78.5600515829087, 41.41100531879138, 1.0],
-                        [79.18684761002137, 78.5600515829087, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.86906475574814, 78.43213634667575, 41.41100531879138, 1.0],
-                        [81.86906475574814, 78.43213634667575, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [84.51537751121424, 78.77037006251331, 41.41100531879138, 1.0],
-                        [84.51537751121424, 78.77037006251331, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [87.04591956978467, 79.55844392285438, 41.41100531879138, 1.0],
-                        [87.04591956978467, 79.55844392285438, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [89.38538144158962, 80.76656645646, 41.41100531879138, 1.0],
-                        [89.38538144158962, 80.76656645646, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [91.46525070332797, 82.35254636479925, 41.41100531879138, 1.0],
-                        [91.46525070332797, 82.35254636479925, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [93.22581559441008, 84.2632410840891, 41.41100531879138, 1.0],
-                        [93.22581559441008, 84.2632410840891, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [94.61787346921517, 86.43632200091871, 41.41100531879138, 1.0],
-                        [94.61787346921517, 86.43632200091871, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [95.60409540762578, 88.80229811220822, 41.41100531879138, 1.0],
-                        [95.60409540762578, 88.80229811220822, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [96.16000948361588, 91.28673269687489, 41.41100531879138, 1.0],
-                        [96.16000948361588, 91.28673269687489, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [96.27457740208934, 93.81258244954697, 41.41100531879138, 1.0],
-                        [96.27457740208934, 93.81258244954697, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [95.95035205531579, 96.30258565083841, 41.41100531879138, 1.0],
-                        [95.95035205531579, 96.30258565083841, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [95.20321661514595, 98.68162537521448, 41.41100531879138, 1.0],
-                        [95.20321661514595, 98.68162537521448, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [94.06171865923878, 100.87899545606837, 41.41100531879138, 1.0],
-                        [94.06171865923878, 100.87899545606837, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [92.56602513215233, 102.83050085686249, 41.41100531879138, 1.0],
-                        [92.56602513215233, 102.83050085686249, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [90.76653529163374, 104.48033008807467, 41.41100531879138, 1.0],
-                        [90.76653529163374, 104.48033008807467, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.72219884713252, 105.78264515104536, 41.41100531879138, 1.0],
-                        [88.72219884713252, 105.78264515104536, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [86.49859496608252, 106.70284391559045, 41.41100531879138, 1.0],
-                        [86.49859496608252, 106.70284391559045, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [84.16583446139505, 107.21846053641033, 41.41100531879138, 1.0],
-                        [84.16583446139505, 107.21846053641033, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.79635209827242, 107.3196811361933, 41.41100531879138, 1.0],
-                        [81.79635209827242, 107.3196811361933, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [79.46265845209487, 107.00946415873321, 41.41100531879138, 1.0],
-                        [79.46265845209487, 107.00946415873321, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [77.23512106166146, 106.30326713866779, 41.41100531879138, 1.0],
-                        [77.23512106166146, 106.30326713866779, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [75.17984277182609, 105.22839376047693, 41.41100531879138, 1.0],
-                        [75.17984277182609, 105.22839376047693, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [73.35670123195811, 103.8229866146385, 41.41100531879138, 1.0],
-                        [73.35670123195811, 103.8229866146385, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [71.81760766062072, 102.1347016528925, 41.41100531879138, 1.0],
-                        [71.81760766062072, 102.1347016528925, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [70.60503540948311, 100.21910968071924, 41.41100531879138, 1.0],
-                        [70.60503540948311, 100.21910968071924, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [69.75085981880395, 98.13787802990888, 41.41100531879138, 1.0],
-                        [69.75085981880395, 98.13787802990888, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [69.27554065315417, 95.9567916052006, 41.41100531879138, 1.0],
-                        [69.27554065315417, 95.9567916052006, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [69.1876673720617, 93.7436766316274, 41.41100531879138, 1.0],
-                        [69.1876673720617, 93.7436766316274, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [69.48387598020832, 91.56629254056372, 41.41100531879138, 1.0],
-                        [69.48387598020832, 91.56629254056372, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [70.14913458016932, 89.49025748407303, 41.41100531879138, 1.0],
-                        [70.14913458016932, 89.49025748407303, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [71.15738338064384, 87.57707098525617, 41.41100531879138, 1.0],
-                        [71.15738338064384, 87.57707098525617, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [72.47250414523428, 85.8822933063143, 41.41100531879138, 1.0],
-                        [72.47250414523428, 85.8822933063143, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [74.04958422820772, 84.45393539485173, 41.41100531879138, 1.0],
-                        [74.04958422820772, 84.45393539485173, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [75.83643172805296, 83.3311059555472, 41.41100531879138, 1.0],
-                        [75.83643172805296, 83.3311059555472, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [77.77529114862375, 82.54295353873391, 41.41100531879138, 1.0],
-                        [77.77529114862375, 82.54295353873391, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [79.80470349335278, 82.10793182825427, 41.41100531879138, 1.0],
-                        [79.80470349335278, 82.10793182825427, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.86145107737659, 82.03340586585229, 41.41100531879138, 1.0],
-                        [81.86145107737659, 82.03340586585229, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [83.88252561332632, 82.31560610468546, 41.41100531879138, 1.0],
-                        [83.88252561332632, 82.31560610468546, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [85.80705833587436, 82.93992628454203, 41.41100531879138, 1.0],
-                        [85.80705833587436, 82.93992628454203, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [87.5781530436727, 83.88155050730022, 41.41100531879138, 1.0],
-                        [87.5781530436727, 83.88155050730022, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [89.14456686168843, 85.10638489064266, 41.41100531879138, 1.0],
-                        [89.14456686168843, 85.10638489064266, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [90.46218911327622, 86.57226009484354, 41.41100531879138, 1.0],
-                        [90.46218911327622, 86.57226009484354, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [91.49527574074764, 88.23036312236076, 41.41100531879138, 1.0],
-                        [91.49527574074764, 88.23036312236076, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [92.21740498369505, 90.02685031269195, 41.41100531879138, 1.0],
-                        [92.21740498369505, 90.02685031269195, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [92.61212923900459, 91.90458857744179, 41.41100531879138, 1.0],
-                        [92.61212923900459, 91.90458857744179, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [92.67330788271605, 93.80496877191614, 41.41100531879138, 1.0],
-                        [92.67330788271605, 93.80496877191614, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [92.40511601319636, 95.66973375275204, 41.41100531879138, 1.0],
-                        [92.40511601319636, 95.66973375275204, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [91.82173425344422, 97.44276414135732, 41.41100531879138, 1.0],
-                        [91.82173425344422, 97.44276414135732, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [90.94673460840232, 99.07176705813723, 41.41100531879138, 1.0],
-                        [90.94673460840232, 99.07176705813723, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [89.8121866063079, 100.50981701522677, 41.41100531879138, 1.0],
-                        [89.8121866063079, 100.50981701522677, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.45751628087959, 101.71670360693977, 41.41100531879138, 1.0],
-                        [88.45751628087959, 101.71670360693977, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [86.92815772569035, 102.66004742257813, 41.41100531879138, 1.0],
-                        [86.92815772569035, 102.66004742257813, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [85.27404276559884, 103.31615349165962, 41.41100531879138, 1.0],
-                        [85.27404276559884, 103.31615349165962, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [83.54797858082817, 103.67058029179904, 41.41100531879138, 1.0],
-                        [83.54797858082817, 103.67058029179904, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.80396577590322, 103.71841161682002, 41.41100531879138, 1.0],
-                        [81.80396577590322, 103.71841161682002, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [80.09551035018126, 103.46422811661378, 41.41100531879138, 1.0],
-                        [80.09551035018126, 103.46422811661378, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [78.4739822955186, 102.92178477696604, 41.41100531879138, 1.0],
-                        [78.4739822955186, 102.92178477696604, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.98707116975723, 102.1134097096405, 41.41100531879138, 1.0],
-                        [76.98707116975723, 102.1134097096405, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [75.67738507359383, 101.06914808879408, 41.41100531879138, 1.0],
-                        [75.67738507359383, 101.06914808879408, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [74.5812341417556, 99.82568264213833, 41.41100531879138, 1.0],
-                        [74.5812341417556, 99.82568264213833, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [73.72763313795036, 98.42506855927712, 41.41100531879138, 1.0],
-                        [73.72763313795036, 98.42506855927712, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [73.13755024273476, 96.91332582942516, 41.41100531879138, 1.0],
-                        [73.13755024273476, 96.91332582942516, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [72.82342089776546, 95.33893572463373, 41.41100531879138, 1.0],
-                        [72.82342089776546, 95.33893572463373, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [72.78893689143499, 93.7512903092582, 41.41100531879138, 1.0],
-                        [72.78893689143499, 93.7512903092582, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [73.02911202232774, 92.19914443865015, 41.41100531879138, 1.0],
-                        [73.02911202232774, 92.19914443865015, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [73.53061694187109, 90.72911871793013, 41.41100531879138, 1.0],
-                        [73.53061694187109, 90.72911871793013, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [74.27236743148026, 89.38429938318734, 41.41100531879138, 1.0],
-                        [74.27236743148026, 89.38429938318734, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [75.22634267107871, 88.20297714795004, 41.41100531879138, 1.0],
-                        [75.22634267107871, 88.20297714795004, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.35860323896188, 87.21756187598662, 41.41100531879138, 1.0],
-                        [76.35860323896188, 87.21756187598662, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [77.63047284949508, 86.45370368401446, 41.41100531879138, 1.0],
-                        [77.63047284949508, 86.45370368401446, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [78.99984334910746, 85.92964396266473, 41.41100531879138, 1.0],
-                        [78.99984334910746, 85.92964396266473, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [80.42255937391965, 85.65581207286556, 41.41100531879138, 1.0],
-                        [80.42255937391965, 85.65581207286556, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.85383739974577, 85.63467538522558, 41.41100531879138, 1.0],
-                        [81.85383739974577, 85.63467538522558, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [83.24967371523994, 85.86084214680488, 41.41100531879138, 1.0],
-                        [83.24967371523994, 85.86084214680488, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [84.56819710201722, 86.32140864624378, 41.41100531879138, 1.0],
-                        [84.56819710201722, 86.32140864624378, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [85.77092464574159, 86.99653455813666, 41.41100531879138, 1.0],
-                        [85.77092464574159, 86.99653455813666, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [86.8238830200527, 87.86022341648709, 41.41100531879138, 1.0],
-                        [86.8238830200527, 87.86022341648709, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [87.69856263214132, 88.8812791055977, 41.41100531879138, 1.0],
-                        [87.69856263214132, 88.8812791055977, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.37267801228043, 90.02440424380293, 41.41100531879138, 1.0],
-                        [88.37267801228043, 90.02440424380293, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.83071455976423, 91.2514025131756, 41.41100531879138, 1.0],
-                        [88.83071455976423, 91.2514025131756, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [89.0642489943933, 92.52244445800866, 41.41100531879138, 1.0],
-                        [89.0642489943933, 92.52244445800866, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [89.07203836334277, 93.79735509428534, 41.41100531879138, 1.0],
-                        [89.07203836334277, 93.79735509428534, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.85987997107694, 95.03688185466562, 41.41100531879138, 1.0],
-                        [88.85987997107694, 95.03688185466562, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [88.4402518917424, 96.2039029075002, 41.41100531879138, 1.0],
-                        [88.4402518917424, 96.2039029075002, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [87.831750557566, 97.2645386602061, 41.41100531879138, 1.0],
-                        [87.831750557566, 97.2645386602061, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [87.0583480804631, 98.18913317359093, 41.41100531879138, 1.0],
-                        [87.0583480804631, 98.18913317359093, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [86.1484972701268, 98.9530771258053, 41.41100531879138, 1.0],
-                        [86.1484972701268, 98.9530771258053, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [85.13411660424308, 99.53744969410937, 41.41100531879138, 1.0],
-                        [85.13411660424308, 99.53744969410937, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [84.04949056513439, 99.9294630677344, 41.41100531879138, 1.0],
-                        [84.04949056513439, 99.9294630677344, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [82.93012270018926, 100.12270004716686, 41.41100531879138, 1.0],
-                        [82.93012270018926, 100.12270004716686, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [81.81157945380292, 100.11714209752466, 41.41100531879138, 1.0],
-                        [81.81157945380292, 100.11714209752466, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [80.72836224726413, 99.91899207420349, 41.41100531879138, 1.0],
-                        [80.72836224726413, 99.91899207420349, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [79.71284353312089, 99.54030241634977, 41.41100531879138, 1.0],
-                        [79.71284353312089, 99.54030241634977, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [78.79429955371126, 98.99842565475291, 41.41100531879138, 1.0],
-                        [78.79429955371126, 98.99842565475291, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [77.99806896739302, 98.31530957806882, 41.41100531879138, 1.0],
-                        [77.99806896739302, 98.31530957806882, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [77.34486042821379, 97.51666357495867, 41.41100531879138, 1.0],
-                        [77.34486042821379, 97.51666357495867, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.85023159296097, 96.63102764841777, 41.41100531879138, 1.0],
-                        [76.85023159296097, 96.63102764841777, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.52423795516884, 95.6887728430358, 41.41100531879138, 1.0],
-                        [76.52423795516884, 95.6887728430358, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.37131126182027, 94.72108277710663, 41.41100531879138, 1.0],
-                        [76.37131126182027, 94.72108277710663, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.38390439702991, 94.07962526877671, 41.41100531879138, 1.0],
-                        [76.38390439702991, 94.07962526877671, 0.10498601801243446, 1.0],
-                    ],
-                    [
-                        [76.41774580834283, 93.76478202139324, 41.41100531879138, 1.0],
-                        [76.41774580834283, 93.76478202139324, 0.10498601801243446, 1.0],
-                    ],
-                ],
-                dtype=float,
-            ),
-            "degree": (3, 1)
-
-        }
-    )
-
-    s2 = nurbs.NURBSSurface(
-        **{
-            "control_points": np.array(
-                [
-                    [
-                        [58.99900024079902, 100.314235228814, 10.808972893047397, 1.0],
-                        [68.34707046760253, 62.81015051393596, 22.869960482526768, 1.0],
-                    ],
-                    [
-                        [59.85259522172079, 100.40321381490975, 10.424062008949615, 1.0],
-                        [69.2006654485243, 62.89912910003171, 22.485049598428986, 1.0],
-                    ],
-                    [
-                        [61.59535154598625, 100.62543299535449, 9.764308279851145, 1.0],
-                        [70.94342177278978, 63.12134828047643, 21.825295869330514, 1.0],
-                    ],
-                    [
-                        [64.23566593465347, 101.07978060252134, 9.130699040125272, 1.0],
-                        [73.58373616145698, 63.575695887643285, 21.191686629604643, 1.0],
-                    ],
-                    [
-                        [66.82169195021058, 101.63989463403122, 8.868051500649052, 1.0],
-                        [76.16976217701409, 64.13580991915317, 20.92903909012842, 1.0],
-                    ],
-                    [
-                        [69.27561378785545, 102.28744991944934, 8.979695311117084, 1.0],
-                        [78.62368401465896, 64.78336520457128, 21.04068290059645, 1.0],
-                    ],
-                    [
-                        [71.52460129952792, 103.00170534847233, 9.457583450629707, 1.0],
-                        [80.87267152633143, 65.49762063359428, 21.518571040109077, 1.0],
-                    ],
-                    [
-                        [73.50296637187336, 103.7601435903035, 10.282610121810293, 1.0],
-                        [82.85103659867687, 66.25605887542544, 22.34359771128966, 1.0],
-                    ],
-                    [
-                        [75.15407947566067, 104.53918616196599, 11.425348828344557, 1.0],
-                        [84.5021497024642, 67.03510144708794, 23.486336417823928, 1.0],
-                    ],
-                    [
-                        [76.4319842413868, 105.31492442395539, 12.84707402902431, 1.0],
-                        [85.78005446819031, 67.81083970907734, 24.90806161850368, 1.0],
-                    ],
-                    [
-                        [77.30266592053286, 106.06385369817762, 14.501060762368999, 1.0],
-                        [86.65073614733637, 68.55976898329958, 26.562048351848368, 1.0],
-                    ],
-                    [
-                        [77.74493862312394, 106.76358533047862, 16.33411116294826, 1.0],
-                        [87.09300884992747, 69.25950061560057, 28.395098752427632, 1.0],
-                    ],
-                    [
-                        [77.75092893971322, 107.39351583348422, 18.288260346354235, 1.0],
-                        [87.09899916651673, 69.88943111860618, 30.349247935833606, 1.0],
-                    ],
-                    [
-                        [77.32614608516276, 107.93543292674464, 20.302606547220165, 1.0],
-                        [86.67421631196629, 70.43134821186659, 32.36359413669953, 1.0],
-                    ],
-                    [
-                        [76.48914157925714, 108.374040718005, 22.315207959940675, 1.0],
-                        [85.83721180606065, 70.86995600312694, 34.376195549420046, 1.0],
-                    ],
-                    [
-                        [75.27077405647069, 108.69738891115995, 24.26498719809055, 1.0],
-                        [84.6188442832742, 71.1933041962819, 36.32597478756992, 1.0],
-                    ],
-                    [
-                        [73.71310675519464, 108.89719408343927, 26.09358483707635, 1.0],
-                        [83.06117698199816, 71.39310936856123, 38.15457242655572, 1.0],
-                    ],
-                    [
-                        [71.86797619548975, 108.9690445398807, 27.747105786913014, 1.0],
-                        [81.21604642229327, 71.46495982500265, 39.808093376392385, 1.0],
-                    ],
-                    [
-                        [69.79528019189668, 108.912483943953, 29.17770624903919, 1.0],
-                        [79.14335041870021, 71.40839922907496, 41.23869383851856, 1.0],
-                    ],
-                    [
-                        [67.56104138064012, 108.73097271506528, 30.344974576091378, 1.0],
-                        [76.90911160744363, 71.22688800018722, 42.40596216557074, 1.0],
-                    ],
-                    [
-                        [65.2353086400129, 108.43172996011272, 31.217066291473003, 1.0],
-                        [74.58337886681642, 70.92764524523467, 43.27805388095238, 1.0],
-                    ],
-                    [
-                        [62.88996297924695, 108.02546234999494, 31.77156160345183, 1.0],
-                        [72.23803320605046, 70.52137763511688, 43.832549192931204, 1.0],
-                    ],
-                    [
-                        [60.59649655943559, 107.52598975220137, 31.996022702903044, 1.0],
-                        [69.94456678623911, 70.02190503732332, 44.057010292382415, 1.0],
-                    ],
-                    [
-                        [58.42383345135465, 106.9497804848072, 31.888237676620694, 1.0],
-                        [67.77190367815817, 69.44569576992915, 43.94922526610006, 1.0],
-                    ],
-                    [
-                        [56.43625855771079, 106.31541167528079, 31.456147696635423, 1.0],
-                        [65.7843287845143, 68.81132696040274, 43.517135286114794, 1.0],
-                    ],
-                    [
-                        [54.6915169252106, 105.64297231371285, 30.71746395224668, 1.0],
-                        [64.03958715201412, 68.1388875988348, 42.77845154172605, 1.0],
-                    ],
-                    [
-                        [53.23913960038584, 104.95342812558968, 29.69899027199356, 1.0],
-                        [62.58720982718936, 67.44934341071163, 41.759977861472926, 1.0],
-                    ],
-                    [
-                        [52.11904445398667, 104.26796831364257, 28.435676247861895, 1.0],
-                        [61.46711468079018, 66.76388359876452, 40.496663837341266, 1.0],
-                    ],
-                    [
-                        [51.36045127250022, 103.60735451068608, 26.969433656648654, 1.0],
-                        [60.70852149930374, 66.10326979580802, 39.03042124612802, 1.0],
-                    ],
-                    [
-                        [50.98114019270961, 102.99129194467976, 25.347755837285032, 1.0],
-                        [60.329210419513124, 65.48720722980171, 37.4087434267644, 1.0],
-                    ],
-                    [
-                        [50.98707156725684, 102.43784186217442, 23.622185229476838, 1.0],
-                        [60.33514179406036, 64.93375714729638, 35.68317281895621, 1.0],
-                    ],
-                    [
-                        [51.37237394666195, 101.96289272436415, 21.846678353107304, 1.0],
-                        [60.720444173465474, 64.45880800948609, 33.907665942586675, 1.0],
-                    ],
-                    [
-                        [52.119695405417104, 101.57970563616664, 20.07592000206839, 1.0],
-                        [61.467765632220626, 64.07562092128858, 32.13690759154776, 1.0],
-                    ],
-                    [
-                        [53.20090228304913, 101.29854696364163, 18.363639283653434, 1.0],
-                        [62.54897250985265, 63.79446224876358, 30.424626873132805, 1.0],
-                    ],
-                    [
-                        [54.57809889796445, 101.12641822233122, 16.76097935013552, 1.0],
-                        [63.926169124767966, 63.62233350745318, 28.821966939614892, 1.0],
-                    ],
-                    [
-                        [56.204932240584405, 101.06689017284573, 15.314970288643282, 1.0],
-                        [65.55300246738793, 63.56280545796767, 27.37595787812265, 1.0],
-                    ],
-                    [
-                        [58.02813734684593, 101.12004474161692, 14.067150754018297, 1.0],
-                        [67.37620757364945, 63.615960026738875, 26.128138343497668, 1.0],
-                    ],
-                    [
-                        [59.989272235191144, 101.28252499964725, 13.052378687633212, 1.0],
-                        [69.33734246199467, 63.778440284769204, 25.11336627711258, 1.0],
-                    ],
-                    [
-                        [62.026586151827686, 101.54769008646086, 12.297865044371106, 1.0],
-                        [71.37465637863122, 64.04360537158281, 24.358852633850475, 1.0],
-                    ],
-                    [
-                        [64.07696154754362, 101.90586876386043, 11.822457065740263, 1.0],
-                        [73.42503177434713, 64.40178404898238, 23.88344465521963, 1.0],
-                    ],
-                    [
-                        [66.07786878348696, 102.344702322243, 11.636189532261826, 1.0],
-                        [75.42593901029048, 64.84061760736495, 23.697177121741195, 1.0],
-                    ],
-                    [
-                        [67.96927305164172, 102.84956493006106, 11.740113864966524, 1.0],
-                        [77.31734327844524, 65.34548021518302, 23.80110145444589, 1.0],
-                    ],
-                    [
-                        [69.69543535682843, 103.4040472919943, 12.126406197044489, 1.0],
-                        [79.04350558363194, 65.89996257711626, 24.18739378652386, 1.0],
-                    ],
-                    [
-                        [71.20655354155971, 103.99048772723764, 12.778746877553214, 1.0],
-                        [80.55462376836323, 66.48640301235959, 24.839734467032585, 1.0],
-                    ],
-                    [
-                        [72.46019508954504, 104.59053354416359, 13.67295556825788, 1.0],
-                        [81.80826531634855, 67.08644882928554, 25.733943157737247, 1.0],
-                    ],
-                    [
-                        [73.4224806160484, 105.18571490276132, 14.777858405998941, 1.0],
-                        [82.77055084285192, 67.68163018788327, 26.838845995478312, 1.0],
-                    ],
-                    [
-                        [74.06898530002766, 105.75801323533824, 16.05635685771805, 1.0],
-                        [83.41705552683118, 68.25392852046019, 28.11734444719742, 1.0],
-                    ],
-                    [
-                        [74.38533475697693, 106.29040673481244, 17.46666209515935, 1.0],
-                        [83.73340498378046, 68.78632201993437, 29.527649684638725, 1.0],
-                    ],
-                    [
-                        [74.36748169130416, 106.7673763968811, 18.963654127559103, 1.0],
-                        [83.71555191810768, 69.26329168200306, 31.02464171703847, 1.0],
-                    ],
-                    [
-                        [74.02165978704144, 107.17535757922418, 20.500321679381486, 1.0],
-                        [83.36973001384497, 69.67127286434612, 32.56130926886085, 1.0],
-                    ],
-                    [
-                        [73.36402137543755, 107.50312396436341, 22.029236968752418, 1.0],
-                        [82.71209160224106, 69.99903924948536, 34.09022455823179, 1.0],
-                    ],
-                    [
-                        [72.41997514295973, 107.74209311625725, 23.504019167428822, 1.0],
-                        [81.76804536976326, 70.2380084013792, 35.56500675690819, 1.0],
-                    ],
-                    [
-                        [71.22324921440524, 107.88654542659906, 24.880741395479788, 1.0],
-                        [80.57131944120877, 70.38246071172101, 36.941728984959155, 1.0],
-                    ],
-                    [
-                        [69.81471308887015, 107.93375106912856, 26.119238568627395, 1.0],
-                        [79.16278331567366, 70.42966635425051, 38.18022615810676, 1.0],
-                    ],
-                    [
-                        [68.24099887994021, 107.88400252751389, 27.184277175751223, 1.0],
-                        [77.58906910674372, 70.37991781263584, 39.24526476523059, 1.0],
-                    ],
-                    [
-                        [66.55296791450633, 107.74055324034097, 28.04655298146921, 1.0],
-                        [75.90103814130984, 70.23646852546291, 40.10754057094858, 1.0],
-                    ],
-                    [
-                        [64.80407282186044, 107.5094658216663, 28.68348855261178, 1.0],
-                        [74.15214304866396, 70.00538110678825, 40.74447614209115, 1.0],
-                    ],
-                    [
-                        [63.04866769119459, 107.19937607698492, 29.079809197894644, 1.0],
-                        [72.39673791799811, 69.69529136210687, 41.14079678737401, 1.0],
-                    ],
-                    [
-                        [61.34031963911918, 106.82118155801334, 29.22788316540032, 1.0],
-                        [70.68838986592269, 69.31709684313529, 41.28887075487969, 1.0],
-                    ],
-                    [
-                        [59.73017421089068, 106.3876656097714, 29.12781952627325, 1.0],
-                        [69.0782444376942, 68.88358089489334, 41.188807115752624, 1.0],
-                    ],
-                    [
-                        [58.265424494161095, 105.91306969543133, 28.787324842102592, 1.0],
-                        [67.61349472096461, 68.40898498055329, 40.84831243158196, 1.0],
-                    ],
-                    [
-                        [56.98792975719873, 105.41262818651259, 28.2213272254739, 1.0],
-                        [66.33599998400226, 67.90854347163454, 40.282314814953274, 1.0],
-                    ],
-                    [
-                        [55.933023986052845, 104.90208074078389, 27.45138352431772, 1.0],
-                        [65.28109421285636, 67.39799602590583, 39.51237111379709, 1.0],
-                    ],
-                    [
-                        [55.12854807944527, 104.3971778355355, 26.504891872967217, 1.0],
-                        [64.47661830624878, 66.89309312065745, 38.56587946244659, 1.0],
-                    ],
-                    [
-                        [54.59413189297321, 103.91319497333818, 25.414137560742272, 1.0],
-                        [63.94220211977673, 66.40911025846012, 37.47512515022164, 1.0],
-                    ],
-                    [
-                        [54.340744058865255, 103.46447054039609, 24.215204905223267, 1.0],
-                        [63.68881428566877, 65.96038582551805, 36.27619249470264, 1.0],
-                    ],
-                    [
-                        [54.37051881566359, 103.0639812987641, 22.94679144823197, 1.0],
-                        [63.71858904246711, 65.55989658388606, 35.007779037711344, 1.0],
-                    ],
-                    [
-                        [54.676860244783896, 102.72296807188822, 21.648963220956706, 1.0],
-                        [64.02493047158742, 65.21888335701017, 33.70995081043608, 1.0],
-                    ],
-                    [
-                        [55.24481560923653, 102.45062238980726, 20.36189099325378, 1.0],
-                        [64.59288583604005, 64.94653767492922, 32.42287858273315, 1.0],
-                    ],
-                    [
-                        [56.051701196560145, 102.2538427585446, 19.124607314315938, 1.0],
-                        [65.39977142336366, 64.74975804366653, 31.185594903795305, 1.0],
-                    ],
-                    [
-                        [57.06795643875382, 102.13706687917137, 17.973822791731884, 1.0],
-                        [66.41602666555733, 64.63298216429332, 30.034810381211255, 1.0],
-                    ],
-                    [
-                        [58.25819534720403, 102.10218364359788, 16.94283750692893, 1.0],
-                        [67.60626557400755, 64.59809892871982, 29.003825096408306, 1.0],
-                    ],
-                    [
-                        [59.58241865880238, 102.14852615805604, 16.060579827306256, 1.0],
-                        [68.93048888560591, 64.644441443178, 28.12156741678563, 1.0],
-                    ],
-                    [
-                        [60.99734570132495, 102.27294447437156, 15.35080028225537, 1.0],
-                        [70.34541592812846, 64.76885975949351, 27.41178787173474, 1.0],
-                    ],
-                    [
-                        [62.45782196998011, 102.46995422490728, 14.831442783232337, 1.0],
-                        [71.80589219678362, 64.96586951002922, 26.892430372711704, 1.0],
-                    ],
-                    [
-                        [63.91825683559605, 102.73195503687046, 14.514209471297441, 1.0],
-                        [73.26632706239957, 65.22787032199241, 26.57519706077681, 1.0],
-                    ],
-                    [
-                        [65.33404570380335, 103.04951051643103, 14.404329069764543, 1.0],
-                        [74.68211593060687, 65.54542580155297, 26.465316659243914, 1.0],
-                    ],
-                    [
-                        [66.6629322921057, 103.41167980509685, 14.500532015313976, 1.0],
-                        [76.01100251890921, 65.9075950902188, 26.561519604793343, 1.0],
-                    ],
-                    [
-                        [67.86626942037813, 103.80638927184376, 14.795229051577333, 1.0],
-                        [77.21433964718165, 66.3023045569657, 26.8562166410567, 1.0],
-                    ],
-                    [
-                        [68.91014070957155, 104.22083185443788, 15.274883604325971, 1.0],
-                        [78.25821093637506, 66.71674713955981, 27.33587119380534, 1.0],
-                    ],
-                    [
-                        [69.76631070387806, 104.6418809289694, 15.920562315933726, 1.0],
-                        [79.11438093068158, 67.13779621409135, 27.981549905413097, 1.0],
-                    ],
-                    [
-                        [70.41297699058978, 105.0565053808684, 16.708642780893634, 1.0],
-                        [79.76104721739331, 67.55242066599035, 28.769630370372997, 1.0],
-                    ],
-                    [
-                        [70.83530467955467, 105.45217277268613, 17.611652953624425, 1.0],
-                        [80.18337490635818, 67.94808805780808, 29.672640543103796, 1.0],
-                    ],
-                    [
-                        [71.0257308908213, 105.81722813909609, 18.599213027221126, 1.0],
-                        [80.37380111762482, 68.31314342421803, 30.660200616700493, 1.0],
-                    ],
-                    [
-                        [70.98403444289741, 106.14123696029141, 19.639047908803956, 1.0],
-                        [80.33210466970093, 68.63715224541336, 31.700035498283324, 1.0],
-                    ],
-                    [
-                        [70.71717348891951, 106.4152822317001, 20.698036811532106, 1.0],
-                        [80.06524371572303, 68.91119751682206, 32.75902440101147, 1.0],
-                    ],
-                    [
-                        [70.23890117161812, 106.6322072107228, 21.74326597756703, 1.0],
-                        [79.58697139842164, 69.12812249584474, 33.8042535670464, 1.0],
-                    ],
-                    [
-                        [69.56917622944874, 106.7867973213543, 22.74305113676631, 1.0],
-                        [78.91724645625226, 69.28271260647625, 34.80403872624568, 1.0],
-                    ],
-                    [
-                        [68.73339167361581, 106.87589676975892, 23.66789795388347, 1.0],
-                        [78.08146190041933, 69.37181205488086, 35.72888554336284, 1.0],
-                    ],
-                    [
-                        [67.76144998225055, 106.89845759837641, 24.491371350341705, 1.0],
-                        [77.10952020905407, 69.39437288349836, 36.552358939821076, 1.0],
-                    ],
-                    [
-                        [66.68671756798375, 106.85552111107476, 25.19084810246327, 1.0],
-                        [76.03478779478726, 69.3514363961967, 37.25183569194264, 1.0],
-                    ],
-                    [
-                        [65.54489444837252, 106.75013376561667, 25.748131386847042, 1.0],
-                        [74.89296467517605, 69.2460490507386, 37.80911897632641, 1.0],
-                    ],
-                    [
-                        [64.37283700370801, 106.58720168321987, 26.149910813750555, 1.0],
-                        [73.72090723051153, 69.08311696834183, 38.210898403229926, 1.0],
-                    ],
-                    [
-                        [63.20737240314217, 106.3732898039749, 26.388056792337437, 1.0],
-                        [72.55544262994569, 68.86920508909685, 38.449044381816805, 1.0],
-                    ],
-                    [
-                        [62.08414271880278, 106.11637336382533, 26.45974362789767, 1.0],
-                        [71.4322129456063, 68.61228864894728, 38.52073121737704, 1.0],
-                    ],
-                    [
-                        [61.03651497042671, 105.82555073473551, 26.36740137592553, 1.0],
-                        [70.38458519723022, 68.32146601985747, 38.428388965404906, 1.0],
-                    ],
-                    [
-                        [60.094590430611404, 105.51072771558223, 26.118501987570816, 1.0],
-                        [69.44266065741493, 68.00664300070419, 38.179489577050184, 1.0],
-                    ],
-                    [
-                        [59.28434258918677, 105.18228405931109, 25.7251904986972, 1.0],
-                        [68.63241281599029, 67.67819934443304, 37.78617808817657, 1.0],
-                    ],
-                    [
-                        [58.626908371720226, 104.85073335598291, 25.203776776656582, 1.0],
-                        [67.97497859852373, 67.34664864110486, 37.26476436613595, 1.0],
-                    ],
-                    [
-                        [58.13805170490232, 104.52638735741037, 24.574107498017568, 1.0],
-                        [67.48612193170584, 67.02230264253231, 36.635095087496936, 1.0],
-                    ],
-                    [
-                        [57.827812513452045, 104.21903543605772, 23.858841465041017, 1.0],
-                        [67.17588274025556, 66.71495072117966, 35.919829054520385, 1.0],
-                    ],
-                    [
-                        [57.700347924999086, 103.93764913586084, 23.082653972395953, 1.0],
-                        [67.04841815180261, 66.43356442098278, 35.14364156187532, 1.0],
-                    ],
-                    [
-                        [57.75396606415173, 103.6901207362929, 22.271397669844184, 1.0],
-                        [67.10203629095525, 66.18603602141484, 34.33238525932356, 1.0],
-                    ],
-                    [
-                        [57.98134654260204, 103.4830434159075, 21.451248078143294, 1.0],
-                        [67.32941676940555, 65.97895870102946, 33.51223566762266, 1.0],
-                    ],
-                    [
-                        [58.3699358141897, 103.32153915652795, 20.647862024233383, 1.0],
-                        [67.71800604099323, 65.8174544416499, 32.70884961371276, 1.0],
-                    ],
-                    [
-                        [58.90250010583999, 103.20913850463208, 19.88557519646438, 1.0],
-                        [68.25057033264352, 65.70505378975402, 31.946562785943744, 1.0],
-                    ],
-                    [
-                        [59.5578139953341, 103.14771571819331, 19.18666678759025, 1.0],
-                        [68.90588422213762, 65.64363100331526, 31.247654377069622, 1.0],
-                    ],
-                    [
-                        [60.31145839489129, 103.13747643443831, 18.570702656680645, 1.0],
-                        [69.65952862169482, 65.63339171956025, 30.63169024616001, 1.0],
-                    ],
-                    [
-                        [61.13670019069741, 103.17701011196023, 18.054016620468136, 1.0],
-                        [70.48477041750093, 65.67292539708218, 30.115004209947507, 1.0],
-                    ],
-                    [
-                        [61.71584962205868, 103.23457875769459, 17.784148986040286, 1.0],
-                        [71.06391984886218, 65.73049404281653, 29.845136575519653, 1.0],
-                    ],
-                    [
-                        [62.00790573812107, 103.27044695570538, 17.669319488366327, 1.0],
-                        [71.3559759649246, 65.76636224082733, 29.730307077845698, 1.0],
-                    ],
-                ],
-                dtype=float,
-            ),
-            "degree": (3, 1),
-
-        }
-    )
-
-    surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
-                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
-                              weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
-
-    surf2 = NURBSSurfaceTuple(order_u=s2.degree[0] + 1, order_v=s2.degree[1] + 1, knot_u=s2.knots_u.tolist(),
-                              knot_v=s2.knots_v.tolist(), control_points=np.array(s2.control_points),
-                              weights=np.ascontiguousarray(s2.control_points_w[..., -1]))
-    branches=nurbs_trace_intersection_curves(surf1, surf2,tol=1e-2,spt=1e-2)
-    print(f"{len(branches)} intersection curves")
-    print([branch[0].tolist() for branch in branches])
