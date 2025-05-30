@@ -98,7 +98,7 @@ jobs:
 
   upload_test_pypi:
     needs: [ build ]
-    if: ${{ startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/master' }}
+    if: ${{ github.ref == 'refs/heads/test' }}
     runs-on: ubuntu-latest
     environment:
       name: test-pypi
