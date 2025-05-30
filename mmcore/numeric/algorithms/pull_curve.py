@@ -1,4 +1,4 @@
-from mmcore.numeric.intersection.ssx._ssi import improve_uv
+from mmcore.numeric.intersection.ssx._ssx_utils import improve_uv
 from scipy.integrate import solve_ivp
 import numpy as np
 

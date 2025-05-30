@@ -917,7 +917,8 @@ s2 = NURBSSurface(
 
     }
 )
-
+import logging
+#logging.basicConfig(level=logging.DEBUG)
 s=time.time()
 result=ssx(s1,s2,tol=1e-4,spt=0.01)
 
@@ -939,7 +940,7 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 
 
 
-RENDER=False
+RENDER=True
 try:
     if RENDER:
         from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
@@ -951,7 +952,8 @@ try:
         )
 
         renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
-        renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+       
+        renderer.add_nurbs_surface(s2,color=(1.,1.,1.), render_as_mesh=False)
 
         for (crv,uv1,uv2) in result[0]:
             renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))

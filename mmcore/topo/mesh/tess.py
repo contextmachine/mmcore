@@ -1,15 +1,15 @@
-from typing import Collection
+from __future__ import annotations
+from typing import Collection,TypedDict
 
 import numpy as np
-
-from mmcore.geom.nurbs import NURBSSurface
+from ._classes import Tessellation,tess_to_mesh
+from mmcore.geom.nurbs import NURBSSurface, decompose_surface
 from mmcore.geom.polygon import is_point_in_polygon_bvh, polygon_build_bvh
 from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
 from mmcore.numeric.routines import uvs
 from mmcore.topo.mesh.triangle import triangulate
 from mmcore.topo.mesh.triangle.tri import segments_by_loop
 from mmcore.geom.nurbs_iso import extract_surface_boundaries
-
 
 def tessellate_curve_on_surface(crv: 'CurveOnSurface', u_count=25, v_count=25, boundary_count=100):
     plgn = polygon = crv.curve(np.linspace(*tuple(crv.interval()), boundary_count))[..., :2]
@@ -170,7 +170,9 @@ def tessellate_surface(surface: NURBSSurface,
     tessellation["vertices"] = vxs
     tessellation["position"] = surface.evaluate_multi(vxs)
     return tessellation
-
+from .fuse import fuse_meshes
+def surface_to_mesh(surface: NURBSSurface,tol=1e-3):
+    return fuse_meshes([tess_to_mesh(tessellate_surface(s,tol=tol) )for s in decompose_surface(surface)])[0]
 
 def as_polygons(triangulate_result):
     """
@@ -185,6 +187,4 @@ def as_bvh(triangulate_result):
     pos=triangulate_result['position'][triangulate_result['triangles']]
 
     return build_bvh([PTriangle(pos[i],uvs[i]) for i in range(len(uvs))])
-
-
 

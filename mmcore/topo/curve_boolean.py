@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
-import math
-from collections import defaultdict
-import math
-from collections import defaultdict
+
 
 import numpy as np
 
@@ -176,8 +172,8 @@ from collections import defaultdict
 from mmcore.numeric.aabb import aabb_intersect_fast_3d,aabb,aabb_segm3d
 import math
 from collections import defaultdict
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import split_curve,trim_curve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve,_curve_interval
+from mmcore.geom._nurbs_knots import split_curve,trim_curve,reverse_curve
 import math
 from collections import defaultdict
 from typing import List, Tuple
@@ -282,67 +278,38 @@ def merge_overlapping_segments(
     return merged
 
 
-class NurbsCurveAdapter:
-    __slots__=('curve','_bb','_reversed')
-    def __init__(self, curve:NURBSCurveTuple, reversed=False):
-        self.curve=curve
-        self._reversed=reversed
-        self._bb=np.array(aabb(self._pts))
-    def trim(self,t0,t1):
-        return NurbsCurveAdapter(trim_curve(self.curve,t0,t1))
-
-    def derivative(self, t):
-        return evaluate_nurbs_curve(self.curve,t,1)["C1"][:2]
-    def evaluate(self, t):
-        return evaluate_nurbs_curve(self.curve,t,0)["C"][:2]
-    def bbox(self):
-        return self._bb
-    def reversed(self):
-        return NurbsCurveAdapter(self.curve,not self._reversed)
-class SegmentAdapter:
-    __slots__=('_pts','_d','_bb','_reversed')
-    def __init__(self, pts:NDArray[float], reversed=False):
-        self._pts=pts
-        self._d=self._pts[1]-self._pts[2]
-        self._reversed=reversed
-        self._bb=np.array(aabb(self._pts))
-
-    def trim(self,t0,t1):
-
-        return NurbsCurveAdapter( np.array([self.evaluate(t0), self.evaluate(t1)]))
-
-    def derivative(self, t):
-        return self._d
-
-    def evaluate(self, t):
-        return self._pts[0]+self._d*t
-    def bbox(self):
-        return self._bb
-    def reversed(self):
-        return NurbsCurveAdapter(self._pts,not self._reversed)
 
 
 class CurveFragment:
 
-    def __init__(self, curve, t0, t1):
+    def __init__(self, curve:NURBSCurveTuple, t0:float, t1:float):
         """
         curve: any object with .trim(t0,t1) → new curve (same param domain),
                .evaluate(t), .derivative(t), .bbox(), .reversed()
         t0, t1: parameters where this fragment begins/ends on the original curve
         """
         # store the trimmed piece; param domain is unchanged
-        self.curve = curve.trim(t0, t1)
+
+        self.curve = trim_curve(curve, t0, t1)
         self.t0 = t0
         self.t1 = t1
-
+        self._build()
+    def _build(self):
+        _start=evaluate_nurbs_curve(self.curve,self.t0,1)
+        self.start=_start['C']
+        self.start_der=_start['C1']
+        _end = evaluate_nurbs_curve(self.curve, self.t1, 1)
+        self.end = _end["C"]
+        self.end_der = _end["C1"]
+        self._bbox=np.array(aabb(np.array(self.curve.control_points)))
     def evaluate(self, t):
-        return self.curve.evaluate(t)
+        return evaluate_nurbs_curve(self.curve,t,0)['C']
 
     def derivative(self, t):
-        return self.curve.derivative(t)
+        return evaluate_nurbs_curve(self.curve,t,1)['C1']
 
     def bbox(self):
-        return self.curve.bbox()
+        return self.curve._bbox
 
     def reversed(self):
         # build a new fragment that traverses the same trimmed curve backwards
@@ -350,6 +317,7 @@ class CurveFragment:
         rev.curve = self.curve.reversed()
 
         rev.t0, rev.t1 = self.t1, self.t0
+        rev._build()
         return rev
 
 
