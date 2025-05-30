@@ -128,28 +128,34 @@ def calculate_eps_n(spt, angle_tol):
     return (spt**2)/(angle_tol+10e-12)
 def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, eps_n=None,angle_tol=0.052,max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
     """
-    Refine an approximate intersection point onto the true intersection by iterating until
-    the difference between the two surface evaluations is below the Same Point Tolerance (SPT).
+    Refines the intersection point of two NURBS surfaces to a higher accuracy using an
+    iterative approach. The function computes the intersection refinement by minimizing
+    the distance between the evaluated points on the two surfaces while considering normal
+    vector alignment, ensuring the refinement achieves geometric consistency and convergence
+    within a specified tolerance.
 
-    Given an approximate parameter vector x = [s, t, u, v] for surfaces S0 and S1, we iteratively
-    compute the corresponding surface points and adjust the parameters by solving the linearized
-    systems:
-
-        J0 * Δ(s,t) = (P_avg - S0(s,t))
-        J1 * Δ(u,v) = (P_avg - S1(u,v))
-
-    where P_avg = (S0 + S1)/2 and J0, J1 are the 3×2 Jacobians (first derivatives)
-    of S0 and S1, respectively. The corrections are computed in a least-squares sense
-    via the pseudoinverse.
-
-    Iteration continues until ||S0(s,t) - S1(u,v)|| < spt or until max_iter iterations are reached.
-
-    :param x: Current approximate parameters [s, t, u, v].
-    :param surf1: First NURBS surface S0.
-    :param surf2: Second NURBS surface S1.
-    :param spt: Same Point Tolerance; iteration stops when ||S0 - S1|| < spt.
-    :param max_iter: Maximum number of refinement iterations.
-    :return: Refined parameter vector [s, t, u, v].
+    :param x: Initial guess for the intersection parameter vector, in the form [s, t, u, v].
+    :type x: numpy.ndarray
+    :param surf1: The first NURBS surface to be used in the intersection refinement.
+    :type surf1: NURBSSurfaceTuple
+    :param surf2: The second NURBS surface to be used in the intersection refinement.
+    :type surf2: NURBSSurfaceTuple
+    :param spt: Convergence tolerance for geometric proximity between the surfaces.
+    :type spt: float
+    :param eps_n: Tolerance for normal vector alignment. If None, it will be computed
+                  based on `spt` and `angle_tol`.
+    :type eps_n: float or None
+    :param angle_tol: Angular tolerance for the alignment of surface normal vectors,
+                      given in radians.
+    :type angle_tol: float
+    :param max_iter: Maximum number of iterations allowed for refining the intersection.
+    :type max_iter: int
+    :return: A tuple containing:
+             - Refined parameter vector `x` ([s, t, u, v]) as a numpy array.
+             - Evaluation results for the first surface as a dictionary.
+             - Evaluation results for the second surface as a dictionary.
+             - Final error metric between the surfaces after refinement.
+    :rtype: tuple[numpy.ndarray, dict, dict, float]
     """
     iteration = 0
     x_current = np.array(x, dtype=float)
