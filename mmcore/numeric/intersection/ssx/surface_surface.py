@@ -11,46 +11,16 @@ from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
 from scipy.integrate import solve_bvp, solve_ivp
 
 from mmcore.geom.surfaces import CurveOnSurface, Surface
-from scipy.spatial import KDTree
 
-from mmcore.geom.bvh import BoundingBox, intersect_bvh_objects, BVHNode, Triangle
 from mmcore.geom.surfaces import Surface, Coons
 from mmcore.numeric.vectors import solve2x2, det, scalar_dot, scalar_norm
 from mmcore.numeric.intersection.ssx._ssx_utils import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 
-from mmcore.numeric.closest_point import (
-    closest_point_on_ray,
-    closest_points_on_surface,
-    closest_point_on_surface,
-    closest_point_on_nurbs_surface,
-)
-from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_nd
-from mmcore.numeric.intersection.csx import nurbs_csx
-from mmcore.numeric.intersection.ssx._detect_intersections import detect_intersections
-
-from mmcore.numeric.plane import plane_plane_intersect
-
 from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
 
 import numpy as np
 from mmcore.numeric.vectors import norm, det
-from collections import namedtuple
-from typing import NamedTuple, Optional, Tuple
-
-from mmcore.numeric import scalar_cross, scalar_norm
-
-
-from mmcore.numeric.fdm import DEFAULT_H
-from mmcore.numeric.intersection.ssx._terminator import TerminatorType
-
-from mmcore.numeric.plane import plane_plane_plane_intersect_points_and_normals
-from mmcore.numeric.intersection.ssx._terminator import (
-    surface_surface_boundary_intersection,
-)
-
-from numpy.typing import NDArray
-
 
 
 def improve_uv(du, dv, xyz_old, xyz_better, res):
