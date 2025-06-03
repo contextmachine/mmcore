@@ -187,7 +187,6 @@ def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1
     return True,sorted((inner(_curve.curve) for _curve in rr[0]),key=lambda x: x[1])[0]
 
 
-
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
     """
     Find the foot point on the parametric surface S(s, t) closest to the given point P.
@@ -329,17 +328,21 @@ def closest_point_on_nurbs_surface(self:NURBSSurface,pt,tol=1e-3):
     surfs=decompose_surface(self)
     root=build_bvh([NURBSSurfaceBvhObject(i) for i in surfs])
     candidates=[i.surf for i in contains_point(root,pt)]
-
+    best_f=float('inf')
+    best_x=None
     for candidate in candidates:
         def f(u,v):
             d=candidate.evaluate_v2(u,v)-pt
             return scalar_dot(d,d)
 
         res=divide_and_conquer_min_2d(f, *candidate.interval(), tol=tol)
-        if f(*res)<tol:
-            return
+        ff=f(*res)
+        if best_f>ff:
+            best_f=ff
+            best_x=res
+            
 
-        return
+        return best_x,best_f
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
     if bounds is None:

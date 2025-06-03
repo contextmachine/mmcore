@@ -126,6 +126,8 @@ def within_normal_gap(n1, n2, S1, S2, eps_theta, eps_n):
     return False
 def calculate_eps_n(spt, angle_tol):
     return (spt**2)/(angle_tol+10e-12)
+
+
 def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NURBSSurfaceTuple, spt: float = 1e-3, eps_n=None,angle_tol=0.052,max_iter: int = 10) -> tuple[np.ndarray,dict,dict,float]:
     """
     Refines the intersection point of two NURBS surfaces to a higher accuracy using an
