@@ -622,7 +622,167 @@ def crvs_to_numpy_poly(crv, n_samples=100, remap=True):
 
 
 
+import numpy as np
 
+def compute_parametric_tolerance_curve(C1, C2, spt, angle_tol=None):
+    """
+    Compute the parametric step (du) for a NURBS curve given spatial and optional angular tolerances.
+
+    Parameters:
+    -----------
+    C1 : array_like, shape (n,)
+        First derivative vector C'(t) at the current parameter t.
+    C2 : array_like, shape (n,)
+        Second derivative vector C''(t) at the current parameter t.
+    spt : float
+        Spatial tolerance (maximum allowed positional deviation).
+    angle_tol : float, optional
+        Angular tolerance in radians (maximum allowed change in tangent direction).
+        If None or 0, only spatial tolerance is enforced.
+
+    Returns:
+    --------
+    dt : float
+        The computed parameter increment ensuring neither positional nor
+        (if angle_tol is not None) angular deviation exceed the given tolerances.
+    """
+    C1 = np.asarray(C1, dtype=float)
+    C2 = np.asarray(C2, dtype=float)
+
+    # Norms of first and second derivatives
+    norm_Cp = np.linalg.norm(C1)
+    norm_Cpp = np.linalg.norm(C2)
+
+    # 1. First-order spatial bound: du_spatial1 = spt / ||C'(t)||
+    if norm_Cp > 0:
+        du_spatial1 = spt / norm_Cp
+    else:
+        du_spatial1 = np.inf
+
+    # 2. Second-order (curvature-chord) spatial bound:
+    #    du_spatial2 = sqrt(8 * spt / (||C''(t)|| * ||C'(t)||^2))
+    if norm_Cp > 0 and norm_Cpp > 0:
+        du_spatial2 = np.sqrt(8 * spt / (norm_Cpp * norm_Cp**2))
+    else:
+        du_spatial2 = np.inf
+
+    # Choose the stricter of the two spatial bounds
+    du_spatial = min(du_spatial1, du_spatial2)
+
+    # If angular tolerance is not provided or zero, return spatial-only step
+    if angle_tol is None or angle_tol <= 0:
+        return du_spatial
+
+    # 3. Angular bound: du_angular = angle_tol * ||C'(t)||^2 / ||C'(t) x C''(t)||
+    cross_norm = np.linalg.norm(np.cross(C1, C2))
+    if norm_Cp > 0 and cross_norm > 0:
+        du_angular = angle_tol * (norm_Cp**2) / cross_norm
+    else:
+        du_angular = np.inf
+
+    # 4. Final step is the minimum of spatial and angular bounds
+    du = min(du_spatial, du_angular)
+    return du
+
+
+def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=None):
+    """
+    Compute parameter increments (du, dv) for a NURBS surface given spatial and optional angular tolerances.
+
+    Parameters:
+    -----------
+    Su : array_like, shape (3,)
+        First partial derivative vector S_u at the current (u, v).
+    Sv : array_like, shape (3,)
+        First partial derivative vector S_v at the current (u, v).
+    Suu : array_like, shape (3,)
+        Second partial derivative vector S_{uu} at the current (u, v).
+    Suv : array_like, shape (3,)
+        Mixed partial derivative vector S_{uv} at the current (u, v).
+    Svv : array_like, shape (3,)
+        Second partial derivative vector S_{vv} at the current (u, v).
+    spt : float
+        Spatial tolerance (maximum allowed positional deviation).
+    angle_tol : float, optional
+        Angular tolerance in radians (maximum allowed change in surface normal).
+        If None or 0, only spatial tolerance is enforced.
+
+    Returns:
+    --------
+    du : float
+        The computed parameter increment in the u-direction.
+    dv : float
+        The computed parameter increment in the v-direction.
+    """
+    Su = np.asarray(Su, dtype=float)
+    Sv = np.asarray(Sv, dtype=float)
+    Suu = np.asarray(Suu, dtype=float)
+    Suv = np.asarray(Suv, dtype=float)
+    Svv = np.asarray(Svv, dtype=float)
+
+    # Norms of first partial derivatives
+    norm_Su = np.linalg.norm(Su)
+    norm_Sv = np.linalg.norm(Sv)
+
+    # Compute surface normal N = Su x Sv
+    N = np.cross(Su, Sv)
+    norm_N = np.linalg.norm(N)
+
+    # Spatial bounds (first-order)
+    if norm_Su > 0:
+        du_spatial = spt / norm_Su
+    else:
+        du_spatial = np.inf
+
+    if norm_Sv > 0:
+        dv_spatial = spt / norm_Sv
+    else:
+        dv_spatial = np.inf
+
+    # If angular tolerance not provided or <= 0, return spatial-only steps
+    if angle_tol is None or angle_tol <= 0:
+        return du_spatial, dv_spatial
+
+    # Compute derivatives of the normal with respect to u and v:
+    # dN/du = S_{uu} x Sv + Su x S_{uv}
+    dN_du = np.cross(Suu, Sv) + np.cross(Su, Suv)
+    # dN/dv = S_{uv} x Sv + Su x S_{vv}
+    dN_dv = np.cross(Suv, Sv) + np.cross(Su, Svv)
+
+    norm_dN_du = np.linalg.norm(dN_du)
+    norm_dN_dv = np.linalg.norm(dN_dv)
+
+    # Angular bounds: ensure angle between N(u,v) and N(u+du,v) <= angle_tol
+    # angle ≈ ||dN/du|| / ||N|| * du  => du_angular = angle_tol * ||N|| / ||dN/du||
+    if norm_N > 0 and norm_dN_du > 0:
+        du_angular = angle_tol * (norm_N / norm_dN_du)
+    else:
+        du_angular = np.inf
+
+    # similarly for dv
+    if norm_N > 0 and norm_dN_dv > 0:
+        dv_angular = angle_tol * (norm_N / norm_dN_dv)
+    else:
+        dv_angular = np.inf
+
+    # Final increments as minimum of spatial and angular bounds
+    du = min(du_spatial, du_angular)
+    dv = min(dv_spatial, dv_angular)
+
+    return du, dv
+
+# Example usage:
+if __name__ == "__main__":
+    # Example derivatives at some parameter u
+    Cp_example = [1.0, 2.0, 0.5]
+    Cpp_example = [0.0, 1.0, -0.2]
+
+    # Given tolerances
+    spt_example = 0.01       # spatial tolerance
+    angle_tol_example = 0.05 # angular tolerance in radians
+
+    du_result = compute_parametric_step(Cp_example, Cpp_example, spt_example, angle_tol_example)
+    print(f"Computed du: {du_result:.6f}")
 
 if __name__ == '__main__':
     from mmcore.geom.curves import NURBSpline

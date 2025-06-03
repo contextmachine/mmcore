@@ -51,7 +51,13 @@ if sys.platform == "win32":
 
 extensions = [
     Extension(
-
+        "mmcore.numeric._implicitize_utils",
+        ["mmcore/numeric/_implicitize_utils.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
         "mmcore.numeric.newton.cnewton",
         ["mmcore/numeric/newton/cnewton.pyx"],
         extra_compile_args=compile_args,
@@ -59,14 +65,12 @@ extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-
         "mmcore.numeric.algorithms.moller",
         ["mmcore/numeric/algorithms/moller.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-
     Extension(
         "mmcore.numeric._aabb",
         ["mmcore/numeric/_aabb.pyx"],
@@ -74,7 +78,6 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-
     Extension(
         "mmcore.geom.nurbs",
         ["mmcore/geom/nurbs.pyx"],
@@ -98,13 +101,13 @@ extensions = [
     #   extra_compile_args=["-std=c++11"]+compile_args,
     #        extra_link_args=link_args,
     #   include_dirs=include_dirs),
-    Extension(
-        "mmcore.numeric.matrix",
-        ["mmcore/numeric/matrix/__init__.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #     "mmcore.numeric.matrix",
+    #     ["mmcore/numeric/matrix/__init__.pyx"],
+    #     extra_compile_args=compile_args,
+    #     extra_link_args=link_args,
+    #     include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.numeric.algorithms.cygjk",
         ["mmcore/numeric/algorithms/cygjk.pyx"],
@@ -120,13 +123,13 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves.deboor",
-        ["mmcore/geom/curves/deboor.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.curves.deboor",
+    #    ["mmcore/geom/curves/deboor.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.geom.primitives",
         ["mmcore/geom/primitives.pyx"],
@@ -148,13 +151,13 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves._nurbs",
-        ["mmcore/geom/curves/_nurbs.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.curves._nurbs",
+    #    ["mmcore/geom/curves/_nurbs.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.numeric.routines._routines",
         ["mmcore/numeric/routines/_routines.pyx"],
@@ -162,13 +165,13 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves._cubic",
-        ["mmcore/geom/curves/_cubic.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.curves._cubic",
+    #    ["mmcore/geom/curves/_cubic.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.geom.implicit.tree.cbuild_tree3d",
         ["mmcore/geom/implicit/tree/cbuild_tree3d.pyx"],
@@ -197,29 +200,28 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.evaluator.surface_evaluator",
-        ["mmcore/geom/evaluator/surface_evaluator.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
-    Extension(
-        "mmcore.geom.surfaces.ellipsoid",
-        ["mmcore/geom/surfaces/ellipsoid.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
-    Extension(
-        "mmcore.numeric.integrate.romberg",
-        ["mmcore/numeric/integrate/romberg.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.evaluator.surface_evaluator",
+    #    ["mmcore/geom/evaluator/surface_evaluator.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
+    # Extension(
+    #    "mmcore.geom.surfaces.ellipsoid",
+    #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
+    # Extension(
+    #    "mmcore.numeric.integrate.romberg",
+    #    ["mmcore/numeric/integrate/romberg.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
 ]
-
 
 
 link_args = []

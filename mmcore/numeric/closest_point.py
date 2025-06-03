@@ -1,3 +1,4 @@
+import functools
 import itertools
 import os
 from typing import Optional
@@ -7,7 +8,8 @@ import numpy as np
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
 from mmcore.geom.bvh import contains_point, Object3D, find_closest
-from mmcore.geom.nurbs import NURBSSurface, decompose_surface, NURBSCurve, split_curve
+from mmcore.geom.nurbs import NURBSSurface,NURBSCurve, split_curve
+from mmcore.geom import nurbs
 
 from mmcore.geom.polygon import BoundingBox
 from mmcore.geom.surfaces import Surface
@@ -27,6 +29,17 @@ import math
 
 # Utility function to calculate the Euclidean distance between two points
 import math
+
+from mmcore.geom._nurbs_eval import (
+    NURBSSurfaceTuple,
+    NURBSCurveTuple,
+    evaluate_nurbs_surface,
+    evaluate_nurbs_curve,
+    _surface_interval,
+    _nurbs_to_tuple,
+)
+
+from mmcore.geom._nurbs_knots import decompose_surface
 
 
 # Utility function to calculate the Euclidean distance between two points
@@ -316,33 +329,107 @@ def closest_point_on_line(line, point):
     direction = end - start
     return start + vector_projection(point - start, direction)
 
-
+from mmcore.numeric.numeric import compute_parametric_tolerance_surface,compute_parametric_tolerance_curve
 from mmcore.geom.bvh import BoundingBox,sdBox,contains_point,build_bvh
 class NURBSSurfaceBvhObject(Object3D):
     def __init__(self,surf):
         self.surf=surf
         super().__init__(BoundingBox(*self.surf.bbox()))
 
-def closest_point_on_nurbs_surface(self:NURBSSurface,pt,tol=1e-3):
 
-    surfs=decompose_surface(self)
-    root=build_bvh([NURBSSurfaceBvhObject(i) for i in surfs])
-    candidates=[i.surf for i in contains_point(root,pt)]
-    best_f=float('inf')
+def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, point:NDArray[float],x_range=None, y_range=None,spt=0.001,angle_tol=None):
+    """
+    """
+    @functools.lru_cache(maxsize=None)
+    def fun(u,v):
+
+        t_eval = evaluate_nurbs_surface(surf, u,v, d_order=2)
+
+        dc = t_eval['S']  - point
+        current_tol = compute_parametric_tolerance_surface(t_eval["Su"], t_eval["Sv"],t_eval["Suu"],  t_eval["Suv"], t_eval["Svv"],spt=spt, angle_tol=angle_tol)
+        return np.dot(dc,dc), t_eval, current_tol
+    interval_u,interval_v = _surface_interval(surf)
+    if x_range is None:
+        x_range = interval_u
+    if y_range is None:
+        y_range = interval_v
+    x_min, x_max = x_range
+    y_min, y_max = y_range
+    fx,x_eval,(x_tol,y_tol)=fun(x_min,y_min)
+
+    while (x_max - x_min) > x_tol or (y_max - y_min) > y_tol:
+        x_mid = (x_min + x_max) / 2
+        y_mid = (y_min + y_max) / 2
+        # Evaluate the function at the corners and midpoints of the edges
+        f00 = fun(x_min, y_min)
+        f10 = fun(x_max, y_min)
+        f01 = fun(x_min, y_max)
+        f11 = fun(x_max, y_max)
+        f_mid_x_min = fun(x_mid, y_min)
+        f_mid_x_max = fun(x_mid, y_max)
+        f_mid_y_min = fun(x_min, y_mid)
+        f_mid_y_max = fun(x_max, y_mid)
+        f_mid_xy = fun(x_mid, y_mid)
+
+        # Create a list of (value, coordinates) pairs
+        candidates = [
+            (f00, (x_min, y_min)),
+            (f10, (x_max, y_min)),
+            (f01, (x_min, y_max)),
+            (f11, (x_max, y_max)),
+            (f_mid_x_min, (x_mid, y_min)),
+            (f_mid_x_max, (x_mid, y_max)),
+            (f_mid_y_min, (x_min, y_mid)),
+            (f_mid_y_max, (x_max, y_mid)),
+            (f_mid_xy, (x_mid, y_mid))
+        ]
+        # Find the minimum value and its coordinates
+        min_val, min_coords = min(candidates, key=lambda item: item[0][0])
+        x_min, x_max = min_coords[0] - (x_max - x_min) / 4, min_coords[0] + (x_max - x_min) / 4
+        y_min, y_max = min_coords[1] - (y_max - y_min) / 4, min_coords[1] + (y_max - y_min) / 4
+        x_tol, y_tol = min_val[2]
+
+        # Ensure the search space does not collapse below tolerance
+        x_min = max(x_min, x_range[0])
+        x_max = min(x_max, x_range[1])
+        y_min = max(y_min, y_range[0])
+        y_max = min(y_max, y_range[1])
+
+    # Instead of just returning midpoint, do robust final evaluation
+    x_mid = (x_min + x_max) / 2
+    y_mid = (y_min + y_max) / 2
+
+    final_candidates = [
+        (fun(x_min, y_min), (x_min, y_min)),
+        (fun(x_max, y_min), (x_max, y_min)),
+        (fun(x_min, y_max), (x_min, y_max)),
+        (fun(x_max, y_max), (x_max, y_max)),
+        (fun(x_mid, y_min), (x_mid, y_min)),
+        (fun(x_max, y_mid), (x_max, y_mid)),
+        (fun(x_mid, y_max), (x_mid, y_max)),
+        (fun(x_min, y_mid), (x_min, y_mid)),
+        (fun(x_mid, y_mid), (x_mid, y_mid)),
+    ]
+
+    min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
+    return min_val,min_coords
+
+import itertools
+from math import sqrt
+
+def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt:float=0.001, angle_tol:float=None):
+    candidates=decompose_surface(self)
+
+    best_f=[float('inf')]
     best_x=None
     for candidate in candidates:
-        def f(u,v):
-            d=candidate.evaluate_v2(u,v)-pt
-            return scalar_dot(d,d)
+      
+        min_val,min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
+        if best_f[0]>min_val[0]:
+            best_f=min_val
+            best_x=min_coords
+    return best_x,(sqrt(best_f[0]),*best_f[1:])
 
-        res=divide_and_conquer_min_2d(f, *candidate.interval(), tol=tol)
-        ff=f(*res)
-        if best_f>ff:
-            best_f=ff
-            best_x=res
-            
-
-        return best_x,best_f
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
     if bounds is None:

@@ -135,6 +135,7 @@ def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: floa
     for _ in range(max_iter):
         f_val = f(uivi)
         g_val = g(uivi)
+        
         du=surface.derivative_u(uivi)
         dv=surface.derivative_v(uivi)
         # Calculate the Jacobian matrix
