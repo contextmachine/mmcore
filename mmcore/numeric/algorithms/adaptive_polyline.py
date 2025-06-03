@@ -24,7 +24,7 @@ def adaptive_polyline(curve: NURBSCurve, tol:float, max_depth=10):
 
             n=normals[i]
             n/=dn[i]
-            t=curve.greville_abscissae[i]
+            t=curve.greville_abscissae[i] #TODO: Заменить на inflection points
             tangent=np.array(curve.derivative( t))
             tangent/=np.linalg.norm(tangent
                                     )

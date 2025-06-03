@@ -416,7 +416,7 @@ def solve3x2(col0, col1, d0, d1, d2):
     x, y = 0.0, 0.0
     pivot_ratio = 0.0
     err = float('inf')
-
+    print("SX",col0, col1, d0, d1, d2)
     i = np.argmax([abs(val) for val in col0 + col1])
     if i >= 3:
         col0, col1 = col1, col0
@@ -483,9 +483,11 @@ def evaluate_sectional_curvature(S10, S01, S20, S11, S02, planeNormal):
     - K: 3D vector representing the curvature
     """
 
-    M = scalar_cross(S10, S01)
-    D1 = scalar_cross(M, planeNormal)
-
+    M = np.cross(S10, S01)
+    
+    D1 = np.cross(M, planeNormal)
+    
+    print("PPP",S10, S01,  D1[0], D1[1], D1[2])
     rank, a, b, e, pr = solve3x2(S10, S01, D1[0], D1[1], D1[2])
     if rank < 2:
         return False, np.array([0.0, 0.0, 0.0])

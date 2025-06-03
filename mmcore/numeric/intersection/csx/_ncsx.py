@@ -100,14 +100,12 @@ class NURBSCurveSurfaceIntersector:
             # normalize_curve_knots(curve2)
             u,v=(u0 + u1) * 0.5, (v0 + v1) * 0.5
 
-
             if abs(u - u0) < self.ptol or abs(u - u1) < self.ptol or abs(v - v0) < self.ptol or abs(v - v1) < self.ptol:
 
                 return
             surface1, surface2, surface3, surface4 = subdivide_surface(
                 surface, (u0 + u1) * 0.5, (v0 + v1) * 0.5, self.ptol, normalize_knots=False
             )
-
 
         else:
             point, (t, u, v) = new_point
@@ -151,14 +149,11 @@ class NURBSCurveSurfaceIntersector:
             tol=self.tolerance,
         )
 
-
-
     def _get_interior_intersections(self, curve, surface):
         # Return list of already discovered intersection points interior to curve or surface
         return self.intersections
 
     def _find_new_intersection(self, curve, surface):
-
 
         #
         bb1=np.array(curve.bbox())
@@ -170,7 +165,7 @@ class NURBSCurveSurfaceIntersector:
         if not aabb_intersect_fast_3d(bb1,bb2):
             return
 
-        #equation = CurveSurfaceEq(curve, surface)
+        # equation = CurveSurfaceEq(curve, surface)
         t0, t1 = curve.interval()
         (u0, u1), (v0, v1) = surface.interval()
 
@@ -186,12 +181,12 @@ class NURBSCurveSurfaceIntersector:
             and self._is_valid_parameter(result, (t0, t1), (u0, u1), (v0, v1))
             and not any(np.isnan(result))
         ):
-            #point = curve.evaluate(result[0])
-            #point2 = surface.evaluate_v2(*result[1:])
+            # point = curve.evaluate(result[0])
+            # point2 = surface.evaluate_v2(*result[1:])
 
             result = np.asarray(result)
-            #point = self.initial_curve.evaluate(result[0])
-            #point2 = self.initial_surface.evaluate_v2(result[1],result[2])
+            # point = self.initial_curve.evaluate(result[0])
+            # point2 = self.initial_surface.evaluate_v2(result[1],result[2])
             result = newtons_method(
                 self._equation,
                 result
@@ -201,14 +196,14 @@ class NURBSCurveSurfaceIntersector:
                 return
             r=self._equation(result)**0.5
 
-            if r <= self.tolerance:
+            if r <= self.tolerance and not self._is_degenerate(result, curve, surface):
 
                 for i in range(len(self.intersections)):
-                        tuv=np.asarray(self.intersections[i][2])
-                        if np.all(
+                    tuv=np.asarray(self.intersections[i][2])
+                    if np.all(
                                 (result-tuv)<self.ptol) :
 
-                            return
+                        return
 
                 point = self.initial_curve.evaluate(result[0])
                 return point, result
@@ -225,10 +220,13 @@ class NURBSCurveSurfaceIntersector:
     def _is_degenerate(self, point, curve, surface):
         t, u, v = point
         curve_tangent = curve.tangent(t)
-        surface_normal = surface.normal(np.array([u, v]))
-        surface_normal /= scalar_norm(surface_normal)
+        surface_normal = np.cross(surface.derivative_u(np.array([u, v])),
+        surface.derivative_v(np.array([u, v])))
+        
+        surface_normal=surface_normal / (np.linalg.norm(surface_normal)+1e-6)
+        
         # print(surface_normal,curve_tangent)
-        return np.abs(scalar_dot(curve_tangent, surface_normal)) < self.tolerance
+        return np.abs(np.dot(curve_tangent, surface_normal)) < 0.001
 
 from ._ncsx2 import int_cs
 def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
