@@ -73,7 +73,9 @@ def within_curve_surface_gaps(T_c, N_s, C_pt, S_pt, eps_theta=None, eps_n=None):
     """
     # 1) angle gap:
     #print("within_curve_surface_gaps: eps_theta,eps_n: ",T_c.tolist(),#N_s.tolist(),eps_theta,eps_n)
-    #ca=curve_surface_angle_gap(T_c, N_s)
+    ca=curve_surface_angle_gap(T_c, N_s)
+    if ca <= eps_theta:
+        return True
 
     cdg = curve_surface_normal_distance_gap(N_s, C_pt, S_pt)
     # 2) distance‐along‐n gap:
@@ -229,14 +231,14 @@ def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr
     for t,pt in intersections:
 
         t_real = dt * t + t0
-
-        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.bern, pt, spt=spt, angle_tol=None)
+        pt=evaluate_nurbs_curve(initial_curve.bern, t,d_order=0 )['C']
+        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.bern, pt, spt=spt, angle_tol=angle_tol)
 
         if best_uv is None:
 
             continue
         success, tuv, curve_eval, surf_eval, error = refine_curve_surface(
-            np.array([t_real, *best_uv]), initial_curve.bern, initial_surface.bern, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=50
+            np.array([t_real, *best_uv]), initial_curve.bern, initial_surface.bern, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=5
         )
         print(success,  tuv,  error)
         tuv = np.array(tuv)
@@ -336,7 +338,7 @@ if __name__ == "__main__":
     curve = NURBSCurve(cpts)
     # ress = new_intersection_candidates(surf, curve, u, v, t, np.array(surf.evaluate_v2(u, v)))
 
-    #from mmcore.numeric.intersection.csx._ncsx import nurbs_csx
+    from mmcore.numeric.intersection.csx._ncsx import nurbs_csx
     import time
 
 
@@ -344,9 +346,9 @@ if __name__ == "__main__":
     s=time.time()
     r1=nurbs_csx_v2(_nurbs_to_tuple(curve), _nurbs_to_tuple(surf))
     print(time.time()-s, [(item.tuv.tolist(),item.curve_eval["C"].tolist()) for item in r1])
-    #s=time.time()
-    #r2=nurbs_csx(curve, surf)
-    #print(time.time()-s, r2)
+    s=time.time()
+    r2=nurbs_csx(curve, surf)
+    print(time.time()-s, r2)
 
     import numpy as np
     from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
