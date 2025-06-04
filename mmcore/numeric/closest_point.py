@@ -15,7 +15,8 @@ from mmcore.geom.polygon import BoundingBox
 from mmcore.geom.surfaces import Surface
 from mmcore.numeric.numeric import divide_interval, evaluate_curvature
 from mmcore.numeric.aabb import aabb_overlap
-from mmcore.numeric.fdm import PDE,newtons_method
+from mmcore.numeric.fdm import PDE
+from mmcore.numeric.newton.cnewton import newtons_method
 
 from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
     divide_and_conquer_min_2d_vectorized
@@ -398,7 +399,8 @@ def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, poin
     # Instead of just returning midpoint, do robust final evaluation
     x_mid = (x_min + x_max) / 2
     y_mid = (y_min + y_max) / 2
-
+    res=np.array(newtons_method(lambda x: fun(x[0],x[1])[0], np.array([x_mid,y_mid]))         )
+    
     final_candidates = [
         (fun(x_min, y_min), (x_min, y_min)),
         (fun(x_max, y_min), (x_max, y_min)),
@@ -412,7 +414,9 @@ def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, poin
     ]
 
     min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
-    return min_val,min_coords
+    #min_coords= res
+    
+    return fun(*min_coords),min_coords
 
 import itertools
 from math import sqrt

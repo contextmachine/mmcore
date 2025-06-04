@@ -714,11 +714,6 @@ def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=N
     dv : float
         The computed parameter increment in the v-direction.
     """
-    Su = np.asarray(Su, dtype=float)
-    Sv = np.asarray(Sv, dtype=float)
-    Suu = np.asarray(Suu, dtype=float)
-    Suv = np.asarray(Suv, dtype=float)
-    Svv = np.asarray(Svv, dtype=float)
 
     # Norms of first partial derivatives
     norm_Su = np.linalg.norm(Su)
