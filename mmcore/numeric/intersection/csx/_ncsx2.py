@@ -18,6 +18,7 @@ from mmcore.geom._nurbs_eval import (
     _surface_interval,
     _tuple_to_nurbs,
 )
+__all__=["nurbs_csx_v2"]
 
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
 import logging
@@ -144,6 +145,7 @@ def refine_curve_surface(
 
         # 5) Check convergence *after* updating `error`:
         wh=within_curve_surface_gaps(T_c, N_s, C_pt, S_pt, angle_tol, eps_n)
+        
         if (error <= spt) and wh:
             success = True
             break
@@ -182,7 +184,6 @@ def refine_curve_surface(
 
         # 10) Increment iteration counter:
 
-    print(success,[t_cur, u_cur, v_cur])
     return success, np.array([t_cur, u_cur, v_cur]), curve_eval, surf_eval, error
 from mmcore.numeric import compute_parametric_tolerance_curve
 
@@ -198,13 +199,14 @@ from mmcore.geom._nurbs_knots import decompose_surface,decompose_curve
 from mmcore.geom.bvh.lbvh import build_bvh,AABB,bvh_intersect,BVH
 
 class BezCurveBothRepr(NamedTuple):
-    bern:NURBSCurveTuple
+    nurbs:NURBSCurveTuple
     monomial:NDArray
 
 class BezSurfBothRepr(NamedTuple):
-    bern:NURBSSurfaceTuple
+    nurbs:NURBSSurfaceTuple
     monomial:NDArray
-from mmcore.numeric.algorithms.point_inversion import points_inversion_surface, point_inversion_surface
+
+
 from mmcore.geom._nurbs_eval import _curve_interval,_surface_interval,EvaluateCurveData,EvaluateSurfaceData
 
 
@@ -218,32 +220,38 @@ class CSInt:
     def compare_with_tol(self, tuv:NDArray[float]):
         return np.all(np.abs(tuv-self.tuv)<self.tuv_tol)
 
-def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr,inters:list[CSInt],spt=1e-3,angle_tol=0.052,eps_n=None, **kwargs):
+def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr, original_curve:NURBSCurveTuple, original_surface:NURBSSurfaceTuple, inters:list[CSInt],spt=1e-3,angle_tol=0.052,eps_n=None, **kwargs):
 
     intersections=curve_patch_intersection( initial_surface.monomial[..., 0], initial_surface.monomial[..., 1], initial_surface.monomial[..., 2], initial_surface.monomial[..., 3], initial_curve.monomial[..., 0], initial_curve.monomial[..., 1], initial_curve.monomial[..., 2], initial_curve.monomial[..., 3])
-    logger.debug("intersections: {}".format(intersections))
-    (t0,t1)=_curve_interval(initial_curve.bern)
+    logger.debug("intersections: t={}, points={}".format([_t.item() for _t,_ in intersections],[np.array(pt).tolist() for _,pt in intersections]))
+    # Get original curve domain for proper parameter mapping
+    (orig_t0, orig_t1) = _curve_interval(original_curve)
+    
+    orig_dt = orig_t1 - orig_t0
 
-    # (u0,u1),(v0,v1)=_surface_interval(initial_surface.bern)
-
-    dt = t1 - t0
-
+    print('ORIG',orig_t0,orig_t1)
     for t,pt in intersections:
+        # Map from monomial [0,1] space directly to original curve parameter space
+        t_real = orig_dt * t + orig_t0
+        print(t,t_real)
 
-        t_real = dt * t + t0
-        pt=evaluate_nurbs_curve(initial_curve.bern, t,d_order=0 )['C']
-        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.bern, pt, spt=spt, angle_tol=angle_tol)
+        pt=evaluate_nurbs_curve(original_curve, t_real, d_order=0)['C']
 
+        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(original_surface, pt, spt=spt, angle_tol=angle_tol)
+       
         if best_uv is None:
 
             continue
+        initial_guess = np.array([t_real, *best_uv])
+        print('initial_guess:',initial_guess, surf_eval['S'].tolist())
         success, tuv, curve_eval, surf_eval, error = refine_curve_surface(
-            np.array([t_real, *best_uv]), initial_curve.bern, initial_surface.bern, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=5
+            initial_guess, original_curve, original_surface, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=500
         )
-        print(success,  tuv,  error)
+
         tuv = np.array(tuv)
-        ##np.array([t_real, *best_uv]),initial_curve.bern,#initial_surface.bern,spt=spt,angle_tol=angle_tol,eps_n=eps_n,#max_iter=50)
-        success = error < spt
+
+        print("after_refinement:",tuv, surf_eval['S'].tolist(), curve_eval['C'].tolist(), error)
+        ##np.array([t_real, *best_uv]),initial_curve.nurbs,#initial_surface.nurbs,spt=spt,angle_tol=angle_tol,eps_n=eps_n,#max_iter=50)
 
         if success:
 
@@ -254,27 +262,20 @@ def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr
                     is_visited = True
                     if inters[index].error>error:
                         dt = compute_parametric_tolerance_curve(curve_eval["C1"], curve_eval["C2"], spt=spt, angle_tol=angle_tol)
-
-                        # du,dv = compute_parametric_tolerance_surface(surf_eval["Su"],surf_eval["Sv"],surf_eval["Suu"],surf_eval["Suv"],surf_eval["Svv"],spt=spt, angle_tol=angle_tol)
-
                         inters[index]=CSInt(np.array(tuv), curve_eval, surf_eval, np.array([dt, du, dv]), error)
-
                         logger.debug("Replace: {}".format(inters[index]))
+
                     else:
                         logger.debug("Pass: {}".format(inters[index]))
 
             if not is_visited:
-                curve_eval = evaluate_nurbs_curve(initial_curve.bern, tuv[0], d_order=2)
-                # surf_eval = evaluate_nurbs_surface(initial_surface.bern, tuv[1],tuv[2], d_order=2)
-
+                curve_eval = evaluate_nurbs_curve(original_curve, tuv[0], d_order=2)
                 dt = compute_parametric_tolerance_curve(curve_eval["C1"], curve_eval["C2"], spt=spt, angle_tol=angle_tol)
-
-                # du,dv = compute_parametric_tolerance_surface(surf_eval["Su"],surf_eval["Sv"],surf_eval["Suu"],surf_eval["Suv"],surf_eval["Svv"],spt=spt, angle_tol=angle_tol)
-
                 inters.append(CSInt(np.array(tuv), curve_eval, surf_eval, np.array([dt, du, dv]), error))
+        else:
+            logger.debug("Fail: tuv={}, err={}, pt {}".format(tuv,error, surf_eval['S'].tolist()))
 
-logging.basicConfig(level=logging.DEBUG, format='%(module)s.%(funcName)s   %(message)s')
-def nurbs_csx_v2( initial_curve, initial_surface,spt=1e-3, angle_tol=0.052,eps_n=None,debug=False,curve_bvh:BVH=None,surface_bvh:BVH=None,**kwargs):
+def nurbs_csx_v2( initial_curve, initial_surface, spt=1e-3, angle_tol=0.052,eps_n=None,curve_bvh:BVH=None,surface_bvh:BVH=None,**kwargs):
     if eps_n is None:
         eps_n=_calculate_eps_n(spt,angle_tol)
     if isinstance(initial_surface, NURBSSurfaceTuple):
@@ -299,15 +300,17 @@ def nurbs_csx_v2( initial_curve, initial_surface,spt=1e-3, angle_tol=0.052,eps_n
 
     int_nodes=bvh_intersect(curve_bvh,surface_bvh,exact=True)
     logger.debug("INT NODES: {}".format(len(int_nodes)))
+    
 
     inters=[]
  
     for a,b in int_nodes:
-        _int_cs_bez(crvs[a.object],srfs[b.object],inters=inters, spt=spt, angle_tol=angle_tol,eps_n=eps_n,debug=debug)
+        _int_cs_bez(crvs[a.object],srfs[b.object], original_curve=init_c, original_surface=init_s, inters=inters, spt=spt, angle_tol=angle_tol,eps_n=eps_n)
 
     return inters
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format="%(module)s.%(funcName)s   %(message)s")
     cpts = np.array(
         [[-9.1796875, 13.229166666666666, -4.5186767578125], [-9.1796875, 14.739583333333332, -4.49395751953125],
          [-9.1796875, 16.432291666666664, -4.580108642578125], [-9.1796875, 18.372395833333332, -4.8531036376953125]]
@@ -333,29 +336,51 @@ if __name__ == "__main__":
     u, v, t = 0.9939461136471586, 0.995759608283125, 0.004240391716877873
     surf = NURBSSurface(np.array(spts), (3, 3))
 
-
-
     curve = NURBSCurve(cpts)
     # ress = new_intersection_candidates(surf, curve, u, v, t, np.array(surf.evaluate_v2(u, v)))
 
     from mmcore.numeric.intersection.csx._ncsx import nurbs_csx
     import time
 
-
-
     s=time.time()
     r1=nurbs_csx_v2(_nurbs_to_tuple(curve), _nurbs_to_tuple(surf))
-    print(time.time()-s, [(item.tuv.tolist(),item.curve_eval["C"].tolist()) for item in r1])
+    nurbs_csx_v2_time=time.time()-s
+    print(nurbs_csx_v2_time, [(item.tuv.tolist(), item.curve_eval["C"].tolist()) for item in r1])
     s=time.time()
     r2=nurbs_csx(curve, surf)
-    print(time.time()-s, r2)
+    nurbs_csx_time=time.time()-s
+    print(nurbs_csx_time, r2)
+    def check_correct( nurbs_csx_result,nurbs_csx_v2_result):
+        t1,u1,v1=nurbs_csx_result[0][2]
+        print("nurbs_csx: ", t1,u1,v1)
+        nurbs_csx_v2_result_sorted=sorted(nurbs_csx_v2_result, key=lambda x: x.tuv[0])
+        t2,u2,v2=nurbs_csx_v2_result_sorted[0].tuv
+        print("nurbs_csx_v2: ", t2, u2, v2)
+        curve_tuple, surf_tuple = _nurbs_to_tuple(curve), _nurbs_to_tuple(surf)
 
+        v1_curve_pt=evaluate_nurbs_curve(curve_tuple, t1,d_order=0)['C']
+        v2_curve_pt = evaluate_nurbs_curve(curve_tuple, t2, d_order=0)["C"]
+        v1_surf_pt=evaluate_nurbs_surface(surf_tuple, u1, v1, d_order=0)["S"]
+        v2_surf_pt=evaluate_nurbs_surface(surf_tuple, u2, v2, d_order=0)["S"]
+        v1_dist=np.linalg.norm(v1_curve_pt-v1_surf_pt)
+        v2_dist = np.linalg.norm(v2_curve_pt - v2_surf_pt)
+        print("nurbs_csx error: ", v1_dist)
+        print("nurbs_csx_v2 error: ", v2_dist)
+        print("nurbs_csx error: ", v1_dist)
+        print("nurbs_csx_v2 better or same: ",np.isclose(v1_dist,v2_dist) or v1_dist>=v2_dist)
+    check_correct(r2,r1)
+    if nurbs_csx_time>nurbs_csx_v2_time:
+        print(f"nurbs_csx_v2 is {nurbs_csx_time/nurbs_csx_v2_time} x faster")
+    else:
+        print(f"nurbs_csx is {nurbs_csx_v2_time/nurbs_csx_time} faster")
+    print()
     import numpy as np
     from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
-    from mmcore.geom._nurbs_knots import normalize_knots_curve
-    over=False
-    if over:
-        val = normalize_knots_curve(NURBSCurveTuple(
+
+
+    TEST_OVERLAP_CASE=True
+    if TEST_OVERLAP_CASE:
+        val = NURBSCurveTuple(
             order=4,
             knot=np.array(
                 [
@@ -390,8 +415,8 @@ if __name__ == "__main__":
                 ]
             ),
             weights=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
-        ))
-    
+        )
+
         val2 = NURBSSurfaceTuple(
             order_u=4,
             order_v=3,
@@ -456,22 +481,15 @@ if __name__ == "__main__":
                 ]
             ),
         )
-    
-    
-    
-    
-    
-    
-    
+
         s = time.time()
         print("start3.int_cs_v2")
         r3 = nurbs_csx_v2(val, val2)
-    
-    
+
         print(time.time() - s, [item.curve_eval["C"].tolist() for item in r3])
-    
-        #s = time.time()
-        #print("start3.3")
-        #r5=nurbs_csx(_tuple_to_nurbs(val), _tuple_to_nurbs(val2))
-    
-        #print(time.time() - s, [item[1] for item in r5])
+
+        # s = time.time()
+        # print("start3.3")
+        # r5=nurbs_csx(_tuple_to_nurbs(val), _tuple_to_nurbs(val2)) # Running this code will cause a long or infinity freeze (the previous algorithm cannot handle overlaps). Only run if you can interrupt the terminal.
+
+        # print(time.time() - s, [item[1] for item in r5])

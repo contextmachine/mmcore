@@ -7,13 +7,13 @@ import numpy as np
 
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
-from mmcore.geom.bvh import contains_point, Object3D, find_closest
-from mmcore.geom.nurbs import NURBSSurface,NURBSCurve, split_curve
-from mmcore.geom import nurbs
+from mmcore.geom.bvh import Object3D, find_closest
+from mmcore.geom.nurbs import NURBSCurve
+
 
 from mmcore.geom.polygon import BoundingBox
 from mmcore.geom.surfaces import Surface
-from mmcore.numeric.numeric import divide_interval, evaluate_curvature
+from mmcore.numeric.numeric import divide_interval
 from mmcore.numeric.aabb import aabb_overlap
 from mmcore.numeric.fdm import PDE
 from mmcore.numeric.newton.cnewton import newtons_method
@@ -348,7 +348,7 @@ def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, poin
 
         dc = t_eval['S']  - point
         current_tol = compute_parametric_tolerance_surface(t_eval["Su"], t_eval["Sv"],t_eval["Suu"],  t_eval["Suv"], t_eval["Svv"],spt=spt, angle_tol=angle_tol)
-        return np.dot(dc,dc), t_eval, current_tol
+        return np.linalg.norm(dc), t_eval, current_tol
     interval_u,interval_v = _surface_interval(surf)
     if x_range is None:
         x_range = interval_u
@@ -399,7 +399,6 @@ def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, poin
     # Instead of just returning midpoint, do robust final evaluation
     x_mid = (x_min + x_max) / 2
     y_mid = (y_min + y_max) / 2
-    res=np.array(newtons_method(lambda x: fun(x[0],x[1])[0], np.array([x_mid,y_mid]))         )
     
     final_candidates = [
         (fun(x_min, y_min), (x_min, y_min)),
@@ -414,9 +413,9 @@ def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, poin
     ]
 
     min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
-    #min_coords= res
+
     
-    return fun(*min_coords),min_coords
+    return min_val,min_coords
 
 import itertools
 from math import sqrt
@@ -429,10 +428,12 @@ def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt
     for candidate in candidates:
       
         min_val,min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
+        print(min_val)
         if best_f[0]>min_val[0]:
             best_f=min_val
             best_x=min_coords
-    return best_x,(sqrt(best_f[0]),*best_f[1:])
+        
+    return best_x,(best_f[0],*best_f[1:])
 
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
