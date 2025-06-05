@@ -201,6 +201,7 @@ from mmcore.geom.bvh.lbvh import build_bvh,AABB,bvh_intersect,BVH
 class BezCurveBothRepr(NamedTuple):
     nurbs:NURBSCurveTuple
     monomial:NDArray
+    t_interval:tuple[float, float]  # Parameter interval in original curve space
 
 class BezSurfBothRepr(NamedTuple):
     nurbs:NURBSSurfaceTuple
@@ -217,40 +218,50 @@ class CSInt:
     surf_eval:EvaluateSurfaceData
     tuv_tol:NDArray[float]
     error:float
+
     def compare_with_tol(self, tuv:NDArray[float]):
-        return np.all(np.abs(tuv-self.tuv)<self.tuv_tol)
+  
+        return np.all(np.abs(tuv-self.tuv)<=self.tuv_tol*2)
 
 def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr, original_curve:NURBSCurveTuple, original_surface:NURBSSurfaceTuple, inters:list[CSInt],spt=1e-3,angle_tol=0.052,eps_n=None, **kwargs):
 
     intersections=curve_patch_intersection( initial_surface.monomial[..., 0], initial_surface.monomial[..., 1], initial_surface.monomial[..., 2], initial_surface.monomial[..., 3], initial_curve.monomial[..., 0], initial_curve.monomial[..., 1], initial_curve.monomial[..., 2], initial_curve.monomial[..., 3])
     logger.debug("intersections: t={}, points={}".format([_t.item() for _t,_ in intersections],[np.array(pt).tolist() for _,pt in intersections]))
-    # Get original curve domain for proper parameter mapping
-    (orig_t0, orig_t1) = _curve_interval(original_curve)
-    
-    orig_dt = orig_t1 - orig_t0
+    # Get segment interval for proper parameter mapping
+    (seg_t0, seg_t1) = initial_curve.t_interval
+    ot0,ot1=_curve_interval(original_curve)
+    (ou0, ou1),  (ov0, ov1) = _surface_interval(original_surface)
+    dou=ou1-ou0
+    dov=ov1-ov0
+    do_t=ot1-ot0
+    o0=np.array([ot0,ou0,ov0])
+    do=np.array([do_t,dou,dov])
+    seg_dt = seg_t1 - seg_t0
 
-    print('ORIG',orig_t0,orig_t1)
+    # print('SEGMENT',seg_t0,seg_t1)
     for t,pt in intersections:
-        # Map from monomial [0,1] space directly to original curve parameter space
-        t_real = orig_dt * t + orig_t0
-        print(t,t_real)
+        # Map from monomial [0,1] space to the segment's parameter space within original curve
+        if not  0.<=t<=1.:
+            logger.warning(f"t out of range: {t}, {np.array(pt).tolist()}")
+            continue
+        t_real = seg_dt * t + seg_t0
 
         pt=evaluate_nurbs_curve(original_curve, t_real, d_order=0)['C']
 
-        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(original_surface, pt, spt=spt, angle_tol=angle_tol)
-       
+        best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.nurbs, pt, spt=spt, angle_tol=angle_tol)
+
         if best_uv is None:
 
             continue
         initial_guess = np.array([t_real, *best_uv])
-        print('initial_guess:',initial_guess, surf_eval['S'].tolist())
+        # print('initial_guess:',initial_guess, surf_eval['S'].tolist())
         success, tuv, curve_eval, surf_eval, error = refine_curve_surface(
-            initial_guess, original_curve, original_surface, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=500
+            initial_guess, original_curve, original_surface, spt=spt, angle_tol=angle_tol, eps_n=eps_n, max_iter=50
         )
 
         tuv = np.array(tuv)
 
-        print("after_refinement:",tuv, surf_eval['S'].tolist(), curve_eval['C'].tolist(), error)
+        # print("after_refinement:",tuv, surf_eval['S'].tolist(), curve_eval['C'].tolist(), error)
         ##np.array([t_real, *best_uv]),initial_curve.nurbs,#initial_surface.nurbs,spt=spt,angle_tol=angle_tol,eps_n=eps_n,#max_iter=50)
 
         if success:
@@ -260,6 +271,7 @@ def _int_cs_bez( initial_curve:BezCurveBothRepr, initial_surface:BezSurfBothRepr
 
                 if inters[index].compare_with_tol(tuv):
                     is_visited = True
+
                     if inters[index].error>error:
                         dt = compute_parametric_tolerance_curve(curve_eval["C1"], curve_eval["C2"], spt=spt, angle_tol=angle_tol)
                         inters[index]=CSInt(np.array(tuv), curve_eval, surf_eval, np.array([dt, du, dv]), error)
@@ -290,7 +302,7 @@ def nurbs_csx_v2( initial_curve, initial_surface, spt=1e-3, angle_tol=0.052,eps_
 
     curves=decompose_curve(init_c)
     patches=decompose_surface(init_s)
-    crvs=[BezCurveBothRepr(curve,nurbs_curve_to_mono(curve)) for curve in curves]
+    crvs=[BezCurveBothRepr(curve, nurbs_curve_to_mono(curve), _curve_interval(curve)) for curve in curves]
     srfs=[BezSurfBothRepr(patch,nurbs_surf_to_mono(patch)) for patch in patches]
 
     if curve_bvh is None:
@@ -376,7 +388,6 @@ if __name__ == "__main__":
     print()
     import numpy as np
     from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
-
 
     TEST_OVERLAP_CASE=True
     if TEST_OVERLAP_CASE:
@@ -487,7 +498,7 @@ if __name__ == "__main__":
         r3 = nurbs_csx_v2(val, val2)
 
         print(time.time() - s, [item.curve_eval["C"].tolist() for item in r3])
-
+        print( [item.tuv.tolist() for item in r3])
         # s = time.time()
         # print("start3.3")
         # r5=nurbs_csx(_tuple_to_nurbs(val), _tuple_to_nurbs(val2)) # Running this code will cause a long or infinity freeze (the previous algorithm cannot handle overlaps). Only run if you can interrupt the terminal.
