@@ -11,6 +11,8 @@ from mmcore.geom.nurbs import (
     subdivide_surface,
     CurveSurfaceEq,
 )
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
+from mmcore.geom import _nurbs_knots
 from ._ch2d import convex_hulls_intersect,convex_hull
 from ._steriographic_projection import stereographic_projection
 def _has_new_int_patch_segm(surface,curve, xyz):
@@ -19,9 +21,10 @@ def _has_new_int_patch_segm(surface,curve, xyz):
     def sorter(x):
         d=xyz - x
         return np.dot(d,d)
+    
     curve_points=np.array(sorted(curve.control_points,key=sorter)[1:])
-    surf_points = np.array(sorted(surface.control_points_flat, key=sorter)[1:])
-
+    surf_points = np.array(sorted(surface.control_points.reshape((-1,3)), key=sorter)[1:])
+    
     if not aabb_intersect_fast_3d(aabb(curve_points),aabb(surf_points)):
         return False
     curve_d = curve_points - xyz.reshape((-1, 3))
@@ -37,9 +40,9 @@ def _has_new_int_patch_segm(surface,curve, xyz):
 def new_intersection_candidates(surface,curve, u,v,t,xyz):
 
     candidates=[]
-    for s in subdivide_surface(surface, u, v, tol=1e-12,normalize_knots=False):
-        for c in split_curve(curve, t, tol=1e-12,normalize_knots=False):
-
+    for s in _nurbs_knots.subdivide_surface(surface, u, v):
+        for c in _nurbs_knots.split_curve(curve, t):
+            
             res=_has_new_int_patch_segm(s,c,xyz)
             if res:
                 candidates.append((s,c))

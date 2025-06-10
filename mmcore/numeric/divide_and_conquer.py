@@ -7,9 +7,6 @@ from mmcore.numeric.newton.cnewton import  newtons_method
 from mmcore.numeric.fdm import classify_critical_point_2d, CriticalPointType
 
 
-
-
-
 def recursive_divide_and_conquer_min(fun, bounds, tol):
     """
     Find the minimum value of a function within a given range using a recursive divide and conquer approach.
@@ -135,6 +132,7 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
 
     return x_min, fun(x_min)
 _invphi = (math.sqrt(5) - 1) / 2  # approximately 0.61803398875
+
 def golden_section_search(fun, bounds, tol):
     """
     Find the minimum value of a unimodal function on a closed interval using the Golden Section Search.
@@ -186,10 +184,29 @@ def golden_section_search(fun, bounds, tol):
     return x_min, f_min
 
 
-
 import itertools
 
 
+def golden_section_search_2d(f, x_bounds, y_bounds, tol):
+    x_min, x_max = x_bounds
+    y_min, y_max = y_bounds
+
+    x = (x_min + x_max) / 2
+    y = (y_min + y_max) / 2
+
+    for _ in range(100):  # max iterations
+        x_old, y_old = x, y
+
+        # Optimize along x with y fixed
+        x, _ = golden_section_search(lambda xi: f(xi, y), (x_min, x_max), tol)
+
+        # Optimize along y with x fixed
+        y, _ = golden_section_search(lambda yi: f(x, yi), (y_min, y_max), tol)
+
+        if abs(x - x_old) < tol and abs(y - y_old) < tol:
+            break
+
+    return x, y
 
 
 def recursive_divide_and_conquer_roots(fun, bounds, tol=0.01):
@@ -263,7 +280,24 @@ def divide_and_conquer_min_2d(f, x_range, y_range, tol=1e-6):
         x_max = min(x_max, x_range[1])
         y_min = max(y_min, y_range[0])
         y_max = min(y_max, y_range[1])
-    return (x_min + x_max) / 2, (y_min + y_max) / 2
+    # Instead of just returning midpoint, do robust final evaluation
+    x_mid = (x_min + x_max) / 2
+    y_mid = (y_min + y_max) / 2
+
+    final_candidates = [
+        (f(x_min, y_min), (x_min, y_min)),
+        (f(x_max, y_min), (x_max, y_min)),
+        (f(x_min, y_max), (x_min, y_max)),
+        (f(x_max, y_max), (x_max, y_max)),
+        (f(x_mid, y_min), (x_mid, y_min)),
+        (f(x_max, y_mid), (x_max, y_mid)),
+        (f(x_mid, y_max), (x_mid, y_max)),
+        (f(x_min, y_mid), (x_min, y_mid)),
+        (f(x_mid, y_mid), (x_mid, y_mid)),
+    ]
+
+    min_val, min_coords = min(final_candidates, key=lambda pair: pair[0])
+    return min_coords
 
 def divide_and_conquer_min_2d_vectorized(f, x_range, y_range, tol=1e-6):
     """
@@ -473,7 +507,6 @@ def divide_and_conquer_min_nd(f, bounds, tol=1e-6):
     return [(mins[i] + maxs[i]) / 2 for i in range(n_vars)]
 
 
-
 def find_all_minima(f, x_range, y_range, grid_density=11, tol=1e-6):
     """
 
@@ -580,7 +613,3 @@ def test_all_roots(fun, bounds, tol):
         if t21 - t11 <= tol:
             return []
         return [*test_all_roots(fun, (t21 + tol, t1), tol)]
-
-
-
-
