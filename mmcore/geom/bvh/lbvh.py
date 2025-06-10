@@ -444,7 +444,7 @@ def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):
 
                     stack.append(node.right)
     return ints
-def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True):
+def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode]]:
     root1:BVHNode=bvh1.get_root()
     root2:BVHNode=bvh2.get_root()
     stack=[(root1, root2)]

@@ -3,7 +3,7 @@ import math
 from collections import namedtuple
 from typing import List, Tuple
 
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,NURBSCurveTuple,_find_span_linear,basis_function_ders,bspline_basis
+from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,NURBSCurveTuple,_find_span_linear,compute_basis_function_derivatives_np,bspline_basis
 
 
 # ---------------------------------------------------------------------------
