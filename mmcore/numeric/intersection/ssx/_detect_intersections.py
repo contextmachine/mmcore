@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from mmcore.geom.nurbs import NURBSSurface, decompose_surface
-from mmcore.numeric._aabb import aabb, aabb_intersect, aabb_intersection,aabb_intersect_fast_3d
+from mmcore.numeric._aabb import aabb, aabb_intersect, aabb_intersection, aabb_intersect_fast_3d
 from mmcore.numeric.algorithms.cygjk import gjk
 
 from mmcore.geom.bvh import build_bvh, intersect_bvh_objects
@@ -10,10 +10,11 @@ from mmcore.numeric import scalar_norm
 
 from scipy.optimize import linprog
 
-from mmcore.numeric.gauss_map import GaussMap
+from mmcore.numeric.gauss_map import GaussMap, convex_hull
 from mmcore.geom.bvh import BoundingBox, Object3D
 
 from mmcore.geom.nurbs_iso import extract_isocurve
+from mmcore.numeric.vectors import unit
 
 
 class DebugTree:
@@ -28,7 +29,8 @@ class DebugTree:
             self.chidren.append(DebugTree(layer=self.layer + 1))
         return self.chidren
 
-#def aabb_intersection(bb1,bb2):
+
+# def aabb_intersection(bb1,bb2):
 #    return np.asarray([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
 
 
@@ -38,12 +40,11 @@ class NURBSObject(Object3D):
         super().__init__(BoundingBox(*np.asarray(self.surface.bbox())))
 
 
-
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
     """
     Solve a linear programming problem using scipy's linprog function.
     """
-    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, method='highs')
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, method="highs")
     return res.x if res.success else None
 
 
@@ -138,7 +139,10 @@ def find_common_side_vector(N1, N2):
     return None
 
 
-def _detect_intersections_deep(g1, g2, chs:dict, spt=0.01,tol=1e-5, dbg: DebugTree = None):
+# test_box=np.array([(15.03360959399917, 8.609425825284525, -3.723470180735452), (15.151179409089831, 9.1796875, -3.662768464250223)]
+# )
+# debug_surfs=[]
+def _detect_intersections_deep(g1, g2, chs: dict, spt=0.01, tol=1e-5, dbg: DebugTree = None):
     """
     Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
     Существует три варианта завершения:
@@ -152,45 +156,53 @@ def _detect_intersections_deep(g1, g2, chs:dict, spt=0.01,tol=1e-5, dbg: DebugTr
     :param dbg:
     :return:
     """
-    #print('Deep')
-    #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
+    # print('Deep')
+    # bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
     #    *np.array(g2.surface.bbox())
-    #)
-    bb1=np.array(aabb(g1.surface.control_points_flat))
-    bb2=np.array(aabb(g2.surface.control_points_flat))
-    #dddd = [False, False, False, False, False]
-    #dbg.data = (g1, g2, dddd)
+    # )
+    bb1 = np.array(aabb(g1.surface.control_points_flat))
+    bb2 = np.array(aabb(g2.surface.control_points_flat))
+    # dddd = [False, False, False, False, False]
+    # dbg.data = (g1, g2, dddd)
 
-    if not aabb_intersect_fast_3d(bb1,bb2):
+    if not aabb_intersect_fast_3d(bb1, bb2):
         # ББокы не пересекаются
-        #dddd[0] = True
-        #print('ББокы не пересекаются??', aabb_intersect_fast_3d(bb1,bb2),bb1,bb2)
+        # dddd[0] = True
+        # print('ББокы не пересекаются??', aabb_intersect_fast_3d(bb1,bb2),bb1,bb2)
+        # if aabb_intersect(test_box, bb1) and aabb_intersect(test_box, bb2):
+        #    debug_surfs.append((0, g1.surface, g2.surface))
         return []
-    diag=bb1[1] - bb1[0]
+
+    if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-8, 150):
+        # if aabb_intersect(test_box, bb1) and aabb_intersect(test_box, bb2):
+        #    debug_surfs.append((1, g1.surface, g2.surface))
+        return []
+    diag = bb1[1] - bb1[0]
 
     if scalar_norm(diag) < spt:
-        #dddd[1] = True
-        #print('diag')
+        # dddd[1] = True
+        # print('diag')
         # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
-        return [(g1.surface, g2.surface)]
-    #ii=np.zeros((2,3))
-    #aabb_intersection(bb1,bb2,ii)
 
-    #if np.min(ii[1]-ii[0]) < tol:
+        return [(g1.surface, g2.surface)]
+    # ii=np.zeros((2,3))
+    # aabb_intersection(bb1,bb2,ii)
+
+    # if np.min(ii[1]-ii[0]) < tol:
     #    # Бокс не маленький, но очень плоский. объекты не пересекаются
     #    #dddd[2] = True
     #
     #    return []
-    #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
+    # if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
     #    print('f')
     #    return [g1.surface, g2.surface]
-    #if id(g1.surface) not in chs:
+    # if id(g1.surface) not in chs:
     #    chs[id(g1.surface)] =  ConvexHull(g1.surface.control_points_flat)
-    #if id(g2.surface) not in chs:
+    # if id(g2.surface) not in chs:
     #    chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
-    #h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
-    #if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
-    #if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-5, 50):
+    # h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
+    # if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
+    # if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-5, 50):
     #    # Поверхности не пересекаются
     #    #dddd[3] = True
     #    print('gjk')
@@ -199,51 +211,60 @@ def _detect_intersections_deep(g1, g2, chs:dict, spt=0.01,tol=1e-5, dbg: DebugTr
         g1.compute()
     if g2.hull is None:
         g2.compute()
-
-    bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
-    bb12=aabb(-g1.bounds())
-    bb22=aabb(-g2.bounds())
-    if ((not aabb_intersect_fast_3d(bb21, bb11)) and
-    (not aabb_intersect_fast_3d(bb22, bb12)) and
-    (not aabb_intersect_fast_3d(bb21, bb12)) and
-     (not aabb_intersect_fast_3d(bb22, bb11))):
-        #if not aabb_intersect(bb21,bb11):
+    pg1 = np.array(unit(g1._map.control_points_flat))
+    pg2 = np.array(unit(g2._map.control_points_flat))
+    npg1 = -pg1
+    npg2 = -pg2
+    bb11, bb21 = aabb(pg1), aabb(pg2)
+    bb12 = aabb(npg1)
+    bb22 = aabb(npg2)
+    if (
+        (not aabb_intersect_fast_3d(bb21, bb11))
+        and (not aabb_intersect_fast_3d(bb22, bb12))
+        and (not aabb_intersect_fast_3d(bb21, bb12))
+        and (not aabb_intersect_fast_3d(bb22, bb11))
+    ):
+        # if not aabb_intersect(bb21,bb11):
         # Поверхности вероятнее всего пересекаются и не содержать петель
-        #dddd[3] = True
-        #print('not aabb',  aabb_intersect_fast_3d(bb21,bb11))
+        # dddd[3] = True
+        # print('not aabb',  aabb_intersect_fast_3d(bb21,bb11))
+
         return [(g1.surface, g2.surface)]
 
     intersections = []
-    #ss = g1.intersects(g2)
-    n1, n2 = separate_gauss_maps(g1,g2)
+    # ss = g1.intersects(g2)
+    n1, n2 = separate_gauss_maps(g1, g2)
 
-    if not ((n1  is None) or (n2  is None)):
-        #print('gm')
+    if not ((n1 is None) or (n2 is None)):
+        # print('gm')
         return [(g1.surface, g2.surface)]
-    #if not ss:
+    # if not ss:
     #    # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
 
     #    dddd[4] = True
     #    return [(g1.surface, g2.surface)]
     # Все тесты провалены, новый этап подразбиения
-    #print('ddd', g1.surface.interval(), g2.surface.interval())
+    # print('ddd', g1.surface.interval(), g2.surface.interval())
     g11 = g1.subdivide()
     g12 = g2.subdivide()
 
-    #dbg1 = dbg.subd(16)
+    # dbg1 = dbg.subd(16)
     ii = 0
     for gg in g11:
         for gh in g12:
-            #print('dd',gg.surface.interval(),gh.surface.interval())
-            #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
-            res = _detect_intersections_deep(gg, gh, chs,spt=spt,tol=tol)
+            # print('dd',gg.surface.interval(),gh.surface.interval())
+            # res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
+            res = _detect_intersections_deep(gg, gh, chs, spt=spt, tol=tol)
             ii += 1
 
             intersections.extend(res)
     return intersections
 
+
 from .boundary_intersection import find_boundary_intersections
-def detect_intersections(surf1, surf2, spt=0.1,tol=1e-5, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
+
+
+def detect_intersections(surf1, surf2, spt=0.1, tol=1e-5, debug_tree: DebugTree = None) -> list[tuple[NURBSSurface, NURBSSurface]]:
     """
     Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
     bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
@@ -332,66 +353,67 @@ def detect_intersections(surf1, surf2, spt=0.1,tol=1e-5, debug_tree: DebugTree=N
           be possible, particularly in reducing the number of recursive subdivisions.
 
     """
-    s1d = decompose_surface(surf1, normalize_knots=False )
+    s1d = decompose_surface(surf1, normalize_knots=False)
     s2d = decompose_surface(surf2, normalize_knots=False)
 
-    #subs = debug_tree.subd(len(s1d) * len(s2d))
+    # subs = debug_tree.subd(len(s1d) * len(s2d))
     index = 0
     intersections = []
-    #for _ in s1d:
+    # for _ in s1d:
     #    _.normalize_knots()
-    #for _ in s2d:
+    # for _ in s2d:
     #    _.normalize_knots()
     tree1 = build_bvh([NURBSObject(s1) for s1 in s1d])
     tree2 = build_bvh([NURBSObject(s2) for s2 in s2d])
-    gauss_maps=dict()
+    gauss_maps = dict()
 
     for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
 
         f = obj1.object.surface
         s = obj2.object.surface
-        #dddd = [False, False, False]
-        #subs[index].data = (f, s, dddd)
+        # dddd = [False, False, False]
+        # subs[index].data = (f, s, dddd)
 
-        #h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
+        # h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
         #    s.control_points_flat
-        #)
-        chs=dict()
-        #print('k',f.interval(),s.interval())
-        #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
+        # )
+        chs = dict()
+        # print('k',f.interval(),s.interval())
+        # if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
 
-        if gjk(f.control_points_flat, s.control_points_flat, 1e-8,  50):
+        if gjk(f.control_points_flat, s.control_points_flat, 1e-8, 50):
 
             # Convex Hulls пересекаются
             # Строим карты гаусса для дальнейших проверок
             if id(f) not in gauss_maps:
-                gauss_maps[id(f)]=GaussMap.from_surf(f)
+                gauss_maps[id(f)] = GaussMap.from_surf(f)
             if id(s) not in gauss_maps:
-                gauss_maps[id(s)]=GaussMap.from_surf(s)
+                gauss_maps[id(s)] = GaussMap.from_surf(s)
 
-            ss, ff =gauss_maps[id(s)], gauss_maps[id(f)]
+            ss, ff = gauss_maps[id(s)], gauss_maps[id(f)]
             ss.compute()
             ff.compute()
-            #dddd[1] = True
+            # dddd[1] = True
 
-            #ff.intersects(ss)
-
+            # ff.intersects(ss)
 
             p1, p2 = separate_gauss_maps(ff, ss)
-            #print(p1,p2)
+            # print(p1,p2)
             if (p1 is None) or (p2 is None):
                 # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
-                #dddd[2] = True
-                #sbb = subs[index].subd(1)
+                # dddd[2] = True
+                # sbb = subs[index].subd(1)
                 #
-                intersections.extend(_detect_intersections_deep(ff, ss, chs, spt=spt,tol=tol))
+                intersections.extend(_detect_intersections_deep(ff, ss, chs, spt=spt, tol=tol))
             else:
-                intersections.append(( f,s))
+                pass
+                # intersections.append(( f,s))
         else:
-            l= find_boundary_intersections(f, s, 1e-6, 1e-6)
-            if len(l)>0:
+            ...
+            # l= find_boundary_intersections(f, s, spt=spt, angle_tol=0.052)
+            # if len(l)>0:
 
-                intersections.append(( f,s))
+            #    intersections.append(( f,s))
         index += 1
     return intersections
 
@@ -402,19 +424,22 @@ def get_first_layer_dbg(dbg: DebugTree):
         if ch.data:
 
             if all(ch.data[-1]):
-                cnds.append(
-                    [np.array(ch.data[0].control_points).tolist(), np.array(ch.data[1].control_points).tolist()])
+                cnds.append([np.array(ch.data[0].control_points).tolist(), np.array(ch.data[1].control_points).tolist()])
 
     return cnds
+
+
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
     from mmcore.numeric.intersection.csx import nurbs_csx
+
     S1, S2 = td[1]
-    TOL=1e-2
+    TOL = 1e-2
     import time
-    s=time.perf_counter_ns()
+
+    s = time.perf_counter_ns()
     res = detect_intersections(S1, S2, TOL)
-    print((time.perf_counter_ns()-s)*1e-9)
+    print((time.perf_counter_ns() - s) * 1e-9)
     fff = []
     for i, j in res:
         ip = np.array(i.control_points)
@@ -427,25 +452,22 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
 
-    with open('../../tests/norm1.txt', 'w') as f:
+    with open("../../tests/norm1.txt", "w") as f:
         print(fff, file=f)
 
     S1, S2 = td[2]
 
     import time
-    s=time.perf_counter_ns()
+
+    s = time.perf_counter_ns()
     res = detect_intersections(S1, S2, TOL)
-    print((time.perf_counter_ns()-s)*1e-9)
+    print((time.perf_counter_ns() - s) * 1e-9)
     fff = []
-    s=time.perf_counter_ns()
-    ptss=[]
+    s = time.perf_counter_ns()
+    ptss = []
     for i, j in res:
         ip = np.array(i.control_points)
         jp = np.array(j.control_points)
-
-
-
-
 
         if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
             import warnings
@@ -453,40 +475,44 @@ if __name__ == "__main__":
             warnings.warn("NAN")
         else:
             fff.append((ip.tolist(), jp.tolist()))
-        ff=False
-        (umin,umax),(v_min,v_max)=i.interval()
-        for l in (lambda : extract_isocurve(i, v_min, 'v'),
-                  lambda : extract_isocurve(i, umin, 'u'),
-                  lambda : extract_isocurve(i, umax, 'u'),
-                  lambda : extract_isocurve(i, v_max, 'v')):
-            c=l()
-            #print([c.control_points.tolist(),np.array(j.control_points_flat
+        ff = False
+        (umin, umax), (v_min, v_max) = i.interval()
+        for l in (
+            lambda: extract_isocurve(i, v_min, "v"),
+            lambda: extract_isocurve(i, umin, "u"),
+            lambda: extract_isocurve(i, umax, "u"),
+            lambda: extract_isocurve(i, v_max, "v"),
+        ):
+            c = l()
+            # print([c.control_points.tolist(),np.array(j.control_points_flat
             #      ).tolist()])
 
-            res=nurbs_csx(c,j,tol=TOL,ptol=1e-5)
+            res = nurbs_csx(c, j, tol=TOL, ptol=1e-5)
 
-            if len(res)>0:
-                    for oo in res:
+            if len(res) > 0:
+                for oo in res:
 
-                        ptss.append(c.evaluate(oo[2][0]).tolist())
+                    ptss.append(c.evaluate(oo[2][0]).tolist())
 
-                    ff=True
+                ff = True
 
-                    continue
-            #print(ptss)
+                continue
+            # print(ptss)
         if not ff:
             (umin, umax), (v_min, v_max) = j.interval()
-            for l in (lambda : extract_isocurve(j, v_min, 'v'),
-                  lambda : extract_isocurve(j, umin, 'u'),
-                  lambda : extract_isocurve(j, umax, 'u'),
-                  lambda : extract_isocurve(j, v_max, 'v')):
+            for l in (
+                lambda: extract_isocurve(j, v_min, "v"),
+                lambda: extract_isocurve(j, umin, "u"),
+                lambda: extract_isocurve(j, umax, "u"),
+                lambda: extract_isocurve(j, v_max, "v"),
+            ):
                 c = l()
-                res = nurbs_csx(c, i,tol=TOL,ptol=1e-7)
+                res = nurbs_csx(c, i, tol=TOL, ptol=1e-7)
                 for oo in res:
                     ptss.append(c.evaluate(oo[2][0]).tolist())
     print((time.perf_counter_ns() - s) * 1e-9)
 
-    with open('../../tests/norm2.txt', 'w') as f:
+    with open("../../tests/norm2.txt", "w") as f:
         print(fff, file=f)
 
     print(ptss)
