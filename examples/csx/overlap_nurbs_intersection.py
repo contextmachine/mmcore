@@ -4,7 +4,8 @@ import numpy as np
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple,_nurbs_to_tuple,_tuple_to_nurbs
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
-
+import logging
+logging.basicConfig(level=logging.DEBUG)
 val = NURBSCurveTuple(
     order=4,
     knot=np.array(

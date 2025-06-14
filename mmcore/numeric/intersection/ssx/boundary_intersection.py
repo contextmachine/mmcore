@@ -11,8 +11,10 @@ import numpy as np
 
 from mmcore.geom.nurbs import NURBSSurface
 
+from mmcore.geom.curves.bspline_first import NURBSCurve
 from mmcore.geom.nurbs_iso import extract_surface_boundaries
 from mmcore.numeric.intersection.csx import nurbs_csx
+from notes.offset import NURBSCurveTuple
 
 
 class IntersectionPoint:
@@ -84,7 +86,10 @@ class IntersectionPoint:
             return (param, vmin)
         else:  # v=1 curve
             return (param, vmax)
+def _check_boundaries_overlap(bnd1:NURBSCurveTuple,bnd2:NURBSCurveTuple, spt:float=1e-6, tol:float=1e-6):
+    ...
 
+    
 def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: float = 1e-6, tol=1e-6) -> List[IntersectionPoint]:
     """
     Find all intersection points between the boundaries of two NURBS surfaces.
@@ -104,6 +109,7 @@ def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: f
     # Get boundaries of both surfaces
     boundaries1 = extract_surface_boundaries(surf1)
     boundaries2 = extract_surface_boundaries(surf2)
+    
     #print(boundaries1)
     #print(boundaries2)
     #print([boundary.control_points.tolist() for boundary in boundaries1])
