@@ -338,85 +338,131 @@ class NURBSSurfaceBvhObject(Object3D):
         super().__init__(BoundingBox(*self.surf.bbox()))
 
 
-def _nurbs_surface_closest_point_divide_and_conquer(surf:NURBSSurfaceTuple, point:NDArray[float],x_range=None, y_range=None,spt=0.001,angle_tol=None):
+
+def _nurbs_surface_closest_point_divide_and_conquer(
+    surf: NURBSSurfaceTuple,
+    point: NDArray[float],
+    x_range: Optional[tuple[float, float]] = None,
+    y_range: Optional[tuple[float, float]] = None,
+    *,
+    spt: float = 0.001,
+    angle_tol: Optional[float] = None,
+):
     """
+    Locate the (u,v) on *surf* that minimises |S(u,v) - point| using a
+    divide‑and‑conquer search.  The search space is iteratively restricted
+    until both parametric extents are within their *adaptive* tolerances.
+
+    Compared with the original version, once one parametric direction
+    is inside its tolerance we keep it fixed at its midpoint and refine
+    only the other direction.  This avoids unnecessary surface evaluations.
     """
+    # -------------------------------------------------------------------------
     @functools.lru_cache(maxsize=None)
-    def fun(u,v):
+    def fun(u: float, v: float):
+        """
+        Cached evaluation of
+            ‑ distance  ‑ complete t‑evaluation dict  ‑ local (uTol,vTol)
+        """
+        t_eval = evaluate_nurbs_surface(surf, u, v, d_order=2)
+        dc = t_eval["S"] - point
+        cur_tol = compute_parametric_tolerance_surface(
+            t_eval["Su"],
+            t_eval["Sv"],
+            t_eval["Suu"],
+            t_eval["Suv"],
+            t_eval["Svv"],
+            spt=spt,
+            angle_tol=angle_tol,
+        )
+        return np.linalg.norm(dc), t_eval, cur_tol  # -> (dist, dict, (uTol,vTol))
 
-        t_eval = evaluate_nurbs_surface(surf, u,v, d_order=2)
-
-        dc = t_eval['S']  - point
-        current_tol = compute_parametric_tolerance_surface(t_eval["Su"], t_eval["Sv"],t_eval["Suu"],  t_eval["Suv"], t_eval["Svv"],spt=spt, angle_tol=angle_tol)
-        return np.linalg.norm(dc), t_eval, current_tol
-    interval_u,interval_v = _surface_interval(surf)
+    # -------------------------------------------------------------------------
+    interval_u, interval_v = _surface_interval(surf)
     if x_range is None:
         x_range = interval_u
     if y_range is None:
         y_range = interval_v
+
     x_min, x_max = x_range
     y_min, y_max = y_range
-    fx,x_eval,(x_tol,y_tol)=fun(x_min,y_min)
 
+    # Initial tolerances at one corner
+    _, _, (x_tol, y_tol) = fun(x_min, y_min)
+
+    # ---------------------- main loop ----------------------------------------
     while (x_max - x_min) > x_tol or (y_max - y_min) > y_tol:
-        x_mid = (x_min + x_max) / 2
-        y_mid = (y_min + y_max) / 2
-        # Evaluate the function at the corners and midpoints of the edges
-        f00 = fun(x_min, y_min)
-        f10 = fun(x_max, y_min)
-        f01 = fun(x_min, y_max)
-        f11 = fun(x_max, y_max)
-        f_mid_x_min = fun(x_mid, y_min)
-        f_mid_x_max = fun(x_mid, y_max)
-        f_mid_y_min = fun(x_min, y_mid)
-        f_mid_y_max = fun(x_max, y_mid)
-        f_mid_xy = fun(x_mid, y_mid)
+        x_width = x_max - x_min
+        y_width = y_max - y_min
+        x_mid = (x_min + x_max) / 2.0
+        y_mid = (y_min + y_max) / 2.0
 
-        # Create a list of (value, coordinates) pairs
-        candidates = [
-            (f00, (x_min, y_min)),
-            (f10, (x_max, y_min)),
-            (f01, (x_min, y_max)),
-            (f11, (x_max, y_max)),
-            (f_mid_x_min, (x_mid, y_min)),
-            (f_mid_x_max, (x_mid, y_max)),
-            (f_mid_y_min, (x_min, y_mid)),
-            (f_mid_y_max, (x_max, y_mid)),
-            (f_mid_xy, (x_mid, y_mid))
-        ]
-        # Find the minimum value and its coordinates
-        min_val, min_coords = min(candidates, key=lambda item: item[0][0])
-        x_min, x_max = min_coords[0] - (x_max - x_min) / 4, min_coords[0] + (x_max - x_min) / 4
-        y_min, y_max = min_coords[1] - (y_max - y_min) / 4, min_coords[1] + (y_max - y_min) / 4
+        # Build candidate list depending on which direction still needs work
+        candidates = []
+
+        both_open = (x_width > x_tol) and (y_width > y_tol)
+        if both_open:
+            # 9‑point stencil (unchanged from original)
+            candidates.extend(
+                [
+                    (fun(x_min, y_min), (x_min, y_min)),
+                    (fun(x_max, y_min), (x_max, y_min)),
+                    (fun(x_min, y_max), (x_min, y_max)),
+                    (fun(x_max, y_max), (x_max, y_max)),
+                    (fun(x_mid, y_min), (x_mid, y_min)),
+                    (fun(x_mid, y_max), (x_mid, y_max)),
+                    (fun(x_min, y_mid), (x_min, y_mid)),
+                    (fun(x_max, y_mid), (x_max, y_mid)),
+                    (fun(x_mid, y_mid), (x_mid, y_mid)),
+                ]
+            )
+        elif x_width > x_tol:  # Only u needs refinement
+            candidates.extend(
+                [
+                    (fun(x_min, y_mid), (x_min, y_mid)),
+                    (fun(x_mid, y_mid), (x_mid, y_mid)),
+                    (fun(x_max, y_mid), (x_max, y_mid)),
+                ]
+            )
+        else:  # Only v needs refinement
+            candidates.extend(
+                [
+                    (fun(x_mid, y_min), (x_mid, y_min)),
+                    (fun(x_mid, y_mid), (x_mid, y_mid)),
+                    (fun(x_mid, y_max), (x_mid, y_max)),
+                ]
+            )
+
+        # Select the best candidate
+        min_val, (u_best, v_best) = min(candidates, key=lambda item: item[0][0])
+
+        # Update intervals only in the directions still “open”
+        if x_width > x_tol:
+            h = 0.25 * x_width
+            x_min = max(u_best - h, x_range[0])
+            x_max = min(u_best + h, x_range[1])
+        if y_width > y_tol:
+            h = 0.25 * y_width
+            y_min = max(v_best - h, y_range[0])
+            y_max = min(v_best + h, y_range[1])
+
+        # Refresh adaptive tolerances at the current best point
         x_tol, y_tol = min_val[2]
 
-        # Ensure the search space does not collapse below tolerance
-        x_min = max(x_min, x_range[0])
-        x_max = min(x_max, x_range[1])
-        y_min = max(y_min, y_range[0])
-        y_max = min(y_max, y_range[1])
+    # -------------------- robust final evaluation ----------------------------
+    # Examine the mid‑point plus the current corners
+    x_mid = (x_min + x_max) / 2.0
+    y_mid = (y_min + y_max) / 2.0
 
-    # Instead of just returning midpoint, do robust final evaluation
-    x_mid = (x_min + x_max) / 2
-    y_mid = (y_min + y_max) / 2
-    
     final_candidates = [
         (fun(x_min, y_min), (x_min, y_min)),
         (fun(x_max, y_min), (x_max, y_min)),
         (fun(x_min, y_max), (x_min, y_max)),
         (fun(x_max, y_max), (x_max, y_max)),
-        (fun(x_mid, y_min), (x_mid, y_min)),
-        (fun(x_max, y_mid), (x_max, y_mid)),
-        (fun(x_mid, y_max), (x_mid, y_max)),
-        (fun(x_min, y_mid), (x_min, y_mid)),
         (fun(x_mid, y_mid), (x_mid, y_mid)),
     ]
-
     min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
-
-    
-    return min_val,min_coords
-
+    return min_val, min_coords
 import itertools
 from math import sqrt
 
@@ -428,12 +474,12 @@ def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt
     for candidate in candidates:
       
         min_val,min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
-        print(min_val)
+        
         if best_f[0]>min_val[0]:
             best_f=min_val
             best_x=min_coords
         
-    return best_x,(best_f[0],*best_f[1:])
+    return best_x, (best_f[0],*best_f[1:])
 
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):

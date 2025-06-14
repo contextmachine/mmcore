@@ -1,6 +1,6 @@
 """
  
- This example demonstrates the intersection of two NURBS spheres.
+ This example demonstrates the intersection of two NURBS surfaces with partial overlaps.
 """
 import time
 import numpy as np
@@ -51,7 +51,7 @@ s2 = _tuple_to_nurbs(st2)
 
 # Perform SSX
 start_time = time.time()
-result = ssx(s1, s2, tol=1e-7, spt=0.001)
+result = ssx(s1, s2, tol=1e-4, spt=0.001)
 
 print(f"intersection computed at: {time.time() - start_time} sec.")
 

@@ -469,47 +469,65 @@ def solve3x2(col0, col1, d0, d1, d2):
     return 2, x, y, err, pivot_ratio
 
 
-def evaluate_sectional_curvature(S10, S01, S20, S11, S02, planeNormal):
+import numpy as np
+
+def evaluate_sectional_curvature(
+    Su: np.ndarray,   # S10  –  first‑order surface partial ∂S/∂u
+    Sv: np.ndarray,   # S01  –  first‑order surface partial ∂S/∂v
+    Suu: np.ndarray,  # S20  –  second‑order surface partial ∂²S/∂u²
+    Suv: np.ndarray,  # S11  –  mixed second‑order partial ∂²S/∂u∂v
+    Svv: np.ndarray,  # S02  –  second‑order surface partial ∂²S/∂v²
+    plane_normal: np.ndarray  # unit normal of the section plane
+):
     """
-    Calculate the curvature of the intersection of a surface and a plane.
+    Evaluate the sectional curvature vector K of the curve that is the
+    intersection between a surface and a plane passing through the surface
+    point where the partials were measured.
 
-    Input:
-    S10, S01, S20, S11, S02: 3D vectors representing surface derivatives
-    planeNormal: 3D vector representing the normal of the intersecting plane
-
-    Output:
-    Tuple containing:
-    - bool: True if calculation was successful, False otherwise
-    - K: 3D vector representing the curvature
+    All vectors are plain 1‑D NumPy arrays with shape (3,).
+    Returns (success: bool, K: np.ndarray).
     """
+    # ------------------------------------------------------------------
+    # 1.   M  = Su × Sv  (unnormalised surface normal)
+    # 2.   D1 = M × plane_normal  (tangent of the intersection curve)
+    # 3.   Solve D1 = a*Su + b*Sv  for (a,  b)
+    # 4.   M1 = (a*Suu + b*Suv) × Sv  +  Su × (a*Suv + b*Svv)
+    # 5.   D2 = M1 × plane_normal  (second derivative of the curve)
+    # 6.   Remove normal component of D2 and scale to get curvature K
+    # ------------------------------------------------------------------
 
-    M = np.cross(S10, S01)
-    
-    D1 = np.cross(M, planeNormal)
-    
-    print("PPP",S10, S01,  D1[0], D1[1], D1[2])
-    rank, a, b, e, pr = solve3x2(S10, S01, D1[0], D1[1], D1[2])
-    if rank < 2:
-        return False, np.array([0.0, 0.0, 0.0])
+    # Helper constants
+    DBL_MIN = np.finfo(float).tiny
 
-    D2 = np.array([a * S20[i] + b * S11[i] for i in range(3)])
-    M = np.array(scalar_cross(D2, S01))
-    D2 = np.array([a * S11[i] + b * S02[i] for i in range(3)])
-    M = np.array([M[i] + scalar_cross(S10, D2)[i] for i in range(3)])
+    # 1.
+    M = np.cross(Su, Sv)
 
-    D2 = scalar_cross(M, planeNormal)
+    # 2.
+    D1 = np.cross(M, plane_normal)
 
-    a = sum(d * d for d in D1)
+    # 3. Solve the 3×2 linear system [Su  |  Sv] · [a,  b]^T = D1
+    A = np.column_stack((Su, Sv))          # shape (3,  2)
+    (a, b), residuals, rank, _ = np.linalg.lstsq(A, D1, rcond=None)
+    if rank < 2:                           # Su and Sv are not independent
+        return False, np.zeros(3)
 
-    if a <= 1e-15:  # ON_DBL_MIN
-        return False, np.array([0.0, 0.0, 0.0])
+    # 4. M1
+    M1  = np.cross(a * Suu + b * Suv, Sv)
+    M1 += np.cross(Su,  a * Suv + b * Svv)
 
-    a = 1.0 / a
-    b = -a * sum(D2[i] * D1[i] for i in range(3))
-    K = np.array([a * (D2[i] + b * D1[i]) for i in range(3)])
+    # 5.
+    D2 = np.cross(M1, plane_normal)
+
+    # 6. Project away the component of D2 parallel to D1
+    d1_len2 = D1.dot(D1)
+    if d1_len2 <= DBL_MIN:
+        return False, np.zeros(3)
+
+    inv_d1_len2   = 1.0 / d1_len2
+    b_scalar      = -inv_d1_len2 * D2.dot(D1)
+    K             = inv_d1_len2 * (D2 + b_scalar * D1)
 
     return True, K
-
 
 def curve_bound_points(curve, bounds=None, tol=1e-2):
     """
@@ -624,7 +642,7 @@ def crvs_to_numpy_poly(crv, n_samples=100, remap=True):
 
 import numpy as np
 
-def compute_parametric_tolerance_curve(C1, C2, spt, angle_tol=None):
+def compute_parametric_tolerance_curve(C1, C2, spt, angle_tol=None,**kwargs):
     """
     Compute the parametric step (du) for a NURBS curve given spatial and optional angular tolerances.
 
@@ -685,7 +703,7 @@ def compute_parametric_tolerance_curve(C1, C2, spt, angle_tol=None):
     return du
 
 
-def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=None):
+def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=None, **kwargs):
     """
     Compute parameter increments (du, dv) for a NURBS surface given spatial and optional angular tolerances.
 
