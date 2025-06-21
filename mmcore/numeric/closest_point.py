@@ -1,9 +1,10 @@
 import functools
 import itertools
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
+from mmcore.geom import nurbs
 
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
@@ -38,9 +39,10 @@ from mmcore.geom._nurbs_eval import (
     evaluate_nurbs_curve,
     _surface_interval,
     _nurbs_to_tuple,
+    _curve_interval,
 )
 
-from mmcore.geom._nurbs_knots import decompose_surface
+from mmcore.geom._nurbs_knots import decompose_surface,decompose_curve
 
 
 # Utility function to calculate the Euclidean distance between two points
@@ -140,7 +142,7 @@ def min_distance(points):
 
     # Use the recursive utility to find the closest pair
     return closest_util(points_sorted_x, points_sorted_y, len(points_sorted_x))
-from mmcore.geom.nurbs import decompose_curve,greville_abscissae
+
 from mmcore.numeric.newton import cnewton
 
 from mmcore.geom.bvh import NURBSCurveObject3D, build_bvh,_find_closest_vicinity,BVHNode
@@ -176,7 +178,7 @@ from mmcore.numeric.newton.bounded import bounded_newtons_method
 def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1e-6, on_curve=False,max_iter=100)->tuple[bool, tuple[float,float]]:
 
 
-    bvh = build_bvh([NURBSCurveObject3D(c) for c in decompose_curve(curve)])
+    bvh = build_bvh([NURBSCurveObject3D(c) for c in nurbs.decompose_curve(curve)])
     rr = find_closest(bvh, point, breadth=not on_curve)
 
 
@@ -338,7 +340,154 @@ class NURBSSurfaceBvhObject(Object3D):
         super().__init__(BoundingBox(*self.surf.bbox()))
 
 
+_float64_eps=np.finfo(float).eps
+import functools
+import numpy as np
+from typing import Optional, Tuple
 
+NDArray = np.ndarray
+NURBSCurveTuple = Tuple  # adjust to your real alias
+
+
+def _nurbs_curve_closest_point_divide_and_conquer(
+    curve: NURBSCurveTuple,
+    point: NDArray,
+    t_range: Optional[tuple[float, float]] = None,
+    *,
+    spt: float = 0.001,
+    angle_tol: Optional[float] = None,
+):
+    """
+    Return the closest point on *curve* to *point*.
+
+    A coarse divide‑and‑conquer pass produces a tight parameter window;
+    a damped Newton iteration then polishes the result while honouring
+    that window.
+    """
+    # ---------------------------------------------------------------------
+    @functools.lru_cache(maxsize=None)
+    def fun(t: float):
+        """distance, full evaluation, local parametric tolerance"""
+        t_eval = evaluate_nurbs_curve(curve, t, d_order=2)
+        dc = t_eval["C"] - point
+        cur_tol = compute_parametric_tolerance_curve(
+            t_eval["C1"],
+            t_eval["C2"],
+            spt=spt,
+            angle_tol=angle_tol,
+        )
+        return np.linalg.norm(dc), t_eval, cur_tol      # (dist, dict, tTol)
+
+    # ---------------------------------------------------------------------
+    # ❶  Divide‑and‑conquer -------------------------------------------------
+    t_lo_full, t_hi_full = _curve_interval(curve)
+
+    if t_range is None:
+        t_min, t_max = t_lo_full, t_hi_full
+    else:
+        t_min = max(t_range[0], t_lo_full)
+        t_max = min(t_range[1], t_hi_full)
+
+    # first tolerance probe
+    _, _, t_tol = fun(t_min)
+
+    while (t_max - t_min) > t_tol:
+        width = t_max - t_min
+        t_mid = 0.5 * (t_min + t_max)
+
+        cand = [
+            (fun(t_min), t_min),
+            (fun(t_mid), t_mid),
+            (fun(t_max), t_max),
+        ]
+        min_val, t_best = min(cand, key=lambda item: item[0][0])
+
+        h = 0.25 * width
+        t_min = max(t_best - h, t_min if t_range is None else t_range[0])
+        t_max = min(t_best + h, t_max if t_range is None else t_range[1])
+
+        t_tol = min_val[2]
+
+    # 2  Robust final pick --------------------------------------------------
+    t_mid = 0.5 * (t_min + t_max)
+    final_cand = [
+        (fun(t_min), t_min),
+        (fun(t_mid), t_mid),
+        (fun(t_max), t_max),
+    ]
+    min_val, t_best = min(final_cand, key=lambda item: item[0][0])
+
+    # ---------------------------------------------------------------------
+    # 3  Guarded Newton refinement -----------------------------------------
+    MAX_NITER   = 15
+    EPS_FPRIME  = 1.0e-14       # “small derivative”
+    EPS_SECOND  = 1.0e-14       # “small 2nd derivative”
+    EPS_DSTEP   = 1.0e-12       # min step considered meaningful
+
+    # Keep a private, shrinking bracket; start with the final window
+    t_low, t_high = t_min, t_max
+    dist_best, eval_best, tol_best = min_val
+
+    t_cur = t_best
+    
+    for _ in range(MAX_NITER):
+
+        C  = eval_best["C"]
+        C1 = eval_best["C1"]
+        C2 = eval_best["C2"]
+
+        dvec = C - point
+        f_prime  = float(np.dot(dvec, C1))
+        if abs(f_prime) < EPS_FPRIME:
+            break                                # already at a stationary point
+
+        f_second = float(np.dot(C1, C1) + np.dot(dvec, C2))
+        if abs(f_second) < EPS_SECOND:
+            break                                # Jacobian degenerate → stop
+
+        # raw Newton step
+        dt = -f_prime / f_second
+        if abs(dt) < EPS_DSTEP:
+            break                                # step too tiny → done
+
+        # (a) keep step inside the bracket, (b) ensure descent
+        success = False
+        step_scale = 1.0
+        while not success and step_scale > 0.125:  # 1 / 8th is our floor
+
+            t_trial = t_cur + step_scale * dt
+
+            # hard‑clip to window, avoiding extrapolation noise
+            if t_trial < t_low:
+                t_trial = t_low
+            elif t_trial > t_high:
+                t_trial = t_high
+
+            dist_trial, eval_trial, tol_trial = fun(t_trial)
+
+            if dist_trial < dist_best:           # accepted
+                # tighten the bracket around the new best point
+                if t_trial < t_cur:
+                    t_high = t_cur
+                elif t_trial > t_cur:
+                    t_low = t_cur
+
+                t_cur      = t_trial
+                dist_best  = dist_trial
+                eval_best  = eval_trial
+                tol_best   = tol_trial
+                success    = True
+            else:
+                step_scale *= 0.5               # back‑tracking
+
+        if not success:
+            break                               # Newton no longer makes progress
+
+        if (t_high - t_low) <= tol_best:
+            break                               # bracket smaller than local tol
+
+    # ---------------------------------------------------------------------
+    return (dist_best, eval_best, tol_best), t_cur
 def _nurbs_surface_closest_point_divide_and_conquer(
     surf: NURBSSurfaceTuple,
     point: NDArray[float],
@@ -464,17 +613,34 @@ def _nurbs_surface_closest_point_divide_and_conquer(
     min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
     return min_val, min_coords
 import itertools
-from math import sqrt
+
+
+def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], spt: float = 0.001, angle_tol: float = None):
+    candidates = decompose_curve(self)
+
+    best_f = [float("inf"), {}, (None, None)]
+    best_x = None
+    for candidate in candidates:
+
+        min_val, min_t = _nurbs_curve_closest_point_divide_and_conquer(candidate, point, spt=spt, angle_tol=angle_tol)
+      
+        if best_f[0] > min_val[0]:
+            best_f = min_val
+            best_x = min_t
+    
+    
+    return best_x, (best_f[0], *best_f[1:])
+
 
 def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt:float=0.001, angle_tol:float=None):
     candidates=decompose_surface(self)
 
-    best_f=[float('inf')]
+    best_f=[float('inf'),{},(None,None)]
     best_x=None
     for candidate in candidates:
       
         min_val,min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
-        
+       
         if best_f[0]>min_val[0]:
             best_f=min_val
             best_x=min_coords

@@ -65,7 +65,7 @@ def circle(radius):
 
     return NURBSCurveTuple(3, [0.0, 0.0, 0.0, 1 / 4, 2 / 4, 3 / 4, 4 / 4, 4 / 4, 4 / 4], ptsw[..., :-1].tolist(), ptsw[..., -1])
 
-from mmcore.construction.revolution_surface import make_torus
+from mmcore.construction._torus import torus
 # ---------------------------------------------------------------------------
 # Test cases for evaluate_nurbs_surface.
 # ---------------------------------------------------------------------------
@@ -74,8 +74,8 @@ class TestEvaluateNURBSSurface(unittest.TestCase):
     tol = 1e-5
     def construct_torus(self, R,r):
 
-        ku,kv,pts,w=make_torus(R, r)
-        return NURBSSurfaceTuple(3,3,knot_u=ku,knot_v=kv,control_points=np.array(pts).tolist(),weights=np.array(w))
+  
+        return torus(R,r)
     def test_bspline_planar(self):
         # A simple bilinear (order=2 in both u and v) B-spline surface.
         # Control net: 2x2 grid in the plane z=0.

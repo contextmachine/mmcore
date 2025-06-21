@@ -28,16 +28,68 @@ def nurbs_curve_bvh(curve:NURBSCurveTuple, spt:float=1e-3)->tuple[BVH,list[NURBS
         bb.offset_inplace(spt)
     return build_bvh(bbs1),curves1
 
+from mmcore.geom._nurbs_knots import decompose_curve
+
+from mmcore.numeric.aabb import aabb,aabb_intersect
+def _bez_ccx(
+    curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, spt: float = 1e-3
+):
+
+    if isinstance(curve1, NURBSCurve):
+        curve1=_nurbs_to_tuple(curve1)
+    if isinstance(curve2, NURBSCurve):
+        curve2 = _nurbs_to_tuple(curve2)
+    ints = []
+    stack=[]
+    stack.append((curve1,curve2))
+    while stack:
+        a,b=stack.pop(
+        0
+        )
+        bba,bbb=aabb(a.control_points),aabb(b.control_points)
+        if not aabb_intersect(bba,bbb):
+            break
+        t0, t1 = _curve_interval(a)
+        s0, s1 = _curve_interval(b)
+        tmid = t0 + (t1 - t0) / 2
+        smid = s0 + (s1 - s0) / 2
+        
+        def _eq(x):
+            x=np.array(x)
+            print(x)
+            d = evaluate_nurbs_curve(a, x[0], 0)["C"] - evaluate_nurbs_curve(b, x[1], 0)["C"]
+            return np.dot(d, d)
+        print(tmid,smid)
+        res = np.array(newtons_method(_eq, np.array([tmid, smid])))
+
+        if res is None:
+            continue
+        else:
+
+            d2 = _eq(res)
+
+            if np.isclose(d2, 0) or (np.sqrt(d2) < spt):
+                pt = evaluate_nurbs_curve(a, res[0], d_order=0)["C"]
+
+                if _is_new(ints, (pt, res)):
+                    ints.append((pt, res))
+
+    ints.sort(key=lambda x: x[1][0])
+    return ints
+
 
 def nurbs_ccx(curve1:NURBSCurve|NURBSCurveTuple,curve2:NURBSCurve|NURBSCurveTuple, spt:float=1e-3, bvh1:BVH=None,bvh2:BVH=None):
 
-
     if bvh1 is None:
         bvh1,curves1=nurbs_curve_bvh(curve1,spt=spt)
+    else:
+        curves1=   decompose_curve(curve1)
     if bvh2 is None:
         bvh2,curves2=nurbs_curve_bvh(curve2,spt=spt)
-
-    inters=bvh_intersect(bvh1,bvh2,exact=True)
+    else:
+        curves2 = decompose_curve(curve2)
+        
+    inters = bvh_intersect(bvh1, bvh2, exact=True)
     ints=[]
 
     for op1,op2 in inters:
