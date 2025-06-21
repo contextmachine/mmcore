@@ -110,61 +110,60 @@ def sb_pow(poly_sb: np.ndarray, k: int) -> np.ndarray:
     return result
 
 
-# ------------------------------------------------------------------
-#  Composition  C(u(t))  in scaled‑Bernstein form
-# ------------------------------------------------------------------
 
-def compose_curve_reparam_sb(curve_ctrl: np.ndarray,
-                             reparam_ctrl: np.ndarray,
-                             return_cartesian: bool = False
-                             ) -> np.ndarray:
+
+def compose_curve_curve_sb(spatial_ctrl: np.ndarray,
+                                 param_ctrl:   np.ndarray,
+                                 return_cartesian: bool = False) -> np.ndarray:
     """
     Parameters
     ----------
-    curve_ctrl   : (n+1, 4) ndarray
-        Homogeneous control points (x*w, y*w, z*w, w) of the rational
-        Bézier curve  C(u),  degree n.
-    reparam_ctrl : (p+1,)  ndarray
-        Control points u_j of the scalar Bézier curve u(t), degree p.
-        Values should lie in [0,1] and be (weakly) increasing to keep
-        the mapping bijective, but the algorithm itself imposes no
-        extra constraint.
-    return_cartesian : bool
-        If True the function divides X Y Z by W and returns ordinary
-        3‑vector control points.  Otherwise it returns homogeneous
-        4‑vectors.
+    spatial_ctrl : (n+1, 4) ndarray
+        Homogeneous control points of the original 3‑D rational curve
+        (x*w, y*w, z*w, w).  Degree n.
+    param_ctrl   : (p+1, 2) ndarray
+        Control points of the 1‑D rational re‑parametrisation curve
+        in the (sigma, omega) form.  Degree p.
+    return_cartesian : bool, default False
+        If True, divides by the weights and returns Cartesian XYZ points.
+        Otherwise returns homogeneous coordinates.
 
     Returns
     -------
-    ctrl_out : (n*p+1, 4) or (n*p+1, 3) ndarray
-        Control points of the composed curve in the *same* Bernstein
-        basis.  Degree  n*p.
+    ctrl_out : ndarray ((n*p)+1, 4)  or  (..., 3)
+        Control points of the composed rational Bézier curve
+        C_new(t) = C(sigma(t)/omega(t)).
     """
     # ---------------------------------------------------------------
-    # 0. Problem dimensions
+    # 0.  Degrees
     # ---------------------------------------------------------------
-    n = curve_ctrl.shape[0] - 1          # degree of C
-    p = len(reparam_ctrl)   - 1          # degree of u(t)
-    deg = n * p                          # degree of the composite
+    n = spatial_ctrl.shape[0] - 1
+    p = param_ctrl.shape[0]   - 1
+    deg = n * p                                # final polynomial degree
 
     # ---------------------------------------------------------------
-    # 1. Put everything in scaled‑Bernstein (SB) form
+    # 1.  Build SB polynomials for sigma(t) and omega(t)
     # ---------------------------------------------------------------
-    #   C(u)  :  scale the lattice so binomials disappear
-    curve_sb = to_scaled(curve_ctrl)     # shape (n+1, 4)
+    sigma_num = param_ctrl[:, 0] * param_ctrl[:, 1]   # sigma·omega
+    omega_den = param_ctrl[:, 1]                      # omega
 
-    #   u(t)  :  scalar polynomial in SB form
-    u_sb  = to_scaled(reparam_ctrl)      # length p+1
-    one_sb = to_scaled(np.ones(p + 1))   # the constant "1"
-    um_sb  = one_sb - u_sb               # (1 - u(t))
+    sigma_sb = to_scaled(sigma_num)
+    omega_sb = to_scaled(omega_den)
+    omega_m_sigma_sb = omega_sb - sigma_sb                              # (omega - sigma)
 
-    # Pre‑compute powers  u(t)^i  and  (1-u(t))^{n-i}
-    pow_u  = [sb_pow(u_sb,  i)     for i in range(n + 1)]
-    pow_um = [sb_pow(um_sb, n - i) for i in range(n + 1)]
+    # Pre‑compute needed powers
+    pow_sigma   = [sb_pow(sigma_sb,     i) for i in range(n + 1)]
+    pow_omega_m_sigma = [sb_pow(omega_m_sigma_sb, n - i) for i in range(n + 1)]
 
     # ---------------------------------------------------------------
-    # 2. Assemble the composite numerator / denominator polynomials
-    #    (still in SB representation)
+    # 2.  Scale spatial control points once to remove binomials
+    # ---------------------------------------------------------------
+    spatial_sb = spatial_ctrl.astype(float).copy()
+    for i in range(n + 1):
+        spatial_sb[i] *= math.comb(n, i)
+
+    # ---------------------------------------------------------------
+    # 3.  Assemble numerator and denominator polynomials (SB coeffs)
     # ---------------------------------------------------------------
     num_x = np.zeros(deg + 1)
     num_y = np.zeros(deg + 1)
@@ -172,31 +171,28 @@ def compose_curve_reparam_sb(curve_ctrl: np.ndarray,
     den   = np.zeros(deg + 1)
 
     for i in range(n + 1):
-        basis = np.convolve(pow_um[i], pow_u[i])   # SB coeffs of
-                                                   #  u(t)^i(1-u)^{n-i}
-        
-        xw, yw, zw, w = curve_sb[i]
+        basis = sb_convolve(pow_omega_m_sigma[i], pow_sigma[i])     # SB coefficients
+
+        xw, yw, zw, w = spatial_sb[i]
         num_x[:len(basis)] += xw * basis
         num_y[:len(basis)] += yw * basis
         num_z[:len(basis)] += zw * basis
         den  [:len(basis)] +=  w * basis
 
     # ---------------------------------------------------------------
-    # 3. Convert back from scaled‑Bernstein to ordinary control points
+    # 4.  Back to ordinary Bernstein control points
     # ---------------------------------------------------------------
     cx = from_scaled(num_x)
     cy = from_scaled(num_y)
     cz = from_scaled(num_z)
     cw = from_scaled(den)
 
-    homog = np.stack([cx, cy, cz, cw], axis=-1)    # (deg+1, 4)
+    homog = np.stack([cx, cy, cz, cw], axis=-1)       # (deg+1, 4)
 
     if return_cartesian:
         xyz = homog[:, :3] / homog[:, 3:4]
         return xyz
     return homog
-
-
 # ----------------------------------------------------------------------
 #  Composition (patch ∘ curve) completely in SB form
 # ----------------------------------------------------------------------
@@ -381,10 +377,13 @@ if __name__=="__main__":
     # Quadratic re‑parameterisation  u(t)
     u_ctrl = np.array([0.0, 0.3, 1.0])            # maps t∈[0,1] → u∈[0,1]
 
-    composite = compose_curve_reparam_sb(C_ctrl, u_ctrl, return_cartesian=False)
+    composite = compose_curve_curve_sb(C_ctrl, u_ctrl, return_cartesian=False)
     print("Homogeneous control points of C(u(t)):")
     print(composite)
-
+    u_ctrlv2 = np.array([[0.0,1.], [0.3,1.], [1.0,1.]])
+    composite2 = compose_curve_curve_rational(C_ctrl, u_ctrlv2)
+    print('v2:')
+    print(composite2)
     st1 = NURBSSurfaceTuple(
         order_u=2,
         order_v=2,
@@ -411,7 +410,7 @@ if __name__=="__main__":
     curve_3d=compose_patch_curve_sb(patch_bern,curve_bern)
     cpts, weights = from_homogeneous_1d(curve_3d)
     curve_3d_rat = compose_patch_curve_sb(nurbs_bezier_to_bern(st1),nurbs_bezier_to_bern(crv))
-  
+
     result=NURBSCurveTuple(order=cpts.shape[0], knot=generate_knots(cpts.shape[0],cpts.shape[0]-1),control_points=cpts,weights=weights)
     print(result)
     print(bern_to_nurbs_bezier(curve_3d_rat))

@@ -15,7 +15,7 @@ from mmcore.geom._nurbs_compose import (
     compose_bezier_segments,
     find_polynomial_roots_in_interval
 )
-from mmcore.numeric.sbern import compose_curve_reparam_sb, bern_to_nurbs_bezier, nurbs_bezier_to_bern
+from mmcore.numeric.sbern import compose_curve_curve_sb, bern_to_nurbs_bezier, nurbs_bezier_to_bern
 
 
 
@@ -214,10 +214,10 @@ class TestNURBSComposition:
             weights=f_weights
         )
         c_bern= nurbs_bezier_to_bern(c_curve)
-        f_bern =  nurbs_bezier_to_bern(f_curve,rational=False).flatten()
+        f_bern =  nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_reparam_sb(c_bern, f_bern)
+        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern)
                                         )
         # Verify degree
         assert composed.degree == 2  # 2 * 1 = 2
@@ -256,10 +256,10 @@ class TestNURBSComposition:
             weights=f_weights
         )
         c_bern = nurbs_bezier_to_bern(c_curve)
-        f_bern = nurbs_bezier_to_bern(f_curve,rational=False).flatten()
+        f_bern = nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_reparam_sb(c_bern, f_bern))
+        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern))
 
         # Verify degree
 
@@ -298,10 +298,10 @@ class TestNURBSComposition:
         # Compose
 
         c_bern = nurbs_bezier_to_bern(c_curve)
-        f_bern = nurbs_bezier_to_bern(f_curve, rational=True).flatten()
+        f_bern = nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_reparam_sb(c_bern, f_bern))
+        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern))
 
         # Verify by evaluation
         for i, t in enumerate(np.linspace(0, 1, 11)):
@@ -314,7 +314,7 @@ class TestNURBSComposition:
                 print(f"Expected: {expected}")
                 print(f"Got: {composed_val}")
                 print(f"Error: {np.linalg.norm(composed_val - expected)}")
-            #assert np.allclose(composed_val, expected, atol=1e-10)
+            assert np.allclose(composed_val, expected, atol=1e-10)
 
 
 if __name__ == "__main__":
