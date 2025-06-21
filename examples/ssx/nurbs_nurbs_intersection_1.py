@@ -114,7 +114,7 @@ with open("ssx1.txt",'w') as tf:
                                             ):
             cpts = (spatial.control_points).tolist()
             tf.write(repr(cpts))
-RENDER=True
+RENDER=False
 if RENDER:
     try:
         from mmcore.renderer.renderer3dv2 import CADRenderer,Camera

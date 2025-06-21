@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 
-
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
 from scipy.integrate import quad
 import numpy as np
@@ -77,8 +76,6 @@ def evaluate_tangent(D1, D2):
 
 
 evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()")
-
-
 
 
 def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
@@ -157,60 +154,133 @@ def calculate_curvature2d(dx, dy, ddx, ddy):
     return numerator, denominator, curvature
 
 
-def evaluate_curvature(
-        derivative, second_derivative
-) -> tuple[np.ndarray, np.ndarray, bool]:
+
+def evaluate_curvature(D1: np.ndarray, D2: np.ndarray):
     """
-    Calculates the unit tangent vector, curvature vector, and a recalculate condition for a given derivative and
-    second derivative.
+    Evaluate unit tangent and curvature vector from first and second derivatives.
 
-    :param derivative: The derivative vector.
-    :param second_derivative: The second derivative vector.
-    :return: A tuple containing the unit tangent vector, curvature vector, and recalculate condition.
+    Parameters
+    ----------
+    D1 : np.ndarray
+        First derivative vector.
+    D2 : np.ndarray
+        Second derivative vector.
 
-    Example usage:
-        derivative = np.array([1, 0, 0])
-        second_derivative = np.array([0, 1, 0])
-        evaluate_curvature2(derivative, second_derivative)
+    Returns
+    -------
+    
+    T : np.ndarray
+        Unit tangent vector.
+    K : np.ndarray
+        Curvature vector
+    rc : bool
+        True if the “normal” curvature formula was used (i.e. |D1| != 0), False otherwise.
     """
-    # Norm of derivative
-    norm_derivative = np.linalg.norm(derivative)
-    zero_tolerance = 0.0
+    rc = False
+    d1 = np.linalg.norm(D1)
 
-    # Check if norm of derivative is too small
-    if norm_derivative == zero_tolerance:
-        norm_derivative = np.linalg.norm(second_derivative)
-
-        # If norm of second_derivative is above tolerance, calculate the unit tangent
-        # If not, set unit tangent as zeros_like second_derivative
-        if norm_derivative > zero_tolerance:
-            unit_tangent_vector = second_derivative / norm_derivative
+    if d1 == 0.0:
+        # L'Hôpital case: if first derivative is zero but second is not,
+        # tangent is ±unitized D2; curvature is zero.
+        d1 = np.linalg.norm(D2)
+        if d1 > 0.0:
+            T = D2 / d1
         else:
-            unit_tangent_vector = np.zeros_like(second_derivative)
-
-        # Set curvature vector to zero, we will not recalculate
-        curvature_vector = np.zeros_like(second_derivative)
-        recalculate_condition = False
+            T = np.zeros_like(D2)
+        K = np.zeros_like(D2)
     else:
-        unit_tangent_vector = derivative / norm_derivative
+        # T = D1/|D1|
+        T = D1 / d1
+        # K = (D2 - (D2·T) T) / |D1|^2
+        negD2oT = -np.dot(D2, T)
+        inv_d1sq = 1.0 / (d1 * d1)
+        K = inv_d1sq * (D2 + negD2oT * T)
+        rc = True
 
-        # Compute scalar component of curvature
-        negative_second_derivative_dot_tangent = -scalar_dot(
-            second_derivative, unit_tangent_vector
-        )
-        inverse_norm_derivative_squared = 1.0 / (norm_derivative * norm_derivative)
+    return T, K, rc
 
-        # Calculate curvature vector
-        curvature_vector = inverse_norm_derivative_squared * (
-                second_derivative
-                + negative_second_derivative_dot_tangent * unit_tangent_vector
-        )
 
-        # We will recalculate
-        recalculate_condition = True
+def evaluate_curvature_1der(
+    D1: np.ndarray,
+    D2: np.ndarray,
+    D3: np.ndarray,
+    compute_kprime: bool = False,
+    compute_torsion: bool = False
+):
+    """
+    Evaluate unit tangent, curvature vector, and optionally first derivative of curvature (k') and torsion,
+    using first, second, and third derivatives.
 
-    return unit_tangent_vector, curvature_vector, recalculate_condition
+    Parameters
+    ----------
+    D1 : np.ndarray
+        First derivative vector.
+    D2 : np.ndarray
+        Second derivative vector.
+    D3 : np.ndarray
+        Third derivative vector.
+    compute_kprime : bool, optional
+        If True, compute and return k' (first derivative of curvature).
+    compute_torsion : bool, optional
+        If True, compute and return torsion.
 
+    Returns
+    -------
+    rc : bool
+        True if either k' or torsion was computed successfully, False otherwise.
+    T : np.ndarray or None
+        Unit tangent vector, or None if |D1| == 0.
+    K : np.ndarray or None
+        Curvature vector, or None if |D1| == 0.
+    kprime : float or None
+        First derivative of curvature, or None if not requested or cannot be computed.
+    torsion : float or None
+        Torsion, or None if not requested or cannot be computed.
+    """
+    rc = False
+    dsdt = np.linalg.norm(D1)
+
+    T = None
+    K = None
+    kprime = None
+    torsion = None
+
+    if dsdt > 0.0:
+        # Unit tangent
+        T = D1 / dsdt
+
+        # q = D1 × D2
+        q = np.cross(D1, D2)
+        qlen2 = np.dot(q, q)
+
+        # Curvature vector K = (D2 - (D2·T) T) / |D1|^2
+        dsdt2 = dsdt * dsdt
+        K = (1.0 / dsdt2) * (D2 - np.dot(D2, T) * T)
+
+        if compute_kprime:
+            # q' = D1 × D3
+            qprime = np.cross(D1, D3)
+            if qlen2 > 0.0:
+                # k' = [ (q·q') · |D1|^2 - 3·|q|^2·(D1·D2) ]
+                #      / [ |q| · |D1|^5 ]
+                numerator = np.dot(q, qprime) * dsdt2 - 3.0 * qlen2 * np.dot(D1, D2)
+                denominator = np.sqrt(qlen2) * (dsdt ** 5)
+                kprime = numerator / denominator
+            else:
+                # If q is zero, fallback to |q'| / |D1|^3
+                kprime = np.linalg.norm(qprime) / (dsdt ** 3)
+            rc = True
+
+        if compute_torsion:
+            if qlen2 > 0.0:
+                # torsion = (q · D3) / |q|^2
+                torsion = np.dot(q, D3) / qlen2
+                rc = True
+            else:
+                # cannot compute torsion if binormal magnitude is zero
+                rc = False
+
+    return rc, T, K, kprime, torsion
 
 """
 def evaluate_curvature(D1, D2) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -237,7 +307,26 @@ def evaluate_curvature(D1, D2) -> tuple[np.ndarray, np.ndarray, bool]:
 evaluate_curvature_vec = np.vectorize(
     evaluate_curvature, signature="(i),(i)->(i),(i),()"
 )
+_numeric_eps=np.finfo(float).eps
+def compare_curvature(r1a, r2a, ka, r1b, r2b, kb,
+                      rtol=1e-6, atol=1e-8,
+                      check_vector=False):
+    kappa_a = np.linalg.norm(ka)
+    kappa_b = np.linalg.norm(kb)
 
+    #print('kappa',kappa_a, kappa_b)
+    # scalar comparison
+    if abs(kappa_a - kappa_b) > max(rtol*max(abs(kappa_a), abs(kappa_b)), atol):
+        #print("kappa res", False,abs(kappa_a - kappa_b),max(rtol*max(abs(kappa_a), abs(kappa_b)), atol) )
+        return False
+
+    if check_vector:
+        ka_vec = np.cross(r1a, r2a) / (np.linalg.norm(r1a)**3)
+        kb_vec = np.cross(r1b, r2b) / (np.linalg.norm(r1b)**3)
+        # angle between curvature vectors
+        cosang = np.dot(ka_vec, kb_vec) / (np.linalg.norm(ka_vec)*np.linalg.norm(kb_vec))
+        return abs(np.arccos(np.clip(cosang, -1, 1))) < 1e-7
+    return True
 
 def evaluate_jacobian(du_o_du, du_o_dv, dv_o_dv):
     """
@@ -636,10 +725,6 @@ def crvs_to_numpy_poly(crv, n_samples=100, remap=True):
         return crvx, crvy, crvz
 
 
-
-
-
-
 import numpy as np
 
 def compute_parametric_tolerance_curve(C1, C2, spt, angle_tol=None,**kwargs):
@@ -783,45 +868,6 @@ def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=N
     dv = min(dv_spatial, dv_angular)
 
     return du, dv
-
-# Example usage:
-if __name__ == "__main__":
-    # Example derivatives at some parameter u
-    Cp_example = [1.0, 2.0, 0.5]
-    Cpp_example = [0.0, 1.0, -0.2]
-
-    # Given tolerances
-    spt_example = 0.01       # spatial tolerance
-    angle_tol_example = 0.05 # angular tolerance in radians
-
-    du_result = compute_parametric_step(Cp_example, Cpp_example, spt_example, angle_tol_example)
-    print(f"Computed du: {du_result:.6f}")
-
-if __name__ == '__main__':
-    from mmcore.geom.curves import NURBSpline
-
-    bb = NURBSpline(
-        np.random.random((25, 3))
-    )
-    import time
-
-    s = time.time()
-    rr = bb.evaluate_length((0., 0.23))
-    print(divmod(time.time() - s, 60))
-    s = time.time()
-    rrr = bb.evaluate_length((0.0, (bb.interval()[1] - bb.interval()[0]) * 0.9))
-    print(divmod(time.time() - s, 60))
-
-    s = time.time()
-    print(bb.evaluate_parameter_at_length(rrr, tol=1e-3), (bb.interval()[1] - bb.interval()[0]) * 0.9)
-    print(divmod(time.time() - s, 60))
-    s = time.time()
-
-    print(
-        bb.evaluate_parameter_at_length(rr, tol=1e-3), 0.23)
-    print(divmod(time.time() - s, 60))
-
-
 def circle_of_curvature(curve, t: float):
     origin = curve.evaluate(t)
     T, K, success = evaluate_curvature(curve.derivative(t), curve.second_derivative(t))
@@ -836,3 +882,15 @@ def circle_of_curvature(curve, t: float):
         np.array([origin + N * R, T, N, B])
 
     )  # Plane of curvature circle, Radius of curvature circle
+# Example usage:
+if __name__ == "__main__":
+    # Example derivatives at some parameter u
+    Cp_example = [1.0, 2.0, 0.5]
+    Cpp_example = [0.0, 1.0, -0.2]
+
+    # Given tolerances
+    spt_example = 0.01       # spatial tolerance
+    angle_tol_example = 0.05 # angular tolerance in radians
+
+    du_result = compute_parametric_tolerance_curve(Cp_example, Cpp_example, spt_example, angle_tol_example)
+    print(f"Computed du: {du_result:.6f}")

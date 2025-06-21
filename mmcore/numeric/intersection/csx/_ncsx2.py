@@ -314,8 +314,9 @@ def _int_cs_bez(
             need_closest_point=True
         if need_closest_point:
             pt = evaluate_nurbs_curve(initial_curve.nurbs, t_real, d_order=0)["C"]
-            best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.nurbs, pt, spt=spt, angle_tol=angle_tol)
-
+            best_uv, rr = nurbs_surface_closest_point(initial_surface.nurbs, pt, spt=spt, angle_tol=angle_tol)
+            print('n',  best_uv, rr )
+            (error, surf_eval, (du, dv))=rr
             initial_guess = np.array(
                 [
                     t_real,

@@ -444,9 +444,29 @@ def construct_gordon_surface(
         weights       = W_tot
     )
 
-# ---------------------------------------
-#  The module exposes construct_gordon_surface as the main entry
-# ---------------------------------------------------------------------
+from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
+
+def network_surface(curves_u:List[NURBSCurveTuple],curves_v: List[NURBSCurveTuple], spt:float=1e-3,**kwargs):
+    bvhs_u=[]
+    for cu in curves_u:
+        bvh1, curves1 = nurbs_curve_bvh(curve1, spt=spt)
+        bvhs_u.append((bvh1, curves1))
+        
+    if bvh1 is None:
+        bvh1, curves1 = nurbs_curve_bvh(curve1, spt=spt)
+    if bvh2 is None:
+        bvh2, curves2 = nurbs_curve_bvh(curve2, spt=spt)
+
+    nurbs_ccx(curves_u,curves_v,spt)
+    return NURBSSurfaceTuple(
+        order_u       = curves_u[0].order,
+        order_v       = curves_v[0].order,
+        knot_u        = curves_u[0].knot,
+        knot_v        = curves_v[0].knot,
+        control_points= curves_u[0].control_points,
+        weights       = curves_u[0].weights
+    )
+
 if __name__=='__main__':
     pts_v = [
         [[-5.0, 10.0, 2.0], [-10.0, 0.0, 2.0], [0.0, -20.0, -2.0], [10.0, 0.0, 2.0], [5.0, 10.0, 2.0]],

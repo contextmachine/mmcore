@@ -1,14 +1,14 @@
-from mmcore.topo.brep import BRep, check_euler
+from mmcore.topo.brep import BRep
 
 
 def test_1():
     m = BRep()
     v1, v2, edge1, loop1, face, shell = m.MEVVLS((0, 0, 0), (1, 0, 0))
-    print(check_euler(m))
+    print(m.topology_check())
     v3, edge2 = m.MEV(loop1.id, v2.id, (1, 1, 0))  # start with a 2‑vertex wire shell
-    print(check_euler(m))
+    print(m.topology_check())
     v4, edge3 = m.MEV(loop1.id, v3.id, (0, 1, 0))  # start with a 2‑vertex wire shell
-    print(check_euler(m))
+    print(m.topology_check())
     ids = list(m._loop_halfedges(loop1.id))
     print(ids)
     print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
@@ -17,7 +17,7 @@ def test_1():
     edge4, loop2 = m.MEL(loop1.id, v1.id, v4.id)
 
     print("\nMEL->", m.summary())
-    print(check_euler(m))
+    print(m.topology_check())
 
     print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
     print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
@@ -29,61 +29,56 @@ def test_1():
     m.KEL(edge4.id, loop2.id)
 
     print("\nKEL->", m.summary())
-    print(check_euler(m))
+    print(m.topology_check())
     print(list(m._loop_halfedges(loop1.id)))
     print(m.V)
     print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
     print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
 
 def test_2():
-   
 
-  
-        m = BRep()
-        v1, v2, edge1, loop1, face, shell = m.MEVVLS((0, 0, 0), (1, 0, 0))
-        print(check_euler(m))
-        v3, edge2 = m.MEV(loop1.id, v2.id, (1, 1, 0))  # start with a 2‑vertex wire shell
-        print(check_euler(m))
-        v4, edge3 = m.MEV(loop1.id, v3.id, (0, 1, 0))  # start with a 2‑vertex wire shell
-        print(check_euler(m))
-        ids = list(m._loop_halfedges(loop1.id))
-        print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
+    m = BRep()
+    v1, v2, edge1, loop1, face, shell = m.MEVVLS((0, 0, 0), (1, 0, 0))
+    print(m.topology_check())
+    v3, edge2 = m.MEV(loop1.id, v2.id, (1, 1, 0))  # start with a 2‑vertex wire shell
+    print(m.topology_check())
+    v4, edge3 = m.MEV(loop1.id, v3.id, (0, 1, 0))  # start with a 2‑vertex wire shell
+    print(m.topology_check())
+    ids = list(m._loop_halfedges(loop1.id))
+    print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
+    print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
 
-        edge4, loop2, f2 = m.MELF(loop1.id, v1.id, v4.id)
+    edge4, loop2, f2 = m.MELF(loop1.id, v1.id, v4.id)
 
-        print("\nMELF->", m.summary())
-        print(check_euler(m))
+    print("\nMELF->", m.summary())
+    print(m.topology_check())
 
-        print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
-        print([m.HE[i] for i in m._loop_halfedges(loop2.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop2.id)])
-        print(list(m._loop_halfedges(loop1.id)))
-        print(list(m._loop_halfedges(loop2.id)))
+    print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
+    print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
+    print([m.HE[i] for i in m._loop_halfedges(loop2.id)])
+    print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop2.id)])
+    print(list(m._loop_halfedges(loop1.id)))
+    print(list(m._loop_halfedges(loop2.id)))
 
-        m.KELF(edge4.id, loop2.id)
+    m.KELF(edge4.id, loop2.id)
 
-        print("\nKELF->", m.summary())
-        print(check_euler(m))
-        print(list(m._loop_halfedges(loop1.id)))
-        print(m.V)
-        print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
-        print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
+    print("\nKELF->", m.summary())
+    print(m.topology_check())
+    print(list(m._loop_halfedges(loop1.id)))
+    print(m.V)
+    print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
+    print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
 
-
-
-from mmcore.topo.brep import BRep,check_euler
 
 import numpy as np
 def test_3():
     m=BRep()
     v1, v2, edge1, loop1, face, shell = m.MEVVLS((0, 0, 0), (1, 0, 0))
-    print(check_euler(m))
+    print(m.topology_check())
     v3, edge2 = m.MEV(loop1.id, v2.id, (1, 1, 0))  # start with a 2‑vertex wire shell
-    print(check_euler(m))
+    print(m.topology_check())
     v4, edge3 = m.MEV(loop1.id, v3.id, (0, 1, 0))  # start with a 2‑vertex wire shell
-    print(check_euler(m))
+    print(m.topology_check())
     ids=list(m._loop_halfedges(loop1.id))
     print([m.HE[i] for i in m._loop_halfedges(loop1.id)])
     print([m.V[m.HE[i].vert].point for i in m._loop_halfedges(loop1.id)])
@@ -92,7 +87,7 @@ def test_3():
 
     print("\nMELF->", m.summary())
 
-    print(check_euler(m))
+    print(m.topology_check())
     print(list(m._loop_halfedges(loop1.id)))
     print(list(m._loop_halfedges(loop2.id)))
 
@@ -100,7 +95,7 @@ def test_3():
         edge4.id,tuple( ((np.array(v1.point) - np.array(v4.point)) / 2 + np.array(v4.point)).tolist())
     )
     print('\nMVE->',m.summary())
-    print(check_euler(m))
+    print(m.topology_check())
     print(m.V)
 
     print(m.E)
@@ -113,4 +108,4 @@ def test_3():
     print(m.V)
     print(list(m._loop_halfedges(loop1.id)))
     print(list(m._loop_halfedges(loop2.id)))
-    return m
+  
