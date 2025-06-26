@@ -488,9 +488,10 @@ def _nurbs_curve_closest_point_divide_and_conquer(
 
     # ---------------------------------------------------------------------
     return (dist_best, eval_best, tol_best), t_cur
+
 def _nurbs_surface_closest_point_divide_and_conquer(
     surf: NURBSSurfaceTuple,
-    point: NDArray[float],
+    point: NDArray,
     x_range: Optional[tuple[float, float]] = None,
     y_range: Optional[tuple[float, float]] = None,
     *,
@@ -498,20 +499,20 @@ def _nurbs_surface_closest_point_divide_and_conquer(
     angle_tol: Optional[float] = None,
 ):
     """
-    Locate the (u,v) on *surf* that minimises |S(u,v) - point| using a
-    divide‑and‑conquer search.  The search space is iteratively restricted
-    until both parametric extents are within their *adaptive* tolerances.
+    Locate the (u,v) on *surf* that minimises ‖S(u,v) – point‖.
 
-    Compared with the original version, once one parametric direction
-    is inside its tolerance we keep it fixed at its midpoint and refine
-    only the other direction.  This avoids unnecessary surface evaluations.
+    1.  A divide‑and‑conquer search shrinks a rectangular window until both
+        parametric extents are within their adaptive tolerances.
+    2.  A damped, bracket‑constrained Newton iteration refines the result.
     """
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------ ❶
     @functools.lru_cache(maxsize=None)
     def fun(u: float, v: float):
         """
-        Cached evaluation of
-            ‑ distance  ‑ complete t‑evaluation dict  ‑ local (uTol,vTol)
+        Cached evaluation returning
+            – distance
+            – full evaluation dict
+            – local (uTol, vTol) given by curvature
         """
         t_eval = evaluate_nurbs_surface(surf, u, v, d_order=2)
         dc = t_eval["S"] - point
@@ -524,9 +525,10 @@ def _nurbs_surface_closest_point_divide_and_conquer(
             spt=spt,
             angle_tol=angle_tol,
         )
-        return np.linalg.norm(dc), t_eval, cur_tol  # -> (dist, dict, (uTol,vTol))
+        return np.linalg.norm(dc), t_eval, cur_tol    # (dist, dict, (uTol,vTol))
 
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------ ❷
+    # Initial parametric window
     interval_u, interval_v = _surface_interval(surf)
     if x_range is None:
         x_range = interval_u
@@ -536,22 +538,22 @@ def _nurbs_surface_closest_point_divide_and_conquer(
     x_min, x_max = x_range
     y_min, y_max = y_range
 
-    # Initial tolerances at one corner
+    # first tolerance probe
     _, _, (x_tol, y_tol) = fun(x_min, y_min)
 
-    # ---------------------- main loop ----------------------------------------
+    # --------------------- divide‑and‑conquer loop ---------------------
     while (x_max - x_min) > x_tol or (y_max - y_min) > y_tol:
+
         x_width = x_max - x_min
         y_width = y_max - y_min
-        x_mid = (x_min + x_max) / 2.0
-        y_mid = (y_min + y_max) / 2.0
+        x_mid   = 0.5 * (x_min + x_max)
+        y_mid   = 0.5 * (y_min + y_max)
 
-        # Build candidate list depending on which direction still needs work
+        # Assemble stencil depending on which directions are still “open”
         candidates = []
-
         both_open = (x_width > x_tol) and (y_width > y_tol)
         if both_open:
-            # 9‑point stencil (unchanged from original)
+            # 9‑point stencil, unchanged
             candidates.extend(
                 [
                     (fun(x_min, y_min), (x_min, y_min)),
@@ -565,7 +567,7 @@ def _nurbs_surface_closest_point_divide_and_conquer(
                     (fun(x_mid, y_mid), (x_mid, y_mid)),
                 ]
             )
-        elif x_width > x_tol:  # Only u needs refinement
+        elif x_width > x_tol:         # refine u only
             candidates.extend(
                 [
                     (fun(x_min, y_mid), (x_min, y_mid)),
@@ -573,7 +575,7 @@ def _nurbs_surface_closest_point_divide_and_conquer(
                     (fun(x_max, y_mid), (x_max, y_mid)),
                 ]
             )
-        else:  # Only v needs refinement
+        else:                         # refine v only
             candidates.extend(
                 [
                     (fun(x_mid, y_min), (x_mid, y_min)),
@@ -582,10 +584,10 @@ def _nurbs_surface_closest_point_divide_and_conquer(
                 ]
             )
 
-        # Select the best candidate
+        # best of stencil
         min_val, (u_best, v_best) = min(candidates, key=lambda item: item[0][0])
 
-        # Update intervals only in the directions still “open”
+        # shrink the window (¼ of current width in open directions)
         if x_width > x_tol:
             h = 0.25 * x_width
             x_min = max(u_best - h, x_range[0])
@@ -595,13 +597,11 @@ def _nurbs_surface_closest_point_divide_and_conquer(
             y_min = max(v_best - h, y_range[0])
             y_max = min(v_best + h, y_range[1])
 
-        # Refresh adaptive tolerances at the current best point
-        x_tol, y_tol = min_val[2]
+        x_tol, y_tol = min_val[2]      # refresh adaptive tolerances
 
-    # -------------------- robust final evaluation ----------------------------
-    # Examine the mid‑point plus the current corners
-    x_mid = (x_min + x_max) / 2.0
-    y_mid = (y_min + y_max) / 2.0
+    # --------------- robust final evaluation of window corners ----------
+    x_mid = 0.5 * (x_min + x_max)
+    y_mid = 0.5 * (y_min + y_max)
 
     final_candidates = [
         (fun(x_min, y_min), (x_min, y_min)),
@@ -610,8 +610,101 @@ def _nurbs_surface_closest_point_divide_and_conquer(
         (fun(x_max, y_max), (x_max, y_max)),
         (fun(x_mid, y_mid), (x_mid, y_mid)),
     ]
-    min_val, min_coords = min(final_candidates, key=lambda pair: pair[0][0])
-    return min_val, min_coords
+    min_val, (u_best, v_best) = min(final_candidates, key=lambda pair: pair[0][0])
+
+    # ------------------------------------------------------------------ ❸
+    #                 Guarded Newton refinement (2‑D)                    #
+    # ------------------------------------------------------------------
+    MAX_NITER  = 20
+    EPS_GRAD   = 1.0e-14            # “tiny gradient”
+    EPS_DET    = 1.0e-14            # “tiny determinant” (Jacobian singular)
+    EPS_DSTEP  = 1.0e-12            # min accepted parameter step
+    MIN_SCALE  = 0.125              # smallest damping (1/8)
+
+    # private shrinking box; start with current window
+    u_lo, u_hi = x_min, x_max
+    v_lo, v_hi = y_min, y_max
+
+    dist_best, eval_best, tol_best = min_val
+    u_cur, v_cur = u_best, v_best
+
+    for _ in range(MAX_NITER):
+
+        S   = eval_best["S"]
+        Su  = eval_best["Su"]
+        Sv  = eval_best["Sv"]
+        Suu = eval_best["Suu"]
+        Suv = eval_best["Suv"]
+        Svv = eval_best["Svv"]
+
+        dvec = S - point
+
+        # Gradient of squared distance ‖S-point‖² / 2  (the ½ is irrelevant)
+        g_u = float(np.dot(Su, dvec))
+        g_v = float(np.dot(Sv, dvec))
+        grad_norm = abs(g_u) + abs(g_v)
+
+        if grad_norm < EPS_GRAD:
+            break                         # already stationary -> done
+
+        # Gauss–Newton / true Hessian of ½‖d‖²
+        J11 = float(np.dot(Su, Su) + np.dot(dvec, Suu))
+        J22 = float(np.dot(Sv, Sv) + np.dot(dvec, Svv))
+        J12 = float(np.dot(Su, Sv) + np.dot(dvec, Suv))
+
+        detJ = J11 * J22 - J12 * J12
+        if abs(detJ) < EPS_DET:
+            break                         # near‑singular Jacobian
+
+        # Solve J * [du, dv]^T = -grad
+        du = (J12 * g_v - J22 * g_u) / detJ
+        dv = (J12 * g_u - J11 * g_v) / detJ
+
+        if abs(du) < EPS_DSTEP and abs(dv) < EPS_DSTEP:
+            break                         # step too small
+
+        # ----------------- step acceptance with back‑tracking ----------
+        step_scale = 1.0
+        success = False
+        while step_scale >= MIN_SCALE and not success:
+
+            u_try = u_cur + step_scale * du
+            v_try = v_cur + step_scale * dv
+
+            # hard‑clip to bracket to avoid extrapolation surprises
+            u_try = min(max(u_try, u_lo), u_hi)
+            v_try = min(max(v_try, v_lo), v_hi)
+
+            dist_try, eval_try, tol_try = fun(u_try, v_try)
+
+            if dist_try < dist_best:          # accept the step
+                # tighten the box in accepted movement directions
+                if u_try < u_cur:
+                    u_hi = u_cur
+                elif u_try > u_cur:
+                    u_lo = u_cur
+                if v_try < v_cur:
+                    v_hi = v_cur
+                elif v_try > v_cur:
+                    v_lo = v_cur
+
+                u_cur, v_cur = u_try, v_try
+                dist_best, eval_best, tol_best = dist_try, eval_try, tol_try
+                success = True
+            else:
+                step_scale *= 0.5             # back‑track / damp
+
+        if not success:
+            break                             # cannot improve further
+
+        # stop if bracket already within local tolerances
+        if (u_hi - u_lo) <= tol_best[0] and (v_hi - v_lo) <= tol_best[1]:
+            break
+
+    # ------------------------------------------------------------------ ❹
+    return (dist_best, eval_best, tol_best), (u_cur, v_cur)
+
+
 import itertools
 
 
