@@ -192,7 +192,7 @@ def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
 def knot_removal_alpha_j(u,  degree, knotvector, num, idx) :
     return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
 
-
+from geomdl.operations import remove_knot
 
 
 def knot_removal_kv(knotvector, span, r):
@@ -226,132 +226,78 @@ def knot_removal_kv(knotvector, span, r):
     # Return the new knot vector
     return kv_updated
 
+def knot_removal(
+        degree, knotvector, ctrlpts, u, num=1,
+        tol=1e-12, s=None, span=None):
+    """
+    Remove `num` copies of knot value *u* (at most `degree`) from a
+    B‑spline/NURBS curve.  Returns (new_knots, new_ctrlpts).
 
-def knot_removal(degree, knotvector, ctrlpts, u, num=1,s:int=None,span=None,tol=1e-12,**kwargs):
-    """ Computes the control points of the rational/non-rational spline after knot removal.
-
-    Implementation based on Algorithm A5.8 and Equation 5.28 of The NURBS Book by Piegl & Tiller
-
-    Keyword Arguments:
-        * ``num``: number of knot removals
-
-    :param degree: degree
-    :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
-    :type ctrlpts: list
-    :param u: knot to be removed
-    :type u: float
-    :return: updated control points
-    :rtype: list
+    Implementation follows Algorithm A5.8 (Piegl & Tiller, 2nd ed.).
     """
 
+    # ---- set‑up ----------------------------------------------------------
+    p = degree
+    U = list(knotvector)                  # work on mutable copies
+    P = [np.array(Pi, dtype=float) for Pi in ctrlpts]
 
+    # multiplicity and span
+    s = s if s is not None else U.count(u)
+    if s == 0:
+        raise ValueError("knot value is not present in the vector")
+    r = span if span is not None else next(i for i in range(len(U)-1) if
+                                           U[i] <= u < U[i+1] or
+                                           (u == U[-1] and i == len(U)-2))
 
-    s=find_multiplicity(u, knotvector) if s is None else s
-    r =_find_span_linear(degree, knotvector, len(ctrlpts), u) if span is None else span
+    num = min(num, s)                     # cannot remove more than s copies
 
+    # ---- main loop -------------------------------------------------------
+    for t in range(1, num+1):
+        first = r - p
+        last  = r - s
+        # temp array
+        temp = [None] * (2*p+1)
 
-    # Edge case
-    if num < 1:
-        return ctrlpts
+        temp[0]               = P[first-1].copy()
+        temp[last-first+2]    = P[last+1].copy()
+        i, j = first, last
+        ii, jj = 1, last-first+1
+        removable = False
 
-    # Initialize variables
-    first = r - degree
-    last = r - s
-
-    # Don't change input variables, prepare new ones for updating
-    ctrlpts_new = deepcopy(ctrlpts)
-
-    is_volume = True
-    if isinstance(ctrlpts_new[0][0], float):
-        is_volume = False
-
-    # Initialize temp array for storing new control points
-    if is_volume:
-        temp = [[[] for _ in range(len(ctrlpts_new[0]))] for _ in range((2 * degree) + 1)]
-    else:
-        temp = [[] for _ in range((2 * degree) + 1)]
-
-    # Loop for Eqs 5.28 & 5.29
-    for t in range(0, num):
-        temp[0] = ctrlpts[first - 1]
-        temp[last - first + 2] = ctrlpts[last + 1]
-        i = first
-        j = last
-        ii = 1
-        jj = last - first + 1
-        remflag = False
-
-        # Compute control points for one removal step
         while j - i >= t:
-            alpha_i = knot_removal_alpha_i(u, degree, tuple(knotvector), t, i)
-            alpha_j = knot_removal_alpha_j(u, degree, tuple(knotvector), t, j)
-            if is_volume:
-                for idx in range(len(ctrlpts[0])):
-                    temp[ii][idx] = [(cpt - (1.0 - alpha_i) * ti) / alpha_i for cpt, ti
-                                     in zip(ctrlpts[i][idx], temp[ii - 1][idx])]
-                    temp[jj][idx] = [(cpt - alpha_j * tj) / (1.0 - alpha_j) for cpt, tj
-                                     in zip(ctrlpts[j][idx], temp[jj + 1][idx])]
-            else:
-                temp[ii] = [(cpt - (1.0 - alpha_i) * ti) / alpha_i for cpt, ti in zip(ctrlpts[i], temp[ii - 1])]
-                temp[jj] = [(cpt - alpha_j * tj) / (1.0 - alpha_j) for cpt, tj in zip(ctrlpts[j], temp[jj + 1])]
-            i += 1
-            j -= 1
-            ii += 1
-            jj -= 1
+            alpha_i = (u - U[i])   / (U[i+p+1-t]   - U[i])
+            alpha_j = (u - U[j-t]) / (U[j+p+1] - U[j-t])
 
-        # Check if the knot is removable
-        if j - i < t:
-            if is_volume:
-                if np.linalg.norm(np.array(temp[ii - 1][0])- np.array(temp[jj + 1][0])) <= tol:
-                    remflag = True
-            else:
-                if np.linalg.norm(np.array(temp[ii - 1]) - np.array(temp[jj + 1])) <= tol:
-                    remflag = True
-        else:
-            alpha_i = knot_removal_alpha_i(u, degree, tuple(knotvector), t, i)
-            if is_volume:
-                ptn = [(alpha_i * t1) + ((1.0 - alpha_i) * t2) for t1, t2 in zip(temp[ii + t + 1][0], temp[ii - 1][0])]
-            else:
-                ptn = [(alpha_i * t1) + ((1.0 - alpha_i) * t2) for t1, t2 in zip(temp[ii + t + 1], temp[ii - 1])]
-            if np.linalg.norm(np.asarray(ctrlpts[i]) - np.asarray( ptn))<= tol:
-                remflag = True
+            temp[ii] = (P[i]   - (1-alpha_i)*temp[ii-1]) / alpha_i
+            temp[jj] = (P[j]   -  alpha_j   *temp[jj+1]) / (1-alpha_j)
 
-        # Check if we can remove the knot and update new control points array
-        if remflag:
-            i = first
-            j = last
-            while j - i > t:
-                ctrlpts_new[i] = temp[i - first + 1]
-                ctrlpts_new[j] = temp[j - first + 1]
-                i += 1
-                j -= 1
+            i  += 1;  j  -= 1
+            ii += 1;  jj -= 1
 
-        # Update indices
-        first -= 1
-        last += 1
+        # ‑‑ error test ---------------------------------------------------
+        if j - i < t:                      # Case 1 (Eq. 5.30)
+            removable = np.linalg.norm(temp[ii-1] - temp[jj+1]) <= tol
+        else:                              # Case 2 (Eq. 5.31)
+            alpha = (u - U[i]) / (U[i+p+1-t] - U[i])
+            testp = alpha*temp[ii+t+1] + (1-alpha)*temp[ii-1]
+            removable = np.linalg.norm(P[i] - testp) <= tol
 
-    # Fix indexing
-    t += 1
+        if not removable:
+            break                          # cannot remove further
 
-    # Shift control points (refer to p.183 of The NURBS Book, 2nd Edition)
-    j = int((2*r - s - degree) / 2)  # first control point out
-    i = j
-    for k in range(1, t):
-        if k % 2 == 1:
-            i += 1
-        else:
-            j -= 1
-    for k in range(i+1, len(ctrlpts)):
-        ctrlpts_new[j] = ctrlpts[k]
-        j += 1
+        # ‑‑ update polygon ----------------------------------------------
+        i, j = first, last
+        while j - i > t:
+            P[i] = temp[i-first+1]
+            P[j] = temp[j-first+1]
+            i += 1; j -= 1
 
-    # Slice to get the new control points
-    ctrlpts_new = ctrlpts_new[0:-t]
+        # ‑‑ delete one knot ---------------------------------------------
+        del U[r]                # remove ONE copy of u
+        del P[last]             # remove the matching control point
+        r -= 1; s -= 1          # array shrank by one
 
-    return ctrlpts_new
+    return np.asarray(U), np.asarray(P)
 
 def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1):
     """Insert a knot into a curve multiple times.
@@ -1033,57 +979,62 @@ def _bezier_knots(order:int, interval:tuple[float,float]):
     start,end=interval
     return [start]*order+[end]*order
 
-def link_curves(curves, **kwargs):
-    """ Links the input curves together.
-
-    The end control point of the curve k has to be the same with the start control point of the curve k + 1.
-
-
-    :return: a tuple containing knot vector, control points, weights vector and knots
+def link_curves(curves):
+    """
+    Concatenate a list of *cubic* NURBS curves that meet G0‑continuously.
+    All curves must have the same order ``p+1`` and share the end/start point.
+    Returns: (new_curve, interior_knots)
     """
 
+    if not curves:
+        raise ValueError("Empty input list")
 
+    order = curves[0].order                     # all pieces have the same order
+    p      = order - 1
 
-    kv = []  # new knot vector
-    cpts = []  # new control points array
-    wgts = []  # new weights array
-    kv_connected = []  # superfluous knots to be removed
-    pdomain_end = 0
+    kv, cpts, wgts = [], [], []
+    interior_knots = []                        # the knot to which each join collapses
 
-    # Loop though the curves
-    for arg in curves:
-        control_points_size=arg.control_points.shape[0]
-        knot_l=arg.knot.tolist() if isinstance(arg.knot,np.ndarray) else list(arg.knot)
-        control_points_l=arg.control_points.tolist()
-        weights_l = arg.weights.tolist()
-        # Process knot vectors
-        if not kv:
-            kv += list(knot_l[:-arg.order])  # get rid of the last superfluous knot to maintain split curve notation
-            cpts +=list(control_points_l)
-            # Process control points
-            wgts += list(weights_l)
+    # running offset of the global parameter domain
+    offset = 0.0
 
+    for i, crv in enumerate(curves):
+        k   = np.asarray(crv.knot,   dtype=float)
+        cp  = np.asarray(crv.control_points, dtype=float)
+        w   = np.asarray(crv.weights, dtype=float)
 
+        # Shift this piece so that its *first* knot equals the current offset
+        d   = offset - k[0]                    # <─── Δ computed once
+        k   = k + d
+
+        if i == 0:
+            # keep everything *except* the trailing clamping knots
+            kv.extend(k[:-order])
+            cpts.extend(cp)
+            wgts.extend(w)
         else:
-            tmp_kv = [pdomain_end + k for k in knot_l[1:-arg.order]]
-            kv += tmp_kv
-            cpts += list(control_points_l[1:])
-            # Process control points
+            # skip the duplicate first knot and first control point
+            kv.extend(k[1:-order])
+            cpts.extend(cp[1:])
+            wgts.extend(w[1:])
 
-            wgts += list(weights_l[1:])
+        # new offset = (last interior knot of this piece)
+        offset = k[-order]                     # first of the trailing (p+1) equal knots
+        interior_knots.append(offset)
 
+    # add clamping knots at the very end
+    kv.extend([offset] * order)
+    interior_knots.pop()                       # last one is the global end knot
 
-        pdomain_end += knot_l[-1]
-        kv_connected.append(pdomain_end)
-
-    # Fix curve by appending the last knot to the end
-    kv += [pdomain_end for _ in range(arg.order)]
-    # Remove the last knot from knot insertion list
-    kv_connected.pop()
-
-    return kv, cpts, wgts, kv_connected
-
-
+    return (
+        NURBSCurveTuple(
+            order=order,
+            knot=np.asarray(kv),
+            control_points=np.asarray(cpts),
+            weights=np.asarray(wgts),
+        ),
+        interior_knots,                        # you will see only 0.3 here
+    )
 def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
     """ Applies degree elevation and degree reduction algorithms to spline geometries.
 
