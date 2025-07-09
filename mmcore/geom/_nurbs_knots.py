@@ -5,11 +5,20 @@ from copy import deepcopy
 import numpy as np
 
 from mmcore.geom._nurbs_eval import (
-    nurbs_interval, _find_span_linear, _copy_curve, _copy_surface, to_homogeneous_1d, from_homogeneous_1d,
-    NURBSCurveTuple, BSplineCurveTuple, NURBSSurfaceTuple, BSplineSurfaceTuple, _curve_interval
+    nurbs_interval,
+    _find_span_linear,
+    _copy_curve,
+    _copy_surface,
+    to_homogeneous_1d,
+    from_homogeneous_1d,
+    NURBSCurveTuple,
+    BSplineCurveTuple,
+    NURBSSurfaceTuple,
+    BSplineSurfaceTuple,
+    _curve_interval,
+    to_homogeneous_2d,
+    from_homogeneous_2d,
 )
-
-
 
 
 from numpy.typing import NDArray
@@ -191,8 +200,6 @@ def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
 
 def knot_removal_alpha_j(u,  degree, knotvector, num, idx) :
     return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
-
-from geomdl.operations import remove_knot
 
 
 def knot_removal_kv(knotvector, span, r):
@@ -439,7 +446,6 @@ def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
         return split_curve(curve, t0)[1]
     else:
         return split_curve(split_curve(curve, t0)[1],t1)[0]
-
 
 
 def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
@@ -934,8 +940,6 @@ def decompose_surface(surface:NURBSSurfaceTuple, decompose_dir="uv"):
         )
 
 
-
-
 from mmcore.numeric.binom import binomial_coefficient_py
 
 def degree_elevation(degree, ctrlpts, num=1,**kwargs):
@@ -1035,6 +1039,220 @@ def link_curves(curves):
         ),
         interior_knots,                        # you will see only 0.3 here
     )
+
+from typing import List, NamedTuple
+import numpy as np
+
+
+def stitch_surface_grid(grid: list[list[NURBSSurfaceTuple]]
+                        ) -> tuple[NURBSSurfaceTuple,
+                                   np.ndarray, np.ndarray]:
+    """
+    Merge a rectangular grid of *compatible* NURBS patches into a single
+    NURBS surface.
+
+    Parameters
+    ----------
+    grid : List[List[NURBSSurfaceTuple]]
+        grid[r][c] is the patch located at  (u‑index=c , v‑index=r).
+
+    Returns
+    -------
+    (big_surface , interior_u , interior_v)
+
+    * `big_surface`        the merged NURBS surface (same orders p,q)
+    * `interior_u`         knot values that separate columns (length C‑1)
+    * `interior_v`         knot values that separate rows    (length R‑1)
+
+    Preconditions
+    -------------
+    * Every patch has the same `(order_u, order_v)`.
+    * Adjacent patches share *exactly* the same boundary curve
+      (i.e. their knot vectors are *clamped* and identical on the common
+      edge, up to a uniform offset applied by the stitching code).
+    * The grid is topologically rectangular: all rows have the same length.
+
+    The routine **never re‑evaluates geometry**   it concatenates control
+    meshes and pastes knot vectors, shifting and de‑duplicating knot values
+    only where mathematically required.
+    """
+    # ------------------------------------------------------------------
+    # 0.  Basic shape checks
+    # ------------------------------------------------------------------
+    if not grid or not grid[0]:
+        raise ValueError("Empty grid")
+
+    R, C = len(grid), len(grid[0])
+    if any(len(row) != C for row in grid):
+        raise ValueError("The grid must be rectangular")
+
+    order_u = grid[0][0].order_u
+    order_v = grid[0][0].order_v
+    p, q    = order_u - 1, order_v - 1
+
+    # ------------------------------------------------------------------
+    # 1.  Stitch every ROW horizontally  (u‑direction)
+    # ------------------------------------------------------------------
+    stitched_rows     = []      # list of NURBSSurfaceTuple
+    interior_knots_u  = None    # will be fixed by the first row
+
+    for r, row in enumerate(grid):
+        row_surface, row_ku_split = _stitch_row(row, order_u, order_v)
+
+        if interior_knots_u is None:
+            interior_knots_u = row_ku_split
+            print(interior_knots_u, row_ku_split,)
+        elif not np.allclose(interior_knots_u, row_ku_split, atol=1e-9):
+            raise ValueError(f"Row {r} has interior‑u knots "
+                             "incompatible with previous rows")
+
+        stitched_rows.append(row_surface)
+
+    # ------------------------------------------------------------------
+    # 2.  Stitch those ROWS vertically  (v‑direction)
+    # ------------------------------------------------------------------
+    merged_surface, interior_knots_v = _stitch_column(stitched_rows,
+                                                      order_u, order_v)
+
+    return merged_surface, interior_knots_u, interior_knots_v
+
+
+# ======================================================================
+#  Helpers
+# ======================================================================
+def _stitch_row(row: list[NURBSSurfaceTuple],
+                order_u: int, order_v: int
+                ) -> tuple[NURBSSurfaceTuple, np.ndarray]:
+    """
+    Concatenate patches [P₀, P₁, …, P_{C-1}] along *u*.
+    All patches in the row must share *exactly* the same v‑knot vector
+    and (order_u, order_v).
+
+    Returns  (new_row_surface , interior_knots_u_of_this_row)
+    """
+    p = order_u - 1
+
+    # Storage for the growing row
+    ku_out   = []         # global u‑knot vector under construction
+    cp_rows  = []         # list of control meshes (to np.concatenate later)
+    w_rows   = []         # list of weight meshes
+    split_ku = []         # the knots that separate patches inside the row
+    u_offset = 0.0        # right‑most knot value of what we have stitched
+
+    common_kv = None      # will hold the v‑knot vector shared by the row
+
+    for c, surf in enumerate(row):
+        if surf.order_u != order_u or surf.order_v != order_v:
+            raise ValueError(f"Orders differ inside the row: {surf.order_u},{order_u}, {surf.order_v},{order_v}")
+
+        ku = surf.knot_u.astype(float).copy()
+        kv = surf.knot_v.astype(float).copy()
+
+        if common_kv is None:
+            common_kv = kv
+        elif not np.allclose(common_kv, kv, atol=1e-9):
+            raise ValueError("Patches in the same row "
+                             "have different v‑knot vectors")
+
+        # Shift this patch so that its left clamp coincides with u_offset
+        shift = u_offset - ku[0]
+        ku += shift
+
+        # --- append to the growing knot vector / control mesh -----------
+        if c == 0:
+            # First patch   keep its whole (clamped) knot vector except
+            # the last (p+1) knots: they will be provided by the *last*
+            # patch in the row so we do not duplicate them here.
+            ku_out.extend(ku[:-order_u])
+            cp_rows.append(surf.control_points)
+            w_rows.append(surf.weights)
+        else:
+            # Middle or last   discard first knot (duplicate) and the last
+            # p+1 knots.  Control mesh: drop the first ctrl‑row (dup)
+            ku_out.extend(ku[1:-order_u])
+            cp_rows.append(surf.control_points[1:, ...])
+            w_rows.append( surf.weights       [1:, ...])
+
+        u_offset = ku[-order_u]        # first of the trailing (p+1) clamp
+        split_ku.append(u_offset)      # this is the end of patch c
+
+    # Add the final right‑side clamp (p+1 identical knots)
+    ku_out.extend([u_offset] * order_u)
+    split_ku.pop()                     # last entry is the global u‑max
+
+    # Glue control meshes and weights
+    cp_row = np.concatenate(cp_rows, axis=0)          # concat in u
+    w_row  = np.concatenate(w_rows , axis=0)
+
+    stitched = NURBSSurfaceTuple(
+        order_u = order_u,
+        order_v = order_v,
+        knot_u  = np.asarray(ku_out),
+        knot_v  = common_kv,
+        control_points = cp_row,
+        weights        = w_row
+    )
+    return stitched, np.asarray(split_ku)
+
+
+def _stitch_column(rows: list[NURBSSurfaceTuple],
+                   order_u: int, order_v: int
+                   ) -> tuple[NURBSSurfaceTuple, np.ndarray]:
+    """
+    Vertically concatenate the *rows* produced by _stitch_row.
+
+    Returns  (big_surface , interior_knots_v)
+    """
+    q = order_v - 1
+
+    kv_out   = []
+    cp_cols  = []
+    w_cols   = []
+    split_kv = []
+    v_offset = 0.0
+
+    common_ku = None       # must be identical across rows
+
+    for r, surf in enumerate(rows):
+        if common_ku is None:
+            common_ku = surf.knot_u
+        elif not np.allclose(common_ku, surf.knot_u, atol=1e-9):
+            raise ValueError("Rows disagree on their u‑knot vector")
+
+        kv = surf.knot_v.astype(float).copy()
+        shift = v_offset - kv[0]
+        kv += shift
+
+        if r == 0:
+            kv_out.extend(kv[:-order_v])
+            cp_cols.append(surf.control_points)
+            w_cols.append(surf.weights)
+        else:
+            # Discard first v‑knot and first control‑column (dup)
+            kv_out.extend(kv[1:-order_v])
+            cp_cols.append(surf.control_points[:, 1:, ...])
+            w_cols .append(surf.weights       [:, 1:, ...])
+
+        v_offset = kv[-order_v]
+        split_kv.append(v_offset)
+
+    kv_out.extend([v_offset] * order_v)
+    split_kv.pop()
+
+    cp_big = np.concatenate(cp_cols, axis=1)          # concat in v
+    w_big  = np.concatenate(w_cols , axis=1)
+
+    big = NURBSSurfaceTuple(
+        order_u        = order_u,
+        order_v        = order_v,
+        knot_u         = common_ku,
+        knot_v         = np.asarray(kv_out),
+        control_points = cp_big,
+        weights        = w_big
+    )
+    return big, np.asarray(split_kv)
+
+
 def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
     """ Applies degree elevation and degree reduction algorithms to spline geometries.
 
@@ -1072,6 +1290,94 @@ def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
 
     return NURBSCurveTuple(curve.order + num, np.asarray(knots, dtype=float), np.asarray(cpts), np.asarray(weights))
 
+
+def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
+    """ Removes a knot from a spline curve."""
+    mult=find_multiplicity(knot,curve.knot)
+    if mult<num:
+        raise ValueError(f"Cannot remove knot {knot} from knots: {curve.knot} with multiplicity {mult}")
+
+    span=_find_span_linear(curve.order - 1, curve.knot, curve.control_points.shape[0], knot)
+    hpts=to_homogeneous_1d(curve.control_points, curve.weights)
+    new_kv,new_pt=knot_removal(curve.order-1, curve.knot.tolist(),ctrlpts=hpts,u=knot,num=num,span=span,**kwargs)
+    # new_kv=knot_removal_kv(curve.knot.tolist(),span=span, r=num)
+    return NURBSCurveTuple(curve.order , np.array(new_kv), *from_homogeneous_1d(np.array(new_pt)))
+
+
+def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
+    """Removes a knot from a spline curve."""
+    cpts = np.copy(self.control_points)
+    count = num
+    cpts_size_u, cpts_size_v, dim = cpts.shape
+    new_count_u = cpts_size_u - count
+    new_count_v = cpts_size_v
+    degree_u = self.order_u - 1
+
+    span = _find_span_linear(degree_u, self.knot_u, cpts_size_u, t)
+
+    # Compute new knot vector
+    #k_v = knot_removal_kv(self.knot_u,  span, count)
+    s_u = find_multiplicity(t, self.knot_u)
+
+    if isinstance(self, BSplineSurfaceTuple):
+        self = NURBSSurfaceTuple(*self, weights=np.ones(self.control_points.shape[:-1], dtype=float))
+    new_pts = np.zeros((new_count_u, new_count_v, dim))
+    new_weights = np.zeros((new_count_u, new_count_v))
+    knot_u_list = np.array(self.knot_u).tolist()
+    new_pts=[]
+    for v in range(cpts_size_v):
+        row_control_points = cpts[:, v, :]
+        row_weights = self.weights[:, v]
+        # Convert to homogeneous coordinates
+        row_homo = to_homogeneous_1d(row_control_points, row_weights)
+        row_homo_list = row_homo.tolist()
+
+        # Apply knot insertion
+
+        k_v,        new_row_homo_list = knot_removal(degree_u, knot_u_list, row_homo_list, t, num=count, span=span, s=s_u)
+        new_pts.append(new_row_homo_list)
+    
+
+    return NURBSSurfaceTuple(self.order_u,self.order_v,k_v, self.knot_v,*from_homogeneous_2d(np.asarray(new_pts).swapaxes(0, 1)))
+
+def remove_knot_surface_v(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
+
+    count = num
+
+    cpts = np.copy(self.control_points)
+
+    cpts_size_u, cpts_size_v, dim = cpts.shape
+    new_count_u = cpts_size_u
+    new_count_v = cpts_size_v- count
+    degree_v = self.order_v - 1
+
+    span = _find_span_linear(degree_v, self.knot_v, cpts_size_v, t)
+
+    # Compute new knot vector
+    # k_v = knot_removal_kv(self.knot_v, span, count)
+    s_v = find_multiplicity(t, self.knot_v)
+
+    if isinstance(self, BSplineSurfaceTuple):
+        self = NURBSSurfaceTuple(*self, weights=np.ones(self.control_points.shape[:-1], dtype=float))
+    new_pts = []
+    new_weights = np.zeros((new_count_u, new_count_v))
+    knot_v_list = np.asarray(self.knot_v).tolist()
+    for u in range(cpts_size_u):
+        col_control_points = cpts[u, :, :]
+        col_weights = self.weights[u, :]
+        # Convert to homogeneous coordinates
+        col_homo = to_homogeneous_1d(col_control_points, col_weights)
+        col_homo_list = col_homo.tolist()
+
+        # Apply knot insertion
+
+        k_v, new_row_homo_list = knot_removal(degree_v, knot_v_list, col_homo_list, t, num=count, span=span, s=s_v)
+        new_pts.append(new_row_homo_list)
+
+    return NURBSSurfaceTuple(self.order_u, self.order_v,  self.knot_u, k_v,*from_homogeneous_2d(np.asarray(new_pts)))
+
+def remove_knot_surface(surface: NURBSSurfaceTuple, u: float, v: float, num_u: int = 1, num_v: int = 1,**kwargs):
+    return remove_knot_surface_u(remove_knot_surface_v(surface, v, num=num_v, **kwargs), u, num=num_u, **kwargs)
 
 def degree_reduction(degree, ctrlpts, **kwargs):
     """ Computes the control points of the rational/non-rational spline after degree reduction.
