@@ -124,9 +124,8 @@ class NURBSCurveSurfaceIntersector:
             ):
                 return
 
-            curve1, curve2 = split_curve(curve, t,tol=1e-12, normalize_knots=False)
+            curve1, curve2 = split_curve(curve, t,tol=1e-12,normalize_knots=False)
             # normalize_curve_knots(curve1)
-            
             # normalize_curve_knots(curve2)
 
             surface1, surface2, surface3, surface4  = subdivide_surface(surface, u, v, tol=1e-12, normalize_knots=False)
@@ -228,7 +227,6 @@ class NURBSCurveSurfaceIntersector:
         
         # print(surface_normal,curve_tangent)
         return np.abs(np.dot(curve_tangent, surface_normal)) < 0.001
-
 
 
 def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):

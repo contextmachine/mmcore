@@ -31,10 +31,13 @@ class NURBSCurveTuple(NamedTuple):
     def end(self):
 
         return evaluate_nurbs_curve(self,self.knot[self.control_points.shape[0]],0)['C']
-
+    def interval(self):
+        return _curve_interval(self)
     @property
     def degree(self):
         return self.order-1
+    
+
 class BSplineSurfaceTuple(NamedTuple):
     order_u:int
     order_v: int
@@ -58,6 +61,11 @@ class NURBSSurfaceTuple(NamedTuple):
     @property
     def degree(self):
         return (self.order_u-1,self.order_v-1)
+
+    def interval(self):
+        return _surface_interval(self)
+
+
 class EvaluateCurveData(TypedDict):
     """
     :ivar C: Point at.
@@ -70,6 +78,7 @@ class EvaluateCurveData(TypedDict):
     C:NDArray[float]
     C1: NDArray[float]
     C2: NDArray[float]
+
 
 class EvaluateCurveDifferentialData(TypedDict):
     """
@@ -100,8 +109,10 @@ class EvaluateSurfaceData(TypedDict):
     Suv: NDArray[float]
     Svv: NDArray[float]
 
-
-def nurbs_interval(knots, degree:int)->tuple[float,float] :
+from mmcore.numeric.aabb import aabb
+def nurbs_bbox(obj:NURBSSurfaceTuple|NURBSCurveTuple|BSplineSurfaceTuple|BSplineCurveTuple):
+    return aabb(obj.control_points    )
+def nurbs_interval(knots:list[float]|NDArray[float], degree:int)->tuple[float,float] :
     """
     Calculate the effective parameter interval for a NURBS curve (or a surface in one direction)
     given its knot vector and degree.
@@ -291,9 +302,7 @@ def compute_basis_function_derivatives_np(degree, knot_vector, span, knot, order
         scales[k] = scales[k - 1] * (degree - k + 1)
     ders[1:, :] *= scales[1:, np.newaxis]
     return ders
-from mmcore.numeric.aabb import aabb
-def nurbs_bbox(obj:NURBSSurfaceTuple|NURBSCurveTuple|BSplineSurfaceTuple|BSplineCurveTuple):
-    return aabb(obj.control_points    )
+
 def evaluate_nurbs_curve(curve:NURBSCurveTuple, u, d_order=2)->EvaluateCurveData:
     """
     Evaluate a rational NURBS curve at parameter u.
