@@ -1286,9 +1286,10 @@ def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
         crv_list_new.append(NURBSCurveTuple(new_deg + 1, np.array(_bezier_knots(new_deg+1 ,interv)),
                                             *from_homogeneous_1d(np.array(new_cptsw))))
 
-    knots, cpts, weights, joints = link_curves(crv_list_new)
-
-    return NURBSCurveTuple(curve.order + num, np.asarray(knots, dtype=float), np.asarray(cpts), np.asarray(weights))
+    crv, joints = link_curves(crv_list_new)
+    for k in joints:
+        crv=remove_knot_curve(crv, k, crv.order - 1)
+    return crv
 
 
 def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
@@ -1500,3 +1501,97 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
         control_points=control_points,
         weights=weights
     )
+
+
+def make_curves_compatible(curve1, curve2):
+    """
+    Make two NURBS curves compatible for ruled surface construction
+
+    Parameters:
+    curve1, curve2: dict with keys:
+        - control_points: nx4 array (x,y,z,w)
+        - degree: int
+        - knots: array of knot values
+
+    Returns:
+    tuple of two modified curves with same degree, knots and number of control points
+    """
+    # 1. Degree elevation to match highest degree
+
+    p1, p2 = curve1.order, curve2.order
+    if p1 < p2:
+        curve1 = degree_elevate_curve(curve1, p2 - p1)
+
+
+
+    elif p2 < p1:
+        curve2 = degree_elevate_curve(curve2, p1 - p2)
+
+    curve1=normalize_knots_curve(curve1)
+    curve2=normalize_knots_curve(curve2)
+
+
+
+    #curve1_r=refine_curve(curve1, curve2.knot, 0)
+    #curve2_r=refine_curve(curve2, curve1_r.knot, 0)
+
+
+    return curve1, curve2
+
+
+def make_curves_compatible_multiple(curves):
+    """
+    Make two NURBS curves compatible for ruled surface construction
+
+    Parameters:
+    curve1, curve2: dict with keys:
+        - control_points: nx4 array (x,y,z,w)
+        - degree: int
+        - knots: array of knot values
+
+    Returns:
+    tuple of two modified curves with same degree, knots and number of control points
+    """
+    # 1. Degree elevation to match highest degree
+    max_order=0
+
+    curves=list(curves)
+
+    for i in range(len(curves)):
+        curve=curves[i]
+        curves[i]=curve=normalize_knots_curve(curve)
+
+
+
+        if curve.order>max_order:
+            max_order=curve.order
+
+    for i in range(len(curves)):
+
+        curve=curves[i]
+        num=max_order-curve.order
+        if num>0:
+            curve=degree_elevate_curve(curve, num)
+            #print('nn',curve.knot.tolist())
+        curve = normalize_knots_curve(curve)
+        curves[i]=curve
+
+
+            #new_cpts, new_weights = from_homogeneous_1d(np.asarray(new_cptsw))
+
+    for i in  range(len(curves)):
+        curve=curves[i]
+
+        for j in range(len(curves)):
+            if i==j:
+                continue
+            curve_j=curves[j]
+            if len(curve_j.knot)==len(curve.knot) and np.allclose(curve_j.knot,curve.knot):
+                continue
+            try:
+                curves[i]=curve=refine_curve(curve,curve_j.knot,density=0)
+            except Exception as err:
+                print(curve.knot.tolist(),curve_j.knot.tolist())
+                raise err
+
+    return curves

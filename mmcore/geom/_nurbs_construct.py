@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from collections import namedtuple
-
 import numpy as np
 import math
 
 from numpy._typing import NDArray
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, from_homogeneous_2d
-from mmcore.geom._nurbs_knots import degree_elevate_curve, generate_knots,normalize_knots_curve, refine_curve,_copy_curve,normalize_knots_curve,from_homogeneous_1d,to_homogeneous_1d,knot_refinement,degree_elevation,_bezier_knots,nurbs_interval
+from mmcore.geom._nurbs_knots import normalize_knots_curve, to_homogeneous_1d, make_curves_compatible, \
+    make_curves_compatible_multiple
 
 
 def circle(radius=1.0, start_angle=0.0, end_angle=2 * math.pi, center=None, normal=None, xaxis=None, yaxis=None):
@@ -136,99 +135,6 @@ def circle(radius=1.0, start_angle=0.0, end_angle=2 * math.pi, center=None, norm
     return NURBSCurveTuple(3, knot_vector, control_points_global, weights)
 
 
-def make_curves_compatible(curve1, curve2):
-    """
-    Make two NURBS curves compatible for ruled surface construction
-
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    tuple of two modified curves with same degree, knots and number of control points
-    """
-    # 1. Degree elevation to match highest degree
-
-    p1, p2 = curve1.order, curve2.order
-    if p1 < p2:
-        curve1 = degree_elevate_curve(curve1, p2 - p1)
-
-
-
-    elif p2 < p1:
-        curve2 = degree_elevate_curve(curve2, p1 - p2)
-
-    curve1=normalize_knots_curve(curve1)
-    curve2=normalize_knots_curve(curve2)
-
-
-
-    curve1_r=refine_curve(curve1, curve2.knot, 0)
-    curve2_r=refine_curve(curve2, curve1_r.knot, 0)
-
-
-    return curve1_r, curve2_r
-
-
-def make_curves_compatible_multiple(curves):
-    """
-    Make two NURBS curves compatible for ruled surface construction
-
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    tuple of two modified curves with same degree, knots and number of control points
-    """
-    # 1. Degree elevation to match highest degree
-    max_order=0
-
-    curves=list(curves)
-
-    for i in range(len(curves)):
-        curve=curves[i]
-        curves[i]=curve=normalize_knots_curve(curve)
-
-
-
-        if curve.order>max_order:
-            max_order=curve.order
-
-    for i in range(len(curves)):
-
-        curve=curves[i]
-        num=max_order-curve.order
-        if num>0:
-            curve=degree_elevate_curve(curve, num)
-            #print('nn',curve.knot.tolist())
-        curve = normalize_knots_curve(curve)
-        curves[i]=curve
-
-
-            #new_cpts, new_weights = from_homogeneous_1d(np.asarray(new_cptsw))
-
-    for i in  range(len(curves)):
-        curve=curves[i]
-
-        for j in range(len(curves)):
-            if i==j:
-                continue
-            curve_j=curves[j]
-            if len(curve_j.knot)==len(curve.knot) and np.allclose(curve_j.knot,curve.knot):
-                continue
-            try:
-                curves[i]=curve=refine_curve(curve,curve_j.knot,density=0)
-            except Exception as err:
-                print(curve.knot.tolist(),curve_j.knot.tolist())
-                raise err
-
-    return curves
-
 def ruled(curve1:NURBSCurveTuple, curve2:NURBSCurveTuple)->NURBSSurfaceTuple:
     """
     Generates a ruled surface between two given NURBS curves. A ruled surface is a
@@ -272,10 +178,10 @@ def ruled(curve1:NURBSCurveTuple, curve2:NURBSCurveTuple)->NURBSSurfaceTuple:
                               knot_v=v_knots,
                               control_points=np.ascontiguousarray(control_points[...,:-1]),
                               weights=np.ascontiguousarray(control_points[...,-1]))
-from mmcore.geom._nurbs_interp import interpolate_curve,fair_interpolate_curve
+from mmcore.geom._nurbs_interp import interpolate_curve
 
 from typing import NamedTuple, Literal, List
-from enum import Enum,auto
+
 LoftType=Literal['normal', 'loose','straight']
 
 
