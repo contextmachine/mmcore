@@ -170,14 +170,6 @@ class BVH:
         # Create and return internal node
 
         return current_index
-    def separable(self, i, exact:bool=True):
-        node=self.nodes[i]
-        if node.is_leaf():
-            return False
-        if exact:
-            return not self.nodes[node.left].bbox.intersects_exact( self.nodes[node.right].bbox)
-        else:
-            return not self.nodes[node.left].bbox.intersects(self.nodes[node.right].bbox)
 
     def build(self, bboxes: list[AABB]):
         self.leafs=[]
@@ -185,6 +177,15 @@ class BVH:
 
         self.root_index = self._build_bvh_internal([(i, bbox) for i, bbox in enumerate(bboxes)], current_index=0)
         return self
+
+    def separable(self, i, exact: bool = True):
+        node = self.nodes[i]
+        if node.is_leaf():
+            return False
+        if exact:
+            return not self.nodes[node.left].bbox.intersects_exact(self.nodes[node.right].bbox)
+        else:
+            return not self.nodes[node.left].bbox.intersects(self.nodes[node.right].bbox)
 
     def find_intersecting_leaves(self, exact:bool=True) -> dict[int, list[int]]:
         """
@@ -471,4 +472,3 @@ def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode
                 for second in [ bvh2.nodes[b.left], bvh2.nodes[b.right]] :
                     stack.append((first, second))
     return res
-

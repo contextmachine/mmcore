@@ -5,9 +5,23 @@ from copy import deepcopy
 import numpy as np
 
 from mmcore.geom._nurbs_eval import (
-    nurbs_interval, _find_span_linear, _copy_curve, _copy_surface, to_homogeneous_1d, from_homogeneous_1d,
-    NURBSCurveTuple, BSplineCurveTuple, NURBSSurfaceTuple, BSplineSurfaceTuple
+    nurbs_interval,
+    _find_span_linear,
+    _copy_curve,
+    _copy_surface,
+    to_homogeneous_1d,
+    from_homogeneous_1d,
+    NURBSCurveTuple,
+    BSplineCurveTuple,
+    NURBSSurfaceTuple,
+    BSplineSurfaceTuple,
+    _curve_interval,
+    to_homogeneous_2d,
+    from_homogeneous_2d,
 )
+
+
+from numpy.typing import NDArray
 
 
 def generate_knots(control_points_count,degree, interval=None):
@@ -51,13 +65,6 @@ def normalize_knots_surface_inplace(surf:NURBSSurfaceTuple):
 def knot_insertion_alpha( u,  knotvector,  span,  idx, leg):
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 
-
-def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
-    return (u - knotvector[idx]) / (knotvector[idx + degree + 1 + num] - knotvector[idx])
-
-
-def knot_removal_alpha_j(u,  degree, knotvector, num, idx) :
-    return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
 
 def find_multiplicity(knot, knot_vector, **kwargs):
     """ Finds knot multiplicity over the knot vector.
@@ -187,6 +194,118 @@ def knot_insertion(degree, knotvector, ctrlpts, u, num:int=1, span=None,s=None,*
     return ctrlpts_new
 
 
+def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
+    return (u - knotvector[idx]) / (knotvector[idx + degree + 1 + num] - knotvector[idx])
+
+
+def knot_removal_alpha_j(u,  degree, knotvector, num, idx) :
+    return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
+
+
+def knot_removal_kv(knotvector, span, r):
+    """ Computes the knot vector of the rational/non-rational spline after knot removal.
+
+    Part of Algorithm A5.8 of The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    :param knotvector: knot vector
+    :type knotvector: list, tuple
+    :param span: knot span
+    :type span: int
+    :param r: number of knot removals
+    :type r: int
+    :return: updated knot vector
+    :rtype: list
+    """
+    # Edge case
+    if r < 1:
+        return knotvector
+
+    # Create a deep copy of the input knot  vector
+    kv_updated = np.copy(knotvector)
+
+    # Shift knots
+    for k in range(span + 1, len(knotvector)):
+        kv_updated[k - r] = knotvector[k]
+
+    # Slice to get the new knot vector
+    kv_updated = kv_updated.tolist()[0:-r]
+
+    # Return the new knot vector
+    return kv_updated
+
+def knot_removal(
+        degree, knotvector, ctrlpts, u, num=1,
+        tol=1e-12, s=None, span=None):
+    """
+    Remove `num` copies of knot value *u* (at most `degree`) from a
+    B‑spline/NURBS curve.  Returns (new_knots, new_ctrlpts).
+
+    Implementation follows Algorithm A5.8 (Piegl & Tiller, 2nd ed.).
+    """
+
+    # ---- set‑up ----------------------------------------------------------
+    p = degree
+    U = list(knotvector)                  # work on mutable copies
+    P = [np.array(Pi, dtype=float) for Pi in ctrlpts]
+
+    # multiplicity and span
+    s = s if s is not None else U.count(u)
+    if s == 0:
+        raise ValueError("knot value is not present in the vector")
+    r = span if span is not None else next(i for i in range(len(U)-1) if
+                                           U[i] <= u < U[i+1] or
+                                           (u == U[-1] and i == len(U)-2))
+
+    num = min(num, s)                     # cannot remove more than s copies
+
+    # ---- main loop -------------------------------------------------------
+    for t in range(1, num+1):
+        first = r - p
+        last  = r - s
+        # temp array
+        temp = [None] * (2*p+1)
+
+        temp[0]               = P[first-1].copy()
+        temp[last-first+2]    = P[last+1].copy()
+        i, j = first, last
+        ii, jj = 1, last-first+1
+        removable = False
+
+        while j - i >= t:
+            alpha_i = (u - U[i])   / (U[i+p+1-t]   - U[i])
+            alpha_j = (u - U[j-t]) / (U[j+p+1] - U[j-t])
+
+            temp[ii] = (P[i]   - (1-alpha_i)*temp[ii-1]) / alpha_i
+            temp[jj] = (P[j]   -  alpha_j   *temp[jj+1]) / (1-alpha_j)
+
+            i  += 1;  j  -= 1
+            ii += 1;  jj -= 1
+
+        # ‑‑ error test ---------------------------------------------------
+        if j - i < t:                      # Case 1 (Eq. 5.30)
+            removable = np.linalg.norm(temp[ii-1] - temp[jj+1]) <= tol
+        else:                              # Case 2 (Eq. 5.31)
+            alpha = (u - U[i]) / (U[i+p+1-t] - U[i])
+            testp = alpha*temp[ii+t+1] + (1-alpha)*temp[ii-1]
+            removable = np.linalg.norm(P[i] - testp) <= tol
+
+        if not removable:
+            break                          # cannot remove further
+
+        # ‑‑ update polygon ----------------------------------------------
+        i, j = first, last
+        while j - i > t:
+            P[i] = temp[i-first+1]
+            P[j] = temp[j-first+1]
+            i += 1; j -= 1
+
+        # ‑‑ delete one knot ---------------------------------------------
+        del U[r]                # remove ONE copy of u
+        del P[last]             # remove the matching control point
+        r -= 1; s -= 1          # array shrank by one
+
+    return np.asarray(U), np.asarray(P)
+
 def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1):
     """Insert a knot into a curve multiple times.
     
@@ -231,10 +350,7 @@ def split_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t:float, **kwargs):
     This method splits the curve into two pieces at the given parametric coordinate, generates two different
     curve objects and returns them. It does not modify the input curve.
 
-    Keyword Arguments:
-        * ``find_span_func``: FindSpan implementation. *Default:* :func:`.helpers.find_span_linear`
-        * ``insert_knot_func``: knot insertion algorithm implementation. *Default:* :func:`.operations.insert_knot`
-
+    
     :param obj: Curve to be split
     :type obj: abstract.Curve
     :param param: parameter
@@ -244,14 +360,11 @@ def split_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t:float, **kwargs):
     """
     # Validate input
 
-    interval=nurbs_interval(curve.knot,curve.order-1)
+    interval = nurbs_interval(curve.knot, curve.order-1)
     if t == interval[0] or t == interval[1]:
         raise ValueError(f"Parameter t: {t} Cannot split from the domain edge: {interval}")
     if not (interval[0]<t< interval[1]):
         raise ValueError(f"Parameter t: {t} is outside the domain: {interval}")
-
-    # Keyword arguments
-    span_func = _find_span_linear
 
     # Find multiplicity of the knot and define how many times we need to add the knot
     degree=curve.order-1
@@ -269,7 +382,7 @@ def split_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t:float, **kwargs):
 
 
     # Knot vectors
-    knot_span = span_func(temp_obj.order-1, temp_obj.knot, len(temp_obj.control_points), t) + 1
+    knot_span = _find_span_linear(temp_obj.order-1, temp_obj.knot, len(temp_obj.control_points), t) + 1
     temp_knot=np.array(temp_obj.knot).tolist()
     curve1_kv = list(temp_knot[0:knot_span])
     curve1_kv.append(t)
@@ -300,24 +413,6 @@ def split_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t:float, **kwargs):
         curve1 = BSplineCurveTuple(temp_obj.order, curve1_kv, np.asarray(curve1_ctrlpts))
         curve2 = BSplineCurveTuple(temp_obj.order, curve2_kv, np.asarray(curve2_ctrlpts))
     return curve1,curve2
-from mmcore.geom._nurbs_eval import _curve_interval
-def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
-
-    t0,t1=min(t0,t1),max(t0,t1)
-    t_min,t_max=_curve_interval(curve)
-    if t0==t_min and t1==t_max:
-        return curve.__class__(*curve)
-
-    elif t0==t_min:
-
-        return split_curve(curve,t1)[0]
-    elif t1==t_max:
-        return split_curve(curve, t0)[1]
-    else:
-        return split_curve(split_curve(curve, t0)[1],t1)[0]
-
-
-from numpy.typing import NDArray
 
 def split_curve_multiple(crv:BSplineCurveTuple|NURBSCurveTuple, params:list[float]|NDArray[float])->list[BSplineCurveTuple]|list[NURBSCurveTuple]:
     crvs = []
@@ -335,6 +430,156 @@ def decompose_curve(crv:BSplineCurveTuple|NURBSCurveTuple)->list[BSplineCurveTup
     params=params[1:][:params.shape[0]-2]
 
     return split_curve_multiple(crv,params)
+
+
+def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
+
+    t0,t1=min(t0,t1),max(t0,t1)
+    t_min,t_max=_curve_interval(curve)
+    if t0==t_min and t1==t_max:
+        return curve.__class__(*curve)
+
+    elif t0==t_min:
+
+        return split_curve(curve,t1)[0]
+    elif t1==t_max:
+        return split_curve(curve, t0)[1]
+    else:
+        return split_curve(split_curve(curve, t0)[1],t1)[0]
+
+
+def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
+    """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
+
+    Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    The algorithm automatically find the knots to be refined, i.e. the middle knots in the knot vector, and their
+    multiplicities, i.e. number of same knots in the knot vector. This is the basis of knot refinement algorithm.
+    This operation can be overridden by providing a list of knots via ``knot_list`` argument. In addition, users can
+    provide a list of additional knots to be inserted in the knot vector via ``add_knot_list`` argument.
+
+    Moreover, a numerical ``density`` argument can be used to automate extra knot insertions. If ``density`` is bigger
+    than 1, then the algorithm finds the middle knots in each internal knot span to increase the number of knots to be
+    refined.
+
+    **Example**: Let the degree is 2 and the knot vector to be refined is ``[0, 2, 4]`` with the superfluous knots
+    from the start and end are removed. Knot vectors with the changing ``density (d)`` value will be:
+
+    * ``d = 1``, knot vector ``[0, 1, 1, 2, 2, 3, 3, 4]``
+    * ``d = 2``, knot vector ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
+
+    Keyword Arguments:
+        * ``knot_list``: knot list to be refined. *Default: list of internal knots*
+        * ``add_knot_list``: additional list of knots to be refined. *Default: []*
+        * ``density``: Density of the knots. *Default: 1*
+
+    :param degree: degree
+    :type degree: int
+    :param knotvector: knot vector
+    :type knotvector: list, tuple
+    :param ctrlpts: control points
+    :return: updated control points and knot vector
+    :rtype: tuple
+    """
+    # Get keyword arguments
+
+    knot_list =knotvector[degree:-degree] if knot_list is None else knot_list
+    add_knot_list = list() if add_knot_list is None else add_knot_list
+
+
+
+
+
+    # Add additional knots to be refined
+    if add_knot_list:
+        knot_list += list(add_knot_list)
+
+    # Sort the list and convert to a set to make sure that the values are unique
+    knot_list = sorted(set(knot_list))
+
+    # Increase knot density
+    for d in range(0, density):
+        rknots = []
+        for i in range(len(knot_list) - 1):
+            knot_tmp = knot_list[i] + ((knot_list[i + 1] - knot_list[i]) / 2.0)
+            rknots.append(knot_list[i])
+            rknots.append(knot_tmp)
+        rknots.append(knot_list[i + 1])
+        knot_list = rknots
+
+    # Find how many knot insertions are necessary
+    X = []
+    for mk in knot_list:
+        s = find_multiplicity(mk, knotvector)
+        r = degree - s
+        X += [mk for _ in range(r)]
+
+    # Check if the knot refinement is possible
+    if not X:
+
+        return list(ctrlpts),list(knotvector)
+
+    # Initialize common variables
+    r = len(X) - 1
+    n = len(ctrlpts) - 1
+    m = n + degree + 1
+    a = _find_span_linear(degree, knotvector, n, X[0])
+    b = _find_span_linear(degree, knotvector, n, X[r]) + 1
+
+    # Initialize new control points array
+    if isinstance(ctrlpts[0][0], float):
+        new_ctrlpts = [[] for _ in range(n + r + 2)]
+    else:
+        new_ctrlpts = [[[] for _ in range(len(ctrlpts[0]))] for _ in range(n + r + 2)]
+
+    # Fill unchanged control points
+    for j in range(0, a - degree + 1):
+        new_ctrlpts[j] = ctrlpts[j]
+    for j in range(b - 1, n + 1):
+        new_ctrlpts[j + r + 1] = ctrlpts[j]
+
+    # Initialize new knot vector array
+    new_kv = [0.0 for _ in range(m + r + 2)]
+
+    # Fill unchanged knots
+    for j in range(0, a + 1):
+        new_kv[j] = knotvector[j]
+    for j in range(b + degree, m + 1):
+        new_kv[j + r + 1] = knotvector[j]
+
+    # Initialize variables for knot refinement
+    i = b + degree - 1
+    k = b + degree + r
+    j = r
+
+    # Apply knot refinement
+    while j >= 0:
+        while X[j] <= knotvector[i] and i > a:
+            new_ctrlpts[k - degree - 1] = ctrlpts[i - degree - 1]
+            new_kv[k] = knotvector[i]
+            k -= 1
+            i -= 1
+        new_ctrlpts[k - degree - 1] = deepcopy(new_ctrlpts[k - degree])
+        for l in range(1, degree + 1):
+            idx = k - degree + l
+            alpha = new_kv[k + l] - X[j]
+            if abs(alpha) < tol:
+                new_ctrlpts[idx - 1] = deepcopy(new_ctrlpts[idx])
+            else:
+                alpha = alpha / (new_kv[k + l] - knotvector[i - degree + l])
+                if isinstance(ctrlpts[0][0], float):
+                    new_ctrlpts[idx - 1] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
+                                            zip(new_ctrlpts[idx - 1], new_ctrlpts[idx])]
+                else:
+                    for idx2 in range(len(ctrlpts[0])):
+                        new_ctrlpts[idx - 1][idx2] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
+                                                      zip(new_ctrlpts[idx - 1][idx2], new_ctrlpts[idx][idx2])]
+        new_kv[k] = X[j]
+        k = k - 1
+        j -= 1
+
+    # Return control points and knot vector after refinement
+    return new_ctrlpts, new_kv
 
 def insert_knot_surface_u(self: BSplineSurfaceTuple | NURBSSurfaceTuple, t, num=1):
     cpts = np.copy(self.control_points)
@@ -695,297 +940,6 @@ def decompose_surface(surface:NURBSSurfaceTuple, decompose_dir="uv"):
         )
 
 
-def knot_removal(degree, knotvector, ctrlpts, u, num=1,s:int=None,span=None,tol=1e-12,**kwargs):
-    """ Computes the control points of the rational/non-rational spline after knot removal.
-
-    Implementation based on Algorithm A5.8 and Equation 5.28 of The NURBS Book by Piegl & Tiller
-
-    Keyword Arguments:
-        * ``num``: number of knot removals
-
-    :param degree: degree
-    :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
-    :type ctrlpts: list
-    :param u: knot to be removed
-    :type u: float
-    :return: updated control points
-    :rtype: list
-    """
-
-
-
-    s=find_multiplicity(u, knotvector) if s is None else s
-    r =_find_span_linear(degree, knotvector, len(ctrlpts), u) if span is None else span
-
-
-    # Edge case
-    if num < 1:
-        return ctrlpts
-
-    # Initialize variables
-    first = r - degree
-    last = r - s
-
-    # Don't change input variables, prepare new ones for updating
-    ctrlpts_new = deepcopy(ctrlpts)
-
-    is_volume = True
-    if isinstance(ctrlpts_new[0][0], float):
-        is_volume = False
-
-    # Initialize temp array for storing new control points
-    if is_volume:
-        temp = [[[] for _ in range(len(ctrlpts_new[0]))] for _ in range((2 * degree) + 1)]
-    else:
-        temp = [[] for _ in range((2 * degree) + 1)]
-
-    # Loop for Eqs 5.28 & 5.29
-    for t in range(0, num):
-        temp[0] = ctrlpts[first - 1]
-        temp[last - first + 2] = ctrlpts[last + 1]
-        i = first
-        j = last
-        ii = 1
-        jj = last - first + 1
-        remflag = False
-
-        # Compute control points for one removal step
-        while j - i >= t:
-            alpha_i = knot_removal_alpha_i(u, degree, tuple(knotvector), t, i)
-            alpha_j = knot_removal_alpha_j(u, degree, tuple(knotvector), t, j)
-            if is_volume:
-                for idx in range(len(ctrlpts[0])):
-                    temp[ii][idx] = [(cpt - (1.0 - alpha_i) * ti) / alpha_i for cpt, ti
-                                     in zip(ctrlpts[i][idx], temp[ii - 1][idx])]
-                    temp[jj][idx] = [(cpt - alpha_j * tj) / (1.0 - alpha_j) for cpt, tj
-                                     in zip(ctrlpts[j][idx], temp[jj + 1][idx])]
-            else:
-                temp[ii] = [(cpt - (1.0 - alpha_i) * ti) / alpha_i for cpt, ti in zip(ctrlpts[i], temp[ii - 1])]
-                temp[jj] = [(cpt - alpha_j * tj) / (1.0 - alpha_j) for cpt, tj in zip(ctrlpts[j], temp[jj + 1])]
-            i += 1
-            j -= 1
-            ii += 1
-            jj -= 1
-
-        # Check if the knot is removable
-        if j - i < t:
-            if is_volume:
-                if np.linalg.norm(np.array(temp[ii - 1][0])- np.array(temp[jj + 1][0])) <= tol:
-                    remflag = True
-            else:
-                if np.linalg.norm(np.array(temp[ii - 1]) - np.array(temp[jj + 1])) <= tol:
-                    remflag = True
-        else:
-            alpha_i = knot_removal_alpha_i(u, degree, tuple(knotvector), t, i)
-            if is_volume:
-                ptn = [(alpha_i * t1) + ((1.0 - alpha_i) * t2) for t1, t2 in zip(temp[ii + t + 1][0], temp[ii - 1][0])]
-            else:
-                ptn = [(alpha_i * t1) + ((1.0 - alpha_i) * t2) for t1, t2 in zip(temp[ii + t + 1], temp[ii - 1])]
-            if np.linalg.norm(np.asarray(ctrlpts[i]) - np.asarray( ptn))<= tol:
-                remflag = True
-
-        # Check if we can remove the knot and update new control points array
-        if remflag:
-            i = first
-            j = last
-            while j - i > t:
-                ctrlpts_new[i] = temp[i - first + 1]
-                ctrlpts_new[j] = temp[j - first + 1]
-                i += 1
-                j -= 1
-
-        # Update indices
-        first -= 1
-        last += 1
-
-    # Fix indexing
-    t += 1
-
-    # Shift control points (refer to p.183 of The NURBS Book, 2nd Edition)
-    j = int((2*r - s - degree) / 2)  # first control point out
-    i = j
-    for k in range(1, t):
-        if k % 2 == 1:
-            i += 1
-        else:
-            j -= 1
-    for k in range(i+1, len(ctrlpts)):
-        ctrlpts_new[j] = ctrlpts[k]
-        j += 1
-
-    # Slice to get the new control points
-    ctrlpts_new = ctrlpts_new[0:-t]
-
-    return ctrlpts_new
-
-
-def knot_removal_kv(knotvector, span, r):
-    """ Computes the knot vector of the rational/non-rational spline after knot removal.
-
-    Part of Algorithm A5.8 of The NURBS Book by Piegl & Tiller, 2nd Edition.
-
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param span: knot span
-    :type span: int
-    :param r: number of knot removals
-    :type r: int
-    :return: updated knot vector
-    :rtype: list
-    """
-    # Edge case
-    if r < 1:
-        return knotvector
-
-    # Create a deep copy of the input knot  vector
-    kv_updated = np.copy(knotvector)
-
-    # Shift knots
-    for k in range(span + 1, len(knotvector)):
-        kv_updated[k - r] = knotvector[k]
-
-    # Slice to get the new knot vector
-    kv_updated = kv_updated.tolist()[0:-r]
-
-    # Return the new knot vector
-    return kv_updated
-
-
-def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
-    """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
-
-    Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
-
-    The algorithm automatically find the knots to be refined, i.e. the middle knots in the knot vector, and their
-    multiplicities, i.e. number of same knots in the knot vector. This is the basis of knot refinement algorithm.
-    This operation can be overridden by providing a list of knots via ``knot_list`` argument. In addition, users can
-    provide a list of additional knots to be inserted in the knot vector via ``add_knot_list`` argument.
-
-    Moreover, a numerical ``density`` argument can be used to automate extra knot insertions. If ``density`` is bigger
-    than 1, then the algorithm finds the middle knots in each internal knot span to increase the number of knots to be
-    refined.
-
-    **Example**: Let the degree is 2 and the knot vector to be refined is ``[0, 2, 4]`` with the superfluous knots
-    from the start and end are removed. Knot vectors with the changing ``density (d)`` value will be:
-
-    * ``d = 1``, knot vector ``[0, 1, 1, 2, 2, 3, 3, 4]``
-    * ``d = 2``, knot vector ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
-
-    Keyword Arguments:
-        * ``knot_list``: knot list to be refined. *Default: list of internal knots*
-        * ``add_knot_list``: additional list of knots to be refined. *Default: []*
-        * ``density``: Density of the knots. *Default: 1*
-
-    :param degree: degree
-    :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
-    :return: updated control points and knot vector
-    :rtype: tuple
-    """
-    # Get keyword arguments
-
-    knot_list =knotvector[degree:-degree] if knot_list is None else knot_list
-    add_knot_list = list() if add_knot_list is None else add_knot_list
-
-
-
-
-
-    # Add additional knots to be refined
-    if add_knot_list:
-        knot_list += list(add_knot_list)
-
-    # Sort the list and convert to a set to make sure that the values are unique
-    knot_list = sorted(set(knot_list))
-
-    # Increase knot density
-    for d in range(0, density):
-        rknots = []
-        for i in range(len(knot_list) - 1):
-            knot_tmp = knot_list[i] + ((knot_list[i + 1] - knot_list[i]) / 2.0)
-            rknots.append(knot_list[i])
-            rknots.append(knot_tmp)
-        rknots.append(knot_list[i + 1])
-        knot_list = rknots
-
-    # Find how many knot insertions are necessary
-    X = []
-    for mk in knot_list:
-        s = find_multiplicity(mk, knotvector)
-        r = degree - s
-        X += [mk for _ in range(r)]
-
-    # Check if the knot refinement is possible
-    if not X:
-
-        return list(ctrlpts),list(knotvector)
-
-    # Initialize common variables
-    r = len(X) - 1
-    n = len(ctrlpts) - 1
-    m = n + degree + 1
-    a = _find_span_linear(degree, knotvector, n, X[0])
-    b = _find_span_linear(degree, knotvector, n, X[r]) + 1
-
-    # Initialize new control points array
-    if isinstance(ctrlpts[0][0], float):
-        new_ctrlpts = [[] for _ in range(n + r + 2)]
-    else:
-        new_ctrlpts = [[[] for _ in range(len(ctrlpts[0]))] for _ in range(n + r + 2)]
-
-    # Fill unchanged control points
-    for j in range(0, a - degree + 1):
-        new_ctrlpts[j] = ctrlpts[j]
-    for j in range(b - 1, n + 1):
-        new_ctrlpts[j + r + 1] = ctrlpts[j]
-
-    # Initialize new knot vector array
-    new_kv = [0.0 for _ in range(m + r + 2)]
-
-    # Fill unchanged knots
-    for j in range(0, a + 1):
-        new_kv[j] = knotvector[j]
-    for j in range(b + degree, m + 1):
-        new_kv[j + r + 1] = knotvector[j]
-
-    # Initialize variables for knot refinement
-    i = b + degree - 1
-    k = b + degree + r
-    j = r
-
-    # Apply knot refinement
-    while j >= 0:
-        while X[j] <= knotvector[i] and i > a:
-            new_ctrlpts[k - degree - 1] = ctrlpts[i - degree - 1]
-            new_kv[k] = knotvector[i]
-            k -= 1
-            i -= 1
-        new_ctrlpts[k - degree - 1] = deepcopy(new_ctrlpts[k - degree])
-        for l in range(1, degree + 1):
-            idx = k - degree + l
-            alpha = new_kv[k + l] - X[j]
-            if abs(alpha) < tol:
-                new_ctrlpts[idx - 1] = deepcopy(new_ctrlpts[idx])
-            else:
-                alpha = alpha / (new_kv[k + l] - knotvector[i - degree + l])
-                if isinstance(ctrlpts[0][0], float):
-                    new_ctrlpts[idx - 1] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
-                                            zip(new_ctrlpts[idx - 1], new_ctrlpts[idx])]
-                else:
-                    for idx2 in range(len(ctrlpts[0])):
-                        new_ctrlpts[idx - 1][idx2] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
-                                                      zip(new_ctrlpts[idx - 1][idx2], new_ctrlpts[idx][idx2])]
-        new_kv[k] = X[j]
-        k = k - 1
-        j -= 1
-
-    # Return control points and knot vector after refinement
-    return new_ctrlpts, new_kv
 from mmcore.numeric.binom import binomial_coefficient_py
 
 def degree_elevation(degree, ctrlpts, num=1,**kwargs):
@@ -1029,55 +983,274 @@ def _bezier_knots(order:int, interval:tuple[float,float]):
     start,end=interval
     return [start]*order+[end]*order
 
-def link_curves(curves, **kwargs):
-    """ Links the input curves together.
-
-    The end control point of the curve k has to be the same with the start control point of the curve k + 1.
-
-
-    :return: a tuple containing knot vector, control points, weights vector and knots
+def link_curves(curves):
+    """
+    Concatenate a list of *cubic* NURBS curves that meet G0‑continuously.
+    All curves must have the same order ``p+1`` and share the end/start point.
+    Returns: (new_curve, interior_knots)
     """
 
+    if not curves:
+        raise ValueError("Empty input list")
 
+    order = curves[0].order                     # all pieces have the same order
+    p      = order - 1
 
-    kv = []  # new knot vector
-    cpts = []  # new control points array
-    wgts = []  # new weights array
-    kv_connected = []  # superfluous knots to be removed
-    pdomain_end = 0
+    kv, cpts, wgts = [], [], []
+    interior_knots = []                        # the knot to which each join collapses
 
-    # Loop though the curves
-    for arg in curves:
-        control_points_size=arg.control_points.shape[0]
-        knot_l=arg.knot.tolist() if isinstance(arg.knot,np.ndarray) else list(arg.knot)
-        control_points_l=arg.control_points.tolist()
-        weights_l = arg.weights.tolist()
-        # Process knot vectors
-        if not kv:
-            kv += list(knot_l[:-arg.order])  # get rid of the last superfluous knot to maintain split curve notation
-            cpts +=list(control_points_l)
-            # Process control points
-            wgts += list(weights_l)
+    # running offset of the global parameter domain
+    offset = 0.0
 
+    for i, crv in enumerate(curves):
+        k   = np.asarray(crv.knot,   dtype=float)
+        cp  = np.asarray(crv.control_points, dtype=float)
+        w   = np.asarray(crv.weights, dtype=float)
 
+        # Shift this piece so that its *first* knot equals the current offset
+        d   = offset - k[0]                    # <─── Δ computed once
+        k   = k + d
+
+        if i == 0:
+            # keep everything *except* the trailing clamping knots
+            kv.extend(k[:-order])
+            cpts.extend(cp)
+            wgts.extend(w)
         else:
-            tmp_kv = [pdomain_end + k for k in knot_l[1:-arg.order]]
-            kv += tmp_kv
-            cpts += list(control_points_l[1:])
-            # Process control points
+            # skip the duplicate first knot and first control point
+            kv.extend(k[1:-order])
+            cpts.extend(cp[1:])
+            wgts.extend(w[1:])
 
-            wgts += list(weights_l[1:])
+        # new offset = (last interior knot of this piece)
+        offset = k[-order]                     # first of the trailing (p+1) equal knots
+        interior_knots.append(offset)
+
+    # add clamping knots at the very end
+    kv.extend([offset] * order)
+    interior_knots.pop()                       # last one is the global end knot
+
+    return (
+        NURBSCurveTuple(
+            order=order,
+            knot=np.asarray(kv),
+            control_points=np.asarray(cpts),
+            weights=np.asarray(wgts),
+        ),
+        interior_knots,                        # you will see only 0.3 here
+    )
+
+from typing import List, NamedTuple
+import numpy as np
 
 
-        pdomain_end += knot_l[-1]
-        kv_connected.append(pdomain_end)
+def stitch_surface_grid(grid: list[list[NURBSSurfaceTuple]]
+                        ) -> tuple[NURBSSurfaceTuple,
+                                   np.ndarray, np.ndarray]:
+    """
+    Merge a rectangular grid of *compatible* NURBS patches into a single
+    NURBS surface.
 
-    # Fix curve by appending the last knot to the end
-    kv += [pdomain_end for _ in range(arg.order)]
-    # Remove the last knot from knot insertion list
-    kv_connected.pop()
+    Parameters
+    ----------
+    grid : List[List[NURBSSurfaceTuple]]
+        grid[r][c] is the patch located at  (u‑index=c , v‑index=r).
 
-    return kv, cpts, wgts, kv_connected
+    Returns
+    -------
+    (big_surface , interior_u , interior_v)
+
+    * `big_surface`        the merged NURBS surface (same orders p,q)
+    * `interior_u`         knot values that separate columns (length C‑1)
+    * `interior_v`         knot values that separate rows    (length R‑1)
+
+    Preconditions
+    -------------
+    * Every patch has the same `(order_u, order_v)`.
+    * Adjacent patches share *exactly* the same boundary curve
+      (i.e. their knot vectors are *clamped* and identical on the common
+      edge, up to a uniform offset applied by the stitching code).
+    * The grid is topologically rectangular: all rows have the same length.
+
+    The routine **never re‑evaluates geometry**   it concatenates control
+    meshes and pastes knot vectors, shifting and de‑duplicating knot values
+    only where mathematically required.
+    """
+    # ------------------------------------------------------------------
+    # 0.  Basic shape checks
+    # ------------------------------------------------------------------
+    if not grid or not grid[0]:
+        raise ValueError("Empty grid")
+
+    R, C = len(grid), len(grid[0])
+    if any(len(row) != C for row in grid):
+        raise ValueError("The grid must be rectangular")
+
+    order_u = grid[0][0].order_u
+    order_v = grid[0][0].order_v
+    p, q    = order_u - 1, order_v - 1
+
+    # ------------------------------------------------------------------
+    # 1.  Stitch every ROW horizontally  (u‑direction)
+    # ------------------------------------------------------------------
+    stitched_rows     = []      # list of NURBSSurfaceTuple
+    interior_knots_u  = None    # will be fixed by the first row
+
+    for r, row in enumerate(grid):
+        row_surface, row_ku_split = _stitch_row(row, order_u, order_v)
+
+        if interior_knots_u is None:
+            interior_knots_u = row_ku_split
+            print(interior_knots_u, row_ku_split,)
+        elif not np.allclose(interior_knots_u, row_ku_split, atol=1e-9):
+            raise ValueError(f"Row {r} has interior‑u knots "
+                             "incompatible with previous rows")
+
+        stitched_rows.append(row_surface)
+
+    # ------------------------------------------------------------------
+    # 2.  Stitch those ROWS vertically  (v‑direction)
+    # ------------------------------------------------------------------
+    merged_surface, interior_knots_v = _stitch_column(stitched_rows,
+                                                      order_u, order_v)
+
+    return merged_surface, interior_knots_u, interior_knots_v
+
+
+# ======================================================================
+#  Helpers
+# ======================================================================
+def _stitch_row(row: list[NURBSSurfaceTuple],
+                order_u: int, order_v: int
+                ) -> tuple[NURBSSurfaceTuple, np.ndarray]:
+    """
+    Concatenate patches [P₀, P₁, …, P_{C-1}] along *u*.
+    All patches in the row must share *exactly* the same v‑knot vector
+    and (order_u, order_v).
+
+    Returns  (new_row_surface , interior_knots_u_of_this_row)
+    """
+    p = order_u - 1
+
+    # Storage for the growing row
+    ku_out   = []         # global u‑knot vector under construction
+    cp_rows  = []         # list of control meshes (to np.concatenate later)
+    w_rows   = []         # list of weight meshes
+    split_ku = []         # the knots that separate patches inside the row
+    u_offset = 0.0        # right‑most knot value of what we have stitched
+
+    common_kv = None      # will hold the v‑knot vector shared by the row
+
+    for c, surf in enumerate(row):
+        if surf.order_u != order_u or surf.order_v != order_v:
+            raise ValueError(f"Orders differ inside the row: {surf.order_u},{order_u}, {surf.order_v},{order_v}")
+
+        ku = surf.knot_u.astype(float).copy()
+        kv = surf.knot_v.astype(float).copy()
+
+        if common_kv is None:
+            common_kv = kv
+        elif not np.allclose(common_kv, kv, atol=1e-9):
+            raise ValueError("Patches in the same row "
+                             "have different v‑knot vectors")
+
+        # Shift this patch so that its left clamp coincides with u_offset
+        shift = u_offset - ku[0]
+        ku += shift
+
+        # --- append to the growing knot vector / control mesh -----------
+        if c == 0:
+            # First patch   keep its whole (clamped) knot vector except
+            # the last (p+1) knots: they will be provided by the *last*
+            # patch in the row so we do not duplicate them here.
+            ku_out.extend(ku[:-order_u])
+            cp_rows.append(surf.control_points)
+            w_rows.append(surf.weights)
+        else:
+            # Middle or last   discard first knot (duplicate) and the last
+            # p+1 knots.  Control mesh: drop the first ctrl‑row (dup)
+            ku_out.extend(ku[1:-order_u])
+            cp_rows.append(surf.control_points[1:, ...])
+            w_rows.append( surf.weights       [1:, ...])
+
+        u_offset = ku[-order_u]        # first of the trailing (p+1) clamp
+        split_ku.append(u_offset)      # this is the end of patch c
+
+    # Add the final right‑side clamp (p+1 identical knots)
+    ku_out.extend([u_offset] * order_u)
+    split_ku.pop()                     # last entry is the global u‑max
+
+    # Glue control meshes and weights
+    cp_row = np.concatenate(cp_rows, axis=0)          # concat in u
+    w_row  = np.concatenate(w_rows , axis=0)
+
+    stitched = NURBSSurfaceTuple(
+        order_u = order_u,
+        order_v = order_v,
+        knot_u  = np.asarray(ku_out),
+        knot_v  = common_kv,
+        control_points = cp_row,
+        weights        = w_row
+    )
+    return stitched, np.asarray(split_ku)
+
+
+def _stitch_column(rows: list[NURBSSurfaceTuple],
+                   order_u: int, order_v: int
+                   ) -> tuple[NURBSSurfaceTuple, np.ndarray]:
+    """
+    Vertically concatenate the *rows* produced by _stitch_row.
+
+    Returns  (big_surface , interior_knots_v)
+    """
+    q = order_v - 1
+
+    kv_out   = []
+    cp_cols  = []
+    w_cols   = []
+    split_kv = []
+    v_offset = 0.0
+
+    common_ku = None       # must be identical across rows
+
+    for r, surf in enumerate(rows):
+        if common_ku is None:
+            common_ku = surf.knot_u
+        elif not np.allclose(common_ku, surf.knot_u, atol=1e-9):
+            raise ValueError("Rows disagree on their u‑knot vector")
+
+        kv = surf.knot_v.astype(float).copy()
+        shift = v_offset - kv[0]
+        kv += shift
+
+        if r == 0:
+            kv_out.extend(kv[:-order_v])
+            cp_cols.append(surf.control_points)
+            w_cols.append(surf.weights)
+        else:
+            # Discard first v‑knot and first control‑column (dup)
+            kv_out.extend(kv[1:-order_v])
+            cp_cols.append(surf.control_points[:, 1:, ...])
+            w_cols .append(surf.weights       [:, 1:, ...])
+
+        v_offset = kv[-order_v]
+        split_kv.append(v_offset)
+
+    kv_out.extend([v_offset] * order_v)
+    split_kv.pop()
+
+    cp_big = np.concatenate(cp_cols, axis=1)          # concat in v
+    w_big  = np.concatenate(w_cols , axis=1)
+
+    big = NURBSSurfaceTuple(
+        order_u        = order_u,
+        order_v        = order_v,
+        knot_u         = common_ku,
+        knot_v         = np.asarray(kv_out),
+        control_points = cp_big,
+        weights        = w_big
+    )
+    return big, np.asarray(split_kv)
 
 
 def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
@@ -1117,6 +1290,94 @@ def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
 
     return NURBSCurveTuple(curve.order + num, np.asarray(knots, dtype=float), np.asarray(cpts), np.asarray(weights))
 
+
+def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
+    """ Removes a knot from a spline curve."""
+    mult=find_multiplicity(knot,curve.knot)
+    if mult<num:
+        raise ValueError(f"Cannot remove knot {knot} from knots: {curve.knot} with multiplicity {mult}")
+
+    span=_find_span_linear(curve.order - 1, curve.knot, curve.control_points.shape[0], knot)
+    hpts=to_homogeneous_1d(curve.control_points, curve.weights)
+    new_kv,new_pt=knot_removal(curve.order-1, curve.knot.tolist(),ctrlpts=hpts,u=knot,num=num,span=span,**kwargs)
+    # new_kv=knot_removal_kv(curve.knot.tolist(),span=span, r=num)
+    return NURBSCurveTuple(curve.order , np.array(new_kv), *from_homogeneous_1d(np.array(new_pt)))
+
+
+def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
+    """Removes a knot from a spline curve."""
+    cpts = np.copy(self.control_points)
+    count = num
+    cpts_size_u, cpts_size_v, dim = cpts.shape
+    new_count_u = cpts_size_u - count
+    new_count_v = cpts_size_v
+    degree_u = self.order_u - 1
+
+    span = _find_span_linear(degree_u, self.knot_u, cpts_size_u, t)
+
+    # Compute new knot vector
+    #k_v = knot_removal_kv(self.knot_u,  span, count)
+    s_u = find_multiplicity(t, self.knot_u)
+
+    if isinstance(self, BSplineSurfaceTuple):
+        self = NURBSSurfaceTuple(*self, weights=np.ones(self.control_points.shape[:-1], dtype=float))
+    new_pts = np.zeros((new_count_u, new_count_v, dim))
+    new_weights = np.zeros((new_count_u, new_count_v))
+    knot_u_list = np.array(self.knot_u).tolist()
+    new_pts=[]
+    for v in range(cpts_size_v):
+        row_control_points = cpts[:, v, :]
+        row_weights = self.weights[:, v]
+        # Convert to homogeneous coordinates
+        row_homo = to_homogeneous_1d(row_control_points, row_weights)
+        row_homo_list = row_homo.tolist()
+
+        # Apply knot insertion
+
+        k_v,        new_row_homo_list = knot_removal(degree_u, knot_u_list, row_homo_list, t, num=count, span=span, s=s_u)
+        new_pts.append(new_row_homo_list)
+    
+
+    return NURBSSurfaceTuple(self.order_u,self.order_v,k_v, self.knot_v,*from_homogeneous_2d(np.asarray(new_pts).swapaxes(0, 1)))
+
+def remove_knot_surface_v(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
+
+    count = num
+
+    cpts = np.copy(self.control_points)
+
+    cpts_size_u, cpts_size_v, dim = cpts.shape
+    new_count_u = cpts_size_u
+    new_count_v = cpts_size_v- count
+    degree_v = self.order_v - 1
+
+    span = _find_span_linear(degree_v, self.knot_v, cpts_size_v, t)
+
+    # Compute new knot vector
+    # k_v = knot_removal_kv(self.knot_v, span, count)
+    s_v = find_multiplicity(t, self.knot_v)
+
+    if isinstance(self, BSplineSurfaceTuple):
+        self = NURBSSurfaceTuple(*self, weights=np.ones(self.control_points.shape[:-1], dtype=float))
+    new_pts = []
+    new_weights = np.zeros((new_count_u, new_count_v))
+    knot_v_list = np.asarray(self.knot_v).tolist()
+    for u in range(cpts_size_u):
+        col_control_points = cpts[u, :, :]
+        col_weights = self.weights[u, :]
+        # Convert to homogeneous coordinates
+        col_homo = to_homogeneous_1d(col_control_points, col_weights)
+        col_homo_list = col_homo.tolist()
+
+        # Apply knot insertion
+
+        k_v, new_row_homo_list = knot_removal(degree_v, knot_v_list, col_homo_list, t, num=count, span=span, s=s_v)
+        new_pts.append(new_row_homo_list)
+
+    return NURBSSurfaceTuple(self.order_u, self.order_v,  self.knot_u, k_v,*from_homogeneous_2d(np.asarray(new_pts)))
+
+def remove_knot_surface(surface: NURBSSurfaceTuple, u: float, v: float, num_u: int = 1, num_v: int = 1,**kwargs):
+    return remove_knot_surface_u(remove_knot_surface_v(surface, v, num=num_v, **kwargs), u, num=num_u, **kwargs)
 
 def degree_reduction(degree, ctrlpts, **kwargs):
     """ Computes the control points of the rational/non-rational spline after degree reduction.

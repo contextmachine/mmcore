@@ -58,7 +58,7 @@ def implicitize_power_basis_patch(Ax, Ay, Az, Aw, D=None):
     """
     m, n = Ax.shape[0] - 1, Ax.shape[1] - 1
     if D is None:
-        D = m + n
+        D = 2*m* n
 
     # 1) Precompute X^k, Y^k, Z^k, W^k for k = 0..D
     Px = [None] * (D + 1)

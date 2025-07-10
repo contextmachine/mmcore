@@ -264,36 +264,59 @@ def _int_cs_bez(
         t_real = seg_dt * t + seg_t0
         uv_initial = np.array([ou0 + dou / 2, ov0 + dov / 2])
         _result = newtons_method(eq1, uv_initial)
-
+        need_closest_point=False
         if _result is not None:
             _result = np.asarray(_result)
             uv_initial = _result
-            result = newtons_method(equa, np.array([t_real, *_result]))
-
-            if result is None:
-
-                print("fail result2", np.array([t_real, *_result]))
-
+            if not( ou0 <= _result[0] <= ou1 and ov0 <= _result[1] <= ov1):
                 continue
-            else:
+            initial_guess = np.array([t_real, *_result])
+            curve_eval = evaluate_nurbs_curve(initial_curve.nurbs, t_real, d_order=1)
+            C_pt = np.array(curve_eval["C"])  # 3‐vector
+            T_c = np.array(curve_eval["C1"])  # 3‐vector (tangent)
 
-                result = np.array(result)
+            # 2) Evaluate surface (point + partials)
+            surf_eval = evaluate_nurbs_surface(initial_surface.nurbs, uv_initial[0],uv_initial[1], d_order=1)
+            S_pt = np.array(surf_eval["S"])  # 3‐vector
+            Su = np.array(surf_eval["Su"])  # 3‐vector
+            Sv = np.array(surf_eval["Sv"])  # 3‐vector
 
-            if ot0 <= result[0] <= ot1 and ou0 <= result[1] <= ou1 and ov0 <= result[2] <= ov1:
-                tuv = result
-                t_real = tuv[0]
+            # 3) Compute the *current* geometric error:
+            R = S_pt - C_pt
+            error = np.linalg.norm(R)
 
-                initial_guess = tuv
-            else:
+            # 4) Compute un‐normalized surface normal:
+            N_s = np.cross(Su, Sv)
+            if not (error<spt ):
+                print("fail check",error,spt)
 
-                print("fail result out of", np.array([t_real, *_result]))
-                continue
+                result = newtons_method(equa, np.array([t_real, *_result]))
+
+                if result is None:
+
+                    print("fail result2", np.array([t_real, *_result]))
+                    need_closest_point=True
+
+                else:
+
+                    result = np.array(result)
+
+                    if ot0 <= result[0] <= ot1 and ou0 <= result[1] <= ou1 and ov0 <= result[2] <= ov1:
+                        tuv = result
+                        t_real = tuv[0]
+
+                        initial_guess = tuv
+                    else:
+                        print("fail result out of", np.array([t_real, *_result]))
+                        continue
 
         else:
-
+            need_closest_point=True
+        if need_closest_point:
             pt = evaluate_nurbs_curve(initial_curve.nurbs, t_real, d_order=0)["C"]
-            best_uv, (error, surf_eval, (du, dv)) = nurbs_surface_closest_point(initial_surface.nurbs, pt, spt=spt, angle_tol=angle_tol)
-
+            best_uv, rr = nurbs_surface_closest_point(initial_surface.nurbs, pt, spt=spt, angle_tol=angle_tol)
+            print('n',  best_uv, rr )
+            (error, surf_eval, (du, dv))=rr
             initial_guess = np.array(
                 [
                     t_real,
@@ -307,7 +330,7 @@ def _int_cs_bez(
         )
 
         tuv = np.array(tuv)
-
+        logger.debug(f'{success},{tuv},{error}')
         # print("after_refinement:",tuv, surf_eval['S'].tolist(), curve_eval['C'].tolist(), error)
         ##np.array([t_real, *best_uv]),initial_curve.nurbs,#initial_surface.nurbs,spt=spt,angle_tol=angle_tol,eps_n=eps_n,#max_iter=50)
 
@@ -363,7 +386,7 @@ def _int_cs_bez(
             logger.debug("Fail: tuv={}, err={}, pt {}".format(tuv, error, surf_eval["S"].tolist()))
 
 
-#logging.basicConfig(level=logging.DEBUG, format="%(module)s.%(funcName)s   %(message)s")
+# logging.basicConfig(level=logging.DEBUG, format="%(module)s.%(funcName)s   %(message)s")
 
 logger = logging.getLogger("mmcore")
 
