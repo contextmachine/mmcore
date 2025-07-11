@@ -20,10 +20,11 @@ def _is_new(ints,new_int, tol=1e-4):
     return True
 
 def nurbs_curve_bvh(curve:NURBSCurveTuple, spt:float=1e-3)->tuple[BVH,list[NURBSCurveTuple]]:
-    pts1, param1 = adaptive_polyline(_tuple_to_nurbs(curve), tol=spt, max_depth=100)
-
-    curves1=split_curve_multiple(curve,param1[1:][:-1])
-    bbs1 = [AABB.from_points(crv.control_points)for crv in curves1]
+    #pts1, param1 = adaptive_polyline(_tuple_to_nurbs(curve), tol=spt, max_depth=100)
+    curves1=decompose_curve(curve)
+    #curves1=split_curve_multiple(curve,param1[1:][:-1])
+    #bbs1 = [AABB.from_points(crv.control_points)for crv in curves1]
+    bbs1 =[AABB.from_points(crv.control_points) for crv in curves1]
     for bb in bbs1:
         bb.offset_inplace(spt)
     return build_bvh(bbs1),curves1
@@ -84,14 +85,16 @@ def nurbs_ccx(curve1:NURBSCurve|NURBSCurveTuple,curve2:NURBSCurve|NURBSCurveTupl
         bvh1,curves1=nurbs_curve_bvh(curve1,spt=spt)
     else:
         curves1=   decompose_curve(curve1)
+        print('dec1')
     if bvh2 is None:
         bvh2,curves2=nurbs_curve_bvh(curve2,spt=spt)
     else:
         curves2 = decompose_curve(curve2)
+        print('dec2')
         
     inters = bvh_intersect(bvh1, bvh2, exact=True)
     ints=[]
-
+    print(inters)
     for op1,op2 in inters:
         a=curves1[op1.object ]
         b = curves2[op2.object]
@@ -175,3 +178,4 @@ if __name__ =="__main__":
     import time
     s=time.time()
     res = nurbs_ccx(nc1, nc2)
+    print(res)
