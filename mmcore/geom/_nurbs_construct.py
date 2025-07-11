@@ -268,14 +268,38 @@ def bspline_basis_vector(knot: NDArray[np.float64],
 def construct_gordon_surface(
     curves_u: List[NURBSCurveTuple],
     curves_v: List[NURBSCurveTuple],
-    v_params: NDArray[np.float64],
-    u_params: NDArray[np.float64]
+    v_params: NDArray[np.float64]=None,
+    u_params: NDArray[np.float64]=None,spt=1e-3
 ) -> NURBSSurfaceTuple:
-    # 1 - unify knots/degree separately for each family
-    C = make_curves_compatible_multiple(curves_u)   # (m+1) curves
-    D = make_curves_compatible_multiple(curves_v)   # (n+1) curves
-    m1, n1 = len(C), len(D)
 
+    # 1 - unify knots/degree separately for each family
+    C =curves_u= make_curves_compatible_multiple(curves_u)   # (m+1) curves
+    D = curves_v=make_curves_compatible_multiple(curves_v)   # (n+1) curves
+    m1, n1 = len(C), len(D)
+    dim= dim  = C[0].control_points.shape[1]
+    P_corner = np.empty((m1, n1, dim))
+    if u_params is None:
+        u_params = np.linspace(0.0, 1.0, len(curves_v), dtype=float)
+        v_params = np.linspace(0.0, 1.0, len(curves_u), dtype=float)
+
+    uv_params = np.zeros((len(curves_u), len(curves_v), 2))
+    pmap_u = np.zeros_like(u_params)
+    pmap_v = np.zeros_like(v_params)
+
+    for i, cu in enumerate(curves_u):
+        for j, cv in enumerate(curves_v):
+
+            res = nurbs_ccx(cu, cv, spt=spt)
+            if len(res) != 1:
+                raise ValueError("nurbs_ccx error")
+            P_corner[i,j]= res[0][0]
+            uv_params[i, j, :] = res[0][1]
+            u_params[j]=pmap_u[j] = res[0][1][0]
+            v_params[i]=pmap_v[i] = res[0][1][1]
+    print('------ DEBUG: uv_params -------')
+    print(uv_params)
+    print('------ DEBUG: v_params,u_params -------')
+    print(v_params,u_params)
     if len(v_params) != m1 or len(u_params) != n1:
         raise ValueError("v_params length must equal len(curves_u) and "
                          "u_params length must equal len(curves_v).")
@@ -287,16 +311,19 @@ def construct_gordon_surface(
     dim  = C[0].control_points.shape[1]
 
     # 2 - intersection grid
-    P_corner = np.empty((m1, n1, dim))
-    for i, cur in enumerate(C):
-        P_corner[i] = [evaluate_nurbs_curve(cur, uj,0)['C'] for uj in u_params]
+    #P_corner = np.empty((m1, n1, dim))
+    #for i, cur in enumerate(C):
+    #    P_corner[i] = [evaluate_nurbs_curve(cur, uj,0)['C'] for uj in u_params]
 
     # 3 - basis-value matrices  (collocation)
+
     Bv = np.stack([bspline_basis_vector(V, q, v) for v in v_params])  # (m1, K_v)
     Bu = np.stack([bspline_basis_vector(U, p, u) for u in u_params])  # (n1, K_u)
+    print('\n------ DEBUG: Bv,Bu -------')
 
-    #   Moore–Penrose gives min-norm Λ,Κ that satisfy interpolation conditions
-    Λ = (np.linalg.pinv(Bv) @ np.eye(m1)).T      # (m1, K_v)
+    print(Bv,Bu,)
+    #   Moore–Penrose gives min-norm La,Κ that satisfy interpolation conditions
+    La = (np.linalg.pinv(Bv) @ np.eye(m1)).T      # (m1, K_v)
     Κ = (np.linalg.pinv(Bu) @ np.eye(n1)).T      # (n1, K_u)
 
     # 4 - gather compatible control nets
@@ -313,7 +340,7 @@ def construct_gordon_surface(
 
     # 5a  sweep rows
     for i in range(m1):
-        lam = Λ[i]                                # (K_v,)
+        lam = La[i]                                # (K_v,)
         w   = W_u[i][:, None]                     # (K_u,1)
         W_su  += w @ lam[None, :]                 # rank-1 outer product
         Pw_su += (w @ lam[None, :])[:, :, None] * CP_u[i][:, None, :]
@@ -327,7 +354,7 @@ def construct_gordon_surface(
 
     # 5c  bilinear correction
     for i in range(m1):
-        lam = Λ[i]                                # (K_v,)
+        lam = La[i]                                # (K_v,)
         for j in range(n1):
             kap = Κ[j]                            # (K_u,)
             outer = kap[:, None] * lam[None, :]   # (K_u,K_v)
@@ -337,6 +364,8 @@ def construct_gordon_surface(
     # 6 - combine and dehomogenise
     W_tot = W_su + W_sv - W_suv
     if np.any(np.abs(W_tot) < np.finfo(float).eps):
+        print('\n------ DEBUG: W_tot -------')
+        print(W_tot)
         raise ZeroDivisionError("Composite weight vanished — check input data.")
     CP_tot = (Pw_su + Pw_sv - Pw_suv) / W_tot[:, :, None]
 
