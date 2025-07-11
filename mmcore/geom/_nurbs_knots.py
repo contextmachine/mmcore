@@ -194,6 +194,139 @@ def knot_insertion(degree, knotvector, ctrlpts, u, num:int=1, span=None,s=None,*
     return ctrlpts_new
 
 
+def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
+    """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
+
+    Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    The algorithm automatically find the knots to be refined, i.e. the middle knots in the knot vector, and their
+    multiplicities, i.e. number of same knots in the knot vector. This is the basis of knot refinement algorithm.
+    This operation can be overridden by providing a list of knots via ``knot_list`` argument. In addition, users can
+    provide a list of additional knots to be inserted in the knot vector via ``add_knot_list`` argument.
+
+    Moreover, a numerical ``density`` argument can be used to automate extra knot insertions. If ``density`` is bigger
+    than 1, then the algorithm finds the middle knots in each internal knot span to increase the number of knots to be
+    refined.
+
+    **Example**: Let the degree is 2 and the knot vector to be refined is ``[0, 2, 4]`` with the superfluous knots
+    from the start and end are removed. Knot vectors with the changing ``density (d)`` value will be:
+
+    * ``d = 1``, knot vector ``[0, 1, 1, 2, 2, 3, 3, 4]``
+    * ``d = 2``, knot vector ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
+
+    Keyword Arguments:
+        * ``knot_list``: knot list to be refined. *Default: list of internal knots*
+        * ``add_knot_list``: additional list of knots to be refined. *Default: []*
+        * ``density``: Density of the knots. *Default: 1*
+
+    :param degree: degree
+    :type degree: int
+    :param knotvector: knot vector
+    :type knotvector: list, tuple
+    :param ctrlpts: control points
+    :return: updated control points and knot vector
+    :rtype: tuple
+    """
+    # Get keyword arguments
+
+    knot_list =knotvector[degree:-degree] if knot_list is None else knot_list
+    add_knot_list = list() if add_knot_list is None else add_knot_list
+
+
+
+
+
+    # Add additional knots to be refined
+    if add_knot_list:
+        knot_list += list(add_knot_list)
+
+    # Sort the list and convert to a set to make sure that the values are unique
+    knot_list = sorted(set(knot_list))
+
+    # Increase knot density
+    for d in range(0, density):
+        rknots = []
+        for i in range(len(knot_list) - 1):
+            knot_tmp = knot_list[i] + ((knot_list[i + 1] - knot_list[i]) / 2.0)
+            rknots.append(knot_list[i])
+            rknots.append(knot_tmp)
+        rknots.append(knot_list[i + 1])
+        knot_list = rknots
+
+    # Find how many knot insertions are necessary
+    X = []
+    for mk in knot_list:
+        s = find_multiplicity(mk, knotvector)
+        r = degree - s
+        X += [mk for _ in range(r)]
+
+    # Check if the knot refinement is possible
+    if not X:
+
+        return list(ctrlpts),list(knotvector)
+
+    # Initialize common variables
+    r = len(X) - 1
+    n = len(ctrlpts) - 1
+    m = n + degree + 1
+    a = _find_span_linear(degree, knotvector, n+1, X[0])
+    b = _find_span_linear(degree, knotvector, n+1, X[r]) + 1
+
+    # Initialize new control points array
+    if isinstance(ctrlpts[0][0], float):
+        new_ctrlpts = [[] for _ in range(n + r + 2)]
+    else:
+        new_ctrlpts = [[[] for _ in range(len(ctrlpts[0]))] for _ in range(n + r + 2)]
+
+    # Fill unchanged control points
+    for j in range(0, a - degree + 1):
+        new_ctrlpts[j] = ctrlpts[j]
+    for j in range(b - 1, n + 1):
+        new_ctrlpts[j + r + 1] = ctrlpts[j]
+
+    # Initialize new knot vector array
+    new_kv = [0.0 for _ in range(m + r + 2)]
+
+    # Fill unchanged knots
+    for j in range(0, a + 1):
+        new_kv[j] = knotvector[j]
+    for j in range(b + degree, m + 1):
+        new_kv[j + r + 1] = knotvector[j]
+
+    # Initialize variables for knot refinement
+    i = b + degree - 1
+    k = b + degree + r
+    j = r
+
+    # Apply knot refinement
+    while j >= 0:
+        while X[j] <= knotvector[i] and i > a:
+            new_ctrlpts[k - degree - 1] = ctrlpts[i - degree - 1]
+            new_kv[k] = knotvector[i]
+            k -= 1
+            i -= 1
+        new_ctrlpts[k - degree - 1] = deepcopy(new_ctrlpts[k - degree])
+        for l in range(1, degree + 1):
+            idx = k - degree + l
+            alpha = new_kv[k + l] - X[j]
+            if abs(alpha) < tol:
+                new_ctrlpts[idx - 1] = deepcopy(new_ctrlpts[idx])
+            else:
+                alpha = alpha / (new_kv[k + l] - knotvector[i - degree + l])
+                if isinstance(ctrlpts[0][0], float):
+                    new_ctrlpts[idx - 1] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
+                                            zip(new_ctrlpts[idx - 1], new_ctrlpts[idx])]
+                else:
+                    for idx2 in range(len(ctrlpts[0])):
+                        new_ctrlpts[idx - 1][idx2] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
+                                                      zip(new_ctrlpts[idx - 1][idx2], new_ctrlpts[idx][idx2])]
+        new_kv[k] = X[j]
+        k = k - 1
+        j -= 1
+
+    # Return control points and knot vector after refinement
+    return new_ctrlpts, new_kv
+
 def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
     return (u - knotvector[idx]) / (knotvector[idx + degree + 1 + num] - knotvector[idx])
 
@@ -447,139 +580,6 @@ def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
     else:
         return split_curve(split_curve(curve, t0)[1],t1)[0]
 
-
-def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
-    """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
-
-    Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
-
-    The algorithm automatically find the knots to be refined, i.e. the middle knots in the knot vector, and their
-    multiplicities, i.e. number of same knots in the knot vector. This is the basis of knot refinement algorithm.
-    This operation can be overridden by providing a list of knots via ``knot_list`` argument. In addition, users can
-    provide a list of additional knots to be inserted in the knot vector via ``add_knot_list`` argument.
-
-    Moreover, a numerical ``density`` argument can be used to automate extra knot insertions. If ``density`` is bigger
-    than 1, then the algorithm finds the middle knots in each internal knot span to increase the number of knots to be
-    refined.
-
-    **Example**: Let the degree is 2 and the knot vector to be refined is ``[0, 2, 4]`` with the superfluous knots
-    from the start and end are removed. Knot vectors with the changing ``density (d)`` value will be:
-
-    * ``d = 1``, knot vector ``[0, 1, 1, 2, 2, 3, 3, 4]``
-    * ``d = 2``, knot vector ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
-
-    Keyword Arguments:
-        * ``knot_list``: knot list to be refined. *Default: list of internal knots*
-        * ``add_knot_list``: additional list of knots to be refined. *Default: []*
-        * ``density``: Density of the knots. *Default: 1*
-
-    :param degree: degree
-    :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
-    :return: updated control points and knot vector
-    :rtype: tuple
-    """
-    # Get keyword arguments
-
-    knot_list =knotvector[degree:-degree] if knot_list is None else knot_list
-    add_knot_list = list() if add_knot_list is None else add_knot_list
-
-
-
-
-
-    # Add additional knots to be refined
-    if add_knot_list:
-        knot_list += list(add_knot_list)
-
-    # Sort the list and convert to a set to make sure that the values are unique
-    knot_list = sorted(set(knot_list))
-
-    # Increase knot density
-    for d in range(0, density):
-        rknots = []
-        for i in range(len(knot_list) - 1):
-            knot_tmp = knot_list[i] + ((knot_list[i + 1] - knot_list[i]) / 2.0)
-            rknots.append(knot_list[i])
-            rknots.append(knot_tmp)
-        rknots.append(knot_list[i + 1])
-        knot_list = rknots
-
-    # Find how many knot insertions are necessary
-    X = []
-    for mk in knot_list:
-        s = find_multiplicity(mk, knotvector)
-        r = degree - s
-        X += [mk for _ in range(r)]
-
-    # Check if the knot refinement is possible
-    if not X:
-
-        return list(ctrlpts),list(knotvector)
-
-    # Initialize common variables
-    r = len(X) - 1
-    n = len(ctrlpts) - 1
-    m = n + degree + 1
-    a = _find_span_linear(degree, knotvector, n, X[0])
-    b = _find_span_linear(degree, knotvector, n, X[r]) + 1
-
-    # Initialize new control points array
-    if isinstance(ctrlpts[0][0], float):
-        new_ctrlpts = [[] for _ in range(n + r + 2)]
-    else:
-        new_ctrlpts = [[[] for _ in range(len(ctrlpts[0]))] for _ in range(n + r + 2)]
-
-    # Fill unchanged control points
-    for j in range(0, a - degree + 1):
-        new_ctrlpts[j] = ctrlpts[j]
-    for j in range(b - 1, n + 1):
-        new_ctrlpts[j + r + 1] = ctrlpts[j]
-
-    # Initialize new knot vector array
-    new_kv = [0.0 for _ in range(m + r + 2)]
-
-    # Fill unchanged knots
-    for j in range(0, a + 1):
-        new_kv[j] = knotvector[j]
-    for j in range(b + degree, m + 1):
-        new_kv[j + r + 1] = knotvector[j]
-
-    # Initialize variables for knot refinement
-    i = b + degree - 1
-    k = b + degree + r
-    j = r
-
-    # Apply knot refinement
-    while j >= 0:
-        while X[j] <= knotvector[i] and i > a:
-            new_ctrlpts[k - degree - 1] = ctrlpts[i - degree - 1]
-            new_kv[k] = knotvector[i]
-            k -= 1
-            i -= 1
-        new_ctrlpts[k - degree - 1] = deepcopy(new_ctrlpts[k - degree])
-        for l in range(1, degree + 1):
-            idx = k - degree + l
-            alpha = new_kv[k + l] - X[j]
-            if abs(alpha) < tol:
-                new_ctrlpts[idx - 1] = deepcopy(new_ctrlpts[idx])
-            else:
-                alpha = alpha / (new_kv[k + l] - knotvector[i - degree + l])
-                if isinstance(ctrlpts[0][0], float):
-                    new_ctrlpts[idx - 1] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
-                                            zip(new_ctrlpts[idx - 1], new_ctrlpts[idx])]
-                else:
-                    for idx2 in range(len(ctrlpts[0])):
-                        new_ctrlpts[idx - 1][idx2] = [alpha * p1 + (1.0 - alpha) * p2 for p1, p2 in
-                                                      zip(new_ctrlpts[idx - 1][idx2], new_ctrlpts[idx][idx2])]
-        new_kv[k] = X[j]
-        k = k - 1
-        j -= 1
-
-    # Return control points and knot vector after refinement
-    return new_ctrlpts, new_kv
 
 def insert_knot_surface_u(self: BSplineSurfaceTuple | NURBSSurfaceTuple, t, num=1):
     cpts = np.copy(self.control_points)
@@ -1538,9 +1538,9 @@ def make_curves_compatible(curve1, curve2):
 
     print(curve1_.knot,curve2_.knot,)
 
-    curve1_r=refine_curve(curve1_, np.unique(curve2_.knot), 0)
+    curve1_r=refine_curve(curve1_, curve2_.knot, 0)
     print(curve1_.knot,curve1_r.knot)
-    curve2_r=refine_curve(curve2_, np.unique(curve1_.knot), 0)
+    curve2_r=refine_curve(curve2_, curve1_.knot, 0)
 
 
     return curve1_r, curve2_r
