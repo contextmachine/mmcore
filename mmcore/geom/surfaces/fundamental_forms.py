@@ -168,7 +168,7 @@ def classify_point(K,H):
     else:
         raise ValueError('Classification fail: K={K},H={H}')
 
-from scipy.integrate import odeint, ode, solve_ivp, simps, simpson
+from scipy.integrate import odeint, ode, solve_ivp, simpson
 
 
 def line_of_curvature(surface, u0, v0, principal_index, t_range):

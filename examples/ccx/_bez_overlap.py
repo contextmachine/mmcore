@@ -2,18 +2,13 @@ import math
 from typing import NamedTuple
 
 from mmcore.geom._nurbs_eval import (
-    NURBSSurfaceTuple,
     NURBSCurveTuple,
-    evaluate_nurbs_surface,
     evaluate_nurbs_curve,
-    _surface_interval,
-    _nurbs_to_tuple,
     _curve_interval,
 to_homogeneous_1d
 )
 import numpy as np
-from numpy.typing import NDArray
-from mmcore.geom._nurbs_knots import decompose_surface, decompose_curve, split_curve, make_curves_compatible
+
 from mmcore.numeric import compute_parametric_tolerance_curve, evaluate_curvature,compare_curvature
 from mmcore.numeric.aabb import aabb,point_in_aabb
 from mmcore.numeric.closest_point import nurbs_curve_closest_point
