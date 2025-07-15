@@ -12,7 +12,9 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-numpy = { version = "^2.0.2" }
+numpy = [{ version = "1.24.3", markers = "python_version <= '3.11'" },
+    { version = "^2.0.2", markers = "python_version > '3.11'" }
+]
 earcut = { version = "^1.1.5" }
 scipy = [
 { version = "<=1.13", markers = "python_version < '3.10'" },
