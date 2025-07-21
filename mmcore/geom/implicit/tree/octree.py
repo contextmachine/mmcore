@@ -105,20 +105,7 @@ class OctreeNode:
         return self._corners
     
 
-class OctreeNodeV2:                 # axis‑aligned box (AABB)
-    __slots__ = ("cx","cy","cz","hx","hy","hz","depth",
-                 "children","state")                 # state: -1 out, 0 unknown, 1 in
-    def __init__(self, center, half, depth):
-        self.cx, self.cy, self.cz = center           # floats
-        self.hx, self.hy, self.hz = half             # floats
-        self.depth  = depth
-        self.children = []
-        self.state  = 0
-    def get_min_max(self):
-        return [(self.cx - self.hx, self.cy - self.hy, self.cz - self.hz),
-        (self.cx+ self.hx,
-        self.cy+ self.hy,
-        self.cz+ self.hz)]
+
 
 
 def r_box(node):
@@ -155,6 +142,20 @@ def build_sdf_octree(node, sdf, max_depth, min_half=1e-3, leafs=None):
     return kept, vis, leafs
 
 
+class OctreeNodeV2:                 # axis‑aligned box (AABB)
+    __slots__ = ("cx","cy","cz","hx","hy","hz","depth",
+                 "children","state")                 # state: -1 out, 0 unknown, 1 in
+    def __init__(self, center, half, depth):
+        self.cx, self.cy, self.cz = center           # floats
+        self.hx, self.hy, self.hz = half             # floats
+        self.depth  = depth
+        self.children = []
+        self.state  = 0
+    def get_min_max(self):
+        return [(self.cx - self.hx, self.cy - self.hy, self.cz - self.hz),
+        (self.cx+ self.hx,
+        self.cy+ self.hy,
+        self.cz+ self.hz)]
 def subdivide(node, sdf, max_depth, min_half, leaves=None):
     if leaves is None:
         leaves = []
@@ -322,10 +323,11 @@ if __name__ == "__main__":
         x,y,z=p
         q=math.sqrt(x*x+y*y)-R
         return math.sqrt(q*q+z*z)-r
+    s=time.perf_counter()
     root = OctreeNode(center=[0, 0, 0], half=[2.0,2.0,2.0])  # world cube [-2,2]³
     max_depth = 6  # 128³ voxel resolution
     kept, visited ,leafs= build_sdf_octree(root, sdf_torus_vec, max_depth)
-
+    print(time.perf_counter()-s)
     print(f"Visited {visited:,d} nodes")
     print(f"Kept    {kept:,d} leaf cubes that may intersect the torus")
     from mmcore.geom.primitives import Tube

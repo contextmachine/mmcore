@@ -5,61 +5,21 @@ Adaptive Marching‑Cubes driven by the 1‑Lipschitz property of a true SDF.
 – Generates the *full* 256‑case MC table at run‑time (no hand typing).
 – Extracts a watertight triangle mesh and writes it to torus.ply.
 
-Tested on Python 3.11, no third‑party modules required.
+Tested on Python 3.11, no third‑party modules required.
 """
 
 from __future__ import annotations
 import math, itertools
 from collections import defaultdict
-from functools import lru_cache
+
+import numpy as np
+
+from mmcore.geom.implicit.tree.octree import OctreeNode,build_sdf_octree
 from typing import List, Tuple
 
 # -------------------------------------------------------------------------
 # 1.  A TRUE signed‑distance function: torus centred at the origin
 # -------------------------------------------------------------------------
-
-
-def sdf_torus(p: Tuple[float, float, float], R: float = 1.0, r: float = 0.30) -> float:
-    x, y, z = p
-    qx = math.hypot(x, y) - R
-    return math.hypot(qx, z) - r  # distance minus tube radius
-
-
-# -------------------------------------------------------------------------
-# 2.  Adaptive axis‑aligned bounding boxes (AABB)
-# -------------------------------------------------------------------------
-class AABB:
-    __slots__ = ("cx", "cy", "cz", "hx", "hy", "hz", "depth", "children")
-
-    def __init__(self, centre, half, depth=0):
-        self.cx, self.cy, self.cz = map(float, centre)
-        self.hx, self.hy, self.hz = map(float, half)
-        self.depth = depth
-        self.children: List[AABB] = []
-
-
-def half_diag(n: AABB) -> float:
-    return math.sqrt(n.hx * n.hx + n.hy * n.hy + n.hz * n.hz)
-
-
-def subdivide(node: AABB, sdf, max_depth: int, min_half: float = 1e-3) -> Tuple[int, int]:
-    rb = half_diag(node)
-    dc = sdf((node.cx, node.cy, node.cz))
-
-    if dc > rb:  # empty
-        return 0, 1
-    if dc < -rb or node.depth >= max_depth or max(node.hx, node.hy, node.hz) < min_half:  # full or limit
-        return 1, 1
-
-    kept = visited = 1
-    hx2, hy2, hz2 = node.hx * 0.5, node.hy * 0.5, node.hz * 0.5
-    for sx, sy, sz in itertools.product((-1, 1), repeat=3):
-        child = AABB((node.cx + sx * hx2, node.cy + sy * hy2, node.cz + sz * hz2), (hx2, hy2, hz2), node.depth + 1)
-        node.children.append(child)
-        k, v = subdivide(child, sdf, max_depth, min_half)
-        kept += k
-        visited += v
-    return kept, visited
 
 
 # -------------------------------------------------------------------------
@@ -72,7 +32,7 @@ VERTS = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1
 EDGE2IDX, EDGES = {}, []
 for v0, v1 in itertools.combinations(range(8), 2):
     EDGE2IDX[(v0, v1)] = EDGE2IDX[(v1, v0)] = len(EDGES)
-    EDGES.append((v0, v1))  # index → (vertex0, vertex1)
+    EDGES.append((v0, v1))  # index → (vertex0, vertex1)
 
 # 6‑tet “long‑diagonal” decomposition (works fine for MC table generation)
 TETS = [(0, 5, 1, 6), (0, 1, 2, 6), (0, 2, 3, 6), (0, 3, 7, 6), (0, 7, 4, 6), (0, 4, 5, 6)]
@@ -169,9 +129,10 @@ def interpolate(p0, p1, v0, v1, iso=0.0):
     return (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]), p0[2] + t * (p1[2] - p0[2]))
 
 
-def polygonise_leaf(node: AABB, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True):
+def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True):
     # Corner positions & SDF values
     cpos, cval = [], []
+    
     for vx, vy, vz in VERTS:
         px = node.cx + (vx * 2 - 1) * node.hx
         py = node.cy + (vy * 2 - 1) * node.hy
@@ -184,7 +145,7 @@ def polygonise_leaf(node: AABB, sdf, vdict: dict, faces: List[Tuple[int, int, in
     if mask == 0 or mask == 0xFF:  # no surface in this box
         return
 
-    # On‑demand vertex cache: edge‑index → 3‑tuple
+    # On‑demand vertex cache: edge‑index → 3‑tuple
     evert = {}
 
     def vert_on_edge(eid: int):
@@ -225,7 +186,7 @@ def polygonise_leaf(node: AABB, sdf, vdict: dict, faces: List[Tuple[int, int, in
         v2 = _v_id(p2, vdict)
         faces.append((v0, v1, v2))
 
-
+ 
 def _v_id(p, vdict, q=1e-6):
     key = (round(p[0] / q), round(p[1] / q), round(p[2] / q))
     if key not in vdict:
@@ -257,9 +218,22 @@ def write_ply(path: str, vdict: dict, faces: List[Tuple[int, int, int]]):
 # -------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    root = AABB((0, 0, 0), (2, 2, 1))  # anisotropic root volume
+    def sdf_torus_vec(p, R=1.0, r=0.30):
+        """
+        True signed‑distance function of a torus centred at the origin, lying
+        in the XY‑plane (so the 'ring' is R units from the Z‑axis).
+        p : (..., 3) array‑like of points
+        returns : (...,) ndarray of signed distances
+        """
+        p = np.asarray(p, dtype=float)
 
-    kept, visited = subdivide(root, sdf_torus, max_depth=7)
+        x, y, z = p[..., 0], p[..., 1], p[..., 2]
+        q = np.stack((np.sqrt(x * x + y * y) - R, z), axis=-1)
+        return np.linalg.norm(q, axis=-1) - r  # ∥q∥ − r
+
+    root = OctreeNode((0, 0, 0), (2, 2, 1))  # anisotropic root volume
+
+    kept, visited ,leafs= build_sdf_octree(root, sdf_torus_vec, max_depth=7)
     print(f"Tree: visited {visited:,d}, kept {kept:,d} leaves")
     import time
 
@@ -271,7 +245,7 @@ if __name__ == "__main__":
         if n.children:
             stack.extend(n.children)
         else:
-            polygonise_leaf(n, sdf_torus, verts, faces, preserve_orientation=True)
+            polygonise_leaf(n, sdf_torus_vec, verts, faces, preserve_orientation=True)
     print(time.perf_counter() - s)
 
     print(f"Mesh: {len(verts):,d} vertices, {len(faces):,d} triangles")
