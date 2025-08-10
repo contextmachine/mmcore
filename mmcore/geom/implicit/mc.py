@@ -132,7 +132,7 @@ def interpolate(p0, p1, v0, v1, iso=0.0):
 def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True):
     # Corner positions & SDF values
     cpos, cval = [], []
-    
+
     for vx, vy, vz in VERTS:
         px = node.cx + (vx * 2 - 1) * node.hx
         py = node.cy + (vy * 2 - 1) * node.hy
@@ -186,7 +186,93 @@ def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, i
         v2 = _v_id(p2, vdict)
         faces.append((v0, v1, v2))
 
- 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4‑bis.  Polygonise *all* leaves in one vectorised pass
+# ──────────────────────────────────────────────────────────────────────────────
+def polygonise_leaves_bulk(
+    leaves: list[OctreeNode],
+    sdf,
+    iso: float = 0.0,
+    preserve_orientation: bool = True,
+):
+    """
+    Build a watertight mesh for an *arbitrary* list of octree leaves
+    with only TWO vectorised SDF calls, no matter how many leaves.
+
+    Returns
+    -------
+    vdict : dict   {rounded‑coord → index}
+    faces : list   [(i, j, k), …]
+    """
+    if not leaves:
+        return {}, []
+
+    # ── 1.  Corner sampling in one shot ───────────────────────────────────────
+    n = len(leaves)
+    centres = np.array([(n.cx, n.cy, n.cz) for n in leaves])
+    halves  = np.array([(n.hx, n.hy, n.hz) for n in leaves])
+
+    offs = np.array([(vx * 2 - 1, vy * 2 - 1, vz * 2 - 1) for vx, vy, vz in VERTS])
+    cpos = centres[:, None, :] + halves[:, None, :] * offs          # (n, 8, 3)
+    cval = sdf(cpos.reshape(-1, 3)).reshape(n, 8)                   # ← SDF #1
+
+    # Bit‑mask of inside corners per cube
+    masks = np.zeros(n, dtype=np.uint16)
+    for i in range(8):
+        masks |= (cval[:, i] < iso).astype(np.uint16) << i
+
+    # ── 2.  Build triangle soup (no more SDF calls here) ──────────────────────
+    tri_coords, tri_eps = [], []            # collect for optional orientation
+    faces, vdict        = [], {}            # final mesh
+    for idx, node in enumerate(leaves):
+        m = masks[idx]
+        if m in (0, 0xFF):
+            continue
+
+        # Local caches are tiny and stay per leaf
+        cv, cp = cval[idx], cpos[idx]
+        evert = {}
+
+        def v_on_edge(eid: int):
+            if eid not in evert:
+                a, b = EDGES[eid]
+                evert[eid] = interpolate(cp[a], cp[b], cv[a], cv[b], iso)
+            return evert[eid]
+
+        for i in range(0, len(MC_TABLE[m]) - 1, 3):
+            p0, p1, p2 = (v_on_edge(e) for e in MC_TABLE[m][i : i + 3])
+            tri_coords.append((p0, p1, p2))
+            tri_eps.append(1e-4 * max(node.hx, node.hy, node.hz))
+
+    if not tri_coords:
+        return {}, []
+
+    # ── 3.  One‑shot orientation fix (optional) ───────────────────────────────
+    if preserve_orientation:
+        tris = np.asarray(tri_coords)                        # (T, 3, 3)
+        eps  = np.asarray(tri_eps)[:, None]                  # (T, 1)
+
+        nrm  = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+        ln   = np.linalg.norm(nrm, axis=1, keepdims=True)
+        nrm  = np.where(ln == 0, nrm, nrm / ln) * eps        # unit * eps
+
+        ctr  = tris.mean(axis=1)
+        test = np.concatenate([ctr + nrm, ctr - nrm], axis=0)
+        d    = sdf(test).reshape(2, -1)                      # ← SDF #2
+
+        flip = d[0] < d[1]                                   # inward?
+        for k, f in enumerate(flip):
+            if f:
+                p0, p1, p2 = tri_coords[k]
+                tri_coords[k] = (p0, p2, p1)                 # swap
+
+    # ── 4.  Deduplicate & index vertices ──────────────────────────────────────
+    for p0, p1, p2 in tri_coords:
+        faces.append((_v_id(p0, vdict), _v_id(p1, vdict), _v_id(p2, vdict)))
+
+    return vdict, faces
+
 def _v_id(p, vdict, q=1e-6):
     key = (round(p[0] / q), round(p[1] / q), round(p[2] / q))
     if key not in vdict:
@@ -216,6 +302,14 @@ def write_ply(path: str, vdict: dict, faces: List[Tuple[int, int, int]]):
 # -------------------------------------------------------------------------
 # 7.  Demo run
 # -------------------------------------------------------------------------
+def marching_cubes(sdf, bounds,min_half=1e-3,max_depth=7):
+    c=(bounds[0,:]+bounds[1,:])/2
+    h=bounds[1, :]-c
+    root = OctreeNode(c, h)  # anisotropic root volume
+    
+    kept, visited ,leafs= build_sdf_octree(root, sdf,min_half=min_half, max_depth=max_depth)
+    verts, faces = polygonise_leaves_bulk(leafs, sdf)
+    return verts, faces
 if __name__ == "__main__":
 
     def sdf_torus_vec(p, R=1.0, r=0.30):
@@ -240,12 +334,14 @@ if __name__ == "__main__":
     s = time.perf_counter()
     verts, faces = {}, []
     stack = [root]
-    while stack:
-        n = stack.pop()
-        if n.children:
-            stack.extend(n.children)
-        else:
-            polygonise_leaf(n, sdf_torus_vec, verts, faces, preserve_orientation=True)
+
+    # while stack:
+    #    n = stack.pop()
+    #    if n.children:
+    #        stack.extend(n.children)
+    #    else:
+    #        polygonise_leaf(n, sdf_torus_vec, verts, faces, preserve_orientation=True)
+    verts, faces=polygonise_leaves_bulk(leafs,sdf_torus_vec)
     print(time.perf_counter() - s)
 
     print(f"Mesh: {len(verts):,d} vertices, {len(faces):,d} triangles")

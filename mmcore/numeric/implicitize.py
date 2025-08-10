@@ -47,7 +47,7 @@ def poly2d_pow(poly, exponent):
         return half2
     return poly2d_mul(half2, poly)
 '''
-def implicitize_power_basis_patch(Ax, Ay, Az, Aw, D=None):
+def implicitize_power_basis_ruled_patch(Ax, Ay, Az, Aw, D=None):
     """
     Given four 2D coefficient arrays Ax, Ay, Az, Aw of shape (m+1, n+1) each,
     representing the power-basis form of X(u,v), Y(u,v), Z(u,v), W(u,v) on a
@@ -58,7 +58,7 @@ def implicitize_power_basis_patch(Ax, Ay, Az, Aw, D=None):
     """
     m, n = Ax.shape[0] - 1, Ax.shape[1] - 1
     if D is None:
-        D = 2*m* n
+        D = m+ n
 
     # 1) Precompute X^k, Y^k, Z^k, W^k for k = 0..D
     Px = [None] * (D + 1)
@@ -220,7 +220,7 @@ def curve_patch_intersection(Ax, Ay, Az, Aw, Cx, Cy, Cz, Cw, tol=1e-6):
       points: list of 3D intersection points corresponding to those t.
     """
     # 1) Implicitize patch:
-    C4 = implicitize_power_basis_patch(Ax, Ay, Az, Aw)
+    C4 = implicitize_power_basis_ruled_patch(Ax, Ay, Az, Aw)
     D_patch = C4.shape[0] - 1
 
     # 2) Dehomogenize to get f(x,y,z):
@@ -331,14 +331,14 @@ def mono_to_nurbs(mono):
         )
     return bez
 
-def implicitize_nurbs_surf(patch:NURBSSurfaceTuple, D=None):
+def implicitize_rational_bezier_ruled_surf(patch:NURBSSurfaceTuple, D=None):
 
     if len(np.unique(patch.knot_u  ))>2 or len(np.unique(patch.knot_v  ))>2:
         raise ValueError('input patch should be Bezier')
 
 
     mono=nurbs_surf_to_mono(patch)
-    return implicitize_power_basis_patch(mono[...,0], mono[...,1], mono[...,2], mono[...,3], D=D)
+    return implicitize_power_basis_ruled_patch(mono[...,0], mono[...,1], mono[...,2], mono[...,3], D=D)
 
 
 def dehomogenize_and_evaluate(C4):
@@ -385,7 +385,7 @@ if __name__ == "__main__":
                    [1.0, 0.0, 0.0]])
     Aw = np.ones((3, 3))
     nurbs_patch=mono_to_nurbs(np.stack([Ax, Ay, Az, Aw],axis=-1))
-    C4 = implicitize_power_basis_patch(Ax, Ay, Az, Aw)
+    C4 = implicitize_power_basis_ruled_patch(Ax, Ay, Az, Aw)
     C3, f = dehomogenize_and_evaluate(C4)
     from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
     # Test f on a random point (u, v) -> (x, y, z)
@@ -414,7 +414,7 @@ if __name__ == "__main__":
     pt2=[2.463972, 1, 0.420559]
     pt3 = evaluate_nurbs_surface(part, 0.5, 0.5)['S']
 
-    implicit_patch=implicitize_nurbs_surf(part)
+    implicit_patch=implicitize_rational_bezier_ruled_surf(part)
     C3, f = dehomogenize_and_evaluate(implicit_patch)
     print("F(x,y,z,1) at (x,y,z) from patch (must be negative):",
           f(*pt),f(*pt)<0)

@@ -6,7 +6,7 @@ from mmcore.geom._nurbs_knots import _curve_interval,split_curve,split_curve_mul
 
 
 from mmcore.geom.bvh.lbvh import BVH,build_bvh,AABB,BVHNode,bvh_intersect
-from mmcore.numeric.newton.cnewton import newtons_method
+from mmcore.numeric.newton import newtons_method
 
 from mmcore.geom.nurbs import NURBSCurve
 from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
@@ -20,7 +20,7 @@ def _is_new(ints,new_int, tol=1e-4):
     return True
 
 def nurbs_curve_bvh(curve:NURBSCurveTuple, spt:float=1e-3)->tuple[BVH,list[NURBSCurveTuple]]:
-    #pts1, param1 = adaptive_polyline(_tuple_to_nurbs(curve), tol=spt, max_depth=100)
+    #pts1, param1 = adaptive_polyline(_tuple_to_nurbs(curve), spt=spt, max_depth=100)
     curves1=decompose_curve(curve)
     #curves1=split_curve_multiple(curve,param1[1:][:-1])
     #bbs1 = [AABB.from_points(crv.control_points)for crv in curves1]
@@ -57,10 +57,10 @@ def _bez_ccx(
         
         def _eq(x):
             x=np.array(x)
-            print(x)
+    
             d = evaluate_nurbs_curve(a, x[0], 0)["C"] - evaluate_nurbs_curve(b, x[1], 0)["C"]
             return np.dot(d, d)
-        print(tmid,smid)
+        
         res = np.array(newtons_method(_eq, np.array([tmid, smid])))
 
         if res is None:
@@ -78,7 +78,7 @@ def _bez_ccx(
     ints.sort(key=lambda x: x[1][0])
     return ints
 
-
+from mmcore.numeric import compute_parametric_tolerance_curve
 def nurbs_ccx(curve1:NURBSCurve|NURBSCurveTuple,curve2:NURBSCurve|NURBSCurveTuple, spt:float=1e-3, bvh1:BVH=None,bvh2:BVH=None):
 
     if bvh1 is None:
@@ -103,15 +103,17 @@ def nurbs_ccx(curve1:NURBSCurve|NURBSCurveTuple,curve2:NURBSCurve|NURBSCurveTupl
         tmid=t0+(t1-t0)/2
         smid = s0 + (s1 - s0) / 2
         def _eq(x):
+            x=np.asarray(x)
+            print(x)
             d = evaluate_nurbs_curve(a, x[0], 0)["C"] - evaluate_nurbs_curve(b, x[1], 0)["C"]
             return np.dot(d, d)
 
-        res = np.array(newtons_method(_eq, np.array([tmid, smid])))
-
-        if res is None:
+        res = newtons_method(_eq, np.array([tmid, smid]))
+       
+        if res is None or not np.all(np.isfinite(res) ):
             continue
         else:
-
+            res=np.asarray(res)
             d2 = _eq(res)
 
             if np.isclose(d2,0) or (np.sqrt(d2)<spt):

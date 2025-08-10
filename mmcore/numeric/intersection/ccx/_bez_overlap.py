@@ -9,9 +9,11 @@ to_homogeneous_1d
 )
 import numpy as np
 
-from mmcore.numeric import compute_parametric_tolerance_curve, evaluate_curvature,compare_curvature
+from mmcore.geom.bvh.lbvh import BVHNode
+from mmcore.numeric import compute_parametric_tolerance_curve, evaluate_curvature,compare_curvature, \
+    evaluate_sectional_curvature
 from mmcore.numeric.aabb import aabb,point_in_aabb
-from mmcore.numeric.closest_point import nurbs_curve_closest_point
+from mmcore.numeric.closest_point import nurbs_curve_closest_point,nurbs_surface_closest_point
 
 class CCXInt(NamedTuple):
     s:float
@@ -34,13 +36,16 @@ def _reverse_param(t:float, interval:tuple[float,float]):
     :return:
     """
     return (interval[0] + interval[1]   )-t
+
+
 _EPS=np.finfo(np.float64).eps
+
 def _aabb(pts):
     return np.array([np.min(pts, axis=0), np.max(pts, axis=0)])
 
 _min_aeps=math.sin(math.radians(1))
 
-def _bez_find_overlap(c1:NURBSCurveTuple,c2:NURBSCurveTuple,  spt:float=1e-3,angle_tol:float=0.052,**kwargs):
+def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, angle_tol:float=0.052, **kwargs):
     """Finds the overlap between two Bezier curves.
      """
 
@@ -153,6 +158,167 @@ def _bez_find_overlap(c1:NURBSCurveTuple,c2:NURBSCurveTuple,  spt:float=1e-3,ang
     # return False,ints
     return True, Overlap(    CCXInt(*min_s[0], *min_s[2],*min_s[1]),    CCXInt(*max_s[0], *max_s[2],*max_s[1]))
 
+from mmcore.geom._nurbs_eval import (
+    NURBSCurveTuple, NURBSSurfaceTuple,
+    evaluate_nurbs_curve, evaluate_nurbs_surface
+)
+from mmcore.numeric import (
+   
+    compute_parametric_tolerance_curve,
+    compare_curvature
+)
+from mmcore.numeric.aabb import aabb, point_in_aabb,aabb_overlap
+
+class CSXInt(NamedTuple):
+    t: float        # curve parameter
+    uv: tuple[float,float]
+    c_eval: dict
+    s_eval: dict
+    dt: float
+    duv: tuple[float,float]
+
+class CurveSurfaceOverlap(NamedTuple):
+    start: CSXInt
+    end:   CSXInt
+class CurveBoundaryHit(NamedTuple):
+    t: float
+    s: float
+    uv: tuple[float,float]
+
+    pt: np.ndarray
+    boundary_curve:   NURBSCurveTuple
+
+
+from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx,nurbs_curve_bvh
+from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
+
+class CurveTree:
+    __slots__ = ("bvh", "curve",'prims')
+    def __init__(self, curve: NURBSCurveTuple,bvh:BVHNode, prims:list[NURBSCurveTuple]):
+        self.curve = curve
+        self.bvh = bvh
+        self.prims=prims
+from mmcore.geom._nurbs_eval import _surface_interval
+def _curve_boundary_hits(crv: NURBSCurveTuple, srf: NURBSSurfaceTuple, spt: float = 1e-3):
+
+    u0_curve, u1_curve, v0_curve, v1_curve=boundaries=extract_surface_boundaries_tuple(srf)
+    (u0,u1),(v0,v1)=_surface_interval(srf)
+
+    
+
+    ints=[]
+
+    for i,bcrv in enumerate(boundaries):
+ 
+        res=nurbs_ccx(crv, bcrv, spt)
+        for inter in res:
+            pt,(t,s)=inter
+            if i==0:
+                hit=CurveBoundaryHit(t, s,(u0,s), pt,bcrv)
+            elif i==1:
+                hit = CurveBoundaryHit(t, s, (u1, s), pt,bcrv)
+            elif i==2:
+                hit = CurveBoundaryHit(t, s, (s, v0), pt, bcrv)
+            elif i==3:
+                hit = CurveBoundaryHit(t, s, (s, v1), pt, bcrv)
+            else:
+                raise ValueError(f'{i} boundaries')
+            ints.append(hit)
+
+       
+        
+    ints.sort(key=lambda x: x.t)
+    return ints
+
+
+def _bez_curve_surface_overlap(
+        crv: NURBSCurveTuple,
+        srf: NURBSSurfaceTuple,
+        spt: float = 1e-3,
+        angle_tol: float = 0.052):
+    """
+    Detects whether a rational Bézier/NURBS curve `crv` overlaps a
+    rational Bézier/NURBS surface patch `srf` over a *finite* segment.
+    Adapted from Hu–Maekawa–Patrikalakis (1997), §3.1.2.
+    Returns (flag, data) where:
+        flag == True  → confirmed overlap,
+        flag == False → no overlap (but `data` may hold tangential pts).
+    """
+    # 1  Bounding‑box coarse cull
+    bb_crv = aabb(crv.control_points)
+    bb_srf = aabb(srf.control_points.reshape(-1, 3))
+    if not aabb_overlap(bb_crv, bb_srf):
+        return False, []
+
+    # 2  Candidate points: curve ends + intersections with patch boundary
+    # cand_params = {0.0, 1.0}
+
+    cand_params=_curve_boundary_hits(crv, srf, spt)
+
+    # 3  Classify each candidate
+    hits = []
+
+    for inter in cand_params:
+        inter:CurveBoundaryHit
+        c_eval = evaluate_nurbs_curve(crv, inter.t, d_order=2)
+
+        s_eval = evaluate_nurbs_surface(srf, *inter.uv, d_order=2)
+        c_eval["T"], c_eval["K"], _ = evaluate_curvature(c_eval["C1"], c_eval["C2"])
+
+        # c_eval["NC2"]=c_eval["C2"]/np.linalg.norm(c_eval["C2"])
+        n_s = np.cross(s_eval["Su"], s_eval["Sv"])
+        if abs(np.dot(c_eval["T"], n_s)) < angle_tol :
+            if not np.allclose(c_eval['K'],0):
+
+                NC=np.cross(  c_eval["T"],c_eval["NC2"])
+                # NC1,NC2=c_eval["C1"]/,c_eval["C2"]
+
+                success, sectional_curvature_vector = evaluate_sectional_curvature(
+                    s_eval["Su"], s_eval["Sv"], s_eval["Suu"], s_eval["Suv"], s_eval["Svv"], NC
+                )
+
+                # first‑order check: tangency
+
+                # second‑order curvature check
+                if (1-np.dot(sectional_curvature_vector/np.linalg.norm(sectional_curvature_vector),c_eval['K']/np.linalg.norm(c_eval['K'])))<angle_tol:
+
+                    hits.append(((inter.t, inter.uv), (c_eval, s_eval)))
+            else:
+                hits.append(((inter.t, inter.uv), (c_eval, s_eval)))
+
+    if len(hits) < 2:
+        return False, hits
+
+    # 4  Determine parametric interval of overlap
+    hits.sort(key=lambda h: h[0][0])       # sort by curve parameter
+    (t0, uv0),  eval0 = hits[0]
+    (t1, uv1),  eval1 = hits[-1]
+
+    # 5  Mid‑segment sanity test (as in your curve/curve version)
+    tm = (t0 + t1) / 2
+    mid_c = evaluate_nurbs_curve(crv, tm, d_order=2)
+    mid_c["T"], mid_c["K"], _ = evaluate_curvature(mid_c["C1"], mid_c["C2"])
+
+    uv_m, (fx_m, s_eval_m, duv_m) = nurbs_surface_closest_point(
+        srf, mid_c["C"], spt=spt, angle_tol=angle_tol)
+
+    mid_c["NC2"] = mid_c["C2"] / np.linalg.norm(mid_c["C2"])
+    NC = np.cross(mid_c["T"], mid_c["NC2"])
+    # NC1,NC2=c_eval["C1"]/,c_eval["C2"]
+
+    success, sectional_curvature_vector = evaluate_sectional_curvature(
+        s_eval_m["Su"], s_eval_m["Sv"], s_eval_m["Suu"], s_eval_m["Suv"], s_eval_m["Svv"], NC
+    )
+    n_sm = np.cross(s_eval_m["Su"], s_eval_m["Sv"])
+    n_sm/=np.linalg.norm(n_sm)
+    if fx_m > spt or abs(np.dot(mid_c["T"], n_sm)) > angle_tol or (1-np.dot(sectional_curvature_vector/np.linalg.norm(sectional_curvature_vector),mid_c['K']/np.linalg.norm(mid_c['K'])))>angle_tol:
+
+        return False, hits
+
+    return True, CurveSurfaceOverlap(
+        CSXInt(t0, uv0, *eval0, 0., (0.,0.)),
+        CSXInt(t1, uv1, *eval1,  0., (0.,0.))
+    )
 
 if __name__=="__main__":
     import numpy as np
@@ -186,7 +352,7 @@ if __name__=="__main__":
           ),
     weights=np.array([1., 1., 1., 1.])
     )
-    res=_bez_find_overlap(crv1,crv2) # True
+    res=_bez_curve_overlap(crv1, crv2) # True
     print(res)
     assert res[0] == True
     crv3 = NURBSCurveTuple(
@@ -196,7 +362,7 @@ if __name__=="__main__":
         weights=np.array([1.0, 1.0, 1.0, 1.0]),
     )
 
-    res2 = _bez_find_overlap(crv2, crv3) # False
+    res2 = _bez_curve_overlap(crv2, crv3) # False
     print(res2)
     assert res2[0] == False
     import numpy as np
@@ -212,7 +378,7 @@ if __name__=="__main__":
     weights=np.array([1., 1., 1., 1.])
     )
 
-    res3 = _bez_find_overlap(crv2, crv4)  # False
+    res3 = _bez_curve_overlap(crv2, crv4)  # False
     print(res3)
     assert res3[0] == False
     line1 = NURBSCurveTuple(
@@ -228,7 +394,7 @@ if __name__=="__main__":
         weights=np.array([1.0, 1.0]),
     )
 
-    res4=_bez_find_overlap(line1,line2) # True
+    res4=_bez_curve_overlap(line1, line2) # True
     print(res4)
     assert res4[0] == True
     crv5 = NURBSCurveTuple(
@@ -261,7 +427,7 @@ if __name__=="__main__":
         control_points=np.array([[-14.0, -14.0, 0.0], [-4.0, 28.0, 0.0], [15.0, -14.0, 0.0]]),
         weights=np.array([1.0, 1.0, 1.0]),
     )
-    res5=_bez_find_overlap(crv5,crv6) # False
+    res5=_bez_curve_overlap(crv5, crv6) # False
     print(res5)
     assert res5[0] == False
     crv7= NURBSCurveTuple(
@@ -280,7 +446,7 @@ if __name__=="__main__":
            [ 15.        , -14.        ,   0.        ]]),
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1.])
     )
-    res6 = _bez_find_overlap(crv6, crv7)  # True
+    res6 = _bez_curve_overlap(crv6, crv7)  # True
     print(res6)
     assert res6[0] == True
     crv8 = NURBSCurveTuple(
@@ -319,7 +485,7 @@ if __name__=="__main__":
         ),
         weights=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
     )
-    res7 = _bez_find_overlap(crv6, crv8)  # False
+    res7 = _bez_curve_overlap(crv6, crv8)  # False
     print(res7)
     assert res7[0]==False
 
@@ -359,6 +525,6 @@ if __name__=="__main__":
         ),
         weights=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
     )
-    res8 = _bez_find_overlap(crv6, crv9)  # False
+    res8 = _bez_curve_overlap(crv6, crv9)  # False
     print(res8)
     assert res8[0]==False

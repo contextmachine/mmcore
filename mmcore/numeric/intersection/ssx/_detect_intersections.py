@@ -188,7 +188,7 @@ def _detect_intersections_deep(g1, g2, chs: dict, spt=0.01, tol=1e-5, dbg: Debug
     # ii=np.zeros((2,3))
     # aabb_intersection(bb1,bb2,ii)
 
-    # if np.min(ii[1]-ii[0]) < tol:
+    # if np.min(ii[1]-ii[0]) < spt:
     #    # Бокс не маленький, но очень плоский. объекты не пересекаются
     #    #dddd[2] = True
     #
@@ -253,7 +253,7 @@ def _detect_intersections_deep(g1, g2, chs: dict, spt=0.01, tol=1e-5, dbg: Debug
     for gg in g11:
         for gh in g12:
             # print('dd',gg.surface.interval(),gh.surface.interval())
-            # res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
+            # res = _detect_intersections_deep(gg, gh, chs,spt=spt, dbg= dbg1[ii])
             res = _detect_intersections_deep(gg, gh, chs, spt=spt, tol=tol)
             ii += 1
 

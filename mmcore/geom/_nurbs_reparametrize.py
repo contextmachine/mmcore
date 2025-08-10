@@ -216,26 +216,6 @@ def generate_knot_vector(u: np.ndarray, degree: int) -> List[float]:
     return knot
 
 
-def bspline_basis(j: int, p: int, knot: List[float], u: float) -> float:
-    """
-    Cox-de Boor recursion for B-spline basis function.
-    """
-    if p == 0:
-        if knot[j] <= u < knot[j + 1] or (u == knot[-1] and u == knot[j + 1]):
-            return 1.0
-        else:
-            return 0.0
-    denom1 = knot[j + p] - knot[j]
-    term1 = 0.0
-    if denom1 != 0:
-        term1 = (u - knot[j]) / denom1 * bspline_basis(j, p - 1, knot, u)
-    denom2 = knot[j + p + 1] - knot[j + 1]
-    term2 = 0.0
-    if denom2 != 0:
-        term2 = (knot[j + p + 1] - u) / denom2 * bspline_basis(j + 1, p - 1, knot, u)
-    return term1 + term2
-
-
 def interpolate_nurbs_curve(points: np.ndarray, degree: int) -> NURBSCurveTuple:
     """
     Interpolate a set of points with a (non-rational) B-spline curve of given degree.
@@ -266,18 +246,7 @@ def interpolate_nurbs_curve(points: np.ndarray, degree: int) -> NURBSCurveTuple:
     )
 
 
-# ---------------------------------------------------------------------------
-# Example usage:
-# --------------
-# Suppose we have an original NURBS curve (curve_orig) defined as a NURBSCurveTuple.
-# We can reparameterize it by arc length as follows:
-#
-#    new_curve = reparameterize_curve(curve_orig, tol=1e-5)
-#
-# Then new_curve is a NURBS curve whose parameter is (approximately) the arc length.
-#
-# Good luck!
-# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     # For testing, one would need to define an example NURBS curve.
     # Here we define a simple quadratic NURBS curve (non-rational case for simplicity).

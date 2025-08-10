@@ -92,7 +92,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
 
         >>> from mmcore.geom.nurbs import NURBSCurve
         >>> nc1, nc2 = NURBSCurve(pts1, degree=1), NURBSCurve(pts2, degree=1)
-        >>> ccx(nc1, nc2, tol=1e-3)
+        >>> ccx(nc1, nc2, spt=1e-3)
         [(0.4714, 0.1658), (0.4718, 0.1659), (1.4348, 0.3157), (1.4353, 0.3157),
          (2.1610, 0.1302), (2.1609, 0.1304)]
 
@@ -100,7 +100,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
         >>> pts3 = np.copy(pts1)
         >>> pts3[..., -1] += 1e-11  # Slight adjustment to the z-coordinate
         >>> nc3 = NURBSCurve(pts3, degree=1)
-        >>> ccx(nc3, nc2, tol=1e-3)  # No intersections found due to coplanarity
+        >>> ccx(nc3, nc2, spt=1e-3)  # No intersections found due to coplanarity
         []
 
     """
@@ -182,7 +182,7 @@ def curve_pix(curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, 
     """
     implicit_form= getattr(implicit, "implicit", implicit)
     evaluate_parametric_form = getattr(curve, "evaluate", curve)
-    #tol = tol
+    #spt = spt
     roots = []
     for start, end in divide_interval(*curve.interval(), step=step):
         roots.extend(
@@ -239,7 +239,7 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
         ...                              (49.260, -13.419, 0.0)]))
         >>> second = NURBSpline(np.array([(40.965, -3.892, 0.0), (-9.548, -28.039, 0.0),
         ...                               (4.168, -58.265, 0.0), (37.269, -58.101, 0.0)]))
-        >>> intersections = curve_ppx(first, second, tol=0.001)
+        >>> intersections = curve_ppx(first, second, spt=0.001)
         >>> print(intersections)
         [(0.6007, 0.3717)]
     """

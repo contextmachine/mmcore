@@ -11,7 +11,7 @@ def ccd(curve1, curve2, tol: float = 0.001):
     This function calculates all minima of the distance function between two parametric curves
     over their respective domains. It first evaluates the squared distance between points on
     `curve1` and `curve2`, then refines the found minima using a Newton's method, where the
-    accuracy of these minima is controlled by `tol`.
+    accuracy of these minima is controlled by `spt`.
 
     :param curve1:
         The first curve, which must implement an `evaluate(t)` method that returns a point
@@ -22,7 +22,7 @@ def ccd(curve1, curve2, tol: float = 0.001):
         and an `interval()` method that returns the domain of `s` as a tuple `(s_min, s_max)`.
     :param tol:
         The tolerance for Newton's method, which is used to refine the minima found.
-        Smaller values of `tol` will result in more accurate minima but may require more iterations.
+        Smaller values of `spt` will result in more accurate minima but may require more iterations.
         Default is 0.001.
 
     :return:
@@ -35,7 +35,7 @@ def ccd(curve1, curve2, tol: float = 0.001):
 
     Usage example::
 
-        minima = ccd(curve1, curve2, tol=0.001)
+        minima = ccd(curve1, curve2, spt=0.001)
         for t, s, dist in minima:
     """
 
@@ -53,7 +53,7 @@ def proximity_points_curve_curve(curve1, curve2, tol: float = 0.0001):
 
     This function uses the CCD algorithm to identify the point on each curve that is closest
     to the other. The points are refined using Newton's method with the accuracy controlled by
-    `tol`. It returns the parameters for these points and the corresponding minimum distance.
+    `spt`. It returns the parameters for these points and the corresponding minimum distance.
 
     :param curve1:
         The first curve, expected to implement `evaluate(t)` and `interval()` methods.
@@ -61,7 +61,7 @@ def proximity_points_curve_curve(curve1, curve2, tol: float = 0.0001):
         The second curve, expected to implement `evaluate(s)` and `interval()` methods.
     :param tol:
         The tolerance for Newton's method used in refining the proximity points.
-        A smaller `tol` provides more precise proximity points but may require more computation.
+        A smaller `spt` provides more precise proximity points but may require more computation.
         Default is 0.0001.
 
     :return:
@@ -74,7 +74,7 @@ def proximity_points_curve_curve(curve1, curve2, tol: float = 0.0001):
 
     Usage example::
 
-        closest_points = proximity_points_curve_curve(curve1, curve2, tol=0.0001)
+        closest_points = proximity_points_curve_curve(curve1, curve2, spt=0.0001)
         t, s, min_dist = closest_points
         print(f"Closest points: curve1(t={t}), curve2(s={s}), distance = {min_dist}")
     """

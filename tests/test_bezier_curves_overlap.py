@@ -1,7 +1,4 @@
-import numpy as np
-
-from examples.ccx._bez_overlap import _bez_find_overlap
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.numeric.intersection.ccx._bez_overlap import _bez_curve_overlap
 
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
@@ -201,37 +198,37 @@ crv9 = NURBSCurveTuple(
 
 
 def test_case_1():
-    res = _bez_find_overlap(crv1, crv2)  # True
+    res = _bez_curve_overlap(crv1, crv2)  # True
     print(res)
     assert res[0] == True
 
 def test_case_2():
-    res2 = _bez_find_overlap(crv2, crv3)  # False
+    res2 = _bez_curve_overlap(crv2, crv3)  # False
     print(res2)
     assert res2[0] == False
 def test_case_3():
-    res3 = _bez_find_overlap(crv2, crv4)  # False
+    res3 = _bez_curve_overlap(crv2, crv4)  # False
     print(res3)
     assert res3[0] == False
 def test_case_4():
-    res4 = _bez_find_overlap(line1, line2)  # True
+    res4 = _bez_curve_overlap(line1, line2)  # True
     print(res4)
     assert res4[0] == True
 
 def test_case_5():
-    res5 = _bez_find_overlap(crv5, crv6)  # False
+    res5 = _bez_curve_overlap(crv5, crv6)  # False
     print(res5)
     assert res5[0] == False
 def test_case_6():
-    res6 = _bez_find_overlap(crv6, crv7)  # True
+    res6 = _bez_curve_overlap(crv6, crv7)  # True
     print(res6)
     assert res6[0] == True
 def test_case_7():
-    res7 = _bez_find_overlap(crv6, crv8)  # False
+    res7 = _bez_curve_overlap(crv6, crv8)  # False
     print(res7)
     assert res7[0] == False
 
 def test_case_8():
-    res8 = _bez_find_overlap(crv6, crv9)  # False
+    res8 = _bez_curve_overlap(crv6, crv9)  # False
     print(res8)
     assert res8[0] == False

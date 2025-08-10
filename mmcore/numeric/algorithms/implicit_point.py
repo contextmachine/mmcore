@@ -193,13 +193,13 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
     >>> c1= Sphere(np.array([0.,0.,0.]),1.)
     >>> c2= Sphere(np.array([1.,1.,1.]),1)
     >>> q0 =np.array((0.579597, 0.045057, 0.878821))
-    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,tol=1e-6) # 7 newton iterations
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,spt=1e-6) # 7 newton iterations
     >>> print(c1.implicit(res),c2.implicit(res))
     4.679345799729617e-10 4.768321293369127e-10
-    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,tol=1e-12) # 9 newton iterations
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,spt=1e-12) # 9 newton iterations
     >>> print(c1.implicit(res),c2.implicit(res))
     -1.1102230246251565e-16 2.220446049250313e-16
-    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,tol=1e-16) # 10 newton iterations
+    >>> res=intersection_curve_point(c1.implicit,c2.implicit,q0,c1.gradient,c2.gradient,spt=1e-16) # 10 newton iterations
     >>> print(c1.implicit(res),c2.implicit(res))
     0.0 0.0
     """
@@ -225,7 +225,7 @@ def intersection_curve_point(surf1, surf2, q0, grad1, grad2, tol=1e-6, max_iter=
 
         if i > max_iter:
             if not no_err:
-                raise ValueError(f'Maximum iterations exceeded, No convergence {d} (tol={tol})')
+                raise ValueError(f'Maximum iterations exceeded, No convergence {d} (spt={tol})')
             else:
                 success = False
                 break

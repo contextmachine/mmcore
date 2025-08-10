@@ -117,7 +117,7 @@ def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: f
     # Find intersections of surf1's boundaries with surf2
     for i, boundary in enumerate(boundaries1):
         intersections = nurbs_csx(boundary, surf2, tol=spt, ptol=tol)
-        #intersections =int_cs(boundary,surf2,tol=tol,spt=spt)
+        #intersections =int_cs(boundary,surf2,spt=spt,spt=spt)
         #print(i,intersections,boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             # params[0] is curve parameter, params[1:] are surface parameters
@@ -138,7 +138,7 @@ def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: f
     # Find intersections of surf2's boundaries with surf1
     for i, boundary in enumerate(boundaries2):
         intersections = nurbs_csx(boundary, surf1, tol=spt, ptol=tol)
-        #intersections = int_cs(boundary, surf1, tol=tol, spt=spt)
+        #intersections = int_cs(boundary, surf1, spt=spt, spt=spt)
         #print(i, intersections, boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             if intersection_type =='degenerate':

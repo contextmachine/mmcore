@@ -209,8 +209,8 @@ def plane_ray_intersection(plane, ray):
     return ray_plane_intersection(pln,ray)
 
 
-#def plane_plane_plane_intersect(self, other, third, tol=1e-15):
-#    return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
+#def plane_plane_plane_intersect(self, other, third, spt=1e-15):
+#    return plane_line_intersect(third, plane_plane_intersect(self, other), spt)
 
 
 def plane_from_normal_origin(normal, origin):

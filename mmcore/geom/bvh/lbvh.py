@@ -56,8 +56,73 @@ class AABB:
     def offset_inplace(self, d:float):
         self.min-=d
         self.max+=d
+    def contains(self, obj:NDArray[float]|AABB):
+        """
+     
+        
+        :param obj:  point or AABB
+        :type obj:
+        :return:
+        :rtype:
+        """
+        if isinstance(obj,AABB):
+            return np.all(self.min<=obj.min) and  np.all(self.max>=obj.max)
+        else:
+            return np.all(self.min <= obj) and np.all(self.max>=obj)
+    
+    def contains_point(self, pt) -> bool:
+        
+        return not (np.any(self.max <= pt) or np.any(self.min >= pt))
+    
+    def offset(self, d:float):
+        return AABB(self.min-d,self.max+d)
+    def offset_inplace(self, d:float):
+        self.min-=d
+        self.max+=d
+    def volume(self):
+        if self.dim!=3:
+            raise ValueError(f'volume method is undefined for the {self.dim}-dim AABB')
+        else :
+            d=self.max-self.min
+            return np.prod(d).item()
+    
+    def __iter__(self):
+        return iter((self.min,self.max))
+    
+    def __array__(self, dtype=None ,*args, **kwargs):
+        return np.array([self.min,self.max], dtype=dtype, *args, **kwargs)
+    
+    def intersection(self, other:AABB, exacr)->AABB:
+        
+        min_pt = np.maximum(self.min, other.min)
+        max_pt = np.minimum(self.max, other.max)
+        if np.any(min_pt>max_pt):
+            return None
+        return AABB(min_pt,max_pt)
+    def sd(self, point):
+        # ensure numpy arrays
+        p = np.asarray(point, dtype=float)
+        # compute box center and half-sizes
+        center = (self.min + self.max) * 0.5
+        half_size = (self.max - self.min) * 0.5
+        
+        # transform point into box‐centered local coordinates
+        local_p = p - center
+        
+        # compute difference from half-sizes
+        q = np.abs(local_p) - half_size
+        
+        # outside distance: length of positive parts of q
+        q_pos = np.maximum(q, 0.0)
+        outside_dist = np.linalg.norm(q_pos)
+        
+        # inside distance: the largest negative component (or zero)
+        inside_dist = min(np.max(q), 0.0)
+        
+        return outside_dist + inside_dist
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(unsafe_hash=True)
 class BVHNode:
     bbox: AABB = dataclasses.field(default_factory=AABB)
     left: int = -1
@@ -242,6 +307,22 @@ class BVH:
 
         return dct
 
+    def get_leaves(self, node=None):
+        if node is None:
+            return (self.nodes[i] for i in self.leafs)
+        else:
+
+            stack=[node
+                   ]
+            while stack:
+                current=stack.pop(0)
+                if current.is_leaf():
+                    yield current
+                else:
+                    stack.append(self.nodes[current.left])
+                    stack.append(self.nodes[current.right])
+            
+                    
 def build_bvh(bboxes,  max_objects_in_leaf:int=1)->BVH:
     tree = BVH(max_objects_in_leaf=max_objects_in_leaf)
     tree.build(bboxes)
@@ -253,6 +334,7 @@ import heapq
 from typing import Callable
 
 import numpy as np
+
 
 def point_segment_distance2(P: np.ndarray, A: np.ndarray, B: np.ndarray) -> float:
     """

@@ -18,14 +18,14 @@ def recursive_divide_and_conquer_min(fun, bounds, tol):
 
     Algorithm Steps:
     1. Decompose the range into two parts, m1 and m2.
-    2. Check if the precision level is achieved (high - low < tol). If yes, return the midpoint (x_min) and the corresponding function value.
+    2. Check if the precision level is achieved (high - low < spt). If yes, return the midpoint (x_min) and the corresponding function value.
     3. If not, compare the function values at m1 and m2.
     4. Recurse on the range with the lower function value.
     5. Repeat steps 2-4 until the minimum value is found within the desired precision level.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
-    - The space complexity is O(log(1/tol)) due to the recursive calls.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
+    - The space complexity is O(log(1/spt)) due to the recursive calls.
 
     Example Usage:
     >>> def square(x):
@@ -63,14 +63,14 @@ def recursive_divide_and_conquer_max(fun, bounds, tol):
 
     Algorithm Steps:
     1. Decompose the range into two parts, m1 and m2.
-    2. Check if the precision level is achieved (high - low < tol). If yes, return the midpoint (x_min) and the corresponding function value.
+    2. Check if the precision level is achieved (high - low < spt). If yes, return the midpoint (x_min) and the corresponding function value.
     3. If not, compare the function values at m1 and m2.
     4. Recurse on the range with the lower function value.
     5. Repeat steps 2-4 until the minimum value is found within the desired precision level.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
-    - The space complexity is O(log(1/tol)) due to the recursive calls.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
+    - The space complexity is O(log(1/spt)) due to the recursive calls.
 
     Example Usage:
     >>> def square(x):
@@ -107,7 +107,7 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
     :return: A tuple containing the x-coordinate and the minimum value found within the given range.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
     - The space complexity is O(1) as we're using iteration now.
 
     Example Usage:
@@ -140,7 +140,7 @@ def golden_section_search(fun, bounds, tol):
     Parameters:
         fun   : A callable function f(x) assumed to be unimodal on the interval.
         bounds: A tuple (a, b) representing the lower and upper bounds of the interval.
-        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < tol.
+        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < spt.
 
     Returns:
         A tuple (x_min, f_min) where x_min is the approximate location of the minimum and f_min = fun(x_min).
@@ -528,7 +528,7 @@ def find_all_minima(f, x_range, y_range, grid_density=11, tol=1e-6):
     ... y_range = (-2, 4)
     ... tolerance = 1e-6
 
-    >>> minima = find_all_minima(f, x_range, y_range, grid_density=20, tol=tolerance)
+    >>> minima = find_all_minima(f, x_range, y_range, grid_density=20, spt=tolerance)
     >>> minima
     [(-0.20955570735465462, 2.068488218049512, 0.8814236284722828), (0.6239490890366713, 1.2349839216539054, -0.08077762630018981), (0.6319616334813937, 2.9100055589078364, 0.23559259074534356), (1.4654659299114376, 2.0765007624783474, -0.7266086640277386)]
 

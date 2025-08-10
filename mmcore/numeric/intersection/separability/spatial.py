@@ -250,7 +250,7 @@ def spatial_separability(points1, points2, tol=1e-6):
 
 
     # Use the GJK algorithm for a more detailed check of separability
-    #gjk_res = gjk(points1, points2, tol=1e-5)
+    #gjk_res = gjk(points1, points2, spt=1e-5)
     #if not gjk_res:
     #    return False
 
@@ -327,7 +327,7 @@ def spatial_separability_curve_surf(points1, points2, tol=1e-6):
             return False
 
     # Use the GJK algorithm for a more detailed check of separability
-    # gjk_res = gjk(points1, points2, tol=1e-5)
+    # gjk_res = gjk(points1, points2, spt=1e-5)
     # if not gjk_res:
 
     return True

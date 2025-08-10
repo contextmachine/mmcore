@@ -55,7 +55,7 @@ cpdef bint points_equal(tuple p, tuple q, double spt, double param_tol, double t
 def _param_dist_edge_wrap(stuv1, stuv2,
                           param_min: np.ndarray,
                           param_max: np.ndarray,
-                          tol: float) -> float:
+                          spt: float) -> float:
  
  
     mins  = param_min
@@ -63,10 +63,10 @@ def _param_dist_edge_wrap(stuv1, stuv2,
     delta = np.abs(stuv1 - stuv2)
 
     # Is a wrap-around match?
-    at_min_1 = np.abs(stuv1 - mins) < tol
-    at_max_1 = np.abs(stuv1 - maxs) < tol
-    at_min_2 = np.abs(stuv2 - mins) < tol
-    at_max_2 = np.abs(stuv2 - maxs) < tol
+    at_min_1 = np.abs(stuv1 - mins) < spt
+    at_max_1 = np.abs(stuv1 - maxs) < spt
+    at_min_2 = np.abs(stuv2 - mins) < spt
+    at_max_2 = np.abs(stuv2 - maxs) < spt
 
     wrap_match = (at_min_1 & at_max_2) | (at_max_1 & at_min_2)
 
@@ -94,7 +94,7 @@ def points_equal(p, q,
     # 2) Parametric w/ edge-wrap
     param_d = _param_dist_edge_wrap(stuv1, stuv2,
                                     param_min, param_max,
-                                    tol=param_tol)
+                                    spt=param_tol)
 
     # 3) Tangent misalignment
     dot   = float(np.dot(tan1, tan2))
@@ -120,8 +120,8 @@ def points_equal(p, q,
         s2,t2,u2,v2 = q[1]
 
         # inline edge-wrap check for each param:
-        #   if |d1-d2| < tol → OK
-        #   elif one is within tol of min and the other within tol of max → OK
+        #   if |d1-d2| < spt → OK
+        #   elif one is within spt of min and the other within spt of max → OK
         #   else → FAIL
 
         # s

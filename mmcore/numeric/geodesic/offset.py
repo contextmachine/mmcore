@@ -384,7 +384,7 @@ def golden_section_search(fun, bounds, tol):
     Parameters:
         fun   : A callable function f(x) assumed to be unimodal on the interval.
         bounds: A tuple (a, b) representing the lower and upper bounds of the interval.
-        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < tol.
+        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < spt.
 
     Returns:
         A tuple (x_min, f_min) where x_min is the approximate location of the minimum and f_min = fun(x_min).

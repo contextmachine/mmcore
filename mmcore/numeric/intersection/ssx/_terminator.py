@@ -147,8 +147,8 @@ def surface_surface_boundary_intersection(surf1: Surface, surf2: Surface, tol=1e
             if not tuple(l.point) in xyz and not l.surface1_params in uv1 and not l.surface2_params  in uv2:
 
                 xyz.append(tuple(l.point))
-                #print(l.surface1_params,closest_point_on_nurbs_surface( surf1, l.point, tol=tol))
-                #print(l.surface2_params, closest_point_on_nurbs_surface(surf2, l.point, tol=tol))
+                #print(l.surface1_params,closest_point_on_nurbs_surface( surf1, l.point, spt=spt))
+                #print(l.surface2_params, closest_point_on_nurbs_surface(surf2, l.point, spt=spt))
                 uv1.append(l.surface1_params)
                 uv2.append(l.surface2_params)
                 #uv1.append(l.surface1_params)

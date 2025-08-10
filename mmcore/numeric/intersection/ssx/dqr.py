@@ -108,7 +108,7 @@ def find_intersections(
 
             # intersections.extend(
             #    find_intersections(surface1, sub_u1_range, sub_v1_range, surface2, sub_u2_range, sub_v2_range,
-            #                       tol, ptol, htol)
+            #                       spt, ptol, htol)
             # )
         # (candidates)
         return intersections

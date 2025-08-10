@@ -49,7 +49,7 @@ def interval_newton_nd(
 
         grad_interval,     # ∇f(B) – list[Interval] of partial derivatives
         domain   : IntervalND,
-        tol      = 1e-8,   # stop when every edge of the IntervalND < tol
+        tol      = 1e-8,   # stop when every edge of the IntervalND < spt
         max_depth= 25):    # recursion safeguard
     """
     Certified root-finder for f:ℝⁿ→ℝ inside a *single* axis IntervalND.

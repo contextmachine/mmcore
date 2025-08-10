@@ -442,7 +442,7 @@ def newton_method2(
     """
     Perform Newton's method to find a root of f(x)=0 using the user-supplied
     Jacobian. Both f and jac must be callables.  x0 is the initial guess.
-    tol is the tolerance. max_iter is the maximum number of iterations.
+    spt is the tolerance. max_iter is the maximum number of iterations.
 
     Returns the solution as a NumPy array of shape (n,).
     Raises a ValueError if the method fails (e.g., singular Jacobian).

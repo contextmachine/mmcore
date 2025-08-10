@@ -14,7 +14,7 @@ def newtons_method22(F, J_F, initial_point, tol=1e-5, max_iter=100):
     - F: Function that computes the system of equations.
     - J_F: Function that computes the Jacobian matrix of F.
     - initial_point: Initial guess for the variables (including lambda).
-    - tol: Tolerance for convergence.
+    - spt: Tolerance for convergence.
     - max_iter: Maximum number of iterations.
     """
     point = np.asarray(initial_point, dtype=float)
@@ -143,7 +143,7 @@ def sqp_method(f, x0, tol=1e-5, max_iter=100, grad_f=None, hess_l=None, constr=N
     Parameters:
     f : function to compute the objective function f(x)
     x0 : initial guess for the variables x
-    tol : tolerance for convergence
+    spt : tolerance for convergence
     max_iter : maximum number of iterations
     grad_f : function to compute the gradient of f at x
     hess_l : function to compute the Hessian of the Lagrangian L at x (or approximation)
