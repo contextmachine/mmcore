@@ -70,7 +70,7 @@ def sectional_tangent_local(s1: Surface, s2: Surface, tangent_prev, u1_prev, u2_
     :param s1: Surface 1
     :param s2: Surface 2
     :param pt: Point on the surfaces
-    :param tol: Optional tolerance for finding closest points on surfaces (default: 1e-3)
+    :param spt: Optional tolerance for finding closest points on surfaces (default: 1e-3)
     :return: Sectional tangent vector
 
     """

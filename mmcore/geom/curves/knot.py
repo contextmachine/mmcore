@@ -175,7 +175,7 @@ def _remove_adjacent_duplicates(points, tol=1e-5):
     Parameters:
         points (np.ndarray): A 2D numpy array of shape (n_points, 3) where each row is [x, y, z].
         tol (float): Tolerance for comparing points. Two points are considered equal if
-                     the Euclidean distance between them is <= tol.
+                     the Euclidean distance between them is <= spt.
 
     Returns:
         np.ndarray: The array of points with consecutive duplicates removed.
@@ -189,7 +189,7 @@ def _remove_adjacent_duplicates(points, tol=1e-5):
 
     # Create a boolean mask:
     # Always keep the first point.
-    # For each subsequent point, keep it only if the distance from the previous point is > tol.
+    # For each subsequent point, keep it only if the distance from the previous point is > spt.
     mask = np.concatenate(([True], diffs > tol))
 
     return points[mask]
@@ -280,7 +280,7 @@ def find_span_binsearch(degree, knot_vector, num_ctrlpts, knot, **kwargs):
     :rtype: int
     """
     # Get tolerance value
-    tol = kwargs.get('tol', 10e-6)
+    tol = kwargs.get('spt', 10e-6)
 
     # In The NURBS Book; number of knots = m + 1, number of control points = n + 1, p = degree
     # All knot vectors should follow the rule: m = p + n + 1
@@ -359,7 +359,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     """ Finds knot multiplicity over the knot vector.
 
     Keyword Arguments:
-        * ``tol``: tolerance (delta) value for equality checking
+        * ``spt``: tolerance (delta) value for equality checking
 
     :param knot: knot or parameter, :math:`u`
     :type knot: float
@@ -369,7 +369,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     :rtype: int
     """
     # Get tolerance value
-    tol = kwargs.get('tol', 10e-8)
+    tol = kwargs.get('spt', 10e-8)
 
     mult = 0  # initial multiplicity
 
@@ -573,7 +573,7 @@ def knot_refinement1(degree, knotvector, ctrlpts, **kwargs):
     :rtype: tuple
     """
     # Get keyword arguments
-    tol = kwargs.get('tol', 10e-8)  # tolerance value for zero equality checking
+    tol = kwargs.get('spt', 10e-8)  # tolerance value for zero equality checking
     check_num = kwargs.get('check_num', True)  # enables/disables input validity checking
     knot_list = kwargs.get('knot_list', knotvector[degree:-degree])
     add_knot_list = kwargs.get('add_knot_list', list())

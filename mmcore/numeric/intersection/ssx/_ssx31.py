@@ -391,12 +391,12 @@ import logging
 def _param_dist_edge_wrap(stuv1, stuv2,
                           param_min: np.ndarray,
                           param_max: np.ndarray,
-                          tol: float) -> float:
+                          spt: float) -> float:
     """
     For each parameter i in 0..3:
-      - if |stuv1[i] - stuv2[i]| < tol, dist_i = |…|
-      - elif (|stuv1[i]-min_i|<tol and |stuv2[i]-max_i|<tol)
-         or (|stuv2[i]-min_i|<tol and |stuv1[i]-max_i|<tol):
+      - if |stuv1[i] - stuv2[i]| < spt, dist_i = |…|
+      - elif (|stuv1[i]-min_i|<spt and |stuv2[i]-max_i|<spt)
+         or (|stuv2[i]-min_i|<spt and |stuv1[i]-max_i|<spt):
            dist_i = 0
       - else dist_i = |stuv1[i] - stuv2[i]|
     Return max_i dist_i.
@@ -407,10 +407,10 @@ def _param_dist_edge_wrap(stuv1, stuv2,
     delta = np.abs(stuv1 - stuv2)
 
     # Is a wrap-around match?
-    at_min_1 = np.abs(stuv1 - mins) < tol
-    at_max_1 = np.abs(stuv1 - maxs) < tol
-    at_min_2 = np.abs(stuv2 - mins) < tol
-    at_max_2 = np.abs(stuv2 - maxs) < tol
+    at_min_1 = np.abs(stuv1 - mins) < spt
+    at_max_1 = np.abs(stuv1 - maxs) < spt
+    at_min_2 = np.abs(stuv2 - mins) < spt
+    at_max_2 = np.abs(stuv2 - maxs) < spt
 
     wrap_match = (at_min_1 & at_max_2) | (at_max_1 & at_min_2)
 
@@ -445,7 +445,7 @@ def points_equal(p, q,
     # 2) Parametric w/ edge-wrap
     param_d = _param_dist_edge_wrap(stuv1, stuv2,
                                     param_min, param_max,
-                                    tol=param_tol)
+                                    spt=param_tol)
 
     # 3) Tangent misalignment
     dot   = float(np.dot(tan1, tan2))
@@ -481,7 +481,7 @@ def join_segments_with_info(segments, tol, spt, tan_tol, interval1,interval2):
     Parameters:
         segments: list of segments, where each segment is defined as (p1, p2)
                   with p1 and p2 being coordinate tuples (e.g. (x, y)).
-        tol: error parameter tolerance. Two points are considered identical if their distance is less than tol.
+        tol: error parameter tolerance. Two points are considered identical if their distance is less than spt.
         spt: error spatial tolerance.
         tan_tol: error tolerance for unit tangent alignment.
     Returns:
@@ -741,9 +741,9 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
                         dist1, in_segment1,t1= _project_point_to_segment_nd( intersection_point.stuv[:2], x0[:2], x[:2], tol)
                         dist2, in_segment2 ,t2= _project_point_to_segment_nd(intersection_point.stuv[2:], x0[2:], x[2:],tol)
 
-                        #print(    dist1, in_segment1,t1,intersection_point.stuv[:2], x0[:2], x[:2], tol)
+                        #print(    dist1, in_segment1,t1,intersection_point.stuv[:2], x0[:2], x[:2], spt)
                         if in_segment1 and in_segment2 and (dist1<tol) and(dist2<tol):
-                            #print('FIND BOUNDARY INTERSECTION POINT:', intersection_point.point.tolist(),dist1,dist2,in_segment1,in_segment2,tol)
+                            #print('FIND BOUNDARY INTERSECTION POINT:', intersection_point.point.tolist(),dist1,dist2,in_segment1,in_segment2,spt)
                             return True, ix
                         elif (in_segment1 and in_segment2):
                             if use_spt:
@@ -757,13 +757,13 @@ def check_boundary_intersections(boundary_intersection_points:list[IntersectionP
 
                                 if dist<spt:
                                     #print('FIND BOUNDARY INTERSECTION POINT (SPT):', intersection_point.point.tolist(), dist,
-                                    #      in_segment, tol)
+                                    #      in_segment, spt)
                                     return True, ix
 
                             new_candidates.append(candidates[i])
 
                             #print("IN_SEGM")
-                            #print(dist1,dist2,in_segment1,in_segment2,tol)
+                            #print(dist1,dist2,in_segment1,in_segment2,spt)
                             #print([intersection_point.point.tolist(), intersection_point.stuv.tolist(),x.tolist(), x0.tolist()])
                         else:
                             ...
@@ -825,7 +825,7 @@ def validated_ode_solver(
 ) -> tuple[np.ndarray, list[np.ndarray], int]:
     """
     A validated ODE solver that marches along the intersection curve by solving the ODE system:
-        x' = f(x, surf1, surf2, tol)
+        x' = f(x, surf1, surf2, spt)
     using an adaptive step size strategy and step doubling to produce a validated enclosure
     at each step.
 
@@ -836,7 +836,7 @@ def validated_ode_solver(
         surf2   : Second NURBS surface.
         s_max   : Total arc length (or parameter length) to integrate.
         h_initial: Initial step size.
-        tol     : Tolerance for local error and validation.
+        spt     : Tolerance for local error and validation.
 
     Returns:
         A tuple containing:
@@ -1094,7 +1094,7 @@ def trace_intersection_curves(surf1:NURBSSurfaceTuple,surf2:NURBSSurfaceTuple, i
         initial_points_tree = KDTree(initial_xs)
         #print(len(res))
         context = dict(init_points_tree=initial_points_tree)
-        #boundary_intersections: list[IntersectionPoint]=find_boundary_intersections(surf1,surf2, tol=tol)
+        #boundary_intersections: list[IntersectionPoint]=find_boundary_intersections(surf1,surf2, spt=spt)
         i=0
         while   context['init_points_tree'] is not None:
 

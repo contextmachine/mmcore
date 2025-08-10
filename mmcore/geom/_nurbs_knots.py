@@ -70,7 +70,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     """ Finds knot multiplicity over the knot vector.
 
     Keyword Arguments:
-        * ``tol``: tolerance (delta) value for equality checking
+        * ``spt``: tolerance (delta) value for equality checking
 
     :param knot: knot or parameter, :math:`u`
     :type knot: float
@@ -80,7 +80,7 @@ def find_multiplicity(knot, knot_vector, **kwargs):
     :rtype: int
     """
     # Get tolerance value
-    tol = kwargs.get('tol', 10e-15)
+    tol = kwargs.get('spt', 10e-15)
 
     mult = 0  # initial multiplicity
 

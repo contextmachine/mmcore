@@ -66,10 +66,10 @@ from mmcore.numeric.intersection.ssx._ssx31 import _nurbs_trace_intersection_cur
 def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7, tan_tol=1e-3, **kwargs):
 
     # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
-    #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, tol=tol)
+    #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, spt=spt)
     # times.append(time.perf_counter_ns()-s)
 
-    #freeform = FreeFormMethod(surf1, surf2, tol=tol, boundary_terminators=edge_terminator, max_iter=19)
+    #freeform = FreeFormMethod(surf1, surf2, spt=spt, boundary_terminators=edge_terminator, max_iter=19)
     # s = time.perf_counter_ns()
     if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
         return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt,tan_tol=tan_tol)

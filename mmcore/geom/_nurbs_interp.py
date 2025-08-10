@@ -84,7 +84,7 @@ def _remove_adjacent_duplicates(points, tol=1e-5):
     Parameters:
         points (np.ndarray): A 2D numpy array of shape (n_points, 3) where each row is [x, y, z].
         tol (float): Tolerance for comparing points. Two points are considered equal if
-                     the Euclidean distance between them is <= tol.
+                     the Euclidean distance between them is <= spt.
 
     Returns:
         np.ndarray: The array of points with consecutive duplicates removed.
@@ -98,7 +98,7 @@ def _remove_adjacent_duplicates(points, tol=1e-5):
 
     # Create a boolean mask:
     # Always keep the first point.
-    # For each subsequent point, keep it only if the distance from the previous point is > tol.
+    # For each subsequent point, keep it only if the distance from the previous point is > spt.
     mask = np.concatenate(([True], diffs > tol))
 
     return points[mask]

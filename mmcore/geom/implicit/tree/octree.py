@@ -1,5 +1,6 @@
 import time
 from collections import defaultdict
+from collections.abc import Callable
 
 import numpy as np
 
@@ -68,12 +69,13 @@ def build_sdf_octree_cube(node, sdf, max_depth, min_half=1e-3):
 import math
 
 class OctreeNode:
-    __slots__ = ("cx","cy","cz","hx","hy","hz","depth","children", "_corners")
+    __slots__ = ("cx","cy","cz","hx","hy","hz","depth","children", "state","_corners")
     def __init__(self, center, half, depth=0):
-        self.cx, self.cy, self.cz = map(float, center)
-        self.hx, self.hy, self.hz = map(float, half)
+        self.cx, self.cy, self.cz = center
+        self.hx, self.hy, self.hz = half
         self.depth   = depth
         self.children = []
+        self.state = 0
         self._corners = None
     def _traverse_pts(self, pts=None):
         if pts is None:
@@ -84,10 +86,12 @@ class OctreeNode:
             for ch in self.children:
                 ch._traverse_pts( pts)
         return pts
-
+    
     def get_min_max(self):
-        return [(self.cx - self.hx, self.cy - self.hy, self.cz - self.hz), (self.cx + self.hx, self.cy + self.hy, self.cz + self.hz)]
-     # Utility: Cartesian coordinates of the 8 corners
+        return [(self.cx - self.hx, self.cy - self.hy, self.cz - self.hz),
+                (self.cx+ self.hx,
+                 self.cy+ self.hy,
+                 self.cz+ self.hz)]
     def generate_corners(self):
         if not self._corners:
                 self._corners=[None]*8
@@ -103,9 +107,6 @@ class OctreeNode:
         if not self._corners:
             self.generate_corners()
         return self._corners
-    
-
-
 
 
 def r_box(node):
@@ -142,20 +143,6 @@ def build_sdf_octree(node, sdf, max_depth, min_half=1e-3, leafs=None):
     return kept, vis, leafs
 
 
-class OctreeNodeV2:                 # axis‑aligned box (AABB)
-    __slots__ = ("cx","cy","cz","hx","hy","hz","depth",
-                 "children","state")                 # state: -1 out, 0 unknown, 1 in
-    def __init__(self, center, half, depth):
-        self.cx, self.cy, self.cz = center           # floats
-        self.hx, self.hy, self.hz = half             # floats
-        self.depth  = depth
-        self.children = []
-        self.state  = 0
-    def get_min_max(self):
-        return [(self.cx - self.hx, self.cy - self.hy, self.cz - self.hz),
-        (self.cx+ self.hx,
-        self.cy+ self.hy,
-        self.cz+ self.hz)]
 def subdivide(node, sdf, max_depth, min_half, leaves=None):
     if leaves is None:
         leaves = []
@@ -179,7 +166,7 @@ def subdivide(node, sdf, max_depth, min_half, leaves=None):
     for sx in (-1,1):
         for sy in (-1,1):
             for sz in (-1,1):
-                child = OctreeNodeV2((node.cx + sx*hx2,
+                child = OctreeNode((node.cx + sx*hx2,
                               node.cy + sy*hy2,
                               node.cz + sz*hz2),
                              (hx2, hy2, hz2),
@@ -200,7 +187,7 @@ def refine_leaf(leaf, cell_map):
     for sx in (-1,1):
         for sy in (-1,1):
             for sz in (-1,1):
-                child = OctreeNodeV2((leaf.cx + sx*hx2,
+                child = OctreeNode((leaf.cx + sx*hx2,
                               leaf.cy + sy*hy2,
                               leaf.cz + sz*hz2),
                              (hx2, hy2, hz2),
@@ -241,22 +228,23 @@ def world_to_grid(x,bbox,max_depth=MAX_DEPTH):
     return int( round( (x/bbox + 0.5)*(1<<max_depth) ) )
 def build_vertex_table(sdf,leaves, bbox, max_depth=MAX_DEPTH):
     vertex_sd = {}
+    bbx,bby,bbz=(bbox[1]-bbox[0])
     for leaf in leaves:
-        gx0 = world_to_grid(leaf.cx - leaf.hx, bbox,max_depth)
-        gy0 = world_to_grid(leaf.cy - leaf.hy, bbox,max_depth)
-        gz0 = world_to_grid(leaf.cz - leaf.hz, bbox,max_depth)
-        gx1 = world_to_grid(leaf.cx + leaf.hx, bbox,max_depth)
-        gy1 = world_to_grid(leaf.cy + leaf.hy, bbox,max_depth)
-        gz1 = world_to_grid(leaf.cz + leaf.hz, bbox,max_depth)
+        gx0 = world_to_grid(leaf.cx - leaf.hx, bbx,max_depth)
+        gy0 = world_to_grid(leaf.cy - leaf.hy, bby,max_depth)
+        gz0 = world_to_grid(leaf.cz - leaf.hz, bbz,max_depth)
+        gx1 = world_to_grid(leaf.cx + leaf.hx, bbx,max_depth)
+        gy1 = world_to_grid(leaf.cy + leaf.hy, bby,max_depth)
+        gz1 = world_to_grid(leaf.cz + leaf.hz, bbz,max_depth)
         for ix in (gx0, gx1):
             for iy in (gy0, gy1):
                 for iz in (gz0, gz1):
                     key = (ix,iy,iz)
                     if key not in vertex_sd:
                         # convert grid ix back to world coordinate
-                        wx = (ix/(1<<max_depth) - 0.5)*bbox
-                        wy = (iy/(1<<max_depth) - 0.5)*bbox
-                        wz = (iz/(1<<max_depth) - 0.5)*bbox
+                        wx = (ix/(1<<max_depth) - 0.5)*bbx
+                        wy = (iy/(1<<max_depth) - 0.5)*bby
+                        wz = (iz/(1<<max_depth) - 0.5)*bbz
                         vertex_sd[key] = sdf((wx,wy,wz))
     return vertex_sd
 
@@ -302,7 +290,33 @@ def sample_trilinear(node, p, vertex_sd, max_depth=MAX_DEPTH):
     c1  = c01*(1-fy) + c11*fy
     return c0*(1-fz) + c1*fz
 
+class SDFApprox:
+    def __init__(self,  bbox, max_depth=6,min_half=None):
 
+        self.bbox = np.array(bbox)
+        self._d=self.bbox[1]-self.bbox[0]
+        self._h=self._d/2.0
+        self.center=(self.bbox[0]+self.bbox[1])/2
+        self.root = OctreeNode( tuple(self.center.tolist()), tuple(self._h.tolist()), depth=0)
+        self.max_depth = max_depth
+
+        self.min_half = min_half if min_half is not None else max(self._d) / (2**self.max_depth)
+        self.vertex_sd = None
+        self.leafs=[]
+
+    def build(self, sdf:Callable):
+        # self.cell_map = build_cell_map(leaves)
+        # self.final_leaves = build_balanced(cell_map)
+        subdivide(self.root, sdf, self.max_depth, self.min_half, self.leafs)
+
+        self.vertex_sd = build_vertex_table(sdf, self.leafs, self.bbox, self.max_depth)
+
+    def __call__(self, p):
+        if self.vertex_sd is None:
+            raise Exception("SDFApprox not built yet")
+        return sample_trilinear(self.root, p, self.vertex_sd)
+    
+    
 # ---------- 4. Driver ------------------------------------------------------
 if __name__ == "__main__":
 
@@ -315,7 +329,7 @@ if __name__ == "__main__":
         returns : (...,) ndarray of signed distances
         """
         p = np.asarray(p, dtype=float)
-        
+
         x, y, z = p[..., 0], p[..., 1], p[..., 2]
         q = np.stack((np.sqrt(x * x + y * y) - R, z), axis=-1)
         return np.linalg.norm(q, axis=-1) - r  # ∥q∥ − r
@@ -369,7 +383,7 @@ if __name__ == "__main__":
     max_depth = 6  # 128³ voxel resolution
     s=time.perf_counter()
     kept, visited,leafs = build_sdf_octree(root, inter, max_depth)
-    
+
     print(time.perf_counter()-s)
 
     pts=np.array(root._traverse_pts()).tolist()
@@ -381,31 +395,31 @@ if __name__ == "__main__":
     bbox=4.
 
     # world box [-2,2]³
-    root = OctreeNodeV2((0.0, 0.0, 0.0), (bbox * 0.5,) * 3, 0)
+    root = OctreeNode((0.0, 0.0, 0.0), (4 * 0.5,) * 3, 0)
     print([root.hx * 2, root.hy * 2, root.hz * 2])
-    bbox = np.max([root.hx*2, root.hy*2, root.hz*2])
+    bbox = np.array([[-root.hx, -root.hy, -root.hz],[root.hx, root.hy, root.hz]])
     MAX_DEPTH = 6
-    MIN_HALF = bbox / (2**MAX_DEPTH)
+    MIN_HALF = max(bbox[1]-bbox[0]) / (2**MAX_DEPTH)
 
     leaves = []
     t0 = time.perf_counter()
     subdivide(root, sdf_torus, MAX_DEPTH, MIN_HALF, leaves)
-    cell_map = build_cell_map(leaves)
-    final_leaves =    build_balanced(cell_map)
+    # cell_map = build_cell_map(leaves)
+    # final_leaves =    build_balanced(cell_map)
 
-    print(f"Phase B balance: {len(final_leaves):,} leaves")
+    # print(f"Phase B balance: {len(final_leaves):,} leaves")
 
     vertex_sd = build_vertex_table(sdf_torus, leaves, bbox, MAX_DEPTH)
     print(f"   stored vertices: {len(vertex_sd):,}")
-
     t_build = time.perf_counter()-t0
     print(f"Total build time: {1000*t_build:.1f} ms")
     MAX_DEPTH=10
     # quick check across a coarse‑fine boundary
     pa = (-0.25, 0.0, 0.0)          # falls in 2× finer leaf than ...
     pb = (-0.2499, 0.0, 0.0)        # ... this point
-    print("φ(pa) =", sample_trilinear(root,pa, vertex_sd),
-          "φ(pb) =", sample_trilinear(root,pb,vertex_sd))
+    
+    print("φ(pa),gp =", sample_trilinear(root,pa, vertex_sd),sdf_torus(np.array(pa)),
+          "φ(pb),gp =", sample_trilinear(root,pb,vertex_sd),sdf_torus(np.array(pb)),)
     eval_pts=[]
     for i in np.linspace(-2,2,10):
         for j in np.linspace(-2,2,10):
@@ -421,3 +435,4 @@ if __name__ == "__main__":
     pts,results,times=zip(*calls_stats)
     print("sample_trilinear time:",np.mean(
     times, ),f"min: {min(times)}" ,f"max: {max(times)}" )
+    

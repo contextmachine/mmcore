@@ -2,7 +2,7 @@ import math
 
 
 def is_close(a, b, tol=1e-9):
-    """Return True if a and b are within tol."""
+    """Return True if a and b are within spt."""
     return abs(a - b) < tol
 
 
@@ -10,7 +10,7 @@ def cross(o, a, b):
     """
     Compute the cross product of the vectors OA and OB.
     A positive value indicates a counter-clockwise turn,
-    negative indicates a clockwise turn, and values near 0 (within tol)
+    negative indicates a clockwise turn, and values near 0 (within spt)
     indicate that the points are nearly collinear.
     """
     return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
@@ -72,7 +72,7 @@ def points_are_close(p, q, tol=1e-9):
 
 
 def is_point_on_segment(p, a, b, tol=1e-9):
-    """Return True if point p lies on segment ab (including endpoints) within tol."""
+    """Return True if point p lies on segment ab (including endpoints) within spt."""
     # Check collinearity
     if abs(cross(a, b, p)) > tol:
         return False

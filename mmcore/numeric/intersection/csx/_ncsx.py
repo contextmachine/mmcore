@@ -249,7 +249,7 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
     - The separability test prevents unnecessary subdivision when the curve and surface are sufficiently far apart.
     - If a new intersection point is found, it is classified either as a "transversal" or "degenerate" intersection,
     depending on the angle between the curve's tangent and the surface's normal.
-    - The intersection process stops when either the desired tolerance (`tol`) or the precision tolerance (`ptol`) is
+    - The intersection process stops when either the desired tolerance (`spt`) or the precision tolerance (`ptol`) is
     reached.
     - Recursive subdivision ensures that no intersections are missed, even for complex geometries.
 
@@ -298,7 +298,7 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
     curve = NURBSCurve(control_points=[...], knots=[...], degree=3)
     surface = NURBSSurface(control_points=[...], knots_u=[...], knots_v=[...], degree_u=3, degree_v=3)
 
-    intersections = nurbs_csx(curve, surface, tol=1e-4, ptol=1e-7)
+    intersections = nurbs_csx(curve, surface, spt=1e-4, ptol=1e-7)
     for intersection in intersections:
     print(intersection)
 
@@ -306,7 +306,7 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=1e-6):
 
     - The algorithm will subdivide the curve and surface recursively until it either finds an intersection or determines
     that no intersection exists within the provided tolerance.
-    - For complex surfaces or highly curved regions, consider adjusting the `tol` parameter to increase precision.
+    - For complex surfaces or highly curved regions, consider adjusting the `spt` parameter to increase precision.
     - The classification of intersections as "transversal" or "degenerate" helps distinguish between cases where the
     curve crosses the surface tangentially versus at a sharper angle.
 

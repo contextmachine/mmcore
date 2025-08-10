@@ -70,7 +70,7 @@ class Curve:
         return np.array(self.evaluate_multi(np.linspace(*self.interval(), count)))
 
     #def intersect_with_curve(
-    #        self, other: "Curve", tol=TOLERANCE
+    #        self, other: "Curve", spt=TOLERANCE
     #) -> list[tuple[float, float]]:
     #
     #    """
@@ -96,7 +96,7 @@ class Curve:
     #    :param curve2: second curve
     #    :param bounds1: [Optional] custom bounds for first NURBS curve. By default, the first NURBS curve interval.
     #    :param bounds2: [Optional] custom bounds for first NURBS curve. By default, the second NURBS curve interval.
-    #    :param tol: A pair of points on a pair of Euclidean curves whose Euclidean distance between them is less than tol will be considered an intersection point
+    #    :param spt: A pair of points on a pair of Euclidean curves whose Euclidean distance between them is less than spt will be considered an intersection point
     #    :return: List containing all intersections, or empty list if there are no intersections. Where intersection
     #    is the tuple of the parameter values of the intersections on each curve.
     #    :rtype: list[tuple[float, Optional[float]]]
@@ -135,7 +135,7 @@ class Curve:
     #
     #    """
     #
-    #    return curve_intersection(self, other, tol=tol)
+    #    return curve_intersection(self, other, spt=spt)
 
     def interval(self):
         """
@@ -314,7 +314,7 @@ class Curve:
         #res = iterative_divide_and_conquer_min(func, (t0, t1_limit), 0.1)
         #
         #return newton(
-        #    func, res[0], tol=tol, x1=t1_limit, **kwargs
+        #    func, res[0], spt=spt, x1=t1_limit, **kwargs
         #)
         return self._length_evaluator(length)
 

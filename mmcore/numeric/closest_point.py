@@ -272,7 +272,7 @@ def closest_point_on_curve_single(curve, point, tol=1e-3):
         d_best = d
 
     for bnds in divide_interval(*curve.interval(), step=0.5):
-        # t,d=find_best(distance_func, bnds, tol=tol)
+        # t,d=find_best(distance_func, bnds, spt=spt)
         t, d = iterative_divide_and_conquer_min(distance_func, bnds, tol=tol)
         if d < d_best:
             t_best = t
@@ -484,7 +484,7 @@ def _nurbs_curve_closest_point_divide_and_conquer(
             break                               # Newton no longer makes progress
 
         if (t_high - t_low) <= tol_best:
-            break                               # bracket smaller than local tol
+            break                               # bracket smaller than local spt
 
     # ---------------------------------------------------------------------
     return (dist_best, eval_best, tol_best), t_cur
