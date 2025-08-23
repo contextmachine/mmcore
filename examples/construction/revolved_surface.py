@@ -23,7 +23,7 @@ axis = np.array([[60.0, -80.0, 0.0], [0.0, 0.0, 0.0]])
 surf = revolved(profile, axis, (0.0, 2 * np.pi))
 
 
-from mmcore.compat.step.step_writer2 import StepWriter
+from mmcore.compat.step.step_writer import StepWriter
 
 we = StepWriter()
 

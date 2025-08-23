@@ -1081,3 +1081,31 @@ if __name__ == "__main__":
 
     du_result = compute_parametric_tolerance_curve(Cp_example, Cpp_example, spt_example, angle_tol_example)
     print(f"Computed du: {du_result:.6f}")
+
+
+def circular_segment_area_from_kappa_and_s(kappa_mag, s, small_theta=1e-3):
+    """
+    Return the (positive) area between a circular arc (constant curvature kappa_mag)
+    of length s and its chord. Uses exact formula for general theta and a stable
+    series for small theta.
+    """
+    if kappa_mag <= 0 or s <= 0:
+        return 0.0
+    theta = kappa_mag * s
+    if theta < small_theta:
+        # A = κ s^3/12 - κ^3 s^5/240 + O(s^7)
+        return (kappa_mag * s**3)/12.0 - (kappa_mag**3 * s**5)/240.0
+    # Exact: A = (θ - sin θ) / (2 κ^2)
+    return (theta - np.sin(theta)) / (2.0 * kappa_mag**2)
+
+
+def signed_curvature(C1, C2, n):
+    """
+    kappa_signed = ((C1 x C2) · n) / ||C1||^3   (planar curve embedded in 3D)
+    """
+    C1 = np.asarray(C1, float); C2 = np.asarray(C2, float); n = np.asarray(n, float)
+    spd = np.linalg.norm(C1)
+    if spd == 0: return 0.0
+    k_mag = np.linalg.norm(np.cross(C1, C2)) / (spd**3)
+    sgn   = np.sign(np.dot(np.cross(C1, C2), n))
+    return float(sgn * k_mag)

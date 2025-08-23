@@ -46,27 +46,61 @@ The library provides a comprehensive set of geometric modeling tools, numerical 
 **Note:** mmcore is under active development and does not currently guarantee backwards compatibility. The API may change significantly between versions.
 
 ## Key Features
+> accuracy corresponds to commercial CAD engines
+- Parametric Representations (NURBS)
+  - NURBS curves and surfaces (only nurbs supported)
+    - Basic NURBS operations
+      - evaluation
+      - knots operations
+      - degree operations
+      - interpolation
+      - extend  (curve, surface)
+      - offset (curve, surface)
+    - Advanced NURBS operations
+      - reparametrization
+      - Change of basis (to/from monomial, to/from scaled bernstein)
+      - Exact composition
+      - Gauss-maps
+      - Implicitization (ruled surfaces only)
+    - Construction
+      - base primitives (circle,arc,sphere,cylinder,torus,...)
+      - ruled
+      - revolution
+    - Differential operations
+      - General differential operation for curves and surface (Fundamental forms, metric tensor, etc.)
+      - Curvatures (curve, surface, sectional)
+      - Parameter space tolerance evaluation
+      - adaptive approximation/tessellation
+    - CAD algorithms 
+      - Closest point (robust, curve/surface)
+      - Intersection
+        - CCX (curve-curve intersection, all points and overlaps)
+        - CSX (curve-surface intersection, all points, overlaps detection WIP )
+        - SSX (surface-surface intersection, all intersection branches)
+      - Geometric properties
+        - Curve length
+        - Curve area (closed planar NURBS curve)
+        - Surface area (closed planar NURBS curve)
+        - Area of surface (WIP)
+        - Area of trimmed surface (WIP)
+- Implicit Representations 
+  - Evaluation (value,gradient)
+  - User-defined implicit functions support
+  - Boolean operations (union, intersection, difference, xor)
+  - Implicit approximation
+  - CAD algorithms
+      - Closest point on 2d/3d implicit
+      - Closest point on intersection curve between 3d implicits
+      - Intersection (Fairly fast)
+        - 2d x 2d
+        - 3d x 3d 
+  - Tessellation
+    - marching cubes
+- Topology (WIP)
+- Compat
+  - STEP (write, NURBS only)
 
-- **Geometric Modeling**
-  - Complete NURBS curves and surfaces implementation
-  - Advanced surface analysis with fundamental forms
-  - Comprehensive intersection algorithms
-  - Implicit geometry support with boolean operations
-  - Primitive shapes and surface analysis tools
-
-- **Numerical Methods**
-  - General purpose optimization algorithms (Newton method, divide-and-conquer)
-  - Robust numerical integration (RK45 and alternatives)
-  - Interval arithmetic support
-  - Advanced intersection algorithms for curves and surfaces
-  - CAD-specific computational geometry algorithms
-  
-- **Performance Optimization**
-  - Critical algorithms implemented in C/C++/Cython 
-  - Fastest NURBS implementation in python.
-  - BVH (Bounding Volume Hierarchy) for efficient spatial queries
-  - Vectorized operations outperforming numpy for 2D-4D cases
-
+* exact: corresponds to commercial CAD engines *
     
 ## Installation
 

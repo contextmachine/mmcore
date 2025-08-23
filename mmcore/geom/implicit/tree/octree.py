@@ -315,8 +315,8 @@ class SDFApprox:
         if self.vertex_sd is None:
             raise Exception("SDFApprox not built yet")
         return sample_trilinear(self.root, p, self.vertex_sd)
-    
-    
+
+
 # ---------- 4. Driver ------------------------------------------------------
 if __name__ == "__main__":
 
@@ -417,7 +417,7 @@ if __name__ == "__main__":
     # quick check across a coarse‑fine boundary
     pa = (-0.25, 0.0, 0.0)          # falls in 2× finer leaf than ...
     pb = (-0.2499, 0.0, 0.0)        # ... this point
-    
+
     print("φ(pa),gp =", sample_trilinear(root,pa, vertex_sd),sdf_torus(np.array(pa)),
           "φ(pb),gp =", sample_trilinear(root,pb,vertex_sd),sdf_torus(np.array(pb)),)
     eval_pts=[]
@@ -426,13 +426,18 @@ if __name__ == "__main__":
             for k in np.linspace(-2,2,10):
                 eval_pts.append((i,j,k))
     calls_stats=[]
+
     for pt in eval_pts:
         s=time.perf_counter()
         res=sample_trilinear(root, pt, vertex_sd)
         end=time.perf_counter()-s
         calls_stats.append((pt,res,end))
+    P = np.random.uniform(bbox[0], bbox[1], size=(50_000, 3))
 
     pts,results,times=zip(*calls_stats)
     print("sample_trilinear time:",np.mean(
     times, ),f"min: {min(times)}" ,f"max: {max(times)}" )
+    ress=np.apply_along_axis(lambda pt: sample_trilinear(root, pt, vertex_sd),1,P )
+    rest=sdf_torus_vec(P)
+    print(np.mean(ress-rest))
     

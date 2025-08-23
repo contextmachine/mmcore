@@ -51,7 +51,7 @@ def chord_height(radius: float, chord_length: float) -> float:
     return radius - np.sqrt(inside)
 
 
-def adaptive_curve_sampler(crv:NURBSCurveTuple, spt:float=1e-3):
+def adaptive_curve_sampler_unsafe(crv: NURBSCurveTuple, tol: float = 1e-3):
     tmin,tmax=crv.interval()
     t_current=tmin
     params=[t_current]
@@ -65,7 +65,7 @@ def adaptive_curve_sampler(crv:NURBSCurveTuple, spt:float=1e-3):
             l=np.linalg.norm(evals[-1]['C'] -   c_eval['C'])
             ll.append(l)
         evals.append(c_eval)
-        du= compute_parametric_curvature_tolerance_curve(c_eval["C1"], c_eval["C2"], spt)
+        du= compute_parametric_curvature_tolerance_curve(c_eval["C1"], c_eval["C2"], tol)
         t_current=np.clip(t_current+du,tmin,tmax)
         duu.append(du)
 
@@ -79,11 +79,18 @@ def adaptive_curve_sampler(crv:NURBSCurveTuple, spt:float=1e-3):
     return params,duu,evals,ll
 
 
-def adaptive_curve_sampler_safe(crv, spt, max_param_step_fraction=1/128, max_points=500_000):
+def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=None, max_points=int(1e+6)):
     """
-    March once so each chord deviates by ~spt (sagitta) using your curvature-based
+    March once so each chord deviates by ~tol (sagitta) using your curvature-based
     stepper. Includes a fallback when κ≈0 so we never return inf.
+    Returns:
+          params
+         du_list
+         evals, s_list
     """
+    if max_param_step_fraction is None:
+        max_param_step_fraction = 1/(len(np.unique(crv.knots))-1)
+
     tmin, tmax = crv.interval()
     t = tmin
     params = [t]
@@ -99,13 +106,14 @@ def adaptive_curve_sampler_safe(crv, spt, max_param_step_fraction=1/128, max_poi
     while t < tmax - 10*np.finfo(float).eps:
         ce = evaluate_nurbs_curve(crv, t, d_order=2)  # {"C","C1","C2"}
         n_pts += 1
-        if n_pts > max_points:
-            raise RuntimeError("Too many points; possible stagnation. Increase spt or max_points.")
+        
+        if (max_points is not None ) and (max_points >0) and n_pts > max_points:
+            raise RuntimeError("Too many points; possible stagnation. Increase tol or max_points.")
 
         C0, C1, C2 = ce["C"], ce["C1"], ce["C2"]
         evals.append(ce)
 
-        du = compute_parametric_curvature_tolerance_curve(C1, C2, spt)
+        du = compute_parametric_curvature_tolerance_curve(C1, C2, tol)
         if not np.isfinite(du) or du <= 0:
             # Fallback: step by a small param cap using local speed
             du = du_cap
@@ -131,29 +139,3 @@ def adaptive_curve_sampler_safe(crv, spt, max_param_step_fraction=1/128, max_poi
     return params, du_list, evals, s_list
 
 
-def circular_segment_area_from_kappa_and_s(kappa_mag, s, small_theta=1e-3):
-    """
-    Return the (positive) area between a circular arc (constant curvature kappa_mag)
-    of length s and its chord. Uses exact formula for general theta and a stable
-    series for small theta.
-    """
-    if kappa_mag <= 0 or s <= 0:
-        return 0.0
-    theta = kappa_mag * s
-    if theta < small_theta:
-        # A = κ s^3/12 - κ^3 s^5/240 + O(s^7)
-        return (kappa_mag * s**3)/12.0 - (kappa_mag**3 * s**5)/240.0
-    # Exact: A = (θ - sin θ) / (2 κ^2)
-    return (theta - np.sin(theta)) / (2.0 * kappa_mag**2)
-
-
-def signed_curvature(C1, C2, n):
-    """
-    kappa_signed = ((C1 x C2) · n) / ||C1||^3   (planar curve embedded in 3D)
-    """
-    C1 = np.asarray(C1, float); C2 = np.asarray(C2, float); n = np.asarray(n, float)
-    spd = np.linalg.norm(C1)
-    if spd == 0: return 0.0
-    k_mag = np.linalg.norm(np.cross(C1, C2)) / (spd**3)
-    sgn   = np.sign(np.dot(np.cross(C1, C2), n))
-    return float(sgn * k_mag)
