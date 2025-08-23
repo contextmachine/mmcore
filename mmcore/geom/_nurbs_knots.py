@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from copy import deepcopy
 
 import numpy as np
@@ -24,11 +25,21 @@ from mmcore.geom._nurbs_eval import (
 from numpy.typing import NDArray
 
 
-def generate_knots(control_points_count,degree, interval=None):
-    """
+def generate_knots(control_points_count, degree, interval=None):
+    """Generate default knot vector for NURBS/B-spline curves.
 
-    This function generates default knots based on the number of control points
-    :return: A list of knots
+    Creates a uniform knot vector with proper multiplicities at the boundaries.
+    The resulting knot vector has the form: [0,...,0, 1, 2,..., m, m,...,m]
+    where 0 and m are repeated (degree+1) times.
+
+    :param control_points_count: Number of control points
+    :type control_points_count: int
+    :param degree: Degree of the curve
+    :type degree: int
+    :param interval: Optional interval (start, end) to map knots to. If None, uses default [0, n-degree]
+    :type interval: tuple[float, float] or None
+    :return: Generated knot vector
+    :rtype: numpy.ndarray
     """
     n = control_points_count
 
@@ -43,26 +54,72 @@ def generate_knots(control_points_count,degree, interval=None):
 
     return knots
 
-def normalize_knots(knots,degree):
-    start,end=nurbs_interval(knots,degree)
+def normalize_knots(knots, degree):
+    """Normalize knot vector to the interval [0, 1].
 
-    d=abs(end-start)
+    :param knots: Knot vector to normalize
+    :type knots: array-like
+    :param degree: Degree of the NURBS/B-spline
+    :type degree: int
+    :return: Normalized knot vector in [0, 1]
+    :rtype: numpy.ndarray
+    """
+    start, end = nurbs_interval(knots, degree)
+    d = abs(end - start)
+    return (np.asarray(knots) - start) / d
+def normalize_knots_curve(curve: NURBSCurveTuple):
+    """Normalize knot vector of a NURBS curve to [0, 1] interval.
 
-    return (np.asarray(knots)-start)/d
-def normalize_knots_curve(curve:NURBSCurveTuple):
-    knots=normalize_knots(curve.knot,curve.order-1)
+    Creates a new curve with normalized knot vector while preserving the geometry.
 
-
+    :param curve: NURBS curve to normalize
+    :type curve: NURBSCurveTuple
+    :return: New NURBS curve with normalized knot vector
+    :rtype: NURBSCurveTuple
+    """
+    knots = normalize_knots(curve.knot, curve.order - 1)
     return curve._replace(knot=knots)
-def normalize_knots_curve_inplace(curve:NURBSCurveTuple):
-    curve.knot[:]=normalize_knots(curve.knot,curve.order-1)
+def normalize_knots_curve_inplace(curve: NURBSCurveTuple):
+    """Normalize knot vector of a NURBS curve to [0, 1] interval in-place.
+
+    Modifies the curve's knot vector directly while preserving the geometry.
+
+    :param curve: NURBS curve to normalize in-place
+    :type curve: NURBSCurveTuple
+    """
+    curve.knot[:] = normalize_knots(curve.knot, curve.order - 1)
 
 
-def normalize_knots_surface_inplace(surf:NURBSSurfaceTuple):
-    surf.knot_u[:]=normalize_knots(surf.knot_u,surf.order_u-1)
-    surf.knot_v[:]=normalize_knots(surf.knot_v,surf.order_v-1)
+def normalize_knots_surface_inplace(surf: NURBSSurfaceTuple):
+    """Normalize knot vectors of a NURBS surface to [0, 1] interval in-place.
+    Modifies both u and v knot vectors directly while preserving the geometry.
 
-def knot_insertion_alpha( u,  knotvector,  span,  idx, leg):
+
+    :param surf: NURBS surface to normalize in-place
+    :type surf: NURBSSurfaceTuple
+    """
+    surf.knot_u[:] = normalize_knots(surf.knot_u, surf.order_u - 1)
+    surf.knot_v[:] = normalize_knots(surf.knot_v, surf.order_v - 1)
+
+def knot_insertion_alpha(u, knotvector, span, idx, leg):
+    """Compute the alpha coefficient for knot insertion.
+
+    This function computes the blending coefficient used in knot insertion algorithms.
+    Part of Algorithm A5.1 from The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    :param u: Knot value to be inserted
+    :type u: float
+    :param knotvector: Knot vector
+    :type knotvector: tuple or list
+    :param span: Knot span index
+    :type span: int
+    :param idx: Control point index
+    :type idx: int
+    :param leg: Leg index for computation
+    :type leg: int
+    :return: Alpha blending coefficient
+    :rtype: float
+    """
     return (u - knotvector[leg + idx]) / (knotvector[idx + span + 1] - knotvector[leg + idx])
 
 
@@ -124,25 +181,26 @@ def knot_insertion_kv(knotvector, u, span, r):
     return kv_updated
 
 
-def knot_insertion(degree, knotvector, ctrlpts, u, num:int=1, span=None,s=None,**kwargs):
-    """ Computes the control points of the rational/non-rational spline after knot insertion.
+def knot_insertion(degree, knotvector, ctrlpts, u, num: int = 1, span=None, s=None, **kwargs):
+    """Compute the control points after knot insertion.
 
     Part of Algorithm A5.1 of The NURBS Book by Piegl & Tiller, 2nd Edition.
 
-    Keyword Arguments:
-        * ``num``: number of knot insertions. *Default: 1*
-        * ``s``: multiplicity of the knot. *Default: computed via :func:`.find_multiplicity`*
-        * ``span``: knot span. *Default: computed via :func:`.find_span_linear`*
-
-    :param degree: degree
+    :param degree: Degree of the curve
     :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
+    :param knotvector: Knot vector
+    :type knotvector: list or tuple
+    :param ctrlpts: Control points
     :type ctrlpts: list
-    :param u: knot to be inserted
+    :param u: Knot value to be inserted
     :type u: float
-    :return: updated control points
+    :param num: Number of knot insertions (default: 1)
+    :type num: int
+    :param span: Knot span (default: computed automatically)
+    :type span: int or None
+    :param s: Multiplicity of the knot (default: computed automatically)
+    :type s: int or None
+    :return: Updated control points after knot insertion
     :rtype: list
     """
     # Get keyword arguments
@@ -194,38 +252,39 @@ def knot_insertion(degree, knotvector, ctrlpts, u, num:int=1, span=None,s=None,*
     return ctrlpts_new
 
 
-def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,add_knot_list=None,tol=1e-12,**kwargs):
-    """ Computes the knot vector and the control points of the rational/non-rational spline after knot refinement.
+def knot_refinement(degree, knotvector, ctrlpts, density: int = 1, knot_list=None, add_knot_list=None, tol=1e-12, **kwargs):
+    """Compute knot vector and control points after knot refinement.
 
     Implementation of Algorithm A5.4 of The NURBS Book by Piegl & Tiller, 2nd Edition.
 
-    The algorithm automatically find the knots to be refined, i.e. the middle knots in the knot vector, and their
-    multiplicities, i.e. number of same knots in the knot vector. This is the basis of knot refinement algorithm.
-    This operation can be overridden by providing a list of knots via ``knot_list`` argument. In addition, users can
-    provide a list of additional knots to be inserted in the knot vector via ``add_knot_list`` argument.
+    The algorithm automatically finds the knots to be refined and their multiplicities.
+    This can be overridden by providing a list of knots via ``knot_list`` argument.
+    Additional knots can be provided via ``add_knot_list`` argument.
 
-    Moreover, a numerical ``density`` argument can be used to automate extra knot insertions. If ``density`` is bigger
-    than 1, then the algorithm finds the middle knots in each internal knot span to increase the number of knots to be
-    refined.
+    The ``density`` parameter automates extra knot insertions by finding middle knots
+    in each internal knot span.
 
-    **Example**: Let the degree is 2 and the knot vector to be refined is ``[0, 2, 4]`` with the superfluous knots
-    from the start and end are removed. Knot vectors with the changing ``density (d)`` value will be:
+    **Example**: For degree 2 and knot vector ``[0, 2, 4]``:
 
-    * ``d = 1``, knot vector ``[0, 1, 1, 2, 2, 3, 3, 4]``
-    * ``d = 2``, knot vector ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
+    * ``density = 1``: ``[0, 1, 1, 2, 2, 3, 3, 4]``
+    * ``density = 2``: ``[0, 0.5, 0.5, 1, 1, 1.5, 1.5, 2, 2, 2.5, 2.5, 3, 3, 3.5, 3.5, 4]``
 
-    Keyword Arguments:
-        * ``knot_list``: knot list to be refined. *Default: list of internal knots*
-        * ``add_knot_list``: additional list of knots to be refined. *Default: []*
-        * ``density``: Density of the knots. *Default: 1*
-
-    :param degree: degree
+    :param degree: Degree of the curve
     :type degree: int
-    :param knotvector: knot vector
-    :type knotvector: list, tuple
-    :param ctrlpts: control points
-    :return: updated control points and knot vector
-    :rtype: tuple
+    :param knotvector: Knot vector
+    :type knotvector: list or tuple
+    :param ctrlpts: Control points
+    :type ctrlpts: list
+    :param density: Knot density multiplier (default: 1)
+    :type density: int
+    :param knot_list: Specific knots to refine (default: internal knots)
+    :type knot_list: list or None
+    :param add_knot_list: Additional knots to refine (default: [])
+    :type add_knot_list: list or None
+    :param tol: Tolerance for numerical comparisons (default: 1e-12)
+    :type tol: float
+    :return: Updated control points and knot vector
+    :rtype: tuple[list, list]
     """
     # Get keyword arguments
 
@@ -327,11 +386,47 @@ def knot_refinement(degree, knotvector, ctrlpts, density:int=1,knot_list=None,ad
     # Return control points and knot vector after refinement
     return new_ctrlpts, new_kv
 
-def knot_removal_alpha_i( u, degree,  knotvector,  num, idx) :
+def knot_removal_alpha_i(u, degree, knotvector, num, idx):
+    """Compute the alpha_i coefficient for knot removal.
+
+    This function computes the blending coefficient used in knot removal algorithms.
+    Part of Algorithm A5.8 from The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    :param u: Knot value to be removed
+    :type u: float
+    :param degree: Degree of the curve
+    :type degree: int
+    :param knotvector: Knot vector
+    :type knotvector: list or tuple
+    :param num: Number of knot removals
+    :type num: int
+    :param idx: Index in the knot vector
+    :type idx: int
+    :return: Alpha_i blending coefficient
+    :rtype: float
+    """
     return (u - knotvector[idx]) / (knotvector[idx + degree + 1 + num] - knotvector[idx])
 
 
-def knot_removal_alpha_j(u,  degree, knotvector, num, idx) :
+def knot_removal_alpha_j(u, degree, knotvector, num, idx):
+    """Compute the alpha_j coefficient for knot removal.
+
+    This function computes the blending coefficient used in knot removal algorithms.
+    Part of Algorithm A5.8 from The NURBS Book by Piegl & Tiller, 2nd Edition.
+
+    :param u: Knot value to be removed
+    :type u: float
+    :param degree: Degree of the curve
+    :type degree: int
+    :param knotvector: Knot vector
+    :type knotvector: list or tuple
+    :param num: Number of knot removals
+    :type num: int
+    :param idx: Index in the knot vector
+    :type idx: int
+    :return: Alpha_j blending coefficient
+    :rtype: float
+    """
     return (u - knotvector[idx - num]) / (knotvector[idx + degree + 1] - knotvector[idx - num])
 
 
@@ -477,19 +572,18 @@ def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1
     return BSplineCurveTuple(curve.order, knot=np.array(kv_new), control_points=np.array(new_control_points))
 
 
-def split_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t:float, **kwargs):
-    """ Splits the curve at the input parametric coordinate.
+def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
+    """Split the curve at the given parametric coordinate.
 
-    This method splits the curve into two pieces at the given parametric coordinate, generates two different
-    curve objects and returns them. It does not modify the input curve.
+    This method splits the curve into two pieces at the given parametric coordinate,
+    generates two different curve objects and returns them. It does not modify the input curve.
 
-    
-    :param obj: Curve to be split
-    :type obj: abstract.Curve
-    :param param: parameter
-    :type param: float
-    :return: a list of curve segments
-    :rtype: list
+    :param curve: Curve to be split
+    :type curve: BSplineCurveTuple or NURBSCurveTuple
+    :param t: Parameter value where to split the curve
+    :type t: float
+    :return: Tuple of two curve segments (left, right)
+    :rtype: tuple[BSplineCurveTuple | NURBSCurveTuple, BSplineCurveTuple | NURBSCurveTuple]
     """
     # Validate input
 
@@ -942,21 +1036,20 @@ def decompose_surface(surface:NURBSSurfaceTuple, decompose_dir="uv"):
 
 from mmcore.numeric.binom import binomial_coefficient_py
 
-def degree_elevation(degree, ctrlpts, num=1,**kwargs):
-    """ Computes the control points of the rational/non-rational spline after degree elevation.
+def degree_elevation(degree, ctrlpts, num=1, **kwargs):
+    """Compute control points after degree elevation for Bezier shapes.
 
-    Implementation of Eq. 5.36 of The NURBS Book by Piegl & Tiller, 2nd Edition, p.205
+    Implementation of Eq. 5.36 of The NURBS Book by Piegl & Tiller, 2nd Edition, p.205.
 
-    Keyword Arguments:
-        * ``num``: number of degree elevations
+    Note: This algorithm only operates on Bezier shapes (curves, surfaces, volumes).
 
-    Please note that degree elevation algorithm can only operate on Bezier shapes, i.e. curves, surfaces, volumes.
-
-    :param degree: degree
+    :param degree: Current degree of the shape
     :type degree: int
-    :param ctrlpts: control points
-    :type ctrlpts: list, tuple
-    :return: control points of the degree-elevated shape
+    :param ctrlpts: Control points of the Bezier shape
+    :type ctrlpts: list or tuple
+    :param num: Number of degree elevations (default: 1)
+    :type num: int
+    :return: Control points of the degree-elevated shape
     :rtype: list
     """
     # Get keyword arguments
@@ -1102,7 +1195,7 @@ def stitch_surface_grid(grid: list[list[NURBSSurfaceTuple]]
 
         if interior_knots_u is None:
             interior_knots_u = row_ku_split
-            print(interior_knots_u, row_ku_split,)
+            #print(interior_knots_u, row_ku_split,)
         elif not np.allclose(interior_knots_u, row_ku_split, atol=1e-9):
             raise ValueError(f"Row {r} has interior‑u knots "
                              "incompatible with previous rows")
@@ -1255,13 +1348,17 @@ def _stitch_column(rows: list[NURBSSurfaceTuple],
 
 
 def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
-    """ Applies degree elevation and degree reduction algorithms to spline geometries.
+    """Elevate the degree of a NURBS curve.
 
-    :param obj: spline geometry
-    :type obj: abstract.SplineGeometry
-    :param param: operation definition
-    :type param: list, tuple
-    :return: updated spline geometry
+    Applies degree elevation algorithm to spline geometries by decomposing the curve
+    into Bezier segments, elevating each segment, and then re-linking them.
+
+    :param curve: NURBS curve to elevate
+    :type curve: NURBSCurveTuple
+    :param num: Number of degree elevations (default: 1)
+    :type num: int
+    :return: Curve with elevated degree
+    :rtype: NURBSCurveTuple
     """
 
     # Start curve degree manipulation operations
@@ -1287,10 +1384,10 @@ def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
 
         crv_list_new.append(NURBSCurveTuple(new_deg + 1, np.array(_bezier_knots(new_deg+1 ,interv)),
                               *from_homogeneous_1d(np.array(new_cptsw))))
-        print('d',crv_list_new[-1].knot)
+        #print('d',crv_list_new[-1].knot)
 
     crv, joints = link_curves(crv_list_new)
-    print('d2', crv.knot)
+    #print('d2', crv.knot)
     for k in joints:
         crv=remove_knot_curve(crv, k, crv.order - 1)
     return crv
@@ -1298,8 +1395,11 @@ def degree_elevate_curve(curve: NURBSCurveTuple, num: int = 1):
 
 def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
     """ Removes a knot from a spline curve."""
+
     mult=find_multiplicity(knot,curve.knot)
+
     if mult<num:
+
         raise ValueError(f"Cannot remove knot {knot} from knots: {curve.knot} with multiplicity {mult}")
 
     span=_find_span_linear(curve.order - 1, curve.knot, curve.control_points.shape[0], knot)
@@ -1309,7 +1409,37 @@ def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwarg
     return NURBSCurveTuple(curve.order , np.array(new_kv), *from_homogeneous_1d(np.array(new_pt)))
 
 
-def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
+def remove_knot_curve_max(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
+    """Removes a knot from a spline curve."""
+    stack = [(knot, num)]
+    crv = curve
+    result_n = 0
+
+    while stack:
+
+        k, n = stack.pop(0)
+        #print(k, n)
+        mult = find_multiplicity(k, crv.knot)
+
+        if mult < n:
+            if n > 1:
+
+                stack.append((k, n - 1))
+                continue
+            else:
+                result_n = 0
+                break
+        result_n = n
+        span = _find_span_linear(crv.order - 1, crv.knot, crv.control_points.shape[0], k)
+        hpts = to_homogeneous_1d(crv.control_points, crv.weights)
+        new_kv, new_pt = knot_removal(crv.order - 1, crv.knot.tolist(), ctrlpts=hpts, u=k, num=n, span=span, **kwargs)
+        crv = NURBSCurveTuple(crv.order, np.array(new_kv), *from_homogeneous_1d(np.array(new_pt)))
+    #print(result_n, crv.knot.shape, curve.knot.shape)
+    # new_kv=knot_removal_kv(curve.knot.tolist(),span=span, r=num)
+    return crv, result_n
+
+
+def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float, num: int = 1, **kwargs):
     """Removes a knot from a spline curve."""
     cpts = np.copy(self.control_points)
     count = num
@@ -1321,7 +1451,7 @@ def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwar
     span = _find_span_linear(degree_u, self.knot_u, cpts_size_u, t)
 
     # Compute new knot vector
-    #k_v = knot_removal_kv(self.knot_u,  span, count)
+    # k_v = knot_removal_kv(self.knot_u,  span, count)
     s_u = find_multiplicity(t, self.knot_u)
 
     if isinstance(self, BSplineSurfaceTuple):
@@ -1341,9 +1471,9 @@ def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwar
 
         k_v,        new_row_homo_list = knot_removal(degree_u, knot_u_list, row_homo_list, t, num=count, span=span, s=s_u)
         new_pts.append(new_row_homo_list)
-    
 
     return NURBSSurfaceTuple(self.order_u,self.order_v,k_v, self.knot_v,*from_homogeneous_2d(np.asarray(new_pts).swapaxes(0, 1)))
+
 
 def remove_knot_surface_v(self: NURBSSurfaceTuple, t: float,num: int = 1, **kwargs):
 
@@ -1438,20 +1568,20 @@ def degree_reduction(degree, ctrlpts, **kwargs):
     return pts_red
 
 
-def refine_curve(curve:NURBSCurveTuple, new_knots, density:int=0,**kwargs):
-    """
-    Refine a NURBS curve by inserting new knots.
+def refine_curve(curve: NURBSCurveTuple, new_knots, density: int = 0, **kwargs):
+    """Refine a NURBS curve by inserting new knots.
 
-    Parameters:
-    -----------
-    curve : NURBSCurve
-        The curve to refine
-    new_knots : array-like
-        New knots to insert (must be sorted)
+    Refines the curve by inserting additional knots without changing the shape.
+    Uses knot refinement algorithm to maintain geometric continuity.
 
-    Returns:
-    --------
-    NURBSCurve : Refined curve
+    :param curve: NURBS curve to refine
+    :type curve: NURBSCurveTuple
+    :param new_knots: New knots to insert into the knot vector
+    :type new_knots: array-like
+    :param density: Knot density multiplier for automatic refinement (default: 0)
+    :type density: int
+    :return: Refined NURBS curve with additional knots
+    :rtype: NURBSCurveTuple
     """
 
     cptsw=to_homogeneous_1d( np.asarray(curve.control_points,dtype=float),np.asarray(curve.weights,dtype=float))
@@ -1480,17 +1610,17 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
     control_points = np.copy(curve.control_points)
     weights = np.copy(curve.weights)
     knots = np.copy(curve.knot)
-    
+
     # Reverse control points and weights
     control_points = np.flip(control_points, axis=0)
     weights = np.flip(weights, axis=0)
-    
+
     # Calculate the reversed knot vector
     # The idea is to maintain the correct parametrization
     # First, normalize the original knot vector to [0, 1]
     a, b = nurbs_interval(knots, curve.order - 1)
     knot_span = b - a
-    
+
     # Compute the reversed knot vector
     # We use the formula k'_i = a + b - k_{n-i}
     # where n is the last index of the knot vector
@@ -1498,7 +1628,7 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
     reversed_knots = np.zeros_like(knots)
     for i in range(len(knots)):
         reversed_knots[i] = a + b - knots[n - i]
-    
+
     # Return the new NURBSCurveTuple with reversed components
     return NURBSCurveTuple(
         order=curve.order,
@@ -1508,97 +1638,308 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
     )
 
 
+
+# --- tuning knobs ---
+SNAP_TOL_ABS = 1e-2  # absolute tolerance for treating interior knots as "the same"
+MIDPOINT = 0.5  # tie-break reference inside [0,1] after normalization
+
+
+def _get_order(curve):
+    # Your curves use .order throughout
+    return int(curve.order)
+
+
+def _get_knots(curve):
+    return np.asarray(curve.knot, dtype=float)
+
+
+def _set_knots(curve, new_knot):
+    """Return a curve with updated knot vector while preserving everything else."""
+    new_knot = np.asarray(new_knot, dtype=float)
+    if hasattr(curve, "_replace"):
+        return curve._replace(knot=new_knot)
+    # fallback: assume mutable
+    curve.knot = new_knot
+    return curve
+
+
+def _interior(knots, order):
+    """Interior knots excluding the clamped ends of multiplicity = order."""
+    if order <= 0 or len(knots) < 2 * order:
+        return np.array([], dtype=float)
+    return np.asarray(knots[order:-order], dtype=float)
+
+
+def _rebuild_knots_from_interior(knots_like, order, interior):
+    """Build a full open-clamped knot vector from ends of knots_like and given interior."""
+    k = np.asarray(knots_like, dtype=float)
+    a, b = k[0], k[-1]
+    head = np.full(order, a, dtype=float)
+    tail = np.full(order, b, dtype=float)
+    return np.concatenate([head, np.asarray(interior, dtype=float), tail])
+
+
+def _choose_rep_value(values):
+    """
+    Choose a representative value from a cluster of near-equal values.
+    Rule:
+      1) prefer the most frequent exact value,
+      2) tie-break by closeness to MIDPOINT,
+      3) then by smaller numeric value.
+    """
+    values = [float(v) for v in values]
+    counts = Counter(values)
+    maxc = max(counts.values())
+    candidates = [v for v, c in counts.items() if c == maxc]
+    rep = min(candidates, key=lambda v: (abs(v - MIDPOINT), v))
+    return rep
+
+
+def _cluster_all_interiors(curves, order, tol_abs=SNAP_TOL_ABS):
+    """
+    Cluster all interior knots across curves using a simple single-link threshold.
+    Returns:
+      clusters: list of dicts with keys {rep, lo, hi, target_mult, members}
+        - rep: chosen representative value
+        - lo, hi: min/max observed in the cluster
+        - target_mult: max per-curve multiplicity needed in the final target
+        - members: list of (curve_index, value)
+      target_interior: sorted list with each cluster's rep repeated target_mult times
+    """
+    entries = []
+    for ci, curve in enumerate(curves):
+        k = _get_knots(curve)
+        inter = _interior(k, order)
+        for v in inter:
+            entries.append((float(v), ci))
+    if not entries:
+        return [], []
+
+    entries.sort(key=lambda x: x[0])
+
+    clusters = []
+    cur_cluster = [entries[0]]
+    for v, ci in entries[1:]:
+        v_prev = cur_cluster[-1][0]
+        if abs(v - v_prev) <= tol_abs:
+            cur_cluster.append((v, ci))
+        else:
+            clusters.append(cur_cluster)
+            cur_cluster = [(v, ci)]
+    clusters.append(cur_cluster)
+
+    result = []
+    for cluster in clusters:
+        vals = [v for v, _ in cluster]
+        rep = _choose_rep_value(vals)
+        lo, hi = min(vals), max(vals)
+
+        per_curve = Counter(ci for _, ci in cluster)
+        target_mult = max(per_curve.values())  # union multiplicity rule
+
+        result.append({"rep": rep, "lo": lo, "hi": hi, "target_mult": int(target_mult), "members": cluster})
+
+    # Build the target interior multiset
+    target_interior = []
+    for c in result:
+        target_interior.extend([c["rep"]] * c["target_mult"])
+    target_interior = np.array(sorted(target_interior), dtype=float)
+    return result, target_interior
+
+
+def _snap_curve_to_clusters(curve, order, clusters):
+    """
+    Replace interior knots that fall into a cluster's [lo, hi] band with the cluster's rep.
+    Does NOT insert/remove; only changes values. Returns a curve.
+    """
+    knots = _get_knots(curve)
+    inter = _interior(knots, order)
+    if inter.size == 0:
+        return curve  # nothing to snap
+
+    new_inter = []
+    j = 0
+    for u in inter:
+        # advance cluster pointer to catch up
+        while j < len(clusters) and u > clusters[j]["hi"] + SNAP_TOL_ABS:
+            j += 1
+        if j < len(clusters) and clusters[j]["lo"] - SNAP_TOL_ABS <= u <= clusters[j]["hi"] + SNAP_TOL_ABS:
+            new_inter.append(clusters[j]["rep"])
+        else:
+            # not in any cluster; keep as is
+            new_inter.append(u)
+
+    new_knots = _rebuild_knots_from_interior(knots, order, new_inter)
+    return _set_knots(curve, new_knots)
+
+
+
+
+
+def _insert_missing_to_reach_target(curve, order, target_interior):
+    """
+    Insert missing knots so that the curve's interior matches the target multiplicities.
+    We assume values are already snapped to cluster reps, so the multiset difference is well-defined.
+    """
+    k = _get_knots(curve)
+    inter = _interior(k, order)
+
+    need = Counter(map(float, target_interior))
+    have = Counter(map(float, inter))
+    to_insert = []
+    for val, cnt_needed in need.items():
+        missing = cnt_needed - have.get(val, 0)
+        if missing > 0:
+            to_insert.extend([val] * missing)
+
+    if to_insert:
+        # refine_curve is assumed to insert the provided knot values (density=0 to avoid extra sampling)
+
+        for i in sorted(to_insert):
+            curve = insert_knot_curve(curve, i, 1)
+            curve, rem_count = remove_knot_curve_max(curve, i, curve.order - 1)
+            #print(rem_count)
+        return curve
+    # Final re-snap to ensure numeric equality with the chosen reps (guard against tiny numerical drift)
+    # Build the full target knot vector explicitly, then set it.
+    new_knots = _rebuild_knots_from_interior(k, order, target_interior)
+    curve = _set_knots(curve, new_knots)
+    return curve
+
+
+def _all_same_length(arrs):
+    if not arrs:
+        return True
+    L = len(arrs[0])
+    return all(len(a) == L for a in arrs)
+
+
+def _pick_reference_interior(interiors):
+    """
+    Pick one existing interior vector to use as the shared reference when all lengths match.
+    We choose a medoid (minimizes sum of L1 distances to others). On ties, take the first.
+    """
+    if not interiors:
+        return np.array([], dtype=float)
+    if len(interiors) == 1:
+        return interiors[0].copy()
+
+    dists = []
+    for i, a in enumerate(interiors):
+        total = 0.0
+        for j, b in enumerate(interiors):
+            if i == j:
+                continue
+            total += np.sum(np.abs(a - b))
+        dists.append((total, i))
+    _, idx = min(dists, key=lambda t: (t[0], t[1]))
+    return interiors[idx].copy()
+
+
+# ----------------------------------------------------------------------
+# Pairwise version
+# ----------------------------------------------------------------------
 def make_curves_compatible(curve1, curve2):
     """
-    Make two NURBS curves compatible for ruled surface construction
+    Make two NURBS curves compatible for ruled surface construction.
 
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    tuple of two modified curves with same degree, knots and number of control points
+    Strategy:
+      1) Elevate degrees (orders) to the max.
+      2) Normalize knots to [0, 1].
+      3) If lengths match, snap both to a single existing knot vector (no insertion).
+      4) Else, cluster near-duplicates, snap to cluster reps, then insert only missing knots.
     """
-    # 1. Degree elevation to match highest degree
-    curve1_=normalize_knots_curve(curve1)
-    curve2_=normalize_knots_curve(curve2)
-    p1, p2 = curve1_.order, curve2_.order
-
+    # Normalize and degree-elevate
+    c1 = normalize_knots_curve(curve1)
+    c2 = normalize_knots_curve(curve2)
+    p1, p2 = c1.order, c2.order
     if p1 < p2:
-        curve1_ = degree_elevate_curve(curve1_, p2 - p1)
-
-
-
+        c1 = degree_elevate_curve(c1, p2 - p1)
     elif p2 < p1:
-        curve2_ = degree_elevate_curve(curve2_, p1 - p2)
+        c2 = degree_elevate_curve(c2, p1 - p2)
+
+    # Re-normalize just in case degree elevation perturbed knots
+    c1 = normalize_knots_curve(c1)
+    c2 = normalize_knots_curve(c2)
+    order = _get_order(c1)
+
+    k1 = _get_knots(c1)
+    k2 = _get_knots(c2)
+
+    # If same total knot-vector length, simply align values to a single existing set.
+    if len(k1) == len(k2):
+        inter1 = _interior(k1, order)
+        inter2 = _interior(k2, order)
+        ref_inter = _pick_reference_interior([inter1, inter2])  # chooses an existing interior vector
+        new_knots = _rebuild_knots_from_interior(k1, order, ref_inter)
+        c1 = _set_knots(c1, new_knots)
+        c2 = _set_knots(c2, new_knots)
+        return c1, c2
+
+    # Otherwise: smart union with snapping
+    clusters, target_interior = _cluster_all_interiors([c1, c2], order, tol_abs=SNAP_TOL_ABS)
+
+    # Snap each curve to cluster reps
+    c1 = _snap_curve_to_clusters(c1, order, clusters)
+    c2 = _snap_curve_to_clusters(c2, order, clusters)
+
+    # Insert only what is missing, then finalize to exact target_interior for both
+    c1 = _insert_missing_to_reach_target(c1, order, target_interior)
+    c2 = _insert_missing_to_reach_target(c2, order, target_interior)
+
+    return c1, c2
 
 
-
-    print(curve1_.knot,curve2_.knot,)
-
-    curve1_r=refine_curve(curve1_, curve2_.knot, 0)
-    print(curve1_.knot,curve1_r.knot)
-    curve2_r=refine_curve(curve2_, curve1_.knot, 0)
-
-
-    return curve1_r, curve2_r
-
-
+# ----------------------------------------------------------------------
+# Multiple-curves version
+# ----------------------------------------------------------------------
 def make_curves_compatible_multiple(curves):
     """
-    Make two NURBS curves compatible for ruled surface construction
+    Make multiple NURBS curves compatible for surface construction.
 
-    Parameters:
-    curve1, curve2: dict with keys:
-        - control_points: nx4 array (x,y,z,w)
-        - degree: int
-        - knots: array of knot values
-
-    Returns:
-    tuple of two modified curves with same degree, knots and number of control points
+    Steps:
+      1) Elevate all to the highest order.
+      2) Normalize knots to [0,1].
+      3) If all knot-vector lengths match, snap everyone to a single existing knot vector (no insertion).
+      4) Else, cluster near-duplicates across ALL interiors, snap, then insert only what is missing.
     """
-    # 1. Degree elevation to match highest degree
-    max_order=0
-
-    curves=list(curves)
-
+    curves = list(curves)
+    # Normalize and find max order
+    max_order = 0
     for i in range(len(curves)):
-        curve=curves[i]
-        curves[i]=curve=normalize_knots_curve(curve)
+        curves[i] = normalize_knots_curve(curves[i])
+        if curves[i].order > max_order:
+            max_order = curves[i].order
 
-
-
-        if curve.order>max_order:
-            max_order=curve.order
-
+    # Elevate to max order, re-normalize
     for i in range(len(curves)):
+        c = curves[i]
+        delta = max_order - c.order
+        if delta > 0:
+            c = degree_elevate_curve(c, delta)
+        curves[i] = normalize_knots_curve(c)
 
-        curve=curves[i]
-        num=max_order-curve.order
-        if num>0:
-            curve=degree_elevate_curve(curve, num)
-            #print('nn',curve.knot.tolist())
-        curve = normalize_knots_curve(curve)
-        curves[i]=curve
+    order = max_order
+    knot_lists = [_get_knots(c) for c in curves]
 
+    # Case A: all same length -> choose a single existing interior and snap to it
+    if _all_same_length(knot_lists):
+        interiors = [_interior(k, order) for k in knot_lists]
+        ref_inter = _pick_reference_interior(interiors)
+        for i, c in enumerate(curves):
+            new_knot = _rebuild_knots_from_interior(_get_knots(c), order, ref_inter)
+            curves[i] = _set_knots(c, new_knot)
+        return curves
 
-            #new_cpts, new_weights = from_homogeneous_1d(np.asarray(new_cptsw))
+    # Case B: smart union with snapping across all
+    clusters, target_interior = _cluster_all_interiors(curves, order, tol_abs=SNAP_TOL_ABS)
 
-    for i in  range(len(curves)):
-        curve=curves[i]
-
-        for j in range(len(curves)):
-            if i==j:
-                continue
-            curve_j=curves[j]
-            if len(curve_j.knot)==len(curve.knot) and np.allclose(curve_j.knot,curve.knot):
-                continue
-            try:
-                curves[i]=curve=refine_curve(curve,curve_j.knot,density=0)
-            except Exception as err:
-                print(curve.knot.tolist(),curve_j.knot.tolist())
-                raise err
+    # Snap and insert missing for each curve
+    for i, c in enumerate(curves):
+        c = _snap_curve_to_clusters(c, order, clusters)
+        c = _insert_missing_to_reach_target(c, order, target_interior)
+        curves[i] = c
 
     return curves
+
+

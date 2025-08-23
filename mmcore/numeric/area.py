@@ -2,7 +2,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from mmcore.numeric.approx import adaptive_curve_sampler_safe
+from mmcore.numeric.approx import adaptive_curve_sampler
 from notes.offset import evaluate_nurbs_curve
 
 
@@ -46,7 +46,7 @@ def nurbs_curve_area(crv, *,
     """
     # 1) Lock the plane once from a light sample (any d_order=0 evaluator will do)
     tmin, tmax = crv.interval()
-    Ts,duu,evals,*_=adaptive_curve_sampler_safe(crv, 1e-3)
+    Ts,duu,evals,*_= adaptive_curve_sampler(crv, 1e-3)
     P0 = np.array([e["C"] for e in evals])
     o, e1, e2, n = best_fit_plane_frame(P0)
     dists = (P0 - o) @ n
