@@ -1,11 +1,15 @@
 from __future__ import annotations
+
+
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSCurveTuple, to_homogeneous_1d,NURBSSurfaceTuple,to_homogeneous_2d, \
+    from_homogeneous_2d
 try:
     import Rhino.Geometry as rg
     
 except ImportError:
     import rhino3dm as rg
 import numpy as np
-def rhcurve_to_nt(x):
+def rhcurve_to_nt(x:rg.Curve)->NURBSCurveTuple:
     pts = []
     w = []
     nx = x.ToNurbsCurve()
@@ -19,12 +23,10 @@ def rhcurve_to_nt(x):
     return NURBSCurveTuple(order, np.array(knots), np.array(pts), np.array(w))
 
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSCurveTuple, to_homogeneous_1d,NURBSSurfaceTuple,to_homogeneous_2d
 
 
 
-
-def nt_to_rhcurve(nt: NURBSCurveTuple):
+def nt_to_rhcurve(nt: NURBSCurveTuple)->rg.NurbsCurve:
     # rg.NurbsCurve(dimension: int, rational: bool, order: int, pointCount: int)
     crv = rg.NurbsCurve(3, True, nt.order, nt.control_points.shape[0])
     cpts = to_homogeneous_1d(nt.control_points, nt.weights)
@@ -74,7 +76,7 @@ def create_nt_surf(
     return surf
 
 
-def nt_to_rhsurf(nt):
+def nt_to_rhsurf(nt:NURBSSurfaceTuple)->rg.NurbsSurface:
     b = nt
     knots_u = b.knot_u
     knots_v = b.knot_v
@@ -104,3 +106,16 @@ def nt_to_rhsurf(nt):
                 crv.Points.SetWeight(i, j, cpts[i][j][-1])
 
     return crv
+
+def rhsurf_to_nt(x:rg.Surface)->NURBSSurfaceTuple:
+    nx = x.ToNurbsSurface()
+    pts = [(pt.X, pt.Y, pt.Z, pt.Weight) for pt in nx.Points]
+    ku = list(nx.KnotsU)
+    kv = list(nx.KnotsV)
+    ku = [ku[0]] + ku + [ku[-1]]
+    kv = [kv[0]] + kv + [kv[-1]]
+    ou = nx.OrderU
+    ov = nx.OrderV
+    cpt, ws = from_homogeneous_2d(np.array(pts).reshape((nx.Points.CountU, nx.Points.CountV, 4)))
+    return NURBSSurfaceTuple(ou, ov, knot_u=np.array(ku), knot_v=np.array(kv), control_points=cpt, weights=ws)
+    

@@ -129,7 +129,7 @@ def interpolate(p0, p1, v0, v1, iso=0.0):
     return (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]), p0[2] + t * (p1[2] - p0[2]))
 
 
-def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True):
+def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True, q:float = 1e-6):
     # Corner positions & SDF values
     cpos, cval = [], []
 
@@ -186,7 +186,13 @@ def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, i
         v2 = _v_id(p2, vdict)
         faces.append((v0, v1, v2))
 
-
+class _frozendict(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.__hash = hash(frozenset(self))
+    def __hash__(self):
+        return self.__hash
+    
 # ──────────────────────────────────────────────────────────────────────────────
 # 4‑bis.  Polygonise *all* leaves in one vectorised pass
 # ──────────────────────────────────────────────────────────────────────────────
@@ -194,7 +200,7 @@ def polygonise_leaves_bulk(
     leaves: list[OctreeNode],
     sdf,
     iso: float = 0.0,
-    preserve_orientation: bool = True,
+    preserve_orientation: bool = True,q=1e-6,
 ):
     """
     Build a watertight mesh for an *arbitrary* list of octree leaves
@@ -268,11 +274,20 @@ def polygonise_leaves_bulk(
                 tri_coords[k] = (p0, p2, p1)                 # swap
 
     # ── 4.  Deduplicate & index vertices ──────────────────────────────────────
+    vdict=_frozendict(vdict)
     for p0, p1, p2 in tri_coords:
-        faces.append((_v_id(p0, vdict), _v_id(p1, vdict), _v_id(p2, vdict)))
-
-    return vdict, faces
-
+        p0_id=_v_id(p0, vdict,q=q)
+        p1_id=_v_id(p1, vdict,q=q)
+        p2_id=_v_id(p2, vdict,q=q)
+        
+      
+        faces.append((p0_id,p1_id,p2_id))
+   
+  
+    V = np.array([(x*q,y*q,z*q )for (x,y,z),k in sorted(vdict.items(), key=lambda kv: kv[1])] ,dtype=float)
+    return V,  np.asarray(faces,dtype=int)
+import functools
+@functools.lru_cache(maxsize=None)
 def _v_id(p, vdict, q=1e-6):
     key = (round(p[0] / q), round(p[1] / q), round(p[2] / q))
     if key not in vdict:
@@ -283,9 +298,8 @@ def _v_id(p, vdict, q=1e-6):
 # -------------------------------------------------------------------------
 # 6.  Write ASCII PLY (widely supported)
 # -------------------------------------------------------------------------
-def write_ply(path: str, vdict: dict, faces: List[Tuple[int, int, int]]):
-    items = sorted(vdict.items(), key=lambda kv: kv[1])  # by index
-    verts = [(x * 1e-6, y * 1e-6, z * 1e-6) for (x, y, z), _ in items]
+def write_ply(path: str, verts: dict, faces: List[Tuple[int, int, int]]):
+    
     with open(path, "w", encoding="utf8") as f:
         f.write("ply\nformat ascii 1.0\n")
         f.write(f"element vertex {len(verts)}\n")
@@ -308,8 +322,10 @@ def marching_cubes(sdf, bounds,min_half=1e-3,max_depth=7):
     root = OctreeNode(c, h)  # anisotropic root volume
     
     kept, visited ,leafs= build_sdf_octree(root, sdf,min_half=min_half, max_depth=max_depth)
-    verts, faces = polygonise_leaves_bulk(leafs, sdf)
+    verts, faces = polygonise_leaves_bulk(leafs, sdf, q=min(1e-6,min_half))
     return verts, faces
+
+
 if __name__ == "__main__":
 
     def sdf_torus_vec(p, R=1.0, r=0.30):
