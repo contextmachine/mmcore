@@ -79,7 +79,7 @@ def adaptive_curve_sampler_unsafe(crv: NURBSCurveTuple, tol: float = 1e-3):
     return params,duu,evals,ll
 
 
-def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=None, max_points=int(1e+6)):
+def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points=int(1e+6)):
     """
     March once so each chord deviates by ~tol (sagitta) using your curvature-based
     stepper. Includes a fallback when κ≈0 so we never return inf.
@@ -89,7 +89,7 @@ def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=None, max_poin
          evals, s_list
     """
     if max_param_step_fraction is None:
-        max_param_step_fraction = 1/(len(np.unique(crv.knots))-1)
+        max_param_step_fraction = 1/(len(np.unique(crv.knot))-1)
 
     tmin, tmax = crv.interval()
     t = tmin
