@@ -6,10 +6,11 @@ import pyrr
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae, decompose_curve
 
 from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
+from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.topo.mesh.tess import tessellate_surface, surface_to_mesh
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.0
@@ -88,14 +89,55 @@ class Mesh:
     color: np.ndarray  # RGBA vector (with alpha for transparency)
     wireframe_color: Optional[np.ndarray] = None  # RGB vector for wireframe, if None will use a darker version of color
 
+def naive_creases(surf):
+    from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
+    from mmcore.geom._nurbs_knots import decompose_surface
+    srf=    _nurbs_to_tuple(surf)
+    parts=decompose_surface(srf)
 
+  
+
+    edges = {}
+    for i in range(len(parts)):
+        for j in range(len(parts)):
+            if i != j:
+                key = min(i, j), max(i, j)
+                if key not in edges:
+                    bnd1 = extract_surface_boundaries_tuple(parts[i])
+                    bnd2 = extract_surface_boundaries_tuple(parts[j])
+                    for b1 in bnd1:
+                        for b2 in bnd2:
+                            if b1.control_points.shape == b2.control_points.shape:
+                                if np.allclose(b1.control_points, b2.control_points):
+                                    edges[key] = b1
+                                    continue
+    creases = []
+    for (i, j), edge_curve in edges.items():
+        tmin, tmax = edge_curve.interval()
+        for pt in edge_curve.control_points:
+            uv1, (coord1, evals1, _) = nurbs_surface_closest_point(
+                parts[i], pt, angle_tol=0.052
+            )
+            uv2, (coord2, evals2, _) = nurbs_surface_closest_point(
+                parts[j], pt, angle_tol=0.052
+            )
+            N1 = np.cross(evals1["Su"], evals1["Sv"])
+            N1 /= np.linalg.norm(N1)
+            N2 = np.cross(evals2["Su"], evals2["Sv"])
+            N2 /= np.linalg.norm(N2)
+            if (1 - np.abs(np.dot(N1, N2))) > 0.052:
+                creases.append((i, j))
+                break
+    return [(_tuple_to_nurbs(edges[key]),key ) for key in creases]
 def nurbs_surface_wireframe_view(surf: NURBSSurface):
     (u_min, u_max), (v_min, v_max) = surf.interval()
 
     u_iso = extract_isocurve(surf, (u_min + u_max) * 0.5, direction="u")
     v_iso = extract_isocurve(surf, (v_min + v_max) * 0.5, direction="v")
+    
     boundaries = extract_surface_boundaries(surf)
-    return boundaries, [u_iso, v_iso], []
+    
+    return boundaries, [u_iso, v_iso]+[crv for crv,_ in naive_creases(surf)], []
 
 
 from numpy.typing import NDArray
@@ -591,11 +633,12 @@ class CADRenderer:
     def add_nurbs_surface_mesh(self, surf: NURBSSurface, color=(0.5, 0.5, 0.5, 0.5), wireframe_color=(0.0, 0.0, 0.0)):
         """Add a NURBS surface as a transparent mesh with wireframe"""
         # Tessellate the surface
-        tessellation = tessellate_surface(surf, [], 0.01)
+        tessellation = surface_to_mesh(surf,  0.01)
 
         # Extract mesh data
+        
         vertices = tessellation["position"]
-        triangles = tessellation["triangles"]
+        triangles = tessellation["faces"]
 
         # Add mesh to the scene
         self.add_mesh(vertices, triangles, color=color, wireframe_color=wireframe_color)
@@ -621,6 +664,7 @@ class CADRenderer:
             surface_color: Color for surface mesh (RGBA with alpha) if render_as_mesh is True
         """
         # Add wireframe representation
+        
         boundaries, isolines, mid_iso = nurbs_surface_wireframe_view(surf)
         if draw_isolies:
             for iso in isolines:

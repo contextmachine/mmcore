@@ -59,7 +59,7 @@ second_surface =  ruled(third_curve, fourth_curve)
 
 
 
-from mmcore.compat.step.step_writer2 import StepWriter
+from mmcore.compat.step.step_writer import StepWriter
 from pathlib import Path
 current_example_dir=Path(__file__).parent
 with (current_example_dir/'ruled_surfaces.step').open('w') as f:
