@@ -22,3 +22,4 @@ dist
 .cadence
 .claude-memory
 poetry.lock
+.claude
