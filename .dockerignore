@@ -31,3 +31,4 @@ docs
 /.cadence/
 *.gh
 *.3dm/.claude-memory/
+/hyper-book/
