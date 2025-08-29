@@ -26,7 +26,7 @@ def clean_exts(exts):
             c_file=source.replace('pyx','c')
             cpp_file = source.replace('pyx', 'cpp')
 
-            if c_file.endswith('triangle.c'):
+            if c_file.endswith('triangle.c') or c_file.endswith('_gjk.cpp'):
                 pass
             else:
 

@@ -162,7 +162,29 @@ cdef class Implicit3D:
 
     def bounds(self):
         return self._bounds
-
+    
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef void cimplicit_multi(self, double[:,:] points, double[:]  sd) noexcept nogil:
+        cdef size_t i;
+        for i in range(points.shape[0]):
+            sd[i]=self.cimplicit(points[i, 0], points[i,1], points[i,2])
+            
+            
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def __call__(self, pt):
+        
+        cdef  double[:,:] pts= np.atleast_2d(pt)
+        cdef  double[:] sd= np.empty(pts.shape[0])
+        with nogil:
+            self.cimplicit_multi(pts,sd)
+        if pts.shape[0]==1:
+            return sd[0]
+        else:
+            return sd
+        
+        
 cdef class Sphere(Implicit3D):
 
 
