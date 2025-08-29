@@ -22,6 +22,22 @@ class AABB:
 
     min: np.ndarray = np.inf
     max: np.ndarray = -np.inf
+    _array: Optional[NDArray] = field(init=False, default=None)
+   
+    
+    def _ensure_array(self):
+        if self._array is None:
+            self._array = np.array((self.min, self.max), dtype, **kwargs)
+            self.min = self._array[0, :]
+            self.max = self._array[1, :]
+        
+    def __array__(self, dtype=None,copy:bool=None) -> NDArray[np.float64]:
+      
+            if self._array is None:
+                
+                self._ensure_array()
+            return self._array.__array__(dtype,copy=copy)
+    
 
     @property
     def dim(self):
@@ -74,31 +90,39 @@ class AABB:
         
         return not (np.any(self.max <= pt) or np.any(self.min >= pt))
     
-    def offset(self, d:float):
-        return AABB(self.min-d,self.max+d)
-    def offset_inplace(self, d:float):
-        self.min-=d
-        self.max+=d
+    def diag(self):
+        return self.max-self.min
+    def centroid(self):
+        return (self.max+self.min)/2
+    
+    def is_finite(self):
+        return np.isfinite(self.min    )and np.isfinite(self.max)
+    def is_empty(self, allow_flat=False):
+        m=np.prod(self.diag()).item()
+        return m<0 if  allow_flat else m<=0
+    def is_flat(self,rtol=1.e-5, atol=1.e-8,):
+        m = np.prod(self.diag()).item()
+        return np.isclose(m,0,rtol=rtol,atol=atol)
+    
     def volume(self):
         if self.dim!=3:
             raise ValueError(f'volume method is undefined for the {self.dim}-dim AABB')
         else :
-            d=self.max-self.min
-            return np.prod(d).item()
+           
+            return np.prod(self.diag()).item()
     
     def __iter__(self):
         return iter((self.min,self.max))
     
-    def __array__(self, dtype=None ,*args, **kwargs):
-        return np.array([self.min,self.max], dtype=dtype, *args, **kwargs)
-    
-    def intersection(self, other:AABB, exacr)->AABB:
+   
+    def intersection(self, other:AABB)->AABB:
         
         min_pt = np.maximum(self.min, other.min)
         max_pt = np.minimum(self.max, other.max)
         if np.any(min_pt>max_pt):
-            return None
+            return AABB()
         return AABB(min_pt,max_pt)
+    
     def sd(self, point):
         # ensure numpy arrays
         p = np.asarray(point, dtype=float)
