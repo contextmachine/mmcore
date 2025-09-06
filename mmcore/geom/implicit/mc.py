@@ -10,11 +10,10 @@ Tested on Python 3.11, no third‑party modules required.
 
 from __future__ import annotations
 import math, itertools
-from collections import defaultdict
 
 import numpy as np
 
-from mmcore.geom.implicit.tree.octree import OctreeNode,build_sdf_octree
+from mmcore.geom.octree import OctreeNode,build_sdf_octree
 from typing import List, Tuple
 
 # -------------------------------------------------------------------------

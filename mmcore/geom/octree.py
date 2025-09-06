@@ -309,7 +309,69 @@ NodeIndex = tuple[int, int, int, int]
 
 
 
+import numpy as np
 
+def points_to_octants(aabb: np.ndarray, pts: np.ndarray) -> np.ndarray:
+    """
+    Vectorized octant classification for a 3D AABB.
+
+    Parameters
+    ----------
+    aabb : (2, 3) array_like
+        Axis-aligned bounding box as [[xmin, ymin, zmin], [xmax, ymax, zmax]].
+    pts : (M, 3) array_like
+        Array of 3D points.
+
+    Returns
+    -------
+    idx : (M,) np.ndarray of dtype int64
+        Octant index in [0..7] for points inside the AABB, or -1 for points outside.
+        Octant encoding (bit-coded):
+            bit 0 (1): x >= xmid  -> high-x
+            bit 1 (2): y >= ymid  -> high-y
+            bit 2 (4): z >= zmid  -> high-z
+        So:
+            0: (low-x, low-y, low-z)
+            1: (high-x, low-y, low-z)
+            2: (low-x, high-y, low-z)
+            3: (high-x, high-y, low-z)
+            4: (low-x, low-y, high-z)
+            5: (high-x, low-y, high-z)
+            6: (low-x, high-y, high-z)
+            7: (high-x, high-y, high-z)
+
+    Notes
+    -----
+    - Points exactly on the global AABB boundary are considered *inside*.
+    - Split planes are assigned to the *upper* child along that axis (i.e., p == mid goes to the “high” side).
+    - Handles degenerate boxes (min == max) gracefully: only points equal to that coordinate are inside;
+      they map to the “high” side (bit = 1) for that axis.
+    """
+
+    # Ensure arrays and proper ordering of bounds
+    aabb = np.asarray(aabb, dtype=np.float64)
+    pts  = np.asarray(pts,  dtype=np.float64)
+    lo = np.minimum(aabb[0], aabb[1])
+    hi = np.maximum(aabb[0], aabb[1])
+
+    # Midpoint split planes
+    mid = (lo + hi) * 0.5
+
+    # Inside-parent mask (inclusive bounds)
+    inside_mask = (pts >= lo).all(axis=1) & (pts <= hi).all(axis=1)
+
+    # Octant bits: high side if point >= mid along that axis
+    bits = (pts >= mid).astype(np.int64)
+
+    # Encode to [0..7]: x is LSB, then y, then z
+    idx_all = (bits[:, 0]      # 1*x_high
+               | (bits[:, 1] << 1)  # 2*y_high
+               | (bits[:, 2] << 2)) # 4*z_high
+
+    # Fill result and mark outside as -1
+    out = np.full(pts.shape[0], -1, dtype=np.int64)
+    out[inside_mask] = idx_all[inside_mask]
+    return out
 
 class Octree:
     def __init__(self, aabb: np.ndarray, max_depth: int = 16):
@@ -653,43 +715,53 @@ class Octree:
         return self._aabb_cache[np.array(nodes, dtype=np.int64)]
 
     
-    def find_node(self, point: np.ndarray):
-        stack=[self.get_root()]
-        pt = np.array([point, point], dtype=np.float64)
-        best=None
-        while stack:
-            node = stack.pop(0)
-            
-            
-            bb=self.get_bbox(node)
-            
-            if aabb_intersect_fast_3d(bb,pt):
-                if best is None:
-                    best=node
-                elif best[0]<node[0]:
-                        best=node
-                else:
-                    print('omg', best,node)
-                    
-                if node[0]<self.max_depth:
-                    for child in self.iter_children(node):
-                        stack.append(child)
-                    
-            else:
-                continue
-        if best is None:
-            
-            return self.get_root()
-        elif best[0]>=max_depth:
-            return best
-     
-        candidate=best
-        for c in range(self.max_depth-best[0]):
-            
-            candidate=min(self.iter_children(candidate), key=lambda x: AABB(*self.get_bbox(x)).sd(x))
-            
+    def find_nodes(self, points: np.ndarray, min_points_per_node: int=10000) -> np.ndarray:
+        points_ixs=np.arange(points.shape[0], dtype=np.int64)
+        stack=[(self.get_root(), points_ixs)]
+      
+        inside_points=np.zeros(points.shape[0], dtype=bool)
+        leaf_to_points=dict()
         
-        return candidate
+        while stack:
+            node,pti = stack.pop(0)
+           
+            
+            if pti.size==0:
+      
+                continue
+            node = int(node[0]),int(node[1]),int(node[2]),int(node[3])
+            if pti.shape[0] < min_points_per_node:
+                inside_points[pti] = True
+                leaf_to_points[node] = pti
+                continue
+         
+            
+            if node[0]>=self.max_depth:
+                inside_points[pti]=True
+                leaf_to_points[node]=pti
+                
+                continue
+          
+            bb=self.get_bbox(node)
+     
+            pt_to_child=points_to_octants(bb, np.atleast_2d(points[pti]))
+            #pti = np.atleast_1d(pti)
+            unq=np.unique(pt_to_child)
+            buckets=[pti[i] for i in pt_to_child[None, ...] == unq.reshape(-1, 1)]
+            
+            childs =self.get_children(node)
+            
+            for buck, chi in zip(buckets,unq):
+                if chi<0:
+                    pass
+                else:
+                
+                    stack.append((childs[chi],buck))
+            
+         
+            
+         
+        return points_ixs[inside_points],leaf_to_points
         
         
         
