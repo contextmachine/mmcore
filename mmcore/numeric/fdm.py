@@ -521,7 +521,7 @@ def gradient(f, point, h=DEFAULT_H):
     return grad
 
 
-def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,h=1e-5):
+def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,h=1e-4):
     """
     Apply Newton's method to find the root of a function.
     The same powerful newton converging in a few iterations.
@@ -550,30 +550,122 @@ def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, f
     else:
         hess=hess
     grad=None
+    step=None
+    prev_fpt=f(point)
     for _ in range(max_iter):
+        
         grad = _grad(point)
         H = hess( point)
-
+      
+        # More robust verification here
         try:
 
-            H_inv = np.linalg.inv(H)
+            H_inv = np.linalg.pinv(H)
         except np.linalg.LinAlgError:
             if not no_warn:
                 warnings.warn(f"Hessian is singular at the point {point}")
             break
         step = H_inv @ grad
         new_point = point - step
+        fpt=f(new_point)
+        if fpt>prev_fpt or (np.abs(fpt-prev_fpt) <tol):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        else:
+            prev_fpt = fpt
+       
         if scalar_norm(new_point - point) < tol:
             if full_return:
                 return new_point,grad,H, H_inv,_
+          
             return new_point
         point = new_point
+        
     if not no_warn:
-        warnings.warn(f"Iteration limit {max_iter} at {point} ")
+        
+        warnings.warn(f"Iteration limit {max_iter} at point: {point}, step: {step} ")
     if full_return:
         return None, grad, H, H_inv, max_iter
     return None
 
+
+def bounded_newtons_method(f, initial_point, bounds,tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,
+                   h=1e-4):
+    """
+    Apply Newton's method to find the root of a function.
+    The same powerful newton converging in a few iterations.
+
+    :param f: The function for which the root is to be found.
+    :param initial_point: The initial point for the iteration.
+    :param tol: Tolerance for the stopping criterion. Default is DEFAULT_H.
+    :param max_iter: Maximum number of iterations. Default is 100.
+    :param no_warn: If True, suppress warnings. Default is False.
+    :param full_return: If True, return all intermediate variables. Default is False.
+    :param grad: The gradient of the function. If None, compute the gradient using the gradient function.
+    :param hess: The Hessian of the function. If None, compute the Hessian using the hessian function.
+    :return: The root of the function if found, None otherwise.
+
+    """
+    point = np.asarray(initial_point)
+    low,up=np.asarray(list(zip(*bounds)))
+    H_inv = None
+    H = None
+    if grad is None:
+        _grad = lambda x: gradient(f, x, h)
+    else:
+        _grad = grad
+    if hess is None:
+        hess = lambda x: hessian(f, x, h)
+    
+    else:
+        hess = hess
+    grad = None
+    step = None
+    prev_fpt = f(point)
+    for _ in range(max_iter):
+        
+        grad = _grad(point)
+        H = hess(point)
+        
+        # More robust verification here
+        try:
+            
+            H_inv = np.linalg.pinv(H)
+        except np.linalg.LinAlgError:
+            if not no_warn:
+                warnings.warn(f"Hessian is singular at the point {point}")
+            break
+        step = H_inv @ grad
+        new_point = point - step
+        mask=(low<new_point)| (new_point> up)
+       
+        if np.all(mask):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        new_point = np.clip(new_point, low, up)
+        
+        fpt = f(new_point)
+        if fpt > prev_fpt or (np.abs(fpt - prev_fpt) < tol):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        else:
+            prev_fpt = fpt
+        
+        if scalar_norm(new_point - point) < tol:
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            
+            return new_point
+        point = new_point
+    
+    if not no_warn:
+        warnings.warn(f"Iteration limit {max_iter} at point: {point}, step: {step} ")
+    if full_return:
+        return None, grad, H, H_inv, max_iter
+    return None
 def hessian_multi(f, points, h=DEFAULT_H):
     """
     Calculate the Hessian matrix of a given function `f` at a given `point`.
