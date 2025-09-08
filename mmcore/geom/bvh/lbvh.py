@@ -27,7 +27,7 @@ class AABB:
     
     def _ensure_array(self):
         if self._array is None:
-            self._array = np.array((self.min, self.max), dtype, **kwargs)
+            self._array = np.array((self.min, self.max), float)
             self.min = self._array[0, :]
             self.max = self._array[1, :]
         
@@ -345,8 +345,17 @@ class BVH:
                 else:
                     stack.append(self.nodes[current.left])
                     stack.append(self.nodes[current.right])
-            
-                    
+    def get_bboxes(self):
+        stack=[self.root_index]
+        while stack:
+            current=stack.pop(0)
+            node=self.nodes[current]
+            yield np.array(node.bbox)
+            if self.nodes[current].is_leaf():
+                continue
+            stack.append(self.nodes[current].left)
+            stack.append(self.nodes[current].right)
+        
 def build_bvh(bboxes,  max_objects_in_leaf:int=1)->BVH:
     tree = BVH(max_objects_in_leaf=max_objects_in_leaf)
     tree.build(bboxes)

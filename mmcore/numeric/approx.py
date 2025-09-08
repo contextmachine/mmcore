@@ -2,9 +2,9 @@ import math
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
-from mmcore.numeric import compute_parametric_curvature_tolerance_curve
-from notes.offset import evaluate_nurbs_curve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve
+from mmcore.numeric.numeric import compute_parametric_curvature_tolerance_curve
+
 
 
 def chord_length(R, h):
@@ -84,9 +84,10 @@ def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points
     March once so each chord deviates by ~tol (sagitta) using your curvature-based
     stepper. Includes a fallback when κ≈0 so we never return inf.
     Returns:
-          params
+        params
          du_list
-         evals, s_list
+         evals,
+          s_list
     """
     if max_param_step_fraction is None:
         max_param_step_fraction = 1/(len(np.unique(crv.knot))-1)

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import math
 from typing import NamedTuple
 
@@ -18,14 +19,25 @@ from mmcore.numeric.closest_point import nurbs_curve_closest_point,nurbs_surface
 class CCXInt(NamedTuple):
     s:float
     t:float
+    fun:float
     c1_eval:dict
     c2_eval:dict
     ds:float
     dt:float
-
+    
+    def __eq__(self, other: CCXInt):
+        return self.fun == other.fun
+    
+    def __lt__(self, other: CCXInt):
+        return self.fun.__lt__(other.fun)
+    
+    def __gt__(self, other: CCXInt):
+        return self.fun.__gt__(other.fun)
+    
 class Overlap(NamedTuple):
     start:CCXInt
     end:CCXInt
+    
 
 
 def _reverse_param(t:float, interval:tuple[float,float]):
@@ -45,7 +57,7 @@ def _aabb(pts):
 
 _min_aeps=math.sin(math.radians(1))
 
-def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, angle_tol:float=0.052, **kwargs):
+def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, angle_tol:float=0.0013704652454261668, **kwargs):
     """Finds the overlap between two Bezier curves.
      """
 
@@ -60,14 +72,14 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
     end2 = evaluate_nurbs_curve(c2,t1,d_order=2)
     end2['T'],end2['K'],_=evaluate_curvature(end2['C1'],end2['C2'])
     bb1,bb2=_aabb(to_homogeneous_1d(c1.control_points,c1.weights)), _aabb(to_homogeneous_1d(c2.control_points,c2.weights))
-
+    
     c1_ends,c2_ends=[(start1,s0),(end1,s1)],  [(start2,t0),(end2,t1)]
 
     c1_ends=list(filter(lambda x:point_in_aabb(bb2,x[0]['C']),c1_ends))
     c2_ends=list(filter(lambda x: point_in_aabb(bb1, x[0]['C']), c2_ends))
     if (len(c1_ends)+len(c2_ends))<2:
-
-        return False,
+        print(1)
+        return False, None
     ints=[]
     for pt,prm in c1_ends:
         curve1_eval =pt
@@ -81,7 +93,7 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
                 if compare_curvature(curve1_eval["C1"], curve1_eval["C2"], curve1_eval["K"], curve2_eval["C1"], curve2_eval["C2"], curve2_eval["K"]):
                    
                   
-                        ints.append(((prm,t), (ds,dt),(pt,curve2_eval)))
+                        ints.append(CCXInt(prm,t, fx,pt,curve2_eval,ds,dt))
 
     for pt, prm in c2_ends:
         dt = compute_parametric_tolerance_curve(pt['C1'],pt["C2"] , spt=spt, angle_tol=angle_tol)
@@ -94,33 +106,40 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
                 if compare_curvature(curve1_eval["C1"], curve1_eval["C2"], curve1_eval["K"], curve2_eval["C1"], curve2_eval["C2"], curve2_eval["K"]):
                         
                         
-                        ints.append(((s, prm), (ds, dt), (curve1_eval, pt)))
+                        ints.append(CCXInt(s, prm, fx, curve1_eval, pt,ds, dt))
 
     if len(ints)<2:
+        print(2)
         return False, ints
-    min_s, max_s = min(ints, key=lambda x: x[0][0]), max(
+    min_s, max_s = min(ints, key=lambda x: x.s), max(
         ints,
-        key=lambda x: x[0][0],
+        key=lambda x: x.s,
     )
 
-    ss,se=min_s[0][0],max_s[0][0]
-    ts,te=min_s[0][1],max_s[0][1]
+    ss,se=min_s.s,max_s.s
+    ts,te=min_s.t,max_s.t
 
     s_mid = ss + (se - ss) / 2
     curve1_eval=evaluate_nurbs_curve(c1,s_mid,d_order=2)
-    curve1_eval["T"], curve1_eval["K"], _ = evaluate_curvature(curve1_eval["C1"], curve1_eval["C2"])
-
+    
     t_mid, (fx, curve2_eval, dt) = nurbs_curve_closest_point(c2, curve1_eval["C"], spt=spt, angle_tol=angle_tol)
-    curve2_eval["T"], curve2_eval["K"], _ = evaluate_curvature(curve2_eval["C1"], curve2_eval["C2"])
-
     if fx < spt:
+        
+       
+        curve1_eval["T"], curve1_eval["K"], _ = evaluate_curvature(curve1_eval["C1"], curve1_eval["C2"])
+    
+        curve2_eval["T"], curve2_eval["K"], _ = evaluate_curvature(curve2_eval["C1"], curve2_eval["C2"])
+    
+    
         if (1 - np.abs(np.dot(curve2_eval["T"], curve1_eval["T"]))) < angle_tol:
             if compare_curvature(curve1_eval["C1"], curve1_eval["C2"], curve1_eval["K"], curve2_eval["C1"], curve2_eval["C2"], curve2_eval["K"]):
                 
                     pass
             else:
+                    print(fx,3)
                     return False, ints
         else:
+            print(fx,4)
             return False, ints
 
     # if ts>te:
@@ -156,7 +175,7 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
     #
     #    return True,Overlap(    CCXInt(*min_s[0], *min_s[2],*min_s[1]),    CCXInt(*max_s[0], *max_s[2],*max_s[1]))
     # return False,ints
-    return True, Overlap(    CCXInt(*min_s[0], *min_s[2],*min_s[1]),    CCXInt(*max_s[0], *max_s[2],*max_s[1]))
+    return True, Overlap(    min_s,   max_s)
 
 from mmcore.geom._nurbs_eval import (
     NURBSCurveTuple, NURBSSurfaceTuple,
@@ -189,7 +208,7 @@ class CurveBoundaryHit(NamedTuple):
     boundary_curve:   NURBSCurveTuple
 
 
-from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx,nurbs_curve_bvh
+
 from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
 
 class CurveTree:
@@ -200,7 +219,7 @@ class CurveTree:
         self.prims=prims
 from mmcore.geom._nurbs_eval import _surface_interval
 def _curve_boundary_hits(crv: NURBSCurveTuple, srf: NURBSSurfaceTuple, spt: float = 1e-3):
-
+    from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx, nurbs_curve_bvh
     u0_curve, u1_curve, v0_curve, v1_curve=boundaries=extract_surface_boundaries_tuple(srf)
     (u0,u1),(v0,v1)=_surface_interval(srf)
 

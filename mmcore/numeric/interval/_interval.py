@@ -136,7 +136,7 @@ class Interval:
                 return Comparison.FALSE
             return Comparison.MAYBE
         return Comparison.TRUE if self.upp < other else Comparison.FALSE
-
+    
     def __lt__(self, other):
         return self.compare(other) == Comparison.TRUE
 
@@ -164,6 +164,10 @@ class Interval:
         lo = max(self.low, other.low)
         hi = min(self.upp, other.upp)
         return None if lo>hi else Interval(lo,hi)
+    def intersects(self,other)->bool:
+        lo = max(self.low, other.low)
+        hi = min(self.upp, other.upp)
+        return False if lo>hi else True
     # merging
     def hull(self,other):
         return Interval(min(self.low,other.low), max(self.upp,other.upp))
