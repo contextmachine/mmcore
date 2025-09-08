@@ -6,7 +6,7 @@ import numpy as np
 
 from numpy.typing import NDArray
 def left(i):
-    return 2 * i + 1
+    return 2 *i + 1
 
 
 def right(i):
@@ -14,7 +14,7 @@ def right(i):
 
 
 def parent(i):
-    return (i - 1) / 2
+    return (i - 1) // 2
 
 
 @dataclasses.dataclass

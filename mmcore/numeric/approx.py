@@ -11,13 +11,6 @@ def chord_length(R, h):
     return 2 * np.sqrt(2 * R * h - (h * h))
 
 
-def arc_length_from_chord_height(chord_len, height):
-    c = chord_len
-    h = height
-    a = c / 2.0
-    R = (a*a + h*h) / (2.0*h)
-    theta = 2.0 * math.asin(a / R)  # in radians
-    return R * theta
 
 
 def chord_height(radius: float, chord_length: float) -> float:
