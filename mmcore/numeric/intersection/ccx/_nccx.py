@@ -416,7 +416,7 @@ if __name__ == "__main__":
     
     nc1, nc2 = _nurbs_to_tuple(c1), _nurbs_to_tuple(c2)
     from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
-    import timex
+    import time
     
     s = time.time()
     res = nurbs_ccx(nc1, nc2)
