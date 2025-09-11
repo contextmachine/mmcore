@@ -13,8 +13,8 @@ import math, itertools
 
 import numpy as np
 
-from mmcore.geom.octree import OctreeNode,build_sdf_octree
-from typing import List, Tuple
+from mmcore.geom.octree import Octree
+from typing import List, Tuple, Callable
 
 # -------------------------------------------------------------------------
 # 1.  A TRUE signed‑distance function: torus centred at the origin
@@ -119,6 +119,22 @@ def generate_mc_table() -> List[List[int]]:
 
 MC_TABLE = generate_mc_table()
 
+# Precompute helpers for vectorised polygonisation
+EDGES_ARR = np.asarray(EDGES, dtype=np.int64)
+CUBE_OFFS = np.asarray([(vx * 2 - 1, vy * 2 - 1, vz * 2 - 1) for vx, vy, vz in VERTS], dtype=float)
+
+def _build_mc_tris():
+    out = []
+    for row in MC_TABLE:
+        tri_e = row[:-1]  # drop terminator
+        if len(tri_e) == 0:
+            out.append(np.empty((0, 3), dtype=np.int16))
+        else:
+            out.append(np.asarray(tri_e, dtype=np.int16).reshape(-1, 3))
+    return out
+
+MC_TABLE_TRIS = _build_mc_tris()
+
 
 # -------------------------------------------------------------------------
 # 5.  Polygonise one adaptive leaf
@@ -128,7 +144,7 @@ def interpolate(p0, p1, v0, v1, iso=0.0):
     return (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]), p0[2] + t * (p1[2] - p0[2]))
 
 
-def polygonise_leaf(node: OctreeNode, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True, q:float = 1e-6):
+def polygonise_leaf(node, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True, q:float = 1e-6):
     # Corner positions & SDF values
     cpos, cval = [], []
 
@@ -195,11 +211,13 @@ class _frozendict(dict):
 # ──────────────────────────────────────────────────────────────────────────────
 # 4‑bis.  Polygonise *all* leaves in one vectorised pass
 # ──────────────────────────────────────────────────────────────────────────────
-def polygonise_leaves_bulk(
-    leaves: list[OctreeNode],
-    sdf,
+def polygonise_nodes_bulk(
+    octree: Octree,
+    nodes: np.ndarray,
+    sdf: Callable,
     iso: float = 0.0,
-    preserve_orientation: bool = True,q=1e-6,
+    preserve_orientation: bool = True,
+    q: float = 1e-6,
 ):
     """
     Build a watertight mesh for an *arbitrary* list of octree leaves
@@ -210,16 +228,16 @@ def polygonise_leaves_bulk(
     vdict : dict   {rounded‑coord → index}
     faces : list   [(i, j, k), …]
     """
-    if not leaves:
-        return {}, []
+    if nodes is None or len(nodes) == 0:
+        return np.empty((0, 3), dtype=float), np.empty((0, 3), dtype=int)
 
     # ── 1.  Corner sampling in one shot ───────────────────────────────────────
-    n = len(leaves)
-    centres = np.array([(n.cx, n.cy, n.cz) for n in leaves])
-    halves  = np.array([(n.hx, n.hy, n.hz) for n in leaves])
+    n = len(nodes)
+    bbs = octree.get_bboxes(nodes)
+    centres = bbs.mean(axis=1)
+    halves = 0.5 * (bbs[:, 1] - bbs[:, 0])
 
-    offs = np.array([(vx * 2 - 1, vy * 2 - 1, vz * 2 - 1) for vx, vy, vz in VERTS])
-    cpos = centres[:, None, :] + halves[:, None, :] * offs          # (n, 8, 3)
+    cpos = centres[:, None, :] + halves[:, None, :] * CUBE_OFFS     # (n, 8, 3)
     cval = sdf(cpos.reshape(-1, 3)).reshape(n, 8)                   # ← SDF #1
 
     # Bit‑mask of inside corners per cube
@@ -228,35 +246,43 @@ def polygonise_leaves_bulk(
         masks |= (cval[:, i] < iso).astype(np.uint16) << i
 
     # ── 2.  Build triangle soup (no more SDF calls here) ──────────────────────
-    tri_coords, tri_eps = [], []            # collect for optional orientation
-    faces, vdict        = [], {}            # final mesh
-    for idx, node in enumerate(leaves):
-        m = masks[idx]
+    tri_blocks, eps_blocks = [], []         # collect per‑leaf triangle blocks
+    a = EDGES_ARR[:, 0]
+    b = EDGES_ARR[:, 1]
+    unique_masks = np.unique(masks)
+    for m in unique_masks:
         if m in (0, 0xFF):
             continue
+        idxs = np.where(masks == m)[0]
+        if idxs.size == 0:
+            continue
+        cp = cpos[idxs]                                # (k,8,3)
+        cv = cval[idxs]                                # (k,8)
 
-        # Local caches are tiny and stay per leaf
-        cv, cp = cval[idx], cpos[idx]
-        evert = {}
+        pa, pb = cp[:, a], cp[:, b]                    # (k,28,3)
+        va, vb = cv[:, a], cv[:, b]                    # (k,28)
+        denom = (vb - va)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            t = (iso - va) / denom                     # (k,28)
+            t = np.where(denom == 0.0, 0.0, t)
+        ep = pa + t[..., None] * (pb - pa)             # (k,28,3)
 
-        def v_on_edge(eid: int):
-            if eid not in evert:
-                a, b = EDGES[eid]
-                evert[eid] = interpolate(cp[a], cp[b], cv[a], cv[b], iso)
-            return evert[eid]
+        tris_idx = MC_TABLE_TRIS[int(m)]               # (T,3)
+        if tris_idx.size == 0:
+            continue
+        tris_pts = ep[:, tris_idx, :]                  # (k,T,3,3)
+        k, Tn = tris_pts.shape[0], tris_pts.shape[1]
+        tri_blocks.append(tris_pts.reshape(-1, 3, 3))
+        eps_per_node = 1e-4 * halves[idxs].max(axis=1) # (k,)
+        eps_blocks.append(np.repeat(eps_per_node, Tn))
 
-        for i in range(0, len(MC_TABLE[m]) - 1, 3):
-            p0, p1, p2 = (v_on_edge(e) for e in MC_TABLE[m][i : i + 3])
-            tri_coords.append((p0, p1, p2))
-            tri_eps.append(1e-4 * max(node.hx, node.hy, node.hz))
-
-    if not tri_coords:
-        return {}, []
+    if not tri_blocks:
+        return np.empty((0, 3), dtype=float), np.empty((0, 3), dtype=int)
 
     # ── 3.  One‑shot orientation fix (optional) ───────────────────────────────
+    tris = np.concatenate(tri_blocks, axis=0)           # (T,3,3)
+    eps  = np.concatenate(eps_blocks).reshape(-1, 1)     # (T,1)
     if preserve_orientation:
-        tris = np.asarray(tri_coords)                        # (T, 3, 3)
-        eps  = np.asarray(tri_eps)[:, None]                  # (T, 1)
 
         nrm  = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
         ln   = np.linalg.norm(nrm, axis=1, keepdims=True)
@@ -267,24 +293,16 @@ def polygonise_leaves_bulk(
         d    = sdf(test).reshape(2, -1)                      # ← SDF #2
 
         flip = d[0] < d[1]                                   # inward?
-        for k, f in enumerate(flip):
-            if f:
-                p0, p1, p2 = tri_coords[k]
-                tri_coords[k] = (p0, p2, p1)                 # swap
+        if np.any(flip):
+            tris[flip, 1], tris[flip, 2] = tris[flip, 2].copy(), tris[flip, 1].copy()
 
     # ── 4.  Deduplicate & index vertices ──────────────────────────────────────
-    vdict=_frozendict(vdict)
-    for p0, p1, p2 in tri_coords:
-        p0_id=_v_id(p0, vdict,q=q)
-        p1_id=_v_id(p1, vdict,q=q)
-        p2_id=_v_id(p2, vdict,q=q)
-        
-      
-        faces.append((p0_id,p1_id,p2_id))
-   
-  
-    V = np.array([(x*q,y*q,z*q )for (x,y,z),k in sorted(vdict.items(), key=lambda kv: kv[1])] ,dtype=float)
-    return V,  np.asarray(faces,dtype=int)
+    pts = tris.reshape(-1, 3)                     # (T*3,3)
+    K = np.rint(pts / q).astype(np.int64)         # integer grid keys
+    uniq, inv = np.unique(K, axis=0, return_inverse=True)
+    V = uniq.astype(float) * q
+    F = inv.reshape(-1, 3).astype(np.int64)
+    return V, F
 import functools
 @functools.lru_cache(maxsize=None)
 def _v_id(p, vdict, q=1e-6):
@@ -315,13 +333,79 @@ def write_ply(path: str, verts: dict, faces: List[Tuple[int, int, int]]):
 # -------------------------------------------------------------------------
 # 7.  Demo run
 # -------------------------------------------------------------------------
-def marching_cubes(sdf, bounds,min_half=1e-3,max_depth=7):
-    c=(bounds[0,:]+bounds[1,:])/2
-    h=bounds[1, :]-c
-    root = OctreeNode(c, h)  # anisotropic root volume
-    
-    kept, visited ,leafs= build_sdf_octree(root, sdf,min_half=min_half, max_depth=max_depth)
-    verts, faces = polygonise_leaves_bulk(leafs, sdf, q=min(1e-6,min_half))
+def _r_box(half: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(half, axis=1)
+
+
+def _build_surface_leaves(octree: Octree, sdf: Callable, iso: float, min_half: float, max_depth: int) -> np.ndarray:
+    """Vectorised octree refinement using 1‑Lipschitz pruning.
+
+    Returns an array of nodes with shape (N, 4) where each row is [L, x, y, z]
+    that likely intersects the iso‑surface or reached termination criteria.
+    """
+    stack = [np.array([octree.get_root()], dtype=np.int64)]
+    leaves = []
+
+    while stack:
+        nodes = stack.pop(0)
+        if nodes.size == 0:
+            continue
+
+        bbs = octree.get_bboxes(nodes)
+        centres = bbs.mean(axis=1)
+        halves = 0.5 * (bbs[:, 1] - bbs[:, 0])
+        radii = _r_box(halves)
+
+        # Distance to iso level
+        vals = np.asarray(sdf(centres), dtype=float) - float(iso)
+
+        outside = vals > radii
+        inside = vals < -radii
+        uncertain = ~(outside | inside)
+
+        if not np.any(uncertain):
+            # Nothing to refine in this batch
+            continue
+
+        # Termination: reached max depth OR cell small enough
+        L = nodes[:, 0]
+        small = np.max(halves, axis=1) <= float(min_half)
+        stop = (L >= max_depth) | small
+
+        # Keep uncertain nodes that should stop as leaves
+        to_keep = uncertain & stop
+        if np.any(to_keep):
+            leaves.append(nodes[to_keep])
+
+        # Refine uncertain nodes that can still split
+        to_split = uncertain & (~stop)
+        if np.any(to_split):
+            ch = octree.get_children_multiple(nodes[to_split])  # (8, K, 4)
+            stack.append(np.concatenate(ch, axis=0).astype(np.int64))
+
+    return np.concatenate(leaves, axis=0) if leaves else np.empty((0, 4), dtype=np.int64)
+
+
+def marching_cubes(sdf, bounds, min_half=1e-3, max_depth=7, iso: float = 0.0, preserve_orientation: bool = True):
+    """Extract an iso‑surface using the virtual Octree with vectorised refinement.
+
+    Parameters
+    - sdf: Callable accepting (N,3) points and returning (N,) distances.
+    - bounds: (2,3) array_like AABB.
+    - min_half: minimum half‑size to stop refining (isotropic threshold).
+    - max_depth: maximum octree depth.
+    - iso: iso‑value to extract (default 0.0).
+    """
+    oct = Octree(np.array(bounds, dtype=float), max_depth=int(max_depth))
+    if min_half is not None:
+        try:
+            oct.set_max_depth_by_min_half(float(min_half))
+        except Exception:
+            # Fallback to provided max_depth if heuristic fails
+            pass
+
+    nodes = _build_surface_leaves(oct, sdf, iso=float(iso), min_half=float(min_half), max_depth=int(oct.max_depth))
+    verts, faces = polygonise_nodes_bulk(oct, nodes, sdf, iso=float(iso), preserve_orientation=preserve_orientation, q=min(1e-6, float(min_half)))
     return verts, faces
 
 
@@ -340,25 +424,14 @@ if __name__ == "__main__":
         q = np.stack((np.sqrt(x * x + y * y) - R, z), axis=-1)
         return np.linalg.norm(q, axis=-1) - r  # ∥q∥ − r
 
-    root = OctreeNode((0, 0, 0), (2, 2, 1))  # anisotropic root volume
-
-    kept, visited ,leafs= build_sdf_octree(root, sdf_torus_vec, max_depth=7)
-    print(f"Tree: visited {visited:,d}, kept {kept:,d} leaves")
+    # Simple demo with torus bounds
+    bbox = np.array([[-2.5, -2.5, -2.0], [2.5, 2.5, 2.0]], dtype=float)
     import time
 
     s = time.perf_counter()
-    verts, faces = {}, []
-    stack = [root]
+    V, F = marching_cubes(sdf_torus_vec, bbox, min_half=0.02, max_depth=8, iso=0.0)
+    print("MC time:", time.perf_counter() - s)
 
-    # while stack:
-    #    n = stack.pop()
-    #    if n.children:
-    #        stack.extend(n.children)
-    #    else:
-    #        polygonise_leaf(n, sdf_torus_vec, verts, faces, preserve_orientation=True)
-    verts, faces=polygonise_leaves_bulk(leafs,sdf_torus_vec)
-    print(time.perf_counter() - s)
-
-    print(f"Mesh: {len(verts):,d} vertices, {len(faces):,d} triangles")
-    write_ply("torus.ply", verts, faces)
+    print(f"Mesh: {len(V):,d} vertices, {len(F):,d} triangles")
+    write_ply("torus.ply", V, F)
     print("Output written to  torus.ply  (open in MeshLab / Blender)")
