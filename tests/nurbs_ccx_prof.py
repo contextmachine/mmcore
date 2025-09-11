@@ -44,12 +44,12 @@ val2 = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1.])
 )
 
-from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx,nurbs_curve_bvh
+from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
 s=time.perf_counter()
-res=nurbs_ccx(val,val2)
+res,over=nurbs_ccx(val,val2)
 print(f'case1: {time.perf_counter()-s}')
-for i in res:
-    print(i)
+print('inters:',res)
+print('overlaps:', over)
 #print(np.array(pts).tolist())
 
 
@@ -98,11 +98,10 @@ val2 = NURBSCurveTuple(
     weights=np.array([1., 1., 1., 1., 1., 1., 1., 1., 1.])
 )
 s=time.perf_counter()
-res=nurbs_ccx(val,val2)
+res,over=nurbs_ccx(val,val2)
 print(f'case2: {time.perf_counter()-s}')
-for i in res:
-    print(i)
-    
+print('inters:',res)
+print('overlaps:', over)
     
     
     
@@ -151,5 +150,5 @@ val2 = NURBSCurveTuple(
 s = time.perf_counter()
 res,over = nurbs_ccx(val, val2)
 print(f'case3: {time.perf_counter() - s}')
-for i in res:
-    print(i)
+print('inters:',res)
+print('overlaps:', over)

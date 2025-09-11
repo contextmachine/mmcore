@@ -3,7 +3,9 @@ from __future__ import annotations
 import dataclasses
 import functools
 import sys
+import time
 
+import numpy as np
 from mmcore.geom.nurbs import NURBSCurve
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
@@ -281,18 +283,17 @@ def _nurbs_bvh_ccx(bvh1: BVH, bvh2: BVH, segms1: list[NURBSCurveTuple], segms2: 
             evlb = evaluate_nurbs_curve(b, res[1], d_order=2)
             ds = compute_parametric_curvature_tolerance_curve(evla['C1'], evla['C2'], tol)
             dt = compute_parametric_curvature_tolerance_curve(evlb['C1'], evlb['C2'], tol)
-            
+            #print(ds,dt)
             pinter = CCXIntBox(Interval(min(res[0] - ds / 2, s0), max(res[0] + ds / 2, s1)),
                                Interval(min(res[1] - dt / 2, t0), max(res[1] + dt / 2, t1)),
-                               CCXInt(res[0], res[1], ds, dt, d2, evla, evlb))
+                               CCXInt(res[0], res[1],d2, evla, evlb, ds, dt))
             
             _try_insert(ints, pinter)
         
-        print('\n')
-        for i in ints:
-            print(i)
+        #print('\n')
+   
         
-        print('\n\n')
+        #print('\n\n')
     
     return ints
 
@@ -303,8 +304,9 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
     overs = []
     overlaps = []
     vals = []
+    _cvs2=decompose_curve(curve2)
     for c1 in decompose_curve(curve1):
-        for c2 in decompose_curve(curve2):
+        for c2 in _cvs2:
             over, val = _bez_curve_overlap(c1, c2, tol, angle_tol=angle_tol)
             if over:
                 overs.append(val)
@@ -345,7 +347,7 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
     for bvh1, c1 in curves1:
         for bvh2, c2 in curves2:
             for inter in _nurbs_bvh_ccx(bvh1, bvh2, c1, c2, curve1, curve2, tol=tol):
-                
+                #print(inter)
                 oi = iter(overlaps)
                 
                 append = True
@@ -362,7 +364,7 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
                 if append:
                     intrs.append(inter)
     
-    return intrs, overlaps
+    return [(float(i.f.s),float(i.f.t)) for i in intrs], overlaps
 
 
 def multiple_ccx(curves: list[NURBSCurveTuple], spt: float = 1e-3, tol: float = 1e-7, bvh: BVH = None):
@@ -414,7 +416,7 @@ if __name__ == "__main__":
     
     nc1, nc2 = _nurbs_to_tuple(c1), _nurbs_to_tuple(c2)
     from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
-    import time
+    import timex
     
     s = time.time()
     res = nurbs_ccx(nc1, nc2)

@@ -78,7 +78,7 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
     c1_ends=list(filter(lambda x:point_in_aabb(bb2,x[0]['C']),c1_ends))
     c2_ends=list(filter(lambda x: point_in_aabb(bb1, x[0]['C']), c2_ends))
     if (len(c1_ends)+len(c2_ends))<2:
-        print(1)
+        #print(1)
         return False, None
     ints=[]
     for pt,prm in c1_ends:
@@ -109,7 +109,7 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
                         ints.append(CCXInt(s, prm, fx, curve1_eval, pt,ds, dt))
 
     if len(ints)<2:
-        print(2)
+        #print(2)
         return False, ints
     min_s, max_s = min(ints, key=lambda x: x.s), max(
         ints,
@@ -136,45 +136,13 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
                 
                     pass
             else:
-                    print(fx,3)
+                    #print(fx,3)
                     return False, ints
         else:
-            print(fx,4)
+            #print(fx,4)
             return False, ints
 
-    # if ts>te:
-    #    c2 = c2._replace(control_points=np.flip(c2.control_points, axis=0), weights=np.flip(c2.weights, axis=0))
-    #    ts=_reverse_param(ts,(t0,t1))
-    #    te = _reverse_param(te, (t0, t1))
 
-    # print((ss,se),(ts, te))
-    # if (abs(ss-s0)<1e-12) and (abs(s1-se)<1e-12):
-    #    c11=c1
-    # elif abs(ss-s0)<1e-12:
-    #    c11=split_curve(c1,se)[0]
-    # elif abs(s1-se)<1e-12:
-    #    c11=split_curve(c1,ss)[1]
-    # else:
-    #    c11=split_curve(split_curve(c1,ss)[1],se)[0]
-    #
-    # if (abs(ts - t0) < 1e-12) and (abs(t1 - te) < 1e-12):
-    #    c21=c2
-    # elif abs(ts - t0) < 1e-12:
-    #
-    #    c21 = split_curve(c2, te)[0]
-    # elif abs(t1 - te) < 1e-12:
-    #    c21 = split_curve(c2, ts)[1]
-    # else:
-    #    c21 = split_curve(split_curve(c2, ts)[1], te)[0]
-    #
-    # cc1,cc2=make_curves_compatible(c11,c21)
-    #
-    # ll=np.linalg.norm(cc1.control_points-cc2.control_points,axis=1)
-    #
-    # if np.all(ll<spt):
-    #
-    #    return True,Overlap(    CCXInt(*min_s[0], *min_s[2],*min_s[1]),    CCXInt(*max_s[0], *max_s[2],*max_s[1]))
-    # return False,ints
     return True, Overlap(    min_s,   max_s)
 
 from mmcore.geom._nurbs_eval import (
