@@ -20,7 +20,7 @@ class Interval:
     __slots__ = ("low", "upp")
 
     def __init__(self, low, upp=None):
-        print(low,upp)
+       
         if isinstance(low,tuple) and upp is None:
             low,upp=low
         elif upp is None:
