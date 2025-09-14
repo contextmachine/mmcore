@@ -16,6 +16,8 @@ from mmcore.geom.nurbs import (
 
 from mmcore.numeric import scalar_dot
 from mmcore.numeric.vectors import scalar_unit, scalar_norm
+
+from mmcore.numeric.intersection.ccx._utils import merge_3d_intervals
 from mmcore.numeric.intersection.separability.spatial import spatial_separability
 from mmcore.numeric.intersection.separability.spherical import spherical_separability
 from mmcore.numeric.interval import Interval, IntervalND
@@ -422,9 +424,9 @@ class NURBSCurveSurfaceIntersector:
                 cos0 = abs(float(np.dot(N, v0)) / n0)
                 cos1 = abs(float(np.dot(N, v1)) / n1)
                 thresh = np.sin(self.angle_tol)
-                print(cos0, cos1,thresh)
+        
                 if cos0 <= thresh and cos1 <= thresh:
-                    print('gogd')
+                   
                     pt = self.initial_curve.evaluate(tm)
                     self._insert_with_param_dedup(curve, surface, ("overlap", IntervalND([Interval(a,b)for a,b in zip(curve.start(),curve.end())]), (Interval(*curve.interval()), Interval(*(surface.interval()[0])),Interval(*(surface.interval()[1])))))
                     return
@@ -525,20 +527,30 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
     # `ptol` kept for backward compatibility but is unused.
     intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, angle_tol=angle_tol)
     intersector.intersect()
+    intersector.intersections.sort(key=lambda b: b[0])
     boxes=[]
     other=[]
+    last=None
     for i in intersector.intersections:
-        if i[0]=='overlap':
-            boxes.append(((i[2][0].low,i[2][1].low,i[2][2].low),(i[2][0].upp,i[2][1].upp,i[2][2].upp)))
+        if i[0]=='overlap' and last=='overlap':
+            for j in range(3):
+                boxes[-1][j].expand(i[2][j])
+            #boxes.append((i[2][0].low-1e-5,i[2][1].low-1e-5,i[2][2].low-1e-5,i[2][0].upp+1e-5,i[2][1].upp+1e-5,i[2][2].upp+1e-5))
+        elif i[0]=='overlap' :
+            boxes.append(i[2])
+            
         else:
             other.append(i)
+        last=i[0]
     from mmcore.numeric.intersection.ccx._utils import merge_intervals_nd_blocked
-    merged=merge_intervals_nd_blocked(np.array(boxes)     ,closed=True)
-    for i in merged:
-        t0,u0,v0=i[0,:]
-        t1,u1,v1=i[1,:]
-        bx=np.asarray([intersector.curve.evaluate(t0), intersector.curve.evaluate(t1)])
-        tt=tuple(Interval(i[0,j],i[1,j]) for j in range(3)    )
+    
+    
+    #merged = merge_3d_intervals(np.array(boxes), closed=True, max_iter=10024)
+    for i in boxes:
+       
+        
+        bx=np.asarray([intersector.curve.evaluate(i [0].low), intersector.curve.evaluate(i [0].upp)])
+        tt=i
         other.append(('overlap',bx, tt))
     other.sort(key=lambda i: i[2][0])
     

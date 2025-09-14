@@ -99,7 +99,104 @@ def _merge_2d_intervals(rects, *, closed=True, max_iter=None):
         rects = _merge_by_labels(rects, labels)
     return rects
 import numpy as np
+import numpy as np
 
+def _normalize_boxes_3d(boxes):
+    """boxes: (N,6) as [x0,y0,z0,x1,y1,z1] (two opposite corners, any order)
+       returns (N,6) as [x_lo,y_lo,z_lo,x_hi,y_hi,z_hi].
+    """
+    boxes = np.asarray(boxes, dtype=float).reshape(-1, 6)
+    x0, y0, z0, x1, y1, z1 = boxes.T
+    x_lo = np.minimum(x0, x1); x_hi = np.maximum(x0, x1)
+    y_lo = np.minimum(y0, y1); y_hi = np.maximum(y0, y1)
+    z_lo = np.minimum(z0, z1); z_hi = np.maximum(z0, z1)
+    return np.stack([x_lo, y_lo, z_lo, x_hi, y_hi, z_hi], axis=1)
+
+def _pairwise_overlap_3d(boxes, closed=True):
+    """Vectorized overlap (N,N) boolean matrix for axis-aligned 3D boxes.
+       closed=True: touching faces/edges/corners count as overlap (<=).
+       closed=False: require strictly positive intersection (<).
+    """
+    x_lo, y_lo, z_lo, x_hi, y_hi, z_hi = boxes.T
+    if closed:
+        x_ov = (x_lo[:, None] <= x_hi[None, :]) & (x_lo[None, :] <= x_hi[:, None])
+        y_ov = (y_lo[:, None] <= y_hi[None, :]) & (y_lo[None, :] <= y_hi[:, None])
+        z_ov = (z_lo[:, None] <= z_hi[None, :]) & (z_lo[None, :] <= z_hi[:, None])
+    else:
+        x_ov = (x_lo[:, None] <  x_hi[None, :]) & (x_lo[None, :] <  x_hi[:, None])
+        y_ov = (y_lo[:, None] <  y_hi[None, :]) & (y_lo[None, :] <  y_hi[:, None])
+        z_ov = (z_lo[:, None] <  z_hi[None, :]) & (z_lo[None, :] <  z_hi[:, None])
+    ov = x_ov & y_ov & z_ov
+    np.fill_diagonal(ov, False)
+    return ov
+
+def _connected_components_from_adj(adj):
+    """Return component labels using a simple stack-based search over dense boolean adj."""
+    n = adj.shape[0]
+    labels = -np.ones(n, dtype=int)
+    label = 0
+    for i in range(n):
+        if labels[i] != -1:
+            continue
+        stack = [i]
+        labels[i] = label
+        while stack:
+            v = stack.pop()
+            neigh = np.flatnonzero(adj[v])
+            unvisited = neigh[labels[neigh] == -1]
+            labels[unvisited] = label
+            stack.extend(unvisited.tolist())
+        label += 1
+    return labels
+
+def _merge_by_labels_3d(boxes, labels):
+    """Merge all boxes in each connected component to their envelope."""
+    x_lo, y_lo, z_lo, x_hi, y_hi, z_hi = boxes.T
+    k = labels.max() + 1
+    out = np.empty((k, 6), dtype=float)
+    for c in range(k):
+        mask = (labels == c)
+        out[c, 0] = x_lo[mask].min()
+        out[c, 1] = y_lo[mask].min()
+        out[c, 2] = z_lo[mask].min()
+        out[c, 3] = x_hi[mask].max()
+        out[c, 4] = y_hi[mask].max()
+        out[c, 5] = z_hi[mask].max()
+    return out
+
+def merge_3d_intervals(boxes, *, closed=True, max_iter=None):
+    """
+    Merge axis-aligned 3D intervals (boxes) into a non-overlapping set.
+
+    Parameters
+    ----------
+    boxes : array_like of shape (N, 6)
+        Each row is [x0,y0,z0,x1,y1,z1] (two opposite corners).
+    closed : bool, default True
+        If True, boxes that touch at faces/edges/corners are merged.
+        If False, only strictly overlapping interiors are merged.
+    max_iter : int or None
+        Safety cap on iterations (default: N).
+
+    Returns
+    -------
+    merged : ndarray of shape (M, 6)
+        Non-overlapping boxes as [x_lo,y_lo,z_lo,x_hi,y_hi,z_hi].
+    """
+    boxes = _normalize_boxes_3d(boxes)
+    n = boxes.shape[0]
+    if n <= 1:
+        return boxes
+    if max_iter is None:
+        max_iter = n
+
+    for _ in range(max_iter):
+        adj = _pairwise_overlap_3d(boxes, closed=closed)
+        if not adj.any():          # fixed point: no pair overlaps
+            break
+        labels = _connected_components_from_adj(adj)
+        boxes  = _merge_by_labels_3d(boxes, labels)
+    return boxes
 # ---------- Utilities ----------
 def _normalize_minmax_nd(boxes):
     """
