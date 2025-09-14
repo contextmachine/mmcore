@@ -4,17 +4,16 @@ from typing import NamedTuple
 
 from mmcore.geom._nurbs_eval import (
     NURBSCurveTuple,
-    evaluate_nurbs_curve,
     _curve_interval,
-to_homogeneous_1d
+    to_homogeneous_1d, to_homogeneous_2d, evaluate_nurbs_surface
 )
 import numpy as np
 
-from mmcore.geom.bvh.lbvh import BVHNode
-from mmcore.numeric import compute_parametric_tolerance_curve, evaluate_curvature,compare_curvature, \
-    evaluate_sectional_curvature
-from mmcore.numeric.aabb import aabb,point_in_aabb
-from mmcore.numeric.closest_point import nurbs_curve_closest_point,nurbs_surface_closest_point
+from mmcore.geom.bvh.lbvh import BVHNode, AABB
+from mmcore.numeric import evaluate_curvature, evaluate_sectional_curvature
+from mmcore.numeric._aabb import aabb
+from mmcore.numeric.closest_point import nurbs_curve_closest_point, nurbs_surface_closest_point
+
 
 class CCXInt(NamedTuple):
     s:float
@@ -71,7 +70,7 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
     start2['T'],start2['K'],_=evaluate_curvature(start2['C1'],start2['C2'])
     end2 = evaluate_nurbs_curve(c2,t1,d_order=2)
     end2['T'],end2['K'],_=evaluate_curvature(end2['C1'],end2['C2'])
-    bb1,bb2=_aabb(to_homogeneous_1d(c1.control_points,c1.weights)), _aabb(to_homogeneous_1d(c2.control_points,c2.weights))
+    bb1,bb2=AABB.from_points(to_homogeneous_1d(c1.control_points,c1.weights)).offset(spt).__array__(), AABB.from_points(to_homogeneous_1d(c2.control_points,c2.weights)).offset(spt).__array__()
     
     c1_ends,c2_ends=[(start1,s0),(end1,s1)],  [(start2,t0),(end2,t1)]
 
@@ -147,14 +146,15 @@ def _bez_curve_overlap(c1:NURBSCurveTuple, c2:NURBSCurveTuple, spt:float=1e-3, a
 
 from mmcore.geom._nurbs_eval import (
     NURBSCurveTuple, NURBSSurfaceTuple,
-    evaluate_nurbs_curve, evaluate_nurbs_surface
+    evaluate_nurbs_curve
 )
 from mmcore.numeric import (
    
     compute_parametric_tolerance_curve,
     compare_curvature
 )
-from mmcore.numeric.aabb import aabb, point_in_aabb,aabb_overlap
+from mmcore.numeric.aabb import point_in_aabb, aabb_overlap
+
 
 class CSXInt(NamedTuple):
     t: float        # curve parameter
@@ -187,17 +187,19 @@ class CurveTree:
         self.prims=prims
 from mmcore.geom._nurbs_eval import _surface_interval
 def _curve_boundary_hits(crv: NURBSCurveTuple, srf: NURBSSurfaceTuple, spt: float = 1e-3):
-    from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx, nurbs_curve_bvh
+    from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
     u0_curve, u1_curve, v0_curve, v1_curve=boundaries=extract_surface_boundaries_tuple(srf)
     (u0,u1),(v0,v1)=_surface_interval(srf)
 
     
 
     ints=[]
-
+    overs=[]
     for i,bcrv in enumerate(boundaries):
  
-        res=nurbs_ccx(crv, bcrv, spt)
+        inters,overs=nurbs_ccx(crv, bcrv, spt)
+        
+        
         for inter in res:
             pt,(t,s)=inter
             if i==0:
@@ -232,8 +234,12 @@ def _bez_curve_surface_overlap(
         flag == False → no overlap (but `data` may hold tangential pts).
     """
     # 1  Bounding‑box coarse cull
-    bb_crv = aabb(crv.control_points)
-    bb_srf = aabb(srf.control_points.reshape(-1, 3))
+    bb_crv = np.array(aabb(to_homogeneous_1d(crv.control_points,crv.weights)))
+    bb_srf =  np.array(aabb(to_homogeneous_2d(srf.control_points, srf.weights).reshape(-1, 4)))
+    bb_srf[0,...]-=spt
+    bb_srf[1,...]+=spt
+    bb_crv[0,...]-=spt
+    bb_crv[1,...]+=spt
     if not aabb_overlap(bb_crv, bb_srf):
         return False, []
 
@@ -259,7 +265,7 @@ def _bez_curve_surface_overlap(
 
                 NC=np.cross(  c_eval["T"],c_eval["NC2"])
                 # NC1,NC2=c_eval["C1"]/,c_eval["C2"]
-
+                NC/=np.linalg.norm(NC)
                 success, sectional_curvature_vector = evaluate_sectional_curvature(
                     s_eval["Su"], s_eval["Sv"], s_eval["Suu"], s_eval["Suv"], s_eval["Svv"], NC
                 )

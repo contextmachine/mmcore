@@ -15,7 +15,7 @@ from mmcore.geom._nurbs_compose import (
     compose_bezier_segments,
     find_polynomial_roots_in_interval
 )
-from mmcore.numeric.sbern import compose_curve_curve_sb, bern_to_nurbs_bezier, nurbs_bezier_to_bern
+from mmcore.numeric.sbern import compose_curve_curve, bern_to_nurbs_bezier, nurbs_bezier_to_bern
 
 
 
@@ -217,7 +217,7 @@ class TestNURBSComposition:
         f_bern =  nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern)
+        composed = bern_to_nurbs_bezier(compose_curve_curve(c_bern, f_bern)
                                         )
         # Verify degree
         assert composed.degree == 2  # 2 * 1 = 2
@@ -259,7 +259,7 @@ class TestNURBSComposition:
         f_bern = nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern))
+        composed = bern_to_nurbs_bezier(compose_curve_curve(c_bern, f_bern))
 
         # Verify degree
 
@@ -301,7 +301,7 @@ class TestNURBSComposition:
         f_bern = nurbs_bezier_to_bern(f_curve)
 
         # Compose
-        composed = bern_to_nurbs_bezier(compose_curve_curve_sb(c_bern, f_bern))
+        composed = bern_to_nurbs_bezier(compose_curve_curve(c_bern, f_bern))
 
         # Verify by evaluation
         for i, t in enumerate(np.linspace(0, 1, 11)):

@@ -9,8 +9,7 @@ from mmcore.geom import nurbs
 from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
 
 from mmcore.geom.bvh import Object3D, find_closest
-from mmcore.geom.nurbs import NURBSCurve
-
+from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
 from mmcore.geom.polygon import BoundingBox
 from mmcore.geom.surfaces import Surface
@@ -181,7 +180,7 @@ def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1
     bvh = build_bvh([NURBSCurveObject3D(c) for c in nurbs.decompose_curve(curve)])
     rr = find_closest(bvh, point, breadth=not on_curve)
 
-
+    
     if rr is None or len(rr[0])==0:
         return False,closest_point_on_nurbs_curve(curve,point,tol,on_curve=False)[1]
     def inner(crv):
@@ -709,6 +708,8 @@ import itertools
 
 
 def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], spt: float = 0.001, angle_tol: float = None):
+    if isinstance(self, NURBSCurve):
+        self=_nurbs_to_tuple(self)
     candidates = decompose_curve(self)
 
     best_f = [float("inf"), {}, (None, None)]
@@ -726,19 +727,27 @@ def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], spt:
 
 
 def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt:float=0.001, angle_tol:float=None):
+    """
+    return: (u,v), (dist, eval, parametric_tol)
+    
+    
+    """
+    if isinstance(self, NURBSSurface):
+        self=_nurbs_to_tuple(self)
     candidates=decompose_surface(self)
 
     best_f=[float('inf'),{},(None,None)]
     best_x=None
     for candidate in candidates:
       
-        min_val,min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
+        (dist_best, eval_best, tol_best),min_coords = _nurbs_surface_closest_point_divide_and_conquer(candidate,point,spt=spt, angle_tol=angle_tol)
        
-        if best_f[0]>min_val[0]:
-            best_f=min_val
+        if best_f[0]>dist_best:
+            best_f=(dist_best,eval_best,tol_best)
             best_x=min_coords
-        
-    return best_x, (best_f[0],*best_f[1:])
+    (dist_best,eval_best,tol_best)=best_f
+    return best_x, (dist_best,eval_best,tol_best)
+
 
 
 def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
