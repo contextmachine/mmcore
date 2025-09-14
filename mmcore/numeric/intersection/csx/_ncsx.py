@@ -249,7 +249,8 @@ class NURBSCurveSurfaceIntersector:
         )
 
         nrm = np.linalg.norm(surface_normal)
-        surface_normal = surface_normal / (nrm + 1e-12)
+        surface_normal = surface_normal / (nrm
+                                           )
 
         # print(surface_normal,curve_tangent)
         return np.abs(np.dot(curve_tangent, surface_normal)) < np.sin(self.angle_tol)
@@ -288,6 +289,8 @@ class NURBSCurveSurfaceIntersector:
 
         rec format: (type_str, point_xyz, (t,u,v))
         """
+        self.intersections.append(rec)
+        return
         r_type, r_point, r_tuv = rec
         dt_r, du_r, dv_r = self._parametric_steps(curve, surface, r_tuv)
         best_idx = None
@@ -376,9 +379,9 @@ class NURBSCurveSurfaceIntersector:
         tm = 0.5 * (t0 + t1)
         um = 0.5 * (u0 + u1)
         vm = 0.5 * (v0 + v1)
-        degenerate=False,lambda :...
+        degenerate=False
         # 1) Attempt Newton from center
-        res = newtons_method(self._equation, np.array([tm, um, vm]), max_iter=8)
+        res = newtons_method(self._equation, np.array([tm, um, vm]), max_iter=15)
         if (
             res is not None
             and np.all(np.isfinite(res))
@@ -389,13 +392,14 @@ class NURBSCurveSurfaceIntersector:
                 pt = self.initial_curve.evaluate(res[0])
                 if self._is_degenerate(res, curve, surface):
                     
-                    def degenerate_cb():
-                        self._insert_with_param_dedup(curve, surface,
+                  
+                    degenerate_cb=lambda :   self._insert_with_param_dedup(curve, surface,
                                                       ("degenerate", pt, tuple(res)))
-                    degenerate = True, degenerate_cb
+                    
+                    degenerate=True
                 else:
                     self._insert_with_param_dedup(curve, surface, ("transversal", pt, tuple(res)))
-                return
+                    return
 
         # 2) Angle-based plane test for likely overlap
         S0 = surface.evaluate_v2(um, vm)
@@ -417,12 +421,14 @@ class NURBSCurveSurfaceIntersector:
                 cos0 = abs(float(np.dot(N, v0)) / n0)
                 cos1 = abs(float(np.dot(N, v1)) / n1)
                 thresh = np.sin(self.angle_tol)
+                print(cos0, cos1,thresh)
                 if cos0 <= thresh and cos1 <= thresh:
+                    print('gogd')
                     pt = self.initial_curve.evaluate(tm)
                     self._insert_with_param_dedup(curve, surface, ("overlap", pt, (tm, um, vm)))
                     return
-        if degenerate[0]:
-            degenerate[1]()
+        if degenerate:
+            degenerate_cb()
             
         # 3) No reliable evidence of intersection inside this flat cell
         return
