@@ -867,6 +867,17 @@ def split_surface_u(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, u:float, **kw
     
     return left_surface, right_surface
 
+def split_surface_u_multiple(surf: BSplineSurfaceTuple | NURBSSurfaceTuple, params: list[float] | NDArray[float]) -> list[BSplineCurveTuple] | list[NURBSCurveTuple]:
+    crvs = []
+
+
+    for i in range(len(params)):
+        tpl = split_surface_u(surf, params[i])
+        surf = tpl[1]
+        crvs.append(tpl[0])
+    crvs.append(surf)
+    return crvs
+
 
 def split_surface_v(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, v:float, **kwargs):
     """Splits the surface at the given parametric coordinate in the v-direction.
@@ -962,6 +973,16 @@ def split_surface_v(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, v:float, **kw
         )
     
     return bottom_surface, top_surface
+def split_surface_v_multiple(surf: BSplineSurfaceTuple|NURBSSurfaceTuple, params: list[float] | NDArray[float]) -> list[BSplineCurveTuple] | list[NURBSCurveTuple]:
+    crvs = []
+
+
+    for i in range(len(params)):
+        tpl = split_surface_v(surf, params[i])
+        surf = tpl[1]
+        crvs.append(tpl[0])
+    crvs.append(surf)
+    return crvs
 
 
 def subdivide_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, u:float, v:float):
@@ -1033,6 +1054,32 @@ def decompose_surface(surface:NURBSSurfaceTuple, decompose_dir="uv"):
             f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
         )
 
+
+def trim_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, u0:float, u1:float, v0:float, v1:float)->BSplineSurfaceTuple|NURBSSurfaceTuple:
+    (ustart,uend)    , (vstart,vend)  =surface.interval()
+    u0,u1=min(u0,u1),max(u0,u1)
+    v0,v1=min(v0,v1),max(v0,v1)
+    splits_u,splits_v=[u0, u1],[v0,v1]
+    ix_u=1
+    ix_v=1
+    if u0==ustart:
+        del splits_u[0]
+        ix_u-=1
+    if u1==uend:
+        del splits_u[1]
+       
+    if v0==vstart:
+        del splits_v[0]
+        ix_v -= 1
+    if v1==vend:
+        del splits_v[1]
+        
+    
+    
+    surf= split_surface_u_multiple(surface, splits_u)[ix_u]
+    
+    return split_surface_v_multiple(surf, splits_v)[ix_v]
+    
 
 from mmcore.numeric.binom import binomial_coefficient_py
 

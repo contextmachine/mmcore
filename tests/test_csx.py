@@ -12,15 +12,16 @@ def test_nurbs_csx():
     import time
 
     s = time.perf_counter_ns()
-    result = nurbs_csx(curve, surface, tolerance, 1e-10)
+    result = nurbs_csx(curve, surface, tolerance, tolerance)
     e = time.perf_counter_ns() - s
 
     # CHECK
-
+    assert len(result)==14
     # To verify the robustness of this the implementation, let's check the distance between
     # the point estimated on the curve and on the surface in the intersection parameters.
 
-    for typ, pt, (t, u, v) in result:
+    for typ, pt, (t, u, v),(dt,du,dv) in result:
+        print(dt,du,dv)
         pt1 = surface.evaluate_v2(u, v)  # evaluate point on surface
         pt2 = curve.evaluate(t)  # evaluate point on curve
         print(pt1, pt2)

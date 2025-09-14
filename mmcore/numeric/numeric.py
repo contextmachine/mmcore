@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
+from mpmath import isfinite
 from scipy.integrate import quad
 import numpy as np
 from mmcore.numeric.newton.cnewton import newtons_method
@@ -605,6 +606,7 @@ def evaluate_sectional_curvature(
     status,a, b, err, pivot_ratio = solve3x2(Su,Sv, D1[0],D1[1],D1[2])
     #(a, b), residuals, rank, _ = np.linalg.lstsq(A, D1, rcond=None)
     if status < 2:                           # Su and Sv are not independent
+        print("F",Su,Sv,plane_normal, status,a,b,err,pivot_ratio,D1)
         return False, np.zeros(3)
     
 
@@ -878,6 +880,75 @@ def compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt, angle_tol=N
 
     return du, dv
 
+import numpy as np
+
+def compute_parametric_curvature_tolerance_surface(Su, Sv, Suu, Svv, spt, *, use_small_angle_thresh=1.0e-3):
+    """
+    Curvature-based parametric steps for a tensor-product surface S(u, v).
+
+    We treat each isoparametric curve as a spatial curve:
+        • u-direction (v = const):  r(u) = S(u, v0) with r' = S_u,  r'' = S_uu
+        • v-direction (u = const):  r(v) = S(u0, v) with r' = S_v,  r'' = S_vv
+
+    For a curve r(·), the curvature magnitude is
+        κ = ||r' × r''|| / ||r'||³.
+    Approximating locally by a circular arc and prescribing sagitta h = spt,
+    we invert the sagitta formula to get the arc length s, then convert to a
+    parametric step via du = s / ||S_u|| and dv = s / ||S_v||.
+
+    Parameters
+    ----------
+    Su  : array_like (3,)
+        First partial derivative S_u(u, v).
+    Sv  : array_like (3,)
+        First partial derivative S_v(u, v).
+    Suu : array_like (3,)
+        Second partial S_uu(u, v).
+    Svv : array_like (3,)
+        Second partial S_vv(u, v).
+    spt : float
+        Desired sagitta (chord-height) tolerance in 3D.
+    use_small_angle_thresh : float, optional
+        Switch point between exact sagitta inversion and small-angle
+        approximation h ≈ κ s² / 8. Default 1e-3.
+
+    Returns
+    -------
+    du, dv : tuple of floats
+        Parametric increments in the u- and v-directions whose *actual*
+        sagittas are approximately `spt` when moving along the corresponding
+        isoparametric curves. Returns `np.inf` for a direction if its speed
+        or curvature is zero (straight segment or degenerate partial).
+    """
+    Su  = np.asarray(Su,  dtype=float)
+    Sv  = np.asarray(Sv,  dtype=float)
+    Suu = np.asarray(Suu, dtype=float)
+    Svv = np.asarray(Svv, dtype=float)
+
+    def _one_dir_step(C1, C2):
+        # Speed and curvature magnitude for the isoparametric curve
+        norm_C1    = np.linalg.norm(C1)
+        cross_norm = np.linalg.norm(np.cross(C1, C2))
+        if norm_C1 == 0.0 or cross_norm == 0.0:
+            return np.inf
+
+        kappa = cross_norm / (norm_C1**3)
+        kappa_tol = kappa * spt
+
+        if kappa_tol >= use_small_angle_thresh:
+            # Exact inversion: h = R (1 - cos(θ/2)), R = 1/κ  ⇒  cos(θ/2) = 1 - hκ
+            c = max(-1.0, min(1.0, 1.0 - kappa_tol))  # guard acos domain
+            half_theta = np.arccos(c)                  # θ/2
+            s = 2.0 * half_theta / kappa              # s = θ / κ
+        else:
+            # Small-angle: h ≈ κ s² / 8  ⇒  s = sqrt(8 h / κ)
+            s = np.sqrt(8.0 * spt / kappa)
+
+        return s / norm_C1  # parametric step
+
+    du = _one_dir_step(Su, Suu)
+    dv = _one_dir_step(Sv, Svv)
+    return du, dv
 def compute_parametric_curvature_tolerance_curve(C1, C2, spt, *, use_small_angle_thresh=1.0e-3):
     """
     Compute a parametric increment du such that the sagitta (maximum deviation of the
@@ -997,14 +1068,14 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     T = np.asarray(tangent, dtype=float)
     t_len = np.linalg.norm(T)
     if t_len == 0.0:
-        return np.inf, np.inf
+        return 0.,0.
     T /= t_len                                            # unit tangent
 
     # Surface normal (unnormalised) and its length
     N = np.cross(Su, Sv)
     n_len = np.linalg.norm(N)
     if n_len == 0.0:                                      # degenerate patch
-        return np.inf, np.inf
+        return 0.,0.
     N /= n_len                                            # unit surface normal
 
     # ------------------------------------------------------------------
@@ -1013,7 +1084,7 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     plane_normal = np.cross(N, T)
     pn_len = np.linalg.norm(plane_normal)
     if pn_len == 0.0:                                     # T ‖ N (not on surface)
-        return np.inf, np.inf
+        return 0.,0.   
     plane_normal /= pn_len
 
     # ------------------------------------------------------------------
@@ -1022,37 +1093,50 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     ok, K_vec = evaluate_sectional_curvature(
         Su, Sv, Suu, Suv, Svv, plane_normal
     )
+    print('K',ok,K_vec)
     if not ok:
-        return np.inf, np.inf
+        return 0.,0.
 
     kappa = np.linalg.norm(K_vec)                         # scalar curvature
     if kappa == 0.0:                                      # locally straight
-        return np.inf, np.inf
+        return  0.,0.
 
     # ------------------------------------------------------------------
     # 3.  Arc‑length s whose sagitta equals `tol`
     # ------------------------------------------------------------------
-    kappa_tol = kappa * spt
+    kappa_tol = kappa*spt
+    
     if kappa_tol >= use_small_angle_thresh:
         # exact inversion  h = (1/κ)(1 − cos θ/2)
         c = 1.0 - kappa_tol
         c = np.clip(c, -1.0, 1.0)                        # numeric safety
         half_theta = np.arccos(c)
         s = 2.0 * half_theta / kappa                     # s = R θ
+        print(s, kappa,kappa_tol, 'no approx')
     else:
         # small‑angle approximation  h ≈ κ s² / 8
         s = np.sqrt(8.0 * spt / kappa)
-
+        print(s, kappa,kappa_tol, 'approx')
+    
     # ------------------------------------------------------------------
     # 4.  Map the physical step s back to parameter space
     # ------------------------------------------------------------------
     # Solve  Su * a + Sv * b = T   (least‑squares gives du/ds, dv/ds)
-    A = np.column_stack((Su, Sv))                         # shape (3,2)
-    (du_ds, dv_ds), *_ = np.linalg.lstsq(A, T, rcond=None)
-
-    # Final parameter increments
-    du = du_ds * s
-    dv = dv_ds * s
+    #A = np.column_stack((Su, Sv))                         # shape (3,2)
+    success,du_ds, dv_ds,err,pivot_ratio=solve3x2(Su,Sv, T[0],T[1],T[2])
+    if success==0:
+        raise ValueError('failed to solve sectional curvature')
+    if success == 1:
+            raise ValueError('failed to solve sectional curvature')
+    #(du_ds, dv_ds), *_ = np.linalg.lstsq(A, T, rcond=None)
+    if np.isfinite(s)    :
+        # Final parameter increments
+        du = du_ds * s
+        dv = dv_ds * s
+    else:
+        du = du_ds * 1e-3
+        dv = dv_ds * 1e-3
+    
     return du, dv
 
 def circle_of_curvature(curve, t: float):
