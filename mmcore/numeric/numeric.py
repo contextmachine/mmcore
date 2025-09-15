@@ -1068,14 +1068,14 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     T = np.asarray(tangent, dtype=float)
     t_len = np.linalg.norm(T)
     if t_len == 0.0:
-        return 0.,0.
+        return np.inf, np.inf
     T /= t_len                                            # unit tangent
 
     # Surface normal (unnormalised) and its length
     N = np.cross(Su, Sv)
     n_len = np.linalg.norm(N)
     if n_len == 0.0:                                      # degenerate patch
-        return 0.,0.
+        return np.inf, np.inf
     N /= n_len                                            # unit surface normal
 
     # ------------------------------------------------------------------
@@ -1084,7 +1084,7 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     plane_normal = np.cross(N, T)
     pn_len = np.linalg.norm(plane_normal)
     if pn_len == 0.0:                                     # T ‖ N (not on surface)
-        return 0.,0.   
+        return np.inf, np.inf
     plane_normal /= pn_len
 
     # ------------------------------------------------------------------
@@ -1095,29 +1095,26 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     )
     print('K',ok,K_vec)
     if not ok:
-        return 0.,0.
+        return np.inf, np.inf
 
     kappa = np.linalg.norm(K_vec)                         # scalar curvature
     if kappa == 0.0:                                      # locally straight
-        return  0.,0.
+        return np.inf, np.inf
 
     # ------------------------------------------------------------------
     # 3.  Arc‑length s whose sagitta equals `tol`
     # ------------------------------------------------------------------
-    kappa_tol = kappa*spt
-    
+    kappa_tol = kappa * spt
     if kappa_tol >= use_small_angle_thresh:
         # exact inversion  h = (1/κ)(1 − cos θ/2)
         c = 1.0 - kappa_tol
         c = np.clip(c, -1.0, 1.0)                        # numeric safety
         half_theta = np.arccos(c)
         s = 2.0 * half_theta / kappa                     # s = R θ
-        print(s, kappa,kappa_tol, 'no approx')
     else:
         # small‑angle approximation  h ≈ κ s² / 8
         s = np.sqrt(8.0 * spt / kappa)
-        print(s, kappa,kappa_tol, 'approx')
-    
+
     # ------------------------------------------------------------------
     # 4.  Map the physical step s back to parameter space
     # ------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 from mmcore.numeric._aabb import aabb, aabb_intersection, aabb_intersect_fast_3d
@@ -11,12 +13,14 @@ from mmcore.geom.nurbs import (
     split_surface_u,
     split_curve,
     subdivide_surface,
-    CurveSurfaceEq,
+    CurveSurfaceEq, decompose_curve,
 )
 
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs
 from mmcore.numeric import scalar_dot
 from mmcore.numeric.vectors import scalar_unit, scalar_norm
 
+from mmcore.numeric.closest_point import NURBSCurveTuple
 from mmcore.numeric.intersection.ccx._utils import merge_3d_intervals
 from mmcore.numeric.intersection.separability.spatial import spatial_separability
 from mmcore.numeric.intersection.separability.spherical import spherical_separability
@@ -412,10 +416,10 @@ class NURBSCurveSurfaceIntersector:
         nrm = np.linalg.norm(N)
         if nrm > 0:
             N = N / nrm  # unit normal
-            P0 = curve.evaluate(t0)
-            P1 = curve.evaluate(t1)
-            v0 = P0 - S0
-            v1 = P1 - S0
+            v0=curve.derivative(t0)
+            v1=curve.derivative(tm)
+            #v0 = P0 - S0
+            #v1 = P1 - S0
             n0 = np.linalg.norm(v0)
             n1 = np.linalg.norm(v1)
             if n0 > 0 and n1 > 0:
@@ -423,21 +427,30 @@ class NURBSCurveSurfaceIntersector:
                 # i.e., angle(N, v) ~ 90° -> |cos| ~ 0; accept if |cos| <= sin(angle_tol)
                 cos0 = abs(float(np.dot(N, v0)) / n0)
                 cos1 = abs(float(np.dot(N, v1)) / n1)
-                thresh = np.sin(self.angle_tol)
+                thresh = math.sin(self.angle_tol)
         
-                if cos0 <= thresh and cos1 <= thresh:
-                   
+                if( cos0 <= thresh )and (cos1 <= thresh):
+                    
                     pt = self.initial_curve.evaluate(tm)
                     self._insert_with_param_dedup(curve, surface, ("overlap", IntervalND([Interval(a,b)for a,b in zip(curve.start(),curve.end())]), (Interval(*curve.interval()), Interval(*(surface.interval()[0])),Interval(*(surface.interval()[1])))))
                     return
+                #print("cos fail", cos0, cos1, thresh)
+                ...
+            else:
+                #print("n fail",n0,n1, v0,v1)
+                ...
+        else:
+            #print("nrm fail",nrm, N)
+            ...
         if degenerate:
+            #print('degenerate')
             degenerate_cb()
             
         # 3) No reliable evidence of intersection inside this flat cell
         return
 
 
-def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, angle_tol: float = 0.0524):
+def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, angle_tol: float = 0.05235987755982989):
     """
     Compute intersections between a NURBS curve and a NURBS surface.
 
@@ -525,9 +538,20 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
     - Extremely small angle tolerances can cause more overlap-classification.
     """
     # `ptol` kept for backward compatibility but is unused.
+    #if isinstance(curve, NURBSCurveTuple):
+    #    curve=_tuple_to_nurbs(curve
+    #                          )
+    initial_curve = curve
+    #curves=decompose_curve(curve)
+    #
+    #intersections = []
+    #for curve in curves:
+    #    intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, angle_tol=angle_tol)
+    #    intersector.intersect()
+    #    intersections.extend(intersector.intersections)
     intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, angle_tol=angle_tol)
     intersector.intersect()
-    intersector.intersections.sort(key=lambda b: b[0])
+    intersector.intersections.sort(key=lambda i: i[2][0])
     boxes=[]
     other=[]
     last=None
@@ -542,14 +566,14 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
         else:
             other.append(i)
         last=i[0]
-    from mmcore.numeric.intersection.ccx._utils import merge_intervals_nd_blocked
+    #from mmcore.numeric.intersection.ccx._utils import merge_intervals_nd_blocked
     
     
     #merged = merge_3d_intervals(np.array(boxes), closed=True, max_iter=10024)
     for i in boxes:
        
         
-        bx=np.asarray([intersector.curve.evaluate(i [0].low), intersector.curve.evaluate(i [0].upp)])
+        bx=np.asarray([initial_curve.evaluate(i[0].low), initial_curve.evaluate(i[0].upp)])
         tt=i
         other.append(('overlap',bx, tt))
     other.sort(key=lambda i: i[2][0])
