@@ -71,7 +71,7 @@ def adaptive_curve_sampler_unsafe(crv: NURBSCurveTuple, tol: float = 1e-3):
 
     return params,duu,evals,ll
 
-
+from mmcore.geom._nurbs_knots import find_multiplicity,split_curve_multiple
 def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points=int(1e+6)):
     """
     March once so each chord deviates by ~tol (sagitta) using your curvature-based
@@ -84,6 +84,47 @@ def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points
     """
     if max_param_step_fraction is None:
         max_param_step_fraction = 1/(len(np.unique(crv.knot))-1)
+    prms = np.unique(crv.knot)
+    params=[]
+    du_list = []
+    s_list = []
+    evals = []
+    
+    if crv.order==2:
+        
+    
+        
+      
+        for p in prms:
+            ce = evaluate_nurbs_curve(crv, p, d_order=2)  #
+            C0, C1, C2 = ce["C"], ce["C1"], ce["C2"]
+            du = compute_parametric_curvature_tolerance_curve(C1, C2, tol)
+            evals.append(ce)
+            params.append(p)
+            speed = np.linalg.norm(C1)
+            s_i = speed * du
+            du_list.append(du)
+            s_list.append(s_i)
+        return params,du_list,evals,s_list
+    if len(np.unique(crv.knot))>2 :
+      internal_knots=prms[1:][:-1]
+      knots_to_split=[]
+      for k in internal_knots:
+        m=find_multiplicity(k,crv.knot)
+        if m>1:
+            knots_to_split.append(k)
+      if len(knots_to_split)>1:
+        for curve_segment in split_curve_multiple(crv,knots_to_split) :
+                res=adaptive_curve_sampler(curve_segment, tol=tol, max_param_step_fraction=max_param_step_fraction,max_points=max_points)
+                params.extend(res[0])
+                du_list.extend(res[1])
+                evals.extend(res[2])
+                s_list.extend(res[3])
+           
+        return    params,du_list,evals,s_list
+        
+    
+
 
     tmin, tmax = crv.interval()
     t = tmin

@@ -10,6 +10,7 @@ from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae, decompose_curve
 
 from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
+from mmcore.numeric.approx import adaptive_curve_sampler
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.topo.mesh.tess import tessellate_surface, surface_to_mesh
 
@@ -242,8 +243,8 @@ class CADRenderer:
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, True)
-
-        self.window = glfw.create_window(width, height, "CAD Viewer", None, None)
+        from mmcore import __version__
+        self.window = glfw.create_window(width, height, f"mmcore@{__version__}", None, None)
         if not self.window:
             glfw.terminate()
             raise RuntimeError("Failed to create GLFW window")
@@ -623,10 +624,11 @@ class CADRenderer:
         glfw.terminate()
 
     def add_nurbs_curve(self, crv: NURBSCurve, color=(0.0, 1.0, 1.0), thickness=1.0, **kwargs):
-        if isinstance(crv, NURBSCurveTuple):
-            crv = _tuple_to_nurbs(crv)
-
-        res = np.array(crv.evaluate_multi(np.linspace(*crv.interval(), 100)), dtype=np.float32)
+        
+        if isinstance(crv, NURBSCurve):
+            crv = _nurbs_to_tuple(crv)
+        params,du_list,evals,s_list=adaptive_curve_sampler(crv,1e-2,max_param_step_fraction=24)
+        res = np.array([i['C']for i in evals], dtype=np.float32)
         # print(res)
         self.add_wire(np.asarray(res, dtype=np.float32), color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
 
