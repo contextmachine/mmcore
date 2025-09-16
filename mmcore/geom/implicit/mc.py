@@ -1,29 +1,11 @@
-#!/usr/bin/env python3
-"""
-Adaptive Marching‑Cubes driven by the 1‑Lipschitz property of a true SDF.
-– Builds a compact AABB tree with conservative pruning.
-– Generates the *full* 256‑case MC table at run‑time (no hand typing).
-– Extracts a watertight triangle mesh and writes it to torus.ply.
-
-Tested on Python 3.11, no third‑party modules required.
-"""
-
 from __future__ import annotations
-import math, itertools
-
+import  itertools
 import numpy as np
-
 from mmcore.geom.octree import Octree
 from typing import List, Tuple, Callable
 
-# -------------------------------------------------------------------------
-# 1.  A TRUE signed‑distance function: torus centred at the origin
-# -------------------------------------------------------------------------
 
 
-# -------------------------------------------------------------------------
-# 3.  Cube topology (28 edges, six tetrahedra)
-# -------------------------------------------------------------------------
 # Vertices of the unit cube in (x,y,z) order
 VERTS = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]
 
@@ -40,9 +22,7 @@ TETS = [(0, 5, 1, 6), (0, 1, 2, 6), (0, 2, 3, 6), (0, 3, 7, 6), (0, 7, 4, 6), (0
 TET_EDGES = [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]
 
 
-# -------------------------------------------------------------------------
-# 4.  Build the 256‑entry Marching‑Cubes table on the fly
-# -------------------------------------------------------------------------
+
 def triangulate_tet(mask: int) -> List[Tuple[int, int, int]]:
     """
     Given the 4-bit sign mask of a tetra, return a list of triangles
@@ -136,81 +116,7 @@ def _build_mc_tris():
 MC_TABLE_TRIS = _build_mc_tris()
 
 
-# -------------------------------------------------------------------------
-# 5.  Polygonise one adaptive leaf
-# -------------------------------------------------------------------------
-def interpolate(p0, p1, v0, v1, iso=0.0):
-    t = (iso - v0) / (v1 - v0)
-    return (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]), p0[2] + t * (p1[2] - p0[2]))
 
-
-def polygonise_leaf(node, sdf, vdict: dict, faces: List[Tuple[int, int, int]], iso: float = 0.0, preserve_orientation: bool = True, q:float = 1e-6):
-    # Corner positions & SDF values
-    cpos, cval = [], []
-
-    for vx, vy, vz in VERTS:
-        px = node.cx + (vx * 2 - 1) * node.hx
-        py = node.cy + (vy * 2 - 1) * node.hy
-        pz = node.cz + (vz * 2 - 1) * node.hz
-        val = sdf((px, py, pz))
-        cpos.append((px, py, pz))
-        cval.append(val)
-
-    mask = sum((1 << i) for i, v in enumerate(cval) if v < iso)
-    if mask == 0 or mask == 0xFF:  # no surface in this box
-        return
-
-    # On‑demand vertex cache: edge‑index → 3‑tuple
-    evert = {}
-
-    def vert_on_edge(eid: int):
-        if eid not in evert:
-            a, b = EDGES[eid]
-            evert[eid] = interpolate(cpos[a], cpos[b], cval[a], cval[b], iso)
-        return evert[eid]
-
-    def _ensure_outward(p0, p1, p2):
-        # geometric normal
-        ux, uy, uz = p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]
-        vx, vy, vz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
-        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
-        ln = math.sqrt(nx * nx + ny * ny + nz * nz)
-        if ln == 0.0:  # degenerate, keep as is
-            return p0, p1, p2
-
-        # centroid + tiny step along the normal
-        eps = 1e-4 * max(node.hx, node.hy, node.hz)
-        nx, ny, nz = nx * eps, ny / ln * eps, nz / ln * eps
-        cx, cy, cz = (p0[0] + p1[0] + p2[0]) / 3, (p0[1] + p1[1] + p2[1]) / 3, (p0[2] + p1[2] + p2[2]) / 3
-
-        if sdf((cx + nx, cy + ny, cz + nz)) < sdf((cx - nx, cy - ny, cz - nz)):
-
-            # stepping along the normal went *inside* → flip winding
-            return p0, p2, p1
-
-        return p0, p1, p2
-
-    tri_edges = MC_TABLE[mask]
-    for i in range(0, len(tri_edges) - 1, 3):  # stop before trailing ‑1
-        ev0, ev1, ev2 = tri_edges[i : i + 3]
-        p0, p1, p2 = vert_on_edge(ev0), vert_on_edge(ev1), vert_on_edge(ev2)
-        if preserve_orientation:
-            p0, p1, p2 = _ensure_outward(p0, p1, p2)
-        v0 = _v_id(p0, vdict)
-        v1 = _v_id(p1, vdict)
-        v2 = _v_id(p2, vdict)
-        faces.append((v0, v1, v2))
-
-class _frozendict(dict):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args,**kwargs)
-        self.__hash = hash(frozenset(self))
-    def __hash__(self):
-        return self.__hash
-    
-# ──────────────────────────────────────────────────────────────────────────────
-# 4‑bis.  Polygonise *all* leaves in one vectorised pass
-# ──────────────────────────────────────────────────────────────────────────────
 def polygonise_nodes_bulk(
     octree: Octree,
     nodes: np.ndarray,
@@ -312,9 +218,6 @@ def _v_id(p, vdict, q=1e-6):
     return vdict[key]
 
 
-# -------------------------------------------------------------------------
-# 6.  Write ASCII PLY (widely supported)
-# -------------------------------------------------------------------------
 def write_ply(path: str, verts: dict, faces: List[Tuple[int, int, int]]):
     
     with open(path, "w", encoding="utf8") as f:
@@ -330,9 +233,7 @@ def write_ply(path: str, verts: dict, faces: List[Tuple[int, int, int]]):
             f.write(f"3 {a} {b} {c}\n")
 
 
-# -------------------------------------------------------------------------
-# 7.  Demo run
-# -------------------------------------------------------------------------
+
 def _r_box(half: np.ndarray) -> np.ndarray:
     return np.linalg.norm(half, axis=1)
 
@@ -439,8 +340,7 @@ if __name__ == "__main__":
     
     import numpy as np
     
-    from mmcore.numeric.intersection.implicit_implicit import ImplicitIntersectionCurve, iterate_curves
-    
+
     from mmcore.geom.primitives import Tube
     
     x, y, v, u, z = [[[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],

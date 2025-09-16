@@ -16,12 +16,7 @@ from mmcore.geom.nurbs import (
     CurveSurfaceEq, decompose_curve,
 )
 
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs
-from mmcore.numeric import scalar_dot
-from mmcore.numeric.vectors import scalar_unit, scalar_norm
 
-from mmcore.numeric.closest_point import NURBSCurveTuple
-from mmcore.numeric.intersection.ccx._utils import merge_3d_intervals
 from mmcore.numeric.intersection.separability.spatial import spatial_separability
 from mmcore.numeric.intersection.separability.spherical import spherical_separability
 from mmcore.numeric.interval import Interval, IntervalND
@@ -32,28 +27,7 @@ from mmcore.numeric.numeric import (
 
 __all__ = ["nurbs_csx", "NURBSCurveSurfaceIntersector"]
 
-from mmcore.numeric.log_scaling import to_log,from_log
-def normalize_curve_knots(curve):
-    k = curve.knots
-    curve.knots = (k - k[0]) / (k[-1] - k[0])
-    curve.knots_update_hook()
 
-def _surf_to_log_space(surf:NURBSSurface)->NURBSSurface:
-
-    cptsw = np.array(surf.control_points_w)
-    cpts = to_log(cptsw[..., :-1])
-    cptsw[..., :-1] = cpts
-
-    return NURBSSurface(cpts, degree=tuple(surf.degree), knots_u=surf.knots_u,knots_v=surf.knots_v)
-
-
-def _curve_to_log_space(curve:NURBSCurve):
-
-    cptsw=np.array(curve.control_pointsw)
-    cpts=to_log(cptsw[..., :-1])
-    cptsw[..., :-1]=cpts
-
-    return NURBSCurve(cpts,degree=curve.degree,knots=curve.knots)
 
 
 class NURBSCurveSurfaceIntersector:
@@ -429,7 +403,7 @@ class NURBSCurveSurfaceIntersector:
                 cos1 = abs(float(np.dot(N, v1)) / n1)
                 thresh = math.sin(self.angle_tol)
         
-                if( cos0 <= thresh )and (cos1 <= thresh):
+                if( cos0 <= thresh ) and (cos1 <= thresh):
                     
                     pt = self.initial_curve.evaluate(tm)
                     self._insert_with_param_dedup(curve, surface, ("overlap", IntervalND([Interval(a,b)for a,b in zip(curve.start(),curve.end())]), (Interval(*curve.interval()), Interval(*(surface.interval()[0])),Interval(*(surface.interval()[1])))))
@@ -450,7 +424,7 @@ class NURBSCurveSurfaceIntersector:
         return
 
 
-def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, angle_tol: float = 0.05235987755982989):
+def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3,  angle_tol: float = 0.05235987755982989, **kwargs):
     """
     Compute intersections between a NURBS curve and a NURBS surface.
 
@@ -491,13 +465,10 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
     :type surface: mmcore.geom.nurbs.NURBSSurface
 
     :param tol:
-    The tolerance used to determine the accuracy of intersection points. Smaller tolerance values result in higher
+    The spatial tolerance used to determine the accuracy of intersection points. Smaller tolerance values result in higher
     precision but may increase computational cost.
     :type tol: float, optional
 
-    :param ptol:
-    Deprecated and ignored. Present for backward compatibility.
-    :type ptol: float, optional
 
     :param angle_tol:
     Angular tolerance in radians used for classifying near-tangential overlap in flat cells (default 0.0013).
@@ -537,18 +508,8 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
     - This method assumes that both the curve and surface are properly defined and their parameterizations are valid.
     - Extremely small angle tolerances can cause more overlap-classification.
     """
-    # `ptol` kept for backward compatibility but is unused.
-    #if isinstance(curve, NURBSCurveTuple):
-    #    curve=_tuple_to_nurbs(curve
-    #                          )
+
     initial_curve = curve
-    #curves=decompose_curve(curve)
-    #
-    #intersections = []
-    #for curve in curves:
-    #    intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, angle_tol=angle_tol)
-    #    intersector.intersect()
-    #    intersections.extend(intersector.intersections)
     intersector = NURBSCurveSurfaceIntersector(curve, surface, tolerance=tol, angle_tol=angle_tol)
     intersector.intersect()
     intersector.intersections.sort(key=lambda i: i[2][0])
@@ -566,10 +527,6 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3, ptol=None, ang
         else:
             other.append(i)
         last=i[0]
-    #from mmcore.numeric.intersection.ccx._utils import merge_intervals_nd_blocked
-    
-    
-    #merged = merge_3d_intervals(np.array(boxes), closed=True, max_iter=10024)
     for i in boxes:
        
         

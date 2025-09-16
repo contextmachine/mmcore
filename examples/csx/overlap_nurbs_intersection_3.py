@@ -1,16 +1,9 @@
 import time
 
-import numpy as np
-
-
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface
-
 from mmcore._test_data import csx as csx_cases
-from mmcore.geom._nurbs_knots import trim_curve
+
 from mmcore.numeric.intersection.csx import nurbs_csx
-from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
-from mmcore.numeric.intersection.ccx import ccx
-import numpy as np
+
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple
 from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple, extract_surface_boundaries
 from mmcore.geom._nurbs_knots import split_curve_multiple

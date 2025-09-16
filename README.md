@@ -6,7 +6,7 @@
 [![pip downloads](https://img.shields.io/pypi/dm/mmcore)](https://pypi.python.org/project/mmcore)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mmcore.svg)](https://pypi.python.org/project/mmcore)
 
-![](notes/images/img.png)
+![](notes/images/Screenshot%202025-05-29%20at%2022.56.31.png)
 
 <!-- TOC -->
 * [mmcore](#mmcore)
@@ -36,6 +36,28 @@
   * [Contributing](#contributing)
   * [License](#license)
 <!-- TOC -->
+## NEW in 0.53.0
+
+### CSX overlaps handling
+The nurbs_csx implementation now correctly handles overlaps (see image below).
+
+![](./notes/images/Screenshot%202025-09-16%20at%2006.45.09.png)
+
+The example shown in the figure can be found in [./examples/csx/overlap_nurbs_intersection_3.py](./examples/csx/overlap_nurbs_intersection_3.py)
+
+### Significantly improved robustness of NURBS SSX
+![](./notes/images/Screenshot%202025-05-29%20at%2019.10.39.png)
+
+Rational cases are fully processed:
+
+![](./notes/images/Screenshot%202025-05-29%20at%2023.05.02.png)
+
+
+### Significantly expanded NURBS construction methods
+...
+
+### Redesign of the NURBS object system
+...
 
 ## Overview
 
