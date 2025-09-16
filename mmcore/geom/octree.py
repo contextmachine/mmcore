@@ -596,8 +596,8 @@ class SDFApprox(Implicit3D):
 
 
     @classmethod
-    def from_sdf(cls, sdf, min_half=None,max_depth=6):
-        cc=cls(np.asarray(sdf.bounds(),float),max_depth=max_depth,min_half=min_half)
+    def from_sdf(cls, sdf, bounds=None,min_half=None,max_depth=6):
+        cc=cls(np.asarray(sdf.bounds() if bounds is None else bounds,float),max_depth=max_depth,min_half=min_half)
        
         cc._build(sdf)
         
