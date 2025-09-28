@@ -45,12 +45,25 @@ The nurbs_csx implementation now correctly handles overlaps (see image below).
 
 The example shown in the figure can be found in [./examples/csx/overlap_nurbs_intersection_3.py](./examples/csx/overlap_nurbs_intersection_3.py)
 
-### Significantly improved robustness of NURBS SSX
-![](./notes/images/Screenshot%202025-05-29%20at%2019.10.39.png)
+### NURBS SSX improvements 
+- Rational cases are fully processed.
+- Significantly improved robustness. 
+- Tangential intersections no longer cause branches to be interrupted. For example, [here](./examples/ssx/nurbs_nurbs_intersection_2.py).
+At the detect intersections stage, a bug in the gjk implementation that led to false negatives in a number of cases has been fixed.
+На этапе, detect intersections исправлен баг в реализации gjk, приводивший к ложноотрицательному выходу в ряде случаев
+- Added 9 usage examples covering various cases.
+- The implementation of the march method has been brought more into line with the (validated ode solver described here)[https://www.cad-journal.net/files/vol_1/CAD_1%281-4%29_2004_449-457.pdf].
+- Adaptive refinement is now used instead of the march method to construct a single intersection branch.
+- 
+<div style="display:flex; align-items:flex-start; gap:0.75rem;">
+  <img src="./notes/images/Screenshot%202025-05-29%20at%2019.10.39.png" alt="Image 1" height="200"/>
+  <img src="./notes/images/Screenshot%202025-05-29%20at%2023.05.02.png" alt="Image 2" height="200"/>
+  <img src="./notes/images/img_1.png" alt="Image 3" height="200"/>
+</div>
 
-Rational cases are fully processed:
 
-![](./notes/images/Screenshot%202025-05-29%20at%2023.05.02.png)
+
+
 
 
 ### Significantly expanded NURBS construction methods

@@ -8,21 +8,19 @@ objects as described in:
 
 from __future__ import annotations
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,_find_span_linear
-import numpy as np
-from mmcore.geom._nurbs_eval import compute_basis_function_derivatives_np
+
 
 from mmcore.geom._nurbs_eval import *
 import math
 from numpy.typing import NDArray
-from dataclasses import dataclass, field
-from typing import List, Tuple, Sequence, Literal, Callable, Optional
+from dataclasses import dataclass
+from typing import List, Tuple, Sequence, Literal, Optional
 
 # --------------------------------------------------------------------
 # Import the basic data‑structures and evaluation routines that the
 # user said are already available.
 # --------------------------------------------------------------------
-from mmcore.geom._nurbs_eval import (
+from mmcore.geom._nurbs_eval import (_find_span_linear,
     NURBSCurveTuple, NURBSSurfaceTuple,
     evaluate_nurbs_curve, evaluate_nurbs_surface,
 )

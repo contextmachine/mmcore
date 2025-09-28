@@ -424,9 +424,9 @@ class Octree:
         return self._aabb_cache[np.array(nodes, dtype=np.int64)]
 
     
-    def find_nodes(self, points: np.ndarray, min_points_per_node: int=10000) -> np.ndarray:
+    def find_nodes(self, points: np.ndarray, node=None,min_points_per_node: int=10000) -> np.ndarray:
         points_ixs=np.arange(points.shape[0], dtype=np.int64)
-        stack=[(self.get_root(), points_ixs)]
+        stack=[(self.get_root() , points_ixs)if node is None else (node,points_ixs)]
       
         inside_points=np.zeros(points.shape[0], dtype=bool)
         leaf_to_points=dict()

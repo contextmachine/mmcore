@@ -252,9 +252,9 @@ if __name__ == "__main__":
     # Here we define a simple quadratic NURBS curve (non-rational case for simplicity).
     curve_orig = NURBSCurveTuple(
         order=3,  # quadratic (degree 2)
-        knot=[0, 0, 0, 1, 2, 2, 2],
-        control_points=[[0, 0], [1, 2], [3, 3], [4, 0]],
-        weights=[1, 1, 1, 1],
+        knot=np.array([0, 0, 0, 1, 2, 2, 2],dtype=float),
+        control_points=np.array([[0, 0], [1, 2], [3, 3], [4, 0]],dtype=float),
+        weights=np.array([1, 1, 1, 1],dtype=float),
     )
     new_curve = reparameterize_curve(curve_orig, tol=1e-5)
     print("Original Curve:")

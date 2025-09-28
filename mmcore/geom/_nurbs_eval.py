@@ -64,7 +64,8 @@ class NURBSSurfaceTuple(NamedTuple):
 
     def interval(self):
         return _surface_interval(self)
-
+from typing import Union
+NURBSTupleType= Union[NURBSCurveTuple,NURBSSurfaceTuple]
 
 class EvaluateCurveData(TypedDict):
     """
