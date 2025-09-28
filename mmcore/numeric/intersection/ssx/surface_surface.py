@@ -8,6 +8,7 @@ from array import array
 from dataclasses import dataclass
 
 from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,_nurbs_to_tuple,_tuple_to_nurbs
 from scipy.integrate import solve_bvp, solve_ivp
 
 from mmcore.geom.surfaces import CurveOnSurface, Surface
@@ -78,7 +79,7 @@ def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7, tan_tol=1e-3
         raise NotImplemented
 import logging
 _logger=logging.getLogger('mmcore')
-def ssx(surf1: Surface, surf2: Surface,  spt=0.001,tol: float = 1e-7, **kwargs) -> tuple[list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]],list[IntersectionPoint]]:
+def ssx(surf1: NURBSSurface|NURBSSurfaceTuple, surf2: NURBSSurface|NURBSSurfaceTuple,  spt=0.001,tol: float = 1e-7, **kwargs) -> tuple[list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]],list[IntersectionPoint]]:
     """
     Calculate the intersection of two parametric surfaces.
 
@@ -108,6 +109,11 @@ def ssx(surf1: Surface, surf2: Surface,  spt=0.001,tol: float = 1e-7, **kwargs) 
         3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
+    if isinstance(surf1,NURBSSurfaceTuple):
+        surf1=_tuple_to_nurbs(surf1)
+    if isinstance(surf2,NURBSSurfaceTuple):
+        surf2=_tuple_to_nurbs(surf2)
+        
     res = surface_ppi(surf1, surf2, tol=tol,spt=spt)
     if res is None:
         return [],[]

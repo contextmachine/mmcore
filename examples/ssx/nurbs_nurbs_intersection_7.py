@@ -184,17 +184,19 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 
 
 try:
+    
     from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    def draw_ssx(s1,s2, result, renderer=None):
+        
+        renderer = renderer if renderer is not None else CADRenderer(camera=Camera(zoom=50.0, near=1.))
+        renderer.add_nurbs_surface(s1, color=(1.0, 1.0, 1.0))
+        renderer.add_nurbs_surface(s2, color=(1.0, 1.0, 1.0), )
+        
+        for crv, uv1, uv2 in result[0]:
+            renderer.add_nurbs_curve(crv, color=(0.0, 1.0, 0.5))
+        return renderer
 
-    print(dir(Camera))
-    centr = np.average(s1.control_points_flat, axis=0)
-    renderer = CADRenderer(camera=Camera(zoom=50.0, near=1.))
-
-    tess=renderer.add_nurbs_surface(s1, color=(1.0, 1.0, 1.0))
-    renderer.add_nurbs_surface(s2, color=(1.0, 1.0, 1.0),)
-
-    for crv, uv1, uv2 in result[0]:
-        renderer.add_nurbs_curve(crv, color=(0.0, 1.0, 0.5))
+    renderer=draw_ssx(s1, s2, result)
 
     renderer.run()
 
