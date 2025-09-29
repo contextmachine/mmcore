@@ -511,7 +511,7 @@ def solve3x2(col0, col1, d0, d1, d2):
     x, y = 0.0, 0.0
     pivot_ratio = 0.0
     err = float('inf')
-    print("SX",col0, col1, d0, d1, d2)
+    #print("SX",col0, col1, d0, d1, d2)
     i = np.argmax([abs(val) for val in col0 + col1])
     if i >= 3:
         col0, col1 = col1, col0
@@ -1036,7 +1036,7 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     Parameters
     ----------
     Su, Sv : (3,) ndarray
-        ∂S/∂u and ∂S/∂v at the current (u, v).
+        ∂S/∂u and ∂S/∂v at the current (u,v).
     Suu, Suv, Svv : (3,) ndarray
         Second‑order derivatives ∂²S/∂u², ∂²S/∂u∂v, ∂²S/∂v².
     tangent : (3,) ndarray
@@ -1093,7 +1093,7 @@ def compute_parametric_sectional_curvature_tolerance_surface(Su: np.ndarray, Sv:
     ok, K_vec = evaluate_sectional_curvature(
         Su, Sv, Suu, Suv, Svv, plane_normal
     )
-    print('K',ok,K_vec)
+    #print('K',ok,K_vec)
     if not ok:
         return np.inf, np.inf
 

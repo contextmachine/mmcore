@@ -57,7 +57,7 @@ def improve_uv_robust(surf, uv_old, du, dv, xyz_old, xyz_better, uv_better=None,
 
 
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections, \
+from mmcore.numeric.intersection.ssx.boundary_intersection import \
     IntersectionPoint
 from mmcore.geom.nurbs_iso import extract_isocurve
 
