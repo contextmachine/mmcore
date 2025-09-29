@@ -261,7 +261,7 @@ def _detect_intersections_deep(g1, g2, chs: dict, spt=0.01, tol=1e-5, dbg: Debug
     return intersections
 
 
-from .boundary_intersection import find_boundary_intersections
+
 
 
 def detect_intersections(surf1, surf2, spt=0.1, tol=1e-5, debug_tree: DebugTree = None) -> list[tuple[NURBSSurface, NURBSSurface]]:

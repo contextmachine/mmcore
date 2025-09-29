@@ -27,7 +27,7 @@ from mmcore.numeric.numeric import (
 
 __all__ = ["nurbs_csx", "NURBSCurveSurfaceIntersector"]
 
-
+from  mmcore.geom._nurbs_eval import evaluate_nurbs_curve
 
 
 class NURBSCurveSurfaceIntersector:
@@ -230,11 +230,11 @@ class NURBSCurveSurfaceIntersector:
         )
 
         nrm = np.linalg.norm(surface_normal)
-        surface_normal = surface_normal / (nrm
-                                           )
+        surface_normal = surface_normal / (nrm+self.tolerance)
+        
 
         # print(surface_normal,curve_tangent)
-        return np.abs(np.dot(curve_tangent, surface_normal)) < np.sin(self.angle_tol)
+        return np.abs(np.dot(curve_tangent, surface_normal)) <= np.sin(self.angle_tol)
 
     def _parametric_steps(self, curve: NURBSCurve, surface: NURBSSurface, tuv):
         t, u, v = tuv
@@ -392,19 +392,21 @@ class NURBSCurveSurfaceIntersector:
             N = N / nrm  # unit normal
             v0=curve.derivative(t0)
             v1=curve.derivative(tm)
-            #v0 = P0 - S0
-            #v1 = P1 - S0
+            #v0 = curve.evaluate(t0) - S0
+            #v1 = curve.evaluate(tm)- S0
             n0 = np.linalg.norm(v0)
             n1 = np.linalg.norm(v1)
             if n0 > 0 and n1 > 0:
+                v0/=n0
+                v1/=n1
                 # Overlap: vectors to endpoints are nearly perpendicular to N
                 # i.e., angle(N, v) ~ 90° -> |cos| ~ 0; accept if |cos| <= sin(angle_tol)
-                cos0 = abs(float(np.dot(N, v0)) / n0)
-                cos1 = abs(float(np.dot(N, v1)) / n1)
+                cos0 = abs(float(np.dot(N, v0)) )
+                cos1 = abs(float(np.dot(N, v1)) )
                 thresh = math.sin(self.angle_tol)
         
                 if( cos0 <= thresh ) and (cos1 <= thresh):
-                    
+                    print(cos0,cos1,thresh,self.angle_tol)
                     pt = self.initial_curve.evaluate(tm)
                     self._insert_with_param_dedup(curve, surface, ("overlap", IntervalND([Interval(a,b)for a,b in zip(curve.start(),curve.end())]), (Interval(*curve.interval()), Interval(*(surface.interval()[0])),Interval(*(surface.interval()[1])))))
                     return
@@ -424,7 +426,8 @@ class NURBSCurveSurfaceIntersector:
         return
 
 
-def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3,  angle_tol: float = 0.05235987755982989, **kwargs):
+def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3,  angle_tol: float =0.01,
+              **kwargs):
     """
     Compute intersections between a NURBS curve and a NURBS surface.
 
@@ -516,17 +519,44 @@ def nurbs_csx(curve: NURBSCurve, surface: NURBSSurface, tol=1e-3,  angle_tol: fl
     boxes=[]
     other=[]
     last=None
+    #print(intersector.intersections)
     for i in intersector.intersections:
-        if i[0]=='overlap' and last=='overlap':
+   
+        
+        if (i[0]=='overlap') and ( last is not None) and (last[0]=='overlap'):
             for j in range(3):
                 boxes[-1][j].expand(i[2][j])
             #boxes.append((i[2][0].low-1e-5,i[2][1].low-1e-5,i[2][2].low-1e-5,i[2][0].upp+1e-5,i[2][1].upp+1e-5,i[2][2].upp+1e-5))
         elif i[0]=='overlap' :
+            last=i
             boxes.append(i[2])
             
         else:
-            other.append(i)
-        last=i[0]
+            if last is None:
+                
+                other.append(i)
+                last=i
+                continue
+            
+            C1,C2=curve.derivative(i[2][0]),curve.second_derivative(i[2][0])
+            dt=compute_parametric_curvature_tolerance_curve(C1,C2,spt=tol)
+       
+            if last[0]=='overlap':
+                if i[2][0]<=last[2][0].low:
+                    d=last[2][0].low-i[2][0]
+                elif i[2][0] >= last[2][0].upp:
+                    d = i[2][0]-last[2][0].upp
+                else:
+                    d=0
+            else:
+                d=abs(last[2][0]-i[2][0])
+            if d<dt:
+                continue
+            else:
+            
+                other.append(i)
+                last = i
+    
     for i in boxes:
        
         
@@ -548,15 +578,15 @@ if __name__ == "__main__":
     s = time.time()
     res = intersector.intersect()
     e1 = time.time() - s
-    print([pt.tolist() for (t, pt, prm) in res])
+    #print([pt.tolist() for (t, pt, prm) in res])
     S1, C2 = test_data[1]
     intersector = NURBSCurveSurfaceIntersector(C2, S1)
     s = time.time()
     res = intersector.intersect()
     e2 = time.time() - s
     res.sort(key=lambda x: x[2][0])
-    print([pt.tolist() for (t, pt, prm) in res])
-    print(e1, e2, sep="\n")
+    #print([pt.tolist() for (t, pt, prm) in res])
+    #print(e1, e2, sep="\n")
     ts = []
     uvs = []
     typs = []

@@ -1201,7 +1201,9 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
     isolated_points=[]
     for i,(s1, s2) in enumerate(items):
 
-        stars_points:list[IntersectionPoint]= find_boundary_intersections(s1, s2, spt=spt,tol=tol)
+        stars_points,overlaps= find_boundary_intersections(s1, s2, spt=spt)
+        #for o in overlaps:
+        #    branches.append((np.array([o._segm.start(),o._segm.end()]), np.array(o.get_ends(s1)),     np.array(o.get_ends(s2))))
         _logger.debug(f"finded boundary_intersections {i}, len starts points: {len(stars_points)}")
         # print('p',[p.point.tolist() for p in stars_points])
 
@@ -1228,13 +1230,15 @@ def _nurbs_trace_intersection_curves_v2(surf1, surf2, spt=1e-3,tol=1e-7, tan_tol
             continue
         # OLDVALUE: elif len(stars_points)>2: (Кажется, что в текущей реализации marching ведет себя всегда лучше подгонки. В дальнейшем, можно рассмотреть более умную диспетчеризацию. Например, использовать подгонку на участках с малой кривизной, или большим углом между нормалями.
         elif len(stars_points)>2:
-
+            print(_nurbs_to_tuple(s1))
+            print(_nurbs_to_tuple(s2))
             if (len(stars_points)%2)==1:
 
                 _logger.critical(f"hard case: {[s.point.tolist() for s in stars_points]}. An odd number of boundary intersection points")
+                print()
                 continue
-            _logger.debug(f"hard case: {[s.point.tolist() for s in stars_points]}")
-
+            _logger.debug(f"many branches: {[s.point.tolist() for s in stars_points]}")
+    
             bnd_points = list(stars_points[1:])
 
             st1 = _nurbs_to_tuple(s1)

@@ -505,7 +505,15 @@ class IntervalND:
     """
     def __init__(self, intervals):
         self.iv = list(intervals)               # List[Interval]
-
+        self._low=np.array([i.low for i in self.iv  ])
+        self._upp=np.array([i.upp for i in self.iv  ])
+    @property
+    def low(self):
+        return  self._low
+    
+    @property
+    def upp(self):
+        return self._upp
     # helpers ---------------------------------------------------
     def mid(self):
         return [r.mid() for r in self.iv]       # centre point (float list)
