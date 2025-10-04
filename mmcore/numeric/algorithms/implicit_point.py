@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import math
+from typing import NamedTuple
 
 import numpy as np
 
@@ -7,7 +10,7 @@ from numpy._typing import NDArray
 
 from mmcore.geom.vec import unit, make_perpendicular
 from mmcore.numeric import scalar_dot, scalar_cross
-
+from mmcore.numeric.aabb import point_in_aabb
 
 from mmcore.numeric.fdm import Grad
 
@@ -492,32 +495,142 @@ def _linear_combination_3d(a, v1, b, v2):
 
 def _implicit_tangent(d1, d2):
     return unit(make_perpendicular(d1, d2))
+class SurfacePointFullOutput(NamedTuple):
+    success: bool
+    point: np.ndarray
+    fun:float
+    grad:np.ndarray
+    iters: int
+    delta:float|None
 
-
-def surface_point(fun, p0, grad=None, tol=1e-8):
+def surface_point(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None):
     p_i = p0
     grad = _resolve_grad(fun, grad)
+    fi_prev=None
+    success=True
+    iters=0
+    tol_sq=np.sqrt(tol)
     while True:
         fi, gradfi = (fun(p_i), grad(p_i))
-        cc = scalar_dot(gradfi, gradfi)
-        if cc > 0:
+
+        if callback is not None:
+            callback(p_i, fi, gradfi)
+        cc = np.dot(gradfi, gradfi)
+        if iters==0 and cc < tol_sq:
+            gradfi= (np.clip(np.sqrt(fi),tol, fi) * np.random.choice([-1.,1.], 3))
+            
+            cc = np.dot(gradfi, gradfi)
+            
+       
+      
+        
+        if (cc**2) > 1e-8:
+    
             t = -fi / cc
+    
+         
         else:
             t = 0
             print(f"{cc} WARNING tri (surface_point...): newton")
-
+            success=False
+         
         p_i1 = _linear_combination_3d(1, p_i, t, gradfi)
         dv = p_i1 - p_i
-        delta = scalar_norm(dv)
-
+        
+        delta = scalar_norm( dv)
+        
+        
+        
+        
+        
+        iters += 1
         if delta < tol:
+            success = True
             break
 
         p_i = p_i1
+        fi_prev=fi
+       
 
     #fi, gradfi = fun(p_i), grad(p_i)
-    return p_i1
+    if full_output:
+        return    SurfacePointFullOutput(success, p_i1,
+                                           fun=fi, grad=gradfi, delta=delta, iters=iters)
+    return  p_i1
 
+
+   
+    
+def surface_point_local(fun, p0, bounds, strict=False, grad=None, tol=1e-8, full_output=False):
+    """
+    
+    :param fun: implicit function
+    :type fun:
+    :param p0: initial point
+    :type p0:
+    :param bounds: upper and lower limits for the search. Guarantees early exit if the point breaks these bounds.
+    :type bounds: ndarray | tuple | list
+    :param strict: If true, a point on one of the boundaries will be considered to be outside the boundaries. Default is False.
+    :type strict: bool
+    :param grad: gradient of implicit function. If not specified, it will be calculated using the finite difference method.
+    :type grad: callable | None
+    :param tol: size ||pt_i+1 - pt_i|| at which the improvement will be considered insignificant and the algorithm will stop.
+    :type tol:
+    :return:
+    :rtype:
+    """
+    p_i = p0
+    tol_sq=np.sqrt(tol)
+    bounds=np.array(bounds, dtype=float)
+    grad = _resolve_grad(fun, grad)
+    fi_prev=None
+    iters=0
+    delta=None
+    while True:
+       
+            
+        fi, gradfi = (fun(p_i), grad(p_i))
+        if not point_in_aabb(bounds,p_i):
+  
+            if full_output:
+                return SurfacePointFullOutput(False, p_i,
+                                              fun=fi, grad=gradfi, delta=delta, iters=iters)
+            return False,p_i
+        
+
+        cc = np.dot(gradfi, gradfi)
+        
+        if iters == 0 and cc < tol_sq:
+            gradfi = (np.clip(np.sqrt(fi), tol, fi) * np.array([1.,1.,-1.]))
+            
+            cc = np.dot(gradfi, gradfi)
+        
+        if (cc ** 2) > 1e-8:
+            
+            t = -fi / cc
+        
+        
+        else:
+            t = 0
+            print(f"{cc} WARNING tri (surface_point...): newton")
+            success = False
+        p_i1 = _linear_combination_3d(1, p_i, t, gradfi)
+        
+        dv=p_i1 - p_i
+        delta = scalar_norm(dv)
+        
+       
+        
+        fi_prev=fi
+        p_i = p_i1
+        iters+=1
+        if delta < tol:
+            break
+    #fi, gradfi = fun(p_i), grad(p_i)
+    if full_output:
+        return SurfacePointFullOutput(True, p_i,
+                                           fun=fi, grad=grad, delta=delta, iters=iters)
+    return True, p_i
 
 def surface_plane(fun, p_start, grad, tol=1e-5):
     p, nv = surface_point(fun, p_start, grad, tol)

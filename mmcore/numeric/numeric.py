@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
-from mpmath import isfinite
+
 from scipy.integrate import quad
 import numpy as np
 from mmcore.numeric.newton.cnewton import newtons_method
@@ -310,13 +310,11 @@ evaluate_curvature_vec = np.vectorize(
     evaluate_curvature, signature="(i),(i)->(i),(i),()"
 )
 _numeric_eps=np.finfo(float).eps
-import mpmath
 
 def compare_curvature(r1a, r2a, ka, r1b, r2b, kb,
                       rtol=1e-4, atol=1e-6,
                       check_vector=False):
-    mpmath.mp.dps = 100
-    mpmath.mp.norm(ka)
+ 
     kappa_a = np.linalg.norm(ka)
     kappa_b = np.linalg.norm(kb)
 
@@ -1151,17 +1149,6 @@ def circle_of_curvature(curve, t: float):
 
     )  # Plane of curvature circle, Radius of curvature circle
 
-if __name__ == "__main__":
-    # Example derivatives at some parameter u
-    Cp_example = [1.0, 2.0, 0.5]
-    Cpp_example = [0.0, 1.0, -0.2]
-
-    # Given tolerances
-    spt_example = 0.01       # spatial tolerance
-    angle_tol_example = 0.05 # angular tolerance in radians
-
-    du_result = compute_parametric_tolerance_curve(Cp_example, Cpp_example, spt_example, angle_tol_example)
-    print(f"Computed du: {du_result:.6f}")
 
 
 def circular_segment_area_from_kappa_and_s(kappa_mag, s, small_theta=1e-3):
@@ -1190,3 +1177,14 @@ def signed_curvature(C1, C2, n):
     k_mag = np.linalg.norm(np.cross(C1, C2)) / (spd**3)
     sgn   = np.sign(np.dot(np.cross(C1, C2), n))
     return float(sgn * k_mag)
+if __name__ == "__main__":
+    # Example derivatives at some parameter u
+    Cp_example = [1.0, 2.0, 0.5]
+    Cpp_example = [0.0, 1.0, -0.2]
+
+    # Given tolerances
+    spt_example = 0.01       # spatial tolerance
+    angle_tol_example = 0.05 # angular tolerance in radians
+
+    du_result = compute_parametric_tolerance_curve(Cp_example, Cpp_example, spt_example, angle_tol_example)
+    print(f"Computed du: {du_result:.6f}")

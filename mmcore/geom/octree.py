@@ -519,12 +519,31 @@ class SDFApprox(Implicit3D):
         ...
     def __call__(self, pt):
         ...
-        
-   
+    def _eval_and_cache(self, fun,nodes, points ):
+        sd = np.atleast_1d(fun(points))
+        self._sd.update({tuple(node_index): sd_item for node_index, sd_item in zip(nodes.tolist(), sd)})
+        return sd
+    
 
+    def compute_masks(self,implicit, nodes):
+        bbs = self._tree.get_bboxes(nodes)
+        centers = np.mean(bbs, axis=1)
+        bb = bbs[0]
+        d = bb[1, :] - bb[0, :]
+        h = d / 2
+        
+        r = self._tree.r_box(h)
+        sd = self._eval_and_cache(implicit,nodes,centers)
+       
+        
+        # sd_arr[nodes[...,0],nodes[...,1],nodes[...,2],nodes[...,3]]=sd
+        mask_outside = sd > r
+        
+        mask_inside = sd < -r
+        
+        mask = (~(mask_outside | mask_inside))
+        return mask_inside,mask, mask_outside
 
-        
-        
     def _build(self, sdf):
         
       
@@ -538,7 +557,7 @@ class SDFApprox(Implicit3D):
         _leafs=[]
         stack=[np.array([self._tree.get_root()],dtype=np.int64)]
         while stack:
-          
+       
             nodes = stack.pop(0)
          
             #print("n",nodes.shape)
@@ -547,35 +566,11 @@ class SDFApprox(Implicit3D):
             print("L:", nodes[0][0], 'count:', len(nodes))
             depth_mask=nodes[...,0]>self._tree.max_depth
             
-     
-           
-            #print(depth_mask)
-            #print("N",nodes)
-            if len(nodes) < 1:
-                continue
+
                 
             
-            bbs=self._tree.get_bboxes(nodes)
-            centers=np.mean(bbs,axis=1)
-            bb=bbs[0]
-            d=bb[1,:]-bb[0,:]
-            h=d/2
-           
-            r=self._tree.r_box(h)
-            
-            sd=np.atleast_1d(sdf(centers))
-            #sd_arr[nodes[...,0],nodes[...,1],nodes[...,2],nodes[...,3]]=sd
-            self._sd.update({tuple(node_index):sd_item for node_index, sd_item in zip(nodes.tolist(),sd)})
-            mask_outside=sd>r
-           
-            mask_inside= sd < -r
-         
-            mask=(~(mask_outside | mask_inside))
-  
-            
-                
-            
-            print(mask.shape, depth_mask.shape)
+            mask_inside,mask, mask_outside=self.compute_masks(sdf, nodes)
+       
  
             #nodes = nodes[~depth_mask]
             
@@ -584,7 +579,7 @@ class SDFApprox(Implicit3D):
               
             
                 ch=self._tree.get_children_multiple(  nodes[mask & (~depth_mask)])
-                print('c',ch.shape,ch.dtype)
+
                 stack.append(np.concatenate(ch,dtype=np.int64))
             #stack.append(np.concatenate(np.apply_along_axis(self.get_children,1,nodes[mask])))
         #SD = coo_array((np.array(list(self._sd.values()),float),np.array(list(self._sd.keys()),int)),  shape=shape )
@@ -602,11 +597,54 @@ class SDFApprox(Implicit3D):
         cc._build(sdf)
         
         return cc
-    
-    
+from mmcore.numeric.algorithms.implicit_point import surface_point_local
+class ImplicitApprox(SDFApprox):
+    def compute_masks(self,implicit, nodes):
+        count=len(nodes)
+        bbs = self._tree.get_bboxes(nodes)
+        centers = np.mean(bbs, axis=1)
+
+        
+       
+        sd=np.zeros(count)
+        mask=np.zeros(count,dtype=bool)
+        mask_inside=np.zeros(count,dtype=bool)
+        mask_outside=np.zeros(count,dtype=bool)
+        for i in range(centers.shape[0]):
+
+            
+            res=surface_point_local(implicit,centers[i], bounds=bbs[i],strict=False,full_output=True)
+            dst=np.linalg.norm(centers[i]-res.point)
+ 
+            if not res.success:
+                
+                sd[i]=np.copysign(dst,res.fun)
+                
+                if res.fun<0:
+                    mask_inside[i]=True
+                    
+                else:
+                    mask_outside[i]=True
+            else:
+                mask[i]=True
+                sd[i]=np.copysign(dst,res.fun)
+            self._sd[(int(nodes[i,0]),int(nodes[i,1]),int(nodes[i,2]),int(nodes[i,3]))]=sd[i]
+            
+            
+            
+        
+        
+        return mask_inside, mask, mask_outside
+    @classmethod
+    def from_implicit(cls, implicit, bounds=None, min_half=None, max_depth=6):
+        cc = cls(np.asarray(implicit.bounds() if bounds is None else bounds, float), max_depth=max_depth, min_half=min_half)
+        
+        cc._build(implicit)
+        
+        return cc
     
         
-
+    
 
 if __name__ == '__main__':
     from mmcore.geom.octree import SDFApprox, Octree
