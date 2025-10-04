@@ -22,7 +22,7 @@ class BSplineCurveTuple(NamedTuple):
 class NURBSCurveTuple(NamedTuple):
     order:int
     knot:NDArray[float]
-    control_points:NDArray[float]
+    control_points:NDArray[float] # Not homogeneous
     weights:NDArray[float]
 
     def start(self):

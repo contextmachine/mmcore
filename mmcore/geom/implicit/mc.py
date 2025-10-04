@@ -1,5 +1,7 @@
 from __future__ import annotations
 import  itertools
+import warnings
+
 import numpy as np
 from mmcore.geom.octree import Octree
 from typing import List, Tuple, Callable
@@ -192,7 +194,11 @@ def polygonise_nodes_bulk(
 
         nrm  = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
         ln   = np.linalg.norm(nrm, axis=1, keepdims=True)
-        nrm  = np.where(ln == 0, nrm, nrm / ln) * eps        # unit * eps
+        
+
+        
+        with warnings.catch_warnings(action='ignore'):
+            nrm  = np.where(ln == 0, nrm, nrm / ln) * eps        # unit * eps
 
         ctr  = tris.mean(axis=1)
         test = np.concatenate([ctr + nrm, ctr - nrm], axis=0)
@@ -258,12 +264,13 @@ def _build_surface_leaves(octree: Octree, sdf: Callable, iso: float, min_half: f
         radii = _r_box(halves)
 
         # Distance to iso level
+        
         vals = np.asarray(sdf(centres), dtype=float) - float(iso)
 
         outside = vals > radii
         inside = vals < -radii
         uncertain = ~(outside | inside)
-
+    
         if not np.any(uncertain):
             # Nothing to refine in this batch
             continue
