@@ -193,7 +193,7 @@ def to_homogeneous_2d(control_points, weights):
     Returns:
         Array of homogeneous control points (MxNx(D+1)) where last column is weight
     """
-    dim = control_points.shape[2]
+    dim = control_points.shape[-1]
     result = np.zeros((control_points.shape[0], control_points.shape[1], dim + 1))
     for i in range(control_points.shape[0]):
         for j in range(control_points.shape[1]):
