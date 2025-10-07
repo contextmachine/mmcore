@@ -1,4 +1,0 @@
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,evaluate_nurbs_curve,evaluate_nurbs_surface
-
-from mmcore.numeric import evaluate_curvature
-

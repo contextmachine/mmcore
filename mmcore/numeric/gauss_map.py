@@ -13,7 +13,9 @@ from mmcore.numeric.algorithms.cygjk import gjk
 
 from scipy.spatial import ConvexHull
 def convex_hull(pts):
-    return np.array(pts)[ConvexHull(np.array(pts),qhull_options='QJ' ).vertices]
+    pts=np.array(pts)
+    hull=ConvexHull(pts, qhull_options='QJ')
+    return pts[hull.vertices],hull
 
 def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 
@@ -361,8 +363,10 @@ class GaussMap:
         # Compute convex hull
 
         #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self._convex_hull_on_sphere=np.array(convex_hull(unit(self._map.control_points_flat)))
+        vxs,hull=convex_hull(unit(self._map.control_points_flat))
+        self._convex_hull_on_sphere=np.array(vxs)
         #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
+        self._chull=hull
         self.hull =self._convex_hull_on_sphere
     def bounds(self):
         """Compute bounds on the Gauss map."""
@@ -373,7 +377,8 @@ class GaussMap:
 
         return gjk(self.bounds(), other.bounds())
 
-
+  
+        
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
     """
     Solve a linear programming problem using scipy's linprog function.
