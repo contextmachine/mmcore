@@ -65,7 +65,7 @@ def nurbs_bezier_to_bern(bez:NURBSCurveTuple|NURBSSurfaceTuple, rational:bool=Tr
 
 
 def bern_to_nurbs_bezier(bern, interval:tuple=None, rational:bool=True):
-
+    
     if bern.ndim==2:
         if rational:
 

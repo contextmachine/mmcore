@@ -10,7 +10,7 @@ from mmcore.numeric import scalar_norm
 
 from scipy.optimize import linprog
 
-from mmcore.numeric.gauss_map import GaussMap, convex_hull
+from mmcore.numeric.gauss_map import GaussMap
 from mmcore.geom.bvh import BoundingBox, Object3D
 
 from mmcore.geom.nurbs_iso import extract_isocurve
