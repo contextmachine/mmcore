@@ -111,6 +111,13 @@ class EvaluateSurfaceData(TypedDict):
     Svv: NDArray[float]
 
 from mmcore.numeric.aabb import aabb
+
+def evaluate_cubic_bezier_curve(cpts, t:float,interval=(0.,1.) ):
+    t0,t1=interval
+    t_real=t0+t*(t1-t0)
+   
+    return (1-t_real)**3*cpts[0] + 3*(1.-t_real)**2*t_real*cpts[1] + 3*(1-t_real)*t**2*cpts[2] + t**3*cpts[3]
+
 def nurbs_bbox(obj:NURBSSurfaceTuple|NURBSCurveTuple|BSplineSurfaceTuple|BSplineCurveTuple):
     return aabb(obj.control_points    )
 def nurbs_interval(knots:list[float]|NDArray[float], degree:int)->tuple[float,float] :
@@ -226,6 +233,7 @@ def from_homogeneous_2d(homogeneous_points):
             control_points[i, j] = _cpt[i, j, :-1] / _cpt[i, j, -1]
 
     return np.ascontiguousarray(control_points), weights
+
 
 # Operations
 
@@ -454,21 +462,6 @@ def evaluate_nurbs_surface(surface:NURBSSurfaceTuple, u, v, d_order=2)->Evaluate
     # print(SKL)
     return SKL
 
-
-def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]:
-    p = curve.order - 1
-    U = curve.knot
-    pts = curve.control_points
-    n = len(pts)
-    span = _find_span_linear(p, U, n, u)
-    d = [pts[span - p + i].copy() for i in range(p + 1)]
-    for r in range(1, p + 1):
-        for i in range(p, r - 1, -1):
-            alpha = (u - U[span - p + i]) / (U[i + span - r + 1] - U[span - p + i])
-            d[i] = (1 - alpha) * d[i - 1] + alpha * d[i]
-    return d[p]
-
-
 def bspline_basis(j, degree, knot_vector, u):
     """
     Recursively compute the B-spline basis function N_{j,degree}(u) using the Cox–de Boor formula.
@@ -497,6 +490,22 @@ def bspline_basis(j, degree, knot_vector, u):
     if denom2 != 0:
         term2 = (knot_vector[j + degree + 1] - u) / denom2 * bspline_basis(j + 1, degree - 1, knot_vector, u)
     return term1 + term2
+
+def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]:
+    p = curve.order - 1
+    U = curve.knot
+    pts = curve.control_points
+    n = len(pts)
+    span = _find_span_linear(p, U, n, u)
+    d = [pts[span - p + i].copy() for i in range(p + 1)]
+    for r in range(1, p + 1):
+        for i in range(p, r - 1, -1):
+            alpha = (u - U[span - p + i]) / (U[i + span - r + 1] - U[span - p + i])
+            d[i] = (1 - alpha) * d[i - 1] + alpha * d[i]
+    return d[p]
+
+
+
 
 def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
     """
