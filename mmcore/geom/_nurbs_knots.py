@@ -660,7 +660,7 @@ def decompose_curve(crv:BSplineCurveTuple|NURBSCurveTuple)->list[BSplineCurveTup
 
 
 def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
-
+    print(t0,t1)
     t0,t1=min(t0,t1),max(t0,t1)
     t_min,t_max=_curve_interval(curve)
     if t0==t_min and t1==t_max:

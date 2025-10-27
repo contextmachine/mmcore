@@ -22,7 +22,7 @@ class AABB:
 
     min: np.ndarray = np.inf
     max: np.ndarray = -np.inf
-    _array: Optional[NDArray] = field(init=False, default=None)
+    _array: Optional[NDArray] = field(init=False, default=None, repr=False,compare=False)
    
     
     def _ensure_array(self):

@@ -33,6 +33,8 @@ define_macros = [
     ("NO_TIMER", 1),
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
+    ("CYTHON_TRACE",1),
+    ("CYTHON_TRACE_NOGIL",1),
 ]
 if sys.platform == "darwin" :
     compile_args += ["-mcpu=apple-m1",'-flto']#+["-march=armv8-a+simd"]
@@ -263,9 +265,15 @@ compiler_directives = dict(
     nonecheck=False,
     overflowcheck=False,
     initializedcheck=False,
-    embedsignature=True,
+    embedsignature=False,
     language_level="3str",
+    freethreading_compatible=True,
+    #subinterpreters_compatible=True,
+    profile=True,
+    linetrace =True
+
 )
+compiler_directives["embedsignature.format"] = 'python'
 
 if __name__ == "__main__":
     print(logo)

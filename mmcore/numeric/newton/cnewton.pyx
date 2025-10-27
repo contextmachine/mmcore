@@ -4,6 +4,7 @@
 # cython: cdivision=True
 #cython: boundscheck=False, wraparound=False, cdivision=True
 cimport cython
+from libc.math cimport fabs
 import numpy as np
 cimport numpy as cnp
 
@@ -514,3 +515,68 @@ def newton_method2(
 
     # If we exit the loop without returning, we failed to converge
     raise ValueError("Newton's method did not converge in %d iterations." % max_iter)
+
+
+
+cdef public struct RootResult:
+    bint success
+    double root
+    double fun
+    double fprime
+    int nit
+    
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def newton(object f, object fprime, double x0, double epsilon=1e-8, int max_iter=25):
+    '''Approximate solution of f(x)=0 by Newton's method.
+
+    Parameters
+    ----------
+    f : function
+        Function for which we are searching for a solution f(x)=0.
+    fprime : function
+        Derivative of f(x).
+    x0 : number
+        Initial guess for a solution f(x)=0.
+    epsilon : number
+        Stopping criteria is abs(f(x)) < epsilon.
+    max_iter : integer
+        Maximum number of iterations of Newton's method.
+
+    Returns
+    -------
+    xn : number
+        Implement Newton's method: compute the linear approximation
+        of f(x) at xn and find x intercept by the formula
+            x = xn - f(xn)/Df(xn)
+        Continue until abs(f(xn)) < epsilon and return xn.
+        If Df(xn) == 0, return None. If the number of iterations
+        exceeds max_iter, then return None.
+
+    Examples
+    --------
+    >>> f = lambda x: x**2 - x - 1
+    >>> Df = lambda x: 2*x - 1
+    >>> newton(f,Df,1,1e-8,10)
+    Found solution after 5 iterations.
+    1.618033988749989
+    '''
+
+
+    cdef int n
+    cdef RootResult result
+    result.success=0
+    result.nit = 0
+    result.root=x0
+    for n in range(max_iter):
+
+        result.fun = f(   result.root)
+        
+        if fabs(  result.fun ) < epsilon:
+            result.success=1
+            return    result.root
+        result.fprime = fprime(result.root)
+        if fabs(result.fprime) < 1e-12:
+            return None
+        result.root  = result.root - result.fun / result.fprime
+        

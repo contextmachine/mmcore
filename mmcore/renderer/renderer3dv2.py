@@ -650,7 +650,7 @@ class CADRenderer:
     def add_nurbs_surface(
         self,
         surf: NURBSSurface,
-        color=(0.0, 0.0, 0.0),
+        color=(1.0, 1.0, 1.0),
         thickness=1.0,
         render_as_mesh=True,
         surface_color=(0.5, 0.5, 0.9, 0.05),

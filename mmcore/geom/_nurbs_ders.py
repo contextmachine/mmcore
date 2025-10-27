@@ -4,6 +4,7 @@ from typing import Tuple
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
 
+
 # ---------- Utilities: knots, spans, basis, derivatives ----------
 
 def _find_span(n: int, p: int, u: float, U: np.ndarray) -> int:
