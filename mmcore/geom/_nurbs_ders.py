@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Tuple
 
+import scipy.linalg
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
 
@@ -144,7 +145,6 @@ def _final_derivative_knot_vector(U: np.ndarray, p: int) -> np.ndarray:
     out.extend([b] * (q + 1))
     return np.array(out, dtype=float)
 
-
 # ---------- Main algorithm ----------
 
 def derivative_nurbs(curve: NURBSCurveTuple) -> NURBSCurveTuple:
@@ -228,8 +228,9 @@ def derivative_nurbs(curve: NURBSCurveTuple) -> NURBSCurveTuple:
     # Solve for control coefficients in the final space:
     # Bq * C_den   = denom_samples
     # Bq * C_numer = numer_samples  (solve per coordinate)
-    C_den = np.linalg.solve(Bq, denom_samples)
-    C_num = np.linalg.solve(Bq, numer_samples)  # (Nfinal, dim)
+
+    C_den,*_ = np.linalg.lstsq(Bq, denom_samples,rcond=None)
+    C_num,*_ = np.linalg.lstsq(Bq, numer_samples,rcond=None)  # (Nfinal, dim)
 
     # Assemble homogeneous derivative control points and convert back to rational form
     # H_der[i] = [C_num[i,:], C_den[i]]

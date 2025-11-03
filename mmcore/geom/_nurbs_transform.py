@@ -1,8 +1,7 @@
 from __future__ import annotations
-from typing import Union
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, _tuple_to_nurbs,NURBSTupleType
+from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple, NURBSTupleType
 from mmcore.numeric.intersection.ssx import ssx
 
 NURBSType =NURBSTupleType
@@ -722,7 +721,7 @@ if __name__ == "__main__":
     print(surface_xy)
     result = ssx(surface, surface2, tol=1e-6, spt=1e-3)
     try:
-        from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+        from mmcore.extras.renderer import CADRenderer, Camera
         
         from mmcore.geom._nurbs_eval import _nurbs_to_tuple, _tuple_to_nurbs
         def draw_ssx(s1, s2, result, renderer=None):

@@ -4,11 +4,9 @@
 """
 
 import time
-import numpy as np
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSSurfaceTuple, _curve_interval
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _curve_interval
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
 import logging
-from mmcore.numeric.intersection.ssx import ssx
 from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple
 # Creating intersection objects
 import numpy as np
@@ -44,9 +42,6 @@ result=[]
 # Perform SSX
 logging.basicConfig(level=logging.DEBUG)
 
-
-from mmcore.geom._nurbs_extension import extend_nurbs_curve
-
 for b in bnds:
     start_time = time.time()
 
@@ -64,7 +59,7 @@ for b in bnds:
 
 
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    from mmcore.extras.renderer import CADRenderer, Camera
 
     print(dir(Camera))
 

@@ -3,8 +3,7 @@
  This example demonstrates the intersection of two NURBS spheres.
 """
 import time
-import numpy as np
-from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSSurfaceTuple
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs
 
 from mmcore.numeric.intersection.ssx import ssx
 
@@ -185,7 +184,7 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 
 try:
     
-    from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    from mmcore.extras.renderer import CADRenderer, Camera
     def draw_ssx(s1,s2, result, renderer=None):
         
         renderer = renderer if renderer is not None else CADRenderer(camera=Camera(zoom=50.0, near=1.))

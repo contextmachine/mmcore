@@ -16,7 +16,7 @@ for i,region in enumerate(regions):
 print(regions)
 try:
 
-    from mmcore.renderer.renderer2d import Renderer2D,RenderColorsConfig
+    from mmcore.extras.renderer import Renderer2D,RenderColorsConfig
     # Initialize Renderer
     renderer = Renderer2D()
     initial = np.array(data)

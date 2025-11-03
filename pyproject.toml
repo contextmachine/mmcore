@@ -13,12 +13,13 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
 numpy = [{ version = "1.24.3", markers = "python_version <= '3.11'" },
-    { version = "^2.0.2", markers = "python_version > '3.11'" }
+    { version = "^2.0.2", markers = "python_version > '3.11' and python_version < '3.14'" },
+    { version = "^2.3.4", markers = "python_version >= '3.14'", allow-prereleases = true },
 ]
 earcut = { version = "^1.1.5" }
 scipy = [
-{ version = "<=1.13", markers = "python_version < '3.10'" },
-{ version = ">1.13", markers = "python_version >= '3.10'" },
+    { version = "<=1.13", markers = "python_version < '3.10'" },
+    { version = ">1.13", markers = "python_version >= '3.10'" },
     { version = ">=1.16", markers = "python_version >= '3.14'" }
 ]
 pyquaternion = "^0.9.9"
@@ -27,42 +28,52 @@ steputils = "^0.1"
 
 # Optional Deps
 
-ipython = { version = "*", optional=true}
-plotly = { version = "*", optional=true}
-kaleido = { version = "*", optional=true}
-pyrr = { version = "*", optional=true}
-glfw = { version = "*", optional=true}
-pyopengl = { version = "*", optional=true}
-rhino3dm = { version = "^8.9.0", optional=true}
-torch = { version = "*", optional=true}
+ipython = { version = "*", optional = true }
+plotly = { version = "*", optional = true }
+kaleido = { version = "*", optional = true }
+pyrr = { version = "*", optional = true }
+glfw = { version = "*", optional = true }
+pyopengl = { version = "*", optional = true }
+rhino3dm = { version = "^8.9.0", optional = true }
+torch = { version = "*", optional = true }
+
+
+
+
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.2"
 matplotlib = { version = "^3.8.3", optional = true }
-pydoc-markdown = {version = "^4.8.2", optional = true}
-ipython = {version = "*", optional = true}
+pydoc-markdown = { version = "^4.8.2", optional = true }
+ipython = { version = "*", optional = true }
 cython = "*"
 cython-lint = "*"
 python-dotenv = "^1.0.0"
-setuptools="*"
+setuptools = "*"
 
 [tool.poetry.build]
 generate-setup-file = false
 script = 'build.py'
 
-[tool.poetry.plugins."mmcore.renderer"]
-renderer = "mmcore.renderer"
-[tool.poetry.plugins."mmcore.rhino"]
+[tool.poetry.plugins."mmcore.extras.renderer"]
+renderer = "mmcore.extras.renderer"
+[tool.poetry.plugins."mmcore.extras.rhino"]
 rhino = "mmcore.rhino"
-[tool.poetry.plugins."mmcore.torch"]
-torch = "mmcore.torch"
+[tool.poetry.plugins."mmcore.extras.torch"]
+torch = "mmcore.extras.torch"
+[tool.poetry.plugins."mmcore.extras.occ"]
+occ = "mmcore.extras.occ"
 
 [tool.poetry.extras]
-torch=["torch"]
-rhino=["rhino3dm","mmcore.rhino"]
-renderer = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "mmcore.renderer"]
-all = ["plotly", "kaleido", "pyopengl", "pyrr",'glfw', "ipython", "rhino3dm", "torch"]
-
+torch = ["mmcore.extras.torch", "torch"]
+rhino = ["rhino3dm", "mmcore.extras.rhino"]
+renderer = ["plotly", "kaleido", "pyopengl", "pyrr", 'glfw', "mmcore.extras.renderer"]
+all = ["plotly", "kaleido", "pyopengl", "pyrr", 'glfw', "ipython", "rhino3dm", "torch"]
+# I don't think it can be installed via pip. But if you build it yourself or install it using conda,
+# mmcore provides several useful functions for converting data to/from OCC.
+# Also, where OCC is robust enough, we use it to test our own algorithms.
+# This extra is not included in all
+occ = ['mmcore.extras.occ']
 
 [tool.black]
 line-length = 140

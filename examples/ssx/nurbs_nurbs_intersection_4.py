@@ -1,10 +1,6 @@
 import time
 
-import numpy as np
-
-from mmcore.geom.nurbs import NURBSSurface
 from mmcore.construction import cylinder_surface_2pt,torus
-from mmcore.numeric.intersection.ssx import ssx
 
 x, y, v, u, z = [
     [[12.359112840551504, -7.5948049557495425, 0.0], [2.656625109045951, 1.2155741170561933, 0.0]],
@@ -19,7 +15,6 @@ x, y, v, u, z = [
                   [7.304629277158477, -3.3362864951018985, 0.8955725109783643],
                   [7.304629277158477, -2.477065729786164, 0.7989970582016114],
                   [7.304629277158477, -2.0988672326949933, 0.7989970582016114]], 0.72648, 1.0]
-from mmcore.geom.nurbs import NURBSCurve
 from mmcore.geom._nurbs_eval import _tuple_to_nurbs
 import numpy as np
 
@@ -28,9 +23,6 @@ st2=cylinder_surface_2pt(*np.array(y),radius=z)
 s1=_tuple_to_nurbs(st1)
 s2=_tuple_to_nurbs(st2)
 s3=_tuple_to_nurbs(torus())
-from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
-
-
 
 from mmcore.numeric.intersection.ssx import ssx
 import logging
@@ -56,7 +48,7 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 
 
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+    from mmcore.extras.renderer import CADRenderer,Camera
 
     print(dir(Camera))
     centr=np.average(s1.control_points_flat, axis=0)

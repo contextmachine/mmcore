@@ -1,8 +1,6 @@
-import time
-
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple,_nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
 
 cpts = np.array(
@@ -49,7 +47,6 @@ surf = NURBSSurface(np.array(spts), (3, 3))
 curve = NURBSCurve(cpts)
 # ress = new_intersection_candidates(surf, curve, u, v, t, np.array(surf.evaluate_v2(u, v)))
 
-from mmcore.numeric.intersection.csx._ncsx import nurbs_csx
 import time
 
 s = time.time()
@@ -59,7 +56,7 @@ print(f"CSX performed at: {time.time()-s} secs.")
 
 
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    from mmcore.extras.renderer import CADRenderer, Camera
 
     print(dir(Camera))
 

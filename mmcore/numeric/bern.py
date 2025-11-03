@@ -439,12 +439,12 @@ def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
     Row i (0..n): L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j for j<=i, else 0.
     """
     L = np.zeros((n + 1, n + 1), dtype=dtype)
-    one_minus_t = dtype(1.0 - t)
-    t = dtype(t)
+    one_minus_t = 1.0 - t
+    t = t
     for i in range(n + 1):
         # Row i
         pow1 = one_minus_t ** i
-        powt = dtype(1.0)
+        powt = 1.0
         for j in range(i + 1):
             L[i, j] = comb(i, j) * pow1 * powt
             # Update factors

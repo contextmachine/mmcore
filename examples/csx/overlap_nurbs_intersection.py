@@ -2,7 +2,7 @@ import time
 
 import numpy as np
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple,_nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -114,7 +114,7 @@ print(f"CSX performed at: {time.time()-s} secs.")
 
 
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    from mmcore.extras.renderer import CADRenderer, Camera
 
     print(dir(Camera))
     ns=_tuple_to_nurbs(val2)
