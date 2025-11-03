@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dataclasses
 from dataclasses import InitVar,field
-from typing import Optional
+from typing import Optional, Iterable
 import numpy as np
 
 from numpy.typing import NDArray
@@ -208,7 +208,8 @@ def split_objects_v2(objects: list[tuple[int, AABB]]) -> tuple[list[tuple[int, A
 
     return objects[:mid_index], objects[mid_index:]
 
-
+from collections import defaultdict
+from mmcore.ds.union_find import group_tuples
 @dataclasses.dataclass
 class BVH:
     nodes: list[BVHNode] = dataclasses.field(default_factory=list)
@@ -276,19 +277,20 @@ class BVH:
         else:
             return not self.nodes[node.left].bbox.intersects(self.nodes[node.right].bbox)
 
-    def find_intersecting_leaves(self, exact:bool=True) -> dict[int, list[int]]:
+    def find_intersecting_leaves(self, exact:bool=True) -> dict[int, set[int]]:
         """
         Returns a dictionary mapping each leaf node index to a list of other leaf node indices
         whose bounding boxes intersect with it (excluding itself).
         """
-        overlaps: dict[int, list[int]] = {}
+        
+        overlaps: dict[int, set[int]] = defaultdict(set)
 
         def recurse(i: int, j: int):
             # avoid duplicate and self pairs
-            if i > j:
-                return
+            
             node_i = self.nodes[i]
             node_j = self.nodes[j]
+            
             # prune if bboxes do not intersect
             if exact:
                 if not node_i.bbox.intersects_exact(node_j.bbox):
@@ -299,8 +301,11 @@ class BVH:
             # if both are leaves, record overlap
             if node_i.is_leaf() and node_j.is_leaf():
                 if i != j:
-                    overlaps.setdefault(i, []).append(j)
-                    overlaps.setdefault(j, []).append(i)
+                    overlaps[i].add(j)
+                    
+                    overlaps[j].add(i)
+                    
+                    
                 return
             # recurse on children combinations
             if not node_i.is_leaf() and not node_j.is_leaf():
@@ -317,7 +322,31 @@ class BVH:
 
         recurse(self.root_index, self.root_index)
         return overlaps
-
+ 
+    def build_intersection_leaves_pairs(self,overlaps:dict[int,Iterable[int]]|None=None,exact:bool=True )->set[tuple[int,int]]:
+        if overlaps is None:
+            overlaps=self.find_intersecting_leaves(exact=exact)
+            
+        pairs=set()
+        for k, items in overlaps.items():
+            for item in items:
+                pairs.add((min(k, item), max(k, item)))
+        return pairs
+    
+    
+    def build_intersection_leaves_groups(self,pairs_or_overlaps: dict[int,Iterable[int]] | set[tuple[int,int]] | None=None, exact=True) -> list[list[tuple[int,int]]]:
+        if pairs_or_overlaps is None:
+            pairs_or_overlaps=self.find_intersecting_leaves(exact=exact)
+            
+        if isinstance(pairs_or_overlaps, dict):
+            pairs=self.build_intersection_leaves_pairs(pairs_or_overlaps)
+        elif isinstance(pairs_or_overlaps,set):
+            pairs=pairs_or_overlaps
+        else:
+            raise ValueError(f"pairs_or_overlaps must be dict or set, got {type(pairs_or_overlaps)}")
+        
+        return group_tuples(list(pairs))
+        
     def find_intersecting_leaves2(self, exact:bool=True) -> dict[int, list[int]]:
         """
         Returns a dictionary mapping each leaf node index to a list of other leaf node indices
@@ -540,6 +569,7 @@ def _inter_bvh_node(bvh: BVH, node_ix: int,exact:bool=True):
                 if node.right != -1:
 
                     stack.append(node.right)
+                
     return ints
 
 def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):

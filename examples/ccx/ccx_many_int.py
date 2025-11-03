@@ -7,7 +7,7 @@ import sys
 
 from mmcore.geom.nurbs import NURBSCurve
 from mmcore.numeric.intersection.ccx import ccx
-from mmcore.renderer.renderer2d import Renderer2D
+from mmcore.extras.renderer import Renderer2D
 def parse_control_points(cp_str):
     try:
         cp = json.loads(cp_str)

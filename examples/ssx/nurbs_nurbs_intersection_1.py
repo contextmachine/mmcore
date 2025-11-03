@@ -117,7 +117,7 @@ with open("ssx1.txt",'w') as tf:
 RENDER=False
 if RENDER:
     try:
-        from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+        from mmcore.extras.renderer import CADRenderer,Camera
     
         print(dir(Camera))
         centr=np.average(s21.control_points_flat, axis=0)

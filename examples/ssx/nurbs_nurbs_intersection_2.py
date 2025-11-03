@@ -917,7 +917,6 @@ s2 = NURBSSurface(
 
     }
 )
-import logging
 #logging.basicConfig(level=logging.DEBUG)
 s=time.time()
 result=ssx(s1,s2,tol=1e-4,spt=0.01)
@@ -943,7 +942,7 @@ for i, (spatial, uv1, uv2) in enumerate(result[0]):
 RENDER=True
 try:
     if RENDER:
-        from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
+        from mmcore.extras.renderer import CADRenderer,Camera
 
         print(dir(Camera))
         centr=np.average(s1.control_points_flat, axis=0)

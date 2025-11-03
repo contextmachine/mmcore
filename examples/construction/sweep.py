@@ -61,7 +61,7 @@ with (current_example_dir/'ruled_surfaces.step').open('w') as f:
 RENDER = True
 if RENDER:
     try:
-        from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+        from mmcore.extras.renderer import CADRenderer, Camera
 
         print(dir(Camera))
         centr = np.average(surf.control_points, axis=0)

@@ -4,8 +4,7 @@ from mmcore._test_data import csx as csx_cases
 
 from mmcore.numeric.intersection.csx import nurbs_csx
 
-from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple
-from mmcore.geom.nurbs_iso import extract_surface_boundaries_tuple, extract_surface_boundaries
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple
 from mmcore.geom._nurbs_knots import split_curve_multiple
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
@@ -79,7 +78,7 @@ print(f"CSX 3 performed at: {time.time()-s} secs.")
 
 
 try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer, Camera
+    from mmcore.extras.renderer import CADRenderer, Camera
 
     print(dir(Camera))
 
