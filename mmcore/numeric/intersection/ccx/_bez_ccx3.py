@@ -235,7 +235,7 @@ def G_and_J(C1, C2, u, v):
     return G, J
 
 
-def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=30, lm_damp=1e-12):
+def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12):
     """Levenberg–Marquardt corrector to G(u,v)=0; clamps to [0,1]^2."""
     u, v = float(u0), float(v0)
     for _ in range(it):
@@ -838,6 +838,13 @@ def spread(ctrl):
     return float(np.max(np.linalg.norm(ctrl - mu, axis=1)))
 
 
+
+def L1_sz(ctrl):
+    """Geometric spread (used to choose split axis)."""
+    #mu = ctrl.mean(axis=0, keepdims=True)
+    
+    return np.sum(ctrl.max(axis=0)-ctrl.min(axis=0))
+
 def map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
     return (u0 + (u1 - u0) * u_loc, v0 + (v1 - v0) * v_loc)
 
@@ -1128,10 +1135,19 @@ class StatsPrunedByList(list):
             return '['+", ".join( (*(f"'{s}'" for s in self[:3]),'... ',   *(f"'{s}'" for s in self[-3:])))+']'
         else:
             return list.__repr__(self)
+from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.numeric.sbern import bern_to_nurbs_bezier
+def _bez_get_tol_adapter(c, tol, rational=False,interval=None):
+    return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational,interval=interval),tol)
+
+
+from mmcore.geom._nurbs_knots import generate_knots
 def bezier_intersect_certified_full(
         C1, C2,
         tol_hit=1e-9,
-        sv_thresh=1e-8
+     
+        sv_thresh=1e-8,
+        atol=1e-3
 ):
     """
     Certified intersection of two Bézier curves (R^2 or R^3).
@@ -1153,6 +1169,8 @@ def bezier_intersect_certified_full(
     overlaps_uv_registry = []  # just the uv polylines for fast checks
     stats = {'cells': 0, 'pruned': 0, 'unique_boxes': 0, 'overlap_traces': 0, 'pruned_by': []}
     sq_dist_net = bernstein_distance_squared_net(C1, C2)[..., None]
+    tol_c1=_bez_get_tol_adapter(C1,atol)
+    tol_c2=_bez_get_tol_adapter(C2, atol)
     su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
     sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
     stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
@@ -1198,16 +1216,27 @@ def bezier_intersect_certified_full(
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats['cells'] += 1
-        
+        box1 = aabb(Pseg)
+        box2 = aabb(Qseg)
+        if not aabb_intersection(box1, box2):
+            stats['pruned'] += 1
+            stats['pruned_by'].append('bbox_inter')
+            continue
 
         if bernstein_envelope_min(dnet) > 0:
             stats['pruned'] += 1
             stats['pruned_by'].append('bernstein_envelope_min')
             
             continue
-            
-
         
+        box1 = np.asarray(box1)
+        box2 =  np.asarray(box2)
+        
+       
+        if np.linalg.norm(box1[1] - box1[0]) < atol or np.linalg.norm(box2[1] - box2[0]) < atol:
+            stats['pruned'] += 1
+            stats['pruned_by'].append('bbox_size')
+            continue
         res = classify_cell_by_grids(sunet, svnet)
         
         if res['status'] == "no_stationary":
@@ -1226,8 +1255,8 @@ def bezier_intersect_certified_full(
                         isolated.append({'u': ug, 'v': vg, 'point': x})
                         stats['overlap_traces'] += 1
                         stats['pruned_by'].append('classify_cell_by_gri+unique_stationary')
-                    continue
-        
+            continue
+            
         
         
         
@@ -1247,6 +1276,8 @@ def bezier_intersect_certified_full(
                 box2 = aabb(Qseg)
                 if not aabb_intersection(box1, box2):
                     res = {'type': 'none'}
+                    continue
+                    
                 else:
                     res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh)
             
@@ -1265,17 +1296,36 @@ def bezier_intersect_certified_full(
                 continue
             if res['type'] == 'isolated':
                 ug, vg = map_local_to_global(res['u'], res['v'], u0, u1, v0, v1)
+                
                 if not near_existing_isolated(ug, vg):
                     x = eval_bezier(C1, ug)
                     isolated.append({'u': ug, 'v': vg, 'point': x})
-                    stats['pruned_by'].append('contact_detect_and_extract+isolated')
+                   
+                    
+                    res = bernstein_cutout_box_nd(dnet,
+                                                  np.array([res['u'], res['v']]),
+                                                  half=np.array([tol_c1, tol_c2]), return_ranges=True)
+                    
+                    for subpatch, ((u_0,u_1),(v_0,v_1)) in res:
+                        sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                        sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                        _p=bernstein_trim_nd(Pseg,ranges=[(u_0,u_1)])
+                        _q=bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                        u0g,v0g=map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                        u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+                        
+                        stack.append((_p,_q,subpatch,sub_sunet,sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+                    
+                    continue
+                   
         
         
         # split by spread if no observation to harvest
-        if spread(Pseg) >= spread(Qseg):
+        if L1_sz(Pseg) > L1_sz(Qseg):
             PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
-            
+        
             l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
+            
             um = 0.5 * (u0 + u1)
             stack.append((PR, Qseg, *r, um, u1, v0, v1, depth + 1))
             stack.append((PL, Qseg, *l, u0, um, v0, v1, depth + 1))
@@ -1318,13 +1368,13 @@ if __name__ == '__main__':
     # case 1: One true overlap, no isolated points
     s=time.perf_counter()
     inter12 = bezier_intersect_certified_full(curve1, curve2)
-    print(time.perf_counter()-s)  # 0.07984466700008852 (current perf)
+    print(time.perf_counter()-s,'pruned:',inter12['stats']['pruned'])  # 0.07984466700008852 (current perf)
     print('\n\n case1\n','-'*80,'\n')
     assert len(inter12['isolated'])==0
     assert len(inter12['overlaps']) == 1
     assert np.allclose(inter12['overlaps'][0]['uv_path'][0], [0., 0.19069075])
     assert np.allclose(inter12['overlaps'][0]['uv_path'][-1], [0.82759776, 1.])
-    
+    print(inter12)
     # Expected result:
     # {'isolated': [], 'overlaps': [{'uv_path': array([[0., 0.19069075],
     #                                                 ...
@@ -1361,7 +1411,7 @@ if __name__ == '__main__':
     s=time.perf_counter()
     inter34 = bezier_intersect_certified_full(curve3, curve4)
     # 0.02212008300011803  (current perf)
-    print(time.perf_counter()-s)
+    print(time.perf_counter()-s,'pruned:',inter34['stats']['pruned'])
     print(inter34)
     
     # Expected result:
@@ -1380,9 +1430,10 @@ if __name__ == '__main__':
     # case 3.1: Two isolated points, but the curves are close to each other and are almost parallel, which makes this example similar to overlap.
     s=time.perf_counter()
     inter36 = bezier_intersect_certified_full(curve3, curve6)
-    print(time.perf_counter()-s) # 1.4956505000000107 current perf
+    print(time.perf_counter()-s, 'pruned:',inter36['stats']['pruned']) # 1.4956505000000107 current perf
     print(inter36) # WRONG! Only one isolated point is returning.
-    
+    assert len(inter36['isolated'] )==2
+    assert len(inter36['overlaps']) == 0
     # Current (wrong) result:
     # {'isolated': [{'u': np.float64(0.5779727651922172), 'v': np.float64(0.09892057701076899), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 2821, 'pruned': 1439, 'unique_boxes': 0, 'overlap_traces': 1, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ... , 'bernstein_envelope_min', 'bernstein_envelope_min']}}
     from collections import Counter
@@ -1390,6 +1441,7 @@ if __name__ == '__main__':
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})
     
     # For verification purposes ONLY. OCC is not part of mmcore and is not used in mmcore!
+    
     occ_inter36 = occ_ccx_2d(occ_curve_to_2d(occ_curve_from_points(curve3), ),
                              occ_curve_to_2d(occ_curve_from_points(curve6), ))
     
@@ -1401,10 +1453,11 @@ if __name__ == '__main__':
     # case 3.2: Everything is the same, they just swapped the curves around.
     s = time.perf_counter()
     inter63 = bezier_intersect_certified_full(curve6, curve3)
-    print(time.perf_counter() - s)
-    print(inter63)  # Correct! Two isolated point is returning.
+    print(time.perf_counter() - s,'pruned:',inter63['stats']['pruned'])
+    print(inter63, )  # Correct! Two isolated point is returning.
     # {'isolated': [{'u': np.float64(0.8152057754324536), 'v': np.float64(0.19003739216226287), 'point': array([-28.1007945 ,   0.61670221,   0.        ])}, {'u': np.float64(0.09892057701076898), 'v': np.float64(0.5779727651922171), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 793, 'pruned': 716, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ..., 'bernstein_envelope_min', 'bernstein_envelope_min']}}
-
+    assert len(inter63['isolated'] )==2
+    assert len(inter63['overlaps']) == 0
     
     print('pruned_by:', Counter(inter63['stats']['pruned_by']))
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})

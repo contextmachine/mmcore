@@ -6,12 +6,13 @@ import pyrr
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple, NURBSSurfaceTuple
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae, decompose_curve
 
 from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
 from mmcore.numeric.approx import adaptive_curve_sampler
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
+from mmcore.numeric.sbern import bern_to_nurbs_bezier
 from mmcore.topo.mesh.tess import tessellate_surface, surface_to_mesh
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.0
@@ -185,7 +186,7 @@ class BoundingSphere:
 class Camera:
     pos: NDArray[np.float32] = field(default_factory=lambda: np.array([150.0, 150.0, 150.0], dtype=np.float32))
     target: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=np.float32))
-    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 1.0, 0.0], dtype=np.float32))
+    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 0.0, 1.0], dtype=np.float32))
     zoom: float = 1.0
     near: float = 0.1
     far: float = 1000000.0
@@ -219,9 +220,26 @@ class Camera:
 import multiprocessing as mp
 
 
+def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
+   
+    def get_interv(n)->tuple[float,float]:
+        if interval is None:
+            return (0., 1.)
+        else:
+            return interval[n]
+    Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
+    
+    mgr = np.mgrid[*(slice(*get_interv(i), complex(scalar_net.shape[i])) for i in range(scalar_net.ndim))]
+  
+    Pts[..., -1] = scalar_net
+    Pts[..., :-1] = np.moveaxis(mgr, 0, -1)
+    
+    return Pts
+
+
 class CADRenderer:
 
-    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera: Camera = None):
+    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:  Camera = None):
         if not glfw.init():
             raise RuntimeError("Failed to initialize GLFW")
         if camera is None:
@@ -627,6 +645,7 @@ class CADRenderer:
         
         if isinstance(crv, NURBSCurve):
             crv = _nurbs_to_tuple(crv)
+        print(crv)
         params,du_list,evals,s_list=adaptive_curve_sampler(crv,1e-2,max_param_step_fraction=24)
         res = np.array([i['C']for i in evals], dtype=np.float32)
         # print(res)
@@ -646,10 +665,10 @@ class CADRenderer:
         self.add_mesh(vertices, triangles, color=color, wireframe_color=wireframe_color)
 
         return tessellation
-
+    
     def add_nurbs_surface(
         self,
-        surf: NURBSSurface,
+        surf: NURBSSurface|NURBSSurfaceTuple,
         color=(1.0, 1.0, 1.0),
         thickness=1.0,
         render_as_mesh=True,
@@ -666,7 +685,8 @@ class CADRenderer:
             surface_color: Color for surface mesh (RGBA with alpha) if render_as_mesh is True
         """
         # Add wireframe representation
-        
+        if isinstance(surf, NURBSSurfaceTuple):
+            surf=_tuple_to_nurbs(surf)
         boundaries, isolines, mid_iso = nurbs_surface_wireframe_view(surf)
         if draw_isolies:
             for iso in isolines:
@@ -677,7 +697,18 @@ class CADRenderer:
         # If requested, add mesh representation
         if render_as_mesh:
             self.add_nurbs_surface_mesh(surf, color=surface_color, wireframe_color=None)
-
+    
+  
+        
+        
+    def add_nurbs(self, geom, *args, **kwargs):
+        if isinstance(geom, (NURBSCurve,NURBSCurveTuple)):
+            self.add_nurbs_curve(geom, *args, **kwargs)
+        elif isinstance(geom, (NURBSSurface,NURBSSurfaceTuple)):
+            self.add_nurbs_surface(geom, *args, **kwargs)
+        else:
+            raise ValueError(f"Unsupported geometry type: {type(geom).__name__}")
+        
     def add_geometry(self, geometry, color=(1.0, 1.0, 1.0), thickness: float = 1.0, **kwargs):
         """Add geometry to the scene and update camera position
 
@@ -713,7 +744,37 @@ class CADRenderer:
         if enabled:
             # Update camera position based on current geometry
             self.update_camera_position()
-
+    def add_scalar_bern(self, bern, color=(0.0, 1.0, 1.0), thickness=1.0,weights=None,interval=None,**kwargs):
+        
+            bern = _gen_cpts_to_display(np.squeeze(bern),interval=interval)
+        
+            if weights is not None:
+                
+                return self.add_nurbs(bern_to_nurbs_bezier(np.c_[bern*weights[...,np.newaxis],weights[...,np.newaxis]],rational=True,interval=interval), color, thickness,**kwargs)
+            
+            return self.add_nurbs(bern_to_nurbs_bezier(bern, rational=False,interval=interval), color=color,
+                                 thickness=thickness, **kwargs)
+        
+    
+    def add_bezier(self, bezier,color=(0.0, 1.0, 1.0), thickness=1.0, *, scalar=False,rational=False, interval:tuple=None,**kwargs):
+        if scalar:
+            if rational:
+                return self.add_scalar_bern(bezier[...,0],weights=bezier[...,1],color=color,thickness=thickness,interval=interval,**kwargs)
+            else:
+                
+                return self.add_scalar_bern(np.squeeze(bezier),color=color,thickness=thickness,interval=interval,**kwargs)
+            
+   
+            
+        return self.add_nurbs(      bern_to_nurbs_bezier(bezier, rational=rational,interval=interval), color, thickness,**kwargs)
+     
+        
+     
+        
+    def add_rational_bezier(self, bezier, color=(0.0, 1.0, 1.0), thickness=1.0, **kwargs):
+        self.add_bezier(bezier, rational=True, color=color, thickness=thickness, **kwargs)
+       
+    
 
 if __name__ == "__main__":
     # Example usage

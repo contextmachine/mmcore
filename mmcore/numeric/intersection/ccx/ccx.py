@@ -7,14 +7,16 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike
 
+from examples.csx.overlap_nurbs_intersection_3 import curve2
 from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
 from mmcore.numeric import scalar_norm
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
-from mmcore.geom.nurbs import NURBSCurve, split_curve_multiple, split_curve
-
+from mmcore.geom.nurbs import NURBSCurve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs
+from ._nccx import nurbs_ccx
 __all__ = ["ccx", "curve_curve_intersect", "curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
 def _calculate_spline_tolerance(spline, default_tol=1e-3):
@@ -37,7 +39,7 @@ def curve_x_ray(curve, orig, axis=1, step=0.5):
     orig=orig if isinstance(orig, np.ndarray) else np.array(orig,dtype=float)
     return curve_pix(curve, lambda xyz: (orig - xyz)[axis], step=step)
 
-def ccx(curve1, curve2, tol: float = 0.01):
+def ccx(curve1, curve2, tol: float = 0.001):
     """
     Compute the intersection points between two curves (Curve X Curve Intersection).
 
@@ -77,7 +79,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
     +-------------------+-------------------+---------------------------+
     | Implicit          | Parametric        | `curve_pix`                |
     +-------------------+-------------------+---------------------------+
-    | Parametric        | Parametric        | `curve_ppx`                |
+    | Parametric        | Parametric        | Error raised              |
     +-------------------+-------------------+---------------------------+
     | Implicit          | Implicit          | `curve_iix`                |
     +-------------------+-------------------+---------------------------+
@@ -104,12 +106,17 @@ def ccx(curve1, curve2, tol: float = 0.01):
         []
 
     """
+    if isinstance(curve1, (NURBSCurve,NURBSCurveTuple)) and isinstance(curve2,  (NURBSCurve,NURBSCurveTuple)):
+        return nurbs_ccx(curve1, curve2, tol=tol)
+    
+    if isinstance(curve1, NURBSCurveTuple):
+        curve1=_tuple_to_nurbs(curve1)
+    if isinstance(curve2, NURBSCurveTuple):
+        curve1=_tuple_to_nurbs(curve2)
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
         return curve_pix(curve2, curve1)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):
         return curve_pix(curve1, curve2)
-    elif hasattr(curve2, "evaluate") and hasattr(curve1, "evaluate"):
-        return curve_ppx(curve1, curve2, tol=tol)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "implicit"):
         raise curve_iix(
             curve1, curve2)

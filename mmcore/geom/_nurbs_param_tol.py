@@ -44,13 +44,20 @@ def _nurbs_curve_param_tol_conservative(P, w, U, p, tol):
     return tol_u
 
 from ._nurbs_ders import derivative_nurbs
-
+_TINY=np.finfo(float).tiny
 def _nurbs_curve_param_tol_optimistic(curve: NURBSCurveTuple, tol: float, der:NURBSCurveTuple=None) -> float:
+    if np.allclose(curve.control_points,0):
+        return tol
     if der is None:
         der=derivative_nurbs(curve)
     u0, u1 = curve.interval()
     du = (u1 - u0)
-    tol_u = tol * (du / np.linalg.norm(np.abs(der.control_points),axis=1).max())
+    cpts=np.abs(der.control_points)
+    res=np.linalg.norm(cpts, axis=1).max()
+    if res<_TINY:
+        return tol
+    
+    tol_u = tol * (du / res)
     return tol_u
 
 def nurbs_curve_param_tolerance(curve: NURBSCurveTuple, tol: float, der:NURBSCurveTuple=None) -> float:
@@ -58,6 +65,7 @@ def nurbs_curve_param_tolerance(curve: NURBSCurveTuple, tol: float, der:NURBSCur
         return _nurbs_curve_param_tol_conservative(curve.control_points, curve.weights, curve.knot, curve.order - 1, tol)
     else:
         return _nurbs_curve_param_tol_optimistic(curve,tol,der)
+    
     
 if __name__=="__main__":
     import tqdm

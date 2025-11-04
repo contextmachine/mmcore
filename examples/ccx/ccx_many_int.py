@@ -1,4 +1,5 @@
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
@@ -6,8 +7,11 @@ import json
 import sys
 
 from mmcore.geom.nurbs import NURBSCurve
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
+from mmcore.extras.renderer.renderer2d import Renderer2D
 from mmcore.numeric.intersection.ccx import ccx
-from mmcore.extras.renderer import Renderer2D
+
+from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
 def parse_control_points(cp_str):
     try:
         cp = json.loads(cp_str)
@@ -111,7 +115,7 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        '--output_image', type=str, default=None,
+        '--output_image', type=str, default='cxx_many_int.png',
         help="Path to save the rendered image. If not provided, the image will be displayed on screen."
     )
 
@@ -166,7 +170,7 @@ def main():
     #    [14.498391690318186, -0.17203316116128065, 0.0]
     #]
     d=Path(__file__).parent
-
+    
 
     with open(    d/'cxx_many_int-curve1.json') as f:
         default_pt1=json.load(f)
@@ -182,15 +186,17 @@ def main():
 
 
     # Compute intersections
-    intersections = ccx(curve1, curve2, args.tolerance)
+    s=time.perf_counter()
+    intersections,overlaps = nurbs_ccx(_nurbs_to_tuple(curve1), _nurbs_to_tuple(curve2), args.tolerance)
+    print(f"intersections computed in {time.perf_counter()-s} sec.")
     print(f"Intersections count: {len(intersections)}")
     print("Intersection parameter pairs (curve1_s, curve2_t):")
-    for idx, (s, t) in enumerate(intersections):
-        print(f"{idx + 1}: ({s}, {t})")
-
+    for idx, inter in enumerate(intersections):
+        print(f"{idx + 1}: ({inter['u']}, {inter['v']})")
+    print(len(overlaps))
     # Evaluate intersection points
-    intersection_points = np.array([curve1.evaluate(s) for s, t in intersections])
-
+    intersection_points = np.array([inter['point'] for inter in intersections])
+    exit(0)
     # Initialize Renderer
     renderer = Renderer2D()
 
