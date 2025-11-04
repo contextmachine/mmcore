@@ -68,10 +68,10 @@ class  Set1Curve(Object3D):
 
 
 
-        pars1 = ccx(other.polyline, self.boundary_curve)
+        inters,overlaps = ccx(other.polyline, self.boundary_curve)
+       
 
-
-        res = list(zip(*pars1))
+        res = list(zip(* ((inter['u'], inter['v']) for inter in inters)))
         if len(res) == 0:
             return []
         t, s = res
@@ -141,6 +141,22 @@ def cut_intersections(objects_a,objects_b, print_progress=False):
         if len(cuts) > 0:
             all_cuts[a.object].extend(cuts)
     return [all_cuts.get(obj,[]) for obj in objects_a]
+from concurrent.futures import ProcessPoolExecutor
+import argparse, math, os, sys, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple
+
+def is_gil_enabled() -> bool:
+    # Available on 3.13+ (free-threaded builds return False)
+    f = getattr(sys, "_is_gil_enabled", None)
+    if callable(f):
+        try:
+            return bool(f())
+        except Exception:
+            pass
+    # Fallback: assume enabled if attribute missing
+    return True
+import time
 def cut_intersections_mp(objects_a,objects_b, print_progress=False, cpus=-1):
     bvh_a,bvh_b=build_bvh(objects_a),build_bvh(objects_b)
     if cpus == -1:
@@ -151,9 +167,23 @@ def cut_intersections_mp(objects_a,objects_b, print_progress=False, cpus=-1):
 
     if print_progress:
         print(f'{l} potential intersections found.')
-    with mp.Pool(cpus) as pool:
-        return pool.map(process_pair, intersections)
-
+    if is_gil_enabled():
+        
+        print('gil enabled, using multiprocessing')
+        s = time.perf_counter()
+        with mp.Pool(cpus) as pool:
+            result=pool.map(process_pair, intersections)
+            print(time.perf_counter() - s)
+            return result
+    else:
+        
+        print('gil disabled')
+        s=time.perf_counter()
+        with ProcessPoolExecutor(max_workers=cpus) as ex:
+            result=list(ex.map(process_pair, intersections))
+            print(time.perf_counter()-s)
+            return result
+            
 
 
 
@@ -166,9 +196,9 @@ def process_pair(ab):
 def cut(curves_set1, curves_set2, print_progress=True):
     panels_objects = [Set1Curve(i) for i in curves_set1]
     curves_set2_objects = [Set2Curve(i) for i in curves_set2]
-    return cut_intersections(panels_objects,curves_set2_objects, print_progress=print_progress)
+    return cut_intersections_mp(panels_objects,curves_set2_objects, print_progress=print_progress)
 
-
+from mmcore.geom.bvh.lbvh import BVH,BVHNode,AABB,bvh_intersect,build_bvh
 
 def nurbs_pipeline():
 
@@ -202,27 +232,72 @@ def nurbs_pipeline():
 
         else:
 
-            return [find_nurb(item)for item in dat]
+            return [find_nurb(item) for item in dat]
 
-
-
+    
     with open(Path(__file__).parent/"result.txt", "w") as f:
         json.dump( find_nurb(m1), f)
     print('write at ', time.time() - s)
 
-
+    
     gc.enable()
     gc.collect()
     print('clean up')
+import tqdm
+import json
+from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.geom._nurbs_knots import generate_knots
+def nurbs_from_pts(pts,degree=3)->NURBSCurveTuple:
 
+    if len(pts)-1<degree:
+        degree=len(pts)-1
+   
+    return NURBSCurveTuple(degree+1, generate_knots(len(pts),degree),np.asarray(pts), np.ones(len(pts)))
+from mmcore.numeric.intersection.ccx import nurbs_ccx
+def nurbs_pipeline_new():
+    curves_set1 = Path(__file__).parent / "curves_set1.txt"
+    curves_set2 =  Path(__file__).parent /"curves_set2.txt"
+    with open(curves_set1, "r") as f:
+        curves_set1_data = json.load(f)
+        
 
+    with open(curves_set2, "r") as f:
+        curves_set2_data = json.load(f)
+    #curves_list: list[NURBSCurveTuple] = [None] * (len(curves_set1_data) + len(curves_set2_data))
+    
+    bbs=[None]*(len(curves_set1_data)+len(curves_set2_data))
+    curves_list:list[NURBSCurveTuple]=[nurbs_from_pts(np.array(crv)[...,:-1],1)for crv in curves_set1_data]+[nurbs_from_pts(np.array(crv)[...,:-1],3)for crv in curves_set2_data]
+    
+    for i in range(len(curves_list)):
+       
+        bbs[i]=AABB.from_points( curves_list[i].control_points)
+      
+    bvh:BVH=build_bvh(bbs)
+    candidates=bvh.build_intersection_leaves_pairs(exact=False)
+    points=np.empty((len(candidates)*3,2))
+    total_isolated=0
+    total_overlaps=0
+    pb=tqdm.tqdm(candidates, dynamic_ncols=True,colour='#1bde5f')
 
-
-
+    for first,second in pb:
+        c1,c2=curves_list[bvh.nodes[first].object],curves_list[bvh.nodes[second].object]
+        isolated, overlaps=nurbs_ccx(c1,c2)
+        if len(isolated)>0:
+            if total_isolated >= points.shape[0]:
+                points.resize((points.shape[0] * 2, points.shape[1]), refcheck=False)
+            points[total_isolated:,...][:len(isolated),...]=tuple(p['point']for p in isolated)
+        total_isolated+=len(isolated)
+        
+        total_overlaps+=len(overlaps)
+       
+    
+        pb.set_postfix(dict(isolated=total_isolated,overlaps=total_overlaps))
+    
+    np.save('result-new.npy',points)
 
 if __name__ == "__main__":
     # The first set contains closed curves, the second set contains open curves.
     # Task :
     #  1. break the curves from the second set at the intersection points with the curves from the first set
     #  2. to select only the segments that are inside the curves from the first set.
-    nurbs_pipeline()
+    nurbs_pipeline_new()
