@@ -207,7 +207,6 @@ def eval_bezier_deriv(P, t):  # first derivative at t
     return eval_bezier(deriv_ctrl(P), t)
 
 
-from mmcore.numeric.intersection.ccx._bex_ccx2 import bernstein_distance_squared_net
 
 
 # ---------- Distance net envelope (pruning) ----------
