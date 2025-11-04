@@ -7,9 +7,7 @@ from typing import Callable
 import numpy as np
 from numpy.typing import ArrayLike
 
-from examples.csx.overlap_nurbs_intersection_3 import curve2
 from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
-from mmcore.numeric import scalar_norm
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots

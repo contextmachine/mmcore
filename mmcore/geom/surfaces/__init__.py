@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
 
-from mmcore.geom.curves.bspline_first import NURBSCurve
+
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.parametric import BiLinear as CBiLinear
@@ -20,7 +20,7 @@ from mmcore.geom.polygon import polygon_build_bvh
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.newton.cnewton import newtons_method
-from mmcore.numeric.numeric import evaluate_normal2
+
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
 
 from mmcore.topo.mesh.tess import  tessellate_surface
@@ -96,10 +96,7 @@ def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, S
     return curvature_vector, T
 
 
-from mmcore.geom.implicit import ParametrizedImplicit2D
 
-from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
-from mmcore.geom.curves.bspline import interpolate_nurbs_curve
 class CurveOnSurface(Curve):
     def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0., 1.)):
         super().__init__()
@@ -157,7 +154,7 @@ class CurveOnSurface(Curve):
 
 from mmcore.geom.bvh import BVHNode, contains_point
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
-from mmcore.numeric.fdm import gradient as fgrdient
+
 from mmcore.geom.evaluator import surface_evaluator
 
 class Surface:
