@@ -300,4 +300,10 @@ if __name__ == "__main__":
     # Task :
     #  1. break the curves from the second set at the intersection points with the curves from the first set
     #  2. to select only the segments that are inside the curves from the first set.
+    import yappi
+    yappi.set_clock_type('WALL')
+    yappi.start()
     nurbs_pipeline_new()
+    yappi.stop()
+    yappi.get_func_stats().print_all()
+    yappi.convert2pstats(yappi.get_func_stats()).dump_stats(Path(__file__).with_suffix(".pstat"))
