@@ -446,7 +446,7 @@ def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
         pow1 = one_minus_t ** i
         powt = 1.0
         for j in range(i + 1):
-            L[i, j] = comb(i, j) * pow1 * powt
+            L[i, j] = binomial_coefficient_py(i, j) * pow1 * powt
             # Update factors
             if j < i:
                 pow1 = pow1 / (one_minus_t if one_minus_t != 0 else 1.0)
@@ -1026,6 +1026,204 @@ def _count_sign_changes(seq, eps: float) -> int:
     return changes
 
 
+import numpy as np
+
+from math import comb
+from itertools import product
+
+
+# ---------- Bernstein 1D trimming transforms (matrix-form de Casteljau) ----------
+
+def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
+    """
+    Lower-triangular (n+1)x(n+1) matrix L(t) for the 'left' subdivision boundary.
+    Row i: L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j  for j<=i, else 0.
+    """
+    L = np.zeros((n + 1, n + 1), dtype=dtype)
+    om = float(1.0 - t)
+    t = float(t)
+    for i in range(n + 1):
+        for j in range(i + 1):
+            L[i, j] = binomial_coefficient_py(i, j) * (om ** (i - j)) * (t ** j)
+    return L
+
+
+def _right_transform(n: int, a: float, dtype=float) -> np.ndarray:
+    """
+    Upper-triangular (n+1)x(n+1) matrix R(a) producing the 'right' polygon at a.
+    Identity when n==0.  R(a) = J * L(1 - a) * J.
+    """
+    if n == 0:
+        return np.array([[1.0]], dtype=dtype)
+    J = np.flipud(np.eye(n + 1, dtype=dtype))
+    return J @ _lower_transform(n, 1.0 - a, dtype=dtype) @ J
+
+
+def _trim_transform(n: int, a: float, b: float, dtype=float) -> np.ndarray:
+    """
+    (n+1)x(n+1) matrix mapping coefficients on [0,1] to coefficients on [a,b],
+    reparameterized back to [0,1]. Requires 0<=a<=b<=1.
+    """
+    if n == 0:
+        return np.array([[1.0]], dtype=dtype)
+    if a == b:
+        # Degenerate interval -> constant limit. Use left at t=0 after right at a.
+        # Equivalent to L(0) @ R(a).
+        return _lower_transform(n, 0.0, dtype=dtype) @ _right_transform(n, a, dtype=dtype)
+    if a == 1.0:
+        # Interval can only be [1,1] or empty; handled by a==b above.
+        return _lower_transform(n, 0.0, dtype=dtype) @ _right_transform(n, 1.0, dtype=dtype)
+    t2 = (b - a) / (1.0 - a) if a < 1.0 else 0.0
+    return _lower_transform(n, t2, dtype=dtype) @ _right_transform(n, a, dtype=dtype)
+
+
+# ---------- Multi-mode application of per-axis transforms in one shot ----------
+
+def _apply_multi_axis_transforms(C: np.ndarray, T_list: list[np.ndarray]) -> np.ndarray:
+    """
+    Apply square (n_k+1)x(n_k+1) transforms T_list[k] along each parametric axis k
+    in a single einsum. Keeps the last axis (value dimension) untouched.
+    """
+    D = len(T_list)
+    letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if 2 * D + 1 > len(letters):
+        raise ValueError("Too many dimensions for the predefined index set.")
+    
+    # Indices for einsum
+    i_idx = letters[:D]  # input param indices
+    o_idx = letters[D:2 * D]  # output param indices
+    v_idx = letters[2 * D]  # value dimension
+    c_sub = "".join(i_idx) + v_idx
+    t_subs = [o_idx[k] + i_idx[k] for k in range(D)]
+    out_sub = "".join(o_idx) + v_idx
+    
+    expr = f"{c_sub}," + ",".join(t_subs) + f"->{out_sub}"
+    return np.einsum(expr, C, *T_list, optimize=True)
+
+
+# ---------- Main: cut out a central box and return all remaining sub-patches ----------
+
+def bernstein_cutout_box_nd(control_grid: np.ndarray,
+                            param,
+                            half,
+                            *,
+                            clamp_to_unit: bool = True,
+                            tol: float = 1e-12,
+                            return_ranges: bool = False):
+    """
+    Cut an axis-aligned box out of the parameter domain and return all Bernstein sub-patches
+    of the complement (each reparameterized back to [0,1]^D, shape preserved).
+
+    Parameters
+    ----------
+    control_grid : np.ndarray
+        Shape (n0+1, n1+1, ..., n_{D-1}+1, N). Last axis is the value dimension.
+    param : sequence of length D
+        Center point (u0, ..., u_{D-1}) in parameter space (typically in [0,1]^D).
+    half : sequence of length D
+        Half-interval (h0, ..., h_{D-1}), defining the box [(u-h), (u+h)].
+    clamp_to_unit : bool, default True
+        If True, clamp the box to [0,1] along each axis before splitting.
+        If the box does not intersect the domain, the function returns the original patch only.
+    tol : float
+        Small threshold to treat a segment length as zero.
+    return_ranges : bool, default False
+        If True, return a list of (subgrid, ranges) where ranges is a tuple of per-axis (lo, hi).
+
+    Returns
+    -------
+    patches : list[np.ndarray]                      (if return_ranges=False)
+              or list[tuple[np.ndarray, tuple]]]    (if return_ranges=True)
+        All sub-patches except the central box. Each sub-patch has the same shape as `control_grid`.
+
+    Notes
+    -----
+    • Per axis k we split into up to three slabs: L=[0,a_k], M=[a_k,b_k], H=[b_k,1], with matrices
+      T^L_k, T^M_k, T^H_k computed once from de Casteljau (matrix form).
+    • We enumerate the Cartesian product of available slabs across axes and exclude the all‑'M' box.
+    • Each sub‑patch is produced by a single `einsum` that applies all T_k at once.
+    """
+    if control_grid.ndim < 2:
+        raise ValueError("control_grid must have at least one parametric axis plus a trailing value axis.")
+    
+    D = control_grid.ndim - 1
+    if len(param) != D or len(half) != D:
+        raise ValueError(f"`param` and `half` must have length {D}.")
+    
+    # Working dtype
+    dtype = np.result_type(control_grid.dtype, np.float64)
+    C = np.asarray(control_grid, dtype=dtype, order='C')
+    
+    u = np.asarray(param, dtype=float).reshape(D)
+    h = np.asarray(half, dtype=float).reshape(D)
+    if np.any(h < 0):
+        raise ValueError("All half-interval components must be nonnegative.")
+    
+    # Build (and optionally clamp) the box per axis
+    a = u - h
+    b = u + h
+    if clamp_to_unit:
+        a = np.maximum(0.0, a)
+        b = np.minimum(1.0, b)
+    
+    # Prepare segments per axis: list of [('L'|'M'|'H', T_matrix, (lo,hi)), ...]
+    segments_per_axis = []
+    mid_exists_all_axes = True
+    
+    for ax in range(D):
+        n = C.shape[ax] - 1
+        if n < 0:
+            raise ValueError("Invalid control grid axis length.")
+        ak = float(a[ax])
+        bk = float(b[ax])
+        
+        # Clamp ordering locally, just in case
+        if bk < ak:
+            ak, bk = bk, ak
+        
+        segs = []
+        # Low slab [0, ak]
+        if ak > tol:
+            T_low = _trim_transform(n, 0.0, ak, dtype=dtype)
+            segs.append(('L', T_low, (0.0, ak)))
+        # Mid slab [ak, bk]
+        if bk - ak > tol:
+            T_mid = _trim_transform(n, ak, bk, dtype=dtype)
+            segs.append(('M', T_mid, (ak, bk)))
+        else:
+            mid_exists_all_axes = False
+        # High slab [bk, 1]
+        if 1.0 - bk > tol:
+            T_high = _trim_transform(n, bk, 1.0, dtype=dtype)
+            segs.append(('H', T_high, (bk, 1.0)))
+        
+        # If no slabs (box outside domain and clamp_to_unit=False), keep full axis
+        if not segs:
+            I = np.eye(n + 1, dtype=dtype)
+            segs = [('M', I, (0.0, 1.0))]
+            # No central mid to exclude if other axes have L/H; mark mid existence as True for this axis
+            # but 'all-mid' exclusion will only trigger if every axis is exactly this 'M'.
+        segments_per_axis.append(segs)
+    
+    # Enumerate combinations across axes and build patches, skipping the all-'M' central box.
+    patches = []
+    for combo in product(*segments_per_axis):
+        labels = [lab for (lab, _, _) in combo]
+        if all(lab == 'M' for lab in labels) and mid_exists_all_axes:
+            # Skip the central sub-patch (the cut-out box)
+            continue
+        
+        T_list = [T for (_, T, _) in combo]
+        sub = _apply_multi_axis_transforms(C, T_list)
+        
+        if return_ranges:
+            ranges = tuple(r for (_, _, r) in combo)
+            patches.append((sub, ranges))
+        else:
+            patches.append(sub)
+    
+    return patches
+
 
 class BernRootsOutput(NamedTuple):
     roots:NDArray[float]
@@ -1126,3 +1324,4 @@ if __name__ =="__main__":
     assert  res1.roots.shape[0]==1 and np.all(res1.errors<eps),res1
    
     print(res1)
+    np.moveaxis()

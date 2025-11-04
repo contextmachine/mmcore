@@ -545,7 +545,7 @@ def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1
     Returns:
         A new curve with the knot inserted
     """
-    rational = isinstance(curve, NURBSCurveTuple)
+    rational = isinstance(curve, NURBSCurveTuple) and not np.allclose(curve.weights,1)
     knots = np.array(curve.knot).tolist()
     degree = curve.order-1
     span = _find_span_linear(degree, knots, len(curve.control_points), u)
@@ -569,7 +569,7 @@ def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1
                               control_points=new_control_points_xyz, 
                               weights=weights)
     
-    return BSplineCurveTuple(curve.order, knot=np.array(kv_new), control_points=np.array(new_control_points))
+    return NURBSCurveTuple(curve.order, knot=np.array(kv_new), control_points=np.array(new_control_points),weights=np.ones(len(new_control_points)))
 
 
 def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
@@ -619,7 +619,7 @@ def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
         curve2_kv.insert(0, t)
 
     # Control points (use homogeneous coordinates if rational)
-    rational=isinstance(curve, NURBSCurveTuple)
+    rational=isinstance(curve, NURBSCurveTuple) and not np.allclose(curve.weights,1)
 
     if rational:
         # Convert to homogeneous coordinates first
@@ -635,10 +635,10 @@ def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
         curve2 = NURBSCurveTuple(temp_obj.order, curve2_kv, curve2_ctrlpts, curve2_weights)
     else:
         cpts = temp_obj.control_points.tolist()
-        curve1_ctrlpts = cpts[0:ks + r]
-        curve2_ctrlpts = cpts[ks + r - 1:]
-        curve1 = BSplineCurveTuple(temp_obj.order, curve1_kv, np.asarray(curve1_ctrlpts))
-        curve2 = BSplineCurveTuple(temp_obj.order, curve2_kv, np.asarray(curve2_ctrlpts))
+        curve1_ctrlpts =  np.asarray(cpts[0:ks + r])
+        curve2_ctrlpts =  np.asarray(cpts[ks + r - 1:])
+        curve1 = NURBSCurveTuple(temp_obj.order, curve1_kv, curve1_ctrlpts, np.ones(len(curve1_ctrlpts)))
+        curve2 = NURBSCurveTuple(temp_obj.order, curve2_kv, curve2_ctrlpts, np.ones(len(curve2_ctrlpts)))
     return curve1,curve2
 
 def split_curve_multiple(crv:BSplineCurveTuple|NURBSCurveTuple, params:list[float]|NDArray[float])->list[BSplineCurveTuple]|list[NURBSCurveTuple]:

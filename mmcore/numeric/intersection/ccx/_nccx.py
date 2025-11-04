@@ -214,81 +214,28 @@ def _nurbs_bvh_ccx(bvh1: BVH, bvh2: BVH, segms1: list[NURBSCurveTuple], segms2: 
     
     return ints
 
-
+from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full,map_local_to_global
 def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, tol: float = 1e-3,
               angle_tol=0.0013):
-    import numpy as np
-    results = []
-    overs = []
-    overlaps = []
-    vals = []
-    _cvs2=decompose_curve(curve2)
-    for c1 in decompose_curve(curve1):
-        for c2 in _cvs2:
-            #print(c1,c2)
-            over, val = _bez_curve_overlap(c1, c2, tol, angle_tol=angle_tol)
-            if over:
-                overs.append(val)
-            elif val is not None:
-                vals.append(val)
-            results.append(over)
+ 
+    curves1 = decompose_curve(curve1)
+    curves2=decompose_curve(curve2)
     
-    segms1 = set()
-    segms2 = set()
-    for (s0, t0, s1, t1) in _merge_2d_intervals(np.array([[o.start.s, o.start.t, o.end.s, o.end.t] for o in overs])):
-        segms1.add(s0)
-        segms1.add(s1)
-        segms2.add(t0)
-        segms2.add(t1)
-        overlaps.append((Interval(s0, s1), Interval((t0, t1))))
     
-    s0, s1 = curve1.interval()
-    t0, t1 = curve2.interval()
-    s0s = s0 in segms1
-    t0s = t0 in segms2
-    segms1.discard(s0)
-    segms1.discard(s1)
-    segms2.discard(t0)
-    segms2.discard(t1)
-    
-    curves1 = []
-    curves2 = []
-    
-    #print(list(enumerate(split_curve_multiple(curve1, list(segms1)))))
-    for i, v in enumerate(split_curve_multiple(curve1, list(segms1))):
+    bvh1= build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves1])
+    bvh2 = build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves2])
+    isolated=[]
+    overlaps=[]
+    for a,b in bvh_intersect(bvh1,bvh2,exact=False):
         
-        if ((i % 2) == 1 if s0s else (i % 2) == 0):
-            bvh, seg = nurbs_curve_bvh(v, tol=tol)
-            curves1.append((bvh, seg))
+        result=bezier_intersect_certified_full(curves1[a.object].control_points,  curves2[b.object].control_points,atol=tol)
+        isolated.extend(result['isolated'])
+        overlaps.extend(result['overlaps'])
+        
+
+   
     
-    for i, v in enumerate(split_curve_multiple(curve2, list(segms2))):
-        if ((i % 2) == 1 if t0s else (i % 2) == 0):
-            bvh, seg = nurbs_curve_bvh(v, tol=tol)
-            curves2.append((bvh, seg))
-            
-    
-    intrs = []
-    for bvh1, c1 in curves1:
-        for bvh2, c2 in curves2:
-            for inter in _nurbs_bvh_ccx(bvh1, bvh2, c1, c2, curve1, curve2, tol=tol):
-                #print(inter)
-                oi = iter(overlaps)
-                
-                append = True
-                while append:
-                    try:
-                        over = next(oi)
-                    except StopIteration:
-                        
-                        break
-                    
-                    if (over[0].intersects(inter.s) and over[1].intersects(inter.t)):
-                        append = False
-                        break
-                if append:
-                    intrs.append(inter)
-    
-    return [(float(i.f.s),float(i.f.t)) for i in intrs], overlaps
+    return isolated, overlaps
 
 
 def multiple_ccx(curves: list[NURBSCurveTuple], spt: float = 1e-3, tol: float = 1e-7, bvh: BVH = None):
@@ -339,7 +286,7 @@ if __name__ == "__main__":
     from mmcore.geom._nurbs_eval import _nurbs_to_tuple
     
     nc1, nc2 = _nurbs_to_tuple(c1), _nurbs_to_tuple(c2)
-    from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
+   
     import time
     
     s = time.time()
