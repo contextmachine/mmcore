@@ -12,7 +12,7 @@ from mmcore.geom.bvh import Object3D, find_closest
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
 from mmcore.geom.polygon import BoundingBox
-from mmcore.geom.surfaces import Surface
+
 from mmcore.numeric.numeric import divide_interval
 from mmcore.numeric.aabb import aabb_overlap
 from mmcore.numeric.fdm import PDE
@@ -750,32 +750,6 @@ def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt
 
 
 
-def closest_point_on_surface(self: Surface, pt, tol=1e-3, bounds=None):
-    if bounds is None:
-        bounds = tuple(self.interval())
-    (umin, umax), (vmin, vmax) = bounds
-
-    def wrp1(uv):
-        d = self.evaluate(uv) - pt
-        return scalar_dot(d, d)
-
-    def wrp(u, v):
-        d = self.evaluate(np.array([u, v])) - pt
-        return scalar_dot(d, d)
-
-    cpt = contains_point(self.tree, pt)
-
-    if len(cpt) == 0:
-        #(umin, umax), (vmin, vmax) = self.interval()
-        return np.array(divide_and_conquer_min_2d(wrp, (umin, umax), (vmin, vmax), tol))
-
-    else:
-
-        initial = np.average(min(cpt, key=lambda x: x.bounding_box.volume()).uvs, axis=0)
-        uv = newtons_method(wrp1, initial, tol=tol)
-        if uv is None:
-            raise ValueError('Newtons method failed to converge')
-        return uv
 
 
 def closest_points_on_surface(surface, pts, tol=1e-6):

@@ -9,7 +9,7 @@ import sys
 
 from mmcore.geom.nurbs import NURBSCurve
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve,_nurbs_to_tuple,_tuple_to_nurbs
 from mmcore.geom._nurbs_knots import _curve_interval, decompose_curve, split_curve_multiple
 from mmcore.geom.bvh.lbvh import BVH, build_bvh, AABB, bvh_intersect
 from mmcore.numeric import compute_parametric_curvature_tolerance_curve
@@ -217,7 +217,10 @@ def _nurbs_bvh_ccx(bvh1: BVH, bvh2: BVH, segms1: list[NURBSCurveTuple], segms2: 
 from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full,map_local_to_global
 def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, tol: float = 1e-3,
               angle_tol=0.0013):
- 
+    if isinstance(curve1, NURBSCurve):
+        curve1=_nurbs_to_tuple(curve1)
+    if isinstance(curve2, NURBSCurve):
+        curve2 = _nurbs_to_tuple(curve2)
     curves1 = decompose_curve(curve1)
     curves2=decompose_curve(curve2)
     
