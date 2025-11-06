@@ -186,7 +186,7 @@ class BoundingSphere:
 class Camera:
     pos: NDArray[np.float32] = field(default_factory=lambda: np.array([150.0, 150.0, 150.0], dtype=np.float32))
     target: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=np.float32))
-    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 0.0, 1.0], dtype=np.float32))
+    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0,1.0, 0.0], dtype=np.float32))
     zoom: float = 1.0
     near: float = 0.1
     far: float = 1000000.0
