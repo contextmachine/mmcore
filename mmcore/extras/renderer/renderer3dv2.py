@@ -468,14 +468,45 @@ class CADRenderer:
             elif self.is_dragging:
                 # Rotate camera around target
                 sensitivity = 0.005
-                rotation_x = pyrr.matrix44.create_from_y_rotation(delta[0] * sensitivity)
-                rotation_y = pyrr.matrix44.create_from_x_rotation(delta[1] * sensitivity)
-
-                # Apply rotations
                 camera_to_target = self.camera_pos - self.camera_target
-                camera_to_target = np.dot(rotation_x, np.append(camera_to_target, 1.0))[:3]
-                camera_to_target = np.dot(rotation_y, np.append(camera_to_target, 1.0))[:3]
+
+                if np.linalg.norm(camera_to_target) > 1e-8:
+                    yaw_angle = delta[0] * sensitivity
+                    pitch_angle = delta[1] * sensitivity
+
+                    if abs(yaw_angle) > 1e-8:
+                        up_length = np.linalg.norm(self.camera_up)
+                        if up_length > 1e-8:
+                            yaw_axis = self.camera_up / up_length
+                            rotation_yaw = pyrr.matrix44.create_from_axis_rotation(yaw_axis, yaw_angle, dtype=np.float32)
+                            camera_to_target = np.dot(rotation_yaw, np.append(camera_to_target, 1.0))[:3]
+
+                    # Compute right axis from yaw-updated camera vector to maintain orthogonality
+                    temp_pos = self.camera_target + camera_to_target
+                    forward = self.camera_target - temp_pos
+                    if np.linalg.norm(forward) < 1e-8:
+                        forward = self.camera_target - self.camera_pos
+                    forward /= np.linalg.norm(forward)
+                    right_axis = np.cross(forward, self.camera_up)
+                    if np.linalg.norm(right_axis) < 1e-8:
+                        right_axis = self.camera_right
+                    right_axis /= np.linalg.norm(right_axis)
+
+                    if abs(pitch_angle) > 1e-8:
+                        rotation_pitch = pyrr.matrix44.create_from_axis_rotation(right_axis, pitch_angle, dtype=np.float32)
+                        camera_to_target = np.dot(rotation_pitch, np.append(camera_to_target, 1.0))[:3]
+                        self.camera_up = np.dot(rotation_pitch, np.append(self.camera_up, 1.0))[:3]
+
                 self.camera_pos = self.camera_target + camera_to_target
+                # Re-orthonormalize camera basis to keep controls stable for any up vector
+                forward = self.camera_target - self.camera_pos
+                if np.linalg.norm(forward) > 1e-8 and np.linalg.norm(self.camera_up) > 1e-8:
+                    forward /= np.linalg.norm(forward)
+                    right = np.cross(forward, self.camera_up)
+                    if np.linalg.norm(right) > 1e-8:
+                        right /= np.linalg.norm(right)
+                        self.camera_up = np.cross(right, forward)
+                        self.camera_up /= np.linalg.norm(self.camera_up)
 
             self.last_mouse_pos = current_pos
 
