@@ -4,10 +4,18 @@ import os
 sys.path.append(os.getcwd())
 
 if sys.platform.startswith("win"):
-    import pyMSVC
-
-    environment = pyMSVC.setup_environment()
-    #print(environment)
+    try:
+        import pyMSVC  # type: ignore
+    except Exception as exc:  # pragma: no cover - best effort logging for build time failures
+        print(
+            "Warning: failed to import pyMSVC, continuing without MSVC environment auto-configuration."
+        )
+        print(f"Import error: {exc}")
+    else:
+        environment = pyMSVC.setup_environment()
+        if isinstance(environment, dict):
+            os.environ.update(environment)
+        # print(environment)
 
 import setuptools
 import numpy
