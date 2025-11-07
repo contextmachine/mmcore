@@ -1,3 +1,6 @@
+import threading
+import time
+
 import glfw
 import numpy as np
 from OpenGL.GL import *
@@ -16,7 +19,7 @@ from mmcore.numeric.sbern import bern_to_nurbs_bezier
 from mmcore.topo.mesh.tess import tessellate_surface, surface_to_mesh
 
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.0
-DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.0
+DEFAULT_DARK_BACKGROUND_COLOR = 20 / 256, 20 / 256, 20 / 256, 1.0
 
 
 def create_isolines(u_vals, v_vals):
@@ -239,7 +242,8 @@ def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
 
 class CADRenderer:
 
-    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:  Camera = None):
+    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR, camera:  Camera = None, sampling_tol:float=1e-2, free_axis:bool=False):
+        self._needs_to_update = True
         if not glfw.init():
             raise RuntimeError("Failed to initialize GLFW")
         if camera is None:
@@ -251,26 +255,18 @@ class CADRenderer:
         self.zoom = camera.zoom
         self.near = camera.near
         self.far = camera.far
+        self.free_axis = free_axis
         self.is_panning = camera.is_panning
         self.auto_position_camera = True
         self.bsf = BoundingSphere(camera.target.copy(), 0.0)
-
+        self.sampling_tol = sampling_tol
         # GLFW & OpenGL config
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, True)
-        from mmcore import __version__
-        self.window = glfw.create_window(width, height, f"mmcore@{__version__}", None, None)
-        if not self.window:
-            glfw.terminate()
-            raise RuntimeError("Failed to create GLFW window")
-        glfw.make_context_current(self.window)
-
-        print("OpenGL version:", glGetString(GL_VERSION).decode())
-        print("GLSL version:", glGetString(GL_SHADING_LANGUAGE_VERSION).decode())
-
+  
         # Camera settings
         if camera is None:
             camera = Camera()
@@ -286,15 +282,39 @@ class CADRenderer:
         self.is_dragging = False
         self.last_mouse_pos = np.array([0.0, 0.0])
         self.snap_distance = 0.1
-
+        self.framebuffer_size=None
+        self.width = width
+        self.height = height
+        self.window = None
         # Geometry storage is already initialized above
-
+        self.default_vao=None
+        self.default_vao_color=None
+        
+        # Geometry lists
+        self.points: List[Point] = []
+        self.wires: List[Wire] = []
+        self.meshes: List[Mesh] = []
+        #self._run_thread=threading.Thread(target=self._run, name="renderer3dv2", daemon=True)
+    
+    def create_window(self):
+        
+        if self.window is not None and not glfw.window_should_close(self.window):
+            return
+        from mmcore import __version__
+        self.window = glfw.create_window(self.width, self.height, f"mmcore@{__version__}", None, None)
+        if not self.window:
+            glfw.terminate()
+            raise RuntimeError("Failed to create GLFW window")
+        glfw.make_context_current(self.window)
+        
+        #print("OpenGL version:", glGetString(GL_VERSION).decode())
+        #print("GLSL version:", glGetString(GL_SHADING_LANGUAGE_VERSION).decode())
         # Setup callbacks
         self.setup_callbacks()
-
+        
         # Shaders
         self.setup_shaders()
-
+        self._needs_to_update=True
         # GL state
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_BLEND)
@@ -303,38 +323,46 @@ class CADRenderer:
         glPolygonOffset(3, GL_POLYGON_OFFSET_UNITS)
         # Enable program point size so gl_PointSize is honored
         glEnable(GL_PROGRAM_POINT_SIZE)
-
+        
         # Default VAO
         self.default_vao = glGenVertexArrays(1)
         glBindVertexArray(self.default_vao)
         self.framebuffer_size = glfw.get_framebuffer_size(self.window)
         glViewport(0, 0, *self.framebuffer_size)
-
-        # Geometry lists
-        self.points: List[Point] = []
-        self.wires: List[Wire] = []
-        self.meshes: List[Mesh] = []
-
+        self._should_terminate=False
+        
+    def stop(self):
+        glfw.destroy_window(self.window)
+        
+        
     def setup_callbacks(self):
         glfw.set_mouse_button_callback(self.window, self._mouse_button_callback)
         glfw.set_cursor_pos_callback(self.window, self._mouse_move_callback)
         glfw.set_scroll_callback(self.window, self._scroll_callback)
         glfw.set_framebuffer_size_callback(self.window, self._framebuffer_size_callback)
+        self.setup_focus_callback(window=self.window)
+        glfw.set_window_close_callback(self.window, self._window_should_close_callback)
+    
 
     def _framebuffer_size_callback(self, window, width, height):
+        # print("mouse_move",window, width, height)
         glViewport(0, 0, width, height)
         self.framebuffer_size = (width, height)
-
+        self._needs_to_update=True
+    
+      
     def _mouse_button_callback(self, window, button, action, mods):
+        
+        #print("mouse_move", window, button, action, mods)
         if button == glfw.MOUSE_BUTTON_LEFT:
             # Check if CMD (Control on macOS) is pressed
             if mods & glfw.MOD_SHIFT:
-                print("Left click + SHIFT")
+                #print("Left click + SHIFT")
                 self.is_panning = action == glfw.PRESS
             else:
                 self.is_dragging = action == glfw.PRESS
         if button == glfw.MOUSE_BUTTON_RIGHT:
-            print("Right click")
+            #print("Right click")
             self.is_panning = action == glfw.PRESS
 
         if self.is_dragging or self.is_panning:
@@ -345,7 +373,9 @@ class CADRenderer:
             x *= fb_width / win_width
             y *= fb_height / win_height
             self.last_mouse_pos = np.array([x, y])
-
+        
+        self._needs_to_update = True
+        
     def setup_shaders(self):
         vertex_shader_source = """
         #version 410
@@ -429,7 +459,7 @@ class CADRenderer:
         # Add mesh to the scene
         self.meshes.append(Mesh(vertices, triangles, color, wireframe_color))
         self.update_camera_position()
-
+        import threading
     def add_point(self, position, color=np.array([1.0, 1.0, 1.0]), size=5.0):
         pos = np.array(position, dtype=np.float32)
         col = np.array(color, dtype=np.float32)
@@ -442,18 +472,22 @@ class CADRenderer:
         self.update_camera_position()
 
     def _mouse_move_callback(self, window, x, y):
+        #print("mouse_move",window, x, y)
         # Scale cursor position for Retina displays
+        self._needs_to_update = True
         fb_width, fb_height = self.framebuffer_size
         win_width, win_height = glfw.get_window_size(window)
         x *= fb_width / win_width
         y *= fb_height / win_height
 
         current_pos = np.array([x, y])
-
+     
+        
         if self.is_dragging or self.is_panning:
             delta = current_pos - self.last_mouse_pos
 
             if self.is_panning:
+                
                 # Pan the camera
                 # Convert screen delta to world space delta
                 aspect = fb_width / fb_height
@@ -464,8 +498,38 @@ class CADRenderer:
                 pan_vector = self.camera_right * world_delta_x + self.camera_up * world_delta_y
                 self.camera_pos -= pan_vector
                 self.camera_target -= pan_vector
-
-            elif self.is_dragging:
+            
+            elif self.is_dragging and not self.free_axis:
+                
+                # Rotate camera around target
+                sensitivity = 0.005
+           
+                
+                #right = np.cross(forward, self.camera_up)
+                
+              
+     
+     
+                    #k=(np.abs((np.pi / 2)-np.abs(delta[1]))/np.pi)
+                rotation_x = pyrr.matrix44.create_from_axis_rotation(self.camera_up, delta[0] * sensitivity, dtype=np.float32)
+                rotation_y = pyrr.matrix44.create_from_axis_rotation(self.camera_right, delta[1] * sensitivity, dtype=np.float32)
+                #rotation_z = pyrr.matrix44.create_from_z_rotation(delta[2] * sensitivity)
+    
+                # Apply rotations
+                camera_to_target = self.camera_pos - self.camera_target
+                
+                camera_to_target = np.dot(rotation_x, np.append(camera_to_target, 1.0))[:3]
+                camera_to_target = np.dot(rotation_y, np.append(camera_to_target, 1.0))[:3]
+                #camera_to_target = np.dot(rotation_z, np.append(camera_to_target, 1.0))[:3]
+                #camera_to_target = np.dot(rotation_z2, np.append(camera_to_target, 1.0))[:3]
+                self.camera_pos = self.camera_target + camera_to_target
+                
+               
+               
+               
+                  
+                    
+            elif (self.is_dragging and self.free_axis ) :
                 # Rotate camera around target
                 sensitivity = 0.005
                 camera_to_target = self.camera_pos - self.camera_target
@@ -509,19 +573,26 @@ class CADRenderer:
                         self.camera_up /= np.linalg.norm(self.camera_up)
 
             self.last_mouse_pos = current_pos
+    
+       
 
     def _scroll_callback(self, window, xoffset, yoffset):
         # Modify zoom for orthographic projection
+        #print("scroll", window, xoffset, yoffset)
         zoom_factor = 0.1
         self.zoom *= 1.0 - yoffset * zoom_factor
         self.zoom = np.clip(self.zoom, self.near, self.far)
-
+    
+        self._needs_to_update=True
     @property
     def camera_right(self):
         # Get the camera's right vector
         forward = self.camera_target - self.camera_pos
         forward = forward / np.linalg.norm(forward)
+        if 1-abs(np.dot(forward, self.camera_up)) < 1e-6:
+            return np.array([1.0, 0.0, 0.0])
         right = np.cross(forward, self.camera_up)
+        
 
         return right / np.linalg.norm(right)
 
@@ -572,33 +643,40 @@ class CADRenderer:
         # Cleanup
         glDeleteBuffers(1, [vbo, cbo, ebo])
         glDeleteVertexArrays(1, [vao])
-
+    
     def render(self):
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glClearColor(*self._background_color)
-
-        w, h = self.framebuffer_size
-        aspect = w / h
-        self.projection = pyrr.matrix44.create_orthogonal_projection(
-            -self.zoom * aspect, self.zoom * aspect, -self.zoom, self.zoom, self.near, self.far, dtype=np.float32
-        )
-        self.view = pyrr.matrix44.create_look_at(self.camera_pos, self.camera_target, self.camera_up, dtype=np.float32)
-        self.model = pyrr.matrix44.create_identity(dtype=np.float32)
-
-        glUseProgram(self.shader_program)
-        glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "projection"), 1, GL_FALSE, self.projection)
-        glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "view"), 1, GL_FALSE, self.view)
-        glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "model"), 1, GL_FALSE, self.model)
-        # Draw meshes first (transparent)
-        for m in self.meshes:
-            self.render_mesh(m)
-        # Then points
-        for p in self.points:
-            self.render_point(p)
-        # Then wires
-        for w in self.wires:
-            self.render_wire(w)
-
+        if self._needs_to_update:
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            glClearColor(*self._background_color)
+    
+            w, h = self.framebuffer_size
+            aspect = w / h
+            self.projection = pyrr.matrix44.create_orthogonal_projection(
+                -self.zoom * aspect, self.zoom * aspect, -self.zoom, self.zoom, self.near, self.far, dtype=np.float32
+            )
+            
+            self.view = pyrr.matrix44.create_look_at(self.camera_pos, self.camera_target, self.camera_up, dtype=np.float32)
+            self.model = pyrr.matrix44.create_identity(dtype=np.float32)
+    
+            glUseProgram(self.shader_program)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "projection"), 1, GL_FALSE, self.projection)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "view"), 1, GL_FALSE, self.view)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "model"), 1, GL_FALSE, self.model)
+            # Draw meshes first (transparent)
+            
+            for m in self.meshes:
+                self.render_mesh(m)
+            # Then points
+            for p in self.points:
+                self.render_point(p)
+            # Then wires
+            for w in self.wires:
+                self.render_wire(w)
+            self._needs_to_update=False
+        else:
+            time.sleep(1/60)
+        
+        
     def render_point(self, point: Point):
         # Pass size via uniform instead of glPointSize
         size_loc = glGetUniformLocation(self.shader_program, "uPointSize")
@@ -662,22 +740,109 @@ class CADRenderer:
 
         glDeleteBuffers(1, [vbo, c_vbo])
         glDeleteVertexArrays(1, [vao])
+        
+    def _focus_callback(self, window,focus,*args):
+        #print("focus",window,focus,*args)
+        self._needs_to_update=bool(focus)
+        if focus==1:
+            self._needs_to_update=True
+       
+        else:
+            
+            self._needs_to_update = False
+   
+        
+        
+        
+        
+    def setup_focus_callback(self, window):
+        glfw.set_window_focus_callback(window, self._focus_callback)
+        
+        
+    def _window_should_close_callback(self, window,*args,**kwargs):
+        self._needs_to_update=False
+        #print(
+        #    '_window_should_close_callback',window,*args,**kwargs
+        #)
+        #glfw.set_window_should_close(window, should)
+        self._should_terminate=True
 
-    def run(self):
-        """Main application loop"""
-        while not glfw.window_should_close(self.window):
-            self.render()
-            glfw.swap_buffers(self.window)
-            glfw.poll_events()
-
+       
+        
+    def _run(self):
+        self._should_terminate=False
+        ftime=1/60
+        while not  self._should_terminate:
+           
+            try:
+                
+                if self._should_terminate:
+                    print('terminating')
+                    #self._needs_to_update=False
+                    break
+                if glfw.window_should_close(self.window):
+                    
+                    print('window_should_close')
+                    #self._needs_to_update = False
+                    break
+                self.render()
+                glfw.swap_buffers(self.window)
+                
+                glfw.wait_events(
+                
+                )
+        
+                
+            except KeyboardInterrupt:
+                print('KeyboardInterrupt')
+                #self._needs_to_update = False
+             
+                break
+        #print('breaking')
+        #glfw.destroy_window(self.window)
+    def close(self):
+        #print('clos')
+       
+        self._needs_to_update = False
+        self._should_terminate = True
+        
+        
+        #glfw.destroy_window(self.window)
+    def destroy(self):
+        #print('destroy')
+        self._needs_to_update = False
+        self._should_terminate = True
+        glfw.destroy_window(self.window)
+    
+        del self.window
+        self.window = None
+    
+        
+    def terminate(self):
+        #for i in range(4):
+        #    if not self._run_thread.is_alive():
+        #        break
+        self._needs_to_update=False
+        self._should_terminate = True
         glfw.terminate()
+        
+        
+        
+                
+    def run(self):
+        self._should_terminate = False
+        self.create_window()
+        """Main application loop"""
+        self._run()
+        self.destroy()
 
-    def add_nurbs_curve(self, crv: NURBSCurve, color=(0.0, 1.0, 1.0), thickness=1.0, **kwargs):
+
+    def add_nurbs_curve(self, crv: NURBSCurve, color=(0.8, 0.8, 0.8), thickness=1.0, **kwargs):
         
         if isinstance(crv, NURBSCurve):
             crv = _nurbs_to_tuple(crv)
-        print(crv)
-        params,du_list,evals,s_list=adaptive_curve_sampler(crv,1e-2,max_param_step_fraction=24)
+        #print(crv)
+        params,du_list,evals,s_list=adaptive_curve_sampler(crv,self.sampling_tol,max_param_step_fraction=24)
         res = np.array([i['C']for i in evals], dtype=np.float32)
         # print(res)
         self.add_wire(np.asarray(res, dtype=np.float32), color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
@@ -775,7 +940,7 @@ class CADRenderer:
         if enabled:
             # Update camera position based on current geometry
             self.update_camera_position()
-    def add_scalar_bern(self, bern, color=(0.0, 1.0, 1.0), thickness=1.0,weights=None,interval=None,**kwargs):
+    def add_scalar_bern(self, bern, color=(1.0, 1.0, 1.0), thickness=1.0,weights=None,interval=None,**kwargs):
         
             bern = _gen_cpts_to_display(np.squeeze(bern),interval=interval)
         
@@ -787,7 +952,7 @@ class CADRenderer:
                                  thickness=thickness, **kwargs)
         
     
-    def add_bezier(self, bezier,color=(0.0, 1.0, 1.0), thickness=1.0, *, scalar=False,rational=False, interval:tuple=None,**kwargs):
+    def add_bezier(self, bezier,color=(1.0, 1.0, 1.0), thickness=1.0, *, scalar=False,rational=False, interval:tuple=None,**kwargs):
         if scalar:
             if rational:
                 return self.add_scalar_bern(bezier[...,0],weights=bezier[...,1],color=color,thickness=thickness,interval=interval,**kwargs)
@@ -802,7 +967,7 @@ class CADRenderer:
         
      
         
-    def add_rational_bezier(self, bezier, color=(0.0, 1.0, 1.0), thickness=1.0, **kwargs):
+    def add_rational_bezier(self, bezier, color=(1.0, 1.0, 1.0), thickness=1.0, **kwargs):
         self.add_bezier(bezier, rational=True, color=color, thickness=thickness, **kwargs)
        
     
