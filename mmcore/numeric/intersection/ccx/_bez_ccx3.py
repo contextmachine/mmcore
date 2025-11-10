@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+
 from mmcore.numeric._aabb import aabb, aabb_intersection
 
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
@@ -1075,6 +1077,56 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
 
 
 if __name__ == "__main__":
+    try:
+        import rich
+        from rich.console import Console
+        from rich.style import Style, StyleType
+        from rich.table import Table
+        
+        # Create a console instance
+        console = Console()
+        
+        
+        def make_rich_table( inter1, inter2, case_name=None):
+            
+            mismatch_color ="#e34f66"
+            match_color = "#0dd962"
+            def match_str(v):
+                return f"[{match_color}]{v}[/{match_color}]"
+            def mismatch_str(v):
+                return f"[{mismatch_color}]{v}[/{mismatch_color}]"
+            # Create a table
+            table = Table(title=case_name)
+            
+            # Add columns
+            table.add_column("mmcore", style="default", no_wrap=True)
+            table.add_column("OCC", style="default")
+            table.add_column("match", justify="center", style="bold")
+            matches = []
+            for first, second in itertools.zip_longest(sorted(inter1["isolated"],key=lambda x:x["u"]), sorted(inter2["isolated"],key=lambda x:x["u"])):
+                if first is None:
+                    table.add_row(first, f"{float(second['u'])} ,{float(second['v'])}", mismatch_str('X'), style=mismatch_color)
+                    matches.append(False)
+                elif second is None:
+                    table.add_row(f"{float(first['u'])} ,{float(first['v'])}", second, mismatch_str('X'), style=mismatch_color)
+                    matches.append(False)
+                else:
+                    match_ = np.allclose(np.array((first['u'], first['v'])), np.array((second['u'], second['v'])))
+                    matches.append(match_)
+                    table.add_row(f"{float(first['u'])} ,{float(first['v'])}",
+                                  f"{float(second['u'])} ,{float(second['v'])}",match_str('OK') if match_ else mismatch_str('X'))
+                    if not match_:
+                      
+                        table.rows[-1].style=Style(color= mismatch_color,bold=True)
+            # Add rows
+            
+  
+            # Print the table
+            console.print(table)
+    except ImportError:
+        def make_rich_table(inter1, inter2):
+            print('Pretty output requires "pip install rich"')
+            print("verify with OCC (mmcore result, occ result):", inter1["isolated"], inter2["isolated"])
     np.set_printoptions(edgeitems=3)
     curve1 = np.array(
         [
@@ -1155,8 +1207,9 @@ if __name__ == "__main__":
         occ_inter12["overlaps"][0]["uv_path"][-1],
         np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
     )
-
-    np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
+    make_rich_table(inter12, occ_inter12,'case 3.1')
+    
+    #np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
 
     # case 2: Two isolated points, no overlaps
     print("\n\n case2\n", "-" * 80, "\n")
@@ -1164,7 +1217,7 @@ if __name__ == "__main__":
     inter34 = bezier_intersect_certified_full(curve3, curve4)
     # 0.02212008300011803  (current perf)
     print(time.perf_counter() - s, "pruned:", inter34["stats"]["pruned"])
-    print(inter34)
+    #print(inter34)
 
     # Expected result:
     # {'isolated': [{'u': np.float64(0.19649579172632328), 'v': np.float64(0.28188456749957974), 'point': array([-28.01389436,   0.93016065,   0.        ])}, {'u': np.float64(0.84621222743306), 'v': np.float64(0.726646442488876), 'point': array([-1.38963631,  2.44745538,  0.        ])}], 'overlaps': [], 'stats': {'cells': 35, 'pruned': 19, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['classify_cell_by_gri+no_stationary', 'bernstein_envelope_min', 'classify_cell_by_gri+unique_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'classify_cell_by_gri+unique_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min', 'classify_cell_by_gri+no_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min']}}
@@ -1179,21 +1232,21 @@ if __name__ == "__main__":
             occ_curve_from_points(curve4),
         ),
     )
-
-    print("verify with OCC (mmcore result, occ result):", inter34["isolated"], occ_inter34["isolated"])
+    make_rich_table(inter34, occ_inter34,'case 2')
+    
     print("\n\n case3.1\n", "-" * 80, "\n")
     # case 3.1: Two isolated points, but the curves are close to each other and are almost parallel, which makes this example similar to overlap.
     s = time.perf_counter()
     inter36 = bezier_intersect_certified_full(curve3, curve6)
     print(time.perf_counter() - s, "pruned:", inter36["stats"]["pruned"])  # 1.4956505000000107 current perf
-    print(inter36)  # WRONG! Only one isolated point is returning.
+    #print(inter36)  # WRONG! Only one isolated point is returning.
     assert len(inter36["isolated"]) == 2
     assert len(inter36["overlaps"]) == 0
     # Current (wrong) result:
     # {'isolated': [{'u': np.float64(0.5779727651922172), 'v': np.float64(0.09892057701076899), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 2821, 'pruned': 1439, 'unique_boxes': 0, 'overlap_traces': 1, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ... , 'bernstein_envelope_min', 'bernstein_envelope_min']}}
     from collections import Counter
 
-    print("pruned_by:", Counter(inter36["stats"]["pruned_by"]))
+    #print("pruned_by:", Counter(inter36["stats"]["pruned_by"]))
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})
 
     # For verification purposes ONLY. OCC is not part of mmcore and is not used in mmcore!
@@ -1207,20 +1260,22 @@ if __name__ == "__main__":
         ),
     )
 
-    print("verify with OCC (mmcore result, occ result):", inter36["isolated"], occ_inter36["isolated"])
+
+    
+    make_rich_table(inter36, occ_inter36,'case 3.1')
     print("\n\n case3.2\n", "-" * 80, "\n")
     # case 3.2: Everything is the same, they just swapped the curves around.
     s = time.perf_counter()
     inter63 = bezier_intersect_certified_full(curve6, curve3)
     print(time.perf_counter() - s, "pruned:", inter63["stats"]["pruned"])
-    print(
-        inter63,
-    )  # Correct! Two isolated point is returning.
+    #print(
+    #    inter63,
+    #)  # Correct! Two isolated point is returning.
     # {'isolated': [{'u': np.float64(0.8152057754324536), 'v': np.float64(0.19003739216226287), 'point': array([-28.1007945 ,   0.61670221,   0.        ])}, {'u': np.float64(0.09892057701076898), 'v': np.float64(0.5779727651922171), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 793, 'pruned': 716, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ..., 'bernstein_envelope_min', 'bernstein_envelope_min']}}
     assert len(inter63["isolated"]) == 2
     assert len(inter63["overlaps"]) == 0
 
-    print("pruned_by:", Counter(inter63["stats"]["pruned_by"]))
+    #print("pruned_by:", Counter(inter63["stats"]["pruned_by"]))
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})
 
     # 0.9722023329995864
@@ -1240,5 +1295,31 @@ if __name__ == "__main__":
             occ_curve_from_points(curve3),
         ),
     )
-
-    print("verify with OCC (mmcore result, occ result):", inter63["isolated"], occ_inter63["isolated"])
+    
+    make_rich_table(inter63, occ_inter63,'case 3.2')
+    print("\n\n case4\n", "-" * 80, "\n")
+    # case 4: Two isolated intersections at s=t=0 and s=t=1. For some reason, our solver returns an overlap on it.
+    curve7 = np.array([[0, 0,0.], [1, 0,0.], [2, 0,0.]], float)  # quadratic line (degenerate curvature)
+    curve8 = np.array([[0, 0,0.], [1, 1,0.], [2, 0,0.]], float) # quadratic arc
+    
+    s = time.perf_counter()
+    inter78 = bezier_intersect_certified_full(curve7, curve8)
+    print(time.perf_counter() - s, "pruned:", inter78["stats"]["pruned"])
+    #print(
+    #    inter78,
+    #)  # Correct! Two isolated point is returning.
+    # {'isolated': [{'u': np.float64(0.8152057754324536), 'v': np.float64(0.19003739216226287), 'point': array([-28.1007945 ,   0.61670221,   0.        ])}, {'u': np.float64(0.09892057701076898), 'v': np.float64(0.5779727651922171), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 793, 'pruned': 716, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ..., 'bernstein_envelope_min', 'bernstein_envelope_min']}}
+    assert len(inter78["isolated"]) == 2
+    assert len(inter78["overlaps"]) == 0
+    
+    #print("pruned_by:", Counter(inter78["stats"]["pruned_by"]))
+    
+    # For verification purposes ONLY. OCC is not part of mmcore and is not used in mmcore!
+    occ_inter78 = occ_ccx_2d(
+        occ_curve_to_2d(occ_curve_from_points(curve7),
+                        ((0.0, 0.0, 0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+        occ_curve_to_2d(
+            occ_curve_from_points(curve8),
+        ),
+    )
+    make_rich_table(inter78,occ_inter78,'case 4')

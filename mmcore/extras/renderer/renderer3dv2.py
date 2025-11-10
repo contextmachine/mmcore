@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 import threading
 import time
 
@@ -8,7 +11,7 @@ from OpenGL.GL import shaders
 import pyrr
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
-
+import platform
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, _tuple_to_nurbs, _nurbs_to_tuple, NURBSSurfaceTuple
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae, decompose_curve
 
@@ -73,7 +76,7 @@ def create_isolines(u_vals, v_vals):
     return boundary_isolines, param_isolines, midpoint_isolines
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Point:
     position: np.ndarray  # 3D vector
     color: np.ndarray  # RGB vector
@@ -146,7 +149,7 @@ def nurbs_surface_wireframe_view(surf: NURBSSurface):
 
 
 from numpy.typing import NDArray
-
+from mmcore.geom._nurbs_eval import to_homogeneous_1d
 
 @dataclass
 class BoundingSphere:
@@ -189,7 +192,7 @@ class BoundingSphere:
 class Camera:
     pos: NDArray[np.float32] = field(default_factory=lambda: np.array([150.0, 150.0, 150.0], dtype=np.float32))
     target: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0, 0.0, 0.0], dtype=np.float32))
-    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0,1.0, 0.0], dtype=np.float32))
+    up: NDArray[np.float32] = field(default_factory=lambda: np.array([0.0,0.0, 1.0], dtype=np.float32))
     zoom: float = 1.0
     near: float = 0.1
     far: float = 1000000.0
@@ -221,6 +224,260 @@ class Camera:
 
 
 import multiprocessing as mp
+import numpy as np
+
+
+def nurbs_rational_snap_cert(ctrl4: np.ndarray,
+                             M_world_to_clip: np.ndarray,
+                             u: float, v: float,
+                             eps: float = 0.0):
+    """
+    Cheap snap pre-filter for a rational Bézier curve.
+
+    Parameters
+    ----------
+    ctrl4 : (n+1, 4) array
+        Homogeneous control points [w*x, w*y, w*z, w].
+    M_world_to_clip : (4,4) array
+        Combined world->clip matrix (P*V or P*V*M if ctrl4 in object space).
+    u, v : float
+        Pixel NDC coordinates in [-1,1]. (Use the pixel center in NDC.)
+    eps : float
+        Tolerance band around each plane; eps=0 tests exact incidence,
+        eps>0 creates a "snap cone" around the viewing line.
+
+    Returns
+    -------
+    ok : bool
+        True if the curve is a snap candidate.
+    score : float
+        A small nonnegative number estimating closeness; 0 means it crosses both planes,
+        larger means farther. You can use it to rank candidates.
+    """
+    # Two world-space planes that define the pixel line
+    n_x, n_y = pixel_planes_world(M_world_to_clip, u, v)  # shape (4,)
+    
+    # Evaluate planes on all homogeneous control points
+    # di = n^T * P̂_i
+    d_x = ctrl4 @ n_x
+    d_y = ctrl4 @ n_y
+    
+    # Interval hulls (Bernstein convex-hull property)
+    min_x, max_x = np.min(d_x), np.max(d_x)
+    min_y, max_y = np.min(d_y), np.max(d_y)
+    
+    # Test whether each interval crosses the zero band [-eps, eps]
+    def crosses_zero_band(a_min, a_max, tol):
+        if tol <= 0.0:
+            return (a_min <= 0.0) and (a_max >= 0.0)
+        # Band test: interval intersects [-tol, tol]
+        return not (a_max < -tol or a_min > tol)
+    
+    hit_x = crosses_zero_band(min_x, max_x, eps)
+    hit_y = crosses_zero_band(min_y, max_y, eps)
+    
+    ok = bool(hit_x and hit_y)
+    
+    # A small ranking score: distance of each interval from the zero band, max of the two
+    def interval_distance_to_band(a_min, a_max, tol):
+        if a_min <= tol and a_max >= -tol:
+            return 0.0
+        return min(abs(a_min - tol), abs(a_max + tol))
+    
+    score_x = interval_distance_to_band(min_x, max_x, eps)
+    score_y = interval_distance_to_band(min_y, max_y, eps)
+    score = max(score_x, score_y)
+    
+    return ok, float(score)
+
+
+import numpy as np
+
+from mmcore.numeric.bern import bernstein_eval_1d, bern_roots_1d
+
+
+# --- projective pixel-planes (same construction as before) -------------------
+def pixel_planes_world(M_world_to_clip: np.ndarray, u_ndc: float, v_ndc: float):
+    p_x = np.array([1.0, 0.0, 0.0, -u_ndc], dtype=float)  # x - u w = 0
+    p_y = np.array([0.0, 1.0, 0.0, -v_ndc], dtype=float)  # y - v w = 0
+    MinvT = np.linalg.inv(M_world_to_clip).T
+    n_x = MinvT @ p_x
+    n_y = MinvT @ p_y
+    return n_x, n_y
+
+
+# --- main: snap on a rational Bézier using your 1D Bernstein rooter ----------
+def snap_bezier_rational_with_bern_roots(
+        ctrl4: np.ndarray,  # (n+1,4) homogeneous [wx,wy,wz,w] in WORLD space
+        M_world_to_clip: np.ndarray,  # (4,4) PV or PVM
+        u_ndc: float, v_ndc: float,  # pixel in NDC [-1,1]^2
+        bern_roots_1d=bern_roots_1d,  # your function
+        eval_scalar=bernstein_eval_1d,  # scalar evaluator (can pass your own)
+        eps_root: float = 1e-6,  # tolerance used by your rooter
+        cross_tol: float = 1e-6  # |other residual| acceptance at candidate u
+):
+    """
+    Returns (hit: bool, u_star: float|None, P_world: (3,)|None, score: float)
+    score is sqrt(rx^2+ry^2) at u_star (smaller is better).
+    """
+    
+    # 1) build world-space planes for the pixel line
+    
+    n_x, n_y = pixel_planes_world(M_world_to_clip, u_ndc, v_ndc)
+    
+    # 2) build scalar Bernstein coefficient arrays for r_x and r_y
+    #    (dot plane with each homogeneous control point)
+    rx_ctrl = (ctrl4 @ n_x).astype(float)  # shape (n+1,)
+    ry_ctrl = (ctrl4 @ n_y).astype(float)  # shape (n+1,)
+    
+    # Quick cull: convex-hull band test—if either interval misses 0, no snap
+    if (rx_ctrl.min() > 0 and rx_ctrl.max() > 0) or (rx_ctrl.min() < 0 and rx_ctrl.max() < 0):
+        return False, None, None, float('inf')
+    if (ry_ctrl.min() > 0 and ry_ctrl.max() > 0) or (ry_ctrl.min() < 0 and ry_ctrl.max() < 0):
+        return False, None, None, float('inf')
+    
+    # 3) find 1D roots independently
+    roots_x = bern_roots_1d(rx_ctrl, eps=eps_root).roots
+    roots_y = bern_roots_1d(ry_ctrl, eps=eps_root).roots
+    
+    # 4) test cross-residuals at each candidate
+    candidates = []
+    for u in roots_x:
+        if 0.0 < u < 1.0:
+            ry = eval_scalar(ry_ctrl, float(u))
+            if abs(ry) <= cross_tol:
+                rx = eval_scalar(rx_ctrl, float(u))
+                candidates.append((float(u), float(np.hypot(rx, ry))))
+    for u in roots_y:
+        if 0.0 < u < 1.0:
+            rx = eval_scalar(rx_ctrl, float(u))
+            if abs(rx) <= cross_tol:
+                ry = eval_scalar(ry_ctrl, float(u))
+                candidates.append((float(u), float(np.hypot(rx, ry))))
+    
+    if not candidates:
+        return False, None, None, float('inf')
+    
+    # 5) pick best u by smallest combined residual
+    u_star, score = min(candidates, key=lambda t: t[1])
+    
+    # 6) dehomogenize point on curve (cheap de Casteljau)
+    #    small local eval to place the cursor; reuse your existing de Casteljau if preferred
+    def eval_homo(ctrl: np.ndarray, u: float) -> np.ndarray:
+        a = ctrl.astype(float).copy()
+        for _ in range(len(a) - 1):
+            a = (1.0 - u) * a[:-1] + u * a[1:]
+        return a[0]
+    
+    Ch = eval_homo(ctrl4, u_star)
+    w = Ch[3]
+    if abs(w) < 1e-30:
+        return False, None, None, score
+    Pw = Ch[:3] / w
+    
+    return True, float(u_star), Pw, float(score)
+
+
+import numpy as np
+
+
+# --- Homogeneous Bézier evaluation ------------------------------------------
+def bezier_eval_homog(ctrl4: np.ndarray, u: float) -> np.ndarray:
+    """
+    Evaluate homogeneous Bézier at parameter u ∈ [0,1].
+    ctrl4: (n+1, 4) array of [w*x, w*y, w*z, w] in WORLD space.
+    Returns a 4-vector [Xh, Yh, Zh, Wh] on the homogeneous curve.
+    """
+    a = ctrl4.astype(float).copy()
+    n = a.shape[0] - 1
+    for _ in range(n):
+        a = (1.0 - u) * a[:-1] + u * a[1:]
+    return a[0]
+
+
+# --- NDC -> pixels helper ----------------------------------------------------
+def ndc_to_pixels(ndc_xy: np.ndarray, width: int, height: int, origin: str = "top-left") -> np.ndarray:
+    """
+    Map NDC (-1..1) to pixel coords. origin: "top-left" or "bottom-left".
+    """
+    x_ndc, y_ndc = ndc_xy
+    x_px = (x_ndc * 0.5 + 0.5) * width
+    y_px_ndc_up = (y_ndc * 0.5 + 0.5) * height  # 0 at bottom if origin=bottom-left
+    if origin == "top-left":
+        y_px = height - y_px_ndc_up
+    else:
+        y_px = y_px_ndc_up
+    return np.array([x_px, y_px], dtype=float)
+
+
+# --- Main utility ------------------------------------------------------------
+def cursor_from_curve_param(
+        ctrl4: np.ndarray,
+        u: float,
+        M_world_to_clip: np.ndarray,
+        viewport_size: tuple[int, int],
+        origin: str = "top-left",
+        eps_w: float = 1e-30,
+):
+    """
+    Compute cursor/screen coordinates for a rational Bézier at parameter u.
+
+    Parameters
+    ----------
+    ctrl4 : (n+1, 4)
+        Homogeneous control points [w*x, w*y, w*z, w] in WORLD space.
+    u : float
+        Parameter in [0,1].
+    M_world_to_clip : (4,4)
+        Combined projection * view *( * model ) matrix mapping WORLD homogeneous to CLIP.
+    viewport_size : (width, height)
+        Viewport dimensions in pixels.
+    origin : str
+        "top-left" (usual UI) or "bottom-left" (GL convention).
+    eps_w : float
+        Guard for near-zero w.
+
+    Returns
+    -------
+    result : dict
+        {
+          "pixel": (x_px, y_px),
+          "ndc": (x_ndc, y_ndc, z_ndc),
+          "clip": (x_clip, y_clip, z_clip, w_clip),
+          "world": (x_world, y_world, z_world)
+        }
+    """
+    width, height = viewport_size
+    
+    # 1) evaluate homogeneous world point on the curve
+    Ch = bezier_eval_homog(ctrl4, u)  # [Xh, Yh, Zh, Wh]
+    Wh = Ch[3]
+    if abs(Wh) < eps_w:
+        # Degenerate parameter (on/near w=0). Nudge u or early return.
+        # Here we early-return with NaNs for world but still try to carry on for clip/ndc.
+        world_pt = np.array([np.nan, np.nan, np.nan], dtype=float)
+    else:
+        world_pt = Ch[:3] / Wh
+    
+    # 2) world homogeneous -> clip
+    clip = M_world_to_clip @ Ch  # [x', y', z', w']
+    w_clip = clip[3]
+    
+    # 3) perspective divide -> NDC
+    if abs(w_clip) < eps_w:
+        # Off the view frustum / at infinity: mark NDC as NaN
+        ndc = np.array([np.nan, np.nan, np.nan], dtype=float)
+        pixel = np.array([np.nan, np.nan], dtype=float)
+    else:
+        ndc = clip[:3] / w_clip  # (x_ndc, y_ndc, z_ndc) in [-1,1]
+        pixel = ndc_to_pixels(ndc[:2], width, height, origin=origin)
+    
+    return {
+        "pixel": tuple(pixel.tolist()),
+        "ndc": tuple(ndc.tolist()),
+        "clip": tuple(clip.tolist()),
+        "world": tuple(world_pt.tolist()),
+    }
 
 
 def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
@@ -238,6 +495,36 @@ def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
     Pts[..., :-1] = np.moveaxis(mgr, 0, -1)
     
     return Pts
+# Keep this as your single source of truth
+class ViewportInfo:
+    def __init__(self, window):
+        # points (UI units)
+        self.win_w_pt, self.win_h_pt = glfw.get_window_size(window)
+        # framebuffer (pixels)
+        self.fb_w_px, self.fb_h_px = glfw.get_framebuffer_size(window)
+        # content scale (points -> pixels)
+        self.sx, self.sy = glfw.get_window_content_scale(window)
+        # GL viewport (pixels). Usually (0,0, fb_w, fb_h)
+        vx, vy, vw, vh = glGetIntegerv(GL_VIEWPORT)
+        self.viewport = (int(vx), int(vy), int(vw), int(vh))
+
+def points_to_pixels(xy_pt, v: ViewportInfo):
+    return np.array([xy_pt[0]*v.sx, v.fb_h_px - xy_pt[1]*v.sy], float)  # flip Y once
+
+def pixels_to_points(xy_px, v: ViewportInfo):
+    return np.array([xy_px[0]/v.sx, (v.fb_h_px - xy_px[1])/v.sy], float)  # flip back
+
+def pixels_to_ndc(xy_px, v: ViewportInfo):
+    vx, vy, vw, vh = v.viewport
+    x_ndc = ((xy_px[0] - vx)/vw)*2.0 - 1.0
+    y_ndc = ((xy_px[1] - vy)/vh)*2.0 - 1.0
+    return np.array([x_ndc, y_ndc], float)
+
+def ndc_to_pixels(ndc_xy, v: ViewportInfo):
+    vx, vy, vw, vh = v.viewport
+    x_px = vx + (ndc_xy[0] + 1.0)*0.5*vw
+    y_px = vy + (ndc_xy[1] + 1.0)*0.5*vh
+    return np.array([x_px, y_px], float)
 
 
 class CADRenderer:
@@ -260,12 +547,15 @@ class CADRenderer:
         self.auto_position_camera = True
         self.bsf = BoundingSphere(camera.target.copy(), 0.0)
         self.sampling_tol = sampling_tol
+        self._projection=None
+        self._platform = platform.system()
         # GLFW & OpenGL config
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, True)
+        if self._platform=="Darwin":
+            glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, True)
   
         # Camera settings
         if camera is None:
@@ -277,11 +567,11 @@ class CADRenderer:
         self.is_panning = camera.is_panning
         self.near = camera.near
         self.far = camera.far
-
+        
         # Mouse interaction
         self.is_dragging = False
         self.last_mouse_pos = np.array([0.0, 0.0])
-        self.snap_distance = 0.1
+        self.snap_distance = 0.001
         self.framebuffer_size=None
         self.width = width
         self.height = height
@@ -289,11 +579,15 @@ class CADRenderer:
         # Geometry storage is already initialized above
         self.default_vao=None
         self.default_vao_color=None
-        
+        self._stop_mouse_event=0
         # Geometry lists
         self.points: List[Point] = []
+        self._temporal_points: List[Point] = []
         self.wires: List[Wire] = []
         self.meshes: List[Mesh] = []
+        self._hcurves=[]
+        self._snap_cache=dict()
+        self._snap_mode=True
         #self._run_thread=threading.Thread(target=self._run, name="renderer3dv2", daemon=True)
     
     def create_window(self):
@@ -342,17 +636,19 @@ class CADRenderer:
         glfw.set_framebuffer_size_callback(self.window, self._framebuffer_size_callback)
         self.setup_focus_callback(window=self.window)
         glfw.set_window_close_callback(self.window, self._window_should_close_callback)
-    
+        glfw.set_window_size_callback(self.window, self._on_window_resize)
 
     def _framebuffer_size_callback(self, window, width, height):
         # print("mouse_move",window, width, height)
         glViewport(0, 0, width, height)
+   
+        
         self.framebuffer_size = (width, height)
         self._needs_to_update=True
     
       
     def _mouse_button_callback(self, window, button, action, mods):
-        
+
         #print("mouse_move", window, button, action, mods)
         if button == glfw.MOUSE_BUTTON_LEFT:
             # Check if CMD (Control on macOS) is pressed
@@ -375,7 +671,8 @@ class CADRenderer:
             self.last_mouse_pos = np.array([x, y])
         
         self._needs_to_update = True
-        
+    
+     
     def setup_shaders(self):
         vertex_shader_source = """
         #version 410
@@ -460,28 +757,46 @@ class CADRenderer:
         self.meshes.append(Mesh(vertices, triangles, color, wireframe_color))
         self.update_camera_position()
         import threading
-    def add_point(self, position, color=np.array([1.0, 1.0, 1.0]), size=5.0):
+    def add_point(self, position, color=np.array([1.0, 1.0, 1.0]), size=5.0, temporary:bool=False):
         pos = np.array(position, dtype=np.float32)
         col = np.array(color, dtype=np.float32)
-        self.points.append(Point(pos, col, size))
+        pt=Point(pos, col, size)
+
+        if temporary:
+            self._temporal_points.append(pt)
+        else:
+            self.points.append(pt)
         self.update_camera_position()
+        return pt
+        
 
     def add_wire(self, vertices: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), thickness: float = 1.0):
         """Add a wire (curve) to the scene"""
-        self.wires.append(Wire(vertices, color, thickness))
+        vxs=np.array(vertices)
+        
+        if vxs.shape[-1]<3:
+            z=np.zeros((len(vxs),3), dtype=np.float32)
+            z[...,:vxs.shape[-1]]=vxs
+            vxs=z
+        self.wires.append(Wire(vxs, color, thickness))
         self.update_camera_position()
-
+        
+    def _on_window_resize(self, window,width, height):
+        self.width=width
+        self.height=height
+        self._needs_to_update = True
+    
     def _mouse_move_callback(self, window, x, y):
         #print("mouse_move",window, x, y)
         # Scale cursor position for Retina displays
-        self._needs_to_update = True
+   
         fb_width, fb_height = self.framebuffer_size
         win_width, win_height = glfw.get_window_size(window)
         x *= fb_width / win_width
         y *= fb_height / win_height
 
         current_pos = np.array([x, y])
-     
+        
         
         if self.is_dragging or self.is_panning:
             delta = current_pos - self.last_mouse_pos
@@ -573,8 +888,16 @@ class CADRenderer:
                         self.camera_up /= np.linalg.norm(self.camera_up)
 
             self.last_mouse_pos = current_pos
-    
-       
+        else:
+            snap=self.perform_snap()
+            if snap is not None:
+                glfw.set_cursor_pos(window,snap[0],snap[1])
+                snap[0] *= fb_width / win_width
+                snap[1] *= fb_height / win_height
+                current_pos[:]=snap
+        self.last_mouse_pos = current_pos
+        self._needs_to_update = True
+
 
     def _scroll_callback(self, window, xoffset, yoffset):
         # Modify zoom for orthographic projection
@@ -643,7 +966,15 @@ class CADRenderer:
         # Cleanup
         glDeleteBuffers(1, [vbo, cbo, ebo])
         glDeleteVertexArrays(1, [vao])
-    
+    @property
+    def projection(self):
+        return self._projection
+    @projection.setter
+    def projection(self, value):
+      
+        self._snap_cache.clear()
+        self._projection = value
+        
     def render(self):
         if self._needs_to_update:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -655,15 +986,15 @@ class CADRenderer:
                 -self.zoom * aspect, self.zoom * aspect, -self.zoom, self.zoom, self.near, self.far, dtype=np.float32
             )
             
+            
             self.view = pyrr.matrix44.create_look_at(self.camera_pos, self.camera_target, self.camera_up, dtype=np.float32)
             self.model = pyrr.matrix44.create_identity(dtype=np.float32)
-    
+            
             glUseProgram(self.shader_program)
             glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "projection"), 1, GL_FALSE, self.projection)
             glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "view"), 1, GL_FALSE, self.view)
             glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "model"), 1, GL_FALSE, self.model)
             # Draw meshes first (transparent)
-            
             for m in self.meshes:
                 self.render_mesh(m)
             # Then points
@@ -672,6 +1003,8 @@ class CADRenderer:
             # Then wires
             for w in self.wires:
                 self.render_wire(w)
+            for p in self._temporal_points:
+                self.render_point(p)
             self._needs_to_update=False
         else:
             time.sleep(1/60)
@@ -752,6 +1085,34 @@ class CADRenderer:
             self._needs_to_update = False
    
         
+    def perform_snap(self):
+        cursor_xy_points = glfw.get_cursor_pos(self.window)
+        content_scale_xy = glfw.get_window_content_scale(self.window)
+        viewport_xywh_pixels = glGetIntegerv(GL_VIEWPORT)
+        print('snap: (cursor_xy_points/content_scale_xy/viewport_xywh_pixels)',cursor_xy_points,content_scale_xy,viewport_xywh_pixels)
+        ndc_xy=glfw_cursor_to_ndc(cursor_xy_points, content_scale_xy,viewport_xywh_pixels, origin_ui = "top-left")
+        
+        u_ndc, v_ndc = float(ndc_xy[0]), float(ndc_xy[1])
+        
+        new_cursor_xy_points=None
+     
+        for i in range(len(self._hcurves)):
+           
+                success, param,*_=snap_bezier_rational_with_bern_roots(self._hcurves[i],self.projection, u_ndc,v_ndc,cross_tol=self.snap_distance)
+                if success:
+                   
+                    res=cursor_from_curve_param(self._hcurves[i], param, self.projection, glfw.get_framebuffer_size(self.window) )
+                    ndc_xy=res['ndc'][0],res['ndc'][1]
+                    self.add_point(res['world'], np.array([1.,1.,0.]), temporary=True)
+                    pixel_xy = ndc_to_pixels(ndc_xy, viewport_xywh_pixels)
+                    new_cursor_xy_points = pixels_to_cursor_points(pixel_xy, content_scale_xy)
+                  
+        if new_cursor_xy_points is not None:
+            
+            print("snap",cursor_xy_points,'->',new_cursor_xy_points)
+
+        
+        return new_cursor_xy_points
         
         
         
@@ -767,13 +1128,14 @@ class CADRenderer:
         #glfw.set_window_should_close(window, should)
         self._should_terminate=True
 
-       
+    
         
     def _run(self):
         self._should_terminate=False
         ftime=1/60
+        
         while not  self._should_terminate:
-           
+            
             try:
                 
                 if self._should_terminate:
@@ -785,13 +1147,28 @@ class CADRenderer:
                     print('window_should_close')
                     #self._needs_to_update = False
                     break
+                glfw.poll_events()
+                if  self._snap_mode and all((not self.projection is None, not self.last_mouse_pos is None)):
+                    
+                    
+                    
+                 
+                    snap = self.perform_snap()
+                    if snap is not None:
+                       
+                        self._snap_mode=False
+                        #glfw.set_cursor_pos(self.window, snap[0],snap[1])
+                        
+               
+              
                 self.render()
+                
+             
+                
+                self._temporal_points.clear()
                 glfw.swap_buffers(self.window)
                 
-                glfw.wait_events(
-                
-                )
-        
+                glfw.wait_events()
                 
             except KeyboardInterrupt:
                 print('KeyboardInterrupt')
@@ -837,17 +1214,24 @@ class CADRenderer:
         self.destroy()
 
 
-    def add_nurbs_curve(self, crv: NURBSCurve, color=(0.8, 0.8, 0.8), thickness=1.0, **kwargs):
-        
+    def add_nurbs_curve(self, crv: NURBSCurve|NURBSCurveTuple, color=(0.8, 0.8, 0.8), thickness=1.0, **kwargs):
+       
         if isinstance(crv, NURBSCurve):
             crv = _nurbs_to_tuple(crv)
+        from mmcore.geom._nurbs_knots import decompose_curve
+        
+        for d in decompose_curve(crv):
+            hpoints = to_homogeneous_1d(d.control_points,d.weights)
+            self._hcurves.append(hpoints)
         #print(crv)
         params,du_list,evals,s_list=adaptive_curve_sampler(crv,self.sampling_tol,max_param_step_fraction=24)
         res = np.array([i['C']for i in evals], dtype=np.float32)
         # print(res)
+        
         self.add_wire(np.asarray(res, dtype=np.float32), color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
+        
 
-    def add_nurbs_surface_mesh(self, surf: NURBSSurface, color=(0.5, 0.5, 0.5, 0.5), wireframe_color=(0.0, 0.0, 0.0)):
+    def add_nurbs_surface_mesh(self, surf: NURBSSurface|NURBSSurfaceTuple, color=(0.5, 0.5, 0.5, 0.5), wireframe_color=(0.0, 0.0, 0.0)):
         """Add a NURBS surface as a transparent mesh with wireframe"""
         # Tessellate the surface
         tessellation = surface_to_mesh(surf,  0.01)
@@ -969,7 +1353,68 @@ class CADRenderer:
         
     def add_rational_bezier(self, bezier, color=(1.0, 1.0, 1.0), thickness=1.0, **kwargs):
         self.add_bezier(bezier, rational=True, color=color, thickness=thickness, **kwargs)
-       
+
+import numpy as np
+
+# ---- Points <-> Pixels helpers (GLFW/macOS) ---------------------------------
+def cursor_points_to_pixels(cursor_xy_points, content_scale_xy):
+    """GLFW cursor is in window 'points'. Convert to framebuffer 'pixels'."""
+    sx, sy = content_scale_xy  # from glfwGetWindowContentScale
+    x_pt, y_pt = cursor_xy_points
+    return np.array([x_pt * sx, y_pt * sy], dtype=float)
+
+def pixels_to_ndc(pixel_xy, viewport_xywh_pixels):
+    """
+    Map framebuffer pixel coords (origin at bottom-left in GL) to NDC.
+    pixel_xy: (x_px, y_px) in framebuffer pixels, origin bottom-left
+    viewport_xywh_pixels: (vx, vy, vw, vh) from glGetIntegerv(GL_VIEWPORT)
+    """
+    vx, vy, vw, vh = viewport_xywh_pixels
+    x_px, y_px = pixel_xy
+    # Window-to-NDC mapping (OpenGL spec)
+    x_ndc =  ( (x_px - vx) / vw ) * 2.0 - 1.0
+    y_ndc =  ( (y_px - vy) / vh ) * 2.0 - 1.0
+    return np.array([x_ndc, y_ndc], dtype=float)
+
+def ndc_to_pixels(ndc_xy, viewport_xywh_pixels):
+    """Inverse of the above (NDC -> framebuffer pixels)."""
+    vx, vy, vw, vh = viewport_xywh_pixels
+    x_ndc, y_ndc = ndc_xy
+    x_px = vx + (x_ndc + 1.0) * 0.5 * vw
+    y_px = vy + (y_ndc + 1.0) * 0.5 * vh
+    return np.array([x_px, y_px], dtype=float)
+
+def pixels_to_cursor_points(pixel_xy, content_scale_xy):
+    """Framebuffer pixels -> window points (for UI cursors)."""
+    sx, sy = content_scale_xy
+    x_px, y_px = pixel_xy
+    return np.array([x_px / sx, y_px / sy], dtype=float)
+
+# ---- GLFW-friendly conversion for the cursor to NDC -------------------------
+def glfw_cursor_to_ndc(cursor_xy_points,
+                       content_scale_xy,
+                       viewport_xywh_pixels,
+                       window_height_points=None,
+                       origin_ui="top-left"):
+    """
+    Convert GLFW cursor (points, origin top-left) -> NDC ([-1,1]^2).
+    - Convert points -> pixels via content scale
+    - Flip Y from top-left UI to GL bottom-left
+    - Apply GL viewport to get NDC
+    """
+    # 1) points -> pixels
+    x_px, y_px = cursor_points_to_pixels(cursor_xy_points, content_scale_xy)
+
+    # 2) UI origin (top-left) -> GL origin (bottom-left)
+    # To do this, we need the framebuffer height in pixels (vh from viewport)
+    vx, vy, vw, vh = viewport_xywh_pixels
+    if origin_ui == "top-left":
+        y_px = vh - y_px  # flip into GL pixel coordinates
+
+    # 3) pixels -> NDC using the active viewport
+    ndc_xy = pixels_to_ndc([x_px, y_px], viewport_xywh_pixels)
+    return ndc_xy  # (x_ndc, y_ndc)
+
     
 
 if __name__ == "__main__":

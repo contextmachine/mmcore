@@ -1,4 +1,5 @@
 import math
+from functools import lru_cache
 
 import numpy as np
 from mmcore.numeric.binom import binomial_coefficient_py
@@ -435,50 +436,6 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
 import numpy as np
 from math import comb
 
-def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
-    """
-    Lower-triangular (n+1)x(n+1) matrix L(t) for the 'left' de Casteljau subdivision boundary.
-    Row i (0..n): L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j for j<=i, else 0.
-    """
-    L = np.zeros((n + 1, n + 1), dtype=dtype)
-    one_minus_t = 1.0 - t
-    t = t
-    for i in range(n + 1):
-        # Row i
-        pow1 = one_minus_t ** i
-        powt = 1.0
-        for j in range(i + 1):
-            L[i, j] = binomial_coefficient_py(i, j) * pow1 * powt
-            # Update factors
-            if j < i:
-                pow1 = pow1 / (one_minus_t if one_minus_t != 0 else 1.0)
-                powt *= t
-    return L
-
-def _right_transform(n: int, a: float, dtype=float) -> np.ndarray:
-    """
-    Upper-triangular (n+1)x(n+1) matrix R(a) producing the 'right' polygon at a,
-    with the first control equal to p(a) and the last unchanged (c_n).
-    R(a) = J * L(1 - a) * J.
-    """
-    if n == 0:
-        return np.array([[1.0]], dtype=dtype)
-    J = np.flipud(np.eye(n + 1, dtype=dtype))
-    return J @ _lower_transform(n, 1.0 - a, dtype=dtype) @ J
-
-def _trim_transform(n: int, a: float, b: float, dtype=float) -> np.ndarray:
-    """
-    (n+1)x(n+1) matrix mapping coefficients on [0,1] to coefficients on [a,b],
-    reparameterized back to [0,1].
-    """
-    if not (0.0 <= a <= 1.0 and 0.0 <= b <= 1.0):
-        raise ValueError("All ranges must be inside [0, 1].")
-    if b < a:
-        raise ValueError("Each range must satisfy a <= b.")
-    if n == 0:
-        return np.array([[1.0]], dtype=dtype)
-    t2 = 0.0 if (1.0 - a) == 0.0 else (b - a) / (1.0 - a)
-    return _lower_transform(n, t2, dtype=dtype) @ _right_transform(n, a, dtype=dtype)
 
 def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
     """
@@ -1006,6 +963,49 @@ from math import comb
 from itertools import product
 
 
+# ---------- Bernstein 1D trimming transforms (matrix-form de Casteljau) ----------
+
+def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
+    """
+    Lower-triangular (n+1)x(n+1) matrix L(t) for the 'left' subdivision boundary.
+    Row i: L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j  for j<=i, else 0.
+    """
+    L = np.zeros((n + 1, n + 1), dtype=dtype)
+    om = float(1.0 - t)
+    t = float(t)
+    for i in range(n + 1):
+        for j in range(i + 1):
+            L[i, j] = binomial_coefficient_py(i, j) * (om ** (i - j)) * (t ** j)
+    return L
+
+
+def _right_transform(n: int, a: float, dtype=float) -> np.ndarray:
+    """
+    Upper-triangular (n+1)x(n+1) matrix R(a) producing the 'right' polygon at a.
+    Identity when n==0.  R(a) = J * L(1 - a) * J.
+    """
+    if n == 0:
+        return np.array([[1.0]], dtype=dtype)
+    J = np.flipud(np.eye(n + 1, dtype=dtype))
+    return J @ _lower_transform(n, 1.0 - a, dtype=dtype) @ J
+
+
+def _trim_transform(n: int, a: float, b: float, dtype=float) -> np.ndarray:
+    """
+    (n+1)x(n+1) matrix mapping coefficients on [0,1] to coefficients on [a,b],
+    reparameterized back to [0,1]. Requires 0<=a<=b<=1.
+    """
+    if n == 0:
+        return np.array([[1.0]], dtype=dtype)
+    if a == b:
+        # Degenerate interval -> constant limit. Use left at t=0 after right at a.
+        # Equivalent to L(0) @ R(a).
+        return _lower_transform(n, 0.0, dtype=dtype) @ _right_transform(n, a, dtype=dtype)
+    if a == 1.0:
+        # Interval can only be [1,1] or empty; handled by a==b above.
+        return _lower_transform(n, 0.0, dtype=dtype) @ _right_transform(n, 1.0, dtype=dtype)
+    t2 = (b - a) / (1.0 - a) if a < 1.0 else 0.0
+    return _lower_transform(n, t2, dtype=dtype) @ _right_transform(n, a, dtype=dtype)
 
 
 # ---------- Multi-mode application of per-axis transforms in one shot ----------
@@ -1309,7 +1309,7 @@ from mmcore.geom._nurbs_knots import generate_knots
 
 from mmcore.geom._nurbs_knots import generate_knots
 
-
+@lru_cache(maxsize=None)
 def bern_greville_abscissae(control_points_count: int, interval=(0., 1.)) -> np.ndarray:
     """
     Greville points for degree p with knot vector U.
@@ -1326,7 +1326,11 @@ def bern_greville_abscissae(control_points_count: int, interval=(0., 1.)) -> np.
     for i in range(n + 1):
         xi[i] = np.sum(U[i + 1:i + p + 1]) / p
     return xi
-
+@lru_cache(maxsize=None)
+def bern_greville_abscissae_nd(shape, interval=None):
+    if interval is None:
+        interval = [(0.,1.)]*len(shape)
+    return tuple(bern_greville_abscissae(shape[i],interval[i]) for i in range(len(shape)))
 
 def zero_crossing_nd(p0, p1, d0, d1):
     """
@@ -1350,6 +1354,12 @@ def zero_crossing_nd(p0, p1, d0, d1):
     return p0 + t * (p1 - p0)
 
 
+def de_casteljau_subdivide_2d(control_points, u, v):
+    def gen():
+        for part in de_casteljau_split_nd(control_points, 0, u):
+            yield from de_casteljau_split_nd(part, 1, v)
+
+    return np.asarray(tuple(gen()))
 
 import numpy as np
 from typing import Sequence, Tuple
