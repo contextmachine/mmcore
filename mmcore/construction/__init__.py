@@ -6,4 +6,5 @@ from ._torus import torus
 from ._revolved import revolved
 from ._cylinder import cylinder_surface_2pt,cylinder_surface
 from ._sweep import sweep1
-__all__=['ruled','revolved','torus', 'circle','cylinder_surface','cylinder_surface_2pt','sweep1']
+from ._curve import nurbs_curve
+__all__=['ruled','revolved','torus', 'circle','cylinder_surface','cylinder_surface_2pt','sweep1','nurbs_curve']

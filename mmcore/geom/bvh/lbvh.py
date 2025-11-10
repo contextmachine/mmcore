@@ -96,7 +96,7 @@ class AABB:
         return (self.max+self.min)/2
     
     def is_finite(self):
-        return np.isfinite(self.min    )and np.isfinite(self.max)
+        return np.all(np.isfinite(self.min    ) )and np.all(np.isfinite(self.max))
     def is_empty(self, allow_flat=False):
         m=np.prod(self.diag()).item()
         return m<0 if  allow_flat else m<=0

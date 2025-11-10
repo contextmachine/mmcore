@@ -244,3 +244,175 @@ def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points
     return params, du_list, evals, s_list
 
 
+import numpy as np
+
+from mmcore.numeric.bern import *
+from scipy.spatial import ConvexHull
+
+from mmcore.geom._nurbs_param_tol import _nurbs_curve_param_tol_conservative
+from mmcore.numeric.sbern import bern_to_nurbs_bezier
+
+
+def minimum_3d_obb(points, tol=1e-8):
+    # … same as before …
+    P = np.asarray(points)
+    hull = ConvexHull(P)
+    best = {'vol': np.inf}
+    for tri in hull.simplices:
+        A, B, C = P[tri]
+        n = np.cross(B - A, C - A)
+        norm = np.linalg.norm(n)
+        if norm < tol: continue
+        z = n / norm
+        if abs(z[0]) < abs(z[1]):
+            u = np.cross(z, [1, 0, 0])
+        else:
+            u = np.cross(z, [0, 1, 0])
+        u /= np.linalg.norm(u)
+        v = np.cross(z, u)
+        
+        proj = P.dot(np.vstack((u, v)).T)
+        ch2 = ConvexHull(proj)
+        pts2 = proj[ch2.vertices]
+        
+        zs = P.dot(z)
+        for dx, dy in np.diff(np.vstack((pts2, pts2[0])), axis=0):
+            th = np.arctan2(dy, dx)
+            c, s = np.cos(th), np.sin(th)
+            R = np.array([[c, s],
+                          [-s, c]])
+            rot = pts2.dot(R.T)
+            min_x, max_x = rot[:, 0].min(), rot[:, 0].max()
+            min_y, max_y = rot[:, 1].min(), rot[:, 1].max()
+            lx, ly = max_x - min_x, max_y - min_y
+            lz = zs.max() - zs.min()
+            vol = lx * ly * lz
+            if vol < best['vol']:
+                best.update(
+                    vol=vol,
+                    origin=(u * (c * min_x - s * min_y) +
+                            v * (s * min_x + c * min_y) +
+                            z * zs.min()),
+                    xaxis=c * u + s * v,
+                    yaxis=-s * u + c * v,
+                    zaxis=z,
+                    extents=(lx, ly, lz)
+                )
+    return (best['origin'],
+            best['xaxis'], best['yaxis'], best['zaxis'],
+            best['extents'])
+
+
+
+
+def fit_plane_svd(points, weights=None, eps=1e-12):
+    """
+    Best-fit plane via SVD.
+    Returns: centroid (3,), unit normal (3,), max_abs_deviation (float), distances (N,)
+    """
+    P = np.asarray(points, dtype=float)
+    if P.ndim != 2 or P.shape[1] != 3 or P.shape[0] < 3:
+        raise ValueError("points must be (N,3) with N>=3")
+    
+    if weights is None:
+        centroid = P.mean(axis=0)
+        X = P - centroid
+        U, S, Vt = np.linalg.svd(X, full_matrices=False)
+    else:
+        w = np.asarray(weights, dtype=float).reshape(-1)
+        if w.shape[0] != P.shape[0]:
+            raise ValueError("weights length must match number of points")
+        if np.any(w < 0):
+            raise ValueError("weights must be nonnegative")
+        Wsum = w.sum()
+        if Wsum <= eps:
+            raise ValueError("sum of weights must be positive")
+        centroid = (w[:, None] * P).sum(axis=0) / Wsum
+        X = P - centroid
+        Xw = X * np.sqrt(w[:, None])  # weighted design matrix
+        U, S, Vt = np.linalg.svd(Xw, full_matrices=False)
+    
+    normal = Vt[-1]
+    # guard against degeneracy
+    nrm = np.linalg.norm(normal)
+    if nrm <= eps:
+        raise RuntimeError("degenerate configuration: points are (near) collinear or identical")
+    normal = normal / nrm
+    
+    # signed point-to-plane distances
+    dists = (P - centroid) @ normal
+    max_abs_dev = np.max(np.abs(dists))
+    return centroid, normal, max_abs_dev, dists
+
+from mmcore.numeric.bern import de_casteljau_subdivide_2d
+
+
+def _gen_cpts_to_display(scalar_net):
+    greville = bern_greville_abscissae_nd(scalar_net.shape)
+    Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
+    for i in range(scalar_net.shape[0]):
+        for j in range(scalar_net.shape[1]):
+            Pts[i, j, 2] = scalar_net[i, j]
+            Pts[i, j, 0] = greville[0][i]
+            Pts[i, j, 1] = greville[1][j]
+    
+    return Pts
+
+
+
+class BernsteinTree2D:
+    
+    links:list[tuple[int,int]]
+    control_points:list[np.ndarray]
+    bounding_boxes:list[tuple[float,float,float,float]]
+    
+    
+    def __init__(self, control_points:np.ndarray):
+        self._initial_control_points=control_points
+        self.greville_abscissae=bern_greville_abscissae_nd(control_points.shape)
+    @property
+    def degree_u(self):
+        return self._initial_control_points.shape[0]-1
+    
+    @property
+    def degree_v(self):
+        return self._initial_control_points.shape[1]-1
+    
+    @property
+    def order_u(self):
+        return self._initial_control_points.shape[0]
+    
+    @property
+    def order_v(self):
+        return self._initial_control_points.shape[1]
+        
+def adaptive_bern_sampler_2d(nu: NDArray[float], tol:float=1e-3):
+    stack = [nu]
+    quads = []
+    
+    while stack:
+        
+        subpatch = stack.pop(0)
+        
+        centroid, normal, max_abs_dev, dists = fit_plane_svd(subpatch.reshape((-1, subpatch.shape[-1])))
+        if max_abs_dev < tol:
+            
+            quads.append((subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1], subpatch[-1, 0]))
+            continue
+        elif np.array(aabb(subpatch.reshape(-1, 3))).max() < tol:
+            quads.append(
+                (subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1],
+                 subpatch[-1, 0]))
+            continue
+        else:
+            stack.extend(de_casteljau_subdivide_2d(subpatch, 0.5, 0.5))
+    return quads
+
+
+from mmcore.numeric.aabb import aabb
+
+
+
+
+from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+
