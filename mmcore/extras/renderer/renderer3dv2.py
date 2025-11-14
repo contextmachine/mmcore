@@ -24,6 +24,52 @@ from mmcore.topo.mesh.tess import tessellate_surface, surface_to_mesh
 DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.0
 DEFAULT_DARK_BACKGROUND_COLOR = 20 / 256, 20 / 256, 20 / 256, 1.0
 
+# ==== Unified conversions (GLFW points <-> framebuffer pixels <-> NDC) ======
+import numpy as np
+
+class ViewportInfo:
+    """Cache everything we need for a consistent mapping."""
+    def __init__(self, window):
+        # GL viewport in pixels (OpenGL origin = bottom-left)
+        vx, vy, vw, vh = glGetIntegerv(GL_VIEWPORT)
+        self.vx, self.vy, self.vw, self.vh = int(vx), int(vy), int(vw), int(vh)
+        # Framebuffer (pixels)
+        self.fb_w_px, self.fb_h_px = glfw.get_framebuffer_size(window)
+        # GLFW window content scale (points -> pixels)
+        sx, sy = glfw.get_window_content_scale(window)
+        self.sx, self.sy = float(sx), float(sy)
+        # (optional) window size in points
+        self.win_w_pt, self.win_h_pt = glfw.get_window_size(window)
+
+def points_to_pixels(xy_pt, v: ViewportInfo):
+    """GLFW points (origin top-left) -> pixels (origin bottom-left)."""
+    x_px = xy_pt[0] * v.sx
+    y_px_top = xy_pt[1] * v.sy
+    y_px = (v.vy + v.vh) - y_px_top  # flip Y once into GL space
+    return np.array([x_px, y_px], float)
+
+def pixels_to_points(xy_px, v: ViewportInfo):
+    """Pixels (origin bottom-left) -> GLFW points (origin top-left)."""
+    x_pt = xy_px[0] / v.sx
+    y_pt_top = (v.vy + v.vh) - xy_px[1]
+    y_pt = y_pt_top / v.sy
+    return np.array([x_pt, y_pt], float)
+
+def pixels_to_ndc(xy_px, v: ViewportInfo):
+    """Pixels (origin bottom-left) -> NDC ([-1,1]^2)."""
+    x_ndc = ((xy_px[0] - v.vx) / v.vw) * 2.0 - 1.0
+    y_ndc = ((xy_px[1] - v.vy) / v.vh) * 2.0 - 1.0
+    return np.array([x_ndc, y_ndc], float)
+
+def ndc_to_pixels(ndc_xy, v: ViewportInfo):
+    """NDC -> pixels (origin bottom-left)."""
+    x_px = v.vx + (ndc_xy[0] + 1.0) * 0.5 * v.vw
+    y_px = v.vy + (ndc_xy[1] + 1.0) * 0.5 * v.vh
+    return np.array([x_px, y_px], float)
+
+def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo):
+    """GLFW points -> NDC."""
+    return pixels_to_ndc(points_to_pixels(cursor_xy_points, v), v)
 
 def create_isolines(u_vals, v_vals):
     """
@@ -261,7 +307,7 @@ def nurbs_rational_snap_cert(ctrl4: np.ndarray,
     # di = n^T * P̂_i
     d_x = ctrl4 @ n_x
     d_y = ctrl4 @ n_y
-    
+
     # Interval hulls (Bernstein convex-hull property)
     min_x, max_x = np.min(d_x), np.max(d_x)
     min_y, max_y = np.min(d_y), np.max(d_y)
@@ -272,10 +318,10 @@ def nurbs_rational_snap_cert(ctrl4: np.ndarray,
             return (a_min <= 0.0) and (a_max >= 0.0)
         # Band test: interval intersects [-tol, tol]
         return not (a_max < -tol or a_min > tol)
-    
+
     hit_x = crosses_zero_band(min_x, max_x, eps)
     hit_y = crosses_zero_band(min_y, max_y, eps)
-    
+
     ok = bool(hit_x and hit_y)
     
     # A small ranking score: distance of each interval from the zero band, max of the two
@@ -295,52 +341,40 @@ import numpy as np
 
 from mmcore.numeric.bern import bernstein_eval_1d, bern_roots_1d
 
-
-# --- projective pixel-planes (same construction as before) -------------------
 def pixel_planes_world(M_world_to_clip: np.ndarray, u_ndc: float, v_ndc: float):
-    p_x = np.array([1.0, 0.0, 0.0, -u_ndc], dtype=float)  # x - u w = 0
-    p_y = np.array([0.0, 1.0, 0.0, -v_ndc], dtype=float)  # y - v w = 0
-    MinvT = np.linalg.inv(M_world_to_clip).T
-    n_x = MinvT @ p_x
-    n_y = MinvT @ p_y
-    return n_x, n_y
-
+    # x' - u*w' = 0,  y' - v*w' = 0 in clip space
+    p_x = np.array([1.0, 0.0, 0.0, -u_ndc], dtype=float)
+    p_y = np.array([0.0, 1.0, 0.0, -v_ndc], dtype=float)
+    MT = M_world_to_clip.T              # <-- GPU-consistent pullback
+    return MT @ p_x, MT @ p_y
 
 # --- main: snap on a rational Bézier using your 1D Bernstein rooter ----------
 def snap_bezier_rational_with_bern_roots(
-        ctrl4: np.ndarray,  # (n+1,4) homogeneous [wx,wy,wz,w] in WORLD space
-        M_world_to_clip: np.ndarray,  # (4,4) PV or PVM
-        u_ndc: float, v_ndc: float,  # pixel in NDC [-1,1]^2
-        bern_roots_1d=bern_roots_1d,  # your function
-        eval_scalar=bernstein_eval_1d,  # scalar evaluator (can pass your own)
-        eps_root: float = 1e-6,  # tolerance used by your rooter
-        cross_tol: float = 1e-6  # |other residual| acceptance at candidate u
+    ctrl4, M_world_to_clip, u_ndc, v_ndc,
+    bern_roots_1d=bern_roots_1d,
+    eval_scalar=bernstein_eval_1d,
+    eps_root=1e-6,
+    cross_tol=1e-5,     # a bit more forgiving
+    band=1e-8
 ):
-    """
-    Returns (hit: bool, u_star: float|None, P_world: (3,)|None, score: float)
-    score is sqrt(rx^2+ry^2) at u_star (smaller is better).
-    """
-    
-    # 1) build world-space planes for the pixel line
-    
-    n_x, n_y = pixel_planes_world(M_world_to_clip, u_ndc, v_ndc)
-    
-    # 2) build scalar Bernstein coefficient arrays for r_x and r_y
-    #    (dot plane with each homogeneous control point)
-    rx_ctrl = (ctrl4 @ n_x).astype(float)  # shape (n+1,)
-    ry_ctrl = (ctrl4 @ n_y).astype(float)  # shape (n+1,)
-    
-    # Quick cull: convex-hull band test—if either interval misses 0, no snap
-    if (rx_ctrl.min() > 0 and rx_ctrl.max() > 0) or (rx_ctrl.min() < 0 and rx_ctrl.max() < 0):
-        return False, None, None, float('inf')
-    if (ry_ctrl.min() > 0 and ry_ctrl.max() > 0) or (ry_ctrl.min() < 0 and ry_ctrl.max() < 0):
-        return False, None, None, float('inf')
-    
-    # 3) find 1D roots independently
+    # Clip-space pixel planes: x' - u*w' = 0  and  y' - v*w' = 0
+    p_x = np.array([1.0, 0.0, 0.0, -u_ndc], dtype=float)
+    p_y = np.array([0.0, 1.0, 0.0, -v_ndc], dtype=float)
+
+    # Transform control net to CLIP once (matches shader path exactly)
+    clip_ctrl = (M_world_to_clip @ ctrl4.T).T  # (n+1, 4)
+
+    # Scalar Bézier control values for residuals
+    rx_ctrl = clip_ctrl @ p_x
+    ry_ctrl = clip_ctrl @ p_y
+
+    # Interval band cull (cheap and robust)
+    if (rx_ctrl.max() < -band) or (rx_ctrl.min() > band): return False, None, None, float('inf')
+    if (ry_ctrl.max() < -band) or (ry_ctrl.min() > band): return False, None, None, float('inf')
+
     roots_x = bern_roots_1d(rx_ctrl, eps=eps_root).roots
     roots_y = bern_roots_1d(ry_ctrl, eps=eps_root).roots
-    
-    # 4) test cross-residuals at each candidate
+
     candidates = []
     for u in roots_x:
         if 0.0 < u < 1.0:
@@ -354,27 +388,22 @@ def snap_bezier_rational_with_bern_roots(
             if abs(rx) <= cross_tol:
                 ry = eval_scalar(ry_ctrl, float(u))
                 candidates.append((float(u), float(np.hypot(rx, ry))))
-    
+
     if not candidates:
         return False, None, None, float('inf')
-    
-    # 5) pick best u by smallest combined residual
+
     u_star, score = min(candidates, key=lambda t: t[1])
-    
-    # 6) dehomogenize point on curve (cheap de Casteljau)
-    #    small local eval to place the cursor; reuse your existing de Casteljau if preferred
-    def eval_homo(ctrl: np.ndarray, u: float) -> np.ndarray:
-        a = ctrl.astype(float).copy()
-        for _ in range(len(a) - 1):
-            a = (1.0 - u) * a[:-1] + u * a[1:]
-        return a[0]
-    
-    Ch = eval_homo(ctrl4, u_star)
+
+    # Evaluate world point at u_star using homogeneous De Casteljau
+    a = ctrl4.astype(float).copy()
+    for _ in range(len(a) - 1):
+        a = (1.0 - u_star) * a[:-1] + u_star * a[1:]
+    Ch = a[0]
     w = Ch[3]
     if abs(w) < 1e-30:
         return False, None, None, score
+
     Pw = Ch[:3] / w
-    
     return True, float(u_star), Pw, float(score)
 
 
@@ -393,92 +422,28 @@ def bezier_eval_homog(ctrl4: np.ndarray, u: float) -> np.ndarray:
     for _ in range(n):
         a = (1.0 - u) * a[:-1] + u * a[1:]
     return a[0]
+def cursor_from_curve_param_v2(ctrl4, u, M_world_to_clip, v: ViewportInfo, eps_w: float = 1e-30):
+        # Evaluate homogeneous Bézier
+        a = ctrl4.astype(float).copy()
+        for _ in range(len(a) - 1):
+            a = (1.0 - u) * a[:-1] + u * a[1:]
+        Ch = a[0]  # [X, Y, Z, W]
+        w = Ch[3]
+        world = (Ch[:3] / w) if abs(w) > eps_w else np.array([np.nan] * 3)
 
+        # ---- compute clip from EUCLIDEAN point with the GPU matrix ----
+        P_eu = np.array([world[0], world[1], world[2], 1.0], dtype=float)
+        clip = M_world_to_clip @ P_eu
+        if abs(clip[3]) <= eps_w:
+            ndc = np.array([np.nan] * 3)
+            pixels = points = np.array([np.nan] * 2)
+        else:
+            ndc = clip[:3] / clip[3]
+            pixels = ndc_to_pixels(ndc[:2], v)
+            points = pixels_to_points(pixels, v)
 
-# --- NDC -> pixels helper ----------------------------------------------------
-def ndc_to_pixels(ndc_xy: np.ndarray, width: int, height: int, origin: str = "top-left") -> np.ndarray:
-    """
-    Map NDC (-1..1) to pixel coords. origin: "top-left" or "bottom-left".
-    """
-    x_ndc, y_ndc = ndc_xy
-    x_px = (x_ndc * 0.5 + 0.5) * width
-    y_px_ndc_up = (y_ndc * 0.5 + 0.5) * height  # 0 at bottom if origin=bottom-left
-    if origin == "top-left":
-        y_px = height - y_px_ndc_up
-    else:
-        y_px = y_px_ndc_up
-    return np.array([x_px, y_px], dtype=float)
-
-
-# --- Main utility ------------------------------------------------------------
-def cursor_from_curve_param(
-        ctrl4: np.ndarray,
-        u: float,
-        M_world_to_clip: np.ndarray,
-        viewport_size: tuple[int, int],
-        origin: str = "top-left",
-        eps_w: float = 1e-30,
-):
-    """
-    Compute cursor/screen coordinates for a rational Bézier at parameter u.
-
-    Parameters
-    ----------
-    ctrl4 : (n+1, 4)
-        Homogeneous control points [w*x, w*y, w*z, w] in WORLD space.
-    u : float
-        Parameter in [0,1].
-    M_world_to_clip : (4,4)
-        Combined projection * view *( * model ) matrix mapping WORLD homogeneous to CLIP.
-    viewport_size : (width, height)
-        Viewport dimensions in pixels.
-    origin : str
-        "top-left" (usual UI) or "bottom-left" (GL convention).
-    eps_w : float
-        Guard for near-zero w.
-
-    Returns
-    -------
-    result : dict
-        {
-          "pixel": (x_px, y_px),
-          "ndc": (x_ndc, y_ndc, z_ndc),
-          "clip": (x_clip, y_clip, z_clip, w_clip),
-          "world": (x_world, y_world, z_world)
-        }
-    """
-    width, height = viewport_size
-    
-    # 1) evaluate homogeneous world point on the curve
-    Ch = bezier_eval_homog(ctrl4, u)  # [Xh, Yh, Zh, Wh]
-    Wh = Ch[3]
-    if abs(Wh) < eps_w:
-        # Degenerate parameter (on/near w=0). Nudge u or early return.
-        # Here we early-return with NaNs for world but still try to carry on for clip/ndc.
-        world_pt = np.array([np.nan, np.nan, np.nan], dtype=float)
-    else:
-        world_pt = Ch[:3] / Wh
-    
-    # 2) world homogeneous -> clip
-    clip = M_world_to_clip @ Ch  # [x', y', z', w']
-    w_clip = clip[3]
-    
-    # 3) perspective divide -> NDC
-    if abs(w_clip) < eps_w:
-        # Off the view frustum / at infinity: mark NDC as NaN
-        ndc = np.array([np.nan, np.nan, np.nan], dtype=float)
-        pixel = np.array([np.nan, np.nan], dtype=float)
-    else:
-        ndc = clip[:3] / w_clip  # (x_ndc, y_ndc, z_ndc) in [-1,1]
-        pixel = ndc_to_pixels(ndc[:2], width, height, origin=origin)
-    
-    return {
-        "pixel": tuple(pixel.tolist()),
-        "ndc": tuple(ndc.tolist()),
-        "clip": tuple(clip.tolist()),
-        "world": tuple(world_pt.tolist()),
-    }
-
+        return {"points": tuple(points), "pixels": tuple(pixels),
+                "ndc": tuple(ndc), "world": tuple(world), "clip": tuple(clip)}
 
 def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
    
@@ -495,37 +460,6 @@ def _gen_cpts_to_display(scalar_net, interval:list[tuple[float,float]]=None):
     Pts[..., :-1] = np.moveaxis(mgr, 0, -1)
     
     return Pts
-# Keep this as your single source of truth
-class ViewportInfo:
-    def __init__(self, window):
-        # points (UI units)
-        self.win_w_pt, self.win_h_pt = glfw.get_window_size(window)
-        # framebuffer (pixels)
-        self.fb_w_px, self.fb_h_px = glfw.get_framebuffer_size(window)
-        # content scale (points -> pixels)
-        self.sx, self.sy = glfw.get_window_content_scale(window)
-        # GL viewport (pixels). Usually (0,0, fb_w, fb_h)
-        vx, vy, vw, vh = glGetIntegerv(GL_VIEWPORT)
-        self.viewport = (int(vx), int(vy), int(vw), int(vh))
-
-def points_to_pixels(xy_pt, v: ViewportInfo):
-    return np.array([xy_pt[0]*v.sx, v.fb_h_px - xy_pt[1]*v.sy], float)  # flip Y once
-
-def pixels_to_points(xy_px, v: ViewportInfo):
-    return np.array([xy_px[0]/v.sx, (v.fb_h_px - xy_px[1])/v.sy], float)  # flip back
-
-def pixels_to_ndc(xy_px, v: ViewportInfo):
-    vx, vy, vw, vh = v.viewport
-    x_ndc = ((xy_px[0] - vx)/vw)*2.0 - 1.0
-    y_ndc = ((xy_px[1] - vy)/vh)*2.0 - 1.0
-    return np.array([x_ndc, y_ndc], float)
-
-def ndc_to_pixels(ndc_xy, v: ViewportInfo):
-    vx, vy, vw, vh = v.viewport
-    x_px = vx + (ndc_xy[0] + 1.0)*0.5*vw
-    y_px = vy + (ndc_xy[1] + 1.0)*0.5*vh
-    return np.array([x_px, y_px], float)
-
 
 class CADRenderer:
 
@@ -588,6 +522,7 @@ class CADRenderer:
         self._hcurves=[]
         self._snap_cache=dict()
         self._snap_mode=True
+        self._warping_cursor = False
         #self._run_thread=threading.Thread(target=self._run, name="renderer3dv2", daemon=True)
     
     def create_window(self):
@@ -645,34 +580,23 @@ class CADRenderer:
         
         self.framebuffer_size = (width, height)
         self._needs_to_update=True
-    
-      
-    def _mouse_button_callback(self, window, button, action, mods):
 
-        #print("mouse_move", window, button, action, mods)
+    def _mouse_button_callback(self, window, button, action, mods):
         if button == glfw.MOUSE_BUTTON_LEFT:
-            # Check if CMD (Control on macOS) is pressed
             if mods & glfw.MOD_SHIFT:
-                #print("Left click + SHIFT")
                 self.is_panning = action == glfw.PRESS
             else:
                 self.is_dragging = action == glfw.PRESS
         if button == glfw.MOUSE_BUTTON_RIGHT:
-            #print("Right click")
             self.is_panning = action == glfw.PRESS
 
         if self.is_dragging or self.is_panning:
-            x, y = glfw.get_cursor_pos(window)
-            # Scale cursor position for Retina displays
-            fb_width, fb_height = self.framebuffer_size
-            win_width, win_height = glfw.get_window_size(window)
-            x *= fb_width / win_width
-            y *= fb_height / win_height
-            self.last_mouse_pos = np.array([x, y])
-        
+            x_pt, y_pt = glfw.get_cursor_pos(window)
+            v = ViewportInfo(window)
+            self.last_mouse_pos = points_to_pixels((x_pt, y_pt), v)
+
         self._needs_to_update = True
-    
-     
+
     def setup_shaders(self):
         vertex_shader_source = """
         #version 410
@@ -710,6 +634,7 @@ class CADRenderer:
         glDeleteShader(fs)
         self.shader_program = prog
 
+
     def update_camera_position(self):
         """Update camera position based on scene geometry"""
         if not self.auto_position_camera:
@@ -729,7 +654,16 @@ class CADRenderer:
             self.camera_pos = camera_data.pos
             self.camera_target = camera_data.target
             self.zoom = camera_data.zoom
+    def check(self):
+        v = ViewportInfo(self.window)
+        print("viewport(px):", (v.vx, v.vy, v.vw, v.vh))
+        print("framebuffer(px):", (v.fb_w_px, v.fb_h_px))
+        print("content_scale:", (v.sx, v.sy))
+        # Roundtrip check
+        pt_dbg = np.array([200.0, 300.0])
+        rt = pixels_to_points(points_to_pixels(pt_dbg, v), v)
 
+        print("roundtrip error (points):", np.linalg.norm(rt - pt_dbg))
     def add_mesh(
         self,
         vertices: np.ndarray,
@@ -766,7 +700,7 @@ class CADRenderer:
             self._temporal_points.append(pt)
         else:
             self.points.append(pt)
-        self.update_camera_position()
+
         return pt
         
 
@@ -785,82 +719,50 @@ class CADRenderer:
         self.width=width
         self.height=height
         self._needs_to_update = True
-    
-    def _mouse_move_callback(self, window, x, y):
-        #print("mouse_move",window, x, y)
-        # Scale cursor position for Retina displays
-   
-        fb_width, fb_height = self.framebuffer_size
-        win_width, win_height = glfw.get_window_size(window)
-        x *= fb_width / win_width
-        y *= fb_height / win_height
 
-        current_pos = np.array([x, y])
-        
-        
+    def _mouse_move_callback(self, window, x_pt, y_pt):
+        v = ViewportInfo(window)
+        if self._warping_cursor:
+            self.last_mouse_pos = points_to_pixels((x_pt, y_pt), v)
+            self._warping_cursor = False
+            return
+
+        current_pos_px = points_to_pixels((x_pt, y_pt), v)
+
         if self.is_dragging or self.is_panning:
-            delta = current_pos - self.last_mouse_pos
+            delta = current_pos_px - self.last_mouse_pos
 
+            fb_w, fb_h = v.vw, v.vh
+            aspect = fb_w / max(fb_h, 1)
             if self.is_panning:
-                
-                # Pan the camera
-                # Convert screen delta to world space delta
-                aspect = fb_width / fb_height
-                world_delta_x = (delta[0] / fb_width) * self.zoom * 2 * aspect
-                world_delta_y = -(delta[1] / fb_height) * self.zoom * 2
-
-                # Move camera and target together to pan
+                world_delta_x = (delta[0] / max(fb_w, 1)) * self.zoom * 2 * aspect
+                world_delta_y = -(delta[1] / max(fb_h, 1)) * self.zoom * 2
                 pan_vector = self.camera_right * world_delta_x + self.camera_up * world_delta_y
                 self.camera_pos -= pan_vector
                 self.camera_target -= pan_vector
-            
+
             elif self.is_dragging and not self.free_axis:
-                
-                # Rotate camera around target
                 sensitivity = 0.005
-           
-                
-                #right = np.cross(forward, self.camera_up)
-                
-              
-     
-     
-                    #k=(np.abs((np.pi / 2)-np.abs(delta[1]))/np.pi)
-                rotation_x = pyrr.matrix44.create_from_axis_rotation(self.camera_up, delta[0] * sensitivity, dtype=np.float32)
-                rotation_y = pyrr.matrix44.create_from_axis_rotation(self.camera_right, delta[1] * sensitivity, dtype=np.float32)
-                #rotation_z = pyrr.matrix44.create_from_z_rotation(delta[2] * sensitivity)
-    
-                # Apply rotations
-                camera_to_target = self.camera_pos - self.camera_target
-                
-                camera_to_target = np.dot(rotation_x, np.append(camera_to_target, 1.0))[:3]
-                camera_to_target = np.dot(rotation_y, np.append(camera_to_target, 1.0))[:3]
-                #camera_to_target = np.dot(rotation_z, np.append(camera_to_target, 1.0))[:3]
-                #camera_to_target = np.dot(rotation_z2, np.append(camera_to_target, 1.0))[:3]
-                self.camera_pos = self.camera_target + camera_to_target
-                
-               
-               
-               
-                  
-                    
-            elif (self.is_dragging and self.free_axis ) :
-                # Rotate camera around target
-                sensitivity = 0.005
+                rotation_x = pyrr.matrix44.create_from_axis_rotation(self.camera_up, delta[0] * sensitivity,
+                                                                     dtype=np.float32)
+                rotation_y = pyrr.matrix44.create_from_axis_rotation(self.camera_right, delta[1] * sensitivity,
+                                                                     dtype=np.float32)
                 camera_to_target = self.camera_pos - self.camera_target
 
+                camera_to_target = np.dot(rotation_x, np.append(camera_to_target, 1.0))[:3]
+                camera_to_target = np.dot(rotation_y, np.append(camera_to_target, 1.0))[:3]
+                self.camera_pos = self.camera_target + camera_to_target
+
+            elif self.is_dragging and self.free_axis:
+                sensitivity = 0.005
+                camera_to_target = self.camera_pos - self.camera_target
                 if np.linalg.norm(camera_to_target) > 1e-8:
                     yaw_angle = delta[0] * sensitivity
                     pitch_angle = delta[1] * sensitivity
-
-                    if abs(yaw_angle) > 1e-8:
-                        up_length = np.linalg.norm(self.camera_up)
-                        if up_length > 1e-8:
-                            yaw_axis = self.camera_up / up_length
-                            rotation_yaw = pyrr.matrix44.create_from_axis_rotation(yaw_axis, yaw_angle, dtype=np.float32)
-                            camera_to_target = np.dot(rotation_yaw, np.append(camera_to_target, 1.0))[:3]
-
-                    # Compute right axis from yaw-updated camera vector to maintain orthogonality
+                    if abs(yaw_angle) > 1e-8 and np.linalg.norm(self.camera_up) > 1e-8:
+                        yaw_axis = self.camera_up / np.linalg.norm(self.camera_up)
+                        rotation_yaw = pyrr.matrix44.create_from_axis_rotation(yaw_axis, yaw_angle, dtype=np.float32)
+                        camera_to_target = np.dot(rotation_yaw, np.append(camera_to_target, 1.0))[:3]
                     temp_pos = self.camera_target + camera_to_target
                     forward = self.camera_target - temp_pos
                     if np.linalg.norm(forward) < 1e-8:
@@ -870,14 +772,13 @@ class CADRenderer:
                     if np.linalg.norm(right_axis) < 1e-8:
                         right_axis = self.camera_right
                     right_axis /= np.linalg.norm(right_axis)
-
                     if abs(pitch_angle) > 1e-8:
-                        rotation_pitch = pyrr.matrix44.create_from_axis_rotation(right_axis, pitch_angle, dtype=np.float32)
+                        rotation_pitch = pyrr.matrix44.create_from_axis_rotation(right_axis, pitch_angle,
+                                                                                 dtype=np.float32)
                         camera_to_target = np.dot(rotation_pitch, np.append(camera_to_target, 1.0))[:3]
                         self.camera_up = np.dot(rotation_pitch, np.append(self.camera_up, 1.0))[:3]
 
                 self.camera_pos = self.camera_target + camera_to_target
-                # Re-orthonormalize camera basis to keep controls stable for any up vector
                 forward = self.camera_target - self.camera_pos
                 if np.linalg.norm(forward) > 1e-8 and np.linalg.norm(self.camera_up) > 1e-8:
                     forward /= np.linalg.norm(forward)
@@ -887,17 +788,52 @@ class CADRenderer:
                         self.camera_up = np.cross(right, forward)
                         self.camera_up /= np.linalg.norm(self.camera_up)
 
-            self.last_mouse_pos = current_pos
+            self.last_mouse_pos = current_pos_px
+
         else:
-            snap=self.perform_snap()
-            if snap is not None:
-                glfw.set_cursor_pos(window,snap[0],snap[1])
-                snap[0] *= fb_width / win_width
-                snap[1] *= fb_height / win_height
-                current_pos[:]=snap
-        self.last_mouse_pos = current_pos
+            snap_pts = self.perform_snap()
+            if snap_pts is not None:
+                self._warping_cursor = True
+                glfw.set_cursor_pos(window, float(snap_pts[0]), float(snap_pts[1]))
+                current_pos_px = points_to_pixels(snap_pts, v)
+            self.last_mouse_pos = current_pos_px
+
         self._needs_to_update = True
 
+    def perform_snap(self):
+        vinfo = ViewportInfo(self.window)
+
+        # Clamp input cursor to the window content rect
+        cursor_xy_points = glfw.get_cursor_pos(self.window)
+
+        ndc_xy = glfw_cursor_to_ndc(cursor_xy_points, vinfo)
+        u_ndc, v_ndc = float(ndc_xy[0]), float(ndc_xy[1])
+
+        M = self.M_gpu  # projection @ view @ model
+
+        best = None
+        for i, hcurve in enumerate(self._hcurves):
+            ok, u_star, Pw, score = snap_bezier_rational_with_bern_roots(
+                hcurve, M, u_ndc, v_ndc, bern_roots_1d=bern_roots_1d,
+                cross_tol=self.snap_distance  # try 1e-5 .. 3e-5 if needed
+            )
+            if not ok:
+                continue
+
+            res = cursor_from_curve_param_v2(hcurve, u_star, M, vinfo)
+            pts = np.array(res["points"], float)
+            if np.any(np.isnan(pts)):
+                continue
+
+            if (best is None) or (score < best[0]):
+                best = (score, pts, res["world"], u_star, i)
+
+        if best:
+            score, pts, world, u_star, idx = best
+            self.add_point(world, np.array([1., 1., 0.]), temporary=True)
+            return pts
+
+        return None
 
     def _scroll_callback(self, window, xoffset, yoffset):
         # Modify zoom for orthographic projection
@@ -910,11 +846,10 @@ class CADRenderer:
     @property
     def camera_right(self):
         # Get the camera's right vector
-        forward = self.camera_target - self.camera_pos
+        forward =  self.camera_target-self.camera_pos
         forward = forward / np.linalg.norm(forward)
-        if 1-abs(np.dot(forward, self.camera_up)) < 1e-6:
-            return np.array([1.0, 0.0, 0.0])
-        right = np.cross(forward, self.camera_up)
+
+        right = np.cross( forward,self.camera_up)
         
 
         return right / np.linalg.norm(right)
@@ -979,21 +914,40 @@ class CADRenderer:
         if self._needs_to_update:
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             glClearColor(*self._background_color)
-    
+
             w, h = self.framebuffer_size
             aspect = w / h
+
+            # Build NumPy-side matrices (row-major math is fine)
             self.projection = pyrr.matrix44.create_orthogonal_projection(
-                -self.zoom * aspect, self.zoom * aspect, -self.zoom, self.zoom, self.near, self.far, dtype=np.float32
+                -self.zoom * aspect, self.zoom * aspect,
+                -self.zoom, self.zoom, self.near, self.far, dtype=np.float32
             )
-            
-            
-            self.view = pyrr.matrix44.create_look_at(self.camera_pos, self.camera_target, self.camera_up, dtype=np.float32)
+            self.view = pyrr.matrix44.create_look_at(self.camera_pos, self.camera_target, self.camera_up,
+                                                     dtype=np.float32)
             self.model = pyrr.matrix44.create_identity(dtype=np.float32)
-            
+
+            # ---- UPLOAD TRANSPOSED ----
             glUseProgram(self.shader_program)
-            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "projection"), 1, GL_FALSE, self.projection)
-            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "view"), 1, GL_FALSE, self.view)
-            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "model"), 1, GL_FALSE, self.model)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "projection"), 1, GL_TRUE, self.projection)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "view"), 1, GL_TRUE, self.view)
+            glUniformMatrix4fv(glGetUniformLocation(self.shader_program, "model"), 1, GL_TRUE, self.model)
+
+            # CPU composite must mirror what the shader actually uses
+            #self.M_gpu = self.projection @ self.view @ self.model
+            self.M_gpu = self.projection.T @ self.view.T @ self.model.T
+            # ---- COMPOSITE USED BY GPU (and by the CPU snap code) ----
+            # IMPORTANT: this is the *exact* matrix the shader uses
+            print("P:", self.projection.T)
+            print("V:", self.view.T)
+            print("M:", self.model.T)
+            print("M_gpu = P @ V @ M:", self.M_gpu )
+            print("|P|,|V|,|M|:", np.linalg.norm(self.projection), np.linalg.norm(self.view),
+                  np.linalg.norm(self.model))
+            print("Using M_gpu = P @ V @ M,  ||M_gpu||:", np.linalg.norm(self.M_gpu))
+
+
+
             # Draw meshes first (transparent)
             for m in self.meshes:
                 self.render_mesh(m)
@@ -1083,39 +1037,8 @@ class CADRenderer:
         else:
             
             self._needs_to_update = False
-   
-        
-    def perform_snap(self):
-        cursor_xy_points = glfw.get_cursor_pos(self.window)
-        content_scale_xy = glfw.get_window_content_scale(self.window)
-        viewport_xywh_pixels = glGetIntegerv(GL_VIEWPORT)
-        print('snap: (cursor_xy_points/content_scale_xy/viewport_xywh_pixels)',cursor_xy_points,content_scale_xy,viewport_xywh_pixels)
-        ndc_xy=glfw_cursor_to_ndc(cursor_xy_points, content_scale_xy,viewport_xywh_pixels, origin_ui = "top-left")
-        
-        u_ndc, v_ndc = float(ndc_xy[0]), float(ndc_xy[1])
-        
-        new_cursor_xy_points=None
-     
-        for i in range(len(self._hcurves)):
-           
-                success, param,*_=snap_bezier_rational_with_bern_roots(self._hcurves[i],self.projection, u_ndc,v_ndc,cross_tol=self.snap_distance)
-                if success:
-                   
-                    res=cursor_from_curve_param(self._hcurves[i], param, self.projection, glfw.get_framebuffer_size(self.window) )
-                    ndc_xy=res['ndc'][0],res['ndc'][1]
-                    self.add_point(res['world'], np.array([1.,1.,0.]), temporary=True)
-                    pixel_xy = ndc_to_pixels(ndc_xy, viewport_xywh_pixels)
-                    new_cursor_xy_points = pixels_to_cursor_points(pixel_xy, content_scale_xy)
-                  
-        if new_cursor_xy_points is not None:
-            
-            print("snap",cursor_xy_points,'->',new_cursor_xy_points)
 
-        
-        return new_cursor_xy_points
-        
-        
-        
+
     def setup_focus_callback(self, window):
         glfw.set_window_focus_callback(window, self._focus_callback)
         
@@ -1154,18 +1077,15 @@ class CADRenderer:
                     
                  
                     snap = self.perform_snap()
-                    if snap is not None:
-                       
-                        self._snap_mode=False
+
                         #glfw.set_cursor_pos(self.window, snap[0],snap[1])
-                        
-               
-              
+
+
                 self.render()
                 
              
                 
-                self._temporal_points.clear()
+
                 glfw.swap_buffers(self.window)
                 
                 glfw.wait_events()
@@ -1221,7 +1141,7 @@ class CADRenderer:
         from mmcore.geom._nurbs_knots import decompose_curve
         
         for d in decompose_curve(crv):
-            hpoints = to_homogeneous_1d(d.control_points,d.weights)
+            hpoints = np.c_[d.control_points,d.weights[..., np.newaxis]]
             self._hcurves.append(hpoints)
         #print(crv)
         params,du_list,evals,s_list=adaptive_curve_sampler(crv,self.sampling_tol,max_param_step_fraction=24)
@@ -1356,66 +1276,6 @@ class CADRenderer:
 
 import numpy as np
 
-# ---- Points <-> Pixels helpers (GLFW/macOS) ---------------------------------
-def cursor_points_to_pixels(cursor_xy_points, content_scale_xy):
-    """GLFW cursor is in window 'points'. Convert to framebuffer 'pixels'."""
-    sx, sy = content_scale_xy  # from glfwGetWindowContentScale
-    x_pt, y_pt = cursor_xy_points
-    return np.array([x_pt * sx, y_pt * sy], dtype=float)
-
-def pixels_to_ndc(pixel_xy, viewport_xywh_pixels):
-    """
-    Map framebuffer pixel coords (origin at bottom-left in GL) to NDC.
-    pixel_xy: (x_px, y_px) in framebuffer pixels, origin bottom-left
-    viewport_xywh_pixels: (vx, vy, vw, vh) from glGetIntegerv(GL_VIEWPORT)
-    """
-    vx, vy, vw, vh = viewport_xywh_pixels
-    x_px, y_px = pixel_xy
-    # Window-to-NDC mapping (OpenGL spec)
-    x_ndc =  ( (x_px - vx) / vw ) * 2.0 - 1.0
-    y_ndc =  ( (y_px - vy) / vh ) * 2.0 - 1.0
-    return np.array([x_ndc, y_ndc], dtype=float)
-
-def ndc_to_pixels(ndc_xy, viewport_xywh_pixels):
-    """Inverse of the above (NDC -> framebuffer pixels)."""
-    vx, vy, vw, vh = viewport_xywh_pixels
-    x_ndc, y_ndc = ndc_xy
-    x_px = vx + (x_ndc + 1.0) * 0.5 * vw
-    y_px = vy + (y_ndc + 1.0) * 0.5 * vh
-    return np.array([x_px, y_px], dtype=float)
-
-def pixels_to_cursor_points(pixel_xy, content_scale_xy):
-    """Framebuffer pixels -> window points (for UI cursors)."""
-    sx, sy = content_scale_xy
-    x_px, y_px = pixel_xy
-    return np.array([x_px / sx, y_px / sy], dtype=float)
-
-# ---- GLFW-friendly conversion for the cursor to NDC -------------------------
-def glfw_cursor_to_ndc(cursor_xy_points,
-                       content_scale_xy,
-                       viewport_xywh_pixels,
-                       window_height_points=None,
-                       origin_ui="top-left"):
-    """
-    Convert GLFW cursor (points, origin top-left) -> NDC ([-1,1]^2).
-    - Convert points -> pixels via content scale
-    - Flip Y from top-left UI to GL bottom-left
-    - Apply GL viewport to get NDC
-    """
-    # 1) points -> pixels
-    x_px, y_px = cursor_points_to_pixels(cursor_xy_points, content_scale_xy)
-
-    # 2) UI origin (top-left) -> GL origin (bottom-left)
-    # To do this, we need the framebuffer height in pixels (vh from viewport)
-    vx, vy, vw, vh = viewport_xywh_pixels
-    if origin_ui == "top-left":
-        y_px = vh - y_px  # flip into GL pixel coordinates
-
-    # 3) pixels -> NDC using the active viewport
-    ndc_xy = pixels_to_ndc([x_px, y_px], viewport_xywh_pixels)
-    return ndc_xy  # (x_ndc, y_ndc)
-
-    
 
 if __name__ == "__main__":
     # Example usage
