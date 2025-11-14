@@ -408,6 +408,101 @@ def adaptive_bern_sampler_2d(nu: NDArray[float], tol:float=1e-3):
             stack.extend(de_casteljau_subdivide_2d(subpatch, 0.5, 0.5))
     return quads
 
+import numpy as np
+from numpy.typing import NDArray
+
+def _adaptive_bern_sampler_2d_tri(
+    nu: NDArray[np.float64],
+    tol: float = 1e-3,
+    merge_eps: float | None = None,
+):
+    """
+    Adaptive tessellation of a 2D Bernstein (Bezier) patch control net into a triangular mesh.
+
+    Parameters
+    ----------
+    nu : (m,n,3) float
+        Control net (or any 2D grid of 3D points) for the patch. Only its corners are emitted
+        for leaf quads; planarity/flatness tests use all control points in the subpatch.
+    tol : float
+        Flatness tolerance. If the best-fit plane max deviation < tol, accept the quad.
+        Also accepts if the AABB diagonal of the subpatch < tol (very small patch).
+    merge_eps : float or None
+        Vertex deduplication tolerance. Defaults to tol * 0.25 if None.
+
+    Returns
+    -------
+    V : (num_vertices, 3) float
+        Vertex array.
+    F : (num_faces, 3) int
+        Triangle vertex indices (CCW per emitted quad).
+    """
+    if merge_eps is None:
+        merge_eps = tol * 0.25
+
+    # Work queue over subpatches (BFS for better locality)
+    stack = [nu]
+    quads: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+
+    while stack:
+        subpatch = stack.pop(0)
+
+        # Flatten control points for tests
+        P = subpatch.reshape((-1, subpatch.shape[-1]))
+
+        # Best-fit plane flatness
+        centroid, normal, max_abs_dev, dists = fit_plane_svd(P)
+
+        if max_abs_dev < tol:
+            # Use corners in consistent order: (u0v0, u0v1, u1v1, u1v0)
+            quads.append((subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1], subpatch[-1, 0]))
+            continue
+
+        # Very small aabb — safe to collapse to a quad
+        if np.array(aabb(P)).max() < tol:
+            quads.append((subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1], subpatch[-1, 0]))
+            continue
+
+        # Otherwise subdivide
+        stack.extend(de_casteljau_subdivide_2d(subpatch, 0.5, 0.5))
+
+    # ---- Build indexed triangle mesh with vertex dedup ----
+    verts: list[np.ndarray] = []
+    faces: list[tuple[int, int, int]] = []
+    vmap: dict[tuple[int, int, int], int] = {}
+
+    inv = 1.0 / merge_eps
+
+    def vkey(p: np.ndarray) -> tuple[int, int, int]:
+        # Quantized key for deduplication
+        return tuple(np.round(p * inv).astype(np.int64))
+
+    def add_vertex(p: np.ndarray) -> int:
+        key = vkey(p)
+        idx = vmap.get(key)
+        if idx is None:
+            idx = len(verts)
+            verts.append(p.astype(np.float64, copy=False))
+            vmap[key] = idx
+        return idx
+
+    for (v0, v1, v2, v3) in quads:
+        # Indices (deduped)
+        i0 = add_vertex(v0)
+        i1 = add_vertex(v1)
+        i2 = add_vertex(v2)
+        i3 = add_vertex(v3)
+
+        # Triangulate quad with consistent diagonal (i0 -> i2), CCW per quad ordering.
+        # Faces: (v0, v1, v2) and (v0, v2, v3)
+        faces.append((i0, i1, i2))
+        faces.append((i0, i2, i3))
+
+    V = np.vstack(verts) if verts else np.zeros((0, 3), dtype=np.float64)
+    F = np.array(faces, dtype=np.int64) if faces else np.zeros((0, 3), dtype=np.int64)
+    return V, F
+
+
 
 from mmcore.numeric.aabb import aabb
 

@@ -1,765 +1,593 @@
-import glfw
-import numpy as np
-
-from OpenGL.GL import shaders
-import pyrr
+import math
+import time
+import sys
 from dataclasses import dataclass
-from typing import List, Tuple, Any
+from typing import Optional, Tuple, List
 
-from mmcore.geom.nurbs import NURBSCurve, NURBSSurface, decompose_surface, greville_abscissae
+import numpy as np
+import glfw
+from OpenGL.GL import *
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import (
-    find_boundary_intersections,
-    sort_boundary_intersections,
-    IntersectionPoint
-)
-from mmcore.geom.nurbs_iso import extract_surface_boundaries, extract_isocurve
-from mmcore.topo.mesh.tess import tessellate_surface
 
-DEFAULT_BACKGROUND_COLOR = 158 / 256, 162 / 256, 169 / 256, 1.
-DEFAULT_DARK_BACKGROUND_COLOR = 0.05, 0.05, 0.05, 1.
+# =========================
+# Matrix utilities (row-major)
+# =========================
 
-def nurbs_surface_wireframe_view(surf:NURBSSurface):
-    (u_min,u_max),(v_min,v_max)=surf.interval()
+def orthographic(left, right, bottom, top, near, far) -> np.ndarray:
+    """Standard row-major orthographic projection (OpenGL clip convention)."""
+    rl = right - left
+    tb = top - bottom
+    fn = far - near
+    m = np.eye(4, dtype=np.float32)
+    m[0, 0] = 2.0 / rl
+    m[1, 1] = 2.0 / tb
+    m[2, 2] = -2.0 / fn
+    m[0, 3] = -(right + left) / rl
+    m[1, 3] = -(top + bottom) / tb
+    m[2, 3] = -(far + near) / fn
+    return m
 
-    u_iso=extract_isocurve(surf,(u_min+u_max)*0.5,direction='u')
-    v_iso=extract_isocurve(surf,(v_min+ v_max) * 0.5,direction='v')
-    boundaries=extract_surface_boundaries(surf)
-    return boundaries,(u_iso,v_iso)
+
+def normalize(v: np.ndarray, eps=1e-12) -> np.ndarray:
+    n = np.linalg.norm(v)
+    return v if n < eps else v / n
+
+
+def look_at(eye, target, up) -> np.ndarray:
+    """Row-major LookAt. Upload with transpose=True."""
+    eye = np.array(eye, dtype=np.float32)
+    target = np.array(target, dtype=np.float32)
+    up = np.array(up, dtype=np.float32)
+
+    f = normalize(target - eye)
+    s = normalize(np.cross(f, up))
+    u = np.cross(s, f)
+
+    m = np.eye(4, dtype=np.float32)
+    # Rows:
+    m[0, 0:3] = s
+    m[1, 0:3] = u
+    m[2, 0:3] = -f
+    m[0, 3] = -np.dot(s, eye)
+    m[1, 3] = -np.dot(u, eye)
+    m[2, 3] = np.dot(f, eye)
+    return m
+
+
+# =========================
+# Viewport + conversions
+# =========================
 
 @dataclass
-class Point:
-    position: np.ndarray  # 3D vector
-    color: np.ndarray  # RGB vector
-    size: float
+class ViewportInfo:
+    vx: int; vy: int; vw: int; vh: int
+    fb_w: int; fb_h: int
+    sx: float; sy: float
+    win_w: int; win_h: int
 
 
-@dataclass
-class Wire:
-    vertices: np.ndarray  # Nx3 array of vertices
-    color: np.ndarray  # RGB vector
-    thickness: float  # Thickness in world units
+def read_viewport_info(window) -> ViewportInfo:
+    vx, vy, vw, vh = glGetIntegerv(GL_VIEWPORT)
+    fb_w, fb_h = glfw.get_framebuffer_size(window)
+    sx, sy = glfw.get_window_content_scale(window)
+    win_w, win_h = glfw.get_window_size(window)
+    return ViewportInfo(int(vx), int(vy), int(vw), int(vh),
+                        int(fb_w), int(fb_h),
+                        float(sx), float(sy),
+                        int(win_w), int(win_h))
 
 
-@dataclass
-class Surface:
-    vertices: np.ndarray  # Nx3 array of vertices
-    normals: np.ndarray  # Nx3 array of normals
-    color: np.ndarray  # RGBA vector
-    material: dict  # Material properties
-    vao: int  # Vertex Array Object
-    vbo_vertices: int  # Vertex Buffer Object for vertices
-    vbo_normals: int  # Vertex Buffer Object for normals
-    owner:Any
-@dataclass
-class Light:
-    direction: np.ndarray  # 3D vector
-    color: np.ndarray  # RGB vector
-    intensity: float
+def points_to_pixels(xy_pt, v: ViewportInfo) -> np.ndarray:
+    """GLFW 'points' (origin top-left) -> framebuffer 'pixels' (origin bottom-left)."""
+    x_px = xy_pt[0] * v.sx
+    y_px_top = xy_pt[1] * v.sy
+    y_px = (v.vy + v.vh) - y_px_top
+    return np.array([x_px, y_px], dtype=np.float64)
 
 
-class CADRenderer:
-    def __init__(self, width=800, height=600, background_color=DEFAULT_DARK_BACKGROUND_COLOR):
-        # Initialize window
-        self._background_color = background_color
+def pixels_to_points(xy_px, v: ViewportInfo) -> np.ndarray:
+    """Framebuffer pixels (origin bottom-left) -> GLFW points (origin top-left)."""
+    x_pt = xy_px[0] / v.sx
+    y_top = (v.vy + v.vh) - xy_px[1]
+    y_pt = y_top / v.sy
+    return np.array([x_pt, y_pt], dtype=np.float64)
+
+
+def pixels_to_ndc(xy_px, v: ViewportInfo) -> np.ndarray:
+    x_ndc = ((xy_px[0] - v.vx) / v.vw) * 2.0 - 1.0
+    y_ndc = ((xy_px[1] - v.vy) / v.vh) * 2.0 - 1.0
+    return np.array([x_ndc, y_ndc], dtype=np.float64)
+
+
+def ndc_to_pixels(ndc_xy, v: ViewportInfo) -> np.ndarray:
+    x_px = v.vx + (ndc_xy[0] + 1.0) * 0.5 * v.vw
+    y_px = v.vy + (ndc_xy[1] + 1.0) * 0.5 * v.vh
+    return np.array([x_px, y_px], dtype=np.float64)
+
+
+def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo) -> np.ndarray:
+    return pixels_to_ndc(points_to_pixels(cursor_xy_points, v), v)
+
+
+# =========================
+# Camera (orbit / pan / zoom)
+# =========================
+
+class OrbitCamera:
+    def __init__(self):
+        self.target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        self.distance = 10.0
+        self.yaw = math.radians(35.0)
+        self.pitch = math.radians(30.0)
+        self.up_world = np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Z-up CAD
+        # Ortho zoom (world units half-extent vertically)
+        self.ortho_half_height = 5.0
+        self.near = 0.1
+        self.far = 10000.0
+
+    def eye(self) -> np.ndarray:
+        # Spherical around target with Z-up
+        cp, sp = math.cos(self.pitch), math.sin(self.pitch)
+        cy, sy = math.cos(self.yaw), math.sin(self.yaw)
+        # right = (1,0,0) in world; forward roughly towards -Y at yaw=0
+        dir_world = np.array([cp * cy, cp * sy, sp], dtype=np.float32)
+        return self.target + (-self.distance) * dir_world
+
+    def view_matrix(self) -> np.ndarray:
+        return look_at(self.eye(), self.target, self.up_world)
+
+    def projection_matrix(self, aspect: float) -> np.ndarray:
+        h = self.ortho_half_height
+        w = h * aspect
+        return orthographic(-w, +w, -h, +h, self.near, self.far)
+
+    def orbit(self, dx_pixels: float, dy_pixels: float, v: ViewportInfo):
+        # Sensitivity in radians per pixel
+        s = 2.0 * math.pi / max(v.vw, v.vh)
+        self.yaw -= dx_pixels * s
+        self.pitch -= dy_pixels * s
+        self.pitch = max(-math.radians(89.0), min(math.radians(89.0), self.pitch))
+
+    def pan(self, dx_pixels: float, dy_pixels: float, v: ViewportInfo):
+        # Convert pixels to world units based on current ortho scale
+        aspect = v.vw / max(1, v.vh)
+        h = self.ortho_half_height
+        w = h * aspect
+        # pixels -> NDC -> world delta
+        dx_ndc = (dx_pixels / max(1, v.vw)) * 2.0
+        dy_ndc = (dy_pixels / max(1, v.vh)) * 2.0
+        delta_world = np.array([dx_ndc * w, dy_ndc * h, 0.0], dtype=np.float32)
+
+        # Pan in camera's screen basis: right & up from view matrix
+        V = self.view_matrix()
+        right = V[0, 0:3]  # because we use row-major and upload with transpose=True
+        up = V[1, 0:3]
+        move = right * (-delta_world[0]) + up * (delta_world[1])
+        self.target += move
+
+    def zoom_wheel(self, yoffset: float):
+        # Scale the ortho window
+        factor = math.pow(1.1, -yoffset)
+        self.ortho_half_height = max(1e-4, self.ortho_half_height * factor)
+
+
+# =========================
+# Rational Bézier curve (projective control net)
+# =========================
+
+class RationalBezier:
+    """
+    ctrl4: (n+1,4) array of projective control points:
+        [X,Y,Z,W] = [w*x, w*y, w*z, w]
+    """
+    def __init__(self, ctrl4: np.ndarray):
+        c = np.asarray(ctrl4, dtype=np.float64)
+        if c.ndim != 2 or c.shape[1] != 4:
+            raise ValueError("ctrl4 must be (n+1,4)")
+        self.ctrl4 = c
+
+    def degree(self) -> int:
+        return self.ctrl4.shape[0] - 1
+
+    def de_casteljau_homo(self, u: float) -> np.ndarray:
+        a = self.ctrl4.copy()
+        n = a.shape[0] - 1
+        for _ in range(n):
+            a[:-1, :] = (1.0 - u) * a[:-1, :] + u * a[1:, :]
+            a = a[:-1, :]
+        return a[0]
+
+    def eval_world(self, u: float) -> np.ndarray:
+        Ch = self.de_casteljau_homo(u)
+        if abs(Ch[3]) < 1e-30:
+            return np.array([np.nan, np.nan, np.nan], dtype=np.float64)
+        return Ch[:3] / Ch[3]
+
+    def polyline(self, samples: int = 64) -> np.ndarray:
+        us = np.linspace(0.0, 1.0, samples, dtype=np.float64)
+        pts = [self.eval_world(float(u)) for u in us]
+        return np.array(pts, dtype=np.float32)
+
+
+# =========================
+# Snap engine (projective prefilter + pixel refinement)
+# =========================
+
+def pixel_planes_world(M_world_to_clip_rowmajor_T: np.ndarray, u_ndc: float, v_ndc: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build world-space 4D planes that vanish on the pixel line at (u_ndc,v_ndc).
+    We pass M^T (row-major CPU composite) so we can just do n = M^T @ p.
+    p_x: x' - u * w' = 0, p_y: y' - v * w' = 0
+    """
+    p_x = np.array([1.0, 0.0, 0.0, -u_ndc], dtype=np.float64)
+    p_y = np.array([0.0, 1.0, 0.0, -v_ndc], dtype=np.float64)
+    n_x = M_world_to_clip_rowmajor_T @ p_x
+    n_y = M_world_to_clip_rowmajor_T @ p_y
+    return n_x, n_y
+
+
+def bern_eval_scalar(ctrl: np.ndarray, u: float) -> float:
+    """Scalar Bézier in Bernstein basis (De Casteljau). ctrl: (n+1,)"""
+    a = ctrl.astype(np.float64).copy()
+    n = a.shape[0] - 1
+    for _ in range(n):
+        a[:-1] = (1.0 - u) * a[:-1] + u * a[1:]
+        a = a[:-1]
+    return float(a[0])
+
+
+def snap_curve_to_cursor(curve: RationalBezier,
+                         M_cpu: np.ndarray,  # (P@V@M).T (row-major)
+                         v: ViewportInfo,
+                         cursor_ndc_xy: np.ndarray,
+                         snap_px: float = 8.0) -> Optional[dict]:
+    """
+    Returns dict with hit info or None:
+      { 'u': float, 'world': (x,y,z), 'ndc': (x,y,z), 'pixel': (x,y) }
+    Strategy:
+      1) Projective prefilter: intervals for r_x(u) and r_y(u) must cross a small band.
+      2) Coarse sample along u to find minimal pixel distance to cursor.
+      3) 1D refinement (golden-section) in a small neighborhood.
+    """
+    # 1) Prefilter
+    u_ndc, v_ndc = float(cursor_ndc_xy[0]), float(cursor_ndc_xy[1])
+    n_x, n_y = pixel_planes_world(M_cpu, u_ndc, v_ndc)
+    rx_ctrl = curve.ctrl4 @ n_x  # scalar Bernstein coefficients
+    ry_ctrl = curve.ctrl4 @ n_y
+
+    # Band: allow a bit of slack before we do the more expensive sampling
+    band = 1e-9
+    if (rx_ctrl.max() < -band) or (rx_ctrl.min() > band):
+        return None
+    if (ry_ctrl.max() < -band) or (ry_ctrl.min() > band):
+        return None
+
+    # Helper: pixel distance from a world point to cursor
+    def world_to_ndc(p_world: np.ndarray) -> np.ndarray:
+        P_eu = np.array([p_world[0], p_world[1], p_world[2], 1.0], dtype=np.float64)
+        clip = M_cpu.T @ P_eu  # because M_cpu is (P@V@M).T
+        if abs(clip[3]) < 1e-30:
+            return np.array([np.nan, np.nan, np.nan])
+        return clip[:3] / clip[3]
+
+    def px_distance_from_u(u: float) -> Tuple[float, np.ndarray, np.ndarray]:
+        Pw = curve.eval_world(u)
+        ndc = world_to_ndc(Pw)
+        if np.any(np.isnan(ndc)):
+            return float('inf'), Pw, ndc
+        # NDC -> pixel
+        px = ndc_to_pixels(ndc[:2], v)
+        cur_px = ndc_to_pixels(cursor_ndc_xy, v)
+        dist = np.linalg.norm(px - cur_px)
+        return float(dist), Pw, ndc
+
+    # 2) Coarse sample
+    samples = 64
+    best = (float('inf'), 0.0, np.zeros(3), np.zeros(3))  # (dist, u, world, ndc)
+    for i in range(samples + 1):
+        u = i / samples
+        d, Pw, ndc = px_distance_from_u(u)
+        if d < best[0]:
+            best = (d, u, Pw, ndc)
+
+    if best[0] > snap_px:
+        return None  # nothing close enough visually
+
+    # 3) 1D refinement (golden section on pixel distance)
+    def refine(u0: float, h: float = 1.0 / samples, iters: int = 20) -> Tuple[float, np.ndarray, np.ndarray, float]:
+        a = max(0.0, u0 - 2*h)
+        b = min(1.0, u0 + 2*h)
+        gr = (math.sqrt(5.0) - 1.0) / 2.0
+        c = b - gr * (b - a)
+        d = a + gr * (b - a)
+        fc, Pw_c, ndc_c = px_distance_from_u(c)
+        fd, Pw_d, ndc_d = px_distance_from_u(d)
+        for _ in range(iters):
+            if fc < fd:
+                b, d, fd = d, c, fc
+                c = b - gr * (b - a)
+                fc, Pw_c, ndc_c = px_distance_from_u(c)
+            else:
+                a, c, fc = c, d, fd
+                d = a + gr * (b - a)
+                fd, Pw_d, ndc_d = px_distance_from_u(d)
+        if fc < fd:
+            return c, Pw_c, ndc_c, fc
+        else:
+            return d, Pw_d, ndc_d, fd
+
+    u_ref, Pw_ref, ndc_ref, dist_ref = refine(best[1])
+    if dist_ref > snap_px:
+        return None
+
+    pix_ref = ndc_to_pixels(ndc_ref[:2], v)
+    return {
+        "u": float(u_ref),
+        "world": tuple(Pw_ref.tolist()),
+        "ndc": tuple(ndc_ref.tolist()),
+        "pixel": tuple(pix_ref.tolist()),
+        "dist_px": float(dist_ref),
+    }
+
+
+# =========================
+# GL program
+# =========================
+
+VERT_SRC = """
+#version 330 core
+layout(location=0) in vec3 aPos;
+uniform mat4 uProjection;
+uniform mat4 uView;
+uniform mat4 uModel;
+void main(){
+    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+}
+"""
+
+FRAG_SRC = """
+#version 330 core
+uniform vec4 uColor;
+out vec4 FragColor;
+void main(){
+    FragColor = uColor;
+}
+"""
+
+
+def make_program() -> int:
+    def compile_shader(src, typ):
+        s = glCreateShader(typ)
+        glShaderSource(s, src)
+        glCompileShader(s)
+        if glGetShaderiv(s, GL_COMPILE_STATUS) != GL_TRUE:
+            raise RuntimeError(glGetShaderInfoLog(s).decode())
+        return s
+
+    vs = compile_shader(VERT_SRC, GL_VERTEX_SHADER)
+    fs = compile_shader(FRAG_SRC, GL_FRAGMENT_SHADER)
+    prog = glCreateProgram()
+    glAttachShader(prog, vs)
+    glAttachShader(prog, fs)
+    glLinkProgram(prog)
+    if glGetProgramiv(prog, GL_LINK_STATUS) != GL_TRUE:
+        raise RuntimeError(glGetProgramInfoLog(prog).decode())
+    glDeleteShader(vs)
+    glDeleteShader(fs)
+    return prog
+
+
+# =========================
+# Viewer
+# =========================
+
+class Viewer:
+    def __init__(self, width=1200, height=800):
         if not glfw.init():
-            raise RuntimeError("Failed to initialize GLFW")
-
-        # Configure GLFW for macOS compatibility and Geometry Shader support
-        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 1)
-        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
+            raise RuntimeError("GLFW init failed")
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, True)
+        # macOS retina framebuffer
+        glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, glfw.TRUE)
 
-        # Create window
-        self.window = glfw.create_window(width, height, "CAD Viewer", None, None)
+        self.window = glfw.create_window(width, height, "Snap Viewer", None, None)
         if not self.window:
             glfw.terminate()
-            raise RuntimeError("Failed to create GLFW window")
-
+            raise RuntimeError("GLFW window creation failed")
         glfw.make_context_current(self.window)
 
-        # Print OpenGL version info
-        print("OpenGL version:", glGetString(GL_VERSION).decode())
-        print("GLSL version:", glGetString(GL_SHADING_LANGUAGE_VERSION).decode())
+        self.program = make_program()
+        self.loc_uP = glGetUniformLocation(self.program, "uProjection")
+        self.loc_uV = glGetUniformLocation(self.program, "uView")
+        self.loc_uM = glGetUniformLocation(self.program, "uModel")
+        self.loc_uColor = glGetUniformLocation(self.program, "uColor")
 
-        # Camera settings
-        self.camera_pos = np.array([150.0, 150.0, 150.0], dtype=np.float32)
-        self.camera_target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        self.camera_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        self.zoom = 1.0  # Controls orthographic size
-        self.is_panning = False
-        self.near = 0.1
-        self.far = 100000.0
-
-        # Mouse interaction
-        self.is_dragging = False
-        self.last_mouse_pos = np.array([0.0, 0.0])
-        self.snap_distance = 0.1
-
-        # Geometry storage
-        self.points: List[Point] = []
-        self.wires: List[Wire] = []
-        self.surfaces: List[Surface] = []
-
-        # Lighting
-        self.ambient_light = np.array([0.1, 0.1, 0.1], dtype=np.float32)
-        self.main_light = Light(
-            direction=np.array([1000.0, 1000.0, 1000.0], dtype=np.float32),
-            color=np.array([0.8, 0.8, 0.8], dtype=np.float32),
-            intensity=1
-        )
-
-        # Setup callbacks
-        self.setup_callbacks()
-
-        # Initialize shaders
-        self.setup_shaders()
-
-        # Enable depth testing and blending for transparency
         glEnable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        self._rebuild_viewport()
 
-        # Create and bind a default VAO
-        self.default_vao = glGenVertexArrays(1)
-        glBindVertexArray(self.default_vao)
-        # For macOS Retina displays
-        self.framebuffer_size = glfw.get_framebuffer_size(self.window)
-        glViewport(0, 0, self.framebuffer_size[0], self.framebuffer_size[1])
+        # Camera & input
+        self.cam = OrbitCamera()
+        self.dragging_orbit = False
+        self.dragging_pan = False
+        self.last_cursor_px = np.array([0.0, 0.0], dtype=np.float64)
 
-    def setup_callbacks(self):
-        glfw.set_mouse_button_callback(self.window, self._mouse_button_callback)
-        glfw.set_cursor_pos_callback(self.window, self._mouse_move_callback)
-        glfw.set_scroll_callback(self.window, self._scroll_callback)
-        glfw.set_framebuffer_size_callback(self.window, self._framebuffer_size_callback)
+        glfw.set_cursor_pos_callback(self.window, self._on_cursor)
+        glfw.set_mouse_button_callback(self.window, self._on_mouse)
+        glfw.set_scroll_callback(self.window, self._on_scroll)
+        glfw.set_framebuffer_size_callback(self.window, self._on_resize)
 
-    def _framebuffer_size_callback(self, window, width, height):
-        glViewport(0, 0, width, height)
-        self.framebuffer_size = (width, height)
+        # Scene
+        self.model = np.eye(4, dtype=np.float32)
+        self.curves: List[RationalBezier] = []
+        self.snap_px = 30.0
+        self.snap_hit: Optional[dict] = None
 
-    def _mouse_button_callback(self, window, button, action, mods):
+        # GL buffers (recreated when curves change)
+        self.lines = []  # list of (vao, vbo, nverts, color)
+        self._build_demo_scene()
+
+    # ---------- GLFW callbacks ----------
+
+    def _rebuild_viewport(self):
+        fb_w, fb_h = glfw.get_framebuffer_size(self.window)
+        glViewport(0, 0, fb_w, fb_h)
+
+    def _on_resize(self, window, w, h):
+        self._rebuild_viewport()
+
+    def _on_scroll(self, window, xoff, yoff):
+        self.cam.zoom_wheel(yoff)
+
+    def _on_mouse(self, window, button, action, mods):
+        v = read_viewport_info(self.window)
+        xpt, ypt = glfw.get_cursor_pos(self.window)
+        self.last_cursor_px = points_to_pixels((xpt, ypt), v)
         if button == glfw.MOUSE_BUTTON_LEFT:
-            # Check if SHIFT is pressed for panning
-            if mods & glfw.MOD_SHIFT:
-                print("Left click + SHIFT")
-                self.is_panning = action == glfw.PRESS
-            else:
-                self.is_dragging = action == glfw.PRESS
-        if button == glfw.MOUSE_BUTTON_RIGHT:
-            print("Right click")
-            self.is_panning = action == glfw.PRESS
+            self.dragging_orbit = (action == glfw.PRESS) and not (mods & glfw.MOD_SHIFT)
+            self.dragging_pan = (action == glfw.PRESS) and (mods & glfw.MOD_SHIFT)
+        elif button == glfw.MOUSE_BUTTON_RIGHT:
+            self.dragging_pan = (action == glfw.PRESS)
 
-        if self.is_dragging or self.is_panning:
-            x, y = glfw.get_cursor_pos(window)
-            # Scale cursor position for Retina displays
-            fb_width, fb_height = self.framebuffer_size
-            win_width, win_height = glfw.get_window_size(window)
-            x *= fb_width / win_width
-            y *= fb_height / win_height
-            self.last_mouse_pos = np.array([x, y])
+    def _on_cursor(self, window, xpt, ypt):
+        v = read_viewport_info(self.window)
+        cur_px = points_to_pixels((xpt, ypt), v)
+        dp = cur_px - self.last_cursor_px
+        if self.dragging_orbit:
+            self.cam.orbit(dp[0], dp[1], v)
+        elif self.dragging_pan:
+            self.cam.pan(dp[0], -dp[1], v)
+        self.last_cursor_px = cur_px
 
-    def setup_shaders(self):
-        # Vertex shader for surfaces with lighting
-        vertex_shader_source = """
-        #version 410 core
-        layout (location = 0) in vec3 position;
-        layout (location = 1) in vec3 normal;
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-        out vec3 frag_pos;
-        out vec3 frag_normal;
-        void main() {
-            frag_pos = vec3(model * vec4(position, 1.0));
-            frag_normal = normal;
-            gl_Position = projection * view * vec4(frag_pos, 1.0);
-        }
-        """
+    # ---------- Scene build ----------
 
-        # Fragment shader for surfaces with lighting and material properties
-        fragment_shader_source = """
-        #version 410 core
-        struct Material {
-            vec3 ambient;
-            vec3 diffuse;
-            vec3 specular;
-            float shininess;
-        };
-
-        struct Light {
-            vec3 direction;
-            vec3 color;
-            float intensity;
-        };
-
-        in vec3 frag_pos;
-        in vec3 frag_normal;
-        out vec4 FragColor;
-
-        uniform vec3 view_pos;
-        uniform Material material;
-        uniform Light main_light;
-        uniform vec3 ambient_light;
-        uniform float alpha;
-
-        void main() {
-            // Ambient
-            vec3 ambient = ambient_light * material.ambient;
-
-            // Diffuse
-            vec3 norm = normalize(frag_normal);
-            vec3 light_dir = normalize(-main_light.direction);
-            float diff = max(dot(norm, light_dir), 0.0);
-            vec3 diffuse = main_light.intensity * diff * material.diffuse * main_light.color;
-
-            // Specular
-            vec3 view_dir = normalize(view_pos - frag_pos);
-            vec3 reflect_dir = reflect(-light_dir, norm);
-            float spec = pow(max(dot(view_dir, reflect_dir), 0.0), material.shininess);
-            vec3 specular = main_light.intensity * spec * material.specular * main_light.color;
-
-            vec3 result = ambient + diffuse + specular;
-            FragColor = vec4(result, alpha);
-        }
-        """
-
-        # Wireframe Vertex Shader
-        wire_vertex_shader_source = """
-        #version 410 core
-        layout(location = 0) in vec3 position;
-        layout(location = 1) in vec3 color;
-
-        out VS_OUT {
-            vec3 color;
-            vec3 position;
-        } vs_out;
-
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-
-        void main()
-        {
-            vs_out.color = color;
-            vs_out.position = vec3(model * vec4(position, 1.0));
-            gl_Position = projection * view * vec4(vs_out.position, 1.0);
-        }
-        """
-
-        # Wireframe Geometry Shader with declared projection and view
-        wire_geometry_shader_source = """
-        #version 410 core
-        layout(lines) in;
-        layout(triangle_strip, max_vertices = 4) out;
-
-        in VS_OUT {
-            vec3 color;
-            vec3 position;
-        } gs_in[];
-
-        out GS_OUT {
-            vec3 color;
-        } gs_out;
-
-        uniform float lineThickness; // Thickness in world units
-        uniform mat4 projection;
-        uniform mat4 view;
-
-        void main()
-        {
-            vec3 p0 = gs_in[0].position;
-            vec3 p1 = gs_in[1].position;
-
-            // Calculate the direction of the line
-            vec3 lineDir = normalize(p1 - p0);
-
-            // Calculate a vector perpendicular to the line and the view direction
-            vec3 up = vec3(0.0, 1.0, 0.0);
-            vec3 perpendicular = normalize(cross(lineDir, up));
-
-            // If lineDir is parallel to up, choose another perpendicular vector
-            if(length(perpendicular) < 0.001)
-            {
-                up = vec3(1.0, 0.0, 0.0);
-                perpendicular = normalize(cross(lineDir, up));
-            }
-
-            // Scale the perpendicular vector by half the thickness
-            vec3 offset = perpendicular * (lineThickness / 2.0);
-
-            // Define the four vertices of the quad
-            vec3 v0 = p0 + offset;
-            vec3 v1 = p0 - offset;
-            vec3 v2 = p1 + offset;
-            vec3 v3 = p1 - offset;
-
-            // Emit the quad vertices
-            gs_out.color = gs_in[0].color;
-            gl_Position = projection * view * vec4(v0, 1.0);
-            EmitVertex();
-
-            gs_out.color = gs_in[0].color;
-            gl_Position = projection * view * vec4(v1, 1.0);
-            EmitVertex();
-
-            gs_out.color = gs_in[1].color;
-            gl_Position = projection * view * vec4(v2, 1.0);
-            EmitVertex();
-
-            gs_out.color = gs_in[1].color;
-            gl_Position = projection * view * vec4(v3, 1.0);
-            EmitVertex();
-
-            EndPrimitive();
-        }
-        """
-
-        # Wireframe Fragment Shader
-        wire_fragment_shader_source = """
-        #version 410 core
-        in GS_OUT {
-            vec3 color;
-        } gs_out;
-
-        out vec4 FragColor;
-
-        void main()
-        {
-            FragColor = vec4(gs_out.color, 1.0);
-        }
-        """
-
-        try:
-            # Compile shaders for surface rendering
-            vertex_shader = shaders.compileShader(vertex_shader_source, GL_VERTEX_SHADER)
-            fragment_shader = shaders.compileShader(fragment_shader_source, GL_FRAGMENT_SHADER)
-
-            self.surface_shader_program = glCreateProgram()
-            glAttachShader(self.surface_shader_program, vertex_shader)
-            glAttachShader(self.surface_shader_program, fragment_shader)
-            glLinkProgram(self.surface_shader_program)
-
-            # Check for linking errors
-            if not glGetProgramiv(self.surface_shader_program, GL_LINK_STATUS):
-                info_log = glGetProgramInfoLog(self.surface_shader_program)
-                raise RuntimeError(f"Error linking surface shader program: {info_log.decode()}")
-
-            glDeleteShader(vertex_shader)
-            glDeleteShader(fragment_shader)
-
-            # Compile shaders for wireframe rendering
-            wire_vertex_shader = shaders.compileShader(wire_vertex_shader_source, GL_VERTEX_SHADER)
-            wire_geometry_shader = shaders.compileShader(wire_geometry_shader_source, GL_GEOMETRY_SHADER)
-            wire_fragment_shader = shaders.compileShader(wire_fragment_shader_source, GL_FRAGMENT_SHADER)
-
-            self.wireframe_shader_program = glCreateProgram()
-            glAttachShader(self.wireframe_shader_program, wire_vertex_shader)
-            glAttachShader(self.wireframe_shader_program, wire_geometry_shader)
-            glAttachShader(self.wireframe_shader_program, wire_fragment_shader)
-            glLinkProgram(self.wireframe_shader_program)
-
-            # Check for linking errors
-            if not glGetProgramiv(self.wireframe_shader_program, GL_LINK_STATUS):
-                info_log = glGetProgramInfoLog(self.wireframe_shader_program)
-                raise RuntimeError(f"Error linking wireframe shader program: {info_log.decode()}")
-
-            glDeleteShader(wire_vertex_shader)
-            glDeleteShader(wire_geometry_shader)
-            glDeleteShader(wire_fragment_shader)
-
-        except Exception as e:
-            print(f"Shader setup error: {e}")
-            raise
-
-    def add_point(self, position: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), size: float = 5.0):
-        """Add a point to the scene"""
-        self.points.append(Point(position, color, size))
-
-    def add_wire(self, vertices: np.ndarray, color: np.ndarray = np.array([1.0, 1.0, 1.0]), thickness: float = 0.05):
-        """Add a wire (curve) to the scene with specified thickness"""
-        self.wires.append(Wire(vertices, color, thickness))
-
-    def add_surface(self, surface: NURBSSurface, color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
-                    material: dict = None):
-        """
-        Add a NURBS surface to the scene with customizable color and material properties.
-        :param surface: NURBSSurface instance
-        :param color: RGBA tuple
-        :param material: Dictionary with material properties
-        :param resolution: Number of samples per parametric direction
-        """
-        if material is None:
-            material = {
-                'ambient': np.array([1.0, 1.0, 1.0], dtype=np.float32),
-                'diffuse': np.array([1.0, 1.0, 1.0], dtype=np.float32),
-                'specular': np.array([1.0, 1.0, 1.0], dtype=np.float32),
-                'shininess': 32.0
-            }
-
-        # Sample the surface
-        num_rows = len(np.unique(surface.knots_u)) * 5
-        num_cols = len(np.unique(surface.knots_v)) * 5
-        u_range,v_range=surface.interval()
-        u_vals = np.linspace(*u_range, num_rows)
-        v_vals = np.linspace(*v_range, num_cols)
-        u_grid, v_grid = np.meshgrid( u_vals,v_vals,indexing='ij')
-
-        params = np.stack([ u_grid,v_grid], axis=2)
-        print(params.shape)
-        vertices = []
-        normals=[]
-        print(num_rows,num_cols)
-        for i in range(num_rows- 1):
-            if i % 2 == 0:
-                # Even row: left to right
-                for j in range(num_cols):
-                    vertices.append(surface.evaluate(params[i][j]))
-                    vertices.append(surface.evaluate(params[i + 1][j]))
-                    normals.append(surface.normal(params[i][j]))
-                    normals.append(surface.normal(params[i + 1][j]))
-            else:
-                # Odd row: right to left
-                for j in range(num_cols - 1, -1, -1):
-                    vertices.append(surface.evaluate(params[i][j]))
-                    vertices.append(surface.evaluate(params[i + 1][j]))
-                    normals.append(surface.normal(params[i][j]))
-                    normals.append(surface.normal(params[i + 1][j]))
-            # Add degenerate triangles if not the last row
-            if i < num_rows - 2:
-                vertices.append(surface.evaluate(params[i + 1][num_cols - 1]))
-                vertices.append(surface.evaluate(params[i + 1][0]))
-                normals.append(surface.normal(params[i + 1][num_cols - 1]))
-                normals.append(surface.normal(params[i + 1][0]))
-
-
-
-        evaluated_points = np.array(vertices, dtype=np.float32)
-        evaluated_normals = np.array(normals, dtype=np.float32)
-
-        # Create VAO and VBOs
+    def _add_curve(self, curve: RationalBezier, color=(1.0, 1.0, 1.0, 1.0), samples=128):
+        self.curves.append(curve)
+        # Build GL line strip
+        pts = curve.polyline(samples=samples).astype(np.float32)
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
-
-        # VBO for vertices
-        vbo_vertices = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_vertices)
-        glBufferData(GL_ARRAY_BUFFER, evaluated_points.nbytes, evaluated_points, GL_STATIC_DRAW)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_STATIC_DRAW)
         glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
 
-        # VBO for normals
-        vbo_normals = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_normals)
-        glBufferData(GL_ARRAY_BUFFER, evaluated_normals.nbytes, evaluated_normals, GL_STATIC_DRAW)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
-        glEnableVertexAttribArray(1)
+    def _build_demo_scene(self):
+        # Two rational cubic Bézier curves (projective control points: [w*x, w*y, w*z, w])
+        # Curve 1 (planar)
+        P = np.array([
+            [ -4.0, -2.0, 0.0, 1.0 ],
+            [ -1.0,  3.0, 0.0, 0.7 ],
+            [  2.0, -3.0, 0.0, 1.2 ],
+            [  4.0,  2.0, 0.0, 1.0 ],
+        ], dtype=np.float64)
+        ctrl4 = np.column_stack((P[:, :3] * P[:, 3:4], P[:, 3:4]))  # [w*x,w*y,w*z,w]
+        self._add_curve(RationalBezier(ctrl4), color=(1.0, 1.0, 1.0, 1.0))
 
-        glBindVertexArray(0)
+        # Curve 2 (lifted)
+        Q = np.array([
+            [ -3.0,  3.5,  1.0, 1.0 ],
+            [ -1.0, -1.0,  2.0, 0.8 ],
+            [  1.0,  1.0, -2.0, 1.3 ],
+            [  3.0, -2.5,  1.0, 1.0 ],
+        ], dtype=np.float64)
+        ctrl4b = np.column_stack((Q[:, :3] * Q[:, 3:4], Q[:, 3:4]))
+        self._add_curve(RationalBezier(ctrl4b), color=(0.7, 0.9, 1.0, 1.0))
 
-        # Store the surface
-        self.surfaces.append(Surface(
-            vertices=evaluated_points,
-            normals=evaluated_normals,
-            color=np.array(color, dtype=np.float32),
-            material=material,
-            vao=vao,
-            vbo_vertices=vbo_vertices,
-            vbo_normals=vbo_normals,
-            owner=surface
-        ))
+    # ---------- Render & snap ----------
 
-    def add_nurbs_curve(self, crv: NURBSCurve, color=(0., 1., 1.), thickness=0.05, **kwargs):
-        res = np.array(
-            crv.evaluate_multi(np.linspace(*crv.interval(), len(crv.knots) * 5)), dtype=np.float32)
-        self.add_wire(
-            res,
-            color=np.array(color, dtype=np.float32), thickness=thickness)  # Green
+    def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
+        """
+        We build matrices row-major and ask GL to transpose them on upload.
+        The shader then sees column-major matrices consistent with GLSL's math.
+        CPU composite to match GLSL is: M_cpu = (P_row @ V_row @ M_row).T
+        """
+        glUseProgram(self.program)
+        glUniformMatrix4fv(self.loc_uP, 1, GL_TRUE, P_row)
+        glUniformMatrix4fv(self.loc_uV, 1, GL_TRUE, V_row)
+        glUniformMatrix4fv(self.loc_uM, 1, GL_TRUE, M_row)
 
-    def add_nurbs_surface_wireframe(self, surf: NURBSSurface, color=(0., 0., 0.), thickness=0.05):
-        boundaries, isolines = nurbs_surface_wireframe_view(surf)
-
-        for iso in isolines:
-            self.add_nurbs_curve(iso, (np.array(color) * 0.5).tolist(), thickness)
-        for b in boundaries:
-            self.add_nurbs_curve(b, color, thickness)
-
-    def add_geometry(self, geometry, color=(1., 1., 1., 1.0), thickness: float = 0.05):
-        dispatch = {
-            NURBSCurve: self.add_nurbs_curve,
-            NURBSSurface: self.add_nurbs_surface,
-        }
-        fun = dispatch.get(type(geometry))
-        if fun is None:
-            raise KeyError(f"{type(geometry).__name__} is not supported")
-        else:
-            fun(geometry, color, thickness)
-
-    def _mouse_move_callback(self, window, x, y):
-        # Scale cursor position for Retina displays
-        fb_width, fb_height = self.framebuffer_size
-        win_width, win_height = glfw.get_window_size(window)
-        x *= fb_width / win_width
-        y *= fb_height / win_height
-
-        current_pos = np.array([x, y])
-
-        if self.is_dragging or self.is_panning:
-            delta = current_pos - self.last_mouse_pos
-
-            if self.is_panning:
-                # Pan the camera
-                aspect = fb_width / fb_height
-                world_delta_x = (delta[0] / fb_width) * self.zoom * 2 * aspect
-                world_delta_y = -(delta[1] / fb_height) * self.zoom * 2
-
-                # Move camera and target together to pan
-                pan_vector = (
-                        self.camera_right * world_delta_x +
-                        self.camera_up * world_delta_y
-                )
-                self.camera_pos -= pan_vector
-                self.camera_target -= pan_vector
-
-            elif self.is_dragging:
-                # Rotate camera around target
-                sensitivity = 0.005
-                rotation_x = pyrr.matrix44.create_from_y_rotation(delta[0] * sensitivity)
-                rotation_y = pyrr.matrix44.create_from_x_rotation(delta[1] * sensitivity)
-
-                # Apply rotations
-                camera_to_target = self.camera_pos - self.camera_target
-                camera_to_target = np.dot(rotation_x, np.append(camera_to_target, 1.0))[:3]
-                camera_to_target = np.dot(rotation_y, np.append(camera_to_target, 1.0))[:3]
-                self.camera_pos = self.camera_target + camera_to_target
-
-            self.last_mouse_pos = current_pos
-
-    def _scroll_callback(self, window, xoffset, yoffset):
-        # Modify zoom for orthographic projection
-        zoom_factor = 0.1
-        self.zoom *= (1.0 - yoffset * zoom_factor)
-        self.zoom = np.clip(self.zoom, self.near, self.far)
-
-    @property
-    def camera_right(self):
-        # Get the camera's right vector
-        forward = self.camera_target - self.camera_pos
-        forward = forward / np.linalg.norm(forward)
-        right = np.cross(forward, self.camera_up)
-
-        return right / np.linalg.norm(right)
-
-    def render(self):
-        """Main render function"""
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glClearColor(*self._background_color)
-
-        # Get current framebuffer size
-        width, height = self.framebuffer_size
-        aspect = width / height
-
-        # Create orthographic projection matrix
-        projection = pyrr.matrix44.create_orthogonal_projection(
-            left=-self.zoom * aspect,
-            right=self.zoom * aspect,
-            bottom=-self.zoom,
-            top=self.zoom,
-            near=self.near,
-            far=self.far,
-            dtype=np.float32
-        )
-
-        # Create view matrix
-        view = pyrr.matrix44.create_look_at(
-            self.camera_pos,
-            self.camera_target,
-            self.camera_up,
-            dtype=np.float32
-        )
-        model = pyrr.matrix44.create_identity(dtype=np.float32)
-
-        # Render surfaces with lighting
-        self.render_surfaces(model, view, projection)
-
-        # Render wireframes (edges) with thickness
-        self.render_wireframes(model, view, projection)
-
-        # Render points
-        for point in self.points:
-            self.render_point(point)
-
-    def render_surfaces(self, model, view, projection):
-        """Render all surfaces with lighting"""
-        glUseProgram(self.surface_shader_program)
-
-        # Set uniform matrices
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.surface_shader_program, "projection"),
-            1, GL_FALSE, projection
-        )
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.surface_shader_program, "view"),
-            1, GL_FALSE, view
-        )
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.surface_shader_program, "model"),
-            1, GL_FALSE, model
-        )
-
-        # Set lighting uniforms
-        glUniform3fv(glGetUniformLocation(self.surface_shader_program, "view_pos"), 1, self.camera_pos)
-        glUniform3fv(glGetUniformLocation(self.surface_shader_program, "ambient_light"), 1, self.ambient_light)
-        glUniform3fv(glGetUniformLocation(self.surface_shader_program, "main_light.direction"), 1, self.main_light.direction)
-        glUniform3fv(glGetUniformLocation(self.surface_shader_program, "main_light.color"), 1, self.main_light.color)
-        glUniform1f(glGetUniformLocation(self.surface_shader_program, "main_light.intensity"), self.main_light.intensity)
-
-        for surface in self.surfaces:
-            # Set material properties
-            glUniform3fv(glGetUniformLocation(self.surface_shader_program, "material.ambient"), 1, surface.material['ambient'])
-            glUniform3fv(glGetUniformLocation(self.surface_shader_program, "material.diffuse"), 1, surface.material['diffuse'])
-            glUniform3fv(glGetUniformLocation(self.surface_shader_program, "material.specular"), 1, surface.material['specular'])
-            glUniform1f(glGetUniformLocation(self.surface_shader_program, "material.shininess"), surface.material['shininess'])
-            glUniform1f(glGetUniformLocation(self.surface_shader_program, "alpha"), surface.color[3])
-
-            # Bind VAO and draw
-            glBindVertexArray(surface.vao)
-            # Assuming the surface is rendered as a grid of triangles
-            # You might need to adjust the drawing mode and count based on how you sampled the surface
-            # Here, using GL_TRIANGLES for simplicity
-            triangulate_result=tess=tessellate_surface(surface)
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, triangulate_result['position'])
-            glDrawArrays(GL_INDEX_ARRAY, 0,triangulate_result['triangles'])
-            glBindVertexArray(0)
-
-
-        glUseProgram(0)
-
-    def render_wireframes(self, model, view, projection):
-        """Render wireframes (edges) over surfaces with thickness using Geometry Shader"""
-        glUseProgram(self.wireframe_shader_program)
-
-        # Set uniform matrices
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.wireframe_shader_program, "projection"),
-            1, GL_FALSE, projection
-        )
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.wireframe_shader_program, "view"),
-            1, GL_FALSE, view
-        )
-        glUniformMatrix4fv(
-            glGetUniformLocation(self.wireframe_shader_program, "model"),
-            1, GL_FALSE, model
-        )
-
-        # Draw each wire
-        for wire in self.wires:
-            # Set line thickness for this wire
-            glUniform1f(glGetUniformLocation(self.wireframe_shader_program, "lineThickness"), wire.thickness)
-
-            # Create and bind VAO for wire
-            vao = glGenVertexArrays(1)
+    def _draw_lines(self):
+        for (vao, vbo, nverts, color) in self.lines:
             glBindVertexArray(vao)
+            glUseProgram(self.program)
+            glUniform4fv(self.loc_uColor, 1, color)
+            glDrawArrays(GL_LINE_STRIP, 0, nverts)
 
-            # VBO for wire vertices
-            vbo_vertices = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, vbo_vertices)
-            glBufferData(GL_ARRAY_BUFFER, wire.vertices.nbytes, wire.vertices, GL_STATIC_DRAW)
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
-            glEnableVertexAttribArray(0)
-
-            # VBO for wire colors
-            vbo_colors = glGenBuffers(1)
-            glBindBuffer(GL_ARRAY_BUFFER, vbo_colors)
-            colors = np.tile(wire.color, (len(wire.vertices), 1)).astype(np.float32)
-            glBufferData(GL_ARRAY_BUFFER, colors.nbytes, colors.flatten(), GL_STATIC_DRAW)
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
-            glEnableVertexAttribArray(1)
-
-            # Draw lines as GL_LINES (each pair of vertices forms a line)
-            glDrawArrays(GL_LINE_STRIP, 0, len(wire.vertices))
-
-            # Cleanup
-            glDeleteBuffers(1, [vbo_vertices, vbo_colors])
-            glDeleteVertexArrays(1, [vao])
-
-        glUseProgram(0)
-
-    def render_point(self, point: Point):
-        """Render a single point"""
-        glPointSize(point.size * 2)  # Multiply by 2 for Retina displays
-
-        # Create and bind VAO
+    def _draw_point(self, pos_world: np.ndarray, size_px=7.0, color=(1.0, 1.0, 0.0, 1.0)):
+        # Build a tiny VBO on the fly
+        pts = np.array(pos_world, dtype=np.float32).reshape(1, 3)
         vao = glGenVertexArrays(1)
+        vbo = glGenBuffers(1)
         glBindVertexArray(vao)
-
-        # Create and bind VBO for position
-        position_vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, position_vbo)
-        glBufferData(GL_ARRAY_BUFFER, point.position.nbytes, point.position, GL_STATIC_DRAW)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_DYNAMIC_DRAW)
         glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # Create and bind VBO for color
-        color_vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, color_vbo)
-        glBufferData(GL_ARRAY_BUFFER, point.color.nbytes, point.color, GL_STATIC_DRAW)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
-        glEnableVertexAttribArray(1)
-
-        # Draw point
+        # Draw as points
+        glUseProgram(self.program)
+        glPointSize(max(1.0, float(size_px)))
+        glUniform4fv(self.loc_uColor, 1, np.array(color, dtype=np.float32))
         glDrawArrays(GL_POINTS, 0, 1)
 
-        # Cleanup
-        glDeleteBuffers(1, [position_vbo, color_vbo])
+        glDeleteBuffers(1, [vbo])
         glDeleteVertexArrays(1, [vao])
 
+    def _compute_snap(self, vinfo: ViewportInfo, M_cpu: np.ndarray):
+        # Read cursor (GLFW points) -> NDC
+        cursor_pt = glfw.get_cursor_pos(self.window)
+        cursor_ndc = glfw_cursor_to_ndc(cursor_pt, vinfo)
+        # Pick best among curves
+        best = None
+        for cv in self.curves:
+            hit = snap_curve_to_cursor(cv, M_cpu, vinfo, cursor_ndc, snap_px=self.snap_px)
+            if hit is None:
+                continue
+            if best is None or hit["dist_px"] < best["dist_px"]:
+                best = hit
+        self.snap_hit = best
+
     def run(self):
-        """Main application loop"""
+        last = time.time()
         while not glfw.window_should_close(self.window):
-            self.render()
-            glfw.swap_buffers(self.window)
             glfw.poll_events()
 
+            # Prepare transforms
+            vinfo = read_viewport_info(self.window)
+            aspect = vinfo.vw / max(1, vinfo.vh)
+            P_row = self.cam.projection_matrix(aspect)
+            V_row = self.cam.view_matrix()
+            M_row = self.model
+            # CPU composite matching GLSL column-major:
+            M_cpu = (P_row @ V_row @ M_row).T
+
+            # Upload matrices
+            self._upload_matrices(P_row, V_row, M_row)
+
+            # Snap
+            self._compute_snap(vinfo, M_cpu)
+
+            # Draw
+            glClearColor(0.07, 0.07, 0.08, 1.0)
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            self._draw_lines()
+
+            # Snap marker
+            if self.snap_hit is not None:
+                self._draw_point(np.array(self.snap_hit["world"], dtype=np.float32),
+                                 size_px=9.0, color=(1.0, 1.0, 0.0, 1.0))
+
+            glfw.swap_buffers(self.window)
+
+        # Cleanup
+        for (vao, vbo, _, _) in self.lines:
+            glDeleteBuffers(1, [vbo])
+            glDeleteVertexArrays(1, [vao])
         glfw.terminate()
 
-    def add_nurbs_surface(self, surf: NURBSSurface, color=(0., 0., 0., 1.0), thickness=0.05, resolution=50):
-        """Add a NURBS surface to the scene with customizable color and material properties"""
-        self.add_surface(surf, color=color)
-        self.add_nurbs_surface_wireframe(surf, color, thickness)
+
 if __name__ == "__main__":
-    # Example usage
-    viewer = CADRenderer(background_color=DEFAULT_BACKGROUND_COLOR)
-    from mmcore._test_data import ssx as ssx_data
-
-    from mmcore.numeric.intersection.ssx import surface_ppi
-
-    # Add intersection curves as wires
-    cc = surface_ppi(*ssx_data[2])
-    for c in cc[0]:
-        viewer.add_wire(
-            np.array(c, np.float32),
-            color=np.array((1., 1., 0.1), np.float32),
-            thickness=0.5  # Example thickness
-        )
-
-    # Add NURBS surfaces with material properties
-    for surf in ssx_data[2]:
-        material = {
-            'ambient': np.array([1.5,1.5,1.5], dtype=np.float32),
-            'diffuse': np.array([0.4, 0.4, 0.41], dtype=np.float32),
-            'specular': np.array([0.05, 0.05, 0.05], dtype=np.float32),
-            'shininess': 0.1
-        }
-        bnds,iso=nurbs_surface_wireframe_view(surf)
-        for s in bnds:
-            viewer.add_nurbs_curve(s,np.array((0.05, 0.05,0.05), np.float32),thickness=0.3 )
-        for s in iso:
-            viewer.add_nurbs_curve(s, np.array((0.05, 0.05,0.05), np.float32), thickness=0.14)
-        viewer.add_surface(surf,color=(0.8, 0.8, 0.8,1),material=material)
-        #viewer.add_nurbs_surface(surf, color=(0.6, 0.6, 0.6, 0.8), thickness=0.2,material=)
-
-    # Run the viewer
-    viewer.run()
+    Viewer().run()

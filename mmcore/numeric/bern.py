@@ -1699,5 +1699,5 @@ if __name__ =="__main__":
     assert  res1.roots.shape[0]==1 and np.all(res1.errors<eps),res1
    
     print(res1)
-    grid = np.random.uniform(-5., 5., (7, 7, 7, 1))
-    print(bern_roots_1d(grid,eps=eps))
+    #grid = np.random.uniform(-5., 5., (7, 7))
+    #print(bern_roots_2d(grid,eps=eps))
