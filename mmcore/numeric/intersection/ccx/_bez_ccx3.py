@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import itertools
 
-from mmcore.numeric._aabb import aabb, aabb_intersection
+from mmcore.numeric._aabb import aabb, aabb_intersection, aabb_intersect
 
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.bern import *
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
@@ -625,6 +626,11 @@ def is_strictly_inside(inner: Rect, outer: Rect) -> bool:
     u0, v0, u1, v1 = inner
     s0, t0, s1, t1 = outer
     return (s0 <= u0) and (u1 <= s1) and (t0 <= v0) and (v1 <= t1) and ((s0 < u0) or (u1 < s1) or (t0 < v0) or (v1 < t1))
+def is_on_boundary(inner: Rect, outer: Rect) -> bool:
+    u0, v0, u1, v1 = inner
+    s0, t0, s1, t1 = outer
+
+    return (s0 <= u0) and (u1 <= s1) and (t0 <= v0) and (v1 <= t1) and ((s0 < u0) or (u1 < s1) or (t0 < v0) or (v1 < t1))
 
 
 import numpy as np
@@ -925,6 +931,44 @@ def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
+import numpy as np
+
+
+def _aabb_intersect(aabb1, aabb2, exact=True):
+    """
+    Determines whether two ND AABBs intersect.
+
+    Args:
+        aabb1 (array-like): Shape (2, dim). [0,:] is min, [1,:] is max.
+        aabb2 (array-like): Shape (2, dim). [0,:] is min, [1,:] is max.
+        exact (bool): If True, touching borders count as intersection.
+                      If False, a strict overlap is required.
+
+    Returns:
+        bool: True if intersecting, False otherwise.
+    """
+    a = np.asarray(aabb1)
+    b = np.asarray(aabb2)
+
+    # Extract min and max vectors
+    a_min, a_max = a[0], a[1]
+    b_min, b_max = b[0], b[1]
+
+    if exact:
+        # For intersection to occur, the intervals must overlap in ALL dimensions.
+        # Interval A [minA, maxA] and Interval B [minB, maxB] overlap if:
+        # maxA >= minB AND maxB >= minA
+        overlaps = (a_max >= b_min) & (b_max >= a_min)
+    else:
+        # Strict overlap (greater than, not greater equal)
+        overlaps = (a_max > b_min) & (b_max > a_min)
+
+    # If they overlap in every dimension, np.all returns True
+    return np.all(overlaps)
+
+
+
+
 def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1e-3):
     """
     Certified intersection of two Bézier curves (R^2 or R^3).
@@ -969,7 +1013,7 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
         stats["cells"] += 1
         box1 = aabb(Pseg)
         box2 = aabb(Qseg)
-        if not aabb_intersection(box1, box2):
+        if not aabb_intersect(box1, box2):
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_inter")
             continue
@@ -994,7 +1038,7 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
             stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
             continue
         elif res["status"] == "unique_stationary":
-            stats["pruned"] += 1
+
             uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12)
             if np.linalg.norm(Gc) <= tol_hit:
                 ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
@@ -1004,8 +1048,23 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
                         x = eval_bezier(C1, ug)
                         isolated.append({"u": ug, "v": vg, "point": x})
                         stats["overlap_traces"] += 1
+                        stats["pruned"] += 1
                         stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
-            continue
+                    continue
+                elif (((ug-0)<tol_hit or (1-ug)<tol_hit) and ((vg-0)<tol_hit or (1-vg)<tol_hit)):
+                    if not near_existing_isolated(ug, vg):
+                        # on boundary
+                        x = eval_bezier(C1, ug)
+                        isolated.append({"u": ug, "v": vg, "point": x})
+
+                        stats["pruned"] += 1
+                        stats["pruned_by"].append("classify_cell_by_gri+unique_on_boundary")
+                    continue
+                else:
+                    continue
+
+
+
 
         else:
             span_u = u1 - u0
@@ -1016,13 +1075,9 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
             if not allow_contact or cell_contains_known_isolated(u0, u1, v0, v1) or (depth > 0 and max_span > 0.25) or (min_d > 1e-10):
                 res = {"type": "none"}
             else:
-                box1 = aabb(Pseg)
-                box2 = aabb(Qseg)
-                if not aabb_intersection(box1, box2):
-                    res = {"type": "none"}
-                    continue
 
-                else:
+
+
                     res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh)
 
             if res["type"] == "overlap" and len(res["uv_path"]) >= 2:
@@ -1035,6 +1090,7 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
                 )
                 overlaps_uv_registry.append(uv_global)
                 stats["overlap_traces"] += 1
+
                 continue
             if res["type"] == "isolated":
                 ug, vg = map_local_to_global(res["u"], res["v"], u0, u1, v0, v1)
@@ -1088,7 +1144,10 @@ if __name__ == "__main__":
         
         
         def make_rich_table( inter1, inter2, case_name=None):
-            
+            def uv_fmt(uv):
+                return f"{float(uv[0])}, {float(uv[1])}"
+            def overlap_fmt(overlap):
+                return f"[{uv_fmt(overlap['uv_path'][0])}] to [{uv_fmt(overlap['uv_path'][-1])}]"
             mismatch_color ="#e34f66"
             match_color = "#0dd962"
             def match_str(v):
@@ -1096,14 +1155,15 @@ if __name__ == "__main__":
             def mismatch_str(v):
                 return f"[{mismatch_color}]{v}[/{mismatch_color}]"
             # Create a table
-            table = Table(title=case_name)
+            table = Table(title=case_name+' (isolated)')
             
             # Add columns
             table.add_column("mmcore", style="default", no_wrap=True)
             table.add_column("OCC", style="default")
-            table.add_column("match", justify="center", style="bold")
+            table.add_column("match", justify="left", style="bold")
             matches = []
             for first, second in itertools.zip_longest(sorted(inter1["isolated"],key=lambda x:x["u"]), sorted(inter2["isolated"],key=lambda x:x["u"])):
+
                 if first is None:
                     table.add_row(first, f"{float(second['u'])} ,{float(second['v'])}", mismatch_str('X'), style=mismatch_color)
                     matches.append(False)
@@ -1118,13 +1178,51 @@ if __name__ == "__main__":
                     if not match_:
                       
                         table.rows[-1].style=Style(color= mismatch_color,bold=True)
+            if len(matches)==0:
+
+                    table.add_row(None, None, match_str('OK'))
+                    matches.append(True)
+            console.print(table,'\n')
             # Add rows
-            
-  
+            table = Table(title=case_name + ' (overlaps)')
+
+            # Add columns
+            table.add_column("mmcore", style="default", no_wrap=True)
+            table.add_column("OCC", style="default")
+            table.add_column("match", justify="left", style="bold")
+            matches = []
+            for first, second in itertools.zip_longest(sorted(inter1["overlaps"], key=lambda x: x["uv_path"][0][0]),
+                                                       sorted(inter2["overlaps"], key=lambda x: x["uv_path"][0][0])):
+
+
+                if first is None:
+                    table.add_row(first, overlap_fmt(second), mismatch_str('X'),
+                                  style=mismatch_color)
+                    matches.append(False)
+                elif second is None:
+                    table.add_row(overlap_fmt(first), second, mismatch_str('X'),
+                                  style=mismatch_color)
+                    matches.append(False)
+
+
+                else:
+
+                    match_ = np.allclose((first['uv_path'][0], first['uv_path'][-1]),(second['uv_path'][0], second['uv_path'][-1]))
+                    matches.append(match_)
+                    table.add_row(overlap_fmt(first),overlap_fmt(second),
+
+                                  match_str('OK') if match_ else mismatch_str('X'))
+
+                    if not match_:
+                        table.rows[-1].style = Style(color=mismatch_color, bold=True)
+
+            if len(matches) == 0:
+                table.add_row(None, None, match_str('OK'))
+                matches.append(True)
             # Print the table
             console.print(table)
     except ImportError:
-        def make_rich_table(inter1, inter2):
+        def make_rich_table(inter1, inter2, *args,**kwargs):
             print('Pretty output requires "pip install rich"')
             print("verify with OCC (mmcore result, occ result):", inter1["isolated"], inter2["isolated"])
     np.set_printoptions(edgeitems=3)
@@ -1172,7 +1270,7 @@ if __name__ == "__main__":
     assert len(inter12["overlaps"]) == 1
     assert np.allclose(inter12["overlaps"][0]["uv_path"][0], [0.0, 0.19069075])
     assert np.allclose(inter12["overlaps"][0]["uv_path"][-1], [0.82759776, 1.0])
-    print(inter12)
+
     # Expected result:
     # {'isolated': [], 'overlaps': [{'uv_path': array([[0., 0.19069075],
     #                                                 ...
@@ -1195,19 +1293,8 @@ if __name__ == "__main__":
         ),
     )
 
-    print(
-        "verify with OCC (mmcore result, occ result, is close):",
-        inter12["overlaps"][0]["uv_path"][0],
-        occ_inter12["overlaps"][0]["uv_path"][0],
-        np.allclose(inter12["overlaps"][0]["uv_path"][0], occ_inter12["overlaps"][0]["uv_path"][0]),
-    )
-    print(
-        "verify with OCC (mmcore result, occ result, is close):",
-        inter12["overlaps"][0]["uv_path"][-1],
-        occ_inter12["overlaps"][0]["uv_path"][-1],
-        np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
-    )
-    make_rich_table(inter12, occ_inter12,'case 3.1')
+
+    make_rich_table(inter12, occ_inter12,'case 1')
     
     #np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
 

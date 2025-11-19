@@ -3,6 +3,57 @@ from math import comb
 import numpy as np
 
 from mmcore.numeric.binom import binomial_coefficient_py
+import numpy as np
+
+def bernstein_row(n, t):
+    i = np.arange(n+1)
+    from math import comb
+    B = np.array([comb(n, k) for k in i], dtype=float)
+    return B * (t**i) * ((1-t)**(n-i))
+
+def elevate_derivative_net_homog(P4, order=2):
+    """Return list [D0, D1, ..., D_order] of control nets in 4D (homog)."""
+    nets = [P4.copy()]
+    for k in range(1, order+1):
+        prev = nets[-1]
+        n = prev.shape[0] - 1
+        if n <= 0: nets.append(prev[:1]); continue
+        d = n * (prev[1:] - prev[:-1])  # polynomial Bernstein derivative in 4D
+        nets.append(d)
+    return nets
+
+def eval_homog_derivatives(P4, t, order=2):
+    """Evaluate position and derivatives in homogeneous space up to 'order'."""
+    nets = elevate_derivative_net_homog(P4, order=order)
+    vals = []
+    for k, net in enumerate(nets):
+        n = net.shape[0] - 1
+        B = bernstein_row(n, t)
+        vals.append(B @ net)  # (4,) vector: [Nx, Ny, Nz, W]
+    return vals  # [C_H, C_H', C_H'', ...]
+
+def dehomogenize_chain(Hvals):
+    """Apply exact quotient rules to get Euclidean derivatives from homogeneous chain."""
+    # Hvals[k] = [Nx,Ny,Nz,W] for k=0..m
+    N = [v[:3] for v in Hvals]
+    W = [v[3]   for v in Hvals]
+    pos = N[0] / W[0]
+    out = [pos]
+    if len(Hvals) >= 2:
+        c1 = (N[1]*W[0] - N[0]*W[1]) / (W[0]**2)
+        out.append(c1)
+    if len(Hvals) >= 3:
+        num = (N[2]*(W[0]**2)
+               - 2*N[1]*W[0]*W[1]
+               + 2*N[0]*(W[1]**2)
+               - N[0]*W[2]*W[0])
+        den = W[0]**3
+        out.append(num/den)
+    return out  # [c, c', c'']
+
+# Example usage:
+# P4: (n+1, 4) homogeneous control points, e.g., each row = [w*x, w*y, w*z, w]
+# c, c1, c2 = dehomogenize_chain(eval_homog_derivatives(P4, t=0.37, order=2))
 
 
 # ---------- Bernstein utilities ----------

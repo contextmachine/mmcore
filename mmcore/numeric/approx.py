@@ -360,31 +360,6 @@ def _gen_cpts_to_display(scalar_net):
 
 
 
-class BernsteinTree2D:
-    
-    links:list[tuple[int,int]]
-    control_points:list[np.ndarray]
-    bounding_boxes:list[tuple[float,float,float,float]]
-    
-    
-    def __init__(self, control_points:np.ndarray):
-        self._initial_control_points=control_points
-        self.greville_abscissae=bern_greville_abscissae_nd(control_points.shape)
-    @property
-    def degree_u(self):
-        return self._initial_control_points.shape[0]-1
-    
-    @property
-    def degree_v(self):
-        return self._initial_control_points.shape[1]-1
-    
-    @property
-    def order_u(self):
-        return self._initial_control_points.shape[0]
-    
-    @property
-    def order_v(self):
-        return self._initial_control_points.shape[1]
         
 def adaptive_bern_sampler_2d(nu: NDArray[float], tol:float=1e-3):
     stack = [nu]
@@ -406,9 +381,10 @@ def adaptive_bern_sampler_2d(nu: NDArray[float], tol:float=1e-3):
             continue
         else:
             stack.extend(de_casteljau_subdivide_2d(subpatch, 0.5, 0.5))
+
     return quads
 
-import numpy as np
+
 from numpy.typing import NDArray
 
 def _adaptive_bern_sampler_2d_tri(

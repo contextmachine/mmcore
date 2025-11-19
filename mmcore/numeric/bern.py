@@ -27,8 +27,8 @@ def bernstein_product_conv(deg: int) -> np.ndarray:
     Returns array with shape (2*deg+1, deg+1, deg+1).
     """
     m = deg
-    C2m = np.array([binomial_coefficient_py(2*m, r) for r in range(2*m+1)], dtype=np.float64)
-    Ci  = np.array([binomial_coefficient_py(m, i)    for i in range(m+1)],  dtype=np.float64)
+    C2m = np.array([comb(2*m, r) for r in range(2*m+1)], dtype=np.float64)
+    Ci  = np.array([comb(m, i)    for i in range(m+1)],  dtype=np.float64)
     Conv = np.zeros((2*m+1, m+1, m+1), dtype=np.float64)
     for i in range(m+1):
         for j in range(m+1):
