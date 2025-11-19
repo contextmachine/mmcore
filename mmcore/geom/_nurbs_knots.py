@@ -1181,7 +1181,7 @@ def link_curves(curves):
         interior_knots,                        # you will see only 0.3 here
     )
 
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Optional
 import numpy as np
 
 
@@ -1990,3 +1990,279 @@ def make_curves_compatible_multiple(curves):
     return curves
 
 
+class KnotRemovalResult(NamedTuple):
+    curve: Optional[NURBSCurveTuple]
+    success: bool
+    error: float
+    removed_knot: float
+
+
+# --- Helper: Basis Functions (Standard Cox-de Boor) ---
+
+def find_span(n: int, p: int, u: float, U: NDArray[np.float64]) -> int:
+    """Finds the knot span index for a given parameter u."""
+    if u >= U[n + 1]:
+        return n
+    low = p
+    high = n + 1
+    mid = (low + high) // 2
+    while (u < U[mid]) or (u >= U[mid + 1]):
+        if u < U[mid]:
+            high = mid
+        else:
+            low = mid
+        mid = (low + high) // 2
+    return mid
+
+
+def ders_basis_funs(span_i: int, u: float, p: int, U: NDArray[np.float64], n_ders: int = 1) -> NDArray[np.float64]:
+    """
+    Computes basis functions and their derivatives.
+    Returns shape (n_ders + 1, p + 1).
+    """
+    ders = np.zeros((n_ders + 1, p + 1))
+    ndu = np.zeros((p + 1, p + 1))
+    left = np.zeros(p + 1)
+    right = np.zeros(p + 1)
+
+    ndu[0, 0] = 1.0
+
+    for j in range(1, p + 1):
+        left[j] = u - U[span_i + 1 - j]
+        right[j] = U[span_i + j] - u
+        saved = 0.0
+        for r in range(j):
+            ndu[j, r] = right[r + 1] + left[j - r]
+            temp = ndu[r, j - 1] / ndu[j, r]
+            ndu[r, j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        ndu[j, j] = saved
+
+    for j in range(p + 1):
+        ders[0, j] = ndu[j, p]
+
+    # Compute derivatives
+    a = np.zeros((2, p + 1))
+    for r in range(0, p + 1):
+        s1 = 0;
+        s2 = 1
+        a[0, 0] = 1.0
+        for k in range(1, n_ders + 1):
+            d = 0.0
+            rk = r - k
+            pk = p - k
+            if r >= k:
+                a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
+                d = a[s2, 0] * ndu[rk, pk]
+            j1 = 1 if rk >= -1 else -rk
+            j2 = k - 1 if (r - 1) <= pk else p - r
+            for j in range(j1, j2 + 1):
+                a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
+                d += a[s2, j] * ndu[rk + j, pk]
+            if r <= pk:
+                a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
+                d += a[s2, k] * ndu[r, pk]
+            ders[k, r] = d
+            j = s1;
+            s1 = s2;
+            s2 = j
+
+    r = p
+    for k in range(1, n_ders + 1):
+        for j in range(p + 1):
+            ders[k, j] *= r
+        r *= (p - k)
+
+    return ders
+
+
+# --- Helper: Homogeneous Coordinate Math ---
+
+def to_homogeneous(cps: NDArray[np.float64], weights: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Lifts Euclidean points (NxD) and weights (N) to Homogeneous points (Nx(D+1))."""
+    n, dim = cps.shape
+    # Shape: (N, Dim + 1)
+    # [x*w, y*w, z*w, w]
+    hom_cps = np.zeros((n, dim + 1))
+    hom_cps[:, :dim] = cps * weights[:, np.newaxis]
+    hom_cps[:, dim] = weights
+    return hom_cps
+
+
+def to_euclidean(hom_cps: NDArray[np.float64]) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Projects Homogeneous points (Nx(D+1)) back to Euclidean (NxD) and weights (N)."""
+    dim = hom_cps.shape[1] - 1
+    weights = hom_cps[:, dim]
+
+    # Avoid division by zero in degenerate cases
+    safe_weights = np.where(np.abs(weights) < 1e-12, 1.0, weights)
+
+    cps = hom_cps[:, :dim] / safe_weights[:, np.newaxis]
+    return cps, weights
+
+
+def evaluate_b_spline_derivs(
+        knot: NDArray[np.float64],
+        cps: NDArray[np.float64],
+        p: int,
+        u: float,
+        n_ders: int = 1
+) -> NDArray[np.float64]:
+    """
+    Evaluates a B-Spline curve and its derivatives at u.
+    This works generically for N-dimensional control points.
+    If 'cps' are Homogeneous, this returns Homogeneous derivatives.
+    """
+    n = len(cps) - 1
+    span = find_span(n, p, u, knot)
+    basis = ders_basis_funs(span, u, p, knot, n_ders)
+
+    dim = cps.shape[1]
+    result = np.zeros((n_ders + 1, dim))
+
+    active_cps = cps[span - p: span + 1]
+
+    for k in range(n_ders + 1):
+        result[k] = np.dot(basis[k], active_cps)
+
+    return result
+
+
+# --- Main Algorithm ---
+
+def remove_knot(
+        curve: NURBSCurveTuple,
+        u_remove: float,
+        tolerance: float = 1e-4
+) -> KnotRemovalResult:
+    """
+    Removes a knot from a Rational NURBS curve using Homogeneous Hermite-Birkhoff interpolation.
+
+    Steps:
+    1. Convert Control Points to Homogeneous Space (Cw).
+    2. Identify the local knot span and affected Control Points.
+    3. Sample the original curve's Homogeneous values (Pos + Deriv) at boundaries.
+    4. Solve the linear system (Least Squares) to find new Homogeneous Control Points.
+    5. Project back to Euclidean space.
+    6. Measure Euclidean error.
+    """
+    p = curve.order - 1
+    U_old = curve.knot
+
+    # 1. Convert to Homogeneous
+    P_hom_old = to_homogeneous(curve.control_points, curve.weights)
+    hom_dim = P_hom_old.shape[1]  # D + 1
+
+    # 2. Identify Knot to Remove
+    matches = np.where(np.abs(U_old - u_remove) < 1e-9)[0]
+    if len(matches) == 0:
+        return KnotRemovalResult(None, False, float('inf'), u_remove)
+
+    r = matches[-1]
+
+    # Safety check for boundary knots
+    if r >= len(U_old) - p - 1:
+        if len(matches) > 1:
+            r = matches[-2]
+        else:
+            return KnotRemovalResult(None, False, float('inf'), u_remove)
+
+    U_new = np.delete(U_old, r)
+
+    # Range of CPs to recalculate: Q_{r-p} ... Q_{r-1}
+    start_idx = r - p
+    end_idx = r - 1
+    num_unknowns = p
+
+    if start_idx < 0:
+        return KnotRemovalResult(None, False, float('inf'), u_remove)
+
+    # 3. Define Constraints (Hermite + Internal)
+    u_a = U_new[r - 1]
+    u_b = U_new[r]
+
+    samples = []
+    # Hermite Constraints (Preserve C1 continuity of the weighted curve)
+    samples.append((u_a, 0))  # Pos
+    samples.append((u_a, 1))  # Deriv
+    samples.append((u_b, 0))  # Pos
+    samples.append((u_b, 1))  # Deriv
+
+    # Internal Constraints for p > 3
+    if p > 3:
+        num_internal = max(0, p - 4)
+        if num_internal > 0:
+            t_internal = np.linspace(u_a, u_b, num_internal + 2)[1:-1]
+            for t in t_internal:
+                samples.append((t, 0))
+
+    # 4. Build Linear System in Homogeneous Space
+    num_constraints = len(samples)
+    A = np.zeros((num_constraints, num_unknowns))
+    B = np.zeros((num_constraints, hom_dim))
+
+    n_new = len(P_hom_old) - 2
+
+    for row_i, (u, mode) in enumerate(samples):
+        # Compute Basis on NEW Knot Vector
+        span_new = find_span(n_new, p, u, U_new)
+        ders_new = ders_basis_funs(span_new, u, p, U_new, n_ders=1)
+        basis_vals = ders_new[mode, :]
+
+        # Target: Evaluate OLD curve in Homogeneous Space
+        # returns shape (n_ders+1, hom_dim), we take [mode]
+        target_val_hom = evaluate_b_spline_derivs(U_old, P_hom_old, p, u, n_ders=1)[mode]
+
+        rhs_contrib = target_val_hom.copy()
+
+        for j in range(p + 1):
+            cp_idx = span_new - p + j
+            weight_basis = basis_vals[j]
+
+            if start_idx <= cp_idx <= end_idx:
+                # Unknown Variable
+                col_idx = cp_idx - start_idx
+                if 0 <= col_idx < num_unknowns:
+                    A[row_i, col_idx] += weight_basis
+            else:
+                # Fixed / Known Control Point
+                if cp_idx < start_idx:
+                    fixed_cp = P_hom_old[cp_idx]
+                else:
+                    fixed_cp = P_hom_old[cp_idx + 1]
+
+                rhs_contrib -= weight_basis * fixed_cp
+
+        B[row_i] = rhs_contrib
+
+    # 5. Solve (Least Squares)
+    try:
+        Q_hom_local, residuals, rank, s = np.linalg.lstsq(A, B, rcond=None)
+    except np.linalg.LinAlgError:
+        return KnotRemovalResult(None, False, float('inf'), u_remove)
+
+    # Reconstruct Full Homogeneous Array
+    P_hom_new = np.zeros((len(P_hom_old) - 1, hom_dim))
+    P_hom_new[:start_idx] = P_hom_old[:start_idx]
+    P_hom_new[start_idx: end_idx + 1] = Q_hom_local
+    P_hom_new[end_idx + 1:] = P_hom_old[end_idx + 2:]
+
+    # 6. Project back to Euclidean
+    P_new, W_new = to_euclidean(P_hom_new)
+
+    new_curve = NURBSCurveTuple(p + 1, U_new, P_new, W_new)
+
+    # 7. Evaluate Euclidean Error
+    # We compare the Euclidean 3D positions at u_remove
+    # Original
+    pt_old_hom = evaluate_b_spline_derivs(U_old, P_hom_old, p, u_remove, 0)[0]
+    pt_old_euc = pt_old_hom[:-1] / pt_old_hom[-1]
+
+    # New
+    pt_new_hom = evaluate_b_spline_derivs(U_new, P_hom_new, p, u_remove, 0)[0]
+    pt_new_euc = pt_new_hom[:-1] / pt_new_hom[-1]
+
+    dist = np.linalg.norm(pt_old_euc - pt_new_euc)
+    success = dist <= tolerance
+
+    return KnotRemovalResult(new_curve, success, dist, u_remove)
