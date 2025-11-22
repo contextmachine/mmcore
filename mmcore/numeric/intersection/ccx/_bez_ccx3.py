@@ -14,34 +14,33 @@ import time
 # ---------------------------------------------------------------------------
 # Homogeneous helpers
 # ---------------------------------------------------------------------------
-_FORCE_HOMOGENEOUS_INPUT = False  # set per-call inside bezier_intersect_certified_full
 
+def is_homogeneous_ctrl(ctrl, rational: bool | None = None, eps: float = 1e-12) -> bool:
+    """Detect or force whether a control net is homogeneous (rational).
 
-def _set_force_homogeneous(flag: bool):
-    global _FORCE_HOMOGENEOUS_INPUT
-    _FORCE_HOMOGENEOUS_INPUT = bool(flag)
-
-
-def is_homogeneous_ctrl(ctrl, eps: float = 1e-12) -> bool:
-    """Heuristic/flagged test for homogeneous (rational) control nets.
-
-    The call-site can force homogeneous processing by toggling
-    `_FORCE_HOMOGENEOUS_INPUT` (set by the public API). Otherwise we detect
-    based on dimensionality and the last column being interpreted as weights.
+    Parameters
+    ----------
+    ctrl : ndarray
+        Control net.
+    rational : bool or None, optional
+        If ``True`` forces homogeneous interpretation; if ``False`` forces
+        Cartesian; if ``None`` a heuristic is used (dimension/weights).
+    eps : float, optional
+        Tolerance when inspecting weights in heuristic mode.
     """
+
+    if rational is not None:
+        return bool(rational)
 
     if ctrl is None:
         return False
-    if _FORCE_HOMOGENEOUS_INPUT:
-        return ctrl.shape[1] >= 3
-
     # Explicit dimensional cues
     if ctrl.shape[1] >= 4:
-        return True  # (x,y,z,w) style input
-
+        return True  # (x,y,z,w)
     if ctrl.shape[1] == 3:
-        # Ambiguous (either 3D Euclidean or 2D homogeneous). Default to Euclidean unless forced.
-        return False
+        w = np.asarray(ctrl[:, -1], dtype=float)
+        if np.all(w > eps) and np.max(np.abs(w - 1.0)) > eps:
+            return True
     return False
 
 
@@ -52,8 +51,8 @@ def dehomogenize_point(ph, eps: float = 1e-16):
     return ph[:-1] / w
 
 
-def dehomogenize_ctrl(ctrl):
-    if not is_homogeneous_ctrl(ctrl):
+def dehomogenize_ctrl(ctrl, rational: bool | None = None):
+    if not is_homogeneous_ctrl(ctrl, rational=rational):
         return ctrl
     w = np.asarray(ctrl[..., -1:], dtype=float)
     w_safe = np.where(np.abs(w) < 1e-16, 1e-16, w)
@@ -84,10 +83,10 @@ def eval_bezier_raw(P, t):
     return Q[0]
 
 
-def eval_bezier(P, t):
+def eval_bezier(P, t, rational: bool | None = None):
     """Return Euclidean point; dehomogenize if weights are present."""
     Ph = eval_bezier_raw(P, t)
-    if is_homogeneous_ctrl(P):
+    if is_homogeneous_ctrl(P, rational=rational):
         return dehomogenize_point(Ph)
     return Ph
 
@@ -97,8 +96,8 @@ def deriv_ctrl(P):  # first derivative control net
     return n * (P[1:] - P[:-1])
 
 
-def eval_bezier_deriv(P, t):  # first derivative at t
-    if is_homogeneous_ctrl(P):
+def eval_bezier_deriv(P, t, rational: bool | None = None):  # first derivative at t
+    if is_homogeneous_ctrl(P, rational=rational):
         Ph = eval_bezier_raw(P, t)
         dPh = eval_bezier_raw(deriv_ctrl(P), t)
         w = float(Ph[-1])
@@ -110,13 +109,15 @@ def eval_bezier_deriv(P, t):  # first derivative at t
 
 
 # ---------- Distance net envelope (pruning) ----------
-def distance_squared_net(P, Q):
-    if is_homogeneous_ctrl(P) or is_homogeneous_ctrl(Q):
-        return bernstein_distance_squared_net_homog(P, Q)
+def distance_squared_net(P, Q, rational: bool | None = None):
+    if rational is None:
+        rational = is_homogeneous_ctrl(P) or is_homogeneous_ctrl(Q)
+    if rational:
+        return bernstein_distance_squared_net_homog(P, Q, rational=True)
     return bernstein_distance_squared_net(P, Q)
 
 
-def bernstein_distance_squared_net_homog(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
+def bernstein_distance_squared_net_homog(P: np.ndarray, Q: np.ndarray, rational: bool | None = True) -> np.ndarray:
     r"""Squared numerator net for ``||C1-C2||^2`` with homogeneous inputs.
 
     We avoid dehomogenization by cross-multiplying weights::
@@ -154,17 +155,10 @@ def bernstein_distance_squared_net_homog(P: np.ndarray, Q: np.ndarray) -> np.nda
     p = P.shape[0] - 1
     q = Q.shape[0] - 1
 
-    Pw = np.ones(P.shape[0], dtype=float)
-    Qw = np.ones(Q.shape[0], dtype=float)
-    Pxyz = P
-    Qxyz = Q
-
-    if is_homogeneous_ctrl(P):
-        Pw = P[:, -1]
-        Pxyz = P[:, :-1]
-    if is_homogeneous_ctrl(Q):
-        Qw = Q[:, -1]
-        Qxyz = Q[:, :-1]
+    Pw = P[:, -1] if (rational or is_homogeneous_ctrl(P)) else np.ones(P.shape[0], dtype=float)
+    Qw = Q[:, -1] if (rational or is_homogeneous_ctrl(Q)) else np.ones(Q.shape[0], dtype=float)
+    Pxyz = P[:, :-1] if (rational or is_homogeneous_ctrl(P)) else P
+    Qxyz = Q[:, :-1] if (rational or is_homogeneous_ctrl(Q)) else Q
 
     # Tensor-product control net for Δ
     D = Pxyz[:, None, :] * Qw[None, :, None] - Qxyz[None, :, :] * Pw[:, None, None]
@@ -202,21 +196,21 @@ def bernstein_envelope_min(dnet):
 
 
 # ---------- Vector system G(u,v)=C1(u)-C2(v)=0 ----------
-def G_and_J(C1, C2, u, v):
-    p1 = eval_bezier(C1, u)
-    t1 = eval_bezier_deriv(C1, u)
-    p2 = eval_bezier(C2, v)
-    t2 = eval_bezier_deriv(C2, v)
+def G_and_J(C1, C2, u, v, rational: bool | None = None):
+    p1 = eval_bezier(C1, u, rational=rational)
+    t1 = eval_bezier_deriv(C1, u, rational=rational)
+    p2 = eval_bezier(C2, v, rational=rational)
+    t2 = eval_bezier_deriv(C2, v, rational=rational)
     G = p1 - p2  # d-vector
     J = np.stack([t1, -t2], axis=1)  # d x 2
     return G, J
 
 
-def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12):
+def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, rational: bool | None = None):
     """Levenberg–Marquardt corrector to G(u,v)=0; clamps to [0,1]^2."""
     u, v = float(u0), float(v0)
     for _ in range(it):
-        G, J = G_and_J(C1, C2, u, v)  # G in R^d, J in R^{d x 2}
+        G, J = G_and_J(C1, C2, u, v, rational=rational)  # G in R^d, J in R^{d x 2}
         JT = J.T
         A = JT @ J + lm_damp * np.eye(2)  # 2x2
         b = -JT @ G  # 2
@@ -229,7 +223,7 @@ def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12):
         for _ls in range(8):
             un = np.clip(u + step * delta[0], 0.0, 1.0)
             vn = np.clip(v + step * delta[1], 0.0, 1.0)
-            if np.linalg.norm(G_and_J(C1, C2, un, vn)[0]) <= np.linalg.norm(G):
+            if np.linalg.norm(G_and_J(C1, C2, un, vn, rational=rational)[0]) <= np.linalg.norm(G):
                 u, v = un, vn
                 break
             step *= 0.5
@@ -237,7 +231,7 @@ def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12):
             break
         if step < 1e-6 and np.linalg.norm(delta) < 1e-10:
             break
-    G, J = G_and_J(C1, C2, u, v)
+    G, J = G_and_J(C1, C2, u, v, rational=rational)
     return u, v, G, J
 
 
@@ -277,8 +271,8 @@ def second_deriv_ctrl(P):
     return n * (n - 1) * (P[2:] - 2 * P[1:-1] + P[:-2])
 
 
-def eval_bezier_second_deriv(P, t):
-    if is_homogeneous_ctrl(P):
+def eval_bezier_second_deriv(P, t, rational: bool | None = None):
+    if is_homogeneous_ctrl(P, rational=rational):
         Ph = eval_bezier_raw(P, t)
         dPh = eval_bezier_raw(deriv_ctrl(P), t)
         ddPh = eval_bezier_raw(second_deriv_ctrl(P), t)
@@ -298,8 +292,8 @@ def eval_bezier_second_deriv(P, t):
     return eval_bezier_raw(second_deriv_ctrl(P), t)
 
 
-def curvature_and_speed(C, u):
-    t = eval_bezier_deriv(C, u)
+def curvature_and_speed(C, u, rational: bool | None = None):
+    t = eval_bezier_deriv(C, u, rational=rational)
     s = np.linalg.norm(t)
     if s < 1e-16:
         return 0.0, 0.0, t  # degenerate speed
@@ -351,7 +345,7 @@ def append_with_decimation(uv_path, xyz_path, uv_new, x_new, angle_tol, sag_tol)
 
 
 # --- 1D projectors for boundary events ---------------------------------------
-def project_G0_fixed_u(C1, C2, u_fixed, v0, tol=1e-12, it=40, lm_damp=1e-12):
+def project_G0_fixed_u(C1, C2, u_fixed, v0, tol=1e-12, it=40, lm_damp=1e-12, rational: bool | None = None):
     """
     Solve min ||C1(u_fixed) - C2(v)|| with v in [0,1].
     Returns v, G (residual vector), success(bool).
@@ -359,8 +353,8 @@ def project_G0_fixed_u(C1, C2, u_fixed, v0, tol=1e-12, it=40, lm_damp=1e-12):
     p1 = eval_bezier(C1, u_fixed)
     v = float(v0)
     for _ in range(it):
-        p2 = eval_bezier(C2, v)
-        t2 = eval_bezier_deriv(C2, v)
+        p2 = eval_bezier(C2, v, rational=rational)
+        t2 = eval_bezier_deriv(C2, v, rational=rational)
         G = p1 - p2
         JTJ = float(np.dot(t2, t2)) + lm_damp
         JTG = -float(np.dot(t2, G))
@@ -369,28 +363,28 @@ def project_G0_fixed_u(C1, C2, u_fixed, v0, tol=1e-12, it=40, lm_damp=1e-12):
         g0 = np.linalg.norm(G)
         while step > 1e-6:
             vn = np.clip(v + step * dv, 0.0, 1.0)
-            gn = np.linalg.norm(p1 - eval_bezier(C2, vn))
+            gn = np.linalg.norm(p1 - eval_bezier(C2, vn, rational=rational))
             if gn <= g0 + 1e-18:
                 v = vn
                 break
             step *= 0.5
-        if np.linalg.norm(p1 - eval_bezier(C2, v)) < tol:
-            G = p1 - eval_bezier(C2, v)
+        if np.linalg.norm(p1 - eval_bezier(C2, v, rational=rational)) < tol:
+            G = p1 - eval_bezier(C2, v, rational=rational)
             return v, G, True
-    G = p1 - eval_bezier(C2, v)
+    G = p1 - eval_bezier(C2, v, rational=rational)
     return v, G, (np.linalg.norm(G) < 5.0 * tol)
 
 
-def project_G0_fixed_v(C1, C2, v_fixed, u0, tol=1e-12, it=40, lm_damp=1e-12):
+def project_G0_fixed_v(C1, C2, v_fixed, u0, tol=1e-12, it=40, lm_damp=1e-12, rational: bool | None = None):
     """
     Solve min ||C1(u) - C2(v_fixed)|| with u in [0,1].
     Returns u, G (residual vector), success(bool).
     """
-    p2 = eval_bezier(C2, v_fixed)
+    p2 = eval_bezier(C2, v_fixed, rational=rational)
     u = float(u0)
     for _ in range(it):
-        p1 = eval_bezier(C1, u)
-        t1 = eval_bezier_deriv(C1, u)
+        p1 = eval_bezier(C1, u, rational=rational)
+        t1 = eval_bezier_deriv(C1, u, rational=rational)
         G = p1 - p2
         JTJ = float(np.dot(t1, t1)) + lm_damp
         JTG = float(np.dot(t1, G))
@@ -399,22 +393,22 @@ def project_G0_fixed_v(C1, C2, v_fixed, u0, tol=1e-12, it=40, lm_damp=1e-12):
         g0 = np.linalg.norm(G)
         while step > 1e-6:
             un = np.clip(u + step * du, 0.0, 1.0)
-            gn = np.linalg.norm(eval_bezier(C1, un) - p2)
+            gn = np.linalg.norm(eval_bezier(C1, un, rational=rational) - p2)
             if gn <= g0 + 1e-18:
                 u = un
                 break
             step *= 0.5
-        if np.linalg.norm(eval_bezier(C1, u) - p2) < tol:
-            G = eval_bezier(C1, u) - p2
+        if np.linalg.norm(eval_bezier(C1, u, rational=rational) - p2) < tol:
+            G = eval_bezier(C1, u, rational=rational) - p2
             return u, G, True
-    G = eval_bezier(C1, u) - p2
+    G = eval_bezier(C1, u, rational=rational) - p2
     return u, G, (np.linalg.norm(G) < 5.0 * tol)
 
 
 # --- Event helpers ------------------------------------------------------------
-def dot_sigma(C1, C2, u, v):
-    t1 = eval_bezier_deriv(C1, u)
-    t2 = eval_bezier_deriv(C2, v)
+def dot_sigma(C1, C2, u, v, rational: bool | None = None):
+    t1 = eval_bezier_deriv(C1, u, rational=rational)
+    t2 = eval_bezier_deriv(C2, v, rational=rational)
     return float(np.dot(t1, t2))
 
 
@@ -440,13 +434,13 @@ def earliest_boundary_alpha(u, v, du, dv):
     return float(a), w
 
 
-def sigma_flip_alpha(C1, C2, u, v, du, dv, tol_alpha=1e-12, max_it=40):
+def sigma_flip_alpha(C1, C2, u, v, du, dv, tol_alpha=1e-12, max_it=40, rational: bool | None = None):
     """
     If sigma = sign(t1·t2) flips along (u,v) -> (u+du, v+dv), return alpha in (0,1) where dot = 0.
     Else return None.
     """
-    s0 = dot_sigma(C1, C2, u, v)
-    s1 = dot_sigma(C1, C2, u + du, v + dv)
+    s0 = dot_sigma(C1, C2, u, v, rational=rational)
+    s1 = dot_sigma(C1, C2, u + du, v + dv, rational=rational)
     if s0 == 0.0:
         return 0.0
     if s0 * s1 > 0.0:
@@ -483,6 +477,7 @@ def trace_overlap_fast_events(
     step_growth=1.5,
     step_shrink=0.5,
     max_points=10000,
+    rational: bool | None = None,
 ):
     """Event-driven tracing of curve/curve overlaps in parameter space.
 
@@ -520,8 +515,8 @@ def trace_overlap_fast_events(
 
     # --- scales & tolerances
     def bbox_diag_len(C1, C2):
-        e1 = dehomogenize_ctrl(C1)
-        e2 = dehomogenize_ctrl(C2)
+        e1 = dehomogenize_ctrl(C1, rational=rational)
+        e2 = dehomogenize_ctrl(C2, rational=rational)
         mins = np.minimum(np.min(e1, axis=0), np.min(e2, axis=0))
         maxs = np.maximum(np.max(e1, axis=0), np.max(e2, axis=0))
         return float(np.linalg.norm(maxs - mins))
@@ -537,7 +532,7 @@ def trace_overlap_fast_events(
         tol_proj = max(1e-12, 1e-10 * scale)
 
     # --- initial 2D projection
-    u0, v0, G0, J0 = newton_project_G0(C1, C2, u_seed, v_seed, tol=tol_proj)
+    u0, v0, G0, J0 = newton_project_G0(C1, C2, u_seed, v_seed, tol=tol_proj, rational=rational)
     if np.linalg.norm(G0) > 1e-7:
         return {"kind": "none"}
 
@@ -572,16 +567,16 @@ def trace_overlap_fast_events(
     u0, v0, _ = try_snap(u0, v0)
 
     uv_path = [(u0, v0)]
-    xyz_path = [eval_bezier(C1, u0)]
+    xyz_path = [eval_bezier(C1, u0, rational=rational)]
 
     # --- utilities from previous reply (reuse)
     def curvature_and_speed(C, u):
-        t = eval_bezier_deriv(C, u)
+        t = eval_bezier_deriv(C, u, rational=rational)
         s = np.linalg.norm(t)
         if s < 1e-16:
             return 0.0, 0.0, t
         # second derivative
-        tt = eval_bezier_second_deriv(C, u)
+        tt = eval_bezier_second_deriv(C, u, rational=rational)
         d = C.shape[1]
         if d == 2:
             kappa = abs(t[0] * tt[1] - t[1] * tt[0]) / (s**3 + 1e-30)
@@ -642,7 +637,7 @@ def trace_overlap_fast_events(
         while pts < max_points:
             # tangents & speeds
             kappa, s1, t1 = curvature_and_speed(C1, u)
-            t2 = eval_bezier_deriv(C2, v)
+            t2 = eval_bezier_deriv(C2, v, rational=rational)
             s2 = float(np.linalg.norm(t2))
             if s1 < 1e-16 or s2 < 1e-16:
                 ds = max(ds_min, ds * step_shrink)
@@ -657,7 +652,7 @@ def trace_overlap_fast_events(
             a_bnd, which = earliest_boundary_alpha(u, v, du, dv)
             a_sig = None
             if enable_sigma_event:
-                a_sig = sigma_flip_alpha(C1, C2, u, v, du, dv)
+                a_sig = sigma_flip_alpha(C1, C2, u, v, du, dv, rational=rational)
 
             # target alpha
             alphas = [1.0]
@@ -680,27 +675,27 @@ def trace_overlap_fast_events(
             if label in ("u0", "u1", "v0", "v1"):
                 force_keep = True  # keep boundary points
                 if label == "u0":
-                    vnew, G, ok = project_G0_fixed_u(C1, C2, 0.0, vp, tol=tol_proj)
+                    vnew, G, ok = project_G0_fixed_u(C1, C2, 0.0, vp, tol=tol_proj, rational=rational)
                     if not ok:
                         break
                     u, v = 0.0, vnew
                 elif label == "u1":
-                    vnew, G, ok = project_G0_fixed_u(C1, C2, 1.0, vp, tol=tol_proj)
+                    vnew, G, ok = project_G0_fixed_u(C1, C2, 1.0, vp, tol=tol_proj, rational=rational)
                     if not ok:
                         break
                     u, v = 1.0, vnew
                 elif label == "v0":
-                    unew, G, ok = project_G0_fixed_v(C1, C2, 0.0, up, tol=tol_proj)
+                    unew, G, ok = project_G0_fixed_v(C1, C2, 0.0, up, tol=tol_proj, rational=rational)
                     if not ok:
                         break
                     u, v = unew, 0.0
                 elif label == "v1":
-                    unew, G, ok = project_G0_fixed_v(C1, C2, 1.0, up, tol=tol_proj)
+                    unew, G, ok = project_G0_fixed_v(C1, C2, 1.0, up, tol=tol_proj, rational=rational)
                     if not ok:
                         break
                     u, v = unew, 1.0
 
-                x = eval_bezier(C1, u)
+                x = eval_bezier(C1, u, rational=rational)
                 if direction > 0:
                     append_with_decimation(uv_path, xyz_path, (u, v), x, angle_tol, sag_tol, force_keep=True)
                 else:
@@ -714,7 +709,7 @@ def trace_overlap_fast_events(
 
             # --- otherwise: possibly a sigma flip event (or plain interior step)
             # Corrector (2D)
-            uc, vc, Gc, Jc = newton_project_G0(C1, C2, up, vp, tol=tol_proj)
+            uc, vc, Gc, Jc = newton_project_G0(C1, C2, up, vp, tol=tol_proj, rational=rational)
             if np.linalg.norm(Gc) > 5.0 * tol_proj:
                 # step too large -> shrink & retry
                 ds = max(ds_min, ds * step_shrink)
@@ -731,7 +726,7 @@ def trace_overlap_fast_events(
                 continue
 
             # accept
-            x = eval_bezier(C1, uc)
+            x = eval_bezier(C1, uc, rational=rational)
             if direction > 0:
                 append_with_decimation(uv_path, xyz_path, (uc, vc), x, angle_tol, sag_tol, force_keep=False)
             else:
@@ -762,7 +757,7 @@ def trace_overlap_fast_events(
 
 
 # ---------- High-level routine: classify & extract contact ----------
-def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, sv_thresh=1e-2):
+def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, sv_thresh=1e-2, rational: bool | None = None):
     """Local classification of a single Bézier pair.
 
     Parameters
@@ -797,19 +792,19 @@ def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, 
 
     # Try to land on G=0
     u0, v0 = seed_uv
-    u, v, G, J = newton_project_G0(C1, C2, u0, v0, tol=1e-12)
+    u, v, G, J = newton_project_G0(C1, C2, u0, v0, tol=1e-12, rational=rational)
     if np.linalg.norm(G) > 1e-8:
         return {"type": "none"}
 
     cls = classify_contact(J, sv_thresh)
     if cls["type"] == "isolated":
-        x = eval_bezier(C1, u)  # equals eval_bezier(C2, v)
+        x = eval_bezier(C1, u, rational=rational)  # equals eval_bezier(C2, v)
         return {"type": "isolated", "u": u, "v": v, "point": x}
     if cls["type"] != "overlap":
         return {"type": "none"}
 
     # Trace the fold (overlap/correspondence)
-    res = trace_overlap_fast_events(C1, C2, u, v, sv_thresh=sv_thresh)
+    res = trace_overlap_fast_events(C1, C2, u, v, sv_thresh=sv_thresh, rational=rational)
     if res["kind"] != "overlap" or len(res["points"]) < 2:
         return {"type": "none"}
 
@@ -817,9 +812,37 @@ def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, 
     return {"type": "overlap", "uv_path": res["points"], "xyz_path": xyz, "start": res["start"], "end": res["end"]}
 
 
-from typing import Tuple
+from typing import Tuple, TypedDict, List, Dict, Any
+from numpy.typing import NDArray
 
 Rect = Tuple[float, float, float, float]
+
+
+class IsolatedIntersection(TypedDict):
+    u: float
+    v: float
+    point: NDArray
+
+
+class OverlapIntersection(TypedDict):
+    uv_path: NDArray
+    xyz_path: NDArray
+    start: str
+    end: str
+
+
+class IntersectionStats(TypedDict):
+    cells: int
+    pruned: int
+    unique_boxes: int
+    overlap_traces: int
+    pruned_by: List[str]
+
+
+class IntersectionResult(TypedDict):
+    isolated: List[IsolatedIntersection]
+    overlaps: List[OverlapIntersection]
+    stats: IntersectionStats
 
 
 def normalize_rect(r: Rect) -> Rect:
@@ -843,15 +866,15 @@ def is_on_boundary(inner: Rect, outer: Rect) -> bool:
     return (s0 <= u0) and (u1 <= s1) and (t0 <= v0) and (v1 <= t1) and ((s0 < u0) or (u1 < s1) or (t0 < v0) or (v1 < t1))
 
 
-def spread(ctrl):
+def spread(ctrl, rational: bool | None = None):
     """Geometric spread (used to choose split axis)."""
-    ectrl = dehomogenize_ctrl(ctrl)
+    ectrl = dehomogenize_ctrl(ctrl, rational=rational)
     mu = ectrl.mean(axis=0, keepdims=True)
     return float(np.max(np.linalg.norm(ectrl - mu, axis=1)))
 
 
-def L1_sz(ctrl):
-    ectrl = dehomogenize_ctrl(ctrl)
+def L1_sz(ctrl, rational: bool | None = None):
+    ectrl = dehomogenize_ctrl(ctrl, rational=rational)
     return np.sum(ectrl.max(axis=0) - ectrl.min(axis=0))
 
 
@@ -901,48 +924,48 @@ def center_covered_by_overlaps(overlaps_uv, u, v, du, dv):
     return False
 
 
-def _sup_norm_ctrl(ctrl):
+def _sup_norm_ctrl(ctrl, rational: bool | None = None):
     """sup ||ctrl_i|| over control vectors"""
     if ctrl.shape[0] == 0:
         return 0.0
-    ectrl = dehomogenize_ctrl(ctrl)
+    ectrl = dehomogenize_ctrl(ctrl, rational=rational)
     return float(np.max(np.linalg.norm(ectrl, axis=1)))
 
 
-def _aabb_euclidean(ctrl):
-    return aabb(dehomogenize_ctrl(ctrl))
+def _aabb_euclidean(ctrl, rational: bool | None = None):
+    return aabb(dehomogenize_ctrl(ctrl, rational=rational))
 
 
-def _min_positive_weight(ctrl, eps=1e-16):
-    if not is_homogeneous_ctrl(ctrl):
+def _min_positive_weight(ctrl, eps=1e-16, rational: bool | None = None):
+    if not is_homogeneous_ctrl(ctrl, rational=rational):
         return 1.0
     w = np.asarray(ctrl[:, -1], dtype=float)
     w_min = float(np.min(np.abs(w)))
     return max(w_min, eps)
 
 
-def _sup_first_deriv_norm(ctrl):
+def _sup_first_deriv_norm(ctrl, rational: bool | None = None):
     """Upper bound on ||C'(u)|| for ctrl (handles homogeneous)."""
-    if not is_homogeneous_ctrl(ctrl):
-        return _sup_norm_ctrl(deriv_ctrl(ctrl))
+    if not is_homogeneous_ctrl(ctrl, rational=rational):
+        return _sup_norm_ctrl(deriv_ctrl(ctrl), rational=False)
 
     xyz = ctrl[:, :-1]
     w = ctrl[:, -1]
 
     H1_ctrl = deriv_ctrl(ctrl)
-    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1])
-    sup_H = _sup_norm_ctrl(xyz)
+    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1], rational=False)
+    sup_H = _sup_norm_ctrl(xyz, rational=False)
     w1_ctrl = deriv_ctrl(w[:, None])[:, 0]
     sup_w1 = float(np.max(np.abs(w1_ctrl))) if w1_ctrl.size else 0.0
-    w_min = _min_positive_weight(ctrl)
+    w_min = _min_positive_weight(ctrl, rational=True)
     denom = max(w_min * w_min, 1e-30)
     return (sup_H1 * w_min + sup_H * sup_w1) / denom
 
 
-def _sup_second_deriv_norm(ctrl):
+def _sup_second_deriv_norm(ctrl, rational: bool | None = None):
     """Upper bound on ||C''(u)|| for ctrl (handles homogeneous)."""
-    if not is_homogeneous_ctrl(ctrl):
-        return _sup_norm_ctrl(second_deriv_ctrl(ctrl))
+    if not is_homogeneous_ctrl(ctrl, rational=rational):
+        return _sup_norm_ctrl(second_deriv_ctrl(ctrl), rational=False)
 
     xyz = ctrl[:, :-1]
     w = ctrl[:, -1]
@@ -950,16 +973,16 @@ def _sup_second_deriv_norm(ctrl):
     H1_ctrl = deriv_ctrl(ctrl)
     H2_ctrl = second_deriv_ctrl(ctrl)
 
-    sup_H = _sup_norm_ctrl(xyz)
-    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1])
-    sup_H2 = _sup_norm_ctrl(H2_ctrl[:, :-1])
+    sup_H = _sup_norm_ctrl(xyz, rational=False)
+    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1], rational=False)
+    sup_H2 = _sup_norm_ctrl(H2_ctrl[:, :-1], rational=False)
 
     w1_ctrl = deriv_ctrl(w[:, None])[:, 0]
     w2_ctrl = second_deriv_ctrl(w[:, None])[:, 0]
     sup_w1 = float(np.max(np.abs(w1_ctrl))) if w1_ctrl.size else 0.0
     sup_w2 = float(np.max(np.abs(w2_ctrl))) if w2_ctrl.size else 0.0
 
-    w_min = _min_positive_weight(ctrl)
+    w_min = _min_positive_weight(ctrl, rational=True)
     w2_sq = w_min * w_min
     w3 = w2_sq * w_min
 
@@ -967,12 +990,12 @@ def _sup_second_deriv_norm(ctrl):
     return num / max(w3, 1e-30)
 
 
-def _sup_r_for_cell(Pseg, Qseg):
+def _sup_r_for_cell(Pseg, Qseg, rational: bool | None = None):
     """sup ||C1(u)-C2(v)|| over the subcell via Bernstein envelope"""
-    return float(np.sqrt(np.max(distance_squared_net(Pseg, Qseg))))
+    return float(np.sqrt(np.max(distance_squared_net(Pseg, Qseg, rational=rational))))
 
 
-def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12):
+def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12, rational: bool | None = None):
     """Interval/Krawczyk certificate for a unique isolated intersection in a cell.
 
     Parameters
@@ -1008,7 +1031,7 @@ def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12):
 
     # center point in local cell [0,1]^2
     uc, vc = 0.5, 0.5
-    Gc, Jc = G_and_J(Pseg, Qseg, uc, vc)  # Gc in R^2, Jc in R^{2x2}
+    Gc, Jc = G_and_J(Pseg, Qseg, uc, vc, rational=rational)  # Gc in R^2, Jc in R^{2x2}
     # try to invert Jc
     try:
         cond = np.linalg.cond(Jc)
@@ -1021,11 +1044,11 @@ def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12):
     # interval bounds of J over the whole cell
     # J = [[ 2||t1||^2 + 2 r·C1'' ,    -2 t1·t2 ],
     #      [    -2 t1·t2         ,  2||t2||^2 - 2 r·C2'' ]]
-    sup_t1 = _sup_first_deriv_norm(Pseg)
-    sup_t2 = _sup_first_deriv_norm(Qseg)
-    sup_tt1 = _sup_second_deriv_norm(Pseg)
-    sup_tt2 = _sup_second_deriv_norm(Qseg)
-    sup_r = _sup_r_for_cell(Pseg, Qseg)
+    sup_t1 = _sup_first_deriv_norm(Pseg, rational=rational)
+    sup_t2 = _sup_first_deriv_norm(Qseg, rational=rational)
+    sup_tt1 = _sup_second_deriv_norm(Pseg, rational=rational)
+    sup_tt2 = _sup_second_deriv_norm(Qseg, rational=rational)
+    sup_r = _sup_r_for_cell(Pseg, Qseg, rational=rational)
 
     # conservative intervals
     # note: we don't have a safe positive lower bound for ||t||; use 0 for lower.
@@ -1229,20 +1252,24 @@ def classify_cell_by_grids(Du, Dv, eps_face=1e-14, eps_pd=1e-14):
         )
 
 
-def _bez_get_tol_adapter(c, tol, rational=None, interval=None):
-    if rational is None:
-        rational = is_homogeneous_ctrl(c)
+def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
-def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, sv_thresh:float=1e-8, atol:float=1e-3, rational:bool=False):
+def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1e-9, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve pairs.
 
     Parameters
     ----------
     C1, C2 : array_like
-        Control nets of the curves. Homogeneous weights may be appended as the
-        last column. Works in 2D or 3D.
+        Control nets of the curves. Expected shapes:
+
+        * If ``rational=False`` (default): ``(p+1, dim)`` and ``(q+1, dim)`` with
+          Cartesian coordinates (dim = 2 or 3).
+        * If ``rational=True``: ``(p+1, dim+1)`` and ``(q+1, dim+1)`` containing
+          homogeneous coordinates ``(x*w, y*w[, z*w], w)`` where the last column
+          is the weight. The geometric dimension is ``dim`` (2 or 3).
+
     tol_hit : float, optional
         Acceptance tolerance for a Newton correction to count as an isolated hit.
     sv_thresh : float, optional
@@ -1250,8 +1277,10 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
     atol : float, optional
         Geometric tolerance for pruning very small bounding boxes.
     rational : bool, optional
-        Force homogeneous processing; if ``False``, detection is automatic from
-        input dimensionality.
+        When ``True``, inputs are treated as homogeneous control nets with the
+        last column as weights. When ``False``, inputs are treated as Cartesian.
+        If left ``None``, a lightweight heuristic based on dimensionality/weights
+        is applied, but explicit specification is recommended for clarity.
 
     Returns
     -------
@@ -1296,13 +1325,11 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
     overlaps_uv_registry = []  # just the uv polylines for fast checks
     stats = {"cells": 0, "pruned": 0, "unique_boxes": 0, "overlap_traces": 0, "pruned_by": []}
 
-    old_flag = _FORCE_HOMOGENEOUS_INPUT
-    _set_force_homogeneous(rational)
     result = None
     try:
-        sq_dist_net = distance_squared_net(C1, C2)[..., None]
-        tol_c1 = _bez_get_tol_adapter(C1, atol)
-        tol_c2 = _bez_get_tol_adapter(C2, atol)
+        sq_dist_net = distance_squared_net(C1, C2, rational=rational)[..., None]
+        tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
+        tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
         su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
         sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
         stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
@@ -1322,8 +1349,8 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
         while stack:
             Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
             stats["cells"] += 1
-            box1 = _aabb_euclidean(Pseg)
-            box2 = _aabb_euclidean(Qseg)
+            box1 = _aabb_euclidean(Pseg, rational=rational)
+            box2 = _aabb_euclidean(Qseg, rational=rational)
             if not aabb_intersect(box1, box2):
                 stats["pruned"] += 1
                 stats["pruned_by"].append("bbox_inter")
@@ -1349,13 +1376,13 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
                 stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
                 continue
             elif res["status"] == "unique_stationary":
-                uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12)
+                uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12, rational=rational)
                 if np.linalg.norm(Gc) <= tol_hit:
                     ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
                     if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
                         if not near_existing_isolated(ug, vg):
-                            x = eval_bezier(C1, ug)
+                            x = eval_bezier(C1, ug, rational=rational)
                             isolated.append({"u": ug, "v": vg, "point": x})
                             stats["overlap_traces"] += 1
                             stats["pruned"] += 1
@@ -1363,7 +1390,7 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
                         continue
                     elif (((ug - 0) < tol_hit or (1 - ug) < tol_hit) and ((vg - 0) < tol_hit or (1 - vg) < tol_hit)):
                         if not near_existing_isolated(ug, vg):
-                            x = eval_bezier(C1, ug)
+                            x = eval_bezier(C1, ug, rational=rational)
                             isolated.append({"u": ug, "v": vg, "point": x})
 
                             stats["pruned"] += 1
@@ -1381,11 +1408,11 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
                 if not allow_contact or cell_contains_known_isolated(u0, u1, v0, v1) or (depth > 0 and max_span > 0.25) or (min_d > 1e-10):
                     res = {"type": "none"}
                 else:
-                    res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh)
+                    res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh, rational=rational)
 
                 if res["type"] == "overlap" and len(res["uv_path"]) >= 2:
                     uv_global = [map_local_to_global(uL, vL, u0, u1, v0, v1) for (uL, vL) in res["uv_path"]]
-                    xyz_global = [eval_bezier(C1, ug) for (ug, vg) in uv_global]
+                    xyz_global = [eval_bezier(C1, ug, rational=rational) for (ug, vg) in uv_global]
                     overlaps.append(
                         {"uv_path": np.asarray(uv_global), "xyz_path": np.asarray(xyz_global), "start": res["start"], "end": res["end"]}
                     )
@@ -1397,7 +1424,7 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
                     ug, vg = map_local_to_global(res["u"], res["v"], u0, u1, v0, v1)
 
                     if not near_existing_isolated(ug, vg):
-                        x = eval_bezier(C1, ug)
+                        x = eval_bezier(C1, ug, rational=rational)
                         isolated.append({"u": ug, "v": vg, "point": x})
 
                         res_cut = bernstein_cutout_box_nd(dnet, np.array([res["u"], res["v"]]), half=np.array([tol_c1, tol_c2]), return_ranges=True)
@@ -1415,7 +1442,7 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
                         continue
 
             # split by spread if no observation to harvest
-            if L1_sz(Pseg) > L1_sz(Qseg):
+            if L1_sz(Pseg, rational=rational) > L1_sz(Qseg, rational=rational):
                 PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
                 l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
                 um = 0.5 * (u0 + u1)
@@ -1430,7 +1457,7 @@ def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, 
 
         result = {"isolated": isolated, "overlaps": overlaps, "stats": stats}
     finally:
-        _set_force_homogeneous(old_flag)
+        pass
 
     return result
 
