@@ -1305,7 +1305,7 @@ def sign_change_edges_nd(
 
 
 
-from mmcore.geom._nurbs_knots import generate_knots
+
 
 from mmcore.geom._nurbs_knots import generate_knots
 
