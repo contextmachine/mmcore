@@ -196,7 +196,7 @@ def main():
     print(len(overlaps))
     # Evaluate intersection points
     intersection_points = np.array([inter['point'] for inter in intersections])
-    exit(0)
+    #exit(0)
     # Initialize Renderer
     renderer = Renderer2D()
 
