@@ -1128,46 +1128,6 @@ def _bez_get_tol_adapter(c, tol, rational=None, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
-import numpy as np
-
-
-def _aabb_intersect(aabb1, aabb2, exact=True):
-    """
-    Determines whether two ND AABBs intersect.
-
-    Args:
-        aabb1 (array-like): Shape (2, dim). [0,:] is min, [1,:] is max.
-        aabb2 (array-like): Shape (2, dim). [0,:] is min, [1,:] is max.
-        exact (bool): If True, touching borders count as intersection.
-                      If False, a strict overlap is required.
-
-    Returns:
-        bool: True if intersecting, False otherwise.
-    """
-    a = np.asarray(aabb1)
-    b = np.asarray(aabb2)
-
-    # Extract min and max vectors
-    a_min, a_max = a[0], a[1]
-    b_min, b_max = b[0], b[1]
-
-    if exact:
-        # For intersection to occur, the intervals must overlap in ALL dimensions.
-        # Interval A [minA, maxA] and Interval B [minB, maxB] overlap if:
-        # maxA >= minB AND maxB >= minA
-        overlaps = (a_max >= b_min) & (b_max >= a_min)
-    else:
-        # Strict overlap (greater than, not greater equal)
-        overlaps = (a_max > b_min) & (b_max > a_min)
-
-    # If they overlap in every dimension, np.all returns True
-    return np.all(overlaps)
-
-
-
-
-
-
 def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1e-3, rational=False):
     """
     Certified intersection of two Bézier curves (R^2 or R^3).
