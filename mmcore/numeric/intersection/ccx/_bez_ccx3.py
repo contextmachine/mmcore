@@ -117,11 +117,33 @@ def distance_squared_net(P, Q):
 
 
 def bernstein_distance_squared_net_homog(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
-    """Squared numerator net for ||C1-C2||^2 with homogeneous (rational) inputs.
+    r"""Squared numerator net for ``||C1-C2||^2`` with homogeneous inputs.
 
-    We avoid dehomogenization by working with
+    We avoid dehomogenization by cross-multiplying weights::
+
         Δ(u,v) = H1_xyz(u) * w2(v) - H2_xyz(v) * w1(u)
-    whose norm^2 shares the same zero set as the true squared distance.
+
+    The zero set of ``||Δ||^2`` matches that of the Euclidean distance while
+    keeping the computation polynomial (no divisions).
+
+    Parameters
+    ----------
+    P : (p+1, d) array_like
+        Bézier control net of the first curve. If the last column stores
+        weights, the curve is treated as rational.
+    Q : (q+1, d) array_like
+        Bézier control net of the second curve. Same convention as ``P``.
+
+    Returns
+    -------
+    F : (2p+1, 2q+1) ndarray
+        Bivariate Bernstein control net of ``||Δ(u,v)||^2``.
+
+    Notes
+    -----
+    This is algebraically equivalent to building the Euclidean distance
+    between dehomogenized curves, but avoids divisions so that subsequent
+    subdivision and pruning remain exact.
     """
 
     P = np.asarray(P, dtype=float)
@@ -462,9 +484,38 @@ def trace_overlap_fast_events(
     step_shrink=0.5,
     max_points=10000,
 ):
-    """
-    Curvature/sag-controlled predictor, event-driven stepping (boundary + sigma flip),
-    boundary snapping with 1D projectors, and on-the-fly decimation.
+    """Event-driven tracing of curve/curve overlaps in parameter space.
+
+    Parameters
+    ----------
+    C1, C2 : array_like
+        Control nets of the curves (homogeneous allowed).
+    u_seed, v_seed : float
+        Seed parameters known (or projected) to satisfy ``G(u,v)=0``.
+    sag_tol, ds_min, ds_max : float, optional
+        Sag tolerance and min/max step in model units (auto-scaled if None).
+    angle_tol : float, optional
+        Angle change threshold (rad) for on-the-fly decimation.
+    sv_thresh : float, optional
+        Jacobian singular-value threshold to stay on the overlap manifold.
+    snap_eps : float, optional
+        Proximity to a boundary triggering snapping with 1D projection.
+    enable_sigma_event : bool, optional
+        If True, detect tangent direction flips (dot(t1,t2)=0) mid-step.
+    max_points : int, optional
+        Safety cap on traced polyline vertices.
+
+    Returns
+    -------
+    dict
+        ``{'kind':'overlap'|'none', 'points':[(u,v)...], 'xyz':[x...],
+        'start':reason, 'end':reason}`` when successful.
+
+    Notes
+    -----
+    Predictor uses curvature-controlled arc length; corrector is a Newton
+    projector onto ``G=0``. Boundary events call 1D projectors to keep the path
+    on the manifold while clamping to faces of the param square.
     """
 
     # --- scales & tolerances
@@ -712,14 +763,31 @@ def trace_overlap_fast_events(
 
 # ---------- High-level routine: classify & extract contact ----------
 def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, sv_thresh=1e-2):
-    """
-    C1, C2: (n+1,d), (m+1,d) Bezier control nets
-    seed_uv: initial guess in [0,1]^2
-    envelope_prune: optional dict {'ctrl1': C1span, 'ctrl2': C2span, 'tol': eps} for early rejection
-    Returns:
-      - if isolated: {'type':'isolated', 'u':u, 'v':v, 'point':x}
-      - if overlap:  {'type':'overlap', 'uv_path':[(u,v)...], 'xyz_path':[x...], 'start':..., 'end':...}
-      - else:        {'type':'none'}
+    """Local classification of a single Bézier pair.
+
+    Parameters
+    ----------
+    C1, C2 : array_like
+        Control nets of the two curves (possibly homogeneous). Shape ``(n+1,d)``.
+    seed_uv : 2-tuple of float, optional
+        Initial guess for ``(u,v)`` in ``[0,1]^2``. Default ``(0.5, 0.5)``.
+    envelope_prune : dict or None, optional
+        Optional pre-filter ``{'ctrl1':..., 'ctrl2':..., 'tol': eps}`` using
+        Bernstein envelopes of the distance. Default ``None``.
+    sv_thresh : float, optional
+        Singular-value threshold distinguishing overlap from isolated contact.
+
+    Returns
+    -------
+    dict
+        ``{'type': 'isolated'|'overlap'|'none', ...}`` with UV/XYZ data as
+        applicable.
+
+    Notes
+    -----
+    - Newton projects the seed onto ``G(u,v)=C1(u)-C2(v)=0``.
+    - Classification uses the rank of the Jacobian; overlaps are traced by
+      :func:`trace_overlap_fast_events`.
     """
     # Optional envelope prune
     if envelope_prune is not None:
@@ -905,10 +973,34 @@ def _sup_r_for_cell(Pseg, Qseg):
 
 
 def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12):
-    """
-    Krawczyk test on G(u,v)=C1(u)-C2(v) for a *single* isolated root inside the current [0,1]^2 subcell.
-    Works for planar curves only (d=2).
-    Returns 'unique', 'empty', or 'unknown'.
+    """Interval/Krawczyk certificate for a unique isolated intersection in a cell.
+
+    Parameters
+    ----------
+    Pseg : (p+1, d) ndarray
+        Bézier segment of the first curve (planar).
+    Qseg : (q+1, d) ndarray
+        Bézier segment of the second curve (planar).
+    cond_max : float, optional
+        Upper bound on the condition number of the Jacobian inverse used in the
+        Krawczyk operator. Defaults to ``1e12``.
+
+    Returns
+    -------
+    str
+        One of ``'unique'`` (exactly one root in the cell), ``'empty'`` (no
+        root), or ``'unknown'`` (filter inconclusive).
+
+    Notes
+    -----
+    The method evaluates ``G(u,v)=C1(u)-C2(v)`` and its Jacobian at the cell
+    center, builds interval bounds on ``J`` using Bernstein envelopes of first
+    and second derivatives, and applies the standard Krawczyk inclusion test.
+
+    References
+    ----------
+    .. [1] J. R. Moore, *Methods and Applications of Interval Analysis*, SIAM,
+           1979, Chapter 5.
     """
     d = Pseg.shape[1]
     if d != 2:
@@ -1086,17 +1178,32 @@ def pd_hessian_uniqueness(Duu, Duv, Dvv, eps=0.0):
 
 # ---------- Master classifier on a Dnet ----------
 def classify_cell_by_grids(Du, Dv, eps_face=1e-14, eps_pd=1e-14):
-    """
-    Inputs:
-      Dnet: 2D Bernstein control grid of the squared distance D(u,v)
-    Returns:
-      dict(status=..., existence=..., uniqueness=..., notes=...)
-        status in {"no_stationary","unique_stationary","maybe_multiple"}
-    Logic:
-      1) Build Du,Dv and check PM existence on faces.
-      2) If no existence → "no_stationary"
-      3) Else build Duu,Duv,Dvv; if PD everywhere → "unique_stationary"
-         Else "maybe_multiple" (could be tangency/overlap or multiple roots).
+    """Classify a distance grid via Bernstein/PM filters.
+
+    Parameters
+    ----------
+    Du : ndarray
+        Bernstein control grid of ``∂D/∂u`` over the current cell.
+    Dv : ndarray
+        Bernstein control grid of ``∂D/∂v`` over the current cell.
+    eps_face : float, optional
+        Slack for Poincaré–Miranda sign checks. Default ``1e-14``.
+    eps_pd : float, optional
+        Slack when testing positive definiteness of the Hessian. Default
+        ``1e-14``.
+
+    Returns
+    -------
+    dict
+        ``status`` in {``'no_stationary'``, ``'unique_stationary'``,
+        ``'maybe_multiple'``} plus diagnostic flags.
+
+    Notes
+    -----
+    Existence test: opposite signs of ``∂uD`` on the u-faces and of ``∂vD`` on
+    the v-faces imply at least one zero of ``∇D`` (Poincaré–Miranda). Uniqueness
+    test: a globally positive-definite Hessian everywhere on the cell implies
+    strict convexity of ``D`` and thus a single critical point.
     """
 
     exists = pm_existence_test(Du, Dv, eps=eps_face)
@@ -1128,18 +1235,60 @@ def _bez_get_tol_adapter(c, tol, rational=None, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
-def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1e-3, rational=False):
-    """
-    Certified intersection of two Bézier curves (R^2 or R^3).
-    Returns:
-      {
-        'isolated': [ {'u':..., 'v':..., 'point': np.array(d)}, ... ],
-        'overlaps': [ {'uv_path': [(u,v)...], 'xyz_path': [x...],
-                       'start': 'boundary|rank_change_or_min_step',
-                       'end':   'boundary|rank_change_or_min_step'} , ... ],
-        'stats': {'cells': int, 'pruned': int,'pruned_by': list[str], 'unique_boxes': int, 'overlap_traces': int}
-      }
-    }
+def bezier_intersect_certified_full(C1:NDArray, C2:NDArray, tol_hit:float=1e-9, sv_thresh:float=1e-8, atol:float=1e-3, rational:bool=False):
+    """Certified intersection for (possibly rational) Bézier curve pairs.
+
+    Parameters
+    ----------
+    C1, C2 : array_like
+        Control nets of the curves. Homogeneous weights may be appended as the
+        last column. Works in 2D or 3D.
+    tol_hit : float, optional
+        Acceptance tolerance for a Newton correction to count as an isolated hit.
+    sv_thresh : float, optional
+        Singular-value threshold distinguishing isolated vs. overlap contacts.
+    atol : float, optional
+        Geometric tolerance for pruning very small bounding boxes.
+    rational : bool, optional
+        Force homogeneous processing; if ``False``, detection is automatic from
+        input dimensionality.
+
+    Returns
+    -------
+    dict
+        ``{'isolated': [...], 'overlaps': [...], 'stats': {...}}`` where
+        isolated items hold ``u``, ``v``, and ``point``; overlaps hold ``uv_path``
+        and ``xyz_path``.
+
+    Notes
+    -----
+    The algorithm combines:
+    - Bernstein envelope pruning of the squared distance and its derivatives,
+    - Poincaré–Miranda and Hessian PD tests for uniqueness,
+    - Interval Krawczyk certification for planar uniqueness,
+    - Adaptive subdivision driven by control-net spread,
+    - Event-driven overlap tracing when rank drops to 1.
+
+    Examples
+    --------
+    Planar polynomial case::
+
+        >>> import numpy as np
+        >>> from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full
+        >>> c1 = np.array([[0., 0., 0.], [1., 1., 0.], [2., 0., 0.]])
+        >>> c2 = np.array([[0., 0., 0.], [1., 0., 0.], [2., 0., 0.]])
+        >>> res = bezier_intersect_certified_full(c1, c2)
+        >>> len(res['isolated'])
+        2
+
+    Rational quarter-circle vs. line::
+
+        >>> w = np.sqrt(0.5)
+        >>> arc = np.array([[1., 0., 1.], [w, w, w], [0., 1., 1.]])
+        >>> line = np.array([[0., 0., 1.], [0.5, 0.5, 1.], [1., 1., 1.]])
+        >>> res = bezier_intersect_certified_full(arc, line, rational=True)
+        >>> np.allclose((res['isolated'][0]['u'], res['isolated'][0]['v']), (0.5, np.sqrt(0.5)))
+        True
     """
 
     isolated = []  # list of dicts
