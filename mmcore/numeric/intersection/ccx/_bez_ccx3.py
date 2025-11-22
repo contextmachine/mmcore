@@ -8,6 +8,56 @@ from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.bern import *
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
+import numpy as np
+import time
+
+# ---------------------------------------------------------------------------
+# Homogeneous helpers
+# ---------------------------------------------------------------------------
+_FORCE_HOMOGENEOUS_INPUT = False  # set per-call inside bezier_intersect_certified_full
+
+
+def _set_force_homogeneous(flag: bool):
+    global _FORCE_HOMOGENEOUS_INPUT
+    _FORCE_HOMOGENEOUS_INPUT = bool(flag)
+
+
+def is_homogeneous_ctrl(ctrl, eps: float = 1e-12) -> bool:
+    """Heuristic/flagged test for homogeneous (rational) control nets.
+
+    The call-site can force homogeneous processing by toggling
+    `_FORCE_HOMOGENEOUS_INPUT` (set by the public API). Otherwise we detect
+    based on dimensionality and the last column being interpreted as weights.
+    """
+
+    if ctrl is None:
+        return False
+    if _FORCE_HOMOGENEOUS_INPUT:
+        return ctrl.shape[1] >= 3
+
+    # Explicit dimensional cues
+    if ctrl.shape[1] >= 4:
+        return True  # (x,y,z,w) style input
+
+    if ctrl.shape[1] == 3:
+        # Ambiguous (either 3D Euclidean or 2D homogeneous). Default to Euclidean unless forced.
+        return False
+    return False
+
+
+def dehomogenize_point(ph, eps: float = 1e-16):
+    w = float(ph[-1])
+    if abs(w) < eps:
+        w = eps if w >= 0 else -eps
+    return ph[:-1] / w
+
+
+def dehomogenize_ctrl(ctrl):
+    if not is_homogeneous_ctrl(ctrl):
+        return ctrl
+    w = np.asarray(ctrl[..., -1:], dtype=float)
+    w_safe = np.where(np.abs(w) < 1e-16, 1e-16, w)
+    return ctrl[..., :-1] / w_safe
 
 
 # ---------- Bézier evaluation & derivatives ----------
@@ -25,12 +75,21 @@ def de_casteljau_split(ctrl, prms=None):  # (n+1,d)
     return left, right
 
 
-def eval_bezier(P, t):
+def eval_bezier_raw(P, t):
+    """Plain De Casteljau evaluation in the control-space (homogeneous safe)."""
     Q = P.copy()
     n = P.shape[0] - 1
     for _ in range(n):
         Q = (1.0 - t) * Q[:-1] + t * Q[1:]
     return Q[0]
+
+
+def eval_bezier(P, t):
+    """Return Euclidean point; dehomogenize if weights are present."""
+    Ph = eval_bezier_raw(P, t)
+    if is_homogeneous_ctrl(P):
+        return dehomogenize_point(Ph)
+    return Ph
 
 
 def deriv_ctrl(P):  # first derivative control net
@@ -39,13 +98,77 @@ def deriv_ctrl(P):  # first derivative control net
 
 
 def eval_bezier_deriv(P, t):  # first derivative at t
-    return eval_bezier(deriv_ctrl(P), t)
+    if is_homogeneous_ctrl(P):
+        Ph = eval_bezier_raw(P, t)
+        dPh = eval_bezier_raw(deriv_ctrl(P), t)
+        w = float(Ph[-1])
+        dw = float(dPh[-1])
+        denom = w * w + 1e-30
+        num = dPh[:-1] * w - Ph[:-1] * dw
+        return num / denom
+    return eval_bezier_raw(deriv_ctrl(P), t)
 
 
 # ---------- Distance net envelope (pruning) ----------
 def distance_squared_net(P, Q):
-    # diff = P[:, None, :] - Q[None, :, :]
+    if is_homogeneous_ctrl(P) or is_homogeneous_ctrl(Q):
+        return bernstein_distance_squared_net_homog(P, Q)
     return bernstein_distance_squared_net(P, Q)
+
+
+def bernstein_distance_squared_net_homog(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
+    """Squared numerator net for ||C1-C2||^2 with homogeneous (rational) inputs.
+
+    We avoid dehomogenization by working with
+        Δ(u,v) = H1_xyz(u) * w2(v) - H2_xyz(v) * w1(u)
+    whose norm^2 shares the same zero set as the true squared distance.
+    """
+
+    P = np.asarray(P, dtype=float)
+    Q = np.asarray(Q, dtype=float)
+    if P.ndim != 2 or Q.ndim != 2:
+        raise ValueError("P and Q must be 2D arrays of shapes (p+1,d) and (q+1,d).")
+
+    p = P.shape[0] - 1
+    q = Q.shape[0] - 1
+
+    Pw = np.ones(P.shape[0], dtype=float)
+    Qw = np.ones(Q.shape[0], dtype=float)
+    Pxyz = P
+    Qxyz = Q
+
+    if is_homogeneous_ctrl(P):
+        Pw = P[:, -1]
+        Pxyz = P[:, :-1]
+    if is_homogeneous_ctrl(Q):
+        Qw = Q[:, -1]
+        Qxyz = Q[:, :-1]
+
+    # Tensor-product control net for Δ
+    D = Pxyz[:, None, :] * Qw[None, :, None] - Qxyz[None, :, :] * Pw[:, None, None]
+
+    # Reuse the exact convolution pattern from bernstein_distance_squared_net
+    ConvU = bernstein_product_conv(p)  # (2p+1, p+1, p+1)
+    ConvV = bernstein_product_conv(q)  # (2q+1, q+1, q+1)
+
+    ConvU2 = ConvU.reshape(2 * p + 1, (p + 1) * (p + 1))
+    ConvV2 = ConvV.reshape(2 * q + 1, (q + 1) * (q + 1))
+
+    Tu = np.zeros((2 * p + 1, q + 1, q + 1), dtype=float)
+    Dj = D.transpose(1, 0, 2)
+    for j in range(q + 1):
+        Dj_mat = Dj[j]
+        for jp in range(q + 1):
+            Djp_mat = Dj[jp]
+            A = Dj_mat @ Djp_mat.T
+            Tu[:, j, jp] = ConvU2 @ A.ravel()
+
+    F = np.zeros((2 * p + 1, 2 * q + 1), dtype=float)
+    for r in range(2 * p + 1):
+        B = Tu[r, :, :]
+        F[r, :] = ConvV2 @ B.ravel()
+
+    return F
 
 
 def bern_no_sign_change(coeffs):
@@ -133,7 +256,24 @@ def second_deriv_ctrl(P):
 
 
 def eval_bezier_second_deriv(P, t):
-    return eval_bezier(second_deriv_ctrl(P), t)
+    if is_homogeneous_ctrl(P):
+        Ph = eval_bezier_raw(P, t)
+        dPh = eval_bezier_raw(deriv_ctrl(P), t)
+        ddPh = eval_bezier_raw(second_deriv_ctrl(P), t)
+        w = float(Ph[-1])
+        dw = float(dPh[-1])
+        ddw = float(ddPh[-1])
+        w2 = w * w
+        w3 = w2 * w + 1e-30
+
+        term1 = ddPh[:-1] * w2
+        term2 = -Ph[:-1] * w * ddw
+        term3 = -2.0 * dPh[:-1] * w * dw
+        term4 = 2.0 * Ph[:-1] * (dw * dw)
+        num = term1 + term2 + term3 + term4
+        return num / w3
+
+    return eval_bezier_raw(second_deriv_ctrl(P), t)
 
 
 def curvature_and_speed(C, u):
@@ -329,8 +469,10 @@ def trace_overlap_fast_events(
 
     # --- scales & tolerances
     def bbox_diag_len(C1, C2):
-        mins = np.minimum(np.min(C1, axis=0), np.min(C2, axis=0))
-        maxs = np.maximum(np.max(C1, axis=0), np.max(C2, axis=0))
+        e1 = dehomogenize_ctrl(C1)
+        e2 = dehomogenize_ctrl(C2)
+        mins = np.minimum(np.min(e1, axis=0), np.min(e2, axis=0))
+        maxs = np.maximum(np.max(e1, axis=0), np.max(e2, axis=0))
         return float(np.linalg.norm(maxs - mins))
 
     scale = bbox_diag_len(C1, C2)
@@ -633,17 +775,16 @@ def is_on_boundary(inner: Rect, outer: Rect) -> bool:
     return (s0 <= u0) and (u1 <= s1) and (t0 <= v0) and (v1 <= t1) and ((s0 < u0) or (u1 < s1) or (t0 < v0) or (v1 < t1))
 
 
-import numpy as np
-
-
 def spread(ctrl):
     """Geometric spread (used to choose split axis)."""
-    mu = ctrl.mean(axis=0, keepdims=True)
-    return float(np.max(np.linalg.norm(ctrl - mu, axis=1)))
+    ectrl = dehomogenize_ctrl(ctrl)
+    mu = ectrl.mean(axis=0, keepdims=True)
+    return float(np.max(np.linalg.norm(ectrl - mu, axis=1)))
 
 
 def L1_sz(ctrl):
-    return np.sum(ctrl.max(axis=0) - ctrl.min(axis=0))
+    ectrl = dehomogenize_ctrl(ctrl)
+    return np.sum(ectrl.max(axis=0) - ectrl.min(axis=0))
 
 
 def map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
@@ -696,7 +837,66 @@ def _sup_norm_ctrl(ctrl):
     """sup ||ctrl_i|| over control vectors"""
     if ctrl.shape[0] == 0:
         return 0.0
-    return float(np.max(np.linalg.norm(ctrl, axis=1)))
+    ectrl = dehomogenize_ctrl(ctrl)
+    return float(np.max(np.linalg.norm(ectrl, axis=1)))
+
+
+def _aabb_euclidean(ctrl):
+    return aabb(dehomogenize_ctrl(ctrl))
+
+
+def _min_positive_weight(ctrl, eps=1e-16):
+    if not is_homogeneous_ctrl(ctrl):
+        return 1.0
+    w = np.asarray(ctrl[:, -1], dtype=float)
+    w_min = float(np.min(np.abs(w)))
+    return max(w_min, eps)
+
+
+def _sup_first_deriv_norm(ctrl):
+    """Upper bound on ||C'(u)|| for ctrl (handles homogeneous)."""
+    if not is_homogeneous_ctrl(ctrl):
+        return _sup_norm_ctrl(deriv_ctrl(ctrl))
+
+    xyz = ctrl[:, :-1]
+    w = ctrl[:, -1]
+
+    H1_ctrl = deriv_ctrl(ctrl)
+    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1])
+    sup_H = _sup_norm_ctrl(xyz)
+    w1_ctrl = deriv_ctrl(w[:, None])[:, 0]
+    sup_w1 = float(np.max(np.abs(w1_ctrl))) if w1_ctrl.size else 0.0
+    w_min = _min_positive_weight(ctrl)
+    denom = max(w_min * w_min, 1e-30)
+    return (sup_H1 * w_min + sup_H * sup_w1) / denom
+
+
+def _sup_second_deriv_norm(ctrl):
+    """Upper bound on ||C''(u)|| for ctrl (handles homogeneous)."""
+    if not is_homogeneous_ctrl(ctrl):
+        return _sup_norm_ctrl(second_deriv_ctrl(ctrl))
+
+    xyz = ctrl[:, :-1]
+    w = ctrl[:, -1]
+
+    H1_ctrl = deriv_ctrl(ctrl)
+    H2_ctrl = second_deriv_ctrl(ctrl)
+
+    sup_H = _sup_norm_ctrl(xyz)
+    sup_H1 = _sup_norm_ctrl(H1_ctrl[:, :-1])
+    sup_H2 = _sup_norm_ctrl(H2_ctrl[:, :-1])
+
+    w1_ctrl = deriv_ctrl(w[:, None])[:, 0]
+    w2_ctrl = second_deriv_ctrl(w[:, None])[:, 0]
+    sup_w1 = float(np.max(np.abs(w1_ctrl))) if w1_ctrl.size else 0.0
+    sup_w2 = float(np.max(np.abs(w2_ctrl))) if w2_ctrl.size else 0.0
+
+    w_min = _min_positive_weight(ctrl)
+    w2_sq = w_min * w_min
+    w3 = w2_sq * w_min
+
+    num = sup_H2 * w2_sq + sup_H * w_min * sup_w2 + 2.0 * sup_H1 * w_min * sup_w1 + 2.0 * sup_H * (sup_w1**2)
+    return num / max(w3, 1e-30)
 
 
 def _sup_r_for_cell(Pseg, Qseg):
@@ -729,15 +929,10 @@ def krawczyk_unique_G_2d(Pseg, Qseg, cond_max=1e12):
     # interval bounds of J over the whole cell
     # J = [[ 2||t1||^2 + 2 r·C1'' ,    -2 t1·t2 ],
     #      [    -2 t1·t2         ,  2||t2||^2 - 2 r·C2'' ]]
-    t1_ctrl = deriv_ctrl(Pseg)  # (n, d)
-    t2_ctrl = deriv_ctrl(Qseg)  # (m, d)
-    tt1_ctrl = second_deriv_ctrl(Pseg)  # (n-1, d) or (1,d) zero if deg<2
-    tt2_ctrl = second_deriv_ctrl(Qseg)
-
-    sup_t1 = _sup_norm_ctrl(t1_ctrl)
-    sup_t2 = _sup_norm_ctrl(t2_ctrl)
-    sup_tt1 = _sup_norm_ctrl(tt1_ctrl)
-    sup_tt2 = _sup_norm_ctrl(tt2_ctrl)
+    sup_t1 = _sup_first_deriv_norm(Pseg)
+    sup_t2 = _sup_first_deriv_norm(Qseg)
+    sup_tt1 = _sup_second_deriv_norm(Pseg)
+    sup_tt2 = _sup_second_deriv_norm(Qseg)
     sup_r = _sup_r_for_cell(Pseg, Qseg)
 
     # conservative intervals
@@ -927,7 +1122,9 @@ def classify_cell_by_grids(Du, Dv, eps_face=1e-14, eps_pd=1e-14):
         )
 
 
-def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
+def _bez_get_tol_adapter(c, tol, rational=None, interval=None):
+    if rational is None:
+        rational = is_homogeneous_ctrl(c)
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
@@ -969,7 +1166,9 @@ def _aabb_intersect(aabb1, aabb2, exact=True):
 
 
 
-def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1e-3):
+
+
+def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1e-3, rational=False):
     """
     Certified intersection of two Bézier curves (R^2 or R^3).
     Returns:
@@ -983,153 +1182,148 @@ def bezier_intersect_certified_full(C1, C2, tol_hit=1e-9, sv_thresh=1e-8, atol=1
     }
     """
 
-    # stack holds: (Pseg, Qseg, u0,u1, v0,v1, depth)
-
     isolated = []  # list of dicts
     overlaps = []  # list of dicts with uv_path, xyz_path, start, end
     overlaps_uv_registry = []  # just the uv polylines for fast checks
     stats = {"cells": 0, "pruned": 0, "unique_boxes": 0, "overlap_traces": 0, "pruned_by": []}
-    sq_dist_net = bernstein_distance_squared_net(C1, C2)[..., None]
-    tol_c1 = _bez_get_tol_adapter(C1, atol)
-    tol_c2 = _bez_get_tol_adapter(C2, atol)
-    su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
-    sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
-    stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
 
-    def near_existing_isolated(u, v, eps=1e-6):
-        for it in isolated:
-            if (abs(it["u"] - u) <= eps) and (abs(it["v"] - v) <= eps):
-                return True
-        return False
+    old_flag = _FORCE_HOMOGENEOUS_INPUT
+    _set_force_homogeneous(rational)
+    result = None
+    try:
+        sq_dist_net = distance_squared_net(C1, C2)[..., None]
+        tol_c1 = _bez_get_tol_adapter(C1, atol)
+        tol_c2 = _bez_get_tol_adapter(C2, atol)
+        su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
+        sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
+        stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
 
-    def cell_contains_known_isolated(u0, u1, v0, v1, margin=1e-9):
-        for it in isolated:
-            if (u0 - margin) <= it["u"] <= (u1 + margin) and (v0 - margin) <= it["v"] <= (v1 + margin):
-                return True
-        return False
+        def near_existing_isolated(u, v, eps=1e-6):
+            for it in isolated:
+                if (abs(it["u"] - u) <= eps) and (abs(it["v"] - v) <= eps):
+                    return True
+            return False
 
-    while stack:
-        Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
-        stats["cells"] += 1
-        box1 = aabb(Pseg)
-        box2 = aabb(Qseg)
-        if not aabb_intersect(box1, box2):
-            stats["pruned"] += 1
-            stats["pruned_by"].append("bbox_inter")
-            continue
+        def cell_contains_known_isolated(u0, u1, v0, v1, margin=1e-9):
+            for it in isolated:
+                if (u0 - margin) <= it["u"] <= (u1 + margin) and (v0 - margin) <= it["v"] <= (v1 + margin):
+                    return True
+            return False
 
-        if bernstein_envelope_min(dnet) > 0:
-            stats["pruned"] += 1
-            stats["pruned_by"].append("bernstein_envelope_min")
+        while stack:
+            Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
+            stats["cells"] += 1
+            box1 = _aabb_euclidean(Pseg)
+            box2 = _aabb_euclidean(Qseg)
+            if not aabb_intersect(box1, box2):
+                stats["pruned"] += 1
+                stats["pruned_by"].append("bbox_inter")
+                continue
 
-            continue
+            if bernstein_envelope_min(dnet) > 0:
+                stats["pruned"] += 1
+                stats["pruned_by"].append("bernstein_envelope_min")
+                continue
 
-        box1 = np.asarray(box1)
-        box2 = np.asarray(box2)
+            box1 = np.asarray(box1)
+            box2 = np.asarray(box2)
 
-        if np.linalg.norm(box1[1] - box1[0]) < atol or np.linalg.norm(box2[1] - box2[0]) < atol:
-            stats["pruned"] += 1
-            stats["pruned_by"].append("bbox_size")
-            continue
-        res = classify_cell_by_grids(sunet, svnet)
+            if np.linalg.norm(box1[1] - box1[0]) < atol or np.linalg.norm(box2[1] - box2[0]) < atol:
+                stats["pruned"] += 1
+                stats["pruned_by"].append("bbox_size")
+                continue
 
-        if res["status"] == "no_stationary":
-            stats["pruned"] += 1
-            stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
-            continue
-        elif res["status"] == "unique_stationary":
+            res = classify_cell_by_grids(sunet, svnet)
 
-            uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12)
-            if np.linalg.norm(Gc) <= tol_hit:
-                ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+            if res["status"] == "no_stationary":
+                stats["pruned"] += 1
+                stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
+                continue
+            elif res["status"] == "unique_stationary":
+                uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12)
+                if np.linalg.norm(Gc) <= tol_hit:
+                    ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
-                if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
-                    if not near_existing_isolated(ug, vg):
-                        x = eval_bezier(C1, ug)
-                        isolated.append({"u": ug, "v": vg, "point": x})
-                        stats["overlap_traces"] += 1
-                        stats["pruned"] += 1
-                        stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
-                    continue
-                elif (((ug-0)<tol_hit or (1-ug)<tol_hit) and ((vg-0)<tol_hit or (1-vg)<tol_hit)):
-                    if not near_existing_isolated(ug, vg):
-                        # on boundary
-                        x = eval_bezier(C1, ug)
-                        isolated.append({"u": ug, "v": vg, "point": x})
+                    if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                        if not near_existing_isolated(ug, vg):
+                            x = eval_bezier(C1, ug)
+                            isolated.append({"u": ug, "v": vg, "point": x})
+                            stats["overlap_traces"] += 1
+                            stats["pruned"] += 1
+                            stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
+                        continue
+                    elif (((ug - 0) < tol_hit or (1 - ug) < tol_hit) and ((vg - 0) < tol_hit or (1 - vg) < tol_hit)):
+                        if not near_existing_isolated(ug, vg):
+                            x = eval_bezier(C1, ug)
+                            isolated.append({"u": ug, "v": vg, "point": x})
 
-                        stats["pruned"] += 1
-                        stats["pruned_by"].append("classify_cell_by_gri+unique_on_boundary")
-                    continue
-                else:
-                    continue
+                            stats["pruned"] += 1
+                            stats["pruned_by"].append("classify_cell_by_gri+unique_on_boundary")
+                        continue
+                    else:
+                        continue
 
-
-
-
-        else:
-            span_u = u1 - u0
-            span_v = v1 - v0
-            max_span = max(span_u, span_v)
-            allow_contact = (depth == 0) or (depth >= 5)
-            min_d = float(np.min(dnet))
-            if not allow_contact or cell_contains_known_isolated(u0, u1, v0, v1) or (depth > 0 and max_span > 0.25) or (min_d > 1e-10):
-                res = {"type": "none"}
             else:
-
-
-
+                span_u = u1 - u0
+                span_v = v1 - v0
+                max_span = max(span_u, span_v)
+                allow_contact = (depth == 0) or (depth >= 5)
+                min_d = float(np.min(dnet))
+                if not allow_contact or cell_contains_known_isolated(u0, u1, v0, v1) or (depth > 0 and max_span > 0.25) or (min_d > 1e-10):
+                    res = {"type": "none"}
+                else:
                     res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh)
 
-            if res["type"] == "overlap" and len(res["uv_path"]) >= 2:
-                uv_global = [map_local_to_global(uL, vL, u0, u1, v0, v1) for (uL, vL) in res["uv_path"]]
-                # rects=[(*low,*upp )for low,upp in pairwise(uv_global)  ]
-
-                xyz_global = [eval_bezier(C1, ug) for (ug, vg) in uv_global]
-                overlaps.append(
-                    {"uv_path": np.asarray(uv_global), "xyz_path": np.asarray(xyz_global), "start": res["start"], "end": res["end"]}
-                )
-                overlaps_uv_registry.append(uv_global)
-                stats["overlap_traces"] += 1
-
-                continue
-            if res["type"] == "isolated":
-                ug, vg = map_local_to_global(res["u"], res["v"], u0, u1, v0, v1)
-
-                if not near_existing_isolated(ug, vg):
-                    x = eval_bezier(C1, ug)
-                    isolated.append({"u": ug, "v": vg, "point": x})
-
-                    res = bernstein_cutout_box_nd(dnet, np.array([res["u"], res["v"]]), half=np.array([tol_c1, tol_c2]), return_ranges=True)
-
-                    for subpatch, ((u_0, u_1), (v_0, v_1)) in res:
-                        sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
-                        sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
-                        _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
-                        _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
-                        u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
-                        u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
-
-                        stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
-
+                if res["type"] == "overlap" and len(res["uv_path"]) >= 2:
+                    uv_global = [map_local_to_global(uL, vL, u0, u1, v0, v1) for (uL, vL) in res["uv_path"]]
+                    xyz_global = [eval_bezier(C1, ug) for (ug, vg) in uv_global]
+                    overlaps.append(
+                        {"uv_path": np.asarray(uv_global), "xyz_path": np.asarray(xyz_global), "start": res["start"], "end": res["end"]}
+                    )
+                    overlaps_uv_registry.append(uv_global)
+                    stats["overlap_traces"] += 1
                     continue
 
-        # split by spread if no observation to harvest
-        if L1_sz(Pseg) > L1_sz(Qseg):
-            PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
+                if res["type"] == "isolated":
+                    ug, vg = map_local_to_global(res["u"], res["v"], u0, u1, v0, v1)
 
-            l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
+                    if not near_existing_isolated(ug, vg):
+                        x = eval_bezier(C1, ug)
+                        isolated.append({"u": ug, "v": vg, "point": x})
 
-            um = 0.5 * (u0 + u1)
-            stack.append((PR, Qseg, *r, um, u1, v0, v1, depth + 1))
-            stack.append((PL, Qseg, *l, u0, um, v0, v1, depth + 1))
-        else:
-            QL, QR = de_casteljau_split_nd(Qseg, axis=0, t=0.5)
-            l, r = subdivide_v(dnet, sunet, svnet, v=0.5)
-            vm = 0.5 * (v0 + v1)
-            stack.append((Pseg, QR, *r, u0, u1, vm, v1, depth + 1))
-            stack.append((Pseg, QL, *l, u0, u1, v0, vm, depth + 1))
+                        res_cut = bernstein_cutout_box_nd(dnet, np.array([res["u"], res["v"]]), half=np.array([tol_c1, tol_c2]), return_ranges=True)
 
-    return {"isolated": isolated, "overlaps": overlaps, "stats": stats}
+                        for subpatch, ((u_0, u_1), (v_0, v_1)) in res_cut:
+                            sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                            sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                            _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
+                            _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                            u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                            u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+
+                            stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+
+                        continue
+
+            # split by spread if no observation to harvest
+            if L1_sz(Pseg) > L1_sz(Qseg):
+                PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
+                l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
+                um = 0.5 * (u0 + u1)
+                stack.append((PR, Qseg, *r, um, u1, v0, v1, depth + 1))
+                stack.append((PL, Qseg, *l, u0, um, v0, v1, depth + 1))
+            else:
+                QL, QR = de_casteljau_split_nd(Qseg, axis=0, t=0.5)
+                l, r = subdivide_v(dnet, sunet, svnet, v=0.5)
+                vm = 0.5 * (v0 + v1)
+                stack.append((Pseg, QR, *r, u0, u1, vm, v1, depth + 1))
+                stack.append((Pseg, QL, *l, u0, u1, v0, vm, depth + 1))
+
+        result = {"isolated": isolated, "overlaps": overlaps, "stats": stats}
+    finally:
+        _set_force_homogeneous(old_flag)
+
+    return result
 
 
 if __name__ == "__main__":
@@ -1410,3 +1604,60 @@ if __name__ == "__main__":
         ),
     )
     make_rich_table(inter78,occ_inter78,'case 4')
+
+    # ------------------------------------------------------------------
+    # case 5: rational quadratic arc (quarter circle) vs line y=x
+    print("\n\n case5 (rational)\n", "-" * 80, "\n")
+    w_mid = np.sqrt(0.5)
+    curve_arc_h = np.array([[1.0, 0.0, 1.0], [w_mid, w_mid, w_mid], [0.0, 1.0, 1.0]])
+    curve_line_h = np.array([[0.0, 0.0, 1.0], [1.0, 1.0, 1.0]])
+
+    s = time.perf_counter()
+    inter_rational = bezier_intersect_certified_full(curve_arc_h, curve_line_h, rational=True)
+    print(time.perf_counter() - s, "pruned:", inter_rational["stats"]["pruned"])
+    assert len(inter_rational["isolated"]) == 1
+    assert np.allclose(inter_rational["isolated"][0]["point"], [np.sqrt(0.5), np.sqrt(0.5)], atol=1e-9)
+
+    # OCC validation (weights-aware)
+    from mmcore.extras.occ.geom_int import occ_curve, generate_knots, find_multiplicity
+
+    deg = 2
+    arc_pts = np.array([[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    arc_w = np.array([1.0, w_mid, 1.0])
+    line_pts = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    line_w = np.ones(2)
+
+    knots_arc = generate_knots(len(arc_pts), deg)
+    unique_arc = np.unique(knots_arc)
+    mult_arc = [find_multiplicity(k, knots_arc) for k in unique_arc]
+    knots_line = generate_knots(len(line_pts), 1)
+    unique_line = np.unique(knots_line)
+    mult_line = [find_multiplicity(k, knots_line) for k in unique_line]
+
+    occ_arc = occ_curve(arc_pts, arc_w, unique_arc, mult_arc, deg, False)
+    occ_line = occ_curve(line_pts, line_w, unique_line, mult_line, 1, False)
+    occ_inter_rational = occ_ccx_2d(occ_curve_to_2d(occ_arc), occ_curve_to_2d(occ_line))
+
+    make_rich_table(inter_rational, occ_inter_rational, 'case 5 (rational)')
+    from mmcore.geom._nurbs_eval import from_homogeneous_1d
+    # case 6: rational quadratic arc (quarter circle) vs line y=x
+    elliptical_arc_pts_h = np.array([[ 35.633   ,  61.37    ,   0.      ,   1.      ],
+                [ 68.303977,   7.3528  ,   0.      ,   0.707   ],
+                [129.681   ,  49.963   ,   0.      ,   1.      ]])
+    arc_pts2_h = np.array([[88.731   , 34.508   ,  0.      ,  1.      ],
+       [52.914001, 42.130837,  0.      ,  0.707   ],
+       [49.76    , 45.703   ,  0.      ,  1.      ]])
+
+    inter_rational2 = bezier_intersect_certified_full(elliptical_arc_pts_h, arc_pts2_h, rational=True)
+    print(time.perf_counter() - s, "pruned:", inter_rational["stats"]["pruned"])
+    assert len(inter_rational2["isolated"]) == 2
+
+    assert len(inter_rational2["overlaps"]) == 0
+    occ_inter_rational2 = occ_ccx_2d(
+        occ_curve_to_2d(occ_curve_from_points(elliptical_arc_pts_h,rational=True),
+                        ((0.0, 0.0, 0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+        occ_curve_to_2d(
+            occ_curve_from_points(arc_pts2_h,rational=True),
+        ),
+    )
+    make_rich_table(inter_rational2, occ_inter_rational2, 'case 6 (rational)')
