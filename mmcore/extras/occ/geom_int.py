@@ -95,13 +95,17 @@ def occ_curve(
     )
 
 
-from mmcore.geom._nurbs_knots import generate_knots, find_multiplicity
+from mmcore.geom._nurbs_knots import generate_knots, find_multiplicity,from_homogeneous_1d
 
 
-def occ_curve_from_points(points, degree: int = 3) -> Geom_BSplineCurve:
+def occ_curve_from_points(points, degree: int = 3, rational:bool=False) -> Geom_BSplineCurve:
     """Construct a B-spline curve from a control_points."""
     p = len(points)
-    weights = np.ones(p)
+    if not rational:
+        weights = np.ones(p)
+    else:
+        points,weights=from_homogeneous_1d(points)
+
     degree = degree if p > degree else p - 1
 
 
@@ -146,9 +150,6 @@ def occ_curve_from_nt(curve:NURBSCurveTuple) -> Geom_BSplineCurve:
         degree,
         is_periodic,
     )
-
-
-from OCC.Core.GeomAPI import GeomAPI_IntCS, GeomAPI_IntSS
 
 
 from OCC.Core.GeomAPI import geomapi
