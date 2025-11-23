@@ -1,5 +1,4 @@
-
-
+import itertools
 
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
@@ -201,9 +200,9 @@ print(isolated['point'].tolist())
 
 
 viewer=Viewer(camera=OrbitCamera())
-
-for curve in val:
-    viewer.add(curve, color=(0.7, 0.9, 1.0, 1.0))
+primary_color=np.array([250, 102, 166])/255
+for curve,color in itertools.zip_longest(val,[(*primary_color, 1.0)],fillvalue=(0.7, 0.9, 1.0, 1.0)):
+    viewer.add(curve, color=color)
 for pt in isolated['point']:
 
     viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
