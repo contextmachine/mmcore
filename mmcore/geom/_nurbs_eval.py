@@ -183,8 +183,10 @@ def from_homogeneous_1d(homogeneous_points):
     dim = _cpt.shape[1] - 1
 
     control_points = np.zeros((_cpt.shape[0], dim))
+
     for i in range(_cpt.shape[0]):
         # Divide homogeneous coordinates by weight
+
         control_points[i] = _cpt[i, :-1] / _cpt[i, -1]
 
     return np.ascontiguousarray(control_points), weights

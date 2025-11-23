@@ -14,7 +14,7 @@ from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
 from mmcore.geom.nurbs import NURBSCurve
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs
-from ._nccx import nurbs_ccx
+from ._nccx import nurbs_ccx,nurbs_ccx_multiple
 __all__ = ["ccx", "curve_curve_intersect", "curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
 def _calculate_spline_tolerance(spline, default_tol=1e-3):

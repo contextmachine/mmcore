@@ -534,7 +534,7 @@ def knot_removal(
 
     return np.asarray(U), np.asarray(P)
 
-def insert_knot_curve(curve:BSplineCurveTuple|NURBSCurveTuple,u:float, num:int=1):
+def insert_knot_curve(curve:NURBSCurveTuple,u:float, num:int=1):
     """Insert a knot into a curve multiple times.
     
     Args:
@@ -641,7 +641,7 @@ def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
         curve2 = NURBSCurveTuple(temp_obj.order, curve2_kv, curve2_ctrlpts, np.ones(len(curve2_ctrlpts)))
     return curve1,curve2
 
-def split_curve_multiple(crv:BSplineCurveTuple|NURBSCurveTuple, params:list[float]|NDArray[float])->list[BSplineCurveTuple]|list[NURBSCurveTuple]:
+def split_curve_multiple(crv:NURBSCurveTuple, params:list[float]|NDArray[float])->list[NURBSCurveTuple]:
     crvs = []
     #temp = _copy_curve(crv)
 
@@ -652,14 +652,14 @@ def split_curve_multiple(crv:BSplineCurveTuple|NURBSCurveTuple, params:list[floa
     crvs.append(crv)
     return crvs
 
-def decompose_curve(crv:BSplineCurveTuple|NURBSCurveTuple)->list[BSplineCurveTuple]|list[NURBSCurveTuple]:
+def decompose_curve(crv:NURBSCurveTuple)->list[NURBSCurveTuple]:
     params=np.unique(crv.knot)
     params=params[1:][:params.shape[0]-2]
 
     return split_curve_multiple(crv,params)
 
 
-def trim_curve(curve:BSplineCurveTuple|NURBSCurveTuple, t0:float,t1:float):
+def trim_curve(curve:NURBSCurveTuple, t0:float,t1:float):
     print(t0,t1)
     t0,t1=min(t0,t1),max(t0,t1)
     t_min,t_max=_curve_interval(curve)
@@ -2089,7 +2089,7 @@ def to_homogeneous(cps: NDArray[np.float64], weights: NDArray[np.float64]) -> ND
     return hom_cps
 
 
-def to_euclidean(hom_cps: NDArray[np.float64]) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+def to_euclidean(hom_cps: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Projects Homogeneous points (Nx(D+1)) back to Euclidean (NxD) and weights (N)."""
     dim = hom_cps.shape[1] - 1
     weights = hom_cps[:, dim]
