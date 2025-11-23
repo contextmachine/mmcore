@@ -2,9 +2,9 @@ from __future__ import annotations
 import math
 import time
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from typing import Optional, Tuple, List, NamedTuple, Literal
+from typing import Optional, Tuple, List, NamedTuple, Literal, TypedDict
 
 import numpy as np
 import glfw
@@ -120,7 +120,7 @@ def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo) -> np.ndarray:
 # =========================
 
 class OrbitCamera:
-    def __init__(self, target=(0.0, 0.0, 0.0), up=(0.,0.,1.),distance = 10.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
+    def __init__(self, target=(0.0, 0.0, 0.0), near=0.1,far=10000.0,up=(0.,0.,1.),distance = 10.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
         self.target = np.array(target, dtype=np.float32)
         self.distance = distance
         self.yaw = yaw
@@ -128,8 +128,8 @@ class OrbitCamera:
         self.up_world = np.array(up, dtype=np.float32)  # Z-up CAD
         # Ortho zoom (world units half-extent vertically)
         self.ortho_half_height = ortho_half_height
-        self.near = 0.1
-        self.far = 10000.0
+        self.near = near
+        self.far = far
         self._lock_orbit = False
     def lock_orbit(self,lock:bool):
         self._lock_orbit = lock
@@ -248,12 +248,18 @@ def bern_eval_scalar(ctrl: np.ndarray, u: float) -> float:
         a = a[:-1]
     return float(a[0])
 
-
+class SnapHit(TypedDict):
+    u:float
+    world:tuple[float,float,float]
+    pixel:tuple[float,float]
+    ndc:tuple[float,float]
+    dist_px:float
+    ref:Optional[int|Any]
 def snap_curve_to_cursor(curve: RationalBezier,
                          M_cpu: np.ndarray,  # (P@V@M).T (row-major)
                          v: ViewportInfo,
                          cursor_ndc_xy: np.ndarray,
-                         snap_px: float = 8.0) -> Optional[dict]:
+                         snap_px: float = 8.0) -> Optional[SnapHit]:
     """
     Returns dict with hit info or None:
       { 'u': float, 'world': (x,y,z), 'ndc': (x,y,z), 'pixel': (x,y) }
@@ -334,13 +340,14 @@ def snap_curve_to_cursor(curve: RationalBezier,
         return None
 
     pix_ref = ndc_to_pixels(ndc_ref[:2], v)
-    return {
+    return SnapHit(**{
         "u": float(u_ref),
         "world": tuple(Pw_ref.tolist()),
         "ndc": tuple(ndc_ref.tolist()),
         "pixel": tuple(pix_ref.tolist()),
         "dist_px": float(dist_ref),
-    }
+        "ref":curve
+    })
 
 
 # =========================
@@ -353,17 +360,55 @@ layout(location=0) in vec3 aPos;
 uniform mat4 uProjection;
 uniform mat4 uView;
 uniform mat4 uModel;
+uniform float uPointSize; // used when drawing GL_POINTS
 void main(){
     gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+    gl_PointSize = uPointSize;
 }
 """
 
 FRAG_SRC = """
 #version 330 core
+// uMode: 0 = flat color (lines/regular points), 1 = snap sprite
 uniform vec4 uColor;
+uniform vec4 uBorderColor;
+uniform int uMode;
+uniform float uPtSize;      // current glPointSize in pixels
+uniform float uBorderPx;    // border thickness in pixels for snap sprite
+uniform float uInnerSizePx; // inner square size in pixels (fill area)
+uniform float uCrossOutPx;  // how far crosshair extends past square (pixels)
+uniform float uCrossThickPx;// crosshair line thickness (pixels)
 out vec4 FragColor;
+
 void main(){
-    FragColor = uColor;
+    if(uMode == 1){
+        // Point sprite in screen space. Build a crisp CAD-style crosshair box
+        vec2 uv_px = gl_PointCoord * uPtSize;      // sprite coords in pixels
+        float half_pt = 0.5 * uPtSize;
+        vec2 d = abs(uv_px - vec2(half_pt));       // distance from center in px
+
+        float inner_half = 0.5 * uInnerSizePx;
+        float border = uBorderPx;
+        float cross_out = uCrossOutPx;
+        float cross_half_thick = 0.5 * uCrossThickPx;
+
+        bool inside_square = (d.x <= inner_half) && (d.y <= inner_half);
+        bool in_fill   = (d.x <= inner_half - border) && (d.y <= inner_half - border);
+        bool in_border = inside_square && !in_fill;
+
+        bool in_cross = ((d.x <= cross_half_thick) && (d.y <= inner_half + cross_out)) ||
+                        ((d.y <= cross_half_thick) && (d.x <= inner_half + cross_out));
+
+        if(!(inside_square || in_cross)) discard;  // transparent outside glyph
+
+        vec4 col = uColor; // default fill
+        if(in_border || in_cross) col = uBorderColor;
+
+        FragColor = col;
+    }
+    else{
+        FragColor = uColor;
+    }
 }
 """
 
@@ -416,6 +461,23 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Small example
 # ---------------------------------------------------------------------------
+@dataclass
+class SnapSettings:
+    snap_px: float = 30
+    size_px=12.0              # inner square size
+    border_px=2.0             # square border thickness
+    cross_out_px=6.0          # how far crosshair sticks out past the square
+    cross_thick_px=2.0        # crosshair line thickness
+    color:tuple[float,float,float,float] =(1.,1.,1.,1.)
+
+    border_color:tuple[float,float,float,float]| Literal['by_object'] ="by_object"
+
+@dataclass
+class ViewerSettings:
+    snap:SnapSettings = field(default_factory=SnapSettings)
+
+
+
 
 
 class Viewer:
@@ -444,9 +506,12 @@ class Viewer:
 
 
 
-    def __init__(self, width=1200, height=800, camera=None):
+    def __init__(self, width=1200, height=800, camera=None,settings:ViewerSettings=None):
         if not glfw.init():
             raise RuntimeError("GLFW init failed")
+        if settings is None:
+            settings = ViewerSettings()
+        self.settings = settings
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
@@ -458,14 +523,23 @@ class Viewer:
             glfw.terminate()
             raise RuntimeError("GLFW window creation failed")
         glfw.make_context_current(self.window)
-
+        self.color_table=dict()
         self.program = make_program()
         self.loc_uP = glGetUniformLocation(self.program, "uProjection")
         self.loc_uV = glGetUniformLocation(self.program, "uView")
         self.loc_uM = glGetUniformLocation(self.program, "uModel")
         self.loc_uColor = glGetUniformLocation(self.program, "uColor")
+        self.loc_uBorderColor = glGetUniformLocation(self.program, "uBorderColor")
+        self.loc_uMode = glGetUniformLocation(self.program, "uMode")
+        self.loc_uPtSize = glGetUniformLocation(self.program, "uPtSize")
+        self.loc_uBorderPx = glGetUniformLocation(self.program, "uBorderPx")
+        self.loc_uPointSize = glGetUniformLocation(self.program, "uPointSize")
+        self.loc_uInnerSizePx = glGetUniformLocation(self.program, "uInnerSizePx")
+        self.loc_uCrossOutPx = glGetUniformLocation(self.program, "uCrossOutPx")
+        self.loc_uCrossThickPx = glGetUniformLocation(self.program, "uCrossThickPx")
 
         glEnable(GL_DEPTH_TEST)
+        glEnable(GL_PROGRAM_POINT_SIZE)
         self._rebuild_viewport()
 
         # Camera & input
@@ -482,12 +556,14 @@ class Viewer:
         # Scene
         self.model = np.eye(4, dtype=np.float32)
         self.curves: List[RationalBezier] = []
-        self.snap_px = 30.0
-        self.snap_hit: Optional[dict] = None
+
+        self.snap_hit: Optional[SnapHit] = None
         self.points=[]
         # GL buffers (recreated when curves change)
         self.lines = []  # list of (vao, vbo, nverts, color)
-
+    @property
+    def snap_px(self):
+        return self.settings.snap.snap_px
 
     # ---------- GLFW callbacks ----------
 
@@ -525,6 +601,8 @@ class Viewer:
 
     def _add_curve(self, curve: RationalBezier, color=(1.0, 1.0, 1.0, 1.0), samples=128):
         self.curves.append(curve)
+        self.color_table[id(curve)] = color
+
         l=len(self.curves) - 1
         # Build GL line strip
         pts = curve.polyline(samples=samples).astype(np.float32)
@@ -616,9 +694,23 @@ class Viewer:
             glBindVertexArray(vao)
             glUseProgram(self.program)
             glUniform4fv(self.loc_uColor, 1, color)
+            glUniform4fv(self.loc_uBorderColor, 1, color)
+            glUniform1i(self.loc_uMode, 0)
+            glUniform1f(self.loc_uPtSize, 1.0)
+            glUniform1f(self.loc_uPointSize, 1.0)
+            glUniform1f(self.loc_uBorderPx, 0.0)
             glDrawArrays(GL_LINE_STRIP, 0, nverts)
 
-    def _draw_point(self, pos_world: np.ndarray, size_px=7.0, color=(1.0, 1.0, 0.0, 1.0)):
+    def _draw_point(self, pos_world: np.ndarray, size_px=7.0, color=(1.0, 1.0, 0.0, 1.0), *,
+                    border_color=None, border_px: float = 0.0, mode: int = 0,
+                    inner_size_px: float = 0.0, cross_out_px: float = 0.0, cross_thick_px: float = 1.0):
+        """
+        When mode==1 we render a custom sprite that uses the extra parameters.
+        size_px is the total sprite size (gl_PointSize).
+        inner_size_px is the square fill size; cross_out_px extends the crosshair past that square.
+        """
+        if border_color is None:
+            border_color = color
         # Build a tiny VBO on the fly
         pts = np.array(pos_world, dtype=np.float32).reshape(1, 3)
         vao = glGenVertexArrays(1)
@@ -633,11 +725,35 @@ class Viewer:
         glUseProgram(self.program)
         glPointSize(max(1.0, float(size_px)))
         glUniform4fv(self.loc_uColor, 1, np.array(color, dtype=np.float32))
+        glUniform4fv(self.loc_uBorderColor, 1, np.array(border_color, dtype=np.float32))
+        glUniform1i(self.loc_uMode, mode)
+        glUniform1f(self.loc_uPtSize, float(size_px))
+        glUniform1f(self.loc_uPointSize, float(size_px))
+        glUniform1f(self.loc_uBorderPx, float(border_px))
+        glUniform1f(self.loc_uInnerSizePx, float(inner_size_px))
+        glUniform1f(self.loc_uCrossOutPx, float(cross_out_px))
+        glUniform1f(self.loc_uCrossThickPx, float(cross_thick_px))
         glDrawArrays(GL_POINTS, 0, 1)
 
         glDeleteBuffers(1, [vbo])
         glDeleteVertexArrays(1, [vao])
+    def _draw_snap_point(self, pos_world:np.ndarray):
+        snap = self.settings.snap
 
+        sprite_size = snap.size_px + 2 * max(snap.border_px, snap.cross_out_px)
+        if  self.snap_hit is not None and snap.border_color=='by_object' and self.snap_hit['ref'] is not None:
+            border_color=self.color_table[id(self.snap_hit['ref'])]
+        else:
+            border_color=snap.border_color
+        self._draw_point(pos_world,
+                         sprite_size,
+                         snap.color,
+                         border_color=border_color,
+                         border_px=snap.border_px,
+                         inner_size_px=snap.size_px,
+                         cross_out_px=snap.cross_out_px,
+                         cross_thick_px=snap.cross_thick_px,
+                         mode=1)
     def _compute_snap(self, vinfo: ViewportInfo, M_cpu: np.ndarray):
         # Read cursor (GLFW points) -> NDC
         cursor_pt = glfw.get_cursor_pos(self.window)
@@ -645,12 +761,13 @@ class Viewer:
         # Pick best among curves
         best = None
         for cv in self.curves:
-            hit = snap_curve_to_cursor(cv, M_cpu, vinfo, cursor_ndc, snap_px=self.snap_px)
+            hit = snap_curve_to_cursor(cv, M_cpu, vinfo, cursor_ndc, snap_px=self.settings.snap.snap_px)
             if hit is None:
                 continue
             if best is None or hit["dist_px"] < best["dist_px"]:
                 best = hit
         self.snap_hit = best
+
 
     def run(self):
         last = time.time()
@@ -682,8 +799,8 @@ class Viewer:
 
             # Snap marker
             if self.snap_hit is not None:
-                self._draw_point(np.array(self.snap_hit["world"], dtype=np.float32),
-                                 size_px=9.0, color=(1.0, 1.0, 0.0, 1.0))
+                self._draw_snap_point(np.array(self.snap_hit["world"], dtype=np.float32)
+                                 )
 
             glfw.swap_buffers(self.window)
 
