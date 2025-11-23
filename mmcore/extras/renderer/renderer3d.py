@@ -1,12 +1,18 @@
+from __future__ import annotations
 import math
 import time
 import sys
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+
+from typing import Optional, Tuple, List, NamedTuple, Literal
 
 import numpy as np
 import glfw
 from OpenGL.GL import *
+
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d
+from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.numeric.approx import adaptive_curve_sampler
 
 
 # =========================
@@ -114,16 +120,19 @@ def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo) -> np.ndarray:
 # =========================
 
 class OrbitCamera:
-    def __init__(self):
-        self.target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        self.distance = 10.0
-        self.yaw = math.radians(35.0)
-        self.pitch = math.radians(30.0)
-        self.up_world = np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Z-up CAD
+    def __init__(self, target=(0.0, 0.0, 0.0), up=(0.,0.,1.),distance = 10.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
+        self.target = np.array(target, dtype=np.float32)
+        self.distance = distance
+        self.yaw = yaw
+        self.pitch = pitch
+        self.up_world = np.array(up, dtype=np.float32)  # Z-up CAD
         # Ortho zoom (world units half-extent vertically)
-        self.ortho_half_height = 5.0
+        self.ortho_half_height = ortho_half_height
         self.near = 0.1
         self.far = 10000.0
+        self._lock_orbit = False
+    def lock_orbit(self,lock:bool):
+        self._lock_orbit = lock
 
     def eye(self) -> np.ndarray:
         # Spherical around target with Z-up
@@ -131,6 +140,7 @@ class OrbitCamera:
         cy, sy = math.cos(self.yaw), math.sin(self.yaw)
         # right = (1,0,0) in world; forward roughly towards -Y at yaw=0
         dir_world = np.array([cp * cy, cp * sy, sp], dtype=np.float32)
+
         return self.target + (-self.distance) * dir_world
 
     def view_matrix(self) -> np.ndarray:
@@ -142,6 +152,8 @@ class OrbitCamera:
         return orthographic(-w, +w, -h, +h, self.near, self.far)
 
     def orbit(self, dx_pixels: float, dy_pixels: float, v: ViewportInfo):
+        if self._lock_orbit:
+            return
         # Sensitivity in radians per pixel
         s = 2.0 * math.pi / max(v.vw, v.vh)
         self.yaw -= dx_pixels * s
@@ -168,6 +180,7 @@ class OrbitCamera:
     def zoom_wheel(self, yoffset: float):
         # Scale the ortho window
         factor = math.pow(1.1, -yoffset)
+
         self.ortho_half_height = max(1e-4, self.ortho_half_height * factor)
 
 
@@ -377,12 +390,61 @@ def make_program() -> int:
     return prog
 
 
-# =========================
-# Viewer
-# =========================
+
+
+from dataclasses import dataclass
+from functools import update_wrapper, partial
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Literal,
+)
+
+import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# Shape pattern primitives
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Small example
+# ---------------------------------------------------------------------------
+
 
 class Viewer:
-    def __init__(self, width=1200, height=800):
+    def add(self, obj, *args,**kwargs):
+
+        if isinstance(obj,RationalBezier):
+            return self._add_curve(obj,*args,**kwargs)
+        elif isinstance(obj,NURBSCurveTuple):
+            return self._add_nurbs_curve(obj,*args,**kwargs)
+        elif isinstance(obj,np.ndarray):
+            if len(obj.shape)==2 and 'rational' in kwargs:
+                return self.add_bern_curve(obj,*args,**kwargs)
+            elif len(obj.shape )==1 and obj.shape[0]==3:
+                return self.add_point3d(obj,*args,**kwargs)
+            elif len(obj.shape )==1 and obj.shape[0]==2:
+                return self.add_point2d(obj,*args,**kwargs)
+            else:
+                raise ValueError("Unsupported shape {obj.shape}")
+        elif isinstance(obj,(tuple,list)):
+            if len(obj)==2 :
+                return self.add_point2d(obj,*args,**kwargs)
+            elif len(obj)==3 :
+                return self.add_point3d(obj,*args,**kwargs)
+            else:
+                raise ValueError(f"Unknown type: {obj}")
+
+
+
+    def __init__(self, width=1200, height=800, camera=None):
         if not glfw.init():
             raise RuntimeError("GLFW init failed")
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
@@ -407,7 +469,7 @@ class Viewer:
         self._rebuild_viewport()
 
         # Camera & input
-        self.cam = OrbitCamera()
+        self.cam = OrbitCamera() if camera is None else camera
         self.dragging_orbit = False
         self.dragging_pan = False
         self.last_cursor_px = np.array([0.0, 0.0], dtype=np.float64)
@@ -422,10 +484,10 @@ class Viewer:
         self.curves: List[RationalBezier] = []
         self.snap_px = 30.0
         self.snap_hit: Optional[dict] = None
-
+        self.points=[]
         # GL buffers (recreated when curves change)
         self.lines = []  # list of (vao, vbo, nverts, color)
-        self._build_demo_scene()
+
 
     # ---------- GLFW callbacks ----------
 
@@ -463,6 +525,7 @@ class Viewer:
 
     def _add_curve(self, curve: RationalBezier, color=(1.0, 1.0, 1.0, 1.0), samples=128):
         self.curves.append(curve)
+        l=len(self.curves) - 1
         # Build GL line strip
         pts = curve.polyline(samples=samples).astype(np.float32)
         vao = glGenVertexArrays(1)
@@ -473,6 +536,40 @@ class Viewer:
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
         self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
+        return l
+
+    def add_bern_curve(self, arr,*args, rational:bool=False,**kwargs):
+        if not rational:
+
+            A = np.zeros((arr.shape[0], 4))
+            for i in range(arr.shape[1] ):
+                A[..., i] = arr[..., i]
+            A[..., -1] = 1
+
+
+
+            curve = RationalBezier(A
+                                   )
+        else:
+
+            if arr.shape[1]!=4:
+                A = np.zeros((arr.shape[0], 4))
+                for i in range(arr.shape[1]-1):
+                    A[..., i] = arr[..., i]
+                A[..., -1]=arr[..., -1]
+
+            else:
+                A=arr
+            curve=RationalBezier(A)
+        return self._add_curve(curve,*args,**kwargs)
+
+    def add_point3d(self, arr, color=(0.8, 0.8, 0.8, 1.0),size_px=9):
+        return self.points.append((np.array(arr,dtype=np.float32),color,size_px))
+
+
+    def add_point2d(self, arr, color=(0.8, 0.8, 0.8, 1.0), size_px=9):
+        return self.points.append((np.array((*arr,0), dtype=np.float32), color, size_px))
+
 
     def _build_demo_scene(self):
         # Two rational cubic Bézier curves (projective control points: [w*x, w*y, w*z, w])
@@ -497,6 +594,11 @@ class Viewer:
         self._add_curve(RationalBezier(ctrl4b), color=(0.7, 0.9, 1.0, 1.0))
 
     # ---------- Render & snap ----------
+    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0)):
+        beziers=decompose_curve(curve)
+
+        return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color)        for bezier in beziers)
+
 
     def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """
@@ -574,6 +676,9 @@ class Viewer:
             glClearColor(0.07, 0.07, 0.08, 1.0)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
             self._draw_lines()
+            for point_arr,color,size_px in self.points:
+                self._draw_point(point_arr,
+                                 size_px=size_px, color=color)
 
             # Snap marker
             if self.snap_hit is not None:
