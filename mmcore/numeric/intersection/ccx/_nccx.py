@@ -257,8 +257,13 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
         else:
             pts1 = _c1.control_points
             pts2 = _c2.control_points
-        print(pts1.tolist(),pts2.tolist())
+        #print(tol)
         result=bezier_intersect_certified_full(pts1,  pts2, atol=tol, rational=rational)
+        if len(result['isolated'])==0 and len(result['overlaps'])==0:
+            #print(set(result['stats']['pruned_by']))
+            #print(pts1.tolist(),pts2.tolist())
+            ...
+
         isolated.extend(result['isolated'])
         overlaps.extend(result['overlaps'])
         
@@ -306,10 +311,7 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
         curve1_i = get_segm_curve_index(segm1_i)
         curve2_i = get_segm_curve_index(segm2_i)
         #print((curve1_i,segm1.interval()),(curve2_i,segm2.interval()))
-        print(segm1)
-        print('$')
-        print(segm2)
-        print(';')
+
         if curve1_i==curve2_i:
             if not self_intersections:
 
@@ -333,6 +335,10 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
 
         result = bezier_intersect_certified_full(pts1, pts2, atol=tol, rational=rational)
         if len(result['isolated'])==0 and len(result['overlaps'])==0:
+            #print(segm1)
+            #print('$')
+            #print(segm2)
+            #print(';')
             continue
         else:
 
