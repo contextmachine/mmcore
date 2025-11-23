@@ -1455,9 +1455,9 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
             span_u = u1 - u0
             span_v = v1 - v0
             max_span = max(span_u, span_v)
-            allow_contact = (depth == 0) or (depth >= 5)
+            allow_contact = True
             min_d = float(np.min(dnet))
-            if not allow_contact or cell_contains_known_isolated(u0, u1, v0, v1) or (depth > 0 and max_span > 0.25) or (min_d > 1e-10):
+            if  cell_contains_known_isolated(u0, u1, v0, v1)  :
                 res = {"type": "none"}
                 #print('bae',    (u0, u1), (v0, v1))
             else:
