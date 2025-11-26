@@ -888,7 +888,7 @@ def bernstein_eval_nd(control_grid: np.ndarray, params, keepdims: bool = False) 
         In general → shape (len(params[0]), ..., len(params[D-1]), N).
     """
     if control_grid.ndim < 2:
-        raise ValueError("control_grid must have at least one parametric axis plus a trailing value axis.")
+        raise ValueError("control_grid must have at least one parametric axis plus a trailing value axis. current shape: ", control_grid.shape, control_grid)
     D = control_grid.ndim - 1
     if len(params) != D:
         raise ValueError(f"`params` must have length {D} (one per parametric axis).")

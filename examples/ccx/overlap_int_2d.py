@@ -27,6 +27,22 @@ print(overlaps)
 overs=[]
 
 crvs=[]
+def construct_overlap_representation(curve1_i,curve2_i, over,curves, crv_intervals_map):
+    overlap_curves = []
+    curve1=curves[curve1_i]
+
+
+    t0, s0 = over['uv_path'][0]
+    t1, s1 = over['uv_path'][-1]
+
+
+
+    overlap_curves.append(trim_curve(curve1, t0, t1))
+
+    if np.isclose(t0,curve1.interval()[0]):
+        ...
+    else:
+        crvs.append(trim_curve(curve1,curve1.interval()[0],t0 ))
 for o in overlaps:
     t0,s0=o['uv_path'][0]
     t1,s1=o['uv_path'][-1]

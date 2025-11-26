@@ -5,12 +5,43 @@ from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 
 def _nurbs_curve_param_tol_conservative(P, w, U, p, tol):
     """
-    P : (n, dim)   original control points
-    w : (n,)       original positive weights
-    U : (n + p + 1,) knot vector ("flat knots")
-    p : int        degree
-    tol : float    3D tolerance
-    Returns: tol_u (parametric tolerance)
+    Computes a conservative parametric tolerance for a NURBS curve.
+
+    This function estimates the maximum parametric tolerance for a NURBS
+    (non-uniform rational B-spline) curve based on its control points, weights,
+    knot vector, and degree. It takes into account geometric variations and weights
+    to calculate a bound on the required parametric tolerance.
+
+    Parameters:
+    P : numpy.ndarray
+        A 2D array of shape (n, dim) representing the control points of the NURBS
+        curve. Here, `n` is the number of control points, and `dim` is the
+        dimension of the space.
+    w : numpy.ndarray
+        A 1D array of shape (n,) representing the weights corresponding to each
+        control point.
+    U : numpy.ndarray
+        A 1D array of shape (n + p + 1,) representing the non-decreasing knot
+        vector for the NURBS curve.
+    p : int
+        The degree of the NURBS curve.
+    tol : float
+        The desired tolerance to be divided by the computed scaling factor.
+
+    Returns:
+    float
+        The computed conservative parametric tolerance.
+
+    Raises:
+    ValueError
+        If any of the weights in `w` are not greater than zero.
+
+    Notes:
+    This function assumes valid input shapes and values, including the consistency
+    of array dimensions and the degree `p` with respect to the provided knot vector.
+    It also assumes that the knot vector is non-decreasing. The algorithm computes
+    a local maximum over neighborhoods of control points and involves scaling based
+    on the largest local variation observed.
     """
     n, dim = P.shape
     assert U.shape[0] == n + p + 1

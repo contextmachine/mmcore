@@ -2,7 +2,7 @@ import itertools
 
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
-
+from mmcore.geom._nurbs_knots import trim_curve
 
 val = [ NURBSCurveTuple(
     order=19,
@@ -195,7 +195,7 @@ val = [ NURBSCurveTuple(
 from mmcore.numeric.intersection.ccx import nurbs_ccx,nurbs_ccx_multiple
 from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
-isolated,overlaps=nurbs_ccx_multiple(val,tol=1e-2)
+isolated,overlaps=nurbs_ccx_multiple(val,tol=1e-3)
 print(isolated['point'].tolist())
 
 
@@ -210,4 +210,9 @@ if overlaps is not None:
     for start,end in overlaps['point']:
         viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
         viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
+    for o in overlaps['overlap']:
+        t0, s0 = o['uv_path'][0]
+        t1, s1 = o['uv_path'][-1]
+        viewer.add(trim_curve(val[o['curve1_i']], t0, t1),color=(0.0, 1.0, 0.5, 1.0))
+
 viewer.run()
