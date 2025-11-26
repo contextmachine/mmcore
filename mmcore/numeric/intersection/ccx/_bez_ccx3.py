@@ -1205,7 +1205,8 @@ def pd_hessian_uniqueness(Duu, Duv, Dvv, eps=0.0):
     if (a_min > eps) and (c_min > eps) and (a_min * c_min - b_abs_max * b_abs_max > eps):
         return True
     return False
-
+import logging
+logger = logging.getLogger('mmcore')
 
 # ---------- Master classifier on a Dnet ----------
 def classify_cell_by_grids(Du, Dv, eps_face=1e-14, eps_pd=1e-14):
@@ -1342,18 +1343,13 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
     sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
     stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
     delta_tol=np.linalg.norm((tol_c1, tol_c2))
-    def near_existing_isolated(u, v, eps=1e-6, eps_v=None):
-        if eps_v is not None:
-            eps_u=eps
+    def near_existing_isolated(u, v,point):
 
-        else:
-            eps_u=eps
-            eps_v=eps
         for it in isolated:
-            #print((float(abs(it["u"] - u)), float(abs(it["v"] - v))), (float(u),float(v)), (float(eps_u),float(eps_v)))
-            if (abs(it["u"] - u) <= eps_u) and (abs(it["v"] - v) <= eps_v):
-                #print('reject', u,v)
+            d=it['point']-point
+            if np.dot(d,d)<=atol_sq :
                 return True
+
         #print('accept', u,v, eps_u, eps_v)
         return False
 
@@ -1383,6 +1379,9 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
             stats["pruned"] += 1
             stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
             continue
+        if not(np.sign(sunet.max())!=np.sign(sunet.min() ) or np.sign(svnet.max())!=np.sign(svnet.min() )):
+            continue
+
 
         box1 = np.asarray(box1)
         box2 = np.asarray(box2)
@@ -1415,25 +1414,29 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
 
 
 
-            uc, vc, Gc, Jc = newton_project_G0(Pseg, Qseg, 0.5, 0.5, tol=1e-12, step_tol=min(_tol_c1,_tol_c2),delta_tol=_delta_tol,it=13,rational=rational)
+            uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=24,rational=rational)
+
 
             if np.dot(Gc,Gc) <= atol_sq:
-                ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
-
+                #ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+                ug,vg=uc,vc
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
-                    if not near_existing_isolated(ug, vg, tol_c1*20 , tol_c2*20):
+
+                    x = eval_bezier(C1, ug, rational=rational)
+                    if not near_existing_isolated(ug, vg, x):
                         #print(Pseg.tolist(), Qseg.tolist(), )
-                        x = eval_bezier(C1, ug, rational=rational)
+                        #if not bernstein_eval_nd(dnet, (uc, vc)) <( atol_sq*10):
+                        #    continue
                         isolated.append({"u": ug, "v": vg, "point": x})
                         stats["overlap_traces"] += 1
                         stats["pruned"] += 1
                         stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
                     continue
-                elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1 ) or (abs(vc - 0) <= _tol_c2  or abs(1 - vc) <=_tol_c2 )):
-
-                    if not near_existing_isolated(ug, vg, tol_c1*2 , tol_c2*2):
+                elif ((abs(ug- u0) <= tol_c1 or abs(u1 - ug) <= tol_c1 ) or (abs(vg - v0) <= tol_c2  or abs(v1 - vg) <=tol_c2 )):
+                    x = eval_bezier(C1, ug, rational=rational)
+                    if not near_existing_isolated(ug, vg,  x):
                         #print(Pseg.tolist(), Qseg.tolist(), )
-                        x = eval_bezier(C1, ug, rational=rational)
+
                         isolated.append({"u": ug, "v": vg, "point": x})
 
                         stats["pruned"] += 1
@@ -1443,8 +1446,8 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
                 else:
 
 
-                    #print('foo', (float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))
-                    continue
+                    logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
+                    #continue
             #ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
             #print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
@@ -1479,11 +1482,17 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
 
                     #if np.linalg.norm(Gc) <= atol:
                     ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+                    #if not bernstein_eval_nd(dnet, (ug, vg)) < atol_sq:
+                    #    continue
                     #print(ug,vg)
-                    if not near_existing_isolated(ug, vg, tol_c1*20 , tol_c2*20):
-                        if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                    x = eval_bezier(C1, ug, rational=rational)
+
+                    if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                        if not near_existing_isolated(ug, vg, x):
                             #print(Pseg.tolist(), Qseg.tolist(), )
-                            x = eval_bezier(C1, ug, rational=rational)
+                            if not bernstein_eval_nd(dnet, (uc, vc)) < atol_sq:
+                                continue
+
                             isolated.append({"u": ug, "v": vg, "point": x})
 
                             res_cut = bernstein_cutout_box_nd(dnet, np.array([uc,vc]), half=np.array([ _tol_c1, _tol_c2]), return_ranges=True)
@@ -1498,33 +1507,38 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
 
                                 stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
 
-                            continue
-                        elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
+                        continue
+                    elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
                                 abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
-                            kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
-                            # 1,0,0,0 -> (0,v)
-                            # 0,1,0,0 -> (1,v)
-                            # 0,0,1,0 -> (u,0)
-                            # 0,0,0,1 -> (u,1)
-                            # 0,1,0,1 -> (1,1)
-                            # 1,0,0,1 -> (0,1)
-                            # 1,0,1,0 -> (0,0)
-                            # 0,1,1,0 -> (1,0)
-                            uuuu=np.array([0.,1.,0.,1.])
-                            uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
-                            u_0, u_1, v_0, v_1 =uuuu
-                            ranges=[( u_0, u_1),(v_0, v_1)]
+                            if not near_existing_isolated(ug, vg, x):
+                                print('LLLLL')
+                                if bernstein_eval_nd(dnet, (uc, vc)) < atol_sq:
 
-                            subpatch=bernstein_trim_nd(dnet,ranges=ranges)
-                            sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
-                            sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
-                            _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
-                            _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
-                            u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
-                            u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
-                            stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
-                            print( (u0g, v0g),(u1g,v1g))
-                            continue
+
+                                    kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
+                                    # 1,0,0,0 -> (0,v)
+                                    # 0,1,0,0 -> (1,v)
+                                    # 0,0,1,0 -> (u,0)
+                                    # 0,0,0,1 -> (u,1)
+                                    # 0,1,0,1 -> (1,1)
+                                    # 1,0,0,1 -> (0,1)
+                                    # 1,0,1,0 -> (0,0)
+                                    # 0,1,1,0 -> (1,0)
+                                    uuuu=np.array([0.,1.,0.,1.])
+                                    uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
+                                    u_0, u_1, v_0, v_1 =uuuu
+                                    ranges=[( u_0, u_1),(v_0, v_1)]
+
+                                    subpatch=bernstein_trim_nd(dnet,ranges=ranges)
+                                    sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                                    sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                                    _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
+                                    _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                                    u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                                    u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+                                    stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+                                    print( (u0g, v0g),(u1g,v1g))
+                                    continue
 
 
 
@@ -1536,6 +1550,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
         # cut it out using bernstein_cutout_box_nd, just as we do with other isolated intersections.
         #print('subdivide', depth, (u0, u1), (v0, v1))
         # split by spread if no observation to harvest
+        logger.debug(f'subdivisions: {depth}.')
         if L1_sz(Pseg, rational=rational) > L1_sz(Qseg, rational=rational):
             PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
             l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
@@ -1903,3 +1918,4 @@ if __name__ == "__main__":
     print("pruned_by:", set(inter_3d_1["stats"]["pruned_by"]))
     make_rich_table(inter_3d_1, {"isolated": [{'u':0.499982,'v':0.499986,'point':[-2.500035, -2.500044, 0.400817]}], "overlaps": [],'stats':{}}, 'case 7 (3d)',oracle_name='Expected')
     assert len(inter_3d_1["isolated"]) == 1, f'{inter_3d_1["isolated"]}'
+
