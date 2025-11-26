@@ -1265,7 +1265,7 @@ def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
-def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1e-9, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False) -> IntersectionResult:
+def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False,**kwargs) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve pairs.
 
     Parameters
@@ -1336,11 +1336,12 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray, tol_hit: float = 1
     atol_sq=atol**2
     result = None
 
-    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]
+    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]-atol_sq
     tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
     tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
     su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
     sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
+    sq_dist_net
     stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
     delta_tol=np.linalg.norm((tol_c1, tol_c2))
     def near_existing_isolated(u, v,point):
