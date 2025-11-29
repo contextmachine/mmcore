@@ -1336,12 +1336,12 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
     atol_sq=atol**2
     result = None
 
-    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]-atol_sq
+    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]
     tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
     tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
     su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
     sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
-    sq_dist_net
+
     stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
     delta_tol=np.linalg.norm((tol_c1, tol_c2))
     def near_existing_isolated(u, v,point):
@@ -1363,6 +1363,13 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                 return True
         return False
 
+    scale = float(np.linalg.norm(np.array(_aabb_euclidean(C1, rational=rational)[1]) -
+                                 np.array(_aabb_euclidean(C1, rational=rational)[0])))
+    if scale == 0:
+        scale = 1.0
+
+    root_tol = 1e-9 * scale  # or 1e-10 * scale, tweak as you like
+    root_tol_sq = root_tol * root_tol
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
@@ -1374,8 +1381,34 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_inter")
             continue
-        bmin=bernstein_envelope_min(dnet)
-        if bmin > atol_sq:
+
+        if not rational:
+            Fst=Pseg[:,np.newaxis,:]- Qseg[np.newaxis,:,:]
+
+            cert=all([Fst[..., dimm].min() <= 0 and Fst[..., dimm].max() >= 0 for dimm in range(Fst.shape[-1])])
+
+        else:
+            Ph = Pseg  # (m+1, 4)
+            Qh = Qseg  # (n+1, 4)
+            w1 = Ph[:, -1]  # (m+1,)
+            w2 = Qh[:, -1]  # (n+1,)
+            w1_ij = w1[:, np.newaxis, np.newaxis]
+            w2_ij = w2[np.newaxis, :, np.newaxis]
+
+            Ph_xyz = Ph[:, :-1][:, np.newaxis, :]  # (m+1, 1, 3)
+            Qh_xyz = Qh[:, :-1][np.newaxis, :, :]  # (1, n+1, 3)
+            Fst = Ph_xyz * w2_ij - Qh_xyz * w1_ij
+            eps=np.finfo(float).eps
+            cert = all(Fst[..., d].min() <= eps and Fst[..., d].max() >= -eps
+                       for d in range(Fst.shape[-1]))
+        if not cert:
+            stats["pruned"] += 1
+            stats["pruned_by"].append("root in C1(s)−C2(t)")
+            continue
+
+
+        bmin = bernstein_envelope_min(dnet)
+        if bmin > 1e-9:
             #print(bmin,atol_sq)
             stats["pruned"] += 1
             stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
@@ -1415,26 +1448,27 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
 
 
 
-            uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=24,rational=rational)
+            uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=13,rational=rational)
 
-
-            if np.dot(Gc,Gc) <= atol_sq:
-                #ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+            Dval = np.dot(Gc, Gc)
+            #print(Dval,atol_sq,root_tol_sq)
+            if Dval <= atol_sq:
                 ug,vg=uc,vc
+                x = eval_bezier(C1, ug, rational=rational)
+
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
 
-                    x = eval_bezier(C1, ug, rational=rational)
                     if not near_existing_isolated(ug, vg, x):
                         #print(Pseg.tolist(), Qseg.tolist(), )
                         #if not bernstein_eval_nd(dnet, (uc, vc)) <( atol_sq*10):
                         #    continue
                         isolated.append({"u": ug, "v": vg, "point": x})
-                        stats["overlap_traces"] += 1
+
                         stats["pruned"] += 1
                         stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
                     continue
                 elif ((abs(ug- u0) <= tol_c1 or abs(u1 - ug) <= tol_c1 ) or (abs(vg - v0) <= tol_c2  or abs(v1 - vg) <=tol_c2 )):
-                    x = eval_bezier(C1, ug, rational=rational)
+
                     if not near_existing_isolated(ug, vg,  x):
                         #print(Pseg.tolist(), Qseg.tolist(), )
 
@@ -1445,10 +1479,13 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                     continue
 
                 else:
+                    logger.debug(
+                        f'unhandled case: {((float(uc), float(vc)), (float(ug), float(vg)), ((u0, v0), (u1, v1)))}. ')
 
-
-                    logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
-                    #continue
+            stats["pruned"] += 1
+            stats["pruned_by"].append("unique_stationary_nonzero")
+            #logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
+            continue
             #ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
             #print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
@@ -1463,7 +1500,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
             min_d = float(np.min(dnet))
             if  cell_contains_known_isolated(u0, u1, v0, v1)  :
                 res = {"type": "none"}
-                #print('bae',    (u0, u1), (v0, v1))
+                print('bae',    (u0, u1), (v0, v1))
             else:
                 res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh, rational=rational)
 
@@ -1920,3 +1957,47 @@ if __name__ == "__main__":
     make_rich_table(inter_3d_1, {"isolated": [{'u':0.499982,'v':0.499986,'point':[-2.500035, -2.500044, 0.400817]}], "overlaps": [],'stats':{}}, 'case 7 (3d)',oracle_name='Expected')
     assert len(inter_3d_1["isolated"]) == 1, f'{inter_3d_1["isolated"]}'
 
+    print("\n\n case7 (not rational, 2 roots)\n", "-" * 80, "\n")
+    crv9=np.array([[-0.18845609, 0.21350931, 0.],
+              [-0.18206551, 0.21624357, 0.],
+              [-0.17576572, 0.21899266, 0.]])
+
+    crv10=np.array([[-0.17604336, 0.21939751, 0.],
+              [-0.17995513, 0.21671489, 0.],
+              [-0.18421653, 0.21499867, 0.],
+              [-0.18858128, 0.2141638, 0.]])
+    s = time.perf_counter()
+    inter910 = bezier_intersect_certified_full(crv9, crv10, rational=False)
+    print(time.perf_counter() - s, "pruned:", inter910["stats"]["pruned"])
+
+    for i in inter910["isolated"]:
+        print('uv:',[float(i['u']),float(i['v'])], 'point:',i['point'].tolist())
+    assert len(inter910["isolated"]) == 2
+
+    assert len(inter910["overlaps"]) == 0
+    # This is a hard case that the OCC cannot handle and returns the trash.
+    #occ_inter910 = occ_ccx_2d(
+    #    occ_curve_to_2d(occ_curve_from_points(crv9,rational=False),
+    #                    ((0.0, 0.0, 0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+    #    occ_curve_to_2d(
+    #        occ_curve_from_points(crv10,rational=False),
+    #    ),
+    #)
+    #print(occ_inter910)
+    make_rich_table(inter910, {'isolated':[{'u':0.31716682340377483, 'v':0.6784807210378272},{'u':0.742578107293676, 'v': 0.2480550950889196}],'overlaps':[]},"case7 (not rational, 2 roots)",oracle_name='Expected')
+    print("\n\n case8 (not rational, 3 roots)\n", "-" * 80, "\n")
+    crv11 = np.array([[-0.38096238, 0.64253602, 0.],
+                     [0.28385972, -0.11289321, 0.],
+                     [-0.87219553, 0.32587519, 0.],
+                     [0.40817858, 0.48862681, 0.]])
+    crv12 = np.array([[-0.4507911, 0.11900211, 0.],
+                     [0.32897481, 0.35801962, 0.],
+                     [0.25497926, 0.73647834, 0.]])
+    inter1112 = bezier_intersect_certified_full(crv11, crv12, rational=False)
+    print(time.perf_counter() - s, "pruned:", inter1112["stats"]["pruned"])
+    for i in inter1112["isolated"]:
+        print('uv:',[float(i['u']),float(i['v'])], 'point:',i['point'].tolist())
+    print()
+    assert len(inter1112["isolated"]) == 3
+
+    assert len(inter1112["overlaps"]) == 0
