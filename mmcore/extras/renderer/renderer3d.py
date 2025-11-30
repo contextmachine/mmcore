@@ -672,10 +672,10 @@ class Viewer:
         self._add_curve(RationalBezier(ctrl4b), color=(0.7, 0.9, 1.0, 1.0))
 
     # ---------- Render & snap ----------
-    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0)):
+    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
         beziers=decompose_curve(curve)
 
-        return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color)        for bezier in beziers)
+        return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color,*args,**kwargs)        for bezier in beziers)
 
 
     def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
