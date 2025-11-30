@@ -800,8 +800,9 @@ def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, 
 
     # Try to land on G=0
     u0, v0 = seed_uv
-    u, v, G, J = newton_project_G0(C1, C2, u0, v0, tol=1e-12, rational=rational)
+    u, v, G, J = newton_project_G0(C1, C2, u0, v0, tol=1e-12,it=5, rational=rational)
     if np.linalg.norm(G) > 1e-8:
+
         return {"type": "none"}
 
     cls = classify_contact(J, sv_thresh)
@@ -1129,9 +1130,11 @@ def subdivide_u(dist_net, su_net, sv_net, u: float):
 
 def subdivide_v(dist_net, su_net, sv_net, v: float):
     left, right = zip(
-        de_casteljau_split_nd(dist_net, axis=1, t=v), de_casteljau_split_nd(su_net, axis=1, t=v), de_casteljau_split_nd(sv_net, axis=1, t=v)
+        de_casteljau_split_nd(dist_net, axis=1, t=v), de_casteljau_split_nd(su_net, axis=1, t=v),
+        de_casteljau_split_nd(sv_net, axis=1, t=v)
     )
     return left, right
+
 
 
 def bern_restrict_face(ctrl, axis, which):
@@ -1336,7 +1339,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
     atol_sq=atol**2
     result = None
 
-    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]
+    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]-atol_sq
     tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
     tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
     su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
@@ -1368,8 +1371,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
     if scale == 0:
         scale = 1.0
 
-    root_tol = 1e-9 * scale  # or 1e-10 * scale, tweak as you like
-    root_tol_sq = root_tol * root_tol
+
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
@@ -1523,12 +1525,12 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                     #if not bernstein_eval_nd(dnet, (ug, vg)) < atol_sq:
                     #    continue
                     #print(ug,vg)
-                    x = eval_bezier(C1, ug, rational=rational)
+                    x = res['point']
 
                     if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
                         if not near_existing_isolated(ug, vg, x):
                             #print(Pseg.tolist(), Qseg.tolist(), )
-                            if not bernstein_eval_nd(dnet, (uc, vc)) < atol_sq:
+                            if not bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
                                 continue
 
                             isolated.append({"u": ug, "v": vg, "point": x})
@@ -1550,7 +1552,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                                 abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
                             if not near_existing_isolated(ug, vg, x):
                                 print('LLLLL')
-                                if bernstein_eval_nd(dnet, (uc, vc)) < atol_sq:
+                                if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
 
 
                                     kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
@@ -1576,7 +1578,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                                     u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
                                     stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
                                     print( (u0g, v0g),(u1g,v1g))
-                                    continue
+                    continue
 
 
 
@@ -1702,6 +1704,25 @@ if __name__ == "__main__":
             print('Pretty output requires "pip install rich"')
             print("verify with OCC (mmcore result, occ result):", inter1["isolated"], inter2["isolated"])
     np.set_printoptions(edgeitems=3)
+
+
+    def _gen_cpts_to_display(scalar_net, interval: list[tuple[float, float]] = None):
+        def get_interv(n) -> tuple[float, float]:
+            if interval is None:
+                return (0., 1.)
+            else:
+                return interval[n]
+
+        Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
+
+        mgr = np.mgrid[*(slice(*get_interv(i), complex(scalar_net.shape[i])) for i in range(scalar_net.ndim))]
+
+        Pts[..., -1] = scalar_net
+        Pts[..., :-1] = np.moveaxis(mgr, 0, -1)
+
+        return Pts
+
+
     curve1 = np.array(
         [
             [-19.77608536, 23.10065701, 0.0],
@@ -1736,6 +1757,7 @@ if __name__ == "__main__":
         ]
     )
     curve6 = np.array([[-13.12449258, 9.10030377, 0.0], [-27.74989311, 10.37986052, 0.0], [-29.02944985, -4.24554001, 0.0]])
+
 
     # case 1: One true overlap, no isolated points
     s = time.perf_counter()
