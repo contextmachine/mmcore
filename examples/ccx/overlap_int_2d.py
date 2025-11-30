@@ -27,25 +27,11 @@ print(overlaps)
 overs=[]
 
 crvs=[]
-def construct_overlap_representation(curve1_i,curve2_i, over,curves, crv_intervals_map):
-    overlap_curves = []
-    curve1=curves[curve1_i]
 
+for i in range(overlaps.shape[0]):
 
-    t0, s0 = over['uv_path'][0]
-    t1, s1 = over['uv_path'][-1]
-
-
-
-    overlap_curves.append(trim_curve(curve1, t0, t1))
-
-    if np.isclose(t0,curve1.interval()[0]):
-        ...
-    else:
-        crvs.append(trim_curve(curve1,curve1.interval()[0],t0 ))
-for o in overlaps:
-    t0,s0=o['uv_path'][0]
-    t1,s1=o['uv_path'][-1]
+    t0,s0=overlaps['u'][i,0],overlaps['v'][i,0],
+    t1,s1=overlaps['u'][i,-1],overlaps['v'][i,-1],
     overs.append(trim_curve(curve1, t0, t1))
     if np.isclose(t0,curve1.interval()[0]):
         ...
@@ -66,17 +52,17 @@ for o in overlaps:
     else:
         crvs.append(trim_curve(curve2, s1, curve1.interval()[1]))
 
-from mmcore.numeric.intersection.ccx import nurbs_ccx,nurbs_ccx_multiple
+
 from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
 
 
 
-viewer=Viewer(camera=OrbitCamera())
+viewer=Viewer(camera=OrbitCamera(np.average(curve1.control_points,axis=0)))
 for crv in crvs:
     viewer.add(crv,color=(0.7, 0.9, 1.0, 1.0))
-for overlap_segm,overlap in zip(overs,overlaps):
+for overlap_segm,overlap in zip(overs,overlaps['point']):
     viewer.add(overlap_segm,color=(0.0, 1.0, 0.5, 1.0))
-    viewer.add(overlap['xyz_path'][0],color=(0.0, 1.0, 0.5, 1.0),size_px=12)
-    viewer.add(overlap['xyz_path'][-1], color=(0.0, 1.0, 0.5, 1.0), size_px=12)
+    viewer.add(overlap[0],color=(0.0, 1.0, 0.5, 1.0),size_px=12)
+    viewer.add(overlap[-1], color=(0.0, 1.0, 0.5, 1.0), size_px=12)
 viewer.run()

@@ -232,6 +232,7 @@ from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified
 
 def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, tol: float = 1e-3,
               **kwargs):
+    dim = max(crv.control_points.shape[1] for crv in ( curve1, curve2))
     if isinstance(curve1, NURBSCurve):
         curve1=_nurbs_to_tuple(curve1)
     if isinstance(curve2, NURBSCurve):
@@ -243,8 +244,10 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
     
     bvh1= build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves1])
     bvh2 = build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves2])
-    isolated=[]
-    overlaps=[]
+    isolated_u, isolated_v, isolated_xyz= [], [], []
+    overlaps_u, overlaps_v, overlaps_xyz= [], [], []
+
+
     rational=any((_is_rational(curve1), _is_rational(curve2)))
 
     for a,b in bvh_intersect(bvh1,bvh2,exact=False):
@@ -263,12 +266,35 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
             #print(set(result['stats']['pruned_by']))
             #print(pts1.tolist(),pts2.tolist())
             ...
+        for inter in result['isolated']:
+            u, v = inter['u'], inter['v']
+            u_glob, v_glob = map_local_to_global(u, v, *_c1.interval(), *_c2.interval())
+            isolated_u.append(u_glob)
+            isolated_v.append(v_glob)
+            isolated_xyz.append(inter['point'])
+        overlap: OverlapIntersection
+        for overlap in result['overlaps']:
+            overlaps_u.append(overlap['uv_path'][(0, -1), 0])
+            overlaps_v.append(overlap['uv_path'][(0, -1), 1])
+            overlaps_xyz.append(overlap['xyz_path'][(0, -1), :])
 
-        isolated.extend(result['isolated'])
-        overlaps.extend(result['overlaps'])
-        
+    if len(isolated_u) == 0:
+        isolated = None
+    else:
+        isolated = np.zeros(len(isolated_u), dtype=_ccx_isolated_dtype(dim))
+        isolated['u'] = isolated_u
+        isolated['v'] = isolated_v
+        isolated['point'] = isolated_xyz
 
-   
+    if len(overlaps_u) == 0:
+        overlaps = None
+    else:
+        overlaps = np.zeros(len(overlaps_u), dtype=_ccx_overlap_dtype(dim))
+
+        overlaps['u'] = overlaps_u
+        overlaps['v'] = overlaps_v
+        overlaps['point'] = overlaps_xyz
+
     
     return isolated, overlaps
 
