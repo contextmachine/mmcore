@@ -520,15 +520,10 @@ def surface_point(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None
             gradfi= (np.clip(np.sqrt(fi),tol, fi) * np.random.choice([-1.,1.], 3))
             
             cc = np.dot(gradfi, gradfi)
-            
-       
-      
-        
+
         if (cc**2) > 1e-8:
     
             t = -fi / cc
-    
-         
         else:
             t = 0
             print(f"{cc} WARNING tri (surface_point...): newton")
@@ -538,11 +533,7 @@ def surface_point(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None
         dv = p_i1 - p_i
         
         delta = scalar_norm( dv)
-        
-        
-        
-        
-        
+
         iters += 1
         if delta < tol:
             success = True
@@ -559,7 +550,116 @@ def surface_point(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None
     return  p_i1
 
 
-   
+import numpy as np
+
+
+def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None):
+    """
+    Vectorised version of `surface_point`.
+
+    Parameters
+    ----------
+    fun : callable
+        SDF. Takes an array of shape (N, 3), returns (N,).
+    p0 : array_like
+        Initial point(s). Shape (3,) or (N, 3).
+    grad : callable
+        Gradient of `fun`. Takes (N, 3), returns (N, 3).
+    tol : float
+        Convergence tolerance on step length (per point).
+    full_output : bool
+        If True, returns (points, info_dict), otherwise just points.
+    callback : callable or None
+        If given, called as callback(p_i, fi, gradfi) every iteration for
+        the *active* points:
+            p_i : (M, 3)
+            fi  : (M,)
+            gradfi : (M, 3)
+    """
+    if grad is None:
+        raise ValueError("A gradient function `grad` must be provided.")
+
+    # Safety bound on iterations (not in original signature, so fixed here)
+    max_iters = 64
+
+    p = np.asarray(p0, dtype=float)
+    orig_shape = p.shape
+
+    # Normalise p to shape (N, 3)
+    if p.ndim == 1:
+        if p.shape[0] != 3:
+            raise ValueError("p0 with ndim==1 must have length 3.")
+        p = p[None, :]
+    elif p.ndim == 2 and p.shape[1] == 3:
+        pass
+    else:
+        raise ValueError("p0 must have shape (3,) or (N, 3).")
+
+    n_points = p.shape[0]
+
+    converged = np.zeros(n_points, dtype=bool)
+    iters = np.zeros(n_points, dtype=int)
+
+    # Preserve the original slightly odd use of tol:
+    tol_sq = np.sqrt(tol)
+
+    for k in range(max_iters):
+        active = ~converged
+        if not np.any(active):
+            break
+
+        p_active = p[active]              # (M, 3)
+        fi = fun(p_active)                # (M,)
+        gradfi = grad(p_active)           # (M, 3)
+
+        if callback is not None:
+            callback(p_active, fi, gradfi)
+
+        # Squared gradient norm per point: |grad f|^2
+        cc = np.einsum("ij,ij->i", gradfi, gradfi)   # (M,)
+
+        # First-iteration fix for tiny gradients (ported from scalar version)
+        if k == 0:
+            small_grad = cc < tol_sq
+            if np.any(small_grad):
+                fi_small = fi[small_grad]
+                # Use the same expression as in the scalar code
+                mag = np.clip(np.sqrt(fi_small), tol, fi_small)
+                signs = np.random.choice([-1.0, 1.0], size=(mag.shape[0], 3))
+                gradfi[small_grad] = mag[:, None] * signs
+                cc = np.einsum("ij,ij->i", gradfi, gradfi)
+
+        # Newton step: t = -f / |grad f|^2, guarded against tiny denominators
+        t = np.zeros_like(fi)
+        good = (cc ** 2) > 1e-8
+        t[good] = -fi[good] / cc[good]
+
+        # p_{i+1} = p_i + t * grad f
+        p_new = p_active + t[:, None] * gradfi
+
+        dv = p_new - p_active
+        delta = np.linalg.norm(dv, axis=1)   # (M,)
+
+        # Write back
+        p[active] = p_new
+
+        # Per‑point convergence and iteration counting
+        newly_converged = delta < tol
+        converged[active] |= newly_converged
+        iters[active] += 1
+
+    result = p.reshape(orig_shape)
+
+    if full_output:
+        info = {
+            "converged": converged,
+            "iterations": iters,
+            "max_iters_reached": iters >= max_iters,
+        }
+        return result, info
+
+    return result
+
     
 def surface_point_local(fun, p0, bounds, strict=False, grad=None, tol=1e-8, full_output=False):
     """
