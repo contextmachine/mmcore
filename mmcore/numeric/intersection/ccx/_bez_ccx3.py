@@ -1715,7 +1715,7 @@ if __name__ == "__main__":
 
         Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
 
-        mgr = np.mgrid[*(slice(*get_interv(i), complex(scalar_net.shape[i])) for i in range(scalar_net.ndim))]
+        mgr = np.mgrid[tuple(slice(*get_interv(i), complex(scalar_net.shape[i])) for i in range(scalar_net.ndim))]
 
         Pts[..., -1] = scalar_net
         Pts[..., :-1] = np.moveaxis(mgr, 0, -1)

@@ -27,28 +27,29 @@ def _find_span(n: int, p: int, u: float, U: np.ndarray) -> int:
         else:
             return mid
 
-
+from mmcore.geom.nurbs import basis_functions
 def _basis_funs(i: int, u: float, p: int, U: np.ndarray) -> np.ndarray:
     """
     Algorithm A2.2 from The NURBS Book: nonzero basis functions N_{i-p..i,p}(u).
     Returns shape (p+1,).
     """
-    N = np.empty(p + 1, dtype=float)
-    left = np.empty(p + 1, dtype=float)
-    right = np.empty(p + 1, dtype=float)
-    N[0] = 1.0
-    for j in range(1, p + 1):
-        left[j] = u - U[i + 1 - j]
-        right[j] = U[i + j] - u
-        saved = 0.0
-        for r in range(j):
-            denom = right[r + 1] + left[j - r]
-            term = 0.0 if denom == 0.0 else N[r] / denom
-            temp = term * right[r + 1]
-            N[r] = saved + temp
-            saved = term * left[j - r]
-        N[j] = saved
-    return N
+    #N = np.empty(p + 1, dtype=float)
+    #left = np.empty(p + 1, dtype=float)
+    #right = np.empty(p + 1, dtype=float)
+    #N[0] = 1.0
+    #for j in range(1, p + 1):
+    #    left[j] = u - U[i + 1 - j]
+    #    right[j] = U[i + j] - u
+    #    saved = 0.0
+    #    for r in range(j):
+    #        denom = right[r + 1] + left[j - r]
+    #        term = 0.0 if denom == 0.0 else N[r] / denom
+    #        temp = term * right[r + 1]
+    #        N[r] = saved + temp
+    #        saved = term * left[j - r]
+    #    N[j] = saved
+    #return N
+    return basis_functions(i, u, p, U)
 
 
 def _basis_matrix(U: np.ndarray, p: int, u_vec: np.ndarray) -> np.ndarray:
