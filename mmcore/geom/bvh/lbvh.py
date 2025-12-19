@@ -368,7 +368,7 @@ class BVH:
             stack=[node
                    ]
             while stack:
-                current=stack.pop(0)
+                current=stack.pop()
                 if current.is_leaf():
                     yield current
                 else:
@@ -377,7 +377,7 @@ class BVH:
     def get_bboxes(self):
         stack=[self.root_index]
         while stack:
-            current=stack.pop(0)
+            current=stack.pop()
             node=self.nodes[current]
             yield np.array(node.bbox)
             if self.nodes[current].is_leaf():
@@ -596,7 +596,7 @@ def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode
     stack=[(root1, root2)]
     res=[]
     while stack:
-        a,b=stack.pop(0)
+        a,b=stack.pop()
         if not exact:
             is_inter=a.bbox.intersects(b.bbox)
         else:
