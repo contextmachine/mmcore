@@ -1,5 +1,5 @@
 
-from ._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,evaluate_nurbs_curve,evaluate_nurbs_surface,nurbs_interval,_surface_interval,_curve_interval
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,evaluate_nurbs_curve,evaluate_nurbs_surface,nurbs_interval,_surface_interval,_curve_interval
 
 import numpy as np
 
@@ -274,4 +274,5 @@ if __name__ == '__main__':
     # Compute an offset of 0.1 with tolerance 1e-2.
     t0,t1=_curve_interval(nurbs_curve)
     res=extend_nurbs_curve(nurbs_curve,(t0-1.0,t1+1.0),True)
+    print(res)
 
