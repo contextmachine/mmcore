@@ -9,7 +9,6 @@ import sys
 from mmcore.geom.nurbs import NURBSCurve
 from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
 from mmcore.extras.renderer.renderer2d import Renderer2D
-from mmcore.numeric.intersection.ccx import ccx
 
 from mmcore.numeric.intersection.ccx._nccx import nurbs_ccx
 def parse_control_points(cp_str):
