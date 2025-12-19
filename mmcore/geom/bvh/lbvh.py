@@ -368,7 +368,7 @@ class BVH:
             stack=[node
                    ]
             while stack:
-                current=stack.pop()
+                current=stack.pop(0)
                 if current.is_leaf():
                     yield current
                 else:
