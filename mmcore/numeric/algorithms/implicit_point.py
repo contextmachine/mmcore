@@ -553,7 +553,7 @@ def surface_point(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None
 import numpy as np
 
 
-def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None):
+def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=None,max_iters = 64):
     """
     Vectorised version of `surface_point`.
 
@@ -580,7 +580,6 @@ def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=No
         raise ValueError("A gradient function `grad` must be provided.")
 
     # Safety bound on iterations (not in original signature, so fixed here)
-    max_iters = 64
 
     p = np.asarray(p0, dtype=float)
     orig_shape = p.shape
