@@ -11,6 +11,17 @@ from mmcore.numeric.sbern import bern_to_nurbs_bezier
 import numpy as np
 import time
 
+try:
+    from ._bezier_eval import (
+        eval_bezier_raw as _eval_bezier_raw_fast,
+        eval_bezier_raw_d1 as _eval_bezier_raw_d1_fast,
+        eval_bezier_raw_d2 as _eval_bezier_raw_d2_fast,
+    )
+except Exception:  # pragma: no cover - optional Cython acceleration
+    _eval_bezier_raw_fast = None
+    _eval_bezier_raw_d1_fast = None
+    _eval_bezier_raw_d2_fast = None
+
 # ---------------------------------------------------------------------------
 # Homogeneous helpers
 # ---------------------------------------------------------------------------
@@ -73,13 +84,109 @@ def de_casteljau_split(ctrl, prms=None):  # (n+1,d)
     return left, right
 
 
-def eval_bezier_raw(P, t):
-    """Plain De Casteljau evaluation in the control-space (homogeneous safe)."""
-    Q = P.copy()
+def _eval_bezier_raw_py(P, t):
+    """Plain Bézier evaluation in control-space (homogeneous safe)."""
+    P = np.asarray(P, dtype=np.float64)
     n = P.shape[0] - 1
-    for _ in range(n):
-        Q = (1.0 - t) * Q[:-1] + t * Q[1:]
+    if n <= 0:
+        return P[0]
+
+    omt = 1.0 - t
+    # Fast paths for degrees we hit most (2/3 in practice).
+    if n == 1:
+        return omt * P[0] + t * P[1]
+    if n == 2:
+        omt2 = omt * omt
+        t2 = t * t
+        return omt2 * P[0] + (2.0 * omt * t) * P[1] + t2 * P[2]
+    if n == 3:
+        omt2 = omt * omt
+        t2 = t * t
+        return (omt2 * omt) * P[0] + (3.0 * omt2 * t) * P[1] + (3.0 * omt * t2) * P[2] + (t2 * t) * P[3]
+
+    # Generic De Casteljau (small degrees: numpy allocations are acceptable).
+    Q = P.copy()
+    for r in range(1, n + 1):
+        m = n + 1 - r
+        Q[:m] = (1.0 - t) * Q[:m] + t * Q[1 : m + 1]
     return Q[0]
+
+
+def _eval_bezier_raw_d1_py(P, t):
+    """Return (P(t), P'(t)) in control-space (homogeneous safe)."""
+    P = np.asarray(P, dtype=np.float64)
+    n = P.shape[0] - 1
+    if n <= 0:
+        return P[0], np.zeros_like(P[0])
+
+    omt = 1.0 - t
+    if n == 1:
+        return omt * P[0] + t * P[1], (P[1] - P[0])
+    if n == 2:
+        pt = _eval_bezier_raw_py(P, t)
+        dpt = 2.0 * (omt * (P[1] - P[0]) + t * (P[2] - P[1]))
+        return pt, dpt
+    if n == 3:
+        omt2 = omt * omt
+        t2 = t * t
+        pt = _eval_bezier_raw_py(P, t)
+        dpt = 3.0 * (omt2 * (P[1] - P[0]) + (2.0 * omt * t) * (P[2] - P[1]) + t2 * (P[3] - P[2]))
+        return pt, dpt
+
+    Q = P.copy()
+    for r in range(1, n):
+        m = n + 1 - r
+        Q[:m] = (1.0 - t) * Q[:m] + t * Q[1 : m + 1]
+    q0, q1 = Q[0], Q[1]
+    dpt = n * (q1 - q0)
+    pt = (1.0 - t) * q0 + t * q1
+    return pt, dpt
+
+
+def _eval_bezier_raw_d2_py(P, t):
+    """Return (P(t), P'(t), P''(t)) in control-space (homogeneous safe)."""
+    P = np.asarray(P, dtype=np.float64)
+    n = P.shape[0] - 1
+    if n <= 0:
+        z = np.zeros_like(P[0])
+        return P[0], z, z
+
+    omt = 1.0 - t
+    if n == 1:
+        pt, dpt = _eval_bezier_raw_d1_py(P, t)
+        return pt, dpt, np.zeros_like(pt)
+    if n == 2:
+        pt, dpt = _eval_bezier_raw_d1_py(P, t)
+        ddpt = 2.0 * (P[2] - 2.0 * P[1] + P[0])
+        return pt, dpt, ddpt
+    if n == 3:
+        pt, dpt = _eval_bezier_raw_d1_py(P, t)
+        ddpt = 6.0 * (omt * (P[2] - 2.0 * P[1] + P[0]) + t * (P[3] - 2.0 * P[2] + P[1]))
+        return pt, dpt, ddpt
+
+    Q = P.copy()
+    ddpt = np.zeros_like(P[0])
+    for r in range(1, n - 1):
+        m = n + 1 - r
+        Q[:m] = (1.0 - t) * Q[:m] + t * Q[1 : m + 1]
+        if m == 3:
+            ddpt = n * (n - 1) * (Q[2] - 2.0 * Q[1] + Q[0])
+    # One more step to m==2
+    Q[:2] = (1.0 - t) * Q[:2] + t * Q[1:3]
+    q0, q1 = Q[0], Q[1]
+    dpt = n * (q1 - q0)
+    pt = (1.0 - t) * q0 + t * q1
+    return pt, dpt, ddpt
+
+
+if _eval_bezier_raw_fast is None:
+    eval_bezier_raw = _eval_bezier_raw_py
+    eval_bezier_raw_d1 = _eval_bezier_raw_d1_py
+    eval_bezier_raw_d2 = _eval_bezier_raw_d2_py
+else:
+    eval_bezier_raw = _eval_bezier_raw_fast
+    eval_bezier_raw_d1 = _eval_bezier_raw_d1_fast
+    eval_bezier_raw_d2 = _eval_bezier_raw_d2_fast
 
 
 def eval_bezier(P, t, rational: bool | None = None):
@@ -90,21 +197,26 @@ def eval_bezier(P, t, rational: bool | None = None):
     return Ph
 
 
+def eval_bezier_and_deriv(P, t, rational: bool | None = None):
+    """Return (point, first derivative) in Euclidean space."""
+    if is_homogeneous_ctrl(P, rational=rational):
+        Ph, dPh = eval_bezier_raw_d1(P, t)
+        w = float(Ph[-1])
+        dw = float(dPh[-1])
+        denom = w * w + 1e-30
+        p = Ph[:-1] / w
+        dp = (dPh[:-1] * w - Ph[:-1] * dw) / denom
+        return p, dp
+    return eval_bezier_raw_d1(P, t)
+
+
 def deriv_ctrl(P):  # first derivative control net
     n = P.shape[0] - 1
     return n * (P[1:] - P[:-1])
 
 
 def eval_bezier_deriv(P, t, rational: bool | None = None):  # first derivative at t
-    if is_homogeneous_ctrl(P, rational=rational):
-        Ph = eval_bezier_raw(P, t)
-        dPh = eval_bezier_raw(deriv_ctrl(P), t)
-        w = float(Ph[-1])
-        dw = float(dPh[-1])
-        denom = w * w + 1e-30
-        num = dPh[:-1] * w - Ph[:-1] * dw
-        return num / denom
-    return eval_bezier_raw(deriv_ctrl(P), t)
+    return eval_bezier_and_deriv(P, t, rational=rational)[1]
 
 
 # ---------- Distance net envelope (pruning) ----------
@@ -197,13 +309,16 @@ def bernstein_envelope_min(dnet):
 
 # ---------- Vector system G(u,v)=C1(u)-C2(v)=0 ----------
 def G_and_J(C1, C2, u, v, rational: bool | None = None):
-    p1 = eval_bezier(C1, u, rational=rational)
-    t1 = eval_bezier_deriv(C1, u, rational=rational)
-    p2 = eval_bezier(C2, v, rational=rational)
-    t2 = eval_bezier_deriv(C2, v, rational=rational)
+    p1, t1 = eval_bezier_and_deriv(C1, u, rational=rational)
+    p2, t2 = eval_bezier_and_deriv(C2, v, rational=rational)
     G = p1 - p2  # d-vector
     J = np.stack([t1, -t2], axis=1)  # d x 2
     return G, J
+
+
+def G_only(C1, C2, u, v, rational: bool | None = None):
+    """Compute G(u,v)=C1(u)-C2(v) without building J (used in line-search)."""
+    return eval_bezier(C1, u, rational=rational) - eval_bezier(C2, v, rational=rational)
 
 
 def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=1e-9,delta_tol=1e-10, rational: bool | None = None):
@@ -222,16 +337,16 @@ def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=
             delta = np.zeros(2)
         # line search with clamping
         step = 1.0
+        g2 = float(np.dot(G, G))
         for _ls in range(8):
             un = np.clip(u + step * delta[0], 0.0, 1.0)
             vn = np.clip(v + step * delta[1], 0.0, 1.0)
-            dgj=G_and_J(C1, C2, un, vn, rational=rational)[0]
-
-            if np.dot(  dgj,  dgj) <= np.dot(G,G):
+            dgj = G_only(C1, C2, un, vn, rational=rational)
+            if float(np.dot(dgj, dgj)) <= g2:
                 u, v = un, vn
                 break
             step *= 0.5
-        if np.dot(G,G) < tol_sq:
+        if g2 < tol_sq:
             break
         if step < step_tol and np.dot(delta,delta) < delta_tol_sq:
             break
@@ -277,9 +392,7 @@ def second_deriv_ctrl(P):
 
 def eval_bezier_second_deriv(P, t, rational: bool | None = None):
     if is_homogeneous_ctrl(P, rational=rational):
-        Ph = eval_bezier_raw(P, t)
-        dPh = eval_bezier_raw(deriv_ctrl(P), t)
-        ddPh = eval_bezier_raw(second_deriv_ctrl(P), t)
+        Ph, dPh, ddPh = eval_bezier_raw_d2(P, t)
         w = float(Ph[-1])
         dw = float(dPh[-1])
         ddw = float(ddPh[-1])
@@ -293,7 +406,7 @@ def eval_bezier_second_deriv(P, t, rational: bool | None = None):
         num = term1 + term2 + term3 + term4
         return num / w3
 
-    return eval_bezier_raw(second_deriv_ctrl(P), t)
+    return eval_bezier_raw_d2(P, t)[2]
 
 
 def curvature_and_speed(C, u, rational: bool | None = None):
@@ -301,7 +414,7 @@ def curvature_and_speed(C, u, rational: bool | None = None):
     s = np.linalg.norm(t)
     if s < 1e-16:
         return 0.0, 0.0, t  # degenerate speed
-    tt = eval_bezier_second_deriv(C, u)
+    tt = eval_bezier_second_deriv(C, u, rational=rational)
     d = C.shape[1]
     if d == 2:
         kappa = abs(t[0] * tt[1] - t[1] * tt[0]) / (s**3 + 1e-30)
@@ -355,7 +468,7 @@ def project_G0_fixed_u(C1, C2, u_fixed, v0, tol=1e-12, it=40, lm_damp=1e-12, rat
     Returns v, G (residual vector), success(bool).
     """
     sq_tol=tol*tol
-    p1 = eval_bezier(C1, u_fixed)
+    p1 = eval_bezier(C1, u_fixed, rational=rational)
     v = float(v0)
     for _ in range(it):
         p2 = eval_bezier(C2, v, rational=rational)
@@ -458,7 +571,7 @@ def sigma_flip_alpha(C1, C2, u, v, du, dv, tol_alpha=1e-12, max_it=40, rational:
     slo, shi = s0, s1
     for _ in range(max_it):
         mid = 0.5 * (lo + hi)
-        sm = dot_sigma(C1, C2, u + mid * du, v + mid * dv)
+        sm = dot_sigma(C1, C2, u + mid * du, v + mid * dv, rational=rational)
         if sm == 0.0 or (hi - lo) < tol_alpha:
             return mid
         if slo * sm <= 0.0:
@@ -547,7 +660,7 @@ def trace_overlap_fast_events(
     # --- classify; if not overlap, return isolated
     cls0 = classify_contact(J0, sv_thresh)
     if cls0["type"] != "overlap":
-        x0 = eval_bezier(C1, u0)
+        x0 = eval_bezier(C1, u0, rational=rational)
         return {"kind": cls0["type"], "points": [(u0, v0)], "xyz": [x0], "start": "seed", "end": "seed"}
 
     # --- snap to boundary if very close (exact 0/1)
@@ -817,8 +930,7 @@ def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, 
     if res["kind"] != "overlap" or len(res["points"]) < 2:
         return {"type": "none"}
 
-    xyz = [eval_bezier(C1, uu) for (uu, vv) in res["points"]]
-    return {"type": "overlap", "uv_path": res["points"], "xyz_path": xyz, "start": res["start"], "end": res["end"]}
+    return {"type": "overlap", "uv_path": res["points"], "xyz_path": res["xyz"], "start": res["start"], "end": res["end"]}
 
 
 from typing import Tuple, TypedDict, List, Dict, Any
