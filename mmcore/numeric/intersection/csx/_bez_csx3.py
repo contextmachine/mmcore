@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import itertools
+import time
 from typing import TypedDict, List
 import logging
 
 import numpy as np
 from numpy.typing import NDArray
 
+from mmcore.numeric import compute_parametric_curvature_tolerance_surface
 from mmcore.numeric._aabb import aabb, aabb_intersect
 from mmcore.numeric.bern import (
     bernstein_product_conv,
@@ -20,14 +23,24 @@ from mmcore.numeric._bern_homog import (
     eval_bezier_surface_homog_with_derivs,
     project_surface_homog_to_cartesian, eval_bezier_homogeneous_surface,eval_bezier_homogeneous_curve
 )
-from mmcore.numeric.numeric import compute_parametric_tolerance_curve, compute_parametric_tolerance_surface, \
+from mmcore.numeric.numeric import  compute_parametric_tolerance_surface, \
     compute_parametric_curvature_tolerance_curve
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
-from mmcore.numeric.sbern import bern_to_nurbs_bezier
+
 
 logger = logging.getLogger("mmcore")
 
-
+def clamp01(x: float) -> float:
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    return x
+def clamp(x: float, a,b) -> float:
+    if x <= a:
+        return a
+    if x >= b:
+        return b
+    return x
 # ---------------------------------------------------------------------------
 # Homogeneous helpers
 # ---------------------------------------------------------------------------
@@ -108,9 +121,6 @@ def eval_bezier_curve_derivs2(P: NDArray, t: float, rational: bool | None = None
     Ch, Chd, Ch2 = eval_bezier_curve_homog_with_derivs(Ph, t, want_second=True)
     C, Ct, Ctt = project_curve_homog_to_cartesian(Ch, Chd, Ch2)
     return C, Ct, Ctt
-
-
-
 
 
 def eval_bezier_surface_and_derivs(S: NDArray, u: float, v: float, rational: bool | None = None):
@@ -269,19 +279,20 @@ def newton_project_G0_curve_surface(
                 break  # Not converging, don't waste iterations
         else:
             stall_count = 0
+
         prev_g2 = g2
         for _ls in range(8):
-            tn = float(np.clip(t + step * delta[0], 0.0, 1.0))
-            un = float(np.clip(u + step * delta[1], 0.0, 1.0))
-            vn = float(np.clip(v + step * delta[2], 0.0, 1.0))
+            tn = float(clamp01(t + step * delta[0]))
+            un = float(clamp01(u + step * delta[1]))
+            vn = float(clamp01(v + step * delta[2]))
             dgj = G_only_curve_surface(C, S, tn, un, vn, rational=rational)
             if float(np.dot(dgj, dgj)) <= g2:
                 t, u, v = tn, un, vn
                 break
             step *= 0.5
-
         if g2 < tol_sq:
             break
+
         if step < step_tol and np.dot(delta, delta) < delta_tol_sq:
             break
 
@@ -317,8 +328,8 @@ def project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, r
         step = 1.0
         g0 = float(np.dot(G, G))
         while step > 1e-6:
-            un = float(np.clip(u + step * delta[0], 0.0, 1.0))
-            vn = float(np.clip(v + step * delta[1], 0.0, 1.0))
+            un = float(clamp01(u + step * delta[0]))
+            vn = float(clamp01(v + step * delta[1]))
             dgj = eval_bezier_surface(S, un, vn, rational=rational) - p1
             if float(np.dot(dgj, dgj)) <= g0 + 1e-18:
                 u, v = un, vn
@@ -359,7 +370,7 @@ def _eval_bezier_curve_and_d1(C, t, *, rational: bool | None = None, fd_eps: flo
         return c, ct
 
     # Finite-difference fallback
-    t = float(np.clip(t, 0.0, 1.0))
+    t = float(clamp01(t))
     h = float(fd_eps)
 
     c = eval_bezier_curve(C, t, rational=rational)
@@ -393,7 +404,7 @@ def project_G0_fixed_u(
 ):
     """Solve min ||C(t) - S(u_fixed, v)|| with (t,v) in [0,1]^2."""
     sq_tol = tol * tol
-    u_fixed = float(np.clip(u_fixed, 0.0, 1.0))
+    u_fixed = float(clamp01(u_fixed))
     t, v = float(t0), float(v0)
 
     for _ in range(it):
@@ -416,8 +427,8 @@ def project_G0_fixed_u(
         step = 1.0
         g0 = float(np.dot(G, G))
         while step > 1e-6:
-            tn = float(np.clip(t + step * delta[0], 0.0, 1.0))
-            vn = float(np.clip(v + step * delta[1], 0.0, 1.0))
+            tn = float(clamp01(t + step * delta[0]))
+            vn = float(clamp01(v + step * delta[1]))
 
             cn = eval_bezier_curve(C, tn, rational=rational)
             sn = eval_bezier_surface(S, u_fixed, vn, rational=rational)
@@ -446,7 +457,7 @@ def project_G0_fixed_v(
 ):
     """Solve min ||C(t) - S(u, v_fixed)|| with (t,u) in [0,1]^2."""
     sq_tol = tol * tol
-    v_fixed = float(np.clip(v_fixed, 0.0, 1.0))
+    v_fixed = float(clamp01(v_fixed))
     t, u = float(t0), float(u0)
 
     for _ in range(it):
@@ -469,8 +480,8 @@ def project_G0_fixed_v(
         step = 1.0
         g0 = float(np.dot(G, G))
         while step > 1e-6:
-            tn = float(np.clip(t + step * delta[0], 0.0, 1.0))
-            un = float(np.clip(u + step * delta[1], 0.0, 1.0))
+            tn = float(clamp01(t + step * delta[0]))
+            un = float(clamp01(u + step * delta[1]))
 
             cn = eval_bezier_curve(C, tn, rational=rational)
             sn = eval_bezier_surface(S, un, v_fixed, rational=rational)
@@ -531,7 +542,7 @@ def project_G0(
     dgj : residual vector = S(u,v) - C(t)
     success : bool
     """
-    print(fixed)
+    #print(fixed)
     if not (isinstance(fixed, tuple) and len(fixed) == 3):
         raise TypeError("fixed must be a tuple[bool, bool, bool] of length 3: (fix_t, fix_u, fix_v).")
 
@@ -552,7 +563,7 @@ def project_G0(
         if callable(fn):
             return fn(C, t, rational=rational)
 
-        t = float(np.clip(t, 0.0, 1.0))
+        t = float(clamp01(t))
         h = float(fd_eps)
 
         c = eval_bezier_curve(C, t, rational=rational)
@@ -581,9 +592,9 @@ def project_G0(
     sq_tol = tol * tol
 
     # Initialize and clamp
-    t = float(np.clip(t0, 0.0, 1.0))
-    u = float(np.clip(u0, 0.0, 1.0))
-    v = float(np.clip(v0, 0.0, 1.0))
+    t = float(clamp01(t0))
+    u = float(clamp01(u0))
+    v = float(clamp01(v0))
 
     # Cache fully-fixed side(s) for speed
     c_fixed = None
@@ -644,13 +655,13 @@ def project_G0(
             tn, un, vn = t, u, v
             k = 0
             if not fix_t:
-                tn = float(np.clip(t + step * float(delta[k]), 0.0, 1.0))
+                tn = float(clamp01(t + step * float(delta[k])))
                 k += 1
             if not fix_u:
-                un = float(np.clip(u + step * float(delta[k]), 0.0, 1.0))
+                un = float(clamp01(u + step * float(delta[k])))
                 k += 1
             if not fix_v:
-                vn = float(np.clip(v + step * float(delta[k]), 0.0, 1.0))
+                vn = float(clamp01(v + step * float(delta[k])))
                 k += 1
 
             # Candidate residual (use caches if applicable)
@@ -720,7 +731,7 @@ def append_with_decimation(t_path, uv_path, xyz_path, t_new, uv_new, x_new, angl
     ang = 0.0
     if lab > 0 and lbc > 0:
         cosang = np.dot(ab, bc) / (lab * lbc)
-        cosang = np.clip(cosang, -1.0, 1.0)
+        cosang = clamp(cosang, -1.0, 1.0)
         ang = np.arccos(cosang)
     sag = point_line_distance(b, a, c)
     if ang < angle_tol and sag < sag_tol:
@@ -733,7 +744,7 @@ def append_with_decimation(t_path, uv_path, xyz_path, t_new, uv_new, x_new, angl
         xyz_path.append(x_new)
 from mmcore.geom._nurbs_param_tol import _nurbs_curve_param_tol_conservative
 from mmcore.geom._nurbs_knots import generate_knots
-from mmcore.numeric.approx import adaptive_bez_sampler
+
 def trace_event(tuv):
     return np.argmin(np.minimum(np.abs(tuv),np.abs(1 - np.abs(tuv))))
 
@@ -814,7 +825,7 @@ def trace_curve_surface_overlap(
             C0,C1,C2=eval_bezier_curve_derivs2(C, t_prev,rational=rational)
             dt = compute_parametric_curvature_tolerance_curve( C1,C2, spt=sag_tol)
 
-            t_pred = float(np.clip(t_prev+ direction*dt, 0, 1.))
+            t_pred = float(clamp01(t_prev+ direction*dt))
 
             u_pred, v_pred, Gp, ok = project_G0_fixed_t(C, S, t_pred, u, v, tol=tol_proj, rational=rational)
             #print(dt, t_pred, (u_pred, v_pred))
@@ -824,10 +835,10 @@ def trace_curve_surface_overlap(
 
             mask = np.isclose(tuv, 1) | np.isclose(tuv, 0)
             if np.any(mask):
-                print(mask)
-                print(tuv)
+                #print(mask)
+                #print(tuv)
                 *tuv, Gp, ok = project_G0(C, S, *tuv, fixed=tuple(mask), tol=tol_proj, rational=rational)
-                print(tuv,Gp, ok )
+                #print(tuv,Gp, ok )
                 if direction>0:
 
                     t_path.append(tuv[0])
@@ -1301,10 +1312,6 @@ def bezier_curve_surface_intersect_certified(
             stats["pruned_by"].append("grad_sign")
             continue
 
-        # Tolerances for parameter-space resolution
-        tol_t = _bez_get_curve_tol_adapter(Pseg, atol, rational=rational)
-        tol_u, tol_v = _bez_get_surface_tol_adapter(Sseg, atol, rational=rational)
-
         dbox_c = np.asarray(box_c[1]) - np.asarray(box_c[0])
         dbox_s = np.asarray(box_s[1]) - np.asarray(box_s[0])
         scale = max(float(np.linalg.norm(dbox_c)), float(np.linalg.norm(dbox_s)), 1.0)
@@ -1316,7 +1323,7 @@ def bezier_curve_surface_intersect_certified(
                 Pseg,
                 Sseg,
                 seed_tuv=(0.5, 0.5, 0.5),
-                extra_seeds=[(0.25, 0.5, 0.5), (0.75, 0.5, 0.5)],
+                #extra_seeds=[(0.25, 0.5, 0.5), (0.75, 0.5, 0.5)],
                 sv_thresh=sv_thresh,
                 tol_proj=tol_proj,
                 angle_tol=angle_tol,
@@ -1349,6 +1356,10 @@ def bezier_curve_surface_intersect_certified(
                     isolated.append({"t": t_hit, "u": u_hit, "v": v_hit, "point": x})
 
                 # Cut out neighborhood around the isolated root (early termination)
+                C0,C1,C2= eval_bezier_curve_derivs2(Pseg,t_loc,rational=rational)
+                S0, Su, Sv ,Suu,Suv , Svv =  eval_bezier_surface_derivs2(Sseg, u_loc,v_loc, rational=rational)
+                tol_t=compute_parametric_curvature_tolerance_curve(C1,C2, spt=atol)
+                tol_u, tol_v = compute_parametric_curvature_tolerance_surface(Su, Sv ,Suu, Svv, atol)
                 res_cut = bernstein_cutout_box_nd(
                     dn, np.array([t_loc, u_loc, v_loc]), half=np.array([tol_t, tol_u, tol_v]), return_ranges=True
                 )
@@ -1367,6 +1378,9 @@ def bezier_curve_surface_intersect_certified(
                 stats["pruned"] += 1
                 stats["pruned_by"].append("isolated_cutout")
                 continue
+            # Tolerances for parameter-space resolution
+        tol_t = _bez_get_curve_tol_adapter(Pseg, atol, rational=rational)
+        tol_u, tol_v = _bez_get_surface_tol_adapter(Sseg, atol, rational=rational)
 
         # Small cell check
         small_geom = (np.dot(dbox_c, dbox_c) < atol_sq) and (np.dot(dbox_s, dbox_s) < atol_sq)
@@ -1483,7 +1497,106 @@ def bezier_curve_surface_intersect_certified(
 
 if __name__ == "__main__":
     import numpy as np
-    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    try:
+        import rich
+        from rich.console import Console
+        from rich.style import Style, StyleType
+        from rich.table import Table
+
+        # Create a console instance
+        console = Console()
+
+        def make_rich_table(inter1, inter2, case_name=None, oracle_name="OCC", float_fmt=lambda x: "{:.4f}".format(float(x))):
+            def uv_fmt(uv):
+                return f"{float(uv[0]):4f}, {float(uv[1]):4f}"
+
+            def overlap_fmt(overlap):
+                return f"[{uv_fmt(overlap['uv_path'][0])}] to [{uv_fmt(overlap['uv_path'][-1])}]"
+
+            mismatch_color = "#e34f66"
+            match_color = "#0dd962"
+
+            def match_str(v):
+                return f"[{match_color}]{v}[/{match_color}]"
+
+            def mismatch_str(v):
+                return f"[{mismatch_color}]{v}[/{mismatch_color}]"
+
+            # Create a table
+            table = Table(title=case_name + " (isolated)")
+
+            # Add columns
+            table.add_column("mmcore", style="default", no_wrap=True)
+            table.add_column(oracle_name, style="default")
+            table.add_column("match", justify="left", style="bold")
+            matches = []
+            for first, second in itertools.zip_longest(
+                sorted(inter1["isolated"], key=lambda x: x["u"]), sorted(inter2["isolated"], key=lambda x: x["u"])
+            ):
+
+                if first is None:
+                    table.add_row(float_fmt(first), f"{float_fmt(second['u'])} ,{float_fmt(second['v'])}", mismatch_str("X"), style=mismatch_color)
+                    matches.append(False)
+                elif second is None:
+                    table.add_row(f"{float_fmt(first['u'])} ,{float_fmt(first['v'])}", second, mismatch_str("X"), style=mismatch_color)
+                    matches.append(False)
+                else:
+                    match_ = np.allclose(np.array((first["u"], first["v"])), np.array((second["u"], second["v"])))
+                    matches.append(match_)
+                    table.add_row(
+                        f"{float_fmt(first['u'])} ,{float_fmt(first['v'])}",
+                        f"{float_fmt(second['u'])} ,{float_fmt(second['v'])}",
+                        match_str("OK") if match_ else mismatch_str("X"),
+                    )
+                    if not match_:
+
+                        table.rows[-1].style = Style(color=mismatch_color, bold=True)
+            if len(matches) == 0:
+
+                table.add_row(None, None, match_str("OK"))
+                matches.append(True)
+            console.print(table, "\n")
+            # Add rows
+            table = Table(title=case_name + " (overlaps)")
+
+            # Add columns
+            table.add_column("mmcore", style="default", no_wrap=True)
+            table.add_column(oracle_name, style="default")
+            table.add_column("match", justify="left", style="bold")
+            matches = []
+            for first, second in itertools.zip_longest(
+                sorted(inter1["overlaps"], key=lambda x: x["uv_path"][0][0]), sorted(inter2["overlaps"], key=lambda x: x["uv_path"][0][0])
+            ):
+
+                if first is None:
+                    table.add_row(first, overlap_fmt(second), mismatch_str("X"), style=mismatch_color)
+                    matches.append(False)
+                elif second is None:
+                    table.add_row(overlap_fmt(first), second, mismatch_str("X"), style=mismatch_color)
+                    matches.append(False)
+
+                else:
+
+                    match_ = np.allclose((first["uv_path"][0], first["uv_path"][-1]), (second["uv_path"][0], second["uv_path"][-1]))
+                    matches.append(match_)
+                    table.add_row(overlap_fmt(first), overlap_fmt(second), match_str("OK") if match_ else mismatch_str("X"))
+
+                    if not match_:
+                        table.rows[-1].style = Style(color=mismatch_color, bold=True)
+
+            if len(matches) == 0:
+                table.add_row(None, None, match_str("OK"))
+                matches.append(True)
+            # Print the table
+            console.print(table)
+
+    except ImportError:
+
+        def make_rich_table(inter1, inter2, *args, **kwargs):
+            print('Pretty output requires "pip install rich"')
+            print("verify with OCC (mmcore result, occ result):", inter1["isolated"], inter2["isolated"])
+
+    np.set_printoptions(edgeitems=3)
 
     surf1 = np.array(
             [
@@ -1496,30 +1609,67 @@ if __name__ == "__main__":
            [-23.82588542, -26.53996332,   0.        ],
            [ -6.52097953,  26.04573929,   0.        ],
            [  5.81667121,  -9.0084582 ,  17.47802526]])
-
+    s=time.perf_counter()
     res=bezier_curve_surface_intersect_certified(crv1, surf1,rational=False)
-    print(res)
+
     gt={'isolated':[{
         "t":0.223246,
         "u":0.594769,'v':0.130421,
     }, {
         't':0.818801,"u":0.562506,'v':0.641888
-    }]}
-
+    }],'overlaps':[]}
+    print("case1",time.perf_counter()-s)
+    make_rich_table(res,gt,'case1', "Rhino (8.26.25349.19002, 2025-12-15)")
     surf2 = np.array([[[-13.75962333043464, -9.35078823406258, 30.38984420876391, 1.0], [-15.661286427866942, 1.8280054186360069, 0.0, 1.0]], [[-9.729522963522962, -6.612005769745033, 21.488864919219694, 0.7071067811865476], [-3.1696010379412516, 2.6372738992898688, 0.0, 0.7071067811865476]], [[-13.75962333043464, -9.35078823406258, 30.38984420876391, 1.0], [-2.5808296777360518, -7.449125136630279, 0.0, 1.0]]]
                      )
 
     crv2 = np.array([[-8.089928672303788, -9.35078823406258, 15.194922104381954, 1.0], [-5.720443423501492, -2.6029262297235642, 10.744432459609845, 0.7071067811865476], [-13.75962333043464, -3.6810935759317296, 15.194922104381954, 1.0]])
-
+    s=time.perf_counter()
     res=bezier_curve_surface_intersect_certified(crv2, surf2,rational=True)
-    print(res)
+    print("case2", time.perf_counter() - s)
+    gt={
+        "isolated": [],
+        "overlaps": [
+            {
+                "t_path": [0.1153939700483303, 1.],
+                "uv_path": [[1.0, 0.500000000000000], [0.11539397004833106, 0.500000000000000]],
+            }
+        ],
+    }
+
+    make_rich_table(res, gt, "case2", "Rhino (8.26.25349.19002, 2025-12-15)")
+
     surf3 = np.array([[[-15.057302653755286, 21.16410483032787, 5.328685886563102, 1.0], [-10.36538313655037, 13.550740864293562, 3.7679499252018203, 0.7071067811865476], [-14.658865410902903, 19.16364151048727, 3.288929594620489, 1.0]], [[-15.448870346346077, 14.008905674843858, 3.7679499252018203, 0.7071067811865476], [-9.724550702226589, 9.104779161190693, 2.664342943281552, 0.5000000000000001], [-13.752591491073645, 12.876102172167808, 2.3256244192012705, 0.7071067811865476]], [[-20.495481536187885, 13.020885085978726, 5.328685886563102, 1.0], [-13.077952798947893, 9.48889381764453, 3.7679499252018203, 0.7071067811865476], [-18.495018216347287, 13.41932232883111, 3.288929594620489, 1.0]]]
     )
 
     crv3 = np.array([[-13.704782222797013, 20.157097244338125, 4.980117410327855, 1.0], [-13.780432085162484, 14.253220150508163, 3.521474791948015, 0.7071067811865476], [-19.48847395019814, 14.373405516937003, 4.980117410327855, 1.0]]
                     )
+    s=time.perf_counter()
     res=bezier_curve_surface_intersect_certified(crv3, surf3,rational=True)
-    print(res)
+    print("case3", time.perf_counter() - s)
+    gt={
+      "isolated": [],
+      "overlaps": [
+        {
+          "t_path": [
+            0.13399306057079113,
+            1.0
+          ],
+          "uv_path": [
+            [
+              0.0,
+              0.3836870056884687
+            ],
+            [
+              0.8660069394292091,
+              0.38368700568846853
+            ]
+          ]
+        }
+      ]
+    }
+
+    make_rich_table(res, gt, "case3", "Rhino (8.26.25349.19002, 2025-12-15)")
 
     crv4 = np.array(
         [
@@ -1530,6 +1680,24 @@ if __name__ == "__main__":
             [-15.858027551293814, 18.75748696680054, 2.4979810139681967e-16, 1.0],
         ]
     )
+
+    s=time.perf_counter()
     res = bezier_curve_surface_intersect_certified(crv4, surf3, rational=True)
-    import rich
-    rich.print(res)
+    print("case4", time.perf_counter() - s)
+    gt={
+      "isolated": [
+        {
+          "t": 0.45271538416199897,
+          "u": 0.49759019852545344,
+          "v": 0.5370783336000106
+        },
+        {
+          "t": 0.536075965524697,
+          "u": 0.4428618201092868,
+          "v": 0.5301262860564949
+        }
+      ],
+      "overlaps": []
+    }
+
+    make_rich_table(res, gt, "case4", "Rhino (8.26.25349.19002, 2025-12-15)")
