@@ -801,7 +801,7 @@ def trace_curve_surface_overlap(
         if n_norm < 1e-12 or t_norm < 1e-12:
             return False
         return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
-    from scipy.optimize import brent
+
     def march(direction):
         nonlocal dt
         t = t_path[0] if direction < 0 else t_path[-1]
@@ -817,7 +817,7 @@ def trace_curve_surface_overlap(
             t_pred = float(np.clip(t_prev+ direction*dt, 0, 1.))
 
             u_pred, v_pred, Gp, ok = project_G0_fixed_t(C, S, t_pred, u, v, tol=tol_proj, rational=rational)
-            print(dt, t_pred, (u_pred, v_pred))
+            #print(dt, t_pred, (u_pred, v_pred))
 
             tuv=np.array([t_pred, u_pred, v_pred])
             tuv = np.clip(tuv, 0, 1.0)
@@ -891,9 +891,9 @@ def trace_curve_surface_overlap(
         return "boundary" if at_bnd else "tangent_or_min_step"
 
     start_reason = march(-1)
-    print(start_reason, uv_path)
+    #print(start_reason, uv_path)
     end_reason = march(+1)
-    print(end_reason,uv_path)
+    #print(end_reason,uv_path)
     return {
         "kind": "overlap" if len(t_path) > 1 else "none",
         "t_path": t_path,
