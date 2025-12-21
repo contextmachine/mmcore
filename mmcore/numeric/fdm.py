@@ -11,7 +11,7 @@ from mmcore.numeric.vectors import scalar_dot, scalar_norm, norm
 from typing import Callable, Optional, Iterable,Literal
 
 import numpy as np
-from scipy.optimize import minimize
+
 
 FloatType=Literal["float32","float64"]
 
@@ -880,24 +880,6 @@ def multi_newtons_method(f, initial_point, tol=1e-6, max_iter=100, no_warn=False
 
 
 
-
-def calculate_bnds(surface, centroid=(0., 0., 0.)):
-    cons = {'type': 'eq', 'fun': surface}
-
-    axis = np.eye(3)
-    bounds = np.zeros((2, 3))
-
-    c = np.array(centroid, dtype=float)
-    for j, n in enumerate(axis):
-        x1 = minimize(lambda point: -1 * scalar_dot(n, point - c), centroid,
-                      constraints=cons)
-        x2 = minimize(lambda point: -1 * scalar_dot(-n, point - c), centroid,
-                      constraints=cons)
-        bounds[0][j] = x1.x[j]
-
-        bounds[1][j] = x2.x[j]
-
-    return bounds
 if __name__ == '__main__':
     from mmcore.geom.primitives import Cylinder
 

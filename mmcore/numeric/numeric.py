@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from mmcore.numeric.vectors import scalar_norm, scalar_gram_schmidt,scalar_dot,scalar_unit,scalar_cross,cross, norm, unit, gram_schmidt
 
-from scipy.integrate import quad
+
 import numpy as np
-from mmcore.numeric.newton.cnewton import newtons_method
 
 
 from mmcore.numeric.fdm import fdm
@@ -83,8 +82,7 @@ evaluate_tangent_vec = np.vectorize(evaluate_tangent, signature="(i),(i)->(i),()
 
 def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
     """ """
-
-
+    from scipy.integrate import quad
 
     if tol<1e-3:
 
@@ -93,9 +91,6 @@ def evaluate_length(first_der, t0: float, t1: float, tol=1e-3):
     else:
 
         return romberg1d(lambda t: scalar_norm(first_der(t)), t0, t1, max_steps=32,acc=tol),tol
-
-
-from scipy.optimize import newton
 
 
 def evaluate_parameter_from_length(
@@ -132,14 +127,16 @@ def evaluate_parameter_from_length(
     def func(t):
         return abs(evaluate_length(first_der, t0, t, **kwargs)[0] - l)
 
-    #return newton(
+    # return newton(
     #    func, t0, spt=spt, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
-    #)
+    # )
     res = iterative_divide_and_conquer_min(func, (t0, t1_limit), np.sqrt(tol))
     if fprime is None:
         fprime= fdm(func)
     if fprime2 is None:
         fprime2 = fdm(fprime)
+    from scipy.optimize import newton
+
     return newton(
         func, res[0], tol=tol, maxiter=maxiter, x1=t1_limit, fprime=fprime, fprime2=fprime2
     )
@@ -1148,7 +1145,6 @@ def circle_of_curvature(curve, t: float):
         np.array([origin + N * R, T, N, B])
 
     )  # Plane of curvature circle, Radius of curvature circle
-
 
 
 def circular_segment_area_from_kappa_and_s(kappa_mag, s, small_theta=1e-3):
