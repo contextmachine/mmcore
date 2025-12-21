@@ -1,3 +1,4 @@
+from functools import lru_cache
 from math import comb
 
 import numpy as np
@@ -50,20 +51,21 @@ def dehomogenize_chain(Hvals):
         den = W[0]**3
         out.append(num/den)
     return out  # [c, c', c'']
-
+from mmcore.geom.nurbs import basis_functions
 # Example usage:
 # P4: (n+1, 4) homogeneous control points, e.g., each row = [w*x, w*y, w*z, w]
 # c, c1, c2 = dehomogenize_chain(eval_homog_derivatives(P4, t=0.37, order=2))
 
 
 # ---------- Bernstein utilities ----------
+@lru_cache(maxsize=None, typed=False)
 def bernstein_basis(n, u):
     i = np.arange(n+1)
     # stable eval via log-space could be added; this is fine for moderate n
-    from math import comb
+
     B = np.array([binomial_coefficient_py(n, k)*(u**k)*((1-u)**(n-k)) for k in i], dtype=np.float64)
     return B  # shape (n+1,)
-
+@lru_cache(maxsize=None, typed=False)
 def bernstein_basis_deriv(n, t):
     # d/dt B_i^n = n( B_{i-1}^{n-1} - B_i^{n-1} )
     if n == 0:
@@ -74,6 +76,7 @@ def bernstein_basis_deriv(n, t):
     right = np.r_[B, 0.0]
     return n * (left - right)
 
+@lru_cache(maxsize=None, typed=False)
 def bernstein_basis_2nd(n, t):
     # d2/dt2 B_i^n = n(n-1)( B_{i-2}^{n-2} - 2 B_{i-1}^{n-2} + B_i^{n-2} )
     if n <= 1:
@@ -346,4 +349,3 @@ if __name__=="__main__":
     print("Curve point:", c_pt)
     print("Surface point:", s_pt)
     print("Residual norm:", np.linalg.norm(c_pt - s_pt))
-
