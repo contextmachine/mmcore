@@ -547,10 +547,12 @@ def project_G0(
         raise TypeError("fixed must be a tuple[bool, bool, bool] of length 3: (fix_t, fix_u, fix_v).")
 
     fix_t, fix_u, fix_v = (bool(fixed[0]), bool(fixed[1]), bool(fixed[2]))
-
+    def snap(v):
+        return 0. if v < (1-v) else 1.
     # Must fix at least one and free at least one
     if (fix_t and fix_u and fix_v) or ((not fix_t) and (not fix_u) and (not fix_v)):
-        raise ValueError("fixed must contain at least one True and at least one False (fix 1 or 2 variables).")
+        return snap(t0),snap(u0),snap(v0),np.array([0.,0.,0]),0.
+        #raise ValueError(f"fixed must contain at least one True and at least one False (fix 1 or 2 variables). ({t0}, {u0}, {v0}),({fix_t}, {fix_u}, {fix_v}).")
 
     def _curve_and_d1(t):
         """Return (c, ct) at t; ct via analytic helper if available, else finite-difference."""
@@ -768,6 +770,7 @@ def trace_curve_surface_overlap(
 ):
     """Trace a curve-on-surface overlap by stepping along the curve parameter t."""
     # scale & tolerances
+
     def bbox_diag_len(Cc, Ss):
         ec = dehomogenize_ctrl(Cc, rational=rational)
         es = dehomogenize_ctrl(Ss, rational=rational).reshape(-1, ec.shape[-1])
@@ -1192,7 +1195,7 @@ def bezier_curve_surface_intersect_certified(
     sv_thresh: float = 1e-8,
     atol: float = 1e-3,
     rational: bool | None = None,
-    angle_tol: float = 1e-3,
+    angle_tol: float = 0.01,
     max_depth: int = 60,
 ) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve & surface.
@@ -1224,7 +1227,7 @@ def bezier_curve_surface_intersect_certified(
 
     atol_sq = atol * atol
 
-    dn0 = distance_squared_net_curve_surface(C, S, rational=rational)[..., np.newaxis] - atol_sq
+    dn0 = distance_squared_net_curve_surface(C, S, rational=rational)[..., np.newaxis]
     dt0 = bernstein_partial_derivative_coeffs(dn0, 0)
     du0 = bernstein_partial_derivative_coeffs(dn0, 1)
     dv0 = bernstein_partial_derivative_coeffs(dn0, 2)
@@ -1429,6 +1432,7 @@ def bezier_curve_surface_intersect_certified(
                     isolated.append({"t": t_hit, "u": u_hit, "v": v_hit, "point": x})
             stats["pruned"] += 1
             stats["pruned_by"].append("small_cell")
+
             continue
 
         # -------------------------------------------------------------------

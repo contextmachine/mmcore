@@ -233,25 +233,7 @@ def _pairwise_overlap_nd_dense(boxes, *, closed=True):
     np.fill_diagonal(ov, False)
     return ov
 
-def _connected_components_from_adj(adj):
-    """Connected components on a dense boolean adjacency; returns labels (N,)."""
-    n = adj.shape[0]
-    labels = -np.ones(n, dtype=int)
-    label = 0
-    for i in range(n):
-        if labels[i] != -1:
-            continue
-        stack = [i]
-        labels[i] = label
-        while stack:
-            v = stack.pop()
-            neigh = np.flatnonzero(adj[v])
-            unvisited = neigh[labels[neigh] == -1]
-            labels[unvisited] = label
-            # extend with Python list to avoid repeated allocations
-            stack.extend(unvisited.tolist())
-        label += 1
-    return labels
+
 
 def _merge_by_labels_nd(boxes, labels):
     """Merge each component to its envelope. boxes: (N,2,D) -> (K,2,D)."""
