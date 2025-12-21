@@ -1506,7 +1506,7 @@ if __name__ == "__main__":
         # Create a console instance
         console = Console()
 
-        def make_rich_table(inter1, inter2, case_name=None, oracle_name="OCC", float_fmt=lambda x: "{:.4f}".format(float(x))):
+        def make_rich_table(inter1, inter2, case_name=None, oracle_name="OCC", float_fmt=lambda x: "{:.6f}".format(float(x))):
             def uv_fmt(uv):
                 return f"{float(uv[0]):4f}, {float(uv[1]):4f}"
 
