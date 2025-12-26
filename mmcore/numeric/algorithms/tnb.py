@@ -33,7 +33,27 @@ def frenet_serret_frame(curve, curve_prime, curve_double_prime, t):
     # Compute the binormal vector B(t)
     B = scalar_cross(T, N)
     return np.array([r_t, T, N, B])
+def frenet_serret_frame_from_ders(c1, c2):
+    """
+    Calculate the Frenet-Serret frame for a given parametric curve and its derivatives.
+    Compute the Frenet-Serret frame for a given curve at a specified parameter value.
 
+
+    """
+    # Compute the derivatives
+
+    r_prime_t = c1
+    r_double_prime_t = c2
+    # Compute the tangent vector T(t) and normalize it
+    r_prime_norm=scalar_norm(r_prime_t)
+    T = r_prime_t /   r_prime_norm
+    # Compute the normal vector N(t)
+    T_prime = (r_double_prime_t - scalar_dot(r_double_prime_t, T) * T) /   r_prime_norm
+
+    N = T_prime / scalar_norm(T_prime)
+    # Compute the binormal vector B(t)
+    B = np.cross(T, N)
+    return np.array([T, N, B])
 
 if __name__ == '__main__':
     pts = np.array(

@@ -521,23 +521,23 @@ def find_span(n: int, p: int, u: float, U: NDArray[np.float64]) -> int:
     Finds the knot span index for a given parameter u.
     Based on Algorithm A2.1 from 'The NURBS Book'.
     """
-    #if u >= U[n + 1]:
-    #    return n
-    #
-    ## Binary search
-    #low = p
-    #high = n + 1
-    #mid = (low + high) // 2
-    #
-    #while (u < U[mid]) or (u >= U[mid + 1]):
-    #    if u < U[mid]:
-    #        high = mid
-    #    else:
-    #        low = mid
-    #    mid = (low + high) // 2
-    #
-    #return mid
-    return find_span(n, p, u, U)
+    if u >= U[n + 1]:
+        return n
+
+    # Binary search
+    low = p
+    high = n + 1
+    mid = (low + high) // 2
+
+    while (u < U[mid]) or (u >= U[mid + 1]):
+        if u < U[mid]:
+            high = mid
+        else:
+            low = mid
+        mid = (low + high) // 2
+
+    return mid
+
 
 
 def ders_basis_funs(span_i: int, u: float, p: int, U: NDArray[np.float64], n_ders: int = 1) -> NDArray[np.float64]:
@@ -548,75 +548,75 @@ def ders_basis_funs(span_i: int, u: float, p: int, U: NDArray[np.float64], n_der
     Based on Algorithm A2.3 from 'The NURBS Book'.
     """
 
-    #ders = np.zeros((n_ders + 1, p + 1))
-    #ndu = np.zeros((p + 1, p + 1))
-    #left = np.zeros(p + 1)
-    #right = np.zeros(p + 1)
-    #
-    #ndu[0, 0] = 1.0
-    #
-    ## Compute basis functions (and store terms for derivatives)
-    #for j in range(1, p + 1):
-    #    left[j] = u - U[span_i + 1 - j]
-    #    right[j] = U[span_i + j] - u
-    #    saved = 0.0
-    #    for r in range(j):
-    #        # Lower triangle
-    #        ndu[j, r] = right[r + 1] + left[j - r]
-    #        temp = ndu[r, j - 1] / ndu[j, r]
-    #        # Upper triangle
-    #        ndu[r, j] = saved + right[r + 1] * temp
-    #        saved = left[j - r] * temp
-    #    ndu[j, j] = saved
-    #
-    ## Load the basis functions
-    #for j in range(p + 1):
-    #    ders[0, j] = ndu[j, p]
-    #
-    ## Compute derivatives
-    #a = np.zeros((2, p + 1))  # Only need rows 0 and 1 for recursion locally
-    #for r in range(0, p + 1):
-    #    s1 = 0
-    #    s2 = 1
-    #    a[0, 0] = 1.0
-    #
-    #    # Loop to compute k-th derivative
-    #    for k in range(1, n_ders + 1):
-    #        d = 0.0
-    #        rk = r - k
-    #        pk = p - k
-    #
-    #        if r >= k:
-    #            a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
-    #            d = a[s2, 0] * ndu[rk, pk]
-    #
-    #        j1 = 1 if rk >= -1 else -rk
-    #        j2 = k - 1 if (r - 1) <= pk else p - r
-    #
-    #        for j in range(j1, j2 + 1):
-    #            a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
-    #            d += a[s2, j] * ndu[rk + j, pk]
-    #
-    #        if r <= pk:
-    #            a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
-    #            d += a[s2, k] * ndu[r, pk]
-    #
-    #        ders[k, r] = d
-    #
-    #        # Swap rows
-    #        j = s1
-    #        s1 = s2
-    #        s2 = j
-    #
-    ## Multiply by correct factors for derivatives
-    #r = p
-    #for k in range(1, n_ders + 1):
-    #    for j in range(p + 1):
-    #        ders[k, j] *= r
-    #    r *= (p - k)
-    #
-    #return ders
-    return _ders_basis_funs(span_i, u, p, U, n_ders)
+    ders = np.zeros((n_ders + 1, p + 1))
+    ndu = np.zeros((p + 1, p + 1))
+    left = np.zeros(p + 1)
+    right = np.zeros(p + 1)
+
+    ndu[0, 0] = 1.0
+
+    # Compute basis functions (and store terms for derivatives)
+    for j in range(1, p + 1):
+        left[j] = u - U[span_i + 1 - j]
+        right[j] = U[span_i + j] - u
+        saved = 0.0
+        for r in range(j):
+            # Lower triangle
+            ndu[j, r] = right[r + 1] + left[j - r]
+            temp = ndu[r, j - 1] / ndu[j, r]
+            # Upper triangle
+            ndu[r, j] = saved + right[r + 1] * temp
+            saved = left[j - r] * temp
+        ndu[j, j] = saved
+
+    # Load the basis functions
+    for j in range(p + 1):
+        ders[0, j] = ndu[j, p]
+
+    # Compute derivatives
+    a = np.zeros((2, p + 1))  # Only need rows 0 and 1 for recursion locally
+    for r in range(0, p + 1):
+        s1 = 0
+        s2 = 1
+        a[0, 0] = 1.0
+
+        # Loop to compute k-th derivative
+        for k in range(1, n_ders + 1):
+            d = 0.0
+            rk = r - k
+            pk = p - k
+
+            if r >= k:
+                a[s2, 0] = a[s1, 0] / ndu[pk + 1, rk]
+                d = a[s2, 0] * ndu[rk, pk]
+
+            j1 = 1 if rk >= -1 else -rk
+            j2 = k - 1 if (r - 1) <= pk else p - r
+
+            for j in range(j1, j2 + 1):
+                a[s2, j] = (a[s1, j] - a[s1, j - 1]) / ndu[pk + 1, rk + j]
+                d += a[s2, j] * ndu[rk + j, pk]
+
+            if r <= pk:
+                a[s2, k] = -a[s1, k - 1] / ndu[pk + 1, r]
+                d += a[s2, k] * ndu[r, pk]
+
+            ders[k, r] = d
+
+            # Swap rows
+            j = s1
+            s1 = s2
+            s2 = j
+
+    # Multiply by correct factors for derivatives
+    r = p
+    for k in range(1, n_ders + 1):
+        for j in range(p + 1):
+            ders[k, j] *= r
+        r *= (p - k)
+
+    return ders
+
 
 
 def generate_hermite_knots(params: NDArray[np.float64], p: int) -> NDArray[np.float64]:
