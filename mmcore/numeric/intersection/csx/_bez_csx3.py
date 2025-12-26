@@ -779,6 +779,12 @@ def confirm_overlap_span(
         if (not ok) or np.linalg.norm(Gp) > tol_conf:
             return None
         Gc, Jc = G_and_J_curve_surface(C, S, t_fix, u_seed, v_seed, rational=rational)
+        # Guard against parametric degeneracy: if surface normal is near zero,
+        # J becomes rank-deficient for reasons unrelated to overlap.
+        s_pt, su, sv = eval_bezier_surface_and_derivs(S, u_seed, v_seed, rational=rational)
+        n = np.cross(su, sv)
+        if np.linalg.norm(n) < 1e-12:
+            return None
         if (not overlap_like_svd(Jc, sv_thresh=sv_thresh, rel_thresh=rel_thresh)) and (
             not check_tangent(t_fix, u_seed, v_seed)
         ):
@@ -1722,7 +1728,11 @@ def bezier_curve_surface_intersect_certified(
 
     if rational is None:
         rational = is_homogeneous_ctrl(C) or is_homogeneous_ctrl(S)
-    # Fast span-level overlap confirmation using analytic-segment criterion.
+    # Fast span-level overlap confirmation using the analytic-segment criterion:
+    # within a single Bézier span (C∞), if we confirm overlap at a few interior
+    # points then the overlap is taken as the entire span. We intentionally
+    # DO NOT extend across knot spans (continuity drops below C∞), and we also
+    # reject degenerate surface normals to avoid false overlaps at singularities.
     def _bbox_diag_len(Cc, Ss):
         ec = dehomogenize_ctrl(Cc, rational=rational)
         es = dehomogenize_ctrl(Ss, rational=rational).reshape(-1, ec.shape[-1])
