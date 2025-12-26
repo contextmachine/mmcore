@@ -9,7 +9,8 @@ from mmcore.geom.nurbs import NURBSSurface, NURBSCurve, find_span, basis_functio
 from mmcore.geom._nurbs_eval import  NURBSCurveTuple,NURBSSurfaceTuple,_surface_interval,to_homogeneous_2d,from_homogeneous_2d,to_homogeneous_1d,from_homogeneous_1d
 
 
-def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
+def extract_surface_boundaries(surface: NURBSSurface|NURBSSurfaceTuple) -> List[NURBSCurve]|List[NURBSCurveTuple]:
+
     """
     Extract the four boundary curves of a NURBS surface.
 
@@ -20,6 +21,9 @@ def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
         List[NURBSCurve]: List of four boundary curves in order:
             [u=0 curve, u=1 curve, v=0 curve, v=1 curve]
     """
+    if isinstance(surface, NURBSSurfaceTuple):
+        return extract_surface_boundaries_tuple(surface)
+
     (u_min, u_max), (v_min, v_max) = surface.interval()
 
     # Extract iso-curves at the boundaries
@@ -34,8 +38,8 @@ def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
 from mmcore.geom._nurbs_eval import _nurbs_to_tuple,_tuple_to_nurbs
 
 def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
+        surface: NURBSSurface|NURBSSurfaceTuple, param: float, direction: str = "u"
+) -> NURBSCurve|NURBSCurveTuple:
     """
     Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
     Args:
@@ -47,7 +51,8 @@ def extract_isocurve(
     Raises:
     ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
     """
-
+    if isinstance(surface, NURBSSurfaceTuple):
+        return _extract_isocurve_tuple(surface, param, direction)
     if direction not in ["u", "v"]:
         raise ValueError("Direction must be either 'u' or 'v'.")
     st = _nurbs_to_tuple(surface)
