@@ -36,7 +36,7 @@ class NURBSCurveTuple(NamedTuple):
     @property
     def degree(self):
         return self.order-1
-    
+
 
 class BSplineSurfaceTuple(NamedTuple):
     order_u:int
@@ -507,8 +507,6 @@ def evaluate_bspline_curve(curve: BSplineCurveTuple, u: float) -> NDArray[float]
     return d[p]
 
 
-
-
 def evaluate_nurbs_curve_array(curve: NURBSCurveTuple, t, d_order=0):
     """
     Evaluate a NURBS curve (which may be rational) at parameter value t.
@@ -531,16 +529,25 @@ def evaluate_nurbs_curve_curvature(curve, u, data:EvaluateCurveData|None=None)->
 
 
 def _curve_degree(self:BSplineCurveTuple|NURBSCurveTuple)->int:
+    if isinstance(self, np.ndarray):
+        return self.shape[0]-1
     return self.order-1
 
 def _curve_interval(self:BSplineCurveTuple|NURBSCurveTuple)->tuple[float,float]:
+    if isinstance(self, np.ndarray):
+        return (0.,1.)
     _=_curve_degree(self)
     return nurbs_interval(self.knot,_)
 
 def _surface_degree(self: BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[int,int]:
+    if isinstance(self, np.ndarray):
+        return self.shape[0]-1,self.shape[1]-1
+
     return self.order_u - 1,self.order_v - 1
 
 def _surface_interval(self:BSplineSurfaceTuple|NURBSSurfaceTuple)->tuple[tuple[float,float],tuple[float,float]]:
+    if isinstance(self,np.ndarray):
+        return (0.,1.),(0.,1.)
     _u,_v=_surface_degree(self)
     return  (nurbs_interval(self.knot_u,_u), nurbs_interval(self.knot_v,_v))
 
