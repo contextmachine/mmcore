@@ -16,6 +16,7 @@ from mmcore.numeric.bern import (
     de_casteljau_split_nd,
     bernstein_cutout_box_nd,
     bernstein_trim_nd,
+    bernstein_boundaries_2d,
 )
 from mmcore.numeric._bern_homog import (
     eval_bezier_curve_homog_with_derivs,
@@ -23,6 +24,7 @@ from mmcore.numeric._bern_homog import (
     eval_bezier_surface_homog_with_derivs,
     project_surface_homog_to_cartesian, eval_bezier_homogeneous_surface,eval_bezier_homogeneous_curve
 )
+from mmcore.numeric.interval import Interval
 from mmcore.numeric.numeric import  compute_parametric_tolerance_surface, \
     compute_parametric_curvature_tolerance_curve
 
@@ -203,7 +205,6 @@ def distance_squared_net_curve_surface(C: np.ndarray, S: np.ndarray, rational: b
     """Trivariate Bernstein net of the squared distance between a curve and a surface."""
     if rational is None:
         rational = is_homogeneous_ctrl(C) or is_homogeneous_ctrl(S)
-
     C = np.asarray(C, dtype=float)
     S = np.asarray(S, dtype=float)
 
@@ -693,18 +694,120 @@ def project_G0(
 # Classification via Jacobian rank
 # ---------------------------------------------------------------------------
 
-def classify_contact_curve_surface(J, sv_thresh=1e-8):
+def overlap_like_svd(J, sv_thresh=1e-8, rel_thresh=1e-6):
+    try:
+        s = np.linalg.svd(J, compute_uv=False)
+    except np.linalg.LinAlgError:
+        return False
+    if s.shape[0] < 3:
+        return False
+    s_sorted = np.sort(s)[::-1]
+    s_max, s_mid, s_min = s_sorted[0], s_sorted[1], s_sorted[-1]
+    if s_max <= 0.0:
+        return False
+    # Guard against near-rank-1 degeneracy
+    if s_mid <= max(1e-12 * s_max, sv_thresh * 1e-2):
+        return False
+    rel = s_min / s_max
+    return (s_min < sv_thresh) or (rel < rel_thresh)
+
+
+def classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh: float | None = None):
     s = np.linalg.svd(J, compute_uv=False)
     s_sorted = np.sort(s)[::-1]
     if s_sorted.shape[0] < 3:
         return {"type": "ambiguous", "svals": s_sorted}
     s_max, s_mid, s_min = s_sorted[0], s_sorted[1], s_sorted[-1]
-    if s_min < sv_thresh and s_mid > 1e-10:
+    mid_abs_ok = s_mid > 1e-10
+    mid_rel_ok = s_mid > max(1e-12 * s_max, sv_thresh * 1e-2)
+    overlap = (s_min < sv_thresh and (mid_abs_ok or mid_rel_ok))
+    if (not overlap) and (rel_thresh is not None):
+        if s_max > 0.0 and mid_rel_ok:
+            if (s_min / s_max) < rel_thresh:
+                overlap = True
+    if overlap:
         return {"type": "overlap", "svals": (s_max, s_mid, s_min)}
-    if s_min >= sv_thresh:
+    if s_min >= sv_thresh and (rel_thresh is None or (s_min / s_max) >= rel_thresh):
         return {"type": "isolated", "svals": (s_max, s_mid, s_min)}
     return {"type": "ambiguous", "svals": (s_max, s_mid, s_min)}
 
+
+# ---------------------------------------------------------------------------
+# Overlap span confirmation (analytic-segment criterion)
+# ---------------------------------------------------------------------------
+
+def confirm_overlap_span(
+    C,
+    S,
+    tol_proj,
+    tol_conf,
+    angle_tol,
+    sv_thresh,
+    rational: bool | None = None,
+    rel_thresh: float = 1e-6,
+):
+    """Confirm full-span overlap on a Bézier curve segment / surface patch.
+
+    Returns dict with endpoints if confirmed, otherwise None.
+    """
+    # Use a few interior samples to confirm overlap across the span.
+    t_samples = (0.2, 0.5, 0.8)
+    u_seed, v_seed = 0.5, 0.5
+
+    def check_tangent(tt, uu, vv):
+        c_pt, c_tan = eval_bezier_curve_and_deriv(C, tt, rational=rational)
+        s_pt, su, sv = eval_bezier_surface_and_derivs(S, uu, vv, rational=rational)
+        n = np.cross(su, sv)
+        n_norm = np.linalg.norm(n)
+        t_norm = np.linalg.norm(c_tan)
+        if n_norm < 1e-12 or t_norm < 1e-12:
+            return False
+        return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
+
+    for tt in t_samples:
+        tt = float(clamp01(tt))
+        t_fix, u_seed, v_seed, Gp, ok = project_G0(
+            C,
+            S,
+            tt,
+            u_seed,
+            v_seed,
+            fixed=(True, False, False),
+            tol=tol_proj,
+            rational=rational,
+        )
+        if (not ok) or np.linalg.norm(Gp) > tol_conf:
+            return None
+        Gc, Jc = G_and_J_curve_surface(C, S, t_fix, u_seed, v_seed, rational=rational)
+        if (not overlap_like_svd(Jc, sv_thresh=sv_thresh, rel_thresh=rel_thresh)) and (
+            not check_tangent(t_fix, u_seed, v_seed)
+        ):
+            return None
+
+    # Compute endpoints
+    u0, v0 = u_seed, v_seed
+    t0, u0, v0, G0, ok0 = project_G0(
+        C, S, 0.0, u0, v0, fixed=(True, False, False), tol=tol_proj, rational=rational
+    )
+    if (not ok0) or np.linalg.norm(G0) > tol_conf:
+        return None
+
+    u1, v1 = u_seed, v_seed
+    t1, u1, v1, G1, ok1 = project_G0(
+        C, S, 1.0, u1, v1, fixed=(True, False, False), tol=tol_proj, rational=rational
+    )
+    if (not ok1) or np.linalg.norm(G1) > tol_conf:
+        return None
+
+    x0 = eval_bezier_curve(C, 0.0, rational=rational)
+    x1 = eval_bezier_curve(C, 1.0, rational=rational)
+    return {
+        "t_path": np.asarray([0.0, 1.0], dtype=float),
+        "uv_path": np.asarray([(u0, v0), (u1, v1)], dtype=float),
+        "xyz_path": np.asarray([x0, x1], dtype=float),
+        "start": "boundary",
+        "end": "boundary",
+    }
 
 # ---------------------------------------------------------------------------
 # Overlap tracing along curve parameter
@@ -750,7 +853,7 @@ from mmcore.geom._nurbs_knots import generate_knots
 def trace_event(tuv):
     return np.argmin(np.minimum(np.abs(tuv),np.abs(1 - np.abs(tuv))))
 
-
+from mmcore.geom.nurbs import CurveSurfaceEq
 def trace_curve_surface_overlap(
     C,
     S,
@@ -788,19 +891,29 @@ def trace_curve_surface_overlap(
     if tol_proj is None:
         tol_proj = max(1e-12, 1e-10 * scale)
 
-    t0, u0, v0, G0, J0 = newton_project_G0_curve_surface(C, S, t_seed, u_seed, v_seed, tol=tol_proj, rational=rational)
-    if np.linalg.norm(G0) > 1e-7:
+    t0, u0, v0, G0, J0 = newton_project_G0_curve_surface(
+        C, S, t_seed, u_seed, v_seed, tol=tol_proj, it=30, rational=rational
+    )
+    max_init = max(1e-6, 1e-5 * scale)
+    if np.linalg.norm(G0) > max_init:
         return {"kind": "none"}
 
     # initial step size from curvature
     _, c1, c2 = eval_bezier_curve_derivs2(C, t0, rational=rational)
+    dt = compute_parametric_curvature_tolerance_curve(c1, c2, spt=sag_tol)
     if rational:
-        dt = _nurbs_curve_param_tol_conservative(C[...,:-1], C[...,-1], U=generate_knots(C.shape[0],C.shape[0]-1 ), p=C.shape[0]-1 ,tol=sag_tol)
+        dt_n = _nurbs_curve_param_tol_conservative(
+            C[..., :-1],
+            C[..., -1],
+            U=generate_knots(C.shape[0], C.shape[0] - 1),
+            p=C.shape[0] - 1,
+            tol=sag_tol,
+        )
+        if np.isfinite(dt_n):
+            dt = dt_n if not np.isfinite(dt) else min(dt, dt_n)
     if not np.isfinite(dt):
         dt = dt_max
-    else:
-        dt_min = dt
-    # dt = float(np.clip(dt, dt_min, dt_max))
+    dt = float(np.clip(dt, dt_min, dt_max))
 
     t_path = [t0]
     uv_path = [(u0, v0)]
@@ -816,6 +929,139 @@ def trace_curve_surface_overlap(
             return False
         return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
 
+    def _nullspace_dir(tt, uu, vv):
+        G, J = G_and_J_curve_surface(C, S, tt, uu, vv, rational=rational)
+        try:
+            _U, _S, Vt = np.linalg.svd(J)
+        except np.linalg.LinAlgError:
+            return None, G, J
+        n = Vt[-1]
+        n_norm = np.linalg.norm(n)
+        if n_norm < 1e-14:
+            return None, G, J
+        return n / n_norm, G, J
+
+    def _step_targets(tt, uu, vv):
+        # Target param steps from curvature/tolerance
+        _, C1, C2 = eval_bezier_curve_derivs2(C, tt, rational=rational)
+        dt_target = compute_parametric_curvature_tolerance_curve(C1, C2, spt=sag_tol)
+        if not np.isfinite(dt_target):
+            dt_target = dt_max
+        dt_target = float(np.clip(dt_target, dt_min, dt_max))
+
+        try:
+            _S0, Su, Sv, Suu, Suv, Svv = eval_bezier_surface_derivs2(S, uu, vv, rational=rational)
+            du_target, dv_target = compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt=sag_tol)
+        except Exception:
+            du_target, dv_target = dt_max, dt_max
+
+        du_target = dt_max if not np.isfinite(du_target) else float(min(du_target, dt_max))
+        dv_target = dt_max if not np.isfinite(dv_target) else float(min(dv_target, dt_max))
+        return dt_target, du_target, dv_target
+
+    def march_nullspace(direction):
+        nonlocal dt
+        t = t_path[0] if direction < 0 else t_path[-1]
+        u = uv_path[0][0] if direction < 0 else uv_path[-1][0]
+        v = uv_path[0][1] if direction < 0 else uv_path[-1][1]
+        pts = 0
+        ds = None
+        last_ok = True
+        n_prev = None
+
+        while pts < max_points:
+            n, Gc, Jc = _nullspace_dir(t, u, v)
+            if n is None:
+                break
+            # Stay on the overlap branch even if local classification is noisy.
+
+            # Keep direction consistent; make n[0] non-negative so direction controls sign.
+            if n_prev is not None and np.dot(n, n_prev) < 0.0:
+                n = -n
+            if abs(n[0]) > 1e-12 and n[0] < 0.0:
+                n = -n
+            n_prev = n
+
+            dt_target, du_target, dv_target = _step_targets(t, u, v)
+
+            ds_candidates = []
+            if abs(n[0]) > 1e-12:
+                ds_candidates.append(dt_target / abs(n[0]))
+            if abs(n[1]) > 1e-12:
+                ds_candidates.append(du_target / abs(n[1]))
+            if abs(n[2]) > 1e-12:
+                ds_candidates.append(dv_target / abs(n[2]))
+            ds_target = min(ds_candidates) if ds_candidates else dt_max
+            if not np.isfinite(ds_target):
+                ds_target = dt_max
+
+            if ds is None:
+                ds = ds_target
+            elif last_ok:
+                ds = min(ds_target, ds * step_growth)
+            else:
+                ds = min(ds_target, ds)
+
+            # Minimum step derived from dt_min
+            ds_min = np.inf
+            if abs(n[0]) > 1e-12:
+                ds_min = min(ds_min, dt_min / abs(n[0]))
+            if abs(n[1]) > 1e-12:
+                ds_min = min(ds_min, dt_min / abs(n[1]))
+            if abs(n[2]) > 1e-12:
+                ds_min = min(ds_min, dt_min / abs(n[2]))
+            if not np.isfinite(ds_min):
+                ds_min = dt_min
+            ds = float(max(ds, ds_min))
+
+            t_pred = t + direction * ds * n[0]
+            u_pred = u + direction * ds * n[1]
+            v_pred = v + direction * ds * n[2]
+
+            t_cl = float(clamp01(t_pred))
+            u_cl = float(clamp01(u_pred))
+            v_cl = float(clamp01(v_pred))
+
+            if t_cl == t and u_cl == u and v_cl == v:
+                break
+
+            t_corr, u_corr, v_corr, Gc, Jc = newton_project_G0_curve_surface(
+                C, S, t_cl, u_cl, v_cl, tol=tol_proj, rational=rational
+            )
+            tol_accept = max(5.0 * tol_proj, 1e-8 * scale)
+            ok = np.linalg.norm(Gc) <= tol_accept
+            if ok:
+                ok = overlap_like_svd(Jc, sv_thresh=1e-8, rel_thresh=1e-6) or check_tangent(t_corr, u_corr, v_corr)
+
+            if not ok:
+                ds = ds * step_shrink
+                last_ok = False
+                if ds <= ds_min * 1.01:
+                    break
+                continue
+
+            prog = max(abs(t_corr - t), abs(u_corr - u), abs(v_corr - v))
+            min_prog = max(1e-10, 0.1 * dt_min)
+            if prog < min_prog:
+                break
+
+            x = eval_bezier_curve(C, t_corr, rational=rational)
+            if direction > 0:
+                t_path.append(t_corr)
+                uv_path.append((u_corr, v_corr))
+                xyz_path.append(x)
+            else:
+                t_path.insert(0, t_corr)
+                uv_path.insert(0, (u_corr, v_corr))
+                xyz_path.insert(0, x)
+
+            t, u, v = t_corr, u_corr, v_corr
+            last_ok = True
+            pts += 1
+
+        at_bnd = t <= 0.0 or t >= 1.0
+        return "boundary" if at_bnd else "tangent_or_min_step"
+
     def march(direction):
         nonlocal dt
         t = t_path[0] if direction < 0 else t_path[-1]
@@ -823,44 +1069,84 @@ def trace_curve_surface_overlap(
         v = uv_path[0][1] if direction < 0 else uv_path[-1][1]
         pts = 0
         tmax=0.25
+        LAST_OK = True
         while pts < max_points:
             t_prev, u_prev, v_prev = t, u, v
-            C0,C1,C2=eval_bezier_curve_derivs2(C, t_prev,rational=rational)
-            dt = compute_parametric_curvature_tolerance_curve( C1,C2, spt=sag_tol)
+            if LAST_OK:
+                _, C1, C2 = eval_bezier_curve_derivs2(C, t_prev, rational=rational)
+                dt_target = compute_parametric_curvature_tolerance_curve(C1, C2, spt=sag_tol)
+                if not np.isfinite(dt_target):
+                    dt_target = dt_max
+                dt_target = float(np.clip(dt_target, dt_min, dt_max))
+                dt = min(dt_target, dt * step_growth)
+            dt = float(np.clip(dt, dt_min, dt_max))
 
-            t_pred = float(clamp01(t_prev+ direction*dt))
+            t_pred = float(clamp01(t_prev + direction * dt))
+            if t_pred == t_prev:
+                break
 
-            u_pred, v_pred, Gp, ok = project_G0_fixed_t(C, S, t_pred, u, v, tol=tol_proj, rational=rational)
-            #print(dt, t_pred, (u_pred, v_pred))
+            u_pred, v_pred, Gp, ok = project_G0_fixed_t(
+                C, S, t_pred, u_prev, v_prev, tol=tol_proj, rational=rational, it=35
+            )
+            xt = eval_bezier_curve(C, t_pred, rational=rational)
+            xuv = eval_bezier_surface(S, u_pred, v_pred, rational=rational)
+            dx = xt - xuv
 
-            tuv=np.array([t_pred, u_pred, v_pred])
-            tuv = np.clip(tuv, 0, 1.0)
+            t_int,u_int,v_int=Interval(t_prev,t_pred),Interval(u_prev,u_pred),Interval(v_prev,v_pred)
 
-            mask = np.isclose(tuv, 1) | np.isclose(tuv, 0)
+            mask=np.array((t_int.contains(0,low_inclusive=True,up_inclusive=True) or t_int.contains(1,low_inclusive=True,up_inclusive=True),
+                           ((u_int.contains(0,low_inclusive=True,up_inclusive=True) or u_int.contains(1,low_inclusive=True,up_inclusive=True)) and (u_int.width()!=0)),
+                            ((v_int.contains(0,low_inclusive=False,up_inclusive=False) or v_int.contains(1,low_inclusive=False,up_inclusive=False)) and (v_int.width()!=0))),dtype=bool)
+
+            tuv=np.array([t_pred,u_pred,v_pred])
+            # mask = (np.isclose(tuv, 1) | np.isclose(tuv, 0)) & (~np.(tuv< (t, u, v)))
             if np.any(mask):
-                #print(mask)
-                #print(tuv)
-                *tuv, Gp, ok = project_G0(C, S, *tuv, fixed=tuple(mask), tol=tol_proj, rational=rational)
-                #print(tuv,Gp, ok )
+
+                if (not ok) or (np.linalg.norm(Gp) > 5.0 * tol_proj):
+                    dt = max(dt_min, dt * step_shrink)
+                    LAST_OK = False
+                    if dt <= dt_min * 1.01:
+                        break
+                    continue
+
+                if not np.all(mask):
+                    t_proj, u_proj, v_proj, Gp, ok = project_G0(
+                        C, S, *tuv, fixed=tuple(mask), tol=tol_proj, rational=rational
+                    )
+                    tuv = np.array([t_proj, u_proj, v_proj])
+
+                if (not ok) or (np.linalg.norm(Gp) > 5.0 * tol_proj):
+                    break
+                xt = eval_bezier_curve(C, tuv[0], rational=rational)
+                xuv = eval_bezier_surface(S, tuv[1], tuv[2], rational=rational)
+                dx = xt - xuv
+                _, Jb = G_and_J_curve_surface(C, S, tuv[0], tuv[1], tuv[2], rational=rational)
+                cls = classify_contact_curve_surface(Jb, rel_thresh=1e-6)
+                if (cls.get("type") != "overlap") or (not check_tangent(tuv[0], tuv[1], tuv[2])):
+                    dt = max(dt_min, dt * step_shrink)
+                    LAST_OK = False
+                    if dt <= dt_min * 1.01:
+                        break
+                    continue
                 if direction>0:
 
                     t_path.append(tuv[0])
                     uv_path.append(tuv[1:])
                     xyz_path.append(eval_bezier_curve(C, tuv[0], rational=rational))
-                    t = tuv[0]
+                    t, u, v = tuv
                     break
                 else:
                     t_path.insert(0, tuv[0])
                     uv_path.insert(0, tuv[1:])
                     xyz_path.insert(0, eval_bezier_curve(C, tuv[0], rational=rational))
-                    t=tuv[0]
+                    t, u, v = tuv
                     break
-            if t_pred == t:
-                break
-            if ok:
-                np.any([])
+
+            # if t_pred == t:
+            #    break
             if (not ok) or np.linalg.norm(Gp) > 5.0 * tol_proj:
-                dt = max(dt_min, dt * 0.5)
+                dt = max(dt_min, dt * step_shrink)
+                LAST_OK = False
                 if dt <= dt_min * 1.01:
                     break
                 continue
@@ -868,24 +1154,25 @@ def trace_curve_surface_overlap(
             if not check_tangent(t_pred, u_pred, v_pred):
                 break
 
-            if (
-                u_pred <= snap_eps
-                or u_pred >= 1.0 - snap_eps
-                or v_pred <= snap_eps
-                or v_pred >= 1.0 - snap_eps
-            ):
-                t_pred,u_pred,v_pred,_,_=project_G0(C,S,t_pred,u_pred,v_pred,(False,u_pred>=1.0 - snap_eps,v_pred>=1.0 - snap_eps), tol=tol_proj, rational=rational)
-
-                x = eval_bezier_curve(C, t_pred, rational=rational)
-                if direction > 0:
-                    t_path.append(t_pred)
-                    uv_path.append( (u_pred, v_pred))
-                    xyz_path.append(x)
-                else:
-                    t_path.insert(0, t_pred)
-                    uv_path.insert(0, (u_pred, v_pred))
-                    xyz_path.insert(0, x)
-                break
+            # if (
+            #    u_pred <= snap_eps
+            #    or u_pred >= 1.0 - snap_eps
+            #    or v_pred <= snap_eps
+            #    or v_pred >= 1.0 - snap_eps
+            # ):
+            #    t_pred,u_pred,v_pred,_,_=project_G0(C,S,t_pred,u_pred,v_pred,(False,u_pred>=1.0 - snap_eps,v_pred>=1.0 - snap_eps), tol=tol_proj, rational=rational)
+            #
+            #    x = eval_bezier_curve(C, t_pred, rational=rational)
+            #    if direction > 0:
+            #        t_path.append(t_pred)
+            #        uv_path.append( (u_pred, v_pred))
+            #        xyz_path.append(x)
+            #    else:
+            #        t_path.insert(0, t_pred)
+            #        uv_path.insert(0, (u_pred, v_pred))
+            #        xyz_path.insert(0, x)
+            #    print("e4",(t_pred, u_pred, v_pred))
+            #    break
 
             x = eval_bezier_curve(C, t_pred, rational=rational)
             if direction > 0:
@@ -899,15 +1186,23 @@ def trace_curve_surface_overlap(
                 xyz_path.insert(0, x)
 
             t, u, v = t_pred, u_pred, v_pred
+            LAST_OK = True
             pts += 1
 
         at_bnd = t <= 0.0 or t >= 1.0
         return "boundary" if at_bnd else "tangent_or_min_step"
 
-    start_reason = march(-1)
-    #print(start_reason, uv_path)
-    end_reason = march(+1)
-    #print(end_reason,uv_path)
+    start_reason = march_nullspace(-1)
+    # print(start_reason, uv_path)
+    end_reason = march_nullspace(+1)
+    # print(end_reason,uv_path)
+    if len(t_path) <= 1:
+        # Fallback to fixed-t marching if nullspace tracing fails to grow a path
+        t_path[:] = [t0]
+        uv_path[:] = [(u0, v0)]
+        xyz_path[:] = [eval_bezier_curve(C, t0, rational=rational)]
+        start_reason = march(-1)
+        end_reason = march(+1)
     return {
         "kind": "overlap" if len(t_path) > 1 else "none",
         "t_path": t_path,
@@ -941,7 +1236,7 @@ def contact_detect_and_extract_curve_surface(
         if np.linalg.norm(G) > 5.0 * tol_proj:
             continue
 
-        cls = classify_contact_curve_surface(J, sv_thresh)
+        cls = classify_contact_curve_surface(J, sv_thresh, rel_thresh=1e-6)
         if cls["type"] == "isolated":
             x = eval_bezier_curve(Cseg, t, rational=rational)
             return {"type": "isolated", "t": t, "u": u, "v": v, "point": x}
@@ -952,7 +1247,7 @@ def contact_detect_and_extract_curve_surface(
                 t,
                 u,
                 v,
-                sag_tol=sag_tol,
+                sag_tol=sag_tol*100,
                 angle_tol=angle_tol,
                 rational=rational,
                 tol_proj=tol_proj,
@@ -1188,6 +1483,213 @@ def choose_subdivision_axis_param_ratio(
 
     return int(np.argmax(scores))
 
+from mmcore.numeric.algorithms.cygjk import gjk
+from mmcore.numeric.vectors import norm,dot
+def classify_points_3d(P: np.ndarray, eps: float = 1e-3):
+    """
+    Classify Nx3 points as 'line', 'plane', or '3d' using covariance eigenvalues.
+    Returns (kind, ratios, evals, centroid, normal_or_direction).
+    """
+    P = np.asarray(P, dtype=np.float64)
+    assert P.ndim == 2 and P.shape[1] == 3 and P.shape[0] >= 2
+    c = P.mean(axis=0)
+    X = P - c
+    C = (X.T @ X) / max(len(P), 1)
+    evals, evecs = np.linalg.eigh(C)          # ascending
+    evals = np.maximum(evals, 0.0)
+    l1, l2, l3 = evals[::-1]                  # descending
+    if l1 <= 0: return "point", (0.0, 0.0), evals, c, None
+    r2, r3 = l2 / l1, l3 / l1
+    if r2 < eps:   kind, vec = "line",  evecs[:, 2]   # largest-eigenvector
+    elif r3 < eps: kind, vec = "plane", evecs[:, 0]   # smallest-eigenvector (normal)
+    else:          kind, vec = "3d",    None
+    return kind, (r2, r3), evals, c, vec
+def ch_separability(pts1,pts2, atol,rational=False):
+    pts1,pts2=pts1.reshape(-1, pts1.shape[-1]), pts2.reshape(-1,  pts2.shape[-1])
+    if rational:
+        pts1,pts2=pts1[...,:-1]/pts1[...,None,-1], pts2[...,:-1]/pts2[...,None,-1]
+    # cent1=np.average(pts1,axis=0)
+    # cent2 = np.average(pts2, axis=0)
+    ### print(cent1,cent2)
+    # v1=pts1-cent1
+    # v2 = pts2- cent2
+    # cent2+v1+v1*1e-6
+    ## print(v1,v1)
+    #
+    # r1=np.max(dot(v1, v1))
+    # rr1=np.sqrt(r1)
+    # r2= np.max(dot(v2, v2))
+    # rr2 = np.sqrt(r2)
+    # v1*=(1+rr1*atol/2)
+    # v2 *= (1 + rr2 * atol/2)
+
+    # nv1=v1/ np.reshape( dot(v1,v1),(-1,1))
+    # print(nv1)
+    # nv2 = v2/  np.reshape( dot(v2,v2),(-1,1))
+
+    # pts1=pts1+v1
+    # pts2=pts2+ v2
+    #if classify_points_3d(pts1, eps=1e-5)[0] != "3d":
+    #        return 2
+    #if classify_points_3d(pts2, eps=1e-5)[0] != "3d":
+    #        return 3
+    res=gjk(np.ascontiguousarray(pts1   ), np.ascontiguousarray(pts2  )   , tol=1e-5, max_iter=15  )
+    # print(res,(pts1.tolist(), pts2.tolist()))
+    return int(res)
+
+from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full
+
+
+# ---------------------------------------------------------------------------
+# Curve-Surface Boundary Intersection
+# ---------------------------------------------------------------------------
+
+def curve_surface_boundary_intersect(
+    C: NDArray,
+    S: NDArray,
+    sv_thresh: float = 1e-8,
+    atol: float = 1e-3,
+    rational: bool | None = None,
+) -> tuple[list[IsolatedIntersection], list[OverlapIntersection]]:
+    """
+    Find intersections between a Bézier curve and the boundary curves of a Bézier surface.
+
+    For a tensor-product surface S(u,v), the boundaries are:
+    - u=0: isocurve at u=0, parameterized by v
+    - u=1: isocurve at u=1, parameterized by v
+    - v=0: isocurve at v=0, parameterized by u
+    - v=1: isocurve at v=1, parameterized by u
+
+    Parameters
+    ----------
+    C : NDArray
+        Bézier curve control points, shape (p+1, dim) or (p+1, dim+1) if rational.
+    S : NDArray
+        Bézier surface control net, shape (nu+1, nv+1, dim) or (nu+1, nv+1, dim+1) if rational.
+    sv_thresh : float, optional
+        Singular-value threshold for distinguishing isolated vs. overlap contacts.
+    atol : float, optional
+        Geometric tolerance for intersection detection.
+    rational : bool, optional
+        When True, inputs are treated as homogeneous control nets with weights in last column.
+
+    Returns
+    -------
+    isolated : list[IsolatedIntersection]
+        List of isolated intersection points, each with:
+        - t: curve parameter
+        - u, v: surface parameters
+        - point: 3D intersection point
+    overlaps : list[OverlapIntersection]
+        List of overlap segments (curve lying on boundary), each with:
+        - t_path: curve parameter path
+        - uv_path: surface (u,v) parameter path
+        - xyz_path: 3D point path
+        - start, end: boundary event descriptions
+
+    Notes
+    -----
+    The function extracts the four boundary curves of the surface and intersects
+    each with the input curve using certified curve-curve intersection. The resulting
+    parameters are remapped to surface (u,v) coordinates:
+
+    - u=0 boundary: CCX(C, S[0,:]) gives (t, s) → CSX(t, u=0, v=s)
+    - u=1 boundary: CCX(C, S[-1,:]) gives (t, s) → CSX(t, u=1, v=s)
+    - v=0 boundary: CCX(C, S[:,0]) gives (t, s) → CSX(t, u=s, v=0)
+    - v=1 boundary: CCX(C, S[:,-1]) gives (t, s) → CSX(t, u=s, v=1)
+    """
+    if rational is None:
+        rational = is_homogeneous_ctrl(C) or is_homogeneous_ctrl(S)
+
+    # Extract boundary curves from surface
+    u0_bnd, u1_bnd, v0_bnd, v1_bnd = bernstein_boundaries_2d(S)
+
+    isolated: list[IsolatedIntersection] = []
+    overlaps: list[OverlapIntersection] = []
+
+    # Define boundary mapping: (boundary_curve, axis, fixed_value)
+    # axis: 'u' means the fixed parameter is u, 'v' means fixed parameter is v
+    # For u-fixed boundaries: CCX param 'v' maps to surface param 'v'
+    # For v-fixed boundaries: CCX param 'v' maps to surface param 'u'
+    boundaries = [
+        (u0_bnd, 'u', 0.0),  # u=0 boundary, CCX.v -> surface.v
+        (u1_bnd, 'u', 1.0),  # u=1 boundary, CCX.v -> surface.v
+        (v0_bnd, 'v', 0.0),  # v=0 boundary, CCX.v -> surface.u
+        (v1_bnd, 'v', 1.0),  # v=1 boundary, CCX.v -> surface.u
+    ]
+
+    for bnd_curve, fixed_axis, fixed_val in boundaries:
+        # Intersect curve C with boundary curve
+        ccx_result = bezier_intersect_certified_full(
+            C, bnd_curve,
+            sv_thresh=sv_thresh,
+            atol=atol,
+            rational=rational,
+        )
+
+        # Process isolated intersections
+        for ccx_iso in ccx_result.get('isolated', []):
+            t_curve = ccx_iso['u']  # parameter on input curve C
+            t_bnd = ccx_iso['v']    # parameter on boundary curve
+            point = ccx_iso['point']
+
+            # Map to surface (u, v) coordinates
+            if fixed_axis == 'u':
+                # u is fixed, boundary is parameterized by v
+                u_surf = fixed_val
+                v_surf = t_bnd
+            else:  # fixed_axis == 'v'
+                # v is fixed, boundary is parameterized by u
+                u_surf = t_bnd
+                v_surf = fixed_val
+
+            isolated.append(IsolatedIntersection(
+                t=float(t_curve),
+                u=float(u_surf),
+                v=float(v_surf),
+                point=np.asarray(point),
+            ))
+
+        # Process overlap intersections
+        for ccx_ovl in ccx_result.get('overlaps', []):
+            uv_path_ccx = ccx_ovl['uv_path']  # Each entry is (t_curve, t_bnd)
+            xyz_path = ccx_ovl['xyz_path']
+            start = ccx_ovl.get('start', 'unknown')
+            end = ccx_ovl.get('end', 'unknown')
+
+            # Build t_path and uv_path for surface coordinates
+            t_path = []
+            uv_path = []
+
+            for uv_ccx in uv_path_ccx:
+                t_curve = uv_ccx[0]  # parameter on input curve C
+                t_bnd = uv_ccx[1]    # parameter on boundary curve
+
+                # Map to surface (u, v) coordinates
+                if fixed_axis == 'u':
+                    u_surf = fixed_val
+                    v_surf = t_bnd
+                else:  # fixed_axis == 'v'
+                    u_surf = t_bnd
+                    v_surf = fixed_val
+
+                t_path.append(float(t_curve))
+                uv_path.append((float(u_surf), float(v_surf)))
+
+            overlaps.append(OverlapIntersection(
+                t_path=np.asarray(t_path),
+                uv_path=np.asarray(uv_path),
+                xyz_path=np.asarray(xyz_path),
+                start=start,
+                end=end,
+            ))
+
+    return isolated, overlaps
+
+
+# Alias for backwards compatibility
+check_boundaries_inter = curve_surface_boundary_intersect
+
 
 def bezier_curve_surface_intersect_certified(
     C: NDArray,
@@ -1220,7 +1722,33 @@ def bezier_curve_surface_intersect_certified(
 
     if rational is None:
         rational = is_homogeneous_ctrl(C) or is_homogeneous_ctrl(S)
+    # Fast span-level overlap confirmation using analytic-segment criterion.
+    def _bbox_diag_len(Cc, Ss):
+        ec = dehomogenize_ctrl(Cc, rational=rational)
+        es = dehomogenize_ctrl(Ss, rational=rational).reshape(-1, ec.shape[-1])
+        mins = np.minimum(np.min(ec, axis=0), np.min(es, axis=0))
+        maxs = np.maximum(np.max(ec, axis=0), np.max(es, axis=0))
+        return float(np.linalg.norm(maxs - mins))
 
+    span_scale = _bbox_diag_len(C, S)
+    span_tol_proj = max(1e-12, 1e-10 * span_scale)
+    span_tol_conf = max(5.0 * span_tol_proj, 1e-9 * span_scale)
+    span_overlap = confirm_overlap_span(
+        C,
+        S,
+        span_tol_proj,
+        span_tol_conf,
+        angle_tol,
+        sv_thresh,
+        rational=rational,
+        rel_thresh=1e-6,
+    )
+    if span_overlap is not None:
+        stats = IntersectionStats(cells=1, pruned=0, overlap_traces=1, pruned_by=["span_confirm"])
+        return IntersectionResult(isolated=[], overlaps=[span_overlap], stats=stats)
+    #isolated,overlaps=curve_surface_boundary_intersect(C,S,rational=rational,atol=atol,sv_thresh=sv_thresh)
+    #print(isolated)
+    #print(overlaps)
     isolated: list["IsolatedIntersection"] = []
     overlaps: list["OverlapIntersection"] = []
     stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
@@ -1320,68 +1848,75 @@ def bezier_curve_surface_intersect_certified(
         scale = max(float(np.linalg.norm(dbox_c)), float(np.linalg.norm(dbox_s)), 1.0)
         tol_proj = max(1e-12, 1e-10 * scale)
 
+        ch_sep=ch_separability(Pseg,Sseg,atol,rational=rational)
+
+        if ch_sep==0:
+            stats["pruned"] += 1
+            stats["pruned_by"].append("ch_sep")
+            continue
+
         # Early contact detection (ccx-style)
-        if not cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1):
-            res = contact_detect_and_extract_curve_surface(
-                Pseg,
-                Sseg,
-                seed_tuv=(0.5, 0.5, 0.5),
-                #extra_seeds=[(0.25, 0.5, 0.5), (0.75, 0.5, 0.5)],
-                sv_thresh=sv_thresh,
-                tol_proj=tol_proj,
-                angle_tol=angle_tol,
-                sag_tol=atol,
-                rational=rational,
+        has_known_iso = cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1)
+        res = contact_detect_and_extract_curve_surface(
+            Pseg,
+            Sseg,
+            seed_tuv=(0.5, 0.5, 0.5),
+            #extra_seeds=[(0.25, 0.5, 0.5), (0.75, 0.5, 0.5)],
+            sv_thresh=sv_thresh,
+            tol_proj=tol_proj,
+            angle_tol=angle_tol,
+            sag_tol=atol,
+            rational=rational,
+        )
+
+        if res["type"] == "overlap":
+            t_path_g = [t0 + (t1 - t0) * t for t in res["t_path"]]
+            uv_path_g = [
+                (u0 + (u1 - u0) * uv[0], v0 + (v1 - v0) * uv[1]) for uv in res["uv_path"]
+            ]
+            overlaps.append(
+                {
+                    "t_path": np.asarray(t_path_g),
+                    "uv_path": np.asarray(uv_path_g),
+                    "xyz_path": np.asarray(res["xyz_path"]),
+                    "start": res["start"],
+                    "end": res["end"],
+                }
             )
+            stats["overlap_traces"] += 1
+            continue
 
-            if res["type"] == "overlap":
-                t_path_g = [t0 + (t1 - t0) * t for t in res["t_path"]]
-                uv_path_g = [
-                    (u0 + (u1 - u0) * uv[0], v0 + (v1 - v0) * uv[1]) for uv in res["uv_path"]
-                ]
-                overlaps.append(
-                    {
-                        "t_path": np.asarray(t_path_g),
-                        "uv_path": np.asarray(uv_path_g),
-                        "xyz_path": np.asarray(res["xyz_path"]),
-                        "start": res["start"],
-                        "end": res["end"],
-                    }
-                )
-                stats["overlap_traces"] += 1
-                continue
+        if res["type"] == "isolated" and not has_known_iso:
+            t_loc, u_loc, v_loc = res["t"], res["u"], res["v"]
+            t_hit, u_hit, v_hit = map_local_to_global_3(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1)
+            x = res["point"]
+            if not near_existing_isolated(x):
+                isolated.append({"t": t_hit, "u": u_hit, "v": v_hit, "point": x})
 
-            if res["type"] == "isolated":
-                t_loc, u_loc, v_loc = res["t"], res["u"], res["v"]
-                t_hit, u_hit, v_hit = map_local_to_global_3(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1)
-                x = res["point"]
-                if not near_existing_isolated(x):
-                    isolated.append({"t": t_hit, "u": u_hit, "v": v_hit, "point": x})
+            # Cut out neighborhood around the isolated root (early termination)
+            C0,C1,C2= eval_bezier_curve_derivs2(Pseg,t_loc,rational=rational)
+            S0, Su, Sv ,Suu,Suv , Svv =  eval_bezier_surface_derivs2(Sseg, u_loc,v_loc, rational=rational)
+            tol_t=compute_parametric_curvature_tolerance_curve(C1,C2, spt=atol)
+            tol_u, tol_v = compute_parametric_curvature_tolerance_surface(Su, Sv ,Suu, Svv, atol)
+            res_cut = bernstein_cutout_box_nd(
+                dn, np.array([t_loc, u_loc, v_loc]), half=np.array([tol_t, tol_u, tol_v]), return_ranges=True
+            )
+            for subpatch, ranges in res_cut:
+                t_rng, u_rng, v_rng = ranges
+                sub_dtn = bernstein_partial_derivative_coeffs(subpatch, 0)
+                sub_dun = bernstein_partial_derivative_coeffs(subpatch, 1)
+                sub_dvn = bernstein_partial_derivative_coeffs(subpatch, 2)
+                Psub = bernstein_trim_nd(Pseg, ranges=[t_rng])
+                Ssub = bernstein_trim_nd(Sseg, ranges=[u_rng, v_rng])
+                t0g, t1g = map_local_range_to_global(t_rng, t0, t1)
+                u0g, u1g = map_local_range_to_global(u_rng, u0, u1)
+                v0g, v1g = map_local_range_to_global(v_rng, v0, v1)
+                stack.append((Psub, Ssub, subpatch, sub_dtn, sub_dun, sub_dvn, t0g, t1g, u0g, u1g, v0g, v1g, depth + 1))
 
-                # Cut out neighborhood around the isolated root (early termination)
-                C0,C1,C2= eval_bezier_curve_derivs2(Pseg,t_loc,rational=rational)
-                S0, Su, Sv ,Suu,Suv , Svv =  eval_bezier_surface_derivs2(Sseg, u_loc,v_loc, rational=rational)
-                tol_t=compute_parametric_curvature_tolerance_curve(C1,C2, spt=atol)
-                tol_u, tol_v = compute_parametric_curvature_tolerance_surface(Su, Sv ,Suu, Svv, atol)
-                res_cut = bernstein_cutout_box_nd(
-                    dn, np.array([t_loc, u_loc, v_loc]), half=np.array([tol_t, tol_u, tol_v]), return_ranges=True
-                )
-                for subpatch, ranges in res_cut:
-                    t_rng, u_rng, v_rng = ranges
-                    sub_dtn = bernstein_partial_derivative_coeffs(subpatch, 0)
-                    sub_dun = bernstein_partial_derivative_coeffs(subpatch, 1)
-                    sub_dvn = bernstein_partial_derivative_coeffs(subpatch, 2)
-                    Psub = bernstein_trim_nd(Pseg, ranges=[t_rng])
-                    Ssub = bernstein_trim_nd(Sseg, ranges=[u_rng, v_rng])
-                    t0g, t1g = map_local_range_to_global(t_rng, t0, t1)
-                    u0g, u1g = map_local_range_to_global(u_rng, u0, u1)
-                    v0g, v1g = map_local_range_to_global(v_rng, v0, v1)
-                    stack.append((Psub, Ssub, subpatch, sub_dtn, sub_dun, sub_dvn, t0g, t1g, u0g, u1g, v0g, v1g, depth + 1))
-
-                stats["pruned"] += 1
-                stats["pruned_by"].append("isolated_cutout")
-                continue
-            # Tolerances for parameter-space resolution
+            stats["pruned"] += 1
+            stats["pruned_by"].append("isolated_cutout")
+            continue
+        # Tolerances for parameter-space resolution
         tol_t = _bez_get_curve_tol_adapter(Pseg, atol, rational=rational)
         tol_u, tol_v = _bez_get_surface_tol_adapter(Sseg, atol, rational=rational)
 
@@ -1392,43 +1927,43 @@ def bezier_curve_surface_intersect_certified(
         if small_geom or small_param:
             t_guess, u_guess, v_guess = 0.5, 0.5, 0.5
             t_loc, u_loc, v_loc, Gc, Jc = newton_project_G0_curve_surface(
-                Pseg, Sseg, t_guess, u_guess, v_guess, tol=atol, rational=rational
+                Pseg, Sseg, t_guess, u_guess, v_guess, tol=tol_proj, rational=rational
             )
             Dval = float(np.dot(Gc, Gc))
             if Dval <= atol_sq and is_inside_cell(t_loc, u_loc, v_loc, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, margin=max(tol_t, tol_u, tol_v)):
                 t_hit, u_hit, v_hit = map_local_to_global_3(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1)
                 x = eval_bezier_curve(Pseg, t_loc, rational=rational)
-                if not near_existing_isolated(x):
-                    cls = classify_contact_curve_surface(Jc, sv_thresh=sv_thresh)
-                    if cls["type"] == "overlap":
-                        res = trace_curve_surface_overlap(
-                            Pseg,
-                            Sseg,
-                            t_loc,
-                            u_loc,
-                            v_loc,
-                            sag_tol=atol,
-                            angle_tol=angle_tol,
-                            rational=rational,
-                            tol_proj=tol_proj,
-                            max_points=2000,
+                cls = classify_contact_curve_surface(Jc, sv_thresh=sv_thresh, rel_thresh=1e-6)
+                if cls["type"] == "overlap":
+                    res = trace_curve_surface_overlap(
+                        Pseg,
+                        Sseg,
+                        t_loc,
+                        u_loc,
+                        v_loc,
+                        sag_tol=atol,
+                        angle_tol=angle_tol,
+                        rational=rational,
+                        tol_proj=tol_proj,
+                        max_points=2000,
+                    )
+                    if res["kind"] == "overlap":
+                        t_path_g = [t0 + (t1 - t0) * t for t in res["t_path"]]
+                        uv_path_g = [
+                            (u0 + (u1 - u0) * uv[0], v0 + (v1 - v0) * uv[1]) for uv in res["uv_path"]
+                        ]
+                        overlaps.append(
+                            {
+                                "t_path": np.asarray(t_path_g),
+                                "uv_path": np.asarray(uv_path_g),
+                                "xyz_path": np.asarray(res["xyz_path"]),
+                                "start": res["start"],
+                                "end": res["end"],
+                            }
                         )
-                        if res["kind"] == "overlap":
-                            t_path_g = [t0 + (t1 - t0) * t for t in res["t_path"]]
-                            uv_path_g = [
-                                (u0 + (u1 - u0) * uv[0], v0 + (v1 - v0) * uv[1]) for uv in res["uv_path"]
-                            ]
-                            overlaps.append(
-                                {
-                                    "t_path": np.asarray(t_path_g),
-                                    "uv_path": np.asarray(uv_path_g),
-                                    "xyz_path": np.asarray(res["xyz_path"]),
-                                    "start": res["start"],
-                                    "end": res["end"],
-                                }
-                            )
-                            stats["overlap_traces"] += 1
-                            continue
+                        stats["overlap_traces"] += 1
+                        continue
+                if not near_existing_isolated(x):
                     isolated.append({"t": t_hit, "u": u_hit, "v": v_hit, "point": x})
             stats["pruned"] += 1
             stats["pruned_by"].append("small_cell")
@@ -1496,6 +2031,56 @@ def bezier_curve_surface_intersect_certified(
             stack.append((Pseg, SR, dnR, dtnR, dunR, dvnR, t0, t1, u0, u1, v_mid, v1, depth + 1))
             stack.append((Pseg, SL, dnL, dtnL, dunL, dvnL, t0, t1, u0, u1, v0, v_mid, depth + 1))
 
+    def _t_in_overlap_local(t, overlaps_list, tol=1e-6):
+        for ov in overlaps_list:
+            t_min = float(np.min(ov["t_path"]))
+            t_max = float(np.max(ov["t_path"]))
+            if (t_min - tol) <= t <= (t_max + tol):
+                return True
+        return False
+
+    # If we only found overlap-like isolated points, try tracing the full patch from the farthest t.
+    if isolated:
+        cand = None
+        cand_t = None
+        for it in isolated:
+            t, u, v = it["t"], it["u"], it["v"]
+            if _t_in_overlap_local(t, overlaps):
+                continue
+            Gc, Jc = G_and_J_curve_surface(C, S, t, u, v, rational=rational)
+            if not overlap_like_svd(Jc, sv_thresh=sv_thresh, rel_thresh=1e-6):
+                continue
+            if cand_t is None or t > cand_t:
+                cand = (t, u, v)
+                cand_t = t
+        if cand is not None:
+            t, u, v = cand
+            res = trace_curve_surface_overlap(
+                C,
+                S,
+                t,
+                u,
+                v,
+                sag_tol=atol,
+                angle_tol=angle_tol,
+                rational=rational,
+                tol_proj=None,
+                max_points=2000,
+            )
+            if res["kind"] == "overlap":
+                overlaps.append(
+                    {
+                        "t_path": np.asarray(res["t_path"]),
+                        "uv_path": np.asarray(res["uv_path"]),
+                        "xyz_path": np.asarray(res["xyz_path"]),
+                        "start": res["start"],
+                        "end": res["end"],
+                    }
+                )
+
+    if overlaps and isolated:
+        isolated = [it for it in isolated if not _t_in_overlap_local(it["t"], overlaps)]
+
     return IntersectionResult(isolated=isolated, overlaps=overlaps, stats=stats)
 
 
@@ -1534,6 +2119,7 @@ if __name__ == "__main__":
             table.add_column(oracle_name, style="default")
             table.add_column("match", justify="left", style="bold")
             matches = []
+            print(inter1["isolated"])
             for first, second in itertools.zip_longest(
                 sorted(inter1["isolated"], key=lambda x: x["u"]), sorted(inter2["isolated"], key=lambda x: x["u"])
             ):

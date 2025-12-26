@@ -1701,3 +1701,188 @@ if __name__ =="__main__":
     print(res1)
     #grid = np.random.uniform(-5., 5., (7, 7))
     #print(bern_roots_2d(grid,eps=eps))
+
+
+# ---------- Boundary extraction for Bernstein patches ----------
+
+def bernstein_boundary_nd(
+        control_grid: np.ndarray,
+        axis: int,
+        side: int
+) -> np.ndarray:
+    """
+    Extract a single boundary isocline from an ND Bernstein control grid.
+
+    For a tensor-product Bernstein patch, fixing a parameter at 0 or 1 yields
+    a lower-dimensional patch whose control points are simply the first or
+    last slice along that parametric axis.
+
+    Parameters
+    ----------
+    control_grid : np.ndarray
+        Tensor-product Bernstein coefficients with the last axis as value dimension.
+        Shape: (n0+1, n1+1, ..., n_{D-1}+1, N)
+        where D is the number of parametric axes and N is the value dimension.
+    axis : int
+        Parametric axis (0-indexed among parametric axes only) along which to
+        extract the boundary. Negative indices are supported.
+    side : int
+        Which boundary to extract:
+        - 0: boundary at parameter = 0 (first slice)
+        - 1: boundary at parameter = 1 (last slice)
+
+    Returns
+    -------
+    np.ndarray
+        The boundary control grid with shape equal to `control_grid.shape` but
+        with the specified axis removed. For a surface (D=2), this returns a
+        curve (D=1). For a curve (D=1), this returns a point (D=0, i.e., shape (N,)).
+
+    Examples
+    --------
+    # Bicubic surface (U=4, V=4, dim=3)
+    S = np.random.rand(4, 4, 3)
+    u0_boundary = bernstein_boundary_nd(S, axis=0, side=0)  # shape (4, 3), curve at u=0
+    u1_boundary = bernstein_boundary_nd(S, axis=0, side=1)  # shape (4, 3), curve at u=1
+    v0_boundary = bernstein_boundary_nd(S, axis=1, side=0)  # shape (4, 3), curve at v=0
+    v1_boundary = bernstein_boundary_nd(S, axis=1, side=1)  # shape (4, 3), curve at v=1
+    """
+    if control_grid.ndim < 2:
+        raise ValueError(
+            "control_grid must have at least one parametric axis and a trailing value axis."
+        )
+
+    param_ndim = control_grid.ndim - 1  # exclude trailing value dimension
+
+    # Normalize axis
+    if axis < 0:
+        axis += param_ndim
+    if not (0 <= axis < param_ndim):
+        raise ValueError(
+            f"'axis' must be in [0, {param_ndim - 1}] for the parametric axes."
+        )
+
+    if side not in (0, 1):
+        raise ValueError("'side' must be 0 (parameter=0) or 1 (parameter=1).")
+
+    # Extract boundary: first slice (side=0) or last slice (side=1)
+    idx = 0 if side == 0 else -1
+
+    # Build a slicing tuple that selects all along other axes
+    slices = [slice(None)] * control_grid.ndim
+    slices[axis] = idx
+
+    return control_grid[tuple(slices)]
+
+
+def bernstein_boundaries_2d(
+        control_grid: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Extract all four boundary isoclines from a 2D Bernstein surface.
+
+    For a tensor-product Bernstein surface with control grid shape (nu+1, nv+1, dim),
+    the boundaries are the four edge curves:
+    - u=0: first row of control points
+    - u=1: last row of control points
+    - v=0: first column of control points
+    - v=1: last column of control points
+
+    Parameters
+    ----------
+    control_grid : np.ndarray
+        Shape (nu+1, nv+1, dim) where dim is the spatial dimension (e.g., 2 or 3).
+
+    Returns
+    -------
+    u0, u1, v0, v1 : tuple of np.ndarray
+        The four boundary curves, each as Bernstein control points:
+        - u0: shape (nv+1, dim), isocurve at u=0
+        - u1: shape (nv+1, dim), isocurve at u=1
+        - v0: shape (nu+1, dim), isocurve at v=0
+        - v1: shape (nu+1, dim), isocurve at v=1
+
+    Examples
+    --------
+    >>> S = np.array([
+    ...     [[0, 0, 0], [1, 0, 0], [2, 0, 0]],
+    ...     [[0, 1, 0], [1, 1, 1], [2, 1, 0]],
+    ...     [[0, 2, 0], [1, 2, 0], [2, 2, 0]],
+    ... ], dtype=float)  # shape (3, 3, 3) - biquadratic surface
+    >>> u0, u1, v0, v1 = bernstein_boundaries_2d(S)
+    >>> u0.shape  # curve at u=0, parameterized by v
+    (3, 3)
+    >>> v0.shape  # curve at v=0, parameterized by u
+    (3, 3)
+    """
+    if control_grid.ndim != 3:
+        raise ValueError(
+            f"Expected 3D array (nu+1, nv+1, dim), got shape {control_grid.shape}."
+        )
+
+    u0 = bernstein_boundary_nd(control_grid, axis=0, side=0)  # control_grid[0, :, :]
+    u1 = bernstein_boundary_nd(control_grid, axis=0, side=1)  # control_grid[-1, :, :]
+    v0 = bernstein_boundary_nd(control_grid, axis=1, side=0)  # control_grid[:, 0, :]
+    v1 = bernstein_boundary_nd(control_grid, axis=1, side=1)  # control_grid[:, -1, :]
+
+    return u0, u1, v0, v1
+
+
+def bernstein_all_boundaries_nd(
+        control_grid: np.ndarray
+) -> list[Tuple[int, int, np.ndarray]]:
+    """
+    Extract all boundary faces from an ND Bernstein control grid.
+
+    For a D-dimensional parameter domain, there are 2*D boundary faces
+    (two per parametric axis: one at parameter=0, one at parameter=1).
+    Each boundary face is a (D-1)-dimensional Bernstein patch.
+
+    Parameters
+    ----------
+    control_grid : np.ndarray
+        Tensor-product Bernstein coefficients with the last axis as value dimension.
+        Shape: (n0+1, n1+1, ..., n_{D-1}+1, N)
+
+    Returns
+    -------
+    boundaries : list of (axis, side, boundary_grid)
+        A list of tuples where:
+        - axis: int, the parametric axis (0 to D-1)
+        - side: int, 0 for parameter=0, 1 for parameter=1
+        - boundary_grid: np.ndarray, the (D-1)-dimensional boundary patch
+
+    Examples
+    --------
+    # Bicubic surface
+    >>> S = np.random.rand(4, 4, 3)
+    >>> boundaries = bernstein_all_boundaries_nd(S)
+    >>> len(boundaries)
+    4
+    >>> for axis, side, bnd in boundaries:
+    ...     print(f"axis={axis}, side={side}, shape={bnd.shape}")
+    axis=0, side=0, shape=(4, 3)
+    axis=0, side=1, shape=(4, 3)
+    axis=1, side=0, shape=(4, 3)
+    axis=1, side=1, shape=(4, 3)
+
+    # Trivariate Bernstein (3 parametric axes)
+    >>> T = np.random.rand(3, 4, 5, 2)
+    >>> boundaries = bernstein_all_boundaries_nd(T)
+    >>> len(boundaries)
+    6
+    """
+    if control_grid.ndim < 2:
+        raise ValueError(
+            "control_grid must have at least one parametric axis and a trailing value axis."
+        )
+
+    param_ndim = control_grid.ndim - 1
+    boundaries = []
+
+    for axis in range(param_ndim):
+        for side in (0, 1):
+            bnd = bernstein_boundary_nd(control_grid, axis=axis, side=side)
+            boundaries.append((axis, side, bnd))
+
+    return boundaries
