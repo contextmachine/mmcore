@@ -1,3 +1,4 @@
+import operator
 from enum import Enum
 from functools import total_ordering
 import math
@@ -20,7 +21,7 @@ class Interval:
     __slots__ = ("low", "upp")
 
     def __init__(self, low, upp=None):
-       
+
         if isinstance(low,tuple) and upp is None:
             low,upp=low
         elif upp is None:
@@ -137,7 +138,7 @@ class Interval:
                 return Comparison.FALSE
             return Comparison.MAYBE
         return Comparison.TRUE if self.upp < other else Comparison.FALSE
-    
+
     def __lt__(self, other):
         return self.compare(other) == Comparison.TRUE
 
@@ -160,12 +161,26 @@ class Interval:
         if isinstance(x,Interval):
             return self.low<=x.low and self.upp>=x.upp
         return self.low<=x<=self.upp
+    def contains(self, other, low_inclusive = True, up_inclusive = True):
+        if up_inclusive:
+            comp_upp=operator.ge
+        else:
+            comp_upp=operator.gt
+        if low_inclusive:
+            comp_low=operator.le
+        else:
+            comp_low=operator.lt
+        if isinstance(other, Interval):
+
+            return comp_low(self.low,other.low) and comp_upp(self.upp,other.upp)
+        return comp_low(self.low,other) and comp_upp(self.upp,other)
+
 
     def intersect(self,other):
-       
-            lo = max(self.low, other.low)
-            hi = min(self.upp, other.upp)
-            return None if lo>hi else Interval(lo,hi)
+
+        lo = max(self.low, other.low)
+        hi = min(self.upp, other.upp)
+        return None if lo>hi else Interval(lo,hi)
 
     def intersects(self,other)->bool:
         if isinstance(other, Interval):
@@ -279,7 +294,7 @@ class Interval:
     def __iter__(self):
         return iter(self.to_tuple())
 
-    #def __array__(self, dtype=None):
+    # def __array__(self, dtype=None):
     #    return np.array(self.to_tuple(), dtype=dtype)
 
     # def __pow__(self, exp):
@@ -492,7 +507,7 @@ class Interval:
             return out_arr
         return result
 
-    
+
 import math
 
 # ───────────────────────────────────────────────────────────────
@@ -510,7 +525,7 @@ class IntervalND:
     @property
     def low(self):
         return  self._low
-    
+
     @property
     def upp(self):
         return self._upp
@@ -627,5 +642,3 @@ def insert_interval_sorted(intervals: List[Interval], new_iv: Interval, *, tol: 
     # Replace the covered span with the merged interval.
     intervals[start:end] = [Interval(low, upp)]
     return start
-
-
