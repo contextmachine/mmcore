@@ -10,8 +10,10 @@ import numpy as np
 import glfw
 from OpenGL.GL import *
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d, \
+    NURBSSurfaceTuple
 from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.geom.nurbs_iso import extract_surface_boundaries,extract_isocurve
 from mmcore.numeric.approx import adaptive_curve_sampler
 
 
@@ -120,7 +122,7 @@ def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo) -> np.ndarray:
 # =========================
 
 class OrbitCamera:
-    def __init__(self, target=(0.0, 0.0, 0.0), near=0.1,far=10000.0,up=(0.,0.,1.),distance = 10.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
+    def __init__(self, target=(0.0, 0.0, 0.0), near=0.1,far=10000.0,up=(0.,0.,1.),distance = 100.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
         self.target = np.array(target, dtype=np.float32)
         self.distance = distance
         self.yaw = yaw
@@ -435,8 +437,6 @@ def make_program() -> int:
     return prog
 
 
-
-
 from dataclasses import dataclass
 from functools import update_wrapper, partial
 from typing import (
@@ -477,9 +477,6 @@ class ViewerSettings:
     snap:SnapSettings = field(default_factory=SnapSettings)
 
 
-
-
-
 class Viewer:
     def add(self, obj, *args,**kwargs):
 
@@ -503,8 +500,6 @@ class Viewer:
                 return self.add_point3d(obj,*args,**kwargs)
             else:
                 raise ValueError(f"Unknown type: {obj}")
-
-
 
     def __init__(self, width=1200, height=800, camera=None,settings:ViewerSettings=None):
         if not glfw.init():
@@ -624,8 +619,6 @@ class Viewer:
                 A[..., i] = arr[..., i]
             A[..., -1] = 1
 
-
-
             curve = RationalBezier(A
                                    )
         else:
@@ -644,10 +637,8 @@ class Viewer:
     def add_point3d(self, arr, color=(0.8, 0.8, 0.8, 1.0),size_px=9):
         return self.points.append((np.array(arr,dtype=np.float32),color,size_px))
 
-
     def add_point2d(self, arr, color=(0.8, 0.8, 0.8, 1.0), size_px=9):
         return self.points.append((np.array((*arr,0), dtype=np.float32), color, size_px))
-
 
     def _build_demo_scene(self):
         # Two rational cubic Bézier curves (projective control points: [w*x, w*y, w*z, w])
@@ -676,7 +667,25 @@ class Viewer:
         beziers=decompose_curve(curve)
 
         return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color,*args,**kwargs)        for bezier in beziers)
+    def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
+        return self._add_nurbs_curve(curve, color, *args, **kwargs)
+    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),u_count=1,v_count=1,*args,**kwargs):
+        (u0,u1),(v0,v1) = surface.interval()
+        umid,vmid=(u1-u0)*0.5+u0, (v1-v0)*0.5+v0
+        us=np.linspace(u0,u1,u_count+2)[1:][:-1]
+        vs = np.linspace(v0, v1, v_count+2)[1:][:-1]
+        iso_color=(color[0]*0.5,
+        color[1]*0.5,
+        color[2]*0.5,
+        color[3])
+        isolines=[]
 
+        for crv in  [extract_isocurve(surface, u,'u') for u in us]+[extract_isocurve(surface, v,'v') for v in vs]:
+            isolines.append(self._add_nurbs_curve(crv,iso_color,*args,**kwargs))
+        bnds=[]
+        for bnd in extract_surface_boundaries(surface):
+            bnds.append(self._add_nurbs_curve(bnd,color,*args,**kwargs))
+        return tuple(bnds)+tuple(isolines)
 
     def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """
@@ -767,7 +776,6 @@ class Viewer:
             if best is None or hit["dist_px"] < best["dist_px"]:
                 best = hit
         self.snap_hit = best
-
 
     def run(self):
         last = time.time()
