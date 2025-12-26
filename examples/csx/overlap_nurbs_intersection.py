@@ -4,11 +4,13 @@ import numpy as np
 import rich
 
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+from mmcore.geom.nurbs_iso import extract_isocurve
+from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
 import logging
 logging.basicConfig(level=logging.DEBUG)
-val = NURBSCurveTuple(
+curve = NURBSCurveTuple(
     order=4,
     knot=np.array(
         [
@@ -45,7 +47,7 @@ val = NURBSCurveTuple(
     weights=np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
 )
 
-val2 = NURBSSurfaceTuple(
+surface = NURBSSurfaceTuple(
     order_u=4,
     order_v=3,
     knot_u=np.array([ 0.        ,  0.        ,  0.        ,  0.        , 11.15682108,
@@ -102,7 +104,7 @@ val2 = NURBSSurfaceTuple(
             0.70710678, 1.        , 0.70710678, 1.        ]])
 )
 s = time.time()
-result = nurbs_csx(_tuple_to_nurbs(val), _tuple_to_nurbs(val2))
+result = nurbs_csx(_tuple_to_nurbs(curve), _tuple_to_nurbs(surface))
 print(f"CSX v1 performed at: {time.time()-s} secs.")
 overlaps=[]
 isol=[]
@@ -117,37 +119,64 @@ rich.print(isol)
 print('overlaps:')
 rich.print(overlaps)
 s = time.time()
-result = nurbs_csx_v2(val, val2)
+isolated,overlaps = nurbs_csx_v2(curve, surface)
 print(f"CSX v2 performed at: {time.time()-s} secs.")
 
 print('\n\n',result,'\n\n')
 print('isolated:')
-rich.print(result[0]['point'].tolist())
+rich.print(isolated['point'].tolist())
 print('overlaps:')
-rich.print(result[1]['point'].tolist())
-from mmcore.geom._nurbs_knots import decompose_curve
-for i in decompose_curve(val):
-    print("\nsegment:")
-    print(i)
+rich.print(overlaps['point'].tolist())
+
+
 try:
-    from mmcore.extras.renderer import CADRenderer, Camera
+    from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
-    print(dir(Camera))
-    ns=_tuple_to_nurbs(val2)
-    centr = np.average(ns.control_points_flat, axis=0)
-    renderer = CADRenderer(camera=Camera(zoom=50.0, near=0.1))
-    renderer.add_nurbs_curve(
-        _tuple_to_nurbs(val),
-        color=(0.0, 1.0, 0.5)
-    )
-    tess=renderer.add_nurbs_surface(ns, color=(0.9, 0.9, 0.9))
 
-    for item in result:
-        print(item.curve_eval["C"])
-        renderer.add_point(item.curve_eval["C"], np.array((1.0, 0.5, 0.0)), 4)
+    viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
 
-    renderer.run()
+    srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1), v_count=4)
+    if isolated is not None:
+        uvs=[]
+        for pt in isolated['point']:
 
+
+            viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+
+
+    if overlaps is not None:
+
+        for start,end in overlaps['point']:
+            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+
+        for o in overlaps["t"]:
+
+            t0 = o[0]
+            t1 = o[-1]
+            start = evaluate_nurbs_curve(curve, t0, d_order=0)
+            end = evaluate_nurbs_curve(curve, t1, d_order=0)
+
+
+
+
+
+
+
+
+            viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
+
+            points=[]
+            ders=[]
+            offset=1
+
+            pts=np.linspace(t0,t1,500)
+            for t in pts:
+
+                evl=evaluate_nurbs_curve(curve,t,d_order=0)
+                viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
+
+    viewer.run()
 
 
 except ModuleNotFoundError as err:
