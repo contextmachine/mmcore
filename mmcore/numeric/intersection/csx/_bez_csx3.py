@@ -764,56 +764,167 @@ def confirm_overlap_span(
             return False
         return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
 
-    for tt in t_samples:
-        tt = float(clamp01(tt))
-        t_fix, u_seed, v_seed, Gp, ok = project_G0(
+    def _project_fixed_t(tt, uu, vv):
+        t_fix, uu, vv, Gp, _ok = project_G0(
             C,
             S,
             tt,
-            u_seed,
-            v_seed,
+            uu,
+            vv,
             fixed=(True, False, False),
             tol=tol_proj,
             rational=rational,
         )
-        if (not ok) or np.linalg.norm(Gp) > tol_conf:
-            return None
-        Gc, Jc = G_and_J_curve_surface(C, S, t_fix, u_seed, v_seed, rational=rational)
+        return t_fix, uu, vv, Gp
+
+    def _check_overlap_at_t(tt, uu, vv):
+        t_fix, uu, vv, Gp = _project_fixed_t(tt, uu, vv)
+        if np.linalg.norm(Gp) > tol_conf:
+            return False, uu, vv, t_fix
+        Gc, Jc = G_and_J_curve_surface(C, S, t_fix, uu, vv, rational=rational)
         # Guard against parametric degeneracy: if surface normal is near zero,
         # J becomes rank-deficient for reasons unrelated to overlap.
-        s_pt, su, sv = eval_bezier_surface_and_derivs(S, u_seed, v_seed, rational=rational)
+        s_pt, su, sv = eval_bezier_surface_and_derivs(S, uu, vv, rational=rational)
         n = np.cross(su, sv)
         if np.linalg.norm(n) < 1e-12:
-            return None
+            return False, uu, vv, t_fix
         if (not overlap_like_svd(Jc, sv_thresh=sv_thresh, rel_thresh=rel_thresh)) and (
-            not check_tangent(t_fix, u_seed, v_seed)
+            not check_tangent(t_fix, uu, vv)
         ):
+            return False, uu, vv, t_fix
+        return True, uu, vv, t_fix
+
+    def _check_interval(t_a, t_b, uu, vv):
+        if not np.isfinite(t_a) or not np.isfinite(t_b):
+            return False, uu, vv
+        if abs(t_b - t_a) < 1e-14:
+            return False, uu, vv
+        for alpha in t_samples:
+            tt = float(clamp01(t_a + alpha * (t_b - t_a)))
+            ok, uu, vv, _ = _check_overlap_at_t(tt, uu, vv)
+            if not ok:
+                return False, uu, vv
+        return True, uu, vv
+
+    # First, check the ends of the segment.
+    t0, u0, v0, G0 = _project_fixed_t(0.0, u_seed, v_seed)
+    on0 = np.linalg.norm(G0) <= tol_conf
+    t1, u1, v1, G1 = _project_fixed_t(1.0, u0, v0)
+    on1 = np.linalg.norm(G1) <= tol_conf
+
+    # If both ends lie on the surface, confirm overlap across the full span.
+    if on0 and on1:
+        ok, u_seed, v_seed = _check_interval(0.0, 1.0, u0, v0)
+        if not ok:
             return None
+        x0 = eval_bezier_curve(C, 0.0, rational=rational)
+        x1 = eval_bezier_curve(C, 1.0, rational=rational)
+        return {
+            "t_path": np.asarray([0.0, 1.0], dtype=float),
+            "uv_path": np.asarray([(u0, v0), (u1, v1)], dtype=float),
+            "xyz_path": np.asarray([x0, x1], dtype=float),
+            "start": "boundary",
+            "end": "boundary",
+        }
 
-    # Compute endpoints
-    u0, v0 = u_seed, v_seed
-    t0, u0, v0, G0, ok0 = project_G0(
-        C, S, 0.0, u0, v0, fixed=(True, False, False), tol=tol_proj, rational=rational
+    # If at least one end does not lie on the surface, use boundary intersection.
+    iso_bnd, ovl_bnd = curve_surface_boundary_intersect(
+        C, S, sv_thresh=sv_thresh, atol=tol_conf, rational=rational
     )
-    if (not ok0) or np.linalg.norm(G0) > tol_conf:
+    # Deduplicate boundary points by t (boundary CCX can return identical endpoints).
+    if iso_bnd:
+        t_eps = max(1e-9, 1e-6 * tol_conf)
+        iso_bnd = sorted(iso_bnd, key=lambda it: it["t"])
+        iso_unique = [iso_bnd[0]]
+        for it in iso_bnd[1:]:
+            if abs(float(it["t"]) - float(iso_unique[-1]["t"])) > t_eps:
+                iso_unique.append(it)
+        iso_bnd = iso_unique
+    if ovl_bnd:
+        if len(ovl_bnd) > 1:
+            logger.error(
+                "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd)
+            )
+        ovl = dict(ovl_bnd[0])
+        ovl["partial"] = True
+        return ovl
+    if not iso_bnd:
+        # No boundary evidence of overlap for this span.
         return None
 
-    u1, v1 = u_seed, v_seed
-    t1, u1, v1, G1, ok1 = project_G0(
-        C, S, 1.0, u1, v1, fixed=(True, False, False), tol=tol_proj, rational=rational
-    )
-    if (not ok1) or np.linalg.norm(G1) > tol_conf:
-        return None
+    if on0 ^ on1:
+        if len(iso_bnd) == 2:
+            t_e = 0.0 if on0 else 1.0
+            # Drop a boundary point that coincides with the on-surface endpoint.
+            t_eps = max(1e-9, 1e-6 * tol_conf)
+            iso_bnd = [it for it in iso_bnd if abs(float(it["t"]) - t_e) > t_eps]
+        if len(iso_bnd) == 1:
+            bnd = iso_bnd[0]
+            t_e = 0.0 if on0 else 1.0
+            u_e, v_e = (u0, v0) if on0 else (u1, v1)
+            t_b = float(bnd["t"])
+            t_start, t_end = (t_e, t_b) if t_e <= t_b else (t_b, t_e)
+            ok, u_seed, v_seed = _check_interval(t_start, t_end, u_e, v_e)
+            if not ok:
+                return None
+            # Endpoints from surface or boundary intersection
+            if t_start == t_e:
+                uv_start = (u_e, v_e)
+                uv_end = (float(bnd["u"]), float(bnd["v"]))
+            else:
+                uv_start = (float(bnd["u"]), float(bnd["v"]))
+                uv_end = (u_e, v_e)
+            x_start = eval_bezier_curve(C, t_start, rational=rational)
+            x_end = eval_bezier_curve(C, t_end, rational=rational)
+            return {
+                "t_path": np.asarray([t_start, t_end], dtype=float),
+                "uv_path": np.asarray([uv_start, uv_end], dtype=float),
+                "xyz_path": np.asarray([x_start, x_end], dtype=float),
+                "start": "boundary",
+                "end": "boundary",
+                "partial": True,
+            }
+        logger.error(
+            "Span confirm: one endpoint on surface, boundary intersects=%d (expected 1).",
+            len(iso_bnd),
+        )
+        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm")
 
-    x0 = eval_bezier_curve(C, 0.0, rational=rational)
-    x1 = eval_bezier_curve(C, 1.0, rational=rational)
-    return {
-        "t_path": np.asarray([0.0, 1.0], dtype=float),
-        "uv_path": np.asarray([(u0, v0), (u1, v1)], dtype=float),
-        "xyz_path": np.asarray([x0, x1], dtype=float),
-        "start": "boundary",
-        "end": "boundary",
-    }
+    if not on0 and not on1:
+        if len(iso_bnd) == 2:
+            bnd_sorted = sorted(iso_bnd, key=lambda it: it["t"])
+            t_start = float(bnd_sorted[0]["t"])
+            t_end = float(bnd_sorted[1]["t"])
+            ok, u_seed, v_seed = _check_interval(
+                t_start, t_end, float(bnd_sorted[0]["u"]), float(bnd_sorted[0]["v"])
+            )
+            if not ok:
+                return None
+            uv_start = (float(bnd_sorted[0]["u"]), float(bnd_sorted[0]["v"]))
+            uv_end = (float(bnd_sorted[1]["u"]), float(bnd_sorted[1]["v"]))
+            x_start = eval_bezier_curve(C, t_start, rational=rational)
+            x_end = eval_bezier_curve(C, t_end, rational=rational)
+            return {
+                "t_path": np.asarray([t_start, t_end], dtype=float),
+                "uv_path": np.asarray([uv_start, uv_end], dtype=float),
+                "xyz_path": np.asarray([x_start, x_end], dtype=float),
+                "start": "boundary",
+                "end": "boundary",
+                "partial": True,
+            }
+        logger.error(
+            "Span confirm: no endpoints on surface, boundary intersects=%d (expected 2).", len(iso_bnd)
+        )
+        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm")
+
+    logger.error(
+        "Span confirm: unexpected boundary state (on0=%s, on1=%s, iso=%d, ovl=%d).",
+        on0,
+        on1,
+        len(iso_bnd),
+        len(ovl_bnd),
+    )
+    raise RuntimeError("Unexpected span-confirm boundary state")
 
 # ---------------------------------------------------------------------------
 # Overlap tracing along curve parameter
@@ -1705,6 +1816,7 @@ def bezier_curve_surface_intersect_certified(
     rational: bool | None = None,
     angle_tol: float = 0.01,
     max_depth: int = 60,
+    overlap_dist_tol: float | None = None,
 ) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve & surface.
 
@@ -1724,6 +1836,10 @@ def bezier_curve_surface_intersect_certified(
         Angular tolerance for overlap tracing (rad).
     max_depth : int, optional
         Safety cap on subdivision depth.
+    overlap_dist_tol : float, optional
+        Absolute distance tolerance for considering a span "overlapping".
+        Only affects span-level overlap confirmation; tangency and rank
+        criteria still apply.
     """
 
     if rational is None:
@@ -1733,6 +1849,8 @@ def bezier_curve_surface_intersect_certified(
     # points then the overlap is taken as the entire span. We intentionally
     # DO NOT extend across knot spans (continuity drops below C∞), and we also
     # reject degenerate surface normals to avoid false overlaps at singularities.
+    # If overlap_dist_tol is provided, only the distance threshold is relaxed;
+    # tangency/rank criteria are still required for confirmation.
     def _bbox_diag_len(Cc, Ss):
         ec = dehomogenize_ctrl(Cc, rational=rational)
         es = dehomogenize_ctrl(Ss, rational=rational).reshape(-1, ec.shape[-1])
@@ -1743,6 +1861,10 @@ def bezier_curve_surface_intersect_certified(
     span_scale = _bbox_diag_len(C, S)
     span_tol_proj = max(1e-12, 1e-10 * span_scale)
     span_tol_conf = max(5.0 * span_tol_proj, 1e-9 * span_scale)
+    if overlap_dist_tol is not None:
+        overlap_dist_tol = float(overlap_dist_tol)
+        if overlap_dist_tol > 0.0:
+            span_tol_conf = max(span_tol_proj, overlap_dist_tol)
     span_overlap = confirm_overlap_span(
         C,
         S,
@@ -1753,15 +1875,23 @@ def bezier_curve_surface_intersect_certified(
         rational=rational,
         rel_thresh=1e-6,
     )
+    pre_overlaps: list["OverlapIntersection"] = []
+    stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
     if span_overlap is not None:
-        stats = IntersectionStats(cells=1, pruned=0, overlap_traces=1, pruned_by=["span_confirm"])
-        return IntersectionResult(isolated=[], overlaps=[span_overlap], stats=stats)
+        if span_overlap.get("partial"):
+            span_overlap = {k: v for k, v in span_overlap.items() if k != "partial"}
+            pre_overlaps.append(span_overlap)
+            stats = IntersectionStats(
+                cells=0, pruned=0, overlap_traces=1, pruned_by=["span_confirm_partial"]
+            )
+        else:
+            stats = IntersectionStats(cells=1, pruned=0, overlap_traces=1, pruned_by=["span_confirm"])
+            return IntersectionResult(isolated=[], overlaps=[span_overlap], stats=stats)
     #isolated,overlaps=curve_surface_boundary_intersect(C,S,rational=rational,atol=atol,sv_thresh=sv_thresh)
     #print(isolated)
     #print(overlaps)
     isolated: list["IsolatedIntersection"] = []
-    overlaps: list["OverlapIntersection"] = []
-    stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
+    overlaps: list["OverlapIntersection"] = pre_overlaps
 
     atol_sq = atol * atol
 
@@ -2129,7 +2259,7 @@ if __name__ == "__main__":
             table.add_column(oracle_name, style="default")
             table.add_column("match", justify="left", style="bold")
             matches = []
-            print(inter1["isolated"])
+            #print(inter1["isolated"])
             for first, second in itertools.zip_longest(
                 sorted(inter1["isolated"], key=lambda x: x["u"]), sorted(inter2["isolated"], key=lambda x: x["u"])
             ):

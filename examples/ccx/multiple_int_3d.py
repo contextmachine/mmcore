@@ -203,7 +203,7 @@ args=parser.parse_args()
 
 
 isolated,overlaps=nurbs_ccx_multiple(val,tol=1e-3)
-print(isolated['point'].tolist())
+#print(isolated['point'].tolist())
 if args.no_display:
     print(isolated)
     print(overlaps)
