@@ -1923,9 +1923,45 @@ def bezier_curve_surface_intersect_certified(
                 return True
         return False
 
+    def _overlap_range(ov):
+        t_vals = np.asarray(ov["t_path"], dtype=float)
+        return float(np.min(t_vals)), float(np.max(t_vals))
+
+    def _overlap_duplicate(new_ov, existing, tol=1e-6):
+        if not existing:
+            return False
+        t0, t1 = _overlap_range(new_ov)
+        x0 = new_ov["xyz_path"][0]
+        x1 = new_ov["xyz_path"][-1]
+        for ov in existing:
+            a0, a1 = _overlap_range(ov)
+            if (t0 >= a0 - tol) and (t1 <= a1 + tol):
+                y0 = ov["xyz_path"][0]
+                y1 = ov["xyz_path"][-1]
+                if (np.linalg.norm(x0 - y0) <= tol) and (np.linalg.norm(x1 - y1) <= tol):
+                    return True
+        return False
+
+    def _cell_inside_overlap(t0_cell, t1_cell, overlaps_list, tol=1e-6):
+        if not overlaps_list:
+            return False
+        t_min_c = min(t0_cell, t1_cell)
+        t_max_c = max(t0_cell, t1_cell)
+        for ov in overlaps_list:
+            t_min, t_max = _overlap_range(ov)
+            if (t_min - tol) <= t_min_c and (t_max + tol) >= t_max_c:
+                return True
+        return False
+
     while stack:
         Pseg, Sseg, dn, dtn, dun, dvn, t0, t1, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
+
+        # Skip cells fully covered by an already-confirmed overlap.
+        if _cell_inside_overlap(t0, t1, overlaps, tol=atol):
+            stats["pruned"] += 1
+            stats["pruned_by"].append("overlap_covered")
+            continue
 
         if depth > max_depth:
             stats["pruned"] += 1
@@ -2014,16 +2050,16 @@ def bezier_curve_surface_intersect_certified(
             uv_path_g = [
                 (u0 + (u1 - u0) * uv[0], v0 + (v1 - v0) * uv[1]) for uv in res["uv_path"]
             ]
-            overlaps.append(
-                {
-                    "t_path": np.asarray(t_path_g),
-                    "uv_path": np.asarray(uv_path_g),
-                    "xyz_path": np.asarray(res["xyz_path"]),
-                    "start": res["start"],
-                    "end": res["end"],
-                }
-            )
-            stats["overlap_traces"] += 1
+            new_ov = {
+                "t_path": np.asarray(t_path_g),
+                "uv_path": np.asarray(uv_path_g),
+                "xyz_path": np.asarray(res["xyz_path"]),
+                "start": res["start"],
+                "end": res["end"],
+            }
+            if not _overlap_duplicate(new_ov, overlaps, tol=atol):
+                overlaps.append(new_ov)
+                stats["overlap_traces"] += 1
             continue
 
         if res["type"] == "isolated" and not has_known_iso:
