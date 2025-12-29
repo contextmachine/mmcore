@@ -1507,7 +1507,7 @@ def de_casteljau_restrict_multi_nd(
     def _norm(ax: int) -> int:
         return ax + param_ndim if ax < 0 else ax
     
-    print(axes, t)
+    #print(axes, t)
     axes_norm = tuple(_norm(ax) for ax in axes)
     if any((ax < 0 or ax >= param_ndim) for ax in axes_norm):
         raise ValueError(f"All axes must be in [0, {param_ndim - 1}] among parametric axes.")

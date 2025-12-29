@@ -33,7 +33,7 @@ def parametric_arc_length(func, t_start, t_end, dt=1e-3):
     num_points = len(t_values)-1
 
     # Calculate the derivatives using finite differences
-    print(dt)
+    #print(dt)
     arc_length = 0.
     for i in range(num_points):
         derivative = (np.array(func(t_values[i + 1])) - np.array(func(t_values[i]))) / dt

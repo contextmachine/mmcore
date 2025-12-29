@@ -199,7 +199,7 @@ def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points
 
     # Parametric cap to avoid huge jumps at inflections / κ≈0
     du_cap = ptol
-    print(ptol)
+
     tiny = np.finfo(float).eps
     grev=nurbs_ders_greville_abscissae(crv.knot,crv.order-1)
     next_grev=1

@@ -568,7 +568,7 @@ def insert_knot_curve(curve:NURBSCurveTuple,u:float, num:int=1):
         return NURBSCurveTuple(curve.order, knot=np.array(kv_new), 
                               control_points=new_control_points_xyz, 
                               weights=weights)
-    
+    #print(new_control_points)
     return NURBSCurveTuple(curve.order, knot=np.array(kv_new), control_points=np.array(new_control_points),weights=np.ones(len(new_control_points)))
 
 

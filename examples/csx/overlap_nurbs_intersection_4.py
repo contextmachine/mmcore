@@ -84,13 +84,12 @@ if isolated is not None:
 print('overlaps:')
 if overlaps is not None:
     rich.print(overlaps['point'].tolist())
-from mmcore.numeric.algorithms.tnb import frenet_serret_frame, frenet_serret_frame_from_ders
 
 try:
     from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
     viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
     primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
-    srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1))
+    srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.05),)
     if isolated is not None:
         for pt in isolated['point']:
 
@@ -101,7 +100,7 @@ try:
             viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
             viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
         for o in overlaps['t']:
-            print(o)
+            #print(o)
             t0 = o[0]
             t1 = o[-1]
             viewer.add(trim_curve(curve,curve.interval()[0],t0),color=(0.9, 0.9, 0.9, 1.0))

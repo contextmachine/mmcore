@@ -1057,6 +1057,13 @@ def _aabb_euclidean(ctrl, rational: bool | None = None):
     return aabb(dehomogenize_ctrl(ctrl, rational=rational))
 
 
+def _inflate_aabb(bb, eps: float):
+    bb = np.asarray(bb, dtype=float).copy()
+    bb[0] -= eps
+    bb[1] += eps
+    return bb
+
+
 def _min_positive_weight(ctrl, eps=1e-16, rational: bool | None = None):
     if not is_homogeneous_ctrl(ctrl, rational=rational):
         return 1.0
@@ -1478,17 +1485,22 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
                 return True
         return False
 
-    scale = float(np.linalg.norm(np.array(_aabb_euclidean(C1, rational=rational)[1]) -
-                                 np.array(_aabb_euclidean(C1, rational=rational)[0])))
+    scale = float(
+        np.linalg.norm(
+            np.array(_aabb_euclidean(C1, rational=rational)[1])
+            - np.array(_aabb_euclidean(C1, rational=rational)[0])
+        )
+    )
     if scale == 0:
         scale = 1.0
+    eps_bbox = max(atol, 1e-12 * scale)
 
 
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
-        box1 = _aabb_euclidean(Pseg, rational=rational)
-        box2 = _aabb_euclidean(Qseg, rational=rational)
+        box1 = _inflate_aabb(_aabb_euclidean(Pseg, rational=rational), eps_bbox)
+        box2 = _inflate_aabb(_aabb_euclidean(Qseg, rational=rational), eps_bbox)
         #print((u0, u1, v0, v1))
         if not aabb_intersect(box1, box2):
             #print((u0, u1), (v0, v1),box1,box2)
@@ -1496,10 +1508,11 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
             stats["pruned_by"].append("bbox_inter")
             continue
 
+        eps_sign = max(1e-12, atol)
         if not rational:
             Fst=Pseg[:,np.newaxis,:]- Qseg[np.newaxis,:,:]
 
-            cert=all([Fst[..., dimm].min() <= 0 and Fst[..., dimm].max() >= 0 for dimm in range(Fst.shape[-1])])
+            cert=all([Fst[..., dimm].min() <= eps_sign and Fst[..., dimm].max() >= -eps_sign for dimm in range(Fst.shape[-1])])
 
         else:
             Ph = Pseg  # (m+1, 4)
@@ -1512,7 +1525,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
             Ph_xyz = Ph[:, :-1][:, np.newaxis, :]  # (m+1, 1, 3)
             Qh_xyz = Qh[:, :-1][np.newaxis, :, :]  # (1, n+1, 3)
             Fst = Ph_xyz * w2_ij - Qh_xyz * w1_ij
-            eps=np.finfo(float).eps
+            eps= max(np.finfo(float).eps, eps_sign)
             cert = all(Fst[..., d].min() <= eps and Fst[..., d].max() >= -eps
                        for d in range(Fst.shape[-1]))
         if not cert:

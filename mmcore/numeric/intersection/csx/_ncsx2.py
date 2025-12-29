@@ -159,8 +159,10 @@ def _dedup_isolated_by_t(points, t_tol: float, closed: bool, t_min: float, t_max
 def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float = 1e-3, **kwargs):
     if "atol" in kwargs and kwargs["atol"] is not None:
         tol = kwargs["atol"]
+    overlap_dist_tol = kwargs.pop("overlap_dist_tol", tol)
 
     curves = decompose_curve(curve)
+
     surfaces = decompose_surface(surface)
 
     bvh1 = build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves])
@@ -169,6 +171,7 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
     overlaps_t,overlaps_u, overlaps_v, overlaps_xyz = [],[], [], []
 
     rational = any((_is_rational(surface), _is_rational(curve)))
+
 
     for a, b in bvh_intersect(bvh1, bvh2, exact=False):
         _c1 = curves[a.object]
@@ -183,7 +186,14 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
         # print(tol)
         (t0, t1) =_c1.interval()
         (u0, v0), (u1, v1) = _c2.interval()
-        result = bezier_curve_surface_intersect_certified(pts1, pts2, atol=tol, rational=rational)
+
+        result = bezier_curve_surface_intersect_certified(
+            pts1,
+            pts2,
+            atol=tol,
+            rational=rational,
+            overlap_dist_tol=overlap_dist_tol,
+        )
         if len(result["isolated"]) == 0 and len(result["overlaps"]) == 0:
             # print(set(result['stats']['pruned_by']))
             # print(pts1.tolist(),pts2.tolist())
@@ -209,7 +219,6 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
             overlaps_u.append((u_start_loc,u_end_loc))
             overlaps_v.append((v_start_loc,v_end_loc))
             overlaps_xyz.append(overlap["xyz_path"][(0, -1), :])
-
 
     t_min, t_max = curve.interval()
     t_tol = nurbs_curve_param_tolerance(curve, tol)

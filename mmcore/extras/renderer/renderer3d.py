@@ -11,10 +11,11 @@ import glfw
 from OpenGL.GL import *
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d, \
-    NURBSSurfaceTuple
+    NURBSSurfaceTuple, _tuple_to_nurbs
 from mmcore.geom._nurbs_knots import decompose_curve
 from mmcore.geom.nurbs_iso import extract_surface_boundaries,extract_isocurve
 from mmcore.numeric.approx import adaptive_curve_sampler
+from mmcore.topo.mesh.tess import surface_to_mesh
 
 
 # =========================
@@ -484,6 +485,8 @@ class Viewer:
             return self._add_curve(obj,*args,**kwargs)
         elif isinstance(obj,NURBSCurveTuple):
             return self._add_nurbs_curve(obj,*args,**kwargs)
+        elif isinstance(obj,NURBSSurfaceTuple):
+            return self.add_nurbs_surface(obj,*args,**kwargs)
         elif isinstance(obj,np.ndarray):
             if len(obj.shape)==2 and 'rational' in kwargs:
                 return self.add_bern_curve(obj,*args,**kwargs)
@@ -534,6 +537,8 @@ class Viewer:
         self.loc_uCrossThickPx = glGetUniformLocation(self.program, "uCrossThickPx")
 
         glEnable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_PROGRAM_POINT_SIZE)
         self._rebuild_viewport()
 
@@ -556,6 +561,7 @@ class Viewer:
         self.points=[]
         # GL buffers (recreated when curves change)
         self.lines = []  # list of (vao, vbo, nverts, color)
+        self.meshes = []  # list of (vao, vbo, ebo, index_count, color)
     @property
     def snap_px(self):
         return self.settings.snap.snap_px
@@ -610,6 +616,32 @@ class Viewer:
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
         self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
         return l
+
+    def _add_surface_mesh(self, surface, color=(0.6, 0.6, 0.7, 0.05), tol=0.01):
+        surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
+        mesh = surface_to_mesh(surf, tol=tol)
+        vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
+        faces = np.ascontiguousarray(mesh["faces"], dtype=np.uint32)
+        if vertices.size == 0 or faces.size == 0:
+            return None
+        if len(color) == 3:
+            color = (*color, 0.25)
+        color = np.array(color, dtype=np.float32)
+
+        vao = glGenVertexArrays(1)
+        glBindVertexArray(vao)
+        vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, faces.nbytes, faces, GL_STATIC_DRAW)
+
+        self.meshes.append((vao, vbo, ebo, faces.size, color))
+        return len(self.meshes) - 1
 
     def add_bern_curve(self, arr,*args, rational:bool=False,**kwargs):
         if not rational:
@@ -670,6 +702,15 @@ class Viewer:
     def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
         return self._add_nurbs_curve(curve, color, *args, **kwargs)
     def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),u_count=1,v_count=1,*args,**kwargs):
+        shade = kwargs.pop("shade", True)
+        surface_color = kwargs.pop("surface_color", None)
+        surface_alpha = kwargs.pop("surface_alpha", 0.25)
+        surface_tol = kwargs.pop("surface_tol", 0.01)
+        if shade:
+            if surface_color is None:
+                base = color[:3] if len(color) >= 3 else (1.0, 1.0, 1.0)
+                surface_color = (base[0], base[1], base[2], surface_alpha)
+            self._add_surface_mesh(surface, color=surface_color, tol=surface_tol)
         (u0,u1),(v0,v1) = surface.interval()
         umid,vmid=(u1-u0)*0.5+u0, (v1-v0)*0.5+v0
         us=np.linspace(u0,u1,u_count+2)[1:][:-1]
@@ -709,6 +750,22 @@ class Viewer:
             glUniform1f(self.loc_uPointSize, 1.0)
             glUniform1f(self.loc_uBorderPx, 0.0)
             glDrawArrays(GL_LINE_STRIP, 0, nverts)
+
+    def _draw_surfaces(self):
+        if not self.meshes:
+            return
+        glUseProgram(self.program)
+        glUniform1i(self.loc_uMode, 0)
+        glUniform1f(self.loc_uPtSize, 1.0)
+        glUniform1f(self.loc_uPointSize, 1.0)
+        glUniform1f(self.loc_uBorderPx, 0.0)
+        glDepthMask(GL_FALSE)
+        for (vao, vbo, ebo, index_count, color) in self.meshes:
+            glBindVertexArray(vao)
+            glUniform4fv(self.loc_uColor, 1, color)
+            glUniform4fv(self.loc_uBorderColor, 1, color)
+            glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, None)
+        glDepthMask(GL_TRUE)
 
     def _draw_point(self, pos_world: np.ndarray, size_px=7.0, color=(1.0, 1.0, 0.0, 1.0), *,
                     border_color=None, border_px: float = 0.0, mode: int = 0,
@@ -800,6 +857,7 @@ class Viewer:
             # Draw
             glClearColor(0.07, 0.07, 0.08, 1.0)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            self._draw_surfaces()
             self._draw_lines()
             for point_arr,color,size_px in self.points:
                 self._draw_point(point_arr,
@@ -815,6 +873,10 @@ class Viewer:
         # Cleanup
         for (vao, vbo, _, _) in self.lines:
             glDeleteBuffers(1, [vbo])
+            glDeleteVertexArrays(1, [vao])
+        for (vao, vbo, ebo, _, _) in self.meshes:
+            glDeleteBuffers(1, [vbo])
+            glDeleteBuffers(1, [ebo])
             glDeleteVertexArrays(1, [vao])
         glfw.terminate()
 
