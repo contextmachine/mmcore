@@ -1,11 +1,11 @@
 from __future__ import annotations
-
+IN_RHINO = False
 
 from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, NURBSCurveTuple, to_homogeneous_1d,NURBSSurfaceTuple,to_homogeneous_2d, \
     from_homogeneous_2d
 try:
     import Rhino.Geometry as rg
-    
+    IN_RHINO = True
 except ImportError:
     import rhino3dm as rg
 import numpy as np
@@ -21,9 +21,6 @@ def rhcurve_to_nt(x:rg.Curve)->NURBSCurveTuple:
     knots = [knots[0]] + knots + [knots[-1]]
     order = nx.Order
     return NURBSCurveTuple(order, np.array(knots), np.array(pts), np.array(w))
-
-
-
 
 
 def nt_to_rhcurve(nt: NURBSCurveTuple)->rg.NurbsCurve:
@@ -90,18 +87,30 @@ def nt_to_rhsurf(nt:NURBSSurfaceTuple)->rg.NurbsSurface:
     rational = True
 
     crv = rg.NurbsSurface.Create(3, rational, order_u, order_v, u_count, v_count)
+    if IN_RHINO:
+        for i in range(crv.KnotsU.Count):
 
-    for i in range(crv.KnotsU.Count):
+            crv.KnotsU[i] = knots_u[i]
 
-        crv.KnotsU[i] = knots_u[i]
+        for i in range(crv.KnotsV.Count):
 
-    for i in range(crv.KnotsV.Count):
+            crv.KnotsV[i] = knots_v[i]
+    else:
+        for i in range(len(crv.KnotsU)):
 
-        crv.KnotsV[i] = knots_v[i]
+            crv.KnotsU[i] = knots_u[i]
+
+        for i in range(len(crv.KnotsV)):
+
+            crv.KnotsV[i] = knots_v[i]
     for i in range(crv.Points.CountU):
         for j in range(crv.Points.CountV):
+            if IN_RHINO:
+                crv.Points.SetPoint(i, j, rg.Point3d(*cpts[i][j][:3]))
+            else:
+                print('crv')
+                crv.Points[i][j] = rg.Point3d(*cpts[i][j][:3])
 
-            crv.Points.SetPoint(i, j, rg.Point3d(*cpts[i][j][:3]))
             if rational:
                 crv.Points.SetWeight(i, j, cpts[i][j][-1])
 
@@ -118,4 +127,3 @@ def rhsurf_to_nt(x:rg.Surface)->NURBSSurfaceTuple:
     ov = nx.OrderV
     cpt, ws = from_homogeneous_2d(np.array(pts).reshape((nx.Points.CountU, nx.Points.CountV, 4)))
     return NURBSSurfaceTuple(ou, ov, knot_u=np.array(ku), knot_v=np.array(kv), control_points=cpt, weights=ws)
-    
