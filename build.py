@@ -61,6 +61,13 @@ if sys.platform == "win32":
 
 extensions = [
     Extension(
+        "mmcore.numeric._cap_witness",
+        ["mmcore/numeric/_cap_witness.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
         "mmcore.numeric.cbern",
         ["mmcore/numeric/cbern.pyx"],
         extra_compile_args=compile_args,

@@ -434,7 +434,7 @@ if __name__ == "__main__":
     from mmcore.numeric.intersection.csx import nurbs_csx
 
     S1, S2 = td[1]
-    TOL = 1e-2
+    TOL = 1e-3
     import time
 
     s = time.perf_counter_ns()
@@ -452,8 +452,8 @@ if __name__ == "__main__":
         else:
             fff.append((ip.tolist(), jp.tolist()))
 
-    with open("../../tests/norm1.txt", "w") as f:
-        print(fff, file=f)
+    #with open("../../tests/norm1.txt", "w") as f:
+    #    print(fff, file=f)
 
     S1, S2 = td[2]
 
@@ -512,7 +512,7 @@ if __name__ == "__main__":
                     ptss.append(c.evaluate(oo[2][0]).tolist())
     print((time.perf_counter_ns() - s) * 1e-9)
 
-    with open("../../tests/norm2.txt", "w") as f:
-        print(fff, file=f)
+    #with open("../../tests/norm2.txt", "w") as f:
+    #    print(fff, file=f)
 
     print(ptss)

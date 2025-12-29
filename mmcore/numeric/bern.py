@@ -1361,6 +1361,7 @@ def de_casteljau_subdivide_2d(control_points, u, v):
 
     return np.asarray(tuple(gen()))
 
+
 import numpy as np
 from typing import Sequence, Tuple
 
