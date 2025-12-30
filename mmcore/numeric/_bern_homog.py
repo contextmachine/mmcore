@@ -308,6 +308,7 @@ def eval_bezier_surface_homog_with_derivs(Pw: np.ndarray, u: float, v: float, wa
         Shuv : (d_h,) mixed partial
         Shvv : (d_h,) second partial wrt v
     """
+
     Pw = np.asarray(Pw, dtype=float, order="C")
     u = float(u)
     v = float(v)

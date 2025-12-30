@@ -393,6 +393,7 @@ def evaluate_nurbs_surface(surface:NURBSSurfaceTuple, u, v, d_order=2)->Evaluate
     nv = len(surface1.control_points[0])
     U = surface1.knot_u[:]  # assume these are already lists/numpy arrays
     V = surface1.knot_v[:]
+
     span_u = _find_span_linear(p, U, nu, u)
     span_v = _find_span_linear(q, V, nv, v)
     # print(p, U, span_u, u, d_order)
@@ -712,13 +713,13 @@ def _join_weights(pts,weights):
 def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
     if isinstance(s1,nurbs.NURBSSurface):
         
-        surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=s1.knots_u.tolist(),
-                              knot_v=s1.knots_v.tolist(), control_points=np.array(s1.control_points),
+        surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=np.array(s1.knots_u),
+                              knot_v=np.array(s1.knots_v), control_points=np.array(s1.control_points),
                               weights=np.ascontiguousarray(s1.control_points_w[..., -1]))
         return surf1
     elif isinstance(s1,nurbs.NURBSCurve):
         cpts,weights=from_homogeneous_1d(np.array(s1.control_pointsw))
-        curve1 = NURBSCurveTuple(order=s1.degree + 1,knot=s1.knots.tolist(),
+        curve1 = NURBSCurveTuple(order=s1.degree + 1,knot=np.array(s1.knots),
                                   control_points=cpts,
                                   weights=weights)
         return curve1

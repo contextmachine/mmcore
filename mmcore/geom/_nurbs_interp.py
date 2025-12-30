@@ -105,7 +105,7 @@ def _remove_adjacent_duplicates(points, tol=1e-5):
     return points[mask]
 
 from typing import Literal
-def interpolate_curve(points, degree,  use_centripetal=False, method:Literal['lstsq','lu']='lstsq',remove_duplicates:bool=False,tol=1e-6):
+def interpolate_curve(points, degree,  use_centripetal=False, method:Literal['lstsq','lu']='lstsq',remove_duplicates:bool=False,tol=1e-6,params=None):
     """ Curve interpolation through the data points.
 
     Please refer to Algorithm A9.1 on The NURBS Book (2nd Edition), pp.369-370 for details.
@@ -119,7 +119,12 @@ def interpolate_curve(points, degree,  use_centripetal=False, method:Literal['ls
     num_points = len(points)
 
     # Get uk
-    uk,total_chord_length = compute_params_curve(points, use_centripetal)
+    if params is None:
+
+        uk,total_chord_length = compute_params_curve(points, use_centripetal)
+    else:
+        uk = params
+
 
     # Compute knot vector
     kv = compute_knot_vector(degree, num_points, uk)

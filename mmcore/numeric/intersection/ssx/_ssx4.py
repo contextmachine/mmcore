@@ -2,22 +2,28 @@ from __future__ import annotations
 
 import functools
 import pickle
+from dataclasses import dataclass
 
-import numpy as np
-from numpy.typing import NDArray
-
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple
+from mmcore.geom._nurbs_eval import (
+    NURBSCurveTuple,
+    _nurbs_to_tuple,
+    _surface_interval,
+)
+from mmcore.numeric.intersection.ssx.trace_inter_segm import _from_homogeneous, _to_homogeneous, _eval_tensor_bezier, \
+    _derivative_net_u, _derivative_net_v,trace_between
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom._nurbs_knots import decompose_surface
+from mmcore.geom._nurbs_knots import decompose_surface, link_curves, reverse_curve
 from mmcore.numeric._aabb import aabb, aabb_intersect_fast_3d, aabb_intersection
 from mmcore.numeric.algorithms.cygjk import gjk
 from mmcore.numeric.vectors import unit
 from mmcore.numeric.gauss_map import compute_gauss_map_rational
+from mmcore.numeric.intersection.csx._bez_csx3 import bez_csx
+from mmcore.numeric.intersection.ssx._ssx31 import refine_intersection_point
 from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
 TIME_PROF_PRINT=False
 def time_prof(func) :
@@ -38,61 +44,10 @@ def time_prof(func) :
 # Homogeneous helpers (FIXED)
 # ======================================================================================
 
-def _from_homogeneous(H: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    H = np.asarray(H, dtype=np.float64)
-    w = H[..., -1]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        P = H[..., :-1] / w[..., None]
-    return P, w
-
-
-def _to_homogeneous(P: NDArray[np.float64], w: NDArray[np.float64]) -> NDArray[np.float64]:
-    P = np.asarray(P, dtype=np.float64)
-    w = np.asarray(w, dtype=np.float64)
-    if P.shape[:-1] != w.shape:
-        raise ValueError(f"weights shape {w.shape} must match control_points[...,0] shape {P.shape[:-1]}")
-    return np.concatenate((P * w[..., None], w[..., None]), axis=-1)
-
 
 # ======================================================================================
 # Tensor-product Bezier evaluation + 1D splits
 # ======================================================================================
-
-def _eval_tensor_bezier(ctrl: NDArray[np.float64], u: float, v: float) -> NDArray[np.float64]:
-    """
-    Evaluate tensor-product Bezier control net at (u,v) using de Casteljau.
-    ctrl: (p+1, q+1, dim)
-    """
-    B = np.array(ctrl, dtype=np.float64, copy=True)
-    p = B.shape[0] - 1
-    q = B.shape[1] - 1
-
-    # de Casteljau in u (vectorized over v,dim)
-    omt = 1.0 - u
-    for r in range(1, p + 1):
-        B[: p - r + 1] = omt * B[: p - r + 1] + u * B[1 : p - r + 2]
-
-    # de Casteljau in v on the reduced curve
-    C = B[0].copy()  # (q+1, dim)
-    omt = 1.0 - v
-    for r in range(1, q + 1):
-        C[: q - r + 1] = omt * C[: q - r + 1] + v * C[1 : q - r + 2]
-
-    return C[0]
-
-
-def _derivative_net_u(H: NDArray[np.float64]) -> NDArray[np.float64]:
-    p = H.shape[0] - 1
-    if p <= 0:
-        return np.zeros((1, H.shape[1], H.shape[2]), dtype=np.float64)
-    return p * (H[1:, :, :] - H[:-1, :, :])
-
-
-def _derivative_net_v(H: NDArray[np.float64]) -> NDArray[np.float64]:
-    q = H.shape[1] - 1
-    if q <= 0:
-        return np.zeros((H.shape[0], 1, H.shape[2]), dtype=np.float64)
-    return q * (H[:, 1:, :] - H[:, :-1, :])
 
 
 def split_tensor_bezier_axis(net: NDArray[np.float64], t: float, axis: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -312,10 +267,6 @@ except Exception:
     hemisphere_witness_incremental_fast = hemisphere_witness_incremental  # fallback (your python version)
     print('using hemisphere_witness_incremental')
 # @time_prof
-import numpy as np
-
-import numpy as np
-import numpy as np
 
 import numpy as np
 
@@ -1036,7 +987,7 @@ def _refine_pair_to_simple(
         #    continue
         if depth >= max_depth:
             # give up refinement: still a potentially intersecting pair
-            from inspect import getlineno,currentframe ,getframeinfo
+            from inspect import currentframe ,getframeinfo
             frame=currentframe()
             frinfo=getframeinfo(frame)
 
@@ -1080,6 +1031,875 @@ def _refine_pair_to_simple(
                 stack.append((other, k, depth + 1))
 
     return out
+
+
+# ======================================================================================
+# SSX entities + helpers (branch / point assembly)
+# ======================================================================================
+
+@dataclass
+class SSXPoint:
+    stuv: NDArray[np.float64]  # (4,)
+
+
+@dataclass
+class SSXBranch:
+    curve: NURBSCurveTuple
+    closed: bool = False
+    overlap: bool = False
+
+
+def _param_tol_from(tol: float, spt: float) -> float:
+    # Prefer a slightly looser param tolerance than numeric solver tol.
+    return max(1e-6, 10.0 * float(tol), 0.1 * float(spt))
+
+
+def _map_uv_to_interval(uv: NDArray[np.float64], interval: tuple[float, float, float, float]) -> NDArray[np.float64]:
+    u0, u1, v0, v1 = interval
+    u = u0 + (u1 - u0) * float(uv[0])
+    v = v0 + (v1 - v0) * float(uv[1])
+    return np.array([u, v], dtype=np.float64)
+
+
+def _map_uv_path_to_interval(
+    uv_path: NDArray[np.float64],
+    interval: tuple[float, float, float, float],
+) -> NDArray[np.float64]:
+    u0, u1, v0, v1 = interval
+    uv = np.asarray(uv_path, dtype=np.float64)
+    out = np.empty_like(uv)
+    out[:, 0] = u0 + (u1 - u0) * uv[:, 0]
+    out[:, 1] = v0 + (v1 - v0) * uv[:, 1]
+    return out
+
+
+def _split_interval(
+    interval: tuple[float, float, float, float],
+    axis: str,
+    t: float,
+) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float], float]:
+    u0, u1, v0, v1 = interval
+    if axis == "u":
+        um = u0 + (u1 - u0) * t
+        return (u0, um, v0, v1), (um, u1, v0, v1), um
+    if axis == "v":
+        vm = v0 + (v1 - v0) * t
+        return (u0, u1, v0, vm), (u0, u1, vm, v1), vm
+    raise ValueError("axis must be 'u' or 'v'")
+
+
+def _split_interval_uv(
+    interval: tuple[float, float, float, float],
+    u: float,
+    v: float,
+) -> tuple[list[tuple[float, float, float, float]], tuple[float, float]]:
+    u0, u1, v0, v1 = interval
+    um = u0 + (u1 - u0) * u
+    vm = v0 + (v1 - v0) * v
+    # Order must match GaussMapBern.split_uv: (uL,vL), (uL,vR), (uR,vL), (uR,vR)
+    intervals = [
+        (u0, um, v0, vm),
+        (u0, um, vm, v1),
+        (um, u1, v0, vm),
+        (um, u1, vm, v1),
+    ]
+    return intervals, (um, vm)
+
+from mmcore.numeric.bern import bernstein_boundaries_2d
+def _boundary_curves_from_net(
+    H: NDArray[np.float64],
+) -> list[tuple[str, float, NDArray[np.float64]]]:
+    # Returns (axis, value, curve_net)
+    bnd=bernstein_boundaries_2d(H)
+    return [
+        ("u", 0.0, bnd[0]),
+        ("u", 1.0, bnd[1]),
+        ("v", 0.0, bnd[2]),
+        ("v", 1.0, bnd[3]),
+    ]
+
+
+def _boundary_uv(axis: str, value: float, t: float) -> NDArray[np.float64]:
+    if axis == "u":
+        return np.array([value, t], dtype=np.float64)
+    if axis == "v":
+        return np.array([t, value], dtype=np.float64)
+    raise ValueError("axis must be 'u' or 'v'")
+
+
+def _append_unique_point(points: list[SSXPoint], stuv: NDArray[np.float64], tol: float) -> None:
+    for p in points:
+        if np.max(np.abs(p.stuv - stuv)) <= tol:
+            return
+    points.append(SSXPoint(stuv=stuv))
+
+
+def _pair_points_by_nearest(points: list[SSXPoint]) -> tuple[list[tuple[int, int]], list[int]]:
+    n = len(points)
+    if n < 2:
+        return [], list(range(n))
+    unused = set(range(n))
+    pairs: list[tuple[int, int]] = []
+    while len(unused) >= 2:
+        i = min(unused)
+        unused.remove(i)
+        best_j = None
+        best_d = float("inf")
+        for j in unused:
+            d = float(np.linalg.norm(points[i].stuv - points[j].stuv))
+            if d < best_d:
+                best_d = d
+                best_j = j
+        if best_j is None:
+            break
+        unused.remove(best_j)
+        pairs.append((i, best_j))
+    return pairs, list(unused)
+
+
+def _curve_endpoints(curve: NURBSCurveTuple) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    return curve.start(), curve.end()
+
+
+def _finite_diff_derivatives(points: NDArray[np.float64]) -> NDArray[np.float64]:
+    pts = np.asarray(points, dtype=np.float64)
+    n = pts.shape[0]
+    ders = np.zeros_like(pts)
+    if n <= 1:
+        return ders
+    ders[0] = pts[1] - pts[0]
+    ders[-1] = pts[-1] - pts[-2]
+    if n > 2:
+        ders[1:-1] = 0.5 * (pts[2:] - pts[:-2])
+    return ders
+
+
+def _curve_from_stuv_path(stuv_path: NDArray[np.float64],ders=None) -> NURBSCurveTuple | None:
+    pts = np.asarray(stuv_path, dtype=np.float64)
+    if pts.shape[0] < 2:
+        return None
+    if ders is None:
+        ders = _finite_diff_derivatives(pts)
+
+    params = np.cumsum(np.linalg.norm(np.diff(pts, axis=0, prepend=pts[:1]), axis=1))
+    return hermite_interpolate_nurbs(points=pts, derivatives=ders, params=params, degree=3)
+def _get_pt_t(s1,s2,stuv):
+
+    S_eval= evaluate_nurbs_surface(s1, stuv[0], stuv[1], d_order=1)
+    T_eval = evaluate_nurbs_surface(s2, stuv[2], stuv[3], d_order=1)
+
+    Su = S_eval['Su']
+    Sv =  S_eval['Sv']
+    Tu =  T_eval['Su']
+    Tv = T_eval['Sv']
+    Sn = np.cross(Su, Sv)
+    Tn = np.cross(Tu, Tv)
+    Sn = Sn / np.linalg.norm(Sn)
+    Tn = Tn / np.linalg.norm(Tn)
+    T = np.cross(Sn, Tn)
+    T/= np.linalg.norm(T)
+    return  (S_eval['S'],Su,Sv),(T_eval['S'],Tu,Tv),T
+def duv_from_eval(Su, Sv, T):
+
+    # Form the Jacobian matrices for each surface (3x2).
+    J = np.column_stack((Su,Sv))
+
+    # Compute least-squares corrections using the pseudoinverse.
+
+    delta_uv = np.linalg.pinv(J) @ T
+    return delta_uv
+from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
+from mmcore.geom._nurbs_ders import _greville_abscissae
+def _param_space_tangent_data(s1,s2,stuv):
+    stuv_a=stuv
+
+    s1_eval_start, s2_eval_start, T_start = _get_pt_t(s1, s2, stuv_a)
+
+    dst_start = duv_from_eval(s1_eval_start[1], s1_eval_start[2], T_start)
+
+    duv_start = duv_from_eval(s2_eval_start[1], s2_eval_start[2], T_start)
+
+    dstuv_start = np.empty_like(stuv_a)
+    dstuv_start[:2] = dst_start
+    dstuv_start[2:] = duv_start
+    return s1_eval_start[0],s2_eval_start[0],dstuv_start
+
+
+def interp_param_space_hermite(  s1,
+    s2, stuvs_initial,tol=1e-3,maxiter=2):
+    stuvs=stuvs_initial
+    iters=0
+    curve = _curve_from_stuv_path(stuvs)
+    while iters<maxiter:
+        iters+=1
+
+        sqtol=tol*tol
+
+        # params = np.cumsum(np.linalg.norm(np.diff(real_points, axis=0, prepend=0), axis=1))
+
+        ga=_greville_abscissae(curve.knot,3)
+
+        max_err=-np.inf
+        stuvs=[]
+        ders=[]
+        prms=[]
+        for g ,prm,in ((evaluate_nurbs_curve(curve, i, d_order=0)["C"],i) for i in ga):
+            stuvs_new,s1_eval,s2_eval,error=refine_intersection_point(g, s1, s2, spt=tol, max_iter=100)
+            dp=s1_eval['S']-evaluate_nurbs_surface(s1,g[0],g[1],d_order=0)['S']
+            s1_ev,s2_ev,dtusv=_param_space_tangent_data(s1,s2,stuvs_new)
+            ders.append(dtusv)
+            prms
+            err=np.linalg.norm(dp)
+            if err>max_err:
+                max_err=err
+
+            stuvs.append(stuvs_new)
+
+        curve=_curve_from_stuv_path(stuvs,ders=np.array(ders))
+        print(f'\r{max_err:5f}',end='', flush=True )
+        if max_err<tol:
+            break
+    #print()
+    return curve
+
+def _simple_march_between(
+    s1,
+    s2,
+    stuv_a: NDArray[np.float64],
+    stuv_b: NDArray[np.float64],
+    *,
+
+    interval1: tuple[float, float, float, float],
+    interval2: tuple[float, float, float, float],
+    tol: float,
+
+) -> NURBSCurveTuple:
+
+
+
+
+
+
+
+
+    return interp_param_space_hermite(s1, s2, (stuv_a, stuv_b), tol=tol, maxiter=4)
+
+
+def _collect_boundary_intersections(
+    H_owner: NDArray[np.float64],
+    H_other: NDArray[np.float64],
+    interval_owner: tuple[float, float, float, float],
+    interval_other: tuple[float, float, float, float],
+    *,
+    owner_is_first: bool,
+    spt: float,
+    angle_tol: float,
+    max_depth: int,
+    param_tol: float,
+    points: list[SSXPoint],
+    branches: list[SSXBranch],
+) -> None:
+    count=0
+    for axis, value, curve_net in _boundary_curves_from_net(H_owner):
+        # print(curve_net.tolist(),H_other.tolist())
+
+        res = bez_csx(
+            curve_net,
+            H_other,
+            atol=spt,
+            rational=True,
+            angle_tol=angle_tol,
+            max_depth=max_depth,
+        )
+        for iso in res.get("isolated", []):
+            t = float(iso["t"])
+            uv_owner_local = _boundary_uv(axis, value, t)
+            uv_other_local = np.array([float(iso["u"]), float(iso["v"])], dtype=np.float64)
+            if owner_is_first:
+                uv1 = _map_uv_to_interval(uv_owner_local, interval_owner)
+                uv2 = _map_uv_to_interval(uv_other_local, interval_other)
+            else:
+                uv1 = _map_uv_to_interval(uv_other_local, interval_other)
+                uv2 = _map_uv_to_interval(uv_owner_local, interval_owner)
+            stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
+            _append_unique_point(points, stuv, tol=param_tol)
+            count+=1
+        for ovl in res.get("overlaps", []):
+            t_path = np.asarray(ovl["t_path"], dtype=np.float64).reshape(-1)
+            uv_path = np.asarray(ovl["uv_path"], dtype=np.float64).reshape(-1, 2)
+            uv_owner_local = np.stack([_boundary_uv(axis, value, t) for t in t_path], axis=0)
+            if owner_is_first:
+                uv1_path = _map_uv_path_to_interval(uv_owner_local, interval_owner)
+                uv2_path = _map_uv_path_to_interval(uv_path, interval_other)
+            else:
+                uv1_path = _map_uv_path_to_interval(uv_path, interval_other)
+                uv2_path = _map_uv_path_to_interval(uv_owner_local, interval_owner)
+            stuv_path = np.hstack([uv1_path, uv2_path])
+            curve = _curve_from_stuv_path(stuv_path)
+            if curve is not None:
+                branches.append(SSXBranch(curve=curve, overlap=True))
+        if count>=2:
+            break
+
+def _leaf_boundary_test_and_march(
+    H1: NDArray[np.float64],
+    H2: NDArray[np.float64],
+    interval1: tuple[float, float, float, float],
+    interval2: tuple[float, float, float, float],
+    *,
+    spt: float,
+    tol: float,
+    param_tol: float,
+    angle_tol: float = 0.01,
+    max_depth: int = 60,
+    march_samples: int = 8,
+) -> tuple[list[SSXBranch], list[SSXPoint]]:
+    points: list[SSXPoint] = []
+    branches: list[SSXBranch] = []
+
+    _collect_boundary_intersections(
+        H1,
+        H2,
+        interval1,
+        interval2,
+        owner_is_first=True,
+        spt=spt,
+        angle_tol=angle_tol,
+        max_depth=max_depth,
+        param_tol=param_tol,
+        points=points,
+        branches=branches,
+    )
+    _collect_boundary_intersections(
+        H2,
+        H1,
+        interval2,
+        interval1,
+        owner_is_first=False,
+        spt=spt,
+        angle_tol=angle_tol,
+        max_depth=max_depth,
+        param_tol=param_tol,
+        points=points,
+        branches=branches,
+    )
+
+    if not points and not branches:
+        return [], []
+
+    # If we only have isolated points, try to march between paired points.
+    if len(points) >= 2:
+        pairs, leftover = _pair_points_by_nearest(points)
+        if pairs:
+            #s1 = bern_to_nurbs_bezier(H1, interval=((interval1[0], interval1[1]), (interval1[2], interval1[3])), rational=True)
+            #s2 = bern_to_nurbs_bezier(H2, interval=((interval2[0], interval2[1]), (interval2[2], interval2[3])), rational=True)
+            for i, j in pairs:
+                curve = trace_between(
+                    H1,
+                    H2,
+                    points[i].stuv,
+                                        points[j].stuv,
+                                        interval1=interval1,
+                                        interval2=interval2,
+                                        spt=spt,
+                                        fit_max_depth=10,
+
+                )
+                branches.append(SSXBranch(curve=curve))
+        points = [points[k] for k in leftover]
+
+    return branches, points
+
+
+def _endpoint_match(
+    a: NDArray[np.float64],
+    b: NDArray[np.float64],
+    *,
+    tol: float,
+    ignore_idx: int | None = None,
+) -> bool:
+    d = np.abs(a - b)
+    if ignore_idx is not None:
+        d[ignore_idx] = 0.0
+    return float(np.max(d)) <= tol
+
+
+def _merge_branches_by_match(
+    branches: list[SSXBranch],
+    match_fn,
+) -> list[SSXBranch]:
+    i = 0
+    while i < len(branches):
+        if branches[i].closed:
+            i += 1
+            continue
+        merged = False
+        for j in range(i + 1, len(branches)):
+            if branches[j].closed:
+                continue
+            a_start, a_end = _curve_endpoints(branches[i].curve)
+            b_start, b_end = _curve_endpoints(branches[j].curve)
+            a_ends = (a_start, a_end)
+            b_ends = (b_start, b_end)
+            for end_i in (0, 1):
+                for end_j in (0, 1):
+                    if not match_fn(a_ends[end_i], b_ends[end_j]):
+                        continue
+                    # Orient so match point is at end of A and start of B.
+                    curve_a = branches[i].curve
+                    curve_b = branches[j].curve
+                    if end_i == 0:
+                        curve_a = reverse_curve(curve_a)
+                    if end_j == 1:
+                        curve_b = reverse_curve(curve_b)
+                    new_curve, _ = link_curves([curve_a, curve_b])
+                    branches[i] = SSXBranch(curve=new_curve, overlap=branches[i].overlap or branches[j].overlap)
+                    branches.pop(j)
+                    merged = True
+                    break
+                if merged:
+                    break
+            if merged:
+                break
+        if merged:
+            i = 0
+        else:
+            i += 1
+    return branches
+
+
+def _merge_branches_on_split(
+    branches: list[SSXBranch],
+    *,
+    surf_index: int,
+    axis: str,
+    split_value: float,
+    tol: float,
+) -> list[SSXBranch]:
+    if surf_index == 1:
+        idx = 0 if axis == "u" else 1
+    else:
+        idx = 2 if axis == "u" else 3
+
+    def match_fn(a, b):
+        #print(a,b)
+        if abs(a[idx] - split_value) > tol:
+            return False
+        if abs(b[idx] - split_value) > tol:
+            return False
+        return _endpoint_match(a, b, tol=tol, ignore_idx=idx)
+
+    return _merge_branches_by_match(branches, match_fn)
+
+
+def _merge_branches_global(branches: list[SSXBranch], tol: float) -> list[SSXBranch]:
+    return _merge_branches_by_match(branches, lambda a, b: _endpoint_match(a, b, tol=tol))
+
+
+def _close_branches(branches: list[SSXBranch], tol: float) -> list[SSXBranch]:
+    for br in branches:
+        if br.closed:
+            continue
+        start, end = _curve_endpoints(br.curve)
+        if _endpoint_match(start, end, tol=tol):
+            br.closed = True
+    return branches
+
+
+def _prune_points_on_branches(points: list[SSXPoint], branches: list[SSXBranch], tol: float) -> list[SSXPoint]:
+    if not points or not branches:
+        return points
+    out = []
+    for p in points:
+        keep = True
+        for br in branches:
+            start, end = _curve_endpoints(br.curve)
+            if _endpoint_match(p.stuv, start, tol=tol) or _endpoint_match(p.stuv, end, tol=tol):
+                keep = False
+                break
+        if keep:
+            out.append(p)
+    return out
+
+
+def _bez_ssx_recursive(
+    g1: GaussMapBern,
+    g2: GaussMapBern,
+    interval1: tuple[float, float, float, float],
+    interval2: tuple[float, float, float, float],
+    *,
+    spt: float,
+    tol: float,
+    param_tol: float,
+    aabb_tol: float = 0.0,
+    slab_tol_scale: float = 1e-14,
+    gjk_tol: float = 1e-5,
+    gjk_max_iter: int = 64,
+    gm_eps: float = 1e-5,
+    gm_tol: float = 1e-8,
+    max_depth: int = 24,
+    magic_start_depth: int = 6,
+    parallel_angle: float = 0.05,
+    flat_angle: float = 0.15,
+    march_samples: int = 8,
+    depth: int = 0,
+) -> tuple[list[SSXBranch], list[SSXPoint]]:
+    bb1 = g1.bbox()
+    bb2 = g2.bbox()
+    if not aabb_intersect_fast_3d(bb1, bb2):
+        return [], []
+
+    # termination by intersection box
+    iib = np.array(aabb_intersection(bb1, bb2))
+    d = iib[1] - iib[0]
+    if float(np.dot(d, d)) <= float(spt * spt):
+        return _leaf_boundary_test_and_march(
+            g1.surface,
+            g2.surface,
+            interval1,
+            interval2,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            march_samples=march_samples,
+        )
+
+    P1 = g1.surf_points()
+    P2 = g2.surf_points()
+
+    # bounding-plane (slab) cull: conservative, works for flat sets
+    axes: list[NDArray[np.float64]] = []
+    pn1 = g1.plane_normal()
+    pn2 = g2.plane_normal()
+    if pn1 is not None:
+        axes.append(pn1)
+    if pn2 is not None:
+        axes.append(pn2)
+
+    mn1 = g1.mean_normal()
+    mn2 = g2.mean_normal()
+    if mn1 is not None:
+        axes.append(mn1)
+    if mn2 is not None:
+        axes.append(mn2)
+
+    cd = g2.center() - g1.center()
+    if float(np.dot(cd, cd)) > 1e-30:
+        axes.append(cd)
+
+    slab_tol = slab_tol_scale * float(np.sqrt(max(g1.diag2(), g2.diag2(), 1e-30)))
+    if bounding_plane_separated(P1, P2, axes, tol=slab_tol):
+        return [], []
+
+    if _trust_gjk(g1) and _trust_gjk(g2):
+        if not gjk(P1, P2, gjk_tol, gjk_max_iter):
+            return [], []
+
+    p_sep1, p_sep2 = separate_gauss_maps(g1.map_dirs(), g2.map_dirs(), eps=gm_eps, tol=gm_tol)
+    if (p_sep1 is not None) and (p_sep2 is not None):
+        return _leaf_boundary_test_and_march(
+            g1.surface,
+            g2.surface,
+            interval1,
+            interval2,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            march_samples=march_samples,
+        )
+
+    if depth >= max_depth:
+        return _leaf_boundary_test_and_march(
+            g1.surface,
+            g2.surface,
+            interval1,
+            interval2,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            march_samples=march_samples,
+        )
+
+    # Hard case: near-parallel, flat Gauss maps, still failing criterion -> try Newton magic point
+    if depth >= magic_start_depth and near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle):
+        mp = find_magic_point_newton(g1, g2)
+        if mp is not None:
+            s, t, u, v = mp
+            a_children = g1.split_uv(_clamp01(s), _clamp01(t))
+            b_children = g2.split_uv(_clamp01(u), _clamp01(v))
+
+            intervals_a, (ua_split, va_split) = _split_interval_uv(interval1, _clamp01(s), _clamp01(t))
+            intervals_b, (ub_split, vb_split) = _split_interval_uv(interval2, _clamp01(u), _clamp01(v))
+
+            branches: list[SSXBranch] = []
+            points: list[SSXPoint] = []
+            for ia, ca in enumerate(a_children):
+                for ib, cb in enumerate(b_children):
+                    bch, pts = _bez_ssx_recursive(
+                        ca,
+                        cb,
+                        intervals_a[ia],
+                        intervals_b[ib],
+                        spt=spt,
+                        tol=tol,
+                        param_tol=param_tol,
+                        aabb_tol=aabb_tol,
+                        slab_tol_scale=slab_tol_scale,
+                        gjk_tol=gjk_tol,
+                        gjk_max_iter=gjk_max_iter,
+                        gm_eps=gm_eps,
+                        gm_tol=gm_tol,
+                        max_depth=max_depth,
+                        magic_start_depth=magic_start_depth,
+                        parallel_angle=parallel_angle,
+                        flat_angle=flat_angle,
+                        march_samples=march_samples,
+                        depth=depth + 1,
+                    )
+                    branches.extend(bch)
+                    points.extend(pts)
+
+            # Merge across both split lines on both surfaces.
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="u", split_value=ua_split, tol=param_tol)
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="v", split_value=va_split, tol=param_tol)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="u", split_value=ub_split, tol=param_tol)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="v", split_value=vb_split, tol=param_tol)
+            branches = _close_branches(branches, param_tol)
+            points = _prune_points_on_branches(points, branches, param_tol)
+            return branches, points
+
+    # Split strategy: split ONLY ONE patch, and ONLY in ONE direction (2 children)
+    score_a = max(g1.gauss_radius(), 10.0 * max(g1.gauss_variation_uv()))
+    score_b = max(g2.gauss_radius(), 10.0 * max(g2.gauss_variation_uv()))
+
+    split_a = score_a >= score_b
+    target = g1 if split_a else g2
+    other = g2 if split_a else g1
+
+    vu, vv = target.gauss_variation_uv()
+    axis = "u" if vu >= vv else "v"
+    kids = target.split_u(0.5) if axis == "u" else target.split_v(0.5)
+
+    if split_a:
+        left_int, right_int, split_val = _split_interval(interval1, axis, 0.5)
+        b0, p0 = _bez_ssx_recursive(
+            kids[0],
+            other,
+            left_int,
+            interval2,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            aabb_tol=aabb_tol,
+            slab_tol_scale=slab_tol_scale,
+            gjk_tol=gjk_tol,
+            gjk_max_iter=gjk_max_iter,
+            gm_eps=gm_eps,
+            gm_tol=gm_tol,
+            max_depth=max_depth,
+            magic_start_depth=magic_start_depth,
+            parallel_angle=parallel_angle,
+            flat_angle=flat_angle,
+            march_samples=march_samples,
+            depth=depth + 1,
+        )
+        b1, p1 = _bez_ssx_recursive(
+            kids[1],
+            other,
+            right_int,
+            interval2,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            aabb_tol=aabb_tol,
+            slab_tol_scale=slab_tol_scale,
+            gjk_tol=gjk_tol,
+            gjk_max_iter=gjk_max_iter,
+            gm_eps=gm_eps,
+            gm_tol=gm_tol,
+            max_depth=max_depth,
+            magic_start_depth=magic_start_depth,
+            parallel_angle=parallel_angle,
+            flat_angle=flat_angle,
+            march_samples=march_samples,
+            depth=depth + 1,
+        )
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol)
+        points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
+        branches = _close_branches(branches, param_tol)
+        return branches, points
+    else:
+        left_int, right_int, split_val = _split_interval(interval2, axis, 0.5)
+        b0, p0 = _bez_ssx_recursive(
+            other,
+            kids[0],
+            interval1,
+            left_int,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            aabb_tol=aabb_tol,
+            slab_tol_scale=slab_tol_scale,
+            gjk_tol=gjk_tol,
+            gjk_max_iter=gjk_max_iter,
+            gm_eps=gm_eps,
+            gm_tol=gm_tol,
+            max_depth=max_depth,
+            magic_start_depth=magic_start_depth,
+            parallel_angle=parallel_angle,
+            flat_angle=flat_angle,
+            march_samples=march_samples,
+            depth=depth + 1,
+        )
+        b1, p1 = _bez_ssx_recursive(
+            other,
+            kids[1],
+            interval1,
+            right_int,
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            aabb_tol=aabb_tol,
+            slab_tol_scale=slab_tol_scale,
+            gjk_tol=gjk_tol,
+            gjk_max_iter=gjk_max_iter,
+            gm_eps=gm_eps,
+            gm_tol=gm_tol,
+            max_depth=max_depth,
+            magic_start_depth=magic_start_depth,
+            parallel_angle=parallel_angle,
+            flat_angle=flat_angle,
+            march_samples=march_samples,
+            depth=depth + 1,
+        )
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol)
+        points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
+        branches = _close_branches(branches, param_tol)
+        return branches, points
+
+
+def bez_ssx(
+    H1: NDArray[np.float64],
+    H2: NDArray[np.float64],
+    *,
+    spt: float = 0.1,
+    tol: float = 1e-8,
+    gjk_max_iter: int = 64,
+    gm_eps: float = 1e-5,
+    gm_tol: float = 1e-8,
+    max_depth: int = 24,
+    magic_start_depth: int = 6,
+    parallel_angle: float = 0.05,
+    flat_angle: float = 0.15,
+    march_samples: int = 8,
+) -> tuple[list[SSXBranch], list[SSXPoint]]:
+    param_tol = _param_tol_from(tol, spt)
+    g1 = GaussMapBern.from_surf(H1, rational=True)
+    g2 = GaussMapBern.from_surf(H2, rational=True)
+    branches, points = _bez_ssx_recursive(
+        g1,
+        g2,
+        (0.0, 1.0, 0.0, 1.0),
+        (0.0, 1.0, 0.0, 1.0),
+        spt=spt,
+        tol=tol,
+        param_tol=param_tol,
+        gjk_tol=tol,
+        gjk_max_iter=gjk_max_iter,
+        gm_eps=gm_eps,
+        gm_tol=gm_tol,
+        max_depth=max_depth,
+        magic_start_depth=magic_start_depth,
+        parallel_angle=parallel_angle,
+        flat_angle=flat_angle,
+        march_samples=march_samples,
+    )
+    branches = _merge_branches_global(branches, param_tol)
+    branches = _close_branches(branches, param_tol)
+    points = _prune_points_on_branches(points, branches, param_tol)
+    return branches, points
+
+
+def nurbs_ssx(
+    surf1,
+    surf2,
+    *,
+    spt: float = 0.1,
+    tol: float = 1e-8,
+    gjk_max_iter: int = 64,
+    gm_eps: float = 1e-5,
+    gm_tol: float = 1e-8,
+    max_depth: int = 24,
+    magic_start_depth: int = 6,
+    parallel_angle: float = 0.05,
+    flat_angle: float = 0.15,
+    march_samples: int = 8,
+) -> tuple[list[SSXBranch], list[SSXPoint]]:
+    s1 = surf1
+    s2 =surf2
+
+    s1d = decompose_surface(s1)
+    s2d = decompose_surface(s2)
+
+    s1d_h = [_to_homogeneous(s.control_points, s.weights) for s in s1d]
+    s2d_h = [_to_homogeneous(s.control_points, s.weights) for s in s2d]
+
+    s1_intervals = []
+    for s in s1d:
+        (u0, u1), (v0, v1) = _surface_interval(s)
+        s1_intervals.append((u0, u1, v0, v1))
+    s2_intervals = []
+    for s in s2d:
+        (u0, u1), (v0, v1) = _surface_interval(s)
+        s2_intervals.append((u0, u1, v0, v1))
+
+    tree1 = build_bvh([AABB.from_points(_from_homogeneous(H)[0].reshape(-1, 3)) for H in s1d_h])
+    tree2 = build_bvh([AABB.from_points(_from_homogeneous(H)[0].reshape(-1, 3)) for H in s2d_h])
+
+    gm1: list[GaussMapBern | None] = [None] * len(s1d_h)
+    gm2: list[GaussMapBern | None] = [None] * len(s2d_h)
+
+    branches: list[SSXBranch] = []
+    points: list[SSXPoint] = []
+    param_tol = _param_tol_from(tol, spt)
+
+    for obj1, obj2 in bvh_intersect(tree1, tree2, exact=False):
+        i = obj1.object
+        j = obj2.object
+
+        H1 = s1d_h[i]
+        H2 = s2d_h[j]
+
+        if gm1[i] is None:
+            gm1[i] = GaussMapBern.from_surf(H1, rational=True)
+        if gm2[j] is None:
+            gm2[j] = GaussMapBern.from_surf(H2, rational=True)
+
+        bch, pts = _bez_ssx_recursive(
+            gm1[i],
+            gm2[j],
+            s1_intervals[i],
+            s2_intervals[j],
+            spt=spt,
+            tol=tol,
+            param_tol=param_tol,
+            gjk_tol=tol,
+            gjk_max_iter=gjk_max_iter,
+            gm_eps=gm_eps,
+            gm_tol=gm_tol,
+            max_depth=max_depth,
+            magic_start_depth=magic_start_depth,
+            parallel_angle=parallel_angle,
+            flat_angle=flat_angle,
+            march_samples=march_samples,
+        )
+        branches.extend(bch)
+        points.extend(pts)
+
+    branches = _merge_branches_global(branches, param_tol)
+    branches = _close_branches(branches, param_tol)
+    points = _prune_points_on_branches(points, branches, param_tol)
+    return branches, points
 
 
 # ======================================================================================
@@ -1155,7 +1975,6 @@ def detect_intersections(
 
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
-    from mmcore.numeric.intersection.csx import nurbs_csx
 
     S1, S2 =(_nurbs_to_tuple(i) for i in  td[1])
 
@@ -1166,7 +1985,6 @@ if __name__ == "__main__":
     res = detect_intersections(S1, S2,spt= TOL)
     print((time.perf_counter_ns() - s) * 1e-9)
     fff = []
-
 
     for i, j in res:
         ip = np.array(i)
@@ -1210,3 +2028,43 @@ if __name__ == "__main__":
 
     with open("/Users/sthv/PycharmProjects/mmcore/tests/norm2.pkl", "wb") as f:
         pickle.dump(fff, f)
+    from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
+    normalize_knots_surface_inplace(S1)
+    normalize_knots_surface_inplace(S2)
+    s=time.perf_counter()
+    curves,points=nurbs_ssx(S1, S2, spt=TOL)
+    print((time.perf_counter() - s))
+    print(S1)
+    if curves:
+        print(curves[0].curve)
+
+    crvs_all=[]
+    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,evaluate_nurbs_surface
+    from mmcore.geom._nurbs_interp import interpolate_curve
+
+    for c in curves:
+        s1_curve=c.curve._replace(control_points=c.curve.control_points[..., :2])
+
+        stuvs= [(evaluate_nurbs_curve(c.curve,t,d_order=0)['C'],t) for t in _greville_abscissae(c.curve.knot,c.curve.degree)]
+        derivs=[]
+        _points=[]
+        params=[]
+
+        for stuv,t in stuvs:
+
+            (p0,*_),(p1,*_),T=_get_pt_t(S1,S2,stuv)
+            T*=0.33
+            derivs.append(T)
+            _points.append(p0)
+            params.append(t)
+        cpt,kv=interpolate_curve(_points, 3, params)
+        crv_xyz = NURBSCurveTuple(4, knot=np.array(kv),control_points=np.array(cpt),weights=np.ones(len(cpt)))
+        crvs_all.append(crv_xyz)
+
+    with open("/Users/sthv/PycharmProjects/mmcore/tests/norm3.pkl", "wb") as f:
+        pickle.dump(crvs_all, f)
+    print(len(crvs_all),'branches')
+    pts = []
+    for pt in points:
+        pts.append(evaluate_nurbs_surface(S1, pt.stuv[0], pt.stuv[1], d_order=0)["S"].tolist())
+    print(pts)

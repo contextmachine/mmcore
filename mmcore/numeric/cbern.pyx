@@ -82,9 +82,8 @@ def bernstein_basis(int n, double t):
         # Our C logic handles all indices via the recurrence or memset, so empty is safe).
 
         cdef double[:] B = np.empty(n + 1, dtype=np.float64)
-        with nogil:
-            # Pass the raw pointer to the nogil C function
-            bernstein_basis_funs_c(n, t, &B[0])
+
+        bernstein_basis_funs_c(n, t, &B[0])
 
         return B
 
