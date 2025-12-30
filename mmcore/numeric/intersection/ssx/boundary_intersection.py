@@ -11,7 +11,7 @@ import numpy as np
 
 from mmcore.geom.nurbs import NURBSSurface
 
-from mmcore.geom._nurbs_eval import _nurbs_to_tuple, _tuple_to_nurbs
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple, _tuple_to_nurbs,NURBSCurveTuple
 from mmcore.geom._nurbs_knots import trim_curve
 from mmcore.geom.curves.bspline_first import NURBSCurve
 from mmcore.geom.nurbs_iso import extract_surface_boundaries
@@ -19,7 +19,7 @@ from mmcore.numeric.algorithms.pull_curve import pull_back
 from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.numeric.intersection.csx import nurbs_csx
 from mmcore.numeric.interval import Interval, IntervalND
-from notes.offset import NURBSCurveTuple
+
 
 
 class IntersectionPoint:

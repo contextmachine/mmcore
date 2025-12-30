@@ -21,7 +21,7 @@ from mmcore.geom._nurbs_eval import (
 )
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
 from mmcore.numeric.intersection.ccx._utils import merge_intervals_nd
-from mmcore.numeric.intersection.csx._bez_csx3 import bezier_curve_surface_intersect_certified,map_local_to_global_3,OverlapIntersection,IsolatedIntersection
+from mmcore.numeric.intersection.csx._bez_csx3 import bez_csx,map_local_to_global_3,OverlapIntersection,IsolatedIntersection
 from mmcore.geom._nurbs_knots import _curve_interval, decompose_curve, split_curve_multiple, decompose_surface
 from mmcore.geom.bvh.lbvh import BVH, build_bvh, AABB, bvh_intersect
 
@@ -187,7 +187,7 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
         (t0, t1) =_c1.interval()
         (u0, v0), (u1, v1) = _c2.interval()
 
-        result = bezier_curve_surface_intersect_certified(
+        result = bez_csx(
             pts1,
             pts2,
             atol=tol,

@@ -837,13 +837,14 @@ def confirm_overlap_span(
         iso_bnd = sorted(iso_bnd, key=lambda it: it["t"])
         iso_unique = [iso_bnd[0]]
         for it in iso_bnd[1:]:
+
             if abs(float(it["t"]) - float(iso_unique[-1]["t"])) > t_eps:
                 iso_unique.append(it)
         iso_bnd = iso_unique
     if ovl_bnd:
         if len(ovl_bnd) > 1:
             logger.error(
-                "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd)
+                "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd),ovl_bnd
             )
         ovl = dict(ovl_bnd[0])
         ovl["partial"] = True
@@ -885,10 +886,10 @@ def confirm_overlap_span(
                 "partial": True,
             }
         logger.error(
-            "Span confirm: one endpoint on surface, boundary intersects=%d (expected 1).",
-            len(iso_bnd),
+            "Span confirm: one endpoint on surface, boundary intersects=%d (expected 1).  %s",
+            len(iso_bnd),repr(iso_bnd)
         )
-        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm")
+        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm {}".format(len(iso_bnd)))
 
     if not on0 and not on1:
         if len(iso_bnd) == 2:
@@ -912,10 +913,19 @@ def confirm_overlap_span(
                 "end": "boundary",
                 "partial": True,
             }
+        elif len(iso_bnd) == 1:
+            return {
+                "t": iso_bnd[0]["t"],
+                "u": iso_bnd[0]["u"],
+                "v": iso_bnd[0]["v"],
+                "point":  eval_bezier_curve(C,  iso_bnd[0]["t"], rational=rational),
+                "isolated": True,
+
+            }
         logger.error(
-            "Span confirm: no endpoints on surface, boundary intersects=%d (expected 2).", len(iso_bnd)
+            "Span confirm: no endpoints on surface, boundary intersects=%d (expected 2). %s", len(iso_bnd),repr(iso_bnd)
         )
-        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm")
+        raise RuntimeError("curve_surface_boundary_intersect returned unexpected count for span confirm {}".format(len(iso_bnd)))
 
     logger.error(
         "Span confirm: unexpected boundary state (on0=%s, on1=%s, iso=%d, ovl=%d).",
@@ -923,6 +933,8 @@ def confirm_overlap_span(
         on1,
         len(iso_bnd),
         len(ovl_bnd),
+        iso_bnd,
+        ovl_bnd,
     )
     raise RuntimeError("Unexpected span-confirm boundary state")
 
@@ -1654,7 +1666,7 @@ def ch_separability(pts1,pts2, atol,rational=False):
     # print(res,(pts1.tolist(), pts2.tolist()))
     return int(res)
 
-from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full
+from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx
 
 
 # ---------------------------------------------------------------------------
@@ -1737,7 +1749,7 @@ def curve_surface_boundary_intersect(
 
     for bnd_curve, fixed_axis, fixed_val in boundaries:
         # Intersect curve C with boundary curve
-        ccx_result = bezier_intersect_certified_full(
+        ccx_result = bez_ccx(
             C, bnd_curve,
             sv_thresh=sv_thresh,
             atol=atol,
@@ -1808,7 +1820,7 @@ def curve_surface_boundary_intersect(
 check_boundaries_inter = curve_surface_boundary_intersect
 
 
-def bezier_curve_surface_intersect_certified(
+def bez_csx(
     C: NDArray,
     S: NDArray,
     sv_thresh: float = 1e-8,
@@ -1876,6 +1888,7 @@ def bezier_curve_surface_intersect_certified(
         rel_thresh=1e-6,
     )
     pre_overlaps: list["OverlapIntersection"] = []
+    pre_isolated: list["IsolatedIntersection"] = []
     stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
     if span_overlap is not None:
         if span_overlap.get("partial"):
@@ -1884,13 +1897,19 @@ def bezier_curve_surface_intersect_certified(
             stats = IntersectionStats(
                 cells=0, pruned=0, overlap_traces=1, pruned_by=["span_confirm_partial"]
             )
+        elif span_overlap.get('isolated'):
+            stats = IntersectionStats(cells=1, pruned=0, overlap_traces=0, pruned_by=["span_isolated_confirm"])
+            del span_overlap['isolated']
+            pre_isolated.append(span_overlap)
+            return IntersectionResult(isolated=pre_isolated, overlaps=[], stats=stats)
+
         else:
             stats = IntersectionStats(cells=1, pruned=0, overlap_traces=1, pruned_by=["span_confirm"])
             return IntersectionResult(isolated=[], overlaps=[span_overlap], stats=stats)
-    #isolated,overlaps=curve_surface_boundary_intersect(C,S,rational=rational,atol=atol,sv_thresh=sv_thresh)
-    #print(isolated)
-    #print(overlaps)
-    isolated: list["IsolatedIntersection"] = []
+    # isolated,overlaps=curve_surface_boundary_intersect(C,S,rational=rational,atol=atol,sv_thresh=sv_thresh)
+    # print(isolated)
+    # print(overlaps)
+    isolated: list["IsolatedIntersection"] = pre_isolated
     overlaps: list["OverlapIntersection"] = pre_overlaps
 
     atol_sq = atol * atol
@@ -2376,7 +2395,7 @@ if __name__ == "__main__":
            [ -6.52097953,  26.04573929,   0.        ],
            [  5.81667121,  -9.0084582 ,  17.47802526]])
     s=time.perf_counter()
-    res=bezier_curve_surface_intersect_certified(crv1, surf1,rational=False)
+    res=bez_csx(crv1, surf1, rational=False)
 
     gt={'isolated':[{
         "t":0.223246,
@@ -2391,7 +2410,7 @@ if __name__ == "__main__":
 
     crv2 = np.array([[-8.089928672303788, -9.35078823406258, 15.194922104381954, 1.0], [-5.720443423501492, -2.6029262297235642, 10.744432459609845, 0.7071067811865476], [-13.75962333043464, -3.6810935759317296, 15.194922104381954, 1.0]])
     s=time.perf_counter()
-    res=bezier_curve_surface_intersect_certified(crv2, surf2,rational=True)
+    res=bez_csx(crv2, surf2, rational=True)
     print("case2", time.perf_counter() - s)
     gt={
         "isolated": [],
@@ -2411,7 +2430,7 @@ if __name__ == "__main__":
     crv3 = np.array([[-13.704782222797013, 20.157097244338125, 4.980117410327855, 1.0], [-13.780432085162484, 14.253220150508163, 3.521474791948015, 0.7071067811865476], [-19.48847395019814, 14.373405516937003, 4.980117410327855, 1.0]]
                     )
     s=time.perf_counter()
-    res=bezier_curve_surface_intersect_certified(crv3, surf3,rational=True)
+    res=bez_csx(crv3, surf3, rational=True)
     print("case3", time.perf_counter() - s)
     gt={
       "isolated": [],
@@ -2448,7 +2467,7 @@ if __name__ == "__main__":
     )
 
     s=time.perf_counter()
-    res = bezier_curve_surface_intersect_certified(crv4, surf3, rational=True)
+    res = bez_csx(crv4, surf3, rational=True)
     print("case4", time.perf_counter() - s)
     gt={
       "isolated": [

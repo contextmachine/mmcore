@@ -1387,7 +1387,7 @@ def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
     return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
 
 
-def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False,**kwargs) -> IntersectionResult:
+def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False, **kwargs) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve pairs.
 
     Parameters
@@ -1434,10 +1434,10 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
     Planar polynomial case::
 
         >>> import numpy as np
-        >>> from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full
+        >>> from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx
         >>> c1 = np.array([[0., 0., 0.], [1., 1., 0.], [2., 0., 0.]])
         >>> c2 = np.array([[0., 0., 0.], [1., 0., 0.], [2., 0., 0.]])
-        >>> res = bezier_intersect_certified_full(c1, c2)
+        >>> res = bez_ccx(c1, c2)
         >>> len(res['isolated'])
         2
 
@@ -1446,7 +1446,7 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
         >>> w = np.sqrt(0.5)
         >>> arc = np.array([[1., 0., 1.], [w, w, w], [0., 1., 1.]])
         >>> line = np.array([[0., 0., 1.], [0.5, 0.5, 1.], [1., 1., 1.]])
-        >>> res = bezier_intersect_certified_full(arc, line, rational=True)
+        >>> res = bez_ccx(arc, line, rational=True)
         >>> np.allclose((res['isolated'][0]['u'], res['isolated'][0]['v']), (0.5, np.sqrt(0.5)))
         True
     """
@@ -1627,7 +1627,8 @@ def bezier_intersect_certified_full(C1: NDArray, C2: NDArray,  sv_thresh: float 
             min_d = float(np.min(dnet))
             if  cell_contains_known_isolated(u0, u1, v0, v1)  :
                 res = {"type": "none"}
-                print('bae',    (u0, u1), (v0, v1))
+                print('bae',    (u0, u1), (v0, v1), )
+                continue
             else:
                 res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh, rational=rational)
 
@@ -1886,7 +1887,7 @@ if __name__ == "__main__":
 
     # case 1: One true overlap, no isolated points
     s = time.perf_counter()
-    inter12 = bezier_intersect_certified_full(curve1, curve2)
+    inter12 = bez_ccx(curve1, curve2)
     print(time.perf_counter() - s, "pruned:", inter12["stats"]["pruned"])  # 0.07984466700008852 (current perf)
     print("\n\n case1\n", "-" * 80, "\n")
     assert len(inter12["isolated"]) == 0
@@ -1924,7 +1925,7 @@ if __name__ == "__main__":
     # case 2: Two isolated points, no overlaps
     print("\n\n case2\n", "-" * 80, "\n")
     s = time.perf_counter()
-    inter34 = bezier_intersect_certified_full(curve3, curve4)
+    inter34 = bez_ccx(curve3, curve4)
     # 0.02212008300011803  (current perf)
     print(time.perf_counter() - s, "pruned:", inter34["stats"]["pruned"])
     #print(inter34)
@@ -1947,7 +1948,7 @@ if __name__ == "__main__":
     print("\n\n case3.1\n", "-" * 80, "\n")
     # case 3.1: Two isolated points, but the curves are close to each other and are almost parallel, which makes this example similar to overlap.
     s = time.perf_counter()
-    inter36 = bezier_intersect_certified_full(curve3, curve6)
+    inter36 = bez_ccx(curve3, curve6)
     print(time.perf_counter() - s, "pruned:", inter36["stats"]["pruned"])  # 1.4956505000000107 current perf
     #print(inter36)  # WRONG! Only one isolated point is returning.
 
@@ -1977,7 +1978,7 @@ if __name__ == "__main__":
     print("\n\n case3.2\n", "-" * 80, "\n")
     # case 3.2: Everything is the same, they just swapped the curves around.
     s = time.perf_counter()
-    inter63 = bezier_intersect_certified_full(curve6, curve3)
+    inter63 = bez_ccx(curve6, curve3)
     print(time.perf_counter() - s, "pruned:", inter63["stats"]["pruned"])
     #print(
     #    inter63,
@@ -2015,7 +2016,7 @@ if __name__ == "__main__":
     curve8 = np.array([[0, 0,0.], [1, 1,0.], [2, 0,0.]], float) # quadratic arc
     
     s = time.perf_counter()
-    inter78 = bezier_intersect_certified_full(curve7, curve8)
+    inter78 = bez_ccx(curve7, curve8)
     print(time.perf_counter() - s, "pruned:", inter78["stats"]["pruned"])
     #print(
     #    inter78,
@@ -2044,7 +2045,7 @@ if __name__ == "__main__":
     curve_line_h = np.array([[0.0, 0.0, 1.0], [1.0, 1.0, 1.0]])
 
     s = time.perf_counter()
-    inter_rational = bezier_intersect_certified_full(curve_arc_h, curve_line_h, rational=True)
+    inter_rational = bez_ccx(curve_arc_h, curve_line_h, rational=True)
     print(time.perf_counter() - s, "pruned:", inter_rational["stats"]["pruned"])
     assert len(inter_rational["isolated"]) == 1
     assert np.allclose(inter_rational["isolated"][0]["point"], [np.sqrt(0.5), np.sqrt(0.5)], atol=1e-9)
@@ -2080,7 +2081,7 @@ if __name__ == "__main__":
        [52.914001, 42.130837,  0.      ,  0.707   ],
        [49.76    , 45.703   ,  0.      ,  1.      ]])
     s = time.perf_counter()
-    inter_rational2 = bezier_intersect_certified_full(elliptical_arc_pts_h, arc_pts2_h, rational=True)
+    inter_rational2 = bez_ccx(elliptical_arc_pts_h, arc_pts2_h, rational=True)
     print(time.perf_counter() - s, "pruned:", inter_rational2["stats"]["pruned"])
     assert len(inter_rational2["isolated"]) == 2
 
@@ -2098,7 +2099,7 @@ if __name__ == "__main__":
 
     c3d1,c3d2=np.array([[-2.5, -5.0, 0.826], [-2.5, -3.333, 0.826], [-2.5, -1.667, 0.001], [-2.5, 0.0, -0.102]]),np.array([[-5.0, -2.5, 0.052], [-3.333, -2.5, 0.052], [-1.667, -2.5, 0.75], [0.0, -2.5, 0.75]])
     s = time.perf_counter()
-    inter_3d_1 = bezier_intersect_certified_full(c3d1,c3d2, rational=False)
+    inter_3d_1 = bez_ccx(c3d1, c3d2, rational=False)
     print(time.perf_counter() - s, "pruned:", inter_3d_1["stats"]["pruned"])
     print("pruned_by:", set(inter_3d_1["stats"]["pruned_by"]))
     make_rich_table(inter_3d_1, {"isolated": [{'u':0.499982,'v':0.499986,'point':[-2.500035, -2.500044, 0.400817]}], "overlaps": [],'stats':{}}, 'case 7 (3d)',oracle_name='Expected')
@@ -2114,7 +2115,7 @@ if __name__ == "__main__":
               [-0.18421653, 0.21499867, 0.],
               [-0.18858128, 0.2141638, 0.]])
     s = time.perf_counter()
-    inter910 = bezier_intersect_certified_full(crv9, crv10, rational=False)
+    inter910 = bez_ccx(crv9, crv10, rational=False)
     print(time.perf_counter() - s, "pruned:", inter910["stats"]["pruned"])
 
     for i in inter910["isolated"]:
@@ -2140,7 +2141,7 @@ if __name__ == "__main__":
     crv12 = np.array([[-0.4507911, 0.11900211, 0.],
                      [0.32897481, 0.35801962, 0.],
                      [0.25497926, 0.73647834, 0.]])
-    inter1112 = bezier_intersect_certified_full(crv11, crv12, rational=False)
+    inter1112 = bez_ccx(crv11, crv12, rational=False)
     print(time.perf_counter() - s, "pruned:", inter1112["stats"]["pruned"])
     for i in inter1112["isolated"]:
         print('uv:',[float(i['u']),float(i['v'])], 'point:',i['point'].tolist())

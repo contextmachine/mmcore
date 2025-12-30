@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full
+from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx
 
 
 # Geometry fixtures replicated from the demo cases in _bez_ccx3.py
@@ -68,7 +68,7 @@ def _uv_pairs(result):
 
 
 def test_case1_overlap_endpoints():
-    res = bezier_intersect_certified_full(curve1, curve2)
+    res = bez_ccx(curve1, curve2)
     assert res["isolated"] == []
     assert len(res["overlaps"]) == 1
     uv0, uv1 = res["overlaps"][0]["uv_path"][0], res["overlaps"][0]["uv_path"][-1]
@@ -77,7 +77,7 @@ def test_case1_overlap_endpoints():
 
 
 def test_case2_two_isolated():
-    res = bezier_intersect_certified_full(curve3, curve4)
+    res = bez_ccx(curve3, curve4)
     expected = [(0.19649579172632328, 0.2818845674995799), (0.84621222743306, 0.726646442488876)]
     assert len(res["isolated"]) == 2
     got = _uv_pairs(res["isolated"])
@@ -87,7 +87,7 @@ def test_case2_two_isolated():
 
 
 def test_case3_1_two_isolated():
-    res = bezier_intersect_certified_full(curve3, curve6)
+    res = bez_ccx(curve3, curve6)
     expected = [(0.1900373921622664, 0.8152057754324462), (0.577972765192217, 0.09892057701076915)]
     got = _uv_pairs(res["isolated"])
     assert len(got) == 2
@@ -97,7 +97,7 @@ def test_case3_1_two_isolated():
 
 
 def test_case3_2_two_isolated():
-    res = bezier_intersect_certified_full(curve6, curve3)
+    res = bez_ccx(curve6, curve3)
     expected = [(0.09892057701076917, 0.577972765192217), (0.8152057754324554, 0.19003739216226206)]
     got = _uv_pairs(res["isolated"])
     assert len(got) == 2
@@ -107,7 +107,7 @@ def test_case3_2_two_isolated():
 
 
 def test_case4_boundary_hits():
-    res = bezier_intersect_certified_full(curve7, curve8)
+    res = bez_ccx(curve7, curve8)
     expected = [(0.0, 0.0), (1.0, 1.0)]
     got = _uv_pairs(res["isolated"])
     assert len(got) == 2
@@ -117,7 +117,7 @@ def test_case4_boundary_hits():
 
 
 def test_case5_rational_quarter_circle():
-    res = bezier_intersect_certified_full(curve_arc_h, curve_line_h, rational=True)
+    res = bez_ccx(curve_arc_h, curve_line_h, rational=True)
     assert len(res["isolated"]) == 1
     u, v = res["isolated"][0]["u"], res["isolated"][0]["v"]
     assert np.allclose((u, v), (0.5, np.sqrt(0.5)))
@@ -125,7 +125,7 @@ def test_case5_rational_quarter_circle():
 
 
 def test_case6_rational_elliptic_pair():
-    res = bezier_intersect_certified_full(elliptical_arc_pts_h, arc_pts2_h, rational=True)
+    res = bez_ccx(elliptical_arc_pts_h, arc_pts2_h, rational=True)
     expected = [(0.20202602329720454, 0.8588967831366813), (0.4880530373099784, 0.07360787579646323)]
     got = _uv_pairs(res["isolated"])
     assert len(got) == 2

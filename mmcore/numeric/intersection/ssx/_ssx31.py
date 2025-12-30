@@ -171,7 +171,7 @@ def refine_intersection_point(x: np.ndarray, surf1: NURBSSurfaceTuple, surf2: NU
         # Evaluate surfaces at first derivative level for Jacobian computation.
         p_eval = evaluate_nurbs_surface(surf1, s, t, d_order=1)
         q_eval = evaluate_nurbs_surface(surf2, u, v, d_order=1)
-
+        #print(p_eval,q_eval)
         S0 = np.array(p_eval["S"])
         S1 = np.array(q_eval["S"])
         error = np.linalg.norm(S0 - S1)

@@ -227,7 +227,7 @@ def _nurbs_bvh_ccx(bvh1: BVH, bvh2: BVH, segms1: list[NURBSCurveTuple], segms2: 
     return ints
 def _is_rational(curve:NURBSCurveTuple):
     return not np.allclose(curve.weights,1)
-from mmcore.numeric.intersection.ccx._bez_ccx3 import bezier_intersect_certified_full,map_local_to_global,IsolatedIntersection,OverlapIntersection
+from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx,map_local_to_global,IsolatedIntersection,OverlapIntersection
 
 
 def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, tol: float = 1e-3,
@@ -261,7 +261,7 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
             pts1 = _c1.control_points
             pts2 = _c2.control_points
         #print(tol)
-        result=bezier_intersect_certified_full(pts1,  pts2, atol=tol, rational=rational)
+        result=bez_ccx(pts1, pts2, atol=tol, rational=rational)
         if len(result['isolated'])==0 and len(result['overlaps'])==0:
             #print(set(result['stats']['pruned_by']))
             #print(pts1.tolist(),pts2.tolist())
@@ -359,7 +359,7 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
             pts1 = segm1.control_points
             pts2 = segm2.control_points
 
-        result = bezier_intersect_certified_full(pts1, pts2, atol=tol, rational=rational)
+        result = bez_ccx(pts1, pts2, atol=tol, rational=rational)
         if len(result['isolated'])==0 and len(result['overlaps'])==0:
             #print(segm1)
             #print('$')
