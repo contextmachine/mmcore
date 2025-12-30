@@ -22,7 +22,7 @@ from mmcore.numeric._bern_homog import (
     eval_bezier_curve_homog_with_derivs,
     project_curve_homog_to_cartesian,
     eval_bezier_surface_homog_with_derivs,
-    project_surface_homog_to_cartesian, eval_bezier_homogeneous_surface,eval_bezier_homogeneous_curve
+    project_surface_homog_to_cartesian, eval_bezier_homogeneous_surface,eval_bezier_homogeneous_curve,
 )
 from mmcore.numeric.interval import Interval
 from mmcore.numeric.numeric import  compute_parametric_tolerance_surface, \
@@ -108,9 +108,12 @@ def eval_bezier_curve(P, t, rational=None):
     return Ch[:-1] / Ch[-1]
 
 def eval_bezier_surface(S, u, v, rational=None):
-    Sh = _to_homog_surface(S, rational=rational)
-    Sh0 = eval_bezier_homogeneous_surface(Sh, u, v)      # no derivs
-    return Sh0[:-1] / Sh0[-1]
+    #Sh = _to_homog_surface(S, rational=rational)
+
+    Sh0 = eval_bezier_homogeneous_surface(S, u, v)      # no derivs
+    if rational:
+        return Sh0[:-1] / Sh0[-1]
+    return Sh0
 def eval_bezier_curve_and_deriv(P: NDArray, t: float, rational: bool | None = None):
     Ph = _to_homog_curve(P, rational=rational)
     Ch, Chd = eval_bezier_curve_homog_with_derivs(Ph, t, want_second=False)

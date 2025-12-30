@@ -1,8 +1,10 @@
 from __future__ import annotations
+from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
+from mmcore.geom._nurbs_interp import interpolate_curve
 
 import functools
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from mmcore.geom._nurbs_eval import (
     NURBSCurveTuple,
@@ -10,7 +12,7 @@ from mmcore.geom._nurbs_eval import (
     _surface_interval,
 )
 from mmcore.numeric.intersection.ssx.trace_inter_segm import _from_homogeneous, _to_homogeneous, _eval_tensor_bezier, \
-    _derivative_net_u, _derivative_net_v,trace_between
+    _derivative_net_u, _derivative_net_v, trace_between
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 
@@ -23,7 +25,7 @@ from mmcore.numeric.algorithms.cygjk import gjk
 from mmcore.numeric.vectors import unit
 from mmcore.numeric.gauss_map import compute_gauss_map_rational
 from mmcore.numeric.intersection.csx._bez_csx3 import bez_csx
-from mmcore.numeric.intersection.ssx._ssx31 import refine_intersection_point
+from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
 from mmcore.geom.bvh.lbvh import AABB, build_bvh, bvh_intersect
 TIME_PROF_PRINT=False
 def time_prof(func) :
@@ -268,234 +270,6 @@ except Exception:
     print('using hemisphere_witness_incremental')
 # @time_prof
 
-import numpy as np
-
-def great_circle_separable(
-    U: np.ndarray,
-    V: np.ndarray,
-    *,
-    gamma: float = 1e-3,          # required angular margin in dot-product units
-    max_updates: int = 200_000,
-    passes: int = 50,
-    seed: int = 0,
-    shuffle: bool = True,
-    max_step: float = 2.0,
-    normalize_w: bool = True,
-    min_w_norm: float = 1e-12,    # reject degenerate w
-):
-    """
-    Great-circle (hemisphere) separability test on S^2 with a strict margin gamma.
-
-    Find w != 0 such that:
-        w·u >=  gamma  for all u in U
-        w·v <= -gamma  for all v in V
-
-    Returns (is_separable, w_unit, info).
-    If separable, w_unit is a unit normal defining the great circle w·x = 0.
-    """
-    U = np.asarray(U, dtype=np.float64)
-    V = np.asarray(V, dtype=np.float64)
-    if U.ndim != 2 or V.ndim != 2 or U.shape[1] != 3 or V.shape[1] != 3:
-        raise ValueError("U and V must be arrays of shape (m,3) and (k,3).")
-
-    # Ensure unit vectors (safe even if already unit)
-    U = U / np.maximum(np.linalg.norm(U, axis=1, keepdims=True), 1e-30)
-    V = V / np.maximum(np.linalg.norm(V, axis=1, keepdims=True), 1e-30)
-
-    # Combine into labeled constraints y*(w·x) >= gamma
-    X = np.vstack([U, V])
-    y = np.concatenate([np.ones(len(U), dtype=np.float64),
-                        -np.ones(len(V), dtype=np.float64)])
-
-    rng = np.random.default_rng(seed)
-    m = X.shape[0]
-    idx = np.arange(m)
-
-    # Start with a small random w to avoid the w=0 degeneracy
-    w = rng.normal(size=3).astype(np.float64)
-    wn = np.linalg.norm(w)
-    w = w / max(wn, 1e-30)
-
-    updates = 0
-
-    def max_violation(w_):
-        # violation for y*(w·x) >= gamma is max(gamma - y*(w·x))
-        s = y * (X @ w_)
-        return float(np.max(gamma - s))
-
-    best_w = w.copy()
-    best_v = max_violation(best_w)
-
-    for p in range(passes):
-        if shuffle:
-            rng.shuffle(idx)
-
-        any_violation = False
-        for i in idx:
-            s = y[i] * (X[i] @ w)
-            if s >= gamma:
-                continue
-
-            any_violation = True
-            v = gamma - s  # positive violation amount
-            eta = min(max_step, v)
-
-            w += eta * y[i] * X[i]
-            updates += 1
-
-            if normalize_w:
-                wn = np.linalg.norm(w)
-                if wn > 0:
-                    w /= wn
-
-            if updates >= max_updates:
-                break
-
-        v_now = max_violation(w)
-        if v_now < best_v:
-            best_v = v_now
-            best_w = w.copy()
-
-        if not any_violation or updates >= max_updates:
-            break
-
-    wn = np.linalg.norm(best_w)
-    if wn < min_w_norm:
-        # degenerate; treat as not separable
-        return False, best_w, {
-            "updates": updates,
-            "passes_done": p + 1,
-            "max_violation": best_v,
-            "gamma": gamma,
-            "reason": "degenerate_w",
-        }
-
-    w_unit = best_w / wn
-
-    # Decide separability: all constraints satisfy margin => max_violation <= 0
-    is_sep = best_v <= 0.0
-
-    info = {
-        "updates": updates,
-        "passes_done": p + 1,
-        "max_violation": best_v,
-        "gamma": gamma,
-    }
-    return is_sep, w_unit, info
-
-def spherical_cap_separable(
-    U: np.ndarray,
-    V: np.ndarray,
-    *,
-    max_updates: int = 300_000,
-    passes: int = 60,
-    tol: float = 1e-12,
-    shuffle: bool = False,
-    seed: int = 0,
-    max_step: float = 2.0,
-    average: bool = False,
-    return_witness: bool = False,
-):
-    """
-    Determine separability on the sphere by a spherical cap boundary:
-        w·u + b >= 0 for all u in U
-        w·v + b <= 0 for all v in V
-
-    Equivalent to linear separability in R^3 with a bias term.
-    Returns (is_separable, w, b, info).
-    """
-    U = np.asarray(U, dtype=np.float64)
-    V = np.asarray(V, dtype=np.float64)
-    if U.ndim != 2 or V.ndim != 2 or U.shape[1] != 3 or V.shape[1] != 3:
-        raise ValueError("U and V must be arrays of shape (m,3) and (k,3).")
-
-    X = np.vstack([U, V])
-    y = np.concatenate([np.ones(len(U), dtype=np.float64),
-                        -np.ones(len(V), dtype=np.float64)])
-
-    # Ensure unit vectors (optional but stabilizing)
-    Xn = np.linalg.norm(X, axis=1)
-    X = X / np.maximum(Xn, 1e-30)[:, None]
-
-    # Augment with bias
-    Xa = np.hstack([X, np.ones((X.shape[0], 1), dtype=np.float64)])
-
-    rng = np.random.default_rng(seed)
-    w = np.zeros(4, dtype=np.float64)
-    w_avg = np.zeros_like(w) if average else None
-    avg_count = 0
-
-    idx = np.arange(Xa.shape[0])
-    updates = 0
-
-    def max_violation(w_):
-        s = y * (Xa @ w_)
-        return float(np.max(-s))
-
-    best_w = w.copy()
-    best_max_viol = np.inf
-
-    for p in range(passes):
-        if shuffle:
-            rng.shuffle(idx)
-
-        any_violation = False
-        for i in idx:
-            s = y[i] * (Xa[i] @ w)
-            if s >= -tol:
-                if average:
-                    w_avg += w
-                    avg_count += 1
-                continue
-
-            any_violation = True
-            v = -s
-            eta = min(max_step, v)
-            w += eta * y[i] * Xa[i]
-            updates += 1
-
-            if average:
-                w_avg += w
-                avg_count += 1
-
-            if updates >= max_updates:
-                break
-
-        cand_w = (w_avg / avg_count) if (average and avg_count > 0) else w
-        mv = max_violation(cand_w)
-        if mv < best_max_viol:
-            best_max_viol = mv
-            best_w = cand_w.copy()
-
-        if not any_violation or updates >= max_updates:
-            break
-
-    # Normalize for interpretability: scale so ||w3||=1
-    w3 = best_w[:3].copy()
-    b = float(best_w[3])
-    nrm = np.linalg.norm(w3)
-    if nrm > 0:
-        w3 /= nrm
-        b /= nrm
-
-    mv_out = best_max_viol
-    info = {
-        "updates": updates,
-        "passes_done": p + 1,
-        "max_violation": mv_out,
-        "tol": tol,
-        "averaged": bool(average),
-    }
-
-    is_sep = mv_out <= tol
-    if return_witness:
-        s = y * (Xa @ best_w)
-        worst_i = int(np.argmax(-s))
-        info["worst_index"] = worst_i
-        info["worst_label"] = float(y[worst_i])
-        info["worst_margin"] = float(s[worst_i])
-
-    return is_sep, w3, b, info
 
 def separate_gauss_maps(N1, N2, *, eps=1e-8, tol=1e-12):
     # Choose order to reduce average calls (optional but good):
@@ -1041,12 +815,15 @@ def _refine_pair_to_simple(
 class SSXPoint:
     stuv: NDArray[np.float64]  # (4,)
 
-
-@dataclass
+from functools import cached_property
+@dataclass(unsafe_hash=True)
 class SSXBranch:
     curve: NURBSCurveTuple
     closed: bool = False
     overlap: bool = False
+    curve_xyz: NURBSCurveTuple=field(default=None,init=False)
+    curve_st: NURBSCurveTuple=field(default=None,init=False)
+    curve_uv: NURBSCurveTuple=field(default=None,init=False)
 
 
 def _param_tol_from(tol: float, spt: float) -> float:
@@ -1210,80 +987,6 @@ def duv_from_eval(Su, Sv, T):
     return delta_uv
 from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
 from mmcore.geom._nurbs_ders import _greville_abscissae
-def _param_space_tangent_data(s1,s2,stuv):
-    stuv_a=stuv
-
-    s1_eval_start, s2_eval_start, T_start = _get_pt_t(s1, s2, stuv_a)
-
-    dst_start = duv_from_eval(s1_eval_start[1], s1_eval_start[2], T_start)
-
-    duv_start = duv_from_eval(s2_eval_start[1], s2_eval_start[2], T_start)
-
-    dstuv_start = np.empty_like(stuv_a)
-    dstuv_start[:2] = dst_start
-    dstuv_start[2:] = duv_start
-    return s1_eval_start[0],s2_eval_start[0],dstuv_start
-
-
-def interp_param_space_hermite(  s1,
-    s2, stuvs_initial,tol=1e-3,maxiter=2):
-    stuvs=stuvs_initial
-    iters=0
-    curve = _curve_from_stuv_path(stuvs)
-    while iters<maxiter:
-        iters+=1
-
-        sqtol=tol*tol
-
-        # params = np.cumsum(np.linalg.norm(np.diff(real_points, axis=0, prepend=0), axis=1))
-
-        ga=_greville_abscissae(curve.knot,3)
-
-        max_err=-np.inf
-        stuvs=[]
-        ders=[]
-        prms=[]
-        for g ,prm,in ((evaluate_nurbs_curve(curve, i, d_order=0)["C"],i) for i in ga):
-            stuvs_new,s1_eval,s2_eval,error=refine_intersection_point(g, s1, s2, spt=tol, max_iter=100)
-            dp=s1_eval['S']-evaluate_nurbs_surface(s1,g[0],g[1],d_order=0)['S']
-            s1_ev,s2_ev,dtusv=_param_space_tangent_data(s1,s2,stuvs_new)
-            ders.append(dtusv)
-            prms
-            err=np.linalg.norm(dp)
-            if err>max_err:
-                max_err=err
-
-            stuvs.append(stuvs_new)
-
-        curve=_curve_from_stuv_path(stuvs,ders=np.array(ders))
-        print(f'\r{max_err:5f}',end='', flush=True )
-        if max_err<tol:
-            break
-    #print()
-    return curve
-
-def _simple_march_between(
-    s1,
-    s2,
-    stuv_a: NDArray[np.float64],
-    stuv_b: NDArray[np.float64],
-    *,
-
-    interval1: tuple[float, float, float, float],
-    interval2: tuple[float, float, float, float],
-    tol: float,
-
-) -> NURBSCurveTuple:
-
-
-
-
-
-
-
-
-    return interp_param_space_hermite(s1, s2, (stuv_a, stuv_b), tol=tol, maxiter=4)
-
 
 def _collect_boundary_intersections(
     H_owner: NDArray[np.float64],
@@ -1777,6 +1480,17 @@ def _bez_ssx_recursive(
         branches = _close_branches(branches, param_tol)
         return branches, points
 
+def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
+        branch.curve_st = branch.curve._replace(control_points=branch.curve.control_points[..., :2])
+        branch.curve_uv = branch.curve._replace(control_points=branch.curve.control_points[..., 2:])
+
+        _points = []
+        for t in _greville_abscissae(branch.curve.knot, branch.curve.degree):
+            stuv=evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
+            _points.append(evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)['S'])
+
+        cpt, kv = interpolate_curve(_points, 3)
+        branch.curve_xyz = NURBSCurveTuple(4, knot=np.array(kv), control_points=np.array(cpt), weights=np.ones(len(cpt)))
 
 def bez_ssx(
     H1: NDArray[np.float64],
@@ -1899,6 +1613,8 @@ def nurbs_ssx(
     branches = _merge_branches_global(branches, param_tol)
     branches = _close_branches(branches, param_tol)
     points = _prune_points_on_branches(points, branches, param_tol)
+    for b in branches:
+        compute_branch_curves(b, surf1,surf2)
     return branches, points
 
 
@@ -1973,6 +1689,7 @@ def detect_intersections(
 
     return out
 
+
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
@@ -2042,24 +1759,13 @@ if __name__ == "__main__":
     from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,evaluate_nurbs_surface
     from mmcore.geom._nurbs_interp import interpolate_curve
 
+
+
     for c in curves:
-        s1_curve=c.curve._replace(control_points=c.curve.control_points[..., :2])
 
-        stuvs= [(evaluate_nurbs_curve(c.curve,t,d_order=0)['C'],t) for t in _greville_abscissae(c.curve.knot,c.curve.degree)]
-        derivs=[]
-        _points=[]
-        params=[]
 
-        for stuv,t in stuvs:
 
-            (p0,*_),(p1,*_),T=_get_pt_t(S1,S2,stuv)
-            T*=0.33
-            derivs.append(T)
-            _points.append(p0)
-            params.append(t)
-        cpt,kv=interpolate_curve(_points, 3, params)
-        crv_xyz = NURBSCurveTuple(4, knot=np.array(kv),control_points=np.array(cpt),weights=np.ones(len(cpt)))
-        crvs_all.append(crv_xyz)
+        crvs_all.append(c.curve_xyz)
 
     with open("/Users/sthv/PycharmProjects/mmcore/tests/norm3.pkl", "wb") as f:
         pickle.dump(crvs_all, f)
