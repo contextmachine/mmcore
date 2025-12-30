@@ -3,8 +3,8 @@ from __future__ import annotations
 import itertools
 
 from mmcore.numeric._aabb import aabb, aabb_intersection, aabb_intersect
-
-from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.geom._nurbs_eval import from_homogeneous_1d
+from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance, _nurbs_curve_param_tol_conservative
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.bern import *
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
@@ -21,7 +21,7 @@ except Exception:  # pragma: no cover - optional Cython acceleration
     _eval_bezier_raw_fast = None
     _eval_bezier_raw_d1_fast = None
     _eval_bezier_raw_d2_fast = None
-
+from mmcore.numeric._bern_homog import eval_bezier_homogeneous_curve_inplace
 # ---------------------------------------------------------------------------
 # Homogeneous helpers
 # ---------------------------------------------------------------------------
@@ -83,9 +83,12 @@ def de_casteljau_split(ctrl, prms=None):  # (n+1,d)
     right = np.stack([p[-1] for p in pyr[::-1]], axis=0)
     return left, right
 
-
 def _eval_bezier_raw_py(P, t):
+
     """Plain Bézier evaluation in control-space (homogeneous safe)."""
+    out=np.empty(P.shape[1], dtype=np.float64,order='C')
+    eval_bezier_homogeneous_curve_inplace(np.ascontiguousarray(P), t,out)
+    return out
     P = np.asarray(P, dtype=np.float64)
     n = P.shape[0] - 1
     if n <= 0:
@@ -1255,7 +1258,6 @@ def subdivide_v(dist_net, su_net, sv_net, v: float):
     return left, right
 
 
-
 def bern_restrict_face(ctrl, axis, which):
     """
     Restrict tensor Bernstein grid to a parameter face.
@@ -1382,9 +1384,15 @@ def classify_cell_by_grids(Du, Dv, eps_face=1e-14, eps_pd=1e-14):
             notes="PM says ≥1 root; Hessian not PD globally ⇒ maybe tangency/overlap/multiple",
         )
 
-from scipy.spatial import ConvexHull,Delaunay,HalfspaceIntersection
+
 def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
-    return nurbs_curve_param_tolerance(bern_to_nurbs_bezier(c, rational=rational, interval=interval), tol)
+    if rational:
+        p,w=from_homogeneous_1d(c)
+    else:
+        p=c
+        w=np.ones(c.shape[0])
+    deg=c.shape[0]-1
+    return _nurbs_curve_param_tol_conservative(p,w, generate_knots(c.shape[0],c.shape[0]-1, interval=interval),deg,tol )
 
 
 def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False, **kwargs) -> IntersectionResult:

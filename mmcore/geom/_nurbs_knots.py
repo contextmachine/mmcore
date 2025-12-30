@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections import Counter
 from copy import deepcopy
 
@@ -24,7 +25,7 @@ from mmcore.geom._nurbs_eval import (
 
 from numpy.typing import NDArray
 
-
+@functools.lru_cache(maxsize=None)
 def generate_knots(control_points_count, degree, interval=None):
     """Generate default knot vector for NURBS/B-spline curves.
 

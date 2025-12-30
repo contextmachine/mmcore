@@ -16,7 +16,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mmcore.geom._nurbs_knots import link_curves
-from mmcore.numeric.intersection.ssx._ssx31 import refine_intersection_point
+from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 

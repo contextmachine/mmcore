@@ -11,13 +11,15 @@ from libc.math cimport sqrt
 
 cnp.import_array()
 
+
+
 cdef inline double dot3(double ax, double ay, double az,
-                        double bx, double by, double bz) nogil:
+                        double bx, double by, double bz) noexcept nogil:
     return ax*bx + ay*by + az*bz
 
 cdef inline void cross3(double ax, double ay, double az,
                         double bx, double by, double bz,
-                        double* rx, double* ry, double* rz) nogil:
+                        double* rx, double* ry, double* rz) noexcept nogil:
     rx[0] = ay*bz - az*by
     ry[0] = az*bx - ax*bz
     rz[0] = ax*by - ay*bx
@@ -54,7 +56,7 @@ cdef inline bint cap_contains(double cx, double cy, double cz,
 cdef inline double cap_from_2(double ax, double ay, double az,
                               double bx, double by, double bz,
                               double* cx, double* cy, double* cz,
-                              double tol) nogil:
+                              double tol) noexcept nogil:
     cdef double sx = ax + bx
     cdef double sy = ay + by
     cdef double sz = az + bz
@@ -74,7 +76,7 @@ cdef inline void cap_from_3(double ax, double ay, double az,
                             double dx, double dy, double dz,
                             double* cx, double* cy, double* cz,
                             double* mout,
-                            double tol) nogil:
+                            double tol) noexcept nogil:
     """
     Best cap supported by up to 3 points (a,b,d).
     Declarations at top for Cython compatibility.
