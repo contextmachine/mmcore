@@ -664,6 +664,8 @@ def trim_curve(curve:NURBSCurveTuple, t0:float,t1:float):
     print(t0,t1)
     t0,t1=min(t0,t1),max(t0,t1)
     t_min,t_max=_curve_interval(curve)
+    print(f"f:{t_min}=={t0}: {t0==t_min} ")
+    print(f"f:{t_max}=={t1}: {t1==t_max} ")
     if t0==t_min and t1==t_max:
         return curve.__class__(*curve)
 
@@ -1080,7 +1082,7 @@ def trim_surface(surface:BSplineSurfaceTuple|NURBSSurfaceTuple, u0:float, u1:flo
     surf= split_surface_u_multiple(surface, splits_u)[ix_u]
     
     return split_surface_v_multiple(surf, splits_v)[ix_v]
-    
+
 
 from mmcore.numeric.binom import binomial_coefficient_py
 
@@ -1133,9 +1135,15 @@ def link_curves(curves):
 
     if not curves:
         raise ValueError("Empty input list")
-
-    order = curves[0].order                     # all pieces have the same order
+    max_order=max(curves,key=lambda curve: curve.order).order
+    order = max_order                    # all pieces have the same order
     p      = order - 1
+
+    for i in range(len(curves)):
+        curve = curves[i]
+        if curve.order != order:
+
+            curves[i] = degree_elevate_curve(curve, order - curve.order)
 
     kv, cpts, wgts = [], [], []
     interior_knots = []                        # the knot to which each join collapses
@@ -1151,7 +1159,6 @@ def link_curves(curves):
         # Shift this piece so that its *first* knot equals the current offset
         d   = offset - k[0]                    # <─── Δ computed once
         k   = k + d
-
 
         if i == 0:
             # keep everything *except* the trailing clamping knots
@@ -1686,7 +1693,6 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
     )
 
 
-
 # --- tuning knobs ---
 SNAP_TOL_ABS = 1e-2  # absolute tolerance for treating interior knots as "the same"
 MIDPOINT = 0.5  # tie-break reference inside [0,1] after normalization
@@ -1819,9 +1825,6 @@ def _snap_curve_to_clusters(curve, order, clusters):
 
     new_knots = _rebuild_knots_from_interior(knots, order, new_inter)
     return _set_knots(curve, new_knots)
-
-
-
 
 
 def _insert_missing_to_reach_target(curve, order, target_interior):

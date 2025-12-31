@@ -360,6 +360,7 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
             pts2 = segm2.control_points
 
         result = bez_ccx(pts1, pts2, atol=tol, rational=rational)
+        print(result)
         if len(result['isolated'])==0 and len(result['overlaps'])==0:
             #print(segm1)
             #print('$')

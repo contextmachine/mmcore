@@ -278,7 +278,7 @@ try:
                 t0 = o[0]
                 t1 = o[-1]
 
-                pts=np.linspace(t0,t1,500)
+                pts=np.linspace(t0,t1,800)
                 for t in pts:
 
                     evl=evaluate_nurbs_curve(curve,t,d_order=0)

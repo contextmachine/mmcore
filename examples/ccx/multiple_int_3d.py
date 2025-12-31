@@ -219,9 +219,11 @@ else:
         for start,end in overlaps['point']:
             viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
             viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
-        for o in overlaps['overlap']:
-            t0, s0 = o['uv_path'][0]
-            t1, s1 = o['uv_path'][-1]
+        print(overlaps.dtype)
+        for o in overlaps:
+            t0, s0 = o['u'][0],o['v'][0]
+            t1, s1 = o['u'][-1],o['v'][-1]
+
             viewer.add(trim_curve(val[o['curve1_i']], t0, t1),color=(0.0, 1.0, 0.5, 1.0))
 
     viewer.run()

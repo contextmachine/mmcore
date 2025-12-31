@@ -192,7 +192,8 @@ def main():
     print("Intersection parameter pairs (curve1_s, curve2_t):")
     for idx, inter in enumerate(intersections):
         print(f"{idx + 1}: ({inter['u']}, {inter['v']})")
-    print(len(overlaps))
+    if overlaps is not None:
+        print(len(overlaps))
     # Evaluate intersection points
     intersection_points = np.array([inter['point'] for inter in intersections])
     #exit(0)

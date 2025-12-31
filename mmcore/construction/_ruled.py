@@ -1,5 +1,6 @@
 import numpy as np
 
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs,NURBSSurfaceTuple
 from mmcore.geom.curves.knot import degree_elevate_curve, refine_curve
 from mmcore.geom.nurbs import NURBSSurface,NURBSCurve
 __all__=['ruled','Ruled']
@@ -56,7 +57,7 @@ def make_curves_compatible(curve1, curve2):
     return curve1, curve2
 
 
-def ruled(curve1:NURBSCurve, curve2:NURBSCurve):
+def ruled(curve1:NURBSCurve|NURBSCurveTuple, curve2:NURBSCurve|NURBSCurveTuple)->NURBSSurfaceTuple:
     """
     Generates a ruled surface between two given NURBS curves. A ruled surface is a
     surface created by linear interpolation between corresponding points on two
@@ -71,9 +72,13 @@ def ruled(curve1:NURBSCurve, curve2:NURBSCurve):
     :type curve2: NURBSCurve
 
     :return: A NURBS ruled surface created between the two input curves.
-    :rtype: NURBSSurface
+    :rtype: NURBSSurfaceTuple
     """
     # Make curves compatible
+    if isinstance(curve1, NURBSCurveTuple):
+        curve1=_tuple_to_nurbs(curve1)
+    if isinstance(curve2, NURBSCurveTuple):
+        curve2=_tuple_to_nurbs(curve2)
     curve1=curve1.copy()
     curve2=curve2.copy()
     curve1.normalize_knots()
@@ -95,7 +100,7 @@ def ruled(curve1:NURBSCurve, curve2:NURBSCurve):
     u_knots = c1.knots  # Same for both curves now
     v_knots = np.array([0., 0., 1., 1.])  # Linear interpolation in v direction
 
-    return NURBSSurface( control_points,(c1.degree, 1),u_knots,v_knots)
+    return _nurbs_to_tuple(NURBSSurface( control_points,(c1.degree, 1),u_knots,v_knots))
 
 
 Ruled=ruled
