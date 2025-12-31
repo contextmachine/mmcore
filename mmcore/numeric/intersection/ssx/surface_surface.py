@@ -1,24 +1,21 @@
 from __future__ import annotations
-import copy
-import itertools
-import sys
-import time
+
 import warnings
-from array import array
-from dataclasses import dataclass
+
+from typing import NamedTuple, Literal,Any, Protocol, runtime_checkable,Callable
+
+from numpy._typing import NDArray
 
 from mmcore.geom.nurbs import NURBSSurface, NURBSCurve
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,_nurbs_to_tuple,_tuple_to_nurbs
-from scipy.integrate import solve_bvp, solve_ivp
 
-from mmcore.geom.surfaces import CurveOnSurface, Surface
 
-from mmcore.geom.surfaces import Surface, Coons
-from mmcore.numeric.vectors import solve2x2, det, scalar_dot, scalar_norm
+
+
+from mmcore.numeric.vectors import solve2x2
 from mmcore.numeric.intersection.ssx._ssx_utils import improve_uv as cimprove_uv
 from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
 
-from mmcore.geom.curves.bspline import NURBSpline, interpolate_nurbs_curve
 
 import numpy as np
 from mmcore.numeric.vectors import norm, det
@@ -54,89 +51,74 @@ def improve_uv_robust(surf, uv_old, du, dv, xyz_old, xyz_better, uv_better=None,
 
 
 
+@runtime_checkable
+class Implicit(Protocol):
+    def __call__(self, p:NDArray[np.float64])-> float|NDArray[np.float64]:
+        pass
+    def bounds(self)->NDArray[np.float64]|tuple[tuple[float, float,float], tuple[float, float,float]]:
+        pass
 
+from mmcore.numeric.intersection.ssx._ssx4 import nurbs_ssx,SSXBranch,SSXPoint
 
+class CommonSSXBranch(NamedTuple):
+    curve: NURBSCurveTuple
+    ssx_type:Literal["PP", "IP", "II"]
+    source:SSXBranch|Any=None
 
-from mmcore.numeric.intersection.ssx.boundary_intersection import \
-    IntersectionPoint
-from mmcore.geom.nurbs_iso import extract_isocurve
+class CommonSSXPoint(NamedTuple):
+    xyz: NDArray[np.float64]
+    ssx_type:Literal["PP", "IP", "II"]
+    source:SSXPoint|Any=None
 
-
-
-from mmcore.numeric.intersection.ssx._ssx31 import _nurbs_trace_intersection_curves_v2 as _nurbs_trace_intersection_curves,SamplingMethod
-def surface_ppi(surf1: Surface, surf2: Surface, spt=0.001,tol=1e-7, tan_tol=1e-3, **kwargs):
-
-    # s=time.perf_counter_ns()[(0.12254503038194443, 0.607421875), (0.12037037478552923, 0.6044921875),
-    #edge_terminator = surface_surface_boundary_intersection(surf1, surf2, spt=spt)
-    # times.append(time.perf_counter_ns()-s)
-
-    #freeform = FreeFormMethod(surf1, surf2, spt=spt, boundary_terminators=edge_terminator, max_iter=19)
-    # s = time.perf_counter_ns()
-    if isinstance(surf1, NURBSSurface) and isinstance(surf2, NURBSSurface):
-        return _nurbs_trace_intersection_curves(surf1,surf2,tol=tol,spt=spt,tan_tol=tan_tol)
-
-    else:
-        raise NotImplemented
 import logging
 _logger=logging.getLogger('mmcore')
-def ssx(surf1: NURBSSurface|NURBSSurfaceTuple, surf2: NURBSSurface|NURBSSurfaceTuple,  spt=0.001,tol: float = 1e-7, **kwargs) -> tuple[list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]],list[IntersectionPoint]]:
+def ssx(surf1: NURBSSurface|NURBSSurfaceTuple, surf2: NURBSSurface|NURBSSurfaceTuple,  atol=0.001, angle_tol=0.052, **kwargs) -> tuple[list[CommonSSXBranch],list[CommonSSXPoint]]:
     """
     Calculate the intersection of two parametric surfaces.
 
-    :param surf1: The first surface.
-    :type surf1: Surface
-    :param surf2: The second surface.
-    :type surf2: Surface
-    :param tol: The tolerance value for the intersection algorithm (optional, default is 0.01).
-    :type tol: float
-    :param max_iter: The maximum number of iterations for the intersection algorithm (optional, default is 500). Now
-    this parameter exists primarily to debug recursion
-    :type max_iter: int
-    :param curvature_step:  Use curvature dependent step (experimental, default is False). At the moment it does not give an increase in speed.
-    :type curvature_step: bool
-    :return: A list of tuples, where each tuple contains an interpolated spatial NURBS curve intersection and the corresponding objects
-             CurveOnSurface objects for surf1 and surf2.
-    :rtype: list[tuple[NURBSCurve, CurveOnSurface, CurveOnSurface]]
+    SSX Types:
 
-    Note
-    -----
-    If successful (intersection found), this function returns a list of intersection results because two surfaces can form as many separate intersection curves as desired.
+    | kind           | P (Parametric) | I (Implicit)  |
+    |----------------|----------------|---------------|
+    | P (Parametric) | PP             | IP (not impl) |
+    | I (Implicit)   | IP  (not impl) | II (not impl) |
 
-     Since two surfaces can form as many separate intersection curves as desired, the list of intersection results.
-     Each intersection result is a separate intersection curve in three views:
-        1. A spatial NURBS curve (NURBSpline object).
-        2. A curve in the parametric space of the first surface (CurveOnSurface object).
-        3. A curve in the parametric space of the second surface (CurveOnSurface
 
     """
-    if isinstance(surf1,NURBSSurfaceTuple):
-        surf1=_tuple_to_nurbs(surf1)
-    if isinstance(surf2,NURBSSurfaceTuple):
-        surf2=_tuple_to_nurbs(surf2)
-        
-    res = surface_ppi(surf1, surf2, tol=tol,spt=spt)
-    if res is None:
-        return [],[]
+    if 'spt' in kwargs:
+        warnings.warn('spt keyword is deprecated. Use atol instead', DeprecationWarning)
+        atol=kwargs.pop('spt')
+    if 'tol' in kwargs:
+        warnings.warn('tol keyword is deprecated and will be removed in the future. The ssx public interface no longer supports setting a user-defined parametric tolerance; the value will be ignored. \nInstead, use a combination of atol and angle_tol to control accuracy.', DeprecationWarning)
+    if isinstance(surf1,NURBSSurface):
+        surf1=_nurbs_to_tuple(surf1)
+    if isinstance(surf2,NURBSSurface):
+        surf2=_nurbs_to_tuple(surf2)
+    if isinstance(surf1,NURBSSurfaceTuple) and isinstance(surf2,NURBSSurfaceTuple):
+        ssx_type="PP"
+    elif isinstance(surf1,Implicit) and isinstance(surf2,Implicit):
+        ssx_type="II"
+        raise NotImplementedError("At this time, the ssx public interface does not support type II intersections (Implicit x Implicit).")
+    elif any((isinstance(surf1, Implicit) ,isinstance(surf2, Implicit))) and any((isinstance(surf1, (NURBSSurface,NURBSSurfaceTuple)) ,isinstance(surf2, (NURBSSurface,NURBSSurfaceTuple)))):
+        ssx_type = "IP"
+        raise NotImplementedError("At this time, the ssx public interface does not support type IP intersections (Implicit x Parametric).")
+    else:
+
+        raise ValueError(f"Unsupported type: {type(surf1)} or {type(surf2)}")
+
+    res = nurbs_ssx(surf1, surf2, atol=atol,angle_tol=angle_tol)
+
     curves,pts=res
-    #curves, curves1_uvs,curves2_uvs, _= zip(*res)
-    results = []
+
+    branches = []
     for i, curve_dt in enumerate(curves):
+        if isinstance(curve_dt,SSXBranch):
+            branches.append(CommonSSXBranch(curve_dt.curve_xyz, ssx_type="PP", source=curve_dt))
 
-        curve_pts, curve_uvs1, curve_uvs2=curve_dt[0],curve_dt[1],curve_dt[2]
-        curve = interpolate_nurbs_curve(curve_pts, 3)
+    isolated:list[CommonSSXPoint]=[]
+    for i in range(len(pts)):
+        pt = pts[i]
+        if isinstance(pt,SSXPoint):
+            isolated.append(CommonSSXPoint(pt.xyz,"PP",pt))
 
-
-        curve_on_surf1 = interpolate_nurbs_curve(curve_uvs1, 3)
-        curve_on_surf2 = interpolate_nurbs_curve(curve_uvs2, 3)
-
-        results.append(
-            (
-                curve,
-                CurveOnSurface(surf1, curve_on_surf1, interval=curve_on_surf1.interval()),
-                CurveOnSurface(surf2, curve_on_surf2, interval=curve_on_surf2.interval()),
-            )
-        )
-
-    return results, pts
-
-
+    return branches, isolated

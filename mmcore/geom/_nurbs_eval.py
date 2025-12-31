@@ -27,10 +27,10 @@ class NURBSCurveTuple(NamedTuple):
 
     def start(self):
 
-        return evaluate_nurbs_curve(self,self.knot[self.order-1],0)['C']
+        return evaluate_nurbs_curve(self,self.interval()[0],0)['C']
     def end(self):
 
-        return evaluate_nurbs_curve(self,self.knot[self.control_points.shape[0]],0)['C']
+        return evaluate_nurbs_curve(self,self.interval()[1],0)['C']
     def interval(self):
         return _curve_interval(self)
     @property

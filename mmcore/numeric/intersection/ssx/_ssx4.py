@@ -813,7 +813,8 @@ def _refine_pair_to_simple(
 
 @dataclass
 class SSXPoint:
-    stuv: NDArray[np.float64]  # (4,)
+    stuv: NDArray[np.float64] =None # (4,)
+    xyz:NDArray[np.float64] = None
 
 from functools import cached_property
 @dataclass(unsafe_hash=True)
@@ -882,7 +883,9 @@ def _split_interval_uv(
     ]
     return intervals, (um, vm)
 
-from mmcore.numeric.bern import bernstein_boundaries_2d
+from mmcore.numeric.bern import bernstein_boundaries_2d, bernstein_trim_nd
+
+
 def _boundary_curves_from_net(
     H: NDArray[np.float64],
 ) -> list[tuple[str, float, NDArray[np.float64]]]:
@@ -952,6 +955,10 @@ def _finite_diff_derivatives(points: NDArray[np.float64]) -> NDArray[np.float64]
 
 
 def _curve_from_stuv_path(stuv_path: NDArray[np.float64],ders=None) -> NURBSCurveTuple | None:
+    dd=stuv_path[-1]-stuv_path[0]
+    if np.linalg.norm(dd) < 1e-6:
+        return None
+
     pts = np.asarray(stuv_path, dtype=np.float64)
     if pts.shape[0] < 2:
         return None
@@ -959,6 +966,7 @@ def _curve_from_stuv_path(stuv_path: NDArray[np.float64],ders=None) -> NURBSCurv
         ders = _finite_diff_derivatives(pts)
 
     params = np.cumsum(np.linalg.norm(np.diff(pts, axis=0, prepend=pts[:1]), axis=1))
+
     return hermite_interpolate_nurbs(points=pts, derivatives=ders, params=params, degree=3)
 def _get_pt_t(s1,s2,stuv):
 
@@ -987,7 +995,7 @@ def duv_from_eval(Su, Sv, T):
     return delta_uv
 from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
 from mmcore.geom._nurbs_ders import _greville_abscissae
-
+from mmcore.numeric.vectors import dot_array_x_vec
 def _collect_boundary_intersections(
     H_owner: NDArray[np.float64],
     H_other: NDArray[np.float64],
@@ -1029,6 +1037,7 @@ def _collect_boundary_intersections(
             count+=1
         for ovl in res.get("overlaps", []):
             t_path = np.asarray(ovl["t_path"], dtype=np.float64).reshape(-1)
+
             uv_path = np.asarray(ovl["uv_path"], dtype=np.float64).reshape(-1, 2)
             uv_owner_local = np.stack([_boundary_uv(axis, value, t) for t in t_path], axis=0)
             if owner_is_first:
@@ -1038,9 +1047,17 @@ def _collect_boundary_intersections(
                 uv1_path = _map_uv_path_to_interval(uv_path, interval_other)
                 uv2_path = _map_uv_path_to_interval(uv_owner_local, interval_owner)
             stuv_path = np.hstack([uv1_path, uv2_path])
-            curve = _curve_from_stuv_path(stuv_path)
-            if curve is not None:
-                branches.append(SSXBranch(curve=curve, overlap=True))
+            delta = stuv_path[-1] - stuv_path[0]
+            if np.linalg.norm(delta) < param_tol:
+                return None
+            delta/=np.linalg.norm(delta)
+
+            cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=False,tol=param_tol)
+            print(cnt,kv)
+            curve = NURBSCurveTuple(order=min(len(stuv_path)-1,3)+1, knot=np.array(kv),control_points=np.array(cnt),weights=np.ones(len(cnt)) )
+
+
+            branches.append(SSXBranch(curve=curve, overlap=True))
         if count>=2:
             break
 
@@ -1489,25 +1506,15 @@ def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface
             stuv=evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
             _points.append(evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)['S'])
 
-        cpt, kv = interpolate_curve(_points, 3)
-        branch.curve_xyz = NURBSCurveTuple(4, knot=np.array(kv), control_points=np.array(cpt), weights=np.ones(len(cpt)))
+        cpt, kv = interpolate_curve(_points, branch.curve.degree)
+        branch.curve_xyz = NURBSCurveTuple(branch.curve.order, knot=np.array(kv), control_points=np.array(cpt), weights=np.ones(len(cpt)))
 
-def bez_ssx(
-    H1: NDArray[np.float64],
-    H2: NDArray[np.float64],
-    *,
-    spt: float = 0.1,
-    tol: float = 1e-8,
-    gjk_max_iter: int = 64,
-    gm_eps: float = 1e-5,
-    gm_tol: float = 1e-8,
-    max_depth: int = 24,
-    magic_start_depth: int = 6,
-    parallel_angle: float = 0.05,
-    flat_angle: float = 0.15,
-    march_samples: int = 8,
-) -> tuple[list[SSXBranch], list[SSXPoint]]:
-    param_tol = _param_tol_from(tol, spt)
+def compute_point_xyz(point:SSXPoint, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
+    point.xyz=evaluate_nurbs_surface(surface1,point.stuv[0],point.stuv[1],d_order=0)['S']
+def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0.001, angle_tol: float = 0.052,
+            tol: float = 1e-8, gjk_max_iter: int = 64, gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24,
+            magic_start_depth: int = 6, flat_angle: float = 0.15, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
+    param_tol = _param_tol_from(tol, atol)
     g1 = GaussMapBern.from_surf(H1, rational=True)
     g2 = GaussMapBern.from_surf(H2, rational=True)
     branches, points = _bez_ssx_recursive(
@@ -1515,7 +1522,7 @@ def bez_ssx(
         g2,
         (0.0, 1.0, 0.0, 1.0),
         (0.0, 1.0, 0.0, 1.0),
-        spt=spt,
+        spt=atol,
         tol=tol,
         param_tol=param_tol,
         gjk_tol=tol,
@@ -1524,7 +1531,7 @@ def bez_ssx(
         gm_tol=gm_tol,
         max_depth=max_depth,
         magic_start_depth=magic_start_depth,
-        parallel_angle=parallel_angle,
+        parallel_angle=angle_tol,
         flat_angle=flat_angle,
         march_samples=march_samples,
     )
@@ -1534,21 +1541,9 @@ def bez_ssx(
     return branches, points
 
 
-def nurbs_ssx(
-    surf1,
-    surf2,
-    *,
-    spt: float = 0.1,
-    tol: float = 1e-8,
-    gjk_max_iter: int = 64,
-    gm_eps: float = 1e-5,
-    gm_tol: float = 1e-8,
-    max_depth: int = 24,
-    magic_start_depth: int = 6,
-    parallel_angle: float = 0.05,
-    flat_angle: float = 0.15,
-    march_samples: int = 8,
-) -> tuple[list[SSXBranch], list[SSXPoint]]:
+def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, tol: float = 1e-8, gjk_max_iter: int = 64,
+              gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24, magic_start_depth: int = 3,
+              flat_angle: float = 0.15, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
     s1 = surf1
     s2 =surf2
 
@@ -1575,7 +1570,7 @@ def nurbs_ssx(
 
     branches: list[SSXBranch] = []
     points: list[SSXPoint] = []
-    param_tol = _param_tol_from(tol, spt)
+    param_tol = _param_tol_from(tol, atol)
 
     for obj1, obj2 in bvh_intersect(tree1, tree2, exact=False):
         i = obj1.object
@@ -1594,7 +1589,7 @@ def nurbs_ssx(
             gm2[j],
             s1_intervals[i],
             s2_intervals[j],
-            spt=spt,
+            spt=atol,
             tol=tol,
             param_tol=param_tol,
             gjk_tol=tol,
@@ -1603,7 +1598,7 @@ def nurbs_ssx(
             gm_tol=gm_tol,
             max_depth=max_depth,
             magic_start_depth=magic_start_depth,
-            parallel_angle=parallel_angle,
+            parallel_angle=angle_tol,
             flat_angle=flat_angle,
             march_samples=march_samples,
         )
@@ -1615,6 +1610,8 @@ def nurbs_ssx(
     points = _prune_points_on_branches(points, branches, param_tol)
     for b in branches:
         compute_branch_curves(b, surf1,surf2)
+    for p in points:
+        compute_point_xyz(p, surf1,surf2)
     return branches, points
 
 
@@ -1749,7 +1746,7 @@ if __name__ == "__main__":
     normalize_knots_surface_inplace(S1)
     normalize_knots_surface_inplace(S2)
     s=time.perf_counter()
-    curves,points=nurbs_ssx(S1, S2, spt=TOL)
+    curves,points= nurbs_ssx(S1, S2, atol=TOL)
     print((time.perf_counter() - s))
     print(S1)
     if curves:

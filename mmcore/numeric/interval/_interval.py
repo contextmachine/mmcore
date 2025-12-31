@@ -186,6 +186,7 @@ class Interval:
         if isinstance(other, Interval):
             lo = max(self.low, other.low)
             hi = min(self.upp, other.upp)
+
             return False if lo>hi else True
         lo = max(self.low, other)
         hi = min(self.upp, other)

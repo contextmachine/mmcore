@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 
 from mmcore.numeric._aabb import aabb, aabb_intersection, aabb_intersect
 from mmcore.geom._nurbs_eval import from_homogeneous_1d
@@ -1393,9 +1394,103 @@ def _bez_get_tol_adapter(c, tol, rational=False, interval=None):
         w=np.ones(c.shape[0])
     deg=c.shape[0]-1
     return _nurbs_curve_param_tol_conservative(p,w, generate_knots(c.shape[0],c.shape[0]-1, interval=interval),deg,tol )
+from mmcore.numeric.bern import bern_roots_1d
+def _closest_pt(sqd):
+
+    res = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd)[..., None], 0), eps=1e-3)
+    return res
+@lru_cache(maxsize=32)
+def arccos_angle_tol(angle_tol):
+    return math.acos(angle_tol)
+
+def check_tangent(C1,C2,u,v,rational=False, angle_tol=0.053):
+    d1=eval_bezier_deriv(C1,u,rational)
+    d2=eval_bezier_deriv(C2, v, rational)
+    d1/=np.linalg.norm(d1)
+    d2/=np.linalg.norm(d2)
+    return abs(np.dot(d1,d2))<arccos_angle_tol(angle_tol)
+
+def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_count=3):
+
+    sqd_u_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
+
+    sqd_u_end = de_casteljau_restrict_nd(sq_dist_net, 0, 1.0)
+    sqd_v_end =de_casteljau_restrict_nd(sq_dist_net,1,1.)
+    sqd_v_start=de_casteljau_restrict_nd(sq_dist_net, 1, 0.)
+    atol_sq=atol*atol
+    # sqd_uw=de_casteljau_restrict_nd(sqd[1], 1, z)
+
+    res_u_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_start)[..., None], 0), eps=1e-9)
+    res_u_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_end)[..., None], 0), eps=1e-9)
+    ends=[]
+    def _check(uv):
+        return   (not  uv in ends) and (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq )and (check_tangent(C1,C2, *uv,angle_tol=angle_tol))
+
+    if len(res_u_start.roots)>0:
+        for r in res_u_start.roots:
+            uv=(0.0, r)
+            if _check(uv):
+                ends.append(uv)
+            # else:
+            #    print(bernstein_eval_nd(sq_dist_net, uv), uv)
+    if len(res_u_end.roots)>0:
+        for r in res_u_end.roots:
+            uv = (1.0, r)
+            if _check(uv):
+
+                ends.append(uv)
+            # else:
+            #    print(bernstein_eval_nd(sq_dist_net, (1.0, r)), (1.0, r))
+
+    # sqd_v_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
+    # sqd_v_end = de_casteljau_restrict_nd(sq_dist_net, 0, 1.0)
+
+    res_v_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_start)[...,None], 0), eps=1e-9)
+    res_v_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_end)[...,None], 0), eps=1e-9)
+
+    if len(res_v_start.roots)>0:
+        for r in res_v_start.roots:
+            uv=(0.0, r)
+            if _check(uv):
+                ends.append(uv)
+
+            # else:
+            #    print(bernstein_eval_nd(sq_dist_net, (r, .0)), (r, .0))
+    if len(res_v_end.roots)>0:
+        for r in res_v_end.roots:
+            uv=(1.0, r)
+            if _check(uv):
+
+                ends.append(uv)
+
+            # else:
+            #    print(bernstein_eval_nd(sq_dist_net, (r, 1.0)),(r,1.))
+    ends.sort(key=lambda x: x[0])
+    if len(ends)>=2:
+        u_vals=np.linspace(    min(ends,key=lambda x:x[0])[0], max(ends,key=lambda x:x[0])[0],samples_count+2)[1:][:-1]
+        for u in u_vals:
+
+            sqd_u = de_casteljau_restrict_nd(sq_dist_net, 1, u)
+            res_u = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u)[..., None], 0), eps=1e-9)
+
+            if len(res_u.roots) < 1:
+
+                return False,ends
+            at_least_one = False
+
+            for r in res_u.roots:
+                uv=(u, r)
+                if not _check(uv):
+
+                    return False,ends
+
+        return True,ends
+    else:
+        return False,ends
+    # sqd_uw=de_casteljau_restrict_nd(sqd[1], 1, z)
 
 
-def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False, **kwargs) -> IntersectionResult:
+def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False, angle_tol=0.053,**kwargs) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve pairs.
 
     Parameters
@@ -1481,9 +1576,8 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             if np.dot(d,d)<=atol_sq :
                 return True
 
-        #print('accept', u,v, eps_u, eps_v)
+        # print('accept', u,v, eps_u, eps_v)
         return False
-
 
         print('accept', u, v)
         return False
@@ -1503,15 +1597,28 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
         scale = 1.0
     eps_bbox = max(atol, 1e-12 * scale)
 
+    is_overlap, ends = check_overlap(C1,C2,sq_dist_net,atol=atol, samples_count=3,angle_tol=angle_tol)
+
+    if is_overlap:
+        uv_global = ends
+
+        xyz_global = [eval_bezier(C1, ug, rational=rational) for (ug, vg) in uv_global]
+        overlaps.append({"uv_path": np.asarray(uv_global), "xyz_path": np.asarray(xyz_global), "start": "boundary", "end": "boundary"})
+        overlaps_uv_registry.append(uv_global)
+        stats["overlap_traces"] += 1
+        stats["pruned"] += 1
+        stats['pruned_by'].append("early_overlap")
+        isolated.sort(key=lambda x: x["u"])
+        return IntersectionResult(isolated=isolated, overlaps=overlaps,stats=stats)
 
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
-        box1 = _inflate_aabb(_aabb_euclidean(Pseg, rational=rational), eps_bbox)
-        box2 = _inflate_aabb(_aabb_euclidean(Qseg, rational=rational), eps_bbox)
-        #print((u0, u1, v0, v1))
+        box1 = _aabb_euclidean(Pseg, rational=rational)
+        box2 = _aabb_euclidean(Qseg, rational=rational)
+        # print((u0, u1, v0, v1))
         if not aabb_intersect(box1, box2):
-            #print((u0, u1), (v0, v1),box1,box2)
+            # print((u0, u1), (v0, v1),box1,box2)
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_inter")
             continue
@@ -1541,16 +1648,14 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             stats["pruned_by"].append("root in C1(s)−C2(t)")
             continue
 
-
         bmin = bernstein_envelope_min(dnet)
         if bmin > 1e-9:
-            #print(bmin,atol_sq)
+            # print(bmin,atol_sq)
             stats["pruned"] += 1
             stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
             continue
         if not(np.sign(sunet.max())!=np.sign(sunet.min() ) or np.sign(svnet.max())!=np.sign(svnet.min() )):
             continue
-
 
         box1 = np.asarray(box1)
         box2 = np.asarray(box2)
@@ -1561,32 +1666,30 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
         if np.dot(dbox1,dbox1) < atol_sq and np.dot(dbox2,dbox2) < atol_sq:
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_size")
-            #print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
+            # print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
 
             res["status"]='unique_stationary'
 
-
-
         else:
+
+            stats["pruned"] += 1
             res = classify_cell_by_grids(sunet, svnet)
 
             if res["status"] == "no_stationary":
-                #print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
+                # print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
                 stats["pruned"] += 1
                 stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
                 continue
         _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
         _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
-        #print(_tol_c1,_tol_c2)
+        # print(_tol_c1,_tol_c2)
         _delta_tol = float(np.linalg.norm((_tol_c1, _tol_c2)))
         if res["status"] == "unique_stationary":
-
-
 
             uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=13,rational=rational)
 
             Dval = np.dot(Gc, Gc)
-            #print(Dval,atol_sq,root_tol_sq)
+            # print(Dval,atol_sq,root_tol_sq)
             if Dval <= atol_sq:
                 ug,vg=uc,vc
                 x = eval_bezier(C1, ug, rational=rational)
@@ -1594,8 +1697,8 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
 
                     if not near_existing_isolated(ug, vg, x):
-                        #print(Pseg.tolist(), Qseg.tolist(), )
-                        #if not bernstein_eval_nd(dnet, (uc, vc)) <( atol_sq*10):
+                        # print(Pseg.tolist(), Qseg.tolist(), )
+                        # if not bernstein_eval_nd(dnet, (uc, vc)) <( atol_sq*10):
                         #    continue
                         isolated.append({"u": ug, "v": vg, "point": x})
 
@@ -1605,7 +1708,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 elif ((abs(ug- u0) <= tol_c1 or abs(u1 - ug) <= tol_c1 ) or (abs(vg - v0) <= tol_c2  or abs(v1 - vg) <=tol_c2 )):
 
                     if not near_existing_isolated(ug, vg,  x):
-                        #print(Pseg.tolist(), Qseg.tolist(), )
+                        # print(Pseg.tolist(), Qseg.tolist(), )
 
                         isolated.append({"u": ug, "v": vg, "point": x})
 
@@ -1619,12 +1722,12 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
 
             stats["pruned"] += 1
             stats["pruned_by"].append("unique_stationary_nonzero")
-            #logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
+            # logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
             continue
-            #ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+            # ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
-            #print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
-            #continue
+            # print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
+            # continue
 
         else:
 
@@ -1652,77 +1755,73 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 continue
 
             if res["type"] == "isolated":
-                    uc, vc=res["u"],res["v"]
+                uc, vc=res["u"],res["v"]
 
-                    #if np.linalg.norm(Gc) <= atol:
-                    ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
-                    #if not bernstein_eval_nd(dnet, (ug, vg)) < atol_sq:
-                    #    continue
-                    #print(ug,vg)
-                    x = res['point']
+                # if np.linalg.norm(Gc) <= atol:
+                ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
+                # if not bernstein_eval_nd(dnet, (ug, vg)) < atol_sq:
+                #    continue
+                # print(ug,vg)
+                x = res['point']
 
-                    if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
-                        if not near_existing_isolated(ug, vg, x):
-                            #print(Pseg.tolist(), Qseg.tolist(), )
-                            if not bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
-                                continue
+                if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                    if not near_existing_isolated(ug, vg, x):
+                        # print(Pseg.tolist(), Qseg.tolist(), )
+                        if not bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
+                            continue
 
-                            isolated.append({"u": ug, "v": vg, "point": x})
+                        isolated.append({"u": ug, "v": vg, "point": x})
 
-                            res_cut = bernstein_cutout_box_nd(dnet, np.array([uc,vc]), half=np.array([ _tol_c1, _tol_c2]), return_ranges=True)
+                        res_cut = bernstein_cutout_box_nd(dnet, np.array([uc,vc]), half=np.array([ _tol_c1, _tol_c2]), return_ranges=True)
 
-                            for subpatch, ((u_0, u_1), (v_0, v_1)) in res_cut:
-                                sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
-                                sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
-                                _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
-                                _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
-                                u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
-                                u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+                        for subpatch, ((u_0, u_1), (v_0, v_1)) in res_cut:
+                            sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                            sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                            _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
+                            _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                            u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                            u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
 
-                                stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+                            stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
 
-                        continue
-                    elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
-                                abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
-                            if not near_existing_isolated(ug, vg, x):
-                                print('LLLLL')
-                                if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
-
-
-                                    kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
-                                    # 1,0,0,0 -> (0,v)
-                                    # 0,1,0,0 -> (1,v)
-                                    # 0,0,1,0 -> (u,0)
-                                    # 0,0,0,1 -> (u,1)
-                                    # 0,1,0,1 -> (1,1)
-                                    # 1,0,0,1 -> (0,1)
-                                    # 1,0,1,0 -> (0,0)
-                                    # 0,1,1,0 -> (1,0)
-                                    uuuu=np.array([0.,1.,0.,1.])
-                                    uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
-                                    u_0, u_1, v_0, v_1 =uuuu
-                                    ranges=[( u_0, u_1),(v_0, v_1)]
-
-                                    subpatch=bernstein_trim_nd(dnet,ranges=ranges)
-                                    sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
-                                    sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
-                                    _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
-                                    _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
-                                    u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
-                                    u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
-                                    stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
-                                    print( (u0g, v0g),(u1g,v1g))
                     continue
+                elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
+                                abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
+                    if not near_existing_isolated(ug, vg, x):
+                        print('LLLLL')
+                        if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
 
+                            kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
+                            # 1,0,0,0 -> (0,v)
+                            # 0,1,0,0 -> (1,v)
+                            # 0,0,1,0 -> (u,0)
+                            # 0,0,0,1 -> (u,1)
+                            # 0,1,0,1 -> (1,1)
+                            # 1,0,0,1 -> (0,1)
+                            # 1,0,1,0 -> (0,0)
+                            # 0,1,1,0 -> (1,0)
+                            uuuu=np.array([0.,1.,0.,1.])
+                            uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
+                            u_0, u_1, v_0, v_1 =uuuu
+                            ranges=[( u_0, u_1),(v_0, v_1)]
 
-
+                            subpatch=bernstein_trim_nd(dnet,ranges=ranges)
+                            sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                            sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                            _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
+                            _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                            u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                            u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+                            stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+                            print( (u0g, v0g),(u1g,v1g))
+                continue
 
         # It may happen that we split directly along an isolated root.
         # In fact, this is not the best scenario,
         # as the split root will not be identified as isolated by further checks and will ultimately fail the envelop prune.
         # Ideally, we want to check for the presence of such a root and, if it exists,
         # cut it out using bernstein_cutout_box_nd, just as we do with other isolated intersections.
-        #print('subdivide', depth, (u0, u1), (v0, v1))
+        # print('subdivide', depth, (u0, u1), (v0, v1))
         # split by spread if no observation to harvest
         logger.debug(f'subdivisions: {depth}.')
         if L1_sz(Pseg, rational=rational) > L1_sz(Qseg, rational=rational):
@@ -1737,9 +1836,9 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             vm = 0.5 * (v0 + v1)
             stack.append((Pseg, QR, *r, u0, u1, vm, v1, depth + 1))
             stack.append((Pseg, QL, *l, u0, u1, v0, vm, depth + 1))
+    isolated.sort(key=lambda x: x['u'])
 
     result = IntersectionResult(isolated= isolated, overlaps= overlaps, stats= stats)
-
 
     return result
 
@@ -1750,11 +1849,10 @@ if __name__ == "__main__":
         from rich.console import Console
         from rich.style import Style, StyleType
         from rich.table import Table
-        
+
         # Create a console instance
         console = Console()
-        
-        
+
         def make_rich_table( inter1, inter2, case_name=None, oracle_name="OCC"):
             def uv_fmt(uv):
                 return f"{float(uv[0])}, {float(uv[1])}"
@@ -1768,7 +1866,7 @@ if __name__ == "__main__":
                 return f"[{mismatch_color}]{v}[/{mismatch_color}]"
             # Create a table
             table = Table(title=case_name+' (isolated)')
-            
+
             # Add columns
             table.add_column("mmcore", style="default", no_wrap=True)
             table.add_column(oracle_name, style="default")
@@ -1788,12 +1886,12 @@ if __name__ == "__main__":
                     table.add_row(f"{float(first['u'])} ,{float(first['v'])}",
                                   f"{float(second['u'])} ,{float(second['v'])}",match_str('OK') if match_ else mismatch_str('X'))
                     if not match_:
-                      
+
                         table.rows[-1].style=Style(color= mismatch_color,bold=True)
             if len(matches)==0:
 
-                    table.add_row(None, None, match_str('OK'))
-                    matches.append(True)
+                table.add_row(None, None, match_str('OK'))
+                matches.append(True)
             console.print(table,'\n')
             # Add rows
             table = Table(title=case_name + ' (overlaps)')
@@ -1806,7 +1904,6 @@ if __name__ == "__main__":
             for first, second in itertools.zip_longest(sorted(inter1["overlaps"], key=lambda x: x["uv_path"][0][0]),
                                                        sorted(inter2["overlaps"], key=lambda x: x["uv_path"][0][0])):
 
-
                 if first is None:
                     table.add_row(first, overlap_fmt(second), mismatch_str('X'),
                                   style=mismatch_color)
@@ -1815,7 +1912,6 @@ if __name__ == "__main__":
                     table.add_row(overlap_fmt(first), second, mismatch_str('X'),
                                   style=mismatch_color)
                     matches.append(False)
-
 
                 else:
 
@@ -1839,7 +1935,6 @@ if __name__ == "__main__":
             print("verify with OCC (mmcore result, occ result):", inter1["isolated"], inter2["isolated"])
     np.set_printoptions(edgeitems=3)
 
-
     def _gen_cpts_to_display(scalar_net, interval: list[tuple[float, float]] = None):
         def get_interv(n) -> tuple[float, float]:
             if interval is None:
@@ -1855,7 +1950,6 @@ if __name__ == "__main__":
         Pts[..., :-1] = np.moveaxis(mgr, 0, -1)
 
         return Pts
-
 
     curve1 = np.array(
         [
@@ -1892,7 +1986,6 @@ if __name__ == "__main__":
     )
     curve6 = np.array([[-13.12449258, 9.10030377, 0.0], [-27.74989311, 10.37986052, 0.0], [-29.02944985, -4.24554001, 0.0]])
 
-
     # case 1: One true overlap, no isolated points
     s = time.perf_counter()
     inter12 = bez_ccx(curve1, curve2)
@@ -1900,6 +1993,7 @@ if __name__ == "__main__":
     print("\n\n case1\n", "-" * 80, "\n")
     assert len(inter12["isolated"]) == 0
     assert len(inter12["overlaps"]) == 1
+    print(inter12)
     assert np.allclose(inter12["overlaps"][0]["uv_path"][0], [0.0, 0.19069075])
     assert np.allclose(inter12["overlaps"][0]["uv_path"][-1], [0.82759776, 1.0])
 
@@ -1925,10 +2019,9 @@ if __name__ == "__main__":
         ),
     )
 
-
     make_rich_table(inter12, occ_inter12,'case 1')
-    
-    #np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
+
+    # np.allclose(inter12["overlaps"][0]["uv_path"][-1], occ_inter12["overlaps"][0]["uv_path"][-1]),
 
     # case 2: Two isolated points, no overlaps
     print("\n\n case2\n", "-" * 80, "\n")
@@ -1936,7 +2029,7 @@ if __name__ == "__main__":
     inter34 = bez_ccx(curve3, curve4)
     # 0.02212008300011803  (current perf)
     print(time.perf_counter() - s, "pruned:", inter34["stats"]["pruned"])
-    #print(inter34)
+    # print(inter34)
 
     # Expected result:
     # {'isolated': [{'u': np.float64(0.19649579172632328), 'v': np.float64(0.28188456749957974), 'point': array([-28.01389436,   0.93016065,   0.        ])}, {'u': np.float64(0.84621222743306), 'v': np.float64(0.726646442488876), 'point': array([-1.38963631,  2.44745538,  0.        ])}], 'overlaps': [], 'stats': {'cells': 35, 'pruned': 19, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['classify_cell_by_gri+no_stationary', 'bernstein_envelope_min', 'classify_cell_by_gri+unique_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'bernstein_envelope_min', 'classify_cell_by_gri+unique_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min', 'classify_cell_by_gri+no_stationary', 'bernstein_envelope_min', 'bernstein_envelope_min']}}
@@ -1952,19 +2045,19 @@ if __name__ == "__main__":
         ),
     )
     make_rich_table(inter34, occ_inter34,'case 2')
-    
+
     print("\n\n case3.1\n", "-" * 80, "\n")
     # case 3.1: Two isolated points, but the curves are close to each other and are almost parallel, which makes this example similar to overlap.
     s = time.perf_counter()
     inter36 = bez_ccx(curve3, curve6)
     print(time.perf_counter() - s, "pruned:", inter36["stats"]["pruned"])  # 1.4956505000000107 current perf
-    #print(inter36)  # WRONG! Only one isolated point is returning.
+    # print(inter36)  # WRONG! Only one isolated point is returning.
 
     # Current (wrong) result:
     # {'isolated': [{'u': np.float64(0.5779727651922172), 'v': np.float64(0.09892057701076899), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 2821, 'pruned': 1439, 'unique_boxes': 0, 'overlap_traces': 1, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ... , 'bernstein_envelope_min', 'bernstein_envelope_min']}}
     from collections import Counter
 
-    #print("pruned_by:", Counter(inter36["stats"]["pruned_by"]))
+    # print("pruned_by:", Counter(inter36["stats"]["pruned_by"]))
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})
 
     # For verification purposes ONLY. OCC is not part of mmcore and is not used in mmcore!
@@ -1978,8 +2071,6 @@ if __name__ == "__main__":
         ),
     )
 
-
-    
     make_rich_table(inter36, occ_inter36,'case 3.1')
     assert len(inter36["isolated"]) == 2, len(inter36["isolated"])
     assert len(inter36["overlaps"]) == 0
@@ -1988,13 +2079,12 @@ if __name__ == "__main__":
     s = time.perf_counter()
     inter63 = bez_ccx(curve6, curve3)
     print(time.perf_counter() - s, "pruned:", inter63["stats"]["pruned"])
-    #print(
+    # print(
     #    inter63,
-    #)  # Correct! Two isolated point is returning.
+    # )  # Correct! Two isolated point is returning.
     # {'isolated': [{'u': np.float64(0.8152057754324536), 'v': np.float64(0.19003739216226287), 'point': array([-28.1007945 ,   0.61670221,   0.        ])}, {'u': np.float64(0.09892057701076898), 'v': np.float64(0.5779727651922171), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 793, 'pruned': 716, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ..., 'bernstein_envelope_min', 'bernstein_envelope_min']}}
 
-
-    #print("pruned_by:", Counter(inter63["stats"]["pruned_by"]))
+    # print("pruned_by:", Counter(inter63["stats"]["pruned_by"]))
     # Counter({'bernstein_envelope_min': 1410, 'classify_cell_by_gri+unique_stationary': 1})
 
     # 0.9722023329995864
@@ -2014,7 +2104,7 @@ if __name__ == "__main__":
             occ_curve_from_points(curve3),
         ),
     )
-    
+
     make_rich_table(inter63, occ_inter63,'case 3.2')
     assert len(inter63["isolated"]) == 2,len(inter63["isolated"])
     assert len(inter63["overlaps"]) == 0
@@ -2022,17 +2112,17 @@ if __name__ == "__main__":
     # case 4: Two isolated intersections at s=t=0 and s=t=1. For some reason, our solver returns an overlap on it.
     curve7 = np.array([[0, 0,0.], [1, 0,0.], [2, 0,0.]], float)  # quadratic line (degenerate curvature)
     curve8 = np.array([[0, 0,0.], [1, 1,0.], [2, 0,0.]], float) # quadratic arc
-    
+
     s = time.perf_counter()
     inter78 = bez_ccx(curve7, curve8)
     print(time.perf_counter() - s, "pruned:", inter78["stats"]["pruned"])
-    #print(
+    # print(
     #    inter78,
-    #)  # Correct! Two isolated point is returning.
+    # )  # Correct! Two isolated point is returning.
     # {'isolated': [{'u': np.float64(0.8152057754324536), 'v': np.float64(0.19003739216226287), 'point': array([-28.1007945 ,   0.61670221,   0.        ])}, {'u': np.float64(0.09892057701076898), 'v': np.float64(0.5779727651922171), 'point': array([-15.88740587,   9.19781828,   0.        ])}], 'overlaps': [], 'stats': {'cells': 793, 'pruned': 716, 'unique_boxes': 0, 'overlap_traces': 2, 'pruned_by': ['bernstein_envelope_min', 'bernstein_envelope_min', ..., 'bernstein_envelope_min', 'bernstein_envelope_min']}}
 
-    #print("pruned_by:", Counter(inter78["stats"]["pruned_by"]))
-    
+    # print("pruned_by:", Counter(inter78["stats"]["pruned_by"]))
+
     # For verification purposes ONLY. OCC is not part of mmcore and is not used in mmcore!
     occ_inter78 = occ_ccx_2d(
         occ_curve_to_2d(occ_curve_from_points(curve7),
@@ -2104,7 +2194,6 @@ if __name__ == "__main__":
     make_rich_table(inter_rational2, occ_inter_rational2, 'case 6 (rational)')
     print("\n\n case7 (3d)\n", "-" * 80, "\n")
 
-
     c3d1,c3d2=np.array([[-2.5, -5.0, 0.826], [-2.5, -3.333, 0.826], [-2.5, -1.667, 0.001], [-2.5, 0.0, -0.102]]),np.array([[-5.0, -2.5, 0.052], [-3.333, -2.5, 0.052], [-1.667, -2.5, 0.75], [0.0, -2.5, 0.75]])
     s = time.perf_counter()
     inter_3d_1 = bez_ccx(c3d1, c3d2, rational=False)
@@ -2123,7 +2212,7 @@ if __name__ == "__main__":
               [-0.18421653, 0.21499867, 0.],
               [-0.18858128, 0.2141638, 0.]])
     s = time.perf_counter()
-    inter910 = bez_ccx(crv9, crv10, rational=False)
+    inter910 = bez_ccx(crv9, crv10,atol=1e-7, rational=False)
     print(time.perf_counter() - s, "pruned:", inter910["stats"]["pruned"])
 
     for i in inter910["isolated"]:
@@ -2132,14 +2221,14 @@ if __name__ == "__main__":
 
     assert len(inter910["overlaps"]) == 0
     # This is a hard case that the OCC cannot handle and returns the trash.
-    #occ_inter910 = occ_ccx_2d(
+    # occ_inter910 = occ_ccx_2d(
     #    occ_curve_to_2d(occ_curve_from_points(crv9,rational=False),
     #                    ((0.0, 0.0, 0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
     #    occ_curve_to_2d(
     #        occ_curve_from_points(crv10,rational=False),
     #    ),
-    #)
-    #print(occ_inter910)
+    # )
+    # print(occ_inter910)
     make_rich_table(inter910, {'isolated':[{'u':0.31716682340377483, 'v':0.6784807210378272},{'u':0.742578107293676, 'v': 0.2480550950889196}],'overlaps':[]},"case7 (not rational, 2 roots)",oracle_name='Expected')
     print("\n\n case8 (not rational, 3 roots)\n", "-" * 80, "\n")
     crv11 = np.array([[-0.38096238, 0.64253602, 0.],
@@ -2157,3 +2246,9 @@ if __name__ == "__main__":
     assert len(inter1112["isolated"]) == 3
 
     assert len(inter1112["overlaps"]) == 0
+    make_rich_table(
+        inter1112,
+        {'isolated':[{"u":0.38239532043314473,"v": 0.19510721470916823}, {"u":0.3990420750667481,"v": 0.19072039153286863},{"u":0.9298352616978953,"v":0.59189403973081833} ],"overlaps":[]},
+    "case8 (not rational, 3 roots)",
+        oracle_name="Rhino (8.26.25349.19002, 2025-12-15)",
+    )

@@ -14,11 +14,11 @@ from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
 
 
 
-st1 = NURBSSurfaceTuple(
+s1 = NURBSSurfaceTuple(
     order_u=2,
     order_v=2,
-    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777]),
-    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438]),
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
     control_points=np.array([[[-128.25004889, -129.85828719,   67.43742325],
             [-128.25004889,  129.85828719,    0.        ]],
 
@@ -29,11 +29,11 @@ st1 = NURBSSurfaceTuple(
 )
 
 
-st2 = NURBSSurfaceTuple(
+s2 = NURBSSurfaceTuple(
     order_u=2,
     order_v=2,
-    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777]),
-    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438]),
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
     control_points=np.array([[[-128.25004889, -129.85828719,    0.        ],
             [-128.25004889,  129.85828719,    0.        ]],
 
@@ -44,47 +44,55 @@ st2 = NURBSSurfaceTuple(
 )
 
 
-
-s1 = _tuple_to_nurbs(st1)
-s2 = _tuple_to_nurbs(st2)
-
-# Perform SSX
-start_time = time.time()
-result = ssx(s1, s2, tol=1e-4, spt=0.001)
-
-print(f"intersection computed at: {time.time() - start_time} sec.")
-
-# Printing and rendering results
-print(f"\n({s1} X \n\t{s2}):")
-
-for i, (spatial, uv1, uv2) in enumerate(result[0]):
-    print(f"\t{i + 1}. {spatial}, {uv1}, {uv2}")
-    cpts = (spatial.control_points).tolist()
-    cpts_repr = repr(cpts)
-    # if len(cpts)>4:
-    #    cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-    print(f"\t\tcontrol points: {cpts_repr}")
-    print(f"\t\tdegree: {spatial.degree}")
+from mmcore.numeric.intersection.ssx import nurbs_ssx
+s=time.time()
+result=nurbs_ssx(s1,s2,atol=1e-3)
 
 
+print(f'intersection computed at: {time.time() - s} sec.')
+
+
+print(f'\n({s1} X \n\t{s2}):')
+
+for i, branch in enumerate(result[0]):
+            print(f'\t{i + 1}. {branch}')
+            cpts=(branch.curve_xyz.control_points).tolist()
+            cpts_repr = repr(cpts)
+            if len(cpts)>4:
+                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
+            print(f'\t\tcontrol points: {cpts_repr}')
+            print(f'\t\tdegree: {branch.curve_xyz.degree}')
+
+
+RENDER=True
 try:
-    from mmcore.extras.renderer import CADRenderer, Camera
+    if RENDER:
+        from mmcore.geom.bvh.lbvh import AABB
+        from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+        from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
 
-    print(dir(Camera))
-    centr = np.average(s1.control_points_flat, axis=0)
-    renderer = CADRenderer(camera=Camera(zoom=50.0, near=1.))
+        def draw_ssx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple, result, renderer=None):
+            bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
+            renderer = renderer if renderer is not None else Viewer(camera=OrbitCamera(target=bb.centroid(), distance=50.0, near=1.0))
+            renderer.add_nurbs_surface(s1, color=(1.0, 1.0, 1.0, 1.0))
+            renderer.add_nurbs_surface(
+                s2,
+                color=(1.0, 1.0, 1.0, 1.0),
+            )
 
-    tess=renderer.add_nurbs_surface(s1, color=(1.0, 1.0, 1.0))
-    renderer.add_nurbs_surface(s2, color=(1.0, 1.0, 1.0),)
+            for branch in result[0]:
+                renderer.add_nurbs_curve(branch.curve_xyz, color=(0.0, 1.0, 0.5,1.))
+            for p in result[1]:
+                renderer.add_point3d(p.xyz, color=(0.0, 1.0, 0.5,1.), size_px=12)
 
-    for crv, uv1, uv2 in result[0]:
-        renderer.add_nurbs_curve(crv, color=(0.0, 1.0, 0.5))
+            return renderer
 
-    renderer.run()
+        renderer = draw_ssx(s1, s2, result)
 
+        renderer.run()
 except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
+        print("mmcore.renderer is not installed, skip preview.")
 except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
+        print("mmcore.renderer is not installed, skip preview.")
 except Exception as err:
-    raise err
+        raise err

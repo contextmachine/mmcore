@@ -2,8 +2,9 @@ import time
 
 import numpy as np
 
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple
 from mmcore.geom.nurbs import NURBSSurface
-from mmcore.numeric.intersection.ssx import ssx
+from mmcore.numeric.intersection.ssx import nurbs_ssx
 pts1 = np.array(
     [
         [-25.0, -25.0, -10.0],
@@ -91,51 +92,56 @@ pts2 = pts2.reshape((6, len(pts2) // 6, 3))
 s21 = NURBSSurface(pts1, (3, 3))
 s22 = NURBSSurface(pts2, (3, 3))
 s=time.time()
-curves,pts=ssx(s21,s22,tol=1e-7,spt=0.001)
-
+s1,s2=_nurbs_to_tuple(s21),_nurbs_to_tuple(s22)
+from mmcore.numeric.intersection.ssx import nurbs_ssx
+s=time.time()
+result=nurbs_ssx(s1,s2,atol=1e-3)
 
 
 print(f'intersection computed at: {time.time() - s} sec.')
 
 
-print(f'\n({s21} X \n\t{s22}):')
+print(f'\n({s1} X \n\t{s2}):')
 
-for i, (spatial, uv1, uv2) in enumerate(curves):
-        print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
-        cpts=(spatial.control_points).tolist()
-        cpts_repr = repr(cpts)
-        if len(cpts)>4:
-            cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-        print(f'\t\tcontrol points: {cpts_repr}')
-        print(f'\t\tdegree: {spatial.degree}')
-print('isolated_points: ', pts)
-with open("ssx1.txt",'w') as tf:
-    for i, (spatial, uv1, uv2) in enumerate(curves
-                                            ):
-            cpts = (spatial.control_points).tolist()
-            tf.write(repr(cpts))
-RENDER=False
-if RENDER:
-    try:
-        from mmcore.extras.renderer import CADRenderer,Camera
-    
-        print(dir(Camera))
-        centr=np.average(s21.control_points_flat, axis=0)
-        renderer=CADRenderer(camera=Camera( zoom=75.
+for i, branch in enumerate(result[0]):
+            print(f'\t{i + 1}. {branch}')
+            cpts=(branch.curve_xyz.control_points).tolist()
+            cpts_repr = repr(cpts)
+            if len(cpts)>4:
+                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
+            print(f'\t\tcontrol points: {cpts_repr}')
+            print(f'\t\tdegree: {branch.curve_xyz.degree}')
+
+
+RENDER=True
+try:
+    if RENDER:
+        from mmcore.geom.bvh.lbvh import AABB
+        from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
+        from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
+
+        def draw_ssx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple, result, renderer=None):
+            bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
+            renderer = renderer if renderer is not None else Viewer(camera=OrbitCamera(target=bb.centroid(), distance=150.0))
+            renderer.add_nurbs_surface(s1)
+            renderer.add_nurbs_surface(
+                s2,
+
             )
-        )
-    
-        renderer.add_nurbs_surface(s21,color=(1.,1.,1.))
-        renderer.add_nurbs_surface(s22,color=(1.,1.,1.))
-    
-        for (crv,uv1,uv2) in curves:
-            renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
-    
-    
+
+            for branch in result[0]:
+                renderer.add_nurbs_curve(branch.curve_xyz, color=(0.0, 1.0, 0.5, 1.0))
+            for p in result[1]:
+                renderer.add_point3d(p.xyz, color=(0.0, 1.0, 0.5, 1.0), size_px=12)
+
+            return renderer
+
+        renderer = draw_ssx(s1, s2, result)
+
         renderer.run()
-    except ModuleNotFoundError as err:
+except ModuleNotFoundError as err:
         print("mmcore.renderer is not installed, skip preview.")
-    except ImportError as err:
+except ImportError as err:
         print("mmcore.renderer is not installed, skip preview.")
-    except Exception as err:
+except Exception as err:
         raise err

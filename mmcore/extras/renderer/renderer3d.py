@@ -617,7 +617,7 @@ class Viewer:
         self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
         return l
 
-    def _add_surface_mesh(self, surface, color=(0.6, 0.6, 0.7, 0.05), tol=0.01):
+    def _add_surface_mesh(self, surface, color=(0.5, 0.5, 0.9, 0.05), tol=0.01):
         surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
         mesh = surface_to_mesh(surf, tol=tol)
         vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
@@ -701,15 +701,14 @@ class Viewer:
         return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color,*args,**kwargs)        for bezier in beziers)
     def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
         return self._add_nurbs_curve(curve, color, *args, **kwargs)
-    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),u_count=1,v_count=1,*args,**kwargs):
+    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),surface_color=(0.5, 0.5, 0.9, 0.05),u_count=1,v_count=1,*args,**kwargs):
         shade = kwargs.pop("shade", True)
-        surface_color = kwargs.pop("surface_color", None)
-        surface_alpha = kwargs.pop("surface_alpha", 0.25)
+        surface_color = surface_color
+
         surface_tol = kwargs.pop("surface_tol", 0.01)
         if shade:
-            if surface_color is None:
-                base = color[:3] if len(color) >= 3 else (1.0, 1.0, 1.0)
-                surface_color = (base[0], base[1], base[2], surface_alpha)
+
+
             self._add_surface_mesh(surface, color=surface_color, tol=surface_tol)
         (u0,u1),(v0,v1) = surface.interval()
         umid,vmid=(u1-u0)*0.5+u0, (v1-v0)*0.5+v0

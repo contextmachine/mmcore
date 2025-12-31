@@ -624,7 +624,6 @@ def __comb_fast(n, k):
 _comb_fast=binomial_coefficient_py
 
 
-
 # ---------------- Curves (compact): R[k, :] ----------------
 
 def bezier_curve_derivatives_compact(ctrl, u, n, rational=False):
@@ -825,9 +824,9 @@ class BernPartial(NamedTuple):
 def eval_bezier(P, t, dims=None):
     Q = P.copy()
     n = P.shape[0] - 1
-    
+
     for _ in range(n):
-        
+
         Q = (1.0 - t) * Q[:-1] + t * Q[1:]
     return Q[0]
 def map_local_to_global(u_loc,u0, u1):
@@ -911,7 +910,7 @@ def bernstein_eval_nd(control_grid: np.ndarray, params, keepdims: bool = False) 
     #   C:  i0 i1 ... i{D-1} v
     #   Bk: s{k} i{k}
     # Output: s0 s1 ... s{D-1} v
-    
+
     letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     if 2 * D + 1 > len(letters):
         raise ValueError("Too many dimensions for the predefined index set.")
@@ -943,7 +942,7 @@ def _count_sign_changes(seq, eps: float) -> int:
     changes = 0
     prev = None
     for x in seq:
-        
+
         s = _sign(x, eps)
         if s == 0:
             # ignore zeros in change counting, but keep prev if prev already set
@@ -1019,7 +1018,7 @@ def _apply_multi_axis_transforms(C: np.ndarray, T_list: list[np.ndarray]) -> np.
     letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     if 2 * D + 1 > len(letters):
         raise ValueError("Too many dimensions for the predefined index set.")
-    
+
     # Indices for einsum
     i_idx = letters[:D]  # input param indices
     o_idx = letters[D:2 * D]  # output param indices
@@ -1027,7 +1026,7 @@ def _apply_multi_axis_transforms(C: np.ndarray, T_list: list[np.ndarray]) -> np.
     c_sub = "".join(i_idx) + v_idx
     t_subs = [o_idx[k] + i_idx[k] for k in range(D)]
     out_sub = "".join(o_idx) + v_idx
-    
+
     expr = f"{c_sub}," + ",".join(t_subs) + f"->{out_sub}"
     return np.einsum(expr, C, *T_list, optimize=True)
 
@@ -1076,42 +1075,42 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
     """
     if control_grid.ndim < 2:
         raise ValueError("control_grid must have at least one parametric axis plus a trailing value axis.")
-    
+
     D = control_grid.ndim - 1
     if len(param) != D or len(half) != D:
         raise ValueError(f"`param` and `half` must have length {D}.")
-    
+
     # Working dtype
     dtype = np.result_type(control_grid.dtype, np.float64)
     C = np.asarray(control_grid, dtype=dtype, order='C')
-    
+
     u = np.asarray(param, dtype=float).reshape(D)
     h = np.asarray(half, dtype=float).reshape(D)
     if np.any(h < 0):
         raise ValueError("All half-interval components must be nonnegative.")
-    
+
     # Build (and optionally clamp) the box per axis
     a = u - h
     b = u + h
     if clamp_to_unit:
         a = np.maximum(0.0, a)
         b = np.minimum(1.0, b)
-    
+
     # Prepare segments per axis: list of [('L'|'M'|'H', T_matrix, (lo,hi)), ...]
     segments_per_axis = []
     mid_exists_all_axes = True
-    
+
     for ax in range(D):
         n = C.shape[ax] - 1
         if n < 0:
             raise ValueError("Invalid control grid axis length.")
         ak = float(a[ax])
         bk = float(b[ax])
-        
+
         # Clamp ordering locally, just in case
         if bk < ak:
             ak, bk = bk, ak
-        
+
         segs = []
         # Low slab [0, ak]
         if ak > tol:
@@ -1127,7 +1126,7 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
         if 1.0 - bk > tol:
             T_high = _trim_transform(n, bk, 1.0, dtype=dtype)
             segs.append(('H', T_high, (bk, 1.0)))
-        
+
         # If no slabs (box outside domain and clamp_to_unit=False), keep full axis
         if not segs:
             I = np.eye(n + 1, dtype=dtype)
@@ -1135,7 +1134,7 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
             # No central mid to exclude if other axes have L/H; mark mid existence as True for this axis
             # but 'all-mid' exclusion will only trigger if every axis is exactly this 'M'.
         segments_per_axis.append(segs)
-    
+
     # Enumerate combinations across axes and build patches, skipping the all-'M' central box.
     patches = []
     for combo in product(*segments_per_axis):
@@ -1143,16 +1142,16 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
         if all(lab == 'M' for lab in labels) and mid_exists_all_axes:
             # Skip the central sub-patch (the cut-out box)
             continue
-        
+
         T_list = [T for (_, T, _) in combo]
         sub = _apply_multi_axis_transforms(C, T_list)
-        
+
         if return_ranges:
             ranges = tuple(r for (_, _, r) in combo)
             patches.append((sub, ranges))
         else:
             patches.append(sub)
-    
+
     return patches
 
 
@@ -1163,8 +1162,6 @@ class BernRootsOutput(NamedTuple):
 
 
 from itertools import product
-
-
 
 
 def _canonical_neighbor_offsets(ndim, radius=1, include_diagonals=True):
@@ -1253,19 +1250,19 @@ def sign_change_edges_nd(
     x = xp.asarray(x)
     sg = xp.zeros_like(x, dtype=xp.int8)
     sg = sg + (x > eps) - (x < -eps)  # values in {-1, 0, 1}
-    
+
     ndim = x.ndim
     shape = x.shape
-    
+
     src_chunks = []
     dst_chunks = []
-    
+
     # Iterate only over half of the offsets to avoid duplicates
     for off in _canonical_neighbor_offsets(ndim, radius, include_diagonals):
         base_sl, nbr_sl, base_start = _overlap_slices(shape, off)
         A = sg[base_sl]
         B = sg[nbr_sl]
-        
+
         if allowed_pairs is None:
             mask = (A != B)
         else:
@@ -1273,38 +1270,35 @@ def sign_change_edges_nd(
             mask = xp.zeros_like(A, dtype=bool)
             for a, b in allowed_pairs:
                 mask |= ((A == a) & (B == b)) | ((A == b) & (B == a))
-        
+
         # indices within the aligned (cropped) subarray
         idx_local = xp.argwhere(mask)
         if idx_local.size == 0:
             continue
-        
+
         # map back to original coordinates
         base_idx = idx_local + base_start  # (M, ndim)
         neighbor_idx = base_idx + xp.asarray(off, dtype=base_idx.dtype)
-        
+
         src_chunks.append(base_idx)
         dst_chunks.append(neighbor_idx)
-    
+
     if not src_chunks:
         if return_linear:
             return xp.empty((0,), dtype=np.int64), xp.empty((0,), dtype=np.int64)
         else:
             return xp.empty((0, ndim), dtype=np.int64), xp.empty((0, ndim), dtype=np.int64)
-    
+
     src = xp.concatenate(src_chunks, axis=0)
     dst = xp.concatenate(dst_chunks, axis=0)
-    
+
     if return_linear:
         # Note: cupy.ravel_multi_index exists in recent CuPy versions.
         src_lin = xp.ravel_multi_index(tuple(src.T), shape)
         dst_lin = xp.ravel_multi_index(tuple(dst.T), shape)
         return src_lin, dst_lin
-    
+
     return src, dst
-
-
-
 
 
 from mmcore.geom._nurbs_knots import generate_knots
@@ -1374,32 +1368,32 @@ def de_casteljau_restrict_nd(control_grid: np.ndarray, axis: int, t, keepdims: b
     """
     if control_grid.ndim < 2:
         raise ValueError("control_grid must have at least one parametric axis and a trailing value axis.")
-    
+
     param_ndim = control_grid.ndim - 1
     # Normalize axis w.r.t. parametric axes
     if axis < 0:
         axis += param_ndim
     if not (0 <= axis < param_ndim):
         raise ValueError(f"'axis' must be in [0, {param_ndim - 1}] among parametric axes.")
-    
+
     # Move target param axis to front to apply 1D de Casteljau
     A = np.moveaxis(control_grid, axis, 0)  # (m, *B, N)
     m = A.shape[0]
     B_shape = A.shape[1:-1]  # other param axes
     dtype = np.result_type(A.dtype, np.float64)
-    
+
     if m == 0:
         raise ValueError("Invalid control grid: zero length along the chosen axis.")
-    
+
     # Prepare t as shape (1, *B, 1) for correct broadcasting
     t_arr = np.asarray(t, dtype=dtype)
-    
+
     if t_arr.ndim > len(B_shape):
         raise ValueError(
             f"t has {t_arr.ndim} dimensions but the fiber has {len(B_shape)}; "
             "provide a scalar or an array broadcastable to the fiber shape."
         )
-    
+
     # Right-align t_arr to B_shape with leading ones
     pad = len(B_shape) - t_arr.ndim
     t_aligned_shape = (1,) * pad + t_arr.shape
@@ -1409,15 +1403,15 @@ def de_casteljau_restrict_nd(control_grid: np.ndarray, axis: int, t, keepdims: b
             raise ValueError(
                 f"t with shape {t_arr.shape} is not broadcastable to fiber shape {B_shape}."
             )
-    
+
     # Finally reshape to (1, *B, 1) so it broadcasts over the de Casteljau level and value dims
     t_b = t_arr.reshape((1,) + t_aligned_shape + (1,))
     omt_b = 1.0 - t_b
-    
+
     cur = A
     for _ in range(m - 1):
         cur = omt_b * cur[:-1] + t_b * cur[1:]
-    
+
     out = np.moveaxis(cur, 0, axis)  # shape (..., 1, ..., N)
     return out if keepdims else np.squeeze(out, axis=axis)
 
@@ -1491,9 +1485,9 @@ def de_casteljau_restrict_multi_nd(
     """
     if control_grid.ndim < 2:
         raise ValueError("control_grid must have at least one parametric axis and a trailing value axis.")
-    
+
     param_ndim = control_grid.ndim - 1
-    
+
     axes = tuple(axes)
     t = tuple(t)
     if len(axes) != len(t):
@@ -1503,87 +1497,104 @@ def de_casteljau_restrict_multi_nd(
             f"More parameters than parametric axes: got {len(axes)} parameters, "
             f"but only {param_ndim} parametric axes are available."
         )
-    
+
     # Normalize and validate axes; ensure uniqueness
     def _norm(ax: int) -> int:
         return ax + param_ndim if ax < 0 else ax
-    
+
     #print(axes, t)
     axes_norm = tuple(_norm(ax) for ax in axes)
     if any((ax < 0 or ax >= param_ndim) for ax in axes_norm):
         raise ValueError(f"All axes must be in [0, {param_ndim - 1}] among parametric axes.")
     if len(set(axes_norm)) != len(axes_norm):
         raise ValueError("`axes` must not contain duplicates.")
-    
+
     # Apply restrictions one by one, but keep dims during each step to avoid index shifts
     out = control_grid
     for ax, ti in zip(axes_norm, t):
         out = de_casteljau_restrict_nd(out, axis=ax, t=ti, keepdims=True)
-    
+
     # Optionally remove the restricted axes in one go
     if not keepdims and len(axes_norm) > 0:
         # squeeze expects axes in the full array indexing (param axes + value axis at the end),
         # and our axes_norm already refer to those same positions.
         out = np.squeeze(out, axis=tuple(sorted(axes_norm)))
-    
+
     return out
 
 
-def bern_roots_1d(bern, eps: float = 1e-3, interval=None) -> BernRootsOutput:
+def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False) -> BernRootsOutput:
     bern = np.squeeze(bern)[..., np.newaxis]
     if interval is None:
         interval = (0., 1.)
-    
+
     stack = [(bern, tuple(interval))]
     roots = []
     iters = 0
+
     while stack:
-        coeffs, interv = stack.pop(0)
+        coeffs, interv = stack.pop()
+
         iters += 1
-        
-        sign_changes = _count_sign_changes(np.squeeze(coeffs), 0.)
+
+        sign_changes = _count_sign_changes(np.squeeze(coeffs), eps)
+
         split_axis = 0
         if sign_changes == 0:
+
             continue
         elif sign_changes == 1:
             d1 = bernstein_partial_derivative_coeffs(coeffs, axis=0)
-            
+
             # d2 = bernstein_partial_derivative_coeffs(d1, axis=0)
             def fun(x):
-                
-                return bernstein_eval_1d(coeffs[..., 0], x)
-            
+                if not rational:
+                    return bernstein_eval_1d(coeffs[..., 0], x)
+                else:
+                    return bernstein_eval_1d(coeffs[..., 0], x)/bernstein_eval_1d(coeffs[..., -1], x)
+
             def fprime(x):
-                
-                return bernstein_eval_1d(d1[..., 0], x)
-            
+                if not rational:
+                    return bernstein_eval_1d(d1[..., 0], x)
+                else:
+                    return bernstein_eval_1d(d1[..., 0], x) / bernstein_eval_1d(d1[..., -1], x)
+
+
+
             # def fprime2(x):
             #    return bernstein_eval_1d(d2[...,0], x)
-            
+
             # newton(fun,0.5,  fprime=fprime,fprime2=fprime2,full_output=True)
             # res,out=brentq(fun,0.,1.,full_output=True)
             # res,out=newton(fun,0.5,  fprime=fprime,fprime2=fprime2,full_output=True)
-            out = cnewton.newton(fun, fprime, 0.5, eps, 25)
-            
+            out1 = cnewton.newton(fun, fprime, 0.5, eps, 15)
+
             # if out.converged :
             #   res = out.root
-            if out is not None:
-                res = out
-                fx = fun(res)
-                if (not np.any((res == 0 or res < 0 or res > 1 or res == 1))) and abs(fx) < eps:
-                    roots.append((float(map_local_to_global(res, interv[0], interv[1])), fx))
-                    continue
-        
+            for out in [out1]:
+
+                at_least_one = False
+                if out is not None:
+                    res = out
+                    fx = abs(fun(res))
+
+                    if (not np.any((res < 0 or res > 1 ))) and abs(fx) < eps:
+                        roots.append((float(map_local_to_global(res, interv[0], interv[1])), fx))
+                        at_least_one=True
+            if at_least_one:
+                continue
+
         low, upp = interv
         mid = low + (upp - low) / 2
         coeffs_a, coeffs_b = de_casteljau_split_nd(coeffs, split_axis, 0.5)
         stack.append((coeffs_a, (low, mid)))
         stack.append((coeffs_b, (mid, upp)))
-    
+
     if len(roots) == 0:
+
         return BernRootsOutput(np.array([]), np.array([]), iters)
     roots, errs = zip(*sorted(roots, key=lambda x: x[0]))
-    
+
     return BernRootsOutput(np.array(roots), np.array(errs), iters)
 
 
@@ -1592,19 +1603,19 @@ def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
     sg[bern > eps] = 1
     sg[bern < -eps] = -1
     def _gen_cpts_to_display(scalar_net):
-        
+
         Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
         for i in range(scalar_net.shape[0]):
             for j in range(scalar_net.shape[0]):
                 Pts[i, j, 2] = scalar_net[i, j]
                 Pts[i, j, 0] = gril[0][ i]
                 Pts[i, j, 1] = gril[1][ j]
-        
+
         return Pts
     sign_change_edges_nd(bern, return_linear=True)
     src, dst = sign_change_edges_nd(bern, return_linear=True)
     from collections import defaultdict
-    
+
     uu = defaultdict(dict)
     fg = bern.flat
     for s, d in list(zip(src, dst)):
@@ -1612,51 +1623,51 @@ def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
         uu[d.item()][s.item()] = fg[s]
         uu[d.item()][-1] = fg[d]
         uu[s.item()][-1] = fg[s]
-    
+
     ndims = bern.ndim
     isolines = []
     axes_all = np.arange(ndims, dtype=int)
-    
+
     gril = [bern_greville_abscissae(bern.shape[d]) for d in range(len(bern.shape))]
     nn = bern_to_nurbs_bezier(_gen_cpts_to_display(bern), rational=False)
     mabyroots = []
     for k, v in uu.items():
         k_multiindex = np.unravel_index(k, bern.shape)
         coord_k = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(k_multiindex)))
-        
+
         for j, cf in v.items():
             if j != -1:
                 j_multiindex = np.unravel_index(j, bern.shape)
                 coord_j = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(j_multiindex)))
                 mabyroots.append((zero_crossing_nd(coord_k, coord_j, v[-1], v[j])
                                       , (coord_k, coord_j)))
-    
+
     for candidate, ends in mabyroots:
         candidate = np.array(candidate)
-        
+
         for ax in range(ndims):
             cl = candidate.tolist()
-            
+
             l = axes_all.tolist()
             del l[ax]
             del cl[ax]
-            
- 
+
+
 
             iso = np.squeeze(de_casteljau_restrict_multi_nd(nn.control_points, l, cl)
-                             
+
                              )
-            
+
             isolines.append(iso
                             )
-    
+
     pts = []
     for i in isolines:
-        
+
         roots = bern_roots_1d(i[..., -1][..., None], 1e-6)
-        
+
         try:
-            
+
             pts.extend([bezier_curve_derivatives_compact(i, rr, 0) for rr in roots.roots])
         except Exception as err:
             print(err)
@@ -1664,9 +1675,9 @@ def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
     return pts,nn
 
 if __name__ =="__main__":
-    
+
     import numpy as np
-    
+
     cf = np.array([[[0.3, 0., 153.35865109],
                     [0.3, 0.16666667, 81.19076014],
                     [0.3, 0.33333333, 46.53978987],
@@ -1674,31 +1685,31 @@ if __name__ =="__main__":
                     [0.3, 0.66666667, 6.92238807],
                     [0.3, 0.83333333, -14.8134324],
                     [0.3, 1., 11.52518909]]])
-    
+
     cf2 = np.array([[-50.567631429638432, 0.0, -20.249229555071079], [-45.278590167481184, 0.0, 63.840434704091194],
                     [-7.1806054859095099, 0.0, -78.298949251270301], [-7.8798106316942835, 0.0, 26.120536947668867],
                     [67.639525668587439, 0.0, 33.322697665659618], [67.639525668587439, 0.0, -16.424785571413096]]
-                   
+
                    )
-    
-   
-    
+
+
+
     import time
-    
+
     s = time.perf_counter()
     eps = 1e-8
     res2 = bern_roots_1d(cf2[..., -1],eps=eps)
     print(time.perf_counter() - s)
     assert res2.roots.shape[0]==4 and np.all(res2.errors<eps),res2
-   
-    
+
+
     print(res2)
     print()
     s = time.perf_counter()
     res1 = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(cf[..., -1])[..., None], 0),eps=eps)
     print(time.perf_counter() - s)
     assert  res1.roots.shape[0]==1 and np.all(res1.errors<eps),res1
-   
+
     print(res1)
     #grid = np.random.uniform(-5., 5., (7, 7))
     #print(bern_roots_2d(grid,eps=eps))

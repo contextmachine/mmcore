@@ -846,10 +846,22 @@ def confirm_overlap_span(
         iso_bnd = iso_unique
     if ovl_bnd:
         if len(ovl_bnd) > 1:
-            logger.error(
-                "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd),ovl_bnd
-            )
-        ovl = dict(ovl_bnd[0])
+            ovl_interv=None
+            for ovl in sorted(ovl_bnd,key=lambda it: it["t_path"][0]):
+                if ovl_interv is None:
+                    ovl_interv=Interval( ovl['t_path'][0],ovl['t_path'][-1])
+                ovl_interv_new=Interval( ovl['t_path'][0],ovl['t_path'][-1])
+                if not ovl_interv.intersects(ovl_interv_new):
+                    print(ovl_interv,ovl_interv_new)
+                    logger.error(
+                        "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd),ovl_bnd
+                    )
+                    ovl = dict(ovl_bnd[0])
+                    ovl["partial"] = True
+                    return ovl
+                ovl_interv=ovl_interv.merge(ovl_interv_new)
+            #ovl = dict(ovl_interv)
+        ovl=dict(ovl_bnd[0])
         ovl["partial"] = True
         return ovl
     if not iso_bnd:
