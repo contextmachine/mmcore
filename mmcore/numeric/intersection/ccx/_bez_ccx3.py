@@ -1423,54 +1423,86 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
     res_u_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_start)[..., None], 0), eps=1e-9)
     res_u_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_end)[..., None], 0), eps=1e-9)
     ends=[]
-    def _check(uv):
-        return   (not  uv in ends) and (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq )and (check_tangent(C1,C2, *uv,angle_tol=angle_tol))
+    ##print(res_u_start.roots,res_u_end.roots)
 
+    def _check(uv):
+        rules=(not  uv in ends) , (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq ), (check_tangent(C1,C2, *uv,angle_tol=angle_tol))
+        ##print(bernstein_eval_nd(sq_dist_net, uv))
+        ##print(rules,all(rules),uv)
+        return all(rules)
     if len(res_u_start.roots)>0:
         for r in res_u_start.roots:
-            uv=(0.0, r)
+
+
+            uv = (
+                0.0,
+                r,
+            )
+
             if _check(uv):
+                ##print(uv,True)
                 ends.append(uv)
+            #else:
+            #    #print(uv, False)
             # else:
-            #    print(bernstein_eval_nd(sq_dist_net, uv), uv)
+            #    #print(bernstein_eval_nd(sq_dist_net, uv), uv)
     if len(res_u_end.roots)>0:
         for r in res_u_end.roots:
-            uv = (1.0, r)
+
+            uv = (1.0,r,)
+
             if _check(uv):
 
                 ends.append(uv)
+            #else:
+            #    #print(uv, False)
             # else:
-            #    print(bernstein_eval_nd(sq_dist_net, (1.0, r)), (1.0, r))
+            #    #print(bernstein_eval_nd(sq_dist_net, (1.0, r)), (1.0, r))
 
     # sqd_v_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
     # sqd_v_end = de_casteljau_restrict_nd(sq_dist_net, 0, 1.0)
 
     res_v_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_start)[...,None], 0), eps=1e-9)
     res_v_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_end)[...,None], 0), eps=1e-9)
+    ##print(res_v_start.roots, res_v_end.roots)
 
-    if len(res_v_start.roots)>0:
+    if len(res_v_start.roots) > 0:
         for r in res_v_start.roots:
-            uv=(0.0, r)
+            uv = (r,0.0)
+
+
+
             if _check(uv):
+
                 ends.append(uv)
 
+            if _check(uv):
+                ends.append(uv)
+            #else:
+            #    #print(uv, False)
             # else:
-            #    print(bernstein_eval_nd(sq_dist_net, (r, .0)), (r, .0))
+            #    #print(bernstein_eval_nd(sq_dist_net, (r, .0)), (r, .0))
     if len(res_v_end.roots)>0:
         for r in res_v_end.roots:
-            uv=(1.0, r)
+            uv = (r, 1.0)
+
             if _check(uv):
 
                 ends.append(uv)
+            if _check(uv):
 
+                ends.append(uv)
+            #else:
+            #    #print(uv, False)
             # else:
-            #    print(bernstein_eval_nd(sq_dist_net, (r, 1.0)),(r,1.))
+            #    #print(bernstein_eval_nd(sq_dist_net, (r, 1.0)),(r,1.))
     ends.sort(key=lambda x: x[0])
+
     if len(ends)>=2:
         u_vals=np.linspace(    min(ends,key=lambda x:x[0])[0], max(ends,key=lambda x:x[0])[0],samples_count+2)[1:][:-1]
         for u in u_vals:
 
-            sqd_u = de_casteljau_restrict_nd(sq_dist_net, 1, u)
+            sqd_u = de_casteljau_restrict_nd(sq_dist_net, 0, u)
             res_u = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u)[..., None], 0), eps=1e-9)
 
             if len(res_u.roots) < 1:
@@ -1479,7 +1511,7 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
             at_least_one = False
 
             for r in res_u.roots:
-                uv=(u, r)
+                uv=( u,r)
                 if not _check(uv):
 
                     return False,ends
@@ -1576,10 +1608,10 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             if np.dot(d,d)<=atol_sq :
                 return True
 
-        # print('accept', u,v, eps_u, eps_v)
+        # #print('accept', u,v, eps_u, eps_v)
         return False
 
-        print('accept', u, v)
+        #print('accept', u, v)
         return False
     def cell_contains_known_isolated(u0, u1, v0, v1, margin=1e-9):
         for it in isolated:
@@ -1598,7 +1630,8 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
     eps_bbox = max(atol, 1e-12 * scale)
 
     is_overlap, ends = check_overlap(C1,C2,sq_dist_net,atol=atol, samples_count=3,angle_tol=angle_tol)
-
+    ##print('is_overlap', is_overlap)
+    ##print('ends', ends)
     if is_overlap:
         uv_global = ends
 
@@ -1614,11 +1647,11 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
-        box1 = _aabb_euclidean(Pseg, rational=rational)
-        box2 = _aabb_euclidean(Qseg, rational=rational)
-        # print((u0, u1, v0, v1))
+        box1 = _inflate_aabb(_aabb_euclidean(Pseg, rational=rational),atol/2)
+        box2 = _inflate_aabb(_aabb_euclidean(Qseg, rational=rational),atol/2)
+        # #print((u0, u1, v0, v1))
         if not aabb_intersect(box1, box2):
-            # print((u0, u1), (v0, v1),box1,box2)
+            # #print((u0, u1), (v0, v1),box1,box2)
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_inter")
             continue
@@ -1650,7 +1683,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
 
         bmin = bernstein_envelope_min(dnet)
         if bmin > 1e-9:
-            # print(bmin,atol_sq)
+            # #print(bmin,atol_sq)
             stats["pruned"] += 1
             stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
             continue
@@ -1666,7 +1699,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
         if np.dot(dbox1,dbox1) < atol_sq and np.dot(dbox2,dbox2) < atol_sq:
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_size")
-            # print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
+            # #print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
 
             res["status"]='unique_stationary'
 
@@ -1676,20 +1709,20 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             res = classify_cell_by_grids(sunet, svnet)
 
             if res["status"] == "no_stationary":
-                # print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
+                # #print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
                 stats["pruned"] += 1
                 stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
                 continue
         _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
         _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
-        # print(_tol_c1,_tol_c2)
+        # #print(_tol_c1,_tol_c2)
         _delta_tol = float(np.linalg.norm((_tol_c1, _tol_c2)))
         if res["status"] == "unique_stationary":
 
             uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=13,rational=rational)
 
             Dval = np.dot(Gc, Gc)
-            # print(Dval,atol_sq,root_tol_sq)
+            # #print(Dval,atol_sq,root_tol_sq)
             if Dval <= atol_sq:
                 ug,vg=uc,vc
                 x = eval_bezier(C1, ug, rational=rational)
@@ -1697,7 +1730,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
 
                     if not near_existing_isolated(ug, vg, x):
-                        # print(Pseg.tolist(), Qseg.tolist(), )
+                        # #print(Pseg.tolist(), Qseg.tolist(), )
                         # if not bernstein_eval_nd(dnet, (uc, vc)) <( atol_sq*10):
                         #    continue
                         isolated.append({"u": ug, "v": vg, "point": x})
@@ -1708,7 +1741,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 elif ((abs(ug- u0) <= tol_c1 or abs(u1 - ug) <= tol_c1 ) or (abs(vg - v0) <= tol_c2  or abs(v1 - vg) <=tol_c2 )):
 
                     if not near_existing_isolated(ug, vg,  x):
-                        # print(Pseg.tolist(), Qseg.tolist(), )
+                        # #print(Pseg.tolist(), Qseg.tolist(), )
 
                         isolated.append({"u": ug, "v": vg, "point": x})
 
@@ -1726,7 +1759,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             continue
             # ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
-            # print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
+            # #print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
             # continue
 
         else:
@@ -1738,7 +1771,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             min_d = float(np.min(dnet))
             if  cell_contains_known_isolated(u0, u1, v0, v1)  :
                 res = {"type": "none"}
-                print('bae',    (u0, u1), (v0, v1), )
+                #print('bae',    (u0, u1), (v0, v1), )
                 continue
             else:
                 res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh, rational=rational)
@@ -1761,12 +1794,12 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
                 # if not bernstein_eval_nd(dnet, (ug, vg)) < atol_sq:
                 #    continue
-                # print(ug,vg)
+                # #print(ug,vg)
                 x = res['point']
 
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
                     if not near_existing_isolated(ug, vg, x):
-                        # print(Pseg.tolist(), Qseg.tolist(), )
+                        # #print(Pseg.tolist(), Qseg.tolist(), )
                         if not bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
                             continue
 
@@ -1788,7 +1821,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
                                 abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
                     if not near_existing_isolated(ug, vg, x):
-                        print('LLLLL')
+                        #print('LLLLL')
                         if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
 
                             kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
@@ -1813,7 +1846,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                             u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
                             u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
                             stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
-                            print( (u0g, v0g),(u1g,v1g))
+                            #print( (u0g, v0g),(u1g,v1g))
                 continue
 
         # It may happen that we split directly along an isolated root.
@@ -1821,7 +1854,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
         # as the split root will not be identified as isolated by further checks and will ultimately fail the envelop prune.
         # Ideally, we want to check for the presence of such a root and, if it exists,
         # cut it out using bernstein_cutout_box_nd, just as we do with other isolated intersections.
-        # print('subdivide', depth, (u0, u1), (v0, v1))
+        # #print('subdivide', depth, (u0, u1), (v0, v1))
         # split by spread if no observation to harvest
         logger.debug(f'subdivisions: {depth}.')
         if L1_sz(Pseg, rational=rational) > L1_sz(Qseg, rational=rational):

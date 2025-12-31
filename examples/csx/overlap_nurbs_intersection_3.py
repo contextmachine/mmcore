@@ -1,4 +1,6 @@
+import pickle
 import time
+from pathlib import Path
 
 import rich
 
@@ -68,7 +70,9 @@ overs = []
 pts = []
 s = time.time()
 result1 = nurbs_csx_v2(curve1, surface,tol=1e-3)
-
+pth=Path(__file__).parent/'result1.pkl'
+with open(pth, 'wb') as f:
+    pickle.dump([curve1,surface], f)
 print(f"CSX 1 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result1[0] is not None:
@@ -144,3 +148,4 @@ except ImportError as err:
     print("mmcore.renderer is not installed, skip preview.")
 except Exception as err:
     raise err
+print(pth)

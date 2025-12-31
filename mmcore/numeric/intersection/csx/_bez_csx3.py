@@ -811,11 +811,15 @@ def confirm_overlap_span(
 
     # First, check the ends of the segment.
     t0, u0, v0, G0 = _project_fixed_t(0.0, u_seed, v_seed)
-    on0 = np.linalg.norm(G0) <= tol_conf
-    t1, u1, v1, G1 = _project_fixed_t(1.0, u0, v0)
-    on1 = np.linalg.norm(G1) <= tol_conf
+    on0d = np.linalg.norm(eval_bezier_curve(C,t0,rational=rational)-eval_bezier_surface(S,u0, v0,rational=rational))
 
+    t1, u1, v1, G1 = _project_fixed_t(1.0, u0, v0)
+    on1d  = np.linalg.norm(eval_bezier_curve(C,t1,rational=rational)-eval_bezier_surface(S,u1, v1,rational=rational))
+    on0=on0d<=tol_conf
+    on1 = on1d <= tol_conf
     # If both ends lie on the surface, confirm overlap across the full span.
+    #print(on0d,on0, t0, u0, v0, G0 ,)
+    #print(on1d,on1,t1, u1, v1, G1)
     if on0 and on1:
         ok, u_seed, v_seed = _check_interval(0.0, 1.0, u0, v0)
         if not ok:
@@ -844,6 +848,7 @@ def confirm_overlap_span(
             if abs(float(it["t"]) - float(iso_unique[-1]["t"])) > t_eps:
                 iso_unique.append(it)
         iso_bnd = iso_unique
+    #print(iso_bnd,ovl_bnd)
     if ovl_bnd:
         if len(ovl_bnd) > 1:
             ovl_interv=None
@@ -852,7 +857,7 @@ def confirm_overlap_span(
                     ovl_interv=Interval( ovl['t_path'][0],ovl['t_path'][-1])
                 ovl_interv_new=Interval( ovl['t_path'][0],ovl['t_path'][-1])
                 if not ovl_interv.intersects(ovl_interv_new):
-                    print(ovl_interv,ovl_interv_new)
+                    #print(ovl_interv,ovl_interv_new)
                     logger.error(
                         "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd),ovl_bnd
                     )
@@ -860,7 +865,7 @@ def confirm_overlap_span(
                     ovl["partial"] = True
                     return ovl
                 ovl_interv=ovl_interv.merge(ovl_interv_new)
-            #ovl = dict(ovl_interv)
+            # ovl = dict(ovl_interv)
         ovl=dict(ovl_bnd[0])
         ovl["partial"] = True
         return ovl
@@ -873,7 +878,9 @@ def confirm_overlap_span(
             t_e = 0.0 if on0 else 1.0
             # Drop a boundary point that coincides with the on-surface endpoint.
             t_eps = max(1e-9, 1e-6 * tol_conf)
+
             iso_bnd = [it for it in iso_bnd if abs(float(it["t"]) - t_e) > t_eps]
+
         if len(iso_bnd) == 1:
             bnd = iso_bnd[0]
             t_e = 0.0 if on0 else 1.0
@@ -882,6 +889,7 @@ def confirm_overlap_span(
             t_start, t_end = (t_e, t_b) if t_e <= t_b else (t_b, t_e)
             ok, u_seed, v_seed = _check_interval(t_start, t_end, u_e, v_e)
             if not ok:
+                #print(t_start,t_end,u_e,v_e,"not ok")
                 return None
             # Endpoints from surface or boundary intersection
             if t_start == t_e:
@@ -1315,7 +1323,7 @@ def trace_curve_surface_overlap(
             #        t_path.insert(0, t_pred)
             #        uv_path.insert(0, (u_pred, v_pred))
             #        xyz_path.insert(0, x)
-            #    print("e4",(t_pred, u_pred, v_pred))
+            #    #print("e4",(t_pred, u_pred, v_pred))
             #    break
 
             x = eval_bezier_curve(C, t_pred, rational=rational)
@@ -1337,9 +1345,9 @@ def trace_curve_surface_overlap(
         return "boundary" if at_bnd else "tangent_or_min_step"
 
     start_reason = march_nullspace(-1)
-    # print(start_reason, uv_path)
+    # #print(start_reason, uv_path)
     end_reason = march_nullspace(+1)
-    # print(end_reason,uv_path)
+    # #print(end_reason,uv_path)
     if len(t_path) <= 1:
         # Fallback to fixed-t marching if nullspace tracing fails to grow a path
         t_path[:] = [t0]
@@ -1654,11 +1662,11 @@ def ch_separability(pts1,pts2, atol,rational=False):
         pts1,pts2=pts1[...,:-1]/pts1[...,None,-1], pts2[...,:-1]/pts2[...,None,-1]
     # cent1=np.average(pts1,axis=0)
     # cent2 = np.average(pts2, axis=0)
-    ### print(cent1,cent2)
+    ### #print(cent1,cent2)
     # v1=pts1-cent1
     # v2 = pts2- cent2
     # cent2+v1+v1*1e-6
-    ## print(v1,v1)
+    ## #print(v1,v1)
     #
     # r1=np.max(dot(v1, v1))
     # rr1=np.sqrt(r1)
@@ -1668,7 +1676,7 @@ def ch_separability(pts1,pts2, atol,rational=False):
     # v2 *= (1 + rr2 * atol/2)
 
     # nv1=v1/ np.reshape( dot(v1,v1),(-1,1))
-    # print(nv1)
+    # #print(nv1)
     # nv2 = v2/  np.reshape( dot(v2,v2),(-1,1))
 
     # pts1=pts1+v1
@@ -1678,7 +1686,7 @@ def ch_separability(pts1,pts2, atol,rational=False):
     #if classify_points_3d(pts2, eps=1e-5)[0] != "3d":
     #        return 3
     res=gjk(np.ascontiguousarray(pts1   ), np.ascontiguousarray(pts2  )   , tol=1e-5, max_iter=15  )
-    # print(res,(pts1.tolist(), pts2.tolist()))
+    # #print(res,(pts1.tolist(), pts2.tolist()))
     return int(res)
 
 from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx
@@ -1896,7 +1904,7 @@ def bez_csx(
         C,
         S,
         span_tol_proj,
-        span_tol_conf,
+        atol,
         angle_tol,
         sv_thresh,
         rational=rational,
@@ -1906,13 +1914,8 @@ def bez_csx(
     pre_isolated: list["IsolatedIntersection"] = []
     stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
     if span_overlap is not None:
-        if span_overlap.get("partial"):
-            span_overlap = {k: v for k, v in span_overlap.items() if k != "partial"}
-            pre_overlaps.append(span_overlap)
-            stats = IntersectionStats(
-                cells=0, pruned=0, overlap_traces=1, pruned_by=["span_confirm_partial"]
-            )
-        elif span_overlap.get('isolated'):
+
+        if span_overlap.get('isolated'):
             stats = IntersectionStats(cells=1, pruned=0, overlap_traces=0, pruned_by=["span_isolated_confirm"])
             del span_overlap['isolated']
             pre_isolated.append(span_overlap)
@@ -1922,8 +1925,8 @@ def bez_csx(
             stats = IntersectionStats(cells=1, pruned=0, overlap_traces=1, pruned_by=["span_confirm"])
             return IntersectionResult(isolated=[], overlaps=[span_overlap], stats=stats)
     # isolated,overlaps=curve_surface_boundary_intersect(C,S,rational=rational,atol=atol,sv_thresh=sv_thresh)
-    # print(isolated)
-    # print(overlaps)
+    # #print(isolated)
+    # #print(overlaps)
     isolated: list["IsolatedIntersection"] = pre_isolated
     overlaps: list["OverlapIntersection"] = pre_overlaps
 
