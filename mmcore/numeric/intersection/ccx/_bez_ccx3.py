@@ -1647,8 +1647,8 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
     while stack:
         Pseg, Qseg, dnet, sunet, svnet, u0, u1, v0, v1, depth = stack.pop()
         stats["cells"] += 1
-        box1 = _inflate_aabb(_aabb_euclidean(Pseg, rational=rational),atol/2)
-        box2 = _inflate_aabb(_aabb_euclidean(Qseg, rational=rational),atol/2)
+        box1 = _aabb_euclidean(Pseg, rational=rational)
+        box2 = _aabb_euclidean(Qseg, rational=rational)
         # #print((u0, u1, v0, v1))
         if not aabb_intersect(box1, box2):
             # #print((u0, u1), (v0, v1),box1,box2)
