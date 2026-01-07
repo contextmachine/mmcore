@@ -550,7 +550,7 @@ class GaussMapBern:
 # ======================================================================================
 # Hard-case detection + Newton "magic point" (eqs 6.4-6.7)
 # ======================================================================================
-
+import warnings
 def _angle_between(a: NDArray[np.float64], b: NDArray[np.float64]) -> float:
     d = float(np.clip(np.dot(a, b), -1.0, 1.0))
     return float(np.arccos(d))
@@ -1011,6 +1011,7 @@ def _collect_boundary_intersections(
     branches: list[SSXBranch],
 ) -> None:
     count=0
+
     for axis, value, curve_net in _boundary_curves_from_net(H_owner):
         # print(curve_net.tolist(),H_other.tolist())
 
@@ -1020,7 +1021,7 @@ def _collect_boundary_intersections(
             atol=spt,
             rational=True,
             angle_tol=angle_tol,
-            max_depth=max_depth,
+            max_depth=max_depth
         )
         for iso in res.get("isolated", []):
             t = float(iso["t"])
@@ -1052,14 +1053,13 @@ def _collect_boundary_intersections(
                 return None
             delta/=np.linalg.norm(delta)
 
-            cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=False,tol=param_tol)
-            print(cnt,kv)
+            cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=True,use_centripetal=True,tol=param_tol)
+
             curve = NURBSCurveTuple(order=min(len(stuv_path)-1,3)+1, knot=np.array(kv),control_points=np.array(cnt),weights=np.ones(len(cnt)) )
 
 
             branches.append(SSXBranch(curve=curve, overlap=True))
-        if count>=2:
-            break
+
 
 def _leaf_boundary_test_and_march(
     H1: NDArray[np.float64],
@@ -1106,7 +1106,8 @@ def _leaf_boundary_test_and_march(
 
     if not points and not branches:
         return [], []
-
+    #if len(branches)>=2:
+    #    branches=[]
     # If we only have isolated points, try to march between paired points.
     if len(points) >= 2:
         pairs, leftover = _pair_points_by_nearest(points)
@@ -1259,8 +1260,8 @@ def _bez_ssx_recursive(
     gm_tol: float = 1e-8,
     max_depth: int = 24,
     magic_start_depth: int = 6,
-    parallel_angle: float = 0.05,
-    flat_angle: float = 0.15,
+    parallel_angle: float = 0.053,
+    flat_angle: float = 0.1,
     march_samples: int = 8,
     depth: int = 0,
 ) -> tuple[list[SSXBranch], list[SSXPoint]]:
@@ -1283,6 +1284,7 @@ def _bez_ssx_recursive(
             param_tol=param_tol,
             march_samples=march_samples,
         )
+
 
     P1 = g1.surf_points()
     P2 = g2.surf_points()
@@ -1389,8 +1391,8 @@ def _bez_ssx_recursive(
             return branches, points
 
     # Split strategy: split ONLY ONE patch, and ONLY in ONE direction (2 children)
-    score_a = max(g1.gauss_radius(), 10.0 * max(g1.gauss_variation_uv()))
-    score_b = max(g2.gauss_radius(), 10.0 * max(g2.gauss_variation_uv()))
+    score_a = max(g1.gauss_radius(),  max(g1.gauss_variation_uv()))
+    score_b = max(g2.gauss_radius(),  max(g2.gauss_variation_uv()))
 
     split_a = score_a >= score_b
     target = g1 if split_a else g2
@@ -1742,6 +1744,58 @@ if __name__ == "__main__":
 
     with open("/Users/sthv/PycharmProjects/mmcore/tests/norm2.pkl", "wb") as f:
         pickle.dump(fff, f)
+
+    s1 = NURBSSurfaceTuple(
+        order_u=2,
+        order_v=2,
+        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]) * 0.001,
+        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]) * 0.001,
+        control_points=np.array(
+            [
+                [[-128.25004889, -129.85828719, 67.43742325], [-128.25004889, 129.85828719, 0.0]],
+                [[128.25004889, -46.98266257, 0.0], [128.25004889, 129.85828719, 0.0]],
+            ]
+        ),
+        weights=np.array([[1.0, 1.0], [1.0, 1.0]]),
+    )
+
+    s2 = NURBSSurfaceTuple(
+        order_u=2,
+        order_v=2,
+        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]) * 0.001,
+        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]) * 0.001,
+        control_points=np.array(
+            [
+                [[-128.25004889, -129.85828719, 0.0], [-128.25004889, 129.85828719, 0.0]],
+                [[128.25004889, -129.85828719, 0.0], [128.25004889, 129.85828719, 0.0]],
+            ]
+        ),
+        weights=np.array([[1.0, 1.0], [1.0, 1.0]]),
+    )
+    import time
+
+    s = time.perf_counter_ns()
+    res = detect_intersections(s1, s2, spt=TOL)
+    print((time.perf_counter_ns() - s) * 1e-9)
+    fff = []
+    s = time.perf_counter_ns()
+    ptss = []
+    for i, j in res:
+        ip = np.array(i)
+        jp = np.array(j)
+
+        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
+            import warnings
+
+            warnings.warn("NAN")
+        else:
+            a = bern_to_nurbs_bezier(ip)
+            b = bern_to_nurbs_bezier(jp)
+            fff.append((a, b))
+
+    with open("/Users/sthv/PycharmProjects/mmcore/tests/norm4.pkl", "wb") as f:
+        pickle.dump(fff, f)
+
     from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
     normalize_knots_surface_inplace(S1)
     normalize_knots_surface_inplace(S2)
@@ -1756,11 +1810,7 @@ if __name__ == "__main__":
     from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,evaluate_nurbs_surface
     from mmcore.geom._nurbs_interp import interpolate_curve
 
-
-
     for c in curves:
-
-
 
         crvs_all.append(c.curve_xyz)
 

@@ -233,6 +233,7 @@ surface = NURBSSurfaceTuple(
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
 isolated,overlaps=result=nurbs_csx_v2(curve,surface, 1e-3,overlap_dist_tol=1e-3)
 
+
 over=[]
 isol=[]
 print(result)

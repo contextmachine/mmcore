@@ -8,6 +8,7 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
+
 from mmcore.numeric import compute_parametric_curvature_tolerance_surface
 from mmcore.numeric._aabb import aabb, aabb_intersect
 from mmcore.numeric.bern import (
@@ -738,7 +739,9 @@ def classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh: float | None =
 # ---------------------------------------------------------------------------
 # Overlap span confirmation (analytic-segment criterion)
 # ---------------------------------------------------------------------------
-
+from mmcore.geom.nurbs import CurveSurfaceEq,NURBSCurve,NURBSSurface
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, from_homogeneous_2d
+from mmcore.numeric.newton.cnewton import newtons_method
 def confirm_overlap_span(
     C,
     S,
@@ -848,7 +851,7 @@ def confirm_overlap_span(
             if abs(float(it["t"]) - float(iso_unique[-1]["t"])) > t_eps:
                 iso_unique.append(it)
         iso_bnd = iso_unique
-    #print(iso_bnd,ovl_bnd)
+    # print(iso_bnd,ovl_bnd)
     if ovl_bnd:
         if len(ovl_bnd) > 1:
             ovl_interv=None
@@ -857,7 +860,7 @@ def confirm_overlap_span(
                     ovl_interv=Interval( ovl['t_path'][0],ovl['t_path'][-1])
                 ovl_interv_new=Interval( ovl['t_path'][0],ovl['t_path'][-1])
                 if not ovl_interv.intersects(ovl_interv_new):
-                    #print(ovl_interv,ovl_interv_new)
+                    # print(ovl_interv,ovl_interv_new)
                     logger.error(
                         "Boundary overlap returned multiple segments (len=%d) for span confirm.", len(ovl_bnd),ovl_bnd
                     )
@@ -877,9 +880,11 @@ def confirm_overlap_span(
         if len(iso_bnd) == 2:
             t_e = 0.0 if on0 else 1.0
             # Drop a boundary point that coincides with the on-surface endpoint.
-            t_eps = max(1e-9, 1e-6 * tol_conf)
+            t_eps = tol_conf
+            print(on0,on1,t_eps)
 
             iso_bnd = [it for it in iso_bnd if abs(float(it["t"]) - t_e) > t_eps]
+
 
         if len(iso_bnd) == 1:
             bnd = iso_bnd[0]
@@ -889,7 +894,7 @@ def confirm_overlap_span(
             t_start, t_end = (t_e, t_b) if t_e <= t_b else (t_b, t_e)
             ok, u_seed, v_seed = _check_interval(t_start, t_end, u_e, v_e)
             if not ok:
-                #print(t_start,t_end,u_e,v_e,"not ok")
+                # print(t_start,t_end,u_e,v_e,"not ok")
                 return None
             # Endpoints from surface or boundary intersection
             if t_start == t_e:
@@ -1371,6 +1376,7 @@ def contact_detect_and_extract_curve_surface(
     seed_tuv=(0.5, 0.5, 0.5),
     sv_thresh=1e-8,
     tol_proj=1e-12,
+
     angle_tol=1e-3,
     sag_tol=None,
     rational: bool | None = None,
@@ -1393,19 +1399,21 @@ def contact_detect_and_extract_curve_surface(
             x = eval_bezier_curve(Cseg, t, rational=rational)
             return {"type": "isolated", "t": t, "u": u, "v": v, "point": x}
         if cls["type"] == "overlap":
+            #res=confirm_overlap_span(Cseg,Sseg, tol_conf=tol_conf,tol_proj=tol_proj,angle_tol=angle_tol,sv_thresh=sv_thresh,rational=rational)
             res = trace_curve_surface_overlap(
                 Cseg,
                 Sseg,
                 t,
                 u,
                 v,
-                sag_tol=sag_tol*100,
+                sag_tol=sag_tol,
                 angle_tol=angle_tol,
                 rational=rational,
                 tol_proj=tol_proj,
-                max_points=2000,
+                max_points=20,
             )
             if res["kind"] == "overlap":
+            #if res is not None:
                 return {
                     "type": "overlap",
                     "t_path": res["t_path"],
@@ -1453,9 +1461,12 @@ def cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1, margin=1e-9):
     return False
 
 
-def _aabb_euclidean(ctrl, rational: bool | None = None):
+def _aabb_euclidean(ctrl, rational: bool | None = None, offset:float=0):
     ectrl = dehomogenize_ctrl(ctrl, rational=rational)
-    return aabb(ectrl.reshape(-1, ectrl.shape[-1]))
+    bb=np.array(aabb(ectrl.reshape(-1, ectrl.shape[-1])))
+    bb[0,:]-=offset
+    bb[1,:]+=offset
+    return bb
 
 from mmcore.geom._nurbs_eval import from_homogeneous_1d
 def _bez_get_curve_tol_adapter(c, tol, rational=False, interval=None):
@@ -1900,19 +1911,50 @@ def bez_csx(
         overlap_dist_tol = float(overlap_dist_tol)
         if overlap_dist_tol > 0.0:
             span_tol_conf = max(span_tol_proj, overlap_dist_tol)
+    pre_overlaps: list["OverlapIntersection"] = []
+    pre_isolated: list["IsolatedIntersection"] = []
+    stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
+    box_c = _aabb_euclidean(C, rational=rational,offset=atol/2)
+    box_s = _aabb_euclidean(S, rational=rational,offset=atol/2)
+    if not aabb_intersect(box_c, box_s):
+        stats["pruned"] += 1
+        stats["pruned_by"].append("bbox")
+        return IntersectionResult(isolated=pre_isolated,overlaps=pre_overlaps, stats=stats)
+    if rational:
+        Cc,_ = from_homogeneous_1d(C)
+        Sc,_ = from_homogeneous_2d(np.ascontiguousarray(S))
+        Sc=np.ascontiguousarray(Sc.reshape((-1,3)))
+    else:
+        Cc=C
+        Sc=np.ascontiguousarray(S.reshape((-1,3)))
+    vc=Cc-np.mean(Cc, axis=0,keepdims=True)
+
+    l=np.linalg.norm(vc,axis=1,keepdims=True)
+    l[l<1e-10]=1.
+    vc/=l
+
+    Cc+=(vc*atol/2)
+    vs = Sc - np.mean(Sc, axis=0, keepdims=True)
+    ls=np.linalg.norm(vs,axis=1,keepdims=True)
+    ls[ls < 1e-10] = 1.0
+    vs /= ls
+    Sc += vs * atol / 2
+
+    if not gjk(np.ascontiguousarray(Cc),Sc):
+        stats["pruned"] += 1
+        stats["pruned_by"].append("gjk")
+        return IntersectionResult(isolated=pre_isolated,overlaps=pre_overlaps, stats=stats)
     span_overlap = confirm_overlap_span(
         C,
         S,
         span_tol_proj,
-        atol,
-        angle_tol,
-        sv_thresh,
+        tol_conf=span_tol_conf,
+        angle_tol=angle_tol,
+        sv_thresh=sv_thresh,
         rational=rational,
         rel_thresh=1e-6,
     )
-    pre_overlaps: list["OverlapIntersection"] = []
-    pre_isolated: list["IsolatedIntersection"] = []
-    stats = IntersectionStats(cells=0, pruned=0, overlap_traces=0, pruned_by=[])
+
     if span_overlap is not None:
 
         if span_overlap.get('isolated'):
@@ -2077,6 +2119,7 @@ def bez_csx(
             #extra_seeds=[(0.25, 0.5, 0.5), (0.75, 0.5, 0.5)],
             sv_thresh=sv_thresh,
             tol_proj=tol_proj,
+
             angle_tol=angle_tol,
             sag_tol=atol,
             rational=rational,
@@ -2154,11 +2197,11 @@ def bez_csx(
                         t_loc,
                         u_loc,
                         v_loc,
-                        sag_tol=atol,
+                        sag_tol=atol*100,
                         angle_tol=angle_tol,
                         rational=rational,
                         tol_proj=tol_proj,
-                        max_points=2000,
+                        max_points=20,
                     )
                     if res["kind"] == "overlap":
                         t_path_g = [t0 + (t1 - t0) * t for t in res["t_path"]]
@@ -2278,7 +2321,7 @@ def bez_csx(
                 angle_tol=angle_tol,
                 rational=rational,
                 tol_proj=None,
-                max_points=2000,
+                max_points=200,
             )
             if res["kind"] == "overlap":
                 overlaps.append(

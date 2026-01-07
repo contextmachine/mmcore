@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import cached_property, lru_cache
+
 import numpy as np
 
 
@@ -15,28 +17,45 @@ np.set_printoptions(suppress=True)
 # ======================================================================
 class BSplineCurveTuple(NamedTuple):
     order:int
-    knot:NDArray[float]
-    control_points:NDArray[float]
+    knot:NDArray[np.float64]
+    control_points:NDArray[np.float64]
+    def start(self):
 
+        return self.control_points[0]
+
+
+    def end(self):
+
+        return self.control_points[-1]
 
 class NURBSCurveTuple(NamedTuple):
     order:int
-    knot:NDArray[float]
-    control_points:NDArray[float] # Not homogeneous
-    weights:NDArray[float]
+    knot:NDArray[np.float64]
+    control_points:NDArray[np.float64] # Not homogeneous
+    weights:NDArray[np.float64]
 
     def start(self):
 
-        return evaluate_nurbs_curve(self,self.interval()[0],0)['C']
+        return self.control_points[0]/self.weights[0]
+
+
     def end(self):
 
-        return evaluate_nurbs_curve(self,self.interval()[1],0)['C']
+        return self.control_points[-1]/self.weights[-1]
     def interval(self):
         return _curve_interval(self)
     @property
     def degree(self):
         return self.order-1
 
+    def __hash__(self):
+        return hash(id(self))
+@lru_cache(maxsize=None)
+def start(curve:NURBSCurveTuple):
+    return curve.control_points[0]/curve.weights[0]
+@lru_cache(maxsize=None)
+def end(curve:NURBSCurveTuple):
+    return curve.control_points[-1]/curve.weights[-1]
 
 class BSplineSurfaceTuple(NamedTuple):
     order_u:int

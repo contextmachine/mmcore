@@ -156,7 +156,7 @@ def _dedup_isolated_by_t(points, t_tol: float, closed: bool, t_min: float, t_max
     return merged
 
 
-def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float = 1e-3, **kwargs):
+def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float = 1e-3, angle_tol=0.052,**kwargs):
     if "atol" in kwargs and kwargs["atol"] is not None:
         tol = kwargs["atol"]
     overlap_dist_tol = kwargs.pop("overlap_dist_tol", tol)
@@ -192,7 +192,7 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
             pts2,
             atol=tol,
             rational=rational,
-            overlap_dist_tol=overlap_dist_tol,
+            overlap_dist_tol=overlap_dist_tol,angle_tol=angle_tol
         )
         if len(result["isolated"]) == 0 and len(result["overlaps"]) == 0:
             # print(set(result['stats']['pruned_by']))

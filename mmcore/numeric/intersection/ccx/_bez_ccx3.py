@@ -325,7 +325,7 @@ def G_only(C1, C2, u, v, rational: bool | None = None):
     return eval_bezier(C1, u, rational=rational) - eval_bezier(C2, v, rational=rational)
 
 
-def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=1e-9,delta_tol=1e-10, rational: bool | None = None):
+def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=1e-9,delta_tol=1e-10, bounds=((0.,1.),(0.,1.)), rational: bool | None = None):
     """Levenberg–Marquardt corrector to G(u,v)=0; clamps to [0,1]^2."""
     u, v = float(u0), float(v0)
     delta_tol_sq=delta_tol*delta_tol
@@ -342,9 +342,12 @@ def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=
         # line search with clamping
         step = 1.0
         g2 = float(np.dot(G, G))
-        for _ls in range(8):
-            un = np.clip(u + step * delta[0], 0.0, 1.0)
-            vn = np.clip(v + step * delta[1], 0.0, 1.0)
+        for _ls in range(2):
+            un = np.clip(u + step * delta[0], *bounds[0])
+            vn = np.clip(v + step * delta[1],  *bounds[1])
+            #un=(u + step * delta[0])
+            #vn=(v + step * delta[1])
+
             dgj = G_only(C1, C2, un, vn, rational=rational)
             if float(np.dot(dgj, dgj)) <= g2:
                 u, v = un, vn
@@ -353,6 +356,7 @@ def newton_project_G0(C1, C2, u0, v0, tol=1e-12, it=13, lm_damp=1e-12, step_tol=
         if g2 < tol_sq:
             break
         if step < step_tol and np.dot(delta,delta) < delta_tol_sq:
+
             break
     G, J = G_and_J(C1, C2, u, v, rational=rational)
     return u, v, G, J
@@ -363,6 +367,7 @@ def classify_contact(J, sv_thresh=1e-8):
     # singular values of d x 2 J; for curves in 2D/3D: rank 2 => isolated; rank 1 => overlap/slip
     s = np.linalg.svd(J, compute_uv=False)
     s_sorted = np.sort(s)[::-1]  # s_max >= s_min
+
     if s_sorted.shape[0] < 2:
         # degenerate curve derivative; treat as ambiguous
         return {"type": "ambiguous", "svals": s_sorted}
@@ -927,11 +932,12 @@ def contact_detect_and_extract(C1, C2, seed_uv=(0.5, 0.5), envelope_prune=None, 
         x = eval_bezier(C1, u, rational=rational)  # equals eval_bezier(C2, v)
         return {"type": "isolated", "u": u, "v": v, "point": x}
     if cls["type"] != "overlap":
+        print(cls)
         return {"type": "none"}
 
     # Trace the fold (overlap/correspondence)
     res = trace_overlap_fast_events(C1, C2, u, v, sv_thresh=sv_thresh, rational=rational)
-    if res["kind"] != "overlap" or len(res["points"]) < 2:
+    if res["kind"] != "overlap":
         return {"type": "none"}
 
     return {"type": "overlap", "uv_path": res["points"], "xyz_path": res["xyz"], "start": res["start"], "end": res["end"]}
@@ -996,11 +1002,6 @@ def spread(ctrl, rational: bool | None = None):
     ectrl = dehomogenize_ctrl(ctrl, rational=rational)
     mu = ectrl.mean(axis=0, keepdims=True)
     return float(np.max(np.linalg.norm(ectrl - mu, axis=1)))
-
-
-def L1_sz(ctrl, rational: bool | None = None):
-    ectrl = dehomogenize_ctrl(ctrl, rational=rational)
-    return np.sum(ectrl.max(axis=0) - ectrl.min(axis=0))
 
 
 def map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
@@ -1404,13 +1405,20 @@ def arccos_angle_tol(angle_tol):
     return math.acos(angle_tol)
 
 def check_tangent(C1,C2,u,v,rational=False, angle_tol=0.053):
-    d1=eval_bezier_deriv(C1,u,rational)
-    d2=eval_bezier_deriv(C2, v, rational)
-    d1/=np.linalg.norm(d1)
-    d2/=np.linalg.norm(d2)
+    d1=eval_bezier_deriv(C1,u,rational=rational)
+    d2=eval_bezier_deriv(C2, v, rational=rational)
+    dd1=np.linalg.norm(d1)
+    dd2 = np.linalg.norm(d2)
+    if dd1<1e-10:
+        dd1=1.
+    if dd2<1e-10:
+        dd2=1.
+    d1/=dd1
+    d2/=dd2
+
     return abs(np.dot(d1,d2))<arccos_angle_tol(angle_tol)
 
-def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_count=3):
+def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_count=3,rational=False):
 
     sqd_u_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
 
@@ -1426,7 +1434,7 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
     ##print(res_u_start.roots,res_u_end.roots)
 
     def _check(uv):
-        rules=(not  uv in ends) , (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq ), (check_tangent(C1,C2, *uv,angle_tol=angle_tol))
+        rules=(not  uv in ends) , (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq ), (check_tangent(C1,C2, *uv,angle_tol=angle_tol,rational=rational))
         ##print(bernstein_eval_nd(sq_dist_net, uv))
         ##print(rules,all(rules),uv)
         return all(rules)
@@ -1522,6 +1530,11 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
     # sqd_uw=de_casteljau_restrict_nd(sqd[1], 1, z)
 
 
+def L1_sz(ctrl, rational: bool | None = None):
+    """Contextual metric for heuristics of subdivision direction selection"""
+    ectrl = dehomogenize_ctrl(ctrl, rational=rational)
+    return np.sum(ectrl.max(axis=0) - ectrl.min(axis=0))
+
 def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-3, rational: bool = False, angle_tol=0.053,**kwargs) -> IntersectionResult:
     """Certified intersection for (possibly rational) Bézier curve pairs.
 
@@ -1593,14 +1606,6 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
     atol_sq=atol**2
     result = None
 
-    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]-atol_sq
-    tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
-    tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
-    su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
-    sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
-
-    stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
-    delta_tol=np.linalg.norm((tol_c1, tol_c2))
     def near_existing_isolated(u, v,point):
 
         for it in isolated:
@@ -1611,7 +1616,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
         # #print('accept', u,v, eps_u, eps_v)
         return False
 
-        #print('accept', u, v)
+        # print('accept', u, v)
         return False
     def cell_contains_known_isolated(u0, u1, v0, v1, margin=1e-9):
         for it in isolated:
@@ -1628,8 +1633,23 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
     if scale == 0:
         scale = 1.0
     eps_bbox = max(atol, 1e-12 * scale)
+    box1 = _inflate_aabb(_aabb_euclidean(C1, rational=rational),atol/2)
+    box2 = _inflate_aabb(_aabb_euclidean(C2, rational=rational),atol/2)
+    if not aabb_intersect(box1, box2):
+        # #print((u0, u1), (v0, v1),box1,box2)
+        stats["pruned"] += 1
+        stats["pruned_by"].append("bbox_inter")
+        return  IntersectionResult(isolated=isolated, overlaps=overlaps,stats=stats)
 
-    is_overlap, ends = check_overlap(C1,C2,sq_dist_net,atol=atol, samples_count=3,angle_tol=angle_tol)
+    sq_dist_net = distance_squared_net(C1, C2, rational=rational)[...,np.newaxis]
+    tol_c1 = _bez_get_tol_adapter(C1, atol, rational=rational)
+    tol_c2 = _bez_get_tol_adapter(C2, atol, rational=rational)
+    su_net = bernstein_partial_derivative_coeffs(sq_dist_net, 0)
+    sv_net = bernstein_partial_derivative_coeffs(sq_dist_net, 1)
+
+    stack = [(C1.copy(), C2.copy(), sq_dist_net, su_net, sv_net, 0.0, 1.0, 0.0, 1.0, 0)]
+    delta_tol=np.linalg.norm((tol_c1, tol_c2))
+    is_overlap, ends = check_overlap(C1,C2,sq_dist_net,atol=atol, samples_count=3,angle_tol=angle_tol,rational=rational)
     ##print('is_overlap', is_overlap)
     ##print('ends', ends)
     if is_overlap:
@@ -1655,79 +1675,92 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
             stats["pruned"] += 1
             stats["pruned_by"].append("bbox_inter")
             continue
+        res = dict()
+        if (u1-u0)<=tol_c1 or (v1-v0)<=tol_c2:
+            #print((u0,u1),(v0,v1))
+            logger.debug("(%s,%s), (%s,%s)",u0,v0,u1,v1)
+            res["status"] = "unique_stationary"
 
-        eps_sign = max(1e-12, atol)
-        if not rational:
-            Fst=Pseg[:,np.newaxis,:]- Qseg[np.newaxis,:,:]
-
-            cert=all([Fst[..., dimm].min() <= eps_sign and Fst[..., dimm].max() >= -eps_sign for dimm in range(Fst.shape[-1])])
-
-        else:
-            Ph = Pseg  # (m+1, 4)
-            Qh = Qseg  # (n+1, 4)
-            w1 = Ph[:, -1]  # (m+1,)
-            w2 = Qh[:, -1]  # (n+1,)
-            w1_ij = w1[:, np.newaxis, np.newaxis]
-            w2_ij = w2[np.newaxis, :, np.newaxis]
-
-            Ph_xyz = Ph[:, :-1][:, np.newaxis, :]  # (m+1, 1, 3)
-            Qh_xyz = Qh[:, :-1][np.newaxis, :, :]  # (1, n+1, 3)
-            Fst = Ph_xyz * w2_ij - Qh_xyz * w1_ij
-            eps= max(np.finfo(float).eps, eps_sign)
-            cert = all(Fst[..., d].min() <= eps and Fst[..., d].max() >= -eps
-                       for d in range(Fst.shape[-1]))
-        if not cert:
-            stats["pruned"] += 1
-            stats["pruned_by"].append("root in C1(s)−C2(t)")
-            continue
-
-        bmin = bernstein_envelope_min(dnet)
-        if bmin > 1e-9:
-            # #print(bmin,atol_sq)
-            stats["pruned"] += 1
-            stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
-            continue
-        if not(np.sign(sunet.max())!=np.sign(sunet.min() ) or np.sign(svnet.max())!=np.sign(svnet.min() )):
-            continue
-
-        box1 = np.asarray(box1)
-        box2 = np.asarray(box2)
-        dbox1=box1[1] - box1[0]
-        dbox2 = box2[1] - box2[0]
-
-        res=dict()
-        if np.dot(dbox1,dbox1) < atol_sq and np.dot(dbox2,dbox2) < atol_sq:
-            stats["pruned"] += 1
-            stats["pruned_by"].append("bbox_size")
-            # #print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
-
-            res["status"]='unique_stationary'
 
         else:
+            eps_sign = max(1e-12, atol)
+            if not rational:
+                Fst=Pseg[:,np.newaxis,:]- Qseg[np.newaxis,:,:]
 
-            stats["pruned"] += 1
-            res = classify_cell_by_grids(sunet, svnet)
+                cert=all([Fst[..., dimm].min() <= eps_sign and Fst[..., dimm].max() >= -eps_sign for dimm in range(Fst.shape[-1])])
 
-            if res["status"] == "no_stationary":
-                # #print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
+            else:
+                Ph = Pseg  # (m+1, 4)
+                Qh = Qseg  # (n+1, 4)
+                w1 = Ph[:, -1]  # (m+1,)
+                w2 = Qh[:, -1]  # (n+1,)
+                w1_ij = w1[:, np.newaxis, np.newaxis]
+                w2_ij = w2[np.newaxis, :, np.newaxis]
+
+                Ph_xyz = Ph[:, :-1][:, np.newaxis, :]  # (m+1, 1, 3)
+                Qh_xyz = Qh[:, :-1][np.newaxis, :, :]  # (1, n+1, 3)
+                Fst = Ph_xyz * w2_ij - Qh_xyz * w1_ij
+                eps= max(np.finfo(float).eps, eps_sign)
+                cert = all(Fst[..., d].min() <= eps and Fst[..., d].max() >= -eps
+                           for d in range(Fst.shape[-1]))
+            if not cert:
                 stats["pruned"] += 1
-                stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
+                stats["pruned_by"].append("root in C1(s)−C2(t)")
                 continue
-        _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
-        _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
-        # #print(_tol_c1,_tol_c2)
-        _delta_tol = float(np.linalg.norm((_tol_c1, _tol_c2)))
-        if res["status"] == "unique_stationary":
 
-            uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1), tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=13,rational=rational)
+            bmin = bernstein_envelope_min(dnet)
+            if bmin > 0:
+                # #print(bmin,atol_sq)
+                stats["pruned"] += 1
+                stats["pruned_by"].append(f"bernstein_envelope_min {bmin}, {u0, u1, v0, v1,}")
+                continue
+            if not(np.sign(sunet.max())!=np.sign(sunet.min() ) or np.sign(svnet.max())!=np.sign(svnet.min() )):
+                stats["pruned"] += 1
+                stats["pruned_by"].append(f"ders_sign_test")
+                continue
+
+            box1 = np.asarray(box1)
+            box2 = np.asarray(box2)
+            dbox1=box1[1] - box1[0]
+            dbox2 = box2[1] - box2[0]
+
+            if np.dot(dbox1,dbox1) < atol_sq or np.dot(dbox2,dbox2) < atol_sq:
+                # stats["pruned"] += 1
+                # stats["pruned_by"].append("bbox_size")
+                # #print( 'bbox_size',(u0, u1), (v0, v1),np.dot(dbox1,dbox1) , np.dot(dbox2,dbox2) , atol_sq)
+
+                res["status"]='unique_stationary'
+
+            else:
+
+                stats["pruned"] += 1
+                res = classify_cell_by_grids(sunet, svnet)
+
+                if res["status"] == "no_stationary":
+                    # #print("classify_cell_by_gri+no_stationary",(u0, u1), (v0, v1),)
+                    stats["pruned"] += 1
+                    stats["pruned_by"].append("classify_cell_by_gri+no_stationary")
+                    continue
+
+        # #print(_tol_c1,_tol_c2)
+        # _delta_tol = float(np.linalg.norm((_tol_c1, _tol_c2)))
+        if res["status"] == "unique_stationary":
+            # _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
+            # _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
+
+            uc, vc, Gc, Jc = newton_project_G0(C1, C2,  *map_local_to_global(0.5, 0.5, u0, u1, v0, v1),tol=1e-12, step_tol=min(tol_c1,tol_c2),delta_tol=min(tol_c1,tol_c2),it=13,rational=rational)
 
             Dval = np.dot(Gc, Gc)
+            ug,vg=uc,vc
+            strictly_inside=is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1))
+            on_bounds=is_on_boundary((ug, vg, ug, vg), (u0, v0, u1, v1))
+
             # #print(Dval,atol_sq,root_tol_sq)
-            if Dval <= atol_sq:
-                ug,vg=uc,vc
+            if strictly_inside and (Dval <= atol_sq):
+
                 x = eval_bezier(C1, ug, rational=rational)
 
-                if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                if strictly_inside:
 
                     if not near_existing_isolated(ug, vg, x):
                         # #print(Pseg.tolist(), Qseg.tolist(), )
@@ -1737,26 +1770,39 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
 
                         stats["pruned"] += 1
                         stats["pruned_by"].append("classify_cell_by_gri+unique_stationary")
+                        logger.debug(f"is_strictly_inside accept: ({ug},{vg}), {x}")
                     continue
-                elif ((abs(ug- u0) <= tol_c1 or abs(u1 - ug) <= tol_c1 ) or (abs(vg - v0) <= tol_c2  or abs(v1 - vg) <=tol_c2 )):
-
+                elif on_bounds     :
                     if not near_existing_isolated(ug, vg,  x):
                         # #print(Pseg.tolist(), Qseg.tolist(), )
-
+                        logger.debug(f'is_on_boundary accept: ({ug},{vg}), {x}')
                         isolated.append({"u": ug, "v": vg, "point": x})
-
                         stats["pruned"] += 1
                         stats["pruned_by"].append("classify_cell_by_gri+unique_on_boundary")
                     continue
+                # elif (((ug- u0) <= tol_c1 or (u1 - ug) <= tol_c1 ) or ((vg - v0) <= tol_c2  or (v1 - vg) <= tol_c2 )):
+                #
+                #    if not near_existing_isolated(ug, vg,  x):
+                #        # #print(Pseg.tolist(), Qseg.tolist(), )
+                #
+                #        isolated.append({"u": ug, "v": vg, "point": x})
+                #
+                #        stats["pruned"] += 1
+                #        stats["pruned_by"].append("classify_cell_by_gri+unique_on_boundary")
+                #    continue
 
                 else:
-                    logger.debug(
-                        f'unhandled case: {((float(uc), float(vc)), (float(ug), float(vg)), ((u0, v0), (u1, v1)))}. ')
+                    # "outside"
 
-            stats["pruned"] += 1
-            stats["pruned_by"].append("unique_stationary_nonzero")
+                    logger.debug(
+                        f'outside: {((float(uc), float(vc)), (float(ug), float(vg)))}, u0,v0, u1,v1: {((u0, v0), (u1, v1))},deltas:{((u1- u0,tol_c1, tol_c1>=(u1-u0)), (v1- v0,tol_c2, tol_c2>=(v1-v0)))}. ')
+                    continue
+            elif not (strictly_inside):
+
+                continue
+
             # logger.debug(f'unhandled case: {((float(uc), float(vc)), ( float(ug),  float(vg)), ((u0, v0), (u1, v1)))}. ')
-            continue
+            # continue
             # ug, vg = map_local_to_global(uc, vc, u0, u1, v0, v1)
 
             # #print('bar',eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational), np.linalg.norm(eval_bezier(C1,ug, rational=rational)-eval_bezier(C2,vg, rational=rational)),(float(uc), float(vc)), (float(ug), float(vg)), np.linalg.norm(Gc), ((u0, v0), (u1, v1)))
@@ -1766,17 +1812,20 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
 
             span_u = u1 - u0
             span_v = v1 - v0
-            max_span = max(span_u, span_v)
-            allow_contact = True
-            min_d = float(np.min(dnet))
-            if  cell_contains_known_isolated(u0, u1, v0, v1)  :
-                res = {"type": "none"}
-                #print('bae',    (u0, u1), (v0, v1), )
-                continue
+            #max_span = max(span_u, span_v)
+            #allow_contact = True
+            #min_d = float(np.min(dnet))
+            #if  cell_contains_known_isolated(u0, u1, v0, v1)  :
+            #    res = {"type": "none"}
+            #    # print('bae',    (u0, u1), (v0, v1), )
+            #    continue
+            if False:...
             else:
+                # res=check_overlap(Pseg,Qseg,dnet,atol= atol, angle_tol=angle_tol)
                 res = contact_detect_and_extract(Pseg, Qseg, seed_uv=(0.5, 0.5), sv_thresh=sv_thresh, rational=rational)
-
+            logger.debug(f"{depth} contact_detect_and_extract->{res.get('type')}: {res}")
             if res["type"] == "overlap" :
+
                 uv_global = [map_local_to_global(uL, vL, u0, u1, v0, v1) for (uL, vL) in res["uv_path"]]
                 xyz_global = [eval_bezier(C1, ug, rational=rational) for (ug, vg) in uv_global]
                 overlaps.append(
@@ -1788,6 +1837,7 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 continue
 
             if res["type"] == "isolated":
+
                 uc, vc=res["u"],res["v"]
 
                 # if np.linalg.norm(Gc) <= atol:
@@ -1798,13 +1848,15 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                 x = res['point']
 
                 if is_strictly_inside((ug, vg, ug, vg), (u0, v0, u1, v1)):
+                    logger.debug(f"{depth} is_strictly_inside->true: { ug, vg }")
                     if not near_existing_isolated(ug, vg, x):
                         # #print(Pseg.tolist(), Qseg.tolist(), )
                         if not bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
                             continue
 
                         isolated.append({"u": ug, "v": vg, "point": x})
-
+                        _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
+                        _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
                         res_cut = bernstein_cutout_box_nd(dnet, np.array([uc,vc]), half=np.array([ _tol_c1, _tol_c2]), return_ranges=True)
 
                         for subpatch, ((u_0, u_1), (v_0, v_1)) in res_cut:
@@ -1814,50 +1866,53 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
                             _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
                             u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
                             u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
-
+                            logger.debug(f"{depth} stack append {u0g, u1g, v0g, v1g}", )
                             stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
 
                     continue
-                elif ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
+                else:
+                    logger.debug(f"{depth} is_strictly_inside->false: {ug, vg}")
+                    _tol_c1 = _bez_get_tol_adapter(Pseg, atol, rational=rational)
+                    _tol_c2 = _bez_get_tol_adapter(Qseg, atol, rational=rational)
+                    if ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or (
                                 abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2)):
-                    if not near_existing_isolated(ug, vg, x):
-                        #print('LLLLL')
-                        if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
+                        logger.debug(f"{depth} ((abs(uc - 0) <= _tol_c1 or abs(1 - uc) <= _tol_c1) or ( abs(vc - 0) <= _tol_c2 or abs(1 - vc) <= _tol_c2))->true: {ug, vg}")
+                        if not near_existing_isolated(ug, vg, x):
+                            # print('LLLLL')
+                            if bernstein_eval_nd(dnet, (uc, vc)).min() < atol_sq:
 
-                            kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
-                            # 1,0,0,0 -> (0,v)
-                            # 0,1,0,0 -> (1,v)
-                            # 0,0,1,0 -> (u,0)
-                            # 0,0,0,1 -> (u,1)
-                            # 0,1,0,1 -> (1,1)
-                            # 1,0,0,1 -> (0,1)
-                            # 1,0,1,0 -> (0,0)
-                            # 0,1,1,0 -> (1,0)
-                            uuuu=np.array([0.,1.,0.,1.])
-                            uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
-                            u_0, u_1, v_0, v_1 =uuuu
-                            ranges=[( u_0, u_1),(v_0, v_1)]
+                                kk=np.array((abs(uc - 0) < _tol_c1, abs(1 - uc) < tol_c1, abs(vc - 0) <= _tol_c2, abs(1 - vc) <= _tol_c2),bool)
+                                # 1,0,0,0 -> (0,v)
+                                # 0,1,0,0 -> (1,v)
+                                # 0,0,1,0 -> (u,0)
+                                # 0,0,0,1 -> (u,1)
+                                # 0,1,0,1 -> (1,1)
+                                # 1,0,0,1 -> (0,1)
+                                # 1,0,1,0 -> (0,0)
+                                # 0,1,1,0 -> (1,0)
+                                uuuu=np.array([0.,1.,0.,1.])
+                                uuuu[kk]=np.array([_tol_c1, 1-_tol_c1,_tol_c2,1-_tol_c2])[kk]
+                                u_0, u_1, v_0, v_1 =uuuu
+                                ranges=[( u_0, u_1),(v_0, v_1)]
 
-                            subpatch=bernstein_trim_nd(dnet,ranges=ranges)
-                            sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
-                            sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
-                            _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
-                            _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
-                            u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
-                            u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
-                            stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
-                            #print( (u0g, v0g),(u1g,v1g))
-                continue
+                                subpatch=bernstein_trim_nd(dnet,ranges=ranges)
+                                sub_sunet = bernstein_partial_derivative_coeffs(subpatch, 0)
+                                sub_svnet = bernstein_partial_derivative_coeffs(subpatch, 1)
+                                _p = bernstein_trim_nd(Pseg, ranges=[(u_0, u_1)])
+                                _q = bernstein_trim_nd(Qseg, ranges=[(v_0, v_1)])
+                                u0g, v0g = map_local_to_global(u_0, v_0, u0, u1, v0, v1)
+                                u1g, v1g = map_local_to_global(u_1, v_1, u0, u1, v0, v1)
+                                logger.debug(f"{depth} stack append {u0g, u1g, v0g, v1g}", )
 
-        # It may happen that we split directly along an isolated root.
-        # In fact, this is not the best scenario,
-        # as the split root will not be identified as isolated by further checks and will ultimately fail the envelop prune.
-        # Ideally, we want to check for the presence of such a root and, if it exists,
-        # cut it out using bernstein_cutout_box_nd, just as we do with other isolated intersections.
-        # #print('subdivide', depth, (u0, u1), (v0, v1))
-        # split by spread if no observation to harvest
-        logger.debug(f'subdivisions: {depth}.')
-        if L1_sz(Pseg, rational=rational) > L1_sz(Qseg, rational=rational):
+                                stack.append((_p, _q, subpatch, sub_sunet, sub_svnet, u0g, u1g, v0g, v1g, depth + 1))
+                                # print( (u0g, v0g),(u1g,v1g))
+                    continue
+
+
+
+        l1,l2=L1_sz(Pseg, rational=rational), L1_sz(Qseg, rational=rational)
+        logger.debug(f'subdivisions: {depth}. {l1},{l2}')
+        if l1 > l2:
             PL, PR = de_casteljau_split_nd(Pseg, axis=0, t=0.5)
             l, r = subdivide_u(dnet, sunet, svnet, u=0.5)
             um = 0.5 * (u0 + u1)
@@ -1877,6 +1932,8 @@ def bez_ccx(C1: NDArray, C2: NDArray, sv_thresh: float = 1e-8, atol: float = 1e-
 
 
 if __name__ == "__main__":
+    import os
+    logging.basicConfig(level=getattr(logging,os.getenv('LOGLEVEL','INFO'), logging.INFO))
     try:
         import rich
         from rich.console import Console
