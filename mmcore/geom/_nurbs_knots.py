@@ -1189,8 +1189,362 @@ def link_curves(curves):
         interior_knots,                        # you will see only 0.3 here
     )
 
-from typing import List, NamedTuple, Optional
-import numpy as np
+from typing import List, NamedTuple, Optional, Iterable
+
+from collections import defaultdict
+
+
+def _copy_curve_as_tuple(crv):
+    """Make a defensive copy as a NURBSCurveTuple with numpy arrays."""
+    return NURBSCurveTuple(
+        order=int(crv.order),
+        knot=np.asarray(crv.knot, dtype=float).copy(),
+        control_points=np.asarray(crv.control_points, dtype=float).copy(),
+        weights=np.asarray(crv.weights, dtype=float).copy(),
+    )
+
+
+def _reverse_curve(crv):
+    """
+    Reverse a (clamped) NURBS curve orientation (u -> u0+u1-u).
+
+    This preserves geometry; it flips:
+      - control points order
+      - weights order
+      - knot vector mirrored into the same [u0, u1] domain
+    """
+    k = np.asarray(crv.knot, dtype=float)
+    cp = np.asarray(crv.control_points, dtype=float)
+    w = np.asarray(crv.weights, dtype=float)
+
+    u0, u1 = float(k[0]), float(k[-1])
+    k_rev = (u0 + u1) - k[::-1]
+    return NURBSCurveTuple(
+        order=int(crv.order),
+        knot=k_rev,
+        control_points=cp[::-1].copy(),
+        weights=w[::-1].copy(),
+    )
+
+
+def _union_find_clusters(points, tol):
+    """
+    Cluster points by <= tol using union-find with an O(n^2) pairwise pass.
+    Returns: dict[root] -> list[point_index]
+    """
+    pts = np.asarray(points, dtype=float)
+    n = len(pts)
+    parent = list(range(n))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    tol2 = float(tol) * float(tol)
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = pts[i] - pts[j]
+            if float(np.dot(d, d)) <= tol2:
+                union(i, j)
+
+    clusters = defaultdict(list)
+    for i in range(n):
+        clusters[find(i)].append(i)
+    return dict(clusters)
+
+
+def join_curves(curves:Iterable[NURBSCurveTuple], tol=1e-6):
+    """
+    Join an arbitrary set of NURBS curves into maximal C0-connected chains.
+
+    Two curves are joinable if one endpoint matches the other endpoint within `tol`.
+    The function will:
+      - detect ambiguous junctions (more than 2 endpoints coincide at one point)
+      - build chains/cycles
+      - reverse curve orientations as needed so each chain is start->end consistent
+      - call link_curves() on each chain
+    Curves that are not connected to any other curve remain as singletons.
+
+    Ambiguity rule:
+      If >2 endpoints (from multiple curves) coincide at a single location (within tol),
+      we raise ValueError explaining the ambiguity.
+
+    Returns:
+      list[NURBSCurveTuple]
+    """
+    if not curves:
+        raise ValueError("Empty input list")
+    tol = float(tol)
+    if tol <= 0:
+        raise ValueError("tol must be > 0")
+
+    # Defensive copies (avoid mutating caller-owned data)
+    base = [_copy_curve_as_tuple(c) for c in curves]
+
+    # Basic shape checks
+    dim = base[0].control_points.shape[1] if base[0].control_points.ndim == 2 else None
+    if dim is None:
+        raise ValueError("control_points must be a 2D array of shape (n, dim)")
+    for i, c in enumerate(base):
+        if c.control_points.ndim != 2 or c.control_points.shape[1] != dim:
+            raise ValueError(f"Curve {i} has inconsistent control point dimension")
+        if len(c.control_points) != len(c.weights):
+            raise ValueError(f"Curve {i} has len(control_points) != len(weights)")
+        if len(c.knot) < c.order * 2:
+            # Very rough sanity check for a sensible clamped curve
+            raise ValueError(f"Curve {i} has an unexpectedly short knot vector")
+
+    # Build endpoint list (2 per curve)
+    # endpoint index e = 2*i + side, where side=0 start, side=1 end
+    endpoints = []
+    for c in base:
+        endpoints.append(np.asarray(c.control_points[0], dtype=float))
+        endpoints.append(np.asarray(c.control_points[-1], dtype=float))
+
+    # Cluster endpoints that coincide within tol
+    clusters = _union_find_clusters(endpoints, tol)
+
+    # Ambiguity: any cluster with >2 endpoints is ambiguous (it implies branching)
+    # Requirement says: "If more than two endpoints of multiple curves coincide at a single point"
+    # In practice, >2 endpoints necessarily involves multiple curves (since each curve contributes max 2).
+    for root, idxs in clusters.items():
+        if len(idxs) > 2:
+            curves_involved = sorted({idx // 2 for idx in idxs})
+            # cluster representative point for message
+            rep = np.mean(np.asarray([endpoints[j] for j in idxs], dtype=float), axis=0)
+            raise ValueError(
+                "Ambiguous join: "
+                f"{len(idxs)} endpoints from curves {curves_involved} coincide within tol={tol} "
+                f"near point {rep.tolist()}. "
+                "More than two curves meeting at one point makes the join ordering ambiguous."
+            )
+
+    # Assign node ids deterministically (by smallest endpoint index in cluster)
+    roots_sorted = sorted(clusters.keys(), key=lambda r: min(clusters[r]))
+    root_to_node = {r: ni for ni, r in enumerate(roots_sorted)}
+
+    endpoint_node = np.empty(len(endpoints), dtype=int)
+    for r, idxs in clusters.items():
+        nid = root_to_node[r]
+        for eidx in idxs:
+            endpoint_node[eidx] = nid
+
+    ncur = len(base)
+    start_node = np.empty(ncur, dtype=int)
+    end_node = np.empty(ncur, dtype=int)
+    for i in range(ncur):
+        start_node[i] = endpoint_node[2 * i + 0]
+        end_node[i] = endpoint_node[2 * i + 1]
+
+    # Node -> incident endpoints (curve_idx, side)
+    node_incident = defaultdict(list)
+    for i in range(ncur):
+        node_incident[start_node[i]].append((i, 0))
+        node_incident[end_node[i]].append((i, 1))
+
+    # Build connected components of curves via shared nodes
+    unused = set(range(ncur))
+    results = []
+
+    def component_from_curve(seed):
+        comp = set()
+        stack = [seed]
+        while stack:
+            ci = stack.pop()
+            if ci in comp:
+                continue
+            comp.add(ci)
+            for nd in (start_node[ci], end_node[ci]):
+                for cj, _side in node_incident[nd]:
+                    if cj not in comp:
+                        stack.append(cj)
+        return comp
+
+    def node_degrees_for_component(comp):
+        deg = defaultdict(int)
+        for ci in comp:
+            a = int(start_node[ci])
+            b = int(end_node[ci])
+            if a == b:
+                deg[a] += 2  # loop contributes two endpoints to the same node
+            else:
+                deg[a] += 1
+                deg[b] += 1
+        return deg
+
+    def build_ordered_chain(comp):
+        """
+        Return (seq, is_cycle) where seq is list[(curve_idx, forward_flag)]
+        and forward_flag means use curve as-is, else reverse it.
+        """
+        comp = set(comp)
+        if len(comp) == 1:
+            ci = next(iter(comp))
+            return [(ci, True)], False  # keep orientation as-is for singleton
+
+        deg = node_degrees_for_component(comp)
+        end_nodes = sorted([nd for nd, d in deg.items() if d == 1])
+
+        if len(end_nodes) == 2:
+            # Path
+            is_cycle = False
+            chain_start = end_nodes[0]  # deterministic
+            used_local = set()
+            seq = []
+            cur_node = chain_start
+
+            while True:
+                # candidates: unused curves in comp incident to cur_node
+                candidates = []
+                for cj, _side in node_incident[cur_node]:
+                    if cj in comp and cj not in used_local:
+                        candidates.append(cj)
+
+                if not candidates:
+                    break
+                if len(candidates) != 1:
+                    # Shouldn't happen without branching; defensive.
+                    candidates.sort()
+                cj = candidates[0]
+
+                fwd = (int(start_node[cj]) == int(cur_node))
+                seq.append((cj, fwd))
+                used_local.add(cj)
+
+                nxt = int(end_node[cj]) if fwd else int(start_node[cj])
+                cur_node = nxt
+
+            if len(used_local) != len(comp):
+                raise ValueError(
+                    "Topology error while building path chain: did not consume all curves. "
+                    "This typically indicates a hidden ambiguity or inconsistent tolerance."
+                )
+            return seq, is_cycle
+
+        if len(end_nodes) == 0:
+            # Cycle
+            is_cycle = True
+            start_curve = min(comp)
+
+            a = int(start_node[start_curve])
+            b = int(end_node[start_curve])
+
+            # Deterministic choice of direction for the first edge
+            fwd0 = (a, b) <= (b, a)
+            start_node_chain = a if fwd0 else b
+            cur_node = b if fwd0 else a
+
+            used_local = {start_curve}
+            seq = [(start_curve, fwd0)]
+
+            while len(used_local) < len(comp):
+                candidates = []
+                for cj, _side in node_incident[cur_node]:
+                    if cj in comp and cj not in used_local:
+                        candidates.append(cj)
+                if not candidates:
+                    raise ValueError(
+                        "Topology error while building cycle chain: got stuck before consuming all curves. "
+                        "This typically indicates inconsistent endpoint clustering."
+                    )
+                if len(candidates) != 1:
+                    candidates.sort()
+                cj = candidates[0]
+
+                fwd = (int(start_node[cj]) == int(cur_node))
+                seq.append((cj, fwd))
+                used_local.add(cj)
+
+                cur_node = int(end_node[cj]) if fwd else int(start_node[cj])
+
+            # Optionally validate closure (should return to start node)
+            if cur_node != start_node_chain:
+                # Still might be “closed” geometrically, but graph-wise this is unexpected.
+                # Treat as an error: it means our cycle traversal wasn't consistent.
+                raise ValueError(
+                    "Topology error while building cycle chain: traversal did not return to the start node."
+                )
+
+            return seq, is_cycle
+
+        # If we got here, we have a component that is neither a simple path nor cycle.
+        # With the ambiguity check, this should not happen.
+        raise ValueError(
+            f"Ambiguous/non-manifold connectivity: component has {len(end_nodes)} degree-1 nodes "
+            f"(expected 0 for a cycle or 2 for a path)."
+        )
+
+    def oriented_curve(ci, forward):
+        return base[ci] if forward else _reverse_curve(base[ci])
+
+    # Process components in deterministic order (by smallest curve index)
+    while unused:
+        seed = min(unused)
+        comp = component_from_curve(seed)
+        unused -= comp
+
+        seq, is_cycle = build_ordered_chain(comp)
+
+        if len(seq) == 1 and len(comp) == 1:
+            # Singleton: return as-is (no knot shifting)
+            results.append(oriented_curve(seq[0][0], True))
+            continue
+
+        # Build oriented pieces (fresh copies per piece, because we'll "snap" endpoints)
+        pieces = []
+        for ci, fwd in seq:
+            # copy again so snapping doesn't affect other components that reuse base (shouldn't, but safe)
+            crv = _copy_curve_as_tuple(oriented_curve(ci, fwd))
+            pieces.append(crv)
+
+        # Snap shared endpoints (and endpoint weights) so the join is exactly C0
+        # (within tolerance they should already match; this removes floating noise).
+        for i in range(len(pieces) - 1):
+            A = pieces[i]
+            B = pieces[i + 1]
+
+            pA = A.control_points[-1]
+            pB = B.control_points[0]
+            pJ = 0.5 * (pA + pB)
+
+            wA = float(A.weights[-1])
+            wB = float(B.weights[0])
+            wJ = 0.5 * (wA + wB)
+
+            A.control_points[-1] = pJ
+            B.control_points[0] = pJ
+            A.weights[-1] = wJ
+            B.weights[0] = wJ
+
+        # If it's a cycle, also snap last->first so the final curve is exactly closed at endpoints
+        if is_cycle and len(pieces) >= 2:
+            A = pieces[-1]
+            B = pieces[0]
+
+            pA = A.control_points[-1]
+            pB = B.control_points[0]
+            pJ = 0.5 * (pA + pB)
+
+            wA = float(A.weights[-1])
+            wB = float(B.weights[0])
+            wJ = 0.5 * (wA + wB)
+
+            A.control_points[-1] = pJ
+            B.control_points[0] = pJ
+            A.weights[-1] = wJ
+            B.weights[0] = wJ
+
+        joined, _interior = link_curves(pieces)
+        results.append(joined)
+
+    return results
 
 
 def stitch_surface_grid(grid: list[list[NURBSSurfaceTuple]]
@@ -1694,7 +2048,7 @@ def reverse_curve(curve: NURBSCurveTuple) -> NURBSCurveTuple:
 
 
 # --- tuning knobs ---
-SNAP_TOL_ABS = 1e-2  # absolute tolerance for treating interior knots as "the same"
+SNAP_TOL_ABS = 1e-12  # absolute tolerance for treating interior knots as "the same"
 MIDPOINT = 0.5  # tie-break reference inside [0,1] after normalization
 
 

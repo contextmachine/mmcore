@@ -101,45 +101,46 @@ if result3[0] is not None:
 print('overlaps:')
 if result3[1] is not None:
     rich.print(result3[1]['point'])
-
+RENDERER=False
 try:
-    from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+    if RENDERER:
+        from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
-    viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
-    srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7,1.),   surface_color=(0.5, 0.5, 0.9, 0.05), v_count=4)
+        viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
+        srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7,1.),   surface_color=(0.5, 0.5, 0.9, 0.05), v_count=4)
 
-    def render_result(result,curve,surface=None):
-        if surface is not None:
-            srf = viewer.add_nurbs_surface(surface, color=(0.3, 0.3, 0.3, 0.05), v_count=4)
+        def render_result(result,curve,surface=None):
+            if surface is not None:
+                srf = viewer.add_nurbs_surface(surface, color=(0.3, 0.3, 0.3, 0.05), v_count=4)
 
-        crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
-        isolated, overlaps = result
-        if isolated is not None:
-            uvs=[]
-            for pt in isolated['point']:
+            crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
+            isolated, overlaps = result
+            if isolated is not None:
+                uvs=[]
+                for pt in isolated['point']:
 
-                viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
 
-        if overlaps is not None:
+            if overlaps is not None:
 
-            for start,end in overlaps['point']:
-                viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                for start,end in overlaps['point']:
+                    viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                    viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
-            for o in overlaps["t"]:
+                for o in overlaps["t"]:
 
-                t0 = o[0]
-                t1 = o[-1]
+                    t0 = o[0]
+                    t1 = o[-1]
 
-                pts=np.linspace(t0,t1,500)
-                for t in pts:
+                    pts=np.linspace(t0,t1,500)
+                    for t in pts:
 
-                    evl=evaluate_nurbs_curve(curve,t,d_order=0)
-                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-    render_result(result1,curve1)
-    render_result(result2, curve2)
-    render_result(result3, curve3)
-    viewer.run()
+                        evl=evaluate_nurbs_curve(curve,t,d_order=0)
+                        viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
+        render_result(result1,curve1)
+        render_result(result2, curve2)
+        render_result(result3, curve3)
+        viewer.run()
 
 
 except ModuleNotFoundError as err:

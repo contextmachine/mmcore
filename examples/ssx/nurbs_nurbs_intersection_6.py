@@ -48,17 +48,22 @@ try:
         from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
         from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
 
+        from mmcore.construction import nurbs_curve
+
         def draw_ssx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple, result, renderer=None):
             bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
             renderer = renderer if renderer is not None else Viewer(camera=OrbitCamera(target=bb.centroid(), distance=150.0, near=1.0))
             renderer.add_nurbs_surface(s1)
             renderer.add_nurbs_surface(
                 s2,
-
             )
 
             for branch in result[0]:
                 renderer.add_nurbs_curve(branch.curve_xyz, color=(0.0, 1.0, 0.5, 1.0))
+                for p in branch.curve_xyz.control_points:
+                    renderer.add_point3d(p, color=(0.0, 1.0, 0.5, 0.4), size_px=8)
+                renderer.add_nurbs_curve(nurbs_curve(branch.curve_xyz.control_points, 1), color=(0.0, 1.0, 0.5, 0.7))
+                # renderer.add_point3d(branch.curve_xyz.end(), color=(0.0, 1.0, 0.5, 1.0), size_px=6)
             for p in result[1]:
                 renderer.add_point3d(p.xyz, color=(0.0, 1.0, 0.5, 1.0), size_px=12)
 

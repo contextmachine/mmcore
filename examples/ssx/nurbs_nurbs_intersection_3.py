@@ -6,7 +6,8 @@ from mmcore.geom.nurbs import NURBSCurve
 import numpy as np
 crv1=NURBSCurve(np.array(pts1))
 crv2=NURBSCurve(np.array(pts2))
-from mmcore.construction import ruled
+from mmcore.construction import ruled, nurbs_curve
+
 s1=ruled(crv1,crv2)
 s2=ruled(NURBSCurve(np.array([[-19.866327395603214, 1.6639891981988859, -0.026559537166892966], [-13.079018853432281, 24.600246438290654, -14.581989677486053]]
          ),1),
@@ -41,6 +42,7 @@ try:
         from mmcore.geom.bvh.lbvh import AABB
         from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
         from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
+        from mmcore.construction import nurbs_curve
 
         def draw_ssx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple, result, renderer=None):
             bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
@@ -48,11 +50,14 @@ try:
             renderer.add_nurbs_surface(s1)
             renderer.add_nurbs_surface(
                 s2,
-
             )
 
             for branch in result[0]:
                 renderer.add_nurbs_curve(branch.curve_xyz, color=(0.0, 1.0, 0.5, 1.0))
+                for p in branch.curve_xyz.control_points:
+                    renderer.add_point3d(p, color=(0.0, 1.0, 0.5, 0.4), size_px=8)
+                renderer.add_nurbs_curve(nurbs_curve(branch.curve_xyz.control_points, 1), color=(0.0, 1.0, 0.5, 0.7))
+                # renderer.add_point3d(branch.curve_xyz.end(), color=(0.0, 1.0, 0.5, 1.0), size_px=6)
             for p in result[1]:
                 renderer.add_point3d(p.xyz, color=(0.0, 1.0, 0.5, 1.0), size_px=12)
 
@@ -62,8 +67,8 @@ try:
 
         renderer.run()
 except ModuleNotFoundError as err:
-        print("mmcore.renderer is not installed, skip preview.")
+    print("mmcore.renderer is not installed, skip preview.")
 except ImportError as err:
-        print("mmcore.renderer is not installed, skip preview.")
+    print("mmcore.renderer is not installed, skip preview.")
 except Exception as err:
-        raise err
+    raise err
