@@ -19,7 +19,7 @@ if sys.platform.startswith("win"):
 
 import setuptools
 import numpy
-
+print('numpy:',numpy.__version__)
 # rest of setup code here
 from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
@@ -59,7 +59,7 @@ if sys.platform == "win32":
 # see pyproject.toml for other metadata
 # mmcore/numeric/algorithms/moller.pyx
 
-extensions = [
+cython_extensions = [
     Extension(
         "mmcore.numeric._bern_homog",
         ["mmcore/numeric/_bern_homog.pyx"],
@@ -260,7 +260,7 @@ include_dirs = [*include_dirs, "mmcore/topo/mesh/triangle-c"]
 if sys.platform == "darwin":
     link_args += ["-mno-sse", "-mno-sse2", "-mno-sse3"]
 
-extensions.append(
+cython_extensions.append(
     Extension(
         "mmcore.topo.mesh.triangle.core",
         [
@@ -274,6 +274,18 @@ extensions.append(
     )
 )
 
+native_extensions = [
+    Extension(
+        name="mmcore.numeric.ndinterval",
+        sources=["mmcore/numeric/numpy_interval.c"],
+        depends=[
+            "mmcore/numeric/interval.h",
+        ],
+        include_dirs=[numpy.get_include(), "mmcore/numeric"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+    )
+]
 logo = rf"""
                                                 
        ____ ___  ____ ___  _________  ________ 
@@ -307,13 +319,13 @@ compiler_directives["embedsignature.format"] = 'python'
 if __name__ == "__main__":
     print(logo)
     ext_modules = cythonize(
-        extensions,
+        cython_extensions,
         nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
         compiler_directives=compiler_directives
 
     )
-    dist = Distribution({"ext_modules": ext_modules})
+    dist = Distribution({"ext_modules": native_extensions+ext_modules})
     cmd = build_ext(dist)
     cmd.ensure_finalized()
     cmd.run()
