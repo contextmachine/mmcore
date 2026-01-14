@@ -44,5 +44,5 @@ def clean_exts(exts):
                 delete_files( "*.so","./"+"/".join(lib.split('/')[:-1]))
 
 if __name__ == '__main__':
-    from build import extensions
-    clean_exts(extensions)
+    from build import cython_extensions
+    clean_exts(cython_extensions)
