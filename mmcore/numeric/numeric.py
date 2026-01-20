@@ -453,13 +453,13 @@ def evaluate_normal2(
     limit_direction = 2
     evaluate_normal(gradient_u, gradient_v, second_derivative_uu, second_derivative_uv, second_derivative_vv, limit_direction)
     """
-    dot_product_gradient_u = scalar_dot(gradient_u, gradient_u)
+    dot_product_gradient_u = np.dot(gradient_u, gradient_u)
     dot_product_gradient_uv = scalar_dot(gradient_u, gradient_v)
     dot_product_gradient_v = scalar_dot(gradient_v, gradient_v)
     determinant, jacobian_success = evaluate_jacobian(dot_product_gradient_u, dot_product_gradient_uv,
                                                       dot_product_gradient_v)
     if jacobian_success:
-        return scalar_cross(gradient_u, gradient_v)
+        return np.cross(gradient_u, gradient_v)
     coeff_a, coeff_b = {
         2: [-1.0, 1.0],
         3: [-1.0, -1.0],
@@ -467,9 +467,9 @@ def evaluate_normal2(
     }.get(limit_direction, [1.0, 1.0]) # type: ignore
 
     cross_vector_v = coeff_a * second_derivative_uv + coeff_b * second_derivative_vv
-    cross_product_v = scalar_cross(gradient_u, cross_vector_v)
+    cross_product_v = np.cross(gradient_u, cross_vector_v)
     cross_vector_u = coeff_a * second_derivative_uu + coeff_b * second_derivative_uv
-    cross_product_u = scalar_cross(cross_vector_u, gradient_v)
+    cross_product_u = np.cross(cross_vector_u, gradient_v)
     normal_vector = cross_product_v + cross_product_u
     normal_vector = normal_vector / np.linalg.norm(normal_vector)
     return normal_vector
@@ -588,7 +588,7 @@ def evaluate_sectional_curvature(
 
     # Helper constants
     DBL_MIN = np.finfo(float).tiny
-    print(DBL_MIN)
+    # print(DBL_MIN)
 
     # 1.
     M = np.cross(Su, Sv)
@@ -598,12 +598,12 @@ def evaluate_sectional_curvature(
 
     # 3. Solve the 3×2 linear system [Su  |  Sv] · [a,  b]^T = D1
     A = np.column_stack((Su, Sv))          # shape (3,  2)
-    status,a, b, err, pivot_ratio = solve3x2(Su,Sv, D1[0],D1[1],D1[2])
-    #(a, b), residuals, rank, _ = np.linalg.lstsq(A, D1, rcond=None)
-    if status < 2:                           # Su and Sv are not independent
-        print("F",Su,Sv,plane_normal, status,a,b,err,pivot_ratio,D1)
+    # status,a, b, err, pivot_ratio = solve3x2(Su,Sv, D1[0],D1[1],D1[2])
+    (a, b), residuals, rank, _ = np.linalg.lstsq(A, D1, rcond=None)
+
+    if rank < 2:  # Su and Sv are not independent
+        print("F", (a, b), residuals, rank, _ )
         return False, np.zeros(3)
-    
 
     # 4. M1
     M1  = np.cross(a * Suu + b * Suv, Sv)

@@ -1,9 +1,12 @@
+import pickle
 import time
+from pathlib import Path
 
 import numpy as np
 
 from mmcore.construction import nurbs_curve
 from mmcore.geom._nurbs_eval import _nurbs_to_tuple
+from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
 from mmcore.geom.nurbs import NURBSSurface
 from mmcore.numeric.intersection.ssx import nurbs_ssx
 pts1 = np.array(
@@ -92,61 +95,37 @@ pts2 = np.array(
 pts2 = pts2.reshape((6, len(pts2) // 6, 3))
 s21 = NURBSSurface(pts1, (3, 3))
 s22 = NURBSSurface(pts2, (3, 3))
+
 s=time.time()
 s1,s2=_nurbs_to_tuple(s21),_nurbs_to_tuple(s22)
+normalize_knots_surface_inplace(s1)
+normalize_knots_surface_inplace(s2)
+import logging
+from examples.ssx.common_helpers import parse_args, save_pkl, draw_ssx, VIEWER_INSTALLED, CurveMaterial, ControlNetMaterial, PointMaterial
+args = parse_args()
+logging.basicConfig(level=getattr(logging, args.loglevel, logging.INFO))
 from mmcore.numeric.intersection.ssx import nurbs_ssx
-s=time.time()
-result=nurbs_ssx(s1,s2,atol=1e-3)
 
+s = time.time()
+result = nurbs_ssx(s1, s2, atol=args.atol, angle_tol=args.angle_tol)
 
-print(f'intersection computed at: {time.time() - s} sec.')
+print(f"intersection computed at: {time.time() - s} sec.")
+print(len(result[0]), "branch(s)")
+print(len(result[1]), "pts(s)")
 
+if args.save_pkl or args.pkl_path is not None:
+    path = save_pkl(s1, s2, result, fp=args.pkl_path)
+    print(path.absolute().as_posix())
 
-print(f'\n({s1} X \n\t{s2}):')
+RENDER = args.viewer and VIEWER_INSTALLED
 
-for i, branch in enumerate(result[0]):
-            print(f'\t{i + 1}. {branch}')
-            cpts=(branch.curve_xyz.control_points).tolist()
-            cpts_repr = repr(cpts)
-            if len(cpts)>4:
-                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-            print(f'\t\tcontrol points: {cpts_repr}')
-            print(f'\t\tdegree: {branch.curve_xyz.degree}')
+if RENDER:
+    inter_curves_mat = CurveMaterial(
+        (0.0, 1.0, 0.5, 1.0),
+        show_control_net=args.show_inter_cpts,
+        control_net_material=ControlNetMaterial((0.0, 1.0, 0.5, 0.7), control_point_material=PointMaterial((0.0, 1.0, 0.5, 0.4), size=8)),
+    )
 
+    viewer = draw_ssx(s1, s2, result, intersection_curves_material=inter_curves_mat)
 
-RENDER=True
-try:
-    if RENDER:
-        from mmcore.geom.bvh.lbvh import AABB
-        from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
-        from mmcore.extras.renderer.renderer3d import Viewer, OrbitCamera
-        from mmcore.construction import nurbs_curve
-
-        def draw_ssx(s1: NURBSSurfaceTuple, s2: NURBSSurfaceTuple, result, renderer=None):
-            bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
-            renderer = renderer if renderer is not None else Viewer(camera=OrbitCamera(target=bb.centroid(), distance=150.0, near=1.0))
-            renderer.add_nurbs_surface(s1)
-            renderer.add_nurbs_surface(
-                s2,
-            )
-
-            for branch in result[0]:
-                renderer.add_nurbs_curve(branch.curve_xyz, color=(0.0, 1.0, 0.5, 1.0))
-                for p in branch.curve_xyz.control_points:
-                    renderer.add_point3d(p, color=(0.0, 1.0, 0.5, 0.4), size_px=8)
-                renderer.add_nurbs_curve(nurbs_curve(branch.curve_xyz.control_points, 1), color=(0.0, 1.0, 0.5, 0.7))
-                # renderer.add_point3d(branch.curve_xyz.end(), color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-            for p in result[1]:
-                renderer.add_point3d(p.xyz, color=(0.0, 1.0, 0.5, 1.0), size_px=12)
-
-            return renderer
-
-        renderer = draw_ssx(s1, s2, result)
-
-        renderer.run()
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+    viewer.run()

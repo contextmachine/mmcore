@@ -13,8 +13,9 @@ from OpenGL.GL import *
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d, \
     NURBSSurfaceTuple, _tuple_to_nurbs
 from mmcore.geom._nurbs_knots import decompose_curve
+from mmcore.geom.bvh.lbvh import AABB
 from mmcore.geom.nurbs_iso import extract_surface_boundaries,extract_isocurve
-from mmcore.numeric.approx import adaptive_curve_sampler
+from mmcore.numeric.approx import adaptive_curve_sampler,adaptive_bern_sampler_2d
 from mmcore.topo.mesh.tess import surface_to_mesh
 
 
@@ -453,7 +454,9 @@ from typing import (
 
 import numpy as np
 
-
+@dataclass
+class SceneInfo:
+    bbox:AABB=field(default_factory=lambda :AABB(np.zeros(3),np.zeros(3)))
 # ---------------------------------------------------------------------------
 # Shape pattern primitives
 # ---------------------------------------------------------------------------
@@ -479,6 +482,8 @@ class ViewerSettings:
 
 
 class Viewer:
+    cam:OrbitCamera
+    scene_info:SceneInfo
     def add(self, obj, *args,**kwargs):
 
         if isinstance(obj,RationalBezier):
@@ -562,6 +567,7 @@ class Viewer:
         # GL buffers (recreated when curves change)
         self.lines = []  # list of (vao, vbo, nverts, color)
         self.meshes = []  # list of (vao, vbo, ebo, index_count, color)
+        self.scene_info=SceneInfo()
     @property
     def snap_px(self):
         return self.settings.snap.snap_px
@@ -614,13 +620,16 @@ class Viewer:
         glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_STATIC_DRAW)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        self.scene_info.bbox.merge(AABB.from_points(pts))
         self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
         return l
 
-    def _add_surface_mesh(self, surface, color=(0.5, 0.5, 0.9, 0.05), tol=0.01):
+    def _add_surface_mesh(self, surface, color=(0.5, 0.5, 0.9, 0.05), tol=0.05):
         surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
         mesh = surface_to_mesh(surf, tol=tol)
+
         vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
+
         faces = np.ascontiguousarray(mesh["faces"], dtype=np.uint32)
         if vertices.size == 0 or faces.size == 0:
             return None
@@ -639,7 +648,7 @@ class Viewer:
         ebo = glGenBuffers(1)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, faces.nbytes, faces, GL_STATIC_DRAW)
-
+        self.scene_info.bbox.merge(AABB.from_points(vertices))
         self.meshes.append((vao, vbo, ebo, faces.size, color))
         return len(self.meshes) - 1
 
@@ -707,7 +716,6 @@ class Viewer:
 
         surface_tol = kwargs.pop("surface_tol", 0.01)
         if shade:
-
 
             self._add_surface_mesh(surface, color=surface_color, tol=surface_tol)
         (u0,u1),(v0,v1) = surface.interval()

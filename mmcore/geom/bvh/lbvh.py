@@ -221,6 +221,7 @@ class BVH:
 
     def resize(self, new_size):
         old_size=len(self.nodes)
+        print(old_size,new_size)
         if new_size==old_size:
             return
         elif old_size>new_size:
@@ -228,8 +229,7 @@ class BVH:
             for i in range(new_size,old_size):
                 self.nodes.pop(-1)
         else:
-            for i in range(old_size,new_size):
-                self.nodes.append(BVHNode())
+            self.nodes.extend([None]*(new_size-old_size+1))
 
     def _build_bvh_internal(self, objects: list[tuple[int, AABB]], current_index: int=0)->int:
         """Recursively build the BVH tree given a list of objects with bounding boxes"""
@@ -237,8 +237,11 @@ class BVH:
         if current_index >= len(self.nodes):
             self.resize(current_index+1)
 
-        node = self.nodes[current_index]
 
+        node = self.nodes[current_index]
+        if node is None:
+            node=BVHNode()
+            self.nodes[current_index]=node
         if len(objects) <= self.max_objects_in_leaf:
             # Leaf node
 
@@ -263,13 +266,15 @@ class BVH:
 
     def build(self, bboxes: list[AABB]):
         self.leafs=[]
-        self.nodes = [BVHNode() for _ in range((2 * len(bboxes) - 1))]
+        self.nodes = [None]*(2 * len(bboxes) - 1)
 
         self.root_index = self._build_bvh_internal([(i, bbox) for i, bbox in enumerate(bboxes)], current_index=0)
         return self
 
     def separable(self, i, exact: bool = True):
         node = self.nodes[i]
+        if node is None:
+            raise ValueError(f"Node {i} does not exist")
         if node.is_leaf():
             return False
         if exact:
@@ -290,7 +295,8 @@ class BVH:
             
             node_i = self.nodes[i]
             node_j = self.nodes[j]
-            
+            if node_i is None or node_j is None:
+                return
             # prune if bboxes do not intersect
             if exact:
                 if not node_i.bbox.intersects_exact(node_j.bbox):
@@ -299,6 +305,7 @@ class BVH:
                 if not node_i.bbox.intersects(node_j.bbox):
                     return
             # if both are leaves, record overlap
+
             if node_i.is_leaf() and node_j.is_leaf():
                 if i != j:
                     overlaps[i].add(j)
@@ -556,6 +563,8 @@ def _inter_bvh_node(bvh: BVH, node_ix: int,exact:bool=True):
     while stack:
         current_ix = stack.pop()
         node = bvh.nodes[current_ix]
+        if node is None:
+            continue
         if current_ix==node_ix:
             continue
 
@@ -579,6 +588,8 @@ def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):
     while stack:
         current_ix = stack.pop()
         node = bvh.nodes[current_ix]
+        if node is None:
+            continue
         if fun(bbox,node.bbox):
             if node.is_leaf():
                 ints.append(current_ix)
@@ -597,6 +608,8 @@ def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode
     res=[]
     while stack:
         a,b=stack.pop()
+        if a is None or b is None:
+            continue
         if not exact:
             is_inter=a.bbox.intersects(b.bbox)
         else:
@@ -615,5 +628,6 @@ def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode
         else:
             for first in [bvh1.nodes[a.left],bvh1.nodes[a.right]]:
                 for second in [ bvh2.nodes[b.left], bvh2.nodes[b.right]] :
+
                     stack.append((first, second))
     return res

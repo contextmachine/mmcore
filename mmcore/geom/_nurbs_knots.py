@@ -2512,7 +2512,7 @@ def remove_knot(
     hom_dim = P_hom_old.shape[1]  # D + 1
 
     # 2. Identify Knot to Remove
-    matches = np.where(np.abs(U_old - u_remove) < 1e-9)[0]
+    matches = np.where(np.abs(U_old - u_remove) < 1e-12)[0]
     if len(matches) == 0:
         return KnotRemovalResult(None, False, float('inf'), u_remove)
 

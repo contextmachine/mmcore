@@ -10,6 +10,9 @@ from mmcore.numeric.routines import uvs
 from mmcore.topo.mesh.triangle import triangulate
 from mmcore.topo.mesh.triangle.tri import segments_by_loop
 from mmcore.geom.nurbs_iso import extract_surface_boundaries
+from ...geom._nurbs_eval import to_homogeneous_2d
+from ...numeric.approx import adaptive_bern_sampler_2d
+
 
 def tessellate_curve_on_surface(crv: 'CurveOnSurface', u_count=25, v_count=25, boundary_count=100):
     plgn = polygon = crv.curve(np.linspace(*tuple(crv.interval()), boundary_count))[..., :2]
@@ -136,7 +139,7 @@ def tessellate_surface(surface: NURBSSurface,
     boundary,boundary_edges,boundary_pts_count=tess_boundaries(surface,tol)
     u_count=max(boundary_pts_count[0])
     v_count = max(boundary_pts_count[1])
-    print(u_count,v_count)
+    #print(u_count,v_count)
     u_step=(u_max-u_min)/u_count
     v_step = (v_max - v_min) / v_count
 
@@ -153,7 +156,7 @@ def tessellate_surface(surface: NURBSSurface,
         tessellation_params['segments'].extend(edges + _max)
         tessellation_params['vertices'].extend(polyline)
         _max += len(edges)
-    uv = uvs(u_count - 1, v_count - 1, *tess_uv)
+    uv = np.array(adaptive_bern_sampler_2d(to_homogeneous_2d(surface.control_points,surface.weights),interval=surface.interval(),rational=True)).reshape((-1, 2))
 
 
     tessellation_params['vertices'].extend(uv)
@@ -171,7 +174,7 @@ def tessellate_surface(surface: NURBSSurface,
     tessellation["position"] = surface.evaluate_multi(vxs)
     return tessellation
 from .fuse import fuse_meshes
-def surface_to_mesh(surface: NURBSSurface,tol=1e-3):
+def surface_to_mesh(surface: NURBSSurface,tol=1e-2):
     return fuse_meshes([tess_to_mesh(tessellate_surface(s,tol=tol) )for s in decompose_surface(surface)])[0]
 
 def as_polygons(triangulate_result):

@@ -277,11 +277,11 @@ cython_extensions.append(
 native_extensions = [
     Extension(
         name="mmcore.numeric.ndinterval",
-        sources=["mmcore/numeric/numpy_interval.c"],
+        sources=["mmcore/numeric/_ndinterval/ndinterval.c"],
         depends=[
-            "mmcore/numeric/interval.h",
+            "mmcore/numeric/_ndinterval/ndinterval.h",
         ],
-        include_dirs=[numpy.get_include(), "mmcore/numeric"],
+        include_dirs=[numpy.get_include(), "mmcore/numeric/_ndinterval"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
     )

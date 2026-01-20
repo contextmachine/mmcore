@@ -1418,7 +1418,7 @@ def check_tangent(C1,C2,u,v,rational=False, angle_tol=0.053):
 
     return abs(np.dot(d1,d2))<arccos_angle_tol(angle_tol)
 
-def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_count=3,rational=False):
+def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_count=3,**kwargs):
 
     sqd_u_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
 
@@ -1431,86 +1431,54 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
     res_u_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_start)[..., None], 0), eps=1e-9)
     res_u_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u_end)[..., None], 0), eps=1e-9)
     ends=[]
-    ##print(res_u_start.roots,res_u_end.roots)
-
     def _check(uv):
-        rules=(not  uv in ends) , (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq ), (check_tangent(C1,C2, *uv,angle_tol=angle_tol,rational=rational))
-        ##print(bernstein_eval_nd(sq_dist_net, uv))
-        ##print(rules,all(rules),uv)
-        return all(rules)
+        return   (not  uv in ends) and (bernstein_eval_nd(sq_dist_net,  uv) < atol_sq )and (check_tangent(C1,C2, *uv,angle_tol=angle_tol))
+
     if len(res_u_start.roots)>0:
         for r in res_u_start.roots:
-
-
-            uv = (
-                0.0,
-                r,
-            )
-
+            uv=(0.0, r)
             if _check(uv):
-                ##print(uv,True)
                 ends.append(uv)
-            #else:
-            #    #print(uv, False)
             # else:
-            #    #print(bernstein_eval_nd(sq_dist_net, uv), uv)
+            #    print(bernstein_eval_nd(sq_dist_net, uv), uv)
     if len(res_u_end.roots)>0:
         for r in res_u_end.roots:
-
-            uv = (1.0,r,)
-
+            uv = (1.0, r)
             if _check(uv):
 
                 ends.append(uv)
-            #else:
-            #    #print(uv, False)
             # else:
-            #    #print(bernstein_eval_nd(sq_dist_net, (1.0, r)), (1.0, r))
+            #    print(bernstein_eval_nd(sq_dist_net, (1.0, r)), (1.0, r))
 
     # sqd_v_start = de_casteljau_restrict_nd(sq_dist_net, 0, 0.0)
     # sqd_v_end = de_casteljau_restrict_nd(sq_dist_net, 0, 1.0)
 
     res_v_start = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_start)[...,None], 0), eps=1e-9)
     res_v_end = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_v_end)[...,None], 0), eps=1e-9)
-    ##print(res_v_start.roots, res_v_end.roots)
 
-    if len(res_v_start.roots) > 0:
+    if len(res_v_start.roots)>0:
         for r in res_v_start.roots:
-            uv = (r,0.0)
-
-
-
-            if _check(uv):
-
-                ends.append(uv)
-
+            uv=(0.0, r)
             if _check(uv):
                 ends.append(uv)
-            #else:
-            #    #print(uv, False)
+
             # else:
-            #    #print(bernstein_eval_nd(sq_dist_net, (r, .0)), (r, .0))
+            #    print(bernstein_eval_nd(sq_dist_net, (r, .0)), (r, .0))
     if len(res_v_end.roots)>0:
         for r in res_v_end.roots:
-            uv = (r, 1.0)
-
+            uv=(1.0, r)
             if _check(uv):
 
                 ends.append(uv)
-            if _check(uv):
 
-                ends.append(uv)
-            #else:
-            #    #print(uv, False)
             # else:
-            #    #print(bernstein_eval_nd(sq_dist_net, (r, 1.0)),(r,1.))
+            #    print(bernstein_eval_nd(sq_dist_net, (r, 1.0)),(r,1.))
     ends.sort(key=lambda x: x[0])
-
     if len(ends)>=2:
         u_vals=np.linspace(    min(ends,key=lambda x:x[0])[0], max(ends,key=lambda x:x[0])[0],samples_count+2)[1:][:-1]
         for u in u_vals:
 
-            sqd_u = de_casteljau_restrict_nd(sq_dist_net, 0, u)
+            sqd_u = de_casteljau_restrict_nd(sq_dist_net, 1, u)
             res_u = bern_roots_1d(bernstein_partial_derivative_coeffs(np.squeeze(sqd_u)[..., None], 0), eps=1e-9)
 
             if len(res_u.roots) < 1:
@@ -1519,7 +1487,7 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
             at_least_one = False
 
             for r in res_u.roots:
-                uv=( u,r)
+                uv=(u, r)
                 if not _check(uv):
 
                     return False,ends
@@ -1528,6 +1496,7 @@ def check_overlap(C1,C2, sq_dist_net:NDArray, atol=1e-3,angle_tol=0.053,samples_
     else:
         return False,ends
     # sqd_uw=de_casteljau_restrict_nd(sqd[1], 1, z)
+
 
 
 def L1_sz(ctrl, rational: bool | None = None):

@@ -484,6 +484,16 @@ def evaluate_nurbs_surface(surface:NURBSSurfaceTuple, u, v, d_order=2)->Evaluate
     # print(SKL)
     return SKL
 
+def set_interval(crv:NURBSCurveTuple, interv, inplace=False):
+    t0,t1=crv.interval()
+    s0,s1=interv
+    new_knot=((crv.knot-t0)/(t1-t0))*(s1-s0)+s0
+    if inplace:
+        crv.knot[:]=new_knot
+        return crv
+    else:
+        return crv._replace(knot=new_knot)
+
 def bspline_basis(j, degree, knot_vector, u):
     """
     Recursively compute the B-spline basis function N_{j,degree}(u) using the Cox–de Boor formula.
@@ -709,24 +719,8 @@ def nurbs_curve(control_points, knots, degree: int| None = None, *, weights=None
     return NURBSCurveTuple(order, knots, control_points,
                              weights)
 
-def _join_weights_1d(pts,weights):
-    """Join control points and weights, but does not apply homogeneous transformation."""
-    cpts=np.zeros((pts.shape[0],pts.shape[1]+1) )
-    for i in range(pts.shape[0]):
-        cpts[i,:-1]=pts[i]
-        cpts[i,-1]=weights[i]
-    return cpts
 
 
-# Conversion for surfaces
-def _join_weights(pts,weights):
-    """Join control points and weights for surfaces, but does not apply homogeneous transformation."""
-    cpts=np.zeros((*pts.shape[:-1],pts.shape[-1]+1) )
-    for i in range(pts.shape[0]):
-        for j in range(pts.shape[1]):
-            cpts[i,j,:-1]=pts[i,j]
-            cpts[i,j,-1]=weights[i,j]
-    return cpts
 
 
 def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
