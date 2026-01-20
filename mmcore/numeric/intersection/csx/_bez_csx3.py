@@ -2456,7 +2456,7 @@ if __name__ == "__main__":
            [ -6.52097953,  26.04573929,   0.        ],
            [  5.81667121,  -9.0084582 ,  17.47802526]])
     s=time.perf_counter()
-    res=bez_csx(crv1, surf1, rational=False)
+    res=bez_csx(crv1, surf1, rational=False,atol=1e-4)
 
     gt={'isolated':[{
         "t":0.223246,

@@ -1,4 +1,5 @@
 import math
+import warnings
 from functools import lru_cache
 
 import numpy as np
@@ -13,13 +14,35 @@ from typing import NamedTuple, Sequence
 from scipy import optimize
 
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
+try:
+    from mmcore.numeric.ndinterval import interval as ndinterv
+except Exception:
+    ndinterv = None
 
 CONVERGED = 'converged'
 SIGNERR = 'sign error'
 CONVERR = 'convergence error'
 VALUEERR = 'value error'
 INPROGRESS = 'No error'
-def bernstein_product_conv(deg: int) -> np.ndarray:
+
+
+def _result_dtype(*values, default=None):
+    dtypes = []
+    for v in values:
+        if v is None:
+            continue
+        if hasattr(v, "dtype"):
+            dtypes.append(v.dtype)
+        else:
+            dtypes.append(np.asarray(v).dtype)
+    if default is not None:
+        dtypes.append(np.dtype(default))
+    if not dtypes:
+        return default
+    return np.result_type(*dtypes)
+
+
+def bernstein_product_conv(deg: int, *, dtype=None) -> np.ndarray:
     """
     Exact Bernstein product convolution tensor for equal degrees:
       B_i^deg(t) * B_j^deg(t) = Conv[r,i,j] * B_r^{2deg}(t), with r = i + j
@@ -27,9 +50,11 @@ def bernstein_product_conv(deg: int) -> np.ndarray:
     Returns array with shape (2*deg+1, deg+1, deg+1).
     """
     m = deg
-    C2m = np.array([comb(2*m, r) for r in range(2*m+1)], dtype=np.float64)
-    Ci  = np.array([comb(m, i)    for i in range(m+1)],  dtype=np.float64)
-    Conv = np.zeros((2*m+1, m+1, m+1), dtype=np.float64)
+    if dtype is None:
+        dtype = np.float64
+    C2m = np.array([comb(2*m, r) for r in range(2*m+1)], dtype=dtype)
+    Ci  = np.array([comb(m, i)    for i in range(m+1)],  dtype=dtype)
+    Conv = np.zeros((2*m+1, m+1, m+1), dtype=dtype)
     for i in range(m+1):
         for j in range(m+1):
             r = i + j
@@ -43,18 +68,20 @@ def _bivariate_squared_norm_net(E: np.ndarray) -> np.ndarray:
     compute the bivariate control net F of f(u,v) = ||E(u,v)||^2 of degree (2p, 2q):
         F.shape == (2p+1, 2q+1)
     """
+    E = np.asarray(E)
     if E.ndim != 3:
         raise ValueError("E must have shape (p+1, q+1, d).")
     p = E.shape[0] - 1
     q = E.shape[1] - 1
+    dtype = E.dtype
 
-    ConvU = bernstein_product_conv(p)   # (2p+1, p+1, p+1)
-    ConvV = bernstein_product_conv(q)   # (2q+1, q+1, q+1)
+    ConvU = bernstein_product_conv(p, dtype=dtype)   # (2p+1, p+1, p+1)
+    ConvV = bernstein_product_conv(q, dtype=dtype)   # (2q+1, q+1, q+1)
     ConvU2 = ConvU.reshape(2*p + 1, (p + 1) * (p + 1))
     ConvV2 = ConvV.reshape(2*q + 1, (q + 1) * (q + 1))
 
     # Convolve along u: for each (j,j'), A = sum_k E[:,j,k] * E[:,j',k]^T, then apply ConvU
-    Tu = np.zeros((2*p + 1, q + 1, q + 1), dtype=np.float64)
+    Tu = np.zeros((2*p + 1, q + 1, q + 1), dtype=dtype)
     Dj = E.transpose(1, 0, 2)  # (q+1, p+1, d)
     for j in range(q + 1):
         Dj_mat = Dj[j]  # (p+1, d)
@@ -64,7 +91,7 @@ def _bivariate_squared_norm_net(E: np.ndarray) -> np.ndarray:
             Tu[:, j, jp] = ConvU2 @ A.ravel()
 
     # Convolve along v
-    F = np.zeros((2*p + 1, 2*q + 1), dtype=np.float64)
+    F = np.zeros((2*p + 1, 2*q + 1), dtype=dtype)
     for r in range(2 * p + 1):
         B = Tu[r, :, :]  # (q+1, q+1)
         F[r, :] = ConvV2 @ B.ravel()
@@ -76,9 +103,9 @@ def _square_univariate_bernstein_net(w: np.ndarray) -> np.ndarray:
     Given univariate Bernstein control points w (degree p), return control points
     of w(t)^2 in Bernstein form of degree 2p. Shape -> (2p+1,).
     """
-    w = np.asarray(w, dtype=np.float64).reshape(-1)
+    w = np.asarray(w).reshape(-1)
     p = w.shape[0] - 1
-    Conv = bernstein_product_conv(p)  # (2p+1, p+1, p+1)
+    Conv = bernstein_product_conv(p, dtype=w.dtype)  # (2p+1, p+1, p+1)
     # Contraction: sum_{i,i'} Conv[r,i,i'] * w[i] * w[i']
     return np.tensordot(Conv, np.outer(w, w), axes=([1, 2], [0, 1]))
 
@@ -116,10 +143,15 @@ def bernstein_rational_distance_squared_nets(P1: np.ndarray, W1: np.ndarray,
         h(u,v) = w1(u)^2 * w2(v)^2.
     This function constructs both control nets exactly using Bernstein product identities.
     """
-    P1 = np.asarray(P1, dtype=np.float64)
-    P2 = np.asarray(P2, dtype=np.float64)
-    W1 = np.asarray(W1, dtype=np.float64).reshape(-1)
-    W2 = np.asarray(W2, dtype=np.float64).reshape(-1)
+    P1 = np.asarray(P1)
+    P2 = np.asarray(P2)
+    W1 = np.asarray(W1).reshape(-1)
+    W2 = np.asarray(W2).reshape(-1)
+    dtype = _result_dtype(P1, P2)
+    P1 = np.asarray(P1, dtype=dtype)
+    P2 = np.asarray(P2, dtype=dtype)
+    W1 = np.asarray(W1, dtype=dtype).reshape(-1)
+    W2 = np.asarray(W2, dtype=dtype).reshape(-1)
 
     if P1.ndim != 2 or P2.ndim != 2:
         raise ValueError("P1 and P2 must be 2D arrays of shapes (p+1,d) and (q+1,d).")
@@ -152,8 +184,11 @@ def bernstein_rational_distance_squared_nets_homog(H1: np.ndarray, H2: np.ndarra
     H2 : (q+1, d+1)
     Returns (G, H) as above.
     """
-    H1 = np.asarray(H1, dtype=np.float64)
-    H2 = np.asarray(H2, dtype=np.float64)
+    H1 = np.asarray(H1)
+    H2 = np.asarray(H2)
+    dtype = _result_dtype(H1, H2)
+    H1 = np.asarray(H1, dtype=dtype)
+    H2 = np.asarray(H2, dtype=dtype)
     if H1.ndim != 2 or H2.ndim != 2:
         raise ValueError("H1 and H2 must be 2D arrays of shapes (p+1,d+1) and (q+1,d+1).")
     if H1.shape[1] != H2.shape[1]:
@@ -256,16 +291,19 @@ def bernstein_distance_squared_net(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
 
     Parameters
     ----------
-    P : (p+1, d) float64
-    Q : (q+1, d) float64
+    P : (p+1, d)
+    Q : (q+1, d)
 
     Returns
     -------
-    F : (2p+1, 2q+1) float64
+    F : (2p+1, 2q+1)
         Bivariate control net of f(u,v).
     """
-    P = np.asarray(P, dtype=np.float64)
-    Q = np.asarray(Q, dtype=np.float64)
+    P = np.asarray(P)
+    Q = np.asarray(Q)
+    dtype = _result_dtype(P, Q)
+    P = np.asarray(P, dtype=dtype)
+    Q = np.asarray(Q, dtype=dtype)
     if P.ndim != 2 or Q.ndim != 2:
         raise ValueError("P and Q must be 2D arrays of shapes (p+1,d) and (q+1,d).")
     if P.shape[1] != Q.shape[1]:
@@ -279,8 +317,8 @@ def bernstein_distance_squared_net(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
     D = P[:, None, :] - Q[None, :, :]
     
     # Exact Bernstein product convolution tensors in u and v
-    ConvU = bernstein_product_conv(p)  # (2p+1, p+1, p+1)
-    ConvV = bernstein_product_conv(q)  # (2q+1, q+1, q+1)
+    ConvU = bernstein_product_conv(p, dtype=dtype)  # (2p+1, p+1, p+1)
+    ConvV = bernstein_product_conv(q, dtype=dtype)  # (2q+1, q+1, q+1)
     
     # For efficient contractions, flatten the (i,i') and (j,j') pairs:
     ConvU2 = ConvU.reshape(2 * p + 1, (p + 1) * (p + 1))  # (2p+1, (p+1)^2)
@@ -289,7 +327,7 @@ def bernstein_distance_squared_net(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
     # First convolve along u (degree p -> 2p), but sum over Cartesian dims right away.
     # For each (j, j'), build A = sum_k D[:,j,k] * D[:,j',k]^T  (shape (p+1, p+1)),
     # then Tu[:, j, j'] = ConvU2 @ A.ravel()
-    Tu = np.zeros((2 * p + 1, q + 1, q + 1), dtype=np.float64)
+    Tu = np.zeros((2 * p + 1, q + 1, q + 1), dtype=dtype)
     Dj = D.transpose(1, 0, 2)  # (q+1, p+1, d) to help locality
     
     for j in range(q + 1):
@@ -302,7 +340,7 @@ def bernstein_distance_squared_net(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
             Tu[:, j, jp] = ConvU2 @ A.ravel()
     
     # Then convolve along v (degree q -> 2q) for each r, again exact.
-    F = np.zeros((2 * p + 1, 2 * q + 1), dtype=np.float64)
+    F = np.zeros((2 * p + 1, 2 * q + 1), dtype=dtype)
     for r in range(2 * p + 1):
         B = Tu[r, :, :]  # (q+1, q+1)
         F[r, :] = ConvV2 @ B.ravel()
@@ -314,10 +352,14 @@ import numpy as np
 
 def bernstein_eval_1d(P, u):
     # Horner/de Casteljau eval
-    Q = P.copy()
-    n = P.shape[0] - 1
+    P = np.asarray(P)
+    dtype = P.dtype
+    Q = np.asarray(P, dtype=dtype).copy()
+    u = np.asarray(u, dtype=dtype)
+    one = np.asarray(1, dtype=dtype)
+    n = Q.shape[0] - 1
     for r in range(1, n + 1):
-        Q = (1.0 - u) * Q[:-1] + u * Q[1:]
+        Q = (one - u) * Q[:-1] + u * Q[1:]
     return Q[0].item()
 def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -384,6 +426,8 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
             f"'axis' must be in [0, {param_ndim - 1}] among parametric axes; the trailing value axis is not allowed."
         )
     
+    control_grid = np.asarray(control_grid)
+    dtype = control_grid.dtype
     # Move the chosen parametric axis to the front to simplify the recurrence
     A = np.moveaxis(control_grid, axis, 0)  # shape: (m, *B, N)
     m = A.shape[0]  # m = degree+1 along chosen axis
@@ -394,11 +438,11 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
         raise ValueError("Invalid control grid: zero length along the chosen axis.")
     
     # Prepare t to broadcast as (1, *B, 1), so it multiplies each fiber and value uniformly
-    t_arr = np.asarray(t, dtype=np.result_type(A.dtype, np.float64))
+    t_arr = np.asarray(t, dtype=dtype)
     if t_arr.ndim == 0:
         # Scalar t broadcasts automatically; keep as scalar
         t_b = t_arr
-        omt_b = 1.0 - t_arr
+        omt_b = np.asarray(1, dtype=dtype) - t_arr
     else:
         # Broadcast to the grid of fibers
         try:
@@ -409,7 +453,7 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
             ) from e
         # Expand to (1, *B, 1)
         t_b = t_b_fibers[(None,) + tuple(slice(None) for _ in B_shape) + (None,)]
-        omt_b = 1.0 - t_b
+        omt_b = np.asarray(1, dtype=dtype) - t_b
     
     # de Casteljau pyramid along the first axis (originally `axis`)
     left_layers = []
@@ -436,6 +480,31 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
 import numpy as np
 from math import comb
 
+def bez_eval_raw(P,t):
+
+    n = P.shape[0] - 1
+    if n <= 0:
+        return P[0]
+
+    omt = 1.0 - t
+    # Fast paths for degrees we hit most (2/3 in practice).
+    if n == 1:
+        return omt * P[0] + t * P[1]
+    if n == 2:
+        omt2 = omt * omt
+        t2 = t * t
+        return omt2 * P[0] + (2.0 * omt * t) * P[1] + t2 * P[2]
+    if n == 3:
+        omt2 = omt * omt
+        t2 = t * t
+        return (omt2 * omt) * P[0] + (3.0 * omt2 * t) * P[1] + (3.0 * omt * t2) * P[2] + (t2 * t) * P[3]
+
+    # Generic De Casteljau (small degrees: numpy allocations are acceptable).
+    Q = P.copy()
+    for r in range(1, n + 1):
+        m = n + 1 - r
+        Q[:m] = (1.0 - t) * Q[:m] + t * Q[1 : m + 1]
+    return Q[0]
 
 def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
     """
@@ -467,12 +536,14 @@ def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
         raise ValueError("Need at least one parametric axis plus a trailing value axis.")
 
     D = control_grid.ndim - 1
-    ranges = np.asarray(ranges, dtype=float)
+    ranges = np.asarray(ranges)
     if ranges.shape != (D, 2):
         raise ValueError(f"`ranges` must have shape ({D}, 2).")
 
+    control_grid = np.asarray(control_grid)
     # Output (one full-size allocation); do all transforms in-place on `out`.
-    out = control_grid.astype(np.result_type(control_grid.dtype, np.float64), copy=True)
+    dtype = control_grid.dtype
+    out = np.asarray(control_grid, dtype=dtype).copy()
     Nval = out.shape[-1]
 
     for ax in range(D):
@@ -480,7 +551,7 @@ def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
         if n <= 0:
             continue
 
-        a, b = float(ranges[ax, 0]), float(ranges[ax, 1])
+        a, b = ranges[ax, 0], ranges[ax, 1]
         if a == 0.0 and b == 1.0:
             continue  # no-op on this axis
 
@@ -520,16 +591,19 @@ def de_casteljau_section_nd(control_grid: np.ndarray, axis: int, t, keepdims: bo
     param_ndim = control_grid.ndim - 1
     if axis < 0:
         axis += param_ndim
+    control_grid = np.asarray(control_grid)
+    dtype = control_grid.dtype
     A = np.moveaxis(control_grid, axis, 0)  # (m, *B, N)
     B_shape = A.shape[1:-1]
 
-    t_arr = np.asarray(t, dtype=np.result_type(A.dtype, np.float64))
+    t_arr = np.asarray(t, dtype=dtype)
     if t_arr.ndim == 0:
-        t_b, omt_b = t_arr, 1.0 - t_arr
+        t_b = t_arr
+        omt_b = np.asarray(1, dtype=dtype) - t_arr
     else:
         t_b_fibers = np.broadcast_to(t_arr, B_shape)
         t_b = t_b_fibers[(None,) + tuple(slice(None) for _ in B_shape) + (None,)]
-        omt_b = 1.0 - t_b
+        omt_b = np.asarray(1, dtype=dtype) - t_b
 
     cur = A
     for _ in range(A.shape[0] - 1):
@@ -573,9 +647,13 @@ def _bernstein_derivatives(n, u, m):
     Returns D of shape (m+1, n+1) with D[k,i] = d^k/du^k B_i^n(u).
     """
     m = min(m, n)
-    B = np.zeros((n+1, n+1), dtype=np.float64)
-    B[0, 0] = 1.0
-    u1 = 1.0 - u
+    u = np.asarray(u)
+    dtype = _result_dtype(u)
+    u = np.asarray(u, dtype=dtype)
+    one = np.asarray(1, dtype=dtype)
+    B = np.zeros((n+1, n+1), dtype=dtype)
+    B[0, 0] = one
+    u1 = one - u
     for j in range(1, n+1):
         saved = 0.0
         for k in range(j):
@@ -584,7 +662,7 @@ def _bernstein_derivatives(n, u, m):
             saved = u * temp
         B[j, j] = saved
 
-    D = np.zeros((m+1, n+1), dtype=np.float64)
+    D = np.zeros((m+1, n+1), dtype=dtype)
     D[0, :] = B[:, n]
 
     if m >= 1:
@@ -641,7 +719,10 @@ def bezier_curve_derivatives_compact(ctrl, u, n, rational=False):
     R : (m+1, dim_e) where m=min(n, degree), R[k,:] = d^k P(u) / du^k
         dim_e = dim (non-rational) or dim_h-1 (rational)
     """
-    P = np.asarray(ctrl, dtype=np.float64)
+    P = np.asarray(ctrl)
+    dtype = P.dtype
+    P = np.asarray(P, dtype=dtype)
+    u = np.asarray(u, dtype=dtype)
     N = P.shape[0]
     p = N - 1
     m = min(n, p)
@@ -668,7 +749,7 @@ def bezier_curve_derivatives_compact(ctrl, u, n, rational=False):
     # Precompute Pascal rows once
     Pas = _pascal_table(m)  # (m+1, m+1)
     for k in range(1, m + 1):
-        coeffs = Pas[k, 1:k+1].astype(np.float64)        # shape (k,)
+        coeffs = Pas[k, 1:k+1].astype(dtype)             # shape (k,)
         # Build weighted sum sum_{j=1..k} C(k,j) * wj * R_{k-j}
         # Align R terms in reverse: R[k-1], R[k-2], ..., R[0]
         R_rev = R[:k][::-1]                              # (k, dim)
@@ -695,7 +776,11 @@ def bezier_surface_derivatives_compact(ctrl, u, v, n, rational=False):
     C : (mv+1, mu+1, dim_e) with C[j, i, :] = ∂^{i+j} P / ∂u^i ∂v^j,
         where mu=min(n, pu), mv=min(n, pv). dim_e = dim or dim_h-1.
     """
-    S = np.asarray(ctrl, dtype=np.float64)
+    S = np.asarray(ctrl)
+    dtype = S.dtype
+    S = np.asarray(S, dtype=dtype)
+    u = np.asarray(u, dtype=dtype)
+    v = np.asarray(v, dtype=dtype)
     Nu, Nv = S.shape[0], S.shape[1]
     pu, pv = Nu - 1, Nv - 1
     mu = min(n, pu)
@@ -730,7 +815,7 @@ def bezier_surface_derivatives_compact(ctrl, u, v, n, rational=False):
             raise ZeroDivisionError("Weight evaluates to zero at (u,v).")
 
         # Vectorized rational recurrence per total order s (compact tensor)
-        C = np.zeros((mv + 1, mu + 1, d_e), dtype=np.float64)
+        C = np.zeros((mv + 1, mu + 1, d_e), dtype=dtype)
         C[0, 0] = Tx[0, 0] / w00
 
         # Precompute Pascal tables
@@ -752,8 +837,8 @@ def bezier_surface_derivatives_compact(ctrl, u, v, n, rational=False):
             a_max = int(I.max())
             b_max = int(J.max())
 
-            Bi = Pu_tab[I, :a_max + 1].astype(np.float64)   # (M, a_max+1)
-            Bj = Pv_tab[J, :b_max + 1].astype(np.float64)   # (M, b_max+1)
+            Bi = Pu_tab[I, :a_max + 1].astype(dtype)        # (M, a_max+1)
+            Bj = Pv_tab[J, :b_max + 1].astype(dtype)        # (M, b_max+1)
 
             # Accumulate over (a,b) ≠ (0,0); still loops a,b but vectorizes over M, d_e
             for a in range(0, a_max + 1):
@@ -831,7 +916,7 @@ def eval_bezier(P, t, dims=None):
     return Q[0]
 def map_local_to_global(u_loc,u0, u1):
     return (u0 + (u1 - u0) * u_loc)
-def _bernstein_basis_matrix(n: int, t, dtype=np.float64) -> np.ndarray:
+def _bernstein_basis_matrix(n: int, t, dtype=None) -> np.ndarray:
     """
     Bernstein basis B^n_i(t) for i=0..n evaluated at t.
 
@@ -850,6 +935,9 @@ def _bernstein_basis_matrix(n: int, t, dtype=np.float64) -> np.ndarray:
         Basis matrix; M = number of samples in `t`.
         Row m contains [B^n_0(t_m), ..., B^n_n(t_m)].
     """
+    tt = np.asarray(t)
+    if dtype is None:
+        dtype = tt.dtype
     tt = np.asarray(t, dtype=dtype)
     if tt.ndim == 0:
         tt = tt.reshape(1)
@@ -892,38 +980,67 @@ def bernstein_eval_nd(control_grid: np.ndarray, params, keepdims: bool = False) 
     if len(params) != D:
         raise ValueError(f"`params` must have length {D} (one per parametric axis).")
 
-    # Choose a working dtype that safely holds products/sums
-    dtype = np.result_type(control_grid.dtype, *(np.asarray(p).dtype for p in params), np.float64)
-    C = control_grid.astype(dtype, copy=False)
+    C = np.asarray(control_grid)
+    dtype = C.dtype
+    C = np.asarray(C, dtype=dtype)
+
+    interval_dtype = None
+    if ndinterv is not None:
+        try:
+            interval_dtype = np.dtype(ndinterv)
+        except Exception:
+            interval_dtype = None
+
+    def _contract_axis_interval(C_in: np.ndarray, B_in: np.ndarray, axis: int) -> np.ndarray:
+        C_ax = np.moveaxis(C_in, axis, 0)  # (n+1, *rest)
+        B = B_in
+        if B.ndim == 1:
+            B = B.reshape(1, -1)
+        if B.shape[1] != C_ax.shape[0]:
+            raise ValueError("Basis matrix axis mismatch.")
+        if B.dtype != C_ax.dtype:
+            B = B.astype(C_ax.dtype, copy=False)
+        Bv = B.reshape((B.shape[0], B.shape[1]) + (1,) * (C_ax.ndim - 1))
+        Cv = C_ax[None, ...]
+        out = np.sum(Bv * Cv, axis=1)
+        return np.moveaxis(out, 0, axis)
 
     # Build basis matrices per axis
-    B_list = []
     sample_sizes = []
-    for ax in range(D):
-        n = C.shape[ax] - 1
-        B = _bernstein_basis_matrix(n, params[ax], dtype=dtype)  # (M_ax, n_ax+1)
-        B_list.append(B)
-        sample_sizes.append(B.shape[0])
+    if interval_dtype is not None and dtype == interval_dtype:
+        values = C
+        for ax in range(D):
+            n = values.shape[ax] - 1
+            B = _bernstein_basis_matrix(n, params[ax], dtype=dtype)  # (M_ax, n_ax+1)
+            sample_sizes.append(B.shape[0])
+            values = _contract_axis_interval(values, B, ax)
+    else:
+        B_list = []
+        for ax in range(D):
+            n = C.shape[ax] - 1
+            B = _bernstein_basis_matrix(n, params[ax], dtype=dtype)  # (M_ax, n_ax+1)
+            B_list.append(B)
+            sample_sizes.append(B.shape[0])
 
-    # Contract all param axes against their basis matrices in one go via einsum.
-    # Indices:
-    #   C:  i0 i1 ... i{D-1} v
-    #   Bk: s{k} i{k}
-    # Output: s0 s1 ... s{D-1} v
+        # Contract all param axes against their basis matrices in one go via einsum.
+        # Indices:
+        #   C:  i0 i1 ... i{D-1} v
+        #   Bk: s{k} i{k}
+        # Output: s0 s1 ... s{D-1} v
 
-    letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    if 2 * D + 1 > len(letters):
-        raise ValueError("Too many dimensions for the predefined index set.")
+        letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        if 2 * D + 1 > len(letters):
+            raise ValueError("Too many dimensions for the predefined index set.")
 
-    i_idx = letters[:D]
-    s_idx = letters[D:2 * D]
-    v_idx = letters[2 * D]
-    c_sub = "".join(i_idx) + v_idx
-    b_subs = [s_idx[k] + i_idx[k] for k in range(D)]
-    out_sub = "".join(s_idx) + v_idx
-    expr = f"{c_sub}," + ",".join(b_subs) + f"->{out_sub}"
+        i_idx = letters[:D]
+        s_idx = letters[D:2 * D]
+        v_idx = letters[2 * D]
+        c_sub = "".join(i_idx) + v_idx
+        b_subs = [s_idx[k] + i_idx[k] for k in range(D)]
+        out_sub = "".join(s_idx) + v_idx
+        expr = f"{c_sub}," + ",".join(b_subs) + f"->{out_sub}"
 
-    values = np.einsum(expr, C, *B_list, optimize=True)
+        values = np.einsum(expr, C, *B_list, optimize=True)
 
     if not keepdims:
         # Squeeze exactly the param axes where input was scalar (M==1); keep value axis.
@@ -934,6 +1051,7 @@ def bernstein_eval_nd(control_grid: np.ndarray, params, keepdims: bool = False) 
     return values
 def _sign(x: float, eps: float) -> int:
     # +1 if > eps, -1 if < -eps, 0 otherwise
+
     if x > eps:  return 1
     if x < -eps: return -1
     return 0
@@ -964,38 +1082,43 @@ from itertools import product
 
 # ---------- Bernstein 1D trimming transforms (matrix-form de Casteljau) ----------
 
-def _lower_transform(n: int, t: float, dtype=float) -> np.ndarray:
+def _lower_transform(n: int, t: float, dtype=None) -> np.ndarray:
     """
     Lower-triangular (n+1)x(n+1) matrix L(t) for the 'left' subdivision boundary.
     Row i: L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j  for j<=i, else 0.
     """
+    t_arr = np.asarray(t)
+    if dtype is None:
+        dtype = t_arr.dtype
     L = np.zeros((n + 1, n + 1), dtype=dtype)
-    om = float(1.0 - t)
-    t = float(t)
+    om = np.asarray(1, dtype=dtype) - np.asarray(t, dtype=dtype)
+    t = np.asarray(t, dtype=dtype)
     for i in range(n + 1):
         for j in range(i + 1):
             L[i, j] = binomial_coefficient_py(i, j) * (om ** (i - j)) * (t ** j)
     return L
 
 
-def _right_transform(n: int, a: float, dtype=float) -> np.ndarray:
+def _right_transform(n: int, a: float, dtype=None) -> np.ndarray:
     """
     Upper-triangular (n+1)x(n+1) matrix R(a) producing the 'right' polygon at a.
     Identity when n==0.  R(a) = J * L(1 - a) * J.
     """
     if n == 0:
-        return np.array([[1.0]], dtype=dtype)
+        return np.array([[1.0]], dtype=dtype if dtype is not None else float)
+    if dtype is None:
+        dtype = np.asarray(a).dtype
     J = np.flipud(np.eye(n + 1, dtype=dtype))
     return J @ _lower_transform(n, 1.0 - a, dtype=dtype) @ J
 
 
-def _trim_transform(n: int, a: float, b: float, dtype=float) -> np.ndarray:
+def _trim_transform(n: int, a: float, b: float, dtype=None) -> np.ndarray:
     """
     (n+1)x(n+1) matrix mapping coefficients on [0,1] to coefficients on [a,b],
     reparameterized back to [0,1]. Requires 0<=a<=b<=1.
     """
     if n == 0:
-        return np.array([[1.0]], dtype=dtype)
+        return np.array([[1.0]], dtype=dtype if dtype is not None else float)
     if a == b:
         # Degenerate interval -> constant limit. Use left at t=0 after right at a.
         # Equivalent to L(0) @ R(a).
@@ -1080,12 +1203,11 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
     if len(param) != D or len(half) != D:
         raise ValueError(f"`param` and `half` must have length {D}.")
 
-    # Working dtype
-    dtype = np.result_type(control_grid.dtype, np.float64)
-    C = np.asarray(control_grid, dtype=dtype, order='C')
+    C = np.asarray(control_grid, order='C')
+    dtype = C.dtype
 
-    u = np.asarray(param, dtype=float).reshape(D)
-    h = np.asarray(half, dtype=float).reshape(D)
+    u = np.asarray(param).reshape(D)
+    h = np.asarray(half).reshape(D)
     if np.any(h < 0):
         raise ValueError("All half-interval components must be nonnegative.")
 
@@ -1104,8 +1226,8 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
         n = C.shape[ax] - 1
         if n < 0:
             raise ValueError("Invalid control grid axis length.")
-        ak = float(a[ax])
-        bk = float(b[ax])
+        ak = a[ax]
+        bk = b[ax]
 
         # Clamp ordering locally, just in case
         if bk < ak:
@@ -1306,20 +1428,12 @@ from mmcore.geom._nurbs_knots import generate_knots
 @lru_cache(maxsize=None)
 def bern_greville_abscissae(control_points_count: int, interval=(0., 1.)) -> np.ndarray:
     """
-    Greville points for degree p with knot vector U.
-    xi_i = (U[i+1] + ... + U[i+p]) / p, for i=0..n
+
     """
-    p = control_points_count - 1
-    U = generate_knots(control_points_count, p, interval=interval)
-    n = len(U) - p - 2
-    if p <= 0:
-        # degree 0 Greville points are undefined; not used in this code path
-        raise ValueError("Degree must be >=1 for Greville abscissae.")
-    # Sum p interior knots per control index:
-    xi = np.empty(n + 1, dtype=float)
-    for i in range(n + 1):
-        xi[i] = np.sum(U[i + 1:i + p + 1]) / p
-    return xi
+
+
+
+    return np.linspace(interval[0], interval[1], control_points_count )
 @lru_cache(maxsize=None)
 def bern_greville_abscissae_nd(shape, interval=None):
     if interval is None:
@@ -1342,8 +1456,8 @@ def zero_crossing_nd(p0, p1, d0, d1):
     np.ndarray
         Coordinates of intersection point (shape (n,))
     """
-    p0 = np.asarray(p0, dtype=float)
-    p1 = np.asarray(p1, dtype=float)
+    p0 = np.asarray(p0)
+    p1 = np.asarray(p1)
     t = -d0 / (d1 - d0)
     return p0 + t * (p1 - p0)
 
@@ -1376,12 +1490,12 @@ def de_casteljau_restrict_nd(control_grid: np.ndarray, axis: int, t, keepdims: b
     if not (0 <= axis < param_ndim):
         raise ValueError(f"'axis' must be in [0, {param_ndim - 1}] among parametric axes.")
 
+    control_grid = np.asarray(control_grid)
+    dtype = control_grid.dtype
     # Move target param axis to front to apply 1D de Casteljau
     A = np.moveaxis(control_grid, axis, 0)  # (m, *B, N)
     m = A.shape[0]
     B_shape = A.shape[1:-1]  # other param axes
-    dtype = np.result_type(A.dtype, np.float64)
-
     if m == 0:
         raise ValueError("Invalid control grid: zero length along the chosen axis.")
 
@@ -1406,7 +1520,7 @@ def de_casteljau_restrict_nd(control_grid: np.ndarray, axis: int, t, keepdims: b
 
     # Finally reshape to (1, *B, 1) so it broadcasts over the de Casteljau level and value dims
     t_b = t_arr.reshape((1,) + t_aligned_shape + (1,))
-    omt_b = 1.0 - t_b
+    omt_b = np.asarray(1, dtype=dtype) - t_b
 
     cur = A
     for _ in range(m - 1):
@@ -1521,9 +1635,129 @@ def de_casteljau_restrict_multi_nd(
         out = np.squeeze(out, axis=tuple(sorted(axes_norm)))
 
     return out
+import numpy as np
+
+def bezier_curve_param_tol(P, w,  tol, u0=0.0, u1=1.0):
+    """
+    Computes a conservative parametric tolerance for a (possibly rational) Bézier curve segment.
+
+    This is the Bézier-specialized analogue of the OCC-style bound used for rational B-spline
+    curves, but restricted to a single Bézier span. Conceptually, a Bézier segment is a clamped
+    NURBS with one knot interval, so the "knot-block" length is just (u1 - u0) and the effective
+    neighborhood is all control points.
+
+    Parameters
+    ----------
+    P : numpy.ndarray
+        Control points array of shape (p+1, dim).
+    w : numpy.ndarray or None
+        Weights array of shape (p+1,). If None, the curve is treated as non-rational (all weights = 1).
+        All weights must be strictly positive for this bound.
+
+    tol : float
+        Geometric tolerance to be converted into a parametric tolerance.
+    u0, u1 : float
+        Parameter interval for the Bézier segment. Many implementations use [0, 1] by default.
+
+    Returns
+    -------
+    float
+        Conservative parametric tolerance `tol_u` such that (heuristically/bounded) a parameter
+        perturbation of size <= tol_u yields a geometric deviation <= tol.
+
+    Raises
+    ------
+    ValueError
+        If p is inconsistent with P, if u1 <= u0, or if any weight is <= 0.
+
+    Notes
+    -----
+    * The bound uses an L1-based variation measure (sum of abs per coordinate). This is conservative
+      for Euclidean distance since ||v||_2 <= ||v||_1.
+    * For a non-rational Bézier curve (all weights = 1), this reduces to:
+        L = (p / (u1-u0)) * max_i ||P[i] - P[i-1]||_1
+        tol_u = tol / max(L, tiny)
+    """
+    P = np.asarray(P)
+    dtype = P.dtype
+    P = np.asarray(P, dtype=dtype)
+    if P.ndim != 2:
+        raise ValueError("P must be a 2D array of shape (p+1, dim).")
+    n, dim = P.shape
+    p=n-1
+    du = float(u1 - u0)
+    if du <= 0.0:
+        raise ValueError("Invalid parameter interval: require u1 > u0.")
+
+    # Handle polynomial vs rational Bézier
+    if w is None:
+        w = np.ones(n, dtype=dtype)
+    else:
+        w = np.asarray(w, dtype=dtype).reshape(-1)
+        if w.shape[0] != n:
+            raise ValueError(f"Expected w.shape[0] == {n}, got {w.shape[0]}.")
+
+    min_w = float(np.min(w))
+    if min_w <= 0.0:
+        raise ValueError("All weights must be > 0 for this bound.")
+
+    inv_du = 1.0 / du
+
+    # OCC-inspired conservative "local variation" scan over edges (i-1 -> i),
+    # specialized to a single Bézier span: neighborhood = all control points.
+    Lmax = 0.0
+    for i in range(1, n):
+        Wi, Wim1 = float(w[i]), float(w[i - 1])
+        Pi, Pim1 = P[i], P[i - 1]
+
+        # For Bezier: Pj is the full control net (single span)
+        # term[j] = || (Pj-Pi)*Wi - (Pj-Pim1)*Wim1 ||_1
+        term = np.abs((P - Pi) * Wi - (P - Pim1) * Wim1).sum(axis=1)
+        value = float(term.max()) * inv_du
+        if value > Lmax:
+            Lmax = value
+
+    # Degree scaling + denominator lower bound, mirroring the OCC structure
+    L = (p * Lmax) / min_w
+
+    finfo_dtype = dtype
+    if not np.issubdtype(finfo_dtype, np.floating):
+        finfo_dtype = np.float64
+    RealSmall = np.finfo(finfo_dtype).tiny
+    tol_u = float(tol) / max(L, RealSmall)
+    return tol_u
 
 
-def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False) -> BernRootsOutput:
+def _max_deviation(y_values):
+    """
+    Finds the index and value of the greatest deviation from a linear regression
+    fitted to the ordered set y_values using NumPy.
+    """
+    y = np.asarray(y_values)
+    n = len(y)
+    x = np.arange(n)
+
+
+    x_mean = (n - 1) / 2
+    y_mean = np.mean(y)
+
+    covariance = np.mean(x * y) - x_mean * y_mean
+    variance_x = (n**2 - 1) / 12
+
+    m = covariance / variance_x
+    c = y_mean - m * x_mean
+
+
+    fitted_line = m * x + c
+
+    deviations = np.abs(y - fitted_line)
+
+    max_index = np.argmax(deviations)
+    max_dev = deviations[max_index]
+
+    return max_index, max_dev
+
+def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False,**kwargs) -> BernRootsOutput:
     bern = np.squeeze(bern)[..., np.newaxis]
     if interval is None:
         interval = (0., 1.)
@@ -1531,35 +1765,25 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False) -> Bern
     stack = [(bern, tuple(interval))]
     roots = []
     iters = 0
-
     while stack:
-        coeffs, interv = stack.pop()
-
+        coeffs, interv = stack.pop(0)
         iters += 1
 
-        sign_changes = _count_sign_changes(np.squeeze(coeffs), eps)
-
+        sign_changes = _count_sign_changes(np.squeeze(coeffs), 0.0)
         split_axis = 0
         if sign_changes == 0:
-
             continue
         elif sign_changes == 1:
             d1 = bernstein_partial_derivative_coeffs(coeffs, axis=0)
 
             # d2 = bernstein_partial_derivative_coeffs(d1, axis=0)
             def fun(x):
-                if not rational:
-                    return bernstein_eval_1d(coeffs[..., 0], x)
-                else:
-                    return bernstein_eval_1d(coeffs[..., 0], x)/bernstein_eval_1d(coeffs[..., -1], x)
+
+                return bernstein_eval_1d(coeffs[..., 0], x)
 
             def fprime(x):
-                if not rational:
-                    return bernstein_eval_1d(d1[..., 0], x)
-                else:
-                    return bernstein_eval_1d(d1[..., 0], x) / bernstein_eval_1d(d1[..., -1], x)
 
-
+                return bernstein_eval_1d(d1[..., 0], x)
 
             # def fprime2(x):
             #    return bernstein_eval_1d(d2[...,0], x)
@@ -1567,22 +1791,16 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False) -> Bern
             # newton(fun,0.5,  fprime=fprime,fprime2=fprime2,full_output=True)
             # res,out=brentq(fun,0.,1.,full_output=True)
             # res,out=newton(fun,0.5,  fprime=fprime,fprime2=fprime2,full_output=True)
-            out1 = cnewton.newton(fun, fprime, 0.5, eps, 15)
+            out = cnewton.newton(fun, fprime, 0.5, eps, 25)
 
             # if out.converged :
             #   res = out.root
-            for out in [out1]:
-
-                at_least_one = False
-                if out is not None:
-                    res = out
-                    fx = abs(fun(res))
-
-                    if (not np.any((res < 0 or res > 1 ))) and abs(fx) < eps:
-                        roots.append((float(map_local_to_global(res, interv[0], interv[1])), fx))
-                        at_least_one=True
-            if at_least_one:
-                continue
+            if out is not None:
+                res = out
+                fx = fun(res)
+                if (not np.any((res == 0 or res < 0 or res > 1 or res == 1))) and abs(fx) < eps:
+                    roots.append((float(map_local_to_global(res, interv[0], interv[1])), fx))
+                    continue
 
         low, upp = interv
         mid = low + (upp - low) / 2
@@ -1591,12 +1809,104 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False) -> Bern
         stack.append((coeffs_b, (mid, upp)))
 
     if len(roots) == 0:
-
         return BernRootsOutput(np.array([]), np.array([]), iters)
     roots, errs = zip(*sorted(roots, key=lambda x: x[0]))
 
     return BernRootsOutput(np.array(roots), np.array(errs), iters)
 
+
+def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
+    sg = np.zeros_like(bern, dtype=int)
+    sg[bern > eps] = 1
+    sg[bern < -eps] = -1
+    def _gen_cpts_to_display(scalar_net):
+
+
+        Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
+        for i in range(scalar_net.shape[0]):
+            for j in range(scalar_net.shape[0]):
+                Pts[i, j, 2] = scalar_net[i, j]
+                Pts[i, j, 0] = gril[0][ i]
+                Pts[i, j, 1] = gril[1][ j]
+
+
+        return Pts
+    sign_change_edges_nd(bern, return_linear=True)
+    src, dst = sign_change_edges_nd(bern, return_linear=True)
+    from collections import defaultdict
+
+
+    uu = defaultdict(dict)
+    fg = bern.flat
+    for s, d in list(zip(src, dst)):
+        uu[s.item()][d.item()] = fg[d]
+        uu[d.item()][s.item()] = fg[s]
+        uu[d.item()][-1] = fg[d]
+        uu[s.item()][-1] = fg[s]
+
+
+    ndims = bern.ndim
+    isolines = []
+    axes_all = np.arange(ndims, dtype=int)
+
+
+    gril = [bern_greville_abscissae(bern.shape[d]) for d in range(len(bern.shape))]
+    nn = bern_to_nurbs_bezier(_gen_cpts_to_display(bern), rational=False)
+    mabyroots = []
+    for k, v in uu.items():
+        k_multiindex = np.unravel_index(k, bern.shape)
+        coord_k = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(k_multiindex)))
+
+
+        for j, cf in v.items():
+            if j != -1:
+                j_multiindex = np.unravel_index(j, bern.shape)
+                coord_j = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(j_multiindex)))
+                mabyroots.append((zero_crossing_nd(coord_k, coord_j, v[-1], v[j])
+                                      , (coord_k, coord_j)))
+
+
+    for candidate, ends in mabyroots:
+        candidate = np.array(candidate)
+
+
+        for ax in range(ndims):
+            cl = candidate.tolist()
+
+
+            l = axes_all.tolist()
+            del l[ax]
+            del cl[ax]
+
+
+
+
+
+            iso = np.squeeze(de_casteljau_restrict_multi_nd(nn.control_points, l, cl)
+
+
+                             )
+
+
+            isolines.append(iso
+                            )
+
+
+    pts = []
+    for i in isolines:
+
+
+        roots = bern_roots_1d(i[..., -1][..., None], 1e-6)
+
+
+        try:
+
+
+            pts.extend([bezier_curve_derivatives_compact(i, rr, 0) for rr in roots.roots])
+        except Exception as err:
+            print(err)
+            print('d', roots.roots)
+    return pts,nn
 
 def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
     sg = np.zeros_like(bern, dtype=int)

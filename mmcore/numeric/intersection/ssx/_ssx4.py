@@ -1,4 +1,12 @@
 from __future__ import annotations
+
+import contextlib
+import math
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from mmcore.construction import nurbs_curve
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
 from mmcore.geom._nurbs_interp import interpolate_curve
 
@@ -11,8 +19,16 @@ from mmcore.geom._nurbs_eval import (
     _nurbs_to_tuple,
     _surface_interval,
 )
-from mmcore.numeric.intersection.ssx.trace_inter_segm import _from_homogeneous, _to_homogeneous, _eval_tensor_bezier, \
-    _derivative_net_u, _derivative_net_v, trace_between
+from mmcore.numeric import fdm
+from mmcore.numeric.intersection.ssx.trace_inter_segm import (
+    _from_homogeneous,
+    _to_homogeneous,
+    _eval_tensor_bezier,
+    _derivative_net_u,
+    _derivative_net_v,
+    trace_between,
+    remove_knots_after_merge,
+)
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 
@@ -816,7 +832,9 @@ class SSXPoint:
     stuv: NDArray[np.float64] =None # (4,)
     xyz:NDArray[np.float64] = None
 
-from functools import cached_property
+from functools import cached_property, lru_cache
+
+
 @dataclass(unsafe_hash=True)
 class SSXBranch:
     curve: NURBSCurveTuple
@@ -993,7 +1011,7 @@ def duv_from_eval(Su, Sv, T):
 
     delta_uv = np.linalg.pinv(J) @ T
     return delta_uv
-from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
+from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs,generalized_rational_hermite
 from mmcore.geom._nurbs_ders import _greville_abscissae
 from mmcore.numeric.vectors import dot_array_x_vec
 def _collect_boundary_intersections(
@@ -1064,7 +1082,7 @@ def _collect_boundary_intersections(
 def _leaf_boundary_test_and_march(
     H1: NDArray[np.float64],
     H2: NDArray[np.float64],
-    interval1: tuple[float, float, float, float],
+    interval1: tuple[float, float, float, float], #u0,u1,v0,v1
     interval2: tuple[float, float, float, float],
     *,
     spt: float,
@@ -1123,7 +1141,7 @@ def _leaf_boundary_test_and_march(
                                         interval1=interval1,
                                         interval2=interval2,
                                         spt=spt,
-                                        fit_max_depth=10,
+                                        fit_max_depth=10,angle_tol=angle_tol,
 
                 )
                 branches.append(SSXBranch(curve=curve))
@@ -1148,6 +1166,7 @@ def _endpoint_match(
 def _merge_branches_by_match(
     branches: list[SSXBranch],
     match_fn,
+        atol
 ) -> list[SSXBranch]:
     i = 0
     while i < len(branches):
@@ -1173,7 +1192,8 @@ def _merge_branches_by_match(
                         curve_a = reverse_curve(curve_a)
                     if end_j == 1:
                         curve_b = reverse_curve(curve_b)
-                    new_curve, _ = link_curves([curve_a, curve_b])
+                    new_curve, _interior_knots = link_curves([curve_a, curve_b])
+                    new_curve=remove_knots_after_merge(new_curve, _interior_knots,tol=atol)
                     branches[i] = SSXBranch(curve=new_curve, overlap=branches[i].overlap or branches[j].overlap)
                     branches.pop(j)
                     merged = True
@@ -1196,6 +1216,7 @@ def _merge_branches_on_split(
     axis: str,
     split_value: float,
     tol: float,
+        atol:float
 ) -> list[SSXBranch]:
     if surf_index == 1:
         idx = 0 if axis == "u" else 1
@@ -1210,11 +1231,11 @@ def _merge_branches_on_split(
             return False
         return _endpoint_match(a, b, tol=tol, ignore_idx=idx)
 
-    return _merge_branches_by_match(branches, match_fn)
+    return _merge_branches_by_match(branches, match_fn, atol)
 
 
-def _merge_branches_global(branches: list[SSXBranch], tol: float) -> list[SSXBranch]:
-    return _merge_branches_by_match(branches, lambda a, b: _endpoint_match(a, b, tol=tol))
+def _merge_branches_global(branches: list[SSXBranch], tol: float,atol:float) -> list[SSXBranch]:
+    return _merge_branches_by_match(branches, lambda a, b: _endpoint_match(a, b, tol=tol),atol=atol)
 
 
 def _close_branches(branches: list[SSXBranch], tol: float) -> list[SSXBranch]:
@@ -1246,8 +1267,8 @@ def _prune_points_on_branches(points: list[SSXPoint], branches: list[SSXBranch],
 def _bez_ssx_recursive(
     g1: GaussMapBern,
     g2: GaussMapBern,
-    interval1: tuple[float, float, float, float],
-    interval2: tuple[float, float, float, float],
+    interval1: tuple[float, float, float, float], #u0,u1,v0,v1
+    interval2: tuple[float, float, float, float],  #u0,u1,v0,v1
     *,
     spt: float,
     tol: float,
@@ -1261,7 +1282,7 @@ def _bez_ssx_recursive(
     max_depth: int = 24,
     magic_start_depth: int = 6,
     parallel_angle: float = 0.053,
-    flat_angle: float = 0.1,
+    flat_angle: float = 0.01,
     march_samples: int = 8,
     depth: int = 0,
 ) -> tuple[list[SSXBranch], list[SSXPoint]]:
@@ -1282,7 +1303,7 @@ def _bez_ssx_recursive(
             spt=spt,
             tol=tol,
             param_tol=param_tol,
-            march_samples=march_samples,
+            march_samples=march_samples,angle_tol=parallel_angle
         )
 
 
@@ -1327,6 +1348,7 @@ def _bez_ssx_recursive(
             spt=spt,
             tol=tol,
             param_tol=param_tol,
+            angle_tol=parallel_angle,
             march_samples=march_samples,
         )
 
@@ -1340,11 +1362,13 @@ def _bez_ssx_recursive(
             tol=tol,
             param_tol=param_tol,
             march_samples=march_samples,
+            angle_tol=parallel_angle,
         )
 
     # Hard case: near-parallel, flat Gauss maps, still failing criterion -> try Newton magic point
     if depth >= magic_start_depth and near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle):
         mp = find_magic_point_newton(g1, g2)
+
         if mp is not None:
             s, t, u, v = mp
             a_children = g1.split_uv(_clamp01(s), _clamp01(t))
@@ -1382,10 +1406,10 @@ def _bez_ssx_recursive(
                     points.extend(pts)
 
             # Merge across both split lines on both surfaces.
-            branches = _merge_branches_on_split(branches, surf_index=1, axis="u", split_value=ua_split, tol=param_tol)
-            branches = _merge_branches_on_split(branches, surf_index=1, axis="v", split_value=va_split, tol=param_tol)
-            branches = _merge_branches_on_split(branches, surf_index=2, axis="u", split_value=ub_split, tol=param_tol)
-            branches = _merge_branches_on_split(branches, surf_index=2, axis="v", split_value=vb_split, tol=param_tol)
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="u", split_value=ua_split, tol=param_tol,atol=spt)
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="v", split_value=va_split, tol=param_tol,atol=spt)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="u", split_value=ub_split, tol=param_tol,atol=spt)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="v", split_value=vb_split, tol=param_tol,atol=spt)
             branches = _close_branches(branches, param_tol)
             points = _prune_points_on_branches(points, branches, param_tol)
             return branches, points
@@ -1446,7 +1470,7 @@ def _bez_ssx_recursive(
             march_samples=march_samples,
             depth=depth + 1,
         )
-        branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol)
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
         points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
         branches = _close_branches(branches, param_tol)
         return branches, points
@@ -1494,28 +1518,69 @@ def _bez_ssx_recursive(
             march_samples=march_samples,
             depth=depth + 1,
         )
-        branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol)
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
         points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
         branches = _close_branches(branches, param_tol)
         return branches, points
 
+
+def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,atol,**kwargs):
+    branch.curve_st = branch.curve._replace(control_points=branch.curve.control_points[..., :2])
+    branch.curve_uv = branch.curve._replace(control_points=branch.curve.control_points[..., 2:])
+    def _eval_curve(t):
+        stuv = evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
+        se1=evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)
+        se2=evaluate_nurbs_surface(surface2,stuv[2],stuv[3],d_order=0)
+        return (se2['S']-se1['S'])*0.5+se1['S']
+
+    eval_curve_ders=fdm(_eval_curve)
+    _points = []
+    _ders=[]
+    _params=[]
+    params=_greville_abscissae(branch.curve.knot, branch.curve.degree)
+    # params=np.unique(branch.curve.knot)
+    #p_cur=0
+
+    for s in params:
+        #d1=eval_curve_ders(s)
+        #d1/=np.linalg.norm(d1)
+
+        #_ders.append(d1)
+        _points.append(_eval_curve(s))
+
+        # p_cur+=np.dot(d1   ,d1)
+
+
+
+    #from more_itertools import pairwise
+    #crvs=[]
+    #
+    #for (ps,ds,ts),(pe,de,te) in pairwise(zip(_points,_ders,params)):
+    #    h=np.linalg.norm(ps-pe)/3
+    #
+    #
+    #    crvs.append(bern_to_nurbs_bezier(np.array([ps,ps+ds*h,pe-ds*h,pe]),interval=(ts,te),rational=False))
+    branch.curve_xyz=nurbs_curve(np.array(_points),degree=1)
+    #branch.curve_xyz=remove_knots_after_merge(crv,interior,atol)
+
 def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
-        branch.curve_st = branch.curve._replace(control_points=branch.curve.control_points[..., :2])
-        branch.curve_uv = branch.curve._replace(control_points=branch.curve.control_points[..., 2:])
+    return compute_branch_curves_hermite(branch, surface1, surface2, **kwargs)
+    branch.curve_st = branch.curve._replace(control_points=branch.curve.control_points[..., :2])
+    branch.curve_uv = branch.curve._replace(control_points=branch.curve.control_points[..., 2:])
 
-        _points = []
-        for t in _greville_abscissae(branch.curve.knot, branch.curve.degree):
+    _points = []
+    for t in _greville_abscissae(branch.curve.knot, branch.curve.degree):
             stuv=evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
-            _points.append(evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)['S'])
+            _points.append((evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)['S']+evaluate_nurbs_surface(surface2,stuv[2],stuv[3],d_order=0)['S'])/2)
 
-        cpt, kv = interpolate_curve(_points, branch.curve.degree)
-        branch.curve_xyz = NURBSCurveTuple(branch.curve.order, knot=np.array(kv), control_points=np.array(cpt), weights=np.ones(len(cpt)))
+    cpt, kv = interpolate_curve(np.array(_points), degree=branch.curve.degree,use_centripetal=True,remove_duplicates=True,tol=1e-12)
+    branch.curve_xyz = NURBSCurveTuple(branch.curve.order, knot=np.array(kv), control_points=np.array(cpt), weights=np.ones(len(cpt)))
 
 def compute_point_xyz(point:SSXPoint, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
     point.xyz=evaluate_nurbs_surface(surface1,point.stuv[0],point.stuv[1],d_order=0)['S']
 def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0.001, angle_tol: float = 0.052,
             tol: float = 1e-8, gjk_max_iter: int = 64, gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24,
-            magic_start_depth: int = 6, flat_angle: float = 0.15, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
+            magic_start_depth: int = 6, flat_angle: float = 0.015, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
     param_tol = _param_tol_from(tol, atol)
     g1 = GaussMapBern.from_surf(H1, rational=True)
     g2 = GaussMapBern.from_surf(H2, rational=True)
@@ -1535,9 +1600,10 @@ def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0
         magic_start_depth=magic_start_depth,
         parallel_angle=angle_tol,
         flat_angle=flat_angle,
+
         march_samples=march_samples,
     )
-    branches = _merge_branches_global(branches, param_tol)
+    branches = _merge_branches_global(branches, param_tol,atol=atol)
     branches = _close_branches(branches, param_tol)
     points = _prune_points_on_branches(points, branches, param_tol)
     return branches, points
@@ -1573,8 +1639,9 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
     branches: list[SSXBranch] = []
     points: list[SSXPoint] = []
     param_tol = _param_tol_from(tol, atol)
+    candidates=bvh_intersect(tree1, tree2, exact=False)
 
-    for obj1, obj2 in bvh_intersect(tree1, tree2, exact=False):
+    for obj1, obj2 in candidates:
         i = obj1.object
         j = obj2.object
 
@@ -1607,11 +1674,12 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
         branches.extend(bch)
         points.extend(pts)
 
-    branches = _merge_branches_global(branches, param_tol)
+    branches = _merge_branches_global(branches, param_tol,atol=atol)
     branches = _close_branches(branches, param_tol)
     points = _prune_points_on_branches(points, branches, param_tol)
+
     for b in branches:
-        compute_branch_curves(b, surf1,surf2)
+        compute_branch_curves(b, surf1,surf2,atol=atol)
     for p in points:
         compute_point_xyz(p, surf1,surf2)
     return branches, points

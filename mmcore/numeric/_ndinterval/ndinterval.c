@@ -1,3 +1,5 @@
+
+
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
@@ -682,7 +684,7 @@ pyinterval_repr(PyObject *o)
 {
   char str[128];
   interval q = ((PyInterval *)o)->obval;
-  sprintf(str, "([%.4g, %.4g])", q.l, q.u);
+  sprintf(str, "(%.8g, %.8g)", q.l, q.u);
   return PyUString_FromString(str);
 }
 
@@ -691,7 +693,7 @@ pyinterval_str(PyObject *o)
 {
   char str[128];
   interval q = ((PyInterval *)o)->obval;
-  sprintf(str, "([%.4g, %.4g])", q.l, q.u);
+  sprintf(str, "(%.8g, %.8g)", q.l, q.u);
   return PyUString_FromString(str);
 }
 
@@ -702,7 +704,7 @@ pyinterval_str(PyObject *o)
 // corresponding functions are defined.
 static PyTypeObject PyInterval_Type = {
   PyVarObject_HEAD_INIT(NULL, 0)
-  "interval.interval",                    // tp_name
+  "mmcore.numeric.ndinterval.interval",                    // tp_name
   sizeof(PyInterval),                       // tp_basicsize
   0,                                          // tp_itemsize
   0,                                          // tp_dealloc
@@ -1344,7 +1346,7 @@ int interval_alignment = offsetof(align_test, q);
 
 static struct PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
-    "npinterval",
+    "ndinterval",
     NULL,
     -1,
     IntervalMethods,
@@ -1357,7 +1359,7 @@ static struct PyModuleDef moduledef = {
 #define INITERROR return NULL
 
 // This is the initialization function that does the setup
-PyMODINIT_FUNC PyInit_numpy_interval(void) {
+PyMODINIT_FUNC PyInit_ndinterval(void) {
 
   PyObject *module;
   PyObject *tmp_ufunc;

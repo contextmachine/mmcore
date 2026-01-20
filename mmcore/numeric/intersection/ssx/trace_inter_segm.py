@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import warnings
+from typing import Protocol, TypedDict
+
 import numpy as np
 from numpy._typing import NDArray
 
-from mmcore.geom._nurbs_eval import evaluate_nurbs_surface, NURBSCurveTuple,NURBSSurfaceTuple
+from mmcore.construction import nurbs_curve
+from mmcore.geom._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface, NURBSCurveTuple,NURBSSurfaceTuple
 
 # Reuse your existing homogeneous helpers and derivative net extractors
 # ... (Keep your imports and _eval_tensor_bezier, etc.)
@@ -15,7 +19,7 @@ from mmcore.geom._nurbs_eval import evaluate_nurbs_surface, NURBSCurveTuple,NURB
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.geom._nurbs_knots import link_curves
+from mmcore.geom._nurbs_knots import link_curves,remove_knot,remove_knot_curve_max
 from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
@@ -252,14 +256,15 @@ def _refine_stuv(
     s2,
     *,
     spt: float,
-    max_iter: int = 50,
+    max_iter: int = 150,
+        angle_tol: float = 0.052,
 ) -> NDArray[np.float64] | None:
     """
     Use your existing corrector to project stuv to the true intersection.
     """
     g = np.asarray(stuv_guess, dtype=np.float64)
     try:
-        stuv_new, *_ = refine_intersection_point(g, s1, s2, spt=spt, max_iter=max_iter)
+        stuv_new, *_ = refine_intersection_point(g, s1, s2, spt=spt, max_iter=max_iter,angle_tol=angle_tol)
     except Exception:
         return None
     if stuv_new is None:
@@ -285,6 +290,7 @@ def _fit_span_adaptive(
     spt: float,
     max_depth: int,
     depth: int = 0,
+        angle_tol: float = 0.052,
 ) -> list[NURBSCurveTuple]:
     """
     Returns list of cubic Bezier NURBS segments in stuv-space approximating the intersection
@@ -323,11 +329,11 @@ def _fit_span_adaptive(
     # subdivide at worst sample location (usually mid)
     t_split = float(t_bad)
     Pm_guess = _cubic_bezier_eval(ctrl_cubic, t_split)
-    Pm = _refine_stuv(Pm_guess, s1, s2, spt=spt, max_iter=60)
+    Pm = _refine_stuv(Pm_guess, s1, s2, spt=spt, max_iter=100,angle_tol=angle_tol)
     if Pm is None:
         # if corrector fails, try splitting at 0.5 using line guess
         Pm_guess = _cubic_bezier_eval(ctrl_line, 0.5)
-        Pm = _refine_stuv(Pm_guess, s1, s2, spt=spt, max_iter=60)
+        Pm = _refine_stuv(Pm_guess, s1, s2, spt=spt, max_iter=100,angle_tol=angle_tol)
         if Pm is None:
             # last resort: accept line (leaf is tiny anyway)
             return [_make_bezier_curve_stuv(ctrl_line)]
@@ -340,11 +346,11 @@ def _fit_span_adaptive(
 
     left = _fit_span_adaptive(
         s1, s2, eval1, eval2, P0, Pm, interval1, interval2,
-        spt=spt, max_depth=max_depth, depth=depth + 1,
+        spt=spt, max_depth=max_depth, depth=depth + 1,angle_tol=angle_tol
     )
     right = _fit_span_adaptive(
         s1, s2, eval1, eval2, Pm, P1, interval1, interval2,
-        spt=spt, max_depth=max_depth, depth=depth + 1,
+        spt=spt, max_depth=max_depth, depth=depth + 1,angle_tol=angle_tol
     )
     return [*left, *right]
 
@@ -359,6 +365,7 @@ def fit_intersection_branch_adaptive(
     *,
     spt: float,
     max_depth: int = 10,
+        angle_tol: float = 0.052,
 ) -> NURBSCurveTuple:
     """
     Build a (typically very small) stuv-space curve for one leaf branch segment.
@@ -375,8 +382,8 @@ def fit_intersection_branch_adaptive(
     eval1 = _BezierPatchEval(H1, interval1)
     eval2 = _BezierPatchEval(H2, interval2)
 
-    Pa = _refine_stuv(np.asarray(stuv_a, dtype=np.float64), s1, s2, spt=spt, max_iter=60)
-    Pb = _refine_stuv(np.asarray(stuv_b, dtype=np.float64), s1, s2, spt=spt, max_iter=60)
+    Pa = _refine_stuv(np.asarray(stuv_a, dtype=np.float64), s1, s2, spt=spt, max_iter=100,angle_tol=angle_tol)
+    Pb = _refine_stuv(np.asarray(stuv_b, dtype=np.float64), s1, s2, spt=spt, max_iter=100,angle_tol=angle_tol)
     if Pa is None:
         Pa = np.asarray(stuv_a, dtype=np.float64)
     if Pb is None:
@@ -391,7 +398,7 @@ def fit_intersection_branch_adaptive(
         interval1, interval2,
         spt=spt,
         max_depth=max_depth,
-        depth=0,
+        depth=0,angle_tol=angle_tol
     )
 
     if not segs:
@@ -402,10 +409,26 @@ def fit_intersection_branch_adaptive(
         return segs[0]
 
     # stitch
-    curve, _ = link_curves(segs)
+    curve, interior_knots = link_curves(segs)
+    for i in interior_knots:
+    
+        _res=remove_knot(curve,i, tolerance=spt)
+
+        if _res.success:
+
+            curve=_res.curve
+
     return curve
 
+def remove_knots_after_merge(curve:NURBSCurveTuple,interior_knots, tol):
+    for i in interior_knots:
 
+        _res = remove_knot(curve, i, tolerance=tol)
+
+        if _res.success:
+
+            curve = _res.curve
+    return curve
 # ======================================================================================
 # Replace your current _simple_march_between with this implementation
 # ======================================================================================
@@ -416,19 +439,25 @@ def trace_between(
     stuv_a: NDArray[np.float64],
     stuv_b: NDArray[np.float64],
     *,
-    interval1: tuple[float, float, float, float],
+    interval1: tuple[float, float, float, float],       #u0,u1,v0,v1
     interval2: tuple[float, float, float, float],
     spt: float,
-    fit_max_depth: int = 10,
-) -> NURBSCurveTuple:
-    return fit_intersection_branch_adaptive(
-        H1, H2,
-        interval1, interval2,
-        stuv_a, stuv_b,
-        spt=spt,
-        max_depth=fit_max_depth,
-    )
 
+    fit_max_depth: int = 10,
+        angle_tol: float = 0.052,
+) -> NURBSCurveTuple:
+    #return fit_intersection_branch_adaptive(
+    #    H1, H2,
+    #    interval1, interval2,
+    #    stuv_a, stuv_b,
+    #    spt=spt,
+    #    max_depth=fit_max_depth,angle_tol=angle_tol
+    #)
+    return adaptive_refine_bruteforce(H1, H2,
+             stuv_a, stuv_b,  interval1=interval1, interval2=interval2,
+
+        spt=spt,
+        fit_max_depth=fit_max_depth, angle_tol=angle_tol)
 
 # ======================================================================================
 # Small call-site change inside _leaf_boundary_test_and_march()
@@ -452,6 +481,225 @@ def trace_between(
 #                )
 #                branches.append(SSXBranch(curve=curve))
 #        points = [points[k] for k in leftover]
+from mmcore.numeric._bern_homog import eval_bezier_surface_homog_fast
+class EvalSurfaceData(TypedDict):
+
+    S:NDArray[np.float64]
+    Su: NDArray[np.float64]
+    Sv: NDArray[np.float64]
+    Suu: NDArray[np.float64]
+    Suv: NDArray[np.float64]
+    Svv: NDArray[np.float64]
+    N:NDArray[np.float64]
+from mmcore.numeric import evaluate_sectional_curvature
+class SSXStepData(TypedDict):
+    stuv:NDArray[np.float64]
+    s1:EvalSurfaceData
+    s2:EvalSurfaceData
+    T:NDArray[np.float64]
+    K:NDArray[np.float64]
+    pN:NDArray[np.float64]
+    delta_stuv:NDArray[np.float64]
+
+from mmcore.numeric import  evaluate_normal,evaluate_normal2,evaluate_sectional_curvature
+
+class InterpNode:
+    __slots__ = ("stuv", 's_eval',"prev", "next","prev_segm", "next_segm")
+    def __init__(self, s_eval:SSXStepData,prev=None,next=None):
+        self.s_eval = s_eval
+        self.prev = prev
+        self.next = next
+        self.prev_segm=None
+        self.next_segm=None
+
+    def compute(self):
+        self.compute_normals_tangent_and_curvature()
+        self.compute_ptangents()
+
+    def compute_normals_tangent_and_curvature(self):
+        if self.s_eval['s1'].get('N') is None:
+            self.s_eval['s1']['N']=evaluate_normal2(   self.s_eval['s1']['Su'],self.s_eval['s1']['Sv'],self.s_eval['s1']['Suu'],self.s_eval['s1']['Suv'],self.s_eval['s1']['Svv'],self.s_eval['s1']['Svv'])
+            self.s_eval['s1']['N']/=np.linalg.norm(self.s_eval['s1']['N'])
+        if self.s_eval['s2'].get('N') is None:
+            self.s_eval['s2']['N']=evaluate_normal2(   self.s_eval['s2']['Su'],self.s_eval['s2']['Sv'],self.s_eval['s2']['Suu'],self.s_eval['s2']['Suv'],self.s_eval['s2']['Svv'],self.s_eval['s2']['Svv'])
+            self.s_eval['s2']['N']/=np.linalg.norm(self.s_eval['s2']['N'])
+
+        self.s_eval['T']=np.cross(self.s_eval['s1']['N'],
+        self.s_eval['s2']['N'])
+        self.s_eval['T']/=np.linalg.norm(self.s_eval['T'])
+        self.section_plane_normal()
+        success,curvature_vector=self.compute_sectional_curvature()
+        if not success:
+            warnings.warn('Sectional curvature computation failed.')
+        self.s_eval['K']=curvature_vector
+    def compute_ptangents(self):
+        """compute tangents direction in parametric space"""
+        J0 = np.column_stack((np.array(self.s_eval['s1']["Su"]), np.array(self.s_eval['s1']["Sv"])))
+        J1 = np.column_stack((np.array(self.s_eval['s2']["Su"]), np.array(self.s_eval['s2']["Sv"])))
+
+        delta_st = np.linalg.pinv(J0) @ self.s_eval['T']
+        delta_uv = np.linalg.pinv(J1) @ self.s_eval['T']
+        self.s_eval['delta_stuv']=np.concatenate((delta_st,delta_uv))
+
+
+    def section_plane_normal(self):
+        if self.prev is None:
+            pN=np.cross(self.s_eval['T'],self.s_eval['s2']['N'])
+            pN/=np.linalg.norm(pN)
+        else:
+
+            self.s_eval['pN']=np.cross(self.s_eval['T'],self.s_eval['s2']['N'])
+        self.s_eval['pN']=np.cross(self.s_eval['T'],self.s_eval['s2']['N'])
+    def compute_sectional_curvature(self):
+        return evaluate_sectional_curvature(self.s_eval['s1']['Su'],self.s_eval['s1']['Sv'],self.s_eval['s1']['Suu'],self.s_eval['s1']['Suv'],self.s_eval['s1']['Svv'],self.s_eval['pN'])
+
+    def __iter__(self):
+
+        cur=self
+        while True:
+
+            yield cur.s_eval['stuv']
+            if cur.next is None:
+                break
+            cur=cur.next
+
+class InterpSegm:
+    __slots__ = ("start", "end", "curve_stuv","curve_xyz")
+
+    def __init__(self,start:InterpNode,end:InterpNode):
+        self.start=start
+        self.end=end
+        start: InterpNode
+        end: InterpNode
+        start.curve_stuv: NDArray = None
+        end.curve_xyz: NDArray = None
+
+    def stuv_mid(self) -> NDArray[np.float64]: ...
+
+    def xyz_mid(self)->NDArray[np.float64]:...
+
+    def build_curves(self):...
+
+    @property
+    def next_segm(self):
+        if self.end.next_segm is not None:
+            return self.end.next_segm
+        return None
+    @property
+    def prev_segm(self):
+        if self.start.prev_segm is not None:
+            return self.start.prev_segm
+        return None
+
+
+import numpy as np
+def acceleration_energy(p_start,t_start,p_end,t_end):
+    """
+    минимальная «энергия изгиба/ускорения» (замкнутая форма). Результаи минимизирует:
+
+
+    :return:
+    """
+
+
+    D = p_end - p_start
+    a = np.dot(D, t_start)
+    b = np.dot(D, t_end)
+    c = np.dot(t_start, t_end)
+
+    h0 = (2 * a - c * b) / (4 - c**2)
+    h1 = (2 * b - c * a) / (4 - c**2)
+    return h0, h1
+
+def hinterp(points, ders):
+    """
+    Hermite interpolation with consideration of minimum "bending/acceleration energy"
+    :param points: starting point and end point
+    :param ders: starting and ending derivatives
+    :return: Bezier control points
+    """
+    unit_ders=ders/np.linalg.norm(ders,axis=1,keepdims=True)
+    h1,h2=acceleration_energy(points[0],unit_ders[0],points[1],unit_ders[1])
+    return  np.array([points[0],points[0]+unit_ders[0]*h1,points[1]-unit_ders[1]*h2,points[1]])
+
+
+def adaptive_refine_bruteforce(
+    H1: NDArray[np.float64],
+    H2: NDArray[np.float64],
+
+        stuv_a: NDArray[np.float64],
+        stuv_b: NDArray[np.float64],
+        *,
+        interval1: tuple[float, float, float, float],      #u0,u1,v0,v1
+        interval2: tuple[float, float, float, float],
+        spt: float,
+
+        fit_max_depth: int = 140,
+        angle_tol: float = 0.052,
+):
+    depth = 0
+
+    s1=bern_to_nurbs_bezier(H1, interval=((interval1[0], interval1[1]), (interval1[2], interval1[3])), rational=True)
+    s2=bern_to_nurbs_bezier(H2, interval=((interval2[0], interval2[1]), (interval2[2], interval2[3])), rational=True)
+    xyz_s = evaluate_nurbs_surface(s1, stuv_a[0], stuv_a[1], d_order=2)
+    xyz_s2 = evaluate_nurbs_surface(s2, stuv_a[2], stuv_a[3], d_order=2)
+
+    xyz_e= evaluate_nurbs_surface(s1, stuv_b[0], stuv_b[1], d_order=2)
+    xyz_e2= evaluate_nurbs_surface(s2, stuv_b[2], stuv_b[3], d_order=2)
+
+    node_a = InterpNode(  {'stuv':stuv_a,'s1':xyz_s,'s2':xyz_s2,"T":None,"pN":None,"K":None},prev=None, next=None)
+    node_b = InterpNode({'stuv':stuv_b,'s1':xyz_e,'s2':xyz_e2,"T":None,"pN":None,"K":None}, prev=node_a, next=None)
+
+    node_a.next = node_b
+    node_a.compute()
+    node_b.compute()
+    stack = [(node_a, node_b, depth, np.inf)]
+    while stack:
+        stuv_start, stuv_end, cur_depth,delta = stack.pop()
+        if cur_depth >= fit_max_depth:
+            warnings.warn(f"max depth reached:{delta} {stuv_start.s_eval['s1']['S'],stuv_start.s_eval['s2']['S']}")
+            continue
+
+        stuv_mid = stuv_start.s_eval['stuv'] + (stuv_end.s_eval['stuv']
+                                 - stuv_start.s_eval['stuv']) / 2
+
+
+        xyz1 = evaluate_nurbs_surface(s1, stuv_mid[0], stuv_mid[1],d_order=0)['S']
+
+        stuv_mid_current, p_eval, q_eval, error = refine_intersection_point(
+            stuv_mid,
+            s1,
+            s2,
+            spt=spt,
+            max_iter=140,
+            angle_tol=angle_tol,
+        )
+        p_eval = evaluate_nurbs_surface(s1, stuv_mid_current[0], stuv_mid_current[1],d_order=2)
+        q_eval =  evaluate_nurbs_surface(s2, stuv_mid_current[2], stuv_mid_current[3],d_order=2)
+
+        new_node=InterpNode( {'stuv':stuv_mid_current,'s1':p_eval,'s2':q_eval,"T":None,"pN":None,"K":None},prev=stuv_start, next=stuv_end)
+
+        stuv_start.next=new_node
+        stuv_end.prev=new_node
+
+        new_node.compute_normals_tangent_and_curvature()
+        T = (new_node.s_eval['s1']["S"] - stuv_start.s_eval['s1']["S"]) / 2
+        dT=np.linalg.norm(T)
+        s = np.sqrt(8.0 * spt / np.linalg.norm(new_node.s_eval['K']))
+        if dT<=s:
+            continue
+        delta=np.linalg.norm(p_eval['S']-xyz1)
+
+
+
+        if delta>= spt:
+
+            stack.append((stuv_start,new_node,cur_depth+1,delta))
+            stack.append((new_node,stuv_end,cur_depth+1,delta))
+        else:
+            continue
+
+    return nurbs_curve(np.array(list(node_a)),1)
 
 
 def _from_homogeneous(H: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:

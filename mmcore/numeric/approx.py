@@ -7,11 +7,8 @@ from mmcore.geom._nurbs_eval import NURBSCurveTuple,evaluate_nurbs_curve
 from mmcore.numeric.numeric import compute_parametric_curvature_tolerance_curve
 
 
-
 def chord_length(R, h):
     return 2 * np.sqrt(2 * R * h - (h * h))
-
-
 
 
 def chord_height(radius: float, chord_length: float) -> float:
@@ -130,7 +127,7 @@ def adaptive_bez_sampler(crv, tol):
     evals.append(ce_end)
     
     return params, du_list, evals, s_list
- 
+
 from mmcore.geom._nurbs_ders import _greville_abscissae as nurbs_ders_greville_abscissae
 def adaptive_curve_sampler(crv, tol=1e-3, max_param_step_fraction=12, max_points=int(1e+6)):
     """
@@ -304,7 +301,10 @@ def minimum_3d_obb(points, tol=1e-8):
             best['extents'])
 
 
+def _from_home_2d(cpts):
+    print(cpts.shape)
 
+    return cpts[...,:-1]/cpts[...,-1,None]
 
 def fit_plane_svd(points, weights=None, eps=1e-12):
     """
@@ -359,29 +359,35 @@ def _gen_cpts_to_display(scalar_net):
     
     return Pts
 
+def _split_interv(interval=((0.,1.),(0.,1.)),):
+    ((u0, u1), (v0, v1))=interval
+    umid,vmid= (u1 - u0) / 2 + u0, (v1 - v0) / 2 + v0
+    return ((u0,umid),(v0,vmid)), ((umid,u1),(vmid,v1))
+from mmcore.geom._nurbs_knots import subdivide_surface
+def adaptive_bern_sampler_2d(nu: NDArray[float],tol:float=1e-2, interval=((0.,1.),(0.,1.)),rational=False):
 
-
-        
-def adaptive_bern_sampler_2d(nu: NDArray[float], tol:float=1e-3):
-    stack = [nu]
     quads = []
-    
+    nrb=bern_to_nurbs_bezier(nu,interval=interval,rational=rational)
+    stack = [nrb]
     while stack:
-        
-        subpatch = stack.pop(0)
-        
-        centroid, normal, max_abs_dev, dists = fit_plane_svd(subpatch.reshape((-1, subpatch.shape[-1])))
+
+        sbp = stack.pop()
+        (u0, u1), (v0, v1) = sbp.interval()
+
+        centroid, normal, max_abs_dev, dists = fit_plane_svd(sbp.control_points.reshape((-1, sbp.control_points.shape[-1])))
         if max_abs_dev < tol:
-            
-            quads.append((subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1], subpatch[-1, 0]))
+
+            quads.append(((u0, v0), (u0, v1),(u1, v1),(u1, v0)))
             continue
-        elif np.array(aabb(subpatch.reshape(-1, 3))).max() < tol:
-            quads.append(
-                (subpatch[0, 0], subpatch[0, -1], subpatch[-1, -1],
-                 subpatch[-1, 0]))
+        elif np.array(aabb(sbp.control_points.reshape(-1, sbp.control_points.shape[-1]))).max() < tol:
+            quads.append(((u0, v0), (u0, v1), (u1, v1), (u1, v0)))
             continue
         else:
-            stack.extend(de_casteljau_subdivide_2d(subpatch, 0.5, 0.5))
+            umid,vmid= (u1 - u0) / 2+u0, (v1 - v0) / 2 + v0
+
+            for patch in subdivide_surface(sbp, umid,vmid):
+
+                stack.append(patch )
 
     return quads
 
@@ -480,11 +486,7 @@ def _adaptive_bern_sampler_2d_tri(
     return V, F
 
 
-
 from mmcore.numeric.aabb import aabb
 
 
-
-
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
-

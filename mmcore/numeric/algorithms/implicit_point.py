@@ -453,7 +453,6 @@ def intersection_curve_point_batch(surf1, surf2, q0, grad1=None, grad2=None, tol
         return success.reshape(initial_shape[:-1]), qk.reshape(initial_shape)
 
 
-
 def _resolve_grad(func, grad=None):
     return grad if grad is not None else Grad(func)
 
@@ -619,7 +618,11 @@ def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=No
 
         # First-iteration fix for tiny gradients (ported from scalar version)
         if k == 0:
+            print(cc.shape)
+            print(tol_sq)
             small_grad = cc < tol_sq
+
+            print(small_grad.shape,fi.shape)
             if np.any(small_grad):
                 fi_small = fi[small_grad]
                 # Use the same expression as in the scalar code
@@ -659,7 +662,7 @@ def surface_point_v(fun, p0, grad=None, tol=1e-8, full_output=False, callback=No
 
     return result
 
-    
+
 def surface_point_local(fun, p0, bounds, strict=False, grad=None, tol=1e-8, full_output=False):
     """
     
@@ -753,23 +756,19 @@ if __name__ == "__main__":
         # Sphere centered at (0, 0, 0) with radius 1: x^2 + y^2 + z^2 - 1 = 0
         return point[0] ** 2 + point[1] ** 2 + point[2] ** 2 - 1
 
-
     def sphere2(point):
         # Sphere centered at (0.5, 0.5, 0.5) with radius 1:
         # (x-0.5)^2 + (y-0.5)^2 + (z-0.5)^2 - 1 = 0
         return (point[0] - 0.5) ** 2 + (point[1] - 0.5) ** 2 + (point[2] - 0.5) ** 2 - 1
 
-
     # Optionally, provide explicit gradient functions.
     def sphere1_grad(point):
         return np.array([2 * point[0], 2 * point[1], 2 * point[2]])
-
 
     def sphere2_grad(point):
         return np.array([2 * (point[0] - 0.5),
                          2 * (point[1] - 0.5),
                          2 * (point[2] - 0.5)])
-
 
     # Create a batch of initial points in 3D (shape (B, 3)).
     q0_batch = np.array([
@@ -798,3 +797,4 @@ if __name__ == "__main__":
     print(g1_vals)
     print("\nGradient of sphere2 (g2):")
     print(g2_vals)
+

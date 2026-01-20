@@ -36,7 +36,7 @@ def interval_newton(f_scalar, df_interval, X:Interval, tol=1e-10, max_depth=30):
     for I in result:
         if not merged: merged.append(I); continue
         if I.low<=merged[-1].upp+tol:   # overlap or touch
-            merged[-1]=Interval(merged[-1].low, max(merged[-1].upp, I.upp))
+            merged[-1]=interval(merged[-1].low, max(merged[-1].upp, I.upp))
         else:
             merged.append(I)
     return merged
