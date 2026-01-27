@@ -813,16 +813,21 @@ def confirm_overlap_span(
         return True, uu, vv
 
     # First, check the ends of the segment.
+    _uv=('u0','u1','v0','v1')
+
     t0, u0, v0, G0 = _project_fixed_t(0.0, u_seed, v_seed)
     on0d = np.linalg.norm(eval_bezier_curve(C,t0,rational=rational)-eval_bezier_surface(S,u0, v0,rational=rational))
 
     t1, u1, v1, G1 = _project_fixed_t(1.0, u0, v0)
     on1d  = np.linalg.norm(eval_bezier_curve(C,t1,rational=rational)-eval_bezier_surface(S,u1, v1,rational=rational))
-    on0=on0d<=tol_conf
-    on1 = on1d <= tol_conf
+    #print(on0d,on1d)
+    on0=on0d<=(2*tol_conf)
+    on1 = on1d <= (2*tol_conf)
+    #print(on0,on1)
     # If both ends lie on the surface, confirm overlap across the full span.
-    #print(on0d,on0, t0, u0, v0, G0 ,)
-    #print(on1d,on1,t1, u1, v1, G1)
+    # print(on0d,on0, t0, u0, v0, G0 ,)
+    # print(on1d,on1,t1, u1, v1, G1)
+
     if on0 and on1:
         ok, u_seed, v_seed = _check_interval(0.0, 1.0, u0, v0)
         if not ok:
@@ -836,11 +841,12 @@ def confirm_overlap_span(
             "start": "boundary",
             "end": "boundary",
         }
-
+    #print(tol_conf,tol_proj,angle_tol)
     # If at least one end does not lie on the surface, use boundary intersection.
     iso_bnd, ovl_bnd = curve_surface_boundary_intersect(
         C, S, sv_thresh=sv_thresh, atol=tol_conf, rational=rational
     )
+
     # Deduplicate boundary points by t (boundary CCX can return identical endpoints).
     if iso_bnd:
         t_eps = max(1e-9, 1e-6 * tol_conf)
@@ -885,7 +891,6 @@ def confirm_overlap_span(
 
             iso_bnd = [it for it in iso_bnd if abs(float(it["t"]) - t_e) > t_eps]
 
-
         if len(iso_bnd) == 1:
             bnd = iso_bnd[0]
             t_e = 0.0 if on0 else 1.0
@@ -913,6 +918,7 @@ def confirm_overlap_span(
                 "end": "boundary",
                 "partial": True,
             }
+        return
         logger.error(
             "Span confirm: one endpoint on surface, boundary intersects=%d (expected 1).  %s",
             len(iso_bnd),repr(iso_bnd)
@@ -1952,7 +1958,7 @@ def bez_csx(
         angle_tol=angle_tol,
         sv_thresh=sv_thresh,
         rational=rational,
-        rel_thresh=1e-6,
+        rel_thresh=1e-5,
     )
 
     if span_overlap is not None:

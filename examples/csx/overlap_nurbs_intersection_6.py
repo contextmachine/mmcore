@@ -147,12 +147,13 @@ curves1=join_curves(extract_surface_boundaries(s1))
 
 for curve in curves1:
     isolated, overlaps = result = nurbs_csx_v2(curve, s2, 1e-3, overlap_dist_tol=1e-3)
+
     results_all.append((curve,isolated,overlaps))
 
 for curve in curves2:
     isolated, overlaps = result = nurbs_csx_v2(curve, s1, 1e-3, overlap_dist_tol=1e-3)
-    results_all.append((curve,isolated,overlaps))
 
+    results_all.append((curve,isolated,overlaps))
 
 
 try:

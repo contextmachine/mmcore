@@ -1761,19 +1761,31 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False,**kwargs
     bern = np.squeeze(bern)[..., np.newaxis]
     if interval is None:
         interval = (0., 1.)
-
+    def rescale(b):
+        return b/(np.max(b)-np.min(b))
     stack = [(bern, tuple(interval))]
     roots = []
     iters = 0
     while stack:
         coeffs, interv = stack.pop(0)
         iters += 1
+        if np.all(np.abs(coeffs)<eps) :
+
+            roots.append((ndinterv(*interv),coeffs[0].item()))
+            continue
+        if np.abs(coeffs[0])<eps:
+            roots.append((interv[0],coeffs[0].item()))
+
+        if np.abs(coeffs[-1])<eps:
+
+            roots.append((interv[1], coeffs[-1].item()))
 
         sign_changes = _count_sign_changes(np.squeeze(coeffs), 0.0)
         split_axis = 0
         if sign_changes == 0:
             continue
         elif sign_changes == 1:
+            coeffs=rescale(coeffs)
             d1 = bernstein_partial_derivative_coeffs(coeffs, axis=0)
 
             # d2 = bernstein_partial_derivative_coeffs(d1, axis=0)
@@ -1814,99 +1826,6 @@ def bern_roots_1d(bern, eps: float = 1e-3, interval=None,rational=False,**kwargs
 
     return BernRootsOutput(np.array(roots), np.array(errs), iters)
 
-
-def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
-    sg = np.zeros_like(bern, dtype=int)
-    sg[bern > eps] = 1
-    sg[bern < -eps] = -1
-    def _gen_cpts_to_display(scalar_net):
-
-
-        Pts = np.zeros((*scalar_net.shape, scalar_net.ndim + 1))
-        for i in range(scalar_net.shape[0]):
-            for j in range(scalar_net.shape[0]):
-                Pts[i, j, 2] = scalar_net[i, j]
-                Pts[i, j, 0] = gril[0][ i]
-                Pts[i, j, 1] = gril[1][ j]
-
-
-        return Pts
-    sign_change_edges_nd(bern, return_linear=True)
-    src, dst = sign_change_edges_nd(bern, return_linear=True)
-    from collections import defaultdict
-
-
-    uu = defaultdict(dict)
-    fg = bern.flat
-    for s, d in list(zip(src, dst)):
-        uu[s.item()][d.item()] = fg[d]
-        uu[d.item()][s.item()] = fg[s]
-        uu[d.item()][-1] = fg[d]
-        uu[s.item()][-1] = fg[s]
-
-
-    ndims = bern.ndim
-    isolines = []
-    axes_all = np.arange(ndims, dtype=int)
-
-
-    gril = [bern_greville_abscissae(bern.shape[d]) for d in range(len(bern.shape))]
-    nn = bern_to_nurbs_bezier(_gen_cpts_to_display(bern), rational=False)
-    mabyroots = []
-    for k, v in uu.items():
-        k_multiindex = np.unravel_index(k, bern.shape)
-        coord_k = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(k_multiindex)))
-
-
-        for j, cf in v.items():
-            if j != -1:
-                j_multiindex = np.unravel_index(j, bern.shape)
-                coord_j = np.array(tuple(gril[_d][_j] for _d, _j in enumerate(j_multiindex)))
-                mabyroots.append((zero_crossing_nd(coord_k, coord_j, v[-1], v[j])
-                                      , (coord_k, coord_j)))
-
-
-    for candidate, ends in mabyroots:
-        candidate = np.array(candidate)
-
-
-        for ax in range(ndims):
-            cl = candidate.tolist()
-
-
-            l = axes_all.tolist()
-            del l[ax]
-            del cl[ax]
-
-
-
-
-
-            iso = np.squeeze(de_casteljau_restrict_multi_nd(nn.control_points, l, cl)
-
-
-                             )
-
-
-            isolines.append(iso
-                            )
-
-
-    pts = []
-    for i in isolines:
-
-
-        roots = bern_roots_1d(i[..., -1][..., None], 1e-6)
-
-
-        try:
-
-
-            pts.extend([bezier_curve_derivatives_compact(i, rr, 0) for rr in roots.roots])
-        except Exception as err:
-            print(err)
-            print('d', roots.roots)
-    return pts,nn
 
 def bern_roots_2d(bern,eps:float=1e-3,interval=None)->BernRootsOutput:
     sg = np.zeros_like(bern, dtype=int)
