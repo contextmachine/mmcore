@@ -1244,6 +1244,85 @@ static PyObject* py_get_iarray(PyObject* NPY_UNUSED(self), PyObject* args) {
   return (PyObject*)out;
 }
 
+
+
+
+
+// nd_subset(i1,i) -> bool_array
+// i in
+static PyObject* subset(PyObject* self, PyObject* args) {
+  PyObject* l_obj;
+  PyObject* u_obj;
+  PyArrayObject* l_arr = NULL;
+  PyArrayObject* u_arr = NULL;
+  PyArrayObject* out = NULL;
+  int ndim;
+  npy_intp* shape;
+  npy_intp n, i;
+  double* l_src;
+  double* u_src;
+  interval* dst;
+
+  if (!PyArg_ParseTuple(args, "OO", &l_obj, &u_obj)) {
+    return NULL;
+  }
+
+  // Convert to contiguous float64 arrays
+  l_arr = (PyArrayObject*)PyArray_FROM_OTF(l_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+  if (l_arr == NULL) {
+    return NULL;
+  }
+  u_arr = (PyArrayObject*)PyArray_FROM_OTF(u_obj, NPY_DOUBLE, NPY_ARRAY_IN_ARRAY);
+  if (u_arr == NULL) {
+    Py_DECREF(l_arr);
+    return NULL;
+  }
+
+  // Check shapes match
+  ndim = PyArray_NDIM(l_arr);
+  if (ndim != PyArray_NDIM(u_arr)) {
+    PyErr_SetString(PyExc_ValueError, "l and u arrays must have the same number of dimensions");
+    Py_DECREF(l_arr);
+    Py_DECREF(u_arr);
+    return NULL;
+  }
+  shape = PyArray_DIMS(l_arr);
+  for (i = 0; i < ndim; i++) {
+    if (shape[i] != PyArray_DIMS(u_arr)[i]) {
+      PyErr_SetString(PyExc_ValueError, "l and u arrays must have the same shape");
+      Py_DECREF(l_arr);
+      Py_DECREF(u_arr);
+      return NULL;
+    }
+  }
+
+  n = PyArray_SIZE(l_arr);
+
+  // Allocate interval output array
+  out = (PyArrayObject*)PyArray_SimpleNew(ndim, shape, interval_descr->type_num);
+  if (out == NULL) {
+    Py_DECREF(l_arr);
+    Py_DECREF(u_arr);
+    return NULL;
+  }
+
+  // Get data pointers
+  l_src = (double*)PyArray_DATA(l_arr);
+  u_src = (double*)PyArray_DATA(u_arr);
+  dst = (interval*)PyArray_DATA(out);
+
+  // Copy in tight loop
+  for (i = 0; i < n; i++) {
+    dst[i].l = l_src[i];
+    dst[i].u = u_src[i];
+  }
+
+  // Cleanup and return
+  Py_DECREF(l_arr);
+  Py_DECREF(u_arr);
+  return (PyObject*)out;
+}
+
 // from_cent_pert(cent, pert) -> interval_array
 // Create intervals from center and perturbation: [cent-pert, cent+pert]
 static PyObject* py_from_cent_pert(PyObject* NPY_UNUSED(self), PyObject* args) {
