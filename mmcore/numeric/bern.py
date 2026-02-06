@@ -536,7 +536,7 @@ def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
         raise ValueError("Need at least one parametric axis plus a trailing value axis.")
 
     D = control_grid.ndim - 1
-    ranges = np.asarray(ranges,dtype=ranges.dtype)
+    ranges = np.asarray(ranges,)
     if ranges.shape != (D, 2):
         raise ValueError(f"`ranges` must have shape ({D}, 2).")
 
