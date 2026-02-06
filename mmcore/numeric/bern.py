@@ -426,7 +426,7 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
             f"'axis' must be in [0, {param_ndim - 1}] among parametric axes; the trailing value axis is not allowed."
         )
     
-    control_grid = np.asarray(control_grid)
+    control_grid = np.asarray(control_grid,dtype=control_grid.dtype)
     dtype = control_grid.dtype
     # Move the chosen parametric axis to the front to simplify the recurrence
     A = np.moveaxis(control_grid, axis, 0)  # shape: (m, *B, N)
@@ -536,11 +536,11 @@ def bernstein_trim_nd(control_grid: np.ndarray, ranges) -> np.ndarray:
         raise ValueError("Need at least one parametric axis plus a trailing value axis.")
 
     D = control_grid.ndim - 1
-    ranges = np.asarray(ranges)
+    ranges = np.asarray(ranges,dtype=ranges.dtype)
     if ranges.shape != (D, 2):
         raise ValueError(f"`ranges` must have shape ({D}, 2).")
 
-    control_grid = np.asarray(control_grid)
+    control_grid = np.asarray(control_grid,dtype=control_grid.dtype)
     # Output (one full-size allocation); do all transforms in-place on `out`.
     dtype = control_grid.dtype
     out = np.asarray(control_grid, dtype=dtype).copy()
@@ -613,7 +613,7 @@ def de_casteljau_section_nd(control_grid: np.ndarray, axis: int, t, keepdims: bo
     out = np.moveaxis(cur, 0, axis)
     return out if keepdims else np.squeeze(out, axis=axis)
 
-def bern_eval(grid,params):
+def bern_eval(grid, params):
     current_grid=grid
     for i,v in enumerate(params)    :
         current_grid=de_casteljau_section_nd(current_grid,i,v)
@@ -935,10 +935,10 @@ def _bernstein_basis_matrix(n: int, t, dtype=None) -> np.ndarray:
         Basis matrix; M = number of samples in `t`.
         Row m contains [B^n_0(t_m), ..., B^n_n(t_m)].
     """
-    tt = np.asarray(t)
-    if dtype is None:
-        dtype = tt.dtype
-    tt = np.asarray(t, dtype=dtype)
+    if isinstance(t,ndinterv):
+        t=(t.l+t.u)/2
+
+    tt = np.asarray(t,)
     if tt.ndim == 0:
         tt = tt.reshape(1)
     M = tt.shape[0]
@@ -1087,7 +1087,9 @@ def _lower_transform(n: int, t: float, dtype=None) -> np.ndarray:
     Lower-triangular (n+1)x(n+1) matrix L(t) for the 'left' subdivision boundary.
     Row i: L[i, j] = C(i, j) * (1 - t)^(i - j) * t^j  for j<=i, else 0.
     """
-    t_arr = np.asarray(t)
+    if dtype is None:
+        dtype=getattr(t,'dtype',float)
+    t_arr = np.asarray(t,dtype=dtype)
     if dtype is None:
         dtype = t_arr.dtype
     L = np.zeros((n + 1, n + 1), dtype=dtype)
@@ -1095,7 +1097,7 @@ def _lower_transform(n: int, t: float, dtype=None) -> np.ndarray:
     t = np.asarray(t, dtype=dtype)
     for i in range(n + 1):
         for j in range(i + 1):
-            L[i, j] = binomial_coefficient_py(i, j) * (om ** (i - j)) * (t ** j)
+            L[i, j] = _comb_fast(i, j) * (om ** (i - j)) * (t ** j)
     return L
 
 
@@ -1104,10 +1106,11 @@ def _right_transform(n: int, a: float, dtype=None) -> np.ndarray:
     Upper-triangular (n+1)x(n+1) matrix R(a) producing the 'right' polygon at a.
     Identity when n==0.  R(a) = J * L(1 - a) * J.
     """
+    dtype=getattr(a,'dtype',float)
     if n == 0:
         return np.array([[1.0]], dtype=dtype if dtype is not None else float)
     if dtype is None:
-        dtype = np.asarray(a).dtype
+        dtype = np.asarray(a,dtype=dtype).dtype
     J = np.flipud(np.eye(n + 1, dtype=dtype))
     return J @ _lower_transform(n, 1.0 - a, dtype=dtype) @ J
 
@@ -1117,6 +1120,7 @@ def _trim_transform(n: int, a: float, b: float, dtype=None) -> np.ndarray:
     (n+1)x(n+1) matrix mapping coefficients on [0,1] to coefficients on [a,b],
     reparameterized back to [0,1]. Requires 0<=a<=b<=1.
     """
+    dtype=getattr(a,'dtype',float)
     if n == 0:
         return np.array([[1.0]], dtype=dtype if dtype is not None else float)
     if a == b:
@@ -1467,7 +1471,7 @@ def de_casteljau_subdivide_2d(control_points, u, v):
         for part in de_casteljau_split_nd(control_points, 0, u):
             yield from de_casteljau_split_nd(part, 1, v)
 
-    return np.asarray(tuple(gen()))
+    return np.asarray(tuple(gen()), dtype=control_points.dtype)
 
 
 import numpy as np
@@ -1490,7 +1494,7 @@ def de_casteljau_restrict_nd(control_grid: np.ndarray, axis: int, t, keepdims: b
     if not (0 <= axis < param_ndim):
         raise ValueError(f"'axis' must be in [0, {param_ndim - 1}] among parametric axes.")
 
-    control_grid = np.asarray(control_grid)
+    control_grid = np.asarray(control_grid,dtype=getattr(control_grid,'dtype',float) )
     dtype = control_grid.dtype
     # Move target param axis to front to apply 1D de Casteljau
     A = np.moveaxis(control_grid, axis, 0)  # (m, *B, N)

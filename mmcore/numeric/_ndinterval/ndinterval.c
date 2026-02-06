@@ -462,7 +462,7 @@ pyinterval_setstate(PyInterval* self, PyObject* args)
 // definining the PyInterval_Type below.
 PyMethodDef pyinterval_methods[] = {
   // Unary bool returners
-  {"nonzero", pyinterval_nonzero, METH_O,
+  {"nonzero", pyinterval_nonzero, METH_NOARGS,
    "True if the interval is PRECISELY nonzero"},
   // Binary bool returners
   {"equal", pyinterval_equal, METH_O,
@@ -506,7 +506,7 @@ PyMethodDef pyinterval_methods[] = {
    "Return the union of two intervals"},
   {"intersection", pyinterval_intersection, METH_O,
    "Return the intersection of two intervals"},
-  {"mimumum", pyinterval_minimum, METH_O,
+  {"minimum", pyinterval_minimum, METH_O,
    "Return the minimum of two intervals"},
   {"maximum", pyinterval_maximum, METH_O,
    "Return the maximum of two intervals"},
@@ -1702,4 +1702,3 @@ PyMODINIT_FUNC PyInit_ndinterval(void) {
 
   return module;
 }
-
