@@ -7,10 +7,18 @@ from mmcore.numeric._aabb import aabb,aabb_intersect,aabb_intersection,ray_aabb_
 from mmcore.numeric.numeric import curve_bound_points, curve_bound_points2
 from mmcore.numeric.routines import cartesian_product
 __all__=["aabb", "aabb_intersect","aabb_intersection", "point_in_aabb", "aabb_overlap",'curve_aabb','curve_aabb2','curve_aabb_eager',"segment_aabb_intersect","segment_aabb_clip","ray_aabb_intersect",'aabb_segm3d',"aabb_intersect_fast_3d"]
-@np.vectorize(signature="(i),(i)->(j,i)")
+
+
+
+
 def box_from_intervals(start, end):
     return cartesian_product(*(np.dstack((start, end))[0]))
 
+
+
+
+
+box_from_intervals=np.vectorize(box_from_intervals,signature="(i),(i)->(j,i)")
 def aabb_offset(bbox, d):
     bb=np.copy(bbox)
     bb[1]+=d

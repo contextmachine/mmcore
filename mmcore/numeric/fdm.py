@@ -5,7 +5,7 @@ import math
 import sys
 import warnings
 from enum import Enum
-
+from functools import lru_cache
 
 from mmcore.numeric.vectors import scalar_dot, scalar_norm, norm
 from typing import Callable, Optional, Iterable,Literal
@@ -49,13 +49,13 @@ def _get_decimals(x:float)->int:
 
 DEFAULT_H = _MACHINE_EPS_CBRT['float64'] #  (Sauer, Timothy (2012). Numerical Analysis. Pearson. p.248.)[https://en.wikipedia.org/wiki/Numerical_differentiation#cite_ref-7]
 _DECIMALS = _get_decimals(DEFAULT_H)
-from scipy.sparse import eye, csr_matrix
-
-_PDE_H = csr_matrix(eye(128))
 
 
+#_PDE_H = csr_matrix(eye(128))
+
+@lru_cache(maxsize=128)
 def _get_pde_h(dim):
-    return _PDE_H[:dim, :dim]
+    return np.eye(dim)
 
 
 def fdm(f, method="central", h=DEFAULT_H):
