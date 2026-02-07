@@ -317,6 +317,40 @@ def _to_float_vec3(v):
     return np.array([_to_float_scalar(v[0]), _to_float_scalar(v[1]), _to_float_scalar(v[2])], dtype=float)
 
 # ------------------------------------------------------------
+# Fast point evaluators — avoid numpy moveaxis/asarray overhead
+# of the generic de_casteljau_section_nd for scalar point queries.
+# ------------------------------------------------------------
+
+def _decasteljau_1axis(cur, t):
+    """Apply de Casteljau along axis-0, reducing its size to 1, then squeeze."""
+    omt = 1.0 - t
+    for _ in range(cur.shape[0] - 1):
+        cur = omt * cur[:-1] + t * cur[1:]
+    return cur[0]
+
+def _fast_beval_scalar_4d(net, s, t, u, v):
+    """Evaluate a 4D scalar Bernstein net at float point (s,t,u,v).
+    net shape: (A, B, C, D).  Returns float."""
+    cur = np.asarray(net, dtype=np.float64)
+    cur = _decasteljau_1axis(cur, s)  # (B, C, D)
+    cur = _decasteljau_1axis(cur, t)  # (C, D)
+    cur = _decasteljau_1axis(cur, u)  # (D,)
+    omt = 1.0 - v
+    for _ in range(cur.shape[0] - 1):
+        cur = omt * cur[:-1] + v * cur[1:]
+    return float(cur[0])
+
+def _fast_beval_vec3_2d(net, s, t):
+    """Evaluate a 2D Bernstein net with 3D vector values at float point (s,t).
+    net shape: (A, B, 3).  Returns ndarray of shape (3,)."""
+    cur = np.asarray(net, dtype=np.float64)
+    cur = _decasteljau_1axis(cur, s)  # (B, 3)
+    omt = 1.0 - t
+    for _ in range(cur.shape[0] - 1):
+        cur = omt * cur[:-1] + t * cur[1:]
+    return cur[0]  # shape (3,)
+
+# ------------------------------------------------------------
 # Bézier derivatives for surfaces (tensor-product)
 # P: (m+1,n+1,3)
 # ------------------------------------------------------------
@@ -375,12 +409,35 @@ class DeflatedSystem:
             d3 = bernstein_derivative_nd(Ti, axis=3)
             self.dT.append((d0,d1,d2,d3))
 
+        # Precompute float64 copies for fast point evaluation.
+        # The originals may be interval-dtype; these are midpoint extractions.
+        def _to_f64(arr):
+            a = np.asarray(arr)
+            try:
+                return a.astype(np.float64)
+            except (TypeError, ValueError):
+                # interval dtype — extract midpoints
+                from mmcore.numeric.ndinterval import get_lu
+                lo, hi = get_lu(a)
+                return 0.5 * (lo + hi)
+
+        self._P1_f = _to_f64(self.P1)
+        self._P2_f = _to_f64(self.P2)
+        self._P1s_f = _to_f64(self.P1_s)
+        self._P1t_f = _to_f64(self.P1_t)
+        self._P2u_f = _to_f64(self.P2_u)
+        self._P2v_f = _to_f64(self.P2_v)
+        self._T_f = [_to_f64(Ti) for Ti in self.T]
+        self._dT_f = []
+        for grads in self.dT:
+            self._dT_f.append(tuple(_to_f64(g) if g is not None else None for g in grads))
+
     # ---- Ψ evaluation
 
     def psi_point(self, x):  # x float[4]
         s,t,u,v = x
-        r1 = _to_float_vec3(_beval_vec3(self.P1, (s,t), self.bern_eval))
-        r2 = _to_float_vec3(_beval_vec3(self.P2, (u,v), self.bern_eval))
+        r1 = _fast_beval_vec3_2d(self._P1_f, s, t)
+        r2 = _fast_beval_vec3_2d(self._P2_f, u, v)
         return r1 - r2
 
     def psi_box(self, B):  # B float bounds
@@ -398,11 +455,10 @@ class DeflatedSystem:
 
     def T_point(self, x):  # returns 4 floats
         s,t,u,v = x
-        vals = []
-        for Ti in self.T:
-            val = _beval_scalar(Ti, (s,t,u,v), self.bern_eval)
-            vals.append(_to_float_scalar(val))
-        return np.array(vals, dtype=float)
+        vals = np.empty(4, dtype=float)
+        for i, Tf in enumerate(self._T_f):
+            vals[i] = _fast_beval_scalar_4d(Tf, s, t, u, v)
+        return vals
 
     def T_box(self, B):  # returns 4 intervals
         params = _box_to_interval_params(B, self.interval_ctor)
@@ -428,30 +484,25 @@ class DeflatedSystem:
     def jac_point(self, x):
         s,t,u,v = x
         # Ψ Jacobian columns from surface partials
-        a = _to_float_vec3(_beval_vec3(self.P1_s, (s,t), self.bern_eval))  # dR1/ds
-        b = _to_float_vec3(_beval_vec3(self.P1_t, (s,t), self.bern_eval))  # dR1/dt
-        c = _to_float_vec3(_beval_vec3(self.P2_u, (u,v), self.bern_eval))  # dR2/du
-        d = _to_float_vec3(_beval_vec3(self.P2_v, (u,v), self.bern_eval))  # dR2/dv
+        a = _fast_beval_vec3_2d(self._P1s_f, s, t)  # dR1/ds
+        b = _fast_beval_vec3_2d(self._P1t_f, s, t)  # dR1/dt
+        c = _fast_beval_vec3_2d(self._P2u_f, u, v)  # dR2/du
+        d = _fast_beval_vec3_2d(self._P2v_f, u, v)  # dR2/dv
 
         J = np.zeros((7,4), dtype=float)
         # rows 0..2 correspond to Ψx,Ψy,Ψz
-        for k in range(3):
-            J[k,0] = a[k]
-            J[k,1] = b[k]
-            J[k,2] = -c[k]
-            J[k,3] = -d[k]
+        J[0:3, 0] = a
+        J[0:3, 1] = b
+        J[0:3, 2] = -c
+        J[0:3, 3] = -d
 
         # rows 3..6 are gradients of T1..T4
         for i in range(4):
-            d0,d1,d2,d3 = self.dT[i]
-            if d0 is None: J[3+i,0]=0.0
-            else: J[3+i,0]=_to_float_scalar(_beval_scalar(d0, (s,t,u,v), self.bern_eval))
-            if d1 is None: J[3+i,1]=0.0
-            else: J[3+i,1]=_to_float_scalar(_beval_scalar(d1, (s,t,u,v), self.bern_eval))
-            if d2 is None: J[3+i,2]=0.0
-            else: J[3+i,2]=_to_float_scalar(_beval_scalar(d2, (s,t,u,v), self.bern_eval))
-            if d3 is None: J[3+i,3]=0.0
-            else: J[3+i,3]=_to_float_scalar(_beval_scalar(d3, (s,t,u,v), self.bern_eval))
+            d0,d1,d2,d3 = self._dT_f[i]
+            J[3+i, 0] = 0.0 if d0 is None else _fast_beval_scalar_4d(d0, s, t, u, v)
+            J[3+i, 1] = 0.0 if d1 is None else _fast_beval_scalar_4d(d1, s, t, u, v)
+            J[3+i, 2] = 0.0 if d2 is None else _fast_beval_scalar_4d(d2, s, t, u, v)
+            J[3+i, 3] = 0.0 if d3 is None else _fast_beval_scalar_4d(d3, s, t, u, v)
         return J
 
     # ---- Interval Jacobian row for equation idx in {0..6}
@@ -926,65 +977,13 @@ def analyse_deflated_system(
 
     if dim == 1:
         # Infinite solutions of Δ_B in B: singular/tangent curve case.
+        # The witness point and dimension classification are sufficient for
+        # trace_gamma to trace the actual curve.  The expensive cover
+        # computation and Krawczyk-based curve sampling are omitted here;
+        # they can be requested separately if needed.
         out["status"] = "infinite"
-
-        # (A) Produce a "cover" of Δ_B by small boxes (subdivide + interval pruning).
-        cover = []
-        stack = [(Bf, 0)]
-        while stack:
-            Bb, depth = stack.pop()
-            if depth >= cover_max_depth or _box_max_width(Bb) <= cover_min_width:
-                # keep if still possible
-                fullI = sys.delta_box(Bb)
-                if all(_iv_contains0(I) for I in fullI):
-                    cover.append(Bb)
-                continue
-            fullI = sys.delta_box(Bb)
-            if any(not _iv_contains0(I) for I in fullI):
-                continue
-            B1,B2 = _box_split(Bb)
-            stack.append((B1, depth+1))
-            stack.append((B2, depth+1))
-        out["cover_boxes"] = cover
-
-        # (B) Sample the curve by slicing hyperplanes x_i = const (paper's L trick, but deterministic). :contentReference[oaicite:8]{index=8}
-        axis = _box_widest_axis(Bf)
-        lo, hi = Bf[axis]
-        if hi > lo:
-            samples = []
-            for k in range(curve_slice_count):
-                val = lo + (k+0.5)/curve_slice_count*(hi-lo)
-                a = np.zeros(4); a[axis] = 1.0
-                b = -float(val)
-                hyp = {"a": a, "b": b}
-
-                # augmented Jacobian at witness for best subset that includes hyperplane row (index 7)
-                J7 = sys.jac_point(xw)
-                J8 = np.vstack([J7, a.reshape(1,4)])
-                candidates = choose_best_subset(J8, require=7, eq_count=8, top_k=3)
-
-                # narrow the box in that axis to help isolation
-                Bb = list(Bf)
-                half = 0.5*(hi-lo)/curve_slice_count
-                Bb[axis] = (max(lo, val-half), min(hi, val+half))
-                Bb = tuple(Bb)
-
-                for sub in candidates:
-                    sys4 = build_square_from_subset(sys, sub, hyperplane=hyp)
-                    boxes, _ = isolate_roots_krawczyk(sys4, Bb, max_depth=14, min_width=max(point_min_width, half*0.2))
-                    for rootB in boxes:
-                        xm = _box_mid(rootB)
-                        # Verify full Δ at xm numerically
-                        fn = np.linalg.norm(sys.delta_point(xm))
-                        if fn < 1e-6:
-                            xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (xm[0],xm[1]), bern_eval))
-                            samples.append({"param": tuple(map(float,xm)), "xyz": tuple(map(float,xyz))})
-                    if samples:
-                        break
-            # sort samples along the slicing axis for a crude polyline
-            samples.sort(key=lambda d: d["param"][axis])
-            out["curve_samples"] = samples
-
+        out["cover_boxes"] = []
+        out["curve_samples"] = []
         return out
 
     # dim == 2
