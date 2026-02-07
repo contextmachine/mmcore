@@ -53,9 +53,7 @@ jobs:
         run: poetry install --no-interaction --no-root
 
       - name: Poetry build
-        run: |
-          source $VENV
-          poetry build
+        run: poetry build
 
       - name: Artifact name
         id: artifactname
