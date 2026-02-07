@@ -1674,9 +1674,9 @@ def classify_points_3d(P: np.ndarray, eps: float = 1e-3):
     else:          kind, vec = "3d",    None
     return kind, (r2, r3), evals, c, vec
 def ch_separability(pts1,pts2, atol,rational=False):
-    pts1,pts2=pts1.reshape(-1, pts1.shape[-1]), pts2.reshape(-1,  pts2.shape[-1])
-    if rational:
-        pts1,pts2=pts1[...,:-1]/pts1[...,None,-1], pts2[...,:-1]/pts2[...,None,-1]
+    dpts1,dpts2=pts1.reshape(-1, pts1.shape[-1]), pts2.reshape(-1,  pts2.shape[-1])
+    #if rational:
+    #    pts1,pts2=pts1[...,:-1]/pts1[...,None,-1], pts2[...,:-1]/pts2[...,None,-1]
     # cent1=np.average(pts1,axis=0)
     # cent2 = np.average(pts2, axis=0)
     ### #print(cent1,cent2)
@@ -1702,7 +1702,10 @@ def ch_separability(pts1,pts2, atol,rational=False):
     #        return 2
     #if classify_points_3d(pts2, eps=1e-5)[0] != "3d":
     #        return 3
-    res=gjk(np.ascontiguousarray(pts1   ), np.ascontiguousarray(pts2  )   , tol=1e-5, max_iter=15  )
+    dpts1=dehomogenize_ctrl(dpts1,rational=rational)
+    dpts2=dehomogenize_ctrl(dpts2,rational=rational)
+
+    res=gjk(np.ascontiguousarray(dpts1   ), np.ascontiguousarray(dpts2  )   , tol=1e-5, max_iter=15  )
     # #print(res,(pts1.tolist(), pts2.tolist()))
     return int(res)
 
@@ -2108,13 +2111,13 @@ def bez_csx(
         dbox_s = np.asarray(box_s[1]) - np.asarray(box_s[0])
         scale = max(float(np.linalg.norm(dbox_c)), float(np.linalg.norm(dbox_s)), 1.0)
         tol_proj = max(1e-12, 1e-10 * scale)
+        #print(Pseg, Sseg)
+        #ch_sep=ch_separability(Pseg,Sseg,atol,rational=rational)
 
-        ch_sep=ch_separability(Pseg,Sseg,atol,rational=rational)
-
-        if ch_sep==0:
-            stats["pruned"] += 1
-            stats["pruned_by"].append("ch_sep")
-            continue
+        #if ch_sep==0:
+        #    stats["pruned"] += 1
+        #    stats["pruned_by"].append("ch_sep")
+        #    continue
 
         # Early contact detection (ccx-style)
         has_known_iso = cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1)
