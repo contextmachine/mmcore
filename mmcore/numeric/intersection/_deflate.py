@@ -301,13 +301,19 @@ def _box_to_interval_params(B, interval_ctor):
 # ------------------------------------------------------------
 
 def _beval_scalar(net, params, bern_eval):
-    arr = np.asarray(bern_eval(net, params))
-    return arr.reshape(-1)[0]
+    arr = bern_eval(net, params)
+    if not isinstance(arr, np.ndarray):
+        arr = np.asarray(arr)
+    return arr.flat[0]
 
 def _beval_vec3(net, params, bern_eval):
-    arr = np.asarray(bern_eval(net, params))
+    arr = bern_eval(net, params)
+    if not isinstance(arr, np.ndarray):
+        arr = np.asarray(arr)
     if arr.shape[-1] != 3:
         raise ValueError("Expected a vec3 Bernstein net with last axis length 3.")
+    if arr.ndim == 1:
+        return arr
     return arr.reshape(-1,3)[0]
 
 def _to_float_scalar(x):
@@ -315,6 +321,16 @@ def _to_float_scalar(x):
 
 def _to_float_vec3(v):
     return np.array([_to_float_scalar(v[0]), _to_float_scalar(v[1]), _to_float_scalar(v[2])], dtype=float)
+
+def _net_midpoint_float(net):
+    arr = np.asarray(net)
+    if np.issubdtype(arr.dtype, np.floating):
+        return arr.astype(float, copy=False)
+    out = np.empty(arr.shape, dtype=float)
+    it = np.nditer(arr, flags=["refs_ok", "multi_index"], op_flags=["readonly"])
+    for x in it:
+        out[it.multi_index] = _to_float_scalar(x.item())
+    return out
 
 # ------------------------------------------------------------
 # Bézier derivatives for surfaces (tensor-product)
@@ -365,23 +381,48 @@ class DeflatedSystem:
         self.P1_t = bezier_dv(self.P1)
         self.P2_u = bezier_du(self.P2)
         self.P2_v = bezier_dv(self.P2)
+        # Midpoint float nets for point evaluations.
+        self.P1_point = _net_midpoint_float(self.P1)
+        self.P2_point = _net_midpoint_float(self.P2)
+        self.P1_s_point = bezier_du(self.P1_point)
+        self.P1_t_point = bezier_dv(self.P1_point)
+        self.P2_u_point = bezier_du(self.P2_point)
+        self.P2_v_point = bezier_dv(self.P2_point)
+        self.T_point_nets = tuple(_net_midpoint_float(Ti) for Ti in self.T)
 
         # Gradients of Ti (4D scalar nets)
         self.dT = []  # list of (d/ds, d/dt, d/du, d/dv) nets or None
+        self.dT_point = []
         for Ti in self.T:
             d0 = bernstein_derivative_nd(Ti, axis=0)
             d1 = bernstein_derivative_nd(Ti, axis=1)
             d2 = bernstein_derivative_nd(Ti, axis=2)
             d3 = bernstein_derivative_nd(Ti, axis=3)
             self.dT.append((d0,d1,d2,d3))
+        for Ti in self.T_point_nets:
+            d0 = bernstein_derivative_nd(Ti, axis=0)
+            d1 = bernstein_derivative_nd(Ti, axis=1)
+            d2 = bernstein_derivative_nd(Ti, axis=2)
+            d3 = bernstein_derivative_nd(Ti, axis=3)
+            self.dT_point.append((d0,d1,d2,d3))
+
+    @staticmethod
+    def _ordered_unique(rows):
+        seen = set()
+        out = []
+        for r in rows:
+            if r not in seen:
+                seen.add(r)
+                out.append(r)
+        return out
 
     # ---- Ψ evaluation
 
     def psi_point(self, x):  # x float[4]
         s,t,u,v = x
-        r1 = _to_float_vec3(_beval_vec3(self.P1, (s,t), self.bern_eval))
-        r2 = _to_float_vec3(_beval_vec3(self.P2, (u,v), self.bern_eval))
-        return r1 - r2
+        r1 = _beval_vec3(self.P1_point, (s,t), self.bern_eval)
+        r2 = _beval_vec3(self.P2_point, (u,v), self.bern_eval)
+        return np.asarray(r1 - r2, dtype=float)
 
     def psi_box(self, B):  # B float bounds
         sI,tI,uI,vI = _box_to_interval_params(B, self.interval_ctor)
@@ -399,9 +440,9 @@ class DeflatedSystem:
     def T_point(self, x):  # returns 4 floats
         s,t,u,v = x
         vals = []
-        for Ti in self.T:
+        for Ti in self.T_point_nets:
             val = _beval_scalar(Ti, (s,t,u,v), self.bern_eval)
-            vals.append(_to_float_scalar(val))
+            vals.append(float(val))
         return np.array(vals, dtype=float)
 
     def T_box(self, B):  # returns 4 intervals
@@ -414,77 +455,127 @@ class DeflatedSystem:
     # ---- Full Δ evaluation
 
     def delta_point(self, x):
-        psi = self.psi_point(x)
-        T   = self.T_point(x)
-        return np.concatenate([psi, T], axis=0)  # length 7
+        return self.delta_rows_point(x, (0,1,2,3,4,5,6))
 
     def delta_box(self, B):
-        psiI = self.psi_box(B)      # 3 intervals
-        TI   = self.T_box(B)        # 4 intervals
-        return psiI + TI            # length 7
+        return self.delta_rows_box(B, (0,1,2,3,4,5,6))
+
+    def delta_rows_point(self, x, rows):
+        rows = tuple(rows)
+        out = np.zeros((len(rows),), dtype=float)
+        need_psi = any(idx < 3 for idx in rows)
+        psi = self.psi_point(x) if need_psi else None
+        s,t,u,v = x
+        tvals = {}
+        for idx in self._ordered_unique(rows):
+            if idx >= 3:
+                Ti_i = idx - 3
+                val = _beval_scalar(self.T_point_nets[Ti_i], (s,t,u,v), self.bern_eval)
+                tvals[Ti_i] = float(val)
+        for i, idx in enumerate(rows):
+            out[i] = psi[idx] if idx < 3 else tvals[idx - 3]
+        return out
+
+    def delta_rows_box(self, B, rows):
+        rows = tuple(rows)
+        out = [None] * len(rows)
+        sI,tI,uI,vI = _box_to_interval_params(B, self.interval_ctor)
+        params = (sI,tI,uI,vI)
+
+        psi_map = {}
+        if any(idx < 3 for idx in rows):
+            r1 = _beval_vec3(self.P1, (sI,tI), self.bern_eval)
+            r2 = _beval_vec3(self.P2, (uI,vI), self.bern_eval)
+            for k in self._ordered_unique([idx for idx in rows if idx < 3]):
+                psi_map[k] = _iv_sub(_iv_bounds(r1[k]), _iv_bounds(r2[k]))
+
+        t_map = {}
+        for idx in self._ordered_unique(rows):
+            if idx >= 3:
+                Ti_i = idx - 3
+                t_map[Ti_i] = _iv_bounds(_beval_scalar(self.T[Ti_i], params, self.bern_eval))
+
+        for i, idx in enumerate(rows):
+            out[i] = psi_map[idx] if idx < 3 else t_map[idx - 3]
+        return out
 
     # ---- Jacobian (numeric) at a point, shape (7,4)
 
     def jac_point(self, x):
+        return self.jac_rows_point(x, (0,1,2,3,4,5,6))
+
+    def jac_rows_point(self, x, rows):
+        rows = tuple(rows)
         s,t,u,v = x
-        # Ψ Jacobian columns from surface partials
-        a = _to_float_vec3(_beval_vec3(self.P1_s, (s,t), self.bern_eval))  # dR1/ds
-        b = _to_float_vec3(_beval_vec3(self.P1_t, (s,t), self.bern_eval))  # dR1/dt
-        c = _to_float_vec3(_beval_vec3(self.P2_u, (u,v), self.bern_eval))  # dR2/du
-        d = _to_float_vec3(_beval_vec3(self.P2_v, (u,v), self.bern_eval))  # dR2/dv
+        J = np.zeros((len(rows),4), dtype=float)
+        psi_needed = self._ordered_unique([idx for idx in rows if idx < 3])
+        psi_rows = {}
+        if psi_needed:
+            a = _beval_vec3(self.P1_s_point, (s,t), self.bern_eval)  # dR1/ds
+            b = _beval_vec3(self.P1_t_point, (s,t), self.bern_eval)  # dR1/dt
+            c = _beval_vec3(self.P2_u_point, (u,v), self.bern_eval)  # dR2/du
+            d = _beval_vec3(self.P2_v_point, (u,v), self.bern_eval)  # dR2/dv
+            for k in psi_needed:
+                psi_rows[k] = np.array([a[k], b[k], -c[k], -d[k]], dtype=float)
 
-        J = np.zeros((7,4), dtype=float)
-        # rows 0..2 correspond to Ψx,Ψy,Ψz
-        for k in range(3):
-            J[k,0] = a[k]
-            J[k,1] = b[k]
-            J[k,2] = -c[k]
-            J[k,3] = -d[k]
+        t_rows = {}
+        for idx in self._ordered_unique(rows):
+            if idx >= 3:
+                Ti_i = idx - 3
+                d0,d1,d2,d3 = self.dT_point[Ti_i]
+                row = np.zeros((4,), dtype=float)
+                if d0 is not None: row[0] = float(_beval_scalar(d0, (s,t,u,v), self.bern_eval))
+                if d1 is not None: row[1] = float(_beval_scalar(d1, (s,t,u,v), self.bern_eval))
+                if d2 is not None: row[2] = float(_beval_scalar(d2, (s,t,u,v), self.bern_eval))
+                if d3 is not None: row[3] = float(_beval_scalar(d3, (s,t,u,v), self.bern_eval))
+                t_rows[Ti_i] = row
 
-        # rows 3..6 are gradients of T1..T4
-        for i in range(4):
-            d0,d1,d2,d3 = self.dT[i]
-            if d0 is None: J[3+i,0]=0.0
-            else: J[3+i,0]=_to_float_scalar(_beval_scalar(d0, (s,t,u,v), self.bern_eval))
-            if d1 is None: J[3+i,1]=0.0
-            else: J[3+i,1]=_to_float_scalar(_beval_scalar(d1, (s,t,u,v), self.bern_eval))
-            if d2 is None: J[3+i,2]=0.0
-            else: J[3+i,2]=_to_float_scalar(_beval_scalar(d2, (s,t,u,v), self.bern_eval))
-            if d3 is None: J[3+i,3]=0.0
-            else: J[3+i,3]=_to_float_scalar(_beval_scalar(d3, (s,t,u,v), self.bern_eval))
+        for i, idx in enumerate(rows):
+            J[i,:] = psi_rows[idx] if idx < 3 else t_rows[idx - 3]
         return J
 
     # ---- Interval Jacobian row for equation idx in {0..6}
 
     def jac_row_box(self, eq_idx, B):
-        # returns list of 4 intervals (lo,hi)
-        sI,tI,uI,vI = _box_to_interval_params(B, self.interval_ctor)
+        return self.jac_rows_box(B, (eq_idx,))[0]
 
-        if eq_idx in (0,1,2):
-            # Ψ component
+    def jac_rows_box(self, B, rows):
+        rows = tuple(rows)
+        sI,tI,uI,vI = _box_to_interval_params(B, self.interval_ctor)
+        params = (sI,tI,uI,vI)
+        out = [None] * len(rows)
+
+        psi_needed = self._ordered_unique([idx for idx in rows if idx < 3])
+        psi_rows = {}
+        if psi_needed:
             a = _beval_vec3(self.P1_s, (sI,tI), self.bern_eval)
             b = _beval_vec3(self.P1_t, (sI,tI), self.bern_eval)
             c = _beval_vec3(self.P2_u, (uI,vI), self.bern_eval)
             d = _beval_vec3(self.P2_v, (uI,vI), self.bern_eval)
-            k = eq_idx
-            return [
-                _iv_bounds(a[k]),
-                _iv_bounds(b[k]),
-                _iv_scale(-1.0, _iv_bounds(c[k])),
-                _iv_scale(-1.0, _iv_bounds(d[k])),
-            ]
+            for k in psi_needed:
+                psi_rows[k] = [
+                    _iv_bounds(a[k]),
+                    _iv_bounds(b[k]),
+                    _iv_scale(-1.0, _iv_bounds(c[k])),
+                    _iv_scale(-1.0, _iv_bounds(d[k])),
+                ]
 
-        # T eq: eq_idx 3..6 -> Ti index eq_idx-3
-        Ti_i = eq_idx - 3
-        d0,d1,d2,d3 = self.dT[Ti_i]
-        params = (sI,tI,uI,vI)
-        row = []
-        for dj in (d0,d1,d2,d3):
-            if dj is None:
-                row.append((0.0,0.0))
-            else:
-                row.append(_iv_bounds(_beval_scalar(dj, params, self.bern_eval)))
-        return row
+        t_rows = {}
+        for idx in self._ordered_unique(rows):
+            if idx >= 3:
+                Ti_i = idx - 3
+                d0,d1,d2,d3 = self.dT[Ti_i]
+                row = []
+                for dj in (d0,d1,d2,d3):
+                    if dj is None:
+                        row.append((0.0,0.0))
+                    else:
+                        row.append(_iv_bounds(_beval_scalar(dj, params, self.bern_eval)))
+                t_rows[Ti_i] = row
+
+        for i, idx in enumerate(rows):
+            out[i] = psi_rows[idx] if idx < 3 else t_rows[idx - 3]
+        return out
 
 # ------------------------------------------------------------
 # Overdetermined Newton (Gauss-Newton) witness finder
@@ -687,64 +778,57 @@ def build_square_from_subset(sys: DeflatedSystem, subset, hyperplane=None):
     If hyperplane is not None, subset must include index 7 to denote L.
     """
     subset = tuple(subset)
+    base_rows = tuple(idx for idx in subset if idx != 7)
 
     def F_point(x):
-        vals = []
-        if hyperplane is None:
-            full = sys.delta_point(x)
-            for idx in subset:
-                vals.append(full[idx])
-        else:
-            full = sys.delta_point(x)
-            for idx in subset:
-                if idx == 7:
-                    a = hyperplane["a"]; b = hyperplane["b"]
-                    vals.append(float(a.dot(x) + b))
-                else:
-                    vals.append(full[idx])
-        return np.array(vals, dtype=float)
+        core_vals = sys.delta_rows_point(x, base_rows) if base_rows else np.empty((0,), dtype=float)
+        vals = np.zeros((4,), dtype=float)
+        it = iter(core_vals)
+        for i, idx in enumerate(subset):
+            if hyperplane is not None and idx == 7:
+                a = hyperplane["a"]; b = hyperplane["b"]
+                vals[i] = float(a.dot(x) + b)
+            else:
+                vals[i] = next(it)
+        return vals
 
     def F_box(B):
-        vals = []
-        if hyperplane is None:
-            fullI = sys.delta_box(B)
-            for idx in subset:
-                vals.append(fullI[idx])
-        else:
-            fullI = sys.delta_box(B)
-            for idx in subset:
-                if idx == 7:
-                    a = hyperplane["a"]; b = hyperplane["b"]
-                    # interval evaluation of linear form
-                    acc = (b, b)
-                    for j in range(4):
-                        acc = _iv_add(acc, _iv_scale(a[j], B[j]))
-                    vals.append(acc)
-                else:
-                    vals.append(fullI[idx])
+        core_vals = sys.delta_rows_box(B, base_rows) if base_rows else []
+        vals = [None] * 4
+        it = iter(core_vals)
+        for i, idx in enumerate(subset):
+            if hyperplane is not None and idx == 7:
+                a = hyperplane["a"]; b = hyperplane["b"]
+                acc = (b, b)
+                for j in range(4):
+                    acc = _iv_add(acc, _iv_scale(a[j], B[j]))
+                vals[i] = acc
+            else:
+                vals[i] = next(it)
         return vals
 
     def J_point(x):
-        Jfull = sys.jac_point(x)  # (7,4)
         J = np.zeros((4,4), dtype=float)
+        core_rows_J = sys.jac_rows_point(x, base_rows) if base_rows else np.zeros((0,4), dtype=float)
+        it = iter(core_rows_J)
         for r, idx in enumerate(subset):
             if hyperplane is not None and idx == 7:
                 J[r,:] = hyperplane["a"]
             else:
-                J[r,:] = Jfull[idx,:]
+                J[r,:] = next(it)
         return J
 
     def J_box(B):
-        # interval 4x4 matrix
         out = [[None]*4 for _ in range(4)]
+        core_rows_J = sys.jac_rows_box(B, base_rows) if base_rows else []
+        it = iter(core_rows_J)
         for r, idx in enumerate(subset):
             if hyperplane is not None and idx == 7:
-                # constant gradient
                 a = hyperplane["a"]
                 for j in range(4):
                     out[r][j] = (a[j], a[j])
             else:
-                row = sys.jac_row_box(idx, B)
+                row = next(it)
                 for j in range(4):
                     out[r][j] = row[j]
         return out
@@ -799,7 +883,15 @@ def analyse_deflated_system(
     cover_min_width=5e-3,
     cover_max_depth=14,
     use_phi_fallback=False,
-    rng_seed=0
+    rng_seed=0,
+    curve_mode="trace",
+    build_cover=False,
+    curve_trace_h0=1e-2,
+    curve_trace_h_min=1e-6,
+    curve_trace_h_max=5e-2,
+    curve_trace_max_steps=2000,
+    curve_trace_tol=1e-10,
+    curve_krawczyk_fallback=True
 ):
     """
     Analyse Δ_B = Ψ ∪ {T1..T4} inside box B and output singular features.
@@ -812,6 +904,7 @@ def analyse_deflated_system(
     rng = np.random.default_rng(rng_seed)
 
     Bf = _box_from_any(B)
+    P1_arr = np.asarray(P1)
     sys = DeflatedSystem(P1=np.asarray(P1), P2=np.asarray(P2), T=(T1,T2,T3,T4),
                          bern_eval=bern_eval, interval_ctor=interval_ctor)
 
@@ -866,7 +959,7 @@ def analyse_deflated_system(
             if boxes:
                 for Bb in boxes:
                     xm = _box_mid(Bb)
-                    xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (xm[0],xm[1]), bern_eval))
+                    xyz = _to_float_vec3(_beval_vec3(P1_arr, (xm[0],xm[1]), bern_eval))
                     out["singular_points"].append({"param": tuple(map(float,xm)), "xyz": tuple(map(float,xyz))})
                 out["status"] = "finite"
                 out["dimension"] = 0
@@ -895,7 +988,7 @@ def analyse_deflated_system(
         out["status"] = "finite"
 
         if not isolate_points:
-            xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (xw[0],xw[1]), bern_eval))
+            xyz = _to_float_vec3(_beval_vec3(P1_arr, (xw[0],xw[1]), bern_eval))
             out["singular_points"].append({"param": tuple(map(float,xw)), "xyz": tuple(map(float,xyz))})
             return out
 
@@ -918,7 +1011,7 @@ def analyse_deflated_system(
 
         for p in uniq:
             p = np.array(p, dtype=float)
-            xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (p[0],p[1]), bern_eval))
+            xyz = _to_float_vec3(_beval_vec3(P1_arr, (p[0],p[1]), bern_eval))
             out["singular_points"].append({"param": tuple(map(float,p)), "xyz": tuple(map(float,xyz))})
 
         out["debug"]["point_subsets_tried"] = diag
@@ -927,29 +1020,69 @@ def analyse_deflated_system(
     if dim == 1:
         # Infinite solutions of Δ_B in B: singular/tangent curve case.
         out["status"] = "infinite"
-
-        # (A) Produce a "cover" of Δ_B by small boxes (subdivide + interval pruning).
-        cover = []
-        stack = [(Bf, 0)]
-        while stack:
-            Bb, depth = stack.pop()
-            if depth >= cover_max_depth or _box_max_width(Bb) <= cover_min_width:
-                # keep if still possible
-                fullI = sys.delta_box(Bb)
-                if all(_iv_contains0(I) for I in fullI):
-                    cover.append(Bb)
-                continue
-            fullI = sys.delta_box(Bb)
-            if any(not _iv_contains0(I) for I in fullI):
-                continue
-            B1,B2 = _box_split(Bb)
-            stack.append((B1, depth+1))
-            stack.append((B2, depth+1))
-        out["cover_boxes"] = cover
-
-        # (B) Sample the curve by slicing hyperplanes x_i = const (paper's L trick, but deterministic). :contentReference[oaicite:8]{index=8}
         axis = _box_widest_axis(Bf)
         lo, hi = Bf[axis]
+        if curve_mode != "krawczyk":
+            gamma_rows = choose_gamma_3eq(sys, xw)
+            curve_4d = trace_gamma(
+                sys, gamma_rows, xw, Bf,
+                h0=curve_trace_h0,
+                h_min=curve_trace_h_min,
+                h_max=curve_trace_h_max,
+                max_steps=curve_trace_max_steps,
+                tol=curve_trace_tol,
+            )
+            samples = []
+            for xm in curve_4d:
+                fn = float(np.linalg.norm(sys.delta_point(xm)))
+                if fn < 1e-6:
+                    xyz = _to_float_vec3(_beval_vec3(P1_arr, (xm[0],xm[1]), bern_eval))
+                    samples.append({"param": tuple(map(float,xm)), "xyz": tuple(map(float,xyz))})
+            if samples and curve_slice_count is not None and curve_slice_count > 0 and len(samples) > curve_slice_count:
+                idxs = np.linspace(0, len(samples)-1, curve_slice_count, dtype=int)
+                uniq_idxs = list(dict.fromkeys(int(i) for i in idxs))
+                samples = [samples[i] for i in uniq_idxs]
+            out["curve_samples"] = samples
+            out["debug"]["curve_mode"] = "trace"
+            out["debug"]["gamma_rows"] = tuple(map(int, gamma_rows))
+            out["debug"]["trace_total_points"] = int(len(curve_4d))
+            out["debug"]["trace_kept_points"] = int(len(samples))
+            if build_cover and samples:
+                rad = max(point_min_width, 0.5*cover_min_width)
+                cover = []
+                seen = set()
+                for s in samples:
+                    p = s["param"]
+                    Bb = tuple((max(Bf[i][0], p[i]-rad), min(Bf[i][1], p[i]+rad)) for i in range(4))
+                    key = tuple((round(b[0], 10), round(b[1], 10)) for b in Bb)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    cover.append(Bb)
+                out["cover_boxes"] = cover
+            if samples or not curve_krawczyk_fallback:
+                return out
+            out["debug"]["curve_fallback"] = "krawczyk"
+
+        # Krawczyk slicing fallback (slow but robust for pathological cases)
+        if build_cover:
+            cover = []
+            stack = [(Bf, 0)]
+            while stack:
+                Bb, depth = stack.pop()
+                if depth >= cover_max_depth or _box_max_width(Bb) <= cover_min_width:
+                    fullI = sys.delta_box(Bb)
+                    if all(_iv_contains0(I) for I in fullI):
+                        cover.append(Bb)
+                    continue
+                fullI = sys.delta_box(Bb)
+                if any(not _iv_contains0(I) for I in fullI):
+                    continue
+                B1,B2 = _box_split(Bb)
+                stack.append((B1, depth+1))
+                stack.append((B2, depth+1))
+            out["cover_boxes"] = cover
+
         if hi > lo:
             samples = []
             for k in range(curve_slice_count):
@@ -957,13 +1090,9 @@ def analyse_deflated_system(
                 a = np.zeros(4); a[axis] = 1.0
                 b = -float(val)
                 hyp = {"a": a, "b": b}
-
-                # augmented Jacobian at witness for best subset that includes hyperplane row (index 7)
                 J7 = sys.jac_point(xw)
                 J8 = np.vstack([J7, a.reshape(1,4)])
                 candidates = choose_best_subset(J8, require=7, eq_count=8, top_k=3)
-
-                # narrow the box in that axis to help isolation
                 Bb = list(Bf)
                 half = 0.5*(hi-lo)/curve_slice_count
                 Bb[axis] = (max(lo, val-half), min(hi, val+half))
@@ -974,14 +1103,12 @@ def analyse_deflated_system(
                     boxes, _ = isolate_roots_krawczyk(sys4, Bb, max_depth=14, min_width=max(point_min_width, half*0.2))
                     for rootB in boxes:
                         xm = _box_mid(rootB)
-                        # Verify full Δ at xm numerically
                         fn = np.linalg.norm(sys.delta_point(xm))
                         if fn < 1e-6:
-                            xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (xm[0],xm[1]), bern_eval))
+                            xyz = _to_float_vec3(_beval_vec3(P1_arr, (xm[0],xm[1]), bern_eval))
                             samples.append({"param": tuple(map(float,xm)), "xyz": tuple(map(float,xyz))})
                     if samples:
                         break
-            # sort samples along the slicing axis for a crude polyline
             samples.sort(key=lambda d: d["param"][axis])
             out["curve_samples"] = samples
 
@@ -1026,7 +1153,7 @@ def analyse_deflated_system(
                         xm = _box_mid(rootB)
                         fn = np.linalg.norm(sys.delta_point(xm))
                         if fn < 1e-6:
-                            xyz = _to_float_vec3(_beval_vec3(np.asarray(P1), (xm[0],xm[1]), bern_eval))
+                            xyz = _to_float_vec3(_beval_vec3(P1_arr, (xm[0],xm[1]), bern_eval))
                             out["overlap_samples"].append({"param": tuple(map(float,xm)), "xyz": tuple(map(float,xyz))})
                     if out["overlap_samples"]:
                         break
@@ -1076,18 +1203,17 @@ def newton_corrector(sys, gamma_rows, x_pred, t_pred,
       (x - x_pred)·t_pred = 0  (1 eq, pseudo-arclength)
     """
     x = x_pred.copy() if x_init is None else x_init.copy()
+    gamma_rows = tuple(gamma_rows)
 
     for _ in range(max_iter):
-        Ffull = sys.delta_point(x)
-        F = Ffull[list(gamma_rows)]                       # 3
+        F = sys.delta_rows_point(x, gamma_rows)          # 3
         g = float(np.dot(x - x_pred, t_pred))            # 1
         G = np.concatenate([F, [g]])                     # 4
 
         if np.linalg.norm(G, ord=2) < tol:
             return True, x
 
-        Jfull = sys.jac_point(x)
-        J = Jfull[list(gamma_rows), :]                   # 3x4
+        J = sys.jac_rows_point(x, gamma_rows)            # 3x4
         A = np.vstack([J, t_pred.reshape(1, 4)])         # 4x4
 
         try:
@@ -1138,14 +1264,14 @@ def newton_corrector_boundary(sys, gamma_rows, x_init, axis, bound, B,
     with a damped Newton, staying inside B.
     """
     x = x_init.copy()
+    gamma_rows = tuple(gamma_rows)
     e = np.zeros(4); e[axis] = 1.0
 
     def inside(z, eps=1e-12):
         return all((B[i][0]-eps) <= z[i] <= (B[i][1]+eps) for i in range(4))
 
     def residual(z):
-        Ffull = sys.delta_point(z)
-        F = Ffull[list(gamma_rows)]
+        F = sys.delta_rows_point(z, gamma_rows)
         return np.concatenate([F, [z[axis] - bound]])
 
     for _ in range(max_iter):
@@ -1153,8 +1279,7 @@ def newton_corrector_boundary(sys, gamma_rows, x_init, axis, bound, B,
         if np.linalg.norm(G, ord=2) < tol:
             return True, x
 
-        Jfull = sys.jac_point(x)
-        J = Jfull[list(gamma_rows), :]         # 3x4
+        J = sys.jac_rows_point(x, gamma_rows)  # 3x4
         A = np.vstack([J, e.reshape(1,4)])     # 4x4
 
         try:
@@ -1184,6 +1309,7 @@ def newton_corrector_boundary(sys, gamma_rows, x_init, axis, bound, B,
     return False, x
 def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
                 max_steps=2000, tol=1e-10, eps_end=1e-10):
+    gamma_rows = tuple(gamma_rows)
 
     def inside(x, eps=1e-12):
         return all(B[i][0]-eps <= x[i] <= B[i][1]+eps for i in range(4))
@@ -1198,15 +1324,13 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
     def newton_corrector_arclen(x_pred, t_pred, x_init=None, max_iter=12):
         x = x_pred.copy() if x_init is None else x_init.copy()
         for _ in range(max_iter):
-            Ffull = sys.delta_point(x)
-            F = Ffull[list(gamma_rows)]
+            F = sys.delta_rows_point(x, gamma_rows)
             g = float(np.dot(x - x_pred, t_pred))
             G = np.concatenate([F, [g]])
             if np.linalg.norm(G) < tol:
                 return True, x
 
-            Jfull = sys.jac_point(x)
-            J = Jfull[list(gamma_rows), :]
+            J = sys.jac_rows_point(x, gamma_rows)
             A = np.vstack([J, t_pred.reshape(1,4)])
 
             try:
@@ -1221,7 +1345,7 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
         pts = [x0.copy()]
         h = h0
 
-        J0 = sys.jac_point(x0)[list(gamma_rows), :]
+        J0 = sys.jac_rows_point(x0, gamma_rows)
         t = nullspace_direction(J0)
         if t is None:
             return pts
@@ -1295,7 +1419,7 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
             pts.append(x_new)
 
             # Update tangent
-            Jn = sys.jac_point(x_new)[list(gamma_rows), :]
+            Jn = sys.jac_rows_point(x_new, gamma_rows)
             t_new = nullspace_direction(Jn)
             if t_new is None:
                 break

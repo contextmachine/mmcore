@@ -29,6 +29,12 @@ from mmcore.numeric.intersection.ssx.trace_inter_segm import (
     trace_between,
     remove_knots_after_merge,
 )
+from mmcore.numeric.bern import bern_eval
+from mmcore.numeric.intersection._deflate import (
+    analyse_deflated_system,
+    minors_Tpsi_from_control_nets,
+)
+from mmcore.numeric.ndinterval import get_iarray, interval as iv_interval
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
 
@@ -986,6 +992,132 @@ def _curve_from_stuv_path(stuv_path: NDArray[np.float64],ders=None) -> NURBSCurv
     params = np.cumsum(np.linalg.norm(np.diff(pts, axis=0, prepend=pts[:1]), axis=1))
 
     return hermite_interpolate_nurbs(points=pts, derivatives=ders, params=params, degree=3)
+
+
+def _dedupe_stuv_path(stuv_path: NDArray[np.float64], tol: float) -> NDArray[np.float64]:
+    pts = np.asarray(stuv_path, dtype=np.float64).reshape(-1, 4)
+    if pts.shape[0] == 0:
+        return pts
+    out = [pts[0]]
+    for p in pts[1:]:
+        if float(np.max(np.abs(p - out[-1]))) > float(tol):
+            out.append(p)
+    return np.asarray(out, dtype=np.float64)
+
+
+def _try_deflated_hard_case(
+    H1: NDArray[np.float64],
+    H2: NDArray[np.float64],
+    interval1: tuple[float, float, float, float],
+    interval2: tuple[float, float, float, float],
+    *,
+    spt: float,
+    angle_tol: float,
+    param_tol: float,
+) -> tuple[list[SSXBranch], list[SSXPoint]] | None:
+    """
+    Trace-first deflated fallback for tangential/degenerate SSX cases.
+    Runs in local [0,1]^4 patch coordinates and maps back to global stuv.
+    """
+    try:
+        P1 = np.asarray(_from_homogeneous(H1)[0], dtype=np.float64)
+        P2 = np.asarray(_from_homogeneous(H2)[0], dtype=np.float64)
+
+        T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1, P2)
+        is1 = get_iarray(P1, P1)
+        is2 = get_iarray(P2, P2)
+        T1i, T2i, T3i, T4i = (np.asarray(t, dtype=iv_interval) for t in (T1, T2, T3, T4))
+        B = (iv_interval(0.0, 1.0), iv_interval(0.0, 1.0), iv_interval(0.0, 1.0), iv_interval(0.0, 1.0))
+
+        res = analyse_deflated_system(
+            is1,
+            is2,
+            T1i,
+            T2i,
+            T3i,
+            T4i,
+            B,
+            bern_eval=bern_eval,
+            interval_ctor=iv_interval,
+            isolate_points=False,
+            point_min_width=max(1e-8, 0.1 * param_tol),
+            curve_slice_count=None,
+            curve_mode="trace",
+            build_cover=False,
+            curve_krawczyk_fallback=False,
+        )
+    except Exception:
+        return None
+
+    branches: list[SSXBranch] = []
+    points: list[SSXPoint] = []
+
+    # Build temporary rational patch surfaces on global intervals for robust refinement.
+    s1 = bern_to_nurbs_bezier(
+        H1,
+        interval=((interval1[0], interval1[1]), (interval1[2], interval1[3])),
+        rational=True,
+    )
+    s2 = bern_to_nurbs_bezier(
+        H2,
+        interval=((interval2[0], interval2[1]), (interval2[2], interval2[3])),
+        rational=True,
+    )
+
+    curve_samples = res.get("curve_samples", [])
+    if curve_samples:
+        stuv_path = []
+        for smp in curve_samples:
+            s, t, u, v = (float(x) for x in smp["param"])
+            uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
+            uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
+            stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
+
+            # Reproject to the true rational-rational intersection manifold.
+            try:
+                stuv_ref, *_ = refine_intersection_point(
+                    stuv,
+                    s1,
+                    s2,
+                    spt=spt,
+                    angle_tol=angle_tol,
+                    max_iter=60,
+                )
+                if stuv_ref is not None and np.all(np.isfinite(stuv_ref)):
+                    stuv = np.asarray(stuv_ref, dtype=np.float64)
+            except Exception:
+                pass
+
+            stuv_path.append(stuv)
+
+        stuv_path = _dedupe_stuv_path(np.asarray(stuv_path, dtype=np.float64), tol=param_tol)
+        curve = _curve_from_stuv_path(stuv_path)
+        if curve is not None:
+            branches.append(SSXBranch(curve=curve))
+
+    for sp in res.get("singular_points", []):
+        s, t, u, v = (float(x) for x in sp["param"])
+        uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
+        uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
+        stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
+        try:
+            stuv_ref, *_ = refine_intersection_point(
+                stuv,
+                s1,
+                s2,
+                spt=spt,
+                angle_tol=angle_tol,
+                max_iter=60,
+            )
+            if stuv_ref is not None and np.all(np.isfinite(stuv_ref)):
+                stuv = np.asarray(stuv_ref, dtype=np.float64)
+        except Exception:
+            pass
+        _append_unique_point(points, stuv, tol=param_tol)
+
+    if branches or points:
+        return branches, points
+    return None
 def _get_pt_t(s1,s2,stuv):
 
     S_eval= evaluate_nurbs_surface(s1, stuv[0], stuv[1], d_order=1)
@@ -1280,14 +1412,16 @@ def _bez_ssx_recursive(
     gm_eps: float = 1e-5,
     gm_tol: float = 1e-8,
     max_depth: int = 24,
-    magic_start_depth: int = 6,
+    magic_start_depth: int = 2,
     parallel_angle: float = 0.053,
     flat_angle: float = 0.01,
     march_samples: int = 8,
+    deflate_hard_case: bool = True,
     depth: int = 0,
 ) -> tuple[list[SSXBranch], list[SSXPoint]]:
     bb1 = g1.bbox()
     bb2 = g2.bbox()
+
     if not aabb_intersect_fast_3d(bb1, bb2):
         return [], []
 
@@ -1351,8 +1485,32 @@ def _bez_ssx_recursive(
             angle_tol=parallel_angle,
             march_samples=march_samples,
         )
+    hard = _try_deflated_hard_case(
+        g1.surface,
+        g2.surface,
+        interval1,
+        interval2,
+        spt=spt,
+        angle_tol=parallel_angle,
+        param_tol=param_tol,
+    )
+    if hard is not None:
+        return hard
+    is_hard_case = near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle)
 
     if depth >= max_depth:
+        if deflate_hard_case and is_hard_case:
+            hard = _try_deflated_hard_case(
+                g1.surface,
+                g2.surface,
+                interval1,
+                interval2,
+                spt=spt,
+                angle_tol=parallel_angle,
+                param_tol=param_tol,
+            )
+            if hard is not None:
+                return hard
         return _leaf_boundary_test_and_march(
             g1.surface,
             g2.surface,
@@ -1366,7 +1524,19 @@ def _bez_ssx_recursive(
         )
 
     # Hard case: near-parallel, flat Gauss maps, still failing criterion -> try Newton magic point
-    if depth >= magic_start_depth and near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle):
+    if depth >= magic_start_depth and is_hard_case:
+        if deflate_hard_case:
+            hard = _try_deflated_hard_case(
+                g1.surface,
+                g2.surface,
+                interval1,
+                interval2,
+                spt=spt,
+                angle_tol=parallel_angle,
+                param_tol=param_tol,
+            )
+            if hard is not None:
+                return hard
         mp = find_magic_point_newton(g1, g2)
 
         if mp is not None:
@@ -1400,6 +1570,7 @@ def _bez_ssx_recursive(
                         parallel_angle=parallel_angle,
                         flat_angle=flat_angle,
                         march_samples=march_samples,
+                        deflate_hard_case=deflate_hard_case,
                         depth=depth + 1,
                     )
                     branches.extend(bch)
@@ -1447,6 +1618,7 @@ def _bez_ssx_recursive(
             parallel_angle=parallel_angle,
             flat_angle=flat_angle,
             march_samples=march_samples,
+            deflate_hard_case=deflate_hard_case,
             depth=depth + 1,
         )
         b1, p1 = _bez_ssx_recursive(
@@ -1468,6 +1640,7 @@ def _bez_ssx_recursive(
             parallel_angle=parallel_angle,
             flat_angle=flat_angle,
             march_samples=march_samples,
+            deflate_hard_case=deflate_hard_case,
             depth=depth + 1,
         )
         branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
@@ -1495,6 +1668,7 @@ def _bez_ssx_recursive(
             parallel_angle=parallel_angle,
             flat_angle=flat_angle,
             march_samples=march_samples,
+            deflate_hard_case=deflate_hard_case,
             depth=depth + 1,
         )
         b1, p1 = _bez_ssx_recursive(
@@ -1516,6 +1690,7 @@ def _bez_ssx_recursive(
             parallel_angle=parallel_angle,
             flat_angle=flat_angle,
             march_samples=march_samples,
+            deflate_hard_case=deflate_hard_case,
             depth=depth + 1,
         )
         branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
@@ -1580,7 +1755,8 @@ def compute_point_xyz(point:SSXPoint, surface1:NURBSSurfaceTuple, surface2:NURBS
     point.xyz=evaluate_nurbs_surface(surface1,point.stuv[0],point.stuv[1],d_order=0)['S']
 def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0.001, angle_tol: float = 0.052,
             tol: float = 1e-8, gjk_max_iter: int = 64, gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24,
-            magic_start_depth: int = 6, flat_angle: float = 0.015, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
+            magic_start_depth: int = 6, flat_angle: float = 0.015, march_samples: int = 8,
+            deflate_hard_case: bool = True) -> tuple[list[SSXBranch], list[SSXPoint]]:
     param_tol = _param_tol_from(tol, atol)
     g1 = GaussMapBern.from_surf(H1, rational=True)
     g2 = GaussMapBern.from_surf(H2, rational=True)
@@ -1602,6 +1778,7 @@ def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0
         flat_angle=flat_angle,
 
         march_samples=march_samples,
+        deflate_hard_case=deflate_hard_case,
     )
     branches = _merge_branches_global(branches, param_tol,atol=atol)
     branches = _close_branches(branches, param_tol)
@@ -1610,8 +1787,9 @@ def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0
 
 
 def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, tol: float = 1e-8, gjk_max_iter: int = 64,
-              gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24, magic_start_depth: int = 3,
-              flat_angle: float = 0.15, march_samples: int = 8) -> tuple[list[SSXBranch], list[SSXPoint]]:
+              gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24, magic_start_depth: int = 2,
+              flat_angle: float = 0.15, march_samples: int = 8,
+              deflate_hard_case: bool = True) -> tuple[list[SSXBranch], list[SSXPoint]]:
     s1 = surf1
     s2 =surf2
 
@@ -1670,6 +1848,7 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
             parallel_angle=angle_tol,
             flat_angle=flat_angle,
             march_samples=march_samples,
+            deflate_hard_case=deflate_hard_case,
         )
         branches.extend(bch)
         points.extend(pts)
