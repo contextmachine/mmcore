@@ -1361,3 +1361,4 @@ if __name__ == "__main__":
     print("first/last:", curve_3d[0], curve_3d[-1])
 
     print(np.array(curve_3d).tolist())
+    assert np.allclose([5.0, 0.0, 5.0],curve_3d[0]) and np.allclose([5.0, 15.0, 5.0],curve_3d[-1]) # check if the curve ends is correct
