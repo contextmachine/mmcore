@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import math
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from inspect import currentframe
 
 from mmcore.construction import nurbs_curve
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
@@ -1145,7 +1147,7 @@ def duv_from_eval(Su, Sv, T):
     return delta_uv
 from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs,generalized_rational_hermite
 from mmcore.geom._nurbs_ders import _greville_abscissae
-from mmcore.numeric.vectors import dot_array_x_vec
+
 def _collect_boundary_intersections(
     H_owner: NDArray[np.float64],
     H_other: NDArray[np.float64],
@@ -1171,7 +1173,8 @@ def _collect_boundary_intersections(
             atol=spt,
             rational=True,
             angle_tol=angle_tol,
-            max_depth=max_depth
+
+
         )
         for iso in res.get("isolated", []):
             t = float(iso["t"])
@@ -1485,21 +1488,33 @@ def _bez_ssx_recursive(
             angle_tol=parallel_angle,
             march_samples=march_samples,
         )
-    hard = _try_deflated_hard_case(
-        g1.surface,
-        g2.surface,
-        interval1,
-        interval2,
-        spt=spt,
-        angle_tol=parallel_angle,
-        param_tol=param_tol,
-    )
-    if hard is not None:
-        return hard
+    if deflate_hard_case:
+        # ATTENTION!!!
+        # We call deflation for the first time without reaching hard_case,
+        # as this can significantly reduce the number of subproblems and avoid splitting the patch at the problem location.
+        # All we risk is one redundant deflation call.
+        frame_info=inspect.getframeinfo(currentframe())
+        print('try deflated: ',       f'{frame_info.filename}:{frame_info.lineno+2}:0')
+        hard = _try_deflated_hard_case(
+            g1.surface,
+            g2.surface,
+            interval1,
+            interval2,
+            spt=spt,
+            angle_tol=parallel_angle,
+            param_tol=param_tol,
+        )
+        if hard is not None:
+            print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
+            return hard
+        deflate_hard_case=False # ATTENTION!!! If the first deflation ended in failure, there is no point in looking for deflation in subsidiary subproblems.
+        print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
     is_hard_case = near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle)
 
-    if depth >= max_depth:
-        if deflate_hard_case and is_hard_case:
+
+    if deflate_hard_case and is_hard_case:
+            frame_info = inspect.getframeinfo(currentframe())
+            print('try deflated: ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
             hard = _try_deflated_hard_case(
                 g1.surface,
                 g2.surface,
@@ -1510,7 +1525,10 @@ def _bez_ssx_recursive(
                 param_tol=param_tol,
             )
             if hard is not None:
+                print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
                 return hard
+            print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
+    if depth>=max_depth:
         return _leaf_boundary_test_and_march(
             g1.surface,
             g2.surface,
@@ -1525,18 +1543,7 @@ def _bez_ssx_recursive(
 
     # Hard case: near-parallel, flat Gauss maps, still failing criterion -> try Newton magic point
     if depth >= magic_start_depth and is_hard_case:
-        if deflate_hard_case:
-            hard = _try_deflated_hard_case(
-                g1.surface,
-                g2.surface,
-                interval1,
-                interval2,
-                spt=spt,
-                angle_tol=parallel_angle,
-                param_tol=param_tol,
-            )
-            if hard is not None:
-                return hard
+
         mp = find_magic_point_newton(g1, g2)
 
         if mp is not None:
@@ -2019,6 +2026,7 @@ if __name__ == "__main__":
         ),
         weights=np.array([[1.0, 1.0], [1.0, 1.0]]),
     )
+
     import time
 
     s = time.perf_counter_ns()
@@ -2042,6 +2050,188 @@ if __name__ == "__main__":
 
     with open("/Users/sthv/PycharmProjects/mmcore/tests/norm4.pkl", "wb") as f:
         pickle.dump(fff, f)
+
+
+
+
+
+    s1 = NURBSSurfaceTuple(
+        order_u=3,
+        order_v=3,
+        knot_u=np.array([0., 0., 0., 17.27875959, 17.27875959,
+                         34.55751919, 34.55751919, 51.83627878, 51.83627878, 69.11503838,
+                         69.11503838, 69.11503838]),
+        knot_v=np.array([-17.27875959, -17.27875959, -17.27875959, -0.,
+                         -0., 17.27875959, 17.27875959, 17.27875959]),
+        control_points=np.array([[[6., 0., -11.],
+                                  [17., 0., -11.],
+                                  [17., 0., -0.],
+                                  [17., 0., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [17., 11., -11.],
+                                  [17., 11., -0.],
+                                  [17., 11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [6., 11., -11.],
+                                  [6., 11., -0.],
+                                  [6., 11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [-5., 11., -11.],
+                                  [-5., 11., -0.],
+                                  [-5., 11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [-5., 0., -11.],
+                                  [-5., 0., -0.],
+                                  [-5., 0., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [-5., -11., -11.],
+                                  [-5., -11., -0.],
+                                  [-5., -11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [6., -11., -11.],
+                                  [6., -11., -0.],
+                                  [6., -11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [17., -11., -11.],
+                                  [17., -11., -0.],
+                                  [17., -11., 11.],
+                                  [6., 0., 11.]],
+
+                                 [[6., 0., -11.],
+                                  [17., 0., -11.],
+                                  [17., 0., -0.],
+                                  [17., 0., 11.],
+                                  [6., 0., 11.]]]),
+        weights=np.array([[1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.]])
+    )
+
+    s2 = NURBSSurfaceTuple(
+        order_u=3,
+        order_v=3,
+        knot_u=np.array([0., 0., 0., 17.27875959, 17.27875959,
+                         34.55751919, 34.55751919, 51.83627878, 51.83627878, 69.11503838,
+                         69.11503838, 69.11503838]),
+        knot_v=np.array([-17.27875959, -17.27875959, -17.27875959, -0.,
+                         -0., 17.27875959, 17.27875959, 17.27875959]),
+        control_points=np.array([[[11., 0., -13.],
+                                  [22., 0., -13.],
+                                  [22., 0., -2.],
+                                  [22., 0., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [22., 11., -13.],
+                                  [22., 11., -2.],
+                                  [22., 11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [11., 11., -13.],
+                                  [11., 11., -2.],
+                                  [11., 11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [0., 11., -13.],
+                                  [0., 11., -2.],
+                                  [0., 11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [0., 0., -13.],
+                                  [0., 0., -2.],
+                                  [0., 0., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [0., -11., -13.],
+                                  [0., -11., -2.],
+                                  [0., -11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [11., -11., -13.],
+                                  [11., -11., -2.],
+                                  [11., -11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [22., -11., -13.],
+                                  [22., -11., -2.],
+                                  [22., -11., 9.],
+                                  [11., 0., 9.]],
+
+                                 [[11., 0., -13.],
+                                  [22., 0., -13.],
+                                  [22., 0., -2.],
+                                  [22., 0., 9.],
+                                  [11., 0., 9.]]]),
+        weights=np.array([[1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.],
+                          [0.70710678, 0.5, 0.70710678, 0.5, 0.70710678],
+                          [1., 0.70710678, 1., 0.70710678, 1.]])
+    )
+
+    s = time.perf_counter_ns()
+    res = detect_intersections(s1, s2, spt=TOL)
+    print((time.perf_counter_ns() - s) * 1e-9)
+    fff = []
+    s = time.perf_counter_ns()
+    ptss = []
+    for i, j in res:
+        ip = np.array(i)
+        jp = np.array(j)
+
+        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
+            import warnings
+
+            warnings.warn("NAN")
+        else:
+            a = bern_to_nurbs_bezier(ip)
+            b = bern_to_nurbs_bezier(jp)
+            fff.append((a, b))
+
+    with open("/Users/sthv/PycharmProjects/mmcore/tests/norm7.pkl", "wb") as f:
+        pickle.dump(fff, f)
+
+
+
+
+
+
+
+
+
+
+
+
 
     from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
     normalize_knots_surface_inplace(S1)
