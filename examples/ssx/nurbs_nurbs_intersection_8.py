@@ -44,7 +44,7 @@ s2 = NURBSSurfaceTuple(
 
 
 import logging
-from examples.ssx.common_helpers import parse_args, save_pkl, draw_ssx, VIEWER_INSTALLED, CurveMaterial, ControlNetMaterial, PointMaterial
+from examples.ssx.common_helpers import parse_args, save_pkl, draw_ssx, VIEWER_INSTALLED, CurveMaterial, ControlNetMaterial, PointMaterial,surface_material
 args = parse_args()
 logging.basicConfig(level=getattr(logging, args.loglevel, logging.INFO))
 from mmcore.numeric.intersection.ssx import nurbs_ssx
@@ -63,12 +63,13 @@ if args.save_pkl or args.pkl_path is not None:
 RENDER = args.viewer and VIEWER_INSTALLED
 
 if RENDER:
+    surface_material.show_wires = False
     inter_curves_mat = CurveMaterial(
         (0.0, 1.0, 0.5, 1.0),
         show_control_net=args.show_inter_cpts,
         control_net_material=ControlNetMaterial((0.0, 1.0, 0.5, 0.7), control_point_material=PointMaterial((0.0, 1.0, 0.5, 0.4), size=8)),
     )
 
-    viewer = draw_ssx(s1, s2, result, intersection_curves_material=inter_curves_mat)
+    viewer = draw_ssx(s1, s2, result, surf1_material=surface_material,surf2_material=surface_material,intersection_curves_material=inter_curves_mat)
 
     viewer.run()

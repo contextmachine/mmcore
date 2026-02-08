@@ -1196,7 +1196,7 @@ def bernstein_cutout_box_nd(control_grid: np.ndarray,
     Notes
     -----
     • Per axis k we split into up to three slabs: L=[0,a_k], M=[a_k,b_k], H=[b_k,1], with matrices
-      T^L_k, T^M_k, T^H_k computed once from de Casteljau (matrix form).
+      T^L_k, T^M_k, T^H_k computed once from de Casteljau (matrix form).
     • We enumerate the Cartesian product of available slabs across axes and exclude the all‑'M' box.
     • Each sub‑patch is produced by a single `einsum` that applies all T_k at once.
     """

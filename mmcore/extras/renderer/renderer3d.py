@@ -710,14 +710,15 @@ class Viewer:
         return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color,*args,**kwargs)        for bezier in beziers)
     def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
         return self._add_nurbs_curve(curve, color, *args, **kwargs)
-    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),surface_color=(0.5, 0.5, 0.9, 0.05),u_count=1,v_count=1,*args,**kwargs):
+    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),surface_color=(0.5, 0.5, 0.9, 0.05),u_count=1,v_count=1,show_edges:bool=True,show_isocurves:bool=True,*args,**kwargs):
         shade = kwargs.pop("shade", True)
         surface_color = surface_color
 
         surface_tol = kwargs.pop("surface_tol", 0.01)
+        meshes=[]
         if shade:
 
-            self._add_surface_mesh(surface, color=surface_color, tol=surface_tol)
+            meshes.append(self._add_surface_mesh(surface, color=surface_color, tol=surface_tol))
         (u0,u1),(v0,v1) = surface.interval()
         umid,vmid=(u1-u0)*0.5+u0, (v1-v0)*0.5+v0
         us=np.linspace(u0,u1,u_count+2)[1:][:-1]
@@ -727,13 +728,16 @@ class Viewer:
         color[2]*0.5,
         color[3])
         isolines=[]
-
-        for crv in  [extract_isocurve(surface, u,'u') for u in us]+[extract_isocurve(surface, v,'v') for v in vs]:
-            isolines.append(self._add_nurbs_curve(crv,iso_color,*args,**kwargs))
+        if show_isocurves:
+            for crv in  [extract_isocurve(surface, u,'u') for u in us]+[extract_isocurve(surface, v,'v') for v in vs]:
+                isolines.append(self._add_nurbs_curve(crv,iso_color,*args,**kwargs))
         bnds=[]
-        for bnd in extract_surface_boundaries(surface):
-            bnds.append(self._add_nurbs_curve(bnd,color,*args,**kwargs))
-        return tuple(bnds)+tuple(isolines)
+        if show_edges:
+            for bnd in extract_surface_boundaries(surface):
+
+                    bnds.append(self._add_nurbs_curve(bnd,color,*args,**kwargs))
+        return tuple(meshes)+tuple(bnds)+tuple(isolines)
+
 
     def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """

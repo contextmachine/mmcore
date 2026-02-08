@@ -31,10 +31,10 @@ from mmcore.numeric.intersection.ssx.trace_inter_segm import (
     trace_between,
     remove_knots_after_merge,
 )
-from mmcore.numeric.bern import bern_eval
+from mmcore.numeric.bern import bern_eval, bernstein_cutout_box_nd
 from mmcore.numeric.intersection._deflate import (
     analyse_deflated_system,
-    minors_Tpsi_from_control_nets,
+    minors_Tpsi_from_control_nets, DeflatedSystem,
 )
 from mmcore.numeric.ndinterval import get_iarray, interval as iv_interval
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
@@ -1007,20 +1007,21 @@ def _dedupe_stuv_path(stuv_path: NDArray[np.float64], tol: float) -> NDArray[np.
     return np.asarray(out, dtype=np.float64)
 
 
-def _try_deflated_hard_case(
-    H1: NDArray[np.float64],
-    H2: NDArray[np.float64],
-    interval1: tuple[float, float, float, float],
-    interval2: tuple[float, float, float, float],
-    *,
-    spt: float,
-    angle_tol: float,
-    param_tol: float,
-) -> tuple[list[SSXBranch], list[SSXPoint]] | None:
+def _try_deflated_hard_case(H1: NDArray[np.float64], H2: NDArray[np.float64],
+                            interval1: tuple[float, float, float, float], interval2: tuple[float, float, float, float],
+                            *, atol: float, angle_tol: float, param_tol: float,
+                            recursive_fn=None, recursive_kwargs=None,
+                            ) -> tuple[list[SSXBranch], list[SSXPoint]] | None:
     """
     Trace-first deflated fallback for tangential/degenerate SSX cases.
     Runs in local [0,1]^4 patch coordinates and maps back to global stuv.
+
+    After finding the singular intersection, cuts out per-step boxes around the
+    traced curve from one surface's parameter domain, then recurses on the
+    remaining sub-domains to find any non-singular intersections.
     """
+    from mmcore.numeric.intersection._interval_cutout import subtract_intervals_2d
+
     try:
         P1 = np.asarray(_from_homogeneous(H1)[0], dtype=np.float64)
         P2 = np.asarray(_from_homogeneous(H2)[0], dtype=np.float64)
@@ -1054,72 +1055,138 @@ def _try_deflated_hard_case(
     branches: list[SSXBranch] = []
     points: list[SSXPoint] = []
 
-    # Build temporary rational patch surfaces on global intervals for robust refinement.
-    s1 = bern_to_nurbs_bezier(
-        H1,
-        interval=((interval1[0], interval1[1]), (interval1[2], interval1[3])),
-        rational=True,
-    )
-    s2 = bern_to_nurbs_bezier(
-        H2,
-        interval=((interval2[0], interval2[1]), (interval2[2], interval2[3])),
-        rational=True,
-    )
+    # --- Process traced singular curve ---
+    trace_points = res.get("trace_points", [])
+    trace_h_steps = res.get("trace_h_steps", [])
+    singular_points=res.get("singular_points", [])
 
-    curve_samples = res.get("curve_samples", [])
-    if curve_samples:
-        stuv_path = []
-        for smp in curve_samples:
-            s, t, u, v = (float(x) for x in smp["param"])
-            uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
-            uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
-            stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
+    if (trace_points and len(trace_points) >= 2 )or len(singular_points)>=1 :
+        # Build stuv_path directly from trace points (no refinement needed —
+        # trace_gamma's Newton corrector already achieves ||Δ|| < 1e-7).
+        if (trace_points and len(trace_points) >= 2):
+            stuv_path = []
+            for pt in trace_points:
+                s, t, u, v = (float(x) for x in pt)
+                uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
+                uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
+                stuv_path.append(np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64))
 
-            # Reproject to the true rational-rational intersection manifold.
-            try:
-                stuv_ref, *_ = refine_intersection_point(
-                    stuv,
-                    s1,
-                    s2,
-                    spt=spt,
-                    angle_tol=angle_tol,
-                    max_iter=60,
+            stuv_arr = _dedupe_stuv_path(np.asarray(stuv_path, dtype=np.float64), tol=param_tol)
+            curve = _curve_from_stuv_path(stuv_arr)
+            if curve is not None:
+                branches.append(SSXBranch(curve=curve))
+        if len(singular_points)>=1:
+            for sp in singular_points:
+                s, t, u, v = (float(x) for x in sp["param"])
+
+                uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
+                uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
+                stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
+                _append_unique_point(points, stuv, tol=param_tol)
+
+        # --- Cutout and recurse on remaining sub-domains ---
+        if recursive_fn is not None and len(trace_points) >= 2:
+            eps = 1e-15
+
+            # Compute footprint extent on each surface in local [0,1]^2
+            if  (len(trace_points) >= 2 ):
+                tp_arr = np.array([np.asarray(pt, dtype=np.float64) for pt in trace_points])
+            else:
+                tp_arr = np.array([np.asarray(pt['param'], dtype=np.float64) for pt in singular_points])
+
+            s1_extent_u = float(tp_arr[:, 0].max() - tp_arr[:, 0].min())
+            s1_extent_v = float(tp_arr[:, 1].max() - tp_arr[:, 1].min())
+            s2_extent_u = float(tp_arr[:, 2].max() - tp_arr[:, 2].min())
+            s2_extent_v = float(tp_arr[:, 3].max() - tp_arr[:, 3].min())
+            s1_max_extent = max(s1_extent_u, s1_extent_v)
+            s2_max_extent = max(s2_extent_u, s2_extent_v)
+
+            # Pick the surface where the trace's longer axis is shorter
+            if s1_max_extent <= s2_max_extent:
+                    cut_surface_idx = 0  # cut surface 1
+                    H_cut, interval_cut = H1, interval1
+                    H_other, interval_other = H2, interval2
+                    ax_offset = 0  # columns 0,1 in trace_points are (s,t) for surface 1
+            else:
+                    cut_surface_idx = 1  # cut surface 2
+                    H_cut, interval_cut = H2, interval2
+                    H_other, interval_other = H1, interval1
+                    ax_offset = 2  # columns 2,3 in trace_points are (u,v) for surface 2
+
+            # Compute local param_tol for the cut surface
+            u_span = max(interval_cut[1] - interval_cut[0], eps)
+            v_span = max(interval_cut[3] - interval_cut[2], eps)
+
+            local_pad_u = param_tol / u_span
+            local_pad_v = param_tol / v_span
+
+            # Build per-step boxes in local [0,1]^2 of the cut surface
+
+            boxes = []
+            if len(trace_points)>=2:
+                for i in range(len(trace_points) - 1):
+                    p0 = np.asarray(trace_points[i], dtype=np.float64)
+                    p1 = np.asarray(trace_points[i + 1], dtype=np.float64)
+                    h_i = float(trace_h_steps[i + 1]) if i + 1 < len(trace_h_steps) else 0.0
+                    pad_u = max(local_pad_u, h_i)
+                    pad_v = max(local_pad_v, h_i)
+                    u_lo = min(p0[ax_offset], p1[ax_offset]) - pad_u
+                    u_hi = max(p0[ax_offset], p1[ax_offset]) + pad_u
+                    v_lo = min(p0[ax_offset + 1], p1[ax_offset + 1]) - pad_v
+                    v_hi = max(p0[ax_offset + 1], p1[ax_offset + 1]) + pad_v
+                    boxes.append(((u_lo, v_lo), (u_hi, v_hi)))
+            if len(singular_points)>=1:
+                for i in range(len(singular_points) ):
+                    p=singular_points[i]['param']
+                    p0=p[:2],p[2:]
+                    pad_uv = np.array([local_pad_u, local_pad_v], dtype=np.float64)
+
+
+                    u_lo ,v_lo=  p0[ax_offset] - pad_uv
+                    u_hi, v_hi = p0[ax_offset] + pad_uv
+                    print(u_lo,v_lo,u_hi,v_hi)
+
+                    boxes.append(((u_lo, v_lo), (u_hi, v_hi)))
+
+
+            # Subtract the traced boxes from [0,1]^2 to get remaining sub-domains
+            remaining = subtract_intervals_2d(boxes, bounds=((0., 0.), (1., 1.)))
+
+            # Recurse on each remaining sub-domain
+            rk = recursive_kwargs or {}
+            for (lo, hi) in remaining:
+                u_range = (lo[0], hi[0])
+                v_range = (lo[1], hi[1])
+                if (u_range[1] - u_range[0]) < eps or (v_range[1] - v_range[0]) < eps:
+                    continue
+
+                sub_H = bernstein_trim_nd(H_cut, [u_range, v_range])
+                sub_interval = (
+                    interval_cut[0] + lo[0] * (interval_cut[1] - interval_cut[0]),
+                    interval_cut[0] + hi[0] * (interval_cut[1] - interval_cut[0]),
+                    interval_cut[2] + lo[1] * (interval_cut[3] - interval_cut[2]),
+                    interval_cut[2] + hi[1] * (interval_cut[3] - interval_cut[2]),
                 )
-                if stuv_ref is not None and np.all(np.isfinite(stuv_ref)):
-                    stuv = np.asarray(stuv_ref, dtype=np.float64)
-            except Exception:
-                pass
 
-            stuv_path.append(stuv)
+                g_sub = GaussMapBern.from_surf(sub_H, rational=True)
+                g_other = GaussMapBern.from_surf(H_other, rational=True)
 
-        stuv_path = _dedupe_stuv_path(np.asarray(stuv_path, dtype=np.float64), tol=param_tol)
-        curve = _curve_from_stuv_path(stuv_path)
-        if curve is not None:
-            branches.append(SSXBranch(curve=curve))
+                if cut_surface_idx == 0:
+                    sub_b, sub_p = recursive_fn(g_sub, g_other, sub_interval, interval_other,
+                                                deflate_hard_case=False, **rk)
+                else:
+                    sub_b, sub_p = recursive_fn(g_other, g_sub, interval_other, sub_interval,
+                                                deflate_hard_case=False, **rk)
+                branches.extend(sub_b)
+                points.extend(sub_p)
 
-    for sp in res.get("singular_points", []):
-        s, t, u, v = (float(x) for x in sp["param"])
-        uv1 = _map_uv_to_interval(np.array([s, t], dtype=np.float64), interval1)
-        uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
-        stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
-        try:
-            stuv_ref, *_ = refine_intersection_point(
-                stuv,
-                s1,
-                s2,
-                spt=spt,
-                angle_tol=angle_tol,
-                max_iter=60,
-            )
-            if stuv_ref is not None and np.all(np.isfinite(stuv_ref)):
-                stuv = np.asarray(stuv_ref, dtype=np.float64)
-        except Exception:
-            pass
-        _append_unique_point(points, stuv, tol=param_tol)
 
-    if branches or points:
-        return branches, points
-    return None
+
+
+    # --- Process singular points (only when a curve was traced) ---
+
+
+    return branches, points
 def _get_pt_t(s1,s2,stuv):
 
     S_eval= evaluate_nurbs_surface(s1, stuv[0], stuv[1], d_order=1)
@@ -1145,23 +1212,118 @@ def duv_from_eval(Su, Sv, T):
 
     delta_uv = np.linalg.pinv(J) @ T
     return delta_uv
-from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs,generalized_rational_hermite
+from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
 from mmcore.geom._nurbs_ders import _greville_abscissae
 
-def _collect_boundary_intersections(
-    H_owner: NDArray[np.float64],
-    H_other: NDArray[np.float64],
-    interval_owner: tuple[float, float, float, float],
-    interval_other: tuple[float, float, float, float],
-    *,
-    owner_is_first: bool,
-    spt: float,
-    angle_tol: float,
-    max_depth: int,
-    param_tol: float,
-    points: list[SSXPoint],
-    branches: list[SSXBranch],
-) -> None:
+
+def _post_process_bez_csx_results(isolated, overlaps, curve_net, atol):
+    """Post-process raw bez_csx results for a single boundary curve.
+
+    Each overlap from bez_csx is already a fully traced path — we treat it as a
+    ready-made sub-branch.  No range-merging is performed; we only:
+      (a) estimate a parameter tolerance,
+      (b) demote individually short overlaps to isolated points,
+      (c) filter isolated points that fall inside any overlap range,
+      (d) absorb isolated points near overlap endpoints,
+      (e) deduplicate remaining isolated points.
+    """
+    if not isolated and not overlaps:
+        return isolated, overlaps
+
+    eps = 1e-15
+
+    # (a) Estimate parameter tolerance from control polygon arc length.
+    pts = np.asarray(curve_net, dtype=np.float64)
+    if pts.ndim == 2:
+        if pts.shape[1] == 4:
+            w = pts[:, 3:4]
+            w = np.where(np.abs(w) < eps, eps, w)
+            xyz = pts[:, :3] / w
+        else:
+            xyz = pts[:, :3]
+    else:
+        xyz = pts.reshape(-1, 3)
+    diffs = np.diff(xyz, axis=0)
+    poly_length = float(np.sum(np.sqrt(np.sum(diffs ** 2, axis=1))))
+    t_tol = atol / max(poly_length, eps)
+
+    # (b) Compute per-overlap ranges; demote short ones to isolated points.
+    overlap_ranges = []  # [(t_min, t_max)] for surviving overlaps
+    new_isolated_from_short = []
+    short_indices = set()
+    for idx, ovl in enumerate(overlaps):
+        t_path = np.asarray(ovl["t_path"], dtype=np.float64).reshape(-1)
+        t_lo = float(min(t_path[0], t_path[-1]))
+        t_hi = float(max(t_path[0], t_path[-1]))
+        if (t_hi - t_lo) < t_tol:
+            # Too short to be a real overlap — convert to an isolated point.
+            short_indices.add(idx)
+            uv_path = np.asarray(ovl["uv_path"], dtype=np.float64).reshape(-1, 2)
+            mid_idx = len(t_path) // 2
+            pt_dict = {"t": float(t_path[mid_idx]), "u": float(uv_path[mid_idx, 0]), "v": float(uv_path[mid_idx, 1])}
+            if "xyz_path" in ovl:
+                xyz_path = np.asarray(ovl["xyz_path"], dtype=np.float64).reshape(-1, 3)
+                pt_dict["point"] = xyz_path[mid_idx]
+            new_isolated_from_short.append(pt_dict)
+        else:
+            overlap_ranges.append((t_lo, t_hi))
+
+    if short_indices:
+        overlaps = [o for i, o in enumerate(overlaps) if i not in short_indices]
+
+    isolated = list(isolated) + new_isolated_from_short
+
+    # (c) Filter isolated points inside any surviving overlap range.
+    if overlap_ranges and isolated:
+        def _in_any_overlap(t_val):
+            for t_lo, t_hi in overlap_ranges:
+                if (t_lo - t_tol) <= t_val <= (t_hi + t_tol):
+                    return True
+            return False
+
+        isolated = [iso for iso in isolated if not _in_any_overlap(float(iso["t"]))]
+
+    # (d) Absorb isolated points near overlap endpoints (spatial check).
+    if isolated and overlaps:
+        absorbed = set()
+        for i, pt in enumerate(isolated):
+            t_pt = float(pt["t"])
+            p_pt = pt.get("point", None)
+            for ovl in overlaps:
+                t_path = np.asarray(ovl["t_path"], dtype=np.float64).reshape(-1)
+                if p_pt is not None and "xyz_path" in ovl:
+                    xyz_path = np.asarray(ovl["xyz_path"], dtype=np.float64).reshape(-1, 3)
+                    d0 = float(np.linalg.norm(p_pt - xyz_path[0]))
+                    d1 = float(np.linalg.norm(p_pt - xyz_path[-1]))
+                    if d0 <= atol or d1 <= atol:
+                        absorbed.add(i)
+                        break
+                else:
+                    if abs(t_pt - float(t_path[0])) <= t_tol or abs(t_pt - float(t_path[-1])) <= t_tol:
+                        absorbed.add(i)
+                        break
+        if absorbed:
+            isolated = [iso for i, iso in enumerate(isolated) if i not in absorbed]
+
+    # (e) Deduplicate remaining isolated points by t proximity.
+    if isolated:
+        isolated_sorted = sorted(isolated, key=lambda p: float(p["t"]))
+        deduped = [isolated_sorted[0]]
+        merge_tol = 2.0 * t_tol
+        for p in isolated_sorted[1:]:
+            if abs(float(p["t"]) - float(deduped[-1]["t"])) <= merge_tol:
+                continue
+            deduped.append(p)
+        isolated = deduped
+
+    return isolated, overlaps
+
+
+def _collect_boundary_intersections(H_owner: NDArray[np.float64], H_other: NDArray[np.float64],
+                                    interval_owner: tuple[float, float, float, float],
+                                    interval_other: tuple[float, float, float, float], *, owner_is_first: bool,
+                                    atol: float, angle_tol: float, param_tol: float, points: list[SSXPoint],
+                                    branches: list[SSXBranch]) -> None:
     count=0
 
     for axis, value, curve_net in _boundary_curves_from_net(H_owner):
@@ -1170,15 +1332,17 @@ def _collect_boundary_intersections(
         res = bez_csx(
             curve_net,
             H_other,
-            atol=spt,
+            atol=atol,
             rational=True,
-            angle_tol=0.001,
+            angle_tol=angle_tol,
 
 
 
         )
-        print(res)
-        for iso in res.get("isolated", []):
+        filtered_isolated, filtered_overlaps = _post_process_bez_csx_results(
+            res.get("isolated", []), res.get("overlaps", []), curve_net, atol
+        )
+        for iso in filtered_isolated:
             t = float(iso["t"])
             uv_owner_local = _boundary_uv(axis, value, t)
             uv_other_local = np.array([float(iso["u"]), float(iso["v"])], dtype=np.float64)
@@ -1191,7 +1355,7 @@ def _collect_boundary_intersections(
             stuv = np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64)
             _append_unique_point(points, stuv, tol=param_tol)
             count+=1
-        for ovl in res.get("overlaps", []):
+        for ovl in filtered_overlaps:
             t_path = np.asarray(ovl["t_path"], dtype=np.float64).reshape(-1)
 
             uv_path = np.asarray(ovl["uv_path"], dtype=np.float64).reshape(-1, 2)
@@ -1205,7 +1369,7 @@ def _collect_boundary_intersections(
             stuv_path = np.hstack([uv1_path, uv2_path])
             delta = stuv_path[-1] - stuv_path[0]
             if np.linalg.norm(delta) < param_tol:
-                return None
+                continue
             delta/=np.linalg.norm(delta)
 
             cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=True,use_centripetal=True,tol=param_tol)
@@ -1216,48 +1380,76 @@ def _collect_boundary_intersections(
             branches.append(SSXBranch(curve=curve, overlap=True))
 
 
-def _leaf_boundary_test_and_march(
-    H1: NDArray[np.float64],
-    H2: NDArray[np.float64],
-    interval1: tuple[float, float, float, float], #u0,u1,v0,v1
-    interval2: tuple[float, float, float, float],
-    *,
-    spt: float,
-    tol: float,
-    param_tol: float,
-    angle_tol: float = 0.01,
-    max_depth: int = 60,
-    march_samples: int = 8,
-) -> tuple[list[SSXBranch], list[SSXPoint]]:
+def _dedup_overlap_branches(branches, param_tol):
+    """Remove duplicate overlap branches that represent the same geometric intersection.
+
+    When both _collect_boundary_intersections calls detect the same overlap
+    (coinciding patch boundaries), this removes the duplicate.
+    """
+    if len(branches) < 2:
+        return branches
+
+    overlap_indices = [i for i, b in enumerate(branches) if b.overlap]
+    if len(overlap_indices) < 2:
+        return branches
+
+    to_remove = set()
+    for ii in range(len(overlap_indices)):
+        if overlap_indices[ii] in to_remove:
+            continue
+        br_a = branches[overlap_indices[ii]]
+        start_a = br_a.curve.control_points[0]
+        end_a = br_a.curve.control_points[-1]
+        for jj in range(ii + 1, len(overlap_indices)):
+            if overlap_indices[jj] in to_remove:
+                continue
+            br_b = branches[overlap_indices[jj]]
+            start_b = br_b.curve.control_points[0]
+            end_b = br_b.curve.control_points[-1]
+            # Same direction match
+            same_dir = (np.max(np.abs(start_a - start_b)) <= param_tol and
+                        np.max(np.abs(end_a - end_b)) <= param_tol)
+            # Reversed direction match
+            rev_dir = (np.max(np.abs(start_a - end_b)) <= param_tol and
+                       np.max(np.abs(end_a - start_b)) <= param_tol)
+            if same_dir or rev_dir:
+                to_remove.add(overlap_indices[jj])
+
+    if to_remove:
+        branches = [b for i, b in enumerate(branches) if i not in to_remove]
+    return branches
+
+
+def _leaf_boundary_test_and_march(H1: NDArray[np.float64], H2: NDArray[np.float64],
+                                  interval1: tuple[float, float, float, float],
+                                  interval2: tuple[float, float, float, float], *, atol: float, param_tol: float,
+                                  angle_tol: float = 0.01) -> tuple[list[SSXBranch], list[SSXPoint]]:
     points: list[SSXPoint] = []
     branches: list[SSXBranch] = []
 
-    _collect_boundary_intersections(
-        H1,
-        H2,
-        interval1,
-        interval2,
-        owner_is_first=True,
-        spt=spt,
-        angle_tol=angle_tol,
-        max_depth=max_depth,
-        param_tol=param_tol,
-        points=points,
-        branches=branches,
-    )
-    _collect_boundary_intersections(
-        H2,
-        H1,
-        interval2,
-        interval1,
-        owner_is_first=False,
-        spt=spt,
-        angle_tol=angle_tol,
-        max_depth=max_depth,
-        param_tol=param_tol,
-        points=points,
-        branches=branches,
-    )
+    _collect_boundary_intersections(H1, H2, interval1, interval2, owner_is_first=True, atol=atol, angle_tol=angle_tol,
+                                    param_tol=param_tol, points=points, branches=branches)
+    _collect_boundary_intersections(H2, H1, interval2, interval1, owner_is_first=False, atol=atol, angle_tol=angle_tol,
+                                    param_tol=param_tol, points=points, branches=branches)
+
+    branches = _dedup_overlap_branches(branches, param_tol)
+
+    # Remove isolated points that coincide with overlap branch endpoints.
+    # These arise because different boundary curves detect the same geometric
+    # point — once as an isolated hit, once as an overlap endpoint — and the
+    # per-boundary post-processing cannot catch the cross-boundary duplicate.
+    # Keeping them would cause trace_between to draw a spurious curve between
+    # two overlap endpoints through the interior.
+    if points and branches:
+        overlap_endpoints = []
+        for br in branches:
+            if br.overlap:
+                overlap_endpoints.append(br.curve.control_points[0])
+                overlap_endpoints.append(br.curve.control_points[-1])
+        if overlap_endpoints:
+            points = [p for p in points
+                      if not any(np.max(np.abs(p.stuv - ep)) <= param_tol
+                                 for ep in overlap_endpoints)]
 
     if not points and not branches:
         return [], []
@@ -1277,7 +1469,7 @@ def _leaf_boundary_test_and_march(
                                         points[j].stuv,
                                         interval1=interval1,
                                         interval2=interval2,
-                                        spt=spt,
+                                        spt=atol,
                                         fit_max_depth=10,angle_tol=angle_tol,
 
                 )
@@ -1401,29 +1593,12 @@ def _prune_points_on_branches(points: list[SSXPoint], branches: list[SSXBranch],
     return out
 
 
-def _bez_ssx_recursive(
-    g1: GaussMapBern,
-    g2: GaussMapBern,
-    interval1: tuple[float, float, float, float], #u0,u1,v0,v1
-    interval2: tuple[float, float, float, float],  #u0,u1,v0,v1
-    *,
-    spt: float,
-    tol: float,
-    param_tol: float,
-    aabb_tol: float = 0.0,
-    slab_tol_scale: float = 1e-14,
-    gjk_tol: float = 1e-5,
-    gjk_max_iter: int = 64,
-    gm_eps: float = 1e-5,
-    gm_tol: float = 1e-8,
-    max_depth: int = 24,
-    magic_start_depth: int = 2,
-    parallel_angle: float = 0.053,
-    flat_angle: float = 0.01,
-    march_samples: int = 8,
-    deflate_hard_case: bool = True,
-    depth: int = 0,
-) -> tuple[list[SSXBranch], list[SSXPoint]]:
+def _bez_ssx_recursive(g1: GaussMapBern, g2: GaussMapBern, interval1: tuple[float, float, float, float],
+                       interval2: tuple[float, float, float, float], *, atol: float, tol: float, param_tol: float,
+                       aabb_tol: float = 0.0, slab_tol_scale: float = 1e-14, gjk_tol: float = 1e-5,
+                       gjk_max_iter: int = 64, gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24,
+                       magic_start_depth: int = 2, parallel_angle: float = 0.053, flat_angle: float = 0.01,
+                       march_samples: int = 8, deflate_hard_case: bool = True, depth: int = 0) -> tuple[list[SSXBranch], list[SSXPoint]]:
     bb1 = g1.bbox()
     bb2 = g2.bbox()
 
@@ -1433,17 +1608,9 @@ def _bez_ssx_recursive(
     # termination by intersection box
     iib = np.array(aabb_intersection(bb1, bb2))
     d = iib[1] - iib[0]
-    if float(np.dot(d, d)) <= float(spt * spt):
-        return _leaf_boundary_test_and_march(
-            g1.surface,
-            g2.surface,
-            interval1,
-            interval2,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            march_samples=march_samples,angle_tol=parallel_angle
-        )
+    if float(np.dot(d, d)) <= float(atol * atol):
+        return _leaf_boundary_test_and_march(g1.surface, g2.surface, interval1, interval2, atol=atol,
+                                             param_tol=param_tol, angle_tol=parallel_angle)
 
 
     P1 = g1.surf_points()
@@ -1479,81 +1646,59 @@ def _bez_ssx_recursive(
 
     p_sep1, p_sep2 = separate_gauss_maps(g1.map_dirs(), g2.map_dirs(), eps=gm_eps, tol=gm_tol)
     if (p_sep1 is not None) and (p_sep2 is not None):
-        return _leaf_boundary_test_and_march(
-            g1.surface,
-            g2.surface,
-            interval1,
-            interval2,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            angle_tol=parallel_angle,
-            march_samples=march_samples,
-        )
+        return _leaf_boundary_test_and_march(g1.surface, g2.surface, interval1, interval2, atol=atol,
+                                             param_tol=param_tol, angle_tol=parallel_angle)
+    _deflate_recursive_kwargs = dict(
+        atol=atol, tol=tol, param_tol=param_tol, aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale,
+        gjk_tol=gjk_tol, gjk_max_iter=gjk_max_iter, gm_eps=gm_eps, gm_tol=gm_tol,
+        max_depth=max_depth, magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+        flat_angle=flat_angle, march_samples=march_samples, depth=depth + 1,
+    )
+
     if deflate_hard_case:
-        # ATTENTION!!!
-        # We call deflation for the first time without reaching hard_case,
+        # We call deflation before reaching hard_case detection,
         # as this can significantly reduce the number of subproblems and avoid splitting the patch at the problem location.
-        # All we risk is one redundant deflation call.
-        frame_info=inspect.getframeinfo(currentframe())
-        print('try deflated: ',       f'{frame_info.filename}:{frame_info.lineno+2}:0')
-        hard = _try_deflated_hard_case(
-            g1.surface,
-            g2.surface,
-            interval1,
-            interval2,
-            spt=spt,
-            angle_tol=parallel_angle,
-            param_tol=param_tol,
-        )
-        if hard is not None:
-            _branches, _points=_leaf_boundary_test_and_march(
-                g1.surface,
-                g2.surface,
-                interval1,
-                interval2,
-                spt=spt,
-                tol=tol,
-                param_tol=param_tol,
-                angle_tol=parallel_angle,
-                march_samples=march_samples,
-            )
-            print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
-            print(_branches)
-            return hard[0]+_branches,hard[1]+_points
+        hard = _try_deflated_hard_case(g1.surface, g2.surface, interval1, interval2, atol=atol,
+                                       angle_tol=parallel_angle, param_tol=param_tol,
+                                       recursive_fn=_bez_ssx_recursive,
+                                       recursive_kwargs=_deflate_recursive_kwargs)
+
+        #print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
+        #print(_branches)
+        _b,_p=hard
+        if len(_b)>0 or len(_p)>0:
+            if len(hard[1])>0 and len(hard[0])==0:
+                _branches, _points=_leaf_boundary_test_and_march(
+                    g1.surface,
+                    g2.surface,
+                    interval1,
+                    interval2,
+                    atol=atol,
+                    param_tol=param_tol,
+                    angle_tol=parallel_angle,
+
+                )
+                #print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
+                #print(_branches)
+                print('fff')
+                return hard[0]+_branches,hard[1]+_points
+
+            print(hard)
+            return hard
         deflate_hard_case=False # ATTENTION!!! If the first deflation ended in failure, there is no point in looking for deflation in subsidiary subproblems.
-        print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
+        #print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
     is_hard_case = near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle)
 
-
     if deflate_hard_case and is_hard_case:
-            frame_info = inspect.getframeinfo(currentframe())
-            print('try deflated: ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
-            hard = _try_deflated_hard_case(
-                g1.surface,
-                g2.surface,
-                interval1,
-                interval2,
-                spt=spt,
-                angle_tol=parallel_angle,
-                param_tol=param_tol,
-            )
+            hard = _try_deflated_hard_case(g1.surface, g2.surface, interval1, interval2, atol=atol,
+                                           angle_tol=parallel_angle, param_tol=param_tol,
+                                           recursive_fn=_bez_ssx_recursive,
+                                           recursive_kwargs=_deflate_recursive_kwargs)
             if hard is not None:
-                print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
                 return hard
-            print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
     if depth>=max_depth:
-        return _leaf_boundary_test_and_march(
-            g1.surface,
-            g2.surface,
-            interval1,
-            interval2,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            march_samples=march_samples,
-            angle_tol=parallel_angle,
-        )
+        return _leaf_boundary_test_and_march(g1.surface, g2.surface, interval1, interval2, atol=atol,
+                                             param_tol=param_tol, angle_tol=parallel_angle)
 
     # Hard case: near-parallel, flat Gauss maps, still failing criterion -> try Newton magic point
     if depth >= magic_start_depth and is_hard_case:
@@ -1572,36 +1717,21 @@ def _bez_ssx_recursive(
             points: list[SSXPoint] = []
             for ia, ca in enumerate(a_children):
                 for ib, cb in enumerate(b_children):
-                    bch, pts = _bez_ssx_recursive(
-                        ca,
-                        cb,
-                        intervals_a[ia],
-                        intervals_b[ib],
-                        spt=spt,
-                        tol=tol,
-                        param_tol=param_tol,
-                        aabb_tol=aabb_tol,
-                        slab_tol_scale=slab_tol_scale,
-                        gjk_tol=gjk_tol,
-                        gjk_max_iter=gjk_max_iter,
-                        gm_eps=gm_eps,
-                        gm_tol=gm_tol,
-                        max_depth=max_depth,
-                        magic_start_depth=magic_start_depth,
-                        parallel_angle=parallel_angle,
-                        flat_angle=flat_angle,
-                        march_samples=march_samples,
-                        deflate_hard_case=deflate_hard_case,
-                        depth=depth + 1,
-                    )
+                    bch, pts = _bez_ssx_recursive(ca, cb, intervals_a[ia], intervals_b[ib], atol=atol, tol=tol,
+                                                  param_tol=param_tol, aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale,
+                                                  gjk_tol=gjk_tol, gjk_max_iter=gjk_max_iter, gm_eps=gm_eps,
+                                                  gm_tol=gm_tol, max_depth=max_depth,
+                                                  magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+                                                  flat_angle=flat_angle, march_samples=march_samples,
+                                                  deflate_hard_case=deflate_hard_case, depth=depth + 1)
                     branches.extend(bch)
                     points.extend(pts)
 
             # Merge across both split lines on both surfaces.
-            branches = _merge_branches_on_split(branches, surf_index=1, axis="u", split_value=ua_split, tol=param_tol,atol=spt)
-            branches = _merge_branches_on_split(branches, surf_index=1, axis="v", split_value=va_split, tol=param_tol,atol=spt)
-            branches = _merge_branches_on_split(branches, surf_index=2, axis="u", split_value=ub_split, tol=param_tol,atol=spt)
-            branches = _merge_branches_on_split(branches, surf_index=2, axis="v", split_value=vb_split, tol=param_tol,atol=spt)
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="u", split_value=ua_split, tol=param_tol, atol=atol)
+            branches = _merge_branches_on_split(branches, surf_index=1, axis="v", split_value=va_split, tol=param_tol, atol=atol)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="u", split_value=ub_split, tol=param_tol, atol=atol)
+            branches = _merge_branches_on_split(branches, surf_index=2, axis="v", split_value=vb_split, tol=param_tol, atol=atol)
             branches = _close_branches(branches, param_tol)
             points = _prune_points_on_branches(points, branches, param_tol)
             return branches, points
@@ -1620,101 +1750,37 @@ def _bez_ssx_recursive(
 
     if split_a:
         left_int, right_int, split_val = _split_interval(interval1, axis, 0.5)
-        b0, p0 = _bez_ssx_recursive(
-            kids[0],
-            other,
-            left_int,
-            interval2,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            aabb_tol=aabb_tol,
-            slab_tol_scale=slab_tol_scale,
-            gjk_tol=gjk_tol,
-            gjk_max_iter=gjk_max_iter,
-            gm_eps=gm_eps,
-            gm_tol=gm_tol,
-            max_depth=max_depth,
-            magic_start_depth=magic_start_depth,
-            parallel_angle=parallel_angle,
-            flat_angle=flat_angle,
-            march_samples=march_samples,
-            deflate_hard_case=deflate_hard_case,
-            depth=depth + 1,
-        )
-        b1, p1 = _bez_ssx_recursive(
-            kids[1],
-            other,
-            right_int,
-            interval2,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            aabb_tol=aabb_tol,
-            slab_tol_scale=slab_tol_scale,
-            gjk_tol=gjk_tol,
-            gjk_max_iter=gjk_max_iter,
-            gm_eps=gm_eps,
-            gm_tol=gm_tol,
-            max_depth=max_depth,
-            magic_start_depth=magic_start_depth,
-            parallel_angle=parallel_angle,
-            flat_angle=flat_angle,
-            march_samples=march_samples,
-            deflate_hard_case=deflate_hard_case,
-            depth=depth + 1,
-        )
-        branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
+        b0, p0 = _bez_ssx_recursive(kids[0], other, left_int, interval2, atol=atol, tol=tol, param_tol=param_tol,
+                                    aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale, gjk_tol=gjk_tol,
+                                    gjk_max_iter=gjk_max_iter, gm_eps=gm_eps, gm_tol=gm_tol, max_depth=max_depth,
+                                    magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+                                    flat_angle=flat_angle, march_samples=march_samples,
+                                    deflate_hard_case=deflate_hard_case, depth=depth + 1)
+        b1, p1 = _bez_ssx_recursive(kids[1], other, right_int, interval2, atol=atol, tol=tol, param_tol=param_tol,
+                                    aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale, gjk_tol=gjk_tol,
+                                    gjk_max_iter=gjk_max_iter, gm_eps=gm_eps, gm_tol=gm_tol, max_depth=max_depth,
+                                    magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+                                    flat_angle=flat_angle, march_samples=march_samples,
+                                    deflate_hard_case=deflate_hard_case, depth=depth + 1)
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=1, axis=axis, split_value=split_val, tol=param_tol, atol=atol)
         points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
         branches = _close_branches(branches, param_tol)
         return branches, points
     else:
         left_int, right_int, split_val = _split_interval(interval2, axis, 0.5)
-        b0, p0 = _bez_ssx_recursive(
-            other,
-            kids[0],
-            interval1,
-            left_int,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            aabb_tol=aabb_tol,
-            slab_tol_scale=slab_tol_scale,
-            gjk_tol=gjk_tol,
-            gjk_max_iter=gjk_max_iter,
-            gm_eps=gm_eps,
-            gm_tol=gm_tol,
-            max_depth=max_depth,
-            magic_start_depth=magic_start_depth,
-            parallel_angle=parallel_angle,
-            flat_angle=flat_angle,
-            march_samples=march_samples,
-            deflate_hard_case=deflate_hard_case,
-            depth=depth + 1,
-        )
-        b1, p1 = _bez_ssx_recursive(
-            other,
-            kids[1],
-            interval1,
-            right_int,
-            spt=spt,
-            tol=tol,
-            param_tol=param_tol,
-            aabb_tol=aabb_tol,
-            slab_tol_scale=slab_tol_scale,
-            gjk_tol=gjk_tol,
-            gjk_max_iter=gjk_max_iter,
-            gm_eps=gm_eps,
-            gm_tol=gm_tol,
-            max_depth=max_depth,
-            magic_start_depth=magic_start_depth,
-            parallel_angle=parallel_angle,
-            flat_angle=flat_angle,
-            march_samples=march_samples,
-            deflate_hard_case=deflate_hard_case,
-            depth=depth + 1,
-        )
-        branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol,atol=spt)
+        b0, p0 = _bez_ssx_recursive(other, kids[0], interval1, left_int, atol=atol, tol=tol, param_tol=param_tol,
+                                    aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale, gjk_tol=gjk_tol,
+                                    gjk_max_iter=gjk_max_iter, gm_eps=gm_eps, gm_tol=gm_tol, max_depth=max_depth,
+                                    magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+                                    flat_angle=flat_angle, march_samples=march_samples,
+                                    deflate_hard_case=deflate_hard_case, depth=depth + 1)
+        b1, p1 = _bez_ssx_recursive(other, kids[1], interval1, right_int, atol=atol, tol=tol, param_tol=param_tol,
+                                    aabb_tol=aabb_tol, slab_tol_scale=slab_tol_scale, gjk_tol=gjk_tol,
+                                    gjk_max_iter=gjk_max_iter, gm_eps=gm_eps, gm_tol=gm_tol, max_depth=max_depth,
+                                    magic_start_depth=magic_start_depth, parallel_angle=parallel_angle,
+                                    flat_angle=flat_angle, march_samples=march_samples,
+                                    deflate_hard_case=deflate_hard_case, depth=depth + 1)
+        branches = _merge_branches_on_split([*b0, *b1], surf_index=2, axis=axis, split_value=split_val, tol=param_tol, atol=atol)
         points = _prune_points_on_branches([*p0, *p1], branches, param_tol)
         branches = _close_branches(branches, param_tol)
         return branches, points
@@ -1781,26 +1847,11 @@ def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0
     param_tol = _param_tol_from(tol, atol)
     g1 = GaussMapBern.from_surf(H1, rational=True)
     g2 = GaussMapBern.from_surf(H2, rational=True)
-    branches, points = _bez_ssx_recursive(
-        g1,
-        g2,
-        (0.0, 1.0, 0.0, 1.0),
-        (0.0, 1.0, 0.0, 1.0),
-        spt=atol,
-        tol=tol,
-        param_tol=param_tol,
-        gjk_tol=tol,
-        gjk_max_iter=gjk_max_iter,
-        gm_eps=gm_eps,
-        gm_tol=gm_tol,
-        max_depth=max_depth,
-        magic_start_depth=magic_start_depth,
-        parallel_angle=angle_tol,
-        flat_angle=flat_angle,
-
-        march_samples=march_samples,
-        deflate_hard_case=deflate_hard_case,
-    )
+    branches, points = _bez_ssx_recursive(g1, g2, (0.0, 1.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), atol=atol, tol=tol,
+                                          param_tol=param_tol, gjk_tol=tol, gjk_max_iter=gjk_max_iter, gm_eps=gm_eps,
+                                          gm_tol=gm_tol, max_depth=max_depth, magic_start_depth=magic_start_depth,
+                                          parallel_angle=angle_tol, flat_angle=flat_angle, march_samples=march_samples,
+                                          deflate_hard_case=deflate_hard_case)
     branches = _merge_branches_global(branches, param_tol,atol=atol)
     branches = _close_branches(branches, param_tol)
     points = _prune_points_on_branches(points, branches, param_tol)
@@ -1852,25 +1903,11 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
         if gm2[j] is None:
             gm2[j] = GaussMapBern.from_surf(H2, rational=True)
 
-        bch, pts = _bez_ssx_recursive(
-            gm1[i],
-            gm2[j],
-            s1_intervals[i],
-            s2_intervals[j],
-            spt=atol,
-            tol=tol,
-            param_tol=param_tol,
-            gjk_tol=tol,
-            gjk_max_iter=gjk_max_iter,
-            gm_eps=gm_eps,
-            gm_tol=gm_tol,
-            max_depth=max_depth,
-            magic_start_depth=magic_start_depth,
-            parallel_angle=angle_tol,
-            flat_angle=flat_angle,
-            march_samples=march_samples,
-            deflate_hard_case=deflate_hard_case,
-        )
+        bch, pts = _bez_ssx_recursive(gm1[i], gm2[j], s1_intervals[i], s2_intervals[j], atol=atol, tol=tol,
+                                      param_tol=param_tol, gjk_tol=tol, gjk_max_iter=gjk_max_iter, gm_eps=gm_eps,
+                                      gm_tol=gm_tol, max_depth=max_depth, magic_start_depth=magic_start_depth,
+                                      parallel_angle=angle_tol, flat_angle=flat_angle, march_samples=march_samples,
+                                      deflate_hard_case=deflate_hard_case)
         branches.extend(bch)
         points.extend(pts)
 
@@ -2016,8 +2053,8 @@ if __name__ == "__main__":
     s1 = NURBSSurfaceTuple(
         order_u=2,
         order_v=2,
-        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]) * 0.001,
-        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]) * 0.001,
+        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]),
+        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]),
         control_points=np.array(
             [
                 [[-128.25004889, -129.85828719, 67.43742325], [-128.25004889, 129.85828719, 0.0]],
@@ -2030,8 +2067,8 @@ if __name__ == "__main__":
     s2 = NURBSSurfaceTuple(
         order_u=2,
         order_v=2,
-        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]) * 0.001,
-        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]) * 0.001,
+        knot_u=np.array([0.0, 0.0, 256.50009777, 256.50009777]) ,
+        knot_v=np.array([0.0, 0.0, 259.71657438, 259.71657438]) ,
         control_points=np.array(
             [
                 [[-128.25004889, -129.85828719, 0.0], [-128.25004889, 129.85828719, 0.0]],

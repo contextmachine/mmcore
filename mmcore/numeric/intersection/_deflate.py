@@ -1024,7 +1024,7 @@ def analyse_deflated_system(
         lo, hi = Bf[axis]
         if curve_mode != "krawczyk":
             gamma_rows = choose_gamma_3eq(sys, xw)
-            curve_4d = trace_gamma(
+            curve_4d, curve_h_steps = trace_gamma(
                 sys, gamma_rows, xw, Bf,
                 h0=curve_trace_h0,
                 h_min=curve_trace_h_min,
@@ -1032,6 +1032,8 @@ def analyse_deflated_system(
                 max_steps=curve_trace_max_steps,
                 tol=curve_trace_tol,
             )
+            out["trace_points"] = curve_4d
+            out["trace_h_steps"] = curve_h_steps
             samples = []
             for xm in curve_4d:
                 fn = float(np.linalg.norm(sys.delta_point(xm)))
@@ -1343,12 +1345,13 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
 
     def trace_one_direction(sign):
         pts = [x0.copy()]
+        h_steps = [0.0]  # step size used to reach each point (0 for initial)
         h = h0
 
         J0 = sys.jac_rows_point(x0, gamma_rows)
         t = nullspace_direction(J0)
         if t is None:
-            return pts
+            return pts, h_steps
         t *= sign
 
         for _ in range(max_steps):
@@ -1367,6 +1370,7 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
                                                      axis_near, bound_near, B, tol=tol)
                 if ok and inside(x_end):
                     pts.append(x_end)
+                    h_steps.append(h)
                 break
 
             # Predict
@@ -1384,6 +1388,7 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
                                                          axis_hit, bound_hit, B, tol=tol)
                     if ok and inside(x_end) and np.linalg.norm(sys.delta_point(x_end)) < 1e-7:
                         pts.append(x_end)
+                        h_steps.append(h)
                         solved = True
                         break
                 if solved:
@@ -1417,6 +1422,7 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
                 continue
 
             pts.append(x_new)
+            h_steps.append(h)
 
             # Update tangent
             Jn = sys.jac_rows_point(x_new, gamma_rows)
@@ -1429,12 +1435,15 @@ def trace_gamma(sys, gamma_rows, x0, B, h0=1e-2, h_min=1e-6, h_max=5e-2,
 
             h = min(h_max, h * 1.2)
 
-        return pts
+        return pts, h_steps
 
-    fwd = trace_one_direction(+1)
-    bwd = trace_one_direction(-1)
-    bwd = bwd[::-1]
-    return bwd[:-1] + fwd
+    fwd_pts, fwd_h = trace_one_direction(+1)
+    bwd_pts, bwd_h = trace_one_direction(-1)
+    bwd_pts = bwd_pts[::-1]
+    bwd_h = bwd_h[::-1]
+    points = bwd_pts[:-1] + fwd_pts
+    h_steps = bwd_h[:-1] + fwd_h
+    return points, h_steps
 
 
 if __name__ == "__main__":

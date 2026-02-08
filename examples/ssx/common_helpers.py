@@ -44,6 +44,7 @@ class WiresMaterial(CurveMaterial):
 class SurfaceMaterial:
 
     color:tuple[float,float,float,float]=field(default=(0.5, 0.5, 0.9, 0.05))
+    show_wires:bool=field(default=True)
     wires_material: WiresMaterial = field(
         default_factory=lambda: WiresMaterial((1.0, 1.0, 1.0, 1.0), show_control_net=False, u_count=1, v_count=1)
     )
@@ -98,7 +99,7 @@ def save_pkl(s1,s2,result,fp=None)->Path:
         fp=inspect.getfile(_find_root_frame(inspect.currentframe()))
     pth=Path(fp).with_suffix('.pkl')
     with open(pth, 'wb') as f:
-        pickle.dump(((s1, s2), [r.curve_xyz for r in result[0]], [r.curve_st for r in result[0]], [r.curve_uv for r in result[0]]), f)
+        pickle.dump(((s1, s2), [r.curve_xyz for r in result[0]], [r.curve_st for r in result[0]], [r.curve_uv for r in result[0]], [p.xyz for p in result[1]]), f)
     return pth
 
 
@@ -126,9 +127,9 @@ def draw_ssx(
     if viewer is None:
         viewer = Viewer(camera=OrbitCamera(target=bb.centroid(), distance=np.linalg.norm(bb.diag())*2, near=1.0))
 
-    viewer.add_nurbs_surface(s1, color=surf1_material.wires_material.color, surface_color=surf1_material.color, u_count=surf1_material.wires_material.u_count, v_count=surf1_material.wires_material.v_count)
+    viewer.add_nurbs_surface(s1, color=surf1_material.wires_material.color, surface_color=surf1_material.color, u_count=surf1_material.wires_material.u_count, v_count=surf1_material.wires_material.v_count,show_edges=surf1_material.show_wires,show_isocurves=surf1_material.show_wires,)
     viewer.add_nurbs_surface(
-        s2,color=surf2_material.wires_material.color,surface_color=surf2_material.color,u_count=surf2_material.wires_material.u_count,v_count=surf2_material.wires_material.v_count
+        s2,color=surf2_material.wires_material.color,surface_color=surf2_material.color,u_count=surf2_material.wires_material.u_count,v_count=surf2_material.wires_material.v_count,show_edges=surf1_material.show_wires,show_isocurves=surf1_material.show_wires,
 
     )
 
