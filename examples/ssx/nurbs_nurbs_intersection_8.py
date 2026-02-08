@@ -15,8 +15,8 @@ from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
 s1 = NURBSSurfaceTuple(
     order_u=2,
     order_v=2,
-    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
-    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777]),
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438]),
     control_points=np.array([[[-128.25004889, -129.85828719,   67.43742325],
             [-128.25004889,  129.85828719,    0.        ]],
 
@@ -30,8 +30,8 @@ s1 = NURBSSurfaceTuple(
 s2 = NURBSSurfaceTuple(
     order_u=2,
     order_v=2,
-    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
-    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777]),
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438]),
     control_points=np.array([[[-128.25004889, -129.85828719,    0.        ],
             [-128.25004889,  129.85828719,    0.        ]],
 

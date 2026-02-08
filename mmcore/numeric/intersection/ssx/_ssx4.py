@@ -1172,10 +1172,12 @@ def _collect_boundary_intersections(
             H_other,
             atol=spt,
             rational=True,
-            angle_tol=angle_tol,
+            angle_tol=0.001,
+
 
 
         )
+        print(res)
         for iso in res.get("isolated", []):
             t = float(iso["t"])
             uv_owner_local = _boundary_uv(axis, value, t)
@@ -1505,8 +1507,20 @@ def _bez_ssx_recursive(
             param_tol=param_tol,
         )
         if hard is not None:
+            _branches, _points=_leaf_boundary_test_and_march(
+                g1.surface,
+                g2.surface,
+                interval1,
+                interval2,
+                spt=spt,
+                tol=tol,
+                param_tol=param_tol,
+                angle_tol=parallel_angle,
+                march_samples=march_samples,
+            )
             print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
-            return hard
+            print(_branches)
+            return hard[0]+_branches,hard[1]+_points
         deflate_hard_case=False # ATTENTION!!! If the first deflation ended in failure, there is no point in looking for deflation in subsidiary subproblems.
         print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
     is_hard_case = near_parallel_hard_case(g1, g2, parallel_angle=parallel_angle, flat_angle=flat_angle)

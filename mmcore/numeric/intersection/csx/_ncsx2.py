@@ -139,6 +139,62 @@ def _t_in_overlap(t: float, ov, t_tol: float, t_min: float, t_max: float):
     return (t >= (t0 - t_tol)) or (t <= (t1 + t_tol))
 
 
+def _absorb_near_overlap_boundary(isolated_records, overlap_records, tol):
+    """Absorb isolated points that lie near overlap boundaries.
+
+    If an isolated point is spatially within *tol* of an overlap endpoint it
+    is considered part of that overlap.  When the point's *t* parameter
+    extends beyond the current overlap boundary the boundary is stretched to
+    include it.
+    """
+    if not isolated_records or not overlap_records:
+        return isolated_records, overlap_records
+
+    absorbed = set()
+    for i, pt in enumerate(isolated_records):
+        t_pt = pt["t"]
+        p_pt = pt["point"]
+        for ov in overlap_records:
+            d0 = np.linalg.norm(p_pt - ov["p0"])
+            d1 = np.linalg.norm(p_pt - ov["p1"])
+
+            if d0 > tol and d1 > tol:
+                continue
+
+            # Point is near at least one overlap endpoint – absorb it.
+            if ov["t0"] <= ov["t1"]:
+                # Normal (non-wrapped) overlap
+                if t_pt < ov["t0"]:
+                    ov["t0"] = t_pt
+                    ov["u0"] = pt["u"]
+                    ov["v0"] = pt["v"]
+                    ov["p0"] = p_pt
+                elif t_pt > ov["t1"]:
+                    ov["t1"] = t_pt
+                    ov["u1"] = pt["u"]
+                    ov["v1"] = pt["v"]
+                    ov["p1"] = p_pt
+            else:
+                # Wrapped overlap (closed curve): t0 > t1
+                if d0 <= tol and t_pt < ov["t0"]:
+                    ov["t0"] = t_pt
+                    ov["u0"] = pt["u"]
+                    ov["v0"] = pt["v"]
+                    ov["p0"] = p_pt
+                elif d1 <= tol and t_pt > ov["t1"]:
+                    ov["t1"] = t_pt
+                    ov["u1"] = pt["u"]
+                    ov["v1"] = pt["v"]
+                    ov["p1"] = p_pt
+            absorbed.add(i)
+            break
+
+    if absorbed:
+        isolated_records = [p for i, p in enumerate(isolated_records) if i not in absorbed]
+
+    return isolated_records, overlap_records
+
+
 def _dedup_isolated_by_t(points, t_tol: float, closed: bool, t_min: float, t_max: float):
     if not points:
         return []
@@ -260,6 +316,10 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
             p for p in isolated_records
             if not any(_t_in_overlap(p["t"], ov, t_tol, t_min, t_max) for ov in overlap_records)
         ]
+
+    isolated_records, overlap_records = _absorb_near_overlap_boundary(
+        isolated_records, overlap_records, tol
+    )
 
     isolated_records = _dedup_isolated_by_t(isolated_records, t_tol, closed, t_min, t_max)
 
