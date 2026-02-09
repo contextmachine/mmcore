@@ -236,7 +236,10 @@ def G_and_J_curve_surface(C, S, t, u, v, rational: bool | None = None):
     c, ct = eval_bezier_curve_and_deriv(C, t, rational=rational)
     s, su, sv = eval_bezier_surface_and_derivs(S, u, v, rational=rational)
     G = c - s
-    J = np.stack([ct, -su, -sv], axis=1)
+    J = np.empty((3, 3))
+    J[0, 0] = ct[0]; J[1, 0] = ct[1]; J[2, 0] = ct[2]
+    J[0, 1] = -su[0]; J[1, 1] = -su[1]; J[2, 1] = -su[2]
+    J[0, 2] = -sv[0]; J[1, 2] = -sv[1]; J[2, 2] = -sv[2]
     return G, J
 
 
@@ -269,7 +272,8 @@ def newton_project_G0_curve_surface(
         except Exception:
             break
         JT = J.T
-        A = JT @ J + lm_damp * np.eye(3)
+        A = JT @ J
+        A[0, 0] += lm_damp; A[1, 1] += lm_damp; A[2, 2] += lm_damp
         b = -JT @ G
         try:
             delta = np.linalg.solve(A, b)
