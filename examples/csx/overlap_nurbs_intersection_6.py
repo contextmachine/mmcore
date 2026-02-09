@@ -168,7 +168,7 @@ rich.print(isolated)
 rich.print('\noverlaps:')
 rich.print(overlaps)
 
-RENDERER=False
+RENDERER=True
 if RENDERER:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera

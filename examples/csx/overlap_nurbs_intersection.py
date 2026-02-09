@@ -135,7 +135,7 @@ args = parse_args()
 #print('overlaps:')
 #rich.print(overlaps)
 s = time.time()
-isolated,overlaps = nurbs_csx_v2(curve, surface, atol=args.atol, angle_tol=args.angle_tol)
+isolated,overlaps = nurbs_csx_v2(curve, surface, atol=args.atol, angle_tol=args.angle_tol,overlap_dist_tol=args.atol)
 print(f"CSX v2 performed at: {time.time()-s} secs.")
 
 #print('\n\n',result,'\n\n')

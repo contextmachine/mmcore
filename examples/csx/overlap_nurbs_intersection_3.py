@@ -101,7 +101,7 @@ if result3[0] is not None:
 print('overlaps:')
 if result3[1] is not None:
     rich.print(result3[1]['point'])
-RENDERER=False
+RENDERER=True
 try:
     if RENDERER:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera

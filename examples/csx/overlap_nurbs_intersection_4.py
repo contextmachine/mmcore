@@ -84,7 +84,7 @@ if isolated is not None:
 print('overlaps:')
 if overlaps is not None:
     rich.print(overlaps['point'].tolist())
-RENDERER=False
+RENDERER=True
 if RENDERER:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera

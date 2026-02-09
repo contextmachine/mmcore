@@ -2138,21 +2138,23 @@ def bez_csx(
     span_overlap = None
     _overlap_prescreen_pass = False
     _t_mid, _u_mid, _v_mid, _G_mid, _J_mid = newton_project_G0_curve_surface(
-        C, S, 0.5, 0.5, 0.5, tol=span_tol_proj, it=10, rational=rational
+        C, S, 0.5, 0.5, 0.5, tol=span_tol_proj, it=25, rational=rational
     )
-    if np.dot(_G_mid, _G_mid) < span_tol_conf * span_tol_conf * 100:
-        # Point is close to surface — check tangency
-        _c_pt, _c_tan = eval_bezier_curve_and_deriv(C, _t_mid, rational=rational)
-        _s_pt, _su, _sv = eval_bezier_surface_and_derivs(S, _u_mid, _v_mid, rational=rational)
-        _n = np.cross(_su, _sv)
-        _n_norm = np.linalg.norm(_n)
-        _t_norm = np.linalg.norm(_c_tan)
-        if _n_norm > 1e-12 and _t_norm > 1e-12:
-            if abs(np.dot(_c_tan / _t_norm, _n / _n_norm)) <= angle_tol:
-                _overlap_prescreen_pass = True
 
-    if _overlap_prescreen_pass:
-        span_overlap = confirm_overlap_span(
+    #if np.dot(_G_mid, _G_mid) < atol*atol:
+    #    # Point is close to surface — check tangency
+    #    _c_pt, _c_tan = eval_bezier_curve_and_deriv(C, _t_mid, rational=rational)
+    #    _s_pt, _su, _sv = eval_bezier_surface_and_derivs(S, _u_mid, _v_mid, rational=rational)
+    #    _n = np.cross(_su, _sv)
+    #    _n_norm = np.linalg.norm(_n)
+    #    _t_norm = np.linalg.norm(_c_tan)
+    #    if _n_norm > 1e-12 and _t_norm > 1e-12:
+    #        if abs(np.dot(_c_tan / _t_norm, _n / _n_norm)) <= angle_tol:
+    #            _overlap_prescreen_pass = True
+    #
+
+
+    span_overlap = confirm_overlap_span(
             C,
             S,
             span_tol_proj,
@@ -2324,8 +2326,8 @@ def bez_csx(
         # from (0.5,0.5,0.5) — the same point.  If the midpoint distance is
         # much larger than tolerance, Newton will diverge or converge outside
         # the cell, so skip the expensive call and go straight to subdivision.
-        _skip_newton = _dc > atol_sq * 100.0
-        #_skip_newton=False
+        #_skip_newton = _dc > atol_sq * 100.0
+        _skip_newton=False
         if not _skip_newton:
             # Early contact detection (ccx-style)
             has_known_iso = cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1)
@@ -2415,7 +2417,7 @@ def bez_csx(
                         t_loc,
                         u_loc,
                         v_loc,
-                        sag_tol=atol*100,
+                        sag_tol=atol,
                         angle_tol=angle_tol,
                         rational=rational,
                         tol_proj=tol_proj,
