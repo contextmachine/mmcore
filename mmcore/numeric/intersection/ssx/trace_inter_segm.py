@@ -689,28 +689,39 @@ def adaptive_refine_bruteforce(
 
         stuv_start.next=new_node
         stuv_end.prev=new_node
+        xyzs = evaluate_nurbs_surface(s1, stuv_start.s_eval['stuv'][0], stuv_start.s_eval['stuv'][1], d_order=0)['S']
+        xyze = evaluate_nurbs_surface(s1, stuv_end.s_eval['stuv'][0], stuv_end.s_eval['stuv'][1], d_order=0)['S']
 
         new_node.compute_normals_tangent_and_curvature()
-        T = (new_node.s_eval['s1']["S"] - stuv_start.s_eval['s1']["S"]) / 2
-        dT=np.linalg.norm(T)
 
         s = np.sqrt(8.0 * spt / np.linalg.norm(new_node.s_eval['K']))
 
+        delta = np.linalg.norm(p_eval['S'] - xyz1)
+        s=np.clip(s,spt,np.linalg.norm(xyzs-xyze))
 
-        #print(s,dT)
-        if dT<=s:
-                continue
-        delta=np.linalg.norm(p_eval['S']-xyz1)
+        if delta< spt:
 
-
-
-        if delta>= spt:
-
-            stack.append((stuv_start,new_node,cur_depth+1,delta))
-            stack.append((new_node,stuv_end,cur_depth+1,delta))
-        else:
             continue
+        xyzs = evaluate_nurbs_surface(s1, stuv_start.s_eval['stuv'] [0], stuv_start.s_eval['stuv'] [1], d_order=0)['S']
+        xyze = evaluate_nurbs_surface(s1, stuv_end.s_eval['stuv'] [0], stuv_end.s_eval['stuv'] [1], d_order=0)['S']
+        dT1=np.linalg.norm(xyzs-p_eval['S'])
+        dT2=np.linalg.norm(xyze - p_eval['S'])
+        if dT1 <s or dT2<s:
+
+            continue
+
+        stack.append((stuv_start, new_node, cur_depth + 1, delta))
+
+        stack.append((new_node, stuv_end, cur_depth + 1, delta))
+        #print(s,dT)
+
+
+
+
+
+
     ll=list(node_a)
+
     #print(len(ll))
     return interpolate_nurbs_curve(np.array(ll),degree=min(len(ll)-1,3))
 

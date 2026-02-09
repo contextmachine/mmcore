@@ -1792,8 +1792,8 @@ def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple,
     def _eval_curve(t):
         stuv = evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
         se1=evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)
-        se2=evaluate_nurbs_surface(surface2,stuv[2],stuv[3],d_order=0)
-        return (se2['S']-se1['S'])*0.5+se1['S']
+
+        return se1['S']
 
     eval_curve_ders=fdm(_eval_curve)
     _points = []
@@ -1802,16 +1802,15 @@ def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple,
     params=_greville_abscissae(branch.curve.knot, branch.curve.degree)
     # params=np.unique(branch.curve.knot)
     #p_cur=0
-
+    params=branch.curve.control_points
     for s in params:
         #d1=eval_curve_ders(s)
         #d1/=np.linalg.norm(d1)
 
         #_ders.append(d1)
-        _points.append(_eval_curve(s))
 
-        # p_cur+=np.dot(d1   ,d1)
 
+        _points.append(evaluate_nurbs_surface(surface1, s[0], s[1], d_order=0)['S'])
 
 
     #from more_itertools import pairwise
@@ -1822,7 +1821,7 @@ def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple,
     #
     #
     #    crvs.append(bern_to_nurbs_bezier(np.array([ps,ps+ds*h,pe-ds*h,pe]),interval=(ts,te),rational=False))
-    branch.curve_xyz=interpolate_nurbs_curve(np.array(_points),branch.curve.degree)
+    branch.curve_xyz=interpolate_nurbs_curve(np.array(_points),degree=branch.curve.degree,use_centripetal=True,method='lu',remove_duplicates=True,tol=atol)
     #branch.curve_xyz=remove_knots_after_merge(crv,interior,atol)
 
 def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
@@ -1840,6 +1839,7 @@ def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface
 
 def compute_point_xyz(point:SSXPoint, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
     point.xyz=evaluate_nurbs_surface(surface1,point.stuv[0],point.stuv[1],d_order=0)['S']
+
 def bez_ssx(H1: NDArray[np.float64], H2: NDArray[np.float64], *, atol: float = 0.001, angle_tol: float = 0.052,
             tol: float = 1e-8, gjk_max_iter: int = 64, gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 24,
             magic_start_depth: int = 6, flat_angle: float = 0.015, march_samples: int = 8,
@@ -1864,7 +1864,9 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
               deflate_hard_case: bool = True) -> tuple[list[SSXBranch], list[SSXPoint]]:
     s1 = surf1
     s2 =surf2
-
+    if s1.control_points.shape ==s2.control_points.shape:
+        if np.allclose(s1.control_points,s2.control_points):
+            return
     s1d = decompose_surface(s1)
     s2d = decompose_surface(s2)
 
