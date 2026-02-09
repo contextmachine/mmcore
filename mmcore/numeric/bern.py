@@ -19,6 +19,13 @@ try:
 except Exception:
     ndinterv = None
 
+try:
+    from mmcore.numeric._cdecasteljau import c_de_casteljau_split_nd as _c_split
+    _USE_CYTHON_SPLIT = True
+except ImportError:
+    _USE_CYTHON_SPLIT = False
+print("Use Cython split: ", _USE_CYTHON_SPLIT)
+
 CONVERGED = 'converged'
 SIGNERR = 'sign error'
 CONVERR = 'convergence error'
@@ -361,6 +368,7 @@ def bernstein_eval_1d(P, u):
     for r in range(1, n + 1):
         Q = (one - u) * Q[:-1] + u * Q[1:]
     return Q[0].item()
+
 def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.ndarray, np.ndarray]:
     """
     Subdivide an N-D Bernstein control grid along one parametric axis at parameter t using de Casteljau.
@@ -425,7 +433,12 @@ def de_casteljau_split_nd(control_grid: np.ndarray, axis: int, t) -> tuple[np.nd
         raise ValueError(
             f"'axis' must be in [0, {param_ndim - 1}] among parametric axes; the trailing value axis is not allowed."
         )
-    
+
+    # Fast Cython path for scalar t, float64, C-contiguous, ndim 2/3/4
+    if _USE_CYTHON_SPLIT and np.ndim(t) == 0 and 2 <= control_grid.ndim <= 4:
+        cg = np.ascontiguousarray(control_grid, dtype=np.float64)
+        return _c_split(cg, axis, float(t))
+
     control_grid = np.asarray(control_grid,dtype=control_grid.dtype)
     dtype = control_grid.dtype
     # Move the chosen parametric axis to the front to simplify the recurrence

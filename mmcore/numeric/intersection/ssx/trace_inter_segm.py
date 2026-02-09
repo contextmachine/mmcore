@@ -697,7 +697,7 @@ def adaptive_refine_bruteforce(
         s = np.sqrt(8.0 * spt / np.linalg.norm(new_node.s_eval['K']))
 
 
-        print(s,dT)
+        #print(s,dT)
         if dT<=s:
                 continue
         delta=np.linalg.norm(p_eval['S']-xyz1)
@@ -711,7 +711,7 @@ def adaptive_refine_bruteforce(
         else:
             continue
     ll=list(node_a)
-    print(len(ll))
+    #print(len(ll))
     return interpolate_nurbs_curve(np.array(ll),degree=min(len(ll)-1,3))
 
 

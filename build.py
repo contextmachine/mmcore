@@ -45,7 +45,7 @@ define_macros = [
     ("CYTHON_TRACE_NOGIL",1),
 ]
 if sys.platform == "darwin" :
-    compile_args += ["-mcpu=apple-m1",'-flto']#+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=native",'-flto']#+["-march=armv8-a+simd"]
 
 elif sys.platform == "linux" and platform.machine() == "aarch64" :
     compile_args+=["-march=armv8-a+simd"]
@@ -248,6 +248,20 @@ cython_extensions = [
     Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric.intersection.csx._cbez_csx",
+        ["mmcore/numeric/intersection/csx/_cbez_csx.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric._cdecasteljau",
+        ["mmcore/numeric/_cdecasteljau.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,

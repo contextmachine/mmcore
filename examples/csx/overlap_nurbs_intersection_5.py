@@ -1,26 +1,11 @@
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
 
-import time
 
-
-import rich
-
-from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.numeric import evaluate_curvature_vec
-from mmcore.numeric.approx import adaptive_curve_sampler
-from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
-
-import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
-
-import time
 
 
 import rich
 
-from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
 
 
 
@@ -233,7 +218,7 @@ surface = NURBSSurfaceTuple(
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
 import time
 s=time.time()
-isolated,overlaps=result=nurbs_csx_v2(curve,surface, 1e-3,overlap_dist_tol=1e-3)
+isolated,overlaps=result=nurbs_csx_v2(curve,surface, tol=1e-2,overlap_dist_tol=1e-1)
 print(f"CSX v2 X 3 performed at: {time.time()-s} secs.")
 
 over=[]
@@ -251,7 +236,7 @@ if isolated is not None:
 print('overlaps:')
 if overlaps is not None:
     rich.print(overlaps['point'].tolist())
-RENDERER=False
+RENDERER=True
 if RENDERER:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera

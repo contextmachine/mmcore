@@ -29,9 +29,37 @@ from mmcore.numeric._bern_homog import (
 from mmcore.numeric.interval import Interval
 from mmcore.numeric.numeric import  compute_parametric_tolerance_surface, \
     compute_parametric_curvature_tolerance_curve
+from mmcore.geom._nurbs_param_tol import  _bezier_curve_param_tol_conservative,bez_curve_param_tolerance,bez_surface_param_tolerance,_bezier_curve_param_tol_optimistic,_bezier_surface_param_tol_conservative
 
 
 logger = logging.getLogger("mmcore")
+
+# ---------------------------------------------------------------------------
+# Cython-accelerated Newton solvers (optional – fall back to pure Python)
+# ---------------------------------------------------------------------------
+_USE_CYTHON_CSX = False
+try:
+    from mmcore.numeric.intersection.csx._cbez_csx import (
+        c_newton_project_G0_curve_surface as _c_newton_project_G0,
+        c_G_and_J_curve_surface as _c_G_and_J,
+        c_G_only_curve_surface as _c_G_only,
+        c_project_G0_fixed_t as _c_project_G0_fixed_t,
+        c_classify_contact_curve_surface as _c_classify,
+        c_overlap_like_svd as _c_overlap_like_svd,
+    )
+    _USE_CYTHON_CSX = True
+except ImportError as e:
+    print(e)
+    pass
+
+
+def _ensure_contiguous_f64_2d(arr):
+    return np.ascontiguousarray(arr, dtype=np.float64)
+
+
+def _ensure_contiguous_f64_3d(arr):
+    return np.ascontiguousarray(arr, dtype=np.float64)
+
 
 def clamp01(x: float) -> float:
     if x <= 0.0:
@@ -233,7 +261,7 @@ def distance_squared_net_curve_surface(C: np.ndarray, S: np.ndarray, rational: b
 # G(t,u,v) = C(t) - S(u,v) system and Newton solver
 # ---------------------------------------------------------------------------
 
-def G_and_J_curve_surface(C, S, t, u, v, rational: bool | None = None):
+def _py_G_and_J_curve_surface(C, S, t, u, v, rational: bool | None = None):
     c, ct = eval_bezier_curve_and_deriv(C, t, rational=rational)
     s, su, sv = eval_bezier_surface_and_derivs(S, u, v, rational=rational)
     G = c - s
@@ -241,11 +269,11 @@ def G_and_J_curve_surface(C, S, t, u, v, rational: bool | None = None):
     return G, J
 
 
-def G_only_curve_surface(C, S, t, u, v, rational: bool | None = None):
+def _py_G_only_curve_surface(C, S, t, u, v, rational: bool | None = None):
     return eval_bezier_curve(C, t, rational=rational) - eval_bezier_surface(S, u, v, rational=rational)
 
 
-def newton_project_G0_curve_surface(
+def _py_newton_project_G0_curve_surface(
     C,
     S,
     t0,
@@ -314,7 +342,7 @@ def newton_project_G0_curve_surface(
 # Fixed-t projector for overlap tracing
 # ---------------------------------------------------------------------------
 
-def project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, rational: bool | None = None):
+def _py_project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, rational: bool | None = None):
     """Solve min ||C(t_fixed) - S(u,v)|| with (u,v) in [0,1]^2."""
     sq_tol = tol * tol
     p1 = eval_bezier_curve(C, t_fixed, rational=rational)
@@ -348,8 +376,57 @@ def project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, r
 
     dgj = eval_bezier_surface(S, u, v, rational=rational) - p1
     return u, v, dgj, (np.linalg.norm(dgj) < 5.0 * tol)
-import numpy as np
 
+
+# ---------------------------------------------------------------------------
+# Dispatch: use Cython accelerated versions when available
+# ---------------------------------------------------------------------------
+
+if _USE_CYTHON_CSX:
+    def G_and_J_curve_surface(C, S, t, u, v, rational: bool | None = None):
+        return _c_G_and_J(
+            _ensure_contiguous_f64_2d(C),
+            _ensure_contiguous_f64_3d(S),
+            t, u, v, bool(rational) if rational is not None else False,
+        )
+
+    def G_only_curve_surface(C, S, t, u, v, rational: bool | None = None):
+        return _c_G_only(
+            _ensure_contiguous_f64_2d(C),
+            _ensure_contiguous_f64_3d(S),
+            t, u, v, bool(rational) if rational is not None else False,
+        )
+
+    def newton_project_G0_curve_surface(
+        C, S, t0, u0, v0,
+        tol=1e-12, it=15, lm_damp=1e-12,
+        step_tol=1e-9, delta_tol=1e-10,
+        rational: bool | None = None,
+    ):
+        return _c_newton_project_G0(
+            _ensure_contiguous_f64_2d(C),
+            _ensure_contiguous_f64_3d(S),
+            t0, u0, v0,
+            tol=tol, it=it, lm_damp=lm_damp,
+            step_tol=step_tol, delta_tol=delta_tol,
+            rational=bool(rational) if rational is not None else False,
+        )
+
+    def project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, rational: bool | None = None):
+        return _c_project_G0_fixed_t(
+            _ensure_contiguous_f64_2d(C),
+            _ensure_contiguous_f64_3d(S),
+            t_fixed, u0, v0,
+            tol=tol, it=it, lm_damp=lm_damp,
+            rational=bool(rational) if rational is not None else False,
+        )
+else:
+    G_and_J_curve_surface = _py_G_and_J_curve_surface
+    G_only_curve_surface = _py_G_only_curve_surface
+    newton_project_G0_curve_surface = _py_newton_project_G0_curve_surface
+    project_G0_fixed_t = _py_project_G0_fixed_t
+import numpy as np
+print(G_and_J_curve_surface.__module__)
 
 def _eval_bezier_curve_and_d1(C, t, *, rational: bool | None = None, fd_eps: float = 1e-6):
     """
@@ -781,7 +858,7 @@ def _svd3_singular_values(J):
     return math.sqrt(e0), math.sqrt(e1), math.sqrt(e2)
 
 
-def overlap_like_svd(J, sv_thresh=1e-8, rel_thresh=1e-6):
+def _py_overlap_like_svd(J, sv_thresh=1e-8, rel_thresh=1e-6):
     try:
         s_max, s_mid, s_min = _svd3_singular_values(J)
     except Exception:
@@ -794,7 +871,7 @@ def overlap_like_svd(J, sv_thresh=1e-8, rel_thresh=1e-6):
     return (s_min < sv_thresh) or (s_min / s_max < rel_thresh)
 
 
-def classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh=None):
+def _py_classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh=None):
     """Returns (type_code, s_max, s_mid, s_min).
 
     type_code: CONTACT_ISOLATED=0, CONTACT_OVERLAP=1, CONTACT_AMBIGUOUS=2.
@@ -815,6 +892,16 @@ def classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh=None):
     if s_min >= sv_thresh and (rel_thresh is None or (s_min / s_max) >= rel_thresh):
         return CONTACT_ISOLATED, s_max, s_mid, s_min
     return CONTACT_AMBIGUOUS, s_max, s_mid, s_min
+
+
+if _USE_CYTHON_CSX:
+    overlap_like_svd = _c_overlap_like_svd
+
+    def classify_contact_curve_surface(J, sv_thresh=1e-8, rel_thresh=None):
+        return _c_classify(J, sv_thresh=sv_thresh, rel_thresh_obj=rel_thresh)
+else:
+    overlap_like_svd = _py_overlap_like_svd
+    classify_contact_curve_surface = _py_classify_contact_curve_surface
 
 
 # ---------------------------------------------------------------------------
@@ -1104,7 +1191,8 @@ def append_with_decimation(t_path, uv_path, xyz_path, t_new, uv_new, x_new, angl
         t_path.append(t_new)
         uv_path.append(uv_new)
         xyz_path.append(x_new)
-from mmcore.geom._nurbs_param_tol import _nurbs_curve_param_tol_conservative
+from mmcore.geom._nurbs_param_tol import _nurbs_curve_param_tol_conservative, bez_surface_param_tolerance, \
+    bez_curve_param_tolerance
 from mmcore.geom._nurbs_knots import generate_knots
 
 def trace_event(tuv):
@@ -1159,11 +1247,11 @@ def trace_curve_surface_overlap(
     _, c1, c2 = eval_bezier_curve_derivs2(C, t0, rational=rational)
     dt = compute_parametric_curvature_tolerance_curve(c1, c2, spt=sag_tol)
     if rational:
-        dt_n = _nurbs_curve_param_tol_conservative(
-            C[..., :-1],
-            C[..., -1],
-            U=generate_knots(C.shape[0], C.shape[0] - 1),
-            p=C.shape[0] - 1,
+
+        dt_n = _bezier_curve_param_tol_conservative(
+
+            *from_homogeneous_1d(C),
+
             tol=sag_tol,
         )
         if np.isfinite(dt_n):
@@ -1569,26 +1657,16 @@ def _aabb_euclidean(ctrl, rational: bool | None = None, offset:float=0):
     return bb
 
 from mmcore.geom._nurbs_eval import from_homogeneous_1d
-def _bez_get_curve_tol_adapter(c, tol, rational=False, interval=None):
-    if interval is None:
-        interval = 0.,1.
-    U=np.empty((c.shape[0]*2))
-    U[:c.shape[0]]=interval[0]
-    U[ c.shape[0]:] = interval[1]
-    if rational:
-        P,w=from_homogeneous_1d(c)
-    else:
-        P,w=c,np.ones(c.shape[0])
-
-    return _nurbs_curve_param_tol_conservative(P,w, U,c.shape[0]-1,tol)
+def _bez_get_curve_tol_adapter(c, tol, rational=False, interval=(0.,1.)):
+    return bez_curve_param_tolerance(c,tol=tol,interval=interval,rational=rational)
 
 def _bez_get_surface_tol_adapter(s, tol, rational=False):
-    try:
-        _, Su, Sv, Suu, Suv, Svv = eval_bezier_surface_derivs2(s, 0.5, 0.5, rational=rational)
-        du, dv = compute_parametric_tolerance_surface(Su, Sv, Suu, Suv, Svv, spt=tol)
-        return float(du), float(dv)
-    except Exception:
-        return tol, tol
+
+    du,dv=bez_surface_param_tolerance(s,tol=tol,rational=rational, interval_u=(0.,1.), interval_v=(0.,1.))
+
+
+    return float(du), float(dv)
+
 
 
 def curve_variation(ctrl, rational: bool | None = None):
@@ -2219,7 +2297,7 @@ def bez_csx(
             stats["pruned_by"].append("lipschitz_positive")
             continue
 
-        eps_sign = 1e-14
+        eps_sign = 0
         if (
             bern_no_sign_change(np.squeeze(dtn), eps=eps_sign)
             or bern_no_sign_change(np.squeeze(dun), eps=eps_sign)
@@ -2247,7 +2325,7 @@ def bez_csx(
         # much larger than tolerance, Newton will diverge or converge outside
         # the cell, so skip the expensive call and go straight to subdivision.
         _skip_newton = _dc > atol_sq * 100.0
-
+        #_skip_newton=False
         if not _skip_newton:
             # Early contact detection (ccx-style)
             has_known_iso = cell_contains_known_isolated(isolated, t0, t1, u0, u1, v0, v1)
