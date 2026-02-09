@@ -257,11 +257,14 @@ def nurbs_csx_v2(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, tol: float 
         for inter in result["isolated"]:
             t, u, v = inter["t"], inter["u"], inter["v"]
             (u0,v0),(u1,v1)=_c2.interval()
+
             t_glob,u_glob, v_glob = map_local_to_global_3(t, u, v, t0,t1, u0,u1,v0,v1)
+
             isolated_t.append(t_glob)
             isolated_u.append(u_glob)
             isolated_v.append(v_glob)
             isolated_xyz.append(inter["point"])
+
         overlap: OverlapIntersection
 
         for overlap in result["overlaps"]:

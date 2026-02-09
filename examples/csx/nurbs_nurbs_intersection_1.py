@@ -1,4 +1,5 @@
 import numpy as np
+import rich
 
 from mmcore.geom._nurbs_eval import _nurbs_to_tuple
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
@@ -41,7 +42,7 @@ spts = np.array(
 )
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
-u, v, t = 0.9939461136471586, 0.995759608283125, 0.004240391716877873
+
 surf = NURBSSurface(np.array(spts), (3, 3))
 
 curve = NURBSCurve(cpts)
@@ -53,30 +54,9 @@ s = time.time()
 result = nurbs_csx_v2(_nurbs_to_tuple(curve), _nurbs_to_tuple(surf))
 
 print(f"CSX performed at: {time.time()-s} secs.")
-
-
-try:
-    from mmcore.extras.renderer import CADRenderer, Camera
-
-    print(dir(Camera))
-
-    centr = np.average(surf.control_points_flat, axis=0)
-    renderer = CADRenderer(camera=Camera(zoom=50.0, near=0.1))
-    renderer.add_nurbs_curve(
-        curve,
-        color=(0.0, 1.0, 0.5)
-    )
-    tess=renderer.add_nurbs_surface(surf, color=(0.9, 0.9, 0.9))
-
-    for item in result:
-        print(item.curve_eval["C"])
-        renderer.add_point(item.curve_eval["C"], np.array((1.0, 0.5, 0.0)), 4)
-
-    renderer.run()
-
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+print('isolated:')
+if result[0] is not None:
+    rich.print(result[0])
+print('overlaps:')
+if result[1] is not None:
+    rich.print(result[1])

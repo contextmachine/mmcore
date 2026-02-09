@@ -73,7 +73,7 @@ result1 = nurbs_csx_v2(curve1, surface,tol=1e-3)
 pth=Path(__file__).parent/'result1.pkl'
 with open(pth, 'wb') as f:
     pickle.dump([curve1,surface], f)
-print(f"CSX 1 performed at: {time.time()-s} secs.")
+print(f"CSX v2 X 1 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result1[0] is not None:
     rich.print(result1[0]['point'])
@@ -83,7 +83,7 @@ if result1[1] is not None:
 
 s = time.time()
 result2 = nurbs_csx_v2(curve2, surface,tol=1e-3)
-print(f"CSX 2 performed at: {time.time()-s} secs.")
+print(f"CSX v2 X 2 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result2[0] is not None:
     rich.print(result2[0]['point'])
@@ -94,14 +94,14 @@ if result2[1] is not None:
 s = time.time()
 result3 = nurbs_csx_v2(curve3, surface,tol=1e-3)
 
-print(f"CSX 3 performed at: {time.time()-s} secs.")
+print(f"CSX v2 X 3 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result3[0] is not None:
     rich.print(result3[0]['point'])
 print('overlaps:')
 if result3[1] is not None:
     rich.print(result3[1]['point'])
-RENDERER=True
+RENDERER=False
 try:
     if RENDERER:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
@@ -137,7 +137,7 @@ try:
 
                         evl=evaluate_nurbs_curve(curve,t,d_order=0)
                         viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-        render_result(result1,curve1)
+        #render_result(result1,curve1)
         render_result(result2, curve2)
         render_result(result3, curve3)
         viewer.run()

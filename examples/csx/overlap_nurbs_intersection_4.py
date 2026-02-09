@@ -57,26 +57,26 @@ surface = NURBSSurfaceTuple(
            [1., 1., 1., 1.]])
 )
 
-s = time.time()
-result = nurbs_csx(_tuple_to_nurbs(curve), _tuple_to_nurbs(surface))
-print(f"CSX v1 performed at: {time.time()-s} secs.")
-over=[]
-isol=[]
-print(result)
-for tp,item,uv in result:
-    if tp =='overlap':
-        over.append(item)
-    else:
-        isol.append(item)
-print('isolated:')
-rich.print(isol)
-print('overlaps:')
-rich.print(over)
+#s = time.time()
+#result = nurbs_csx(_tuple_to_nurbs(curve), _tuple_to_nurbs(surface))
+#print(f"CSX v1 performed at: {time.time()-s} secs.")
+#over=[]
+#isol=[]
+#print(result)
+#for tp,item,uv in result:
+#    if tp =='overlap':
+#        over.append(item)
+#    else:
+#        isol.append(item)
+#print('isolated:')
+#rich.print(isol)
+#print('overlaps:')
+#rich.print(over)
 s = time.time()
 isolated,overlaps = nurbs_csx_v2(curve, surface)
 print(f"CSX v2 performed at: {time.time()-s} secs.")
 
-print('\n\n',result,'\n\n')
+
 print('isolated:')
 
 if isolated is not None:
@@ -84,60 +84,61 @@ if isolated is not None:
 print('overlaps:')
 if overlaps is not None:
     rich.print(overlaps['point'].tolist())
+RENDERER=False
+if RENDERER:
+    try:
+        from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+        viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
+        primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
+        srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.05),)
+        if isolated is not None:
+            for pt in isolated['point']:
 
-try:
-    from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
-    viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
-    primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
-    srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.05),)
-    if isolated is not None:
-        for pt in isolated['point']:
+                viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+        if overlaps is not None:
 
-            viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
-    if overlaps is not None:
+            for start,end in overlaps['point']:
+                viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+            for o in overlaps['t']:
+                #print(o)
+                t0 = o[0]
+                t1 = o[-1]
+                viewer.add(trim_curve(curve,curve.interval()[0],t0),color=(0.9, 0.9, 0.9, 1.0))
 
-        for start,end in overlaps['point']:
-            viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-            viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-        for o in overlaps['t']:
-            #print(o)
-            t0 = o[0]
-            t1 = o[-1]
-            viewer.add(trim_curve(curve,curve.interval()[0],t0),color=(0.9, 0.9, 0.9, 1.0))
+                viewer.add(trim_curve(curve,t1, curve.interval()[1]), color=(0.9, 0.9, 0.9, 1.0))
+                _c=trim_curve(curve, t0, t1)
 
-            viewer.add(trim_curve(curve,t1, curve.interval()[1]), color=(0.9, 0.9, 0.9, 1.0))
-            _c=trim_curve(curve, t0, t1)
+                from mmcore.geom._nurbs_eval import evaluate_nurbs_curve_curvature
+                points=[]
+                ders=[]
+                offset=1
+                params,du_list,evals,s_list=adaptive_curve_sampler(_c)
+                from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
+                pts=np.linspace(*_c.interval(),500)
+                for t in pts:
 
-            from mmcore.geom._nurbs_eval import evaluate_nurbs_curve_curvature
-            points=[]
-            ders=[]
-            offset=1
-            params,du_list,evals,s_list=adaptive_curve_sampler(_c)
-            from mmcore.geom._nurbs_interp import hermite_interpolate_nurbs
-            pts=np.linspace(*_c.interval(),500)
-            for t in pts:
+                    # uK=data["K"]/np.linalg.norm(data["K"])
+                    evl=evaluate_nurbs_curve(curve,t,d_order=0)
+                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
+                    #evl["C1"]/=np.linalg.norm(evl['C1'])
+                    #N=np.cross([0.,0.,1.],evl["C1"])
+                    ##tnb=frenet_serret_frame_from_ders(   evl['C1'],
+                    ##evl["C2"])
+                    ##print(tnb)
+                    #points.append(evl["C"] -      N/np.linalg.norm(N) * offset)
+                    #ders.append(evl['C1'])
+                #print(np.array(ders).tolist())
+                #new_curve=hermite_interpolate_nurbs(np.array(points),np.array(ders),params,degree=3)
 
-                # uK=data["K"]/np.linalg.norm(data["K"])
-                evl=evaluate_nurbs_curve(curve,t,d_order=0)
-                viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-                #evl["C1"]/=np.linalg.norm(evl['C1'])
-                #N=np.cross([0.,0.,1.],evl["C1"])
-                ##tnb=frenet_serret_frame_from_ders(   evl['C1'],
-                ##evl["C2"])
-                ##print(tnb)
-                #points.append(evl["C"] -      N/np.linalg.norm(N) * offset)
-                #ders.append(evl['C1'])
-            #print(np.array(ders).tolist())
-            #new_curve=hermite_interpolate_nurbs(np.array(points),np.array(ders),params,degree=3)
+                #viewer.add(new_curve, color=(0.0, 1.0, 0.5, 1.0))
 
-            #viewer.add(new_curve, color=(0.0, 1.0, 0.5, 1.0))
-
-    viewer.run()
+        viewer.run()
 
 
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+    except ModuleNotFoundError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except ImportError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except Exception as err:
+        raise err
