@@ -10,7 +10,7 @@ from inspect import currentframe
 
 from mmcore.construction import nurbs_curve
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface, NURBSSurfaceTuple
-from mmcore.geom._nurbs_interp import interpolate_curve
+from mmcore.geom._nurbs_interp import interpolate_curve, interpolate_nurbs_curve
 
 import functools
 import pickle
@@ -1822,7 +1822,7 @@ def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple,
     #
     #
     #    crvs.append(bern_to_nurbs_bezier(np.array([ps,ps+ds*h,pe-ds*h,pe]),interval=(ts,te),rational=False))
-    branch.curve_xyz=nurbs_curve(np.array(_points),degree=1)
+    branch.curve_xyz=interpolate_nurbs_curve(np.array(_points),branch.curve.degree)
     #branch.curve_xyz=remove_knots_after_merge(crv,interior,atol)
 
 def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):

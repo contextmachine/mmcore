@@ -310,9 +310,18 @@ def fair_interpolate_curve(points, degree, lambda_reg=1e-3)->tuple[NDArray[float
     control_points = np.vstack([d0, x, d_end])
 
     return control_points, knot_vector
+def interpolate_nurbs_curve(points, degree,  use_centripetal=False,rational=False,**kwargs):
 
+    cp,kv=interpolate_curve(points, degree, use_centripetal=use_centripetal,**kwargs)
+    cp=np.array(cp)
+    if rational:
+        cp,w=from_homogeneous_1d(cp)
+    else:
+        w=np.ones_like(cp[:,0])
+    return NURBSCurveTuple(order=degree+1, knot=np.array(kv), control_points=cp, weights=w)
 from mmcore.geom.nurbs import ders_basis_funs as _ders_basis_funs
 from mmcore.geom.nurbs import find_span as _find_span
+from mmcore.geom._nurbs_eval import from_homogeneous_1d,to_homogeneous_1d
 import numpy as np
 from scipy.special import comb, factorial
 from typing import NamedTuple, List, Optional

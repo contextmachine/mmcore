@@ -125,7 +125,7 @@ def draw_ssx(
 
     bb = AABB.from_points(s1.control_points.reshape(-1, 3)).merge(AABB.from_points(s2.control_points.reshape(-1, 3)))
     if viewer is None:
-        viewer = Viewer(camera=OrbitCamera(target=bb.centroid(), distance=np.linalg.norm(bb.diag())*2, near=1.0))
+        viewer = Viewer(camera=OrbitCamera(target=bb.centroid(), distance=np.linalg.norm(bb.diag())**2, near=1.0))
 
     viewer.add_nurbs_surface(s1, color=surf1_material.wires_material.color, surface_color=surf1_material.color, u_count=surf1_material.wires_material.u_count, v_count=surf1_material.wires_material.v_count,show_edges=surf1_material.show_wires,show_isocurves=surf1_material.show_wires,)
     viewer.add_nurbs_surface(

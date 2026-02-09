@@ -19,7 +19,9 @@ from mmcore.geom._nurbs_eval import EvaluateSurfaceData, evaluate_nurbs_surface,
 import numpy as np
 from numpy.typing import NDArray
 
+from mmcore.geom._nurbs_interp import interpolate_curve
 from mmcore.geom._nurbs_knots import link_curves,remove_knot,remove_knot_curve_max
+from mmcore.geom._nurbs_interp import interpolate_nurbs_curve
 from mmcore.numeric.intersection.ssx.refine import refine_intersection_point
 from mmcore.numeric.sbern import bern_to_nurbs_bezier
 
@@ -518,10 +520,10 @@ class InterpNode:
 
     def compute_normals_tangent_and_curvature(self):
         if self.s_eval['s1'].get('N') is None:
-            self.s_eval['s1']['N']=evaluate_normal2(   self.s_eval['s1']['Su'],self.s_eval['s1']['Sv'],self.s_eval['s1']['Suu'],self.s_eval['s1']['Suv'],self.s_eval['s1']['Svv'],self.s_eval['s1']['Svv'])
+            self.s_eval['s1']['N']=evaluate_normal2(   self.s_eval['s1']['Su'],self.s_eval['s1']['Sv'],self.s_eval['s1']['Suu'],self.s_eval['s1']['Suv'],self.s_eval['s1']['Svv'])
             self.s_eval['s1']['N']/=np.linalg.norm(self.s_eval['s1']['N'])
         if self.s_eval['s2'].get('N') is None:
-            self.s_eval['s2']['N']=evaluate_normal2(   self.s_eval['s2']['Su'],self.s_eval['s2']['Sv'],self.s_eval['s2']['Suu'],self.s_eval['s2']['Suv'],self.s_eval['s2']['Svv'],self.s_eval['s2']['Svv'])
+            self.s_eval['s2']['N']=evaluate_normal2(   self.s_eval['s2']['Su'],self.s_eval['s2']['Sv'],self.s_eval['s2']['Suu'],self.s_eval['s2']['Suv'],self.s_eval['s2']['Svv'])
             self.s_eval['s2']['N']/=np.linalg.norm(self.s_eval['s2']['N'])
 
         self.s_eval['T']=np.cross(self.s_eval['s1']['N'],
@@ -573,12 +575,16 @@ class InterpSegm:
         end: InterpNode
         start.curve_stuv: NDArray = None
         end.curve_xyz: NDArray = None
+        self._curve=None
 
     def stuv_mid(self) -> NDArray[np.float64]: ...
 
     def xyz_mid(self)->NDArray[np.float64]:...
 
-    def build_curves(self):...
+    def build_curves(self):
+
+        self._curve=hinterp(np.array((self.start.s_eval['s1']['S'],self.end.s_eval['s1']['S'])),np.array((self.start.s_eval['T'],self.end.s_eval['T'])))
+
 
     @property
     def next_segm(self):
@@ -649,11 +655,13 @@ def adaptive_refine_bruteforce(
 
     node_a = InterpNode(  {'stuv':stuv_a,'s1':xyz_s,'s2':xyz_s2,"T":None,"pN":None,"K":None},prev=None, next=None)
     node_b = InterpNode({'stuv':stuv_b,'s1':xyz_e,'s2':xyz_e2,"T":None,"pN":None,"K":None}, prev=node_a, next=None)
+    #max_h=np.linalg.norm(stuv_a-stuv_b)/8
 
     node_a.next = node_b
     node_a.compute()
     node_b.compute()
     stack = [(node_a, node_b, depth, np.inf)]
+
     while stack:
         stuv_start, stuv_end, cur_depth,delta = stack.pop()
         if cur_depth >= fit_max_depth:
@@ -685,9 +693,13 @@ def adaptive_refine_bruteforce(
         new_node.compute_normals_tangent_and_curvature()
         T = (new_node.s_eval['s1']["S"] - stuv_start.s_eval['s1']["S"]) / 2
         dT=np.linalg.norm(T)
+
         s = np.sqrt(8.0 * spt / np.linalg.norm(new_node.s_eval['K']))
+
+
+        print(s,dT)
         if dT<=s:
-            continue
+                continue
         delta=np.linalg.norm(p_eval['S']-xyz1)
 
 
@@ -698,8 +710,9 @@ def adaptive_refine_bruteforce(
             stack.append((new_node,stuv_end,cur_depth+1,delta))
         else:
             continue
-
-    return nurbs_curve(np.array(list(node_a)),1)
+    ll=list(node_a)
+    print(len(ll))
+    return interpolate_nurbs_curve(np.array(ll),degree=min(len(ll)-1,3))
 
 
 def _from_homogeneous(H: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
