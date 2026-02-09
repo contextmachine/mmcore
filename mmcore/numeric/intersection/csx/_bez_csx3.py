@@ -44,6 +44,24 @@ def clamp(x: float, a,b) -> float:
     if x >= b:
         return b
     return x
+
+# ---------------------------------------------------------------------------
+# Scalar 3D arithmetic helpers (avoid numpy dispatch overhead in tight loops)
+# ---------------------------------------------------------------------------
+
+def _dot3(a, b):
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+
+def _norm_sq3(v):
+    return v[0]*v[0] + v[1]*v[1] + v[2]*v[2]
+
+def _cross3(a, b):
+    return (a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0])
+
+def _cross_norm_sq3(a, b):
+    c0 = a[1]*b[2] - a[2]*b[1]; c1 = a[2]*b[0] - a[0]*b[2]; c2 = a[0]*b[1] - a[1]*b[0]
+    return c0*c0 + c1*c1 + c2*c2
+
 # ---------------------------------------------------------------------------
 # Homogeneous helpers
 # ---------------------------------------------------------------------------
@@ -281,7 +299,7 @@ def newton_project_G0_curve_surface(
             delta = np.zeros(3)
 
         step = 1.0
-        g2 = float(np.dot(G, G))
+        g2 = float(_norm_sq3(G))
         if g2 > 0.9 * prev_g2:
             stall_count += 1
             if stall_count > 2:
@@ -295,14 +313,14 @@ def newton_project_G0_curve_surface(
             un = float(clamp01(u + step * delta[1]))
             vn = float(clamp01(v + step * delta[2]))
             dgj = G_only_curve_surface(C, S, tn, un, vn, rational=rational)
-            if float(np.dot(dgj, dgj)) <= g2:
+            if float(_norm_sq3(dgj)) <= g2:
                 t, u, v = tn, un, vn
                 break
             step *= 0.5
         if g2 < tol_sq:
             break
 
-        if step < step_tol and np.dot(delta, delta) < delta_tol_sq:
+        if step < step_tol and _norm_sq3(delta) < delta_tol_sq:
             break
 
     try:
@@ -318,39 +336,56 @@ def newton_project_G0_curve_surface(
 # ---------------------------------------------------------------------------
 
 def project_G0_fixed_t(C, S, t_fixed, u0, v0, tol=1e-12, it=30, lm_damp=1e-12, rational: bool | None = None):
-    """Solve min ||C(t_fixed) - S(u,v)|| with (u,v) in [0,1]^2."""
+    """Solve min ||C(t_fixed) - S(u,v)|| with (u,v) in [0,1]^2.
+
+    Returns (u, v, G_residual, converged, curve_point).
+    """
     sq_tol = tol * tol
     p1 = eval_bezier_curve(C, t_fixed, rational=rational)
     u, v = float(u0), float(v0)
 
     for _ in range(it):
         s, su, sv = eval_bezier_surface_and_derivs(S, u, v, rational=rational)
-        G = s - p1
-        J = np.stack([su, sv], axis=1)
-        JTJ = J.T @ J + lm_damp * np.eye(2)
-        JTG = J.T @ G
-        try:
-            delta = -np.linalg.solve(JTJ, JTG)
-        except np.linalg.LinAlgError:
-            delta = np.zeros(2)
+        G0 = s[0] - p1[0]
+        G1 = s[1] - p1[1]
+        G2 = s[2] - p1[2]
+
+        # Scalar 2x2 JTJ with LM damping and JTG
+        a00 = su[0] * su[0] + su[1] * su[1] + su[2] * su[2] + lm_damp
+        a01 = su[0] * sv[0] + su[1] * sv[1] + su[2] * sv[2]
+        a11 = sv[0] * sv[0] + sv[1] * sv[1] + sv[2] * sv[2] + lm_damp
+        b0 = su[0] * G0 + su[1] * G1 + su[2] * G2
+        b1 = sv[0] * G0 + sv[1] * G1 + sv[2] * G2
+
+        # Cramer's rule for 2x2 solve
+        det = a00 * a11 - a01 * a01
+        if abs(det) < 1e-30:
+            du, dv = 0.0, 0.0
+        else:
+            inv_det = 1.0 / det
+            du = -(a11 * b0 - a01 * b1) * inv_det
+            dv = -(a00 * b1 - a01 * b0) * inv_det
 
         step = 1.0
-        g0 = float(np.dot(G, G))
+        g0 = float(G0 * G0 + G1 * G1 + G2 * G2)
         while step > 1e-6:
-            un = float(clamp01(u + step * delta[0]))
-            vn = float(clamp01(v + step * delta[1]))
+            un = float(clamp01(u + step * du))
+            vn = float(clamp01(v + step * dv))
             dgj = eval_bezier_surface(S, un, vn, rational=rational) - p1
-            if float(np.dot(dgj, dgj)) <= g0 + 1e-18:
+            dg_sq = float(dgj[0] * dgj[0] + dgj[1] * dgj[1] + dgj[2] * dgj[2])
+            if dg_sq <= g0 + 1e-18:
                 u, v = un, vn
                 break
             step *= 0.5
 
         dgj = eval_bezier_surface(S, u, v, rational=rational) - p1
-        if float(np.dot(dgj, dgj)) < sq_tol:
-            return u, v, dgj, True
+        dg_sq = float(dgj[0] * dgj[0] + dgj[1] * dgj[1] + dgj[2] * dgj[2])
+        if dg_sq < sq_tol:
+            return u, v, dgj, True, p1
 
     dgj = eval_bezier_surface(S, u, v, rational=rational) - p1
-    return u, v, dgj, (np.linalg.norm(dgj) < 5.0 * tol)
+    dg_sq = float(dgj[0] * dgj[0] + dgj[1] * dgj[1] + dgj[2] * dgj[2])
+    return u, v, dgj, (dg_sq < 25.0 * sq_tol), p1
 import numpy as np
 
 
@@ -767,36 +802,31 @@ def confirm_overlap_span(
     def check_tangent(tt, uu, vv):
         c_pt, c_tan = eval_bezier_curve_and_deriv(C, tt, rational=rational)
         s_pt, su, sv = eval_bezier_surface_and_derivs(S, uu, vv, rational=rational)
-        n = np.cross(su, sv)
-        n_norm = np.linalg.norm(n)
-        t_norm = np.linalg.norm(c_tan)
-        if n_norm < 1e-12 or t_norm < 1e-12:
+        n_sq = _cross_norm_sq3(su, sv)
+        t_sq = _norm_sq3(c_tan)
+        if n_sq < 1e-24 or t_sq < 1e-24:
             return False
-        return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
+        nx, ny, nz = _cross3(su, sv)
+        d = c_tan[0]*nx + c_tan[1]*ny + c_tan[2]*nz
+        return d*d <= angle_tol * angle_tol * t_sq * n_sq
 
     def _project_fixed_t(tt, uu, vv):
-        t_fix, uu, vv, Gp, _ok = project_G0(
-            C,
-            S,
-            tt,
-            uu,
-            vv,
-            fixed=(True, False, False),
-            tol=tol_proj,
-            rational=rational,
+        uu, vv, Gp, _ok, _p1 = project_G0_fixed_t(
+            C, S, tt, uu, vv, tol=tol_proj, rational=rational,
         )
-        return t_fix, uu, vv, Gp
+        return tt, uu, vv, Gp
+
+    tol_conf_sq = tol_conf * tol_conf
 
     def _check_overlap_at_t(tt, uu, vv):
         t_fix, uu, vv, Gp = _project_fixed_t(tt, uu, vv)
-        if np.linalg.norm(Gp) > tol_conf:
+        if _norm_sq3(Gp) > tol_conf_sq:
             return False, uu, vv, t_fix
         Gc, Jc = G_and_J_curve_surface(C, S, t_fix, uu, vv, rational=rational)
         # Guard against parametric degeneracy: if surface normal is near zero,
         # J becomes rank-deficient for reasons unrelated to overlap.
         s_pt, su, sv = eval_bezier_surface_and_derivs(S, uu, vv, rational=rational)
-        n = np.cross(su, sv)
-        if np.linalg.norm(n) < 1e-12:
+        if _cross_norm_sq3(su, sv) < 1e-24:
             return False, uu, vv, t_fix
         if (not overlap_like_svd(Jc, sv_thresh=sv_thresh, rel_thresh=rel_thresh)) and (
             not check_tangent(t_fix, uu, vv)
@@ -1057,12 +1087,14 @@ def trace_curve_surface_overlap(
         dt_max = 0.25
     if tol_proj is None:
         tol_proj = max(1e-12, 1e-10 * scale)
+    _5tol_sq = 25.0 * tol_proj * tol_proj
 
     t0, u0, v0, G0, J0 = newton_project_G0_curve_surface(
         C, S, t_seed, u_seed, v_seed, tol=tol_proj, it=30, rational=rational
     )
     max_init = max(1e-6, 1e-5 * scale)
-    if np.linalg.norm(G0) > max_init:
+    max_init_sq = max_init * max_init
+    if _norm_sq3(G0) > max_init_sq:
         return {"kind": "none"}
 
     # initial step size from curvature
@@ -1089,12 +1121,13 @@ def trace_curve_surface_overlap(
     def check_tangent(tt, uu, vv):
         c_pt, c_tan = eval_bezier_curve_and_deriv(C, tt, rational=rational)
         s_pt, su, sv = eval_bezier_surface_and_derivs(S, uu, vv, rational=rational)
-        n = np.cross(su, sv)
-        n_norm = np.linalg.norm(n)
-        t_norm = np.linalg.norm(c_tan)
-        if n_norm < 1e-12 or t_norm < 1e-12:
+        n_sq = _cross_norm_sq3(su, sv)
+        t_sq = _norm_sq3(c_tan)
+        if n_sq < 1e-24 or t_sq < 1e-24:
             return False
-        return abs(np.dot(c_tan / t_norm, n / n_norm)) <= angle_tol
+        nx, ny, nz = _cross3(su, sv)
+        d = c_tan[0]*nx + c_tan[1]*ny + c_tan[2]*nz
+        return d*d <= angle_tol * angle_tol * t_sq * n_sq
 
     def _nullspace_dir(tt, uu, vv):
         G, J = G_and_J_curve_surface(C, S, tt, uu, vv, rational=rational)
@@ -1103,9 +1136,10 @@ def trace_curve_surface_overlap(
         except np.linalg.LinAlgError:
             return None, G, J
         n = Vt[-1]
-        n_norm = np.linalg.norm(n)
-        if n_norm < 1e-14:
+        n_sq = _norm_sq3(n)
+        if n_sq < 1e-28:
             return None, G, J
+        n_norm = n_sq ** 0.5
         return n / n_norm, G, J
 
     def _step_targets(tt, uu, vv):
@@ -1143,7 +1177,7 @@ def trace_curve_surface_overlap(
             # Stay on the overlap branch even if local classification is noisy.
 
             # Keep direction consistent; make n[0] non-negative so direction controls sign.
-            if n_prev is not None and np.dot(n, n_prev) < 0.0:
+            if n_prev is not None and _dot3(n, n_prev) < 0.0:
                 n = -n
             if abs(n[0]) > 1e-12 and n[0] < 0.0:
                 n = -n
@@ -1196,7 +1230,8 @@ def trace_curve_surface_overlap(
                 C, S, t_cl, u_cl, v_cl, tol=tol_proj, rational=rational
             )
             tol_accept = max(5.0 * tol_proj, 1e-8 * scale)
-            ok = np.linalg.norm(Gc) <= tol_accept
+            tol_accept_sq = tol_accept * tol_accept
+            ok = _norm_sq3(Gc) <= tol_accept_sq
             if ok:
                 ok = overlap_like_svd(Jc, sv_thresh=1e-8, rel_thresh=1e-6) or check_tangent(t_corr, u_corr, v_corr)
 
@@ -1252,12 +1287,10 @@ def trace_curve_surface_overlap(
             if t_pred == t_prev:
                 break
 
-            u_pred, v_pred, Gp, ok = project_G0_fixed_t(
+            u_pred, v_pred, Gp, ok, xt = project_G0_fixed_t(
                 C, S, t_pred, u_prev, v_prev, tol=tol_proj, rational=rational, it=35
             )
-            xt = eval_bezier_curve(C, t_pred, rational=rational)
-            xuv = eval_bezier_surface(S, u_pred, v_pred, rational=rational)
-            dx = xt - xuv
+            dx = -Gp
 
             t_int,u_int,v_int=Interval(t_prev,t_pred),Interval(u_prev,u_pred),Interval(v_prev,v_pred)
 
@@ -1269,7 +1302,7 @@ def trace_curve_surface_overlap(
             # mask = (np.isclose(tuv, 1) | np.isclose(tuv, 0)) & (~np.(tuv< (t, u, v)))
             if np.any(mask):
 
-                if (not ok) or (np.linalg.norm(Gp) > 5.0 * tol_proj):
+                if (not ok) or (_norm_sq3(Gp) > _5tol_sq):
                     dt = max(dt_min, dt * step_shrink)
                     LAST_OK = False
                     if dt <= dt_min * 1.01:
@@ -1282,11 +1315,9 @@ def trace_curve_surface_overlap(
                     )
                     tuv = np.array([t_proj, u_proj, v_proj])
 
-                if (not ok) or (np.linalg.norm(Gp) > 5.0 * tol_proj):
+                if (not ok) or (_norm_sq3(Gp) > _5tol_sq):
                     break
-                xt = eval_bezier_curve(C, tuv[0], rational=rational)
-                xuv = eval_bezier_surface(S, tuv[1], tuv[2], rational=rational)
-                dx = xt - xuv
+                dx = -Gp
                 _, Jb = G_and_J_curve_surface(C, S, tuv[0], tuv[1], tuv[2], rational=rational)
                 cls = classify_contact_curve_surface(Jb, rel_thresh=1e-6)
                 if (cls.get("type") != "overlap") or (not check_tangent(tuv[0], tuv[1], tuv[2])):
@@ -1311,7 +1342,7 @@ def trace_curve_surface_overlap(
 
             # if t_pred == t:
             #    break
-            if (not ok) or np.linalg.norm(Gp) > 5.0 * tol_proj:
+            if (not ok) or _norm_sq3(Gp) > _5tol_sq:
                 dt = max(dt_min, dt * step_shrink)
                 LAST_OK = False
                 if dt <= dt_min * 1.01:
@@ -1341,16 +1372,15 @@ def trace_curve_surface_overlap(
             #    #print("e4",(t_pred, u_pred, v_pred))
             #    break
 
-            x = eval_bezier_curve(C, t_pred, rational=rational)
             if direction > 0:
 
                 t_path.append(t_pred)
                 uv_path.append((u_pred, v_pred))
-                xyz_path.append(x)
+                xyz_path.append(xt)
             else:
                 t_path.insert(0, t_pred)
                 uv_path.insert(0, (u_pred, v_pred))
-                xyz_path.insert(0, x)
+                xyz_path.insert(0, xt)
 
             t, u, v = t_pred, u_pred, v_pred
             LAST_OK = True
