@@ -144,8 +144,10 @@ from mmcore.geom._nurbs_knots import join_curves
 results_all=[]
 curves2=join_curves(extract_surface_boundaries(s2))
 curves1=join_curves(extract_surface_boundaries(s1))
-
+import time
+s=time.time()
 for curve in curves1:
+
     isolated, overlaps = result = nurbs_csx_v2(curve, s2, 1e-3, overlap_dist_tol=1e-3)
 
     results_all.append((curve,isolated,overlaps))
@@ -154,6 +156,7 @@ for curve in curves2:
     isolated, overlaps = result = nurbs_csx_v2(curve, s1, 1e-3, overlap_dist_tol=1e-3)
 
     results_all.append((curve,isolated,overlaps))
+print(f"CSX v2 performed at: {time.time()-s} secs.")
 isolated,overlaps=[],[]
 for c,i,o in  results_all:
     if i is not None:

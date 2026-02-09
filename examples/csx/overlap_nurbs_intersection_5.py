@@ -231,8 +231,10 @@ surface = NURBSSurfaceTuple(
 )
 
 from mmcore.numeric.intersection.csx import nurbs_csx_v2
+import time
+s=time.time()
 isolated,overlaps=result=nurbs_csx_v2(curve,surface, 1e-3,overlap_dist_tol=1e-3)
-
+print(f"CSX v2 X 3 performed at: {time.time()-s} secs.")
 
 over=[]
 isol=[]

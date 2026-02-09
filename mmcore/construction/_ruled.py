@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs,NURBSSurfaceTuple
