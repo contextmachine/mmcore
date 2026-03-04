@@ -311,7 +311,11 @@ def fair_interpolate_curve(points, degree, lambda_reg=1e-3)->tuple[NDArray[float
 
     return control_points, knot_vector
 def interpolate_nurbs_curve(points, degree,  use_centripetal=False,rational=False,**kwargs):
+    points = np.unique(points, axis=0)
+    points=np.array(points)
+    if len(points)<=2 or degree==1:
 
+        return NURBSCurveTuple(order=degree+1, knot=generate_knots(len(points),degree=1), control_points=np.array(points), weights=np.ones_like(points[...,0]))
     cp,kv=interpolate_curve(points, degree, use_centripetal=use_centripetal,**kwargs)
     cp=np.array(cp)
     if rational:

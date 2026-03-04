@@ -8,8 +8,12 @@ Data structures compatible with Parasolid/ACIS/CGM/OpenCascade/BMesh
 from __future__ import annotations
 
 import itertools
+import sys
 from dataclasses import dataclass, field
-from itertools import pairwise
+try:
+    from itertools import pairwise
+except ImportError:
+    from more_itertools import pairwise
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -45,14 +49,6 @@ class Vertex:
     id: int = field(default_factory=lambda :next(_V_AUTOID), init=False)
 
 
-@dataclass
-class Edge:
-    v_start: int
-    v_end: int
-    geom: Curve3D
-    param: Tuple[float, float]
-    id: int = field(default_factory=lambda :next(_E_AUTOID), init=False)
-
 
 @dataclass
 class HalfEdge:
@@ -66,7 +62,16 @@ class HalfEdge:
     orient: bool = True
     pcurve: Optional[Curve2D] = None
     id: int = field(default_factory=lambda :next(_HE_AUTOID), init=False)
+@dataclass
+class Edge:
+    v_start: int
+    v_end: int
+    geom: Curve3D
+    param: Tuple[float, float]
 
+    id: int = field(default_factory=lambda :next(_E_AUTOID), init=False)
+
+    he:Optional[ HalfEdge]=None
 
 @dataclass
 class Loop:
@@ -162,7 +167,7 @@ class BRep:
         e = Edge(v1.id, v2.id, Curve3D(), (0.0, 1.0))
         self.E[e.id] = e
         he_fwd = HalfEdge(e.id, None, None, vert=v2.id, orient=True)
-        he_rev = HalfEdge(e.id, None, None, vert=v1.id, orient=True)
+        he_rev = HalfEdge(e.id, None, None, vert=v1.id, orient=False)
 
         he_fwd.twin, he_rev.twin = he_rev.id, he_fwd.id
         he_fwd.next = he_rev.id
@@ -347,6 +352,7 @@ class BRep:
         for hid in self._loop_halfedges(loop_id):
             if self.HE[hid].vert == v1_id:
                 he_v1 = self.HE[hid]
+
                 break
         if he_v1 is None:
             raise ValueError("v1 not on the given loop")

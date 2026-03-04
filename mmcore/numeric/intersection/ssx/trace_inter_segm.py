@@ -674,14 +674,26 @@ def adaptive_refine_bruteforce(
 
         xyz1 = evaluate_nurbs_surface(s1, stuv_mid[0], stuv_mid[1],d_order=0)['S']
 
-        stuv_mid_current, p_eval, q_eval, error = refine_intersection_point(
+        success,stuv_mid_current, p_eval, q_eval, error = refine_intersection_point(
             stuv_mid,
             s1,
             s2,
             spt=spt,
             max_iter=140,
-            angle_tol=angle_tol,
+            angle_tol=angle_tol,full_outp=True
         )
+        if not success:
+            success, stuv_mid_current, p_eval, q_eval, error = refine_intersection_point(
+                stuv_mid_current,
+                s1,
+                s2,
+                spt=spt,
+                max_iter=140,
+                angle_tol=angle_tol, full_outp=True
+            )
+            if not success:
+                print(f"failed to refine intersection point:{stuv_mid_current}")
+
         p_eval = evaluate_nurbs_surface(s1, stuv_mid_current[0], stuv_mid_current[1],d_order=2)
         q_eval =  evaluate_nurbs_surface(s2, stuv_mid_current[2], stuv_mid_current[3],d_order=2)
 
@@ -694,7 +706,7 @@ def adaptive_refine_bruteforce(
 
         new_node.compute_normals_tangent_and_curvature()
 
-        s = np.sqrt(8.0 * spt / np.linalg.norm(new_node.s_eval['K']))
+        s = np.sqrt(8.0 * (spt) / np.linalg.norm(new_node.s_eval['K']))
 
         delta = np.linalg.norm(p_eval['S'] - xyz1)
         s=np.clip(s,spt,np.linalg.norm(xyzs-xyze))
@@ -718,12 +730,19 @@ def adaptive_refine_bruteforce(
 
 
 
+    xyz=[]
+    stuvs=[]
+    for stuv in node_a:
+        sh= evaluate_nurbs_surface(s1, stuv[0],stuv[1], d_order=0)['S']
+        pt=sh
+        xyz.append(pt)
+        stuvs.append(stuv)
 
-
-    ll=list(node_a)
+    xyz=np.array(xyz)
+    stuvs=np.array(stuvs)
 
     #print(len(ll))
-    return interpolate_nurbs_curve(np.array(ll),degree=min(len(ll)-1,3))
+    return stuvs,xyz
 
 
 def _from_homogeneous(H: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:

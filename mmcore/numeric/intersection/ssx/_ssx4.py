@@ -963,8 +963,10 @@ def _pair_points_by_nearest(points: list[SSXPoint]) -> tuple[list[tuple[int, int
     return pairs, list(unused)
 
 
-def _curve_endpoints(curve: NURBSCurveTuple) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    return curve.start(), curve.end()
+def _curve_endpoints(curve: tuple[NDArray,NDArray]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    #print(curve)
+
+    return curve[0][0], curve[0][-1]
 
 
 def _finite_diff_derivatives(points: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -1071,10 +1073,17 @@ def _try_deflated_hard_case(H1: NDArray[np.float64], H2: NDArray[np.float64],
                 uv2 = _map_uv_to_interval(np.array([u, v], dtype=np.float64), interval2)
                 stuv_path.append(np.array([uv1[0], uv1[1], uv2[0], uv2[1]], dtype=np.float64))
 
+
             stuv_arr = _dedupe_stuv_path(np.asarray(stuv_path, dtype=np.float64), tol=param_tol)
-            curve = _curve_from_stuv_path(stuv_arr)
-            if curve is not None:
-                branches.append(SSXBranch(curve=curve))
+            xyz_arr=np.empty((stuv_arr.shape[0],3))
+            for i in range(stuv_arr.shape[0]):
+                stuv_pt=stuv_arr[i]
+                S=_eval_tensor_bezier(H1,stuv_pt[0],stuv_pt[1])
+                xyz_arr[i]=S[:-1]/S[-1,None]
+            #curve = _curve_from_stuv_path(stuv_arr)
+            #if curve is not None:
+            if len(stuv_arr)>1:
+                branches.append(SSXBranch(curve=(stuv_arr,xyz_arr)))
         if len(singular_points)>=1:
             for sp in singular_points:
                 s, t, u, v = (float(x) for x in sp["param"])
@@ -1144,7 +1153,7 @@ def _try_deflated_hard_case(H1: NDArray[np.float64], H2: NDArray[np.float64],
 
                     u_lo ,v_lo=  p0[ax_offset] - pad_uv
                     u_hi, v_hi = p0[ax_offset] + pad_uv
-                    print(u_lo,v_lo,u_hi,v_hi)
+                    #print(u_lo,v_lo,u_hi,v_hi)
 
                     boxes.append(((u_lo, v_lo), (u_hi, v_hi)))
 
@@ -1371,13 +1380,16 @@ def _collect_boundary_intersections(H_owner: NDArray[np.float64], H_other: NDArr
             if np.linalg.norm(delta) < param_tol:
                 continue
             delta/=np.linalg.norm(delta)
+            xyz_path = np.empty((len(stuv_path), 3))
+            for i in range(len(stuv_path)):
+                p=_eval_tensor_bezier(H_owner,stuv_path[i][0],stuv_path[i][1])
+                xyz_path[i]=p[:-1]/p[None,-1]
+            #cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=True,use_centripetal=True,tol=param_tol)
 
-            cnt,kv=interpolate_curve(stuv_path,min(len(stuv_path)-1,3),remove_duplicates=True,use_centripetal=True,tol=param_tol)
-
-            curve = NURBSCurveTuple(order=min(len(stuv_path)-1,3)+1, knot=np.array(kv),control_points=np.array(cnt),weights=np.ones(len(cnt)) )
+            #curve = NURBSCurveTuple(order=min(len(stuv_path)-1,3)+1, knot=np.array(kv),control_points=np.array(cnt),weights=np.ones(len(cnt)) )
 
 
-            branches.append(SSXBranch(curve=curve, overlap=True))
+            branches.append(SSXBranch(curve=(stuv_path,xyz_path), overlap=True))
 
 
 def _dedup_overlap_branches(branches, param_tol):
@@ -1398,14 +1410,14 @@ def _dedup_overlap_branches(branches, param_tol):
         if overlap_indices[ii] in to_remove:
             continue
         br_a = branches[overlap_indices[ii]]
-        start_a = br_a.curve.control_points[0]
-        end_a = br_a.curve.control_points[-1]
+        start_a = br_a.curve[0][0]
+        end_a = br_a.curve[0][-1]
         for jj in range(ii + 1, len(overlap_indices)):
             if overlap_indices[jj] in to_remove:
                 continue
             br_b = branches[overlap_indices[jj]]
-            start_b = br_b.curve.control_points[0]
-            end_b = br_b.curve.control_points[-1]
+            start_b = br_b.curve[0][0]
+            end_b = br_b.curve[0][-1]
             # Same direction match
             same_dir = (np.max(np.abs(start_a - start_b)) <= param_tol and
                         np.max(np.abs(end_a - end_b)) <= param_tol)
@@ -1444,8 +1456,8 @@ def _leaf_boundary_test_and_march(H1: NDArray[np.float64], H2: NDArray[np.float6
         overlap_endpoints = []
         for br in branches:
             if br.overlap:
-                overlap_endpoints.append(br.curve.control_points[0])
-                overlap_endpoints.append(br.curve.control_points[-1])
+                overlap_endpoints.append(br.curve[0][0])
+                overlap_endpoints.append(br.curve[0][-1])
         if overlap_endpoints:
             points = [p for p in points
                       if not any(np.max(np.abs(p.stuv - ep)) <= param_tol
@@ -1506,6 +1518,7 @@ def _merge_branches_by_match(
         for j in range(i + 1, len(branches)):
             if branches[j].closed:
                 continue
+            #print(branches[i].curve)
             a_start, a_end = _curve_endpoints(branches[i].curve)
             b_start, b_end = _curve_endpoints(branches[j].curve)
             a_ends = (a_start, a_end)
@@ -1518,11 +1531,12 @@ def _merge_branches_by_match(
                     curve_a = branches[i].curve
                     curve_b = branches[j].curve
                     if end_i == 0:
-                        curve_a = reverse_curve(curve_a)
+                        curve_a = np.array(list(reversed(curve_a[0]))),np.array(list(reversed(curve_a[1])))
                     if end_j == 1:
-                        curve_b = reverse_curve(curve_b)
-                    new_curve, _interior_knots = link_curves([curve_a, curve_b])
-                    new_curve=remove_knots_after_merge(new_curve, _interior_knots,tol=atol)
+                        curve_b = np.array(list(reversed(curve_b[0]))),np.array(list(reversed(curve_b[1])))
+                    new_curve = np.concatenate((curve_a[0],curve_b[0])), np.concatenate((curve_a[1],curve_b[1]))
+
+                    #new_curve=remove_knots_after_merge(new_curve, _interior_knots,tol=atol)
                     branches[i] = SSXBranch(curve=new_curve, overlap=branches[i].overlap or branches[j].overlap)
                     branches.pop(j)
                     merged = True
@@ -1665,6 +1679,7 @@ def _bez_ssx_recursive(g1: GaussMapBern, g2: GaussMapBern, interval1: tuple[floa
 
         #print('try deflated (return): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
         #print(_branches)
+
         _b,_p=hard
         if len(_b)>0 or len(_p)>0:
             if len(hard[1])>0 and len(hard[0])==0:
@@ -1683,7 +1698,6 @@ def _bez_ssx_recursive(g1: GaussMapBern, g2: GaussMapBern, interval1: tuple[floa
                 print('fff')
                 return hard[0]+_branches,hard[1]+_points
 
-            print(hard)
             return hard
         deflate_hard_case=False # ATTENTION!!! If the first deflation ended in failure, there is no point in looking for deflation in subsidiary subproblems.
         #print('try deflated (no): ', f'{frame_info.filename}:{frame_info.lineno + 2}:0')
@@ -1787,41 +1801,14 @@ def _bez_ssx_recursive(g1: GaussMapBern, g2: GaussMapBern, interval1: tuple[floa
 
 
 def compute_branch_curves_hermite(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,atol,**kwargs):
-    branch.curve_st = branch.curve._replace(control_points=branch.curve.control_points[..., :2])
-    branch.curve_uv = branch.curve._replace(control_points=branch.curve.control_points[..., 2:])
-    def _eval_curve(t):
-        stuv = evaluate_nurbs_curve(branch.curve, t, d_order=0)["C"]
-        se1=evaluate_nurbs_surface(surface1,stuv[0],stuv[1],d_order=0)
-
-        return se1['S']
-
-    eval_curve_ders=fdm(_eval_curve)
-    _points = []
-    _ders=[]
-    _params=[]
-    params=_greville_abscissae(branch.curve.knot, branch.curve.degree)
-    # params=np.unique(branch.curve.knot)
-    #p_cur=0
-    params=branch.curve.control_points
-    for s in params:
-        #d1=eval_curve_ders(s)
-        #d1/=np.linalg.norm(d1)
-
-        #_ders.append(d1)
+    stuv,xyz=branch.curve
+    print(xyz)
+    branch.curve_st =interpolate_nurbs_curve(stuv[...,:2], degree=min(len(stuv)-1,3),tol=1e-6,use_centripetal=True,remove_duplicates=True)
+    branch.curve_uv = interpolate_nurbs_curve(stuv[...,2:], degree=min(len(stuv)-1,3),tol=1e-6,use_centripetal=True,remove_duplicates=True)
+    branch.curve_xyz = interpolate_nurbs_curve(xyz, degree=min(len(stuv) - 1, 3), tol=atol,
+                                              use_centripetal=True,  remove_duplicates=False)
 
 
-        _points.append(evaluate_nurbs_surface(surface1, s[0], s[1], d_order=0)['S'])
-
-
-    #from more_itertools import pairwise
-    #crvs=[]
-    #
-    #for (ps,ds,ts),(pe,de,te) in pairwise(zip(_points,_ders,params)):
-    #    h=np.linalg.norm(ps-pe)/3
-    #
-    #
-    #    crvs.append(bern_to_nurbs_bezier(np.array([ps,ps+ds*h,pe-ds*h,pe]),interval=(ts,te),rational=False))
-    branch.curve_xyz=interpolate_nurbs_curve(np.array(_points),degree=branch.curve.degree,use_centripetal=True,method='lu',remove_duplicates=True,tol=atol)
     #branch.curve_xyz=remove_knots_after_merge(crv,interior,atol)
 
 def compute_branch_curves(branch: SSXBranch, surface1:NURBSSurfaceTuple, surface2:NURBSSurfaceTuple,**kwargs):
@@ -1912,8 +1899,9 @@ def nurbs_ssx(surf1, surf2, *, atol: float = 0.001, angle_tol: float = 0.052, to
                                       deflate_hard_case=deflate_hard_case)
         branches.extend(bch)
         points.extend(pts)
-
+    #print(branches)
     branches = _merge_branches_global(branches, param_tol,atol=atol)
+
     branches = _close_branches(branches, param_tol)
     points = _prune_points_on_branches(points, branches, param_tol)
 

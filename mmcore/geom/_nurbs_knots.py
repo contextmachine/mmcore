@@ -589,9 +589,8 @@ def split_curve(curve: BSplineCurveTuple | NURBSCurveTuple, t: float, **kwargs):
     # Validate input
 
     interval = nurbs_interval(curve.knot, curve.order-1)
-    if t == interval[0] or t == interval[1]:
-        raise ValueError(f"Parameter t: {t} Cannot split from the domain edge: {interval}")
-    if not (interval[0]<t< interval[1]):
+    #print(interval[0]<t,t<interval[1], t,interval)
+    if not (interval[0]<t <interval[1]):
         raise ValueError(f"Parameter t: {t} is outside the domain: {interval}")
 
     # Find multiplicity of the knot and define how many times we need to add the knot
@@ -662,17 +661,19 @@ def decompose_curve(crv:NURBSCurveTuple)->list[NURBSCurveTuple]:
 
 def trim_curve(curve:NURBSCurveTuple, t0:float,t1:float):
     print(t0,t1)
+
     t0,t1=min(t0,t1),max(t0,t1)
     t_min,t_max=_curve_interval(curve)
+    t_min, t_max = min(t_min, t_max), max(t_min, t_max)
     print(f"f:{t_min}=={t0}: {t0==t_min} ")
     print(f"f:{t_max}=={t1}: {t1==t_max} ")
-    if t0==t_min and t1==t_max:
+    if np.isclose(t0,t_min) and np.isclose(t1,t_max):
         return curve.__class__(*curve)
 
-    elif t0==t_min:
+    elif np.isclose(t0,t_min):
 
         return split_curve(curve,t1)[0]
-    elif t1==t_max:
+    elif np.isclose(t1,t_max):
         return split_curve(curve, t0)[1]
     else:
         return split_curve(split_curve(curve, t0)[1],t1)[0]
