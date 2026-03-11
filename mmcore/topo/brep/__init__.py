@@ -14,23 +14,17 @@ try:
     from itertools import pairwise
 except ImportError:
     from more_itertools import pairwise
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Literal
 
 import numpy as np
 
 
 # ---------------------------------------------------------------------------
-#  Minimal geometry placeholders (replace with real NURBS later)
+#  Geometry ID counters (geometry objects stored in BRep.G_CRV / G_PCRV / G_SRF)
 # ---------------------------------------------------------------------------
-class Curve3D:  # straight‑line stub
-    pass
-
-
-class Curve2D: ...
-
-
-class Surface: ...
-
+_G_CRV_AUTOID = itertools.count()
+_G_PCRV_AUTOID = itertools.count()
+_G_SRF_AUTOID = itertools.count()
 
 _V_AUTOID=itertools.count()
 _E_AUTOID=itertools.count()
@@ -60,18 +54,16 @@ class HalfEdge:
     twin: Optional[int] = None
     vert: Optional[int] = None  # head vertex
     orient: bool = True
-    pcurve: Optional[Curve2D] = None
+    pcurve: Optional[int] = None
     id: int = field(default_factory=lambda :next(_HE_AUTOID), init=False)
 @dataclass
 class Edge:
     v_start: int
     v_end: int
-    geom: Curve3D
-    param: Tuple[float, float]
-
+    geom: Optional[int] = None
+    param: Tuple[float, float] = (0.0, 1.0)
     id: int = field(default_factory=lambda :next(_E_AUTOID), init=False)
-
-    he:Optional[ HalfEdge]=None
+    he: Optional[int] = None
 
 @dataclass
 class Loop:
@@ -88,7 +80,7 @@ class Face:
     inners: List[int] = field(default_factory=list)
     shell: Optional[int] = None
     same_sense: bool = True
-    surf: Optional[Surface]=None
+    surf: Optional[int] = None
     id: int = field(default_factory=lambda :next(_F_AUTOID), init=False)
 
 
@@ -105,7 +97,7 @@ class Body:
     shells: List[int]
     lump_type: str = "solid"
     attributes: Dict[str, Any] = field(default_factory=dict)
-    id: int = field(default_factory=lambda :next(_S_AUTOID),  init=False)
+    id: int = field(default_factory=lambda :next(_B_AUTOID),  init=False)
 
 
 
@@ -121,6 +113,16 @@ class BRep:
     F: Dict[int, Face] = field(default_factory=dict)
     S: Dict[int, Shell] = field(default_factory=dict)
     B: Dict[int, Body] = field(default_factory=dict)
+    G_CRV: Dict[int, Any] = field(default_factory=dict)
+    G_PCRV: Dict[int, Any] = field(default_factory=dict)
+    G_SRF: Dict[int, Any] = field(default_factory=dict)
+    def cast(self, entity:int|Any,entity_type:Literal["V","E","HE","L","F","S","B"]=None)->Vertex:
+        if not isinstance(entity,int):
+            return entity
+        if entity_type is None:
+            raise ValueError("entity_type must be specified")
+        return getattr(self,entity_type)[entity]
+
 
     # ************************************************************
     #  Helper utilities
@@ -150,6 +152,14 @@ class BRep:
         """Return True if *edge* is referenced only by given halfedges."""
         return all((he_id in he_set) for he_id, he in self.HE.items() if he.edge == edge_id)
 
+    def _retag_loop(self, loop_id: int):
+        """Walk a loop cycle and set all HEs' loop and face fields consistently."""
+        lp = self.L[loop_id]
+        face_id = lp.face
+        for hid in self._loop_halfedges(loop_id):
+            self.HE[hid].loop = loop_id
+            self.HE[hid].face = face_id
+
     def summary(self) -> str:
         return (
             f"|V|={len(self.V)} |E|={len(self.E)} |HE|={len(self.HE)} |L|={len(self.L)} "
@@ -164,7 +174,7 @@ class BRep:
         v2 = Vertex(p2)
         self.V[v1.id] = v1
         self.V[v2.id] = v2
-        e = Edge(v1.id, v2.id, Curve3D(), (0.0, 1.0))
+        e = Edge(v1.id, v2.id)
         self.E[e.id] = e
         he_fwd = HalfEdge(e.id, None, None, vert=v2.id, orient=True)
         he_rev = HalfEdge(e.id, None, None, vert=v1.id, orient=False)
@@ -176,6 +186,7 @@ class BRep:
         he_fwd.prev = he_rev.id
         self.HE[he_fwd.id] = he_fwd
         self.HE[he_rev.id] = he_rev
+        e.he = he_fwd.id
         loop = Loop(None, he_fwd.id, is_outer=True)
         self.L[loop.id] = loop
         he_fwd.loop = he_rev.loop = loop.id
@@ -243,7 +254,7 @@ class BRep:
         twin: Optional[int] = None,
         vert: Optional[int] = None,
         orient: bool = True,
-        pcurve: Optional[Curve2D] = None,
+        pcurve: Optional[int] = None,
     ) -> HalfEdge:
         he = HalfEdge(edge=edge, loop=loop, face=face, next=next, prev=prev, twin=twin, vert=vert, orient=orient, pcurve=pcurve)
         self.HE[he.id] = he
@@ -255,14 +266,14 @@ class BRep:
         self.L[l.id] = l
         return l
 
-    def new_face(self,  outer: int, inners: List[int] = None, shell: Optional[int] = None, same_sense: bool = True,surf: Optional[Surface]=None) -> Face:
+    def new_face(self, outer: int, inners: List[int] = None, shell: Optional[int] = None, same_sense: bool = True, surf: Optional[int] = None) -> Face:
         if inners is None:
             inners = []
         f = Face(surf=surf, outer=outer, inners=inners, shell=shell, same_sense=same_sense)
         self.F[f.id] = f
         return f
 
-    def new_edge(self, v_start: int, v_end: int, geom: Curve3D, param: Tuple[float, float]) -> Edge:
+    def new_edge(self, v_start: int, v_end: int, geom: Optional[int] = None, param: Tuple[float, float] = (0.0, 1.0)) -> Edge:
         e = Edge(v_start=v_start, v_end=v_end, geom=geom, param=param)
         self.E[e.id] = e
         return e
@@ -283,13 +294,28 @@ class BRep:
         v = Vertex(point=point, tol=tol)
         self.V[v.id] = v
         return v
+
+    def new_curve(self, geom) -> int:
+        cid = next(_G_CRV_AUTOID)
+        self.G_CRV[cid] = geom
+        return cid
+
+    def new_pcurve(self, geom) -> int:
+        cid = next(_G_PCRV_AUTOID)
+        self.G_PCRV[cid] = geom
+        return cid
+
+    def new_surface(self, geom) -> int:
+        sid = next(_G_SRF_AUTOID)
+        self.G_SRF[sid] = geom
+        return sid
     def _edge_split(self, edge_id: int, v_new: int) -> tuple[Edge, HalfEdge, HalfEdge]:
         """
         Split an edge *edge_id* into two edges, one going from its start to
         *v_new* and the other from *v_new* to its end.
         """
         E=self.E[edge_id]
-        self.new_edge(E.v_start, v_new, E.geom, E.param)
+        self.new_edge(E.v_start, v_new, geom=E.geom, param=E.param)
         E.v_start=v_new
 
     def get_loop_first_vertex(self, loop: Loop)->Vertex:
@@ -367,7 +393,7 @@ class BRep:
         he_v2_next = he_v2.next
 
         # ----------  create new edge + twin half-edges  ---------------------------
-        e_new = self.new_edge(v1_id, v2_id, Curve3D(), (0.0, 1.0))
+        e_new = self.new_edge(v1_id, v2_id)
 
         he_uv = self.new_halfedge(e_new.id, face=face_id, loop=loop_id, vert=v2_id, orient=True)  # v1 → v2  (stays in loop-1)
 
@@ -375,6 +401,7 @@ class BRep:
 
         he_uv.twin = he_vu.id
         he_vu.twin = he_uv.id
+        e_new.he = he_uv.id
 
         # ----------  splice half-edges for loop-1  --------------------------------
         # …v1_prev → he_v1 → he_uv → he_v2_next…
@@ -514,7 +541,7 @@ class BRep:
 
         # ---------- create topological entities ----------
         v_new = self.new_vertex(p_new)
-        e_new = self.new_edge(v_from, v_new.id, Curve3D(), (0.0, 1.0))
+        e_new = self.new_edge(v_from, v_new.id)
 
         # half-edge v_from → v_new  (heads at v_new)
         he_fwd = self.new_halfedge(
@@ -539,6 +566,7 @@ class BRep:
             orient=False,
         )
         he_fwd.twin = he_rev.id
+        e_new.he = he_fwd.id
 
         # ---------- splice into the loop ----------
         he_fwd.next = he_rev.id
@@ -572,17 +600,22 @@ class BRep:
         if he_in_id is None:
             raise ValueError("Vertex not on the supplied loop")
 
-        he_in = self.HE[he_in_id]  # … → V
-        he_out = self.HE[he_in.prev]  # V → …
+        he_in = self.HE[he_in_id]  # … → V (arrives at dangling vertex)
+        he_out = self.HE[he_in.next]  # V → … (return leg of dangling edge)
 
         # sanity check: edge used only by these two half-edges
         edge_id = he_in.edge
         if not self._edge_single_use(edge_id, {he_in_id, he_out.id}):
             raise ValueError("Vertex is not of degree 1")
 
-        # bypass the dangling pair
-        self.HE[he_out.prev].next = he_in.next
-        self.HE[he_in.next].prev = he_out.prev
+        # bypass the dangling pair: connect he_in.prev → he_out.next
+        self.HE[he_in.prev].next = he_out.next
+        self.HE[he_out.next].prev = he_in.prev
+
+        # fix loop anchor if it pointed at a deleted HE
+        loop = self.L[loop_id]
+        if loop.he in (he_in_id, he_out.id):
+            loop.he = he_out.next
 
         # scrub data-base
         del self.HE[he_in_id]
@@ -617,37 +650,43 @@ class BRep:
         he_fwd = next(he for he in hes if he.vert == v_old_end)
         he_rev = self.HE[he_fwd.twin]
 
-        loop_id = he_fwd.loop
-        if loop_id is None:
-            raise ValueError("Edge is not part of any loop")
+        # he_fwd and he_rev may be on different loops/faces (shared edge)
+        loop_id_fwd = he_fwd.loop
+        face_id_fwd = he_fwd.face
+        loop_id_rev = he_rev.loop
+        face_id_rev = he_rev.face
 
-        face_id = he_fwd.face
+        if loop_id_fwd is None:
+            raise ValueError("Edge is not part of any loop")
 
         # 2) create the new vertex and the new edge
         V_new = self.new_vertex(point_new)
-        E2 = self.new_edge(V_new.id, v_old_end, E1.geom, E1.param)
+        E2 = self.new_edge(V_new.id, v_old_end, geom=E1.geom, param=E1.param)
 
         # 3) shorten E1 so that it now ends at V_new
         E1.v_end = V_new.id
         he_fwd.vert = V_new.id
 
         # 4) create the two new half-edges for E2 (forward + reverse)
+        #    he2_fwd inherits from he_fwd; he2_rev inherits from he_rev
         he2_fwd = self.new_halfedge(
             edge=E2.id,
-            face=face_id,
-            loop=loop_id,
+            face=face_id_fwd,
+            loop=loop_id_fwd,
             vert=v_old_end,
             orient=True,
         )
         he2_rev = self.new_halfedge(
             edge=E2.id,
-            face=face_id,
-            loop=loop_id,
+            face=face_id_rev,
+            loop=loop_id_rev,
             vert=V_new.id,
             orient=False,
         )
         he2_fwd.twin = he2_rev.id
         he2_rev.twin = he2_fwd.id
+        E2.he = he2_fwd.id
+        E1.he = he_fwd.id
 
         # 5) splice he2_fwd in immediately after he_fwd
         old_next = he_fwd.next
@@ -798,6 +837,138 @@ class BRep:
 
         return lhs - rhs_total
 
+    def validate(self) -> list[str]:
+        """Check internal consistency. Returns list of error strings (empty = valid)."""
+        errors = []
+
+        # --- Twin symmetry ---
+        for he_id, he in self.HE.items():
+            if he.twin is None:
+                errors.append(f"HE {he_id}: twin is None")
+            elif he.twin not in self.HE:
+                errors.append(f"HE {he_id}: twin {he.twin} not in HE dict")
+            elif self.HE[he.twin].twin != he_id:
+                errors.append(f"HE {he_id}: twin.twin={self.HE[he.twin].twin} != {he_id}")
+
+        # --- Next/prev symmetry ---
+        for he_id, he in self.HE.items():
+            if he.next is None:
+                errors.append(f"HE {he_id}: next is None")
+            elif he.next not in self.HE:
+                errors.append(f"HE {he_id}: next {he.next} not in HE dict")
+            elif self.HE[he.next].prev != he_id:
+                errors.append(f"HE {he_id}: next.prev={self.HE[he.next].prev} != {he_id}")
+            if he.prev is None:
+                errors.append(f"HE {he_id}: prev is None")
+            elif he.prev not in self.HE:
+                errors.append(f"HE {he_id}: prev {he.prev} not in HE dict")
+            elif self.HE[he.prev].next != he_id:
+                errors.append(f"HE {he_id}: prev.next={self.HE[he.prev].next} != {he_id}")
+
+        # --- Loop closure + loop tag consistency ---
+        for l_id, lp in self.L.items():
+            if lp.he is None:
+                errors.append(f"Loop {l_id}: he is None")
+                continue
+            if lp.he not in self.HE:
+                errors.append(f"Loop {l_id}: he {lp.he} not in HE dict")
+                continue
+            visited = set()
+            cur = lp.he
+            while cur not in visited:
+                visited.add(cur)
+                h = self.HE[cur]
+                if h.loop != l_id:
+                    errors.append(f"HE {cur}: loop={h.loop}, expected {l_id}")
+                if h.next is None:
+                    errors.append(f"Loop {l_id}: broken next chain at HE {cur}")
+                    break
+                cur = h.next
+            if cur != lp.he:
+                errors.append(f"Loop {l_id}: does not close back to start (landed at {cur})")
+
+        # --- Face tag consistency ---
+        for l_id, lp in self.L.items():
+            if lp.face is None:
+                continue
+            if lp.face not in self.F:
+                errors.append(f"Loop {l_id}: face {lp.face} not in F dict")
+                continue
+            for hid in self._loop_halfedges(l_id):
+                h = self.HE[hid]
+                if h.face != lp.face:
+                    errors.append(f"HE {hid}: face={h.face}, expected {lp.face} (from Loop {l_id})")
+
+        # --- Edge consistency: each edge has exactly 2 HEs ---
+        from collections import Counter
+        edge_he_count = Counter()
+        for he_id, he in self.HE.items():
+            edge_he_count[he.edge] += 1
+        for e_id in self.E:
+            count = edge_he_count.get(e_id, 0)
+            if count != 2:
+                errors.append(f"Edge {e_id}: has {count} half-edges, expected 2")
+
+        # --- Edge.he field consistency ---
+        for e_id, e in self.E.items():
+            if e.he is not None:
+                if e.he not in self.HE:
+                    errors.append(f"Edge {e_id}: he {e.he} not in HE dict")
+                elif self.HE[e.he].edge != e_id:
+                    errors.append(f"Edge {e_id}: he {e.he} points to edge {self.HE[e.he].edge}")
+
+        # --- Vert reference check ---
+        for he_id, he in self.HE.items():
+            if he.vert is not None and he.vert not in self.V:
+                errors.append(f"HE {he_id}: vert {he.vert} not in V dict")
+
+        # --- Face/loop back-reference consistency ---
+        for f_id, f in self.F.items():
+            if f.outer not in self.L:
+                errors.append(f"Face {f_id}: outer loop {f.outer} not in L dict")
+            elif self.L[f.outer].face != f_id:
+                errors.append(f"Face {f_id}: outer loop {f.outer} has face={self.L[f.outer].face}")
+            for inner_id in f.inners:
+                if inner_id not in self.L:
+                    errors.append(f"Face {f_id}: inner loop {inner_id} not in L dict")
+                elif self.L[inner_id].face != f_id:
+                    errors.append(f"Face {f_id}: inner loop {inner_id} has face={self.L[inner_id].face}")
+
+        # --- Shell/face consistency ---
+        for s_id, s in self.S.items():
+            for f_id in s.faces:
+                if f_id not in self.F:
+                    errors.append(f"Shell {s_id}: face {f_id} not in F dict")
+                elif self.F[f_id].shell != s_id:
+                    errors.append(f"Shell {s_id}: face {f_id} has shell={self.F[f_id].shell}")
+
+        # --- Geometry reference checks ---
+        for e_id, e in self.E.items():
+            if e.geom is not None and e.geom not in self.G_CRV:
+                errors.append(f"Edge {e_id}: geom {e.geom} not in G_CRV")
+
+        for f_id, f in self.F.items():
+            if f.surf is not None and f.surf not in self.G_SRF:
+                errors.append(f"Face {f_id}: surf {f.surf} not in G_SRF")
+
+        for he_id, he in self.HE.items():
+            if he.pcurve is not None and he.pcurve not in self.G_PCRV:
+                errors.append(f"HE {he_id}: pcurve {he.pcurve} not in G_PCRV")
+
+        # --- Every HE should be reachable from some loop ---
+        reachable_hes = set()
+        for l_id in self.L:
+            try:
+                for hid in self._loop_halfedges(l_id):
+                    reachable_hes.add(hid)
+            except (KeyError, RecursionError):
+                pass
+        orphan_hes = set(self.HE.keys()) - reachable_hes
+        for hid in orphan_hes:
+            errors.append(f"HE {hid}: not reachable from any loop")
+
+        return errors
+
     def MELF(self, loop_id:int, v1_id: int, v2_id: int )->tuple[Edge,Loop,Face]:
 
         loop=self.L[loop_id]
@@ -809,18 +980,36 @@ class BRep:
         loop2.face=face.id
         self.S[self.F[loop.face].shell].faces.append(face.id)
 
+        # Retag all half-edges in loop2 to point at the new face
+        self._retag_loop(loop2.id)
+
         return edge, loop2, face
 
-    def KELF(self,  edge1_id:int, loop2_id:int):
+    def KELF(self, edge1_id: int, loop2_id: int):
+        loop2 = self.L[loop2_id]
+        old_face_id = loop2.face
+        face = self.F[old_face_id]
+        shell = self.S[face.shell]
 
-        loop2=self.L[loop2_id]
-        face=self.F[loop2.face]
-        shell=self.S[face.shell]
-        shell.faces.remove(face.id)
+        # Determine the surviving loop/face before destroying anything
+        he_list = [he for he in self.HE.values() if he.edge == edge1_id]
+        if len(he_list) != 2:
+            raise ValueError("Edge should be referenced by exactly two half-edges")
+        he_a, he_b = he_list
+        keep_loop_id = he_b.loop if he_a.loop == loop2_id else he_a.loop
+        keep_face_id = self.L[keep_loop_id].face
 
-        del self.F[loop2.face]
-        loop2.face=None
-        self.KEL(edge1_id,loop2_id)
+        # Merge loops (deletes loop2, edge, and its HEs)
+        self.KEL(edge1_id, loop2_id)
+
+        # Retag any HEs that still reference the deleted face
+        for he in self.HE.values():
+            if he.face == old_face_id:
+                he.face = keep_face_id
+
+        # Remove the face from shell and delete it
+        shell.faces.remove(old_face_id)
+        del self.F[old_face_id]
     def get_edge_he(self, edge_id)->HalfEdge:
         E=self.E[edge_id]
         for k,v in self.HE.items():
@@ -902,7 +1091,7 @@ class BRep:
         he_h_prev = self.HE[he_h.prev]
 
         # ---- make edge + half-edges ------------------------------------------------------
-        e_new = self.new_edge(v_outer_id, v_hole_id, Curve3D(), (0.0, 1.0))
+        e_new = self.new_edge(v_outer_id, v_hole_id)
         he_out2hole = self.new_halfedge(
             e_new.id, face=o_loop.face, loop=outer_loop_id, vert=v_hole_id, orient=True
         )
@@ -910,6 +1099,7 @@ class BRep:
             e_new.id, face=o_loop.face, loop=outer_loop_id, vert=v_outer_id, orient=False
         )
         he_out2hole.twin, he_hole2out.twin = he_hole2out.id, he_out2hole.id
+        e_new.he = he_out2hole.id
 
         # ---- splice into the two boundary cycles -----------------------------------------
         # (outer loop side)
@@ -959,17 +1149,22 @@ class BRep:
         a_prev.next, b_next.prev = b_next.id, a_prev.id
         b_prev.next, a_next.prev = a_next.id, b_prev.id
 
-        # 3. create the new hole loop, starting from b_next
-        l_hole = self.new_loop(face=face_id, he=b_next.id, is_outer=False)
+        # 3. create the new hole loop from the inner cycle (a_next side)
+        #    After splice: a_next cycle = inner/hole HEs, b_next cycle = outer HEs
+        l_hole = self.new_loop(face=face_id, he=a_next.id, is_outer=False)
 
         # relabel half-edges that now belong to the hole
-        for hid in self._cycle_halfedges(b_next.id):
+        for hid in self._cycle_halfedges(a_next.id):
             self.HE[hid].loop = l_hole.id
 
-        # 4. update face data: the hole moves into *inners*
+        # 4. ensure outer loop anchor is valid (not a deleted bridge HE)
+        if loop_outer.he in (he_a.id, he_b.id):
+            loop_outer.he = b_next.id
+
+        # 5. update face data: the hole moves into *inners*
         self.F[face_id].inners.append(l_hole.id)
 
-        # 5. erase the edge and its half-edges
+        # 6. erase the edge and its half-edges
         del self.HE[he_a.id], self.HE[he_b.id]
         del self.E[edge_id]
 
@@ -998,11 +1193,9 @@ class BRep:
         f_new.shell = s_new.id
         hl.face = f_new.id
         self.B[shell_old.body].shells.append(s_new.id)
-        self.S[s_new.id] = s_new
 
-        # 3. patch all half-edges to point at the new face
-        for hid in self._loop_halfedges(hole_loop_id):
-            self.HE[hid].face = f_new.id
+        # Retag all half-edges in the promoted loop to point at the new face
+        self._retag_loop(hole_loop_id)
 
         return f_new, s_new
 
@@ -1077,7 +1270,7 @@ class BRep:
         # --- create new vertex & zero-length edge ---------------------------------
         v_orig = self.V[v_id]
         v2 = self.new_vertex(v_orig.point)
-        e1 = self.new_edge(v_id, v2.id, Curve3D(), (0.0, 1.0))
+        e1 = self.new_edge(v_id, v2.id)
 
         # --- create the two new half-edges & link them as twins ------------------
         # loop1 half-edge: oriented v1 -> v2
@@ -1103,6 +1296,7 @@ class BRep:
             orient=False,
         )
         he1.twin = he2.id
+        e1.he = he1.id
 
         # --- splice each new half-edge into its loop -----------------------------
         # loop1 splice
