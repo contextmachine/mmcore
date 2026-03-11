@@ -1358,6 +1358,56 @@ class BRep:
         else:
             raise ValueError("No degree-1 vertex to kill")
 
+    def find_edge_at_point(self, point, atol: float = 1e-3):
+        """Find the edge whose 3D curve passes through *point*.
+
+        Only edges with assigned geometry (geom is not None) are searched.
+        The parameter must fall within the edge's trimmed param range.
+
+        Returns (edge_id, t_param) if found, else None.
+        """
+        from mmcore.numeric.closest_point import nurbs_curve_closest_point
+
+        point = np.asarray(point, dtype=float)
+        for e_id, e in self.E.items():
+            if e.geom is None:
+                continue
+            crv = self.G_CRV[e.geom]
+            t, (dst, *_) = nurbs_curve_closest_point(crv, point)
+            if dst < atol:
+                t0, t1 = e.param
+                tmin, tmax = min(t0, t1), max(t0, t1)
+                if tmin - atol <= t <= tmax + atol:
+                    return e_id, t
+        return None
+
+    def split_edge_at_point(self, point, atol: float = 1e-3) -> 'Vertex':
+        """Split the edge containing *point*, inserting a new vertex.
+
+        Calls MVE for the topological split, then updates geometry:
+        - Both the shortened and new edge reference the same G_CRV curve.
+        - Edge.param ranges are recomputed so they partition the original range.
+
+        Returns the new Vertex, or raises ValueError if no edge contains the point.
+        """
+        result = self.find_edge_at_point(point, atol)
+        if result is None:
+            raise ValueError("Point does not lie on any edge")
+
+        edge_id, t_split = result
+        e_orig = self.E[edge_id]
+        t0, t1 = e_orig.param  # MVE does not modify E1.param
+
+        # topological split
+        v_new, e_new = self.MVE(edge_id, tuple(np.asarray(point, dtype=float).tolist()))
+
+        # geometry propagation: partition the param range at the split point
+        # MVE already set E2.geom = E1.geom (shared curve reference)
+        e_orig.param = (t0, t_split)
+        e_new.param = (t_split, t1)
+
+        return v_new
+
 
 def box(W, D, H):
     m = BRep()
