@@ -95,3 +95,39 @@ def test_split_edge_at_point_not_found():
         assert False, "Should have raised"
     except ValueError:
         pass
+
+
+def test_split_face_by_curve_basic():
+    """Splitting a quad face by a vertical line creates a new face."""
+    m, verts, edges, loops, faces = _make_quad_with_geom()
+    v1, v2, v3, v4 = verts
+    l1, l2 = loops
+
+    split_crv = _line_curve((2, 0, 0), (2, 3, 0))
+
+    result = m.split_face_by_curve(split_crv, face_id=faces[1].id)
+    va, vb, e_new, l_new, f_new = result
+    assert_valid(m, "after split_face_by_curve")
+
+    assert len(m.V) == 6
+    assert len(m.F) == 3
+    assert e_new.geom is not None
+    assert e_new.geom in m.G_CRV
+
+
+def test_split_face_by_curve_repeated():
+    """Two sequential splits produce three faces from the original one."""
+    m, verts, edges, loops, faces = _make_quad_with_geom()
+    f2 = faces[1]
+
+    crv1 = _line_curve((1, 0, 0), (1, 3, 0))
+    crv2 = _line_curve((3, 0, 0), (3, 3, 0))
+
+    _, _, _, _, f_new1 = m.split_face_by_curve(crv1, face_id=f2.id)
+    assert_valid(m, "after first split")
+
+    # Second split on the same original face (f2 retained one half)
+    m.split_face_by_curve(crv2, face_id=f2.id)
+    assert_valid(m, "after second split")
+
+    assert len(m.F) == 4

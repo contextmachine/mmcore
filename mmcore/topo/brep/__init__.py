@@ -1408,6 +1408,72 @@ class BRep:
 
         return v_new
 
+    def split_face_by_curve(self, curve, face_id=None, atol=1e-3):
+        """Split a face by inserting a curve between two boundary edges.
+
+        The curve's start/end points must lie on edges of the face.
+        Two new vertices are inserted (via split_edge_at_point), then MELF
+        splits the loop and creates a new face.
+
+        Parameters
+        ----------
+        curve : object with .start(), .end(), .interval() methods
+            The splitting curve (e.g. NURBSCurveTuple).
+        face_id : int, optional
+            The face to split. Disambiguates when vertices are on shared edges.
+        atol : float
+            Geometric tolerance for point-on-edge matching.
+
+        Returns
+        -------
+        (v_start, v_end, edge_new, loop_new, face_new)
+        """
+        start = np.asarray(curve.start(), dtype=float)
+        end = np.asarray(curve.end(), dtype=float)
+
+        # insert vertices at curve endpoints
+        v_start = self.split_edge_at_point(start, atol)
+        v_end = self.split_edge_at_point(end, atol)
+
+        # find the common loop on the target face
+        v_start_loops = set()
+        v_end_loops = set()
+        for e in self.E.values():
+            if e.v_start == v_start.id or e.v_end == v_start.id:
+                for lp in self.get_edge_loops(e.id):
+                    v_start_loops.add(lp.id)
+            if e.v_start == v_end.id or e.v_end == v_end.id:
+                for lp in self.get_edge_loops(e.id):
+                    v_end_loops.add(lp.id)
+
+        common = v_start_loops & v_end_loops
+
+        if face_id is not None:
+            common = {lid for lid in common if self.L[lid].face == face_id}
+
+        if len(common) == 0:
+            raise ValueError("No common loop found for the curve endpoints")
+        if len(common) > 1:
+            raise ValueError(
+                f"Ambiguous: {len(common)} common loops found. "
+                f"Pass face_id to disambiguate."
+            )
+
+        loop_id = common.pop()
+
+        # topological split — MELF creates edge + loop + face
+        e_new, l_new, f_new = self.MELF(loop_id, v_start.id, v_end.id)
+
+        # assign geometry to the new edge
+        e_new.geom = self.new_curve(curve)
+        e_new.param = curve.interval()
+
+        # inherit surface geometry on the new face
+        parent_face = self.F[self.L[loop_id].face]
+        f_new.surf = parent_face.surf
+
+        return v_start, v_end, e_new, l_new, f_new
+
 
 def box(W, D, H):
     m = BRep()
