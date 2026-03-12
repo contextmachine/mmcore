@@ -16,7 +16,7 @@ from mmcore.geom._nurbs_knots import decompose_curve
 from mmcore.geom.bvh.lbvh import AABB
 from mmcore.geom.nurbs_iso import extract_surface_boundaries,extract_isocurve
 from mmcore.numeric.approx import adaptive_curve_sampler,adaptive_bern_sampler_2d
-from mmcore.topo.mesh.tess import surface_to_mesh
+from mmcore.topo.mesh.tess import surface_to_mesh, tessellate_brep_face
 
 
 # =========================
@@ -485,8 +485,10 @@ class Viewer:
     cam:OrbitCamera
     scene_info:SceneInfo
     def add(self, obj, *args,**kwargs):
-
-        if isinstance(obj,RationalBezier):
+        from mmcore.topo.brep import BRep
+        if isinstance(obj, BRep):
+            return self.add_brep(obj, *args, **kwargs)
+        elif isinstance(obj,RationalBezier):
             return self._add_curve(obj,*args,**kwargs)
         elif isinstance(obj,NURBSCurveTuple):
             return self._add_nurbs_curve(obj,*args,**kwargs)
@@ -738,6 +740,96 @@ class Viewer:
                     bnds.append(self._add_nurbs_curve(bnd,color,*args,**kwargs))
         return tuple(meshes)+tuple(bnds)+tuple(isolines)
 
+    def add_brep(self, brep, edge_color=(1.0, 1.0, 1.0, 1.0),
+                 surface_color=(0.5, 0.5, 0.9, 0.05), tol=0.05,
+                 show_edges=True, shade=True):
+        """Add a BRep to the viewer.
+
+        Tessellates each face with geometry into a triangle mesh,
+        and displays each edge with geometry as a wireframe curve.
+
+        Parameters
+        ----------
+        brep : BRep
+            The boundary representation to display.
+        edge_color : tuple
+            RGBA color for edge wireframe curves.
+        surface_color : tuple
+            RGBA color for tessellated face surfaces.
+        tol : float
+            Tessellation tolerance.
+        show_edges : bool
+            Whether to draw edge wireframe curves.
+        shade : bool
+            Whether to tessellate and shade face surfaces.
+        """
+        from mmcore.geom._nurbs_knots import trim_curve
+
+        results = []
+
+        # --- tessellate faces ---
+        if shade:
+            for f_id, face in brep.F.items():
+                if face.surf is None:
+                    continue
+                # ensure all half-edges on this face have pcurves
+                for lid in [face.outer] + face.inners:
+                    for he_id in brep._loop_halfedges(lid):
+                        he = brep.HE[he_id]
+                        edge = brep.E[he.edge]
+                        if edge.geom is not None and he.pcurve is None:
+                            brep.compute_pcurve(he_id, tol=tol)
+
+                try:
+                    mesh = tessellate_brep_face(brep, f_id, tol=tol)
+                    if mesh['position'].size > 0 and mesh['faces'].size > 0:
+                        idx = self._add_mesh(mesh, color=surface_color)
+                        results.append(('face', f_id, idx))
+                except Exception as exc:
+                    import sys
+                    print(f"Warning: tessellation of face {f_id} failed: {exc}",
+                          file=sys.stderr)
+
+        # --- wireframe edges ---
+        if show_edges:
+            for e_id, edge in brep.E.items():
+                if edge.geom is None:
+                    continue
+                crv = brep.G_CRV[edge.geom]
+                t0, t1 = sorted(edge.param)
+                try:
+                    trimmed = trim_curve(crv, t0, t1)
+                    self._add_nurbs_curve(trimmed, color=edge_color)
+                except Exception:
+                    # fall back to full curve if trim fails
+                    self._add_nurbs_curve(crv, color=edge_color)
+
+        return results
+
+    def _add_mesh(self, mesh, color=(0.5, 0.5, 0.9, 0.05)):
+        """Upload a Mesh dict (position, faces) to GL. Returns mesh index."""
+        vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
+        faces = np.ascontiguousarray(mesh["faces"], dtype=np.uint32)
+        if vertices.size == 0 or faces.size == 0:
+            return None
+        if len(color) == 3:
+            color = (*color, 0.25)
+        color = np.array(color, dtype=np.float32)
+
+        vao = glGenVertexArrays(1)
+        glBindVertexArray(vao)
+        vbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
+        ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, faces.nbytes, faces, GL_STATIC_DRAW)
+        self.scene_info.bbox.merge(AABB.from_points(vertices))
+        self.meshes.append((vao, vbo, ebo, faces.size, color))
+        return len(self.meshes) - 1
 
     def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """

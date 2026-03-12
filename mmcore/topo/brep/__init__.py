@@ -1472,7 +1472,405 @@ class BRep:
         parent_face = self.F[self.L[loop_id].face]
         f_new.surf = parent_face.surf
 
+        # compute pcurves for the new edge's half-edges
+        he_fwd = self.HE[e_new.he]
+        he_rev = self.HE[he_fwd.twin]
+        self.compute_pcurve(he_fwd.id)
+        self.compute_pcurve(he_rev.id)
+
         return v_start, v_end, e_new, l_new, f_new
+
+    def make_face_from_surface(
+        self,
+        surface,
+        boundary_curves=None,
+        atol: float = 1e-3,
+    ) -> tuple:
+        """Create a face bounded by curves on a surface.
+
+        This is a high-level construction method that creates the full
+        topology (vertices, edges, loops, face, shell) and assigns all
+        geometry (edge curves, surface, pcurves).
+
+        Parameters
+        ----------
+        surface : NURBSSurfaceTuple
+            The surface geometry for the face.
+        boundary_curves : list of NURBSCurveTuple, optional
+            Ordered, oriented boundary curves forming a closed loop.
+            End of curve[i] must match start of curve[i+1] within *atol*.
+            If None, the four natural boundary isocurves of the surface
+            are used (untrimmed face).
+        atol : float
+            Tolerance for endpoint matching. Also stored as vertex.tol.
+
+        Returns
+        -------
+        (face, shell, loop, vertices, edges)
+            face: the new Face
+            shell: the new Shell
+            loop: the outer Loop of the face (on the "main" side)
+            vertices: list of Vertex objects (one per boundary curve start)
+            edges: list of Edge objects (one per boundary curve)
+        """
+        from mmcore.geom.nurbs_iso import extract_isocurve
+        from mmcore.numeric.closest_point import nurbs_curve_closest_point
+
+        # --- default: extract the 4 natural boundary isocurves ---
+        if boundary_curves is None:
+            from mmcore.geom._nurbs_knots import reverse_curve
+            (u_min, u_max), (v_min, v_max) = surface.interval()
+            # Natural isocurve directions:
+            #   bottom (v=v_min): u_min → u_max
+            #   right  (u=u_max): v_min → v_max
+            #   top    (v=v_max): u_min → u_max  (needs reversal for CCW)
+            #   left   (u=u_min): v_min → v_max  (needs reversal for CCW)
+            c_bottom = extract_isocurve(surface, v_min, direction='v')
+            c_right = extract_isocurve(surface, u_max, direction='u')
+            c_top = reverse_curve(extract_isocurve(surface, v_max, direction='v'))
+            c_left = reverse_curve(extract_isocurve(surface, u_min, direction='u'))
+            boundary_curves = [c_bottom, c_right, c_top, c_left]
+        else:
+            # --- validate user-supplied boundary curves ---
+            if len(boundary_curves) < 1:
+                raise ValueError("Need at least 1 boundary curve")
+            for i in range(len(boundary_curves)):
+                crv = boundary_curves[i]
+                nxt = boundary_curves[(i + 1) % len(boundary_curves)]
+                gap = np.linalg.norm(
+                    np.asarray(crv.end(), dtype=float) - np.asarray(nxt.start(), dtype=float)
+                )
+                if gap > atol:
+                    raise ValueError(
+                        f"Boundary curve gap at joint {i}→{(i+1) % len(boundary_curves)}: "
+                        f"{gap:.6e} > atol={atol}. "
+                        f"End of curve[{i}] does not match start of curve[{(i+1) % len(boundary_curves)}]."
+                    )
+
+        n = len(boundary_curves)
+        srf_id = self.new_surface(surface)
+
+        if n == 1:
+            # --- single closed curve (e.g. circle on a cylinder cap) ---
+            # The curve starts and ends at the same 3D point.
+            # Topology: 1 vertex, 1 edge, 2 half-edges forming a digon loop.
+            # MEVVLS creates exactly this (a digon with 2 vertices at
+            # the same location). The existing face from MEVVLS serves
+            # directly — no MELF needed.
+            c0 = boundary_curves[0]
+            p_vertex = tuple(np.asarray(c0.start(), dtype=float).tolist())
+
+            v1, v2, e0, loop, face, shell = self.MEVVLS(p_vertex, p_vertex)
+            v1.tol = atol
+            v2.tol = atol
+            e0.geom = self.new_curve(c0)
+            e0.param = c0.interval()
+            face.surf = srf_id
+
+            # MEVVLS created two vertices at the same point. Topologically
+            # they are distinct (edge goes v1→v2), which is correct for
+            # a closed curve whose start/end are identified.
+            loop_face = loop
+            vertices = [v1, v2]
+            edges = [e0]
+        else:
+            # --- N >= 2: standard construction ---
+            c0 = boundary_curves[0]
+            p_start = tuple(np.asarray(c0.start(), dtype=float).tolist())
+            p_end = tuple(np.asarray(c0.end(), dtype=float).tolist())
+
+            v_first, v_prev, e0, loop, face_wire, shell = self.MEVVLS(p_start, p_end)
+            v_first.tol = atol
+            v_prev.tol = atol
+
+            e0.geom = self.new_curve(c0)
+            e0.param = c0.interval()
+
+            vertices = [v_first, v_prev]
+            edges = [e0]
+
+            # --- middle edges via MEV ---
+            for i in range(1, n - 1):
+                ci = boundary_curves[i]
+                p_next = tuple(np.asarray(ci.end(), dtype=float).tolist())
+                v_new, ei = self.MEV(loop.id, v_prev.id, p_new=p_next)
+                v_new.tol = atol
+                ei.geom = self.new_curve(ci)
+                ei.param = ci.interval()
+                vertices.append(v_new)
+                edges.append(ei)
+                v_prev = v_new
+
+            # --- close with MELF ---
+            c_last = boundary_curves[-1]
+            e_close, loop_face, face = self.MELF(loop.id, v_prev.id, v_first.id)
+            e_close.geom = self.new_curve(c_last)
+            e_close.param = c_last.interval()
+            edges.append(e_close)
+
+        # --- assign surface to the face ---
+        face.surf = srf_id
+
+        # --- compute edge params from vertex projections ---
+        for e in edges:
+            crv = self.G_CRV[e.geom]
+            # Skip closed curves (same start/end vertex point) —
+            # closest_point returns the same t for both, giving param=(t,t).
+            # The interval set earlier from c.interval() is already correct.
+            if np.linalg.norm(
+                np.asarray(self.V[e.v_start].point) - np.asarray(self.V[e.v_end].point)
+            ) < atol:
+                continue
+            t0, _ = nurbs_curve_closest_point(crv, self.V[e.v_start].point)
+            t1, _ = nurbs_curve_closest_point(crv, self.V[e.v_end].point)
+            e.param = (t0, t1)
+
+        # --- compute pcurves for all half-edges on the face ---
+        for loop_id in [loop_face.id, loop.id]:
+            lp = self.L[loop_id]
+            if lp.face is not None and self.F[lp.face].surf is not None:
+                for he_id in self._loop_halfedges(loop_id):
+                    he = self.HE[he_id]
+                    edge = self.E[he.edge]
+                    if edge.geom is not None and he.pcurve is None:
+                        self.compute_pcurve(he_id, tol=atol)
+
+        return face, shell, loop_face, vertices, edges
+
+    def compute_pcurve(self, he_id: int, tol: float = 1e-4) -> Optional[int]:
+        """Compute and assign a parametric curve (pcurve) for a half-edge.
+
+        The pcurve maps the 3D edge curve into the (u,v) parameter space
+        of the face that the half-edge belongs to. Uses a predictor-corrector
+        marching algorithm: Jacobian-based prediction followed by Newton
+        correction, with curvature-adaptive step control in UV space.
+
+        Preconditions: the half-edge's face must have surf set (in G_SRF),
+        and its edge must have geom set (in G_CRV). If either is missing,
+        returns None without error.
+
+        Returns the pcurve ID (in G_PCRV), or None if preconditions aren't met.
+        """
+        from mmcore.geom._nurbs_eval import (
+            evaluate_nurbs_curve,
+            evaluate_nurbs_surface,
+            NURBSCurveTuple,
+        )
+        from mmcore.numeric.closest_point import nurbs_surface_closest_point
+        from mmcore.geom._nurbs_interp import interpolate_curve
+
+        he = self.HE[he_id]
+        edge = self.E[he.edge]
+        face_id = he.face
+        if face_id is None:
+            return None
+        face = self.F[face_id]
+
+        # --- check geometry preconditions ---
+        if edge.geom is None or face.surf is None:
+            return None
+        crv_3d = self.G_CRV[edge.geom]
+        srf = self.G_SRF[face.surf]
+
+        # --- determine marching direction from edge orientation ---
+        # he.orient=True means the half-edge follows edge direction (v_start→v_end)
+        # he.orient=False means it goes v_end→v_start
+        t_start, t_end = edge.param
+        if not he.orient:
+            t_start, t_end = t_end, t_start
+
+        # --- project endpoints to get UV start/end ---
+        pt_start = np.asarray(evaluate_nurbs_curve(crv_3d, t_start, d_order=0)["C"], dtype=float)
+        pt_end = np.asarray(evaluate_nurbs_curve(crv_3d, t_end, d_order=0)["C"], dtype=float)
+
+        uv_start, _ = nurbs_surface_closest_point(srf, pt_start)
+        uv_end, _ = nurbs_surface_closest_point(srf, pt_end)
+        uv_start = np.asarray(uv_start, dtype=float)
+        uv_end = np.asarray(uv_end, dtype=float)
+
+        # --- march from uv_start to uv_end ---
+        uv_points, t_params = _march_curve_on_surface(
+            crv_3d, srf, t_start, t_end, uv_start, uv_end, tol
+        )
+
+        # --- fit 2D NURBS through the UV points ---
+        # Use the curve parameters as the interpolation params so that
+        # pcurve(t) and C(t) share the same parameter domain.
+        degree = min(3, len(uv_points) - 1)
+        if degree < 1:
+            return None
+
+        # Normalize t_params to [0, 1] for knot vector computation,
+        # then rescale the knot vector back to [t_start, t_end]
+        t_arr = np.array(t_params, dtype=float)
+        t_lo, t_hi = t_arr[0], t_arr[-1]
+        t_span = t_hi - t_lo
+        if abs(t_span) < 1e-30:
+            return None
+        params_01 = (t_arr - t_lo) / t_span
+
+        ctrl_pts, knots_01 = interpolate_curve(
+            np.array(uv_points, dtype=float), degree, params=params_01
+        )
+        # Rescale knots from [0,1] to [t_start, t_end]
+        knots = np.array(knots_01, dtype=float) * t_span + t_lo
+
+        weights = np.ones(len(ctrl_pts), dtype=float)
+        pcurve = NURBSCurveTuple(
+            order=degree + 1,
+            knot=np.array(knots, dtype=float),
+            control_points=ctrl_pts,
+            weights=weights,
+        )
+
+        pcurve_id = self.new_pcurve(pcurve)
+        he.pcurve = pcurve_id
+        return pcurve_id
+
+
+def _march_curve_on_surface(crv_3d, srf, t_start, t_end, uv_start, uv_end, tol):
+    """March along a 3D curve, tracking its image in surface UV space.
+
+    Uses a predictor-corrector scheme:
+      Predictor: Jacobian pseudo-inverse maps 3D curve tangent → UV tangent
+      Corrector: Newton iteration minimizes ‖S(u,v) - C(t)‖
+
+    Parameters
+    ----------
+    crv_3d : NURBSCurveTuple
+        The 3D edge curve.
+    srf : NURBSSurfaceTuple
+        The surface whose parameter space we're mapping into.
+    t_start, t_end : float
+        Curve parameter range to march over.
+    uv_start, uv_end : ndarray of shape (2,)
+        Known UV positions at the curve endpoints.
+    tol : float
+        Tolerance for UV-space accuracy.
+
+    Returns
+    -------
+    (uv_points, t_params)
+        uv_points: list of ndarray — UV points along the curve (including endpoints).
+        t_params: list of float — corresponding curve parameter values.
+    """
+    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface
+
+    uv_points = [uv_start.copy()]
+    t_params = [t_start]
+    t_cur = t_start
+    uv_cur = uv_start.copy()
+    dt_total = t_end - t_start
+    sign = 1.0 if dt_total > 0 else -1.0
+    dt_remain = abs(dt_total)
+
+    # initial step: divide the curve into reasonable segments
+    n_init = max(8, int(dt_remain / (tol * 100)))
+    dt = dt_remain / n_init * sign
+
+    MAX_STEPS = 2000
+    for _ in range(MAX_STEPS):
+        if abs(t_cur - t_end) < abs(dt_total) * 1e-12:
+            break
+
+        # clamp the last step to land exactly on t_end
+        if abs(t_cur + dt - t_end) < abs(dt) * 0.5 or abs(t_cur + dt - t_start) > abs(dt_total):
+            dt = t_end - t_cur
+
+        t_next = t_cur + dt
+
+        # ── predictor: Jacobian pseudo-inverse ──
+        crv_eval = evaluate_nurbs_curve(crv_3d, t_cur, d_order=1)
+        srf_eval = evaluate_nurbs_surface(srf, float(uv_cur[0]), float(uv_cur[1]), d_order=1)
+
+        Su = srf_eval["Su"]
+        Sv = srf_eval["Sv"]
+        C1 = crv_eval["C1"]
+
+        # J = [Su | Sv], a 3×2 matrix; we want J⁺ · C'(t) · dt
+        J = np.column_stack([Su, Sv])  # (3, 2)
+        tangent_3d = C1 * dt  # 3D displacement along curve
+        # pseudo-inverse: (JᵀJ)⁻¹ Jᵀ
+        JtJ = J.T @ J
+        det = JtJ[0, 0] * JtJ[1, 1] - JtJ[0, 1] * JtJ[1, 0]
+        if abs(det) > 1e-30:
+            JtJ_inv = np.array([[JtJ[1, 1], -JtJ[0, 1]],
+                                [-JtJ[1, 0], JtJ[0, 0]]]) / det
+            duv_pred = JtJ_inv @ (J.T @ tangent_3d)
+        else:
+            # degenerate Jacobian — fall back to straight line in UV
+            duv_pred = (uv_end - uv_start) * (dt / dt_total)
+
+        uv_pred = uv_cur + duv_pred
+
+        # ── corrector: Newton iteration on ‖S(u,v) - C(t_next)‖ ──
+        target_3d = np.asarray(
+            evaluate_nurbs_curve(crv_3d, t_next, d_order=0)["C"], dtype=float
+        )
+        uv_corr = _newton_uv_correction(srf, uv_pred, target_3d, max_iter=5, tol=tol)
+
+        # ── adaptive step control ──
+        # Compare predictor and corrector — large correction means step was too big
+        correction_size = np.linalg.norm(uv_corr - uv_pred)
+        if correction_size > tol * 10 and abs(dt) > abs(dt_total) * 1e-6:
+            # step too large — halve and retry without advancing
+            dt *= 0.5
+            continue
+
+        # accept step
+        uv_cur = uv_corr
+        t_cur = t_next
+        uv_points.append(uv_cur.copy())
+        t_params.append(t_cur)
+
+        # grow step if correction was small
+        if correction_size < tol * 0.1:
+            dt = min(dt * 1.5, (t_end - t_cur) if sign > 0 else (t_cur - t_end))
+            dt *= sign / abs(sign) if dt != 0 else sign
+
+    # ensure the last point is exactly uv_end
+    if np.linalg.norm(uv_points[-1] - uv_end) > tol:
+        uv_points.append(uv_end.copy())
+        t_params.append(t_end)
+    print('marching',len(uv_points))
+    return uv_points, t_params
+
+
+def _newton_uv_correction(srf, uv_init, target_3d, max_iter=5, tol=1e-6):
+    """Newton iteration to find (u,v) such that S(u,v) ≈ target_3d.
+
+    Starts from uv_init (a good prediction) and refines.
+    """
+    from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
+
+    uv = uv_init.copy()
+    for _ in range(max_iter):
+        ev = evaluate_nurbs_surface(srf, float(uv[0]), float(uv[1]), d_order=1)
+        residual = ev["S"] - target_3d
+        dist = np.linalg.norm(residual)
+        if dist < tol:
+            break
+
+        Su = ev["Su"]
+        Sv = ev["Sv"]
+
+        # 2×2 system: [Su·Su  Su·Sv] [du]   [Su·residual]
+        #             [Sv·Su  Sv·Sv] [dv] = -[Sv·residual]
+        a11 = float(np.dot(Su, Su))
+        a12 = float(np.dot(Su, Sv))
+        a22 = float(np.dot(Sv, Sv))
+        b1 = -float(np.dot(Su, residual))
+        b2 = -float(np.dot(Sv, residual))
+
+        det = a11 * a22 - a12 * a12
+        if abs(det) < 1e-30:
+            break  # singular — accept current uv
+        du = (a22 * b1 - a12 * b2) / det
+        dv = (a11 * b2 - a12 * b1) / det
+        uv[0] += du
+        uv[1] += dv
+
+    return uv
 
 
 def box(W, D, H):

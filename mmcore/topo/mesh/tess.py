@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Collection,TypedDict
 
 import numpy as np
-from ._classes import Tessellation,tess_to_mesh
+from ._classes import Tessellation, Mesh, tess_to_mesh
 from mmcore.geom.nurbs import NURBSSurface, decompose_surface
 from mmcore.geom.polygon import is_point_in_polygon_bvh, polygon_build_bvh
 from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
@@ -176,6 +176,163 @@ def tessellate_surface(surface: NURBSSurface,
 from .fuse import fuse_meshes
 def surface_to_mesh(surface: NURBSSurface,tol=1e-2):
     return fuse_meshes([tess_to_mesh(tessellate_surface(s,tol=tol) )for s in decompose_surface(surface)])[0]
+
+def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
+    """Tessellate a single BRep face into a triangle mesh.
+
+    Walks the face's loops, samples pcurves to get UV polylines,
+    generates adaptive interior UV points, triangulates via constrained
+    Delaunay, and evaluates the surface at all vertices.
+
+    Parameters
+    ----------
+    brep : BRep
+        The BRep containing the face.
+    face_id : int
+        ID of the face to tessellate.
+    tol : float
+        Tessellation tolerance (controls adaptive sampling density).
+
+    Returns
+    -------
+    Mesh
+        dict with 'position' (N,3) float32 and 'faces' (T,3) int32.
+    """
+    from mmcore.geom._nurbs_eval import (
+        evaluate_nurbs_surface,
+        evaluate_nurbs_curve_array,
+        to_homogeneous_2d,
+        NURBSSurfaceTuple,
+    )
+
+    face = brep.F[face_id]
+    if face.surf is None:
+        raise ValueError(f"Face {face_id} has no surface geometry")
+    srf = brep.G_SRF[face.surf]
+
+    # --- collect UV boundary polyline from the outer loop's pcurves ---
+    def _sample_loop_pcurves(loop_id, n_samples=50):
+        """Sample all pcurves in a loop, returning a single UV polyline."""
+        uv_pts = []
+        sampled_edges = set()
+        for he_id in brep._loop_halfedges(loop_id):
+            he = brep.HE[he_id]
+            if he.pcurve is None:
+                continue
+            # In a digon (single-edge face), both HEs share the same edge.
+            # Only sample one direction to avoid a self-overlapping boundary.
+            if he.edge in sampled_edges:
+                continue
+            sampled_edges.add(he.edge)
+
+            pcurve = brep.G_PCRV[he.pcurve]
+            t0, t1 = pcurve.interval()
+            ts = np.linspace(t0, t1, n_samples)
+            pts_2d = np.array(
+                [evaluate_nurbs_curve_array(pcurve, float(t), d_order=0)[0, :2] for t in ts],
+                dtype=float,
+            )
+            # Skip the first point of each segment after the first
+            # to avoid duplicate vertices at curve joints
+            if len(uv_pts) > 0:
+                pts_2d = pts_2d[1:]
+            uv_pts.extend(pts_2d)
+        return np.array(uv_pts, dtype=float) if uv_pts else np.empty((0, 2))
+
+    outer_uv = _sample_loop_pcurves(face.outer)
+    if len(outer_uv) < 3:
+        return Mesh(position=np.empty((0, 3), dtype=np.float32),
+                    faces=np.empty((0, 3), dtype=np.int32))
+
+    # Close the loop if not already closed
+    if np.linalg.norm(outer_uv[0] - outer_uv[-1]) > tol * 0.1:
+        outer_uv = np.vstack([outer_uv, outer_uv[0:1]])
+
+    # Build boundary segments
+    n_outer = len(outer_uv)
+    outer_segments = np.array(
+        [(i, (i + 1) % n_outer) for i in range(n_outer)], dtype=np.int32
+    )
+
+    tess_params = dict(
+        vertices=list(outer_uv),
+        segments=list(outer_segments),
+    )
+    vertex_offset = n_outer
+
+    # --- inner loops (holes) ---
+    hole_points = []
+    for inner_loop_id in face.inners:
+        inner_uv = _sample_loop_pcurves(inner_loop_id)
+        if len(inner_uv) < 3:
+            continue
+        if np.linalg.norm(inner_uv[0] - inner_uv[-1]) > tol * 0.1:
+            inner_uv = np.vstack([inner_uv, inner_uv[0:1]])
+
+        n_inner = len(inner_uv)
+        inner_segments = np.array(
+            [(vertex_offset + i, vertex_offset + (i + 1) % n_inner)
+             for i in range(n_inner)],
+            dtype=np.int32,
+        )
+        tess_params['vertices'].extend(inner_uv)
+        tess_params['segments'].extend(inner_segments)
+        vertex_offset += n_inner
+
+        # Hole point: centroid of the inner loop (must be inside the hole)
+        hole_points.append(inner_uv.mean(axis=0))
+
+    # --- interior UV grid points (well inside the boundary) ---
+    uv_min = outer_uv.min(axis=0)
+    uv_max = outer_uv.max(axis=0)
+    uv_span = uv_max - uv_min
+
+    # Inset margin: keep interior points away from boundary edges
+    # to prevent degenerate triangles (e.g. "cap" artifacts on cylinders)
+    margin = uv_span * 0.08
+    inner_min = uv_min + margin
+    inner_max = uv_max - margin
+
+    n_boundary = len(outer_uv)
+    n_interior_u = max(3, int(n_boundary * 0.3))
+    n_interior_v = max(3, int(n_boundary * 0.3))
+
+    if np.all(inner_max > inner_min):
+        uu = np.linspace(inner_min[0], inner_max[0], n_interior_u)
+        vv = np.linspace(inner_min[1], inner_max[1], n_interior_v)
+        interior_uv = np.array([(u, v) for u in uu for v in vv], dtype=float)
+        tess_params['vertices'].extend(interior_uv)
+
+    # --- triangulate ---
+    tess_params['vertices'] = np.array(tess_params['vertices'], dtype=float)
+    tess_params['segments'] = np.array(tess_params['segments'], dtype=np.int32)
+    if hole_points:
+        tess_params['holes'] = np.array(hole_points, dtype=float)
+
+    tess_result = triangulate(tess_params, opts='p')
+
+    # --- evaluate surface at all UV vertices → 3D positions ---
+    uv_verts = np.array(tess_result['vertices'], dtype=float)
+    try:
+        # Fast path: convert to Cython NURBSSurface for batch evaluation
+        from mmcore.geom._nurbs_eval import _tuple_to_nurbs
+        surf_cy = _tuple_to_nurbs(srf)
+        positions = np.ascontiguousarray(
+            surf_cy.evaluate_multi(uv_verts), dtype=np.float32
+        )
+    except Exception:
+        # Fallback: point-by-point evaluation
+        positions = np.array(
+            [evaluate_nurbs_surface(srf, float(uv[0]), float(uv[1]), d_order=0)['S']
+             for uv in uv_verts],
+            dtype=np.float32,
+        )
+
+    return Mesh(
+        position=positions,
+        faces=np.array(tess_result['triangles'], dtype=np.int32),
+    )
+
 
 def as_polygons(triangulate_result):
     """
