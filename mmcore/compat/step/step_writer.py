@@ -280,9 +280,10 @@ class StepWriter:
                                )
     def add_rational_b_spline_curve_with_knots(self, curve:NURBSCurve|NURBSCurveTuple, curve_form=UNSPECIFIED,closed_curve:bool=False,self_intersect:bool=False,name:str=''):
 
-        weights=curve.weights.tolist()
+        weights=list(curve.weights) if not isinstance(curve.weights, list) else curve.weights
 
-        unique_knots,mult= get_knot_multiplicities(curve.knots.tolist() if isinstance(curve,NURBSCurve) else curve.knot.tolist() )
+        knot_raw = curve.knots if isinstance(curve, NURBSCurve) else curve.knot
+        unique_knots, mult = get_knot_multiplicities(list(knot_raw))
         return self.add_complex_entity(
             [
                 p21.entity("BOUNDED_CURVE".upper(), ()),
@@ -596,6 +597,150 @@ class StepWriter:
 
             ))
         return oriented_edge
+
+    def add_brep(self, brep, color=(0.5, 0.5, 0.5), name: str = ''):
+        """Export a BRep to STEP entities.
+
+        Walks the BRep topology and emits the full STEP entity hierarchy:
+        SHELL_BASED_SURFACE_MODEL → OPEN/CLOSED_SHELL → ADVANCED_FACE →
+        FACE_BOUND → EDGE_LOOP → ORIENTED_EDGE → EDGE_CURVE.
+
+        Each edge with geometry gets a RATIONAL_B_SPLINE_CURVE_WITH_KNOTS.
+        Each face with a surface gets a RATIONAL_B_SPLINE_SURFACE.
+        Faces without surface geometry are skipped.
+
+        Parameters
+        ----------
+        brep : BRep
+            The boundary representation to export.
+        color : tuple
+            RGB color for surface styling.
+        name : str
+            Name for the STEP shape representation.
+
+        Returns
+        -------
+        p21.Reference
+            Reference to the SHELL_BASED_SURFACE_MODEL entity.
+        """
+        from mmcore.geom._nurbs_knots import trim_curve
+
+        # --- cache: map BRep entity IDs to STEP references ---
+        # Avoids creating duplicate STEP entities for shared topology
+        vertex_refs = {}   # brep vertex id → STEP VERTEX_POINT ref
+        edge_refs = {}     # brep edge id → STEP EDGE_CURVE ref
+        surface_refs = {}  # brep G_SRF id → STEP surface ref
+
+        # --- helper: get or create a STEP vertex ---
+        def _vertex(v_id):
+            if v_id not in vertex_refs:
+                v = brep.V[v_id]
+                vertex_refs[v_id] = self.add_vertex_point(
+                    self.add_cartesian_point(tuple(v.point))
+                )
+            return vertex_refs[v_id]
+
+        # --- helper: get or create a STEP surface geometry ---
+        def _surface_geom(surf_id):
+            if surf_id not in surface_refs:
+                srf = brep.G_SRF[surf_id]
+                surface_refs[surf_id] = self.add_rational_bspline_surface(srf)
+            return surface_refs[surf_id]
+
+        # --- helper: get or create a STEP EDGE_CURVE ---
+        def _edge_curve(edge_id):
+            if edge_id not in edge_refs:
+                edge = brep.E[edge_id]
+                v_start_ref = _vertex(edge.v_start)
+                v_end_ref = _vertex(edge.v_end)
+
+                if edge.geom is not None:
+                    # Trim the curve to the edge's parameter range
+                    crv = brep.G_CRV[edge.geom]
+                    t0, t1 = edge.param
+                    trimmed = trim_curve(crv, min(t0, t1), max(t0, t1))
+                    crv_ref = self.add_rational_b_spline_curve_with_knots(trimmed)
+                else:
+                    # No geometry — create a straight line between vertices
+                    p0 = brep.V[edge.v_start].point
+                    p1 = brep.V[edge.v_end].point
+                    line_crv = NURBSCurveTuple(
+                        order=2,
+                        knot=np.array([0.0, 0.0, 1.0, 1.0]),
+                        control_points=np.array([list(p0), list(p1)], dtype=float),
+                        weights=np.array([1.0, 1.0]),
+                    )
+                    crv_ref = self.add_rational_b_spline_curve_with_knots(line_crv)
+
+                edge_refs[edge_id] = self.add_entity(
+                    p21.entity('EDGE_CURVE', (
+                        '', v_start_ref, v_end_ref, crv_ref, TRUE
+                    ))
+                )
+            return edge_refs[edge_id]
+
+        # --- build STEP faces ---
+        step_shells = []
+        for s_id, shell in brep.S.items():
+            step_faces = []
+            for f_id in shell.faces:
+                face = brep.F[f_id]
+                if face.surf is None:
+                    continue  # skip wire/exterior faces
+
+                # Surface geometry
+                srf_ref = _surface_geom(face.surf)
+
+                # Outer loop → FACE_OUTER_BOUND
+                bounds = []
+                outer_edges = []
+                for he_id in brep._loop_halfedges(face.outer):
+                    he = brep.HE[he_id]
+                    ec_ref = _edge_curve(he.edge)
+                    oe_ref = self.add_oriented_edge(
+                        ec_ref, orientation=he.orient
+                    )
+                    outer_edges.append(oe_ref)
+
+                if outer_edges:
+                    outer_loop_ref = self.add_edge_loop(outer_edges)
+                    # FACE_OUTER_BOUND (same as FACE_BOUND but marks the outer boundary)
+                    bounds.append(self.add_entity(
+                        p21.entity('FACE_OUTER_BOUND', ('', outer_loop_ref, TRUE))
+                    ))
+
+                # Inner loops → FACE_BOUND
+                for inner_loop_id in face.inners:
+                    inner_edges = []
+                    for he_id in brep._loop_halfedges(inner_loop_id):
+                        he = brep.HE[he_id]
+                        ec_ref = _edge_curve(he.edge)
+                        oe_ref = self.add_oriented_edge(
+                            ec_ref, orientation=he.orient
+                        )
+                        inner_edges.append(oe_ref)
+                    if inner_edges:
+                        inner_loop_ref = self.add_edge_loop(inner_edges)
+                        bounds.append(self.add_face_bound(inner_loop_ref))
+
+                # ADVANCED_FACE
+                af_ref = self.add_advanced_face(
+                    bounds, srf_ref, same_sense=TRUE, name=''
+                )
+                step_faces.append(af_ref)
+
+            if step_faces:
+                shell_ref = self.add_open_shell(step_faces)
+                step_shells.append(shell_ref)
+
+        if not step_shells:
+            return None
+
+        # SHELL_BASED_SURFACE_MODEL
+        model_ref = self.add_shell_based_surface_model(step_shells, name)
+        self.add_surface_style(model_ref, color=color)
+        return model_ref
+
 
 if __name__ =="__main__":
     from pathlib import Path
