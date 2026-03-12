@@ -680,64 +680,61 @@ class StepWriter:
             return edge_refs[edge_id]
 
         # --- build STEP faces ---
-        step_shells = []
-        for s_id, shell in brep.S.items():
-            step_faces = []
-            for f_id in shell.faces:
-                face = brep.F[f_id]
-                if face.surf is None:
-                    continue  # skip wire/exterior faces
+        # Collect ALL faces with geometry into a single shell so that
+        # importers (Rhino, SolidWorks) treat them as one joined object.
+        all_step_faces = []
+        for f_id, face in brep.F.items():
+            if face.surf is None:
+                continue  # skip wire/exterior faces
 
-                # Surface geometry
-                srf_ref = _surface_geom(face.surf)
+            # Surface geometry
+            srf_ref = _surface_geom(face.surf)
 
-                # Outer loop → FACE_OUTER_BOUND
-                bounds = []
-                outer_edges = []
-                for he_id in brep._loop_halfedges(face.outer):
+            # Outer loop → FACE_OUTER_BOUND
+            bounds = []
+            outer_edges = []
+            for he_id in brep._loop_halfedges(face.outer):
+                he = brep.HE[he_id]
+                ec_ref = _edge_curve(he.edge)
+                oe_ref = self.add_oriented_edge(
+                    ec_ref, orientation=he.orient
+                )
+                outer_edges.append(oe_ref)
+
+            if outer_edges:
+                outer_loop_ref = self.add_edge_loop(outer_edges)
+                bounds.append(self.add_entity(
+                    p21.entity('FACE_OUTER_BOUND', ('', outer_loop_ref, TRUE))
+                ))
+
+            # Inner loops → FACE_BOUND
+            for inner_loop_id in face.inners:
+                inner_edges = []
+                for he_id in brep._loop_halfedges(inner_loop_id):
                     he = brep.HE[he_id]
                     ec_ref = _edge_curve(he.edge)
                     oe_ref = self.add_oriented_edge(
                         ec_ref, orientation=he.orient
                     )
-                    outer_edges.append(oe_ref)
+                    inner_edges.append(oe_ref)
+                if inner_edges:
+                    inner_loop_ref = self.add_edge_loop(inner_edges)
+                    bounds.append(self.add_face_bound(inner_loop_ref))
 
-                if outer_edges:
-                    outer_loop_ref = self.add_edge_loop(outer_edges)
-                    # FACE_OUTER_BOUND (same as FACE_BOUND but marks the outer boundary)
-                    bounds.append(self.add_entity(
-                        p21.entity('FACE_OUTER_BOUND', ('', outer_loop_ref, TRUE))
-                    ))
+            # ADVANCED_FACE
+            af_ref = self.add_advanced_face(
+                bounds, srf_ref, same_sense=TRUE, name=''
+            )
+            all_step_faces.append(af_ref)
 
-                # Inner loops → FACE_BOUND
-                for inner_loop_id in face.inners:
-                    inner_edges = []
-                    for he_id in brep._loop_halfedges(inner_loop_id):
-                        he = brep.HE[he_id]
-                        ec_ref = _edge_curve(he.edge)
-                        oe_ref = self.add_oriented_edge(
-                            ec_ref, orientation=he.orient
-                        )
-                        inner_edges.append(oe_ref)
-                    if inner_edges:
-                        inner_loop_ref = self.add_edge_loop(inner_edges)
-                        bounds.append(self.add_face_bound(inner_loop_ref))
-
-                # ADVANCED_FACE
-                af_ref = self.add_advanced_face(
-                    bounds, srf_ref, same_sense=TRUE, name=''
-                )
-                step_faces.append(af_ref)
-
-            if step_faces:
-                shell_ref = self.add_open_shell(step_faces)
-                step_shells.append(shell_ref)
-
-        if not step_shells:
+        if not all_step_faces:
             return None
 
+        # Single shell containing all faces
+        shell_ref = self.add_open_shell(all_step_faces)
+
         # SHELL_BASED_SURFACE_MODEL
-        model_ref = self.add_shell_based_surface_model(step_shells, name)
+        model_ref = self.add_shell_based_surface_model((shell_ref,), name)
         self.add_surface_style(model_ref, color=color)
         return model_ref
 
