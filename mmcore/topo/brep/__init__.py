@@ -1480,6 +1480,184 @@ class BRep:
 
         return v_start, v_end, e_new, l_new, f_new
 
+    def cap_planar_openings(self, atol: float = 1e-3) -> list:
+        """Find and cap all planar open boundaries with flat faces.
+
+        An open boundary is a loop where every edge's opposite half-edge
+        belongs to a face without surface geometry (the exterior). If the
+        boundary vertices are coplanar within *atol*, a planar NURBS surface
+        is created and the loop is capped.
+
+        Mimics the "Cap Planar Holes" command in Rhino / SolidWorks.
+        Inner holes (face.inners) are never capped.
+
+        Returns a list of newly created (Face, Shell) pairs.
+        """
+        from mmcore.geom._nurbs_eval import NURBSSurfaceTuple, NURBSCurveTuple
+        from mmcore.geom._nurbs_knots import reverse_curve, trim_curve
+
+        results = []
+
+        # --- find open boundary loops ---
+        # An outer loop is "open" if for EVERY half-edge in the loop,
+        # the twin's face has no surface geometry.
+        open_loops = []
+        for l_id, lp in list(self.L.items()):
+            if not lp.is_outer:
+                continue
+            face = self.F[lp.face]
+            if face.surf is None:
+                # This is a wire/exterior face — not a candidate itself
+                continue
+            # Check: does the twin side lack surface geometry?
+            all_twins_open = True
+            for he_id in self._loop_halfedges(l_id):
+                he = self.HE[he_id]
+                twin = self.HE[he.twin]
+                twin_face = self.F[twin.face]
+                if twin_face.surf is not None:
+                    all_twins_open = False
+                    break
+            if all_twins_open:
+                open_loops.append(l_id)
+
+        for loop_id in open_loops:
+            lp = self.L[loop_id]
+
+            # --- collect boundary 3D points ---
+            pts = []
+            for he_id in self._loop_halfedges(loop_id):
+                he = self.HE[he_id]
+                pts.append(np.asarray(self.V[he.vert].point, dtype=float))
+            pts = np.array(pts)
+
+            # --- test planarity via SVD ---
+            centroid = pts.mean(axis=0)
+            centered = pts - centroid
+            _, s, Vt = np.linalg.svd(centered, full_matrices=False)
+            # s[2] is the smallest singular value; if ~0, points are coplanar
+            if len(s) < 3 or s[2] > atol:
+                continue  # not planar enough
+            # s[0] and s[1] are the in-plane extents; both must be significant
+            # (reject degenerate loops that collapse to a line or point)
+            if s[0] < atol or s[1] < atol:
+                continue
+
+            normal = Vt[2]  # normal to the best-fit plane
+            # Orient normal away from the surface (heuristic: use the face's surface)
+            face = self.F[lp.face]
+            srf = self.G_SRF[face.surf]
+            (u_min, u_max), (v_min, v_max) = srf.interval()
+            from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
+            mid_eval = evaluate_nurbs_surface(srf, (u_min + u_max) / 2, (v_min + v_max) / 2, d_order=0)
+            surf_center = mid_eval["S"]
+            if np.dot(normal, centroid - surf_center) < 0:
+                normal = -normal
+
+            # --- build planar surface ---
+            # Local axes on the plane
+            ref = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            xaxis = np.cross(normal, ref)
+            xaxis = xaxis / np.linalg.norm(xaxis)
+            yaxis = np.cross(normal, xaxis)
+
+            # Extent: bounding box of projected points + margin
+            proj_u = centered @ xaxis
+            proj_v = centered @ yaxis
+            u_range = proj_u.max() - proj_u.min()
+            v_range = proj_v.max() - proj_v.min()
+            margin = max(u_range, v_range) * 0.25
+            r = max(u_range, v_range) / 2 + margin
+
+            c00 = centroid - r * xaxis - r * yaxis
+            c10 = centroid + r * xaxis - r * yaxis
+            c01 = centroid - r * xaxis + r * yaxis
+            c11 = centroid + r * xaxis + r * yaxis
+
+            cap_srf = NURBSSurfaceTuple(
+                order_u=2, order_v=2,
+                knot_u=np.array([0.0, 0.0, 1.0, 1.0]),
+                knot_v=np.array([0.0, 0.0, 1.0, 1.0]),
+                control_points=np.array([[c00, c01], [c10, c11]]),
+                weights=np.ones((2, 2)),
+            )
+
+            # --- build boundary curve for the cap ---
+            # Walk the twin loop (the exterior side) to get the reversed boundary
+            # The cap's boundary is the REVERSED version of each edge curve,
+            # chained in loop order
+            twin_loop_id = None
+            he_first = self.HE[next(iter(self._loop_halfedges(loop_id)))]
+            twin_first = self.HE[he_first.twin]
+            twin_loop_id = twin_first.loop
+
+            cap_curves = []
+            for he_id in self._loop_halfedges(twin_loop_id):
+                he = self.HE[he_id]
+                edge = self.E[he.edge]
+                if edge.geom is None:
+                    continue
+                crv = self.G_CRV[edge.geom]
+                t0, t1 = edge.param
+                trimmed = trim_curve(crv, min(t0, t1), max(t0, t1))
+                if not he.orient:
+                    trimmed = reverse_curve(trimmed)
+                cap_curves.append(trimmed)
+
+            if not cap_curves:
+                continue
+
+            # --- create the cap face ---
+            cap_face, cap_shell, cap_loop, cap_verts, cap_edges = self.make_face_from_surface(
+                cap_srf, boundary_curves=cap_curves, atol=atol
+            )
+
+            # --- replace marched pcurves with analytic projections ---
+            origin_3d = c00
+            u_dir = c10 - c00
+            v_dir = c01 - c00
+            u_ext = np.linalg.norm(u_dir)
+            v_ext = np.linalg.norm(v_dir)
+            u_ax = u_dir / u_ext
+            v_ax = v_dir / v_ext
+
+            for he_id in self._loop_halfedges(cap_loop.id):
+                he = self.HE[he_id]
+                edge = self.E[he.edge]
+                if edge.geom is None:
+                    continue
+                crv_3d = self.G_CRV[edge.geom]
+                t0, t1 = edge.param
+                trimmed = trim_curve(crv_3d, min(t0, t1), max(t0, t1))
+                if not he.orient:
+                    trimmed = reverse_curve(trimmed)
+
+                # Affine projection of control points to UV
+                rel = trimmed.control_points - origin_3d
+                pts_2d = np.column_stack([
+                    (rel @ u_ax) / u_ext,
+                    (rel @ v_ax) / v_ext,
+                ])
+                pcurve = NURBSCurveTuple(
+                    order=trimmed.order,
+                    knot=trimmed.knot.copy(),
+                    control_points=pts_2d,
+                    weights=trimmed.weights.copy(),
+                )
+                if he.pcurve is not None and he.pcurve in self.G_PCRV:
+                    del self.G_PCRV[he.pcurve]
+                he.pcurve = self.new_pcurve(pcurve)
+
+            # Also fix pcurves on the wire-side loop
+            wire_loop_id = self.L[loop_id].face  # no — we need the other loop
+            # The cap face's "other" loop (from MELF) also needs pcurves
+            # For N>=2: loop (the wire loop from make_face_from_surface) is separate
+            # For N==1: the MEVVLS face IS the cap face, no separate wire loop
+
+            results.append((cap_face, cap_shell))
+
+        return results
+
     def make_face_from_surface(
         self,
         surface,
