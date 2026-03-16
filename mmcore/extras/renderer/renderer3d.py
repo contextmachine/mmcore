@@ -1,21 +1,24 @@
 from __future__ import annotations
+
 import math
-import time
 import sys
+import time
 from dataclasses import dataclass, field
+from typing import Any, List, Optional, Tuple, Literal, TypedDict
 
-from typing import Optional, Tuple, List, NamedTuple, Literal, TypedDict
-
-import numpy as np
 import glfw
+import numpy as np
 from OpenGL.GL import *
 
-from mmcore.geom._nurbs_eval import NURBSCurveTuple,to_homogeneous_1d,from_homogeneous_1d,to_homogeneous_2d, \
-    NURBSSurfaceTuple, _tuple_to_nurbs
+from mmcore.geom._nurbs_eval import (
+    NURBSCurveTuple,
+    NURBSSurfaceTuple,
+    _tuple_to_nurbs,
+    to_homogeneous_1d,
+)
 from mmcore.geom._nurbs_knots import decompose_curve
 from mmcore.geom.bvh.lbvh import AABB
-from mmcore.geom.nurbs_iso import extract_surface_boundaries,extract_isocurve
-from mmcore.numeric.approx import adaptive_curve_sampler,adaptive_bern_sampler_2d
+from mmcore.geom.nurbs_iso import extract_isocurve, extract_surface_boundaries
 from mmcore.topo.mesh.tess import surface_to_mesh, tessellate_brep_face
 
 
@@ -38,7 +41,7 @@ def orthographic(left, right, bottom, top, near, far) -> np.ndarray:
     return m
 
 
-def normalize(v: np.ndarray, eps=1e-12) -> np.ndarray:
+def normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     n = np.linalg.norm(v)
     return v if n < eps else v / n
 
@@ -54,7 +57,6 @@ def look_at(eye, target, up) -> np.ndarray:
     u = np.cross(s, f)
 
     m = np.eye(4, dtype=np.float32)
-    # Rows:
     m[0, 0:3] = s
     m[1, 0:3] = u
     m[2, 0:3] = -f
@@ -70,10 +72,16 @@ def look_at(eye, target, up) -> np.ndarray:
 
 @dataclass
 class ViewportInfo:
-    vx: int; vy: int; vw: int; vh: int
-    fb_w: int; fb_h: int
-    sx: float; sy: float
-    win_w: int; win_h: int
+    vx: int
+    vy: int
+    vw: int
+    vh: int
+    fb_w: int
+    fb_h: int
+    sx: float
+    sy: float
+    win_w: int
+    win_h: int
 
 
 def read_viewport_info(window) -> ViewportInfo:
@@ -81,10 +89,18 @@ def read_viewport_info(window) -> ViewportInfo:
     fb_w, fb_h = glfw.get_framebuffer_size(window)
     sx, sy = glfw.get_window_content_scale(window)
     win_w, win_h = glfw.get_window_size(window)
-    return ViewportInfo(int(vx), int(vy), int(vw), int(vh),
-                        int(fb_w), int(fb_h),
-                        float(sx), float(sy),
-                        int(win_w), int(win_h))
+    return ViewportInfo(
+        int(vx),
+        int(vy),
+        int(vw),
+        int(vh),
+        int(fb_w),
+        int(fb_h),
+        float(sx),
+        float(sy),
+        int(win_w),
+        int(win_h),
+    )
 
 
 def points_to_pixels(xy_pt, v: ViewportInfo) -> np.ndarray:
@@ -124,27 +140,34 @@ def glfw_cursor_to_ndc(cursor_xy_points, v: ViewportInfo) -> np.ndarray:
 # =========================
 
 class OrbitCamera:
-    def __init__(self, target=(0.0, 0.0, 0.0), near=0.1,far=10000.0,up=(0.,0.,1.),distance = 100.0,ortho_half_height = 5.0,yaw= math.radians(35.0),pitch= math.radians(30.0)):
+    def __init__(
+        self,
+        target=(0.0, 0.0, 0.0),
+        near=0.1,
+        far=10000.0,
+        up=(0.0, 0.0, 1.0),
+        distance=100.0,
+        ortho_half_height=5.0,
+        yaw=math.radians(35.0),
+        pitch=math.radians(30.0),
+    ):
         self.target = np.array(target, dtype=np.float32)
         self.distance = distance
         self.yaw = yaw
         self.pitch = pitch
         self.up_world = np.array(up, dtype=np.float32)  # Z-up CAD
-        # Ortho zoom (world units half-extent vertically)
         self.ortho_half_height = ortho_half_height
         self.near = near
         self.far = far
         self._lock_orbit = False
-    def lock_orbit(self,lock:bool):
+
+    def lock_orbit(self, lock: bool):
         self._lock_orbit = lock
 
     def eye(self) -> np.ndarray:
-        # Spherical around target with Z-up
         cp, sp = math.cos(self.pitch), math.sin(self.pitch)
         cy, sy = math.cos(self.yaw), math.sin(self.yaw)
-        # right = (1,0,0) in world; forward roughly towards -Y at yaw=0
         dir_world = np.array([cp * cy, cp * sy, sp], dtype=np.float32)
-
         return self.target + (-self.distance) * dir_world
 
     def view_matrix(self) -> np.ndarray:
@@ -158,33 +181,27 @@ class OrbitCamera:
     def orbit(self, dx_pixels: float, dy_pixels: float, v: ViewportInfo):
         if self._lock_orbit:
             return
-        # Sensitivity in radians per pixel
         s = 2.0 * math.pi / max(v.vw, v.vh)
         self.yaw -= dx_pixels * s
         self.pitch -= dy_pixels * s
         self.pitch = max(-math.radians(89.0), min(math.radians(89.0), self.pitch))
 
     def pan(self, dx_pixels: float, dy_pixels: float, v: ViewportInfo):
-        # Convert pixels to world units based on current ortho scale
         aspect = v.vw / max(1, v.vh)
         h = self.ortho_half_height
         w = h * aspect
-        # pixels -> NDC -> world delta
         dx_ndc = (dx_pixels / max(1, v.vw)) * 2.0
         dy_ndc = (dy_pixels / max(1, v.vh)) * 2.0
         delta_world = np.array([dx_ndc * w, dy_ndc * h, 0.0], dtype=np.float32)
 
-        # Pan in camera's screen basis: right & up from view matrix
         V = self.view_matrix()
-        right = V[0, 0:3]  # because we use row-major and upload with transpose=True
+        right = V[0, 0:3]
         up = V[1, 0:3]
         move = right * (-delta_world[0]) + up * (delta_world[1])
         self.target += move
 
     def zoom_wheel(self, yoffset: float):
-        # Scale the ortho window
         factor = math.pow(1.1, -yoffset)
-
         self.ortho_half_height = max(1e-4, self.ortho_half_height * factor)
 
 
@@ -197,6 +214,7 @@ class RationalBezier:
     ctrl4: (n+1,4) array of projective control points:
         [X,Y,Z,W] = [w*x, w*y, w*z, w]
     """
+
     def __init__(self, ctrl4: np.ndarray):
         c = np.asarray(ctrl4, dtype=np.float64)
         if c.ndim != 2 or c.shape[1] != 4:
@@ -230,7 +248,9 @@ class RationalBezier:
 # Snap engine (projective prefilter + pixel refinement)
 # =========================
 
-def pixel_planes_world(M_world_to_clip_rowmajor_T: np.ndarray, u_ndc: float, v_ndc: float) -> Tuple[np.ndarray, np.ndarray]:
+def pixel_planes_world(
+    M_world_to_clip_rowmajor_T: np.ndarray, u_ndc: float, v_ndc: float
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Build world-space 4D planes that vanish on the pixel line at (u_ndc,v_ndc).
     We pass M^T (row-major CPU composite) so we can just do n = M^T @ p.
@@ -243,27 +263,22 @@ def pixel_planes_world(M_world_to_clip_rowmajor_T: np.ndarray, u_ndc: float, v_n
     return n_x, n_y
 
 
-def bern_eval_scalar(ctrl: np.ndarray, u: float) -> float:
-    """Scalar Bézier in Bernstein basis (De Casteljau). ctrl: (n+1,)"""
-    a = ctrl.astype(np.float64).copy()
-    n = a.shape[0] - 1
-    for _ in range(n):
-        a[:-1] = (1.0 - u) * a[:-1] + u * a[1:]
-        a = a[:-1]
-    return float(a[0])
-
 class SnapHit(TypedDict):
-    u:float
-    world:tuple[float,float,float]
-    pixel:tuple[float,float]
-    ndc:tuple[float,float]
-    dist_px:float
-    ref:Optional[int|Any]
-def snap_curve_to_cursor(curve: RationalBezier,
-                         M_cpu: np.ndarray,  # (P@V@M).T (row-major)
-                         v: ViewportInfo,
-                         cursor_ndc_xy: np.ndarray,
-                         snap_px: float = 8.0) -> Optional[SnapHit]:
+    u: float
+    world: tuple[float, float, float]
+    pixel: tuple[float, float]
+    ndc: tuple[float, float]
+    dist_px: float
+    ref: Optional[int | Any]
+
+
+def snap_curve_to_cursor(
+    curve: RationalBezier,
+    M_cpu: np.ndarray,
+    v: ViewportInfo,
+    cursor_ndc_xy: np.ndarray,
+    snap_px: float = 8.0,
+) -> Optional[SnapHit]:
     """
     Returns dict with hit info or None:
       { 'u': float, 'world': (x,y,z), 'ndc': (x,y,z), 'pixel': (x,y) }
@@ -272,23 +287,20 @@ def snap_curve_to_cursor(curve: RationalBezier,
       2) Coarse sample along u to find minimal pixel distance to cursor.
       3) 1D refinement (golden-section) in a small neighborhood.
     """
-    # 1) Prefilter
     u_ndc, v_ndc = float(cursor_ndc_xy[0]), float(cursor_ndc_xy[1])
     n_x, n_y = pixel_planes_world(M_cpu, u_ndc, v_ndc)
-    rx_ctrl = curve.ctrl4 @ n_x  # scalar Bernstein coefficients
+    rx_ctrl = curve.ctrl4 @ n_x
     ry_ctrl = curve.ctrl4 @ n_y
 
-    # Band: allow a bit of slack before we do the more expensive sampling
     band = 1e-9
     if (rx_ctrl.max() < -band) or (rx_ctrl.min() > band):
         return None
     if (ry_ctrl.max() < -band) or (ry_ctrl.min() > band):
         return None
 
-    # Helper: pixel distance from a world point to cursor
     def world_to_ndc(p_world: np.ndarray) -> np.ndarray:
         P_eu = np.array([p_world[0], p_world[1], p_world[2], 1.0], dtype=np.float64)
-        clip = M_cpu.T @ P_eu  # because M_cpu is (P@V@M).T
+        clip = M_cpu.T @ P_eu
         if abs(clip[3]) < 1e-30:
             return np.array([np.nan, np.nan, np.nan])
         return clip[:3] / clip[3]
@@ -297,16 +309,14 @@ def snap_curve_to_cursor(curve: RationalBezier,
         Pw = curve.eval_world(u)
         ndc = world_to_ndc(Pw)
         if np.any(np.isnan(ndc)):
-            return float('inf'), Pw, ndc
-        # NDC -> pixel
+            return float("inf"), Pw, ndc
         px = ndc_to_pixels(ndc[:2], v)
         cur_px = ndc_to_pixels(cursor_ndc_xy, v)
         dist = np.linalg.norm(px - cur_px)
         return float(dist), Pw, ndc
 
-    # 2) Coarse sample
     samples = 64
-    best = (float('inf'), 0.0, np.zeros(3), np.zeros(3))  # (dist, u, world, ndc)
+    best = (float("inf"), 0.0, np.zeros(3), np.zeros(3))
     for i in range(samples + 1):
         u = i / samples
         d, Pw, ndc = px_distance_from_u(u)
@@ -314,12 +324,13 @@ def snap_curve_to_cursor(curve: RationalBezier,
             best = (d, u, Pw, ndc)
 
     if best[0] > snap_px:
-        return None  # nothing close enough visually
+        return None
 
-    # 3) 1D refinement (golden section on pixel distance)
-    def refine(u0: float, h: float = 1.0 / samples, iters: int = 20) -> Tuple[float, np.ndarray, np.ndarray, float]:
-        a = max(0.0, u0 - 2*h)
-        b = min(1.0, u0 + 2*h)
+    def refine(
+        u0: float, h: float = 1.0 / samples, iters: int = 20
+    ) -> Tuple[float, np.ndarray, np.ndarray, float]:
+        a = max(0.0, u0 - 2 * h)
+        b = min(1.0, u0 + 2 * h)
         gr = (math.sqrt(5.0) - 1.0) / 2.0
         c = b - gr * (b - a)
         d = a + gr * (b - a)
@@ -336,22 +347,55 @@ def snap_curve_to_cursor(curve: RationalBezier,
                 fd, Pw_d, ndc_d = px_distance_from_u(d)
         if fc < fd:
             return c, Pw_c, ndc_c, fc
-        else:
-            return d, Pw_d, ndc_d, fd
+        return d, Pw_d, ndc_d, fd
 
     u_ref, Pw_ref, ndc_ref, dist_ref = refine(best[1])
     if dist_ref > snap_px:
         return None
 
     pix_ref = ndc_to_pixels(ndc_ref[:2], v)
-    return SnapHit(**{
-        "u": float(u_ref),
-        "world": tuple(Pw_ref.tolist()),
-        "ndc": tuple(ndc_ref.tolist()),
-        "pixel": tuple(pix_ref.tolist()),
-        "dist_px": float(dist_ref),
-        "ref":curve
-    })
+    return SnapHit(
+        **{
+            "u": float(u_ref),
+            "world": tuple(Pw_ref.tolist()),
+            "ndc": tuple(ndc_ref.tolist()),
+            "pixel": tuple(pix_ref.tolist()),
+            "dist_px": float(dist_ref),
+            "ref": curve,
+        }
+    )
+
+
+# =========================
+# Surface helpers
+# =========================
+
+def compute_vertex_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+    """
+    Area-weighted smooth vertex normals for a triangle mesh.
+    faces may be flat or shaped (n,3).
+    """
+    verts = np.ascontiguousarray(vertices, dtype=np.float64)
+    tris = np.ascontiguousarray(faces, dtype=np.int64).reshape(-1, 3)
+
+    normals = np.zeros_like(verts, dtype=np.float64)
+    if tris.size == 0 or verts.size == 0:
+        return normals.astype(np.float32)
+
+    p0 = verts[tris[:, 0]]
+    p1 = verts[tris[:, 1]]
+    p2 = verts[tris[:, 2]]
+    face_normals = np.cross(p1 - p0, p2 - p0)
+
+    np.add.at(normals, tris[:, 0], face_normals)
+    np.add.at(normals, tris[:, 1], face_normals)
+    np.add.at(normals, tris[:, 2], face_normals)
+
+    lens = np.linalg.norm(normals, axis=1)
+    mask = lens > 1e-20
+    normals[mask] /= lens[mask, None]
+    normals[~mask] = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    return normals.astype(np.float32)
 
 
 # =========================
@@ -361,35 +405,63 @@ def snap_curve_to_cursor(curve: RationalBezier,
 VERT_SRC = """
 #version 330 core
 layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+
 uniform mat4 uProjection;
 uniform mat4 uView;
 uniform mat4 uModel;
-uniform float uPointSize; // used when drawing GL_POINTS
+uniform float uPointSize;
+
+out vec3 vWorldPos;
+out vec3 vWorldNormal;
+
 void main(){
-    gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    gl_Position = uProjection * uView * worldPos;
     gl_PointSize = uPointSize;
+
+    mat3 normalMat = transpose(inverse(mat3(uModel)));
+    vWorldPos = worldPos.xyz;
+    vWorldNormal = normalMat * aNormal;
 }
 """
 
 FRAG_SRC = """
 #version 330 core
-// uMode: 0 = flat color (lines/regular points), 1 = snap sprite
+// uRenderKind: 0 = flat color (lines/regular points), 1 = snap sprite, 2 = Gooch-shaded surface
 uniform vec4 uColor;
 uniform vec4 uBorderColor;
-uniform int uMode;
-uniform float uPtSize;      // current glPointSize in pixels
-uniform float uBorderPx;    // border thickness in pixels for snap sprite
-uniform float uInnerSizePx; // inner square size in pixels (fill area)
-uniform float uCrossOutPx;  // how far crosshair extends past square (pixels)
-uniform float uCrossThickPx;// crosshair line thickness (pixels)
+uniform vec3 uInkColor;
+uniform int uRenderKind;
+
+uniform float uPtSize;
+uniform float uBorderPx;
+uniform float uInnerSizePx;
+uniform float uCrossOutPx;
+uniform float uCrossThickPx;
+
+uniform vec3 uLightDirWorld;   // direction from shaded point toward the light
+uniform vec3 uCameraPosWorld;
+
+uniform vec3 uGoochCool;
+uniform vec3 uGoochWarm;
+uniform float uGoochAlpha;
+uniform float uGoochBeta;
+uniform float uSpecularStrength;
+uniform float uSpecularPower;
+uniform float uRimStrength;
+uniform float uRimPower;
+
+in vec3 vWorldPos;
+in vec3 vWorldNormal;
+
 out vec4 FragColor;
 
 void main(){
-    if(uMode == 1){
-        // Point sprite in screen space. Build a crisp CAD-style crosshair box
-        vec2 uv_px = gl_PointCoord * uPtSize;      // sprite coords in pixels
+    if(uRenderKind == 1){
+        vec2 uv_px = gl_PointCoord * uPtSize;
         float half_pt = 0.5 * uPtSize;
-        vec2 d = abs(uv_px - vec2(half_pt));       // distance from center in px
+        vec2 d = abs(uv_px - vec2(half_pt));
 
         float inner_half = 0.5 * uInnerSizePx;
         float border = uBorderPx;
@@ -403,16 +475,44 @@ void main(){
         bool in_cross = ((d.x <= cross_half_thick) && (d.y <= inner_half + cross_out)) ||
                         ((d.y <= cross_half_thick) && (d.x <= inner_half + cross_out));
 
-        if(!(inside_square || in_cross)) discard;  // transparent outside glyph
+        if(!(inside_square || in_cross)) discard;
 
-        vec4 col = uColor; // default fill
+        vec4 col = uColor;
         if(in_border || in_cross) col = uBorderColor;
-
         FragColor = col;
+        return;
     }
-    else{
-        FragColor = uColor;
+
+    if(uRenderKind == 2){
+        vec3 N = normalize(vWorldNormal);
+        vec3 V = normalize(uCameraPosWorld - vWorldPos);
+
+        // Two-sided shading keeps thin CAD sheets readable from both sides.
+        if(dot(N, V) < 0.0){
+            N = -N;
+        }
+
+        vec3 L = normalize(uLightDirWorld);
+        float ndl = clamp(dot(N, L), -1.0, 1.0);
+        float t = 0.5 * (ndl + 1.0);
+
+        vec3 base = clamp(uColor.rgb, 0.0, 1.0);
+        vec3 cool = clamp(uGoochCool + uGoochAlpha * base, 0.0, 1.0);
+        vec3 warm = clamp(uGoochWarm + uGoochBeta * base, 0.0, 1.0);
+        vec3 col = mix(cool, warm, t);
+
+        vec3 H = normalize(L + V);
+        float spec = pow(max(dot(N, H), 0.0), max(1.0, uSpecularPower));
+        col = mix(col, vec3(1.0), clamp(spec * uSpecularStrength, 0.0, 1.0));
+
+        float rim = pow(1.0 - abs(dot(N, V)), max(1.0, uRimPower));
+        col = mix(col, uInkColor, clamp(rim * uRimStrength, 0.0, 1.0));
+
+        FragColor = vec4(col, uColor.a);
+        return;
     }
+
+    FragColor = uColor;
 }
 """
 
@@ -439,88 +539,96 @@ def make_program() -> int:
     return prog
 
 
-from dataclasses import dataclass
-from functools import update_wrapper, partial
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Literal,
-)
-
-import numpy as np
+# =========================
+# Viewer settings
+# =========================
 
 @dataclass
 class SceneInfo:
-    bbox:AABB=field(default_factory=lambda :AABB(np.zeros(3),np.zeros(3)))
-# ---------------------------------------------------------------------------
-# Shape pattern primitives
-# ---------------------------------------------------------------------------
+    bbox: AABB = field(default_factory=lambda: AABB(np.zeros(3), np.zeros(3)))
 
 
-# ---------------------------------------------------------------------------
-# Small example
-# ---------------------------------------------------------------------------
 @dataclass
 class SnapSettings:
-    snap_px: float = 30
-    size_px=12.0              # inner square size
-    border_px=2.0             # square border thickness
-    cross_out_px=6.0          # how far crosshair sticks out past the square
-    cross_thick_px=2.0        # crosshair line thickness
-    color:tuple[float,float,float,float] =(1.,1.,1.,1.)
+    snap_px: float = 30.0
+    size_px: float = 12.0
+    border_px: float = 2.0
+    cross_out_px: float = 6.0
+    cross_thick_px: float = 2.0
+    color: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
+    border_color: tuple[float, float, float, float] | Literal["by_object"] = "by_object"
 
-    border_color:tuple[float,float,float,float]| Literal['by_object'] ="by_object"
+
+@dataclass
+class GoochSettings:
+    # These defaults are tuned for technical illustrations rather than realism.
+    cool_color: tuple[float, float, float] = (0.05, 0.05, 0.45)
+    warm_color: tuple[float, float, float] = (0.35, 0.35, 0.35)
+    alpha: float = 0.9
+    beta: float = 0.9
+    specular_strength: float = 0.12
+    specular_power: float = 40.0
+    rim_strength: float = 0.30
+    rim_power: float = 2.0
+    ink_color: tuple[float, float, float] = (0.08, 0.08, 0.10)
+
+    # Base world-space light direction (point -> light). This is blended with a
+    # camera-relative "headlight" so the model stays readable while orbiting.
+    light_dir: tuple[float, float, float] = (0.5, 0.5, -1.00)
+    headlight_mix: float = 0.0
+
 
 @dataclass
 class ViewerSettings:
-    snap:SnapSettings = field(default_factory=SnapSettings)
+    snap: SnapSettings = field(default_factory=SnapSettings)
+    gooch: GoochSettings = field(default_factory=GoochSettings)
 
+
+# =========================
+# Viewer
+# =========================
 
 class Viewer:
-    cam:OrbitCamera
-    scene_info:SceneInfo
-    def add(self, obj, *args,**kwargs):
+    cam: OrbitCamera
+    scene_info: SceneInfo
+
+    def add(self, obj, *args, **kwargs):
         from mmcore.topo.brep import BRep
+
         if isinstance(obj, BRep):
             return self.add_brep(obj, *args, **kwargs)
-        elif isinstance(obj,RationalBezier):
-            return self._add_curve(obj,*args,**kwargs)
-        elif isinstance(obj,NURBSCurveTuple):
-            return self._add_nurbs_curve(obj,*args,**kwargs)
-        elif isinstance(obj,NURBSSurfaceTuple):
-            return self.add_nurbs_surface(obj,*args,**kwargs)
-        elif isinstance(obj,np.ndarray):
-            if len(obj.shape)==2 and 'rational' in kwargs:
-                return self.add_bern_curve(obj,*args,**kwargs)
-            elif len(obj.shape )==1 and obj.shape[0]==3:
-                return self.add_point3d(obj,*args,**kwargs)
-            elif len(obj.shape )==1 and obj.shape[0]==2:
-                return self.add_point2d(obj,*args,**kwargs)
-            else:
-                raise ValueError("Unsupported shape {obj.shape}")
-        elif isinstance(obj,(tuple,list)):
-            if len(obj)==2 :
-                return self.add_point2d(obj,*args,**kwargs)
-            elif len(obj)==3 :
-                return self.add_point3d(obj,*args,**kwargs)
-            else:
-                raise ValueError(f"Unknown type: {obj}")
+        if isinstance(obj, RationalBezier):
+            return self._add_curve(obj, *args, **kwargs)
+        if isinstance(obj, NURBSCurveTuple):
+            return self._add_nurbs_curve(obj, *args, **kwargs)
+        if isinstance(obj, NURBSSurfaceTuple):
+            return self.add_nurbs_surface(obj, *args, **kwargs)
+        if isinstance(obj, np.ndarray):
+            if len(obj.shape) == 2 and "rational" in kwargs:
+                return self.add_bern_curve(obj, *args, **kwargs)
+            if len(obj.shape) == 1 and obj.shape[0] == 3:
+                return self.add_point3d(obj, *args, **kwargs)
+            if len(obj.shape) == 1 and obj.shape[0] == 2:
+                return self.add_point2d(obj, *args, **kwargs)
+            raise ValueError(f"Unsupported shape {obj.shape}")
+        if isinstance(obj, (tuple, list)):
+            if len(obj) == 2:
+                return self.add_point2d(obj, *args, **kwargs)
+            if len(obj) == 3:
+                return self.add_point3d(obj, *args, **kwargs)
+            raise ValueError(f"Unknown type: {obj}")
+        raise ValueError(f"Unsupported object type: {type(obj)!r}")
 
-    def __init__(self, width=1200, height=800, camera=None,settings:ViewerSettings=None):
+    def __init__(self, width=1200, height=800, camera=None, settings: ViewerSettings | None = None):
         if not glfw.init():
             raise RuntimeError("GLFW init failed")
         if settings is None:
             settings = ViewerSettings()
         self.settings = settings
+
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        # macOS retina framebuffer
         glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, glfw.TRUE)
 
         self.window = glfw.create_window(width, height, "Snap Viewer", None, None)
@@ -528,14 +636,17 @@ class Viewer:
             glfw.terminate()
             raise RuntimeError("GLFW window creation failed")
         glfw.make_context_current(self.window)
-        self.color_table=dict()
+
+        self.color_table: dict[int, tuple[float, float, float, float]] = {}
         self.program = make_program()
+
         self.loc_uP = glGetUniformLocation(self.program, "uProjection")
         self.loc_uV = glGetUniformLocation(self.program, "uView")
         self.loc_uM = glGetUniformLocation(self.program, "uModel")
         self.loc_uColor = glGetUniformLocation(self.program, "uColor")
         self.loc_uBorderColor = glGetUniformLocation(self.program, "uBorderColor")
-        self.loc_uMode = glGetUniformLocation(self.program, "uMode")
+        self.loc_uInkColor = glGetUniformLocation(self.program, "uInkColor")
+        self.loc_uRenderKind = glGetUniformLocation(self.program, "uRenderKind")
         self.loc_uPtSize = glGetUniformLocation(self.program, "uPtSize")
         self.loc_uBorderPx = glGetUniformLocation(self.program, "uBorderPx")
         self.loc_uPointSize = glGetUniformLocation(self.program, "uPointSize")
@@ -543,13 +654,23 @@ class Viewer:
         self.loc_uCrossOutPx = glGetUniformLocation(self.program, "uCrossOutPx")
         self.loc_uCrossThickPx = glGetUniformLocation(self.program, "uCrossThickPx")
 
+        self.loc_uLightDirWorld = glGetUniformLocation(self.program, "uLightDirWorld")
+        self.loc_uCameraPosWorld = glGetUniformLocation(self.program, "uCameraPosWorld")
+        self.loc_uGoochCool = glGetUniformLocation(self.program, "uGoochCool")
+        self.loc_uGoochWarm = glGetUniformLocation(self.program, "uGoochWarm")
+        self.loc_uGoochAlpha = glGetUniformLocation(self.program, "uGoochAlpha")
+        self.loc_uGoochBeta = glGetUniformLocation(self.program, "uGoochBeta")
+        self.loc_uSpecularStrength = glGetUniformLocation(self.program, "uSpecularStrength")
+        self.loc_uSpecularPower = glGetUniformLocation(self.program, "uSpecularPower")
+        self.loc_uRimStrength = glGetUniformLocation(self.program, "uRimStrength")
+        self.loc_uRimPower = glGetUniformLocation(self.program, "uRimPower")
+
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_PROGRAM_POINT_SIZE)
         self._rebuild_viewport()
 
-        # Camera & input
         self.cam = OrbitCamera() if camera is None else camera
         self.dragging_orbit = False
         self.dragging_pan = False
@@ -560,16 +681,18 @@ class Viewer:
         glfw.set_scroll_callback(self.window, self._on_scroll)
         glfw.set_framebuffer_size_callback(self.window, self._on_resize)
 
-        # Scene
         self.model = np.eye(4, dtype=np.float32)
         self.curves: List[RationalBezier] = []
 
         self.snap_hit: Optional[SnapHit] = None
-        self.points=[]
-        # GL buffers (recreated when curves change)
-        self.lines = []  # list of (vao, vbo, nverts, color)
-        self.meshes = []  # list of (vao, vbo, ebo, index_count, color)
-        self.scene_info=SceneInfo()
+        self.points: list[tuple[np.ndarray, tuple[float, float, float, float], float]] = []
+
+        self.lines: list[tuple[int, int, int, np.ndarray]] = []
+        # Each mesh: (vao, vbo, nbo, ebo, index_count, color_rgba, centroid_world)
+        self.meshes: list[tuple[int, int, int, int, int, np.ndarray, np.ndarray]] = []
+
+        self.scene_info = SceneInfo()
+
     @property
     def snap_px(self):
         return self.settings.snap.snap_px
@@ -612,167 +735,190 @@ class Viewer:
         self.curves.append(curve)
         self.color_table[id(curve)] = color
 
-        l=len(self.curves) - 1
-        # Build GL line strip
+        idx = len(self.curves) - 1
         pts = curve.polyline(samples=samples).astype(np.float32)
+
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
+
         vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_STATIC_DRAW)
+
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+
         self.scene_info.bbox.merge(AABB.from_points(pts))
         self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
-        return l
+        return idx
 
-    def _add_surface_mesh(self, surface, color=(0.5, 0.5, 0.9, 0.05), tol=0.05):
-        surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
-        mesh = surface_to_mesh(surf, tol=tol)
-
-        vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
-
-        faces = np.ascontiguousarray(mesh["faces"], dtype=np.uint32)
+    def _mesh_upload(self, vertices: np.ndarray, faces: np.ndarray, color) -> Optional[int]:
+        vertices = np.ascontiguousarray(vertices, dtype=np.float32)
+        faces = np.ascontiguousarray(faces, dtype=np.uint32)
         if vertices.size == 0 or faces.size == 0:
             return None
+
+        normals = compute_vertex_normals(vertices, faces)
+        centroid = vertices.mean(axis=0).astype(np.float32)
+
         if len(color) == 3:
             color = (*color, 0.25)
-        color = np.array(color, dtype=np.float32)
+        color_arr = np.array(color, dtype=np.float32)
 
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
+
         vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
+        nbo = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, nbo)
+        glBufferData(GL_ARRAY_BUFFER, normals.nbytes, normals, GL_STATIC_DRAW)
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, None)
+
         ebo = glGenBuffers(1)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, faces.nbytes, faces, GL_STATIC_DRAW)
+
         self.scene_info.bbox.merge(AABB.from_points(vertices))
-        self.meshes.append((vao, vbo, ebo, faces.size, color))
+        self.meshes.append((vao, vbo, nbo, ebo, faces.size, color_arr, centroid))
         return len(self.meshes) - 1
 
-    def add_bern_curve(self, arr,*args, rational:bool=False,**kwargs):
+    def _add_surface_mesh(self, surface, color=(0.70, 0.74, 0.88, 0.70), tol=0.05):
+        surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
+        mesh = surface_to_mesh(surf, tol=tol)
+        return self._mesh_upload(mesh["position"], mesh["faces"], color=color)
+
+    def add_bern_curve(self, arr, *args, rational: bool = False, **kwargs):
         if not rational:
-
             A = np.zeros((arr.shape[0], 4))
-            for i in range(arr.shape[1] ):
+            for i in range(arr.shape[1]):
                 A[..., i] = arr[..., i]
-            A[..., -1] = 1
-
-            curve = RationalBezier(A
-                                   )
+            A[..., -1] = 1.0
+            curve = RationalBezier(A)
         else:
-
-            if arr.shape[1]!=4:
+            if arr.shape[1] != 4:
                 A = np.zeros((arr.shape[0], 4))
-                for i in range(arr.shape[1]-1):
+                for i in range(arr.shape[1] - 1):
                     A[..., i] = arr[..., i]
-                A[..., -1]=arr[..., -1]
-
+                A[..., -1] = arr[..., -1]
             else:
-                A=arr
-            curve=RationalBezier(A)
-        return self._add_curve(curve,*args,**kwargs)
+                A = arr
+            curve = RationalBezier(A)
+        return self._add_curve(curve, *args, **kwargs)
 
-    def add_point3d(self, arr, color=(0.8, 0.8, 0.8, 1.0),size_px=9):
-        return self.points.append((np.array(arr,dtype=np.float32),color,size_px))
+    def add_point3d(self, arr, color=(0.8, 0.8, 0.8, 1.0), size_px=9):
+        self.points.append((np.array(arr, dtype=np.float32), color, size_px))
+        return len(self.points) - 1
 
     def add_point2d(self, arr, color=(0.8, 0.8, 0.8, 1.0), size_px=9):
-        return self.points.append((np.array((*arr,0), dtype=np.float32), color, size_px))
+        self.points.append((np.array((*arr, 0.0), dtype=np.float32), color, size_px))
+        return len(self.points) - 1
 
     def _build_demo_scene(self):
-        # Two rational cubic Bézier curves (projective control points: [w*x, w*y, w*z, w])
-        # Curve 1 (planar)
-        P = np.array([
-            [ -4.0, -2.0, 0.0, 1.0 ],
-            [ -1.0,  3.0, 0.0, 0.7 ],
-            [  2.0, -3.0, 0.0, 1.2 ],
-            [  4.0,  2.0, 0.0, 1.0 ],
-        ], dtype=np.float64)
-        ctrl4 = np.column_stack((P[:, :3] * P[:, 3:4], P[:, 3:4]))  # [w*x,w*y,w*z,w]
+        P = np.array(
+            [
+                [-4.0, -2.0, 0.0, 1.0],
+                [-1.0, 3.0, 0.0, 0.7],
+                [2.0, -3.0, 0.0, 1.2],
+                [4.0, 2.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        ctrl4 = np.column_stack((P[:, :3] * P[:, 3:4], P[:, 3:4]))
         self._add_curve(RationalBezier(ctrl4), color=(1.0, 1.0, 1.0, 1.0))
 
-        # Curve 2 (lifted)
-        Q = np.array([
-            [ -3.0,  3.5,  1.0, 1.0 ],
-            [ -1.0, -1.0,  2.0, 0.8 ],
-            [  1.0,  1.0, -2.0, 1.3 ],
-            [  3.0, -2.5,  1.0, 1.0 ],
-        ], dtype=np.float64)
+        Q = np.array(
+            [
+                [-3.0, 3.5, 1.0, 1.0],
+                [-1.0, -1.0, 2.0, 0.8],
+                [1.0, 1.0, -2.0, 1.3],
+                [3.0, -2.5, 1.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
         ctrl4b = np.column_stack((Q[:, :3] * Q[:, 3:4], Q[:, 3:4]))
         self._add_curve(RationalBezier(ctrl4b), color=(0.7, 0.9, 1.0, 1.0))
 
     # ---------- Render & snap ----------
-    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
-        beziers=decompose_curve(curve)
 
-        return tuple(self.add(to_homogeneous_1d(bezier.control_points, bezier.weights), rational=True, color=color,*args,**kwargs)        for bezier in beziers)
-    def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0),*args,**kwargs):
+    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0), *args, **kwargs):
+        beziers = decompose_curve(curve)
+        return tuple(
+            self.add(
+                to_homogeneous_1d(bezier.control_points, bezier.weights),
+                rational=True,
+                color=color,
+                *args,
+                **kwargs,
+            )
+            for bezier in beziers
+        )
+
+    def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0), *args, **kwargs):
         return self._add_nurbs_curve(curve, color, *args, **kwargs)
-    def add_nurbs_surface(self, surface:NURBSSurfaceTuple, color=(1.0, 1.0, 1.0, 1.0),surface_color=(0.5, 0.5, 0.9, 0.05),u_count=1,v_count=1,show_edges:bool=True,show_isocurves:bool=True,*args,**kwargs):
+
+    def add_nurbs_surface(
+        self,
+        surface: NURBSSurfaceTuple,
+        color=(1.0, 1.0, 1.0, 1.0),
+        surface_color=(0.70, 0.74, 0.88, 0.70),
+        u_count=1,
+        v_count=1,
+        show_edges: bool = True,
+        show_isocurves: bool = True,
+        *args,
+        **kwargs,
+    ):
         shade = kwargs.pop("shade", True)
-        surface_color = surface_color
-
         surface_tol = kwargs.pop("surface_tol", 0.01)
-        meshes=[]
-        if shade:
 
+        meshes = []
+        if shade:
             meshes.append(self._add_surface_mesh(surface, color=surface_color, tol=surface_tol))
-        (u0,u1),(v0,v1) = surface.interval()
-        umid,vmid=(u1-u0)*0.5+u0, (v1-v0)*0.5+v0
-        us=np.linspace(u0,u1,u_count+2)[1:][:-1]
-        vs = np.linspace(v0, v1, v_count+2)[1:][:-1]
-        iso_color=(color[0]*0.5,
-        color[1]*0.5,
-        color[2]*0.5,
-        color[3])
-        isolines=[]
+
+        (u0, u1), (v0, v1) = surface.interval()
+        us = np.linspace(u0, u1, u_count + 2)[1:-1]
+        vs = np.linspace(v0, v1, v_count + 2)[1:-1]
+
+        iso_color = (color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3])
+
+        isolines = []
         if show_isocurves:
-            for crv in  [extract_isocurve(surface, u,'u') for u in us]+[extract_isocurve(surface, v,'v') for v in vs]:
-                isolines.append(self._add_nurbs_curve(crv,iso_color,*args,**kwargs))
-        bnds=[]
+            for crv in [extract_isocurve(surface, u, "u") for u in us] + [
+                extract_isocurve(surface, v, "v") for v in vs
+            ]:
+                isolines.append(self._add_nurbs_curve(crv, iso_color, *args, **kwargs))
+
+        bnds = []
         if show_edges:
             for bnd in extract_surface_boundaries(surface):
+                bnds.append(self._add_nurbs_curve(bnd, color, *args, **kwargs))
 
-                    bnds.append(self._add_nurbs_curve(bnd,color,*args,**kwargs))
-        return tuple(meshes)+tuple(bnds)+tuple(isolines)
+        return tuple(meshes) + tuple(bnds) + tuple(isolines)
 
-    def add_brep(self, brep, edge_color=(1.0, 1.0, 1.0, 1.0),
-                 surface_color=(0.5, 0.5, 0.9, 0.05), tol=0.05,
-                 show_edges=True, shade=True):
-        """Add a BRep to the viewer.
-
-        Tessellates each face with geometry into a triangle mesh,
-        and displays each edge with geometry as a wireframe curve.
-
-        Parameters
-        ----------
-        brep : BRep
-            The boundary representation to display.
-        edge_color : tuple
-            RGBA color for edge wireframe curves.
-        surface_color : tuple
-            RGBA color for tessellated face surfaces.
-        tol : float
-            Tessellation tolerance.
-        show_edges : bool
-            Whether to draw edge wireframe curves.
-        shade : bool
-            Whether to tessellate and shade face surfaces.
-        """
+    def add_brep(
+        self,
+        brep,
+        edge_color=(1.0, 1.0, 1.0, 1.0),
+        surface_color=(0.70, 0.74, 0.88, 0.70),
+        tol=0.05,
+        show_edges=True,
+        shade=True,
+    ):
+        """Add a BRep to the viewer."""
         from mmcore.geom._nurbs_knots import trim_curve
 
         results = []
 
-        # --- tessellate faces ---
         if shade:
             for f_id, face in brep.F.items():
                 if face.surf is None:
                     continue
-                # ensure all half-edges on this face have pcurves
                 for lid in [face.outer] + face.inners:
                     for he_id in brep._loop_halfedges(lid):
                         he = brep.HE[he_id]
@@ -782,15 +928,12 @@ class Viewer:
 
                 try:
                     mesh = tessellate_brep_face(brep, f_id, tol=tol)
-                    if mesh['position'].size > 0 and mesh['faces'].size > 0:
+                    if mesh["position"].size > 0 and mesh["faces"].size > 0:
                         idx = self._add_mesh(mesh, color=surface_color)
-                        results.append(('face', f_id, idx))
+                        results.append(("face", f_id, idx))
                 except Exception as exc:
-                    import sys
-                    print(f"Warning: tessellation of face {f_id} failed: {exc}",
-                          file=sys.stderr)
+                    print(f"Warning: tessellation of face {f_id} failed: {exc}", file=sys.stderr)
 
-        # --- wireframe edges ---
         if show_edges:
             for e_id, edge in brep.E.items():
                 if edge.geom is None:
@@ -801,37 +944,34 @@ class Viewer:
                     trimmed = trim_curve(crv, t0, t1)
                     self._add_nurbs_curve(trimmed, color=edge_color)
                 except Exception:
-                    # fall back to full curve if trim fails
                     self._add_nurbs_curve(crv, color=edge_color)
 
         return results
 
-    def _add_mesh(self, mesh, color=(0.5, 0.5, 0.9, 0.05)):
+    def _add_mesh(self, mesh, color=(0.70, 0.74, 0.88, 0.70)):
         """Upload a Mesh dict (position, faces) to GL. Returns mesh index."""
-        vertices = np.ascontiguousarray(mesh["position"], dtype=np.float32)
-        faces = np.ascontiguousarray(mesh["faces"], dtype=np.uint32)
-        if vertices.size == 0 or faces.size == 0:
-            return None
-        if len(color) == 3:
-            color = (*color, 0.25)
-        color = np.array(color, dtype=np.float32)
+        return self._mesh_upload(mesh["position"], mesh["faces"], color=color)
 
-        vao = glGenVertexArrays(1)
-        glBindVertexArray(vao)
-        vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, vbo)
-        glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
-        glEnableVertexAttribArray(0)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+    def _compute_light_dir(self) -> np.ndarray:
+        """
+        World-space light direction (from point toward light).
+        Blend a fixed world light with a camera-relative headlight so the
+        technical shading remains readable while orbiting.
+        """
+        g = self.settings.gooch
+        eye = self.cam.eye().astype(np.float32)
+        forward_to_scene = normalize(self.cam.target.astype(np.float32) - eye)
+        V = self.cam.view_matrix()
+        right = normalize(V[0, 0:3].astype(np.float32))
+        up = normalize(V[1, 0:3].astype(np.float32))
 
-        ebo = glGenBuffers(1)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, faces.nbytes, faces, GL_STATIC_DRAW)
-        self.scene_info.bbox.merge(AABB.from_points(vertices))
-        self.meshes.append((vao, vbo, ebo, faces.size, color))
-        return len(self.meshes) - 1
+        headlight = normalize((-forward_to_scene) + 0.25 * right + 0.35 * up)
+        world_light = normalize(np.array(g.light_dir, dtype=np.float32))
 
-    def _upload_matrices(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
+        mix = float(np.clip(g.headlight_mix, 0.0, 1.0))
+        return normalize((1.0 - mix) * world_light + mix * headlight).astype(np.float32)
+
+    def _upload_frame_uniforms(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """
         We build matrices row-major and ask GL to transpose them on upload.
         The shader then sees column-major matrices consistent with GLSL's math.
@@ -842,60 +982,115 @@ class Viewer:
         glUniformMatrix4fv(self.loc_uV, 1, GL_TRUE, V_row)
         glUniformMatrix4fv(self.loc_uM, 1, GL_TRUE, M_row)
 
-    def _draw_lines(self):
-        for (vao, vbo, nverts, color) in self.lines:
-            glBindVertexArray(vao)
-            glUseProgram(self.program)
-            glUniform4fv(self.loc_uColor, 1, color)
-            glUniform4fv(self.loc_uBorderColor, 1, color)
-            glUniform1i(self.loc_uMode, 0)
-            glUniform1f(self.loc_uPtSize, 1.0)
-            glUniform1f(self.loc_uPointSize, 1.0)
-            glUniform1f(self.loc_uBorderPx, 0.0)
-            glDrawArrays(GL_LINE_STRIP, 0, nverts)
+        eye = self.cam.eye().astype(np.float32)
+        light_dir = self._compute_light_dir()
+        gooch = self.settings.gooch
 
-    def _draw_surfaces(self):
-        if not self.meshes:
-            return
+        glUniform3fv(self.loc_uCameraPosWorld, 1, eye)
+        glUniform3fv(self.loc_uLightDirWorld, 1, light_dir)
+        glUniform3fv(self.loc_uGoochCool, 1, np.array(gooch.cool_color, dtype=np.float32))
+        glUniform3fv(self.loc_uGoochWarm, 1, np.array(gooch.warm_color, dtype=np.float32))
+        glUniform1f(self.loc_uGoochAlpha, float(gooch.alpha))
+        glUniform1f(self.loc_uGoochBeta, float(gooch.beta))
+        glUniform1f(self.loc_uSpecularStrength, float(gooch.specular_strength))
+        glUniform1f(self.loc_uSpecularPower, float(gooch.specular_power))
+        glUniform1f(self.loc_uRimStrength, float(gooch.rim_strength))
+        glUniform1f(self.loc_uRimPower, float(gooch.rim_power))
+        glUniform3fv(self.loc_uInkColor, 1, np.array(gooch.ink_color, dtype=np.float32))
+
+    def _draw_lines(self):
         glUseProgram(self.program)
-        glUniform1i(self.loc_uMode, 0)
+        glUniform1i(self.loc_uRenderKind, 0)
         glUniform1f(self.loc_uPtSize, 1.0)
         glUniform1f(self.loc_uPointSize, 1.0)
         glUniform1f(self.loc_uBorderPx, 0.0)
-        glDepthMask(GL_FALSE)
-        for (vao, vbo, ebo, index_count, color) in self.meshes:
+
+        for vao, vbo, nverts, color in self.lines:
             glBindVertexArray(vao)
             glUniform4fv(self.loc_uColor, 1, color)
             glUniform4fv(self.loc_uBorderColor, 1, color)
-            glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, None)
-        glDepthMask(GL_TRUE)
+            glDrawArrays(GL_LINE_STRIP, 0, nverts)
 
-    def _draw_point(self, pos_world: np.ndarray, size_px=7.0, color=(1.0, 1.0, 0.0, 1.0), *,
-                    border_color=None, border_px: float = 0.0, mode: int = 0,
-                    inner_size_px: float = 0.0, cross_out_px: float = 0.0, cross_thick_px: float = 1.0):
+    def _draw_mesh_record(self, record):
+        vao, vbo, nbo, ebo, index_count, color, centroid = record
+        glBindVertexArray(vao)
+        glUniform4fv(self.loc_uColor, 1, color)
+        glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, None)
+
+    def _mesh_depth_key(self, record, V_row: np.ndarray) -> float:
+        centroid = record[6]
+        cam = V_row @ np.array([centroid[0], centroid[1], centroid[2], 1.0], dtype=np.float32)
+        return float(cam[2])
+
+    def _draw_surfaces(self, V_row: np.ndarray):
+        if not self.meshes:
+            return
+
+        glUseProgram(self.program)
+        glUniform1i(self.loc_uRenderKind, 2)
+        glUniform1f(self.loc_uPtSize, 1.0)
+        glUniform1f(self.loc_uPointSize, 1.0)
+        glUniform1f(self.loc_uBorderPx, 0.0)
+
+        opaque = [m for m in self.meshes if m[5][3] >= 0.999]
+        transparent = [m for m in self.meshes if m[5][3] < 0.999]
+
+        # Push the fills slightly back in depth so technical linework stays crisp
+        # when it is drawn after the shaded pass.
+        glEnable(GL_POLYGON_OFFSET_FILL)
+        glPolygonOffset(1.0, 1.0)
+
+        glDepthMask(GL_TRUE)
+        for rec in opaque:
+            self._draw_mesh_record(rec)
+
+        if transparent:
+            # Back-to-front centroid sort is a simple but effective improvement
+            # for the semi-transparent technical fills used by this viewer.
+            transparent.sort(key=lambda rec: self._mesh_depth_key(rec, V_row))
+            glDepthMask(GL_FALSE)
+            for rec in transparent:
+                self._draw_mesh_record(rec)
+            glDepthMask(GL_TRUE)
+
+        glDisable(GL_POLYGON_OFFSET_FILL)
+
+    def _draw_point(
+        self,
+        pos_world: np.ndarray,
+        size_px=7.0,
+        color=(1.0, 1.0, 0.0, 1.0),
+        *,
+        border_color=None,
+        border_px: float = 0.0,
+        render_kind: int = 0,
+        inner_size_px: float = 0.0,
+        cross_out_px: float = 0.0,
+        cross_thick_px: float = 1.0,
+    ):
         """
-        When mode==1 we render a custom sprite that uses the extra parameters.
+        When render_kind == 1 we render a custom sprite that uses the extra parameters.
         size_px is the total sprite size (gl_PointSize).
         inner_size_px is the square fill size; cross_out_px extends the crosshair past that square.
         """
         if border_color is None:
             border_color = color
-        # Build a tiny VBO on the fly
+
         pts = np.array(pos_world, dtype=np.float32).reshape(1, 3)
         vao = glGenVertexArrays(1)
         vbo = glGenBuffers(1)
+
         glBindVertexArray(vao)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_DYNAMIC_DRAW)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
 
-        # Draw as points
         glUseProgram(self.program)
         glPointSize(max(1.0, float(size_px)))
         glUniform4fv(self.loc_uColor, 1, np.array(color, dtype=np.float32))
         glUniform4fv(self.loc_uBorderColor, 1, np.array(border_color, dtype=np.float32))
-        glUniform1i(self.loc_uMode, mode)
+        glUniform1i(self.loc_uRenderKind, render_kind)
         glUniform1f(self.loc_uPtSize, float(size_px))
         glUniform1f(self.loc_uPointSize, float(size_px))
         glUniform1f(self.loc_uBorderPx, float(border_px))
@@ -906,28 +1101,32 @@ class Viewer:
 
         glDeleteBuffers(1, [vbo])
         glDeleteVertexArrays(1, [vao])
-    def _draw_snap_point(self, pos_world:np.ndarray):
-        snap = self.settings.snap
 
+    def _draw_snap_point(self, pos_world: np.ndarray):
+        snap = self.settings.snap
         sprite_size = snap.size_px + 2 * max(snap.border_px, snap.cross_out_px)
-        if  self.snap_hit is not None and snap.border_color=='by_object' and self.snap_hit['ref'] is not None:
-            border_color=self.color_table[id(self.snap_hit['ref'])]
+
+        if self.snap_hit is not None and snap.border_color == "by_object" and self.snap_hit["ref"] is not None:
+            border_color = self.color_table[id(self.snap_hit["ref"])]
         else:
-            border_color=snap.border_color
-        self._draw_point(pos_world,
-                         sprite_size,
-                         snap.color,
-                         border_color=border_color,
-                         border_px=snap.border_px,
-                         inner_size_px=snap.size_px,
-                         cross_out_px=snap.cross_out_px,
-                         cross_thick_px=snap.cross_thick_px,
-                         mode=1)
+            border_color = snap.border_color
+
+        self._draw_point(
+            pos_world,
+            sprite_size,
+            snap.color,
+            border_color=border_color,
+            border_px=snap.border_px,
+            inner_size_px=snap.size_px,
+            cross_out_px=snap.cross_out_px,
+            cross_thick_px=snap.cross_thick_px,
+            render_kind=1,
+        )
+
     def _compute_snap(self, vinfo: ViewportInfo, M_cpu: np.ndarray):
-        # Read cursor (GLFW points) -> NDC
         cursor_pt = glfw.get_cursor_pos(self.window)
         cursor_ndc = glfw_cursor_to_ndc(cursor_pt, vinfo)
-        # Pick best among curves
+
         best = None
         for cv in self.curves:
             hit = snap_curve_to_cursor(cv, M_cpu, vinfo, cursor_ndc, snap_px=self.settings.snap.snap_px)
@@ -938,49 +1137,44 @@ class Viewer:
         self.snap_hit = best
 
     def run(self):
-        last = time.time()
         while not glfw.window_should_close(self.window):
             glfw.poll_events()
 
-            # Prepare transforms
             vinfo = read_viewport_info(self.window)
             aspect = vinfo.vw / max(1, vinfo.vh)
             P_row = self.cam.projection_matrix(aspect)
             V_row = self.cam.view_matrix()
             M_row = self.model
-            # CPU composite matching GLSL column-major:
+
             M_cpu = (P_row @ V_row @ M_row).T
 
-            # Upload matrices
-            self._upload_matrices(P_row, V_row, M_row)
-
-            # Snap
+            self._upload_frame_uniforms(P_row, V_row, M_row)
             self._compute_snap(vinfo, M_cpu)
 
-            # Draw
             glClearColor(0.07, 0.07, 0.08, 1.0)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-            self._draw_surfaces()
-            self._draw_lines()
-            for point_arr,color,size_px in self.points:
-                self._draw_point(point_arr,
-                                 size_px=size_px, color=color)
 
-            # Snap marker
+            self._draw_surfaces(V_row)
+            self._draw_lines()
+
+            for point_arr, color, size_px in self.points:
+                self._draw_point(point_arr, size_px=size_px, color=color)
+
             if self.snap_hit is not None:
-                self._draw_snap_point(np.array(self.snap_hit["world"], dtype=np.float32)
-                                 )
+                self._draw_snap_point(np.array(self.snap_hit["world"], dtype=np.float32))
 
             glfw.swap_buffers(self.window)
 
-        # Cleanup
-        for (vao, vbo, _, _) in self.lines:
+        for vao, vbo, _, _ in self.lines:
             glDeleteBuffers(1, [vbo])
             glDeleteVertexArrays(1, [vao])
-        for (vao, vbo, ebo, _, _) in self.meshes:
+
+        for vao, vbo, nbo, ebo, _, _, _ in self.meshes:
             glDeleteBuffers(1, [vbo])
+            glDeleteBuffers(1, [nbo])
             glDeleteBuffers(1, [ebo])
             glDeleteVertexArrays(1, [vao])
+
         glfw.terminate()
 
 

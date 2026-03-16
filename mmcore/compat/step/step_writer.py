@@ -692,20 +692,21 @@ class StepWriter:
 
             # Outer loop → FACE_OUTER_BOUND
             bounds = []
-            outer_edges = []
-            for he_id in brep._loop_halfedges(face.outer):
-                he = brep.HE[he_id]
-                ec_ref = _edge_curve(he.edge)
-                oe_ref = self.add_oriented_edge(
-                    ec_ref, orientation=he.orient
-                )
-                outer_edges.append(oe_ref)
+            if face.outer is not None:
+                outer_edges = []
+                for he_id in brep._loop_halfedges(face.outer):
+                    he = brep.HE[he_id]
+                    ec_ref = _edge_curve(he.edge)
+                    oe_ref = self.add_oriented_edge(
+                        ec_ref, orientation=he.orient
+                    )
+                    outer_edges.append(oe_ref)
 
-            if outer_edges:
-                outer_loop_ref = self.add_edge_loop(outer_edges)
-                bounds.append(self.add_entity(
-                    p21.entity('FACE_OUTER_BOUND', ('', outer_loop_ref, TRUE))
-                ))
+                if outer_edges:
+                    outer_loop_ref = self.add_edge_loop(outer_edges)
+                    bounds.append(self.add_entity(
+                        p21.entity('FACE_OUTER_BOUND', ('', outer_loop_ref, TRUE))
+                    ))
 
             # Inner loops → FACE_BOUND
             for inner_loop_id in face.inners:

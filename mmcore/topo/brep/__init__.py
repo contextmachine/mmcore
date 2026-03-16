@@ -76,7 +76,7 @@ class Loop:
 @dataclass
 class Face:
 
-    outer: int
+    outer: Optional[int] = None  # None for exterior faces (no outer boundary)
     inners: List[int] = field(default_factory=list)
     shell: Optional[int] = None
     same_sense: bool = True
@@ -266,7 +266,7 @@ class BRep:
         self.L[l.id] = l
         return l
 
-    def new_face(self, outer: int, inners: List[int] = None, shell: Optional[int] = None, same_sense: bool = True, surf: Optional[int] = None) -> Face:
+    def new_face(self, outer: Optional[int] = None, inners: List[int] = None, shell: Optional[int] = None, same_sense: bool = True, surf: Optional[int] = None) -> Face:
         if inners is None:
             inners = []
         f = Face(surf=surf, outer=outer, inners=inners, shell=shell, same_sense=same_sense)
@@ -797,7 +797,7 @@ class BRep:
 
                 for f_id in face_ids:
                     face = self.F[f_id]
-                    loops = [face.outer] + face.inners
+                    loops = ([face.outer] if face.outer is not None else []) + face.inners
                     for loop_id in loops:
                         for he_id in self._loop_halfedges(loop_id):
                             he = self.HE[he_id]
@@ -924,10 +924,11 @@ class BRep:
 
         # --- Face/loop back-reference consistency ---
         for f_id, f in self.F.items():
-            if f.outer not in self.L:
-                errors.append(f"Face {f_id}: outer loop {f.outer} not in L dict")
-            elif self.L[f.outer].face != f_id:
-                errors.append(f"Face {f_id}: outer loop {f.outer} has face={self.L[f.outer].face}")
+            if f.outer is not None:
+                if f.outer not in self.L:
+                    errors.append(f"Face {f_id}: outer loop {f.outer} not in L dict")
+                elif self.L[f.outer].face != f_id:
+                    errors.append(f"Face {f_id}: outer loop {f.outer} has face={self.L[f.outer].face}")
             for inner_id in f.inners:
                 if inner_id not in self.L:
                     errors.append(f"Face {f_id}: inner loop {inner_id} not in L dict")
@@ -1480,16 +1481,208 @@ class BRep:
 
         return v_start, v_end, e_new, l_new, f_new
 
+    def weld_edges(self, edge1_id: int, edge2_id: int, atol: float = 1e-3):
+        """Weld two geometrically coincident edges into one seam edge.
+
+        The two edges must connect the same pair of 3D points (within atol).
+        After welding:
+        - The coincident vertex pairs are merged (one vertex killed per pair).
+        - One edge is killed; the surviving edge becomes a seam edge whose
+          twin half-edges both belong to the same face.
+        - The killed edge's wire-face half-edges are removed; their loops
+          become self-referencing single-HE loops registered as inners
+          on the wire face (with face.outer = None).
+        - Closed edges (start≡end after vertex merge) get self-looping HEs.
+
+        Parameters
+        ----------
+        edge1_id, edge2_id : int
+            The two edges to weld. Must be geometrically coincident.
+        atol : float
+            Tolerance for geometric coincidence check.
+
+        Returns
+        -------
+        (surviving_edge_id, merged_vertices)
+            The ID of the surviving seam edge, and a list of
+            (kept_vertex_id, killed_vertex_id) pairs.
+        """
+        if edge1_id not in self.E or edge2_id not in self.E:
+            raise KeyError("Edge not found")
+        if edge1_id == edge2_id:
+            raise ValueError("Cannot weld an edge with itself")
+
+        e1 = self.E[edge1_id]
+        e2 = self.E[edge2_id]
+
+        p1s = np.asarray(self.V[e1.v_start].point, dtype=float)
+        p1e = np.asarray(self.V[e1.v_end].point, dtype=float)
+        p2s = np.asarray(self.V[e2.v_start].point, dtype=float)
+        p2e = np.asarray(self.V[e2.v_end].point, dtype=float)
+
+        # --- determine orientation: anti-parallel or parallel ---
+        anti = (np.linalg.norm(p1s - p2e) < atol and np.linalg.norm(p1e - p2s) < atol)
+        para = (np.linalg.norm(p1s - p2s) < atol and np.linalg.norm(p1e - p2e) < atol)
+
+        if not anti and not para:
+            raise ValueError(
+                f"Edges E{edge1_id} and E{edge2_id} are not geometrically coincident "
+                f"(endpoint distances: {np.linalg.norm(p1s - p2s):.6e}, {np.linalg.norm(p1e - p2e):.6e}, "
+                f"{np.linalg.norm(p1s - p2e):.6e}, {np.linalg.norm(p1e - p2s):.6e})"
+            )
+
+        # Identify vertex pairs to merge: (keep, kill)
+        if anti:
+            # E1: A→B, E2: B'→A' where A≡A' and B≡B'
+            # E1.v_start≡E2.v_end, E1.v_end≡E2.v_start
+            merge_pairs = [
+                (e1.v_start, e2.v_end),   # keep e1.v_start, kill e2.v_end
+                (e1.v_end, e2.v_start),   # keep e1.v_end, kill e2.v_start
+            ]
+        else:
+            # Parallel: E1.v_start≡E2.v_start, E1.v_end≡E2.v_end
+            merge_pairs = [
+                (e1.v_start, e2.v_start),
+                (e1.v_end, e2.v_end),
+            ]
+
+        # De-duplicate and skip if already merged or same vertex
+        merge_pairs = [(keep, kill) for keep, kill in merge_pairs
+                       if keep != kill and kill in self.V]
+
+        # --- find the half-edges of both edges ---
+        e1_hes = [he for he in self.HE.values() if he.edge == edge1_id]
+        e2_hes = [he for he in self.HE.values() if he.edge == edge2_id]
+        if len(e1_hes) != 2 or len(e2_hes) != 2:
+            raise ValueError("Each edge must have exactly 2 half-edges")
+
+        # Identify which HEs are on the body face (has surf) vs wire face (no surf)
+        def _classify_hes(hes):
+            body_he = wire_he = None
+            for he in hes:
+                face = self.F[he.face]
+                if face.surf is not None:
+                    body_he = he
+                else:
+                    wire_he = he
+            return body_he, wire_he
+
+        e1_body, e1_wire = _classify_hes(e1_hes)
+        e2_body, e2_wire = _classify_hes(e2_hes)
+
+        if e1_body is None or e2_body is None:
+            raise ValueError("Both edges must have one half-edge on a face with geometry")
+        if e1_wire is None or e2_wire is None:
+            raise ValueError("Both edges must have one half-edge on a wire face")
+
+        # The surviving edge is edge1; edge2 is killed
+        # The surviving body HEs are e1_body and e2_body → they become twins (seam)
+        # The wire HEs (e1_wire, e2_wire) are removed
+
+        wire_face_id = e1_wire.face
+        wire_face = self.F[wire_face_id]
+        body_face_id = e1_body.face
+        wire_loop_id = e1_wire.loop
+
+        # --- Step 1: Merge vertices ---
+        merged = []
+        for v_keep, v_kill in merge_pairs:
+            # Rewire all HE verts
+            for he in self.HE.values():
+                if he.vert == v_kill:
+                    he.vert = v_keep
+            # Rewire all edge endpoints
+            for e in self.E.values():
+                if e.v_start == v_kill:
+                    e.v_start = v_keep
+                if e.v_end == v_kill:
+                    e.v_end = v_keep
+            if v_kill in self.V:
+                del self.V[v_kill]
+            merged.append((v_keep, v_kill))
+
+        # --- Step 2: Splice wire HEs out of their loop ---
+        # Each wire HE's neighbors need to be reconnected.
+        # After vertex merge, the neighboring HEs (on closed edges like circles)
+        # may become self-loops.
+        for wire_he in [e1_wire, e2_wire]:
+            prev_he = self.HE[wire_he.prev]
+            next_he = self.HE[wire_he.next]
+
+            if prev_he.id == wire_he.id and next_he.id == wire_he.id:
+                # Already a self-loop — just remove it
+                pass
+            elif prev_he.id == next_he.id:
+                # The neighbor is the same HE — it becomes a self-loop
+                prev_he.next = prev_he.id
+                prev_he.prev = prev_he.id
+            else:
+                prev_he.next = next_he.id
+                next_he.prev = prev_he.id
+
+            # Update loop anchor if needed
+            lp = self.L[wire_he.loop]
+            if lp.he == wire_he.id:
+                if next_he.id != wire_he.id:
+                    lp.he = next_he.id
+                elif prev_he.id != wire_he.id:
+                    lp.he = prev_he.id
+
+        # --- Step 3: Make e1_body and e2_body twins (seam edge) ---
+        # First, disconnect old twin relationships
+        old_e1_body_twin = e1_body.twin  # was e1_wire.id
+        old_e2_body_twin = e2_body.twin  # was e2_wire.id
+
+        e1_body.twin = e2_body.id
+        e2_body.twin = e1_body.id
+
+        # e2_body now references edge1 (the surviving edge)
+        e2_body.edge = edge1_id
+
+        # Update surviving edge's he pointer
+        self.E[edge1_id].he = e1_body.id
+
+        # --- Step 4: Create separate loops for each remaining wire HE ---
+        # Find all wire-face HEs that survived (the ones from closed edges, not the killed ones)
+        # These are self-looping HEs on the wire face
+        surviving_wire_hes = set()
+        for he in self.HE.values():
+            if he.face == wire_face_id and he.id not in (e1_wire.id, e2_wire.id):
+                surviving_wire_hes.add(he.id)
+
+        # Each surviving wire HE becomes its own loop (inner on wire face)
+        wire_face.outer = None
+        wire_face.inners = []
+        # Remove old wire loop
+        if wire_loop_id in self.L:
+            del self.L[wire_loop_id]
+
+        for he_id in surviving_wire_hes:
+            he = self.HE[he_id]
+            he.next = he_id
+            he.prev = he_id
+            new_loop = self.new_loop(face=wire_face_id, he=he_id, is_outer=False)
+            he.loop = new_loop.id
+            he.face = wire_face_id
+            wire_face.inners.append(new_loop.id)
+
+        # --- Step 5: Delete the killed edge and its wire HEs ---
+        del self.HE[e1_wire.id]
+        del self.HE[e2_wire.id]
+        del self.E[edge2_id]
+
+        return edge1_id, merged
+
     def cap_planar_openings(self, atol: float = 1e-3) -> list:
         """Find and cap all planar open boundaries with flat faces.
 
-        An open boundary is a loop where every edge's opposite half-edge
-        belongs to a face without surface geometry (the exterior). If the
-        boundary vertices are coplanar within *atol*, a planar NURBS surface
-        is created and the loop is capped.
+        Cap candidates are loops on exterior faces (faces without surface
+        geometry). After weld_edges, these are the inner loops on the
+        exterior face — each representing an open boundary (like the top
+        or bottom circle of a cylinder).
 
-        Mimics the "Cap Planar Holes" command in Rhino / SolidWorks.
-        Inner holes (face.inners) are never capped.
+        Also checks for the pre-weld case: outer loops on body faces
+        where all twin half-edges belong to faces without geometry.
 
         Returns a list of newly created (Face, Shell) pairs.
         """
@@ -1499,17 +1692,22 @@ class BRep:
         results = []
 
         # --- find open boundary loops ---
-        # An outer loop is "open" if for EVERY half-edge in the loop,
-        # the twin's face has no surface geometry.
         open_loops = []
+
+        # Case 1 (post-weld): inner loops on exterior faces (face.surf is None)
+        for f_id, face in list(self.F.items()):
+            if face.surf is not None:
+                continue  # body face, not exterior
+            for inner_loop_id in face.inners:
+                open_loops.append(inner_loop_id)
+
+        # Case 2 (pre-weld): outer loops on body faces where all twins are on exterior
         for l_id, lp in list(self.L.items()):
             if not lp.is_outer:
                 continue
             face = self.F[lp.face]
             if face.surf is None:
-                # This is a wire/exterior face — not a candidate itself
                 continue
-            # Check: does the twin side lack surface geometry?
             all_twins_open = True
             for he_id in self._loop_halfedges(l_id):
                 he = self.HE[he_id]
@@ -1525,11 +1723,30 @@ class BRep:
             lp = self.L[loop_id]
 
             # --- collect boundary 3D points ---
-            pts = []
-            for he_id in self._loop_halfedges(loop_id):
-                he = self.HE[he_id]
-                pts.append(np.asarray(self.V[he.vert].point, dtype=float))
-            pts = np.array(pts)
+            # For self-loops (single HE on a closed edge), sample the edge curve
+            # since there's only 1 vertex in the loop.
+            he_ids = list(self._loop_halfedges(loop_id))
+            if len(he_ids) == 1:
+                he = self.HE[he_ids[0]]
+                edge = self.E[he.edge]
+                if edge.geom is None:
+                    continue
+                crv = self.G_CRV[edge.geom]
+                from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+                t0, t1 = edge.param
+                n_sample = 16
+                pts = np.array([
+                    evaluate_nurbs_curve(crv, t0 + (t1 - t0) * i / n_sample, d_order=0)['C']
+                    for i in range(n_sample)
+                ], dtype=float)
+            else:
+                pts = np.array([
+                    np.asarray(self.V[self.HE[hid].vert].point, dtype=float)
+                    for hid in he_ids
+                ])
+
+            if len(pts) < 3:
+                continue
 
             # --- test planarity via SVD ---
             centroid = pts.mean(axis=0)
@@ -1544,15 +1761,19 @@ class BRep:
                 continue
 
             normal = Vt[2]  # normal to the best-fit plane
-            # Orient normal away from the surface (heuristic: use the face's surface)
-            face = self.F[lp.face]
-            srf = self.G_SRF[face.surf]
-            (u_min, u_max), (v_min, v_max) = srf.interval()
-            from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
-            mid_eval = evaluate_nurbs_surface(srf, (u_min + u_max) / 2, (v_min + v_max) / 2, d_order=0)
-            surf_center = mid_eval["S"]
-            if np.dot(normal, centroid - surf_center) < 0:
-                normal = -normal
+            # Orient normal away from the body surface.
+            # Find the body face via the twin of the first HE in this loop.
+            he_first = self.HE[he_ids[0]]
+            twin_first = self.HE[he_first.twin]
+            body_face = self.F[twin_first.face]
+            if body_face.surf is not None:
+                from mmcore.geom._nurbs_eval import evaluate_nurbs_surface
+                srf = self.G_SRF[body_face.surf]
+                (u_min, u_max), (v_min, v_max) = srf.interval()
+                mid_eval = evaluate_nurbs_surface(srf, (u_min + u_max) / 2, (v_min + v_max) / 2, d_order=0)
+                surf_center = mid_eval["S"]
+                if np.dot(normal, centroid - surf_center) < 0:
+                    normal = -normal
 
             # --- build planar surface ---
             # Local axes on the plane
@@ -1583,26 +1804,36 @@ class BRep:
             )
 
             # --- build boundary curve for the cap ---
-            # Walk the twin loop (the exterior side) to get the reversed boundary
-            # The cap's boundary is the REVERSED version of each edge curve,
-            # chained in loop order
-            twin_loop_id = None
-            he_first = self.HE[next(iter(self._loop_halfedges(loop_id)))]
-            twin_first = self.HE[he_first.twin]
-            twin_loop_id = twin_first.loop
-
             cap_curves = []
-            for he_id in self._loop_halfedges(twin_loop_id):
-                he = self.HE[he_id]
+            if len(he_ids) == 1:
+                # Self-loop: single closed edge — use its curve directly (reversed
+                # so the cap faces outward, opposite to the body face's winding)
+                he = self.HE[he_ids[0]]
                 edge = self.E[he.edge]
-                if edge.geom is None:
-                    continue
-                crv = self.G_CRV[edge.geom]
-                t0, t1 = edge.param
-                trimmed = trim_curve(crv, min(t0, t1), max(t0, t1))
-                if not he.orient:
+                if edge.geom is not None:
+                    crv = self.G_CRV[edge.geom]
+                    t0, t1 = edge.param
+                    trimmed = trim_curve(crv, min(t0, t1), max(t0, t1))
+                    # Reverse: the cap boundary winds opposite to the body face
                     trimmed = reverse_curve(trimmed)
-                cap_curves.append(trimmed)
+                    cap_curves.append(trimmed)
+            else:
+                # Multi-edge loop: walk the twin loop to collect reversed boundary
+                he_first = self.HE[he_ids[0]]
+                twin_first = self.HE[he_first.twin]
+                twin_loop_id = twin_first.loop
+
+                for he_id in self._loop_halfedges(twin_loop_id):
+                    he = self.HE[he_id]
+                    edge = self.E[he.edge]
+                    if edge.geom is None:
+                        continue
+                    crv = self.G_CRV[edge.geom]
+                    t0, t1 = edge.param
+                    trimmed = trim_curve(crv, min(t0, t1), max(t0, t1))
+                    if not he.orient:
+                        trimmed = reverse_curve(trimmed)
+                    cap_curves.append(trimmed)
 
             if not cap_curves:
                 continue
@@ -1663,6 +1894,7 @@ class BRep:
         surface,
         boundary_curves=None,
         atol: float = 1e-3,
+        auto_close: bool = False,
     ) -> tuple:
         """Create a face bounded by curves on a surface.
 
@@ -1681,6 +1913,10 @@ class BRep:
             are used (untrimmed face).
         atol : float
             Tolerance for endpoint matching. Also stored as vertex.tol.
+        auto_close : bool
+            If True, automatically detect and weld coincident opposite
+            edges (e.g. seam edges on a cylinder, both seam pairs on a
+            torus). Detection is based on endpoint coincidence within atol.
 
         Returns
         -------
@@ -1812,6 +2048,33 @@ class BRep:
                     edge = self.E[he.edge]
                     if edge.geom is not None and he.pcurve is None:
                         self.compute_pcurve(he_id, tol=atol)
+
+        # --- auto-close: weld coincident opposite edges ---
+        if auto_close and n >= 4:
+            # For a 4-edge boundary, opposite pairs are (0,2) and (1,3)
+            # Check each pair for geometric coincidence
+            weld_pairs = []
+            for i, j in [(0, 2), (1, 3)]:
+                if i >= len(edges) or j >= len(edges):
+                    continue
+                ei, ej = edges[i], edges[j]
+                # Check if already welded (edge may have been killed)
+                if ei.id not in self.E or ej.id not in self.E:
+                    continue
+                pi_s = np.asarray(self.V[ei.v_start].point, dtype=float)
+                pi_e = np.asarray(self.V[ei.v_end].point, dtype=float)
+                pj_s = np.asarray(self.V[ej.v_start].point, dtype=float)
+                pj_e = np.asarray(self.V[ej.v_end].point, dtype=float)
+                anti = (np.linalg.norm(pi_s - pj_e) < atol and
+                        np.linalg.norm(pi_e - pj_s) < atol)
+                para = (np.linalg.norm(pi_s - pj_s) < atol and
+                        np.linalg.norm(pi_e - pj_e) < atol)
+                if anti or para:
+                    weld_pairs.append((ei.id, ej.id))
+
+            for e1_id, e2_id in weld_pairs:
+                if e1_id in self.E and e2_id in self.E:
+                    self.weld_edges(e1_id, e2_id, atol=atol)
 
         return face, shell, loop_face, vertices, edges
 

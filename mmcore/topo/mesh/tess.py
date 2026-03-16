@@ -219,10 +219,20 @@ def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
             he = brep.HE[he_id]
             if he.pcurve is None:
                 continue
-            # In a digon (single-edge face), both HEs share the same edge.
-            # Only sample one direction to avoid a self-overlapping boundary.
+            # Digon vs seam: both have two HEs sharing the same edge,
+            # but in a digon both HEs are in the SAME loop (self-overlapping),
+            # while in a seam they're in the same loop but with different
+            # UV paths (e.g. u=0 and u=1 on a cylinder).
+            # Key distinction: seam twins are in the same loop (after weld),
+            # digon twins are also in the same loop — but a digon loop has
+            # exactly 2 HEs, while a seam loop has more.
+            twin = brep.HE[he.twin]
             if he.edge in sampled_edges:
-                continue
+                # Count HEs in this loop to distinguish digon (2) from seam (>2)
+                loop_size = sum(1 for _ in brep._loop_halfedges(he.loop))
+                if loop_size <= 2:
+                    continue  # digon: skip duplicate
+                # seam edge in a larger loop: sample both UV paths
             sampled_edges.add(he.edge)
 
             pcurve = brep.G_PCRV[he.pcurve]
@@ -239,6 +249,9 @@ def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
             uv_pts.extend(pts_2d)
         return np.array(uv_pts, dtype=float) if uv_pts else np.empty((0, 2))
 
+    if face.outer is None:
+        return Mesh(position=np.empty((0, 3), dtype=np.float32),
+                    faces=np.empty((0, 3), dtype=np.int32))
     outer_uv = _sample_loop_pcurves(face.outer)
     if len(outer_uv) < 3:
         return Mesh(position=np.empty((0, 3), dtype=np.float32),
@@ -282,20 +295,19 @@ def tessellate_brep_face(brep, face_id: int, tol: float = 1e-2) -> Mesh:
         # Hole point: centroid of the inner loop (must be inside the hole)
         hole_points.append(inner_uv.mean(axis=0))
 
-    # --- interior UV grid points (well inside the boundary) ---
+    # --- interior UV grid points ---
+    # The 'p' (PSLG) triangulation flag ensures Triangle only creates
+    # triangles inside the boundary, so no inset margin is needed.
     uv_min = outer_uv.min(axis=0)
     uv_max = outer_uv.max(axis=0)
     uv_span = uv_max - uv_min
 
-    # Inset margin: keep interior points away from boundary edges
-    # to prevent degenerate triangles (e.g. "cap" artifacts on cylinders)
-    margin = uv_span * 0.08
-    inner_min = uv_min + margin
-    inner_max = uv_max - margin
-
+    # Exclude the boundary itself (one grid step in from each edge)
     n_boundary = len(outer_uv)
     n_interior_u = max(3, int(n_boundary * 0.3))
     n_interior_v = max(3, int(n_boundary * 0.3))
+    inner_min = uv_min + uv_span / (n_interior_u + 1)
+    inner_max = uv_max - uv_span / (n_interior_v + 1)
 
     if np.all(inner_max > inner_min):
         uu = np.linspace(inner_min[0], inner_max[0], n_interior_u)
