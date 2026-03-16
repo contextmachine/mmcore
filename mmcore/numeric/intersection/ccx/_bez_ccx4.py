@@ -212,6 +212,7 @@ def bez_ccx(
             stack.append((seg1.copy(), seg2_left, F_left, pw.copy(), qw_left, u0, u1, v0, v_mid, depth + 1))
             stack.append((seg1.copy(), seg2_right, F_right, pw.copy(), qw_right, u0, u1, v_mid, v1, depth + 1))
 
+    isolated, overlaps = _postprocess(isolated, overlaps, C1_orig, C2_orig, atol, rational)
     return {"isolated": isolated, "overlaps": overlaps}
 
 
@@ -222,3 +223,165 @@ def _is_duplicate(isolated, pt, atol):
         if np.linalg.norm(existing - pt) < atol:
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Post-processing: merge micro-overlaps / tangent deduplication
+# ---------------------------------------------------------------------------
+
+def _intervals_overlap_1d(a0, a1, b0, b1, gap=0.0):
+    """Return True if [a0, a1] and [b0, b1] overlap or are within *gap*."""
+    return a0 - gap <= b1 and b0 - gap <= a1
+
+
+def _verify_overlap_geometric(C1, C2, u0, u1, v0, v1, atol, rational, n_samples=5):
+    """Check whether C1 and C2 actually trace the same path over the interval.
+
+    A genuine overlap means C1(u) == C2(v) for corresponding (u, v) along
+    the overlap.  We sample a few points along a linear parameterisation
+    from (u0, v0) to (u1, v1) and verify that the distance is below *atol*
+    at every sample.
+    """
+    for k in range(n_samples + 1):
+        alpha = k / n_samples
+        u = u0 + alpha * (u1 - u0)
+        v = v0 + alpha * (v1 - v0)
+        p1 = eval_curve(C1, u, rational=rational)
+        p2 = eval_curve(C2, v, rational=rational)
+        dist = float(np.linalg.norm(p1 - p2))
+        if dist > atol:
+            return False
+    return True
+
+
+def _postprocess(isolated, overlaps, C1, C2, atol, rational):
+    """Merge adjacent micro-overlaps and collapse spurious clusters.
+
+    Tangent and near-tangent intersections cause the classifier to emit
+    many tiny OVERLAP cells and nearby UNIQUE_ISOLATED points around the
+    same geometric location.  This function:
+
+    1. Merges overlap entries whose parameter boxes touch/overlap into
+       connected components.
+    2. For each component, verifies whether C1 and C2 actually coincide
+       geometrically.  If not (spurious overlap), collapses to a single
+       isolated point via Newton refinement.
+    3. Removes isolated points that are geometrically duplicated by a
+       verified overlap range.
+    """
+    if not overlaps:
+        return isolated, overlaps
+
+    # --- Step 1: merge overlaps into connected components ----------------
+    n = len(overlaps)
+    parent = list(range(n))
+
+    def _find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a, b):
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    gap = atol * 0.1  # allow tiny gaps between adjacent cells
+    for i in range(n):
+        ui = overlaps[i]["u_range"]
+        vi = overlaps[i]["v_range"]
+        for j in range(i + 1, n):
+            uj = overlaps[j]["u_range"]
+            vj = overlaps[j]["v_range"]
+            if (_intervals_overlap_1d(ui[0], ui[1], uj[0], uj[1], gap)
+                    and _intervals_overlap_1d(vi[0], vi[1], vj[0], vj[1], gap)):
+                _union(i, j)
+
+    # Build merged components
+    from collections import defaultdict
+    comps = defaultdict(list)
+    for i in range(n):
+        comps[_find(i)].append(i)
+
+    merged_overlaps = []
+    collapse_isolated = []
+
+    for indices in comps.values():
+        u0 = min(overlaps[i]["u_range"][0] for i in indices)
+        u1 = max(overlaps[i]["u_range"][1] for i in indices)
+        v0 = min(overlaps[i]["v_range"][0] for i in indices)
+        v1 = max(overlaps[i]["v_range"][1] for i in indices)
+
+        u_mid = 0.5 * (u0 + u1)
+        v_mid = 0.5 * (v0 + v1)
+
+        # Geometric verification: do C1 and C2 actually coincide?
+        if _verify_overlap_geometric(C1, C2, u0, u1, v0, v1, atol, rational):
+            merged_overlaps.append({
+                "boundary_zeros": [],
+                "overlap_endpoints": [],
+                "u_range": (u0, u1),
+                "v_range": (v0, v1),
+            })
+        else:
+            # Spurious overlap cluster (tangent point, near-miss, etc.)
+            # Collapse to a single isolated point via Newton.
+            u_sol, v_sol, G, converged = newton_ccx(
+                C1, C2, u_mid, v_mid,
+                rational=rational, tol=atol * 1e-2,
+            )
+            if converged:
+                pt = eval_curve(C1, u_sol, rational=rational)
+                collapse_isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
+            else:
+                # Try Newton with a tighter check: if the residual is small
+                # enough, accept it anyway.
+                pt_mid = eval_curve(C1, u_mid, rational=rational)
+                pt_mid2 = eval_curve(C2, v_mid, rational=rational)
+                dist = float(np.linalg.norm(pt_mid - pt_mid2))
+                if dist < atol:
+                    collapse_isolated.append({"u": float(u_mid), "v": float(v_mid), "point": pt_mid})
+
+    # --- Step 2: absorb isolated points near collapsed overlap clusters --
+    # Each collapsed overlap had a parameter range; any isolated point whose
+    # parameters fall inside (or near) that range is a duplicate.
+    remaining_isolated = []
+    for iso in isolated:
+        absorbed = False
+        u_iso = iso["u"]
+        v_iso = iso["v"]
+        for indices in comps.values():
+            u0c = min(overlaps[i]["u_range"][0] for i in indices)
+            u1c = max(overlaps[i]["u_range"][1] for i in indices)
+            v0c = min(overlaps[i]["v_range"][0] for i in indices)
+            v1c = max(overlaps[i]["v_range"][1] for i in indices)
+            margin = max(u1c - u0c, v1c - v0c, atol)
+            if (u0c - margin <= u_iso <= u1c + margin
+                    and v0c - margin <= v_iso <= v1c + margin):
+                absorbed = True
+                break
+        if not absorbed:
+            remaining_isolated.append(iso)
+
+    # Add collapse_isolated (deduplicated against remaining)
+    all_isolated = list(remaining_isolated)
+    for ci in collapse_isolated:
+        if not _is_duplicate(all_isolated, ci["point"], atol):
+            all_isolated.append(ci)
+
+    # --- Step 3: remove isolated points inside verified overlap ranges ---
+    if merged_overlaps:
+        def _inside_overlap(iso):
+            u = iso["u"]
+            v = iso["v"]
+            for ov in merged_overlaps:
+                ur = ov["u_range"]
+                vr = ov["v_range"]
+                if ur[0] - atol <= u <= ur[1] + atol and vr[0] - atol <= v <= vr[1] + atol:
+                    return True
+            return False
+
+        all_isolated = [iso for iso in all_isolated if not _inside_overlap(iso)]
+
+    return all_isolated, merged_overlaps
