@@ -166,7 +166,8 @@ def _check_uniqueness_2d(F: NDArray) -> bool:
 
 def _check_overlap(F: NDArray, atol: float, w_scale: float, boundary_zeros: list) -> tuple:
     """
-    Check for overlap: opposite boundaries on same axis both touch zero.
+    Check for overlap: opposite boundaries on same axis both touch zero,
+    and the function values along the connecting path are near zero.
     Returns (is_overlap, endpoints).
     """
     threshold = (atol * w_scale) ** 2
@@ -180,63 +181,69 @@ def _check_overlap(F: NDArray, atol: float, w_scale: float, boundary_zeros: list
     for axis, sides in axis_sides.items():
         if 0 in sides and 1 in sides:
             # Both boundaries on this axis touch zero.
-            # Find approximate parameter of minimum on each boundary face.
             Fv = _add_value_dim(F)
 
             bnd0 = _squeeze_value_dim(bernstein_boundary_nd(Fv, axis=axis, side=0))
             bnd1 = _squeeze_value_dim(bernstein_boundary_nd(Fv, axis=axis, side=1))
 
-            # argmin of coefficients -> approximate parameter
-            idx0 = np.unravel_index(np.argmin(bnd0), bnd0.shape)
-            idx1 = np.unravel_index(np.argmin(bnd1), bnd1.shape)
-
-            # Convert multi-index to parameter tuple for the remaining axes
-            # After extracting boundary on `axis`, the remaining parametric axes
-            # have their original shapes minus the extracted axis.
             remaining_shapes = [F.shape[a] for a in range(ndim) if a != axis]
+            remaining_orig = [a for a in range(ndim) if a != axis]
 
-            # Param from argmin index: index / (shape - 1) if shape > 1, else 0.5
-            def _idx_to_param(idx_tuple, shapes):
-                params = []
-                for i, s in zip(idx_tuple, shapes):
-                    params.append(i / max(s - 1, 1))
-                return params
+            # Collect ALL near-zero multi-indices on each boundary as
+            # candidate start/end points for the connecting path.
+            def _near_zero_params(bnd_scalar, shapes):
+                flat = bnd_scalar.ravel()
+                candidates = []
+                for fi in range(len(flat)):
+                    if abs(float(flat[fi])) < threshold:
+                        idx = np.unravel_index(fi, bnd_scalar.shape)
+                        params = []
+                        for ii, s in zip(idx, shapes):
+                            params.append(ii / max(s - 1, 1))
+                        candidates.append(params)
+                if not candidates:
+                    # Fallback: use argmin
+                    idx = np.unravel_index(np.argmin(bnd_scalar), bnd_scalar.shape)
+                    params = [ii / max(s - 1, 1) for ii, s in zip(idx, shapes)]
+                    candidates.append(params)
+                return candidates
 
-            params0 = _idx_to_param(idx0, remaining_shapes)
-            params1 = _idx_to_param(idx1, remaining_shapes)
+            cands0 = _near_zero_params(bnd0, remaining_shapes)
+            cands1 = _near_zero_params(bnd1, remaining_shapes)
 
-            # Average to get a single set of parameters for the other axes
-            avg_params = [(p0 + p1) / 2.0 for p0, p1 in zip(params0, params1)]
+            def _build_full_point(axis_val, other_params):
+                pt = [0.0] * ndim
+                pt[axis] = axis_val
+                for k, orig_ax in enumerate(remaining_orig):
+                    pt[orig_ax] = other_params[k]
+                return tuple(pt)
 
-            # Restrict F to univariate net along `axis` at those average params
-            # We restrict all OTHER axes one by one.
-            # Build list of axes to restrict (all except `axis`), but we must
-            # account for axis index shifts when using keepdims=False.
-            restricted = _add_value_dim(F)
-            # Process axes in reverse order so that index shifts don't affect
-            # earlier axes.
-            other_axes = sorted([a for a in range(ndim) if a != axis], reverse=True)
-            # Map original axis indices to current indices in the shrinking grid
-            # Start by tracking the target axis position
-            target_axis = axis
-            for orig_ax in other_axes:
-                # Determine current index of orig_ax
-                current_ax = orig_ax
-                # Determine param index: where is orig_ax in the remaining_shapes order?
-                # remaining axes in original order
-                remaining_orig = [a for a in range(ndim) if a != axis]
-                param_idx = remaining_orig.index(orig_ax)
-                param_val = avg_params[param_idx]
+            n_samples = max(2 * max(F.shape), 5)
+            tol_sq = atol * atol
 
-                restricted = de_casteljau_restrict_nd(restricted, axis=current_ax, t=param_val, keepdims=False)
-                # After removing current_ax, if current_ax < target_axis, target_axis shifts down
-                if current_ax < target_axis:
-                    target_axis -= 1
+            # Try each pairing of start/end candidates
+            for p0 in cands0:
+                for p1 in cands1:
+                    start_pt = _build_full_point(0.0, p0)
+                    end_pt = _build_full_point(1.0, p1)
 
-            # Now restricted should be (degree_along_axis + 1, 1) — univariate with value dim
-            restricted_scalar = _squeeze_value_dim(restricted)
-            if float(np.max(restricted_scalar)) < threshold:
-                return True, avg_params
+                    all_near_zero = True
+                    for k in range(n_samples + 1):
+                        alpha = k / n_samples
+                        pt = tuple(
+                            s * (1.0 - alpha) + e * alpha
+                            for s, e in zip(start_pt, end_pt)
+                        )
+                        val = float(bernstein_eval_nd(Fv, pt).squeeze())
+                        if abs(val) / (w_scale ** 2) > tol_sq:
+                            all_near_zero = False
+                            break
+
+                    if all_near_zero:
+                        avg_params = [
+                            (a + b) / 2.0 for a, b in zip(p0, p1)
+                        ]
+                        return True, avg_params
 
     return False, []
 
