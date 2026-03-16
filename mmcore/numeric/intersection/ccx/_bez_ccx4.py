@@ -18,6 +18,7 @@ from mmcore.numeric.intersection._sq_dist_classify import (
     UNIQUE_ISOLATED,
     OVERLAP,
     INDETERMINATE,
+    BoundaryZero,
 )
 
 
@@ -60,6 +61,24 @@ def _subdivide_sq_dist_net(F, axis, t=0.5):
     Fv = F[..., np.newaxis]
     left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
     return left_v[..., 0], right_v[..., 0]
+
+
+def _boundary_zero_to_uv(bz: BoundaryZero, u0: float, u1: float, v0: float, v1: float) -> tuple[float, float]:
+    """Convert a BoundaryZero from the classifier into global (u, v) parameters.
+
+    For a 2D CCX net:
+    - axis=0, side=0 → u=u0, v = v0 + bz.param * (v1 - v0)
+    - axis=0, side=1 → u=u1, v = v0 + bz.param * (v1 - v0)
+    - axis=1, side=0 → v=v0, u = u0 + bz.param * (u1 - u0)
+    - axis=1, side=1 → v=v1, u = u0 + bz.param * (u1 - u0)
+    """
+    if bz.axis == 0:
+        u = u0 if bz.side == 0 else u1
+        v = v0 + bz.param * (v1 - v0)
+    else:
+        v = v0 if bz.side == 0 else v1
+        u = u0 + bz.param * (u1 - u0)
+    return u, v
 
 
 # ---------------------------------------------------------------------------
@@ -151,13 +170,51 @@ def bez_ccx(
             continue
 
         elif cls.kind == OVERLAP:
-            overlaps.append({
-                "boundary_zeros": cls.boundary_zeros,
-                "overlap_endpoints": cls.overlap_endpoints,
-                "u_range": (u0, u1),
-                "v_range": (v0, v1),
-            })
+            # Valley check confirmed overlap. Use precise boundary zeros as endpoints.
+            if cls.overlap_endpoints and isinstance(cls.overlap_endpoints[0], BoundaryZero):
+                ovl_pts = []
+                for bz in cls.overlap_endpoints:
+                    u_bz, v_bz = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
+                    u_sol, v_sol, G, converged = newton_ccx(
+                        C1_orig, C2_orig, u_bz, v_bz,
+                        rational=rational, tol=atol * 1e-2,
+                    )
+                    if converged:
+                        ovl_pts.append((float(u_sol), float(v_sol)))
+                    else:
+                        ovl_pts.append((float(u_bz), float(v_bz)))
+                if len(ovl_pts) >= 2:
+                    overlaps.append({
+                        "boundary_zeros": cls.boundary_zeros,
+                        "overlap_endpoints": cls.overlap_endpoints,
+                        "u_range": (ovl_pts[0][0], ovl_pts[1][0]),
+                        "v_range": (ovl_pts[0][1], ovl_pts[1][1]),
+                    })
+            else:
+                # Old-style overlap (no precise endpoints)
+                overlaps.append({
+                    "boundary_zeros": cls.boundary_zeros,
+                    "overlap_endpoints": cls.overlap_endpoints,
+                    "u_range": (u0, u1),
+                    "v_range": (v0, v1),
+                })
             continue
+
+        # Before subdividing: if the classifier found precise boundary zeros,
+        # use them as Newton seeds for isolated intersection points.
+        if cls.precise_zeros:
+            for bz in cls.precise_zeros:
+                if not isinstance(bz, BoundaryZero):
+                    continue
+                u_seed, v_seed = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
+                u_sol, v_sol, G, converged = newton_ccx(
+                    C1_orig, C2_orig, u_seed, v_seed,
+                    rational=rational, tol=atol * 1e-2,
+                )
+                if converged and float(np.linalg.norm(G)) < atol:
+                    pt = eval_curve(C1_orig, u_sol, rational=rational)
+                    if not _is_duplicate(isolated, pt, atol):
+                        isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
 
         # INDETERMINATE -> subdivide
         if depth >= max_depth:

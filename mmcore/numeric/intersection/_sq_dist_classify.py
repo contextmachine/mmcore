@@ -16,6 +16,7 @@ from mmcore.numeric.bern import (
     de_casteljau_restrict_nd,
     bernstein_eval_nd,
 )
+from mmcore.numeric.intersection._bern_zero_1d import find_bernstein_zeros_1d
 
 # ---------------------------------------------------------------------------
 # Classification constants
@@ -30,6 +31,7 @@ INDETERMINATE = 3
 class Classification:
     kind: int
     boundary_zeros: list = field(default_factory=list)  # (axis, side) pairs
+    precise_zeros: list = field(default_factory=list)   # list of BoundaryZero
     overlap_endpoints: list = field(default_factory=list)
     notes: str = ""
 
@@ -104,6 +106,67 @@ def _find_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list:
         bnd_scalar = _squeeze_value_dim(bnd_grid)
         if float(np.min(bnd_scalar)) < threshold:
             zeros.append((axis, side))
+    return zeros
+
+
+# ---------------------------------------------------------------------------
+# Check 3b: Precise boundary zero locations (1D solver)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BoundaryZero:
+    """A precise zero location on a boundary face."""
+    axis: int       # which parametric axis is fixed (0=u, 1=v, ...)
+    side: int       # 0 or 1 (parameter = 0 or 1)
+    param: float    # parameter value along the boundary where the zero occurs
+
+
+def _find_precise_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list[BoundaryZero]:
+    """Find precise zero locations on each boundary face using the 1D solver.
+
+    Only runs on boundary faces whose coefficient-min is below threshold
+    (cheap pre-filter). For CCX (2D net), each boundary is 1D → direct solve.
+    For CSX (3D net), each boundary is 2D → restrict to edges → 1D solve.
+    """
+    threshold = (atol * w_scale) ** 2
+    Fv = _add_value_dim(F)
+    ndim = F.ndim
+    zeros = []
+
+    for axis in range(ndim):
+        for side in range(2):
+            bnd = bernstein_boundary_nd(Fv, axis=axis, side=side)
+            bnd_scalar = _squeeze_value_dim(bnd)
+
+            # Cheap pre-filter: skip if all coefficients are above threshold
+            if float(np.min(bnd_scalar)) >= threshold:
+                continue
+
+            if bnd_scalar.ndim == 0:
+                # Point (degenerate)
+                if abs(float(bnd_scalar)) < threshold:
+                    zeros.append(BoundaryZero(axis=axis, side=side, param=0.0))
+                continue
+
+            if bnd_scalar.ndim == 1:
+                # 1D boundary (CCX case) — direct solve
+                roots = find_bernstein_zeros_1d(bnd_scalar, atol=atol * w_scale)
+                for r in roots:
+                    zeros.append(BoundaryZero(axis=axis, side=side, param=r))
+                continue
+
+            if bnd_scalar.ndim == 2:
+                # 2D boundary (CSX case) — restrict to edges, then 1D solve
+                bnd_2d_v = _add_value_dim(bnd_scalar)
+                for edge_axis in range(2):
+                    for edge_side in range(2):
+                        edge = bernstein_boundary_nd(bnd_2d_v, axis=edge_axis, side=edge_side)
+                        edge_1d = _squeeze_value_dim(edge)
+                        if edge_1d.ndim == 1 and float(np.min(edge_1d)) < threshold:
+                            roots = find_bernstein_zeros_1d(edge_1d, atol=atol * w_scale)
+                            for r in roots:
+                                zeros.append(BoundaryZero(axis=axis, side=side, param=r))
+
     return zeros
 
 
@@ -249,6 +312,89 @@ def _check_overlap(F: NDArray, atol: float, w_scale: float, boundary_zeros: list
 
 
 # ---------------------------------------------------------------------------
+# Check 5b: Valley check from precise boundary zeros
+# ---------------------------------------------------------------------------
+
+def _boundary_zero_to_param_point(bz: BoundaryZero, ndim: int) -> list[float]:
+    """Convert a BoundaryZero to a point in [0,1]^ndim parameter space.
+
+    For a 2D net (CCX): axis 0 → (side_val, param), axis 1 → (param, side_val).
+    For a 3D net (CSX): similar with 3 axes.
+    """
+    pt = [0.5] * ndim  # default interior
+    pt[bz.axis] = float(bz.side)  # 0.0 or 1.0
+    # The param goes into the "other" axis. For 2D, there's exactly one other.
+    # For higher D, param corresponds to the first non-fixed axis.
+    other_axes = [a for a in range(ndim) if a != bz.axis]
+    if other_axes:
+        pt[other_axes[0]] = bz.param
+    return pt
+
+
+def _check_overlap_valley(F: NDArray, precise_zeros: list, atol: float,
+                          w_scale: float) -> list | None:
+    """Check if boundary zeros are connected by a valley where F stays near zero.
+
+    For each pair of boundary zeros on DIFFERENT faces:
+    1. Convert each to a parameter-space point
+    2. Step inward from each (away from the boundary, toward the interior)
+    3. Evaluate F at the stepped point
+    4. If F stays near zero at both steps → overlap confirmed
+
+    Returns the pair of BoundaryZero objects if overlap is confirmed, else None.
+    """
+    ndim = F.ndim
+    Fv = _add_value_dim(F)
+    threshold = (atol * w_scale) ** 2
+    step_size = 0.05  # small step inward from boundary
+
+    # Try all pairs of boundary zeros on different faces.
+    # Step along the valley direction (from one zero toward the other),
+    # NOT perpendicular to the boundary face.
+    for i in range(len(precise_zeros)):
+        bz_a = precise_zeros[i]
+        pt_a = _boundary_zero_to_param_point(bz_a, ndim)
+
+        for j in range(i + 1, len(precise_zeros)):
+            bz_b = precise_zeros[j]
+            # Must be on different faces
+            if (bz_a.axis, bz_a.side) == (bz_b.axis, bz_b.side):
+                continue
+
+            pt_b = _boundary_zero_to_param_point(bz_b, ndim)
+
+            # Verify F is near zero at the boundary points
+            val_a = float(bernstein_eval_nd(Fv, tuple(pt_a)).squeeze())
+            val_b = float(bernstein_eval_nd(Fv, tuple(pt_b)).squeeze())
+
+            if abs(val_a) > threshold * 10 or abs(val_b) > threshold * 10:
+                continue
+
+            # Valley direction: from pt_a toward pt_b
+            direction = [pt_b[k] - pt_a[k] for k in range(ndim)]
+            d_norm = sum(d * d for d in direction) ** 0.5
+            if d_norm < 1e-14:
+                continue
+            direction = [d / d_norm for d in direction]
+
+            # Step inward from each boundary zero along the valley
+            step_a = [pt_a[k] + step_size * direction[k] for k in range(ndim)]
+            step_a = [max(0.0, min(1.0, x)) for x in step_a]
+
+            step_b = [pt_b[k] - step_size * direction[k] for k in range(ndim)]
+            step_b = [max(0.0, min(1.0, x)) for x in step_b]
+
+            val_step_a = float(bernstein_eval_nd(Fv, tuple(step_a)).squeeze())
+            val_step_b = float(bernstein_eval_nd(Fv, tuple(step_b)).squeeze())
+
+            # Valley check: F stays near zero after stepping along the valley
+            if abs(val_step_a) < threshold * 100 and abs(val_step_b) < threshold * 100:
+                return [bz_a, bz_b]
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main classification function
 # ---------------------------------------------------------------------------
 
@@ -297,14 +443,18 @@ def classify_sq_dist_net(
             notes="Lipschitz lower bound positive",
         )
 
-    # Check 3: Boundary zero analysis
+    # Check 3: Boundary zero analysis (cheap face-level)
     boundary_zeros = _find_boundary_zeros(F, atol, w_scale)
+
+    # Check 3b: Precise boundary zeros (1D solver on faces that touch zero)
+    precise_zeros = _find_precise_boundary_zeros(F, atol, w_scale)
 
     # Check 4: Uniqueness certificate (2D only)
     if F.ndim == 2 and _check_uniqueness_2d(F):
         return Classification(
             kind=UNIQUE_ISOLATED,
             boundary_zeros=boundary_zeros,
+            precise_zeros=precise_zeros,
             notes="uniqueness certificate (Hessian PD + sign changes)",
         )
 
@@ -314,13 +464,29 @@ def classify_sq_dist_net(
         return Classification(
             kind=OVERLAP,
             boundary_zeros=boundary_zeros,
+            precise_zeros=precise_zeros,
             overlap_endpoints=endpoints,
             notes="opposite boundaries both zero, connecting net all below tolerance",
         )
+
+    # Check 5b: Overlap from precise boundary zeros via valley check.
+    # If boundary zeros exist on two DIFFERENT faces, step inward from each
+    # and verify F stays near zero. If confirmed → OVERLAP.
+    if len(precise_zeros) >= 2:
+        overlap_result = _check_overlap_valley(F, precise_zeros, atol, w_scale)
+        if overlap_result is not None:
+            return Classification(
+                kind=OVERLAP,
+                boundary_zeros=boundary_zeros,
+                precise_zeros=precise_zeros,
+                overlap_endpoints=overlap_result,
+                notes="valley check from precise boundary zeros",
+            )
 
     # Fallback
     return Classification(
         kind=INDETERMINATE,
         boundary_zeros=boundary_zeros,
+        precise_zeros=precise_zeros,
         notes="no conclusive classification",
     )
