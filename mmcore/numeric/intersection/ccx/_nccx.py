@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-
+from itertools import pairwise
 
 import numpy as np
 import dataclasses
@@ -227,7 +227,8 @@ def _nurbs_bvh_ccx(bvh1: BVH, bvh2: BVH, segms1: list[NURBSCurveTuple], segms2: 
     return ints
 def _is_rational(curve:NURBSCurveTuple):
     return not np.allclose(curve.weights,1)
-from mmcore.numeric.intersection.ccx._bez_ccx3 import bez_ccx,map_local_to_global,IsolatedIntersection,OverlapIntersection
+from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx
+from mmcore.numeric.intersection.ccx._bez_ccx3 import map_local_to_global,IsolatedIntersection,OverlapIntersection
 
 
 def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCurveTuple, tol: float = 1e-3,
@@ -274,9 +275,13 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
             isolated_xyz.append(inter['point'])
         overlap: OverlapIntersection
         for overlap in result['overlaps']:
-            overlaps_u.append(overlap['uv_path'][(0, -1), 0])
-            overlaps_v.append(overlap['uv_path'][(0, -1), 1])
-            overlaps_xyz.append(overlap['xyz_path'][(0, -1), :])
+            overlaps_u.append(overlap['u_range'])
+            overlaps_v.append(overlap['v_range'])
+            start_c1, endc1= evaluate_nurbs_curve( _c1, overlap['u_range'][0], d_order=0)['C'], \
+            evaluate_nurbs_curve(_c1, overlap['u_range'][1], d_order=0)["C"]
+
+
+            overlaps_xyz.append([ start_c1, endc1])
 
     if len(isolated_u) == 0:
         isolated = None
@@ -300,7 +305,25 @@ def nurbs_ccx(curve1: NURBSCurve | NURBSCurveTuple, curve2: NURBSCurve | NURBSCu
 
 
 
-def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_intersections:bool=False,**kwargs)-> tuple[ndarray[tuple[int], dtype[np.float64]], ndarray[
+from mmcore.numeric.ndinterval import interval,get_lu,get_iarray
+def interv_is_empty(i):
+    return np.isnan(i.norm())
+
+
+def interv_is_dot(i, rtol=1.e-5, atol=1.e-8, ):
+    return np.isclose(i.norm(), 0, rtol=rtol, atol=atol, equal_nan=False)
+
+
+def intersects(i1, i2, rtol=1.e-5, atol=1.e-8):
+    res = i1.intersection(i2)
+    if interv_is_empty(res):
+        return 0, res
+    elif interv_is_dot(i1, rtol, atol):
+        return 1, res
+    else:
+        return 2, res
+
+def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_intersections:bool=False,rational=False,**kwargs)-> tuple[ndarray[tuple[int], dtype[np.float64]], ndarray[
     tuple[int], dtype[np.float64]]] | None:
     counter=0
     segm_map:dict[int,int]=dict()
@@ -308,11 +331,11 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
         return segm_map[segment_index]
     segments=[]
     bbs=[]
-    rational=False
+
     dim=max(crv.control_points.shape[1] for crv in curves)
     for i in range(len(curves)):
-            if not rational:
-                rational=_is_rational(curves[i])
+            print(curves[i].interval())
+
             for segm in decompose_curve(curves[i]):
                 segm_map[counter]=i
                 counter+=1
@@ -344,9 +367,10 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
                 continue
             interval1=segm1.interval()
             interval2=segm2.interval()
+            print(interval1,interval2)
             lo = max(interval1[0], interval2[0])
             hi = min( interval1[1],  interval2[1])
-
+            print(lo,hi)
             if (False if lo >= hi else True):
                 continue
 
@@ -379,11 +403,31 @@ def nurbs_ccx_multiple(curves: list[NURBSCurveTuple], tol: float = 1e-3, self_in
                 isolated_crv2.append(curve2_i)
             overlap:OverlapIntersection
             for overlap in result['overlaps']:
-                overlaps_u.append(overlap['uv_path'][(0,-1),0])
-                overlaps_v.append(overlap['uv_path'][(0, -1), 1])
-                overlaps_xyz.append(overlap['xyz_path'][(0, -1), :])
-                overlaps_crv1.append(curve1_i)
-                overlaps_crv2.append(curve2_i)
+
+
+                (u0_glob, v0_glob), (u1_glob, v1_glob) = map_local_to_global(overlap['u_range'][0],
+                                                                             overlap['v_range'][0], *segm1.interval(),
+                                                                             *segm2.interval()), map_local_to_global(
+                    overlap['u_range'][1], overlap['v_range'][1], *segm1.interval(), *segm2.interval())
+                print(segm1.interval(), segm2.interval(),(overlap['u_range'][0],overlap['v_range'][0]),(overlap['u_range'][1],overlap['v_range'][1]),'->', (u0_glob, v0_glob), (u1_glob, v1_glob))
+
+                start_c1,start_c2=evaluate_nurbs_curve(segm1, u0_glob,d_order=0)['C']     ,     evaluate_nurbs_curve(segm2, v0_glob,d_order=0)["C"]
+                end_c1,end_c2 = evaluate_nurbs_curve(segm1, u1_glob, d_order=0)['C'],     evaluate_nurbs_curve(segm2, v1_glob,d_order=0)["C"]
+                if np.linalg.norm((start_c1-end_c1))<tol and  np.linalg.norm((start_c2-end_c2))<tol:
+                    isolated_u.append(u1_glob)
+                    isolated_v.append(v1_glob)
+                    isolated_xyz.append(end_c2)
+                    isolated_crv1.append(curve1_i)
+                    isolated_crv2.append(curve2_i)
+                else:
+                    overlaps_u.append([ u0_glob,u1_glob])
+                    overlaps_v.append([v0_glob, v1_glob])
+
+                    overlaps_xyz.append([start_c1,end_c2])
+                    overlaps_crv1.append(curve1_i)
+                    overlaps_crv2.append(curve2_i)
+
+
     if len(isolated_u)==0 :
             isolated=None
     else:

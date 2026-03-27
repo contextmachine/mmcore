@@ -1,8 +1,9 @@
 import itertools
 
 import numpy as np
-from mmcore.geom._nurbs_eval import NURBSCurveTuple
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.geom.curves.deboor import evaluate_nurbs
 
 val = [ NURBSCurveTuple(
     order=19,
@@ -202,7 +203,8 @@ parser.add_argument('--no-display', action='store_true')
 args=parser.parse_args()
 
 
-isolated,overlaps=nurbs_ccx_multiple(val,tol=1e-3)
+isolated,overlaps=nurbs_ccx_multiple(val,tol=1e-3,rational=True)
+print(isolated,overlaps)
 #print(isolated['point'].tolist())
 if args.no_display:
     print(isolated)
@@ -216,14 +218,13 @@ else:
 
         viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
     if overlaps is not None:
+
+
         for start,end in overlaps['point']:
             viewer.add(start, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
             viewer.add(end, color=(0.0, 1.0, 0.5, 1.0), size_px=13)
-        print(overlaps.dtype)
-        for o in overlaps:
-            t0, s0 = o['u'][0],o['v'][0]
-            t1, s1 = o['u'][-1],o['v'][-1]
 
-            viewer.add(trim_curve(val[o['curve1_i']], t0, t1),color=(0.0, 1.0, 0.5, 1.0))
+
+
 
     viewer.run()

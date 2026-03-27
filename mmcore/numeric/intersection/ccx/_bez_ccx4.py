@@ -18,7 +18,7 @@ from mmcore.numeric.intersection._sq_dist_classify import (
     UNIQUE_ISOLATED,
     OVERLAP,
     INDETERMINATE,
-    BoundaryZero,
+    BoundaryZero, _boundary_zero_to_param_point,
 )
 
 
@@ -207,10 +207,12 @@ def bez_ccx(
                 if not isinstance(bz, BoundaryZero):
                     continue
                 u_seed, v_seed = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
+                print(  u_seed, v_seed ,cls)
                 u_sol, v_sol, G, converged = newton_ccx(
                     C1_orig, C2_orig, u_seed, v_seed,
                     rational=rational, tol=atol * 1e-2,
                 )
+                print( u_sol, v_sol, G, converged)
                 if converged and float(np.linalg.norm(G)) < atol:
                     pt = eval_curve(C1_orig, u_sol, rational=rational)
                     if not _is_duplicate(isolated, pt, atol):
