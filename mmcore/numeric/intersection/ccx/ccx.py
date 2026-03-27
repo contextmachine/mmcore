@@ -104,13 +104,11 @@ def ccx(curve1, curve2, tol: float = 0.001):
         []
 
     """
+
     if isinstance(curve1, (NURBSCurve,NURBSCurveTuple)) and isinstance(curve2,  (NURBSCurve,NURBSCurveTuple)):
         return nurbs_ccx(curve1, curve2, tol=tol)
     
-    if isinstance(curve1, NURBSCurveTuple):
-        curve1=_tuple_to_nurbs(curve1)
-    if isinstance(curve2, NURBSCurveTuple):
-        curve1=_tuple_to_nurbs(curve2)
+
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
         return curve_pix(curve2, curve1)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):

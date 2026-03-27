@@ -106,7 +106,7 @@ def point_surface_distance_squared_net_homog(
         F[r, :] = ConvV @ Tu[r].ravel()
     return F
 
-def curve_curve_squared_net_homog(P: np.ndarray, Q: np.ndarray, rational: bool | None = True) -> np.ndarray:
+def curve_curve_squared_net_homog(P: np.ndarray, Q: np.ndarray, rational: bool = True) -> np.ndarray:
     r"""Squared numerator net for ``||C1-C2||^2`` with homogeneous inputs.
 
     We avoid dehomogenization by cross-multiplying weights::

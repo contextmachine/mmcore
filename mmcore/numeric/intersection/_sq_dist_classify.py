@@ -332,7 +332,7 @@ def _boundary_zero_to_param_point(bz: BoundaryZero, ndim: int) -> list[float]:
 
 
 def _check_overlap_valley(F: NDArray, precise_zeros: list, atol: float,
-                          w_scale: float) -> list | None:
+                          w_scale: float) -> list :
     """Check if boundary zeros are connected by a valley where F stays near zero.
 
     For each pair of boundary zeros on DIFFERENT faces:
