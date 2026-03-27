@@ -18,7 +18,7 @@ from mmcore.numeric.intersection._sq_dist_classify import (
     UNIQUE_ISOLATED,
     OVERLAP,
     INDETERMINATE,
-    BoundaryZero,
+    BoundaryZero, _boundary_zero_to_param_point,
 )
 
 
@@ -61,19 +61,6 @@ def _subdivide_sq_dist_net(F, axis, t=0.5):
     Fv = F[..., np.newaxis]
     left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
     return left_v[..., 0], right_v[..., 0]
-
-
-def _param_tolerance(C, t, atol, rational):
-    """Estimate parameter-space tolerance: how much parameter change ≈ atol in geometry.
-
-    Returns dt such that ||C(t+dt) - C(t)|| ≈ atol, using ||C'(t)|| as the speed.
-    """
-    from mmcore.numeric.intersection._bezier_common import eval_curve_d1
-    _, d = eval_curve_d1(C, np.clip(t, 0.001, 0.999), rational=rational)
-    speed = float(np.linalg.norm(d))
-    if speed < 1e-14:
-        return atol  # degenerate — use atol directly
-    return atol / speed
 
 
 def _boundary_zero_to_uv(bz: BoundaryZero, u0: float, u1: float, v0: float, v1: float) -> tuple[float, float]:
@@ -214,49 +201,22 @@ def bez_ccx(
             continue
 
         # Before subdividing: if the classifier found precise boundary zeros,
-        # accept them as isolated intersections, then shrink the domain to
-        # exclude those boundaries so subdivision never revisits them.
-        # This handles tangential endpoint intersections that cannot be
-        # resolved by further subdivision.
-        padded_u0, padded_u1 = u0, u1
-        padded_v0, padded_v1 = v0, v1
+        # use them as Newton seeds for isolated intersection points.
         if cls.precise_zeros:
-            found_boundary_iso = False
             for bz in cls.precise_zeros:
                 if not isinstance(bz, BoundaryZero):
                     continue
                 u_seed, v_seed = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
+                print(  u_seed, v_seed ,cls)
                 u_sol, v_sol, G, converged = newton_ccx(
                     C1_orig, C2_orig, u_seed, v_seed,
                     rational=rational, tol=atol * 1e-2,
                 )
+                print( u_sol, v_sol, G, converged)
                 if converged and float(np.linalg.norm(G)) < atol:
                     pt = eval_curve(C1_orig, u_sol, rational=rational)
                     if not _is_duplicate(isolated, pt, atol):
                         isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-                        found_boundary_iso = True
-
-                    # Only pad the domain for corner intersections (tangential
-                    # endpoint case). A corner means bz.param is near 0 or 1,
-                    # i.e., the zero sits at a vertex of the parameter domain.
-                    # Interior boundary zeros (param well inside [0,1]) are
-                    # regular intersections that shouldn't be excluded.
-                    is_corner = (bz.param < 0.01 or bz.param > 0.99)
-                    if is_corner:
-                        eps_u = _param_tolerance(C1_orig, u_sol, atol, rational)
-                        eps_v = _param_tolerance(C2_orig, v_sol, atol, rational)
-                        if bz.axis == 0 and bz.side == 0:
-                            padded_u0 = max(padded_u0, u0 + eps_u)
-                        elif bz.axis == 0 and bz.side == 1:
-                            padded_u1 = min(padded_u1, u1 - eps_u)
-                        elif bz.axis == 1 and bz.side == 0:
-                            padded_v0 = max(padded_v0, v0 + eps_v)
-                        elif bz.axis == 1 and bz.side == 1:
-                            padded_v1 = min(padded_v1, v1 - eps_v)
-
-            # If padding collapsed the domain, no room left — done with this cell
-            if padded_u0 >= padded_u1 or padded_v0 >= padded_v1:
-                continue
 
         # INDETERMINATE -> subdivide
         if depth >= max_depth:
@@ -274,9 +234,8 @@ def bez_ccx(
             continue
 
         # Choose subdivision axis: split along the axis with larger param span
-        # Use padded bounds so we exclude already-extracted boundary intersections
-        u_span = padded_u1 - padded_u0
-        v_span = padded_v1 - padded_v0
+        u_span = u1 - u0
+        v_span = v1 - v0
         axis = 0 if u_span >= v_span else 1
 
         if axis == 0:
@@ -293,13 +252,8 @@ def bez_ccx(
                 pw_left = np.ones(seg1_left.shape[0], dtype=np.float64)
                 pw_right = np.ones(seg1_right.shape[0], dtype=np.float64)
 
-            # Apply padded bounds to children: if u0 was padded, use padded_u0 for the left child
-            child_u0_L = max(padded_u0, u0)
-            child_u1_R = min(padded_u1, u1)
-            child_v0 = max(padded_v0, v0)
-            child_v1 = min(padded_v1, v1)
-            stack.append((seg1_left, seg2.copy(), F_left, pw_left, qw.copy(), child_u0_L, u_mid, child_v0, child_v1, depth + 1))
-            stack.append((seg1_right, seg2.copy(), F_right, pw_right, qw.copy(), u_mid, child_u1_R, child_v0, child_v1, depth + 1))
+            stack.append((seg1_left, seg2.copy(), F_left, pw_left, qw.copy(), u0, u_mid, v0, v1, depth + 1))
+            stack.append((seg1_right, seg2.copy(), F_right, pw_right, qw.copy(), u_mid, u1, v0, v1, depth + 1))
         else:
             # Subdivide C2 (axis 1 of the sq-dist net)
             v_mid = 0.5 * (v0 + v1)
@@ -314,12 +268,8 @@ def bez_ccx(
                 qw_left = np.ones(seg2_left.shape[0], dtype=np.float64)
                 qw_right = np.ones(seg2_right.shape[0], dtype=np.float64)
 
-            child_u0 = max(padded_u0, u0)
-            child_u1 = min(padded_u1, u1)
-            child_v0_L = max(padded_v0, v0)
-            child_v1_R = min(padded_v1, v1)
-            stack.append((seg1.copy(), seg2_left, F_left, pw.copy(), qw_left, child_u0, child_u1, child_v0_L, v_mid, depth + 1))
-            stack.append((seg1.copy(), seg2_right, F_right, pw.copy(), qw_right, child_u0, child_u1, v_mid, child_v1_R, depth + 1))
+            stack.append((seg1.copy(), seg2_left, F_left, pw.copy(), qw_left, u0, u1, v0, v_mid, depth + 1))
+            stack.append((seg1.copy(), seg2_right, F_right, pw.copy(), qw_right, u0, u1, v_mid, v1, depth + 1))
 
     isolated, overlaps = _postprocess(isolated, overlaps, C1_orig, C2_orig, atol, rational)
     return {"isolated": isolated, "overlaps": overlaps}
@@ -378,17 +328,6 @@ def _postprocess(isolated, overlaps, C1, C2, atol, rational):
     3. Removes isolated points that are geometrically duplicated by a
        verified overlap range.
     """
-    # Always dedup isolated points (boundary-zero seeding can produce
-    # multiple Newton solutions that land on the same geometric point,
-    # especially near tangencies where the zero is wide)
-    if isolated:
-        deduped = [isolated[0]]
-        for iso in isolated[1:]:
-            pt = np.asarray(iso["point"])
-            if not any(np.linalg.norm(np.asarray(d["point"]) - pt) < atol * 3 for d in deduped):
-                deduped.append(iso)
-        isolated = deduped
-
     if not overlaps:
         return isolated, overlaps
 

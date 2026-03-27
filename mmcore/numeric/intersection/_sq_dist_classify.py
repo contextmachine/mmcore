@@ -106,6 +106,7 @@ def _find_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list:
         bnd_scalar = _squeeze_value_dim(bnd_grid)
         if float(np.min(bnd_scalar)) < threshold:
             zeros.append((axis, side))
+    print(atol,w_scale,F, zeros)
     return zeros
 
 
@@ -387,24 +388,8 @@ def _check_overlap_valley(F: NDArray, precise_zeros: list, atol: float,
             val_step_a = float(bernstein_eval_nd(Fv, tuple(step_a)).squeeze())
             val_step_b = float(bernstein_eval_nd(Fv, tuple(step_b)).squeeze())
 
-            # Check midpoint of the connecting line.
-            # A true overlap valley runs through the interior — the midpoint
-            # must be strictly inside [0,1]^N (not on any boundary face).
-            # This rejects "valleys" that run along a boundary face itself.
-            mid_pt = [0.5 * (pt_a[k] + pt_b[k]) for k in range(ndim)]
-            margin = 0.02
-            mid_is_interior = all(margin < mid_pt[k] < 1.0 - margin for k in range(ndim))
-            if not mid_is_interior:
-                continue
-
-            # True overlap stays near zero throughout
-            mid_pt_clamped = [max(0.0, min(1.0, x)) for x in mid_pt]
-            val_mid = float(bernstein_eval_nd(Fv, tuple(mid_pt_clamped)).squeeze())
-
-            # Valley check: F stays near zero at both steps AND at midpoint
-            if (abs(val_step_a) < threshold * 100 and
-                abs(val_step_b) < threshold * 100 and
-                abs(val_mid) < threshold * 100):
+            # Valley check: F stays near zero after stepping along the valley
+            if abs(val_step_a) < threshold * 100 and abs(val_step_b) < threshold * 100:
                 return [bz_a, bz_b]
 
     return None
@@ -467,6 +452,7 @@ def classify_sq_dist_net(
 
     # Check 4: Uniqueness certificate (2D only)
     if F.ndim == 2 and _check_uniqueness_2d(F):
+        print('Uniqueness')
         return Classification(
             kind=UNIQUE_ISOLATED,
             boundary_zeros=boundary_zeros,
@@ -476,6 +462,7 @@ def classify_sq_dist_net(
 
     # Check 5: Overlap certificate
     is_overlap, endpoints = _check_overlap(F, atol, w_scale, boundary_zeros)
+    print('is_overlap')
     if is_overlap:
         return Classification(
             kind=OVERLAP,
@@ -489,7 +476,9 @@ def classify_sq_dist_net(
     # If boundary zeros exist on two DIFFERENT faces, step inward from each
     # and verify F stays near zero. If confirmed → OVERLAP.
     if len(precise_zeros) >= 2:
+
         overlap_result = _check_overlap_valley(F, precise_zeros, atol, w_scale)
+
         if overlap_result is not None:
             return Classification(
                 kind=OVERLAP,
