@@ -155,16 +155,17 @@ def bez_ccx(
             continue
 
         elif cls.kind == UNIQUE_ISOLATED:
-            # Newton refine on ORIGINAL curves with global param guess
+            # Newton refine on ORIGINAL curves with global param guess.
+            # The classifier proved uniqueness, so accept if residual < atol
+            # (Newton's internal tol may be unreachable for imprecise inputs).
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
             u_sol, v_sol, G, converged = newton_ccx(
                 C1_orig, C2_orig, u_mid, v_mid,
                 rational=rational, tol=atol * 1e-2,
             )
-            if converged:
+            if float(np.linalg.norm(G)) < atol:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
-                # Deduplication: skip if close to an existing point
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
             continue
@@ -202,18 +203,19 @@ def bez_ccx(
 
         # Before subdividing: if the classifier found precise boundary zeros,
         # use them as Newton seeds for isolated intersection points.
+        # Accept based on residual < atol (not Newton's internal convergence),
+        # because boundary intersections often can't reach tol=1e-7 due to
+        # evaluation precision at curve endpoints.
         if cls.precise_zeros:
             for bz in cls.precise_zeros:
                 if not isinstance(bz, BoundaryZero):
                     continue
                 u_seed, v_seed = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
-                print(  u_seed, v_seed ,cls)
                 u_sol, v_sol, G, converged = newton_ccx(
                     C1_orig, C2_orig, u_seed, v_seed,
                     rational=rational, tol=atol * 1e-2,
                 )
-                print( u_sol, v_sol, G, converged)
-                if converged and float(np.linalg.norm(G)) < atol:
+                if float(np.linalg.norm(G)) < atol:
                     pt = eval_curve(C1_orig, u_sol, rational=rational)
                     if not _is_duplicate(isolated, pt, atol):
                         isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
@@ -227,7 +229,7 @@ def bez_ccx(
                 C1_orig, C2_orig, u_mid, v_mid,
                 rational=rational, tol=atol * 1e-2,
             )
-            if converged and float(np.linalg.norm(G)) < atol:
+            if float(np.linalg.norm(G)) < atol:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})

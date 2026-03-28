@@ -106,7 +106,6 @@ def _find_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list:
         bnd_scalar = _squeeze_value_dim(bnd_grid)
         if float(np.min(bnd_scalar)) < threshold:
             zeros.append((axis, side))
-    print(atol,w_scale,F, zeros)
     return zeros
 
 
@@ -452,7 +451,6 @@ def classify_sq_dist_net(
 
     # Check 4: Uniqueness certificate (2D only)
     if F.ndim == 2 and _check_uniqueness_2d(F):
-        print('Uniqueness')
         return Classification(
             kind=UNIQUE_ISOLATED,
             boundary_zeros=boundary_zeros,
@@ -462,7 +460,6 @@ def classify_sq_dist_net(
 
     # Check 5: Overlap certificate
     is_overlap, endpoints = _check_overlap(F, atol, w_scale, boundary_zeros)
-    print('is_overlap')
     if is_overlap:
         return Classification(
             kind=OVERLAP,
