@@ -183,7 +183,13 @@ def bez_ccx(
             # for both curves. This means Newton has converged in the
             # parameter-space sense — further iteration can't improve
             # the result by more than atol geometrically.
-            if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
+            # Guard: a zero step means Newton was stuck at the boundary
+            # (clamped), not that it converged. Require actual progress.
+            # Guard: a zero step at a non-zero residual means Newton was stuck
+            # at the clamped boundary, not that it converged.
+            step_norm = abs(last_step[0]) + abs(last_step[1])
+            residual_ok = float(np.linalg.norm(G)) < atol
+            if (step_norm > 0 or residual_ok) and abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
@@ -242,7 +248,11 @@ def bez_ccx(
             u_sol, v_sol, G, last_step = newton_ccx(
                 C1_orig, C2_orig, u_mid, v_mid, rational=rational,
             )
-            if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
+            # Guard: a zero step at a non-zero residual means Newton was stuck
+            # at the clamped boundary, not that it converged.
+            step_norm = abs(last_step[0]) + abs(last_step[1])
+            residual_ok = float(np.linalg.norm(G)) < atol
+            if (step_norm > 0 or residual_ok) and abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
