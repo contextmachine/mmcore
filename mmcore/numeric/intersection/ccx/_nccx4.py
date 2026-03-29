@@ -13,39 +13,180 @@ from mmcore.geom._nurbs_eval import (
     NURBSCurveTuple, to_homogeneous_1d, _nurbs_to_tuple,
 )
 from mmcore.geom._nurbs_knots import decompose_curve
-from mmcore.geom.bvh.lbvh import BVH, build_bvh, AABB, bvh_intersect
-
+from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+from mmcore.geom.bvh.lbvh import build_bvh, AABB, bvh_intersect
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
-from mmcore.numeric.intersection.ccx._nccx import (
-    _ccx_isolated_dtype, _ccx_overlap_dtype,
-    _multiple_ccx_isolated_dtype, _multiple_ccx_overlap_dtype,
-    _is_rational,
-)
+from mmcore.numeric.intersection._bezier_common import eval_curve
+
+# ---------------------------------------------------------------------------
+# Dtypes (self-contained, no dependency on _nccx.py)
+# ---------------------------------------------------------------------------
+
+_ccx_isolated_dtype = lambda dim: [
+    ('u', np.float64), ('v', np.float64), ('point', np.float64, (dim,)),
+]
+_ccx_overlap_dtype = lambda dim: [
+    ('u', np.float64, (2,)), ('v', np.float64, (2,)), ('point', np.float64, (2, dim)),
+]
+_curves_ref_dtype = [('curve1_i', np.uint64), ('curve2_i', np.uint64)]
+_multiple_ccx_isolated_dtype = lambda dim: _ccx_isolated_dtype(dim) + _curves_ref_dtype
+_multiple_ccx_overlap_dtype = lambda dim: _ccx_overlap_dtype(dim) + _curves_ref_dtype
+
+
+def _is_rational(curve: NURBSCurveTuple) -> bool:
+    return not np.allclose(curve.weights, 1.0)
 
 
 def _map_local_to_global(u_loc, v_loc, u0, u1, v0, v1):
     return (u0 + (u1 - u0) * u_loc, v0 + (v1 - v0) * v_loc)
 
 
+# ---------------------------------------------------------------------------
+# Parametric deduplication
+# ---------------------------------------------------------------------------
+
+def _dedup_isolated(entries, curves, tol):
+    """Deduplicate isolated intersections using parametric tolerances.
+
+    Duplicates arise only at Bezier span boundaries: decompose_curve splits
+    at knots, so the same knot-intersection appears from both adjacent
+    segments.  We group by canonical curve pair, compute the parametric
+    tolerance for each curve, and merge entries whose parameters on BOTH
+    curves are within their respective tolerances.
+
+    Parameters
+    ----------
+    entries : list[dict]
+        Raw results, each with keys 'u', 'v', 'curve1_i', 'curve2_i', 'point'.
+        The 'u' param is on curve1_i, 'v' is on curve2_i, in GLOBAL NURBS
+        parameter space.
+    curves : list[NURBSCurveTuple]
+        The original NURBS curves (for parametric tolerance computation).
+    tol : float
+        Geometric tolerance (atol).
+
+    Returns
+    -------
+    list[dict]
+        Deduplicated entries.
+    """
+    if len(entries) <= 1:
+        return entries
+
+    # Pre-compute parametric tolerance for each curve
+    ptols = {}
+    for e in entries:
+        for ci in (e['curve1_i'], e['curve2_i']):
+            if ci not in ptols:
+                ptols[ci] = float(nurbs_curve_param_tolerance(curves[ci], tol))
+
+    # Canonicalize: ensure curve1_i < curve2_i, swapping u/v if needed
+    canonical = []
+    for e in entries:
+        c1, c2 = int(e['curve1_i']), int(e['curve2_i'])
+        u, v = float(e['u']), float(e['v'])
+        pt = e['point']
+        if c1 <= c2:
+            canonical.append((c1, c2, u, v, pt))
+        else:
+            canonical.append((c2, c1, v, u, pt))
+
+    # Sort by (curve pair, u parameter)
+    canonical.sort(key=lambda x: (x[0], x[1], x[2]))
+
+    # Walk and merge within each curve pair
+    kept = [canonical[0]]
+    for entry in canonical[1:]:
+        c1, c2, u, v, pt = entry
+        prev_c1, prev_c2, prev_u, prev_v, prev_pt = kept[-1]
+
+        if c1 == prev_c1 and c2 == prev_c2:
+            ptol_a = ptols[c1]
+            ptol_b = ptols[c2]
+            if abs(u - prev_u) < ptol_a and abs(v - prev_v) < ptol_b:
+                # Duplicate — skip (keep the earlier one, which was sorted first)
+                continue
+
+        kept.append(entry)
+
+    # Convert back to dict format (un-canonicalize is not needed —
+    # the canonical order is fine for the output)
+    result = []
+    for c1, c2, u, v, pt in kept:
+        result.append({
+            'u': u, 'v': v, 'point': pt,
+            'curve1_i': c1, 'curve2_i': c2,
+        })
+    return result
+
+
+def _dedup_isolated_pair(entries, curve1, curve2, tol):
+    """Deduplicate isolated intersections for a single curve pair (nurbs_ccx).
+
+    Same logic as _dedup_isolated but for two specific curves,
+    without curve indices.
+    """
+    if len(entries) <= 1:
+        return entries
+
+    ptol_u = float(nurbs_curve_param_tolerance(curve1, tol))
+    ptol_v = float(nurbs_curve_param_tolerance(curve2, tol))
+
+    # Sort by u
+    sorted_entries = sorted(entries, key=lambda e: e['u'])
+
+    kept = [sorted_entries[0]]
+    for entry in sorted_entries[1:]:
+        prev = kept[-1]
+        if abs(entry['u'] - prev['u']) < ptol_u and abs(entry['v'] - prev['v']) < ptol_v:
+            continue
+        kept.append(entry)
+
+    return kept
+
+
+# ---------------------------------------------------------------------------
+# nurbs_ccx: two-curve intersection
+# ---------------------------------------------------------------------------
+
 def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
+    """Find all intersections between two NURBS curves.
+
+    Parameters
+    ----------
+    curve1, curve2 : NURBSCurve or NURBSCurveTuple
+    tol : float
+        Geometric tolerance.
+
+    Returns
+    -------
+    isolated : ndarray or None
+        Structured array with fields 'u', 'v', 'point'.
+    overlaps : ndarray or None
+        Structured array with fields 'u', 'v', 'point' (endpoint pairs).
+    """
     dim = max(crv.control_points.shape[1] for crv in (curve1, curve2))
     if isinstance(curve1, NURBSCurve):
         curve1 = _nurbs_to_tuple(curve1)
     if isinstance(curve2, NURBSCurve):
         curve2 = _nurbs_to_tuple(curve2)
+
     curves1 = decompose_curve(curve1)
     curves2 = decompose_curve(curve2)
 
-    bvh1 = build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves1])
-    bvh2 = build_bvh([AABB.from_points(crv.control_points).offset(tol) for crv in curves2])
-    isolated_u, isolated_v, isolated_xyz = [], [], []
-    overlaps_u, overlaps_v, overlaps_xyz = [], [], []
+    bvh1 = build_bvh([AABB.from_points(c.control_points).offset(tol) for c in curves1])
+    bvh2 = build_bvh([AABB.from_points(c.control_points).offset(tol) for c in curves2])
 
-    rational = any((_is_rational(curve1), _is_rational(curve2)))
+    # Per-pair rationality
+    rational = _is_rational(curve1) or _is_rational(curve2)
+
+    raw_isolated = []
+    raw_overlaps_u, raw_overlaps_v, raw_overlaps_xyz = [], [], []
 
     for a, b in bvh_intersect(bvh1, bvh2, exact=False):
         _c1 = curves1[a.object]
         _c2 = curves2[b.object]
+
         if rational:
             pts1 = to_homogeneous_1d(_c1.control_points, _c1.weights)
             pts2 = to_homogeneous_1d(_c2.control_points, _c2.weights)
@@ -56,53 +197,80 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
         result = bez_ccx_v4(pts1, pts2, atol=tol, rational=rational)
 
         for inter in result['isolated']:
-            u, v = inter['u'], inter['v']
-            u_glob, v_glob = _map_local_to_global(u, v, *_c1.interval(), *_c2.interval())
-            isolated_u.append(u_glob)
-            isolated_v.append(v_glob)
-            isolated_xyz.append(inter['point'])
+            u_glob, v_glob = _map_local_to_global(
+                inter['u'], inter['v'], *_c1.interval(), *_c2.interval(),
+            )
+            raw_isolated.append({'u': u_glob, 'v': v_glob, 'point': inter['point']})
 
         for overlap in result['overlaps']:
-            # v4 overlaps have u_range/v_range instead of uv_path/xyz_path.
-            # Extract endpoints and map to global params.
             ur = overlap.get('u_range', (0.0, 1.0))
             vr = overlap.get('v_range', (0.0, 1.0))
             u0g, v0g = _map_local_to_global(ur[0], vr[0], *_c1.interval(), *_c2.interval())
             u1g, v1g = _map_local_to_global(ur[1], vr[1], *_c1.interval(), *_c2.interval())
-            overlaps_u.append([u0g, u1g])
-            overlaps_v.append([v0g, v1g])
-            # Evaluate endpoints geometrically
-            from mmcore.numeric.intersection._bezier_common import eval_curve
+            raw_overlaps_u.append([u0g, u1g])
+            raw_overlaps_v.append([v0g, v1g])
             pt0 = eval_curve(pts1, ur[0], rational=rational)
             pt1 = eval_curve(pts1, ur[1], rational=rational)
-            overlaps_xyz.append([pt0, pt1])
+            raw_overlaps_xyz.append([pt0, pt1])
 
-    if len(isolated_u) == 0:
+    # Dedup isolated
+    deduped = _dedup_isolated_pair(raw_isolated, curve1, curve2, tol)
+
+    # Pack into structured arrays
+    if not deduped:
         isolated = None
     else:
-        isolated = np.zeros(len(isolated_u), dtype=_ccx_isolated_dtype(dim))
-        isolated['u'] = isolated_u
-        isolated['v'] = isolated_v
-        isolated['point'] = isolated_xyz
+        isolated = np.zeros(len(deduped), dtype=_ccx_isolated_dtype(dim))
+        isolated['u'] = [e['u'] for e in deduped]
+        isolated['v'] = [e['v'] for e in deduped]
+        isolated['point'] = [e['point'] for e in deduped]
 
-    if len(overlaps_u) == 0:
+    if not raw_overlaps_u:
         overlaps = None
     else:
-        overlaps = np.zeros(len(overlaps_u), dtype=_ccx_overlap_dtype(dim))
-        overlaps['u'] = overlaps_u
-        overlaps['v'] = overlaps_v
-        overlaps['point'] = overlaps_xyz
+        overlaps = np.zeros(len(raw_overlaps_u), dtype=_ccx_overlap_dtype(dim))
+        overlaps['u'] = raw_overlaps_u
+        overlaps['v'] = raw_overlaps_v
+        overlaps['point'] = raw_overlaps_xyz
 
     return isolated, overlaps
 
 
-def nurbs_ccx_multiple(curves, tol: float = 1e-3, self_intersections: bool = False, **kwargs):
+# ---------------------------------------------------------------------------
+# nurbs_ccx_multiple: multi-curve intersection
+# ---------------------------------------------------------------------------
+
+def nurbs_ccx_multiple(
+    curves: list[NURBSCurveTuple],
+    tol: float = 1e-3,
+    self_intersections: bool = False,
+    **kwargs,
+):
+    """Find all pairwise intersections among multiple NURBS curves.
+
+    Parameters
+    ----------
+    curves : list[NURBSCurveTuple]
+    tol : float
+        Geometric tolerance.
+    self_intersections : bool
+        Whether to check for self-intersections within each curve.
+
+    Returns
+    -------
+    isolated : ndarray or None
+        Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
+    overlaps : ndarray or None
+        Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
+    """
+    dim = max(crv.control_points.shape[1] for crv in curves)
+
+    # Decompose all curves into Bezier segments, build segment map
     counter = 0
-    segm_map = {}
+    segm_map = {}        # segment_index -> curve_index
     segments = []
     bbs = []
     rational = False
-    dim = max(crv.control_points.shape[1] for crv in curves)
 
     for i in range(len(curves)):
         if not rational:
@@ -117,8 +285,9 @@ def nurbs_ccx_multiple(curves, tol: float = 1e-3, self_intersections: bool = Fal
 
     bvh = build_bvh(bbs)
     int_candidates = bvh.build_intersection_leaves_pairs(exact=False)
-    isolated_u, isolated_v, isolated_xyz, isolated_crv1, isolated_crv2 = [], [], [], [], []
-    overlaps_u, overlaps_v, overlaps_xyz, overlaps_crv1, overlaps_crv2 = [], [], [], [], []
+
+    raw_isolated = []
+    raw_overlaps = []
 
     for first, second in int_candidates:
         segm1_i = bvh.nodes[first].object
@@ -128,9 +297,11 @@ def nurbs_ccx_multiple(curves, tol: float = 1e-3, self_intersections: bool = Fal
         curve1_i = segm_map[segm1_i]
         curve2_i = segm_map[segm2_i]
 
+        # Self-intersection filtering
         if curve1_i == curve2_i:
             if not self_intersections:
                 continue
+            # Skip segments that share a parameter interval (same segment)
             interval1 = segm1.interval()
             interval2 = segm2.interval()
             lo = max(interval1[0], interval2[0])
@@ -138,6 +309,10 @@ def nurbs_ccx_multiple(curves, tol: float = 1e-3, self_intersections: bool = Fal
             if lo < hi:
                 continue
 
+        # Per-pair rationality would be ideal, but the BVH loop checks many
+        # pairs from different curves. For now, use the global flag. If only
+        # a few curves are rational, the overhead is in to_homogeneous_1d
+        # (cheap) not in bez_ccx itself.
         if rational:
             pts1 = to_homogeneous_1d(segm1.control_points, segm1.weights)
             pts2 = to_homogeneous_1d(segm2.control_points, segm2.weights)
@@ -148,46 +323,50 @@ def nurbs_ccx_multiple(curves, tol: float = 1e-3, self_intersections: bool = Fal
         result = bez_ccx_v4(pts1, pts2, atol=tol, rational=rational)
 
         for inter in result['isolated']:
-            u, v = inter['u'], inter['v']
-            u_glob, v_glob = _map_local_to_global(u, v, *segm1.interval(), *segm2.interval())
-            isolated_u.append(u_glob)
-            isolated_v.append(v_glob)
-            isolated_xyz.append(inter['point'])
-            isolated_crv1.append(curve1_i)
-            isolated_crv2.append(curve2_i)
+            u_glob, v_glob = _map_local_to_global(
+                inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
+            )
+            raw_isolated.append({
+                'u': u_glob, 'v': v_glob,
+                'point': inter['point'],
+                'curve1_i': curve1_i, 'curve2_i': curve2_i,
+            })
 
         for overlap in result['overlaps']:
             ur = overlap.get('u_range', (0.0, 1.0))
             vr = overlap.get('v_range', (0.0, 1.0))
             u0g, v0g = _map_local_to_global(ur[0], vr[0], *segm1.interval(), *segm2.interval())
             u1g, v1g = _map_local_to_global(ur[1], vr[1], *segm1.interval(), *segm2.interval())
-            overlaps_u.append([u0g, u1g])
-            overlaps_v.append([v0g, v1g])
-            from mmcore.numeric.intersection._bezier_common import eval_curve
             pt0 = eval_curve(pts1, ur[0], rational=rational)
             pt1 = eval_curve(pts1, ur[1], rational=rational)
-            overlaps_xyz.append([pt0, pt1])
-            overlaps_crv1.append(curve1_i)
-            overlaps_crv2.append(curve2_i)
+            raw_overlaps.append({
+                'u': [u0g, u1g], 'v': [v0g, v1g],
+                'point': [pt0, pt1],
+                'curve1_i': curve1_i, 'curve2_i': curve2_i,
+            })
 
-    if len(isolated_u) == 0:
+    # Dedup isolated using parametric tolerances
+    deduped = _dedup_isolated(raw_isolated, curves, tol)
+
+    # Pack into structured arrays
+    if not deduped:
         isolated = None
     else:
-        isolated = np.zeros(len(isolated_u), dtype=_multiple_ccx_isolated_dtype(dim))
-        isolated['u'] = isolated_u
-        isolated['v'] = isolated_v
-        isolated['point'] = isolated_xyz
-        isolated['curve1_i'] = isolated_crv1
-        isolated['curve2_i'] = isolated_crv2
+        isolated = np.zeros(len(deduped), dtype=_multiple_ccx_isolated_dtype(dim))
+        isolated['u'] = [e['u'] for e in deduped]
+        isolated['v'] = [e['v'] for e in deduped]
+        isolated['point'] = [e['point'] for e in deduped]
+        isolated['curve1_i'] = [e['curve1_i'] for e in deduped]
+        isolated['curve2_i'] = [e['curve2_i'] for e in deduped]
 
-    if len(overlaps_u) == 0:
+    if not raw_overlaps:
         overlaps = None
     else:
-        overlaps = np.zeros(len(overlaps_u), dtype=_multiple_ccx_overlap_dtype(dim))
-        overlaps['u'] = overlaps_u
-        overlaps['v'] = overlaps_v
-        overlaps['point'] = overlaps_xyz
-        overlaps['curve1_i'] = overlaps_crv1
-        overlaps['curve2_i'] = overlaps_crv2
+        overlaps = np.zeros(len(raw_overlaps), dtype=_multiple_ccx_overlap_dtype(dim))
+        overlaps['u'] = [e['u'] for e in raw_overlaps]
+        overlaps['v'] = [e['v'] for e in raw_overlaps]
+        overlaps['point'] = [e['point'] for e in raw_overlaps]
+        overlaps['curve1_i'] = [e['curve1_i'] for e in raw_overlaps]
+        overlaps['curve2_i'] = [e['curve2_i'] for e in raw_overlaps]
 
     return isolated, overlaps
