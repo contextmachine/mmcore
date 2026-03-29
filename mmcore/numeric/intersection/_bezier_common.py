@@ -214,37 +214,28 @@ def _clamp01(x: float) -> float:
 def newton_ccx(
     C1, C2, u0: float, v0: float, *,
     rational: bool = False,
-    tol: float = 1e-7,
-    max_it: int = 20,
+    tol: float = 1e-14,
+    step_tol: float = 1e-14,
+    max_it: int = 30,
     lm_damp: float = 1e-12,
 ):
     """LM-damped Newton for G(u,v) = C1(u) - C2(v) = 0.
 
-    Parameters
-    ----------
-    C1, C2 : ndarray
-        Control polygons of the two Bezier curves.
-    u0, v0 : float
-        Initial parameter guesses.
-    rational : bool
-        Whether the control nets are homogeneous.
-    tol : float
-        Convergence tolerance on ||G|| (residual norm).
-    max_it : int
-        Maximum Newton iterations.
-    lm_damp : float
-        Levenberg-Marquardt damping factor.
+    Runs until residual < tol, step < step_tol, line search fails, or max_it.
 
     Returns
     -------
     u, v : float
-        Converged parameters (clamped to [0, 1]).
+        Best parameters found (clamped to [0, 1]).
     G : ndarray
-        Final residual vector G(u, v).
-    converged : bool
-        True if ||G|| < tol.
+        Final residual vector.
+    last_step : tuple[float, float]
+        Last accepted (du, dv) step — the caller can compare against
+        parametric tolerances to decide if Newton has converged
+        in the parameter-space sense.
     """
     u, v = float(u0), float(v0)
+    last_du, last_dv = 1.0, 1.0  # initial large step
 
     for _ in range(max_it):
         p1, d1 = eval_curve_d1(C1, u, rational=rational)
@@ -252,9 +243,9 @@ def newton_ccx(
         G = p1 - p2
         g2 = float(np.dot(G, G))
         if g2 < tol * tol:
+            last_du, last_dv = 0.0, 0.0
             break
 
-        # Jacobian: J = [dC1/du | -dC2/dv], shape (D, 2)
         J = np.column_stack([d1, -d2])
         JT = J.T
         A = JT @ J + lm_damp * np.eye(2)
@@ -264,25 +255,30 @@ def newton_ccx(
         except np.linalg.LinAlgError:
             delta = np.zeros(2)
 
-        # Backtracking line search with clamping
+        if float(np.dot(delta, delta)) < step_tol * step_tol:
+            last_du, last_dv = float(delta[0]), float(delta[1])
+            break
+
         step = 1.0
+        accepted = False
         for _ls in range(8):
             un = _clamp01(u + step * delta[0])
             vn = _clamp01(v + step * delta[1])
             Gn = eval_curve(C1, un, rational=rational) - eval_curve(C2, vn, rational=rational)
             if float(np.dot(Gn, Gn)) <= g2:
+                last_du = un - u
+                last_dv = vn - v
                 u, v = un, vn
+                accepted = True
                 break
             step *= 0.5
-        else:
-            # Line search exhausted without improvement — accept clamped step
-            u = _clamp01(u + step * delta[0])
-            v = _clamp01(v + step * delta[1])
 
-    # Final residual
+        if not accepted:
+            last_du, last_dv = 0.0, 0.0
+            break
+
     G = eval_curve(C1, u, rational=rational) - eval_curve(C2, v, rational=rational)
-    converged = float(np.linalg.norm(G)) < tol
-    return u, v, G, converged
+    return u, v, G, (last_du, last_dv)
 
 
 def newton_csx(

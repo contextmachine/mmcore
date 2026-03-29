@@ -18,6 +18,7 @@ from mmcore.numeric.intersection._sq_dist_classify import (
     UNIQUE_ISOLATED,
     OVERLAP,
     INDETERMINATE,
+    BOUNDARY_ZERO,
     BoundaryZero, _boundary_zero_to_param_point,
 )
 
@@ -81,6 +82,18 @@ def _boundary_zero_to_uv(bz: BoundaryZero, u0: float, u1: float, v0: float, v1: 
     return u, v
 
 
+def _compute_param_tols(C1, C2, atol, rational):
+    """Compute parametric tolerances for both curves using curve geometry.
+
+    Returns (tol_u, tol_v) — the maximum parameter perturbation in each
+    curve that corresponds to geometric deviation <= atol.
+    """
+    from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance
+    tol_u = bez_curve_param_tolerance(C1, tol=atol, rational=rational)
+    tol_v = bez_curve_param_tolerance(C2, tol=atol, rational=rational)
+    return float(tol_u), float(tol_v)
+
+
 # ---------------------------------------------------------------------------
 # Main algorithm
 # ---------------------------------------------------------------------------
@@ -133,6 +146,10 @@ def bez_ccx(
     C1_orig = C1
     C2_orig = C2
 
+    # Parametric tolerances: the max parameter perturbation that corresponds
+    # to geometric deviation <= atol. Used to decide Newton convergence.
+    ptol_u, ptol_v = _compute_param_tols(C1, C2, atol, rational)
+
     # Results
     isolated = []
     overlaps = []
@@ -156,15 +173,17 @@ def bez_ccx(
 
         elif cls.kind == UNIQUE_ISOLATED:
             # Newton refine on ORIGINAL curves with global param guess.
-            # The classifier proved uniqueness, so accept if residual < atol
-            # (Newton's internal tol may be unreachable for imprecise inputs).
+            # The classifier proved a unique interior zero.
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
-            u_sol, v_sol, G, converged = newton_ccx(
-                C1_orig, C2_orig, u_mid, v_mid,
-                rational=rational, tol=atol * 1e-2,
+            u_sol, v_sol, G, last_step = newton_ccx(
+                C1_orig, C2_orig, u_mid, v_mid, rational=rational,
             )
-            if float(np.linalg.norm(G)) < atol:
+            # Accept if Newton's last step is below the parametric tolerance
+            # for both curves. This means Newton has converged in the
+            # parameter-space sense — further iteration can't improve
+            # the result by more than atol geometrically.
+            if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
@@ -176,11 +195,10 @@ def bez_ccx(
                 ovl_pts = []
                 for bz in cls.overlap_endpoints:
                     u_bz, v_bz = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
-                    u_sol, v_sol, G, converged = newton_ccx(
-                        C1_orig, C2_orig, u_bz, v_bz,
-                        rational=rational, tol=atol * 1e-2,
+                    u_sol, v_sol, G, last_step = newton_ccx(
+                        C1_orig, C2_orig, u_bz, v_bz, rational=rational,
                     )
-                    if converged:
+                    if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
                         ovl_pts.append((float(u_sol), float(v_sol)))
                     else:
                         ovl_pts.append((float(u_bz), float(v_bz)))
@@ -201,35 +219,30 @@ def bez_ccx(
                 })
             continue
 
-        # Before subdividing: if the classifier found precise boundary zeros,
-        # use them as Newton seeds for isolated intersection points.
-        # Accept based on residual < atol (not Newton's internal convergence),
-        # because boundary intersections often can't reach tol=1e-7 due to
-        # evaluation precision at curve endpoints.
-        if cls.precise_zeros:
+        elif cls.kind == BOUNDARY_ZERO:
+            # The 1D solver found precise zeros on the domain boundary.
+            # Evaluate curves directly at those parameters — no Newton needed
+            # (Newton can't converge at clamped boundaries).
             for bz in cls.precise_zeros:
                 if not isinstance(bz, BoundaryZero):
                     continue
-                u_seed, v_seed = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
-                u_sol, v_sol, G, converged = newton_ccx(
-                    C1_orig, C2_orig, u_seed, v_seed,
-                    rational=rational, tol=atol * 1e-2,
-                )
-                if float(np.linalg.norm(G)) < atol:
-                    pt = eval_curve(C1_orig, u_sol, rational=rational)
-                    if not _is_duplicate(isolated, pt, atol):
-                        isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
+                u_bz, v_bz = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
+                pt1 = eval_curve(C1_orig, u_bz, rational=rational)
+                pt2 = eval_curve(C2_orig, v_bz, rational=rational)
+                if float(np.linalg.norm(pt1 - pt2)) < atol:
+                    if not _is_duplicate(isolated, pt1, atol):
+                        isolated.append({"u": float(u_bz), "v": float(v_bz), "point": pt1})
+            continue
 
         # INDETERMINATE -> subdivide
         if depth >= max_depth:
             # Fallback: try Newton from cell center
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
-            u_sol, v_sol, G, converged = newton_ccx(
-                C1_orig, C2_orig, u_mid, v_mid,
-                rational=rational, tol=atol * 1e-2,
+            u_sol, v_sol, G, last_step = newton_ccx(
+                C1_orig, C2_orig, u_mid, v_mid, rational=rational,
             )
-            if float(np.linalg.norm(G)) < atol:
+            if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
                 pt = eval_curve(C1_orig, u_sol, rational=rational)
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})

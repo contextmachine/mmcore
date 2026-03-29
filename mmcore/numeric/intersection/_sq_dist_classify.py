@@ -25,6 +25,7 @@ NO_INTERSECTION = 0
 UNIQUE_ISOLATED = 1
 OVERLAP = 2
 INDETERMINATE = 3
+BOUNDARY_ZERO = 4
 
 
 @dataclass
@@ -485,7 +486,16 @@ def classify_sq_dist_net(
                 notes="valley check from precise boundary zeros",
             )
 
-    # Fallback
+    # Check 6: Boundary zeros found but not overlap — report as BOUNDARY_ZERO
+    if precise_zeros:
+        return Classification(
+            kind=BOUNDARY_ZERO,
+            boundary_zeros=boundary_zeros,
+            precise_zeros=precise_zeros,
+            notes="boundary zeros found, not overlap",
+        )
+
+    # Fallback: no information — subdivide
     return Classification(
         kind=INDETERMINATE,
         boundary_zeros=boundary_zeros,

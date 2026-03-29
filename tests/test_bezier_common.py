@@ -151,11 +151,11 @@ def test_newton_ccx_transversal():
     C2 = np.array([[0.0, 0.5, 0.0],
                     [1.0, -0.5, 0.0],
                     [2.0, 0.5, 0.0]])
-    u, v, G, ok = newton_ccx(C1, C2, 0.3, 0.3, rational=False)
-    assert ok
-    # Residual is bounded by Bezier evaluation precision (~1e-8 for
-    # quadratic curves near the intersection at t~0.146).
+    u, v, G, last_step = newton_ccx(C1, C2, 0.3, 0.3, rational=False)
+    # Check residual — Newton converges well for this transversal case
     assert np.linalg.norm(G) < 1e-7
+    # Last step should be tiny (converged)
+    assert abs(last_step[0]) < 1e-10 and abs(last_step[1]) < 1e-10
     pt1 = eval_curve(C1, u, rational=False)
     pt2 = eval_curve(C2, v, rational=False)
     np.testing.assert_allclose(pt1, pt2, atol=1e-7)
@@ -166,8 +166,9 @@ def test_newton_ccx_no_intersection():
                     [1.0, 0.0, 0.0]])
     C2 = np.array([[0.0, 10.0, 0.0],
                     [1.0, 10.0, 0.0]])
-    u, v, G, ok = newton_ccx(C1, C2, 0.5, 0.5, rational=False)
-    assert not ok
+    u, v, G, last_step = newton_ccx(C1, C2, 0.5, 0.5, rational=False)
+    # Curves are far apart — residual should be large
+    assert np.linalg.norm(G) > 1.0
 
 
 # ---------------------------------------------------------------------------
