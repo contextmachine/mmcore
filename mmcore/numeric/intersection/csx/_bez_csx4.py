@@ -463,11 +463,27 @@ def bez_csx(
                 t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, t0, t1, u0, u1, v0, v1)
                 pt_c = eval_curve(C_orig, t_bz, rational=rational)
                 pt_s = eval_surface(S_orig, u_bz, v_bz, rational=rational)
-                if float(np.linalg.norm(pt_c - pt_s)) < atol:
-                    if not _is_duplicate(isolated, pt_c, atol):
+                dist_direct = float(np.linalg.norm(pt_c - pt_s))
+                if dist_direct < atol:
+                    # Try Newton from the boundary zero — it may converge to
+                    # the true intersection (which could be away from the cell
+                    # boundary in a wide near-tangential minimum).
+                    t_n, u_n, v_n, G_n, _ = newton_csx(
+                        C_orig, S_orig, t_bz, u_bz, v_bz, rational=rational,
+                    )
+                    dist_newton = float(np.linalg.norm(G_n))
+                    if dist_newton < dist_direct:
+                        # Newton improved — use the refined result
+                        pt_final = eval_curve(C_orig, t_n, rational=rational)
+                        t_use, u_use, v_use = float(t_n), float(u_n), float(v_n)
+                    else:
+                        # Newton didn't help — keep direct eval
+                        pt_final = pt_c
+                        t_use, u_use, v_use = float(t_bz), float(u_bz), float(v_bz)
+                    if not _is_duplicate(isolated, pt_final, atol):
                         isolated.append({
-                            "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
-                            "point": pt_c,
+                            "t": t_use, "u": u_use, "v": v_use,
+                            "point": pt_final,
                         })
             continue
 
@@ -541,6 +557,37 @@ def bez_csx(
                           t0, t1, u0, u1, v_mid, v1, depth + 1))
 
     isolated, overlaps = _postprocess(isolated, overlaps, C_orig, S_orig, atol, rational)
+
+    # Dedup: adjacent subdivision cells can produce distinct Newton solutions
+    # that both approximate the same intersection. Sort by t, then merge
+    # consecutive entries where the curve points C(t) are within atol of
+    # each other — i.e., they lie on the same curve arc within tolerance.
+    if len(isolated) > 1:
+        sorted_iso = sorted(isolated, key=lambda e: e['t'])
+        deduped = [sorted_iso[0]]
+        for entry in sorted_iso[1:]:
+            prev = deduped[-1]
+            pt_new = np.asarray(entry['point'])
+            pt_old = np.asarray(prev['point'])
+            if float(np.linalg.norm(
+                eval_curve(C_orig, entry['t'], rational=rational)
+                - eval_curve(C_orig, prev['t'], rational=rational)
+            )) < atol:
+                # Same curve arc — keep the more precise one
+                d_new = float(np.linalg.norm(
+                    eval_curve(C_orig, entry['t'], rational=rational)
+                    - eval_surface(S_orig, entry['u'], entry['v'], rational=rational)
+                ))
+                d_old = float(np.linalg.norm(
+                    eval_curve(C_orig, prev['t'], rational=rational)
+                    - eval_surface(S_orig, prev['u'], prev['v'], rational=rational)
+                ))
+                if d_new < d_old:
+                    deduped[-1] = entry
+                continue
+            deduped.append(entry)
+        isolated = deduped
+
     return {"isolated": isolated, "overlaps": overlaps}
 
 
