@@ -116,10 +116,19 @@ def _find_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list:
 
 @dataclass
 class BoundaryZero:
-    """A precise zero location on a boundary face."""
-    axis: int       # which parametric axis is fixed (0=u, 1=v, ...)
+    """A precise zero location on a boundary face.
+
+    For a 2D net (CCX): axis is fixed, param gives the location along
+    the remaining axis. param2 is None.
+
+    For a 3D net (CSX): axis is fixed, param and param2 give the
+    location on the 2D boundary face. The mapping depends on which
+    axis is fixed — see _boundary_zero_to_param_point.
+    """
+    axis: int       # which parametric axis is fixed (0, 1, or 2)
     side: int       # 0 or 1 (parameter = 0 or 1)
-    param: float    # parameter value along the boundary where the zero occurs
+    param: float    # first free parameter on the boundary face
+    param2: float | None = None  # second free parameter (3D nets only)
 
 
 def _find_precise_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> list[BoundaryZero]:
@@ -157,7 +166,21 @@ def _find_precise_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> lis
                 continue
 
             if bnd_scalar.ndim == 2:
-                # 2D boundary (CSX case) — restrict to edges, then 1D solve
+                # 2D boundary face (CSX case).
+                # The face has two free axes. We restrict to each of the
+                # 4 edges (1D) and solve there.
+                #
+                # For a 3D net with axes [0,1,2], fixing axis=a gives a
+                # 2D face with "free axes" = [i for i in range(3) if i != a].
+                # Call them free_ax0 and free_ax1.
+                # An edge of this face fixes one of the free axes:
+                #   edge_axis=0 → fixes free_ax0 at edge_side (0 or 1)
+                #   edge_axis=1 → fixes free_ax1 at edge_side (0 or 1)
+                # The 1D root param runs along the remaining free axis.
+                #
+                # We store (param, param2) = (free_ax0_value, free_ax1_value),
+                # where the solver-found root fills the non-fixed free axis
+                # and the fixed free axis gets 0.0 or 1.0.
                 bnd_2d_v = _add_value_dim(bnd_scalar)
                 for edge_axis in range(2):
                     for edge_side in range(2):
@@ -166,7 +189,17 @@ def _find_precise_boundary_zeros(F: NDArray, atol: float, w_scale: float) -> lis
                         if edge_1d.ndim == 1 and float(np.min(edge_1d)) < threshold:
                             roots = find_bernstein_zeros_1d(edge_1d, atol=atol * w_scale)
                             for r in roots:
-                                zeros.append(BoundaryZero(axis=axis, side=side, param=r))
+                                # Map (edge_axis, edge_side, root) to (param, param2)
+                                if edge_axis == 0:
+                                    # free_ax0 is fixed at edge_side, root is along free_ax1
+                                    p1 = float(edge_side)
+                                    p2 = r
+                                else:
+                                    # free_ax1 is fixed at edge_side, root is along free_ax0
+                                    p1 = r
+                                    p2 = float(edge_side)
+                                zeros.append(BoundaryZero(axis=axis, side=side,
+                                                          param=p1, param2=p2))
 
     return zeros
 
@@ -319,16 +352,16 @@ def _check_overlap(F: NDArray, atol: float, w_scale: float, boundary_zeros: list
 def _boundary_zero_to_param_point(bz: BoundaryZero, ndim: int) -> list[float]:
     """Convert a BoundaryZero to a point in [0,1]^ndim parameter space.
 
-    For a 2D net (CCX): axis 0 → (side_val, param), axis 1 → (param, side_val).
-    For a 3D net (CSX): similar with 3 axes.
+    For a 2D net (CCX): axis fixed → (side_val, param) or (param, side_val).
+    For a 3D net (CSX): axis fixed → remaining two axes filled by (param, param2).
     """
-    pt = [0.5] * ndim  # default interior
-    pt[bz.axis] = float(bz.side)  # 0.0 or 1.0
-    # The param goes into the "other" axis. For 2D, there's exactly one other.
-    # For higher D, param corresponds to the first non-fixed axis.
+    pt = [0.5] * ndim
+    pt[bz.axis] = float(bz.side)
     other_axes = [a for a in range(ndim) if a != bz.axis]
     if other_axes:
         pt[other_axes[0]] = bz.param
+    if len(other_axes) >= 2 and bz.param2 is not None:
+        pt[other_axes[1]] = bz.param2
     return pt
 
 

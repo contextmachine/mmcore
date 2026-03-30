@@ -284,39 +284,28 @@ def newton_ccx(
 def newton_csx(
     C, S, t0: float, u0: float, v0: float, *,
     rational: bool = False,
-    tol: float = 1e-7,
-    max_it: int = 20,
+    tol: float = 1e-14,
+    step_tol: float = 1e-14,
+    max_it: int = 30,
     lm_damp: float = 1e-12,
 ):
     """LM-damped Newton for G(t,u,v) = C(t) - S(u,v) = 0.
 
-    Parameters
-    ----------
-    C : ndarray
-        Control polygon of the Bezier curve.
-    S : ndarray
-        Control net of the Bezier surface.
-    t0, u0, v0 : float
-        Initial parameter guesses.
-    rational : bool
-        Whether the control nets are homogeneous.
-    tol : float
-        Convergence tolerance on ||G|| (residual norm).
-    max_it : int
-        Maximum Newton iterations.
-    lm_damp : float
-        Levenberg-Marquardt damping factor.
+    Runs until residual < tol, step < step_tol, line search fails, or max_it.
 
     Returns
     -------
     t, u, v : float
-        Converged parameters (clamped to [0, 1]).
+        Best parameters found (clamped to [0, 1]).
     G : ndarray
-        Final residual vector G(t, u, v).
-    converged : bool
-        True if ||G|| < tol.
+        Final residual vector.
+    last_step : tuple[float, float, float]
+        Last accepted (dt, du, dv) step — the caller can compare against
+        parametric tolerances to decide if Newton has converged
+        in the parameter-space sense.
     """
     t, u, v = float(t0), float(u0), float(v0)
+    last_dt, last_du, last_dv = 1.0, 1.0, 1.0
 
     for _ in range(max_it):
         c_pt, c_d = eval_curve_d1(C, t, rational=rational)
@@ -324,9 +313,9 @@ def newton_csx(
         G = c_pt - s_pt
         g2 = float(np.dot(G, G))
         if g2 < tol * tol:
+            last_dt, last_du, last_dv = 0.0, 0.0, 0.0
             break
 
-        # Jacobian: dG/d(t,u,v) = [dC/dt | -dS/du | -dS/dv], shape (D, 3)
         J = np.column_stack([c_d, -s_du, -s_dv])
         JT = J.T
         A = JT @ J + lm_damp * np.eye(3)
@@ -336,8 +325,12 @@ def newton_csx(
         except np.linalg.LinAlgError:
             delta = np.zeros(3)
 
-        # Backtracking line search with clamping
+        if float(np.dot(delta, delta)) < step_tol * step_tol:
+            last_dt, last_du, last_dv = float(delta[0]), float(delta[1]), float(delta[2])
+            break
+
         step = 1.0
+        accepted = False
         for _ls in range(8):
             tn = _clamp01(t + step * delta[0])
             un = _clamp01(u + step * delta[1])
@@ -345,15 +338,17 @@ def newton_csx(
             Gn = (eval_curve(C, tn, rational=rational)
                   - eval_surface(S, un, vn, rational=rational))
             if float(np.dot(Gn, Gn)) <= g2:
+                last_dt = tn - t
+                last_du = un - u
+                last_dv = vn - v
                 t, u, v = tn, un, vn
+                accepted = True
                 break
             step *= 0.5
-        else:
-            t = _clamp01(t + step * delta[0])
-            u = _clamp01(u + step * delta[1])
-            v = _clamp01(v + step * delta[2])
 
-    # Final residual
+        if not accepted:
+            last_dt, last_du, last_dv = 0.0, 0.0, 0.0
+            break
+
     G = eval_curve(C, t, rational=rational) - eval_surface(S, u, v, rational=rational)
-    converged = float(np.linalg.norm(G)) < tol
-    return t, u, v, G, converged
+    return t, u, v, G, (last_dt, last_du, last_dv)

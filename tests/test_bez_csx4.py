@@ -73,6 +73,26 @@ def test_rational_arc_surface():
     assert abs(pt[2] - 0.5) < 0.05
 
 
+def test_no_false_positives_csx():
+    """Every reported intersection must have actual distance < atol."""
+    from mmcore.numeric.intersection._bezier_common import eval_surface
+    # Line through a curved rational surface — multiple intersections
+    w = np.sqrt(0.5)
+    S = np.array([
+        [[0.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 2.0, 0.0, 1.0]],
+        [[1.0, 0.0, 0.5, 1.0], [1.0, 1.0, 0.5, 1.0], [1.0, 2.0, 0.5, 1.0]],
+        [[2.0, 0.0, 0.0, 1.0], [2.0, 1.0, 0.0, 1.0], [2.0, 2.0, 0.0, 1.0]],
+    ])
+    C = np.array([[1.0, 1.0, -0.5, 1.0], [1.0, 1.0, 0.5, 1.0]])
+    result = bez_csx(C, S, atol=1e-3, rational=True)
+    for iso in result["isolated"]:
+        from mmcore.numeric.intersection._bezier_common import eval_curve
+        pt_c = eval_curve(C, iso["t"], rational=True)
+        pt_s = eval_surface(S, iso["u"], iso["v"], rational=True)
+        dist = float(np.linalg.norm(pt_c - pt_s))
+        assert dist < 1e-3, f"False positive: t={iso['t']:.4f} u={iso['u']:.4f} v={iso['v']:.4f} dist={dist:.4f}"
+
+
 def test_csx_cell_count_reasonable():
     """Verify the new CSX doesn't blow up on a simple case."""
     S = np.array([
