@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.numeric.bern import de_casteljau_split_nd
+from mmcore.numeric.bern import de_casteljau_split_nd, bernstein_boundary_nd
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, newton_csx,
 )
+from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
     classify_sq_dist_net,
     NO_INTERSECTION,
@@ -123,6 +124,199 @@ def _boundary_zero_to_tuv(bz: BoundaryZero,
 
 
 # ---------------------------------------------------------------------------
+# CSX boundary analysis: find zeros on the 6 faces of [0,1]^3
+# ---------------------------------------------------------------------------
+
+def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
+    """Find precise intersection points on the boundary faces of the CSX domain.
+
+    The 6 faces of [0,1]^3 decompose into two types:
+
+    Type 1 — Curve endpoints (t=0, t=1):
+      Extract the 2D slice D(u,v) = ||C(t_fixed) - S(u,v)||^2 from the
+      trivariate net. This is a point-on-surface problem. We use the
+      2D classifier (same as CCX) to find zeros.
+
+    Type 2 — Surface boundaries (u=0, u=1, v=0, v=1):
+      Extract the surface boundary isocurve (a Bezier curve in 3D) and
+      call bez_ccx(C, iso_curve) to find intersections.
+
+    Returns list of BoundaryZero objects with (axis, side, param, param2).
+    """
+    zeros = []
+    F_3d_v = F_3d[..., np.newaxis]
+
+    # --- Type 1: Curve endpoints (t=0, t=1) ---
+    # Restrict the 3D net to t=0 and t=1 → 2D nets for point-on-surface
+    for t_side in (0, 1):
+        face_2d = bernstein_boundary_nd(F_3d_v, axis=0, side=t_side)[..., 0]
+
+        # Use the 2D classifier (same as CCX) on this face
+        _, Sw = extract_weights(S, rational=rational)
+        sw_flat = Sw.ravel()
+        # Weight for the point side is just C's weight at t=0 or t=1
+        _, Cw = extract_weights(C, rational=rational)
+        pw_point = np.array([Cw[0 if t_side == 0 else -1]])
+
+        from mmcore.numeric.intersection._sq_dist_classify import (
+            _check_min_of_net, _weight_max_product,
+            _find_precise_boundary_zeros as _find_precise_bz_2d,
+        )
+
+        w_scale = _weight_max_product(pw_point, sw_flat)
+
+        # Quick check: if min of 2D face > 0, no intersection at this endpoint
+        if _check_min_of_net(face_2d, atol, w_scale):
+            continue
+
+        # Find precise zeros on the 2D face using the 1D solver
+        # (finds zeros on edges of the face)
+        face_zeros = _find_precise_bz_2d(face_2d, atol, w_scale)
+        for bz_2d in face_zeros:
+            # Map 2D face zero to 3D BoundaryZero
+            # bz_2d has axis (0 or 1 in the 2D face) and param
+            # In the 3D net, axis=0 is t, so the face's axes map to u (1) and v (2)
+            zeros.append(BoundaryZero(
+                axis=0, side=t_side,
+                param=bz_2d.param,
+                param2=bz_2d.param2 if bz_2d.param2 is not None else (
+                    float(bz_2d.side) if bz_2d.axis == 1 else None
+                ),
+            ))
+
+        # Also check if the 2D face has a minimum near zero in its interior
+        # (not just on its edges). Use Newton on the point-on-surface problem.
+        pt = eval_curve(C, float(t_side), rational=rational)
+        # Simple Newton: project point onto surface
+        from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+        u_s, v_s = 0.5, 0.5  # seed from center
+        for _it in range(20):
+            s_pt, s_du, s_dv = eval_surface_d1(S, u_s, v_s, rational=rational)
+            G = s_pt - pt
+            g2 = float(np.dot(G, G))
+            if g2 < atol * atol:
+                break
+            J = np.column_stack([s_du, s_dv])
+            JTJ = J.T @ J + 1e-12 * np.eye(2)
+            JTG = J.T @ G
+            try:
+                delta = -np.linalg.solve(JTJ, JTG)
+            except np.linalg.LinAlgError:
+                break
+            step = 1.0
+            for _ls in range(8):
+                un = max(0.0, min(1.0, u_s + step * delta[0]))
+                vn = max(0.0, min(1.0, v_s + step * delta[1]))
+                Gn = eval_surface(S, un, vn, rational=rational) - pt
+                if float(np.dot(Gn, Gn)) <= g2:
+                    u_s, v_s = un, vn
+                    break
+                step *= 0.5
+            else:
+                break
+        G_final = eval_surface(S, u_s, v_s, rational=rational) - pt
+        if float(np.linalg.norm(G_final)) < atol:
+            # Found a point-on-surface intersection — add as BoundaryZero
+            bz = BoundaryZero(axis=0, side=t_side, param=u_s, param2=v_s)
+            # Check not duplicate
+            is_dup = any(
+                abs(z.param - u_s) < 0.01 and z.param2 is not None and abs(z.param2 - v_s) < 0.01
+                for z in zeros if z.axis == 0 and z.side == t_side
+            )
+            if not is_dup:
+                zeros.append(bz)
+
+    # --- Type 2: Surface boundaries (u=0, u=1, v=0, v=1) ---
+    # Extract boundary isocurves and run CCX
+    for surf_axis, surf_side in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        # Extract isocurve: S at axis=surf_axis, side=surf_side
+        # For S of shape (m+1, n+1, D): axis=0 → S[side, :, :], axis=1 → S[:, side, :]
+        if surf_axis == 0:
+            iso_curve = S[0 if surf_side == 0 else -1, :, :]  # shape (n+1, D)
+        else:
+            iso_curve = S[:, 0 if surf_side == 0 else -1, :]  # shape (m+1, D)
+
+        # Run CCX between the original curve and this isocurve
+        ccx_result = bez_ccx_v4(C, iso_curve, atol=atol, rational=rational)
+
+        for iso in ccx_result['isolated']:
+            t_val = iso['u']  # parameter on C
+            s_val = iso['v']  # parameter along the isocurve
+
+            # Map isocurve parameter to surface (u, v)
+            # The net axis in the 3D CSX problem:
+            # surf_axis=0 → u is fixed, s_val runs along v → csx_axis=1
+            # surf_axis=1 → v is fixed, s_val runs along u → csx_axis=2
+            csx_axis = surf_axis + 1  # 0→1 (u-axis in CSX), 1→2 (v-axis in CSX)
+
+            if surf_axis == 0:
+                # u is fixed, s_val is v-parameter
+                bz = BoundaryZero(axis=csx_axis, side=surf_side,
+                                  param=t_val, param2=s_val)
+            else:
+                # v is fixed, s_val is u-parameter
+                bz = BoundaryZero(axis=csx_axis, side=surf_side,
+                                  param=t_val, param2=s_val)
+            zeros.append(bz)
+
+        # Overlaps from CCX also produce boundary information
+        for ovl in ccx_result['overlaps']:
+            # Overlap endpoints are boundary zeros too
+            ur = ovl.get('u_range', (0.0, 1.0))
+            vr = ovl.get('v_range', (0.0, 1.0))
+            csx_axis = surf_axis + 1
+            for t_val, s_val in [(ur[0], vr[0]), (ur[1], vr[1])]:
+                bz = BoundaryZero(axis=csx_axis, side=surf_side,
+                                  param=t_val, param2=s_val)
+                zeros.append(bz)
+
+    return zeros
+
+
+def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
+    """Valley check for CSX: confirm overlap by Newton at the midpoint.
+
+    In CSX, the overlap curve through 3D parameter space can be significantly
+    curved (unlike CCX where the valley is approximately linear). Instead of
+    stepping along a straight line, we use Newton CSX from the midpoint of
+    two boundary zeros. If Newton converges to a point with small residual,
+    the overlap is confirmed.
+    """
+    if len(boundary_zeros) < 2:
+        return None
+
+    for i in range(len(boundary_zeros)):
+        bz_a = boundary_zeros[i]
+        for j in range(i + 1, len(boundary_zeros)):
+            bz_b = boundary_zeros[j]
+            if (bz_a.axis, bz_a.side) == (bz_b.axis, bz_b.side):
+                continue
+
+            pt_a = _boundary_zero_to_param_point(bz_a, 3)
+            pt_b = _boundary_zero_to_param_point(bz_b, 3)
+
+            # Midpoint in parameter space
+            mid = [0.5 * (pt_a[k] + pt_b[k]) for k in range(3)]
+
+            # Must be in strict interior
+            margin = 0.02
+            if not all(margin < mid[k] < 1.0 - margin for k in range(3)):
+                continue
+
+            # Newton from midpoint
+            t_sol, u_sol, v_sol, G, last_step = newton_csx(
+                C, S, mid[0], mid[1], mid[2], rational=rational,
+            )
+            residual = float(np.linalg.norm(G))
+
+            if residual < atol:
+                # Newton found a point on the overlap curve interior → confirmed
+                return [bz_a, bz_b]
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main algorithm
 # ---------------------------------------------------------------------------
 
@@ -172,6 +366,47 @@ def bez_csx(
 
     isolated = []
     overlaps = []
+
+    # --- CSX boundary analysis on the initial patch ---
+    # Find zeros on the 6 faces of [0,1]^3 using:
+    #   - Point-on-surface for t=0, t=1 (2D restriction of the 3D net)
+    #   - CCX for u=0, u=1, v=0, v=1 (curve vs surface boundary isocurves)
+    w_scale = float(np.max(np.abs(Pw)) * np.max(np.abs(Sw.ravel())))
+    csx_boundary_zeros = _find_csx_boundary_zeros(F, C, S, atol, rational)
+
+    # Accept boundary zeros as isolated intersections
+    for bz in csx_boundary_zeros:
+        t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
+        pt_c = eval_curve(C, t_bz, rational=rational)
+        pt_s = eval_surface(S, u_bz, v_bz, rational=rational)
+        if float(np.linalg.norm(pt_c - pt_s)) < atol:
+            if not _is_duplicate(isolated, pt_c, atol):
+                isolated.append({
+                    "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
+                    "point": pt_c,
+                })
+
+    # Valley check for overlap
+    if len(csx_boundary_zeros) >= 2:
+        overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
+        if overlap_pair is not None:
+            bz_a, bz_b = overlap_pair
+            t_a, u_a, v_a = _boundary_zero_to_tuv(bz_a, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
+            t_b, u_b, v_b = _boundary_zero_to_tuv(bz_b, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
+            overlaps.append({
+                "boundary_zeros": [(bz_a.axis, bz_a.side), (bz_b.axis, bz_b.side)],
+                "overlap_endpoints": [bz_a, bz_b],
+                "t_range": (min(t_a, t_b), max(t_a, t_b)),
+                "u_range": (min(u_a, u_b), max(u_a, u_b)),
+                "v_range": (min(v_a, v_b), max(v_a, v_b)),
+            })
+            # If overlap is confirmed, skip further subdivision — the boundary
+            # zeros are the endpoints, no interior search needed.
+            # Remove any isolated points that fall within the overlap range.
+            t_lo, t_hi = min(t_a, t_b), max(t_a, t_b)
+            isolated = [iso for iso in isolated
+                        if not (t_lo - atol <= iso["t"] <= t_hi + atol)]
+            return {"isolated": isolated, "overlaps": overlaps}
 
     stack = [(C.copy(), S.copy(), F, Pw.copy(), Sw.copy(),
               0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0)]
