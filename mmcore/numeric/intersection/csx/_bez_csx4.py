@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from mmcore.numeric.bern import de_casteljau_split_nd, bernstein_boundary_nd
+from mmcore.numeric.bern import (
+    de_casteljau_split_nd, bernstein_boundary_nd,
+    bernstein_eval_nd, bernstein_partial_derivative_coeffs,
+)
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, newton_csx,
@@ -457,6 +460,7 @@ def bez_csx(
             continue
 
         elif cls.kind == BOUNDARY_ZERO:
+            any_accepted = False
             for bz in cls.precise_zeros:
                 if not isinstance(bz, BoundaryZero):
                     continue
@@ -464,28 +468,44 @@ def bez_csx(
                 pt_c = eval_curve(C_orig, t_bz, rational=rational)
                 pt_s = eval_surface(S_orig, u_bz, v_bz, rational=rational)
                 dist_direct = float(np.linalg.norm(pt_c - pt_s))
-                if dist_direct < atol:
-                    # Try Newton from the boundary zero — it may converge to
-                    # the true intersection (which could be away from the cell
-                    # boundary in a wide near-tangential minimum).
-                    t_n, u_n, v_n, G_n, _ = newton_csx(
-                        C_orig, S_orig, t_bz, u_bz, v_bz, rational=rational,
-                    )
-                    dist_newton = float(np.linalg.norm(G_n))
-                    if dist_newton < dist_direct:
-                        # Newton improved — use the refined result
-                        pt_final = eval_curve(C_orig, t_n, rational=rational)
-                        t_use, u_use, v_use = float(t_n), float(u_n), float(v_n)
-                    else:
-                        # Newton didn't help — keep direct eval
-                        pt_final = pt_c
-                        t_use, u_use, v_use = float(t_bz), float(u_bz), float(v_bz)
-                    if not _is_duplicate(isolated, pt_final, atol):
-                        isolated.append({
-                            "t": t_use, "u": u_use, "v": v_use,
-                            "point": pt_final,
-                        })
-            continue
+                if dist_direct >= atol:
+                    continue
+
+                # Check whether we're at a genuine minimum of D or on a slope
+                # (tangential near-miss). Evaluate gradient at the boundary
+                # zero in the cell's local net.
+                bz_local = _boundary_zero_to_param_point(bz, F_cell.ndim)
+                F_cell_v = F_cell[..., np.newaxis]
+                D_val = float(np.squeeze(bernstein_eval_nd(F_cell_v, tuple(bz_local))))
+
+                grad_sq = 0.0
+                for ax in range(F_cell.ndim):
+                    dF = bernstein_partial_derivative_coeffs(F_cell_v, axis=ax)
+                    g = float(np.squeeze(bernstein_eval_nd(dF, tuple(bz_local))))
+                    grad_sq += g * g
+                grad_norm = grad_sq ** 0.5
+
+                on_slope = False
+                if D_val > 1e-30 and grad_norm > 1e-30:
+                    convergence_rate = grad_norm / (2.0 * D_val)
+                    if convergence_rate > 1.0:
+                        on_slope = True
+
+                if on_slope:
+                    # On a slope — skip this boundary zero, but don't skip
+                    # the cell. Subdivision may find the true minimum.
+                    continue
+
+                if not _is_duplicate(isolated, pt_c, atol):
+                    isolated.append({
+                        "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
+                        "point": pt_c,
+                    })
+                    any_accepted = True
+
+            if any_accepted:
+                continue
+            # All boundary zeros rejected → fall through to subdivision
 
         # INDETERMINATE → subdivide
         if depth >= max_depth:
