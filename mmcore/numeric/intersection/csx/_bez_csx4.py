@@ -276,17 +276,53 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
     return zeros
 
 
-def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
-    """Valley check for CSX: confirm overlap by Newton at the midpoint.
+def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
+    """Project a 3D point onto a Bezier surface. Returns (u, v, dist)."""
+    from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+    u, v = float(u_seed), float(v_seed)
+    for _ in range(max_it):
+        s_pt, s_du, s_dv = eval_surface_d1(S, u, v, rational=rational)
+        G = s_pt - pt
+        g2 = float(np.dot(G, G))
+        if g2 < 1e-20:
+            break
+        J = np.column_stack([s_du, s_dv])
+        A = J.T @ J + 1e-12 * np.eye(2)
+        b = -J.T @ G
+        try:
+            delta = np.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
+            break
+        step = 1.0
+        for _ in range(8):
+            un = max(0.0, min(1.0, u + step * delta[0]))
+            vn = max(0.0, min(1.0, v + step * delta[1]))
+            Gn = eval_surface(S, un, vn, rational=rational) - pt
+            if float(np.dot(Gn, Gn)) <= g2:
+                u, v = un, vn
+                break
+            step *= 0.5
+        else:
+            break
+    dist = float(np.linalg.norm(eval_surface(S, u, v, rational=rational) - pt))
+    return u, v, dist
 
-    In CSX, the overlap curve through 3D parameter space can be significantly
-    curved (unlike CCX where the valley is approximately linear). Instead of
-    stepping along a straight line, we use Newton CSX from the midpoint of
-    two boundary zeros. If Newton converges to a point with small residual,
-    the overlap is confirmed.
+
+def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
+    """Valley check for CSX: step from each endpoint along the valley.
+
+    For each pair of boundary zeros on different faces:
+    1. From each boundary zero, step inward by 2*ptol_t along the curve
+    2. Evaluate C(t_step) and project onto S to find (u, v)
+    3. If dist < atol AND (u,v) moved away from the seed → valley continues
+    4. If both sides confirm → overlap
+
+    This does NOT assume the overlap is linear in parameter space.
     """
     if len(boundary_zeros) < 2:
         return None
+
+    ptol_t, ptol_u, ptol_v = _compute_param_tols_csx(C, S, atol, rational)
 
     for i in range(len(boundary_zeros)):
         bz_a = boundary_zeros[i]
@@ -297,24 +333,44 @@ def _check_csx_overlap_valley(C, S, boundary_zeros, atol, rational):
 
             pt_a = _boundary_zero_to_param_point(bz_a, 3)
             pt_b = _boundary_zero_to_param_point(bz_b, 3)
+            t_a, u_a, v_a = pt_a[0], pt_a[1], pt_a[2]
+            t_b, u_b, v_b = pt_b[0], pt_b[1], pt_b[2]
 
-            # Midpoint in parameter space
-            mid = [0.5 * (pt_a[k] + pt_b[k]) for k in range(3)]
-
-            # Must be in strict interior
-            margin = 0.02
-            if not all(margin < mid[k] < 1.0 - margin for k in range(3)):
+            # Check the t-separation is large enough for a meaningful overlap
+            if abs(t_b - t_a) < ptol_t * 4:
                 continue
 
-            # Newton from midpoint
-            t_sol, u_sol, v_sol, G, last_step = newton_csx(
-                C, S, mid[0], mid[1], mid[2], rational=rational,
-            )
-            residual = float(np.linalg.norm(G))
+            # Step inward from endpoint A
+            step_t = 2 * ptol_t
+            t_step_a = t_a + step_t if t_a < t_b else t_a - step_t
+            t_step_a = max(0.0, min(1.0, t_step_a))
 
-            if residual < atol:
-                # Newton found a point on the overlap curve interior → confirmed
-                return [bz_a, bz_b]
+            pt_c_a = eval_curve(C, t_step_a, rational=rational)
+            u_proj_a, v_proj_a, dist_a = _project_point_on_surface(
+                pt_c_a, S, u_a, v_a, atol, rational,
+            )
+            moved_a = (abs(u_proj_a - u_a) > ptol_u or
+                       abs(v_proj_a - v_a) > ptol_v)
+
+            if dist_a >= atol or not moved_a:
+                continue
+
+            # Step inward from endpoint B
+            t_step_b = t_b - step_t if t_b > t_a else t_b + step_t
+            t_step_b = max(0.0, min(1.0, t_step_b))
+
+            pt_c_b = eval_curve(C, t_step_b, rational=rational)
+            u_proj_b, v_proj_b, dist_b = _project_point_on_surface(
+                pt_c_b, S, u_b, v_b, atol, rational,
+            )
+            moved_b = (abs(u_proj_b - u_b) > ptol_u or
+                       abs(v_proj_b - v_b) > ptol_v)
+
+            if dist_b >= atol or not moved_b:
+                continue
+
+            # Both sides confirmed: valley continues inward from both endpoints
+            return [bz_a, bz_b]
 
     return None
 
