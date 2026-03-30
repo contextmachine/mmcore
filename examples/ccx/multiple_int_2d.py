@@ -63,8 +63,10 @@ from mmcore.numeric.intersection.ccx import nurbs_ccx,nurbs_ccx_multiple
 from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
 isolated,overlaps=nurbs_ccx_multiple(val,rational=True)
+print('isolated:')
 print(isolated)
-
+print('overlaps:')
+print(overlaps)
 viewer=Viewer(camera=OrbitCamera(target=(106.97827 ,  167.56537,0),up=(0,1.,0.), ortho_half_height=110,distance=300,yaw= -3*np.pi/2,pitch= -np.pi/2))
 viewer.cam.lock_orbit(True)
 for curve in val:
@@ -73,4 +75,3 @@ for pt in isolated['point']:
     viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=11)
 
 viewer.run()
-print(isolated['point'])
