@@ -53,6 +53,46 @@ def _map_local_to_global_csx(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1):
 
 
 # ---------------------------------------------------------------------------
+# Overlap merging
+# ---------------------------------------------------------------------------
+
+def _merge_overlaps_by_t(overlaps, ptol_t):
+    """Merge adjacent overlaps whose t-ranges touch or overlap.
+
+    Adjacent Bezier pairs independently detect portions of the same
+    geometric overlap. Sort by t_range start and merge consecutive
+    entries whose t-ranges are within ptol_t of each other.
+    """
+    if not overlaps or len(overlaps) <= 1:
+        return list(overlaps) if overlaps else []
+
+    sorted_ovls = sorted(overlaps, key=lambda o: o['t_range'][0])
+
+    merged = [dict(sorted_ovls[0])]  # copy
+    for ovl in sorted_ovls[1:]:
+        prev = merged[-1]
+        # Merge if t-ranges touch or overlap
+        if ovl['t_range'][0] <= prev['t_range'][1] + ptol_t:
+            # Extend the previous overlap
+            prev['t_range'] = (
+                min(prev['t_range'][0], ovl['t_range'][0]),
+                max(prev['t_range'][1], ovl['t_range'][1]),
+            )
+            prev['u_range'] = (
+                min(prev['u_range'][0], ovl['u_range'][0]),
+                max(prev['u_range'][1], ovl['u_range'][1]),
+            )
+            prev['v_range'] = (
+                min(prev['v_range'][0], ovl['v_range'][0]),
+                max(prev['v_range'][1], ovl['v_range'][1]),
+            )
+        else:
+            merged.append(dict(ovl))
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # Parametric deduplication
 # ---------------------------------------------------------------------------
 
@@ -207,10 +247,48 @@ def nurbs_csx(
                 'v_range': (v0g, v1g),
             })
 
-    # Parametric deduplication
-    deduped = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
+    # ---------------------------------------------------------------
+    # Post-processing: merge overlaps, classify micro-fragments
+    # ---------------------------------------------------------------
+    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
 
-    isolated = deduped if deduped else None
-    overlaps = raw_overlaps if raw_overlaps else None
+    # 1. Merge adjacent overlaps by t-range
+    merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
+
+    # 2. Parametric dedup of isolated points
+    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
+
+    # 3. Classify micro-fragments: isolated points adjacent to overlaps
+    #    become part of the overlap; others remain isolated
+    if merged_overlaps and deduped_isolated:
+        final_isolated = []
+        for iso in deduped_isolated:
+            t_iso = iso['t']
+            absorbed = False
+            for ovl in merged_overlaps:
+                t_lo, t_hi = ovl['t_range']
+                # If isolated point is within ptol of an overlap endpoint,
+                # extend the overlap to include it
+                if abs(t_iso - t_lo) < ptol_t * 10:
+                    ovl['t_range'] = (t_iso, t_hi)
+                    absorbed = True
+                    break
+                elif abs(t_iso - t_hi) < ptol_t * 10:
+                    ovl['t_range'] = (t_lo, t_iso)
+                    absorbed = True
+                    break
+                elif t_lo - ptol_t <= t_iso <= t_hi + ptol_t:
+                    absorbed = True
+                    break
+            if not absorbed:
+                final_isolated.append(iso)
+        deduped_isolated = final_isolated
+
+    # Remove the _micro tag from results
+    for iso in deduped_isolated:
+        iso.pop('_micro', None)
+
+    isolated = deduped_isolated if deduped_isolated else None
+    overlaps = merged_overlaps if merged_overlaps else None
 
     return isolated, overlaps

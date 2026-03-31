@@ -546,6 +546,25 @@ def _phase2_isolated_search(
         if not can_have_stationary:
             continue
 
+        # ptol-based early termination: if the cell is smaller than ptol
+        # in ALL directions, it's a "micro-fragment" — too small to resolve.
+        # Report as an isolated intersection at the cell center.
+        t_span = t1 - t0
+        u_span = u1 - u0
+        v_span = v1 - v0
+        if t_span <= ptol_t and u_span <= ptol_u and v_span <= ptol_v:
+            # Micro-fragment: report center as isolated intersection
+            t_mid = 0.5 * (t0 + t1)
+            u_mid = 0.5 * (u0 + u1)
+            v_mid = 0.5 * (v0 + v1)
+            pt = eval_curve(C_orig, t_mid, rational=rational)
+            if not _is_duplicate(isolated, pt, atol):
+                isolated.append({
+                    "t": float(t_mid), "u": float(u_mid), "v": float(v_mid),
+                    "point": pt, "_micro": True,
+                })
+            continue
+
         # Try Newton from cell center
         t_mid = 0.5 * (t0 + t1)
         u_mid = 0.5 * (u0 + u1)
