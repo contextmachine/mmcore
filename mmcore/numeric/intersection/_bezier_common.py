@@ -288,22 +288,38 @@ def newton_csx(
     step_tol: float = 1e-14,
     max_it: int = 30,
     lm_damp: float = 1e-12,
+    bounds: tuple = None,
 ):
     """LM-damped Newton for G(t,u,v) = C(t) - S(u,v) = 0.
 
     Runs until residual < tol, step < step_tol, line search fails, or max_it.
 
+    Parameters
+    ----------
+    bounds : tuple, optional
+        If given, (t_lo, t_hi, u_lo, u_hi, v_lo, v_hi) — parameters are
+        clamped to these ranges instead of [0,1]. Useful in Phase 2 where
+        only the current cell's range is relevant.
+
     Returns
     -------
     t, u, v : float
-        Best parameters found (clamped to [0, 1]).
+        Best parameters found (clamped to bounds).
     G : ndarray
         Final residual vector.
     last_step : tuple[float, float, float]
-        Last accepted (dt, du, dv) step — the caller can compare against
-        parametric tolerances to decide if Newton has converged
-        in the parameter-space sense.
+        Last accepted (dt, du, dv) step.
     """
+    if bounds is not None:
+        t_lo, t_hi, u_lo, u_hi, v_lo, v_hi = bounds
+    else:
+        t_lo, t_hi, u_lo, u_hi, v_lo, v_hi = 0.0, 1.0, 0.0, 1.0, 0.0, 1.0
+
+    def _clamp(x, lo, hi):
+        if x <= lo: return lo
+        if x >= hi: return hi
+        return x
+
     t, u, v = float(t0), float(u0), float(v0)
     last_dt, last_du, last_dv = 1.0, 1.0, 1.0
 
@@ -332,9 +348,9 @@ def newton_csx(
         step = 1.0
         accepted = False
         for _ls in range(8):
-            tn = _clamp01(t + step * delta[0])
-            un = _clamp01(u + step * delta[1])
-            vn = _clamp01(v + step * delta[2])
+            tn = _clamp(t + step * delta[0], t_lo, t_hi)
+            un = _clamp(u + step * delta[1], u_lo, u_hi)
+            vn = _clamp(v + step * delta[2], v_lo, v_hi)
             Gn = (eval_curve(C, tn, rational=rational)
                   - eval_surface(S, un, vn, rational=rational))
             if float(np.dot(Gn, Gn)) <= g2:
