@@ -494,6 +494,7 @@ def _cutout_3d(F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
 def _phase2_isolated_search(
     F_sub, C_sub, S, C_orig, S_orig,
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
+    known_points=None,
     max_depth=50, max_cells=50_000,
 ):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
@@ -510,7 +511,9 @@ def _phase2_isolated_search(
     _, Pw = extract_weights(C_sub, rational=rational)
     _, Sw = extract_weights(S, rational=rational)
 
-    isolated = []
+    # Start with known points from Phase 1 so pre-Newton dedup can skip them
+    isolated = list(known_points) if known_points else []
+    n_known = len(isolated)
     cells = 0
 
     stack = [(F_sub, C_sub, Pw.copy(), Sw.copy(),
@@ -546,13 +549,13 @@ def _phase2_isolated_search(
         if not can_have_stationary:
             continue
 
-        # ptol-based early termination: if the cell is smaller than ptol
-        # in ALL directions, it's a "micro-fragment" — too small to resolve.
-        # Report as an isolated intersection at the cell center.
+        # ptol-based early termination: if the curve parameter span is
+        # below ptol_t, further subdivision is meaningless — we can't
+        # distinguish different t values within this cell.
         t_span = t1 - t0
         u_span = u1 - u0
         v_span = v1 - v0
-        if t_span <= ptol_t and u_span <= ptol_u and v_span <= ptol_v:
+        if t_span <= ptol_t:
             # Micro-fragment: report center as isolated intersection
             t_mid = 0.5 * (t0 + t1)
             u_mid = 0.5 * (u0 + u1)
@@ -569,6 +572,13 @@ def _phase2_isolated_search(
         t_mid = 0.5 * (t0 + t1)
         u_mid = 0.5 * (u0 + u1)
         v_mid = 0.5 * (v0 + v1)
+
+        # Skip Newton if the cell center is near a known intersection —
+        # Newton would just reconverge to it, wasting iterations.
+        pt_mid = eval_curve(C_orig, t_mid, rational=rational)
+        if _is_duplicate(isolated, pt_mid, atol * 3):
+            continue
+
         t_sol, u_sol, v_sol, G, last_step = newton_csx(
             C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
         )
@@ -634,7 +644,8 @@ def _phase2_isolated_search(
             stack.append((F_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u1, v0, v_split, depth+1))
             stack.append((F_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
-    return isolated
+    # Return only NEW results (exclude the pre-loaded known points)
+    return isolated[n_known:]
 
 
 def _compute_remaining_intervals(excludes, lo, hi):
@@ -737,7 +748,7 @@ def bez_csx(
                     "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
                     "point": pt_c,
                 })
-                t_exclude.append((t_bz - ptol_t, t_bz + ptol_t))
+                t_exclude.append((t_bz - 3 * ptol_t, t_bz + 3 * ptol_t))
 
     # Valley check for overlap
     if len(csx_boundary_zeros) >= 2:
@@ -754,7 +765,7 @@ def bez_csx(
                 "u_range": (min(u_a, u_b), max(u_a, u_b)),
                 "v_range": (min(v_a, v_b), max(v_a, v_b)),
             })
-            t_exclude.append((t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
+            t_exclude.append((t_lo_ovl - 3 * ptol_t, t_hi_ovl + 3 * ptol_t))
             # Remove isolated points inside the overlap
             isolated = [iso for iso in isolated
                         if not (t_lo_ovl - atol <= iso["t"] <= t_hi_ovl + atol)]
@@ -785,6 +796,7 @@ def bez_csx(
         phase2_iso = _phase2_isolated_search(
             F_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
+            known_points=isolated,
             max_depth=max_depth, max_cells=max_cells,
         )
 
