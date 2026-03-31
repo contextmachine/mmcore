@@ -572,13 +572,6 @@ def _phase2_isolated_search(
         t_mid = 0.5 * (t0 + t1)
         u_mid = 0.5 * (u0 + u1)
         v_mid = 0.5 * (v0 + v1)
-
-        # Skip Newton if the cell center is near a known intersection —
-        # Newton would just reconverge to it, wasting iterations.
-        pt_mid = eval_curve(C_orig, t_mid, rational=rational)
-        if _is_duplicate(isolated, pt_mid, atol * 3):
-            continue
-
         t_sol, u_sol, v_sol, G, last_step = newton_csx(
             C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
         )
@@ -606,6 +599,11 @@ def _phase2_isolated_search(
                 )
                 stack.extend(sub_cells)
             # else: known intersection — cell is in its attraction basin
+            continue
+
+        if converged:
+            # Newton converged but OUTSIDE the cell range — the nearest
+            # intersection is not in this cell. Prune.
             continue
 
         if depth >= max_depth:
@@ -748,7 +746,7 @@ def bez_csx(
                     "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
                     "point": pt_c,
                 })
-                t_exclude.append((t_bz - 3 * ptol_t, t_bz + 3 * ptol_t))
+                t_exclude.append((t_bz - ptol_t, t_bz + ptol_t))
 
     # Valley check for overlap
     if len(csx_boundary_zeros) >= 2:
@@ -765,7 +763,7 @@ def bez_csx(
                 "u_range": (min(u_a, u_b), max(u_a, u_b)),
                 "v_range": (min(v_a, v_b), max(v_a, v_b)),
             })
-            t_exclude.append((t_lo_ovl - 3 * ptol_t, t_hi_ovl + 3 * ptol_t))
+            t_exclude.append((t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
             # Remove isolated points inside the overlap
             isolated = [iso for iso in isolated
                         if not (t_lo_ovl - atol <= iso["t"] <= t_hi_ovl + atol)]
