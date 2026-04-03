@@ -184,7 +184,8 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
                 u_lo, u_hi, v_lo, v_hi,
                 atol, rational, ptol_u, ptol_v,
                 known_points=None,
-                max_depth=50, max_cells=50_000):
+                max_depth=50, max_cells=50_000,
+                initial_stack=None):
     """Phase 2: find isolated intersections via subdivision + Newton + cutout.
 
     No boundary analysis, no overlap checks, no classifier.
@@ -194,15 +195,17 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         _check_min_of_net, _check_lipschitz, _weight_max_product,
     )
 
-    _, Pw = extract_weights(C1, rational=rational)
-    _, Qw = extract_weights(C2, rational=rational)
-
     isolated = list(known_points) if known_points else []
     n_known = len(isolated)
     cells = 0
 
-    stack = [(C1, C2, F, Pw.copy(), Qw.copy(),
-              u_lo, u_hi, v_lo, v_hi, 0)]
+    if initial_stack is not None:
+        stack = list(initial_stack)
+    else:
+        _, Pw = extract_weights(C1, rational=rational)
+        _, Qw = extract_weights(C2, rational=rational)
+        stack = [(C1, C2, F, Pw.copy(), Qw.copy(),
+                  u_lo, u_hi, v_lo, v_hi, 0)]
 
     while stack:
         if cells >= max_cells:
@@ -341,11 +344,8 @@ def bez_ccx(
     if cls.kind == NO_INTERSECTION:
         return {"isolated": [], "overlaps": []}
 
-    # Collect boundary zeros and overlaps
-    u_exclude = []  # (lo, hi) intervals to cut from u-axis
-    v_exclude = []
-
-    # Accept boundary zeros as isolated intersections
+    # 1a. Collect validated boundary zeros (don't add to isolated yet)
+    boundary_hits = []  # list of (u, v, point)
     if cls.precise_zeros:
         for bz in cls.precise_zeros:
             if not isinstance(bz, BoundaryZero):
@@ -354,12 +354,10 @@ def bez_ccx(
             pt1 = eval_curve(C1, u_bz, rational=rational)
             pt2 = eval_curve(C2, v_bz, rational=rational)
             if float(np.linalg.norm(pt1 - pt2)) < atol:
-                if not _is_duplicate(isolated, pt1, atol):
-                    isolated.append({"u": float(u_bz), "v": float(v_bz), "point": pt1})
-                    u_exclude.append((u_bz - ptol_u, u_bz + ptol_u))
-                    v_exclude.append((v_bz - ptol_v, v_bz + ptol_v))
+                boundary_hits.append((float(u_bz), float(v_bz), pt1))
 
-    # Overlap detection
+    # 1b. Check for overlap
+    overlap_found = False
     if cls.kind == OVERLAP:
         if cls.overlap_endpoints and isinstance(cls.overlap_endpoints[0], BoundaryZero):
             ovl_pts = []
@@ -379,14 +377,7 @@ def bez_ccx(
                     "u_range": (ovl_pts[0][0], ovl_pts[1][0]),
                     "v_range": (ovl_pts[0][1], ovl_pts[1][1]),
                 })
-                u_lo_ovl = min(ovl_pts[0][0], ovl_pts[1][0])
-                u_hi_ovl = max(ovl_pts[0][0], ovl_pts[1][0])
-                v_lo_ovl = min(ovl_pts[0][1], ovl_pts[1][1])
-                v_hi_ovl = max(ovl_pts[0][1], ovl_pts[1][1])
-                u_exclude.append((u_lo_ovl - ptol_u, u_hi_ovl + ptol_u))
-                v_exclude.append((v_lo_ovl - ptol_v, v_hi_ovl + ptol_v))
-                isolated = [iso for iso in isolated
-                            if not (u_lo_ovl - atol <= iso["u"] <= u_hi_ovl + atol)]
+                overlap_found = True
         else:
             overlaps.append({
                 "boundary_zeros": cls.boundary_zeros,
@@ -394,26 +385,85 @@ def bez_ccx(
                 "u_range": (0.0, 1.0),
                 "v_range": (0.0, 1.0),
             })
-            return {"isolated": isolated, "overlaps": overlaps}
+            overlap_found = True
 
-    # If classifier found OVERLAP and it covers the full range, we're done
-    if overlaps and cls.kind == OVERLAP:
-        return {"isolated": isolated, "overlaps": overlaps}
+    # 1c. Classify boundary hits: overlap endpoints go into the overlap,
+    #     remaining boundary hits become isolated intersections.
+    if overlap_found and overlaps:
+        ovl = overlaps[-1]
+        u_lo_ovl = min(ovl["u_range"])
+        u_hi_ovl = max(ovl["u_range"])
+        for u_bz, v_bz, pt in boundary_hits:
+            if not (u_lo_ovl - atol <= u_bz <= u_hi_ovl + atol):
+                if not _is_duplicate(isolated, pt, atol):
+                    isolated.append({"u": u_bz, "v": v_bz, "point": pt})
+    else:
+        for u_bz, v_bz, pt in boundary_hits:
+            if not _is_duplicate(isolated, pt, atol):
+                isolated.append({"u": u_bz, "v": v_bz, "point": pt})
 
     # ===================================================================
-    # PHASE 2: Isolated intersection search
+    # PHASE 2: Isolated intersection search via cutout
     # ===================================================================
+    # Build the initial Phase 2 search domain by cutting out all Phase 1
+    # results from [0,1]^2. Each cutout produces 8 sub-cells (3×3 minus center).
+    # Phase 2 operates ONLY on these sub-cells.
 
-    # Compute remaining intervals (full [0,1] minus excluded)
-    # For CCX, the exclusion is 2D — we can't simply cut intervals from
-    # each axis independently. Instead, run Phase 2 on the full [0,1]^2
-    # but pass the known points so they're skipped.
+    phase2_stack = [(C1, C2, F, Pw.copy(), Qw.copy(), 0.0, 1.0, 0.0, 1.0, 0)]
+
+    # Cut out overlaps: restrict Phase 2 to u-ranges outside the overlap.
+    # The overlap runs diagonally in (u,v) space, so axis-aligned 2D cutout
+    # doesn't work. Instead, cut along u (the first curve's parameter) —
+    # same principle as CSX cutting along t.
+    if overlap_found and overlaps:
+        ovl = overlaps[-1]
+        u_lo_ovl = min(ovl["u_range"])
+        u_hi_ovl = max(ovl["u_range"])
+        new_stack = []
+        for cell in phase2_stack:
+            seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = cell
+            # Split along u at the overlap boundaries
+            u_intervals = _split_intervals(
+                0.5*(u_lo_ovl+u_hi_ovl), u0, u1,
+                max((u_hi_ovl-u_lo_ovl)/2 + ptol_u, ptol_u))
+            u_center = len(u_intervals) // 2 if len(u_intervals) == 3 else 0
+            for ui, (u_lo_sub, u_hi_sub) in enumerate(u_intervals):
+                if ui == u_center:
+                    continue  # skip the overlap region
+                if u_hi_sub - u_lo_sub < 1e-15:
+                    continue
+                F_sub = _restrict_net_axis(F_cell, 0, u_lo_sub, u_hi_sub, u0, u1)
+                u_frac_lo = (u_lo_sub - u0) / max(u1 - u0, 1e-30)
+                u_frac_hi = (u_hi_sub - u0) / max(u1 - u0, 1e-30)
+                C1_sub = seg1
+                if u_frac_lo > 1e-12:
+                    _, C1_sub = _subdivide_curve(C1_sub, u_frac_lo)
+                if u_frac_hi < 1.0 - 1e-12:
+                    uf = (u_frac_hi - u_frac_lo) / (1.0 - u_frac_lo) if u_frac_lo > 1e-12 else u_frac_hi
+                    C1_sub, _ = _subdivide_curve(C1_sub, uf)
+                pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
+                new_stack.append((C1_sub, seg2.copy(), F_sub, pw_sub, qw.copy(),
+                                  u_lo_sub, u_hi_sub, v0, v1, depth + 1))
+        phase2_stack = new_stack
+
+    # Cut out boundary intersection neighborhoods
+    for iso in isolated:
+        new_stack = []
+        for cell in phase2_stack:
+            seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = cell
+            sub = _cutout_2d(F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
+                             iso["u"], iso["v"], ptol_u, ptol_v, rational)
+            new_stack.extend(sub)
+        phase2_stack = new_stack
+
+    # Run Phase 2 on the remaining sub-cells
     phase2_iso = _phase2_ccx(
-        F, C1, C2, C1_orig, C2_orig,
+        None, None, None, C1_orig, C2_orig,
         0.0, 1.0, 0.0, 1.0,
         atol, rational, ptol_u, ptol_v,
         known_points=isolated,
         max_depth=max_depth, max_cells=max_cells,
+        initial_stack=phase2_stack,
     )
 
     for iso in phase2_iso:
