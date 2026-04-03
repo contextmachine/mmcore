@@ -403,73 +403,60 @@ def bez_ccx(
                 isolated.append({"u": u_bz, "v": v_bz, "point": pt})
 
     # ===================================================================
-    # PHASE 2: Isolated intersection search via cutout
+    # PHASE 2: Isolated intersection search
     # ===================================================================
-    # Build the initial Phase 2 search domain by cutting out all Phase 1
-    # results from [0,1]^2. Each cutout produces 8 sub-cells (3×3 minus center).
-    # Phase 2 operates ONLY on these sub-cells.
+    # Cut from the FIRST curve's parameter (u) only — same principle as
+    # CSX cutting along t. For each remaining u-interval, search against
+    # the FULL second curve [0,1].
 
-    phase2_stack = [(C1, C2, F, Pw.copy(), Qw.copy(), 0.0, 1.0, 0.0, 1.0, 0)]
-
-    # Cut out overlaps: restrict Phase 2 to u-ranges outside the overlap.
-    # The overlap runs diagonally in (u,v) space, so axis-aligned 2D cutout
-    # doesn't work. Instead, cut along u (the first curve's parameter) —
-    # same principle as CSX cutting along t.
+    # Collect u-intervals to exclude
+    u_exclude = []
     if overlap_found and overlaps:
         ovl = overlaps[-1]
         u_lo_ovl = min(ovl["u_range"])
         u_hi_ovl = max(ovl["u_range"])
-        new_stack = []
-        for cell in phase2_stack:
-            seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = cell
-            # Split along u at the overlap boundaries
-            u_intervals = _split_intervals(
-                0.5*(u_lo_ovl+u_hi_ovl), u0, u1,
-                max((u_hi_ovl-u_lo_ovl)/2 + ptol_u, ptol_u))
-            u_center = len(u_intervals) // 2 if len(u_intervals) == 3 else 0
-            for ui, (u_lo_sub, u_hi_sub) in enumerate(u_intervals):
-                if ui == u_center:
-                    continue  # skip the overlap region
-                if u_hi_sub - u_lo_sub < 1e-15:
-                    continue
-                F_sub = _restrict_net_axis(F_cell, 0, u_lo_sub, u_hi_sub, u0, u1)
-                u_frac_lo = (u_lo_sub - u0) / max(u1 - u0, 1e-30)
-                u_frac_hi = (u_hi_sub - u0) / max(u1 - u0, 1e-30)
-                C1_sub = seg1
-                if u_frac_lo > 1e-12:
-                    _, C1_sub = _subdivide_curve(C1_sub, u_frac_lo)
-                if u_frac_hi < 1.0 - 1e-12:
-                    uf = (u_frac_hi - u_frac_lo) / (1.0 - u_frac_lo) if u_frac_lo > 1e-12 else u_frac_hi
-                    C1_sub, _ = _subdivide_curve(C1_sub, uf)
-                pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
-                new_stack.append((C1_sub, seg2.copy(), F_sub, pw_sub, qw.copy(),
-                                  u_lo_sub, u_hi_sub, v0, v1, depth + 1))
-        phase2_stack = new_stack
-
-    # Cut out boundary intersection neighborhoods
+        u_exclude.append((u_lo_ovl - ptol_u, u_hi_ovl + ptol_u))
     for iso in isolated:
-        new_stack = []
-        for cell in phase2_stack:
-            seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = cell
-            sub = _cutout_2d(F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
-                             iso["u"], iso["v"], ptol_u, ptol_v, rational)
-            new_stack.extend(sub)
-        phase2_stack = new_stack
+        u_exclude.append((iso["u"] - ptol_u, iso["u"] + ptol_u))
 
-    # Run Phase 2 on the remaining sub-cells
-    phase2_iso = _phase2_ccx(
-        None, None, None, C1_orig, C2_orig,
-        0.0, 1.0, 0.0, 1.0,
-        atol, rational, ptol_u, ptol_v,
-        known_points=isolated,
-        max_depth=max_depth, max_cells=max_cells,
-        initial_stack=phase2_stack,
-    )
+    from mmcore.numeric.intersection.csx._bez_csx4 import _compute_remaining_intervals
+    u_intervals = _compute_remaining_intervals(u_exclude, 0.0, 1.0)
 
-    for iso in phase2_iso:
-        iso.pop('_micro', None)
-        if not _is_duplicate(isolated, iso["point"], atol):
-            isolated.append(iso)
+    for u_lo, u_hi in u_intervals:
+        if u_hi - u_lo < ptol_u * 0.1:
+            continue
+
+        # Restrict net and first curve to this u sub-interval
+        F_sub = _restrict_net_axis(F, 0, u_lo, u_hi, 0.0, 1.0)
+        C1_sub = C1
+        if u_lo > 1e-12:
+            _, C1_sub = _subdivide_curve(C1_sub, u_lo)
+        if u_hi < 1.0 - 1e-12:
+            u_hi_rescaled = (u_hi - u_lo) / (1.0 - u_lo) if u_lo > 1e-12 else u_hi
+            C1_sub, _ = _subdivide_curve(C1_sub, u_hi_rescaled)
+        pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
+
+        # Quick min-of-net check
+        from mmcore.numeric.intersection._sq_dist_classify import (
+            _check_min_of_net, _weight_max_product,
+        )
+        w_sc = _weight_max_product(pw_sub, Qw)
+        if _check_min_of_net(F_sub, atol, w_sc):
+            continue
+
+        # Run Phase 2 on this sub-interval × full v
+        phase2_iso = _phase2_ccx(
+            F_sub, C1_sub, C2, C1_orig, C2_orig,
+            u_lo, u_hi, 0.0, 1.0,
+            atol, rational, ptol_u, ptol_v,
+            known_points=isolated,
+            max_depth=max_depth, max_cells=max_cells,
+        )
+
+        for iso in phase2_iso:
+            iso.pop('_micro', None)
+            if not _is_duplicate(isolated, iso["point"], atol):
+                isolated.append(iso)
 
     return {"isolated": isolated, "overlaps": overlaps}
 
