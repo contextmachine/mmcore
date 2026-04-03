@@ -239,6 +239,21 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
         else:
             iso_curve = S[:, 0 if surf_side == 0 else -1, :]  # shape (m+1, D)
 
+        # AABB pre-filter: skip isocurves whose bounding box doesn't overlap the curve's
+        from mmcore.numeric._aabb import aabb, aabb_intersect
+        if rational:
+            c_pts = C[:, :-1] / C[:, -1:]
+            iso_pts = iso_curve[:, :-1] / iso_curve[:, -1:]
+        else:
+            c_pts = C
+            iso_pts = iso_curve
+        c_bb = np.array(aabb(c_pts))
+        c_bb[0] -= atol; c_bb[1] += atol
+        iso_bb = np.array(aabb(iso_pts))
+        iso_bb[0] -= atol; iso_bb[1] += atol
+        if not aabb_intersect(c_bb, iso_bb):
+            continue
+
         # Run CCX between the original curve and this isocurve
         ccx_result = bez_ccx_v4(C, iso_curve, atol=atol, rational=rational)
 
