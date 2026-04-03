@@ -94,8 +94,212 @@ def _compute_param_tols(C1, C2, atol, rational):
     return float(tol_u), float(tol_v)
 
 
+
+from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
+
 # ---------------------------------------------------------------------------
-# Main algorithm
+# Phase 2 helpers
+# ---------------------------------------------------------------------------
+
+def _restrict_net_axis(F, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a bivariate net along one axis to [lo, hi] within [cell_lo, cell_hi]."""
+    span = cell_hi - cell_lo
+    if span < 1e-30:
+        return F
+    frac_lo = (lo - cell_lo) / span
+    frac_hi = (hi - cell_lo) / span
+    Fv = F[..., np.newaxis]
+    if frac_lo > 1e-12:
+        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
+    if frac_hi < 1.0 - 1e-12:
+        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
+        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
+    return Fv[..., 0]
+
+
+def _split_intervals(cut, lo, hi, ptol):
+    """Split [lo, hi] into up to 3 sub-intervals around cut ± ptol."""
+    cut_lo = max(cut - ptol, lo)
+    cut_hi = min(cut + ptol, hi)
+    intervals = []
+    if lo + 1e-15 < cut_lo:
+        intervals.append((lo, cut_lo))
+    intervals.append((cut_lo, cut_hi))
+    if cut_hi < hi - 1e-15:
+        intervals.append((cut_hi, hi))
+    return intervals
+
+
+def _cutout_2d(F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
+               u_cut, v_cut, ptol_u, ptol_v, rational):
+    """Cut out a ptol-neighborhood around (u_cut, v_cut) from a 2D cell.
+
+    Splits along both axes at cut ± ptol, producing 3×3 = 9 boxes.
+    The center box is discarded. Remaining 8 are returned with restricted nets.
+    """
+    u_intervals = _split_intervals(u_cut, u0, u1, ptol_u)
+    v_intervals = _split_intervals(v_cut, v0, v1, ptol_v)
+
+    u_center = len(u_intervals) // 2 if len(u_intervals) == 3 else (0 if len(u_intervals) == 1 else -1)
+    v_center = len(v_intervals) // 2 if len(v_intervals) == 3 else (0 if len(v_intervals) == 1 else -1)
+
+    sub_cells = []
+    for ui, (u_lo, u_hi) in enumerate(u_intervals):
+        for vi, (v_lo, v_hi) in enumerate(v_intervals):
+            if ui == u_center and vi == v_center:
+                continue
+            if u_hi - u_lo < 1e-15 or v_hi - v_lo < 1e-15:
+                continue
+
+            F_sub = _restrict_net_axis(F_cell, 0, u_lo, u_hi, u0, u1)
+            F_sub = _restrict_net_axis(F_sub, 1, v_lo, v_hi, v0, v1)
+
+            # Restrict curves
+            u_frac_lo = (u_lo - u0) / max(u1 - u0, 1e-30)
+            u_frac_hi = (u_hi - u0) / max(u1 - u0, 1e-30)
+            C1_sub = seg1
+            if u_frac_lo > 1e-12:
+                _, C1_sub = _subdivide_curve(C1_sub, u_frac_lo)
+            if u_frac_hi < 1.0 - 1e-12:
+                uf_rescaled = (u_frac_hi - u_frac_lo) / (1.0 - u_frac_lo) if u_frac_lo > 1e-12 else u_frac_hi
+                C1_sub, _ = _subdivide_curve(C1_sub, uf_rescaled)
+            pw_sub = C1_sub[:, -1].copy() if rational else np.ones(C1_sub.shape[0])
+
+            v_frac_lo = (v_lo - v0) / max(v1 - v0, 1e-30)
+            v_frac_hi = (v_hi - v0) / max(v1 - v0, 1e-30)
+            C2_sub = seg2
+            if v_frac_lo > 1e-12:
+                _, C2_sub = _subdivide_curve(C2_sub, v_frac_lo)
+            if v_frac_hi < 1.0 - 1e-12:
+                vf_rescaled = (v_frac_hi - v_frac_lo) / (1.0 - v_frac_lo) if v_frac_lo > 1e-12 else v_frac_hi
+                C2_sub, _ = _subdivide_curve(C2_sub, vf_rescaled)
+            qw_sub = C2_sub[:, -1].copy() if rational else np.ones(C2_sub.shape[0])
+
+            sub_cells.append((C1_sub, C2_sub, F_sub, pw_sub, qw_sub,
+                              u_lo, u_hi, v_lo, v_hi, depth + 1))
+    return sub_cells
+
+
+def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
+                u_lo, u_hi, v_lo, v_hi,
+                atol, rational, ptol_u, ptol_v,
+                known_points=None,
+                max_depth=50, max_cells=50_000):
+    """Phase 2: find isolated intersections via subdivision + Newton + cutout.
+
+    No boundary analysis, no overlap checks, no classifier.
+    Just: min-of-net → derivative sign → Newton → cutout.
+    """
+    from mmcore.numeric.intersection._sq_dist_classify import (
+        _check_min_of_net, _check_lipschitz, _weight_max_product,
+    )
+
+    _, Pw = extract_weights(C1, rational=rational)
+    _, Qw = extract_weights(C2, rational=rational)
+
+    isolated = list(known_points) if known_points else []
+    n_known = len(isolated)
+    cells = 0
+
+    stack = [(C1, C2, F, Pw.copy(), Qw.copy(),
+              u_lo, u_hi, v_lo, v_hi, 0)]
+
+    while stack:
+        if cells >= max_cells:
+            break
+        cells += 1
+
+        seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
+
+        w_sc = _weight_max_product(pw, qw)
+
+        # min-of-net prune
+        if _check_min_of_net(F_cell, atol, w_sc):
+            continue
+
+        # Lipschitz prune
+        if _check_lipschitz(F_cell, atol, w_sc):
+            continue
+
+        # Derivative sign pruning
+        Fv = F_cell[..., np.newaxis]
+        can_have_stationary = True
+        for ax in range(2):
+            dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
+            coeffs = dF[..., 0]
+            if np.min(coeffs) >= 0 or np.max(coeffs) <= 0:
+                can_have_stationary = False
+                break
+        if not can_have_stationary:
+            continue
+
+        # ptol-based early termination
+        if (u1 - u0) <= ptol_u and (v1 - v0) <= ptol_v:
+            u_mid = 0.5 * (u0 + u1)
+            v_mid = 0.5 * (v0 + v1)
+            pt = eval_curve(C1_orig, u_mid, rational=rational)
+            if not _is_duplicate(isolated, pt, atol):
+                isolated.append({"u": float(u_mid), "v": float(v_mid), "point": pt, "_micro": True})
+            continue
+
+        # Newton from cell center
+        u_mid = 0.5 * (u0 + u1)
+        v_mid = 0.5 * (v0 + v1)
+        u_sol, v_sol, G, last_step = newton_ccx(
+            C1_orig, C2_orig, u_mid, v_mid, rational=rational,
+        )
+        step_norm = abs(last_step[0]) + abs(last_step[1])
+        residual_ok = float(np.linalg.norm(G)) < atol
+        converged = ((step_norm > 0 or residual_ok)
+                     and abs(last_step[0]) <= ptol_u
+                     and abs(last_step[1]) <= ptol_v)
+
+        if converged and u0 - ptol_u <= u_sol <= u1 + ptol_u and v0 - ptol_v <= v_sol <= v1 + ptol_v:
+            pt = eval_curve(C1_orig, u_sol, rational=rational)
+            is_new = not _is_duplicate(isolated, pt, atol)
+            if is_new:
+                isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
+                sub_cells = _cutout_2d(
+                    F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
+                    float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
+                )
+                stack.extend(sub_cells)
+            continue
+
+        if converged:
+            # Converged outside cell → prune
+            continue
+
+        if depth >= max_depth:
+            continue
+
+        # Subdivide
+        u_span = u1 - u0
+        v_span = v1 - v0
+        axis = 0 if u_span >= v_span else 1
+
+        if axis == 0:
+            u_mid_split = 0.5 * (u0 + u1)
+            seg1_L, seg1_R = _subdivide_curve(seg1)
+            F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
+            pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
+            pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
+            stack.append((seg1_L, seg2.copy(), F_L, pw_L, qw.copy(), u0, u_mid_split, v0, v1, depth+1))
+            stack.append((seg1_R, seg2.copy(), F_R, pw_R, qw.copy(), u_mid_split, u1, v0, v1, depth+1))
+        else:
+            v_mid_split = 0.5 * (v0 + v1)
+            seg2_L, seg2_R = _subdivide_curve(seg2)
+            F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=1)
+            qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
+            qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
+            stack.append((seg1.copy(), seg2_L, F_L, pw.copy(), qw_L, u0, u1, v0, v_mid_split, depth+1))
+            stack.append((seg1.copy(), seg2_R, F_R, pw.copy(), qw_R, u0, u1, v_mid_split, v1, depth+1))
+
+    return isolated[n_known:]
+
+
+# ---------------------------------------------------------------------------
+# Main algorithm: two-phase architecture
 # ---------------------------------------------------------------------------
 
 def bez_ccx(
@@ -106,197 +310,117 @@ def bez_ccx(
     max_depth=50,
     max_cells=100_000,
 ) -> dict:
-    """Bezier curve-curve intersection via sq-dist net classification.
+    """Bezier curve-curve intersection via two-phase architecture.
 
-    Parameters
-    ----------
-    C1, C2 : ndarray
-        Control polygons of the two Bezier curves.  Shape ``(n+1, D)``
-        where D=3 (polynomial) or D includes a weight column when
-        *rational* is True.
-    atol : float
-        Geometric tolerance for intersection detection.
-    rational : bool
-        Whether the control nets are homogeneous (last column = weight).
-    max_depth : int
-        Maximum subdivision depth.
-    max_cells : int
-        Maximum total cells processed (safety limit).
-
-    Returns
-    -------
-    dict
-        ``{'isolated': [...], 'overlaps': [...]}``
-
-        Each isolated entry is ``{'u': float, 'v': float, 'point': ndarray}``.
-        Each overlap entry is ``{'boundary_zeros': [...], 'u_range': (u0, u1),
-        'v_range': (v0, v1), ...}``.
+    Phase 1: Find boundary intersections and overlaps on the initial patch.
+             These can ONLY exist at the boundaries of the original objects.
+    Phase 2: Search for isolated intersections on the remaining parameter
+             intervals via subdivision + Newton + cutout.
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
 
-    # Build initial sq-dist net
     F = curve_curve_squared_net_homog(C1, C2, rational=rational)
 
-    # Extract weights for the classifier
     _, Pw = extract_weights(C1, rational=rational)
     _, Qw = extract_weights(C2, rational=rational)
 
-    # Keep references to the ORIGINAL curves for Newton refinement
     C1_orig = C1
     C2_orig = C2
 
-    # Parametric tolerances: the max parameter perturbation that corresponds
-    # to geometric deviation <= atol. Used to decide Newton convergence.
     ptol_u, ptol_v = _compute_param_tols(C1, C2, atol, rational)
 
-    # Results
     isolated = []
     overlaps = []
 
-    # Stack entries: (seg1, seg2, F, Pw, Qw, u0, u1, v0, v1, depth)
-    stack = [(C1.copy(), C2.copy(), F, Pw.copy(), Qw.copy(), 0.0, 1.0, 0.0, 1.0, 0)]
-    cells_processed = 0
+    # ===================================================================
+    # PHASE 1: Boundary analysis + overlap (initial patch only)
+    # ===================================================================
+    cls = classify_sq_dist_net(F, atol, Pw, Qw)
 
-    while stack:
-        if cells_processed >= max_cells:
-            break
-        cells_processed += 1
+    if cls.kind == NO_INTERSECTION:
+        return {"isolated": [], "overlaps": []}
 
-        seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
+    # Collect boundary zeros and overlaps
+    u_exclude = []  # (lo, hi) intervals to cut from u-axis
+    v_exclude = []
 
-        # Classify
-        cls = classify_sq_dist_net(F_cell, atol, pw, qw)
+    # Accept boundary zeros as isolated intersections
+    if cls.precise_zeros:
+        for bz in cls.precise_zeros:
+            if not isinstance(bz, BoundaryZero):
+                continue
+            u_bz, v_bz = _boundary_zero_to_uv(bz, 0.0, 1.0, 0.0, 1.0)
+            pt1 = eval_curve(C1, u_bz, rational=rational)
+            pt2 = eval_curve(C2, v_bz, rational=rational)
+            if float(np.linalg.norm(pt1 - pt2)) < atol:
+                if not _is_duplicate(isolated, pt1, atol):
+                    isolated.append({"u": float(u_bz), "v": float(v_bz), "point": pt1})
+                    u_exclude.append((u_bz - ptol_u, u_bz + ptol_u))
+                    v_exclude.append((v_bz - ptol_v, v_bz + ptol_v))
 
-        if cls.kind == NO_INTERSECTION:
-            continue
-
-        elif cls.kind == UNIQUE_ISOLATED:
-            # Newton refine on ORIGINAL curves with global param guess.
-            # The classifier proved a unique interior zero.
-            u_mid = 0.5 * (u0 + u1)
-            v_mid = 0.5 * (v0 + v1)
-            u_sol, v_sol, G, last_step = newton_ccx(
-                C1_orig, C2_orig, u_mid, v_mid, rational=rational,
-            )
-            # Accept if Newton's last step is below the parametric tolerance
-            # for both curves. This means Newton has converged in the
-            # parameter-space sense — further iteration can't improve
-            # the result by more than atol geometrically.
-            # Guard: a zero step means Newton was stuck at the boundary
-            # (clamped), not that it converged. Require actual progress.
-            # Guard: a zero step at a non-zero residual means Newton was stuck
-            # at the clamped boundary, not that it converged.
-            step_norm = abs(last_step[0]) + abs(last_step[1])
-            residual_ok = float(np.linalg.norm(G)) < atol
-            if (step_norm > 0 or residual_ok) and abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
-                pt = eval_curve(C1_orig, u_sol, rational=rational)
-                if not _is_duplicate(isolated, pt, atol):
-                    isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-            continue
-
-        elif cls.kind == OVERLAP:
-            # Valley check confirmed overlap. Use precise boundary zeros as endpoints.
-            if cls.overlap_endpoints and isinstance(cls.overlap_endpoints[0], BoundaryZero):
-                ovl_pts = []
-                for bz in cls.overlap_endpoints:
-                    u_bz, v_bz = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
-                    u_sol, v_sol, G, last_step = newton_ccx(
-                        C1_orig, C2_orig, u_bz, v_bz, rational=rational,
-                    )
-                    if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
-                        ovl_pts.append((float(u_sol), float(v_sol)))
-                    else:
-                        ovl_pts.append((float(u_bz), float(v_bz)))
-                if len(ovl_pts) >= 2:
-                    overlaps.append({
-                        "boundary_zeros": cls.boundary_zeros,
-                        "overlap_endpoints": cls.overlap_endpoints,
-                        "u_range": (ovl_pts[0][0], ovl_pts[1][0]),
-                        "v_range": (ovl_pts[0][1], ovl_pts[1][1]),
-                    })
-            else:
-                # Old-style overlap (no precise endpoints)
+    # Overlap detection
+    if cls.kind == OVERLAP:
+        if cls.overlap_endpoints and isinstance(cls.overlap_endpoints[0], BoundaryZero):
+            ovl_pts = []
+            for bz in cls.overlap_endpoints:
+                u_bz, v_bz = _boundary_zero_to_uv(bz, 0.0, 1.0, 0.0, 1.0)
+                u_sol, v_sol, G, last_step = newton_ccx(
+                    C1_orig, C2_orig, u_bz, v_bz, rational=rational,
+                )
+                if abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
+                    ovl_pts.append((float(u_sol), float(v_sol)))
+                else:
+                    ovl_pts.append((float(u_bz), float(v_bz)))
+            if len(ovl_pts) >= 2:
                 overlaps.append({
                     "boundary_zeros": cls.boundary_zeros,
                     "overlap_endpoints": cls.overlap_endpoints,
-                    "u_range": (u0, u1),
-                    "v_range": (v0, v1),
+                    "u_range": (ovl_pts[0][0], ovl_pts[1][0]),
+                    "v_range": (ovl_pts[0][1], ovl_pts[1][1]),
                 })
-            continue
-
-        elif cls.kind == BOUNDARY_ZERO:
-            # The 1D solver found precise zeros on the domain boundary.
-            # Evaluate curves directly at those parameters — no Newton needed
-            # (Newton can't converge at clamped boundaries).
-            for bz in cls.precise_zeros:
-                if not isinstance(bz, BoundaryZero):
-                    continue
-                u_bz, v_bz = _boundary_zero_to_uv(bz, u0, u1, v0, v1)
-                pt1 = eval_curve(C1_orig, u_bz, rational=rational)
-                pt2 = eval_curve(C2_orig, v_bz, rational=rational)
-                if float(np.linalg.norm(pt1 - pt2)) < atol:
-                    if not _is_duplicate(isolated, pt1, atol):
-                        isolated.append({"u": float(u_bz), "v": float(v_bz), "point": pt1})
-            continue
-
-        # INDETERMINATE -> subdivide
-        if depth >= max_depth:
-            # Fallback: try Newton from cell center
-            u_mid = 0.5 * (u0 + u1)
-            v_mid = 0.5 * (v0 + v1)
-            u_sol, v_sol, G, last_step = newton_ccx(
-                C1_orig, C2_orig, u_mid, v_mid, rational=rational,
-            )
-            # Guard: a zero step at a non-zero residual means Newton was stuck
-            # at the clamped boundary, not that it converged.
-            step_norm = abs(last_step[0]) + abs(last_step[1])
-            residual_ok = float(np.linalg.norm(G)) < atol
-            if (step_norm > 0 or residual_ok) and abs(last_step[0]) <= ptol_u and abs(last_step[1]) <= ptol_v:
-                pt = eval_curve(C1_orig, u_sol, rational=rational)
-                if not _is_duplicate(isolated, pt, atol):
-                    isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-            continue
-
-        # Choose subdivision axis: split along the axis with larger param span
-        u_span = u1 - u0
-        v_span = v1 - v0
-        axis = 0 if u_span >= v_span else 1
-
-        if axis == 0:
-            # Subdivide C1 (axis 0 of the sq-dist net)
-            u_mid = 0.5 * (u0 + u1)
-            seg1_left, seg1_right = _subdivide_curve(seg1)
-            F_left, F_right = _subdivide_sq_dist_net(F_cell, axis=0)
-
-            # Extract weights from subdivided halves
-            if rational:
-                pw_left = seg1_left[:, -1].copy()
-                pw_right = seg1_right[:, -1].copy()
-            else:
-                pw_left = np.ones(seg1_left.shape[0], dtype=np.float64)
-                pw_right = np.ones(seg1_right.shape[0], dtype=np.float64)
-
-            stack.append((seg1_left, seg2.copy(), F_left, pw_left, qw.copy(), u0, u_mid, v0, v1, depth + 1))
-            stack.append((seg1_right, seg2.copy(), F_right, pw_right, qw.copy(), u_mid, u1, v0, v1, depth + 1))
+                u_lo_ovl = min(ovl_pts[0][0], ovl_pts[1][0])
+                u_hi_ovl = max(ovl_pts[0][0], ovl_pts[1][0])
+                v_lo_ovl = min(ovl_pts[0][1], ovl_pts[1][1])
+                v_hi_ovl = max(ovl_pts[0][1], ovl_pts[1][1])
+                u_exclude.append((u_lo_ovl - ptol_u, u_hi_ovl + ptol_u))
+                v_exclude.append((v_lo_ovl - ptol_v, v_hi_ovl + ptol_v))
+                isolated = [iso for iso in isolated
+                            if not (u_lo_ovl - atol <= iso["u"] <= u_hi_ovl + atol)]
         else:
-            # Subdivide C2 (axis 1 of the sq-dist net)
-            v_mid = 0.5 * (v0 + v1)
-            seg2_left, seg2_right = _subdivide_curve(seg2)
-            F_left, F_right = _subdivide_sq_dist_net(F_cell, axis=1)
+            overlaps.append({
+                "boundary_zeros": cls.boundary_zeros,
+                "overlap_endpoints": cls.overlap_endpoints,
+                "u_range": (0.0, 1.0),
+                "v_range": (0.0, 1.0),
+            })
+            return {"isolated": isolated, "overlaps": overlaps}
 
-            # Extract weights from subdivided halves
-            if rational:
-                qw_left = seg2_left[:, -1].copy()
-                qw_right = seg2_right[:, -1].copy()
-            else:
-                qw_left = np.ones(seg2_left.shape[0], dtype=np.float64)
-                qw_right = np.ones(seg2_right.shape[0], dtype=np.float64)
+    # If classifier found OVERLAP and it covers the full range, we're done
+    if overlaps and cls.kind == OVERLAP:
+        return {"isolated": isolated, "overlaps": overlaps}
 
-            stack.append((seg1.copy(), seg2_left, F_left, pw.copy(), qw_left, u0, u1, v0, v_mid, depth + 1))
-            stack.append((seg1.copy(), seg2_right, F_right, pw.copy(), qw_right, u0, u1, v_mid, v1, depth + 1))
+    # ===================================================================
+    # PHASE 2: Isolated intersection search
+    # ===================================================================
 
-    isolated, overlaps = _postprocess(isolated, overlaps, C1_orig, C2_orig, atol, rational)
+    # Compute remaining intervals (full [0,1] minus excluded)
+    # For CCX, the exclusion is 2D — we can't simply cut intervals from
+    # each axis independently. Instead, run Phase 2 on the full [0,1]^2
+    # but pass the known points so they're skipped.
+    phase2_iso = _phase2_ccx(
+        F, C1, C2, C1_orig, C2_orig,
+        0.0, 1.0, 0.0, 1.0,
+        atol, rational, ptol_u, ptol_v,
+        known_points=isolated,
+        max_depth=max_depth, max_cells=max_cells,
+    )
+
+    for iso in phase2_iso:
+        iso.pop('_micro', None)
+        if not _is_duplicate(isolated, iso["point"], atol):
+            isolated.append(iso)
+
     return {"isolated": isolated, "overlaps": overlaps}
 
 
@@ -307,165 +431,3 @@ def _is_duplicate(isolated, pt, atol):
         if np.linalg.norm(existing - pt) < atol:
             return True
     return False
-
-
-# ---------------------------------------------------------------------------
-# Post-processing: merge micro-overlaps / tangent deduplication
-# ---------------------------------------------------------------------------
-
-def _intervals_overlap_1d(a0, a1, b0, b1, gap=0.0):
-    """Return True if [a0, a1] and [b0, b1] overlap or are within *gap*."""
-    return a0 - gap <= b1 and b0 - gap <= a1
-
-
-def _verify_overlap_geometric(C1, C2, u0, u1, v0, v1, atol, rational, n_samples=5):
-    """Check whether C1 and C2 actually trace the same path over the interval.
-
-    A genuine overlap means C1(u) == C2(v) for corresponding (u, v) along
-    the overlap.  We sample a few points along a linear parameterisation
-    from (u0, v0) to (u1, v1) and verify that the distance is below *atol*
-    at every sample.
-    """
-    for k in range(n_samples + 1):
-        alpha = k / n_samples
-        u = u0 + alpha * (u1 - u0)
-        v = v0 + alpha * (v1 - v0)
-        p1 = eval_curve(C1, u, rational=rational)
-        p2 = eval_curve(C2, v, rational=rational)
-        dist = float(np.linalg.norm(p1 - p2))
-        if dist > atol:
-            return False
-    return True
-
-
-def _postprocess(isolated, overlaps, C1, C2, atol, rational):
-    """Merge adjacent micro-overlaps and collapse spurious clusters.
-
-    Tangent and near-tangent intersections cause the classifier to emit
-    many tiny OVERLAP cells and nearby UNIQUE_ISOLATED points around the
-    same geometric location.  This function:
-
-    1. Merges overlap entries whose parameter boxes touch/overlap into
-       connected components.
-    2. For each component, verifies whether C1 and C2 actually coincide
-       geometrically.  If not (spurious overlap), collapses to a single
-       isolated point via Newton refinement.
-    3. Removes isolated points that are geometrically duplicated by a
-       verified overlap range.
-    """
-    if not overlaps:
-        return isolated, overlaps
-
-    # --- Step 1: merge overlaps into connected components ----------------
-    n = len(overlaps)
-    parent = list(range(n))
-
-    def _find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def _union(a, b):
-        ra, rb = _find(a), _find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    gap = atol * 0.1  # allow tiny gaps between adjacent cells
-    for i in range(n):
-        ui = overlaps[i]["u_range"]
-        vi = overlaps[i]["v_range"]
-        for j in range(i + 1, n):
-            uj = overlaps[j]["u_range"]
-            vj = overlaps[j]["v_range"]
-            if (_intervals_overlap_1d(ui[0], ui[1], uj[0], uj[1], gap)
-                    and _intervals_overlap_1d(vi[0], vi[1], vj[0], vj[1], gap)):
-                _union(i, j)
-
-    # Build merged components
-    from collections import defaultdict
-    comps = defaultdict(list)
-    for i in range(n):
-        comps[_find(i)].append(i)
-
-    merged_overlaps = []
-    collapse_isolated = []
-
-    for indices in comps.values():
-        u0 = min(overlaps[i]["u_range"][0] for i in indices)
-        u1 = max(overlaps[i]["u_range"][1] for i in indices)
-        v0 = min(overlaps[i]["v_range"][0] for i in indices)
-        v1 = max(overlaps[i]["v_range"][1] for i in indices)
-
-        u_mid = 0.5 * (u0 + u1)
-        v_mid = 0.5 * (v0 + v1)
-
-        # Geometric verification: do C1 and C2 actually coincide?
-        if _verify_overlap_geometric(C1, C2, u0, u1, v0, v1, atol, rational):
-            merged_overlaps.append({
-                "boundary_zeros": [],
-                "overlap_endpoints": [],
-                "u_range": (u0, u1),
-                "v_range": (v0, v1),
-            })
-        else:
-            # Spurious overlap cluster (tangent point, near-miss, etc.)
-            # Collapse to a single isolated point via Newton.
-            u_sol, v_sol, G, converged = newton_ccx(
-                C1, C2, u_mid, v_mid,
-                rational=rational, tol=atol * 1e-2,
-            )
-            if converged:
-                pt = eval_curve(C1, u_sol, rational=rational)
-                collapse_isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-            else:
-                # Try Newton with a tighter check: if the residual is small
-                # enough, accept it anyway.
-                pt_mid = eval_curve(C1, u_mid, rational=rational)
-                pt_mid2 = eval_curve(C2, v_mid, rational=rational)
-                dist = float(np.linalg.norm(pt_mid - pt_mid2))
-                if dist < atol:
-                    collapse_isolated.append({"u": float(u_mid), "v": float(v_mid), "point": pt_mid})
-
-    # --- Step 2: absorb isolated points near collapsed overlap clusters --
-    # Each collapsed overlap had a parameter range; any isolated point whose
-    # parameters fall inside (or near) that range is a duplicate.
-    remaining_isolated = []
-    for iso in isolated:
-        absorbed = False
-        u_iso = iso["u"]
-        v_iso = iso["v"]
-        for indices in comps.values():
-            u0c = min(overlaps[i]["u_range"][0] for i in indices)
-            u1c = max(overlaps[i]["u_range"][1] for i in indices)
-            v0c = min(overlaps[i]["v_range"][0] for i in indices)
-            v1c = max(overlaps[i]["v_range"][1] for i in indices)
-            margin = max(u1c - u0c, v1c - v0c, atol)
-            if (u0c - margin <= u_iso <= u1c + margin
-                    and v0c - margin <= v_iso <= v1c + margin):
-                absorbed = True
-                break
-        if not absorbed:
-            remaining_isolated.append(iso)
-
-    # Add collapse_isolated (deduplicated against remaining)
-    all_isolated = list(remaining_isolated)
-    for ci in collapse_isolated:
-        if not _is_duplicate(all_isolated, ci["point"], atol):
-            all_isolated.append(ci)
-
-    # --- Step 3: remove isolated points inside verified overlap ranges ---
-    if merged_overlaps:
-        def _inside_overlap(iso):
-            u = iso["u"]
-            v = iso["v"]
-            for ov in merged_overlaps:
-                ur = ov["u_range"]
-                vr = ov["v_range"]
-                if ur[0] - atol <= u <= ur[1] + atol and vr[0] - atol <= v <= vr[1] + atol:
-                    return True
-            return False
-
-        all_isolated = [iso for iso in all_isolated if not _inside_overlap(iso)]
-
-    return all_isolated, merged_overlaps

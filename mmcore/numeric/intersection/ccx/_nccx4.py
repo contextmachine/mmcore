@@ -200,6 +200,13 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *_c1.interval(), *_c2.interval(),
             )
+            # Verify NURBS-level distance (Bezier-level may be valid at knot
+            # seams but NURBS-level can differ)
+            from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+            pt1 = evaluate_nurbs_curve(curve1, u_glob, 0)['C']
+            pt2 = evaluate_nurbs_curve(curve2, v_glob, 0)['C']
+            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+                continue
             raw_isolated.append({'u': u_glob, 'v': v_glob, 'point': inter['point']})
 
         for overlap in result['overlaps']:
@@ -326,6 +333,12 @@ def nurbs_ccx_multiple(
             u_glob, v_glob = _map_local_to_global(
                 inter['u'], inter['v'], *segm1.interval(), *segm2.interval(),
             )
+            # Verify NURBS-level distance at knot seams
+            from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+            pt1 = evaluate_nurbs_curve(curves[curve1_i], u_glob, 0)['C']
+            pt2 = evaluate_nurbs_curve(curves[curve2_i], v_glob, 0)['C']
+            if float(np.linalg.norm(pt1 - pt2)) >= tol:
+                continue
             raw_isolated.append({
                 'u': u_glob, 'v': v_glob,
                 'point': inter['point'],
