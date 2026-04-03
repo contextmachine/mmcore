@@ -214,6 +214,19 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 
         seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
 
+        # AABB prune: cheapest possible check — control point bounding boxes
+        from mmcore.numeric._aabb import aabb, aabb_intersect
+        if rational:
+            pts1 = seg1[:, :-1] / seg1[:, -1:]
+            pts2 = seg2[:, :-1] / seg2[:, -1:]
+        else:
+            pts1 = seg1
+            pts2 = seg2
+        bb1 = np.array(aabb(pts1)); bb1[0] -= atol; bb1[1] += atol
+        bb2 = np.array(aabb(pts2)); bb2[0] -= atol; bb2[1] += atol
+        if not aabb_intersect(bb1, bb2):
+            continue
+
         w_sc = _weight_max_product(pw, qw)
 
         # min-of-net prune
