@@ -96,6 +96,41 @@ def _merge_overlaps_by_t(overlaps, ptol_t):
 # Parametric deduplication
 # ---------------------------------------------------------------------------
 
+def _is_seam_duplicate(u1, u2, v1, v2, surface, ptol_u, ptol_v):
+    """Check if (u1,v1) and (u2,v2) are the same point on a periodic seam.
+
+    Returns True only if:
+    - One of u or v differs by the full domain span (the other matches within ptol)
+    - The surface is at least C0 across that seam (first/last CP rows identical)
+    """
+    (u_lo, u_hi), (v_lo, v_hi) = surface.interval()
+    u_span = u_hi - u_lo
+    v_span = v_hi - v_lo
+
+    # Check u-seam: u values at opposite domain ends, v matches
+    if abs(v1 - v2) < ptol_v and u_span > 0:
+        u_wrap = u_span - abs(u1 - u2)
+        if abs(u_wrap) < ptol_u:
+            # Verify C0 continuity: first and last CP rows in u must match
+            cp = surface.control_points
+            w = surface.weights
+            if (np.allclose(cp[0], cp[-1], atol=1e-10) and
+                    np.allclose(w[0], w[-1], atol=1e-10)):
+                return True
+
+    # Check v-seam: v values at opposite domain ends, u matches
+    if abs(u1 - u2) < ptol_u and v_span > 0:
+        v_wrap = v_span - abs(v1 - v2)
+        if abs(v_wrap) < ptol_v:
+            cp = surface.control_points
+            w = surface.weights
+            if (np.allclose(cp[:, 0], cp[:, -1], atol=1e-10) and
+                    np.allclose(w[:, 0], w[:, -1], atol=1e-10)):
+                return True
+
+    return False
+
+
 def _dedup_csx_isolated(entries, curve, surface, tol):
     """Deduplicate CSX isolated intersections using parametric tolerances.
 
@@ -104,7 +139,8 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
     geometric intersection appears from both adjacent segments/patches.
 
     Dedup by sorting on the curve parameter t and merging consecutive
-    entries within ptol_t. Surface params u, v are also checked.
+    entries within ptol_t. Also detects periodic seam duplicates where
+    u (or v) values sit at opposite ends of the domain.
     """
     if len(entries) <= 1:
         return entries
@@ -113,39 +149,37 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
     ptol_u, ptol_v = nurbs_surface_param_tolerance(surface, tol)
     ptol_u, ptol_v = float(ptol_u), float(ptol_v)
 
+    rational_c = _is_rational_curve(curve)
+    rational_s = _is_rational_surface(surface)
+    C_h = (to_homogeneous_1d(curve.control_points, curve.weights)
+           if rational_c else curve.control_points)
+    S_h = (to_homogeneous_2d(surface.control_points, surface.weights)
+           if rational_s else surface.control_points)
+
     sorted_entries = sorted(entries, key=lambda e: e['t'])
 
     deduped = [sorted_entries[0]]
     for entry in sorted_entries[1:]:
         prev = deduped[-1]
-        if (abs(entry['t'] - prev['t']) < ptol_t and
-            abs(entry['u'] - prev['u']) < ptol_u and
-            abs(entry['v'] - prev['v']) < ptol_v):
+
+        # Standard parametric proximity check
+        is_dup = (abs(entry['t'] - prev['t']) < ptol_t and
+                  abs(entry['u'] - prev['u']) < ptol_u and
+                  abs(entry['v'] - prev['v']) < ptol_v)
+
+        # Periodic seam check: same t, same v, u at opposite domain ends
+        if not is_dup and abs(entry['t'] - prev['t']) < ptol_t:
+            is_dup = _is_seam_duplicate(
+                entry['u'], prev['u'], entry['v'], prev['v'],
+                surface, ptol_u, ptol_v,
+            )
+
+        if is_dup:
             # Duplicate — keep the one with smaller residual
-            pt_new_c = eval_curve(
-                to_homogeneous_1d(curve.control_points, curve.weights)
-                if _is_rational_curve(curve) else curve.control_points,
-                entry['t'],
-                rational=_is_rational_curve(curve),
-            )
-            pt_new_s = eval_surface(
-                to_homogeneous_2d(surface.control_points, surface.weights)
-                if _is_rational_surface(surface) else surface.control_points,
-                entry['u'], entry['v'],
-                rational=_is_rational_surface(surface),
-            )
-            pt_old_c = eval_curve(
-                to_homogeneous_1d(curve.control_points, curve.weights)
-                if _is_rational_curve(curve) else curve.control_points,
-                prev['t'],
-                rational=_is_rational_curve(curve),
-            )
-            pt_old_s = eval_surface(
-                to_homogeneous_2d(surface.control_points, surface.weights)
-                if _is_rational_surface(surface) else surface.control_points,
-                prev['u'], prev['v'],
-                rational=_is_rational_surface(surface),
-            )
+            pt_new_c = eval_curve(C_h, entry['t'], rational=rational_c)
+            pt_new_s = eval_surface(S_h, entry['u'], entry['v'], rational=rational_s)
+            pt_old_c = eval_curve(C_h, prev['t'], rational=rational_c)
+            pt_old_s = eval_surface(S_h, prev['u'], prev['v'], rational=rational_s)
             if np.linalg.norm(pt_new_c - pt_new_s) < np.linalg.norm(pt_old_c - pt_old_s):
                 deduped[-1] = entry
             continue

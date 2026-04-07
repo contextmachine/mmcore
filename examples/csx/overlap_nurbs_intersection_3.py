@@ -12,7 +12,18 @@ from mmcore.geom._nurbs_eval import _tuple_to_nurbs, _nurbs_to_tuple, evaluate_n
 from mmcore.geom._nurbs_knots import split_curve_multiple
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser()
+    ssx_params = parser.add_argument_group(title="CSX Parameters")
+    ssx_params.add_argument("--atol", type=float, default=1e-3)
+    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
 
+    general_params = parser.add_argument_group(title="General")
+    general_params.add_argument('--viewer', action='store_true')
+
+    return parser.parse_args()
+args = parse_args()
 
 curve1 = NURBSCurveTuple(
     order=2,
@@ -69,7 +80,7 @@ inters = []
 overs = []
 pts = []
 s = time.time()
-result1 = nurbs_csx_v2(curve1, surface,tol=1e-3)
+result1 = nurbs_csx_v2(curve1, surface,tol=args.atol,angle_tol=args.angle_tol)
 pth=Path(__file__).parent/'result1.pkl'
 with open(pth, 'wb') as f:
     pickle.dump([curve1,surface], f)
@@ -101,9 +112,9 @@ if result3[0] is not None:
 print('overlaps:')
 if result3[1] is not None:
     rich.print(result3[1]['point'])
-RENDERER=True
+
 try:
-    if RENDERER:
+    if args.viewer:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
         viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
@@ -132,12 +143,12 @@ try:
                     t0 = o[0]
                     t1 = o[-1]
 
-                    pts=np.linspace(t0,t1,500)
+                    pts=np.linspace(t0,t1,50)
                     for t in pts:
 
                         evl=evaluate_nurbs_curve(curve,t,d_order=0)
                         viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
-        #render_result(result1,curve1)
+        render_result(result1,curve1)
         render_result(result2, curve2)
         render_result(result3, curve3)
         viewer.run()

@@ -153,6 +153,7 @@ if args.viewer:
         viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
 
         srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.05), v_count=4)
+        crv=viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
         if isolated is not None:
             uvs=[]
             for pt in isolated['point']:
@@ -181,7 +182,7 @@ if args.viewer:
 
 
 
-                viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
+
 
                 points=[]
                 ders=[]

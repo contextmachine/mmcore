@@ -4,6 +4,7 @@ Squared-distance Bernstein net classification engine.
 Analyzes N-dimensional Bernstein control nets of ||Delta||^2
 (from mmcore.numeric.bern_sq_dist) to classify intersection type.
 """
+from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np

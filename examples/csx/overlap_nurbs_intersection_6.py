@@ -26,7 +26,18 @@ from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
 
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser()
+    ssx_params = parser.add_argument_group(title="CSX Parameters")
+    ssx_params.add_argument("--atol", type=float, default=1e-3)
+    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
 
+    general_params = parser.add_argument_group(title="General")
+    general_params.add_argument('--viewer', action='store_true')
+
+    return parser.parse_args()
+args = parse_args()
 curve = NURBSCurveTuple(
     order=4,
     knot=np.array([  0.        ,   0.        ,   0.        ,   0.        ,
@@ -148,12 +159,12 @@ import time
 s=time.time()
 for curve in curves1:
 
-    isolated, overlaps = result = nurbs_csx_v2(curve, s2, 1e-3, overlap_dist_tol=1e-3)
+    isolated, overlaps = result = nurbs_csx_v2(curve, s2, tol=args.atol, angle_tol=args.angle_tol)
 
     results_all.append((curve,isolated,overlaps))
 
 for curve in curves2:
-    isolated, overlaps = result = nurbs_csx_v2(curve, s1, 1e-3, overlap_dist_tol=1e-3)
+    isolated, overlaps = result = nurbs_csx_v2(curve, s1, tol=args.atol, angle_tol=args.angle_tol)
 
     results_all.append((curve,isolated,overlaps))
 print(f"CSX v2 performed at: {time.time()-s} secs.")
@@ -168,8 +179,8 @@ rich.print(isolated)
 rich.print('\noverlaps:')
 rich.print(overlaps)
 
-RENDERER=True
-if RENDERER:
+
+if args.viewer:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 

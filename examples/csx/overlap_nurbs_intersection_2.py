@@ -72,9 +72,9 @@ for b in bnds:
     #b.control_points[0] -= d
 
  
- 
-    result.append(nurbs_csx_v2(b, st2, atol=args.atol, angle_tol=args.angle_tol))
 
+    result.append(nurbs_csx_v2(b, st2, atol=args.atol, angle_tol=args.angle_tol))
+    print("CSX v2 performed at: ",time.time()-s," secs.")
 isolated,overlaps=[],[]
 for i,o in  result:
     if i is not None:

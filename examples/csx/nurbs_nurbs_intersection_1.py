@@ -53,7 +53,7 @@ import time
 s = time.time()
 result = nurbs_csx_v2(_nurbs_to_tuple(curve), _nurbs_to_tuple(surf))
 
-print(f"CSX performed at: {time.time()-s} secs.")
+print(f"CSX v2 performed at: {time.time()-s} secs.")
 print('isolated:')
 if result[0] is not None:
     rich.print(result[0])

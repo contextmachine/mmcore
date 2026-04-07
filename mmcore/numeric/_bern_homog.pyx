@@ -586,7 +586,7 @@ cpdef void eval_bezier_homogeneous_curve_inplace(const f64[:, ::1] Pw, f64 t, f6
         _eval_curve_point(Pw, n, dh, t, &out[0])
 
 
-def eval_bezier_homogeneous_curve(Pw, float t):
+def eval_bezier_homogeneous_curve(Pw, double t):
     """
     Convenience wrapper (accepts array-like).
     For max speed: pass a float64 C-contiguous ndarray and use *_inplace.
@@ -628,7 +628,7 @@ cpdef tuple eval_bezier_curve_homog_with_derivs_fast(const f64[:, ::1] Pw, f64 t
         return Ch, Chd
 
 
-def eval_bezier_curve_homog_with_derivs(Pw, float t, bint want_second=True):
+def eval_bezier_curve_homog_with_derivs(Pw, double t, bint want_second=True):
     cdef cnp.ndarray[f64, ndim=2] arr = np.asarray(Pw, dtype=np.float64, order="C")
     return eval_bezier_curve_homog_with_derivs_fast(arr, <f64>t, want_second)
 

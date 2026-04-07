@@ -10,7 +10,18 @@ from mmcore.geom._nurbs_knots import trim_curve
 from mmcore.numeric import evaluate_curvature_vec
 from mmcore.numeric.approx import adaptive_curve_sampler
 from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser()
+    ssx_params = parser.add_argument_group(title="CSX Parameters")
+    ssx_params.add_argument("--atol", type=float, default=1e-3)
+    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
 
+    general_params = parser.add_argument_group(title="General")
+    general_params.add_argument('--viewer', action='store_true')
+
+    return parser.parse_args()
+args = parse_args()
 curve = NURBSCurveTuple(
     order=3,
     knot=np.array([  0.        ,   0.        ,   0.        ,  91.83300275,
@@ -73,7 +84,7 @@ surface = NURBSSurfaceTuple(
 #print('overlaps:')
 #rich.print(over)
 s = time.time()
-isolated,overlaps = nurbs_csx_v2(curve, surface)
+isolated,overlaps = nurbs_csx_v2(curve, surface,atol=args.atol, angle_tol=args.angle_tol)
 print(f"CSX v2 performed at: {time.time()-s} secs.")
 
 
@@ -84,8 +95,8 @@ if isolated is not None:
 print('overlaps:')
 if overlaps is not None:
     rich.print(overlaps['point'].tolist())
-RENDERER=True
-if RENDERER:
+
+if args.viewer:
     try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
         viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
