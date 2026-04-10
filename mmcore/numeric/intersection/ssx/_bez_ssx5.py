@@ -36,6 +36,8 @@ from mmcore.numeric._aabb import aabb, aabb_intersect
 from mmcore.numeric.intersection.ssx._ssx4 import (
     SSXBranch, SSXPoint,
     _append_unique_point,
+    GaussMapBern,
+    separate_gauss_maps,
 )
 
 
@@ -694,6 +696,97 @@ def _march_intersection_curve(
     return np.array(stuv_pts), np.array(xyz_pts)
 
 
+def _on_boundary(stuv, tol=1e-8):
+    """Check if any parameter is at 0 or 1 (on domain boundary)."""
+    for i in range(4):
+        if stuv[i] < tol or stuv[i] > 1.0 - tol:
+            return True
+    return False
+
+
+def _march_to_boundary(
+    S1, S2, stuv_start,
+    *,
+    atol=1e-3,
+    rational=True,
+    initial_step=0.05,
+    min_step=1e-6,
+    max_step=0.25,
+    angle_threshold=0.1,
+    max_points=2000,
+    direction_hint=None,
+):
+    """March from stuv_start until the curve hits a domain boundary [0,1]⁴.
+
+    Like _march_intersection_curve but without a known endpoint.
+    Stops when any parameter reaches 0 or 1.
+
+    Returns (stuv_path, xyz_path).
+    """
+    stuv_pts = [stuv_start.copy()]
+    xyz_pts = [eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)]
+
+    current = stuv_start.copy().astype(np.float64)
+    step = initial_step
+
+    # Initial tangent
+    tang_prev, _, _ = _ssx_tangent_4d(S1, S2, *current, rational=rational,
+                                       direction_hint=direction_hint)
+    if tang_prev is None:
+        return np.array(stuv_pts), np.array(xyz_pts)
+
+    # Orient tangent using hint if provided
+    if direction_hint is not None and np.dot(tang_prev, direction_hint) < 0:
+        tang_prev = -tang_prev
+
+    for _ in range(max_points):
+        # Predictor
+        predicted = current + step * tang_prev
+        predicted = np.clip(predicted, 0.0, 1.0)
+
+        # Corrector
+        s, t, u, v, residual = _ssx_correct(
+            S1, S2, *predicted, rational=rational,
+        )
+
+        if residual > atol:
+            step = max(min_step, step * 0.5)
+            continue
+
+        corrected = np.array([s, t, u, v])
+        corrected = np.clip(corrected, 0.0, 1.0)
+
+        # New tangent
+        tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, *corrected, rational=rational,
+                                            direction_hint=tang_prev)
+        if tang_new is None:
+            step = max(min_step, step * 0.5)
+            continue
+
+        if np.dot(tang_new, tang_prev) < 0:
+            tang_new = -tang_new
+
+        # Step adaptation
+        cos_angle = np.clip(np.dot(tang_prev, tang_new), -1.0, 1.0)
+        angle = np.arccos(abs(cos_angle))
+        if angle > 1e-10:
+            step = step * min(2.0, max(0.25, angle_threshold / angle))
+        else:
+            step = min(max_step, step * 1.5)
+        step = max(min_step, min(max_step, step))
+
+        current = corrected
+        tang_prev = tang_new
+        stuv_pts.append(current.copy())
+        xyz_pts.append(pt1.copy())
+
+        # Check if we hit a boundary
+        if _on_boundary(current):
+            break
+
+    return np.array(stuv_pts), np.array(xyz_pts)
+
+
 def _trace_segment(S1_h, S2_h, stuv_start, stuv_end, box, atol, rational=True):
     """Trace an intersection curve segment between two boundary crossings.
 
@@ -1184,39 +1277,244 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
     return branches
 
 
+# ---------------------------------------------------------------------------
+# Loop-absence check: TΨᵢ monotonicity OR Gauss map separability
+# ---------------------------------------------------------------------------
+
+def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None):
+    """Check if the intersection is provably loop-free.
+
+    Two independent checks — either suffices:
+    1. TΨᵢ monotonicity: any TΨᵢ has all non-negative or all non-positive coefficients
+    2. Gauss map separability: normal cones can be separated into opposite hemispheres
+
+    Returns True if loop-free, False otherwise.
+    """
+    # Check 1: TΨᵢ monotonicity
+    if T1 is not None:
+        is_mono, _ = _check_monotonicity(T1, T2, T3, T4)
+        if is_mono:
+            return True
+
+    # Check 2: Gauss map separability
+    try:
+        p1, p2 = separate_gauss_maps(g1.map_dirs(), g2.map_dirs())
+        if p1 is not None and p2 is not None:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Trace all branches: marcher-driven topology discovery
+# ---------------------------------------------------------------------------
+
+def _trace_all_branches(S1, S2, crossings, atol, rational):
+    """Given a loop-free cell with boundary crossings, trace all branches.
+
+    The marcher discovers the topology: pick any unvisited crossing, march
+    from it until the curve hits a domain boundary, match the endpoint to
+    another crossing. Repeat until all crossings are consumed.
+
+    Returns (branches, points).
+    """
+    if not crossings:
+        return [], []
+
+    if len(crossings) % 2 != 0:
+        import warnings
+        warnings.warn(f"Odd number of crossings ({len(crossings)}) — possible CSX error")
+
+    branches = []
+    points = []
+
+    # Track which crossings have been visited
+    unvisited = list(range(len(crossings)))
+
+    while len(unvisited) >= 2:
+        # Pick the first unvisited crossing
+        start_idx = unvisited[0]
+        unvisited.remove(start_idx)
+        start = crossings[start_idx]
+
+        # March from start to boundary
+        stuv_path, xyz_path = _march_to_boundary(
+            S1, S2, start.stuv,
+            atol=atol, rational=rational,
+        )
+
+        if len(stuv_path) < 2:
+            points.append(SSXPoint(stuv=start.stuv, xyz=start.xyz))
+            continue
+
+        # Find which unvisited crossing the marcher reached
+        end_stuv = stuv_path[-1]
+        best_idx = None
+        best_dist = float('inf')
+        for idx in unvisited:
+            d = float(np.linalg.norm(end_stuv - crossings[idx].stuv))
+            if d < best_dist:
+                best_dist = d
+                best_idx = idx
+
+        if best_idx is not None and best_dist < atol * 10 + 0.05:
+            unvisited.remove(best_idx)
+            # Snap the last point to the exact crossing
+            stuv_path[-1] = crossings[best_idx].stuv.copy()
+            xyz_path[-1] = crossings[best_idx].xyz.copy()
+
+        branches.append(SSXBranch(curve=(stuv_path, xyz_path)))
+
+    # Remaining unvisited crossings become isolated points
+    for idx in unvisited:
+        points.append(SSXPoint(stuv=crossings[idx].stuv, xyz=crossings[idx].xyz))
+
+    return branches, points
+
+
+# ---------------------------------------------------------------------------
+# Domain decomposition: cut through crossing parameter values
+# ---------------------------------------------------------------------------
+
+def _choose_cut(crossings):
+    """Choose a crossing and axis for domain decomposition.
+
+    From Paper 1: cut through a crossing point's parameter value,
+    not at a gap midpoint. The isoparametric line through this value
+    will be used for CSX before splitting.
+
+    Preference:
+    1. Use an INTERIOR crossing value (not on domain boundary 0 or 1)
+    2. Prefer the axis that best separates crossings into balanced groups
+
+    Returns (crossing_index, axis) or (None, None) if no good cut.
+    """
+    if len(crossings) <= 2:
+        return None, None
+
+    best_score = -1.0
+    best_cx_idx = None
+    best_axis = None
+
+    for ci, c in enumerate(crossings):
+        for axis in range(4):
+            val = c.stuv[axis]
+            # Skip boundary values — cutting at 0 or 1 is useless
+            if val < 0.01 or val > 0.99:
+                continue
+
+            # Count how many crossings fall on each side of this cut
+            n_left = sum(1 for c2 in crossings if c2.stuv[axis] < val - 1e-10)
+            n_right = sum(1 for c2 in crossings if c2.stuv[axis] > val + 1e-10)
+            n_on = len(crossings) - n_left - n_right
+
+            # Score: prefer balanced splits
+            balance = min(n_left + n_on, n_right + n_on)
+            if balance == 0:
+                continue  # everything on one side
+
+            # Slight preference for axes where n_on is small (cleaner split)
+            score = balance - 0.1 * n_on
+            if score > best_score:
+                best_score = score
+                best_cx_idx = ci
+                best_axis = axis
+
+    return best_cx_idx, best_axis
+
+
+def _extract_isoline(S, axis, value):
+    """Extract an isoline from a Bezier surface at parameter value along axis.
+
+    axis=0: fix u=value, return curve in v (shape (n+1, D))
+    axis=1: fix v=value, return curve in u (shape (m+1, D))
+
+    Uses de Casteljau to evaluate the surface along one axis at the given value.
+    """
+    from mmcore.numeric.bern import de_casteljau_split_nd
+
+    if axis == 0:
+        # Fix u=value: evaluate in u-direction, result is curve in v
+        # Split at value, take the boundary between left and right
+        left, right = de_casteljau_split_nd(S, axis=0, t=value)
+        # The isoline is the right boundary of left = left[-1, :, :]
+        return left[-1, :, :]
+    else:
+        # Fix v=value: evaluate in v-direction, result is curve in u
+        left, right = de_casteljau_split_nd(S, axis=1, t=value)
+        return left[:, -1, :]
+
+
+# ---------------------------------------------------------------------------
+# Main entry point: iterative stack-based SSX
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _Cell:
+    """A sub-problem in the domain decomposition stack."""
+    g1: object             # GaussMapBern for S1 sub-patch
+    g2: object             # GaussMapBern for S2 sub-patch
+    crossings: list        # BoundaryCrossing on this cell's boundary
+    box: tuple             # 4D parameter range in GLOBAL coords
+    depth: int = 0
+
+
 def bez_ssx(
     S1,
     S2,
     atol=1e-3,
     rational=True,
+    max_depth=12,
 ) -> dict:
     """Bezier surface-surface intersection v5.
 
-    Returns
-    -------
-    dict with keys:
-        'branches': list of SSXBranch — traced intersection curves
-        'points': list of SSXPoint — isolated intersection points
-        'crossings': list of BoundaryCrossing — boundary crossing points (diagnostic)
-        'monotonic': bool — whether the patch pair is monotonic
-        'tangent': bool — whether tangency detected
+    Iterative stack-based domain decomposition with:
+    - Sq-dist Lipschitz pruning
+    - TΨᵢ monotonicity + Gauss map separability for loop-absence
+    - Marcher-driven topology discovery (no pairing heuristic)
+    - Domain decomposition through crossing parameter values
+    - Φ-tracer for tangential (C₂) cases
+
+    Returns dict with 'branches' and 'points'.
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
 
-    box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
-
     # --- Level 1: Pruning ---
     if _prune_ssx_cell(S1, S2, atol, rational=rational):
-        return {
-            'branches': [], 'points': [], 'crossings': [],
-            'monotonic': True, 'tangent': False,
-        }
+        return {'branches': [], 'points': []}
 
-    # --- Level 2: Boundary analysis ---
+    # --- Build GaussMapBern ONCE ---
+    if rational:
+        g1 = GaussMapBern.from_surf(S1, rational=True)
+        g2 = GaussMapBern.from_surf(S2, rational=True)
+    else:
+        # Add unit weights for GaussMapBern
+        S1_h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
+        S2_h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
+        g1 = GaussMapBern.from_surf(S1_h, rational=True)
+        g2 = GaussMapBern.from_surf(S2_h, rational=True)
+
+    # --- Level 2: Boundary CSX (8 calls, once) ---
     crossings, boundary_overlaps = _find_ssx_boundary_zeros(S1, S2, atol, rational=rational)
+    overlap_branches = _overlaps_to_branches(boundary_overlaps, S1, atol, rational)
 
-    # --- Level 3: Monotonicity classification ---
+    # Filter crossings that coincide with overlap endpoints
+    if overlap_branches:
+        filtered = []
+        for c in crossings:
+            on_ovl = any(
+                np.linalg.norm(c.xyz - b.curve[1][0]) < atol or
+                np.linalg.norm(c.xyz - b.curve[1][-1]) < atol
+                for b in overlap_branches
+            )
+            if not on_ovl:
+                filtered.append(c)
+        crossings = filtered
+
+    # --- Level 3: TΨᵢ computation (once) ---
     if rational:
         P1_cart = S1[..., :-1] / S1[..., -1:]
         P2_cart = S2[..., :-1] / S2[..., -1:]
@@ -1225,203 +1523,194 @@ def bez_ssx(
         P2_cart = S2
 
     T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1_cart, P2_cart)
-    is_mono, mono_axis = _check_monotonicity(T1, T2, T3, T4)
 
-    # Convert boundary overlaps to branches
-    overlap_branches = _overlaps_to_branches(boundary_overlaps, S1, atol, rational)
+    # --- Loop-absence check ---
+    loop_free = _check_loop_free(g1, g2, T1, T2, T3, T4)
 
-    if is_mono:
-        # --- Level 4a: Domain decomposition + tracing ---
+    if loop_free:
         if not crossings and not overlap_branches:
-            return {
-                'branches': [], 'points': [], 'crossings': [],
-                'monotonic': True, 'tangent': False,
-            }
+            return {'branches': [], 'points': []}
 
-        branches, points = _process_monotonic_case(
-            S1, S2, crossings, box, atol, rational, mono_axis=mono_axis,
-        )
+        branches, points = _trace_all_branches(S1, S2, crossings, atol, rational)
         branches.extend(overlap_branches)
+        return {'branches': branches, 'points': points}
 
-        return {
-            'branches': branches,
-            'points': points,
-            'crossings': crossings,
-            'monotonic': True,
-            'tangent': False,
-        }
-
-    # --- Non-monotonic: check tangency via Krawczyk, then subdivide or deflate ---
-    # But if we already have boundary overlaps, the "tangency" is just the overlap
-    # manifesting in the TΨᵢ classification. Don't deflate — the overlaps are the answer.
-    if boundary_overlaps:
-        # Filter out crossings that coincide with overlap endpoints
-        if crossings:
-            remaining_crossings = []
-            for c in crossings:
-                on_overlap = False
-                for b in overlap_branches:
-                    _, xyz_b = b.curve
-                    if (np.linalg.norm(c.xyz - xyz_b[0]) < atol or
-                            np.linalg.norm(c.xyz - xyz_b[-1]) < atol):
-                        on_overlap = True
-                        break
-                if not on_overlap:
-                    remaining_crossings.append(c)
-            crossings = remaining_crossings
-
-        if not crossings:
-            return {
-                'branches': overlap_branches,
-                'points': [],
-                'crossings': [],
-                'monotonic': False,
-                'tangent': False,
-            }
-
-    tangency = _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box)
-
-    if tangency is True:
-        # Confirmed tangent with no boundary overlaps — true C₂ tangency
-        t_branches, t_points = _deflate_tangent_cell(
-            P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
-        )
-        t_branches.extend(overlap_branches)
-        return {
-            'branches': t_branches,
-            'points': t_points,
-            'crossings': crossings,
-            'monotonic': False,
-            'tangent': True,
-        }
-
-    # Not monotonic: domain decomposition at crossing parameter values.
-    # Find the axis along which crossings are best separated, split there,
-    # and process each sub-cell. Sub-cells with fewer crossings are more
-    # likely to be monotonic.
-    branches, pts = _domain_decompose_and_trace(
-        S1, S2, crossings, box, atol, rational, max_depth=6, depth=0,
-    )
-    branches.extend(overlap_branches)
-
-    return {
-        'branches': branches,
-        'points': pts,
-        'crossings': crossings,
-        'monotonic': False,
-        'tangent': False,
-    }
-
-
-def _domain_decompose_and_trace(S1, S2, crossings, box, atol, rational, max_depth=6, depth=0):
-    """Domain decomposition at crossing parameter values (Krishnan & Manocha 1997).
-
-    Instead of blind bisection, split the domain at parameter values that
-    separate different intersection branches. Each sub-cell then has fewer
-    crossings and is more likely to be monotonic.
-
-    The crossing points are the ONLY data we use to decide where to cut —
-    no additional CSX calls are needed on sub-cells. We just re-check
-    monotonicity on the restricted TΨᵢ nets and trace if monotonic.
-    """
-    if not crossings:
-        return [], []
-
-    if len(crossings) <= 2:
-        # 2 or fewer crossings — try tracing directly
-        return _process_monotonic_case(S1, S2, crossings, box, atol, rational)
-
-    # Find the axis that best separates crossings into balanced groups.
-    # For each axis, find the gap that produces the most balanced split
-    # (both groups have entry AND exit crossings on different faces).
-    # Skip axes where all crossings have the same value (e.g. t=0 or t=1).
-    best_axis = None
-    best_score = -1.0
-    best_cut = 0.5
-
-    for axis in range(4):
-        vals = sorted(set(round(c.stuv[axis], 10) for c in crossings))
-        if len(vals) <= 1:
-            continue
-        # Skip axes where crossings cluster at the boundaries (0 and 1)
-        interior_vals = [v for v in vals if 0.01 < v < 0.99]
-        if not interior_vals and len(vals) == 2:
-            # All crossings at 0 or 1 — not useful for splitting
-            continue
-
-        for k in range(len(vals) - 1):
-            cut = 0.5 * (vals[k] + vals[k + 1])
-            left = [c for c in crossings if c.stuv[axis] <= cut]
-            right = [c for c in crossings if c.stuv[axis] > cut]
-            if not left or not right:
-                continue
-            # Score: prefer balanced splits where both groups have crossings
-            # on different faces (entry/exit balance)
-            left_faces = set(c.face for c in left)
-            right_faces = set(c.face for c in right)
-            balance = min(len(left), len(right))
-            face_diversity = len(left_faces) + len(right_faces)
-            gap = vals[k + 1] - vals[k]
-            score = balance * face_diversity * gap
-            if score > best_score:
-                best_score = score
-                best_axis = axis
-                best_cut = cut
-
-    if best_axis is None or best_score < 1e-6:
-        # Can't separate — trace with pairing as fallback
-        pairs, unpaired = _pair_crossings_for_tracing(crossings)
-        branches = []
-        points = []
-        for i, j in pairs:
-            seg = _trace_segment(S1, S2, crossings[i].stuv, crossings[j].stuv,
-                                 box, atol, rational)
-            if seg is not None:
-                branches.append(seg)
-        for k in unpaired:
-            points.append(SSXPoint(stuv=crossings[k].stuv, xyz=crossings[k].xyz))
-        return branches, points
-
-    # Split crossings into two groups based on the cut value
-    left_cx = [c for c in crossings if c.stuv[best_axis] <= best_cut]
-    right_cx = [c for c in crossings if c.stuv[best_axis] > best_cut]
-
-    # Also add crossings exactly at the cut as belonging to the nearest group
-    # (they're on the internal face between sub-cells)
-
-    all_branches = []
+    # --- Not loop-free: ITERATIVE DOMAIN DECOMPOSITION ---
+    box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
+    stack = [_Cell(g1=g1, g2=g2, crossings=crossings, box=box, depth=0)]
+    all_branches = list(overlap_branches)
     all_points = []
 
-    for group in [left_cx, right_cx]:
-        if not group:
+    while stack:
+        cell = stack.pop()
+
+        # Check loop-absence on this sub-cell
+        cell_loop_free = _check_loop_free(cell.g1, cell.g2)
+
+        if cell_loop_free:
+            if cell.crossings:
+                br, pt = _trace_all_branches(
+                    cell.g1.surface, cell.g2.surface,
+                    cell.crossings, atol, rational=True,
+                )
+                # Map local stuv to global
+                for b in br:
+                    stuv_path, xyz_path = b.curve
+                    for j in range(len(stuv_path)):
+                        for ax in range(4):
+                            lo, hi = cell.box[ax]
+                            stuv_path[j, ax] = lo + stuv_path[j, ax] * (hi - lo)
+                all_branches.extend(br)
+                all_points.extend(pt)
             continue
 
-        if len(group) <= 2:
-            # Simple: trace between the crossings
-            if len(group) == 2:
-                seg = _trace_segment(S1, S2, group[0].stuv, group[1].stuv,
-                                     box, atol, rational)
-                if seg is not None:
-                    all_branches.append(seg)
-            elif len(group) == 1:
-                all_points.append(SSXPoint(stuv=group[0].stuv, xyz=group[0].xyz))
-        else:
-            # Still >2 crossings in this group — recurse
-            if depth < max_depth:
-                sub_br, sub_pt = _domain_decompose_and_trace(
-                    S1, S2, group, box, atol, rational, max_depth, depth + 1,
+        if cell.depth >= max_depth:
+            # Max depth: Φ-tracer for tangency, or just record points
+            if cell.crossings:
+                # Try Φ-tracer
+                T1c, T2c, T3c, T4c = minors_Tpsi_from_control_nets(
+                    P1_cart, P2_cart)  # TODO: use cell-local Cartesian nets
+                t_br, t_pt = _deflate_tangent_cell(
+                    P1_cart, P2_cart, T1c, T2c, T3c, T4c,
+                    cell.box, cell.crossings, atol,
                 )
-                all_branches.extend(sub_br)
-                all_points.extend(sub_pt)
-            else:
-                # Max depth: pair and trace
-                pairs, unpaired = _pair_crossings_for_tracing(group)
-                for i, j in pairs:
-                    seg = _trace_segment(S1, S2, group[i].stuv, group[j].stuv,
-                                         box, atol, rational)
-                    if seg is not None:
-                        all_branches.append(seg)
-                for k in unpaired:
-                    all_points.append(SSXPoint(stuv=group[k].stuv, xyz=group[k].xyz))
+                all_branches.extend(t_br)
+                all_points.extend(t_pt)
+            continue
 
-    return all_branches, all_points
+        # --- Domain decomposition: cut through a crossing point ---
+        cx_idx, cut_axis = _choose_cut(cell.crossings)
+
+        if cx_idx is None:
+            # Can't find a good cut — trace directly
+            if cell.crossings:
+                br, pt = _trace_all_branches(
+                    cell.g1.surface, cell.g2.surface,
+                    cell.crossings, atol, rational=True,
+                )
+                for b in br:
+                    stuv_path, xyz_path = b.curve
+                    for j in range(len(stuv_path)):
+                        for ax in range(4):
+                            lo, hi = cell.box[ax]
+                            stuv_path[j, ax] = lo + stuv_path[j, ax] * (hi - lo)
+                all_branches.extend(br)
+                all_points.extend(pt)
+            continue
+
+        cut_crossing = cell.crossings[cx_idx]
+        cut_value = cut_crossing.stuv[cut_axis]
+
+        # Determine which surface and local axis to split
+        # stuv axes 0,1 → S1 axes 0,1; stuv axes 2,3 → S2 axes 0,1
+        if cut_axis < 2:
+            surf_to_split = 1
+            local_axis = cut_axis
+            # Extract isoline from S1 at local_axis=cut_value
+            isoline = _extract_isoline(cell.g1.surface, local_axis, cut_value)
+            # CSX: isoline of S1 vs full S2
+            csx_result = bez_csx(isoline, cell.g2.surface, atol=atol, rational=True)
+        else:
+            surf_to_split = 2
+            local_axis = cut_axis - 2
+            isoline = _extract_isoline(cell.g2.surface, local_axis, cut_value)
+            # CSX: isoline of S2 vs full S1
+            csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
+
+        # Collect new crossings from the isoline CSX
+        new_crossings = []
+        for iso_pt in csx_result.get('isolated', []):
+            t_crv = float(iso_pt['t'])
+            u_oth = float(iso_pt['u'])
+            v_oth = float(iso_pt['v'])
+            stuv = np.zeros(4, dtype=np.float64)
+            if surf_to_split == 1:
+                if local_axis == 0:
+                    stuv[0] = cut_value
+                    stuv[1] = t_crv
+                else:
+                    stuv[0] = t_crv
+                    stuv[1] = cut_value
+                stuv[2] = u_oth
+                stuv[3] = v_oth
+            else:
+                stuv[0] = u_oth
+                stuv[1] = v_oth
+                if local_axis == 0:
+                    stuv[2] = cut_value
+                    stuv[3] = t_crv
+                else:
+                    stuv[2] = t_crv
+                    stuv[3] = cut_value
+            xyz = np.asarray(iso_pt['point'], dtype=np.float64)
+            new_crossings.append(BoundaryCrossing(stuv=stuv, xyz=xyz, face=(cut_axis, -1)))
+
+        # Split the GaussMapBern
+        if surf_to_split == 1:
+            children = cell.g1.split_u(cut_value) if local_axis == 0 else cell.g1.split_v(cut_value)
+            g1_left, g1_right = children
+            g2_left = g2_right = cell.g2
+        else:
+            children = cell.g2.split_u(cut_value) if local_axis == 0 else cell.g2.split_v(cut_value)
+            g2_left, g2_right = children
+            g1_left = g1_right = cell.g1
+
+        # Distribute crossings + new crossings to left and right cells
+        left_cx = []
+        right_cx = []
+        for c in list(cell.crossings) + new_crossings:
+            if c.stuv[cut_axis] < cut_value - 1e-10:
+                left_cx.append(c)
+            elif c.stuv[cut_axis] > cut_value + 1e-10:
+                right_cx.append(c)
+            else:
+                # On the cut line — add to both sides
+                left_cx.append(c)
+                right_cx.append(c)
+
+        # Build sub-boxes in global coords
+        box_left = list(cell.box)
+        box_left[cut_axis] = (cell.box[cut_axis][0], cell.box[cut_axis][0] + cut_value * (cell.box[cut_axis][1] - cell.box[cut_axis][0]))
+        box_left = tuple(box_left)
+
+        box_right = list(cell.box)
+        box_right[cut_axis] = (box_left[cut_axis][1], cell.box[cut_axis][1])
+        box_right = tuple(box_right)
+
+        # Remap crossings to LOCAL coordinates of each sub-cell
+        # Left cell: axis range [0, cut_value] in parent → [0, 1] in child
+        def _remap_crossings(cx_list, old_box, new_box):
+            remapped = []
+            for c in cx_list:
+                new_stuv = c.stuv.copy()
+                for ax in range(4):
+                    old_lo, old_hi = old_box[ax]
+                    new_lo, new_hi = new_box[ax]
+                    span = old_hi - old_lo
+                    if span > 1e-15:
+                        # Map from parent-local to child-local
+                        parent_val = c.stuv[ax]
+                        child_lo = (new_lo - old_lo) / span
+                        child_hi = (new_hi - old_lo) / span
+                        child_span = child_hi - child_lo
+                        if child_span > 1e-15:
+                            new_stuv[ax] = (parent_val - child_lo) / child_span
+                        else:
+                            new_stuv[ax] = 0.5
+                new_stuv = np.clip(new_stuv, 0.0, 1.0)
+                remapped.append(BoundaryCrossing(stuv=new_stuv, xyz=c.xyz.copy(), face=c.face))
+            return remapped
+
+        left_cx_local = _remap_crossings(left_cx, cell.box, box_left)
+        right_cx_local = _remap_crossings(right_cx, cell.box, box_right)
+
+        # Push sub-cells
+        if left_cx_local:
+            stack.append(_Cell(g1=g1_left, g2=g2_left, crossings=left_cx_local,
+                               box=box_left, depth=cell.depth + 1))
+        if right_cx_local:
+            stack.append(_Cell(g1=g1_right, g2=g2_right, crossings=right_cx_local,
+                               box=box_right, depth=cell.depth + 1))
+
+    # TODO: merge branches at shared partition boundaries
+    return {'branches': all_branches, 'points': all_points}
