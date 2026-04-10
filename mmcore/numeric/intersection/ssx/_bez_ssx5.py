@@ -1285,18 +1285,16 @@ def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None):
     """Check if the intersection is provably loop-free.
 
     Two independent checks — either suffices:
-    1. TΨᵢ monotonicity: any TΨᵢ has all non-negative or all non-positive coefficients
-    2. Gauss map separability: normal cones can be separated into opposite hemispheres
+    1. TΨᵢ monotonicity: any TΨᵢ non-negative or non-positive
+    2. Gauss map separability: normal cones separated into opposite hemispheres
 
-    Returns True if loop-free, False otherwise.
+    Returns True if loop-free.
     """
-    # Check 1: TΨᵢ monotonicity
     if T1 is not None:
         is_mono, _ = _check_monotonicity(T1, T2, T3, T4)
         if is_mono:
             return True
 
-    # Check 2: Gauss map separability
     try:
         p1, p2 = separate_gauss_maps(g1.map_dirs(), g2.map_dirs())
         if p1 is not None and p2 is not None:
@@ -1308,114 +1306,141 @@ def _check_loop_free(g1, g2, T1=None, T2=None, T3=None, T4=None):
 
 
 # ---------------------------------------------------------------------------
+# Coordinate helpers
+# ---------------------------------------------------------------------------
+
+def _local_to_global(stuv_local, box):
+    """Convert local [0,1]⁴ stuv to global coordinates using the cell's box."""
+    g = np.empty(4, dtype=np.float64)
+    for i in range(4):
+        lo, hi = box[i]
+        g[i] = lo + stuv_local[i] * (hi - lo)
+    return g
+
+
+def _global_to_local(stuv_global, box):
+    """Convert global stuv to local [0,1]⁴ coordinates for a cell."""
+    loc = np.empty(4, dtype=np.float64)
+    for i in range(4):
+        lo, hi = box[i]
+        span = hi - lo
+        if span > 1e-15:
+            loc[i] = (stuv_global[i] - lo) / span
+        else:
+            loc[i] = 0.5
+    return np.clip(loc, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
 # Trace all branches: marcher-driven topology discovery
 # ---------------------------------------------------------------------------
 
-def _trace_all_branches(S1, S2, crossings, atol, rational):
-    """Given a loop-free cell with boundary crossings, trace all branches.
+def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
+    """Trace all branches in a loop-free cell.
 
-    The marcher discovers the topology: pick any unvisited crossing, march
-    from it until the curve hits a domain boundary, match the endpoint to
-    another crossing. Repeat until all crossings are consumed.
+    Crossings are in GLOBAL coords. The marcher works in LOCAL [0,1]⁴
+    on the cell's surfaces. Results are converted back to global.
 
-    Returns (branches, points).
+    Returns (branches, points) in global coords.
     """
-    if not crossings:
+    if not crossings_global:
         return [], []
 
-    if len(crossings) % 2 != 0:
+    if len(crossings_global) % 2 != 0:
         import warnings
-        warnings.warn(f"Odd number of crossings ({len(crossings)}) — possible CSX error")
+        warnings.warn(f"Odd crossing count ({len(crossings_global)})")
 
     branches = []
     points = []
-
-    # Track which crossings have been visited
-    unvisited = list(range(len(crossings)))
+    unvisited = list(range(len(crossings_global)))
 
     while len(unvisited) >= 2:
-        # Pick the first unvisited crossing
-        start_idx = unvisited[0]
-        unvisited.remove(start_idx)
-        start = crossings[start_idx]
+        start_idx = unvisited.pop(0)
+        start_global = crossings_global[start_idx]
 
-        # March from start to boundary
-        stuv_path, xyz_path = _march_to_boundary(
-            S1, S2, start.stuv,
-            atol=atol, rational=rational,
+        # Convert start to local coords for marching
+        start_local = _global_to_local(start_global.stuv, box)
+
+        # March in local coordinates until boundary
+        stuv_local, xyz_local = _march_to_boundary(
+            g1_surf, g2_surf, start_local,
+            atol=atol, rational=True,
         )
 
-        if len(stuv_path) < 2:
-            points.append(SSXPoint(stuv=start.stuv, xyz=start.xyz))
+        if len(stuv_local) < 2:
+            points.append(SSXPoint(stuv=start_global.stuv, xyz=start_global.xyz))
             continue
 
-        # Find which unvisited crossing the marcher reached
-        end_stuv = stuv_path[-1]
-        best_idx = None
+        # Convert entire path to global
+        stuv_global_path = np.empty_like(stuv_local)
+        for j in range(len(stuv_local)):
+            stuv_global_path[j] = _local_to_global(stuv_local[j], box)
+
+        # Snap start to exact crossing
+        stuv_global_path[0] = start_global.stuv.copy()
+
+        # Find which unvisited crossing the marcher reached (in global coords)
+        end_global = stuv_global_path[-1]
+        best_idx_in_unvisited = None
         best_dist = float('inf')
-        for idx in unvisited:
-            d = float(np.linalg.norm(end_stuv - crossings[idx].stuv))
+        for k, idx in enumerate(unvisited):
+            d = float(np.linalg.norm(end_global - crossings_global[idx].stuv))
             if d < best_dist:
                 best_dist = d
-                best_idx = idx
+                best_idx_in_unvisited = k
 
-        if best_idx is not None and best_dist < atol * 10 + 0.05:
-            unvisited.remove(best_idx)
-            # Snap the last point to the exact crossing
-            stuv_path[-1] = crossings[best_idx].stuv.copy()
-            xyz_path[-1] = crossings[best_idx].xyz.copy()
+        if best_idx_in_unvisited is not None and best_dist < 0.1:
+            matched_idx = unvisited.pop(best_idx_in_unvisited)
+            # Snap end to exact crossing
+            stuv_global_path[-1] = crossings_global[matched_idx].stuv.copy()
+            xyz_local[-1] = crossings_global[matched_idx].xyz.copy()
 
-        branches.append(SSXBranch(curve=(stuv_path, xyz_path)))
+        branches.append(SSXBranch(curve=(stuv_global_path, xyz_local)))
 
-    # Remaining unvisited crossings become isolated points
     for idx in unvisited:
-        points.append(SSXPoint(stuv=crossings[idx].stuv, xyz=crossings[idx].xyz))
+        points.append(SSXPoint(stuv=crossings_global[idx].stuv,
+                               xyz=crossings_global[idx].xyz))
 
     return branches, points
 
 
 # ---------------------------------------------------------------------------
-# Domain decomposition: cut through crossing parameter values
+# Domain decomposition helpers
 # ---------------------------------------------------------------------------
 
-def _choose_cut(crossings):
-    """Choose a crossing and axis for domain decomposition.
+def _choose_cut(crossings_global, box):
+    """Choose a crossing and axis to cut through.
 
-    From Paper 1: cut through a crossing point's parameter value,
-    not at a gap midpoint. The isoparametric line through this value
-    will be used for CSX before splitting.
+    Crossings are in GLOBAL coords. We look for an interior value
+    (not on the cell boundary) that separates crossings into balanced groups.
 
-    Preference:
-    1. Use an INTERIOR crossing value (not on domain boundary 0 or 1)
-    2. Prefer the axis that best separates crossings into balanced groups
-
-    Returns (crossing_index, axis) or (None, None) if no good cut.
+    Returns (crossing_index, axis) or (None, None).
     """
-    if len(crossings) <= 2:
+    if len(crossings_global) <= 2:
         return None, None
 
     best_score = -1.0
     best_cx_idx = None
     best_axis = None
 
-    for ci, c in enumerate(crossings):
+    for ci, c in enumerate(crossings_global):
         for axis in range(4):
             val = c.stuv[axis]
-            # Skip boundary values — cutting at 0 or 1 is useless
-            if val < 0.01 or val > 0.99:
+            lo, hi = box[axis]
+            # Skip if the value is on the cell boundary
+            if abs(val - lo) < 1e-8 or abs(val - hi) < 1e-8:
+                continue
+            if val <= lo or val >= hi:
                 continue
 
-            # Count how many crossings fall on each side of this cut
-            n_left = sum(1 for c2 in crossings if c2.stuv[axis] < val - 1e-10)
-            n_right = sum(1 for c2 in crossings if c2.stuv[axis] > val + 1e-10)
-            n_on = len(crossings) - n_left - n_right
+            n_left = sum(1 for c2 in crossings_global if c2.stuv[axis] < val - 1e-10)
+            n_right = sum(1 for c2 in crossings_global if c2.stuv[axis] > val + 1e-10)
+            n_on = len(crossings_global) - n_left - n_right
 
-            # Score: prefer balanced splits
             balance = min(n_left + n_on, n_right + n_on)
             if balance == 0:
-                continue  # everything on one side
+                continue
 
-            # Slight preference for axes where n_on is small (cleaner split)
             score = balance - 0.1 * n_on
             if score > best_score:
                 best_score = score
@@ -1426,37 +1451,77 @@ def _choose_cut(crossings):
 
 
 def _extract_isoline(S, axis, value):
-    """Extract an isoline from a Bezier surface at parameter value along axis.
-
-    axis=0: fix u=value, return curve in v (shape (n+1, D))
-    axis=1: fix v=value, return curve in u (shape (m+1, D))
-
-    Uses de Casteljau to evaluate the surface along one axis at the given value.
-    """
+    """Extract isoline from Bezier surface at parameter value along axis."""
     from mmcore.numeric.bern import de_casteljau_split_nd
-
     if axis == 0:
-        # Fix u=value: evaluate in u-direction, result is curve in v
-        # Split at value, take the boundary between left and right
-        left, right = de_casteljau_split_nd(S, axis=0, t=value)
-        # The isoline is the right boundary of left = left[-1, :, :]
+        left, _ = de_casteljau_split_nd(S, axis=0, t=value)
         return left[-1, :, :]
     else:
-        # Fix v=value: evaluate in v-direction, result is curve in u
-        left, right = de_casteljau_split_nd(S, axis=1, t=value)
+        left, _ = de_casteljau_split_nd(S, axis=1, t=value)
         return left[:, -1, :]
 
 
+def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_to_split):
+    """Convert CSX results on an isoline to global BoundaryCrossing objects.
+
+    The isoline is in the cell's local coords. CSX returns local params.
+    We convert everything to global using the cell's box.
+    """
+    crossings = []
+    local_axis = cut_axis if cut_axis < 2 else cut_axis - 2
+
+    for iso_pt in csx_result.get('isolated', []):
+        t_crv = float(iso_pt['t'])
+        u_oth = float(iso_pt['u'])
+        v_oth = float(iso_pt['v'])
+
+        # Build LOCAL stuv first
+        stuv_local = np.zeros(4, dtype=np.float64)
+        if surf_to_split == 1:
+            # Isoline on S1: local_axis param is the cut value (in local)
+            # t_crv is param along the other S1 axis (in local)
+            # u_oth, v_oth are S2 params (in local)
+            local_cut = (cut_global_val - cell_box[cut_axis][0]) / max(cell_box[cut_axis][1] - cell_box[cut_axis][0], 1e-15)
+            if local_axis == 0:
+                stuv_local[0] = local_cut
+                stuv_local[1] = t_crv
+            else:
+                stuv_local[0] = t_crv
+                stuv_local[1] = local_cut
+            stuv_local[2] = u_oth
+            stuv_local[3] = v_oth
+        else:
+            stuv_local[0] = u_oth
+            stuv_local[1] = v_oth
+            local_cut = (cut_global_val - cell_box[cut_axis][0]) / max(cell_box[cut_axis][1] - cell_box[cut_axis][0], 1e-15)
+            if local_axis == 0:
+                stuv_local[2] = local_cut
+                stuv_local[3] = t_crv
+            else:
+                stuv_local[2] = t_crv
+                stuv_local[3] = local_cut
+
+        # Convert to global
+        stuv_global = _local_to_global(stuv_local, cell_box)
+        # Force the cut axis to exact global value (avoid rounding)
+        stuv_global[cut_axis] = cut_global_val
+
+        xyz = np.asarray(iso_pt['point'], dtype=np.float64)
+        crossings.append(BoundaryCrossing(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1)))
+
+    return crossings
+
+
 # ---------------------------------------------------------------------------
-# Main entry point: iterative stack-based SSX
+# Main entry point
 # ---------------------------------------------------------------------------
 
 @dataclass
 class _Cell:
     """A sub-problem in the domain decomposition stack."""
-    g1: object             # GaussMapBern for S1 sub-patch
-    g2: object             # GaussMapBern for S2 sub-patch
-    crossings: list        # BoundaryCrossing on this cell's boundary
+    g1: object             # GaussMapBern for S1 sub-patch (local [0,1]²)
+    g2: object             # GaussMapBern for S2 sub-patch (local [0,1]²)
+    crossings: list        # BoundaryCrossing in GLOBAL coords
     box: tuple             # 4D parameter range in GLOBAL coords
     depth: int = 0
 
@@ -1470,12 +1535,10 @@ def bez_ssx(
 ) -> dict:
     """Bezier surface-surface intersection v5.
 
-    Iterative stack-based domain decomposition with:
-    - Sq-dist Lipschitz pruning
-    - TΨᵢ monotonicity + Gauss map separability for loop-absence
-    - Marcher-driven topology discovery (no pairing heuristic)
-    - Domain decomposition through crossing parameter values
-    - Φ-tracer for tangential (C₂) cases
+    Iterative stack-based domain decomposition.
+    All crossings and branch endpoints are in GLOBAL [0,1]⁴ coordinates.
+    Surfaces in sub-cells are in LOCAL [0,1]² (De Casteljau reparameterized).
+    Conversion between local and global uses the cell's box.
 
     Returns dict with 'branches' and 'points'.
     """
@@ -1491,13 +1554,13 @@ def bez_ssx(
         g1 = GaussMapBern.from_surf(S1, rational=True)
         g2 = GaussMapBern.from_surf(S2, rational=True)
     else:
-        # Add unit weights for GaussMapBern
         S1_h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
         S2_h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
         g1 = GaussMapBern.from_surf(S1_h, rational=True)
         g2 = GaussMapBern.from_surf(S2_h, rational=True)
 
     # --- Level 2: Boundary CSX (8 calls, once) ---
+    # Crossings are already in global [0,1]⁴ coords (top-level box is [0,1]⁴)
     crossings, boundary_overlaps = _find_ssx_boundary_zeros(S1, S2, atol, rational=rational)
     overlap_branches = _overlaps_to_branches(boundary_overlaps, S1, atol, rational)
 
@@ -1514,29 +1577,26 @@ def bez_ssx(
                 filtered.append(c)
         crossings = filtered
 
-    # --- Level 3: TΨᵢ computation (once) ---
+    # --- Level 3: TΨᵢ (once at top level) ---
     if rational:
         P1_cart = S1[..., :-1] / S1[..., -1:]
         P2_cart = S2[..., :-1] / S2[..., -1:]
     else:
         P1_cart = S1
         P2_cart = S2
-
     T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1_cart, P2_cart)
 
-    # --- Loop-absence check ---
-    loop_free = _check_loop_free(g1, g2, T1, T2, T3, T4)
+    # --- Loop-absence check (top level) ---
+    box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
 
-    if loop_free:
+    if _check_loop_free(g1, g2, T1, T2, T3, T4):
         if not crossings and not overlap_branches:
             return {'branches': [], 'points': []}
-
-        branches, points = _trace_all_branches(S1, S2, crossings, atol, rational)
+        branches, points = _trace_all_branches(g1.surface, g2.surface, crossings, box, atol)
         branches.extend(overlap_branches)
         return {'branches': branches, 'points': points}
 
-    # --- Not loop-free: ITERATIVE DOMAIN DECOMPOSITION ---
-    box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
+    # --- ITERATIVE DOMAIN DECOMPOSITION ---
     stack = [_Cell(g1=g1, g2=g2, crossings=crossings, box=box, depth=0)]
     all_branches = list(overlap_branches)
     all_points = []
@@ -1544,173 +1604,100 @@ def bez_ssx(
     while stack:
         cell = stack.pop()
 
-        # Check loop-absence on this sub-cell
-        cell_loop_free = _check_loop_free(cell.g1, cell.g2)
-
-        if cell_loop_free:
+        # Loop-absence on this sub-cell (Gauss maps only — TΨᵢ too expensive to recompute)
+        if _check_loop_free(cell.g1, cell.g2):
             if cell.crossings:
                 br, pt = _trace_all_branches(
                     cell.g1.surface, cell.g2.surface,
-                    cell.crossings, atol, rational=True,
+                    cell.crossings, cell.box, atol,
                 )
-                # Map local stuv to global
-                for b in br:
-                    stuv_path, xyz_path = b.curve
-                    for j in range(len(stuv_path)):
-                        for ax in range(4):
-                            lo, hi = cell.box[ax]
-                            stuv_path[j, ax] = lo + stuv_path[j, ax] * (hi - lo)
                 all_branches.extend(br)
                 all_points.extend(pt)
             continue
 
         if cell.depth >= max_depth:
-            # Max depth: Φ-tracer for tangency, or just record points
-            if cell.crossings:
-                # Try Φ-tracer
-                T1c, T2c, T3c, T4c = minors_Tpsi_from_control_nets(
-                    P1_cart, P2_cart)  # TODO: use cell-local Cartesian nets
-                t_br, t_pt = _deflate_tangent_cell(
-                    P1_cart, P2_cart, T1c, T2c, T3c, T4c,
-                    cell.box, cell.crossings, atol,
-                )
-                all_branches.extend(t_br)
-                all_points.extend(t_pt)
+            for c in cell.crossings:
+                all_points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
             continue
 
-        # --- Domain decomposition: cut through a crossing point ---
-        cx_idx, cut_axis = _choose_cut(cell.crossings)
+        # --- Choose cut: through a crossing's parameter value ---
+        cx_idx, cut_axis = _choose_cut(cell.crossings, cell.box)
 
         if cx_idx is None:
-            # Can't find a good cut — trace directly
+            # Can't cut — trace directly
             if cell.crossings:
                 br, pt = _trace_all_branches(
                     cell.g1.surface, cell.g2.surface,
-                    cell.crossings, atol, rational=True,
+                    cell.crossings, cell.box, atol,
                 )
-                for b in br:
-                    stuv_path, xyz_path = b.curve
-                    for j in range(len(stuv_path)):
-                        for ax in range(4):
-                            lo, hi = cell.box[ax]
-                            stuv_path[j, ax] = lo + stuv_path[j, ax] * (hi - lo)
                 all_branches.extend(br)
                 all_points.extend(pt)
             continue
 
-        cut_crossing = cell.crossings[cx_idx]
-        cut_value = cut_crossing.stuv[cut_axis]
+        cut_global_val = cell.crossings[cx_idx].stuv[cut_axis]
 
-        # Determine which surface and local axis to split
-        # stuv axes 0,1 → S1 axes 0,1; stuv axes 2,3 → S2 axes 0,1
-        if cut_axis < 2:
-            surf_to_split = 1
-            local_axis = cut_axis
-            # Extract isoline from S1 at local_axis=cut_value
-            isoline = _extract_isoline(cell.g1.surface, local_axis, cut_value)
-            # CSX: isoline of S1 vs full S2
+        # Convert cut to LOCAL parameter for the surface being split
+        cell_lo, cell_hi = cell.box[cut_axis]
+        cut_local = (cut_global_val - cell_lo) / max(cell_hi - cell_lo, 1e-15)
+        cut_local = max(0.01, min(0.99, cut_local))  # safety clamp
+
+        # Which surface to split
+        surf_to_split = 1 if cut_axis < 2 else 2
+        local_axis = cut_axis if cut_axis < 2 else cut_axis - 2
+
+        # Extract isoline at LOCAL param, run CSX BEFORE splitting
+        if surf_to_split == 1:
+            isoline = _extract_isoline(cell.g1.surface, local_axis, cut_local)
             csx_result = bez_csx(isoline, cell.g2.surface, atol=atol, rational=True)
         else:
-            surf_to_split = 2
-            local_axis = cut_axis - 2
-            isoline = _extract_isoline(cell.g2.surface, local_axis, cut_value)
-            # CSX: isoline of S2 vs full S1
+            isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
             csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
 
-        # Collect new crossings from the isoline CSX
-        new_crossings = []
-        for iso_pt in csx_result.get('isolated', []):
-            t_crv = float(iso_pt['t'])
-            u_oth = float(iso_pt['u'])
-            v_oth = float(iso_pt['v'])
-            stuv = np.zeros(4, dtype=np.float64)
-            if surf_to_split == 1:
-                if local_axis == 0:
-                    stuv[0] = cut_value
-                    stuv[1] = t_crv
-                else:
-                    stuv[0] = t_crv
-                    stuv[1] = cut_value
-                stuv[2] = u_oth
-                stuv[3] = v_oth
-            else:
-                stuv[0] = u_oth
-                stuv[1] = v_oth
-                if local_axis == 0:
-                    stuv[2] = cut_value
-                    stuv[3] = t_crv
-                else:
-                    stuv[2] = t_crv
-                    stuv[3] = cut_value
-            xyz = np.asarray(iso_pt['point'], dtype=np.float64)
-            new_crossings.append(BoundaryCrossing(stuv=stuv, xyz=xyz, face=(cut_axis, -1)))
+        # Convert CSX results to global crossings
+        new_crossings = _isoline_csx_to_global(
+            csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
+        )
 
-        # Split the GaussMapBern
+        # Split GaussMapBern at LOCAL param
         if surf_to_split == 1:
-            children = cell.g1.split_u(cut_value) if local_axis == 0 else cell.g1.split_v(cut_value)
-            g1_left, g1_right = children
-            g2_left = g2_right = cell.g2
+            g1_L, g1_R = (cell.g1.split_u(cut_local) if local_axis == 0
+                          else cell.g1.split_v(cut_local))
+            g2_L = g2_R = cell.g2
         else:
-            children = cell.g2.split_u(cut_value) if local_axis == 0 else cell.g2.split_v(cut_value)
-            g2_left, g2_right = children
-            g1_left = g1_right = cell.g1
+            g2_L, g2_R = (cell.g2.split_u(cut_local) if local_axis == 0
+                          else cell.g2.split_v(cut_local))
+            g1_L = g1_R = cell.g1
 
-        # Distribute crossings + new crossings to left and right cells
+        # Distribute crossings (all in GLOBAL coords) to left/right
+        all_cx = list(cell.crossings) + new_crossings
         left_cx = []
         right_cx = []
-        for c in list(cell.crossings) + new_crossings:
-            if c.stuv[cut_axis] < cut_value - 1e-10:
+        for c in all_cx:
+            v = c.stuv[cut_axis]
+            if v < cut_global_val - 1e-10:
                 left_cx.append(c)
-            elif c.stuv[cut_axis] > cut_value + 1e-10:
+            elif v > cut_global_val + 1e-10:
                 right_cx.append(c)
             else:
-                # On the cut line — add to both sides
+                # On the cut — belongs to both sides
                 left_cx.append(c)
                 right_cx.append(c)
 
-        # Build sub-boxes in global coords
-        box_left = list(cell.box)
-        box_left[cut_axis] = (cell.box[cut_axis][0], cell.box[cut_axis][0] + cut_value * (cell.box[cut_axis][1] - cell.box[cut_axis][0]))
-        box_left = tuple(box_left)
+        # Sub-boxes in GLOBAL coords
+        box_L = list(cell.box)
+        box_L[cut_axis] = (cell.box[cut_axis][0], cut_global_val)
+        box_L = tuple(box_L)
 
-        box_right = list(cell.box)
-        box_right[cut_axis] = (box_left[cut_axis][1], cell.box[cut_axis][1])
-        box_right = tuple(box_right)
+        box_R = list(cell.box)
+        box_R[cut_axis] = (cut_global_val, cell.box[cut_axis][1])
+        box_R = tuple(box_R)
 
-        # Remap crossings to LOCAL coordinates of each sub-cell
-        # Left cell: axis range [0, cut_value] in parent → [0, 1] in child
-        def _remap_crossings(cx_list, old_box, new_box):
-            remapped = []
-            for c in cx_list:
-                new_stuv = c.stuv.copy()
-                for ax in range(4):
-                    old_lo, old_hi = old_box[ax]
-                    new_lo, new_hi = new_box[ax]
-                    span = old_hi - old_lo
-                    if span > 1e-15:
-                        # Map from parent-local to child-local
-                        parent_val = c.stuv[ax]
-                        child_lo = (new_lo - old_lo) / span
-                        child_hi = (new_hi - old_lo) / span
-                        child_span = child_hi - child_lo
-                        if child_span > 1e-15:
-                            new_stuv[ax] = (parent_val - child_lo) / child_span
-                        else:
-                            new_stuv[ax] = 0.5
-                new_stuv = np.clip(new_stuv, 0.0, 1.0)
-                remapped.append(BoundaryCrossing(stuv=new_stuv, xyz=c.xyz.copy(), face=c.face))
-            return remapped
-
-        left_cx_local = _remap_crossings(left_cx, cell.box, box_left)
-        right_cx_local = _remap_crossings(right_cx, cell.box, box_right)
-
-        # Push sub-cells
-        if left_cx_local:
-            stack.append(_Cell(g1=g1_left, g2=g2_left, crossings=left_cx_local,
-                               box=box_left, depth=cell.depth + 1))
-        if right_cx_local:
-            stack.append(_Cell(g1=g1_right, g2=g2_right, crossings=right_cx_local,
-                               box=box_right, depth=cell.depth + 1))
+        if left_cx:
+            stack.append(_Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
+                               box=box_L, depth=cell.depth + 1))
+        if right_cx:
+            stack.append(_Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
+                               box=box_R, depth=cell.depth + 1))
 
     # TODO: merge branches at shared partition boundaries
     return {'branches': all_branches, 'points': all_points}
