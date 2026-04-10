@@ -1335,6 +1335,60 @@ def _global_to_local(stuv_global, box):
 # Trace all branches: marcher-driven topology discovery
 # ---------------------------------------------------------------------------
 
+def _is_cell_corner(stuv_global, box, tol=1e-8):
+    """Check if a crossing is at a corner of the cell (on 2+ boundaries)."""
+    n_on_boundary = 0
+    for i in range(4):
+        lo, hi = box[i]
+        if abs(stuv_global[i] - lo) < tol or abs(stuv_global[i] - hi) < tol:
+            n_on_boundary += 1
+    return n_on_boundary >= 2
+
+
+def _tangent_enters_cell(g1_surf, g2_surf, stuv_local, box, tol=1e-8):
+    """Check if the intersection curve tangent at a corner points INTO the cell.
+
+    For a corner crossing, the marcher would immediately leave the cell
+    if the tangent points outward. Returns True if the tangent enters.
+    """
+    tang, _, _ = _ssx_tangent_4d(g1_surf, g2_surf, *stuv_local, rational=True)
+    if tang is None:
+        return False
+
+    # Check: does a small step along the tangent stay inside [0,1]⁴?
+    # Try both directions
+    for sign in [1.0, -1.0]:
+        stepped = stuv_local + sign * 0.01 * tang
+        inside = all(0.0 - tol <= stepped[i] <= 1.0 + tol for i in range(4))
+        if inside:
+            return True
+
+    return False
+
+
+def _filter_corner_touches(crossings_global, g1_surf, g2_surf, box):
+    """Remove crossings that merely touch a cell corner without entering.
+
+    A crossing at a corner of the cell (on 2+ cell boundaries) may be
+    a "touch point" where the intersection curve passes through but
+    doesn't enter this particular sub-cell. We check by testing if
+    the tangent direction points into the cell interior.
+    """
+    filtered = []
+    for c in crossings_global:
+        if not _is_cell_corner(c.stuv, box):
+            filtered.append(c)
+            continue
+
+        # Corner crossing — check tangent
+        stuv_local = _global_to_local(c.stuv, box)
+        if _tangent_enters_cell(g1_surf, g2_surf, stuv_local, box):
+            filtered.append(c)
+        # else: touch point, discard
+
+    return filtered
+
+
 def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
     """Trace all branches in a loop-free cell.
 
@@ -1343,6 +1397,12 @@ def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
 
     Returns (branches, points) in global coords.
     """
+    if not crossings_global:
+        return [], []
+
+    # Filter corner touch points before tracing
+    crossings_global = _filter_corner_touches(crossings_global, g1_surf, g2_surf, box)
+
     if not crossings_global:
         return [], []
 
@@ -1699,5 +1759,101 @@ def bez_ssx(
             stack.append(_Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
                                box=box_R, depth=cell.depth + 1))
 
-    # TODO: merge branches at shared partition boundaries
+    # --- Post-processing: merge + dedup ---
+    all_branches = _merge_adjacent_branches(all_branches, atol)
+    all_branches = _dedup_branches(all_branches, atol)
     return {'branches': all_branches, 'points': all_points}
+
+
+def _merge_adjacent_branches(branches, atol):
+    """Merge branches whose endpoints match (from adjacent sub-cells sharing a partition)."""
+    if len(branches) <= 1:
+        return branches
+
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(branches)):
+            for j in range(i + 1, len(branches)):
+                stuv_i, xyz_i = branches[i].curve
+                stuv_j, xyz_j = branches[j].curve
+                if len(stuv_i) < 1 or len(stuv_j) < 1:
+                    continue
+
+                # Check if end of i matches start of j
+                if np.linalg.norm(stuv_i[-1] - stuv_j[0]) < atol:
+                    new_stuv = np.concatenate([stuv_i, stuv_j[1:]], axis=0)
+                    new_xyz = np.concatenate([xyz_i, xyz_j[1:]], axis=0)
+                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
+                    branches.pop(j)
+                    merged = True
+                    break
+                # Check if end of j matches start of i
+                if np.linalg.norm(stuv_j[-1] - stuv_i[0]) < atol:
+                    new_stuv = np.concatenate([stuv_j, stuv_i[1:]], axis=0)
+                    new_xyz = np.concatenate([xyz_j, xyz_i[1:]], axis=0)
+                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
+                    branches.pop(j)
+                    merged = True
+                    break
+                # Check if start matches start (reverse one)
+                if np.linalg.norm(stuv_i[0] - stuv_j[0]) < atol:
+                    new_stuv = np.concatenate([stuv_i[::-1], stuv_j[1:]], axis=0)
+                    new_xyz = np.concatenate([xyz_i[::-1], xyz_j[1:]], axis=0)
+                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
+                    branches.pop(j)
+                    merged = True
+                    break
+                # Check if end matches end (reverse one)
+                if np.linalg.norm(stuv_i[-1] - stuv_j[-1]) < atol:
+                    new_stuv = np.concatenate([stuv_i, stuv_j[-2::-1]], axis=0)
+                    new_xyz = np.concatenate([xyz_i, xyz_j[-2::-1]], axis=0)
+                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
+                    branches.pop(j)
+                    merged = True
+                    break
+            if merged:
+                break
+
+    return branches
+
+
+def _dedup_branches(branches, atol):
+    """Remove duplicate branches (same start AND end points)."""
+    if len(branches) <= 1:
+        return branches
+
+    to_remove = set()
+    for i in range(len(branches)):
+        if i in to_remove:
+            continue
+        stuv_i, xyz_i = branches[i].curve
+        if len(stuv_i) < 2:
+            continue
+        for j in range(i + 1, len(branches)):
+            if j in to_remove:
+                continue
+            stuv_j, xyz_j = branches[j].curve
+            if len(stuv_j) < 2:
+                continue
+            # Same direction
+            same = (np.linalg.norm(xyz_i[0] - xyz_j[0]) < atol and
+                    np.linalg.norm(xyz_i[-1] - xyz_j[-1]) < atol)
+            # Reversed
+            rev = (np.linalg.norm(xyz_i[0] - xyz_j[-1]) < atol and
+                   np.linalg.norm(xyz_i[-1] - xyz_j[0]) < atol)
+            if same or rev:
+                # Keep the one with more points
+                if len(stuv_j) > len(stuv_i):
+                    to_remove.add(i)
+                else:
+                    to_remove.add(j)
+
+    if to_remove:
+        branches = [b for k, b in enumerate(branches) if k not in to_remove]
+
+    # Remove zero-length branches
+    branches = [b for b in branches if len(b.curve[0]) > 1 and
+                np.linalg.norm(b.curve[1][0] - b.curve[1][-1]) > atol]
+
+    return branches
