@@ -1414,51 +1414,58 @@ def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
     points = []
     unvisited = list(range(len(crossings_global)))
 
-    while len(unvisited) >= 2:
+    while unvisited:
         start_idx = unvisited.pop(0)
         start_global = crossings_global[start_idx]
 
-        # Convert start to local coords for marching
         start_local = _global_to_local(start_global.stuv, box)
 
-        # March in local coordinates until boundary
         stuv_local, xyz_local = _march_to_boundary(
             g1_surf, g2_surf, start_local,
             atol=atol, rational=True,
         )
 
-        # Convert entire path to global
         stuv_global_path = np.empty((len(stuv_local), 4), dtype=np.float64)
         for j in range(len(stuv_local)):
             stuv_global_path[j] = _local_to_global(stuv_local[j], box)
-
-        # Snap start to exact crossing
         stuv_global_path[0] = start_global.stuv.copy()
 
-        # Find which unvisited crossing the marcher reached (in global coords)
+        # Find which unvisited crossing the marcher reached
         end_global = stuv_global_path[-1]
-        best_idx_in_unvisited = None
+        best_k = None
         best_dist = float('inf')
         for k, idx in enumerate(unvisited):
             d = float(np.linalg.norm(end_global - crossings_global[idx].stuv))
             if d < best_dist:
                 best_dist = d
-                best_idx_in_unvisited = k
+                best_k = k
 
-        if best_idx_in_unvisited is not None and best_dist < 0.1:
-            matched_idx = unvisited.pop(best_idx_in_unvisited)
-            # Snap end to exact crossing
+        if best_k is not None and best_dist < 0.1:
+            matched_idx = unvisited.pop(best_k)
             stuv_global_path[-1] = crossings_global[matched_idx].stuv.copy()
             xyz_local[-1] = crossings_global[matched_idx].xyz.copy()
 
-        # Only record as a branch if the path has nonzero length
+        # Record branch if nonzero length
         if len(stuv_global_path) >= 2 and np.linalg.norm(stuv_global_path[-1] - stuv_global_path[0]) > 1e-10:
             branches.append(SSXBranch(curve=(stuv_global_path, xyz_local)))
-        # else: zero-length march (start was already at boundary) — crossing consumed, move on
 
-    for idx in unvisited:
-        points.append(SSXPoint(stuv=crossings_global[idx].stuv,
-                               xyz=crossings_global[idx].xyz))
+        # Remove remaining crossings that the branch passed through.
+        # These are partition touch-points: on a cell corner (2+ boundary faces)
+        # and near the traced path. They don't form separate branches.
+        still_unvisited = []
+        for idx in unvisited:
+            c = crossings_global[idx]
+            if not _is_cell_corner(c.stuv, box):
+                still_unvisited.append(idx)
+                continue
+            # Corner crossing — check if it's near the traced path
+            near_path = any(
+                np.linalg.norm(c.xyz - xyz_local[j]) < atol * 5
+                for j in range(len(xyz_local))
+            )
+            if not near_path:
+                still_unvisited.append(idx)
+        unvisited = still_unvisited
 
     return branches, points
 
