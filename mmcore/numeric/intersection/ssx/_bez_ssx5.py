@@ -1427,12 +1427,8 @@ def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
             atol=atol, rational=True,
         )
 
-        if len(stuv_local) < 2:
-            points.append(SSXPoint(stuv=start_global.stuv, xyz=start_global.xyz))
-            continue
-
         # Convert entire path to global
-        stuv_global_path = np.empty_like(stuv_local)
+        stuv_global_path = np.empty((len(stuv_local), 4), dtype=np.float64)
         for j in range(len(stuv_local)):
             stuv_global_path[j] = _local_to_global(stuv_local[j], box)
 
@@ -1455,7 +1451,10 @@ def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
             stuv_global_path[-1] = crossings_global[matched_idx].stuv.copy()
             xyz_local[-1] = crossings_global[matched_idx].xyz.copy()
 
-        branches.append(SSXBranch(curve=(stuv_global_path, xyz_local)))
+        # Only record as a branch if the path has nonzero length
+        if len(stuv_global_path) >= 2 and np.linalg.norm(stuv_global_path[-1] - stuv_global_path[0]) > 1e-10:
+            branches.append(SSXBranch(curve=(stuv_global_path, xyz_local)))
+        # else: zero-length march (start was already at boundary) — crossing consumed, move on
 
     for idx in unvisited:
         points.append(SSXPoint(stuv=crossings_global[idx].stuv,
