@@ -177,22 +177,24 @@ def make_region_2d(loops: list[list[NURBSCurveTuple]]) -> BRep:
 
     # Classify each loop by signed area in xy plane.
     loops_by_type: list[tuple[str, list[NURBSCurveTuple]]] = []
-    for loop_curves in loops:
+    for i, loop_curves in enumerate(loops):
         area = _signed_area_xy_samples(loop_curves)
+        if abs(area) < 1e-12:
+            raise ValueError(
+                f"make_region_2d: loop index {i} has near-zero signed area "
+                f"({area:.3e}); cannot determine CCW/CW orientation "
+                "(degenerate or collinear loop?)"
+            )
         kind = 'outer' if area > 0 else 'hole'
         loops_by_type.append((kind, loop_curves))
 
     # First pass: build all outer loops (one body face per outer loop).
     outer_face_ids: list[int] = []
-    outer_sample_points: list[np.ndarray] = []
     for kind, loop_curves in loops_by_type:
         if kind != 'outer':
             continue
         face_id = _add_loop_to_brep(brep, shell.id, wire_face.id, loop_curves, is_body_outer=True)
         outer_face_ids.append(face_id)
-        # sample an interior point for later hole containment tests
-        sample = _interior_sample_of_loop(loop_curves)
-        outer_sample_points.append(sample)
 
     # Second pass: for each hole, find the containing body face and attach as inner.
     for kind, loop_curves in loops_by_type:
