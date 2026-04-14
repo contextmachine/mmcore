@@ -8,6 +8,7 @@ import numpy as np
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx_multiple
+from mmcore.topo.brep import BRep
 
 
 _PIP_ENDPOINT_EPS_MUL = 2.0  # u_seg must be > _PIP_ENDPOINT_EPS_MUL * tol from 0
@@ -129,3 +130,215 @@ def point_in_region(
     # elsewhere). For point-in-region purposes this is safe.
 
     return (count % 2) == 1
+
+
+# ---------------------------------------------------------------------------
+#  make_region_2d — builder for 2D BRep inputs
+# ---------------------------------------------------------------------------
+
+def _signed_area_xy_samples(curves: list[NURBSCurveTuple], n_per_curve: int = 16) -> float:
+    """Shoelace signed area from sampled points along the loop's curves.
+
+    Positive ⇒ CCW in xy plane ⇒ bounds material.
+    Negative ⇒ CW in xy plane ⇒ bounds a hole.
+    """
+    pts = []
+    for crv in curves:
+        t0, t1 = crv.interval()
+        for i in range(n_per_curve):
+            t = t0 + (t1 - t0) * (i / n_per_curve)
+            ev = evaluate_nurbs_curve(crv, t, 0)
+            pts.append(np.asarray(ev['C'], dtype=float))
+    pts = np.asarray(pts)
+    xs = pts[:, 0]
+    ys = pts[:, 1]
+    return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+
+
+def make_region_2d(loops: list[list[NURBSCurveTuple]]) -> BRep:
+    """Build a 2D BRep from a list of closed loops.
+
+    Each inner list is one closed loop whose curves are oriented end-to-end
+    (curve[i].end() ≈ curve[i+1].start() and last.end() ≈ first.start()).
+    CCW loops (positive signed area in xy) become body-face outer loops —
+    one body face per CCW loop. CW loops become holes attached to the
+    containing body face (determined by point-in-region tests).
+
+    Single-shell form: one Body, one Shell, one wire Face (Face 0) with
+    outer=None, N body faces with outer + inners. Every half-edge has a
+    valid face reference.
+    """
+    brep = BRep()
+    body = brep.new_body(shells=[])
+    shell = brep.new_shell(faces=[], body=body.id)
+    body.shells.append(shell.id)
+    wire_face = brep.new_face(outer=None, inners=[], shell=shell.id, surf=None)
+    shell.faces.append(wire_face.id)
+
+    # Classify each loop by signed area in xy plane.
+    loops_by_type: list[tuple[str, list[NURBSCurveTuple]]] = []
+    for loop_curves in loops:
+        area = _signed_area_xy_samples(loop_curves)
+        kind = 'outer' if area > 0 else 'hole'
+        loops_by_type.append((kind, loop_curves))
+
+    # First pass: build all outer loops (one body face per outer loop).
+    outer_face_ids: list[int] = []
+    outer_sample_points: list[np.ndarray] = []
+    for kind, loop_curves in loops_by_type:
+        if kind != 'outer':
+            continue
+        face_id = _add_loop_to_brep(brep, shell.id, wire_face.id, loop_curves, is_body_outer=True)
+        outer_face_ids.append(face_id)
+        # sample an interior point for later hole containment tests
+        sample = _interior_sample_of_loop(loop_curves)
+        outer_sample_points.append(sample)
+
+    # Second pass: for each hole, find the containing body face and attach as inner.
+    for kind, loop_curves in loops_by_type:
+        if kind != 'hole':
+            continue
+        # find which body face's material contains the hole's centroid
+        hole_sample = _interior_sample_of_loop(loop_curves)
+        host_face_id = None
+        for face_id in outer_face_ids:
+            face = brep.F[face_id]
+            outer_loop_curves = _loop_curves_from_loop_id(brep, face.outer)
+            if point_in_region(hole_sample, outer_loop_curves, tol=1e-6):
+                host_face_id = face_id
+                break
+        if host_face_id is None:
+            raise ValueError("hole loop is not contained by any outer loop")
+        _add_loop_to_brep(brep, shell.id, wire_face.id, loop_curves,
+                          is_body_outer=False, host_face_id=host_face_id)
+
+    return brep
+
+
+def _interior_sample_of_loop(loop_curves: list[NURBSCurveTuple]) -> np.ndarray:
+    """Return a point that's (approximately) inside the loop.
+
+    Simple strategy: shoelace centroid of the first curve's start points and
+    the midpoint of each curve. Not guaranteed interior for very non-convex
+    shapes but works for the shapes we care about (squares, circles, simple
+    polygons). For exotic shapes, callers should supply their own sample.
+    """
+    pts = []
+    for crv in loop_curves:
+        t0, t1 = crv.interval()
+        ev = evaluate_nurbs_curve(crv, 0.5 * (t0 + t1), 0)
+        pts.append(np.asarray(ev['C'], dtype=float))
+    return np.mean(np.asarray(pts), axis=0)
+
+
+def _loop_curves_from_loop_id(brep: BRep, loop_id: int) -> list[NURBSCurveTuple]:
+    """Walk a loop's half-edges and return the list of curves it traverses."""
+    curves = []
+    first = brep.L[loop_id].he
+    he_id = first
+    while True:
+        he = brep.HE[he_id]
+        edge = brep.E[he.edge]
+        crv = brep.G_CRV[edge.geom]
+        curves.append(crv)
+        he_id = he.next
+        if he_id == first:
+            break
+    return curves
+
+
+def _add_loop_to_brep(
+    brep: BRep,
+    shell_id: int,
+    wire_face_id: int,
+    loop_curves: list[NURBSCurveTuple],
+    *,
+    is_body_outer: bool,
+    host_face_id: int | None = None,
+) -> int:
+    """Insert the vertices, edges, half-edges, loops (body + wire twins), and
+    (if is_body_outer) a body face for one closed loop of oriented NURBS curves.
+
+    If is_body_outer is True, creates a new body face with this loop as its
+    outer loop; returns the new body face id.
+
+    If is_body_outer is False, treats the loop as a hole to be attached to
+    host_face_id as an inner loop; returns host_face_id.
+    """
+    n = len(loop_curves)
+    if n < 1:
+        raise ValueError("loop_curves must have at least one curve")
+
+    # Create one vertex per curve start. curve[i].end() ≈ curve[(i+1)%n].start().
+    vertices: list[int] = []
+    for i, crv in enumerate(loop_curves):
+        start = tuple(np.asarray(crv.start(), dtype=float).tolist())
+        v = brep.new_vertex(point=start, tol=1e-6)
+        vertices.append(v.id)
+
+    # Determine body-side face id
+    if is_body_outer:
+        body_face = brep.new_face(outer=None, inners=[], shell=shell_id,
+                                  same_sense=True, surf=None)
+        brep.S[shell_id].faces.append(body_face.id)
+        body_face_id = body_face.id
+    else:
+        body_face_id = host_face_id  # type: ignore[assignment]
+
+    # Create edges + half-edges for each curve.
+    body_hes: list[int] = []  # in walk order
+    wire_hes: list[int] = []  # in walk order (twins, reversed-winding cycle)
+    for i, crv in enumerate(loop_curves):
+        v_start = vertices[i]
+        v_end = vertices[(i + 1) % n]
+        crv_id = brep.new_curve(crv)
+        edge = brep.new_edge(v_start=v_start, v_end=v_end, geom=crv_id,
+                             param=crv.interval())
+        # Body-side HE walks v_start→v_end (the direction the user supplied).
+        he_body = brep.new_halfedge(
+            edge=edge.id, face=body_face_id, loop=None,
+            vert=v_end, orient=True, pcurve=None,
+        )
+        # Wire-side twin walks v_end→v_start on the wire (Face 0) face.
+        he_wire = brep.new_halfedge(
+            edge=edge.id, face=wire_face_id, loop=None,
+            vert=v_start, orient=False, pcurve=None,
+        )
+        he_body.twin = he_wire.id
+        he_wire.twin = he_body.id
+        edge.he = he_body.id
+        body_hes.append(he_body.id)
+        wire_hes.append(he_wire.id)
+
+    # Link next/prev along the body loop (forward cycle).
+    for i in range(n):
+        brep.HE[body_hes[i]].next = body_hes[(i + 1) % n]
+        brep.HE[body_hes[(i + 1) % n]].prev = body_hes[i]
+
+    # Link next/prev along the wire loop (reverse cycle: the wire HE for
+    # curve i starts at v_{i+1} and ends at v_i, so the walk order is
+    # wire_hes[n-1], wire_hes[n-2], ..., wire_hes[0]).
+    for i in range(n):
+        nxt_i = (i - 1) % n
+        brep.HE[wire_hes[i]].next = wire_hes[nxt_i]
+        brep.HE[wire_hes[nxt_i]].prev = wire_hes[i]
+
+    # Create the two loop records and tag HEs.
+    body_loop = brep.new_loop(face=body_face_id, he=body_hes[0],
+                              is_outer=is_body_outer)
+    wire_loop = brep.new_loop(face=wire_face_id, he=wire_hes[0], is_outer=False)
+    for hid in body_hes:
+        brep.HE[hid].loop = body_loop.id
+    for hid in wire_hes:
+        brep.HE[hid].loop = wire_loop.id
+
+    # Attach body loop to its face.
+    if is_body_outer:
+        brep.F[body_face_id].outer = body_loop.id
+    else:
+        brep.F[body_face_id].inners.append(body_loop.id)
+
+    # The wire loop always lives in Face 0's inners list.
+    brep.F[wire_face_id].inners.append(wire_loop.id)
+
+    return body_face_id
