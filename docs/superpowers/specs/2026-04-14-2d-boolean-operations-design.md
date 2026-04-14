@@ -186,17 +186,83 @@ For each bounded face `f`:
 5. Run two point-in-region tests:
 
 ```python
-inA = point_in_region(sample, curves_A_original, ray_angle=θ_A)
-inB = point_in_region(sample, curves_B_original, ray_angle=θ_B)
+inA = point_in_region(sample, curves_A_original, tol=tol)
+inB = point_in_region(sample, curves_B_original, tol=tol)
 ```
-
-`point_in_region` wraps `mmcore.numeric.algorithms.point_in_curve.curve_x_ray`
-(or the equivalent), walking every input curve and counting intersections
-with a ray. Small random perturbation of the ray angle θ guards against
-tangent hits.
 
 Complexity: `O(F × (|A| + |B|))`. Can be swapped for flood-fill propagation
 later without changing the rest of the pipeline.
+
+#### `point_in_region` — segment-based PIP using `nurbs_ccx`
+
+We do **not** use `mmcore.numeric.algorithms.point_in_curve.curve_x_ray` —
+it is an older implementation, known to have correctness issues on tangent
+and endpoint hits, and not tuned for NURBS. Instead we implement a small
+helper that leverages the same production `nurbs_ccx_multiple` the main
+pipeline already uses:
+
+```python
+def point_in_region(
+    point: np.ndarray,
+    region_curves: list[NURBSCurveTuple],
+    tol: float = 1e-6,
+    max_attempts: int = 8,
+) -> bool:
+    """Return True iff point lies strictly inside the region bounded by
+    region_curves (even-odd winding rule).
+
+    Casts a line segment (a degree-1 NURBS curve) from point out to a
+    guaranteed-exterior anchor and counts isolated intersections with
+    region_curves via nurbs_ccx_multiple.  Retries with a perturbed
+    direction if the segment hits an overlap or an intersection at the
+    segment's start/end or at a region curve's endpoint.
+    """
+```
+
+**Segment construction.**
+1. Compute the axis-aligned bounding box of `region_curves` by taking
+   `min`/`max` of every curve's `control_points` (the control polygon is a
+   conservative bound for a NURBS curve). Expand by `tol` on each side.
+2. Let `D = ||bbox_max - bbox_min||` (diagonal length). Use
+   `L = 2 * D + tol` as the segment length — guaranteed to escape the bbox
+   regardless of direction.
+3. Pick an initial direction `d₀ = (cos θ, sin θ)` with θ seeded from a
+   deterministic but odd value (e.g. `θ = 0.31415`) so that the segment is
+   neither axis-aligned nor parallel to typical CAD features.
+4. Build a degree-1 NURBS:
+   ```python
+   seg = NURBSCurveTuple(
+       order=2,
+       knot=np.array([0., 0., 1., 1.]),
+       control_points=np.array([point, point + L * d]),
+       weights=np.array([1., 1.]),
+   )
+   ```
+
+**Counting.**
+1. `isolated, overlaps = nurbs_ccx_multiple([seg] + region_curves, tol=tol)`.
+2. Reject-and-retry conditions (ambiguity that would corrupt the count):
+   - any entry in `overlaps` has `curve1_i == 0` or `curve2_i == 0` (the
+     segment is collinear with a region curve);
+   - any entry in `isolated` has `u < 2*tol` (hits the segment at its
+     start point — meaning `point` itself is on a region curve) **or**
+     `u > 1 - 2*tol` (hits the endpoint — meaning the segment length was
+     too short, shouldn't happen but guard anyway);
+   - any entry in `isolated` lands at a region curve's parameter
+     endpoint (`v < 2*tol_v` or `v > 1 - 2*tol_v`) — this is the "ray hits
+     a vertex" corner case.
+3. If any condition triggers, rotate θ by a fixed offset (e.g. `θ += 0.37`
+   radians — irrational multiple of π to avoid collision cycles) and retry,
+   up to `max_attempts`. If all attempts fail, raise
+   `RuntimeError("point_in_region: could not find a clean segment direction")`.
+4. Otherwise, count isolated hits with `curve1_i == 0`: that is the number
+   of transverse crossings. Return `count % 2 == 1`.
+
+**Why a segment and not a ray.** `nurbs_ccx_multiple` wants bounded NURBS
+inputs. A ray (unbounded) isn't a NURBS curve; a long enough segment is
+equivalent for counting purposes and lets us reuse the same tuned,
+well-tested intersection code that produced the arrangement in steps 2–4.
+No new intersection primitive needed.
 
 ### 8. Apply the operation rule
 
@@ -273,7 +339,7 @@ Finally call `result.validate()` — any non-empty return is a real bug
 | **A fully inside B** (no intersections, nested) | No splits. Classification handles it via point-in-region tests. `union = B`, `intersection = A`, `difference(B,A) = B with A-shaped hole`, `xor = same as difference(B,A)`. |
 | **Tangent intersections** | CCX returns tangent touches as isolated crossings with valid `(u,v)`. The arrangement vertex has degree 2 on each side and classifies correctly. |
 | **Overlap with opposite parameter directions** | CCX's `u_range` and `v_range` capture both directions. Step 4 keeps one kept segment regardless — the arrangement doesn't care about the parent curves' original parameterization, only about the sub-segment geometry. |
-| **Interior sample hits a boundary** | The `sample = midpoint + ε * inward_normal` construction guarantees strict interiority in any non-degenerate face. The random ray angle perturbation in `point_in_region` guards against tangent ray hits. |
+| **Interior sample hits a boundary** | The `sample = midpoint + ε * inward_normal` construction guarantees strict interiority in any non-degenerate face. The direction-perturbation retry in `point_in_region` handles the remaining corner cases (segment collinear with a region curve, segment hit at a curve vertex, sample lies exactly on a region curve). |
 | **Non-closed loop in input** | Call `input_brep.validate()` at the top of step 1. If it returns a non-empty error list, raise `ValueError("input BRep failed validate(): ...")` with the first error attached. This catches dangling edges, mis-wired half-edges, and orphaned loops before they corrupt the arrangement. |
 | **Output loop fails to close** (numerical classification flip-flop) | Step 9 raises `RuntimeError` with the offending face ids. No silent malformation. |
 | **Empty result** | Return a valid BRep with Body + Shell + Face 0 (`outer=None`, `inners=[]`) and **zero** body faces. The empty-region signal is `len([f for f in brep.F.values() if f.outer is not None]) == 0`. |
@@ -324,9 +390,12 @@ No performance benchmarks in the first cut.
 - `mmcore.geom._nurbs_knots.split_curve_multiple` — existing.
 - `mmcore.geom._nurbs_param_tol.nurbs_curve_param_tolerance` — existing.
 - `mmcore.geom._nurbs_eval.evaluate_nurbs_curve` — existing.
-- `mmcore.numeric.algorithms.point_in_curve.curve_x_ray` — existing; may
-  need a thin wrapper `point_in_region(point, curves, ray_angle)` that
-  handles the boundary-soup case cleanly.
+- `point_in_region(point, curves, tol, max_attempts)` — **new**, lives in
+  `boolean2d.py` as a private helper. Implemented on top of
+  `nurbs_ccx_multiple` by building a segment-as-NURBS "ray" and counting
+  transverse crossings. Replaces the older, less reliable
+  `mmcore.numeric.algorithms.point_in_curve.curve_x_ray` — we do not use
+  the old implementation.
 - `mmcore.topo.brep.BRep` — existing; uses factory helpers `new_vertex`,
   `new_edge`, `new_halfedge`, `new_loop`, `new_face`, `new_shell`, `new_body`,
   `new_curve`, and the `validate()` method.
