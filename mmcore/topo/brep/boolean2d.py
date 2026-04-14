@@ -344,3 +344,44 @@ def _add_loop_to_brep(
     brep.F[wire_face_id].inners.append(wire_loop.id)
 
     return body_face_id
+
+
+# ---------------------------------------------------------------------------
+#  Boolean op pipeline — private helpers
+# ---------------------------------------------------------------------------
+
+def _collect_curves_with_sources(
+    brep_a: BRep, brep_b: BRep
+) -> tuple[list[NURBSCurveTuple], list[str]]:
+    """Walk both BReps' edges and return (curves, sources) lists.
+
+    Iterates brep.E.values() directly — format agnostic to whether the BRep
+    stores boundaries as body-face outer/inner loops or as Face 0 inners.
+    Each edge contributes exactly one curve (the one in G_CRV trimmed to the
+    edge's param range).
+    """
+    # validate inputs up front (fail fast on malformed BReps)
+    for name, brep in (('a', brep_a), ('b', brep_b)):
+        errs = brep.validate()
+        if errs:
+            raise ValueError(
+                f"input BRep {name!r} failed validate(): {errs[0]}"
+            )
+
+    curves: list[NURBSCurveTuple] = []
+    sources: list[str] = []
+    for brep, tag in ((brep_a, 'A'), (brep_b, 'B')):
+        for e in brep.E.values():
+            if e.geom is None:
+                raise ValueError(
+                    f"input BRep has an edge without geometry (edge id {e.id})"
+                )
+            base = brep.G_CRV[e.geom]
+            t0, t1 = e.param
+            if (t0, t1) == base.interval():
+                curves.append(base)
+            else:
+                from mmcore.geom._nurbs_knots import trim_curve
+                curves.append(trim_curve(base, min(t0, t1), max(t0, t1)))
+            sources.append(tag)
+    return curves, sources

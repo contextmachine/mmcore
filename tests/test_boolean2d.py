@@ -105,3 +105,18 @@ def test_make_region_2d_hole_orientation_detection():
     ]
     with pytest.raises(ValueError, match="not contained"):
         make_region_2d([cw_square])
+
+
+from mmcore.topo.brep.boolean2d import _collect_curves_with_sources
+
+
+def test_collect_curves_with_sources_from_two_regions():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves, sources = _collect_curves_with_sources(a, b)
+    # each square has 4 edges ⇒ 8 curves total
+    assert len(curves) == 8
+    assert sources == ['A'] * 4 + ['B'] * 4
+    # every curve is a NURBSCurveTuple
+    for c in curves:
+        assert isinstance(c, NURBSCurveTuple)
