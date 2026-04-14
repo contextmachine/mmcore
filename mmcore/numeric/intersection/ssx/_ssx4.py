@@ -62,7 +62,7 @@ def time_prof(func) :
         if TIME_PROF_PRINT:
             delta=time.perf_counter_ns()-p
 
-            print(f'{func.__name__}({kwargs})->({res})', delta*1e-9)
+            #print(f'{func.__name__}({kwargs})->({res})', delta*1e-9)
         return res
     return wrapper
 
@@ -709,7 +709,7 @@ def _refine_pair_to_simple(
     gjk_max_iter: int = 64,
     gm_eps: float = 1e-5,
     gm_tol: float = 1e-8,
-    max_depth: int = 24,
+    max_depth: int = 32,
     magic_start_depth: int = 6,
     parallel_angle: float = 0.05,
     flat_angle: float = 0.15,
@@ -1994,7 +1994,7 @@ if __name__ == "__main__":
 
     s = time.perf_counter_ns()
     res = detect_intersections(S1, S2,spt= TOL)
-    print((time.perf_counter_ns() - s) * 1e-9)
+    print("detect_intersections at:", (time.perf_counter_ns() - s) * 1e-9)
     fff = []
 
     for i, j in res:
@@ -2020,7 +2020,7 @@ if __name__ == "__main__":
 
     s = time.perf_counter_ns()
     res = detect_intersections(S1, S2, spt=TOL)
-    print((time.perf_counter_ns() - s) * 1e-9)
+    print("detect_intersections at:", (time.perf_counter_ns() - s) * 1e-9)
     fff = []
     s = time.perf_counter_ns()
     ptss = []
@@ -2072,7 +2072,7 @@ if __name__ == "__main__":
 
     s = time.perf_counter_ns()
     res = detect_intersections(s1, s2, spt=TOL)
-    print((time.perf_counter_ns() - s) * 1e-9)
+    print("detect_intersections at:", (time.perf_counter_ns() - s) * 1e-9)
     fff = []
     s = time.perf_counter_ns()
     ptss = []
@@ -2274,28 +2274,28 @@ if __name__ == "__main__":
 
 
 
-    from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
-    normalize_knots_surface_inplace(S1)
-    normalize_knots_surface_inplace(S2)
-    s=time.perf_counter()
-    curves,points= nurbs_ssx(S1, S2, atol=TOL)
-    print((time.perf_counter() - s))
-    print(S1)
-    if curves:
-        print(curves[0].curve)
-
-    crvs_all=[]
-    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,evaluate_nurbs_surface
-    from mmcore.geom._nurbs_interp import interpolate_curve
-
-    for c in curves:
-
-        crvs_all.append(c.curve_xyz)
-
-    with open("/Users/sthv/PycharmProjects/mmcore/tests/norm3.pkl", "wb") as f:
-        pickle.dump(crvs_all, f)
-    print(len(crvs_all),'branches')
-    pts = []
-    for pt in points:
-        pts.append(evaluate_nurbs_surface(S1, pt.stuv[0], pt.stuv[1], d_order=0)["S"].tolist())
-    print(pts)
+    #from mmcore.geom._nurbs_knots import normalize_knots_surface_inplace
+    #normalize_knots_surface_inplace(S1)
+    #normalize_knots_surface_inplace(S2)
+    #s=time.perf_counter()
+    #curves,points= nurbs_ssx(S1, S2, atol=TOL)
+    #print((time.perf_counter() - s))
+    ##print(S1)
+    #if curves:
+    #    print(curves[0].curve)
+    #
+    #crvs_all=[]
+    #from mmcore.geom._nurbs_eval import evaluate_nurbs_curve,evaluate_nurbs_surface
+    #from mmcore.geom._nurbs_interp import interpolate_curve
+    #
+    #for c in curves:
+    #
+    #    crvs_all.append(c.curve_xyz)
+    #
+    #with open("/Users/sthv/PycharmProjects/mmcore/tests/norm3.pkl", "wb") as f:
+    #    pickle.dump(crvs_all, f)
+    #print(len(crvs_all),'branches')
+    #pts = []
+    #for pt in points:
+    #    pts.append(evaluate_nurbs_surface(S1, pt.stuv[0], pt.stuv[1], d_order=0)["S"].tolist())
+    #print(pts)
