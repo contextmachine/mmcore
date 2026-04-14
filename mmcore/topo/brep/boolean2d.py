@@ -59,8 +59,12 @@ def point_in_region(
     isolated, overlaps = nurbs_ccx_multiple([seg] + list(region_curves), tol=tol)
 
     endpoint_eps = _PIP_ENDPOINT_EPS_MUL * tol
-    # segment-line signed-distance frame: use the xy normal of the direction
-    n_xy = np.array([-d[1], d[0]], dtype=float)  # 2D normal to d (rotate 90° CCW)
+
+    # Line equation for the segment: f(q) = (q.y - pt.y)*d.x - (q.x - pt.x)*d.y
+    # f > 0, f < 0, f == 0 tells which side of the line the query point lies on.
+    def _line_side(q) -> float:
+        return (q[1] - pt[1]) * d[0] - (q[0] - pt[0]) * d[1]
+
     count = 0
 
     if isolated is not None:
@@ -109,13 +113,8 @@ def point_in_region(
             pt_before = np.asarray(evaluate_nurbs_curve(curve, t_before, 0)['C'], dtype=float)
             pt_after = np.asarray(evaluate_nurbs_curve(curve, t_after, 0)['C'], dtype=float)
 
-            # signed perpendicular distance from the segment line (xy plane)
-            dx_b = pt_before[0] - pt[0]
-            dy_b = pt_before[1] - pt[1]
-            s_before = dx_b * n_xy[0] + dy_b * n_xy[1]
-            dx_a = pt_after[0] - pt[0]
-            dy_a = pt_after[1] - pt[1]
-            s_after = dx_a * n_xy[0] + dy_a * n_xy[1]
+            s_before = _line_side(pt_before)
+            s_after = _line_side(pt_after)
 
             if s_before * s_after > 0.0:
                 # same side → grazing / tangent touch → no parity flip
