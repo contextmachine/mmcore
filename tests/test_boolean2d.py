@@ -62,3 +62,46 @@ def test_make_region_2d_empty_loops_list_produces_valid_empty_brep():
     assert faces[0].outer is None
     assert faces[0].inners == []
     assert region.validate() == []
+
+
+def test_make_region_2d_two_disjoint_squares():
+    region = make_region_2d([
+        _square_ccw(0.0, 0.0, 1.0),
+        _square_ccw(2.0, 0.0, 1.0),
+    ])
+    assert _count_body_faces(region) == 2
+    wire_face = next(f for f in region.F.values() if f.outer is None)
+    # 2 body-face outer loops ⇒ 2 wire-twin inner loops
+    assert len(wire_face.inners) == 2
+    assert region.validate() == []
+
+
+def test_make_region_2d_square_with_hole():
+    outer = _square_ccw(0.0, 0.0, 4.0)
+    # CW hole in the middle (reverse order of a CCW small square)
+    hole = list(reversed(_square_ccw(1.5, 1.5, 1.0)))
+    # also reverse the endpoints of each segment so curves are correctly oriented
+    hole = [
+        _line(crv.control_points[-1], crv.control_points[0])
+        for crv in hole
+    ]
+    region = make_region_2d([outer, hole])
+    assert _count_body_faces(region) == 1
+    body_face = next(f for f in region.F.values() if f.outer is not None)
+    assert len(body_face.inners) == 1  # the hole was attached
+    # Face 0 has 2 inners: twin of outer loop + twin of hole loop
+    wire_face = next(f for f in region.F.values() if f.outer is None)
+    assert len(wire_face.inners) == 2
+    assert region.validate() == []
+
+
+def test_make_region_2d_hole_orientation_detection():
+    """Orientation is auto-detected from signed area, regardless of input order."""
+    # A lone CW loop with no enclosing outer ⇒ ValueError
+    cw_square = list(reversed(_square_ccw(10.0, 10.0, 1.0)))
+    cw_square = [
+        _line(crv.control_points[-1], crv.control_points[0])
+        for crv in cw_square
+    ]
+    with pytest.raises(ValueError, match="not contained"):
+        make_region_2d([cw_square])
