@@ -450,3 +450,56 @@ def test_T6_tangent_circles_intersection_is_empty():
     r = intersection(a, b, tol=1e-6)
     assert _count_body_faces(r) == 0
     assert r.validate() == []
+
+
+# ---- Spec test T7: identical inputs ----
+
+def test_T7_identical_inputs_union_is_a():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(0.0, 0.0, 1.0)
+    r = union(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T7_identical_inputs_intersection_is_a():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(0.0, 0.0, 1.0)
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T7_identical_inputs_difference_is_empty():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(0.0, 0.0, 1.0)
+    r = difference(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 0
+    assert r.validate() == []
+
+
+def test_T7_identical_inputs_xor_is_empty():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(0.0, 0.0, 1.0)
+    r = xor(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 0
+    assert r.validate() == []
+
+
+# ---- Spec test T8: composition chain ----
+
+def test_T8_composition_union_then_intersection():
+    """(square ∪ triangle) ∩ circle should round-trip through the API."""
+    square = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    triangle = make_region_2d([[
+        _line([1.0, 0.0, 0.0], [2.0, 0.0, 0.0]),
+        _line([2.0, 0.0, 0.0], [1.5, 1.0, 0.0]),
+        _line([1.5, 1.0, 0.0], [1.0, 0.0, 0.0]),
+    ]])
+    step1 = union(square, triangle, tol=1e-6)
+    assert step1.validate() == []
+    c = _circle_region(1.0, 0.5, 1.2)
+    step2 = intersection(step1, c, tol=1e-6)
+    assert step2.validate() == []
+    # At least one island remains
+    assert _count_body_faces(step2) >= 1
