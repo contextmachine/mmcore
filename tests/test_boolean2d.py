@@ -152,3 +152,23 @@ def test_split_two_squares_sharing_one_edge_merges_overlap():
     sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
     both = [s for s in sub_sources if s == 'AB']
     assert len(both) == 1
+
+
+from mmcore.topo.brep.boolean2d import _build_arrangement
+
+
+def test_build_arrangement_two_overlapping_squares_has_expected_face_count():
+    """Two unit squares at (0,0) and (0.5, 0.5). Precise arrangement face count
+    depends on how many arrangement faces emerge; assert at least 3 bounded
+    plus exactly 1 unbounded, and that every HE has a face assigned.
+    """
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    arr = _build_arrangement(sub_segs, sub_sources, tol=1e-6)
+    bounded_count = sum(1 for f in arr.faces if not f.unbounded)
+    assert bounded_count >= 3
+    for he in arr.half_edges:
+        assert he.face is not None
+    assert sum(1 for f in arr.faces if f.unbounded) == 1

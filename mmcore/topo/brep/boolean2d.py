@@ -504,3 +504,148 @@ def _split_curves_at_intersections(
             out_segs.append(piece)
 
     return out_segs, out_sources
+
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class _ArrHalfEdge:
+    idx: int                     # position in the half-edges list
+    seg_idx: int                 # sub-segment this HE corresponds to
+    forward: bool                # True if walks in segment's natural direction
+    origin_vid: int              # tail vertex id (where the HE starts)
+    head_vid: int                # head vertex id (where the HE ends)
+    angle: float                 # outgoing tangent angle at origin, in (-π, π]
+    twin: int | None = None
+    next: int | None = None
+    prev: int | None = None
+    face: int | None = None
+    ccw_prev: int | None = None  # helper link: previous HE CCW around origin
+    sources: set[str] = field(default_factory=set)
+
+
+@dataclass
+class _ArrFace:
+    idx: int
+    hes: list[int]  # half-edges forming this face's boundary cycle
+    unbounded: bool = False
+
+
+@dataclass
+class _Arrangement:
+    vertices: list[np.ndarray]          # vid → xy point
+    sub_segments: list[NURBSCurveTuple] # seg_idx → NURBSCurveTuple
+    sources: list[str]                  # seg_idx → 'A' | 'B' | 'AB'
+    half_edges: list[_ArrHalfEdge]
+    faces: list[_ArrFace]
+
+
+def _build_arrangement(
+    sub_segments: list[NURBSCurveTuple],
+    sub_sources: list[str],
+    tol: float,
+) -> _Arrangement:
+    """Lightweight in-memory DCEL for the noded + dedup'd sub-segments."""
+    # 1) Vertex pool: grid-hash the endpoints of every sub-segment.
+    vertices: list[np.ndarray] = []
+    vid_of: dict[tuple[int, int], int] = {}
+
+    def _vid(p: np.ndarray) -> int:
+        key = (round(float(p[0]) / tol), round(float(p[1]) / tol))
+        if key not in vid_of:
+            vid_of[key] = len(vertices)
+            vertices.append(np.asarray(p, dtype=float))
+        return vid_of[key]
+
+    # 2) Build HEs with angles.
+    half_edges: list[_ArrHalfEdge] = []
+    for seg_idx, seg in enumerate(sub_segments):
+        t0, t1 = seg.interval()
+        start_ev = evaluate_nurbs_curve(seg, t0, 1)
+        end_ev = evaluate_nurbs_curve(seg, t1, 1)
+        p0 = np.asarray(start_ev['C'], dtype=float)
+        p1 = np.asarray(end_ev['C'], dtype=float)
+        t0_vec = np.asarray(start_ev['C1'], dtype=float)
+        t1_vec = np.asarray(end_ev['C1'], dtype=float)
+
+        v0 = _vid(p0)
+        v1 = _vid(p1)
+        if v0 == v1:
+            # Degenerate (start==end vertex). Skip this segment — it contributes
+            # nothing to the arrangement. Shouldn't happen for well-formed input.
+            continue
+
+        ang_fwd = float(np.arctan2(t0_vec[1], t0_vec[0]))
+        # Reverse HE's outgoing tangent at v1 is -t1_vec.
+        ang_rev = float(np.arctan2(-t1_vec[1], -t1_vec[0]))
+
+        fwd_idx = len(half_edges)
+        rev_idx = fwd_idx + 1
+        sources = {sub_sources[seg_idx]} if sub_sources[seg_idx] != 'AB' else {'A', 'B'}
+
+        half_edges.append(_ArrHalfEdge(
+            idx=fwd_idx, seg_idx=seg_idx, forward=True,
+            origin_vid=v0, head_vid=v1, angle=ang_fwd,
+            twin=rev_idx, sources=sources,
+        ))
+        half_edges.append(_ArrHalfEdge(
+            idx=rev_idx, seg_idx=seg_idx, forward=False,
+            origin_vid=v1, head_vid=v0, angle=ang_rev,
+            twin=fwd_idx, sources=sources,
+        ))
+
+    # 3) For each vertex, sort outgoing HEs CCW by angle.
+    outgoing: dict[int, list[int]] = {}
+    for he in half_edges:
+        outgoing.setdefault(he.origin_vid, []).append(he.idx)
+    for vid, hids in outgoing.items():
+        hids.sort(key=lambda i: half_edges[i].angle)
+        m = len(hids)
+        for j in range(m):
+            half_edges[hids[(j + 1) % m]].ccw_prev = hids[j]
+
+    # 4) Link next = twin.ccw_prev  (standard "face on left" rule).
+    for he in half_edges:
+        twin = half_edges[he.twin]
+        he.next = twin.ccw_prev
+        half_edges[he.next].prev = he.idx
+
+    # 5) Walk loops to enumerate faces.
+    faces: list[_ArrFace] = []
+    for he in half_edges:
+        if he.face is not None:
+            continue
+        fidx = len(faces)
+        cycle: list[int] = []
+        cur = he.idx
+        while half_edges[cur].face is None:
+            half_edges[cur].face = fidx
+            cycle.append(cur)
+            cur = half_edges[cur].next
+            if cur == he.idx:
+                break
+        faces.append(_ArrFace(idx=fidx, hes=cycle))
+
+    # 6) Identify the unbounded face: find the vertex with min (y, x);
+    #    the outgoing HE with the smallest angle there has its twin's face
+    #    as the unbounded one.
+    if not vertices:
+        return _Arrangement(vertices=vertices, sub_segments=list(sub_segments),
+                            sources=list(sub_sources), half_edges=half_edges, faces=faces)
+    extreme_vid = min(range(len(vertices)),
+                      key=lambda i: (vertices[i][1], vertices[i][0]))
+    extreme_outs = outgoing.get(extreme_vid, [])
+    if extreme_outs:
+        ext_he_idx = min(extreme_outs, key=lambda i: half_edges[i].angle)
+        twin_face_idx = half_edges[half_edges[ext_he_idx].twin].face
+        if twin_face_idx is not None:
+            faces[twin_face_idx].unbounded = True
+
+    return _Arrangement(
+        vertices=vertices,
+        sub_segments=list(sub_segments),
+        sources=list(sub_sources),
+        half_edges=half_edges,
+        faces=faces,
+    )
