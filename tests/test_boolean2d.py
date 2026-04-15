@@ -172,3 +172,26 @@ def test_build_arrangement_two_overlapping_squares_has_expected_face_count():
     for he in arr.half_edges:
         assert he.face is not None
     assert sum(1 for f in arr.faces if f.unbounded) == 1
+
+
+from mmcore.topo.brep.boolean2d import _classify_faces
+
+
+def test_classify_faces_two_overlapping_squares_gives_expected_labels():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves_a, _ = _collect_curves_with_sources(a, BRep())
+    curves_b, _ = _collect_curves_with_sources(BRep(), b)
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    arr = _build_arrangement(sub_segs, sub_sources, tol=1e-6)
+    labels = _classify_faces(arr, curves_a, curves_b, tol=1e-6)
+    # Exactly one (True, True) face (the intersection lens)
+    inAB = [k for k, v in labels.items() if v == (True, True)]
+    assert len(inAB) == 1
+    # At least one (True, False) and one (False, True)
+    assert any(v == (True, False) for v in labels.values())
+    assert any(v == (False, True) for v in labels.values())
+    # Unbounded face is (False, False)
+    unb_idx = next(f.idx for f in arr.faces if f.unbounded)
+    assert labels[unb_idx] == (False, False)

@@ -649,3 +649,54 @@ def _build_arrangement(
         half_edges=half_edges,
         faces=faces,
     )
+
+
+def _classify_faces(
+    arr: _Arrangement,
+    curves_a: list[NURBSCurveTuple],
+    curves_b: list[NURBSCurveTuple],
+    tol: float,
+) -> dict[int, tuple[bool, bool]]:
+    """Assign (inA, inB) to each face in the arrangement.
+
+    For the unbounded face, returns (False, False) by definition.
+    For each bounded face, picks an interior sample from any half-edge and
+    runs point_in_region against the original A and B curves.
+    """
+    labels: dict[int, tuple[bool, bool]] = {}
+    for face in arr.faces:
+        if face.unbounded:
+            labels[face.idx] = (False, False)
+            continue
+        if not face.hes:
+            labels[face.idx] = (False, False)
+            continue
+        he = arr.half_edges[face.hes[0]]
+        seg = arr.sub_segments[he.seg_idx]
+        t0, t1 = seg.interval()
+        t_mid = 0.5 * (t0 + t1)
+        ev = evaluate_nurbs_curve(seg, t_mid, 1)
+        mid = np.asarray(ev['C'], dtype=float)
+        tan = np.asarray(ev['C1'], dtype=float)
+        # forward/backward orientation
+        if not he.forward:
+            tan = -tan
+        # inward normal = tan rotated 90° CCW = (-ty, tx)
+        n = np.array([-tan[1], tan[0], 0.0], dtype=float)
+        nn = float(np.linalg.norm(n))
+        if nn < 1e-30:
+            labels[face.idx] = (False, False)
+            continue
+        n = n / nn
+        eps = tol * 10.0
+        sample = mid + eps * n
+        try:
+            inA = point_in_region(sample, curves_a, tol=tol) if curves_a else False
+        except RuntimeError:
+            inA = False
+        try:
+            inB = point_in_region(sample, curves_b, tol=tol) if curves_b else False
+        except RuntimeError:
+            inB = False
+        labels[face.idx] = (inA, inB)
+    return labels
