@@ -7,9 +7,13 @@ import pytest  # noqa: F401  # used from Task 2 onward (pytest.raises)
 from mmcore.construction import circle  # noqa: F401  # used from Task 2 onward
 from mmcore.geom._nurbs_eval import NURBSCurveTuple
 from mmcore.topo.brep import BRep
-# NOTE: difference, intersection, union, xor will be added in Task 9; Task 1 only
-# exercises make_region_2d. See Task 1 instructions — Task 9 will restore these imports.
-from mmcore.topo.brep.boolean2d import make_region_2d
+from mmcore.topo.brep.boolean2d import (
+    difference,
+    intersection,
+    make_region_2d,
+    union,
+    xor,
+)
 
 
 def _line(p0, p1) -> NURBSCurveTuple:
@@ -255,5 +259,35 @@ def test_materialize_result_overlapping_squares_union():
     kept = _select_kept_faces(arr, labels, 'union')
     islands = _extract_island_loops(arr, kept)
     result = _materialize_result(arr, islands)
+    assert _count_body_faces(result) == 1
+    assert result.validate() == []
+
+
+def test_union_two_overlapping_squares_end_to_end():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    result = union(a, b, tol=1e-6)
+    assert _count_body_faces(result) == 1
+    assert result.validate() == []
+
+
+def test_intersection_two_overlapping_squares_end_to_end():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    result = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(result) == 1
+    assert result.validate() == []
+
+
+def test_union_empty_and_nonempty():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = BRep()
+    # Build minimal empty BRep (Body + Shell + wire Face, no body faces)
+    body = b.new_body(shells=[])
+    shell = b.new_shell(faces=[], body=body.id)
+    body.shells.append(shell.id)
+    wire = b.new_face(outer=None, inners=[], shell=shell.id, surf=None)
+    shell.faces.append(wire.id)
+    result = union(a, b, tol=1e-6)
     assert _count_body_faces(result) == 1
     assert result.validate() == []

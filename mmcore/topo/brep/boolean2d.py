@@ -862,3 +862,80 @@ def _oriented_subcurve_from_arr(arr: _Arrangement, he_idx: int) -> NURBSCurveTup
     he = arr.half_edges[he_idx]
     seg = arr.sub_segments[he.seg_idx]
     return seg if he.forward else reverse_curve(seg)
+
+
+# ---------------------------------------------------------------------------
+#  Public API
+# ---------------------------------------------------------------------------
+
+def _boolean2d(a: BRep, b: BRep, op: str, tol: float) -> BRep:
+    """Run the full pipeline for a single operation.
+
+    Both inputs may be empty (Body + Shell + wire Face only). If both are
+    empty the result is an empty BRep. Otherwise the pipeline runs normally
+    — nurbs_ccx_multiple returns empty results for single-source inputs, the
+    arrangement is still built, and classification/selection proceed as usual.
+    """
+    # Validate inputs
+    for name, brep in (('a', a), ('b', b)):
+        errs = brep.validate()
+        if errs:
+            raise ValueError(f"input BRep {name!r} failed validate(): {errs[0]}")
+
+    # Curves + sources
+    curves, sources = _collect_curves_with_sources(a, b)
+    curves_a = [c for c, s in zip(curves, sources) if s == 'A']
+    curves_b = [c for c, s in zip(curves, sources) if s == 'B']
+
+    # Both empty ⇒ empty result (no curves to build any arrangement).
+    if not curves_a and not curves_b:
+        return _empty_result_brep()
+
+    # Split + dedup (handles empty isolated/overlaps naturally)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol)
+
+    # Build the scratch arrangement
+    arr = _build_arrangement(sub_segs, sub_sources, tol)
+
+    # Classify every bounded face (inA, inB)
+    labels = _classify_faces(arr, curves_a, curves_b, tol)
+
+    # Apply the op rule
+    kept = _select_kept_faces(arr, labels, op)
+
+    # Group into islands
+    islands = _extract_island_loops(arr, kept)
+
+    # Materialize the result
+    return _materialize_result(arr, islands)
+
+
+def _empty_result_brep() -> BRep:
+    """Empty 2D BRep in standard form: body + shell + wire face, no body faces."""
+    brep = BRep()
+    body = brep.new_body(shells=[])
+    shell = brep.new_shell(faces=[], body=body.id)
+    body.shells.append(shell.id)
+    wire = brep.new_face(outer=None, inners=[], shell=shell.id, surf=None)
+    shell.faces.append(wire.id)
+    return brep
+
+
+def union(a: BRep, b: BRep, tol: float = 1e-6) -> BRep:
+    """Union of two 2D regions."""
+    return _boolean2d(a, b, 'union', tol)
+
+
+def intersection(a: BRep, b: BRep, tol: float = 1e-6) -> BRep:
+    """Intersection of two 2D regions."""
+    return _boolean2d(a, b, 'intersection', tol)
+
+
+def difference(a: BRep, b: BRep, tol: float = 1e-6) -> BRep:
+    """A \\ B (region in A but not in B)."""
+    return _boolean2d(a, b, 'difference', tol)
+
+
+def xor(a: BRep, b: BRep, tol: float = 1e-6) -> BRep:
+    """Symmetric difference (in A XOR in B)."""
+    return _boolean2d(a, b, 'xor', tol)
