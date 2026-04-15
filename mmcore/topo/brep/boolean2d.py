@@ -436,11 +436,27 @@ def _split_curves_at_intersections(
     # anyway).
     dedup_params: list[list[float]] = []
     for i, params in enumerate(split_params):
+        t_lo, t_hi = curves[i].interval()
         if not params:
-            dedup_params.append([])
+            # Closed, non-intersecting curve case: if the curve's endpoints
+            # coincide (to within ``tol``) and no split params were reported,
+            # ``_build_arrangement`` would see ``v0 == v1`` and silently drop
+            # the entire segment — losing a whole connected component (e.g.
+            # a small circle nested inside a big square with no crossings).
+            # Inject a midpoint split so the closed curve becomes two
+            # half-edges linked end-to-end through a fresh vertex.
+            start = np.asarray(
+                evaluate_nurbs_curve(curves[i], t_lo, 0)['C'], dtype=float
+            )
+            end = np.asarray(
+                evaluate_nurbs_curve(curves[i], t_hi, 0)['C'], dtype=float
+            )
+            if float(np.linalg.norm(end - start)) < tol:
+                dedup_params.append([0.5 * (t_lo + t_hi)])
+            else:
+                dedup_params.append([])
             continue
         ptol = float(nurbs_curve_param_tolerance(curves[i], tol))
-        t_lo, t_hi = curves[i].interval()
         params.sort()
         kept: list[float] = []
         for p in params:
@@ -650,13 +666,12 @@ def _build_arrangement(
         return _Arrangement(vertices=vertices, sub_segments=list(sub_segments),
                             sources=list(sub_sources), half_edges=half_edges, faces=faces)
 
-    def _face_sampled_signed_area(face: _ArrFace) -> float:
+    def _face_sampled_points(face: _ArrFace, n_samples: int = 16) -> list[np.ndarray]:
         pts: list[np.ndarray] = []
         for hid in face.hes:
             he = half_edges[hid]
             seg = sub_segments[he.seg_idx]
             t0, t1 = seg.interval()
-            n_samples = 16
             if he.forward:
                 ts = np.linspace(t0, t1, n_samples)
             else:
@@ -667,7 +682,10 @@ def _build_arrangement(
                     continue
                 ev = evaluate_nurbs_curve(seg, float(t), 0)
                 pts.append(np.asarray(ev['C'], dtype=float))
-        return _shoelace_signed_area(pts)
+        return pts
+
+    def _face_sampled_signed_area(face: _ArrFace) -> float:
+        return _shoelace_signed_area(_face_sampled_points(face))
 
     face_areas = [_face_sampled_signed_area(f) for f in faces]
     if faces:
@@ -680,6 +698,117 @@ def _build_arrangement(
                 f"face enumeration or a degenerate input."
             )
         faces[unb_idx].unbounded = True
+
+    # ----- Merge pseudo-unbounded faces into their enclosing bounded faces -----
+    # A face with negative signed area is an "exterior" walk of a connected
+    # component (HE cycle winds clockwise in xy). Exactly one such face is the
+    # true unbounded face of the arrangement (the most-negative one, already
+    # tagged above). Every OTHER negative-area face is a DCEL artifact of a
+    # disconnected component: it represents the same geometric region as some
+    # enclosing bounded face. Merge by remapping all its HEs to that enclosing
+    # face, so downstream classification and island extraction treat the
+    # enclosing face's material as one unified region whose boundary
+    # includes the component's (now-hole) loop.
+    def _polygon_pip(sample: np.ndarray, polygon_pts: list[np.ndarray]) -> bool:
+        """Classic ray-casting point-in-polygon test (2D)."""
+        n = len(polygon_pts)
+        if n < 3:
+            return False
+        inside = False
+        sx, sy = float(sample[0]), float(sample[1])
+        for i in range(n):
+            x1, y1 = float(polygon_pts[i][0]), float(polygon_pts[i][1])
+            x2, y2 = float(polygon_pts[(i + 1) % n][0]), float(polygon_pts[(i + 1) % n][1])
+            if ((y1 > sy) != (y2 > sy)):
+                x_cross = x1 + (sy - y1) * (x2 - x1) / (y2 - y1)
+                if sx < x_cross:
+                    inside = not inside
+        return inside
+
+    def _face_interior_sample(face: _ArrFace) -> np.ndarray | None:
+        """Pick a point on the face-on-left side of any HE of this face."""
+        for hid in face.hes:
+            he = half_edges[hid]
+            seg = sub_segments[he.seg_idx]
+            t0, t1 = seg.interval()
+            t_mid = 0.5 * (t0 + t1)
+            ev = evaluate_nurbs_curve(seg, t_mid, 1)
+            mid = np.asarray(ev['C'], dtype=float)
+            tan = np.asarray(ev['C1'], dtype=float)
+            if not he.forward:
+                tan = -tan
+            # face-on-left normal in xy plane: rotate tan 90° CCW → (-ty, tx)
+            n = np.array([-tan[1], tan[0], 0.0], dtype=float)
+            nn = float(np.linalg.norm(n))
+            if nn < 1e-30:
+                continue
+            n = n / nn
+            # small offset relative to the face's bbox diagonal so the sample
+            # lands strictly inside the face's geometric region
+            face_pts = _face_sampled_points(face, n_samples=6)
+            if not face_pts:
+                continue
+            fp = np.asarray(face_pts)
+            bbox_diag = float(np.linalg.norm(fp.max(axis=0) - fp.min(axis=0)))
+            eps = max(tol * 100.0, min(bbox_diag * 1e-3, 1e-3))
+            return mid + eps * n
+        return None
+
+    face_polygons: list[list[np.ndarray]] = [
+        _face_sampled_points(f) for f in faces
+    ]
+
+    # Build containment: for each pseudo-unbounded face, find the smallest
+    # positive-area face that contains its sample point.
+    positive_face_indices = [
+        i for i, a in enumerate(face_areas) if a > 0.0
+    ]
+    pseudo_unbounded = [
+        i for i, a in enumerate(face_areas)
+        if a < 0.0 and i != unb_idx
+    ]
+
+    merge_map: dict[int, int] = {}  # pseudo_face_idx -> target_face_idx
+    for pf_idx in pseudo_unbounded:
+        sample = _face_interior_sample(faces[pf_idx])
+        if sample is None:
+            continue
+        # pick the smallest-area positive face whose polygon contains sample
+        containing: tuple[float, int] | None = None
+        for cand_idx in positive_face_indices:
+            if cand_idx == pf_idx:
+                continue
+            poly = face_polygons[cand_idx]
+            if not poly:
+                continue
+            if _polygon_pip(sample, poly):
+                area_c = face_areas[cand_idx]
+                if containing is None or area_c < containing[0]:
+                    containing = (area_c, cand_idx)
+        if containing is not None:
+            merge_map[pf_idx] = containing[1]
+
+    if merge_map:
+        # Resolve chains so every pseudo face maps to a terminal real face.
+        def _resolve(x: int) -> int:
+            seen: set[int] = set()
+            while x in merge_map:
+                if x in seen:
+                    break
+                seen.add(x)
+                x = merge_map[x]
+            return x
+
+        resolved: dict[int, int] = {k: _resolve(k) for k in merge_map}
+
+        # Remap HEs and extend target faces' hes lists; clear the merged face.
+        for src_idx, tgt_idx in resolved.items():
+            src_face = faces[src_idx]
+            tgt_face = faces[tgt_idx]
+            for hid in src_face.hes:
+                half_edges[hid].face = tgt_idx
+            tgt_face.hes.extend(src_face.hes)
+            src_face.hes = []
 
     return _Arrangement(
         vertices=vertices,

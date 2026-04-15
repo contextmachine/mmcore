@@ -406,3 +406,47 @@ def test_T4_intersection_two_squares_sharing_one_edge_is_empty():
     r = intersection(a, b, tol=1e-6)
     assert _count_body_faces(r) == 0
     assert r.validate() == []
+
+
+# ---- Spec test T5: nested (A ⊆ B) ----
+
+def test_T5_nested_union_is_outer():
+    a = _circle_region(0.0, 0.0, 0.3)         # small disk inside
+    b = make_region_2d([_square_ccw(-2.0, -2.0, 4.0)])  # big square
+    r = union(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1  # just the square
+
+
+def test_T5_nested_intersection_is_inner():
+    a = _circle_region(0.0, 0.0, 0.3)
+    b = make_region_2d([_square_ccw(-2.0, -2.0, 4.0)])
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1  # the small circle
+
+
+def test_T5_nested_difference_is_square_with_hole():
+    a = make_region_2d([_square_ccw(-2.0, -2.0, 4.0)])  # big square
+    b = _circle_region(0.0, 0.0, 0.3)                   # small circle
+    r = difference(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    body_face = next(f for f in r.F.values() if f.outer is not None)
+    assert len(body_face.inners) == 1  # circle became a hole
+    assert r.validate() == []
+
+
+# ---- Spec test T6: tangent circles ----
+
+def test_T6_tangent_circles_union():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(2.0, 0.0, 1.0)  # touch at (1, 0)
+    r = union(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1  # one merged figure-eight
+    assert r.validate() == []
+
+
+def test_T6_tangent_circles_intersection_is_empty():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(2.0, 0.0, 1.0)
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 0
+    assert r.validate() == []
