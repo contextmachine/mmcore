@@ -503,3 +503,43 @@ def test_T8_composition_union_then_intersection():
     assert step2.validate() == []
     # At least one island remains
     assert _count_body_faces(step2) >= 1
+
+
+def test_T9_surface_derived_input_accepted_by_boolean():
+    """A BRep built from a planar NURBS surface via make_face_from_surface
+    should be a valid input to the boolean ops — proves that the pipeline
+    is agnostic to how the input BRep was constructed.
+    """
+    from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+    # trivial planar surface: the z=0 unit square
+    surf = NURBSSurfaceTuple(
+        order_u=2, order_v=2,
+        knot_u=np.array([0.0, 0.0, 1.0, 1.0]),
+        knot_v=np.array([0.0, 0.0, 1.0, 1.0]),
+        control_points=np.array([
+            [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+        ]),
+        weights=np.ones((2, 2)),
+    )
+    a = BRep()
+    a.make_face_from_surface(surf)
+    # make_face_from_surface creates a body face with outer loop — valid input
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    r = union(a, b, tol=1e-6)
+    assert r.validate() == []
+    assert _count_body_faces(r) >= 1
+
+
+def test_T10_every_prior_test_output_validates():
+    """T10 is the cross-cutting invariant: every public-API call in every
+    prior test must have produced a BRep that satisfies validate(). This is
+    already asserted inline per-test; this test just re-runs the most
+    commonly-broken cases in a single-function sanity check.
+    """
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    for op_fn in (union, intersection, difference, xor):
+        r = op_fn(a, b, tol=1e-6)
+        errs = r.validate()
+        assert errs == [], f"{op_fn.__name__} produced invalid BRep: {errs}"
