@@ -627,20 +627,47 @@ def _build_arrangement(
                 break
         faces.append(_ArrFace(idx=fidx, hes=cycle))
 
-    # 6) Identify the unbounded face: find the vertex with min (y, x);
-    #    the outgoing HE with the smallest angle there has its twin's face
-    #    as the unbounded one.
+    # 6) Identify the unbounded face using signed area of the actual curve
+    #    samples along each face's boundary cycle. The unbounded face walks
+    #    each island's outer boundary CLOCKWISE (from outside looking at
+    #    the island), so its signed area is strongly negative (sum of the
+    #    inverted shapes of all interior islands). Bounded faces always
+    #    have positive signed area under the "face-on-left" convention.
+    #    Sampling along the curve (not just the endpoints) handles curved
+    #    boundaries whose tangent at the extreme vertex doesn't reflect
+    #    the actual orientation of the face.
     if not vertices:
         return _Arrangement(vertices=vertices, sub_segments=list(sub_segments),
                             sources=list(sub_sources), half_edges=half_edges, faces=faces)
-    extreme_vid = min(range(len(vertices)),
-                      key=lambda i: (vertices[i][1], vertices[i][0]))
-    extreme_outs = outgoing.get(extreme_vid, [])
-    if extreme_outs:
-        ext_he_idx = min(extreme_outs, key=lambda i: half_edges[i].angle)
-        twin_face_idx = half_edges[half_edges[ext_he_idx].twin].face
-        if twin_face_idx is not None:
-            faces[twin_face_idx].unbounded = True
+
+    def _face_sampled_signed_area(face: _ArrFace) -> float:
+        pts: list[np.ndarray] = []
+        for hid in face.hes:
+            he = half_edges[hid]
+            seg = sub_segments[he.seg_idx]
+            t0, t1 = seg.interval()
+            n_samples = 16
+            if he.forward:
+                ts = np.linspace(t0, t1, n_samples)
+            else:
+                ts = np.linspace(t1, t0, n_samples)
+            for k, t in enumerate(ts):
+                if k == n_samples - 1:
+                    # skip last point to avoid duplicating vertex with next HE
+                    continue
+                ev = evaluate_nurbs_curve(seg, float(t), 0)
+                pts.append(np.asarray(ev['C'], dtype=float))
+        if len(pts) < 3:
+            return 0.0
+        xs = np.array([p[0] for p in pts])
+        ys = np.array([p[1] for p in pts])
+        return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+
+    face_areas = [_face_sampled_signed_area(f) for f in faces]
+    if faces:
+        unb_idx = int(np.argmin(face_areas))
+        if face_areas[unb_idx] < 0.0:
+            faces[unb_idx].unbounded = True
 
     return _Arrangement(
         vertices=vertices,
@@ -661,7 +688,11 @@ def _classify_faces(
 
     For the unbounded face, returns (False, False) by definition.
     For each bounded face, picks an interior sample from any half-edge and
-    runs point_in_region against the original A and B curves.
+    runs point_in_region against the original A and B curves. The sample is
+    offset along the inward normal by a distance that is adaptive to the
+    local segment's chord length — this keeps the sample well away from the
+    boundary (so point_in_region's boundary-rejection check doesn't fire)
+    while remaining inside the same face even for small/curved features.
     """
     labels: dict[int, tuple[bool, bool]] = {}
     for face in arr.faces:
@@ -671,34 +702,61 @@ def _classify_faces(
         if not face.hes:
             labels[face.idx] = (False, False)
             continue
-        he = arr.half_edges[face.hes[0]]
-        seg = arr.sub_segments[he.seg_idx]
-        t0, t1 = seg.interval()
-        t_mid = 0.5 * (t0 + t1)
-        ev = evaluate_nurbs_curve(seg, t_mid, 1)
-        mid = np.asarray(ev['C'], dtype=float)
-        tan = np.asarray(ev['C1'], dtype=float)
-        # forward/backward orientation
-        if not he.forward:
-            tan = -tan
-        # inward normal = tan rotated 90° CCW = (-ty, tx)
-        n = np.array([-tan[1], tan[0], 0.0], dtype=float)
-        nn = float(np.linalg.norm(n))
-        if nn < 1e-30:
+
+        # Try multiple half-edges of the face in case the first one's sample
+        # lands on a neighbouring boundary — in tight features the normal
+        # offset may overshoot. We loop through the face's HEs and also
+        # try progressively smaller offsets.
+        inA: bool | None = None
+        inB: bool | None = None
+        for hid in face.hes:
+            he = arr.half_edges[hid]
+            seg = arr.sub_segments[he.seg_idx]
+            t0, t1 = seg.interval()
+            t_mid = 0.5 * (t0 + t1)
+            ev = evaluate_nurbs_curve(seg, t_mid, 1)
+            mid = np.asarray(ev['C'], dtype=float)
+            tan = np.asarray(ev['C1'], dtype=float)
+            if not he.forward:
+                tan = -tan
+            # inward normal = tan rotated 90° CCW = (-ty, tx) in xy plane
+            n = np.array([-tan[1], tan[0], 0.0], dtype=float)
+            nn = float(np.linalg.norm(n))
+            if nn < 1e-30:
+                continue
+            n = n / nn
+
+            # Adaptive offset: use a fraction of the segment's chord length,
+            # but keep it large enough for point_in_region's boundary test
+            # (which rejects samples within ~2*tol of the segment start).
+            start_ev = evaluate_nurbs_curve(seg, t0, 0)
+            end_ev = evaluate_nurbs_curve(seg, t1, 0)
+            p0 = np.asarray(start_ev['C'], dtype=float)
+            p1 = np.asarray(end_ev['C'], dtype=float)
+            chord = float(np.linalg.norm(p1 - p0))
+            base_eps = max(tol * 1000.0, min(chord * 0.25, 1.0))
+
+            for scale in (1.0, 0.1, 0.01):
+                eps = base_eps * scale
+                sample = mid + eps * n
+                try:
+                    cand_A = point_in_region(sample, curves_a, tol=tol) if curves_a else False
+                except RuntimeError:
+                    cand_A = None
+                try:
+                    cand_B = point_in_region(sample, curves_b, tol=tol) if curves_b else False
+                except RuntimeError:
+                    cand_B = None
+                if cand_A is not None and cand_B is not None:
+                    inA, inB = cand_A, cand_B
+                    break
+            if inA is not None and inB is not None:
+                break
+
+        if inA is None or inB is None:
             labels[face.idx] = (False, False)
-            continue
-        n = n / nn
-        eps = tol * 10.0
-        sample = mid + eps * n
-        try:
-            inA = point_in_region(sample, curves_a, tol=tol) if curves_a else False
-        except RuntimeError:
-            inA = False
-        try:
-            inB = point_in_region(sample, curves_b, tol=tol) if curves_b else False
-        except RuntimeError:
-            inB = False
-        labels[face.idx] = (inA, inB)
+        else:
+            labels[face.idx] = (inA, inB)
     return labels
 
 

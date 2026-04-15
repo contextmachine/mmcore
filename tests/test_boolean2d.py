@@ -291,3 +291,75 @@ def test_union_empty_and_nonempty():
     result = union(a, b, tol=1e-6)
     assert _count_body_faces(result) == 1
     assert result.validate() == []
+
+
+# ---- Spec test T1: disjoint rectangles ----
+
+def test_T1_union_disjoint_rectangles():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(2.0, 0.0, 1.0)])
+    r = union(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 2
+    assert r.validate() == []
+
+
+def test_T1_intersection_disjoint_rectangles_is_empty():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(2.0, 0.0, 1.0)])
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 0
+    assert r.validate() == []
+
+
+def test_T1_difference_disjoint_rectangles_is_a():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(2.0, 0.0, 1.0)])
+    r = difference(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T1_xor_disjoint_rectangles():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(2.0, 0.0, 1.0)])
+    r = xor(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 2
+    assert r.validate() == []
+
+
+# ---- Spec test T2: overlapping circles ----
+
+def _circle_region(cx: float, cy: float, r: float) -> BRep:
+    return make_region_2d([[circle(center=(cx, cy, 0.0), radius=r)]])
+
+
+def test_T2_union_overlapping_circles():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(1.0, 0.0, 1.0)
+    r = union(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T2_intersection_overlapping_circles():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(1.0, 0.0, 1.0)
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T2_difference_overlapping_circles():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(1.0, 0.0, 1.0)
+    r = difference(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T2_xor_overlapping_circles():
+    a = _circle_region(0.0, 0.0, 1.0)
+    b = _circle_region(1.0, 0.0, 1.0)
+    r = xor(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 2
+    assert r.validate() == []
