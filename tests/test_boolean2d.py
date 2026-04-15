@@ -363,3 +363,46 @@ def test_T2_xor_overlapping_circles():
     r = xor(a, b, tol=1e-6)
     assert _count_body_faces(r) == 2
     assert r.validate() == []
+
+
+# ---- Spec test T3: square with hole vs disk ----
+
+def _cw_square(x0: float, y0: float, side: float) -> list[NURBSCurveTuple]:
+    """Build a CW square boundary (suitable for use as a hole loop)."""
+    return [
+        _line([x0,        y0,        0.0], [x0,        y0 + side, 0.0]),
+        _line([x0,        y0 + side, 0.0], [x0 + side, y0 + side, 0.0]),
+        _line([x0 + side, y0 + side, 0.0], [x0 + side, y0,        0.0]),
+        _line([x0 + side, y0,        0.0], [x0,        y0,        0.0]),
+    ]
+
+
+def test_T3_union_square_with_hole_and_disk():
+    # Outer 4x4 square with a unit-square hole at (1.5,1.5)
+    a = make_region_2d([
+        _square_ccw(0.0, 0.0, 4.0),
+        _cw_square(1.5, 1.5, 1.0),
+    ])
+    # A disk that straddles the hole
+    b = _circle_region(2.0, 2.0, 1.25)
+    r = union(a, b, tol=1e-6)
+    # Exactly 1 island; the hole may be fully or partially filled
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T4_union_two_squares_sharing_one_edge():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(1.0, 0.0, 1.0)])
+    r = union(a, b, tol=1e-6)
+    # Result is a 1×2 rectangle — 1 body face
+    assert _count_body_faces(r) == 1
+    assert r.validate() == []
+
+
+def test_T4_intersection_two_squares_sharing_one_edge_is_empty():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(1.0, 0.0, 1.0)])
+    r = intersection(a, b, tol=1e-6)
+    assert _count_body_faces(r) == 0
+    assert r.validate() == []
