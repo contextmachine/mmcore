@@ -195,3 +195,46 @@ def test_classify_faces_two_overlapping_squares_gives_expected_labels():
     # Unbounded face is (False, False)
     unb_idx = next(f.idx for f in arr.faces if f.unbounded)
     assert labels[unb_idx] == (False, False)
+
+
+from mmcore.topo.brep.boolean2d import _select_kept_faces, _extract_island_loops
+
+
+def test_select_kept_faces_union():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves_a, _ = _collect_curves_with_sources(a, BRep())
+    curves_b, _ = _collect_curves_with_sources(BRep(), b)
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    arr = _build_arrangement(sub_segs, sub_sources, tol=1e-6)
+    labels = _classify_faces(arr, curves_a, curves_b, tol=1e-6)
+    kept = _select_kept_faces(arr, labels, 'union')
+    # For union: all bounded faces that are inA or inB are kept.
+    for face in arr.faces:
+        if face.unbounded:
+            assert face.idx not in kept
+        else:
+            inA, inB = labels[face.idx]
+            if inA or inB:
+                assert face.idx in kept
+            else:
+                assert face.idx not in kept
+
+
+def test_extract_island_loops_overlapping_squares_union():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves_a, _ = _collect_curves_with_sources(a, BRep())
+    curves_b, _ = _collect_curves_with_sources(BRep(), b)
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    arr = _build_arrangement(sub_segs, sub_sources, tol=1e-6)
+    labels = _classify_faces(arr, curves_a, curves_b, tol=1e-6)
+    kept = _select_kept_faces(arr, labels, 'union')
+    islands = _extract_island_loops(arr, kept)
+    # Union of two overlapping unit squares ⇒ 1 island, 1 outer loop, 0 holes.
+    assert len(islands) == 1
+    outer_loop_hes, hole_loops_hes = islands[0]
+    assert len(outer_loop_hes) >= 4
+    assert hole_loops_hes == []

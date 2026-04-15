@@ -700,3 +700,125 @@ def _classify_faces(
             inB = False
         labels[face.idx] = (inA, inB)
     return labels
+
+
+def _select_kept_faces(
+    arr: _Arrangement,
+    labels: dict[int, tuple[bool, bool]],
+    op: str,
+) -> set[int]:
+    """Apply the op rule. Returns a set of bounded face ids that are kept."""
+    rules = {
+        'union':        lambda inA, inB: inA or inB,
+        'intersection': lambda inA, inB: inA and inB,
+        'difference':   lambda inA, inB: inA and not inB,
+        'xor':          lambda inA, inB: inA != inB,
+    }
+    if op not in rules:
+        raise ValueError(f"unknown op {op!r}")
+    rule = rules[op]
+    kept: set[int] = set()
+    for face in arr.faces:
+        if face.unbounded:
+            continue
+        inA, inB = labels[face.idx]
+        if rule(inA, inB):
+            kept.add(face.idx)
+    return kept
+
+
+def _extract_island_loops(
+    arr: _Arrangement,
+    kept: set[int],
+) -> list[tuple[list[int], list[list[int]]]]:
+    """Group kept faces into islands and extract their boundary loops.
+
+    Returns a list of (outer_loop_hes, [hole_loop_hes, ...]) tuples. Each
+    loop is a list of half-edge indices forming a closed cycle, with the
+    body material on the LEFT of the walk direction (so outer loops are
+    CCW in xy plane, hole loops are CW).
+    """
+    parent = {f.idx: f.idx for f in arr.faces if f.idx in kept}
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for he in arr.half_edges:
+        if he.face is None or he.face not in kept:
+            continue
+        twin = arr.half_edges[he.twin]
+        if twin.face is not None and twin.face in kept:
+            _union(he.face, twin.face)
+
+    island_of: dict[int, list[int]] = {}
+    for fid in kept:
+        r = _find(fid)
+        island_of.setdefault(r, []).append(fid)
+
+    islands_out: list[tuple[list[int], list[list[int]]]] = []
+    for root, face_ids in island_of.items():
+        face_set = set(face_ids)
+        boundary_hes: set[int] = set()
+        for he in arr.half_edges:
+            if he.face in face_set:
+                twin = arr.half_edges[he.twin]
+                if twin.face not in face_set:
+                    boundary_hes.add(he.idx)
+
+        visited: set[int] = set()
+        loops_hes: list[list[int]] = []
+        for start in list(boundary_hes):
+            if start in visited:
+                continue
+            cycle: list[int] = []
+            cur = start
+            while cur not in visited:
+                visited.add(cur)
+                cycle.append(cur)
+                twin_idx = arr.half_edges[cur].twin
+                # Walk CW around cur.head_vid via ccw_prev until we find
+                # the next boundary HE (first candidate: twin_idx.ccw_prev).
+                nxt = arr.half_edges[twin_idx].ccw_prev
+                safety = 0
+                while nxt is not None and nxt not in boundary_hes:
+                    if nxt == twin_idx:
+                        nxt = None
+                        break
+                    nxt = arr.half_edges[nxt].ccw_prev
+                    safety += 1
+                    if safety > len(arr.half_edges):
+                        nxt = None
+                        break
+                if nxt is None:
+                    break
+                cur = nxt
+                if cur == start:
+                    break
+            loops_hes.append(cycle)
+
+        def _loop_signed_area(loop: list[int]) -> float:
+            pts = []
+            for hid in loop:
+                he = arr.half_edges[hid]
+                pts.append(arr.vertices[he.origin_vid])
+            xs = np.array([p[0] for p in pts])
+            ys = np.array([p[1] for p in pts])
+            return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+
+        if not loops_hes:
+            continue
+        areas = [abs(_loop_signed_area(l)) for l in loops_hes]
+        outer_idx = max(range(len(loops_hes)), key=lambda i: areas[i])
+        outer_loop = loops_hes[outer_idx]
+        hole_loops = [loops_hes[i] for i in range(len(loops_hes)) if i != outer_idx]
+        islands_out.append((outer_loop, hole_loops))
+
+    return islands_out
