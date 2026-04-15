@@ -1,5 +1,11 @@
 """2D Boolean operations on NURBS curves, built on top of BRep + nurbs_ccx_multiple.
 
+All operations assume the input curves lie in the z=0 plane. Non-planar inputs
+(z != 0) are silently treated as 2D projections and will produce geometrically
+wrong results. This module is designed for planar sketches and 2D BRep regions
+only; for curves on surfaces or 3D boolean operations, see the spec's
+out-of-scope list.
+
 See docs/superpowers/specs/2026-04-14-2d-boolean-operations-design.md for design.
 """
 from __future__ import annotations
@@ -7,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
+from mmcore.geom._nurbs_knots import reverse_curve, split_curve_multiple, trim_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx_multiple
 from mmcore.topo.brep import BRep
 
@@ -391,13 +398,11 @@ def _collect_curves_with_sources(
             if (t0, t1) == base.interval():
                 curves.append(base)
             else:
-                from mmcore.geom._nurbs_knots import trim_curve
                 curves.append(trim_curve(base, min(t0, t1), max(t0, t1)))
             sources.append(tag)
     return curves, sources
 
 
-from mmcore.geom._nurbs_knots import split_curve_multiple
 from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
 
 
@@ -512,6 +517,9 @@ def _split_curves_at_intersections(
             k1 = _find_sub_index_spanning(c1, dedup_params[c1], curves[c1].interval(), u0, u1)
             k2 = _find_sub_index_spanning(c2, dedup_params[c2], curves[c2].interval(), v0, v1)
             if k1 is None or k2 is None:
+                continue
+            if (c1, k1) in killed or (c2, k2) in upgraded:
+                # Already-swapped pair from a symmetric overlap entry; skip.
                 continue
             upgraded.add((c1, k1))
             killed.add((c2, k2))
@@ -1005,6 +1013,15 @@ def _extract_island_loops(
                 cur = nxt
                 if cur == start:
                     break
+            # Verify the cycle actually closed back to start.
+            if cycle and arr.half_edges[cycle[-1]].head_vid != arr.half_edges[cycle[0]].origin_vid:
+                raise RuntimeError(
+                    f"_extract_island_loops: boundary walk starting from HE {start} "
+                    f"did not close (cycle length {len(cycle)}, head at "
+                    f"v{arr.half_edges[cycle[-1]].head_vid}, expected origin at "
+                    f"v{arr.half_edges[cycle[0]].origin_vid}). Likely cause: "
+                    f"degree-1 boundary vertex or missing ccw_prev link."
+                )
             loops_hes.append(cycle)
 
         def _loop_signed_area(loop: list[int]) -> float:
@@ -1056,12 +1073,17 @@ def _materialize_result(
                 result, shell.id, wire_face.id, hole_curves,
                 is_body_outer=False, host_face_id=body_face_id,
             )
+    errs = result.validate()
+    if errs:
+        raise RuntimeError(
+            f"_materialize_result: output BRep failed validate(): {errs[0]}. "
+            f"This is a bug in island extraction or loop assembly."
+        )
     return result
 
 
 def _oriented_subcurve_from_arr(arr: _Arrangement, he_idx: int) -> NURBSCurveTuple:
     """Return the sub-segment curve oriented along the HE's walk direction."""
-    from mmcore.geom._nurbs_knots import reverse_curve
     he = arr.half_edges[he_idx]
     seg = arr.sub_segments[he.seg_idx]
     return seg if he.forward else reverse_curve(seg)
