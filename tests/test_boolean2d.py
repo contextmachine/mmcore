@@ -120,3 +120,35 @@ def test_collect_curves_with_sources_from_two_regions():
     # every curve is a NURBSCurveTuple
     for c in curves:
         assert isinstance(c, NURBSCurveTuple)
+
+
+from mmcore.topo.brep.boolean2d import _split_curves_at_intersections
+
+
+def test_split_two_overlapping_squares_produces_correct_segment_count():
+    """Two unit squares, one at (0,0) and one at (0.5, 0.5). The boundaries
+    intersect transversely; every curve that gets cut should produce more
+    sub-segments than the original, and no overlap tags should appear.
+    """
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    # More segments than curves (some got split)
+    assert len(sub_segs) > len(curves)
+    # Source tags are single letters (no overlap dedup happened)
+    for s in sub_sources:
+        assert s in ('A', 'B')
+
+
+def test_split_two_squares_sharing_one_edge_merges_overlap():
+    """Two unit squares that share the edge x=1 from y=0 to y=1.
+    CCX returns that shared segment as an overlap. After dedup, there must
+    be exactly one sub-segment tagged 'AB' for the shared portion.
+    """
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(1.0, 0.0, 1.0)])
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    both = [s for s in sub_sources if s == 'AB']
+    assert len(both) == 1

@@ -385,3 +385,122 @@ def _collect_curves_with_sources(
                 curves.append(trim_curve(base, min(t0, t1), max(t0, t1)))
             sources.append(tag)
     return curves, sources
+
+
+from mmcore.geom._nurbs_knots import split_curve_multiple
+from mmcore.geom._nurbs_param_tol import nurbs_curve_param_tolerance
+
+
+def _split_curves_at_intersections(
+    curves: list[NURBSCurveTuple],
+    sources: list[str],
+    tol: float,
+) -> tuple[list[NURBSCurveTuple], list[str]]:
+    """Split each curve at all CCX-reported intersections and dedup overlaps.
+
+    Returns (sub_segments, sub_sources) where each source tag is 'A', 'B', or
+    'AB' (the last indicates a segment produced by merging an overlap pair).
+    """
+    isolated, overlaps = nurbs_ccx_multiple(curves, tol=tol)
+
+    # Per-curve list of split parameters (including the overlap range
+    # endpoints — overlaps must cause splits at both ends).
+    split_params: list[list[float]] = [[] for _ in curves]
+    if isolated is not None:
+        for rec in isolated:
+            c1, c2 = int(rec['curve1_i']), int(rec['curve2_i'])
+            u, v = float(rec['u']), float(rec['v'])
+            split_params[c1].append(u)
+            split_params[c2].append(v)
+    if overlaps is not None:
+        for rec in overlaps:
+            c1, c2 = int(rec['curve1_i']), int(rec['curve2_i'])
+            u0, u1 = float(rec['u'][0]), float(rec['u'][1])
+            v0, v1 = float(rec['v'][0]), float(rec['v'][1])
+            split_params[c1].extend([u0, u1])
+            split_params[c2].extend([v0, v1])
+
+    # Dedupe each curve's params using parametric tolerance; drop boundary
+    # params (split_curve_multiple rejects params equal to the curve domain
+    # endpoints, and a split at a boundary would produce a zero-length piece
+    # anyway).
+    dedup_params: list[list[float]] = []
+    for i, params in enumerate(split_params):
+        if not params:
+            dedup_params.append([])
+            continue
+        ptol = float(nurbs_curve_param_tolerance(curves[i], tol))
+        t_lo, t_hi = curves[i].interval()
+        params.sort()
+        kept: list[float] = []
+        for p in params:
+            # drop params on or near the curve boundary
+            if p - t_lo <= ptol or t_hi - p <= ptol:
+                continue
+            if not kept or p - kept[-1] > ptol:
+                kept.append(p)
+        dedup_params.append(kept)
+
+    # Split each curve. split_curve_multiple returns [curve] if params is empty.
+    all_sub_segs: list[list[NURBSCurveTuple]] = []
+    for i, crv in enumerate(curves):
+        params = dedup_params[i]
+        if params:
+            pieces = split_curve_multiple(crv, params)
+        else:
+            pieces = [crv]
+        all_sub_segs.append(list(pieces))
+
+    # Dedupe overlap sub-segments: for each overlap, the piece on curve c1
+    # between u0 and u1 is geometrically the same as the piece on curve c2
+    # between v0 and v1. Keep one, mark source as 'AB', discard the other.
+    killed: set[tuple[int, int]] = set()
+    upgraded: set[tuple[int, int]] = set()
+
+    def _find_sub_index_spanning(
+        crv_idx: int,
+        params: list[float],
+        base_interval: tuple[float, float],
+        u0: float,
+        u1: float,
+    ) -> int | None:
+        """Find the sub-segment index whose param range is approximately [u0,u1]."""
+        t_lo, t_hi = base_interval
+        boundaries = [t_lo] + list(params) + [t_hi]
+        lo_target, hi_target = min(u0, u1), max(u0, u1)
+        # use a parametric tolerance scaled by the curve's param tolerance so
+        # that CCX's overlap ranges match even after dedup-induced snapping.
+        match_tol = max(50.0 * tol,
+                        10.0 * float(nurbs_curve_param_tolerance(curves[crv_idx], tol)))
+        for k in range(len(boundaries) - 1):
+            bk_lo, bk_hi = boundaries[k], boundaries[k + 1]
+            if abs(bk_lo - lo_target) < match_tol and abs(bk_hi - hi_target) < match_tol:
+                return k
+        return None
+
+    if overlaps is not None:
+        for rec in overlaps:
+            c1, c2 = int(rec['curve1_i']), int(rec['curve2_i'])
+            u0, u1 = float(rec['u'][0]), float(rec['u'][1])
+            v0, v1 = float(rec['v'][0]), float(rec['v'][1])
+            k1 = _find_sub_index_spanning(c1, dedup_params[c1], curves[c1].interval(), u0, u1)
+            k2 = _find_sub_index_spanning(c2, dedup_params[c2], curves[c2].interval(), v0, v1)
+            if k1 is None or k2 is None:
+                continue
+            upgraded.add((c1, k1))
+            killed.add((c2, k2))
+
+    # Flatten into output lists, applying killed/upgraded sets.
+    out_segs: list[NURBSCurveTuple] = []
+    out_sources: list[str] = []
+    for i, pieces in enumerate(all_sub_segs):
+        for k, piece in enumerate(pieces):
+            if (i, k) in killed:
+                continue
+            if (i, k) in upgraded:
+                out_sources.append('AB')
+            else:
+                out_sources.append(sources[i])
+            out_segs.append(piece)
+
+    return out_segs, out_sources
