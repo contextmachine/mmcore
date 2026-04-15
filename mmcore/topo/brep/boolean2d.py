@@ -15,6 +15,19 @@ _PIP_ENDPOINT_EPS_MUL = 2.0  # u_seg must be > _PIP_ENDPOINT_EPS_MUL * tol from 
 _PIP_CROSSING_SAMPLE_DT = 1e-3  # fraction of curve parameter range for crossing-test samples
 
 
+def _shoelace_signed_area(pts) -> float:
+    """Signed polygon area from a sequence of 2D/3D points.
+    Positive = CCW in xy plane, negative = CW. Uses the standard shoelace
+    formula on the first two columns.
+    """
+    arr = np.asarray(pts, dtype=float)
+    if arr.ndim != 2 or arr.shape[0] < 3:
+        return 0.0
+    xs = arr[:, 0]
+    ys = arr[:, 1]
+    return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+
+
 def point_in_region(
     point,
     region_curves,
@@ -149,10 +162,7 @@ def _signed_area_xy_samples(curves: list[NURBSCurveTuple], n_per_curve: int = 16
             t = t0 + (t1 - t0) * (i / n_per_curve)
             ev = evaluate_nurbs_curve(crv, t, 0)
             pts.append(np.asarray(ev['C'], dtype=float))
-    pts = np.asarray(pts)
-    xs = pts[:, 0]
-    ys = pts[:, 1]
-    return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+    return _shoelace_signed_area(np.asarray(pts))
 
 
 def make_region_2d(loops: list[list[NURBSCurveTuple]]) -> BRep:
@@ -657,17 +667,19 @@ def _build_arrangement(
                     continue
                 ev = evaluate_nurbs_curve(seg, float(t), 0)
                 pts.append(np.asarray(ev['C'], dtype=float))
-        if len(pts) < 3:
-            return 0.0
-        xs = np.array([p[0] for p in pts])
-        ys = np.array([p[1] for p in pts])
-        return 0.5 * float(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys))
+        return _shoelace_signed_area(pts)
 
     face_areas = [_face_sampled_signed_area(f) for f in faces]
     if faces:
         unb_idx = int(np.argmin(face_areas))
-        if face_areas[unb_idx] < 0.0:
-            faces[unb_idx].unbounded = True
+        if face_areas[unb_idx] >= 0.0:
+            raise RuntimeError(
+                f"_build_arrangement: no face has negative signed area — "
+                f"arrangement has no identifiable unbounded face (min area = "
+                f"{face_areas[unb_idx]:.3e}). This indicates a topology bug in "
+                f"face enumeration or a degenerate input."
+            )
+        faces[unb_idx].unbounded = True
 
     return _Arrangement(
         vertices=vertices,
@@ -754,9 +766,13 @@ def _classify_faces(
                 break
 
         if inA is None or inB is None:
-            labels[face.idx] = (False, False)
-        else:
-            labels[face.idx] = (inA, inB)
+            raise RuntimeError(
+                f"_classify_faces: could not compute (inA, inB) for face {face.idx} "
+                f"after exhausting interior-sample retries — all samples hit a "
+                f"boundary. This indicates a degenerate face or insufficient sample "
+                f"diversity; investigate before silently corrupting downstream results."
+            )
+        labels[face.idx] = (inA, inB)
     return labels
 
 
