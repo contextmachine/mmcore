@@ -822,3 +822,43 @@ def _extract_island_loops(
         islands_out.append((outer_loop, hole_loops))
 
     return islands_out
+
+
+def _materialize_result(
+    arr: _Arrangement,
+    islands: list[tuple[list[int], list[list[int]]]],
+) -> BRep:
+    """Build a fresh BRep in standard 2D form from the arrangement islands."""
+    result = BRep()
+    body = result.new_body(shells=[])
+    shell = result.new_shell(faces=[], body=body.id)
+    body.shells.append(shell.id)
+    wire_face = result.new_face(outer=None, inners=[], shell=shell.id, surf=None)
+    shell.faces.append(wire_face.id)
+
+    for outer_loop_hes, hole_loops_hes in islands:
+        outer_curves = [
+            _oriented_subcurve_from_arr(arr, hid) for hid in outer_loop_hes
+        ]
+        hole_curves_list = [
+            [_oriented_subcurve_from_arr(arr, hid) for hid in hole]
+            for hole in hole_loops_hes
+        ]
+        body_face_id = _add_loop_to_brep(
+            result, shell.id, wire_face.id, outer_curves,
+            is_body_outer=True,
+        )
+        for hole_curves in hole_curves_list:
+            _add_loop_to_brep(
+                result, shell.id, wire_face.id, hole_curves,
+                is_body_outer=False, host_face_id=body_face_id,
+            )
+    return result
+
+
+def _oriented_subcurve_from_arr(arr: _Arrangement, he_idx: int) -> NURBSCurveTuple:
+    """Return the sub-segment curve oriented along the HE's walk direction."""
+    from mmcore.geom._nurbs_knots import reverse_curve
+    he = arr.half_edges[he_idx]
+    seg = arr.sub_segments[he.seg_idx]
+    return seg if he.forward else reverse_curve(seg)

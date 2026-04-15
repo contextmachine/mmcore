@@ -238,3 +238,22 @@ def test_extract_island_loops_overlapping_squares_union():
     outer_loop_hes, hole_loops_hes = islands[0]
     assert len(outer_loop_hes) >= 4
     assert hole_loops_hes == []
+
+
+from mmcore.topo.brep.boolean2d import _materialize_result
+
+
+def test_materialize_result_overlapping_squares_union():
+    a = make_region_2d([_square_ccw(0.0, 0.0, 1.0)])
+    b = make_region_2d([_square_ccw(0.5, 0.5, 1.0)])
+    curves_a, _ = _collect_curves_with_sources(a, BRep())
+    curves_b, _ = _collect_curves_with_sources(BRep(), b)
+    curves, sources = _collect_curves_with_sources(a, b)
+    sub_segs, sub_sources = _split_curves_at_intersections(curves, sources, tol=1e-6)
+    arr = _build_arrangement(sub_segs, sub_sources, tol=1e-6)
+    labels = _classify_faces(arr, curves_a, curves_b, tol=1e-6)
+    kept = _select_kept_faces(arr, labels, 'union')
+    islands = _extract_island_loops(arr, kept)
+    result = _materialize_result(arr, islands)
+    assert _count_body_faces(result) == 1
+    assert result.validate() == []
