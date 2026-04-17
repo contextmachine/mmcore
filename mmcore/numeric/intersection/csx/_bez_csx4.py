@@ -590,36 +590,41 @@ def _phase2_isolated_search(
         t_sol, u_sol, v_sol, G, last_step = newton_csx(
             C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
         )
+
+
         step_norm = abs(last_step[0]) + abs(last_step[1]) + abs(last_step[2])
         residual_ok = float(np.linalg.norm(G)) < atol
-        converged = ((step_norm > 0 or residual_ok)
-                     and abs(last_step[0]) <= ptol_t
-                     and abs(last_step[1]) <= ptol_u
-                     and abs(last_step[2]) <= ptol_v)
+        newton_stalled = (
+                abs(last_step[0]) <= ptol_t
+                and abs(last_step[1]) <= ptol_u
+                and abs(last_step[2]) <= ptol_v
+        )
+        if newton_stalled:
 
-        if converged and t0 - ptol_t <= t_sol <= t1 + ptol_t:
-            pt = eval_curve(C_orig, t_sol, rational=rational)
-            is_new = not _is_duplicate(isolated, pt, atol)
-            if is_new:
-                isolated.append({
-                    "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
-                    "point": pt,
-                })
-                # 3D cutout: split cell into 27 boxes, discard center,
-                # push remaining 26 for further search
-                sub_cells = _cutout_3d(
-                    F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
-                    float(t_sol), float(u_sol), float(v_sol),
-                    ptol_t, ptol_u, ptol_v, rational,
-                )
-                stack.extend(sub_cells)
-            # else: known intersection — cell is in its attraction basin
-            continue
 
-        if converged:
-            # Newton converged but OUTSIDE the cell range — the nearest
-            # intersection is not in this cell. Prune.
-            continue
+            if residual_ok and t0 - ptol_t <= t_sol <= t1 + ptol_t:
+                pt = eval_curve(C_orig, t_sol, rational=rational)
+                is_new = not _is_duplicate(isolated, pt, atol)
+                if is_new:
+                    isolated.append({
+                        "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
+                        "point": pt,
+                    })
+                    # 3D cutout: split cell into 27 boxes, discard center,
+                    # push remaining 26 for further search
+                    sub_cells = _cutout_3d(
+                        F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+                        float(t_sol), float(u_sol), float(v_sol),
+                        ptol_t, ptol_u, ptol_v, rational,
+                    )
+                    stack.extend(sub_cells)
+                # else: known intersection — cell is in its attraction basin
+                continue
+
+            else:
+                # Newton converged but OUTSIDE the cell range — the nearest
+                # intersection is not in this cell. Prune.
+                continue
 
         if depth >= max_depth:
             continue
