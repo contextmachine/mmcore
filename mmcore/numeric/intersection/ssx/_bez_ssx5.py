@@ -1915,7 +1915,32 @@ def bez_ssx(
                 csx_result, cut_axis, cv, cell.box, surf_to_split,
                 S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
             )
-            new_crossings_per_cut.append(nc)
+            # Design §5 Invariant C — identical-stuv unify. Internal CSX at a
+            # cut can re-discover a crossing that already exists (L1 or from
+            # an earlier cut in this same subdivision). Reuse the existing
+            # BoundaryPoint object instead of creating a fresh one at the
+            # same physical point, and snap its `cut_axis` coordinate to the
+            # exact cut value so the distribute step sends it to both strips.
+            deduped: list = []
+            for new_c in nc:
+                match = None
+                for ec in cell.crossings:
+                    if np.linalg.norm(ec.stuv - new_c.stuv) < atol:
+                        match = ec
+                        break
+                if match is None:
+                    for earlier in new_crossings_per_cut:
+                        for ec in earlier:
+                            if np.linalg.norm(ec.stuv - new_c.stuv) < atol:
+                                match = ec
+                                break
+                        if match is not None:
+                            break
+                if match is None:
+                    deduped.append(new_c)
+                else:
+                    match.stuv[cut_axis] = cv
+            new_crossings_per_cut.append(deduped)
 
         # Shared internal partitions — one per cut, each adjacent to
         # exactly the two strips it separates (filled in below).

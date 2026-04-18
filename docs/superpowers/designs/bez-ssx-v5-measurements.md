@@ -453,3 +453,41 @@ Next: implement §6.5 multi-cut on this baseline as a fresh iter-14.
 **Outcome.** Multi-cut design is correct; the implementation plumbing works; but identity-based assembly can't absorb the extra crossings it produces without a BoundaryPoint-unification step that's more careful than "merge by stuv distance and drop the duplicate". The iter-13 adjacency-walk + cofactor branch was designed to sidestep this by matching on `(partition, param)` rather than object identity — so multi-cut is really a natural companion of the adjacency-walk redesign, not a drop-in on top of identity assembly.
 
 Not fixing in-session. Keeping iter-14 multi-cut code in place (plumbing is useful), accepting the regression on case 5 as the signal that the next real step is to revisit cofactor + adjacency-walk with the lessons from this session.
+
+## 2026-04-18 — Iter-14 + subdivision-time Invariant C (BoundaryPoint unification)
+
+**Goal:** apply design §5 Invariant C (identical stuv → unify) at every internal CSX call during subdivision, not just at L1. When `_isoline_csx_to_global` returns a crossing whose stuv matches an existing `BoundaryPoint` (from `cell.crossings` or from an earlier cut in this same subdivision), reuse the existing object and snap its `stuv[cut_axis]` to the exact cut value so the distribute step sends it to both strips adjacent to the cut.
+
+**Instrumentation before the fix.** 40 leaves marched, 153 total marches, 39 leaves had ≥1 `BoundaryPoint` pair at the same physical stuv but with different `id()`s. 108 of the 153 marches were duplicates (same start stuv, different object identity, same leaf).
+
+**After the fix:**
+
+| metric | before dedup | after dedup |
+|---|---|---|
+| leaves marched | 40 | 21 |
+| total marches | 153 | 26 |
+| leaves with duplicate-stuv-different-id | 39 | **0** |
+| duplicate marches | 108 | **0** |
+
+And case 5 branch count: **30 → 4**, time: **1561 ms → 766 ms**.
+
+| case | br (act/exp) | pts | err | t (ms) | status |
+|------|-------------:|----:|----:|-------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.6  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 43.7  | OK |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 18.4  | MISMATCH (pre-existing) |
+| case5       | **4 / 2** | 4051 | 7.64e-04 | 766.0 | MISMATCH (count matches pre-multi-cut baseline; point count inflated) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 69.0  | OK |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Remaining issue with case 5: marcher oscillation.** Case 5's 4 output branches are:
+- branch 1: 20 pts, clean (length 14.05 in 3D, start→end 13.80) — one of the real branches.
+- branch 2: 9 pts, clean (length 1.25) — likely a short side-branch in a small strip.
+- branch 0: **2020 pts**, 1993 near-duplicates with earlier points (length 14.24, start→end 14.17 — so the branch ACTUALLY covers the right curve but with 100× oversampling).
+- branch 3: **2002 pts**, 1990 near-duplicates, length 0.90 — the marcher is jittering at the 2000-point safety cap.
+
+Two branches hit the marcher's 2000-point safety cap. The marcher is oscillating at one end of these branches — in a very thin strip, the tangent's absolute sign (SVD-based, arbitrary) likely points outward, causing the marcher to take a tiny step, clip to the boundary, reverse, step again, etc. This is the same symptom that motivated the §4.1 cofactor tangent design, and it hurts multi-cut more than binary because multi-cut produces many thin strips with poorly-conditioned tangent evaluation near the edges.
+
+**Overall.** Subdivision-time Invariant-C dedup is a clean, small change (one block in the main loop) that fully eliminates the duplicate-marching problem highlighted by the user's diagnostic. Multi-cut is now no worse than binary on case 5 branch count (4/2 either way), and substantially reduces the non-productive sub-cells. What's left is the marcher-oscillation problem that predates multi-cut but is exposed more in multi-cut strips.
