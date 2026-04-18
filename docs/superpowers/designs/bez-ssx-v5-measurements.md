@@ -60,3 +60,22 @@ Known defects captured as entries:
 - Case5 loop-free instrumentation: `mono=4, gauss=10, fail=36` out of 50 `_check_loop_free` calls (vs ~62 Gauss calls before per context doc). 4 sub-cells now terminate via TΨᵢ monotonicity without touching Gauss; downstream sub-cells of those 4 are also avoided.
 
 **Outcome:** design-alignment step. Tests green, no regression, ~1 % case-5 speedup from 4 avoided Gauss evaluations + their downstream subdivisions. The modest impact says most sub-cells in case5 need Gauss separability anyway — the intersection curve is non-monotone in every parameter for most sub-cells, so the cheap certificate rarely suffices. Kept because (a) it matches the design, (b) it is correct (never recomputed), (c) it cannot hurt — monotonicity check is O(n) on Bernstein coefficients, much cheaper than the Gauss witness. Future cases (case6, NURBS adapter with piece-wise partitioning) are likely to benefit more.
+
+## 2026-04-18 — Iteration 2: stuv-only dedupe in `_dedup_crossings`
+
+**Goal:** align `_dedup_crossings` with design §5 Invariant C — a crossing is a duplicate iff its `stuv` matches an existing entry within tolerance; `xyz` proximity alone is not a deduplication criterion (legitimate self-intersections, folds, or two separate branches crossing in 3-space can share `xyz`).
+
+**Change:** deleted the `or np.linalg.norm(c.xyz - d.xyz) < atol` clause in `_dedup_crossings`. The function is now a pure stuv-identity dedupe.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-1 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.7  | −0.3 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | −0.2 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.4  | −0.5 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 17.9  | −0.6 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 512.0 | −13.9 ms | OK (~3 %) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.6  | −0.1 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass** (unchanged)
+
+**Outcome:** no regressions. Removing the xyz branch closed Invariant-C violation #1 without any accuracy effect on the 5 working cases. Case-5 wall time dropped ~14 ms (likely a marginal side-effect of fewer dedupe comparisons on the initial crossings list, not the main cost). Case-6 still missing its loop as expected — that requires later iterations (partition topology + §6 step 3).

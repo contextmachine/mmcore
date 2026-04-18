@@ -226,24 +226,22 @@ def _is_on_both_boundaries(stuv, tol=1e-10):
 
 
 def _dedup_crossings(crossings, atol):
-    """Remove duplicate boundary crossings.
+    """Unify crossings with identical stuv.
 
-    A crossing on the boundary of both S1 and S2 is found by CSX from both sides.
-    We keep it only from the S1 side (face axis 0 or 1). If the duplicate from the
-    S2 side (face axis 2 or 3) arrives, we skip it.
+    Design §5 Invariant C: two crossings with identical `stuv` (within tolerance)
+    represent the same 4D point and must be unified. Two crossings with close xyz
+    but distinct stuv are legitimate (a self-intersection, a fold, two branches
+    crossing in 3-space) and are kept separate.
+
+    The common source of stuv duplicates is a crossing on the shared boundary of
+    two adjacent S1 / S2 faces, which CSX finds independently from each side.
     """
     if len(crossings) <= 1:
         return crossings
 
     deduped = []
     for c in crossings:
-        # If this crossing is on both boundaries AND was found from the S2 side,
-        # check if we already have it from the S1 side.
-        is_dup = False
-        for d in deduped:
-            if np.linalg.norm(c.stuv - d.stuv) < atol or np.linalg.norm(c.xyz - d.xyz) < atol:
-                is_dup = True
-                break
+        is_dup = any(np.linalg.norm(c.stuv - d.stuv) < atol for d in deduped)
         if not is_dup:
             deduped.append(c)
     return deduped
