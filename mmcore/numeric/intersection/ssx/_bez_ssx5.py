@@ -1582,14 +1582,34 @@ def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _split_bern_scalar_tensor(T, axis, t):
+    """Split a scalar 4D Bernstein tensor (no trailing value dim) along `axis` at `t`.
+
+    Used to propagate TΨᵢ tensors through the domain-decomposition splits so that
+    sub-cells can run the cheap TΨᵢ monotonicity certificate (design §1.2, §6).
+    """
+    from mmcore.numeric.bern import de_casteljau_split_nd
+    T = np.asarray(T, dtype=np.float64)
+    with_val = T[..., None]
+    left, right = de_casteljau_split_nd(with_val, axis=axis, t=float(t))
+    return left[..., 0], right[..., 0]
+
+
 @dataclass
 class _Cell:
     """A sub-problem in the domain decomposition stack."""
-    g1: object             # GaussMapBern for S1 sub-patch (local [0,1]²)
-    g2: object             # GaussMapBern for S2 sub-patch (local [0,1]²)
-    crossings: list        # BoundaryCrossing in GLOBAL coords
-    box: tuple             # 4D parameter range in GLOBAL coords
+    g1: object                          # GaussMapBern for S1 sub-patch (local [0,1]²)
+    g2: object                          # GaussMapBern for S2 sub-patch (local [0,1]²)
+    crossings: list                     # BoundaryCrossing in GLOBAL coords
+    box: tuple                          # 4D parameter range in GLOBAL coords
     depth: int = 0
+    # TΨᵢ Bernstein tensors for this sub-cell's local [0,1]⁴ — propagated by
+    # de Casteljau-splitting the parent's tensors along the cut axis (never
+    # recomputed; see design §1.2).
+    T1: Optional[NDArray[np.float64]] = None
+    T2: Optional[NDArray[np.float64]] = None
+    T3: Optional[NDArray[np.float64]] = None
+    T4: Optional[NDArray[np.float64]] = None
 
 
 def bez_ssx(
@@ -1663,15 +1683,22 @@ def bez_ssx(
         return {'branches': branches, 'points': points}
 
     # --- ITERATIVE DOMAIN DECOMPOSITION ---
-    stack = [_Cell(g1=g1, g2=g2, crossings=crossings, box=box, depth=0)]
+    T1_arr = _tpsi_to_numpy(T1)
+    T2_arr = _tpsi_to_numpy(T2)
+    T3_arr = _tpsi_to_numpy(T3)
+    T4_arr = _tpsi_to_numpy(T4)
+    stack = [_Cell(g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
+                   T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr)]
     all_branches = list(overlap_branches)
     all_points = []
 
     while stack:
         cell = stack.pop()
 
-        # Loop-absence on this sub-cell (Gauss maps only — TΨᵢ too expensive to recompute)
-        if _check_loop_free(cell.g1, cell.g2):
+        # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
+        # Gauss map separability as fallback (design §6, §10 principle 8).
+        if _check_loop_free(cell.g1, cell.g2,
+                            cell.T1, cell.T2, cell.T3, cell.T4):
             if cell.crossings:
                 br, pt = _trace_all_branches(
                     cell.g1.surface, cell.g2.surface,
@@ -1734,6 +1761,13 @@ def bez_ssx(
                           else cell.g2.split_v(cut_local))
             g1_L = g1_R = cell.g1
 
+        # Propagate TΨᵢ to sub-cells by de Casteljau on the T tensors along
+        # the same cut_axis and cut_local parameter (design §1.2, §6).
+        T1_L, T1_R = _split_bern_scalar_tensor(cell.T1, axis=cut_axis, t=cut_local)
+        T2_L, T2_R = _split_bern_scalar_tensor(cell.T2, axis=cut_axis, t=cut_local)
+        T3_L, T3_R = _split_bern_scalar_tensor(cell.T3, axis=cut_axis, t=cut_local)
+        T4_L, T4_R = _split_bern_scalar_tensor(cell.T4, axis=cut_axis, t=cut_local)
+
         # Distribute crossings (all in GLOBAL coords) to left/right
         all_cx = list(cell.crossings) + new_crossings
         left_cx = []
@@ -1760,10 +1794,12 @@ def bez_ssx(
 
         if left_cx:
             stack.append(_Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
-                               box=box_L, depth=cell.depth + 1))
+                               box=box_L, depth=cell.depth + 1,
+                               T1=T1_L, T2=T2_L, T3=T3_L, T4=T4_L))
         if right_cx:
             stack.append(_Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
-                               box=box_R, depth=cell.depth + 1))
+                               box=box_R, depth=cell.depth + 1,
+                               T1=T1_R, T2=T2_R, T3=T3_R, T4=T4_R))
 
     # --- Post-processing: merge + dedup ---
     all_branches = _merge_adjacent_branches(all_branches, atol)
