@@ -424,3 +424,32 @@ Baseline after rollback (`655ea32` code on top of current docs):
 - CSX unit tests: **12 / 12 pass**.
 
 Next: implement §6.5 multi-cut on this baseline as a fresh iter-14.
+
+## 2026-04-18 — Iteration 14 (retry): §6.5 multi-crossing cut on iter-11 base
+
+**Goal:** subdivide at *all* crossing parameter values on the chosen axis in one pass (Krishnan-Manocha 1997). k strips per subdivision instead of 2; TΨᵢ coefficient hull tightens proportionally. Axis selection prefers the axis with the most valid interior cuts, tiebreak by spread.
+
+**Change:**
+- `_choose_cut` replaced by `_choose_multi_cut(crossings, box, min_margin)`, returning `(axis, sorted_cut_values)` or `(None, None)`. Legacy `_choose_cut` retained as a thin shim for any remaining callers (none outside the main loop in current code).
+- `_build_cell_partitions` gains `skip_faces: list[(axis, side)]` (keeps single-tuple `skip` for back-compat).
+- Main-loop subdivision branch rewritten: for each cut value, runs one isoline CSX (k calls per subdivision); builds shared `PartitionCurve` per cut with `adjacents=[strip_i, strip_{i+1}]`; sequential de Casteljau on surface/Gauss/TΨᵢ produces k strip cells; each strip builds its own partitions skipping the two cut-axis faces that are shared internals; classification runs per strip.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs rollback | status |
+|------|-------------:|----:|----:|-------:|--------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 12.0  | +1.0  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.7  | +0.6  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 46.9  | +0.8  | OK |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 19.2  | +0.7  | MISMATCH (unchanged) |
+| case5       | **30 / 2** | 8173 | 9.55e-04 | **1561.1** | +26 branches, 3.5× slower | **MISMATCH (worse)** |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 70.0  | +2.8  | **OK** (preserved) |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Simple cases (planes, transversal, tangential, case 6) untouched — multi-cut doesn't activate for ≤ 2 crossings or narrows down to a binary split in practice.
+- Case 5 explodes: the multi-cut at each subdivision level creates new `BoundaryPoint` objects at every cut value via `_isoline_csx_to_global`. When a new crossing's `stuv` matches an existing `cell.crossings` entry (L1 crossing or previous-level new crossing) within numerical noise, the identity-based assembly can't recognise them as the same physical point; each side of each cut emits its own fragment, and the identity-chain walker emits one full branch per fragment pair. Hence 30 branches for 2 physical curves.
+- The exact cascading duplication matches the iter-13 "Invariant-C-at-subdivision" observation: identity-based assembly is fundamentally incompatible with multi-cut unless `BoundaryPoint` identity is unified at every cut boundary. That unification done aggressively (as I tried in iter-13) drops crossings needed by the other side of the cut; done carefully it would preserve both distribution AND identity.
+
+**Outcome.** Multi-cut design is correct; the implementation plumbing works; but identity-based assembly can't absorb the extra crossings it produces without a BoundaryPoint-unification step that's more careful than "merge by stuv distance and drop the duplicate". The iter-13 adjacency-walk + cofactor branch was designed to sidestep this by matching on `(partition, param)` rather than object identity — so multi-cut is really a natural companion of the adjacency-walk redesign, not a drop-in on top of identity assembly.
+
+Not fixing in-session. Keeping iter-14 multi-cut code in place (plumbing is useful), accepting the regression on case 5 as the signal that the next real step is to revisit cofactor + adjacency-walk with the lessons from this session.
