@@ -158,3 +158,35 @@ Classification of this single intersection line is now trivially readable from t
 **Validation** (case 5): 49 `_Cell`s total are created; every one has 8 partitions. A crossing at `stuv = (0.748, 0, 0.804, 0.222)` accumulates 79 registrations across the full decomposition tree — one per cell whose boundary it sits on — and in the specific cell where it is *both* `s = 0.748` (cell's s-hi) and `t = 0` (cell's t-lo) it acquires 2 registrations (one per on-boundary axis), matching §4 exactly.
 
 **Outcome:** complete §4 classification at every level. ~2.6 % case-5 slowdown from the extra per-sub-cell classification work — acceptable cost for producer-side completion, and consumer iterations are expected to remove the current proximity scans that dominate wall time. Still no consumer using the registrations; iter-6 begins that work.
+
+## 2026-04-18 — Iteration 6: consume registrations in tracing (Inv. D)
+
+**Goal:** retire the proximity-based endpoint match (`best_dist < 0.1`) inside `_trace_all_branches` in favour of design §7 Invariant D — the marcher stops on the cell boundary, and the stopping registration is found by exact `(partition, param)` identity on the cell's own partitions. Multi-axis corners handled by consuming every same-direction registration on the start/end point in a single march (design §4 through-touch).
+
+**Change:**
+- Added `consumed: bool = False` to `IsolineRegistration`.
+- Added `_find_exit_registration(cell, stuv_end, tol_param=1e-4)` — walks the cell's partitions on each on-boundary axis of `stuv_end` and returns the best unconsumed out-registration by `param` distance (or `None`).
+- Added `_trace_cell_by_registrations(cell, atol)` — iterates UNIQUE start points with an unconsumed in-registration in this cell; marches once per point; consumes all that point's in-registrations in this cell at start and all of the exit point's out-registrations at end.
+- Swapped both call sites in `bez_ssx` (top-level short-circuit and sub-cell tracing) to the new tracer.
+- `_trace_all_branches` (old heuristic version) and the xyz-proximity `_merge_adjacent_branches` / `_dedup_branches` are still present and still run as the final assembly pass — removing them requires §9 cross-cell matching which is a later iteration.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-5 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 12.0  | +1.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.3  | 0.0 ms   | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 41.0  | +1.8 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 19.2  | +0.8 ms  | OK |
+| case5       | 3 / 2 | 105 | 8.36e-04 | 696.7 | +176 ms | **MISMATCH** |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.9  | −2.1 ms  | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Outcome — expected regression on case 5.** Simple cases (planes, transversal, tangential, overlaps) stay correct because tracing happens entirely in the top cell: the stuv of each crossing is one of two corner points, exact match works, and the old xyz-merge at the end is a no-op.
+
+Case 5 is a decomposed case (49 cells, 14 trace invocations). With exact matching, each sub-cell traces sub-branches that end precisely at internal-partition crossings. The downstream `_merge_adjacent_branches` is a proximity-join that does not know anything about partitions or their 1D matching — when sub-branch endpoints no longer coincide exactly across adjacent cells (they used to because the old tracer snapped to the same crossings both sides, generously), the merger fails to glue them into 2 clean curves. Result: 3 branches, one full path residual 5.75e-4 (vs 8e-8 before).
+
+Not fixing this in iter-6. The residual heuristics (`_merge_adjacent_branches`, `_dedup_branches`, `_filter_corner_touches`) are themselves slated for removal and are the wrong tool for cross-cell joining. The clean fix is design §9 — per-partition 1D in/out matching across adjacent cells — which requires:
+  1. Shared `PartitionCurve` objects across L/R sub-cells at a subdivision (currently unshared — iter-5 builds fresh per cell).
+  2. A post-trace assembly pass that walks shared internal partitions and matches in/out pairs by `param`.
+
+These are iter-7 and iter-8. Case 5 is expected to return to 2 branches once both land. Iteration remains in "bringing implementation to design" mode — no heuristic fallbacks.

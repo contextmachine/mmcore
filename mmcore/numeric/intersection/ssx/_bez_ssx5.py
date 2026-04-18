@@ -56,6 +56,7 @@ class IsolineRegistration:
     direction: str            # "in" or "out"
     owner: "_Cell"
     point: "BoundaryPoint"
+    consumed: bool = False    # set True after the tracer uses this registration
 
 
 @dataclass
@@ -1435,6 +1436,115 @@ def _filter_corner_touches(crossings_global, g1_surf, g2_surf, box):
     return filtered
 
 
+def _find_exit_registration(cell, stuv_end, tol_param=1e-4):
+    """Design §7 Invariant D: locate the unique unconsumed "out" registration
+    owned by `cell` that matches the marcher's stopping point.
+
+    The marcher is guaranteed to stop on the cell's boundary (it clamps to
+    `[0,1]⁴` in local coords); therefore `stuv_end` must have at least one
+    on-boundary axis for this cell. We walk every matching partition on
+    every on-boundary axis and return the first unconsumed out-registration
+    whose `param` matches `stuv_end[free_axis]` within `tol_param`.
+    """
+    best: Optional[IsolineRegistration] = None
+    best_residual = float("inf")
+    for i in range(4):
+        local = _on_axis_local(stuv_end[i], cell.box[i][0], cell.box[i][1])
+        if local is None:
+            continue
+        target_value = cell.box[i][local]
+        for p in cell.partitions:
+            if p.axis != i or abs(p.value - target_value) > 1e-8:
+                continue
+            target_param = float(stuv_end[p.free_axis])
+            for reg in p.registrations:
+                if reg.consumed or reg.owner is not cell or reg.direction != "out":
+                    continue
+                r = abs(reg.param - target_param)
+                if r < tol_param and r < best_residual:
+                    best = reg
+                    best_residual = r
+    return best
+
+
+def _consume_cell_directions(point: BoundaryPoint, cell, direction: str) -> None:
+    """Mark all `point`'s registrations with the given direction in this cell
+    as consumed. A single march at a multi-axis corner represents the whole
+    curve's passage through the corner; all its same-direction registrations
+    in this cell describe that one passage and must all be consumed together.
+    """
+    for r in point.registrations:
+        if r.owner is cell and r.direction == direction:
+            r.consumed = True
+
+
+def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bool:
+    return any(
+        r.owner is cell and r.direction == direction and not r.consumed
+        for r in point.registrations
+    )
+
+
+def _trace_cell_by_registrations(cell, atol):
+    """Design §7: trace branches inside a loop-free cell by following
+    unvisited boundary points with an `in` registration, matching exit
+    points by exact `(partition, param)` identity on the cell's own
+    partitions (Invariant D). Multi-axis corners are handled by consuming
+    every same-direction registration on the start/end point in one go —
+    the single march describes the curve's single passage through the
+    corner, no matter how many cell faces the corner touches.
+
+    Returns `(branches, points)` in global coordinates.
+    """
+    branches = []
+    points = []
+
+    # Collect unique start points: any BoundaryPoint owned by this cell
+    # with at least one unconsumed `in` registration.
+    start_points: list[BoundaryPoint] = []
+    seen: set[int] = set()
+    for p in cell.partitions:
+        for reg in p.registrations:
+            if reg.owner is cell and reg.direction == "in" and not reg.consumed:
+                key = id(reg.point)
+                if key in seen:
+                    continue
+                seen.add(key)
+                start_points.append(reg.point)
+
+    for start_point in start_points:
+        if not _cell_has_unused_direction(start_point, cell, "in"):
+            continue  # consumed by a prior march that happened to touch this point
+
+        # Consume every `in` registration this point has in this cell.
+        _consume_cell_directions(start_point, cell, "in")
+
+        start_local = _global_to_local(start_point.stuv, cell.box)
+        stuv_local, xyz_local = _march_to_boundary(
+            cell.g1.surface, cell.g2.surface, start_local,
+            atol=atol, rational=True,
+        )
+
+        if len(stuv_local) < 2:
+            continue
+
+        stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
+        for j in range(len(stuv_local)):
+            stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
+        stuv_global[0] = start_point.stuv.copy()
+
+        end_reg = _find_exit_registration(cell, stuv_global[-1])
+        if end_reg is not None:
+            stuv_global[-1] = end_reg.point.stuv.copy()
+            xyz_local[-1] = end_reg.point.xyz.copy()
+            _consume_cell_directions(end_reg.point, cell, "out")
+
+        if np.linalg.norm(stuv_global[-1] - stuv_global[0]) > 1e-10:
+            branches.append(SSXBranch(curve=(stuv_global, xyz_local)))
+
+    return branches, points
+
+
 def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
     """Trace all branches in a loop-free cell.
 
@@ -1866,7 +1976,7 @@ def bez_ssx(
     if _check_loop_free(g1, g2, T1, T2, T3, T4):
         if not crossings and not overlap_branches:
             return {'branches': [], 'points': []}
-        branches, points = _trace_all_branches(g1.surface, g2.surface, crossings, box, atol)
+        branches, points = _trace_cell_by_registrations(top_cell, atol)
         branches.extend(overlap_branches)
         return {'branches': branches, 'points': points}
 
@@ -1883,10 +1993,7 @@ def bez_ssx(
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
             if cell.crossings:
-                br, pt = _trace_all_branches(
-                    cell.g1.surface, cell.g2.surface,
-                    cell.crossings, cell.box, atol,
-                )
+                br, pt = _trace_cell_by_registrations(cell, atol)
                 all_branches.extend(br)
                 all_points.extend(pt)
             continue
