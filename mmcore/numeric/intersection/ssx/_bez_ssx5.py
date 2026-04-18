@@ -2118,6 +2118,49 @@ def bez_ssx(
                 all_points.extend(pt)
             continue
 
+        # §6 step 3: Krawczyk-based tangency certification. If TΨ = 0 has a
+        # simultaneous root in this cell, the intersection is tangential (C₂)
+        # and must be traced via the regulated Φ system (design §1.4, §8),
+        # NOT by further subdivision — deflation makes the Φ-curve regular
+        # where Ψ is rank-deficient.
+        P1_cart_local = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+        P2_cart_local = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+        local_box = ((0.0, 1.0),) * 4
+        tangency = _check_tangency(
+            cell.T1, cell.T2, cell.T3, cell.T4,
+            P1_cart_local, P2_cart_local, local_box,
+        )
+        if tangency is True and cell.crossings:
+            # Convert crossings to the cell's local stuv for the Φ tracer.
+            crossings_local = [
+                BoundaryPoint(
+                    stuv=_global_to_local(c.stuv, cell.box),
+                    xyz=c.xyz, face=c.face, tangent_raw=c.tangent_raw,
+                )
+                for c in cell.crossings
+            ]
+            br_local, pt_local = _deflate_tangent_cell(
+                P1_cart_local, P2_cart_local,
+                cell.T1, cell.T2, cell.T3, cell.T4,
+                local_box, crossings_local, atol,
+            )
+            for b in br_local:
+                stuv_loc, xyz = b.curve
+                stuv_glob = np.empty_like(stuv_loc)
+                for k in range(len(stuv_loc)):
+                    stuv_glob[k] = _local_to_global(stuv_loc[k], cell.box)
+                # Φ-fragments carry no BoundaryPoint endpoints: chaining
+                # across shared partitions uses Ψ fragments' registrations.
+                all_fragments.append(_Fragment(
+                    start_point=None, end_point=None,
+                    stuv_path=stuv_glob, xyz_path=xyz,
+                ))
+            for p in pt_local:
+                all_points.append(SSXPoint(
+                    stuv=_local_to_global(p.stuv, cell.box), xyz=p.xyz,
+                ))
+            continue
+
         if cell.depth >= max_depth:
             for c in cell.crossings:
                 all_points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))

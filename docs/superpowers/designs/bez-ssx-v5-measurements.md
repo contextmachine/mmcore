@@ -243,3 +243,29 @@ These are iter-7 and iter-8. Case 5 is expected to return to 2 branches once bot
 The root cause is `_find_exit_registration`'s failure rate on case-5 sub-cell boundaries, not the assembly itself. The marcher's stopping point after `np.clip` should land exactly on the cell's box `lo`/`hi` for at least one axis, and `_find_exit_registration` should find a match. Something about case 5's numerical flow is making this fail often enough to break 2 branches into 11 pieces. **Not investigating in this cycle per the workflow discipline**: the remaining iterations (Krawczyk tangency, final heuristic cleanup) may shift the picture, and then we look at case 5 with a clean implementation.
 
 **Outcome:** §9 assembly is wired — mechanism is correct in principle (case 6 proves it) but depends on `_find_exit_registration` matching on every well-posed sub-cell boundary. Net: +1 case now OK, −1 case now worse; overall closer to design.
+
+## 2026-04-18 — Iteration 9: Krawczyk tangency check (§6 step 3)
+
+**Goal:** wire the Krawczyk/Gauss-Newton tangency certificate between "both cheap certificates failed" and "subdivide". When `TΨ = 0` is certified to have a simultaneous root inside a cell, invoke the Φ-tracer (design §1.4, §8) instead of subdividing further — the Φ system has rank 3 at the tangent point where Ψ is rank-deficient, so marching Φ works there while marching Ψ does not.
+
+**Change:**
+- In the main decomposition loop, after the `_check_loop_free` branch and before `depth >= max_depth`, strip the cell's local homogeneous surfaces to cartesian, call `_check_tangency` on `(T1..T4, P1_cart_local, P2_cart_local, local_box=[0,1]⁴)`.
+- If `True`: convert `cell.crossings` to local stuv, call `_deflate_tangent_cell`, convert the Φ-traced branches back to global stuv, emit as unchained `_Fragment`s (their endpoints are not Ψ crossings, so they don't participate in §9 chaining).
+- If `None` / `False`: fall through to the existing subdivision path.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-8 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.1  | −0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.6  | +0.5 ms | OK |
+| tangential  | 1 / 1 |  9 | **3.97e-15** | 45.8  | +5.4 ms | **OK (machine precision)** |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.9  | +0.3 ms | OK |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1724.5 | +389 ms | MISMATCH (unchanged count) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 86.4  | +7.3 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Tangential residual drop** `1.62e-06 → 3.97e-15`: the Φ-tracer is now actually used. Previously the tangent case was tracing via the ordinary Ψ marcher, which converges poorly at `rank(J_Ψ) < 3`. Φ augments with a `TΨ` row to restore rank, so every marched point is numerically precise. Point count 9 (vs 12 before) — cleaner curve.
+
+**Case 5 timing +389 ms** is the cost of running Krawczyk on every sub-cell that fails both cheap certificates (36 of 50 sub-cells at top-profile). Not optimising in this cycle; iter-10 removes several dead heuristic helpers and may change the picture, and then case 5 gets its dedicated look.
+
+**Outcome:** §6 step 3 wired. Tangential now matches the design's intent for the first time in this session. No other regressions from the Krawczyk wiring itself.
