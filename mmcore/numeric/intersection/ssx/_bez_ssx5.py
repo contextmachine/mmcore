@@ -1467,6 +1467,21 @@ def _find_exit_registration(cell, stuv_end, tol_param=1e-4):
     return best
 
 
+@dataclass
+class _Fragment:
+    """A partial branch produced by one cell's tracer.
+
+    `start_point` / `end_point` refer to the actual `BoundaryPoint` objects
+    (shared across adjacent cells via shared `PartitionCurve`s when they sit
+    on an internal partition), so §9 assembly chains fragments by object
+    identity — no xyz proximity involved.
+    """
+    start_point: Optional[BoundaryPoint]
+    end_point: Optional[BoundaryPoint]
+    stuv_path: NDArray[np.float64]
+    xyz_path: NDArray[np.float64]
+
+
 def _consume_cell_directions(point: BoundaryPoint, cell, direction: str) -> None:
     """Mark all `point`'s registrations with the given direction in this cell
     as consumed. A single march at a multi-axis corner represents the whole
@@ -1486,7 +1501,7 @@ def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bo
 
 
 def _trace_cell_by_registrations(cell, atol):
-    """Design §7: trace branches inside a loop-free cell by following
+    """Design §7: trace fragments inside a loop-free cell by following
     unvisited boundary points with an `in` registration, matching exit
     points by exact `(partition, param)` identity on the cell's own
     partitions (Invariant D). Multi-axis corners are handled by consuming
@@ -1494,10 +1509,13 @@ def _trace_cell_by_registrations(cell, atol):
     the single march describes the curve's single passage through the
     corner, no matter how many cell faces the corner touches.
 
-    Returns `(branches, points)` in global coordinates.
+    Returns `(fragments, points)`. Fragments carry the actual
+    `BoundaryPoint` endpoints so the §9 assembly can chain them by
+    object identity (two fragments touching the same point on an internal
+    shared partition are two halves of the same through-curve).
     """
-    branches = []
-    points = []
+    fragments: list[_Fragment] = []
+    points: list = []
 
     # Collect unique start points: any BoundaryPoint owned by this cell
     # with at least one unconsumed `in` registration.
@@ -1516,7 +1534,6 @@ def _trace_cell_by_registrations(cell, atol):
         if not _cell_has_unused_direction(start_point, cell, "in"):
             continue  # consumed by a prior march that happened to touch this point
 
-        # Consume every `in` registration this point has in this cell.
         _consume_cell_directions(start_point, cell, "in")
 
         start_local = _global_to_local(start_point.stuv, cell.box)
@@ -1534,15 +1551,114 @@ def _trace_cell_by_registrations(cell, atol):
         stuv_global[0] = start_point.stuv.copy()
 
         end_reg = _find_exit_registration(cell, stuv_global[-1])
+        end_point: Optional[BoundaryPoint] = None
         if end_reg is not None:
-            stuv_global[-1] = end_reg.point.stuv.copy()
-            xyz_local[-1] = end_reg.point.xyz.copy()
-            _consume_cell_directions(end_reg.point, cell, "out")
+            end_point = end_reg.point
+            stuv_global[-1] = end_point.stuv.copy()
+            xyz_local[-1] = end_point.xyz.copy()
+            _consume_cell_directions(end_point, cell, "out")
 
-        if np.linalg.norm(stuv_global[-1] - stuv_global[0]) > 1e-10:
-            branches.append(SSXBranch(curve=(stuv_global, xyz_local)))
+        if np.linalg.norm(stuv_global[-1] - stuv_global[0]) <= 1e-10:
+            continue  # zero-length through-touch; no fragment recorded
 
-    return branches, points
+        fragments.append(_Fragment(
+            start_point=start_point,
+            end_point=end_point,
+            stuv_path=stuv_global,
+            xyz_path=xyz_local,
+        ))
+
+    return fragments, points
+
+
+def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
+    """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
+    full branches. Two fragments touching the same `BoundaryPoint` object
+    represent the same through-curve crossing an internal partition, one
+    from each adjacent cell — by Invariant A/B those are the only partial
+    branches the point can connect.
+    """
+    from collections import defaultdict
+
+    # Map each BoundaryPoint to the fragments that touch it.
+    touches: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    for i, f in enumerate(fragments):
+        if f.start_point is not None:
+            touches[id(f.start_point)].append((i, "start"))
+        if f.end_point is not None:
+            touches[id(f.end_point)].append((i, "end"))
+
+    consumed = [False] * len(fragments)
+    branches: list[SSXBranch] = []
+
+    def _pop_neighbour(pt: BoundaryPoint, self_idx: int) -> Optional[tuple[int, str]]:
+        pool = touches.get(id(pt), [])
+        for j, role in pool:
+            if j == self_idx or consumed[j]:
+                continue
+            return j, role
+        return None
+
+    for i, f in enumerate(fragments):
+        if consumed[i]:
+            continue
+        consumed[i] = True
+        chain: list[tuple[int, bool]] = [(i, False)]
+
+        # Walk forward: current_end becomes the end of the last fragment.
+        current_end = f.end_point
+        current_idx = i
+        while current_end is not None:
+            nb = _pop_neighbour(current_end, current_idx)
+            if nb is None:
+                break
+            j, role = nb
+            consumed[j] = True
+            # If the neighbour's `end` (not `start`) is the shared point, we
+            # must traverse it in reverse.
+            reverse = (role == "end")
+            chain.append((j, reverse))
+            g = fragments[j]
+            current_end = g.start_point if reverse else g.end_point
+            current_idx = j
+
+        # Walk backward.
+        current_start = f.start_point
+        current_idx = i
+        while current_start is not None:
+            nb = _pop_neighbour(current_start, current_idx)
+            if nb is None:
+                break
+            j, role = nb
+            consumed[j] = True
+            # Neighbour's `start` matching means the neighbour runs INTO our
+            # current_start, so we must reverse it to prepend.
+            reverse = (role == "start")
+            chain.insert(0, (j, reverse))
+            g = fragments[j]
+            current_start = g.end_point if reverse else g.start_point
+            current_idx = j
+
+        # Concatenate chain, dropping the duplicated shared-point sample
+        # between adjacent pieces.
+        stuv_pieces = []
+        xyz_pieces = []
+        for k, (idx, rev) in enumerate(chain):
+            g = fragments[idx]
+            stuv_seg = g.stuv_path[::-1] if rev else g.stuv_path
+            xyz_seg = g.xyz_path[::-1] if rev else g.xyz_path
+            if k == 0:
+                stuv_pieces.append(stuv_seg)
+                xyz_pieces.append(xyz_seg)
+            else:
+                stuv_pieces.append(stuv_seg[1:])
+                xyz_pieces.append(xyz_seg[1:])
+
+        stuv_full = np.concatenate(stuv_pieces, axis=0)
+        xyz_full = np.concatenate(xyz_pieces, axis=0)
+        branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
+
+    return branches
 
 
 def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
@@ -1979,13 +2095,14 @@ def bez_ssx(
     if _check_loop_free(g1, g2, T1, T2, T3, T4):
         if not crossings and not overlap_branches:
             return {'branches': [], 'points': []}
-        branches, points = _trace_cell_by_registrations(top_cell, atol)
+        fragments, points = _trace_cell_by_registrations(top_cell, atol)
+        branches = _assemble_fragments(fragments)
         branches.extend(overlap_branches)
         return {'branches': branches, 'points': points}
 
     # --- ITERATIVE DOMAIN DECOMPOSITION ---
     stack = [top_cell]
-    all_branches = list(overlap_branches)
+    all_fragments: list[_Fragment] = []
     all_points = []
 
     while stack:
@@ -1996,8 +2113,8 @@ def bez_ssx(
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
             if cell.crossings:
-                br, pt = _trace_cell_by_registrations(cell, atol)
-                all_branches.extend(br)
+                fr, pt = _trace_cell_by_registrations(cell, atol)
+                all_fragments.extend(fr)
                 all_points.extend(pt)
             continue
 
@@ -2010,13 +2127,10 @@ def bez_ssx(
         cx_idx, cut_axis = _choose_cut(cell.crossings, cell.box)
 
         if cx_idx is None:
-            # Can't cut — trace directly
+            # Can't cut — trace directly via registrations (§7).
             if cell.crossings:
-                br, pt = _trace_all_branches(
-                    cell.g1.surface, cell.g2.surface,
-                    cell.crossings, cell.box, atol,
-                )
-                all_branches.extend(br)
+                fr, pt = _trace_cell_by_registrations(cell, atol)
+                all_fragments.extend(fr)
                 all_points.extend(pt)
             continue
 
@@ -2122,9 +2236,9 @@ def bez_ssx(
                 _classify_boundary_point(c, R_cell)
             stack.append(R_cell)
 
-    # --- Post-processing: merge + dedup ---
-    all_branches = _merge_adjacent_branches(all_branches, atol)
-    all_branches = _dedup_branches(all_branches, atol)
+    # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
+    all_branches = _assemble_fragments(all_fragments)
+    all_branches.extend(overlap_branches)
     return {'branches': all_branches, 'points': all_points}
 
 

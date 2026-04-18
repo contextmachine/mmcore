@@ -213,3 +213,33 @@ These are iter-7 and iter-8. Case 5 is expected to return to 2 branches once bot
 **Verification of sharing.** Case 5 instrumentation: 49 cells produced by 24 splits, yielding 24 distinct `PartitionCurve` objects with `len(adjacents) == 2` — exactly one per split. Outer partitions (the 8 boundary faces of any sub-cell that isn't on the cut) remain unshared with `len(adjacents) == 1`. Total: 368 partition objects across 49 cells, as expected for unshared outer + shared internal.
 
 **Outcome:** structural enabler for iter-8 is in place. No behaviour change — no consumer reads `adjacents` yet. Case 5 still MISMATCH at 3 branches; next iter wires the cross-cell assembly and is expected to close it.
+
+## 2026-04-18 — Iteration 8: §9 cross-cell fragment assembly
+
+**Goal:** replace `_merge_adjacent_branches` + `_dedup_branches` (xyz-proximity heuristics) with design §9 — chain tracer output by *shared `BoundaryPoint` identity*. The same physical crossing on an internal partition is the SAME `BoundaryPoint` object shared by L and R, so chaining is exact by `id()`.
+
+**Change:**
+- Added `_Fragment` dataclass carrying `start_point`, `end_point`, `stuv_path`, `xyz_path`.
+- `_trace_cell_by_registrations` now returns `list[_Fragment]` instead of `list[SSXBranch]`; fragments with an unmatched endpoint carry `end_point=None`.
+- Added `_assemble_fragments` — builds an `id(BoundaryPoint) → list[(frag_idx, role)]` index, then walks chains forward and backward by shared endpoints, reversing fragments as needed so the chain reads head-to-tail. Concatenates each chain into one `SSXBranch`.
+- Main loop now accumulates `all_fragments` across every cell; final assembly runs once at the end.
+- `_merge_adjacent_branches` / `_dedup_branches` are no longer called.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-7 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.2  | +0.2 ms   | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.1  | −0.1 ms   | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 40.4  | +1.0 ms   | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.6  | 0.0 ms    | OK |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1335.5 | +638 ms | **MISMATCH (worse)** |
+| case6       | **2 / 2** | 20 | 1.63e-04 | 79.1  | +0.9 ms | **OK (first time)** |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Case 6 now matches.** The first iteration that gets case 6's branch count right. The cross-cell fragment chaining naturally links the loop fragments that were split across sub-cells. (Residual 1.63e-4 is loose vs `atol=1e-3` but not worse than the marcher's inherent step error — the branches themselves are topologically correct.)
+
+**Case 5 regression (11 vs 2).** Instrumentation: 18 fragments produced across all cells, 12 of which have `end_point = None` (the marcher's exit stuv was not matched by `_find_exit_registration`). Assembly can chain only fragments whose endpoints are the *same object*; a fragment with `end_point = None` terminates a chain immediately. 12 dead-end fragments + 6 chained → 11 assembled branches.
+
+The root cause is `_find_exit_registration`'s failure rate on case-5 sub-cell boundaries, not the assembly itself. The marcher's stopping point after `np.clip` should land exactly on the cell's box `lo`/`hi` for at least one axis, and `_find_exit_registration` should find a match. Something about case 5's numerical flow is making this fail often enough to break 2 branches into 11 pieces. **Not investigating in this cycle per the workflow discipline**: the remaining iterations (Krawczyk tangency, final heuristic cleanup) may shift the picture, and then we look at case 5 with a clean implementation.
+
+**Outcome:** §9 assembly is wired — mechanism is correct in principle (case 6 proves it) but depends on `_find_exit_registration` matching on every well-posed sub-cell boundary. Net: +1 case now OK, −1 case now worse; overall closer to design.
