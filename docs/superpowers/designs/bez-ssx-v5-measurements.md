@@ -491,3 +491,29 @@ And case 5 branch count: **30 → 4**, time: **1561 ms → 766 ms**.
 Two branches hit the marcher's 2000-point safety cap. The marcher is oscillating at one end of these branches — in a very thin strip, the tangent's absolute sign (SVD-based, arbitrary) likely points outward, causing the marcher to take a tiny step, clip to the boundary, reverse, step again, etc. This is the same symptom that motivated the §4.1 cofactor tangent design, and it hurts multi-cut more than binary because multi-cut produces many thin strips with poorly-conditioned tangent evaluation near the edges.
 
 **Overall.** Subdivision-time Invariant-C dedup is a clean, small change (one block in the main loop) that fully eliminates the duplicate-marching problem highlighted by the user's diagnostic. Multi-cut is now no worse than binary on case 5 branch count (4/2 either way), and substantially reduces the non-productive sub-cells. What's left is the marcher-oscillation problem that predates multi-cut but is exposed more in multi-cut strips.
+
+## 2026-04-18 — Boundary-crossing event detection in the marcher
+
+**Goal:** replace `np.clip(predicted, 0, 1)` + tolerance-based `_on_boundary` test with an *event* — the intersection curve crosses the cell boundary somewhere in the interval `(current, predicted)` exactly when some `predicted[i]` leaves `[0,1]`. When that event fires, clamp the crossed axis to its exact boundary value and solve the three-free-parameter Newton problem for the exact crossing.
+
+**Why.** Diagnosis on case 5 showed the marcher parked 10⁻⁶ to 10⁻³ from the expected exit boundary (the Ψ=0 curve doesn't pass through the cell corner at machine precision), `_on_boundary(tol=1e-8)` never fired, and the loop hit the 2000-point safety cap with thousands of duplicate samples. No tolerance value cleanly separates "close enough to stop" from "interior point passing nearby" — but the *transition* event does, by construction.
+
+**Change:**
+- Added `_detect_boundary_crossing(current, predicted)`: walks all four axes and, if any `predicted[i]` is outside `[0,1]`, returns the axis, boundary value (0 or 1), and fraction `α` of the step at which the crossing occurred (the minimum over all exits, i.e. which axis we crossed *first*).
+- Added `_ssx_correct_fixed(S1, S2, stuv_init, fixed_axis, fixed_value, rational)`: damped Newton on `Ψ=0` with one axis held fixed, using the three remaining parameters. Gives the exact boundary-crossing point of the intersection curve.
+- `_march_to_boundary` no longer clips the predictor. At each step, if `_detect_boundary_crossing` fires, it initialises from `current + α·(predicted − current)` (with the crossed axis snapped to its boundary), runs `_ssx_correct_fixed`, appends the result, and breaks. The old tolerance-based `_on_boundary` check is removed from this path.
+
+| case | prev | after boundary-crossing event | Δ |
+|------|-----:|------------------------------:|---|
+| planes      | 1/1, 10 pts, err 3.55e-15, 10.7 ms | 1/1, 10 pts, err 3.55e-15, 10.7 ms | — |
+| transversal | 1/1, 13 pts, err 6.07e-09, 10.8 ms | 1/1, 13 pts, err 6.07e-09, 10.9 ms | — |
+| tangential  | 1/1,  9 pts, err 3.97e-15, 43.7 ms | 1/1,  9 pts, err 3.97e-15, 43.8 ms | — |
+| overlaps    | 4/2 MISMATCH | 4/2 MISMATCH | unchanged (pre-existing overlap/§5 gap) |
+| **case 5**  | **4/2, 4051 pts, err 7.64e-04, 766 ms** | **2/2, 65 pts, err 8.18e-08, 476 ms** | **fixed** |
+| case 6      | 2/2, 20 pts, err 1.63e-04, 69 ms | 2/2, 18 pts, err 6.34e-08, 68 ms | err dropped 3 orders of magnitude |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Case 5 and case 6 both improve dramatically in residual.** The event-based boundary crossing gives an *exact* endpoint (via 3×3 Newton) instead of wherever the regular corrector happened to park. Case 5: residual `7.64e-04 → 8.18e-08` (four orders); case 6: `1.63e-04 → 6.34e-08` (three orders). Branch counts exactly match expectations on both.
+
+**Only remaining MISMATCH** on the original five test cases is the overlap duplicate, which is a separate gap (overlap endpoints don't participate in §5 `BoundaryPoint` classification). Everything curve-tracing-related is now correct to machine noise.

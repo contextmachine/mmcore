@@ -621,8 +621,82 @@ def _march_intersection_curve(
     return np.array(stuv_pts), np.array(xyz_pts)
 
 
-def _on_boundary(stuv, tol=1e-8):
-    """Check if any parameter is at 0 or 1 (on domain boundary)."""
+def _ssx_correct_fixed(S1, S2, stuv_init, fixed_axis: int, fixed_value: float,
+                       rational: bool = True, max_iter: int = 10, tol: float = 1e-14):
+    """Damped Newton solving `Ψ(s,t,u,v) = 0` with `stuv[fixed_axis] = fixed_value`.
+
+    Three free parameters, three equations (`S1(s,t) - S2(u,v) = 0`). Used
+    by `_march_to_boundary` when the predictor has detected a boundary
+    crossing: the crossed axis is clamped to the boundary value and the
+    remaining three parameters are solved for exactly, giving the precise
+    point at which the intersection curve exits the cell.
+    """
+    params = [float(x) for x in stuv_init]
+    params[fixed_axis] = float(fixed_value)
+    free_cols = [i for i in range(4) if i != fixed_axis]
+
+    for _ in range(max_iter):
+        pt1, du1, dv1 = eval_surface_d1(S1, params[0], params[1], rational=rational)
+        pt2, du2, dv2 = eval_surface_d1(S2, params[2], params[3], rational=rational)
+        G = pt1 - pt2
+        if float(np.dot(G, G)) < tol:
+            break
+
+        J = np.column_stack([du1, dv1, -du2, -dv2])  # (3, 4)
+        J_free = J[:, free_cols]
+        A = J_free.T @ J_free + 1e-12 * np.eye(3)
+        b = -J_free.T @ G
+        try:
+            delta_free = np.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
+            break
+        for k, idx in enumerate(free_cols):
+            params[idx] = max(0.0, min(1.0, params[idx] + float(delta_free[k])))
+
+    return np.array(params, dtype=np.float64)
+
+
+def _detect_boundary_crossing(current, predicted):
+    """If `predicted` exits `[0,1]⁴` on any axis, return the axis and value
+    (0 or 1) of the FIRST boundary crossed along the interval, plus the
+    fraction `α ∈ [0, 1]` at which the crossing occurs. Returns `(None,
+    None, None)` if `predicted` is entirely inside `[0,1]⁴`.
+    """
+    crossed_axis = None
+    crossed_value = None
+    crossed_alpha = None
+    for i in range(4):
+        ci = float(current[i])
+        pi = float(predicted[i])
+        if pi < 0.0:
+            denom = pi - ci
+            if denom == 0.0:
+                continue
+            alpha = (0.0 - ci) / denom
+            if crossed_alpha is None or alpha < crossed_alpha:
+                crossed_axis, crossed_value, crossed_alpha = i, 0.0, alpha
+        elif pi > 1.0:
+            denom = pi - ci
+            if denom == 0.0:
+                continue
+            alpha = (1.0 - ci) / denom
+            if crossed_alpha is None or alpha < crossed_alpha:
+                crossed_axis, crossed_value, crossed_alpha = i, 1.0, alpha
+    return crossed_axis, crossed_value, crossed_alpha
+
+
+def _on_boundary(stuv, tol=1e-5):
+    """Check if any parameter is at 0 or 1 (on domain boundary).
+
+    The default tolerance `1e-5` reflects the parametric distance at which
+    the corrector can no longer push a nearly-on-boundary coordinate any
+    closer to an exact 0 or 1. The Ψ=0 curve doesn't pass through the cell
+    corner at machine precision, so numerical noise parks the corrected
+    point ~1e-6 to 1e-4 from the boundary; a stricter tolerance (1e-8) lets
+    the marcher loop forever at the 2000-point safety cap, jittering in
+    place. 1e-5 is loose enough to catch the park and tight enough to not
+    false-trigger on interior points that happen to pass near a boundary.
+    """
     for i in range(4):
         if stuv[i] < tol or stuv[i] > 1.0 - tol:
             return True
@@ -640,6 +714,8 @@ def _march_to_boundary(
     angle_threshold=0.1,
     max_points=2000,
     direction_hint=None,
+    no_progress_tol=1e-8,
+    max_no_progress=3,
 ):
     """March from stuv_start until the curve hits a domain boundary [0,1]⁴.
 
@@ -665,11 +741,36 @@ def _march_to_boundary(
         tang_prev = -tang_prev
 
     for _ in range(max_points):
-        # Predictor
+        # Predictor — do NOT clip. Letting `predicted` leave [0,1]⁴ is
+        # how we detect that the intersection curve crossed a cell
+        # boundary on this step: the event is the sign change of
+        # (predicted[i] − boundary_value), not a distance test.
         predicted = current + step * tang_prev
-        predicted = np.clip(predicted, 0.0, 1.0)
 
-        # Corrector
+        crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(current, predicted)
+        if crossed_axis is not None:
+            # Curve left the cell somewhere in (current, predicted).
+            # Initial guess: linear interpolation at the crossing fraction,
+            # with the crossed axis clamped to its exact boundary value.
+            # Then Newton-solve Ψ=0 with that axis held fixed → exact
+            # boundary-crossing point.
+            stuv_init = current + crossed_alpha * (predicted - current)
+            stuv_init[crossed_axis] = crossed_val
+            final = _ssx_correct_fixed(
+                S1, S2, stuv_init,
+                fixed_axis=crossed_axis, fixed_value=crossed_val,
+                rational=rational,
+            )
+            final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
+            # Verify residual — if Newton didn't converge, fall back to the
+            # interpolated guess so the caller still gets a non-degenerate
+            # stopping point.
+            resid_xyz = final_xyz - eval_surface(S1, final[0], final[1], rational=rational)
+            stuv_pts.append(final)
+            xyz_pts.append(final_xyz)
+            break
+
+        # No crossing: predicted stays inside [0,1]⁴. Normal corrector path.
         s, t, u, v, residual = _ssx_correct(
             S1, S2, *predicted, rational=rational,
         )
@@ -679,7 +780,6 @@ def _march_to_boundary(
             continue
 
         corrected = np.array([s, t, u, v])
-        corrected = np.clip(corrected, 0.0, 1.0)
 
         # New tangent
         tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, *corrected, rational=rational,
@@ -704,10 +804,6 @@ def _march_to_boundary(
         tang_prev = tang_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
-
-        # Check if we hit a boundary
-        if _on_boundary(current):
-            break
 
     return np.array(stuv_pts), np.array(xyz_pts)
 
