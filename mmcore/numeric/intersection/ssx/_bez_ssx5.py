@@ -1669,25 +1669,35 @@ def _classify_on_axis(local_param: int, tangent_component: float) -> Optional[st
     return None
 
 
-def _build_outer_partitions(owner_cell: "_Cell") -> list[PartitionCurve]:
-    """Create the 8 outer partitions of the top-level [0,1]⁴ for a cell that
-    spans the full [0,1]⁴ (so box[i] == (0.0, 1.0) for every axis).
+def _build_cell_partitions(owner_cell: "_Cell") -> list[PartitionCurve]:
+    """Create the 8 partitions corresponding to a cell's 8 box faces.
 
-    Each outer partition is an edge isoline of S1 or S2 held at one of its
-    boundary values 0 or 1; the free axis is the surface's other axis.
+    Each partition is the isoline fixing one of the cell's axes at its lower
+    or upper box bound; the free axis is the owning surface's other axis,
+    with extent equal to the cell's box range on that axis.
+
+    For the top-level cell (box = [0,1]⁴) this yields the 8 outer faces of
+    the full parameter domain; for a sub-cell it yields its own 8 faces in
+    global coordinates. Partitions are unshared at this stage — cross-cell
+    matching across internal partitions is handled in a later iteration.
     """
     parts: list[PartitionCurve] = []
     for axis in range(4):
         free = _partition_free_axis(axis)
         extent = owner_cell.box[free]
-        for side in (0, 1):
+        for side_idx in (0, 1):
+            value = owner_cell.box[axis][side_idx]
             p = PartitionCurve(
-                axis=axis, value=float(side),
+                axis=axis, value=float(value),
                 free_axis=free, global_extent=(float(extent[0]), float(extent[1])),
                 adjacents=[owner_cell], registrations=[],
             )
             parts.append(p)
     return parts
+
+
+# Back-compat: earlier code references this name for the top-level call.
+_build_outer_partitions = _build_cell_partitions
 
 
 def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -> Optional[int]:
@@ -1968,13 +1978,21 @@ def bez_ssx(
         box_R = tuple(box_R)
 
         if left_cx:
-            stack.append(_Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
-                               box=box_L, depth=cell.depth + 1,
-                               T1=T1_L, T2=T2_L, T3=T3_L, T4=T4_L))
+            L_cell = _Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
+                           box=box_L, depth=cell.depth + 1,
+                           T1=T1_L, T2=T2_L, T3=T3_L, T4=T4_L)
+            L_cell.partitions = _build_cell_partitions(L_cell)
+            for c in left_cx:
+                _classify_boundary_point(c, L_cell)
+            stack.append(L_cell)
         if right_cx:
-            stack.append(_Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
-                               box=box_R, depth=cell.depth + 1,
-                               T1=T1_R, T2=T2_R, T3=T3_R, T4=T4_R))
+            R_cell = _Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
+                           box=box_R, depth=cell.depth + 1,
+                           T1=T1_R, T2=T2_R, T3=T3_R, T4=T4_R)
+            R_cell.partitions = _build_cell_partitions(R_cell)
+            for c in right_cx:
+                _classify_boundary_point(c, R_cell)
+            stack.append(R_cell)
 
     # --- Post-processing: merge + dedup ---
     all_branches = _merge_adjacent_branches(all_branches, atol)

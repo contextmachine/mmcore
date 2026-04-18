@@ -135,3 +135,26 @@ Classification of this single intersection line is now trivially readable from t
 - *Case 5*: 4 crossings, all on t faces. Partition t=0 has 2 `in`s at `s=0.243` and `s=0.748`; partition t=1 has 2 `out`s at `s=0.282` and `s=0.763`. The expected two open branches are visible as `in ↔ out` pairs — ready for a consumer.
 
 **Outcome:** top-level §4 classification landed with zero behaviour change. Registrations are correct and complete for the top-level cell. Iter-5: propagate partitions into sub-cells and classify the crossings created at subdivision time.
+
+## 2026-04-18 — Iteration 5: §4 classification at sub-cells
+
+**Goal:** extend §4 classification to every `_Cell` in the decomposition stack — not just the top cell. Every sub-cell is created with its own 8 partitions (unshared for now; cross-cell linkage is a later iteration), and every crossing it owns is registered against those partitions using the same `(local_param, sign)` table.
+
+**Change:**
+- Renamed `_build_outer_partitions` → `_build_cell_partitions`, generalized to any cell (uses `cell.box[axis][side]` as the fixed `value` and `cell.box[free]` as the extent). Back-compat alias kept.
+- In the main loop's subdivision branch, after creating L and R sub-cells: build their partitions and run `_classify_boundary_point` on every crossing assigned to each side.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-4 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | +0.2 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.3  | +0.5 ms  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.2  | +0.1 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.4  | +0.3 ms  | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 520.4 | +13.1 ms | OK (~2.6 %) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 79.0  | +3.0 ms  | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Validation** (case 5): 49 `_Cell`s total are created; every one has 8 partitions. A crossing at `stuv = (0.748, 0, 0.804, 0.222)` accumulates 79 registrations across the full decomposition tree — one per cell whose boundary it sits on — and in the specific cell where it is *both* `s = 0.748` (cell's s-hi) and `t = 0` (cell's t-lo) it acquires 2 registrations (one per on-boundary axis), matching §4 exactly.
+
+**Outcome:** complete §4 classification at every level. ~2.6 % case-5 slowdown from the extra per-sub-cell classification work — acceptable cost for producer-side completion, and consumer iterations are expected to remove the current proximity scans that dominate wall time. Still no consumer using the registrations; iter-6 begins that work.
