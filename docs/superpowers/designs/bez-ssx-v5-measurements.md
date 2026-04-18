@@ -269,3 +269,40 @@ The root cause is `_find_exit_registration`'s failure rate on case-5 sub-cell bo
 **Case 5 timing +389 ms** is the cost of running Krawczyk on every sub-cell that fails both cheap certificates (36 of 50 sub-cells at top-profile). Not optimising in this cycle; iter-10 removes several dead heuristic helpers and may change the picture, and then case 5 gets its dedicated look.
 
 **Outcome:** §6 step 3 wired. Tangential now matches the design's intent for the first time in this session. No other regressions from the Krawczyk wiring itself.
+
+## 2026-04-18 — Iteration 10: remove retained heuristics
+
+**Goal:** delete every heuristic / dead-code path listed in the audit so the implementation contains only design-sanctioned structures. Nothing in the design refers to these functions anymore; they were kept alive only by legacy call sites.
+
+**Removed:**
+- `SubdomainCell` dataclass (unused)
+- `_is_on_both_boundaries` (unused)
+- `_crossing_on_box_boundary`, `_crossing_in_box_interior`, `_domain_decompose` (unused)
+- `_process_monotonic_case` + `_trace_segment` (unused after iter-8 killed the last call site)
+- `_is_cell_corner`, `_tangent_enters_cell`, `_filter_corner_touches` (heuristics for the old tracer)
+- `_trace_all_branches` (old proximity-matching tracer — replaced by `_trace_cell_by_registrations` in iter-6)
+- `_merge_adjacent_branches`, `_dedup_branches` (xyz-proximity merge/dedup — replaced by `_assemble_fragments` in iter-8)
+- Overlap sub-segment containment block in `_overlaps_to_branches` (lines 1291–1322 before this cut — duplicate-overlap filter by xyz containment)
+
+`_pair_crossings_for_tracing` is intentionally retained: it is a `.face`-based crossing pairer used *only inside* the Φ tracer (`_deflate_tangent_cell`). Design §8 leaves the Φ-tracer's own pairing as a follow-up; cleaning it requires reconsidering how registrations interact with the Φ system.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-9 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.2  | +0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.4  | −0.2 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 47.2  | +1.4 ms | OK |
+| overlaps    | **3 / 2** | 6 | 2.87e+02 | 18.8 | −0.1 ms | **MISMATCH (new)** |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1743.2 | +18.7 ms | MISMATCH |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 91.2  | +4.8 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**
+- File size: 1925 lines (was 2082 lines before iter-10 — net −157 from this cut, with earlier iters having grown the file by a similar amount).
+
+**Overlaps regression**: one of the duplicate overlap branches is now emitted as a third branch. The deleted sub-segment containment was filtering a shorter overlap whose endpoints lay on a longer one. Removing it reveals a real issue in `_find_ssx_boundary_zeros` / `_overlaps_to_branches`: duplicate overlaps are still being produced at the boundary-CSX level. The design's §5 Invariant C applies to overlap endpoints too (stuv-identity, not xyz), and overlap classification + registration is not yet implemented — §5 only covers `BoundaryPoint`s. Cleaning this up is its own follow-up.
+
+**Outcome:** implementation now matches the design except for:
+  1. Overlap branches don't follow §5 (no `BoundaryPoint` / registration integration).
+  2. Φ-tracer's `_pair_crossings_for_tracing` is still a `.face`-based heuristic.
+  3. The `_find_exit_registration` matching is not 100 % reliable on case 5 sub-cell boundaries (the case-5 MISMATCH).
+
+End of the "bring impl to design" phase. Next: investigate case 5 specifically with the clean codebase.

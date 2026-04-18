@@ -104,15 +104,6 @@ class BoundaryOverlap:
     face: tuple[int, int]            # (axis 0-3, side 0-1)
 
 
-@dataclass
-class SubdomainCell:
-    """A sub-box of [0,1]⁴ produced by domain decomposition."""
-    box: tuple[tuple[float, float], ...]  # 4 axis ranges
-    crossings: list[BoundaryPoint] = field(default_factory=list)
-    is_monotonic: bool = False
-    mono_axis: Optional[int] = None
-
-
 # ---------------------------------------------------------------------------
 # Level 1: Pruning
 # ---------------------------------------------------------------------------
@@ -261,19 +252,6 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     return crossings, overlaps
 
 
-def _is_on_both_boundaries(stuv, tol=1e-10):
-    """Check if a point in [0,1]⁴ lies on a boundary of BOTH S1 and S2.
-
-    S1 params: (s, t) = stuv[0:2], boundary if any is near 0 or 1.
-    S2 params: (u, v) = stuv[2:4], boundary if any is near 0 or 1.
-
-    Returns True if the point is on at least one S1 boundary AND at least one S2 boundary.
-    """
-    on_s1 = any(abs(stuv[i]) < tol or abs(stuv[i] - 1.0) < tol for i in (0, 1))
-    on_s2 = any(abs(stuv[i]) < tol or abs(stuv[i] - 1.0) < tol for i in (2, 3))
-    return on_s1 and on_s2
-
-
 def _dedup_crossings(crossings, atol):
     """Unify crossings with identical stuv.
 
@@ -418,111 +396,6 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
 # ---------------------------------------------------------------------------
 # Level 4a: Domain decomposition
 # ---------------------------------------------------------------------------
-
-def _crossing_on_box_boundary(c, box, tol=1e-10):
-    """Check if a BoundaryCrossing lies on the boundary of a sub-box."""
-    stuv = c.stuv
-    for axis in range(4):
-        lo, hi = box[axis]
-        if abs(stuv[axis] - lo) < tol or abs(stuv[axis] - hi) < tol:
-            # At least one coordinate is on the boundary
-            pass
-        elif stuv[axis] < lo - tol or stuv[axis] > hi + tol:
-            return False
-    # All coordinates within [lo-tol, hi+tol]
-    return True
-
-
-def _crossing_in_box_interior(c, box, tol=1e-10):
-    """Check if a crossing is strictly inside a box (not on its boundary)."""
-    stuv = c.stuv
-    for axis in range(4):
-        lo, hi = box[axis]
-        if stuv[axis] < lo + tol or stuv[axis] > hi - tol:
-            return False
-    return True
-
-
-def _domain_decompose(crossings, box):
-    """Subdivide the 4D box at isoparametric lines through crossing points.
-
-    From Krishnan & Manocha (1997): place cuts at the parameter values of
-    boundary crossings along the monotonic axis. Since the curve is monotonic
-    in that axis, each sub-cell between two consecutive crossing values
-    contains at most one curve segment.
-
-    For 4 crossings with monotonic axis i, we sort by axis i values and
-    cut between consecutive pairs. Each resulting sub-cell gets exactly the
-    crossings on its boundary.
-
-    Parameters
-    ----------
-    crossings : list of BoundaryCrossing
-    box : tuple of (lo, hi) for 4 axes
-
-    Returns
-    -------
-    list of SubdomainCell
-    """
-    if len(crossings) <= 2:
-        return [SubdomainCell(box=box, crossings=list(crossings), is_monotonic=True)]
-
-    # Find the best axis to cut on: the one that separates crossings most evenly.
-    # For each axis, collect the crossing values and see if cuts produce good cells.
-    best_axis = None
-    best_score = -1
-
-    for axis in range(4):
-        vals = sorted(set(round(c.stuv[axis], 10) for c in crossings))
-        # Skip if all crossings have the same value on this axis
-        if len(vals) <= 1:
-            continue
-        # Score: number of distinct cut values (more = better separation)
-        score = len(vals)
-        if score > best_score:
-            best_score = score
-            best_axis = axis
-
-    if best_axis is None:
-        # All crossings have identical coordinates — can't decompose
-        return [SubdomainCell(box=box, crossings=list(crossings), is_monotonic=True)]
-
-    # Sort crossings by the chosen axis
-    sorted_crossings = sorted(crossings, key=lambda c: c.stuv[best_axis])
-    cut_values = sorted(set(round(c.stuv[best_axis], 10) for c in sorted_crossings))
-
-    # Create sub-boxes by cutting at midpoints between consecutive crossing values
-    sub_cells = []
-    lo_orig, hi_orig = box[best_axis]
-
-    # Build cut boundaries: [lo, mid01, mid12, ..., hi]
-    boundaries = [lo_orig]
-    for i in range(len(cut_values) - 1):
-        mid = 0.5 * (cut_values[i] + cut_values[i + 1])
-        boundaries.append(mid)
-    boundaries.append(hi_orig)
-
-    for i in range(len(boundaries) - 1):
-        sub_lo = boundaries[i]
-        sub_hi = boundaries[i + 1]
-        if sub_hi - sub_lo < 1e-15:
-            continue
-
-        sub_box = list(box)
-        sub_box[best_axis] = (sub_lo, sub_hi)
-        sub_box = tuple(sub_box)
-
-        # Find crossings that lie on this sub-box's boundary
-        cell_crossings = [c for c in crossings if _crossing_on_box_boundary(c, sub_box, tol=1e-6)]
-
-        sub_cells.append(SubdomainCell(
-            box=sub_box,
-            crossings=cell_crossings,
-            is_monotonic=True,
-        ))
-
-    return sub_cells
-
 
 # ---------------------------------------------------------------------------
 # Level 4a: Marching with curvature-adaptive step
@@ -834,24 +707,8 @@ def _march_to_boundary(
     return np.array(stuv_pts), np.array(xyz_pts)
 
 
-def _trace_segment(S1_h, S2_h, stuv_start, stuv_end, box, atol, rational=True):
-    """Trace an intersection curve segment between two boundary crossings.
-
-    Returns an SSXBranch with the traced curve, or None if tracing fails.
-    """
-    stuv_path, xyz_path = _march_intersection_curve(
-        S1_h, S2_h, stuv_start, stuv_end,
-        atol=atol, rational=rational,
-    )
-
-    if len(stuv_path) < 2:
-        return None
-
-    return SSXBranch(curve=(stuv_path, xyz_path))
-
-
 # ---------------------------------------------------------------------------
-# Level 5: Assemble + pair crossings for tracing
+# Φ-tracer crossing pairing — used only inside _deflate_tangent_cell (§8)
 # ---------------------------------------------------------------------------
 
 def _pair_crossings_for_tracing(crossings):
@@ -890,57 +747,6 @@ def _pair_crossings_for_tracing(crossings):
         remaining.pop(best_i)
 
     return pairs, remaining
-
-
-def _process_monotonic_case(S1_h, S2_h, crossings, box, atol, rational, mono_axis=None):
-    """Process a monotonic cell: sort by monotonic axis, trace consecutive pairs.
-
-    Since the curve is monotonic in one variable, all crossings on the same
-    curve component are ordered by that variable. Sorting and chaining
-    consecutive pairs produces the correct topology.
-
-    Adjacent segments are merged into a single branch.
-
-    Returns (branches, points).
-    """
-    if not crossings:
-        return [], []
-
-    if len(crossings) == 1:
-        return [], [SSXPoint(stuv=crossings[0].stuv, xyz=crossings[0].xyz)]
-
-    # Sort crossings by the monotonic axis parameter
-    if mono_axis is not None:
-        sorted_cx = sorted(crossings, key=lambda c: c.stuv[mono_axis])
-    else:
-        # Fallback: sort by the axis with the widest spread
-        spreads = []
-        for axis in range(4):
-            vals = [c.stuv[axis] for c in crossings]
-            spreads.append(max(vals) - min(vals))
-        best_axis = int(np.argmax(spreads))
-        sorted_cx = sorted(crossings, key=lambda c: c.stuv[best_axis])
-
-    # Trace between consecutive pairs and merge into a single branch
-    all_stuv = [sorted_cx[0].stuv.copy()]
-    all_xyz = [sorted_cx[0].xyz.copy()]
-
-    for k in range(len(sorted_cx) - 1):
-        stuv_a = sorted_cx[k].stuv
-        stuv_b = sorted_cx[k + 1].stuv
-        seg = _trace_segment(S1_h, S2_h, stuv_a, stuv_b, box, atol, rational)
-        if seg is not None:
-            stuv_path, xyz_path = seg.curve
-            # Append all points except the first (it's the previous endpoint)
-            all_stuv.extend(stuv_path[1:])
-            all_xyz.extend(xyz_path[1:])
-        else:
-            # Tracing failed — just add the endpoint directly
-            all_stuv.append(stuv_b.copy())
-            all_xyz.append(sorted_cx[k + 1].xyz.copy())
-
-    branch = SSXBranch(curve=(np.array(all_stuv), np.array(all_xyz)))
-    return [branch], []
 
 
 # ---------------------------------------------------------------------------
@@ -1288,39 +1094,6 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
         xyz_path = np.stack([xyz_start, xyz_end], axis=0)
         branches.append(SSXBranch(curve=(stuv_path, xyz_path), overlap=True))
 
-    # Remove sub-segment overlaps: if a shorter overlap is geometrically
-    # contained within a longer one (both endpoints of the shorter lie on
-    # the longer's line segment), remove the shorter.
-    if len(branches) > 1:
-        to_remove = set()
-        for i in range(len(branches)):
-            if i in to_remove:
-                continue
-            _, xyz_i = branches[i].curve
-            a_i, b_i = xyz_i[0], xyz_i[-1]
-            len_i = np.linalg.norm(b_i - a_i)
-            for j in range(len(branches)):
-                if i == j or j in to_remove:
-                    continue
-                _, xyz_j = branches[j].curve
-                a_j, b_j = xyz_j[0], xyz_j[-1]
-                len_j = np.linalg.norm(b_j - a_j)
-                if len_i >= len_j:
-                    continue  # only check if i is shorter than j
-                # Check if both endpoints of i lie on segment j
-                # Point p is on segment (a, b) if: |a-p| + |p-b| ≈ |a-b|
-                for p in [a_i, b_i]:
-                    d_ap = np.linalg.norm(p - a_j)
-                    d_pb = np.linalg.norm(p - b_j)
-                    if abs(d_ap + d_pb - len_j) > atol:
-                        break  # This endpoint is NOT on segment j
-                else:
-                    # Both endpoints of i lie on segment j — i is contained
-                    to_remove.add(i)
-                    break
-        if to_remove:
-            branches = [b for k, b in enumerate(branches) if k not in to_remove]
-
     return branches
 
 
@@ -1379,62 +1152,8 @@ def _global_to_local(stuv_global, box):
 
 
 # ---------------------------------------------------------------------------
-# Trace all branches: marcher-driven topology discovery
+# Registration-based tracing (design §7)
 # ---------------------------------------------------------------------------
-
-def _is_cell_corner(stuv_global, box, tol=1e-8):
-    """Check if a crossing is at a corner of the cell (on 2+ boundaries)."""
-    n_on_boundary = 0
-    for i in range(4):
-        lo, hi = box[i]
-        if abs(stuv_global[i] - lo) < tol or abs(stuv_global[i] - hi) < tol:
-            n_on_boundary += 1
-    return n_on_boundary >= 2
-
-
-def _tangent_enters_cell(g1_surf, g2_surf, stuv_local, box, tol=1e-8):
-    """Check if the intersection curve tangent at a corner points INTO the cell.
-
-    For a corner crossing, the marcher would immediately leave the cell
-    if the tangent points outward. Returns True if the tangent enters.
-    """
-    tang, _, _ = _ssx_tangent_4d(g1_surf, g2_surf, *stuv_local, rational=True)
-    if tang is None:
-        return False
-
-    # Check: does a small step along the tangent stay inside [0,1]⁴?
-    # Try both directions
-    for sign in [1.0, -1.0]:
-        stepped = stuv_local + sign * 0.01 * tang
-        inside = all(0.0 - tol <= stepped[i] <= 1.0 + tol for i in range(4))
-        if inside:
-            return True
-
-    return False
-
-
-def _filter_corner_touches(crossings_global, g1_surf, g2_surf, box):
-    """Remove crossings that merely touch a cell corner without entering.
-
-    A crossing at a corner of the cell (on 2+ cell boundaries) may be
-    a "touch point" where the intersection curve passes through but
-    doesn't enter this particular sub-cell. We check by testing if
-    the tangent direction points into the cell interior.
-    """
-    filtered = []
-    for c in crossings_global:
-        if not _is_cell_corner(c.stuv, box):
-            filtered.append(c)
-            continue
-
-        # Corner crossing — check tangent
-        stuv_local = _global_to_local(c.stuv, box)
-        if _tangent_enters_cell(g1_surf, g2_surf, stuv_local, box):
-            filtered.append(c)
-        # else: touch point, discard
-
-    return filtered
-
 
 def _find_exit_registration(cell, stuv_end, tol_param=1e-4):
     """Design §7 Invariant D: locate the unique unconsumed "out" registration
@@ -1659,87 +1378,6 @@ def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
         branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
 
     return branches
-
-
-def _trace_all_branches(g1_surf, g2_surf, crossings_global, box, atol):
-    """Trace all branches in a loop-free cell.
-
-    Crossings are in GLOBAL coords. The marcher works in LOCAL [0,1]⁴
-    on the cell's surfaces. Results are converted back to global.
-
-    Returns (branches, points) in global coords.
-    """
-    if not crossings_global:
-        return [], []
-
-    # Filter corner touch points before tracing
-    crossings_global = _filter_corner_touches(crossings_global, g1_surf, g2_surf, box)
-
-    if not crossings_global:
-        return [], []
-
-    if len(crossings_global) % 2 != 0:
-        import warnings
-        warnings.warn(f"Odd crossing count ({len(crossings_global)})")
-
-    branches = []
-    points = []
-    unvisited = list(range(len(crossings_global)))
-
-    while unvisited:
-        start_idx = unvisited.pop(0)
-        start_global = crossings_global[start_idx]
-
-        start_local = _global_to_local(start_global.stuv, box)
-
-        stuv_local, xyz_local = _march_to_boundary(
-            g1_surf, g2_surf, start_local,
-            atol=atol, rational=True,
-        )
-
-        stuv_global_path = np.empty((len(stuv_local), 4), dtype=np.float64)
-        for j in range(len(stuv_local)):
-            stuv_global_path[j] = _local_to_global(stuv_local[j], box)
-        stuv_global_path[0] = start_global.stuv.copy()
-
-        # Find which unvisited crossing the marcher reached
-        end_global = stuv_global_path[-1]
-        best_k = None
-        best_dist = float('inf')
-        for k, idx in enumerate(unvisited):
-            d = float(np.linalg.norm(end_global - crossings_global[idx].stuv))
-            if d < best_dist:
-                best_dist = d
-                best_k = k
-
-        if best_k is not None and best_dist < 0.1:
-            matched_idx = unvisited.pop(best_k)
-            stuv_global_path[-1] = crossings_global[matched_idx].stuv.copy()
-            xyz_local[-1] = crossings_global[matched_idx].xyz.copy()
-
-        # Record branch if nonzero length
-        if len(stuv_global_path) >= 2 and np.linalg.norm(stuv_global_path[-1] - stuv_global_path[0]) > 1e-10:
-            branches.append(SSXBranch(curve=(stuv_global_path, xyz_local)))
-
-        # Remove remaining crossings that the branch passed through.
-        # These are partition touch-points: on a cell corner (2+ boundary faces)
-        # and near the traced path. They don't form separate branches.
-        still_unvisited = []
-        for idx in unvisited:
-            c = crossings_global[idx]
-            if not _is_cell_corner(c.stuv, box):
-                still_unvisited.append(idx)
-                continue
-            # Corner crossing — check if it's near the traced path
-            near_path = any(
-                np.linalg.norm(c.xyz - xyz_local[j]) < atol * 5
-                for j in range(len(xyz_local))
-            )
-            if not near_path:
-                still_unvisited.append(idx)
-        unvisited = still_unvisited
-
-    return branches, points
 
 
 # ---------------------------------------------------------------------------
@@ -2285,95 +1923,3 @@ def bez_ssx(
     return {'branches': all_branches, 'points': all_points}
 
 
-def _merge_adjacent_branches(branches, atol):
-    """Merge branches whose endpoints match (from adjacent sub-cells sharing a partition)."""
-    if len(branches) <= 1:
-        return branches
-
-    merged = True
-    while merged:
-        merged = False
-        for i in range(len(branches)):
-            for j in range(i + 1, len(branches)):
-                stuv_i, xyz_i = branches[i].curve
-                stuv_j, xyz_j = branches[j].curve
-                if len(stuv_i) < 1 or len(stuv_j) < 1:
-                    continue
-
-                # Check if end of i matches start of j
-                if np.linalg.norm(stuv_i[-1] - stuv_j[0]) < atol:
-                    new_stuv = np.concatenate([stuv_i, stuv_j[1:]], axis=0)
-                    new_xyz = np.concatenate([xyz_i, xyz_j[1:]], axis=0)
-                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
-                    branches.pop(j)
-                    merged = True
-                    break
-                # Check if end of j matches start of i
-                if np.linalg.norm(stuv_j[-1] - stuv_i[0]) < atol:
-                    new_stuv = np.concatenate([stuv_j, stuv_i[1:]], axis=0)
-                    new_xyz = np.concatenate([xyz_j, xyz_i[1:]], axis=0)
-                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
-                    branches.pop(j)
-                    merged = True
-                    break
-                # Check if start matches start (reverse one)
-                if np.linalg.norm(stuv_i[0] - stuv_j[0]) < atol:
-                    new_stuv = np.concatenate([stuv_i[::-1], stuv_j[1:]], axis=0)
-                    new_xyz = np.concatenate([xyz_i[::-1], xyz_j[1:]], axis=0)
-                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
-                    branches.pop(j)
-                    merged = True
-                    break
-                # Check if end matches end (reverse one)
-                if np.linalg.norm(stuv_i[-1] - stuv_j[-1]) < atol:
-                    new_stuv = np.concatenate([stuv_i, stuv_j[-2::-1]], axis=0)
-                    new_xyz = np.concatenate([xyz_i, xyz_j[-2::-1]], axis=0)
-                    branches[i] = SSXBranch(curve=(new_stuv, new_xyz))
-                    branches.pop(j)
-                    merged = True
-                    break
-            if merged:
-                break
-
-    return branches
-
-
-def _dedup_branches(branches, atol):
-    """Remove duplicate branches (same start AND end points)."""
-    if len(branches) <= 1:
-        return branches
-
-    to_remove = set()
-    for i in range(len(branches)):
-        if i in to_remove:
-            continue
-        stuv_i, xyz_i = branches[i].curve
-        if len(stuv_i) < 2:
-            continue
-        for j in range(i + 1, len(branches)):
-            if j in to_remove:
-                continue
-            stuv_j, xyz_j = branches[j].curve
-            if len(stuv_j) < 2:
-                continue
-            # Same direction
-            same = (np.linalg.norm(xyz_i[0] - xyz_j[0]) < atol and
-                    np.linalg.norm(xyz_i[-1] - xyz_j[-1]) < atol)
-            # Reversed
-            rev = (np.linalg.norm(xyz_i[0] - xyz_j[-1]) < atol and
-                   np.linalg.norm(xyz_i[-1] - xyz_j[0]) < atol)
-            if same or rev:
-                # Keep the one with more points
-                if len(stuv_j) > len(stuv_i):
-                    to_remove.add(i)
-                else:
-                    to_remove.add(j)
-
-    if to_remove:
-        branches = [b for k, b in enumerate(branches) if k not in to_remove]
-
-    # Remove zero-length branches
-    branches = [b for b in branches if len(b.curve[0]) > 1 and
-                np.linalg.norm(b.curve[1][0] - b.curve[1][-1]) > atol]
-
-    return branches
