@@ -42,15 +42,57 @@ from mmcore.numeric.intersection.ssx._ssx4 import (
 
 
 # ---------------------------------------------------------------------------
-# Data structures
+# Data structures (§5 of design)
 # ---------------------------------------------------------------------------
 
 @dataclass
-class BoundaryCrossing:
-    """A point where the intersection curve crosses the boundary of [0,1]⁴."""
-    stuv: NDArray[np.float64]   # (4,) parameter values
-    xyz: NDArray[np.float64]    # (3,) Euclidean point
-    face: tuple[int, int]       # (axis 0-3, side 0-1)
+class IsolineRegistration:
+    """One crossing's registration on one isoline, from the owning cell's view.
+
+    Design §5: tuple (isoline, isoline_global_interval, param, direction).
+    """
+    partition: "PartitionCurve"
+    param: float
+    direction: str            # "in" or "out"
+    owner: "_Cell"
+    point: "BoundaryPoint"
+
+
+@dataclass
+class PartitionCurve:
+    """An isoline — 1D curve bounding one or more cells (design §5).
+
+    Specified by one fixed axis + value and one free axis + its global extent.
+    Outer partitions (top-level [0,1]⁴ faces, i.e. an S1 or S2 boundary isoline)
+    have one adjacent cell; internal partitions (created by subdivision) have two.
+    """
+    axis: int                                   # 0..3, the fixed coordinate
+    value: float                                # global value of the fixed coordinate
+    free_axis: int                              # 0..3, the varying coordinate
+    global_extent: tuple[float, float]          # free-axis range in global coords
+    adjacents: list["_Cell"] = field(default_factory=list)
+    registrations: list[IsolineRegistration] = field(default_factory=list)
+
+
+@dataclass
+class BoundaryPoint:
+    """A 4D boundary crossing (design §5).
+
+    `face` is the legacy (axis, side) tag retained while the old heuristic pairing
+    still uses it; §4 classification will produce one `IsolineRegistration` per
+    on-boundary axis and replace `face` as the crossing's identity.
+    """
+    stuv: NDArray[np.float64]                               # (4,) parameter values
+    xyz: NDArray[np.float64]                                # (3,) Euclidean point
+    face: tuple[int, int]                                   # (axis 0-3, side 0-1)
+    tangent_raw: Optional[NDArray[np.float64]] = None       # (4,) unclamped null vec of J_Ψ
+    registrations: list[IsolineRegistration] = field(default_factory=list)
+
+
+# Back-compat alias — existing code uses BoundaryCrossing in many places and
+# the design §5 name is BoundaryPoint. Keep both symbols pointing at the same
+# dataclass so the rename can propagate gradually.
+BoundaryCrossing = BoundaryPoint
 
 
 @dataclass
@@ -65,7 +107,7 @@ class BoundaryOverlap:
 class SubdomainCell:
     """A sub-box of [0,1]⁴ produced by domain decomposition."""
     box: tuple[tuple[float, float], ...]  # 4 axis ranges
-    crossings: list[BoundaryCrossing] = field(default_factory=list)
+    crossings: list[BoundaryPoint] = field(default_factory=list)
     is_monotonic: bool = False
     mono_axis: Optional[int] = None
 
@@ -160,7 +202,9 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
             stuv = _map_csx_to_stuv(axis, side, t_crv, u_oth, v_oth, owner_is_s1)
             xyz = np.asarray(iso_pt['point'], dtype=np.float64)
             face_id = axis if owner_is_s1 else axis + 2
-            crossings.append(BoundaryCrossing(stuv=stuv, xyz=xyz, face=(face_id, side)))
+            tang, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv[0], stuv[1], stuv[2], stuv[3], rational=rational)
+            crossings.append(BoundaryPoint(stuv=stuv, xyz=xyz, face=(face_id, side),
+                                           tangent_raw=tang))
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
@@ -175,8 +219,12 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
             # Also add endpoints as crossings (they connect to interior branches)
             xyz_s = eval_surface(S1_h, stuv_s[0], stuv_s[1], rational=rational)
             xyz_e = eval_surface(S1_h, stuv_e[0], stuv_e[1], rational=rational)
-            crossings.append(BoundaryCrossing(stuv=stuv_s, xyz=xyz_s, face=(face_id, side)))
-            crossings.append(BoundaryCrossing(stuv=stuv_e, xyz=xyz_e, face=(face_id, side)))
+            tang_s, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_s[0], stuv_s[1], stuv_s[2], stuv_s[3], rational=rational)
+            tang_e, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_e[0], stuv_e[1], stuv_e[2], stuv_e[3], rational=rational)
+            crossings.append(BoundaryPoint(stuv=stuv_s, xyz=xyz_s, face=(face_id, side),
+                                           tangent_raw=tang_s))
+            crossings.append(BoundaryPoint(stuv=stuv_e, xyz=xyz_e, face=(face_id, side),
+                                           tangent_raw=tang_e))
 
     # Faces from S1 boundaries
     for s1_axis in (0, 1):
@@ -1525,11 +1573,14 @@ def _extract_isoline(S, axis, value):
         return left[:, -1, :]
 
 
-def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_to_split):
-    """Convert CSX results on an isoline to global BoundaryCrossing objects.
+def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_to_split,
+                           S1_local=None, S2_local=None, rational=True):
+    """Convert CSX results on an isoline to global BoundaryPoint objects.
 
     The isoline is in the cell's local coords. CSX returns local params.
-    We convert everything to global using the cell's box.
+    We convert everything to global using the cell's box. If the cell's local
+    surface nets are provided we also compute the raw 4D tangent at the
+    crossing (design §4 / §5) so downstream classification can use it.
     """
     crossings = []
     local_axis = cut_axis if cut_axis < 2 else cut_axis - 2
@@ -1571,7 +1622,19 @@ def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_
         stuv_global[cut_axis] = cut_global_val
 
         xyz = np.asarray(iso_pt['point'], dtype=np.float64)
-        crossings.append(BoundaryCrossing(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1)))
+
+        # Raw 4D tangent (design §4) computed in the cell's local frame;
+        # signs are invariant under the positive affine global↔local rescale.
+        tang = None
+        if S1_local is not None and S2_local is not None:
+            tang, _, _ = _ssx_tangent_4d(
+                S1_local, S2_local,
+                stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
+                rational=rational,
+            )
+
+        crossings.append(BoundaryPoint(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1),
+                                       tangent_raw=tang))
 
     return crossings
 
@@ -1744,9 +1807,11 @@ def bez_ssx(
             isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
             csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
 
-        # Convert CSX results to global crossings
+        # Convert CSX results to global crossings. Pass the cell's local
+        # homogeneous surface nets so the raw 4D tangent (§4) is populated.
         new_crossings = _isoline_csx_to_global(
             csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
+            S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
         )
 
         # Split GaussMapBern at LOCAL param

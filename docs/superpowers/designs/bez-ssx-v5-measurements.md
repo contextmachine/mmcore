@@ -79,3 +79,32 @@ Known defects captured as entries:
 - CSX unit tests: **12 / 12 pass** (unchanged)
 
 **Outcome:** no regressions. Removing the xyz branch closed Invariant-C violation #1 without any accuracy effect on the 5 working cases. Case-5 wall time dropped ~14 ms (likely a marginal side-effect of fewer dedupe comparisons on the initial crossings list, not the main cost). Case-6 still missing its loop as expected — that requires later iterations (partition topology + §6 step 3).
+
+## 2026-04-18 — Iteration 3: introduce §5 data structures
+
+**Goal:** bring the implementation closer to design §5 by defining the three dataclasses (`IsolineRegistration`, `PartitionCurve`, `BoundaryPoint`) and starting to populate the classification inputs. No behaviour change this cycle; this is pure scaffolding that iter-4/5 will consume.
+
+**Change:**
+- Renamed `BoundaryCrossing` to `BoundaryPoint` (kept `BoundaryCrossing` as a back-compat alias) and extended it with `tangent_raw: Optional[NDArray]` and `registrations: list[IsolineRegistration]`.
+- Added `IsolineRegistration` and `PartitionCurve` dataclasses matching the design §5 spec.
+- Populated `tangent_raw` at every crossing construction site: the two creation points in `_find_ssx_boundary_zeros` (L1 outer-face CSX) and `_isoline_csx_to_global` (internal partitions from subdivision). Tangent computed via the existing `_ssx_tangent_4d` SVD helper without clamping.
+- Passed the cell's local surface nets (`cell.g1.surface`, `cell.g2.surface`) into `_isoline_csx_to_global` so the local Jacobian can be evaluated there.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-2 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.7  | 0.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.7  | −0.1 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 38.9  | −0.5 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.0  | +0.1 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 507.7 | −4.3 ms | OK |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 75.9  | −0.7 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Spot-check of the new tangent_raw.** Planes case, two crossings reported at `(0.5, 0, 0.5, 0)` and `(0.5, 1, 0.5, 1)`, both with tangent ≈ `(0, 0.707, 0, 0.707)`. Applying §4 (local ≡ global at top level):
+- first point: on-boundary axes `t` (local 0, sign +1) and `v` (local 0, sign +1) → both **entry** ✓
+- second point: on-boundary axes `t` (local 1, sign +1) and `v` (local 1, sign +1) → both **exit** ✓
+
+Classification of this single intersection line is now trivially readable from the stored tangent.
+
+**Outcome:** data-structure scaffolding in place with no behaviour change. All 5 passing cases and CSX unit tests green; case-6 still missing its loop (unchanged). Wall-time noise only. Iter-4 will use `tangent_raw` to produce `IsolineRegistration` entries on `PartitionCurve`s.
