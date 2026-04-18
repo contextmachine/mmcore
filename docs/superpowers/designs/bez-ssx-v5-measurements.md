@@ -403,3 +403,24 @@ The remaining extra branch is a **duplicate** of one of the 2 real branches. Roo
 **Tangential regressed** to 0/1 as expected: pre-iter-13 Φ-pairing heuristic is gone; the Φ-side classifier that's supposed to replace it is deferred (design §4.2).
 
 **Iter-13 is a net improvement on case 5** (correct residual, closer branch count) but reveals two distinct design items now visible: (a) BoundaryPoint unification at subdivision, and (b) the Φ-side classifier. Both already captured in the design doc. No in-session heuristic fallback applied.
+
+## 2026-04-18 — Rollback to iter-11 state (case 6 = 2/2 recovered)
+
+After iter-13 and a first attempt at iter-14 (multi-cut — broke case 5 to 0/2, 3× slower), the adjacency walk + cofactor tangent combination turned out to interact poorly with the rest of the pipeline. Symptoms: case 6 lost its loop at iter-12 (cofactor tangent changing the fragment topology under still-identity assembly), case 5 kept a duplicate branch at iter-13 (sibling-cell in-regs at the same physical point), and iter-14 multi-cut exploded to 58 cells with 0 successful walks.
+
+Decision: revert `mmcore/numeric/intersection/ssx/_bez_ssx5.py` to its state at iter-11 (`655ea32`) — the last point where case 6 was 2/2 — and retry §6.5 multi-cut directly on that foundation. The design doc (§4.1 cofactor, §4.2 deferred Φ classifier, §9 adjacency walk) remains; it is still the target we want to reach, just not the path we're taking right now. Rollback is pure code revert — measurements entries for iter-12/iter-13 kept as historical record.
+
+Baseline after rollback (`655ea32` code on top of current docs):
+
+| case | br (act/exp) | pts | err | t (ms) | status |
+|------|-------------:|----:|----:|-------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.1  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 46.1  | OK (Φ via legacy `.face` pairing) |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 18.5  | MISMATCH |
+| case5       | 4 / 2 | 71 | 8.74e-04 | 442.9 | MISMATCH |
+| case6       | **2 / 2** | 20 | 1.63e-04 | 67.2  | **OK** |
+
+- CSX unit tests: **12 / 12 pass**.
+
+Next: implement §6.5 multi-cut on this baseline as a fresh iter-14.

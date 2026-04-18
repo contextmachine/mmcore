@@ -194,24 +194,29 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
             stuv = _map_csx_to_stuv(axis, side, t_crv, u_oth, v_oth, owner_is_s1)
             xyz = np.asarray(iso_pt['point'], dtype=np.float64)
             face_id = axis if owner_is_s1 else axis + 2
-            crossings.append(BoundaryPoint(stuv=stuv, xyz=xyz, face=(face_id, side)))
+            tang, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv[0], stuv[1], stuv[2], stuv[3], rational=rational)
+            crossings.append(BoundaryPoint(stuv=stuv, xyz=xyz, face=(face_id, side),
+                                           tangent_raw=tang))
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
             ur = ovl.get('u_range', (0.0, 1.0))
             vr = ovl.get('v_range', (0.0, 1.0))
+            # Overlap start
             stuv_s = _map_csx_to_stuv(axis, side, tr[0], ur[0], vr[0], owner_is_s1)
             stuv_e = _map_csx_to_stuv(axis, side, tr[1], ur[1], vr[1], owner_is_s1)
             face_id = axis if owner_is_s1 else axis + 2
             overlaps.append(BoundaryOverlap(stuv_start=stuv_s, stuv_end=stuv_e,
                                             face=(face_id, side)))
-            # Also add endpoints as crossings (they connect to interior branches);
-            # tangent_raw is populated later by _classify_boundary_point via the
-            # cofactor formula (design §4.1).
+            # Also add endpoints as crossings (they connect to interior branches)
             xyz_s = eval_surface(S1_h, stuv_s[0], stuv_s[1], rational=rational)
             xyz_e = eval_surface(S1_h, stuv_e[0], stuv_e[1], rational=rational)
-            crossings.append(BoundaryPoint(stuv=stuv_s, xyz=xyz_s, face=(face_id, side)))
-            crossings.append(BoundaryPoint(stuv=stuv_e, xyz=xyz_e, face=(face_id, side)))
+            tang_s, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_s[0], stuv_s[1], stuv_s[2], stuv_s[3], rational=rational)
+            tang_e, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_e[0], stuv_e[1], stuv_e[2], stuv_e[3], rational=rational)
+            crossings.append(BoundaryPoint(stuv=stuv_s, xyz=xyz_s, face=(face_id, side),
+                                           tangent_raw=tang_s))
+            crossings.append(BoundaryPoint(stuv=stuv_e, xyz=xyz_e, face=(face_id, side),
+                                           tangent_raw=tang_e))
 
     # Faces from S1 boundaries
     for s1_axis in (0, 1):
@@ -711,52 +716,75 @@ def _march_to_boundary(
 # Φ-tracer crossing pairing — used only inside _deflate_tangent_cell (§8)
 # ---------------------------------------------------------------------------
 
-def _pair_crossings_for_tracing(crossings, originals, cell):
-    """Pair boundary crossings for Φ tracing (design §8).
+def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
+    """Pair boundary crossings for Φ tracing.
 
-    Pairs design-§5 "in" registrations with "out" registrations in the
-    owning cell's view. A through-touch crossing (in on some axes, out on
-    others in the same cell) counts as an "in" once, pairable with any
-    remaining "out".
+    When `originals` and `cell` are supplied, we pair design-§5 "in"
+    registrations with "out" registrations in the owning cell's view. A
+    through-touch crossing (in on some axes, out on others in the same cell)
+    counts as an "in" once, pairable with any remaining "out".
 
-    When the cell is tangent (C₂) the cofactor tangent is identically zero
-    on the intersection curve, classification produces no registrations,
-    and this function returns `(pairs=[], unpaired=all)`. That is the
-    correct signal that a Φ-side classifier (design §4.2 deferred) is
-    required. No heuristic fallback.
+    Falls back to stuv-distance nearest-neighbour pairing when the caller
+    doesn't provide cell context — this only runs in legacy call sites.
 
-    Returns `(pairs, unpaired)` with `pairs` a list of `(i, j)` index
+    Returns `(pairs, unpaired)` where `pairs` is a list of `(i, j)` index
     tuples into `crossings`.
     """
     n = len(crossings)
     if n < 2:
         return [], list(range(n))
 
-    in_ids: list[int] = []
-    out_ids: list[int] = []
-    for idx, orig in enumerate(originals):
-        cell_regs = [r for r in orig.registrations if r.owner is cell]
-        has_in = any(r.direction == "in" for r in cell_regs)
-        has_out = any(r.direction == "out" for r in cell_regs)
-        if has_in:
-            in_ids.append(idx)
-        if has_out and not has_in:
-            out_ids.append(idx)
+    # Registration-based pairing when we have cell context.
+    if originals is not None and cell is not None:
+        in_ids: list[int] = []
+        out_ids: list[int] = []
+        for idx, orig in enumerate(originals):
+            has_in = any(r.owner is cell and r.direction == "in"
+                         for r in orig.registrations)
+            has_out = any(r.owner is cell and r.direction == "out"
+                          for r in orig.registrations)
+            if has_in:
+                in_ids.append(idx)
+            if has_out and not has_in:
+                out_ids.append(idx)
+        remaining_out = list(out_ids)
+        pairs: list[tuple[int, int]] = []
+        for i in in_ids:
+            if not remaining_out:
+                break
+            # Closest remaining "out" by stuv distance — picks the
+            # correct pair on the same branch when multiple Φ curves
+            # cross the cell.
+            j = min(
+                remaining_out,
+                key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
+            )
+            pairs.append((i, j))
+            remaining_out.remove(j)
+        paired_ids = {i for p in pairs for i in p}
+        unpaired = [k for k in range(n) if k not in paired_ids]
+        return pairs, unpaired
 
-    remaining_out = list(out_ids)
-    pairs: list[tuple[int, int]] = []
-    for i in in_ids:
-        if not remaining_out:
+    # Legacy fallback: stuv-distance nearest-neighbour.
+    remaining = list(range(n))
+    pairs_fb: list[tuple[int, int]] = []
+    while len(remaining) >= 2:
+        best_i, best_j = 0, 1
+        best_dist = float("inf")
+        for ii in range(len(remaining)):
+            for jj in range(ii + 1, len(remaining)):
+                ci = crossings[remaining[ii]]
+                cj = crossings[remaining[jj]]
+                d = float(np.linalg.norm(ci.stuv - cj.stuv))
+                if d < best_dist:
+                    best_dist = d
+                    best_i, best_j = ii, jj
+        if best_dist == float("inf"):
             break
-        j = min(
-            remaining_out,
-            key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
-        )
-        pairs.append((i, j))
-        remaining_out.remove(j)
-    paired_ids = {i for p in pairs for i in p}
-    unpaired = [k for k in range(n) if k not in paired_ids]
-    return pairs, unpaired
+        pairs_fb.append((remaining[best_i], remaining[best_j]))
+        remaining.pop(best_j)
+        remaining.pop(best_i)
+    return pairs_fb, remaining
 
 
 # ---------------------------------------------------------------------------
@@ -927,38 +955,38 @@ def _march_phi_curve(
 
 
 def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
-                          *, originals, cell):
+                          *, originals=None, cell=None):
     """Handle a confirmed-tangent cell by tracing the regulated Φ curve.
 
-    1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations.
-    2. Pair crossings by in/out registrations in the owning cell
-       (design §4 / §8); if the cell's registrations are empty (C₂ whole-
-       curve-tangent case), no pairs are produced — this surfaces the
-       design §4.2 deferred work (Φ-side classifier) rather than falling
-       back to a heuristic.
-    3. March Φ between each pair. Filter points that are also on the full
-       intersection (Ψ = 0).
+    1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations
+    2. March Φ between boundary crossing pairs selected via in/out
+       registrations (design §4/§8) when `originals` and `cell` are supplied.
+    3. Filter points that are also on the full intersection (Ψ=0)
 
-    Returns `(fragments, points)`. Fragments carry `start_point` /
-    `end_point` references to `originals[i]` / `originals[j]` so the §9
-    assembly can chain Φ-fragments alongside Ψ-fragments.
+    Returns `(fragments, points)`. Fragments carry `start_point` / `end_point`
+    references — to `originals[i]` / `originals[j]` when originals are
+    provided, otherwise None — so the §9 assembly can chain Φ-fragments
+    alongside Ψ-fragments (design §8).
     """
+    from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
+
     T_arrs = [np.asarray(T, dtype=np.float64)[..., np.newaxis] for T in [T1, T2, T3, T4]]
 
     fragments: list[_Fragment] = []
     points: list[SSXPoint] = []
 
     if len(crossings) < 2:
-        for c in originals:
+        for c in crossings:
             points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
         return fragments, points
 
+    # Choose Φ equations from the first crossing
     psi_rows, t_idx = _choose_phi_equations(
         P1_cart, P2_cart, T_arrs, crossings[0].stuv, rational=False,
     )
     T_chosen = T_arrs[t_idx]
 
-    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals, cell)
+    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
 
     for i, j in pairs:
         stuv_path, xyz_path = _march_phi_curve(
@@ -968,6 +996,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
         )
         if len(stuv_path) < 2:
             continue
+        # Check that points lie on the actual intersection (full Ψ=0).
         valid_mask = np.zeros(len(stuv_path), dtype=bool)
         for k in range(len(stuv_path)):
             p1 = eval_surface(P1_cart, stuv_path[k, 0], stuv_path[k, 1], rational=False)
@@ -976,15 +1005,17 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
                 valid_mask[k] = True
         if not np.any(valid_mask):
             continue
+        start_pt = originals[i] if originals is not None else None
+        end_pt = originals[j] if originals is not None else None
         fragments.append(_Fragment(
-            start_point=originals[i], end_point=originals[j],
+            start_point=start_pt, end_point=end_pt,
             stuv_path=stuv_path[valid_mask],
             xyz_path=xyz_path[valid_mask],
-            owner_cell=cell,
         ))
 
     for k in unpaired:
-        points.append(SSXPoint(stuv=originals[k].stuv, xyz=originals[k].xyz))
+        src = originals[k] if originals is not None else crossings[k]
+        points.append(SSXPoint(stuv=src.stuv, xyz=src.xyz))
 
     return fragments, points
 
@@ -1174,16 +1205,15 @@ def _global_to_local(stuv_global, box):
 # Registration-based tracing (design §7)
 # ---------------------------------------------------------------------------
 
-def _find_exit_registration(cell, stuv_end, tol_param):
+def _find_exit_registration(cell, stuv_end, tol_param=1e-4):
     """Design §7 Invariant D: locate the unique unconsumed "out" registration
     owned by `cell` that matches the marcher's stopping point.
 
     The marcher is guaranteed to stop on the cell's boundary (it clamps to
     `[0,1]⁴` in local coords); therefore `stuv_end` must have at least one
     on-boundary axis for this cell. We walk every matching partition on
-    every on-boundary axis and return the best unconsumed out-registration
-    whose `param` matches `stuv_end[free_axis]` within `tol_param`
-    (design §9 Invariant B: residual is numerical-noise-sized, ≤ atol).
+    every on-boundary axis and return the first unconsumed out-registration
+    whose `param` matches `stuv_end[free_axis]` within `tol_param`.
     """
     best: Optional[IsolineRegistration] = None
     best_residual = float("inf")
@@ -1210,40 +1240,59 @@ def _find_exit_registration(cell, stuv_end, tol_param):
 class _Fragment:
     """A partial branch produced by one cell's tracer.
 
-    `start_point` / `end_point` are the actual `BoundaryPoint` objects
-    (shared across adjacent cells' views when the point sits on a shared
-    partition). `owner_cell` is the cell whose interior was marched to
-    produce `stuv_path` / `xyz_path` — §9 adjacency walk uses it to cross
-    to the next cell.
+    `start_point` / `end_point` refer to the actual `BoundaryPoint` objects
+    (shared across adjacent cells via shared `PartitionCurve`s when they sit
+    on an internal partition), so §9 assembly chains fragments by object
+    identity — no xyz proximity involved.
     """
     start_point: Optional[BoundaryPoint]
     end_point: Optional[BoundaryPoint]
     stuv_path: NDArray[np.float64]
     xyz_path: NDArray[np.float64]
-    owner_cell: Optional["_Cell"] = None
+
+
+def _consume_cell_directions(point: BoundaryPoint, cell, direction: str) -> None:
+    """Mark all `point`'s registrations with the given direction in this cell
+    as consumed. A single march at a multi-axis corner represents the whole
+    curve's passage through the corner; all its same-direction registrations
+    in this cell describe that one passage and must all be consumed together.
+    """
+    for r in point.registrations:
+        if r.owner is cell and r.direction == direction:
+            r.consumed = True
+
+
+def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bool:
+    return any(
+        r.owner is cell and r.direction == direction and not r.consumed
+        for r in point.registrations
+    )
 
 
 def _trace_cell_by_registrations(cell, atol):
-    """Design §7: march each unique `in`-registered BoundaryPoint of `cell`
-    through the cell's interior, producing one fragment per starting point.
+    """Design §7: trace fragments inside a loop-free cell by following
+    unvisited boundary points with an `in` registration, matching exit
+    points by exact `(partition, param)` identity on the cell's own
+    partitions (Invariant D). Multi-axis corners are handled by consuming
+    every same-direction registration on the start/end point in one go —
+    the single march describes the curve's single passage through the
+    corner, no matter how many cell faces the corner touches.
 
-    Registration consumption is NOT performed here — the §9 adjacency walk
-    in `_assemble_branches_by_adjacency` consumes them as it chains. The
-    dedup by `id(point)` is sufficient to avoid marching the same start
-    point twice within one cell.
-
-    Returns `(fragments, points)`. Each fragment carries its `start_point`
-    and (when the marcher's stopping point matched a registration) its
-    `end_point`, plus `owner_cell` — all needed by the adjacency walk.
+    Returns `(fragments, points)`. Fragments carry the actual
+    `BoundaryPoint` endpoints so the §9 assembly can chain them by
+    object identity (two fragments touching the same point on an internal
+    shared partition are two halves of the same through-curve).
     """
     fragments: list[_Fragment] = []
     points: list = []
 
+    # Collect unique start points: any BoundaryPoint owned by this cell
+    # with at least one unconsumed `in` registration.
     start_points: list[BoundaryPoint] = []
     seen: set[int] = set()
     for p in cell.partitions:
         for reg in p.registrations:
-            if reg.owner is cell and reg.direction == "in":
+            if reg.owner is cell and reg.direction == "in" and not reg.consumed:
                 key = id(reg.point)
                 if key in seen:
                     continue
@@ -1251,15 +1300,15 @@ def _trace_cell_by_registrations(cell, atol):
                 start_points.append(reg.point)
 
     for start_point in start_points:
+        if not _cell_has_unused_direction(start_point, cell, "in"):
+            continue  # consumed by a prior march that happened to touch this point
+
+        _consume_cell_directions(start_point, cell, "in")
+
         start_local = _global_to_local(start_point.stuv, cell.box)
-        # Design §4.1: the cofactor tangent (cached on start_point by
-        # _classify_boundary_point) has a consistent sign — at an "in"
-        # registration it points INTO the cell by construction.
-        hint = start_point.tangent_raw
         stuv_local, xyz_local = _march_to_boundary(
             cell.g1.surface, cell.g2.surface, start_local,
             atol=atol, rational=True,
-            direction_hint=hint,
         )
 
         if len(stuv_local) < 2:
@@ -1270,189 +1319,113 @@ def _trace_cell_by_registrations(cell, atol):
             stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
         stuv_global[0] = start_point.stuv.copy()
 
-        end_reg = _find_exit_registration(cell, stuv_global[-1], tol_param=atol)
+        end_reg = _find_exit_registration(cell, stuv_global[-1])
         end_point: Optional[BoundaryPoint] = None
         if end_reg is not None:
             end_point = end_reg.point
             stuv_global[-1] = end_point.stuv.copy()
             xyz_local[-1] = end_point.xyz.copy()
+            _consume_cell_directions(end_point, cell, "out")
 
         if np.linalg.norm(stuv_global[-1] - stuv_global[0]) <= 1e-10:
-            continue  # zero-length through-touch; no fragment recorded,
-            # the §9 walk handles it via registrations alone.
+            continue  # zero-length through-touch; no fragment recorded
 
         fragments.append(_Fragment(
             start_point=start_point,
             end_point=end_point,
             stuv_path=stuv_global,
             xyz_path=xyz_local,
-            owner_cell=cell,
         ))
 
     return fragments, points
 
 
-def _assemble_branches_by_adjacency(all_fragments: list[_Fragment],
-                                    all_cells: list["_Cell"]) -> list[SSXBranch]:
-    """Design §9: walk the partition adjacency graph to build full branches.
-
-    A chain extends one step at a time:
-      1. In the current cell, find the exit out-reg for the current point.
-         If the point has an unconsumed `"out"` reg on a partition different
-         from the entry partition, that's a through-touch — no fragment.
-         Otherwise look up the pre-traced fragment that starts at this point
-         in this cell and take its stuv_path + xyz_path; its end_point
-         defines the new current point.
-      2. Cross the exit partition: find the other adjacent cell and locate
-         the matching `"in"` reg on that same partition at that same point.
-         If the partition is an outer face (one adjacent only), the chain
-         ends.
-
-    All registrations are consumed as the walk traverses them — the
-    pre-tracer does NOT consume; consumption happens exclusively here.
-
-    Primary chain starts are every unconsumed `"in"` reg on an outer face
-    (a partition with `len(adjacents) == 1`). A second pass iterates any
-    remaining unconsumed `"in"` regs, which by construction seed closed
-    branches (branches entirely interior to `[0,1]⁴`).
+def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
+    """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
+    full branches. Two fragments touching the same `BoundaryPoint` object
+    represent the same through-curve crossing an internal partition, one
+    from each adjacent cell — by Invariant A/B those are the only partial
+    branches the point can connect.
     """
-    frag_by_start: dict[tuple[int, int], _Fragment] = {}
-    for f in all_fragments:
-        if f.start_point is not None and f.owner_cell is not None:
-            frag_by_start[(id(f.owner_cell), id(f.start_point))] = f
+    from collections import defaultdict
 
+    # Map each BoundaryPoint to the fragments that touch it.
+    touches: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    for i, f in enumerate(fragments):
+        if f.start_point is not None:
+            touches[id(f.start_point)].append((i, "start"))
+        if f.end_point is not None:
+            touches[id(f.end_point)].append((i, "end"))
+
+    consumed = [False] * len(fragments)
     branches: list[SSXBranch] = []
-    # Global set of BoundaryPoint ids already covered by some emitted chain.
-    # A fresh walk whose start_point is already in here would only retrace a
-    # curve another chain already captured — skip to avoid duplicates. This
-    # is the "don't re-emit the same branch via a sibling cell" rule.
-    emitted_point_ids: set[int] = set()
 
-    def _consume_all(point, cell, direction: str) -> None:
-        """A multi-axis entry or exit (curve entering/leaving a cell via
-        several faces at a corner) is one physical event. All same-
-        direction registrations at that (cell, point) describe that one
-        event and are consumed together.
-        """
-        for r in point.registrations:
-            if r.owner is cell and r.direction == direction:
-                r.consumed = True
-
-    def _walk(start_reg: IsolineRegistration) -> tuple[Optional[SSXBranch], set[int]]:
-        if start_reg.consumed:
-            return None, set()
-        if id(start_reg.point) in emitted_point_ids:
-            # Another chain already covers this point — consume this cell's
-            # in-regs at the point so later iterations don't keep looking
-            # here, but produce no branch.
-            _consume_all(start_reg.point, start_reg.owner, "in")
-            return None, set()
-
-        current_cell = start_reg.owner
-        current_point = start_reg.point
-        entry_partition = start_reg.partition
-        _consume_all(current_point, current_cell, "in")
-
-        stuv_pieces: list[np.ndarray] = []
-        xyz_pieces: list[np.ndarray] = []
-        visited_point_ids: set[int] = {id(current_point)}
-
-        while True:
-            # Phase A: find an "out" reg at current_point in current_cell.
-            # A through-touch surfaces here as an out reg already at the
-            # entry point; a normal march yields a new end point Y from
-            # the pre-traced fragment and we look for the out at Y.
-            exit_reg: Optional[IsolineRegistration] = None
-            for r in current_point.registrations:
-                if r.owner is current_cell and r.direction == "out" and not r.consumed:
-                    exit_reg = r
-                    break
-
-            if exit_reg is None:
-                frag = frag_by_start.get((id(current_cell), id(current_point)))
-                if frag is None:
-                    return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-                stuv_pieces.append(frag.stuv_path)
-                xyz_pieces.append(frag.xyz_path)
-                Y = frag.end_point
-                if Y is None:
-                    return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-                current_point = Y
-                for r in current_point.registrations:
-                    if r.owner is current_cell and r.direction == "out" and not r.consumed:
-                        exit_reg = r
-                        break
-                if exit_reg is None:
-                    return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-
-            _consume_all(current_point, current_cell, "out")
-            exit_partition = exit_reg.partition
-
-            # Phase B: cross the partition.
-            if len(exit_partition.adjacents) < 2:
-                return _concat(stuv_pieces, xyz_pieces), visited_point_ids  # outer face
-
-            next_cell = None
-            for adj in exit_partition.adjacents:
-                if adj is not current_cell:
-                    next_cell = adj
-                    break
-            if next_cell is None:
-                return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-
-            # Require a matching "in" reg on the same partition at this point.
-            has_match = any(
-                r.owner is next_cell and r.direction == "in"
-                and r.point is current_point and not r.consumed
-                for r in exit_partition.registrations
-            )
-            if not has_match:
-                return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-
-            _consume_all(current_point, next_cell, "in")
-            current_cell = next_cell
-            entry_partition = exit_partition
-
-            if id(current_point) in visited_point_ids:
-                return _concat(stuv_pieces, xyz_pieces), visited_point_ids
-            visited_point_ids.add(id(current_point))
-
-    def _concat(stuv_pieces, xyz_pieces) -> Optional[SSXBranch]:
-        if not stuv_pieces:
-            return None
-        # Adjacent pieces share an endpoint — drop the duplicated sample.
-        stuv_out = [stuv_pieces[0]]
-        xyz_out = [xyz_pieces[0]]
-        for k in range(1, len(stuv_pieces)):
-            stuv_out.append(stuv_pieces[k][1:])
-            xyz_out.append(xyz_pieces[k][1:])
-        stuv_full = np.concatenate(stuv_out, axis=0)
-        xyz_full = np.concatenate(xyz_out, axis=0)
-        return SSXBranch(curve=(stuv_full, xyz_full))
-
-    def _try_walk(reg: IsolineRegistration) -> None:
-        br, visited = _walk(reg)
-        if br is not None:
-            branches.append(br)
-            emitted_point_ids.update(visited)
-
-    # Primary chains: outer-face "in" regs (partition with one adjacent).
-    for cell in all_cells:
-        for p in cell.partitions:
-            if len(p.adjacents) != 1:
+    def _pop_neighbour(pt: BoundaryPoint, self_idx: int) -> Optional[tuple[int, str]]:
+        pool = touches.get(id(pt), [])
+        for j, role in pool:
+            if j == self_idx or consumed[j]:
                 continue
-            for reg in list(p.registrations):
-                if (reg.direction == "in" and reg.owner is cell
-                        and not reg.consumed):
-                    _try_walk(reg)
+            return j, role
+        return None
 
-    # Secondary: remaining unconsumed "in" regs — closed/interior branches.
-    for cell in all_cells:
-        for p in cell.partitions:
-            for reg in list(p.registrations):
-                if (reg.direction == "in" and reg.owner is cell
-                        and not reg.consumed):
-                    _try_walk(reg)
+    for i, f in enumerate(fragments):
+        if consumed[i]:
+            continue
+        consumed[i] = True
+        chain: list[tuple[int, bool]] = [(i, False)]
+
+        # Walk forward: current_end becomes the end of the last fragment.
+        current_end = f.end_point
+        current_idx = i
+        while current_end is not None:
+            nb = _pop_neighbour(current_end, current_idx)
+            if nb is None:
+                break
+            j, role = nb
+            consumed[j] = True
+            # If the neighbour's `end` (not `start`) is the shared point, we
+            # must traverse it in reverse.
+            reverse = (role == "end")
+            chain.append((j, reverse))
+            g = fragments[j]
+            current_end = g.start_point if reverse else g.end_point
+            current_idx = j
+
+        # Walk backward.
+        current_start = f.start_point
+        current_idx = i
+        while current_start is not None:
+            nb = _pop_neighbour(current_start, current_idx)
+            if nb is None:
+                break
+            j, role = nb
+            consumed[j] = True
+            # Neighbour's `start` matching means the neighbour runs INTO our
+            # current_start, so we must reverse it to prepend.
+            reverse = (role == "start")
+            chain.insert(0, (j, reverse))
+            g = fragments[j]
+            current_start = g.end_point if reverse else g.start_point
+            current_idx = j
+
+        # Concatenate chain, dropping the duplicated shared-point sample
+        # between adjacent pieces.
+        stuv_pieces = []
+        xyz_pieces = []
+        for k, (idx, rev) in enumerate(chain):
+            g = fragments[idx]
+            stuv_seg = g.stuv_path[::-1] if rev else g.stuv_path
+            xyz_seg = g.xyz_path[::-1] if rev else g.xyz_path
+            if k == 0:
+                stuv_pieces.append(stuv_seg)
+                xyz_pieces.append(xyz_seg)
+            else:
+                stuv_pieces.append(stuv_seg[1:])
+                xyz_pieces.append(xyz_seg[1:])
+
+        stuv_full = np.concatenate(stuv_pieces, axis=0)
+        xyz_full = np.concatenate(xyz_pieces, axis=0)
+        branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
 
     return branches
 
@@ -1566,9 +1539,18 @@ def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_
 
         xyz = np.asarray(iso_pt['point'], dtype=np.float64)
 
-        # Tangent is populated by _classify_boundary_point via the cofactor
-        # formula (design §4.1); no SVD at construction.
-        crossings.append(BoundaryPoint(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1)))
+        # Raw 4D tangent (design §4) computed in the cell's local frame;
+        # signs are invariant under the positive affine global↔local rescale.
+        tang = None
+        if S1_local is not None and S2_local is not None:
+            tang, _, _ = _ssx_tangent_4d(
+                S1_local, S2_local,
+                stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
+                rational=rational,
+            )
+
+        crossings.append(BoundaryPoint(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1),
+                                       tangent_raw=tang))
 
     return crossings
 
@@ -1601,29 +1583,6 @@ def _classify_on_axis(local_param: int, tangent_component: float) -> Optional[st
     if tangent_component < 0:
         return "out" if local_param == 0 else "in"
     return None
-
-
-def _ssx_tangent_cofactor(T1, T2, T3, T4, stuv):
-    """Design §4.1: raw 4D tangent via the cofactor / adjugate formula.
-
-    The null vector of the 3×4 Jacobian `J_Ψ` is the cofactor column:
-    `T[i] = (−1)^i · det(J_Ψ without column i)`. The minors are exactly
-    the `TΨᵢ` Bernstein tensors (design §1.2), so the tangent is just
-    those four tensors evaluated at `stuv` with alternating signs.
-
-    Sign is a fixed function of the surface pair, not of the solver,
-    so `(local_param, sign(T[i]))` classification is consistent across
-    every cell and every crossing. Zero at tangent points (Ψ = 0 AND
-    TΨ = 0, design §1.4) — such points get no registration and cannot
-    seed a march; the Krawczyk / Φ path handles them.
-    """
-    from mmcore.numeric.bern import bernstein_eval_nd
-    params = np.asarray(stuv, dtype=np.float64)
-    vals = []
-    for Ti in (T1, T2, T3, T4):
-        arr = np.asarray(Ti, dtype=np.float64)[..., None]
-        vals.append(bernstein_eval_nd(arr, params).item())
-    return np.array([vals[0], -vals[1], vals[2], -vals[3]], dtype=np.float64)
 
 
 def _build_cell_partitions(owner_cell: "_Cell",
@@ -1670,30 +1629,27 @@ def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -
 
 
 def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
-    """Design §4 + §4.1: produce one IsolineRegistration per on-boundary axis,
-    using the cofactor tangent evaluated in the cell's local frame.
+    """Design §4: produce one IsolineRegistration per on-boundary axis.
 
-    Tangent signs are a fixed function of `(S1, S2)` (not of a solver), and
-    are invariant under the positive affine global↔local rescale — every
-    cell agrees on the direction the curve is moving at `point`.
+    The raw tangent stored on the point carries sign info that is invariant
+    under the positive affine global↔local rescale, so classification works
+    directly from `point.tangent_raw[i]` and the point's local param derived
+    from the cell's box on axis `i`.
     """
-    if cell.T1 is None:
+    if point.tangent_raw is None:
         return
-
-    local_stuv = _global_to_local(point.stuv, cell.box)
-    tangent = _ssx_tangent_cofactor(cell.T1, cell.T2, cell.T3, cell.T4, local_stuv)
-    # Cache on the point for later reuse (e.g. marcher direction hint).
-    point.tangent_raw = tangent
 
     for i in range(4):
         local_param = _on_axis_local(point.stuv[i], cell.box[i][0], cell.box[i][1])
         if local_param is None:
             continue  # axis strictly interior for this cell — no registration (§4)
 
-        direction = _classify_on_axis(local_param, float(tangent[i]))
+        direction = _classify_on_axis(local_param, float(point.tangent_raw[i]))
         if direction is None:
-            continue  # tangent exactly orthogonal to axis — at-or-near tangent point
+            continue  # tangent exactly orthogonal to axis — degenerate, skip
 
+        # Find the cell's partition whose fixed axis is i and whose value
+        # equals the cell's box.lo (if local_param==0) or box.hi (local_param==1).
         target_value = cell.box[i][local_param]
         match = None
         for p in cell.partitions:
@@ -1701,7 +1657,7 @@ def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
                 match = p
                 break
         if match is None:
-            continue
+            continue  # no partition yet recorded on this axis/value for this cell
 
         reg = IsolineRegistration(
             partition=match,
@@ -1831,11 +1787,6 @@ def bez_ssx(
     # subdivision. If it's loop-free at top level, the first iteration
     # traces it and the loop exits.
     stack = [top_cell]
-    # `all_cells` is the list of every _Cell ever created — needed by the
-    # §9 adjacency walk because cells are not reachable from `top_cell` via
-    # partition-adjacency alone (top_cell's outer partitions aren't shared
-    # with its children).
-    all_cells: list[_Cell] = [top_cell]
     all_fragments: list[_Fragment] = []
     all_points = []
 
@@ -1992,27 +1943,27 @@ def bez_ssx(
             L_cell = _Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
                            box=box_L, depth=cell.depth + 1,
                            T1=T1_L, T2=T2_L, T3=T3_L, T4=T4_L)
+            # L's high-side face on the cut axis is the shared internal partition
             L_cell.partitions = _build_cell_partitions(L_cell, skip=(cut_axis, 1))
             L_cell.partitions.append(internal_partition)
             internal_partition.adjacents.append(L_cell)
             for c in left_cx:
                 _classify_boundary_point(c, L_cell)
             stack.append(L_cell)
-            all_cells.append(L_cell)
         if right_cx:
             R_cell = _Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
                            box=box_R, depth=cell.depth + 1,
                            T1=T1_R, T2=T2_R, T3=T3_R, T4=T4_R)
+            # R's low-side face on the cut axis is the shared internal partition
             R_cell.partitions = _build_cell_partitions(R_cell, skip=(cut_axis, 0))
             R_cell.partitions.append(internal_partition)
             internal_partition.adjacents.append(R_cell)
             for c in right_cx:
                 _classify_boundary_point(c, R_cell)
             stack.append(R_cell)
-            all_cells.append(R_cell)
 
-    # --- §9 assembly: walk the partition adjacency graph ---
-    all_branches = _assemble_branches_by_adjacency(all_fragments, all_cells)
+    # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
+    all_branches = _assemble_fragments(all_fragments)
     all_branches.extend(overlap_branches)
     return {'branches': all_branches, 'points': all_points}
 
