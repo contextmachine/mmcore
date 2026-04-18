@@ -337,3 +337,32 @@ End of the "bring impl to design" phase. Next: investigate case 5 specifically w
 - Φ-fragments now carry BoundaryPoint refs; they'd chain via §9 if a Φ-branch spans multiple cells. No current case exercises that path, but the plumbing is now consistent with Ψ.
 
 **No fixes applied.** Results recorded as informational input for the next design cycle.
+
+## 2026-04-18 — Iteration 12: cofactor tangent (§4.1)
+
+**Goal:** replace SVD's arbitrary-sign null vector with the cofactor / adjugate formula `T[i] = (−1)^i · TΨᵢ(point)` (design §4.1). Plumb the resulting tangent as direction hint into `_march_to_boundary` so cell entry starts inward.
+
+**Change:**
+- Added `_ssx_tangent_cofactor(T1,T2,T3,T4,stuv)` — evaluates each `TΨᵢ` Bernstein tensor at the point and assembles `(+T1, −T2, +T3, −T4)`.
+- `_classify_boundary_point` now computes the local cofactor tangent (from `cell.T1..T4` and the point's local stuv), caches it on `point.tangent_raw`, and uses it for §4 classification.
+- `_trace_cell_by_registrations` passes that tangent as `direction_hint` into the marcher.
+- Removed SVD tangent computation at `_find_ssx_boundary_zeros` and `_isoline_csx_to_global` (tangent now derived freshly at classification).
+- `_pair_crossings_for_tracing` gains a fallback: when *no* registrations exist in the cell for any crossing (the C₂ whole-curve-tangent case — `TΨ ≡ 0` on the intersection, so cofactor is zero everywhere and classification emits nothing), fall through to the legacy stuv-distance pairer rather than producing zero pairs.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-11 | status |
+|------|-------------:|----:|----:|-------:|-------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.3 | +0.3 ms | OK |
+| transversal | 1 / 1 | 13 | 6.08e-09 | 11.3 | +0.3 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 44.3 | −0.4 ms | OK |
+| overlaps    | 3 / 2 |  6 | 2.87e+02 | 18.6 | −1 branch | MISMATCH (was 4/2) |
+| case5       | **7 / 2** | 80 | 8.08e-04 | 463.9 | +3 branches, +17 ms | **MISMATCH (worse)** |
+| case6       | **1 / 2** | 9 | 6.34e-08 | 65.2 | −1 branch | **MISMATCH (worse)** |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Tangential returns to machine-precision residual as before. The whole-curve-tangent C₂ case correctly drops to the legacy pairer (TΨ is identically zero on the intersection curve, so cofactor classification produces no registrations by design — that's the right signal).
+- Overlaps went from 4 back to 3 — not a real change, a consequence of fewer crossings being classified as branch endpoints when the cofactor is zero near overlap sites. Same underlying root cause (overlaps not integrated into §5).
+- Case 5 and case 6 regressed. Cofactor classification produces DIFFERENT fragment topology than SVD-with-no-hint did. Under the still-identity-based assembly (iter-8), that new fragment topology chains incorrectly. This is an expected interaction and will be resolved by iter-13 (adjacency-walk assembly) — the user's Image-3 argument: cofactor classification is necessary but not sufficient without the assembly fix.
+
+**No fix applied on the fly.** Iter-13 (adjacency walk) is expected to convert the iter-12 groundwork into net improvement.

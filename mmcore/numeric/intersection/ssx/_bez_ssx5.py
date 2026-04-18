@@ -194,29 +194,24 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
             stuv = _map_csx_to_stuv(axis, side, t_crv, u_oth, v_oth, owner_is_s1)
             xyz = np.asarray(iso_pt['point'], dtype=np.float64)
             face_id = axis if owner_is_s1 else axis + 2
-            tang, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv[0], stuv[1], stuv[2], stuv[3], rational=rational)
-            crossings.append(BoundaryPoint(stuv=stuv, xyz=xyz, face=(face_id, side),
-                                           tangent_raw=tang))
+            crossings.append(BoundaryPoint(stuv=stuv, xyz=xyz, face=(face_id, side)))
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
             ur = ovl.get('u_range', (0.0, 1.0))
             vr = ovl.get('v_range', (0.0, 1.0))
-            # Overlap start
             stuv_s = _map_csx_to_stuv(axis, side, tr[0], ur[0], vr[0], owner_is_s1)
             stuv_e = _map_csx_to_stuv(axis, side, tr[1], ur[1], vr[1], owner_is_s1)
             face_id = axis if owner_is_s1 else axis + 2
             overlaps.append(BoundaryOverlap(stuv_start=stuv_s, stuv_end=stuv_e,
                                             face=(face_id, side)))
-            # Also add endpoints as crossings (they connect to interior branches)
+            # Also add endpoints as crossings (they connect to interior branches);
+            # tangent_raw is populated later by _classify_boundary_point via the
+            # cofactor formula (design §4.1).
             xyz_s = eval_surface(S1_h, stuv_s[0], stuv_s[1], rational=rational)
             xyz_e = eval_surface(S1_h, stuv_e[0], stuv_e[1], rational=rational)
-            tang_s, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_s[0], stuv_s[1], stuv_s[2], stuv_s[3], rational=rational)
-            tang_e, _, _ = _ssx_tangent_4d(S1_h, S2_h, stuv_e[0], stuv_e[1], stuv_e[2], stuv_e[3], rational=rational)
-            crossings.append(BoundaryPoint(stuv=stuv_s, xyz=xyz_s, face=(face_id, side),
-                                           tangent_raw=tang_s))
-            crossings.append(BoundaryPoint(stuv=stuv_e, xyz=xyz_e, face=(face_id, side),
-                                           tangent_raw=tang_e))
+            crossings.append(BoundaryPoint(stuv=stuv_s, xyz=xyz_s, face=(face_id, side)))
+            crossings.append(BoundaryPoint(stuv=stuv_e, xyz=xyz_e, face=(face_id, side)))
 
     # Faces from S1 boundaries
     for s1_axis in (0, 1):
@@ -734,36 +729,40 @@ def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
     if n < 2:
         return [], list(range(n))
 
-    # Registration-based pairing when we have cell context.
+    # Registration-based pairing when we have cell context AND at least one
+    # registration exists. The tangential (C₂) case has TΨ ≡ 0 on the
+    # intersection curve, so the cofactor tangent is zero and classification
+    # produces no registrations at all; in that case we fall through to the
+    # legacy pairing below.
     if originals is not None and cell is not None:
         in_ids: list[int] = []
         out_ids: list[int] = []
+        any_registration = False
         for idx, orig in enumerate(originals):
-            has_in = any(r.owner is cell and r.direction == "in"
-                         for r in orig.registrations)
-            has_out = any(r.owner is cell and r.direction == "out"
-                          for r in orig.registrations)
+            cell_regs = [r for r in orig.registrations if r.owner is cell]
+            if cell_regs:
+                any_registration = True
+            has_in = any(r.direction == "in" for r in cell_regs)
+            has_out = any(r.direction == "out" for r in cell_regs)
             if has_in:
                 in_ids.append(idx)
             if has_out and not has_in:
                 out_ids.append(idx)
-        remaining_out = list(out_ids)
-        pairs: list[tuple[int, int]] = []
-        for i in in_ids:
-            if not remaining_out:
-                break
-            # Closest remaining "out" by stuv distance — picks the
-            # correct pair on the same branch when multiple Φ curves
-            # cross the cell.
-            j = min(
-                remaining_out,
-                key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
-            )
-            pairs.append((i, j))
-            remaining_out.remove(j)
-        paired_ids = {i for p in pairs for i in p}
-        unpaired = [k for k in range(n) if k not in paired_ids]
-        return pairs, unpaired
+        if any_registration:
+            remaining_out = list(out_ids)
+            pairs: list[tuple[int, int]] = []
+            for i in in_ids:
+                if not remaining_out:
+                    break
+                j = min(
+                    remaining_out,
+                    key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
+                )
+                pairs.append((i, j))
+                remaining_out.remove(j)
+            paired_ids = {i for p in pairs for i in p}
+            unpaired = [k for k in range(n) if k not in paired_ids]
+            return pairs, unpaired
 
     # Legacy fallback: stuv-distance nearest-neighbour.
     remaining = list(range(n))
@@ -1306,9 +1305,16 @@ def _trace_cell_by_registrations(cell, atol):
         _consume_cell_directions(start_point, cell, "in")
 
         start_local = _global_to_local(start_point.stuv, cell.box)
+        # Design §4.1: the cofactor tangent (cached on start_point by
+        # _classify_boundary_point) has a consistent sign — at an "in"
+        # registration it points INTO the cell by construction, so we can
+        # hand it to the marcher as a direction hint and avoid SVD's
+        # arbitrary-sign issue at the initial step.
+        hint = start_point.tangent_raw
         stuv_local, xyz_local = _march_to_boundary(
             cell.g1.surface, cell.g2.surface, start_local,
             atol=atol, rational=True,
+            direction_hint=hint,
         )
 
         if len(stuv_local) < 2:
@@ -1539,18 +1545,9 @@ def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_
 
         xyz = np.asarray(iso_pt['point'], dtype=np.float64)
 
-        # Raw 4D tangent (design §4) computed in the cell's local frame;
-        # signs are invariant under the positive affine global↔local rescale.
-        tang = None
-        if S1_local is not None and S2_local is not None:
-            tang, _, _ = _ssx_tangent_4d(
-                S1_local, S2_local,
-                stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
-                rational=rational,
-            )
-
-        crossings.append(BoundaryPoint(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1),
-                                       tangent_raw=tang))
+        # Tangent is populated by _classify_boundary_point via the cofactor
+        # formula (design §4.1); no SVD at construction.
+        crossings.append(BoundaryPoint(stuv=stuv_global, xyz=xyz, face=(cut_axis, -1)))
 
     return crossings
 
@@ -1583,6 +1580,29 @@ def _classify_on_axis(local_param: int, tangent_component: float) -> Optional[st
     if tangent_component < 0:
         return "out" if local_param == 0 else "in"
     return None
+
+
+def _ssx_tangent_cofactor(T1, T2, T3, T4, stuv):
+    """Design §4.1: raw 4D tangent via the cofactor / adjugate formula.
+
+    The null vector of the 3×4 Jacobian `J_Ψ` is the cofactor column:
+    `T[i] = (−1)^i · det(J_Ψ without column i)`. The minors are exactly
+    the `TΨᵢ` Bernstein tensors (design §1.2), so the tangent is just
+    those four tensors evaluated at `stuv` with alternating signs.
+
+    Sign is a fixed function of the surface pair, not of the solver,
+    so `(local_param, sign(T[i]))` classification is consistent across
+    every cell and every crossing. Zero at tangent points (Ψ = 0 AND
+    TΨ = 0, design §1.4) — such points get no registration and cannot
+    seed a march; the Krawczyk / Φ path handles them.
+    """
+    from mmcore.numeric.bern import bernstein_eval_nd
+    params = np.asarray(stuv, dtype=np.float64)
+    vals = []
+    for Ti in (T1, T2, T3, T4):
+        arr = np.asarray(Ti, dtype=np.float64)[..., None]
+        vals.append(bernstein_eval_nd(arr, params).item())
+    return np.array([vals[0], -vals[1], vals[2], -vals[3]], dtype=np.float64)
 
 
 def _build_cell_partitions(owner_cell: "_Cell",
@@ -1629,27 +1649,30 @@ def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -
 
 
 def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
-    """Design §4: produce one IsolineRegistration per on-boundary axis.
+    """Design §4 + §4.1: produce one IsolineRegistration per on-boundary axis,
+    using the cofactor tangent evaluated in the cell's local frame.
 
-    The raw tangent stored on the point carries sign info that is invariant
-    under the positive affine global↔local rescale, so classification works
-    directly from `point.tangent_raw[i]` and the point's local param derived
-    from the cell's box on axis `i`.
+    Tangent signs are a fixed function of `(S1, S2)` (not of a solver), and
+    are invariant under the positive affine global↔local rescale — every
+    cell agrees on the direction the curve is moving at `point`.
     """
-    if point.tangent_raw is None:
+    if cell.T1 is None:
         return
+
+    local_stuv = _global_to_local(point.stuv, cell.box)
+    tangent = _ssx_tangent_cofactor(cell.T1, cell.T2, cell.T3, cell.T4, local_stuv)
+    # Cache on the point for later reuse (e.g. marcher direction hint).
+    point.tangent_raw = tangent
 
     for i in range(4):
         local_param = _on_axis_local(point.stuv[i], cell.box[i][0], cell.box[i][1])
         if local_param is None:
             continue  # axis strictly interior for this cell — no registration (§4)
 
-        direction = _classify_on_axis(local_param, float(point.tangent_raw[i]))
+        direction = _classify_on_axis(local_param, float(tangent[i]))
         if direction is None:
-            continue  # tangent exactly orthogonal to axis — degenerate, skip
+            continue  # tangent exactly orthogonal to axis — at-or-near tangent point
 
-        # Find the cell's partition whose fixed axis is i and whose value
-        # equals the cell's box.lo (if local_param==0) or box.hi (local_param==1).
         target_value = cell.box[i][local_param]
         match = None
         for p in cell.partitions:
@@ -1657,7 +1680,7 @@ def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
                 match = p
                 break
         if match is None:
-            continue  # no partition yet recorded on this axis/value for this cell
+            continue
 
         reg = IsolineRegistration(
             partition=match,
