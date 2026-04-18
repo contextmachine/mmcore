@@ -366,3 +366,40 @@ End of the "bring impl to design" phase. Next: investigate case 5 specifically w
 - Case 5 and case 6 regressed. Cofactor classification produces DIFFERENT fragment topology than SVD-with-no-hint did. Under the still-identity-based assembly (iter-8), that new fragment topology chains incorrectly. This is an expected interaction and will be resolved by iter-13 (adjacency-walk assembly) — the user's Image-3 argument: cofactor classification is necessary but not sufficient without the assembly fix.
 
 **No fix applied on the fly.** Iter-13 (adjacency walk) is expected to convert the iter-12 groundwork into net improvement.
+
+## 2026-04-18 — Iter-13 groundwork: remove fallback + refactor walk
+
+Preface to iter-13 proper. Two disciplinary commits before the assembly swap:
+- **`d660ab0`** — removed the stuv-distance-nearest-neighbour fallback in `_pair_crossings_for_tracing` (was a heuristic patching the whole-curve-tangent case while the Φ-side classifier is deferred — see design §4.2). `_deflate_tangent_cell` signature tightened: `originals` and `cell` are now required. Tangential accepted as MISMATCH 0/1 until §4.2 lands.
+- **Design `382d1bf`** — doc-only additions: §4.1 cofactor tangent, §4.2 deferred Φ classifier, §6.5 multi-cut, §9 revised to adjacency walk.
+
+## 2026-04-18 — Iteration 13: adjacency-walk assembly (§9)
+
+**Goal:** replace the identity-based fragment chaining with §9 adjacency walk — chains extend one step at a time along shared `PartitionCurve`s, matching `(param, direction)` through each internal partition.
+
+**Change:**
+- `_trace_cell_by_registrations` no longer consumes registrations (pre-trace is purely "collect fragments"; consumption belongs to the walker).
+- Removed the now-unused consumption helpers (`_consume_cell_directions`, `_cell_has_unused_direction`).
+- Replaced `_assemble_fragments` with `_assemble_branches_by_adjacency(all_fragments, all_cells)`. Each walk consumes via `_consume_all(point, cell, direction)` — every same-direction registration at `(point, cell)` is marked consumed on entry/exit, correctly handling multi-axis corner entries and exits.
+- `bez_ssx` collects every `_Cell` into `all_cells` during subdivision and passes the list to the assembler (the top cell's outer partitions have `adjacents=[top_cell]` and aren't shared with its children, so partition-adjacency BFS from top_cell alone would miss sub-cells).
+- Added a global `emitted_point_ids` set so a second chain starting from a sibling cell's view of an already-walked point skips (prevents duplicate emission of the same curve from topologically equivalent seeds).
+- `_find_exit_registration` tolerance parameterized via caller's `atol` (was hard-coded `1e-4`).
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-12 post-fallback-removal | status |
+|------|-------------:|----:|----:|-------:|-----------------------------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.6 | 0.0 | OK |
+| transversal | 1 / 1 | 13 | 6.08e-09 | 11.9 | 0.0 | OK |
+| tangential  | 0 / 1 |  0 | 0.00e+00 | 42.0 | unchanged | MISMATCH (Φ classifier deferred per §4.2) |
+| overlaps    | 3 / 2 |  6 | 2.87e+02 | 18.6 | 0 | MISMATCH (unchanged — overlap vs §5) |
+| case5       | **3 / 2** | 62 | **5.79e-08** | 473.4 | **err 8e-4 → 5.79e-08**, −4 branches, +14 ms | MISMATCH (improved) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 66.9 | unchanged | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Case-5 analysis.** The big win is accuracy: residual dropped by 4 orders of magnitude (8e-4 → 5.79e-08). This is the cofactor-tangent + adjacency-walk combination: the marcher starts with the correct inward direction hint (no more outward-clipped zero-length fragments), and the adjacency walk follows partition-share with exact `(param, direction)` matching instead of xyz proximity. Case 5 dropped 11 → 3 branches compared to iter-12's identity-based assembly.
+
+The remaining extra branch is a **duplicate** of one of the 2 real branches. Root cause: when subdivision's internal CSX call re-discovers an existing crossing at slightly-different `stuv` (numerical noise, ~4e-9), two distinct `BoundaryPoint` objects exist for the same physical point. The adjacency walk's `emitted_point_ids` dedupe uses object identity, so the second walk from the duplicate point is not skipped. A proper fix — Invariant-C-at-subdivision-time dedupe — requires careful handling (my first attempt was too aggressive and broke case 5 differently); deferred to a dedicated micro-iteration.
+
+**Tangential regressed** to 0/1 as expected: pre-iter-13 Φ-pairing heuristic is gone; the Φ-side classifier that's supposed to replace it is deferred (design §4.2).
+
+**Iter-13 is a net improvement on case 5** (correct residual, closer branch count) but reveals two distinct design items now visible: (a) BoundaryPoint unification at subdivision, and (b) the Φ-side classifier. Both already captured in the design doc. No in-session heuristic fallback applied.
