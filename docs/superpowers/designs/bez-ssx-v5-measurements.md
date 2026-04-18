@@ -306,3 +306,34 @@ The root cause is `_find_exit_registration`'s failure rate on case-5 sub-cell bo
   3. The `_find_exit_registration` matching is not 100 % reliable on case 5 sub-cell boundaries (the case-5 MISMATCH).
 
 End of the "bring impl to design" phase. Next: investigate case 5 specifically with the clean codebase.
+
+## 2026-04-18 — Iteration 11: 3.1 + Medium/Low audit findings (information only)
+
+**Goal:** address the fresh-audit items 3.1 (cut-clamp), #3, #4, #5, #6, #7, #8 in one cycle. Run tests for information — no subsequent patches. The bigger audit items (#1 SVD direction hint, #2 param-matching assembly, 3.2 Krishnan-Manocha all-crossing cuts) are deferred to a design discussion after these results land.
+
+**Changes:**
+- **3.1** — `_choose_cut` rewritten: scores by *closeness to cell centre* instead of balance; rejects candidates with local position < `min_margin` (default 0.05) or > 1 − `min_margin`; returns `(None, None)` when no candidate meets the margin (cell terminates without further subdivision). The legacy `cut_local = max(0.01, min(0.99, cut_local))` artificial clamp is gone.
+- **#5** — deleted the xyz-proximity filter that removed crossings coinciding with overlap endpoints (lines 1693-1703 pre-iter-11). Redundant with the stuv filter L1 already runs; violated Invariant C.
+- **#7** — removed the top-level loop-free short-circuit. `top_cell` now always enters the decomposition stack and goes through the same §6 lifecycle; if it's loop-free the first iteration traces and the loop exits — behaviourally identical, one code path.
+- **#8** — `_check_tangency` returns `None` (not `False`) when the interval-arithmetic range of a `TΨᵢ` excludes 0. Design §6 step 3 calls for None here.
+- **#3 + #4** — `_deflate_tangent_cell` now emits `_Fragment`s carrying `start_point` / `end_point` BoundaryPoint references via a new `originals=` parameter, so Φ-branches join the same §9 assembly as Ψ-branches. `_pair_crossings_for_tracing` gained a registration-aware code path keyed by `direction` on `IsolineRegistration` — it no longer uses the legacy `.face` tag when a cell is supplied.
+- **#6** — documented `_Cell.crossings` as redundant scaffolding (still present; full removal deferred).
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-10 | status |
+|------|-------------:|----:|----:|-------:|-------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | −0.2 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.0  | −0.4 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 44.7  | −2.5 ms | OK |
+| overlaps    | **4 / 2** | 8 | 2.87e+02 | 18.8 | +1 branch | **MISMATCH (worse)** |
+| case5       | **4 / 2** | 71 | 8.74e-04 | **447.0** | **−7 branches, −1296 ms (×3.9 speedup)** | MISMATCH (much better) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 67.1  | −24 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Case 5 dramatically improved: 11 → 4 branches, 1743 ms → 447 ms (~3.9 × speedup). The center-preferring cut in 3.1 is almost certainly the driver — cuts very close to a cell's boundary used to produce near-zero-width sub-patches that themselves needed subdivision, inflating both the tree and the number of dead-end fragments. Requiring cuts to be at least 0.05 from the cell's boundaries produces a much shallower decomposition tree. Case 5 still MISMATCHes at 4/2 for the fundamental reason noted in iter-6/iter-8 (marcher direction + identity-based assembly), but it's now within a factor of 2.
+- Overlaps 3 → 4. Removing the xyz filter (#5) removed one of the heuristic dedup paths, exposing one more duplicate that neither filter catches. The real cause, already known, is that overlap endpoints don't participate in §5 (no `BoundaryPoint` with registrations).
+- Tangential and case 6 unchanged (correctness preserved).
+- Φ-fragments now carry BoundaryPoint refs; they'd chain via §9 if a Φ-branch spans multiple cells. No current case exercises that path, but the plumbing is now consistent with Ψ.
+
+**No fixes applied.** Results recorded as informational input for the next design cycle.

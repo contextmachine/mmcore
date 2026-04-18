@@ -370,12 +370,17 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
 
         Bf = _box_from_any(B_iv)
 
-        # Quick interval range check: if any TΨᵢ excludes 0 on the box → no tangency
+        # Quick interval range check: if any TΨᵢ excludes 0 on the box,
+        # design §6 step 3 says treat as None at this point — coef-hull
+        # monotonicity (§1.2) is looser than polynomial-range interval,
+        # so the test *can* fire in practice even after cheap certificates
+        # failed. Functionally equivalent to False here (both fall through
+        # to subdivision), but None matches the design's wording.
         T_box = sys.T_box(Bf)
         for Ti_range in T_box:
             lo, hi = Ti_range
             if lo > 0 or hi < 0:
-                return False
+                return None
 
         # Quick Gauss-Newton witness (few iterations — fast rejection for non-tangent)
         ok, xw, fn = gauss_newton_witness(sys, Bf, tol_f=1e-8, max_iter=8)
@@ -711,42 +716,75 @@ def _march_to_boundary(
 # Φ-tracer crossing pairing — used only inside _deflate_tangent_cell (§8)
 # ---------------------------------------------------------------------------
 
-def _pair_crossings_for_tracing(crossings):
-    """Pair boundary crossings for tracing.
+def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
+    """Pair boundary crossings for Φ tracing.
 
-    Each pair represents entry/exit of one curve component through the domain.
-    Uses nearest-neighbor matching in 3D space.
+    When `originals` and `cell` are supplied, we pair design-§5 "in"
+    registrations with "out" registrations in the owning cell's view. A
+    through-touch crossing (in on some axes, out on others in the same cell)
+    counts as an "in" once, pairable with any remaining "out".
+
+    Falls back to stuv-distance nearest-neighbour pairing when the caller
+    doesn't provide cell context — this only runs in legacy call sites.
+
+    Returns `(pairs, unpaired)` where `pairs` is a list of `(i, j)` index
+    tuples into `crossings`.
     """
-    if len(crossings) < 2:
-        return [], list(range(len(crossings)))
+    n = len(crossings)
+    if n < 2:
+        return [], list(range(n))
 
-    remaining = list(range(len(crossings)))
-    pairs = []
+    # Registration-based pairing when we have cell context.
+    if originals is not None and cell is not None:
+        in_ids: list[int] = []
+        out_ids: list[int] = []
+        for idx, orig in enumerate(originals):
+            has_in = any(r.owner is cell and r.direction == "in"
+                         for r in orig.registrations)
+            has_out = any(r.owner is cell and r.direction == "out"
+                          for r in orig.registrations)
+            if has_in:
+                in_ids.append(idx)
+            if has_out and not has_in:
+                out_ids.append(idx)
+        remaining_out = list(out_ids)
+        pairs: list[tuple[int, int]] = []
+        for i in in_ids:
+            if not remaining_out:
+                break
+            # Closest remaining "out" by stuv distance — picks the
+            # correct pair on the same branch when multiple Φ curves
+            # cross the cell.
+            j = min(
+                remaining_out,
+                key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
+            )
+            pairs.append((i, j))
+            remaining_out.remove(j)
+        paired_ids = {i for p in pairs for i in p}
+        unpaired = [k for k in range(n) if k not in paired_ids]
+        return pairs, unpaired
 
+    # Legacy fallback: stuv-distance nearest-neighbour.
+    remaining = list(range(n))
+    pairs_fb: list[tuple[int, int]] = []
     while len(remaining) >= 2:
         best_i, best_j = 0, 1
-        best_dist = float('inf')
+        best_dist = float("inf")
         for ii in range(len(remaining)):
             for jj in range(ii + 1, len(remaining)):
                 ci = crossings[remaining[ii]]
                 cj = crossings[remaining[jj]]
-                # Don't pair crossings on the same face
-                if ci.face == cj.face:
-                    continue
-                d = float(np.linalg.norm(ci.xyz - cj.xyz))
+                d = float(np.linalg.norm(ci.stuv - cj.stuv))
                 if d < best_dist:
                     best_dist = d
                     best_i, best_j = ii, jj
-
-        if best_dist == float('inf'):
+        if best_dist == float("inf"):
             break
-
-        pairs.append((remaining[best_i], remaining[best_j]))
-        # Remove in reverse order to keep indices valid
+        pairs_fb.append((remaining[best_i], remaining[best_j]))
         remaining.pop(best_j)
         remaining.pop(best_i)
-
-    return pairs, remaining
+    return pairs_fb, remaining
 
 
 # ---------------------------------------------------------------------------
@@ -916,26 +954,31 @@ def _march_phi_curve(
     return np.array(stuv_pts), np.array(xyz_pts)
 
 
-def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol):
+def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
+                          *, originals=None, cell=None):
     """Handle a confirmed-tangent cell by tracing the regulated Φ curve.
 
     1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations
-    2. March Φ between boundary crossing pairs
+    2. March Φ between boundary crossing pairs selected via in/out
+       registrations (design §4/§8) when `originals` and `cell` are supplied.
     3. Filter points that are also on the full intersection (Ψ=0)
 
-    Returns (branches, points).
+    Returns `(fragments, points)`. Fragments carry `start_point` / `end_point`
+    references — to `originals[i]` / `originals[j]` when originals are
+    provided, otherwise None — so the §9 assembly can chain Φ-fragments
+    alongside Ψ-fragments (design §8).
     """
     from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
 
     T_arrs = [np.asarray(T, dtype=np.float64)[..., np.newaxis] for T in [T1, T2, T3, T4]]
 
-    branches = []
-    points = []
+    fragments: list[_Fragment] = []
+    points: list[SSXPoint] = []
 
     if len(crossings) < 2:
         for c in crossings:
             points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
-        return branches, points
+        return fragments, points
 
     # Choose Φ equations from the first crossing
     psi_rows, t_idx = _choose_phi_equations(
@@ -943,8 +986,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
     )
     T_chosen = T_arrs[t_idx]
 
-    # Pair crossings and trace Φ between each pair
-    pairs, unpaired = _pair_crossings_for_tracing(crossings)
+    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
 
     for i, j in pairs:
         stuv_path, xyz_path = _march_phi_curve(
@@ -952,22 +994,30 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
             crossings[i].stuv, crossings[j].stuv,
             atol=atol, rational=False,
         )
-        if len(stuv_path) >= 2:
-            # Check that points lie on the actual intersection (full Ψ=0)
-            valid_mask = np.zeros(len(stuv_path), dtype=bool)
-            for k in range(len(stuv_path)):
-                p1 = eval_surface(P1_cart, stuv_path[k, 0], stuv_path[k, 1], rational=False)
-                p2 = eval_surface(P2_cart, stuv_path[k, 2], stuv_path[k, 3], rational=False)
-                if np.linalg.norm(p1 - p2) < atol:
-                    valid_mask[k] = True
-
-            if np.any(valid_mask):
-                branches.append(SSXBranch(curve=(stuv_path[valid_mask], xyz_path[valid_mask])))
+        if len(stuv_path) < 2:
+            continue
+        # Check that points lie on the actual intersection (full Ψ=0).
+        valid_mask = np.zeros(len(stuv_path), dtype=bool)
+        for k in range(len(stuv_path)):
+            p1 = eval_surface(P1_cart, stuv_path[k, 0], stuv_path[k, 1], rational=False)
+            p2 = eval_surface(P2_cart, stuv_path[k, 2], stuv_path[k, 3], rational=False)
+            if np.linalg.norm(p1 - p2) < atol:
+                valid_mask[k] = True
+        if not np.any(valid_mask):
+            continue
+        start_pt = originals[i] if originals is not None else None
+        end_pt = originals[j] if originals is not None else None
+        fragments.append(_Fragment(
+            start_point=start_pt, end_point=end_pt,
+            stuv_path=stuv_path[valid_mask],
+            xyz_path=xyz_path[valid_mask],
+        ))
 
     for k in unpaired:
-        points.append(SSXPoint(stuv=crossings[k].stuv, xyz=crossings[k].xyz))
+        src = originals[k] if originals is not None else crossings[k]
+        points.append(SSXPoint(stuv=src.stuv, xyz=src.xyz))
 
-    return branches, points
+    return fragments, points
 
 
 # ---------------------------------------------------------------------------
@@ -1384,18 +1434,26 @@ def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
 # Domain decomposition helpers
 # ---------------------------------------------------------------------------
 
-def _choose_cut(crossings_global, box):
-    """Choose a crossing and axis to cut through.
+def _choose_cut(crossings_global, box, min_margin: float = 0.05):
+    """Choose a crossing and axis for the next subdivision cut.
 
-    Crossings are in GLOBAL coords. We look for an interior value
-    (not on the cell boundary) that separates crossings into balanced groups.
+    Design principle §10.4: cuts go *through* an existing crossing's parameter
+    value, never at a midpoint. We prefer the crossing whose local cut position
+    is closest to the cell's center — a cut close to the cell boundary would
+    produce a sub-patch of near-zero width, which is useless for further
+    subdivision (we'd just keep cutting down the same sliver).
 
-    Returns (crossing_index, axis) or (None, None).
+    If every candidate crossing sits within `min_margin` of the cell's
+    boundary on every axis (e.g. all crossings are at local corners), no
+    productive cut exists and we return `(None, None)`; the caller should
+    stop subdividing this cell.
+
+    Returns `(crossing_index, axis)` or `(None, None)`.
     """
     if len(crossings_global) <= 2:
         return None, None
 
-    best_score = -1.0
+    best_center_dist = float("inf")
     best_cx_idx = None
     best_axis = None
 
@@ -1403,23 +1461,17 @@ def _choose_cut(crossings_global, box):
         for axis in range(4):
             val = c.stuv[axis]
             lo, hi = box[axis]
-            # Skip if the value is on the cell boundary
-            if abs(val - lo) < 1e-8 or abs(val - hi) < 1e-8:
+            span = hi - lo
+            if span <= 0:
                 continue
-            if val <= lo or val >= hi:
+            local = (val - lo) / span
+            # Reject cuts too close to the cell's own boundaries — they'd
+            # produce a near-zero-width sub-patch.
+            if local < min_margin or local > 1.0 - min_margin:
                 continue
-
-            n_left = sum(1 for c2 in crossings_global if c2.stuv[axis] < val - 1e-10)
-            n_right = sum(1 for c2 in crossings_global if c2.stuv[axis] > val + 1e-10)
-            n_on = len(crossings_global) - n_left - n_right
-
-            balance = min(n_left + n_on, n_right + n_on)
-            if balance == 0:
-                continue
-
-            score = balance - 0.1 * n_on
-            if score > best_score:
-                best_score = score
+            center_dist = abs(local - 0.5)
+            if center_dist < best_center_dist:
+                best_center_dist = center_dist
                 best_cx_idx = ci
                 best_axis = axis
 
@@ -1633,10 +1685,20 @@ def _split_bern_scalar_tensor(T, axis, t):
 
 @dataclass
 class _Cell:
-    """A sub-problem in the domain decomposition stack."""
+    """A sub-problem in the domain decomposition stack.
+
+    Design §6 lists the cell's state as `box, S1, S2, g1, g2, T1..T4,
+    partitions, depth`. The implementation also carries a `crossings` list;
+    per the design, crossings are derivable from
+    `[r.point for p in partitions for r in p.registrations]` (deduped by
+    identity). The `crossings` field is kept here as scaffolding used by
+    `_choose_cut` and the subdivision's L/R distribution step — removing it
+    requires rewriting those in terms of partition registrations, which is
+    a separate refactor.
+    """
     g1: object                          # GaussMapBern for S1 sub-patch (local [0,1]²)
     g2: object                          # GaussMapBern for S2 sub-patch (local [0,1]²)
-    crossings: list                     # BoundaryPoint in GLOBAL coords
+    crossings: list                     # BoundaryPoint (global coords) — redundant with partitions[].registrations
     box: tuple                          # 4D parameter range in GLOBAL coords
     depth: int = 0
     # TΨᵢ Bernstein tensors for this sub-cell's local [0,1]⁴ — propagated by
@@ -1646,8 +1708,7 @@ class _Cell:
     T2: Optional[NDArray[np.float64]] = None
     T3: Optional[NDArray[np.float64]] = None
     T4: Optional[NDArray[np.float64]] = None
-    # Isolines bounding this cell (design §5). Top-level cell owns 8 outer
-    # partitions; sub-cells will inherit/create their own in a later iteration.
+    # Isolines bounding this cell (design §5).
     partitions: list[PartitionCurve] = field(default_factory=list)
 
 
@@ -1685,22 +1746,11 @@ def bez_ssx(
         g2 = GaussMapBern.from_surf(S2_h, rational=True)
 
     # --- Level 2: Boundary CSX (8 calls, once) ---
-    # Crossings are already in global [0,1]⁴ coords (top-level box is [0,1]⁴)
+    # Crossings are already in global [0,1]⁴ coords (top-level box is [0,1]⁴).
+    # _find_ssx_boundary_zeros already filters crossings that coincide with
+    # overlap endpoints by stuv (design §10.6); nothing more to do here.
     crossings, boundary_overlaps = _find_ssx_boundary_zeros(S1, S2, atol, rational=rational)
     overlap_branches = _overlaps_to_branches(boundary_overlaps, S1, atol, rational)
-
-    # Filter crossings that coincide with overlap endpoints
-    if overlap_branches:
-        filtered = []
-        for c in crossings:
-            on_ovl = any(
-                np.linalg.norm(c.xyz - b.curve[1][0]) < atol or
-                np.linalg.norm(c.xyz - b.curve[1][-1]) < atol
-                for b in overlap_branches
-            )
-            if not on_ovl:
-                filtered.append(c)
-        crossings = filtered
 
     # --- Level 3: TΨᵢ (once at top level) ---
     if rational:
@@ -1724,21 +1774,18 @@ def bez_ssx(
     top_cell.partitions = _build_outer_partitions(top_cell)
 
     # §4 classification: one IsolineRegistration per on-boundary axis per
-    # boundary crossing. Still produced unconditionally — consumers land in
-    # later iterations.
+    # boundary crossing.
     for c in crossings:
         _classify_boundary_point(c, top_cell)
 
-    # --- Loop-absence check (top level) ---
-    if _check_loop_free(g1, g2, T1, T2, T3, T4):
-        if not crossings and not overlap_branches:
-            return {'branches': [], 'points': []}
-        fragments, points = _trace_cell_by_registrations(top_cell, atol)
-        branches = _assemble_fragments(fragments)
-        branches.extend(overlap_branches)
-        return {'branches': branches, 'points': points}
+    if not crossings and not overlap_branches:
+        return {'branches': [], 'points': []}
 
-    # --- ITERATIVE DOMAIN DECOMPOSITION ---
+    # --- Iterative domain decomposition (single code path, design §6) ---
+    # The top-level cell enters the same stack as any sub-cell and goes
+    # through the same 4-step lifecycle: cheap certificates → tangency →
+    # subdivision. If it's loop-free at top level, the first iteration
+    # traces it and the loop exits.
     stack = [top_cell]
     all_fragments: list[_Fragment] = []
     all_points = []
@@ -1777,26 +1824,23 @@ def bez_ssx(
                 )
                 for c in cell.crossings
             ]
-            br_local, pt_local = _deflate_tangent_cell(
+            fr_local, pt_local = _deflate_tangent_cell(
                 P1_cart_local, P2_cart_local,
                 cell.T1, cell.T2, cell.T3, cell.T4,
                 local_box, crossings_local, atol,
+                originals=cell.crossings, cell=cell,
             )
-            for b in br_local:
-                stuv_loc, xyz = b.curve
-                stuv_glob = np.empty_like(stuv_loc)
-                for k in range(len(stuv_loc)):
-                    stuv_glob[k] = _local_to_global(stuv_loc[k], cell.box)
-                # Φ-fragments carry no BoundaryPoint endpoints: chaining
-                # across shared partitions uses Ψ fragments' registrations.
+            for f in fr_local:
+                stuv_glob = np.empty_like(f.stuv_path)
+                for k in range(len(f.stuv_path)):
+                    stuv_glob[k] = _local_to_global(f.stuv_path[k], cell.box)
                 all_fragments.append(_Fragment(
-                    start_point=None, end_point=None,
-                    stuv_path=stuv_glob, xyz_path=xyz,
+                    start_point=f.start_point, end_point=f.end_point,
+                    stuv_path=stuv_glob, xyz_path=f.xyz_path,
                 ))
-            for p in pt_local:
-                all_points.append(SSXPoint(
-                    stuv=_local_to_global(p.stuv, cell.box), xyz=p.xyz,
-                ))
+            # pt_local's SSXPoint.stuv is already global — we passed
+            # `originals` so _deflate_tangent_cell copied from them.
+            all_points.extend(pt_local)
             continue
 
         if cell.depth >= max_depth:
@@ -1817,10 +1861,11 @@ def bez_ssx(
 
         cut_global_val = cell.crossings[cx_idx].stuv[cut_axis]
 
-        # Convert cut to LOCAL parameter for the surface being split
+        # Convert cut to LOCAL parameter for the surface being split.
+        # _choose_cut already guaranteed `cut_local` is within [min_margin,
+        # 1 - min_margin]; no artificial clamp.
         cell_lo, cell_hi = cell.box[cut_axis]
-        cut_local = (cut_global_val - cell_lo) / max(cell_hi - cell_lo, 1e-15)
-        cut_local = max(0.01, min(0.99, cut_local))  # safety clamp
+        cut_local = (cut_global_val - cell_lo) / (cell_hi - cell_lo)
 
         # Which surface to split
         surf_to_split = 1 if cut_axis < 2 else 2
