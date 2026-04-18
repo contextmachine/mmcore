@@ -108,6 +108,27 @@ The single point contributes one entry and two exit registrations on three *diff
 
 **Global coordinates come in only at registration time.** Given a classified on-boundary axis `i` with direction `d`, the `PartitionCurve` holding coordinate `i` fixed at the cell's global `box[i].lo` (if `local_stuv[i] == 0`) or `box[i].hi` (if `local_stuv[i] == 1`) receives a new `IsolineRegistration` whose `param` is the point's global coordinate on the partition's free axis. That is the single local-to-global mapping the classification stage needs.
 
+### 4.1 Tangent by cofactor
+
+The raw 4D tangent `T` is **not** the SVD null vector. It is the cofactor (adjugate column) of the 3×4 Jacobian `J_Ψ = [S1_s, S1_t, −S2_u, −S2_v]`:
+
+```
+T[i] = (−1)^i · det(J_Ψ without column i)
+     = { +TΨ₁, −TΨ₂, +TΨ₃, −TΨ₄ }   evaluated at the point.
+```
+
+These are exactly the minors defined in §1.2 — the `TΨᵢ` Bernstein tensors are already computed for the monotonicity certificate and are already de Casteljau-split into every sub-cell. A Bernstein evaluation of `(T1, T2, T3, T4)` at the crossing's local `stuv` gives the four components; the alternating signs `(+, −, +, −)` make the vector a valid null vector of `J_Ψ` by the cofactor-expansion identity (`J_Ψ · T` is a 4×4 determinant with a repeated row, hence zero).
+
+**Why the cofactor vector is the right tangent and not just *a* null vector:**
+
+- **Sign is a fixed function of the surface pair**, not of any solver state. `TΨᵢ(stuv)` is a definite real number for every point; `(+TΨ₁, −TΨ₂, +TΨ₃, −TΨ₄)` has the same relative and absolute signs in every cell at every crossing. The §4 `(local_param, sign(T[i]))` table becomes meaningful and consistent across cells.
+- **Equivalent to the classical `n1 × n2` projection** onto each surface's tangent basis (differs by a single global sign, which is irrelevant to classification). The 3D intersection-curve tangent is `n1 × n2`; its `(s,t)` coefficients are `( −(S1_t·n2), +(S1_s·n2) )` and its `(u,v)` coefficients are `( +(S2_v·n1), −(S2_u·n1) )` — these are precisely the four `(−1)^i · TΨᵢ` values.
+- **Zero at tangent points.** When `Ψ = 0 AND TΨ = 0` (design §1.4 C₂ case), the cofactor vector vanishes identically. This is not a bug; it is the algebraic fact that *`Ψ` alone has no well-defined tangent at a tangent point*. The dispatcher uses this signal: a point with `T = 0` has undefined `sign(T[i])` for every axis, so it produces no `IsolineRegistration` and cannot seed a march — but a march from a *different* start point can still land on it via the corrector (which is driven by `Ψ = 0`, not by `T`). If such a point is in a cell whose cheap certificates failed, `_check_tangency` (§6 step 3) picks it up and the Φ-tracer (§8) handles it.
+
+**The marcher's internal tangent continuation** (i.e., step-to-step direction updates inside `_ssx_correct` / `_march_intersection_curve`) remains unchanged — those can still use SVD with a direction hint, because the sign ambiguity is resolved by continuity with the *previous* step's tangent. The cofactor formulation applies specifically to the classification-time tangent at boundary crossings, where there is no prior step to anchor sign.
+
+**Rank-deficient Jacobian at a non-tangent point** (e.g., purely planar intersections where two surface partial derivatives are parallel) is left as a future edge case. It would require a secondary route for classification; we will address it only if an input triggers it.
+
 ## 5. Partition-curve topology
 
 An **isoline** is a 1D curve embedded in `[0,1]⁴`. It is completely specified by one fixed coordinate (which of `s,t,u,v` is held constant, and at what value) and the global interval of the free coordinate. Every isoline either is one of the eight outer faces of the top-level `[0,1]⁴` (fixed axis = 0 or 1, global extent = `[0,1]`), or an internal partition produced by a subdivision (fixed axis = some global value, global extent = the free-coord range of the parent cell at split time).
@@ -178,6 +199,21 @@ The order 1 → 2 → 3 → 4 is mandatory: the cheapest certificate must be tri
 
 Safety cap: `max_depth` (default 12). Reaching it without a certificate is treated as a non-fatal warning; the crossings in that cell are emitted as isolated `SSXPoint`s.
 
+### 6.5 Multi-crossing cut
+
+Step 4 (subdivision) does not split a cell into two sub-cells at a single crossing's parameter; it splits into **one strip per crossing parameter** on the chosen axis (Krishnan & Manocha 1997).
+
+1. **Axis choice.** Pick the axis on which a productive cut is available. A productive axis has at least one crossing whose local parameter lies in `(min_margin, 1 − min_margin)` on that axis (same margin test as the single-cut variant). Prefer the axis with the most interior crossings, breaking ties by the axis whose crossing-parameter spread is largest (wider spread ⇒ more strips ⇒ more shrinkage per strip).
+2. **Cut set.** Sort all crossings' local parameter values along the chosen axis, keep only the distinct interior ones (within `min_margin` of cell boundaries filtered out). Together with the cell's two endpoints, this produces a sorted set `0 = p_0 < p_1 < … < p_k = 1` of strip boundaries.
+3. **Sequential de Casteljau.** Split the surface, Gauss map, and `TΨᵢ` tensors along the chosen axis at `p_1, p_2, …, p_{k−1}` in sequence. De Casteljau is associative along a single axis, so the k strips each get the correct restriction. A strip `[p_{j}, p_{j+1}]` corresponds to one strip sub-cell.
+4. **Partitions.** Each strip sub-cell has the same 8 face isolines. The faces orthogonal to the cut axis are shared with the adjacent strips (two adjacent-strip shared partitions per interior boundary `p_j` for `1 ≤ j ≤ k−1`); the faces parallel to the cut axis are inherited from the parent cell (unsplit). Shared partitions have `adjacents = [strip_j, strip_{j+1}]`.
+5. **Crossing distribution.** Each crossing goes to every strip whose axis range includes it — crossings exactly at a cut `p_j` belong to both neighbour strips (they sit on a shared partition).
+6. **Classification.** Run §4 classification on each strip's crossings against that strip's partitions.
+
+This produces k strips per subdivision pass instead of 2, but each strip has a TΨᵢ whose coefficient hull is approximately `1/k` of the parent's span on the cut axis — the definite-sign test fires much sooner. In Case 5, typical `k` at the top level is 3–4.
+
+**Still no subdivision for its own sake.** A strip is pushed onto the stack only if it contains crossings; empty strips are dropped. A strip that produces no productive cut on any axis (all remaining crossings are at its corners) terminates without further subdivision — its crossings are handled by the tracing step or emitted as `SSXPoint`s if certification fails.
+
 ## 7. Tracing inside a loop-free cell
 
 Given a cell terminated by certificate (1) or (2), with its `BoundaryPoint` set:
@@ -206,15 +242,44 @@ Given a cell terminated by certificate (3), we have at least one boundary crossi
 
 The Φ-traced branch respects the same partition-curve registration protocol as Ψ-traced branches.
 
-## 9. Output assembly
+## 9. Output assembly — adjacency walk
 
-After every cell is processed:
+Branches are not assembled from fragments by object identity. A single `BoundaryPoint` can be registered in more than two cells (a corner of 4D box where many sub-cells meet), and not every pair of cells sharing that point shares a *partition*. Object-identity matching cannot distinguish which continuation is the correct next step at such points; it also collapses distinct branches at a cusp or self-intersection.
 
-- For each `PartitionCurve` with `len(adjacents) == 2` (internal partition): run the 1D param-match (Invariant B) on the two owners' registrations. Matched pairs concatenate the two partial branches into one.
-- Zero-length branches (single point) become isolated `SSXPoint`s in the output.
-- Overlap branches from L1 are appended directly (they are already full-length on their isoline).
+Instead, assembly walks the **partition adjacency graph**. A chain is extended step by step along *shared partitions*, following each step's `(param, direction)` registration pair — never across a point that two cells happen to share without a common partition.
 
-The output is `{'branches': [...SSXBranch...], 'points': [...SSXPoint...]}`. There is no post-hoc xyz-based merging, no xyz-based deduping, no corner-touch filter. Such operations are forbidden by Invariant C and by the design principles below.
+### 9.1 Chain step
+
+Let a chain be at a `BoundaryPoint X` with `IsolineRegistration r_in` (direction `"in"`, cell `C`, entry partition `P_in`). One chain step is:
+
+1. **Exit inside C.** Locate an unconsumed `r_out` (direction `"out"`, cell `C`) on a partition `P_out ≠ P_in`.
+   - If `X` itself carries an unconsumed `r_out` in `C` on a different partition than `P_in`: this is a **through-touch** — `r_out` is taken at the same point `X`; the interior fragment has length zero.
+   - Otherwise: march inside `C` from `X.stuv_local` until `_on_boundary` fires; call `_find_exit_registration` on the stopping point; that's `r_out`.
+2. **Cross the partition.** Let `P = r_out.partition`.
+   - If `len(P.adjacents) == 1` (outer face of `[0,1]⁴`): the chain terminates, emit branch.
+   - Otherwise `len(P.adjacents) == 2`: let `C'` be `P.adjacents` minus `C`. Find the registration `r_in'` on `P` whose owner is `C'`, `direction == "in"`, and whose `param == r_out.param` (within tolerance). By Invariant A this registration exists and is unique. Mark `r_out` and `r_in'` as consumed.
+3. **Advance.** Set `C := C'`, `X := r_in'.point`, `P_in := P`, `r_in := r_in'`, and recurse from step 1.
+
+### 9.2 Chain sources
+
+Chains are started from **every unconsumed `"in"` registration on an outer face** (a face of `[0,1]⁴` with `len(adjacents) == 1`), in arbitrary order. Those cover all branches that enter or exit the parameter domain — i.e. every *open* branch.
+
+Closed branches (entirely interior to `[0,1]⁴`) leave no outer-face entry. After the outer-face pass, iterate remaining unconsumed `"in"` registrations in any order: each such registration seeds a closed-branch walk whose step 2 eventually returns to the chain's starting point.
+
+### 9.3 Fork handling at shared points
+
+If during a walk we reach a `BoundaryPoint` `Y` that is already on the current chain (via `id(Y)`), the chain has either *closed* (if `Y` is the chain start) or *branched at a cusp/self-intersection* (otherwise). Emit the chain as-is; do not continue past `Y`.
+
+After all primary chains are traced, scan remaining unconsumed `"in"` registrations. For each, trace an **alternative chain** by the same algorithm. If the alternative reaches a `BoundaryPoint` already on any previously traced chain, stop there. The alternative is:
+- **Emitted as a separate branch** if its total 3D length (sum of `|xyz[k] - xyz[k+1]|` over the whole chain) exceeds `atol` — this is a legitimate cusp or self-intersection fork.
+- **Discarded** if its total length is below `atol` — a dangling through-touch that doesn't correspond to a real branch.
+
+### 9.4 Overlaps and isolated points
+
+- Overlap branches from L1 are appended directly to the output (they are already full-length on their isoline; no walk needed).
+- A chain that terminates after zero interior marches and zero partition crossings (single-point chain) becomes an isolated `SSXPoint`.
+
+The output is `{'branches': [...SSXBranch...], 'points': [...SSXPoint...]}`. No post-hoc xyz-proximity merge or dedupe; no point-identity fallback.
 
 ## 10. Design principles
 
@@ -246,3 +311,13 @@ These are non-negotiable. They shape the boundaries between "implementation deta
 Design-alignment step. §1.2 and §6 already specified that TΨᵢ is de Casteljau-split alongside surfaces and Gauss maps at every cell split (never recomputed), and tried first in `_check_loop_free`. The implementation did not: sub-cells only ran Gauss separability. This iteration brings the code into agreement by adding `T1..T4` to `_Cell`, propagating them via a scalar-tensor de Casteljau wrapper, and passing them into `_check_loop_free` for every sub-cell.
 
 Tests green, no regression. Case 5: 4 sub-cells now certified by TΨᵢ alone, ~1 % wall-time improvement (525 ms vs 532 ms). Outcome recorded in measurements; the small impact reflects that case 5's intersection curve is non-monotone in every parameter for most sub-cells, so the cheap certificate rarely suffices on its own. Kept: correct, design-consistent, cannot regress on other inputs.
+
+### 2026-04-18 — Design revision (§4.1 cofactor, §6.5 multi-cut, §9 adjacency walk)
+
+Three coordinated design changes motivated by (1) per-cell certificate analysis on Case 5 showing monotonicity is very close but never fires above depth 4 (Bernstein coefficient-hull bound is loose), (2) the observation that SVD gives an arbitrary-sign null vector so `(local_param, sign(T[i]))` classification can't seed the marcher with a known-inward direction, and (3) the realization that object-identity fragment assembly cannot distinguish topologically distinct continuations at a corner shared by 4+ cells (Image-3 case).
+
+- **§4.1 (new) — Tangent by cofactor.** Replace SVD with `T[i] = (−1)^i · det(J_Ψ without column i) = (+TΨ₁, −TΨ₂, +TΨ₃, −TΨ₄)` evaluated at the crossing. Sign is a fixed function of `(S1, S2)`, not of the solver; zero at tangent points signals the Φ path naturally; reuses the `TΨᵢ` machinery we already split per cell. Equivalent (up to a global sign) to the classical `n1 × n2` projection.
+- **§6.5 (new) — Multi-crossing cut.** Subdivide at *all* crossing parameter values on the chosen axis in a single pass (Krishnan-Manocha 1997, §6.5). k strips per pass instead of 2, each TΨᵢ restricted to ~1/k of the axis span, coefficient hull tightens proportionally; internal partitions between adjacent strips are shared; classification runs per strip.
+- **§9 revision — Adjacency walk.** Chains extend step by step along *shared partitions*, not via `BoundaryPoint` identity. Each step crosses one shared partition, matching `(param, direction)` between the two adjacent cells' views (§9.1). Outer-face `"in"` registrations seed open branches; remaining unconsumed `"in"`s seed closed branches. Forks (reaching an already-visited point) emit the chain and, if the alternative path has nontrivial length, emit it as a separate branch — cusp / self-intersection handling.
+
+No implementation changes yet. Next iterations (12–14) land them one at a time, measuring after each.
