@@ -108,3 +108,30 @@ Known defects captured as entries:
 Classification of this single intersection line is now trivially readable from the stored tangent.
 
 **Outcome:** data-structure scaffolding in place with no behaviour change. All 5 passing cases and CSX unit tests green; case-6 still missing its loop (unchanged). Wall-time noise only. Iter-4 will use `tangent_raw` to produce `IsolineRegistration` entries on `PartitionCurve`s.
+
+## 2026-04-18 — Iteration 4: §4 classification at top level
+
+**Goal:** produce `IsolineRegistration` entries on `PartitionCurve`s for every top-level boundary crossing using §4's `(local_param, sign)` table. Sub-cell classification deferred to iter-5; consumer (tracing by registrations) deferred further.
+
+**Change:**
+- Added helpers `_partition_free_axis`, `_classify_on_axis` (the design-§4 lookup table), `_build_outer_partitions`, `_on_axis_local`, `_classify_boundary_point`.
+- Added `partitions: list[PartitionCurve]` field to `_Cell`.
+- In `bez_ssx`, built the top-level `_Cell` (with the 8 outer partitions) BEFORE the loop-free short-circuit, then called `_classify_boundary_point(c, top_cell)` on every L1 crossing.
+- The loop-free short-circuit and the iterative decomposition both now use `top_cell` as their entry, so the registrations are always produced.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-3 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.8  | +0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | +0.1 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.1  | +0.2 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.1  | +0.1 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 507.3 | −0.4 ms | OK |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.0  | +0.1 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Validation of the new registrations.**
+- *Planes*: 2 crossings, each with 2 registrations on the 2 on-boundary axes (t and v). `(0.5, 0, 0.5, 0)` → `in` on t=0 **and** `in` on v=0. `(0.5, 1, 0.5, 1)` → `out` on t=1 **and** `out` on v=1. The intersection-line topology is fully readable from these 4 registrations.
+- *Case 5*: 4 crossings, all on t faces. Partition t=0 has 2 `in`s at `s=0.243` and `s=0.748`; partition t=1 has 2 `out`s at `s=0.282` and `s=0.763`. The expected two open branches are visible as `in ↔ out` pairs — ready for a consumer.
+
+**Outcome:** top-level §4 classification landed with zero behaviour change. Registrations are correct and complete for the top-level cell. Iter-5: propagate partitions into sub-cells and classify the crossings created at subdivision time.

@@ -1643,6 +1643,104 @@ def _isoline_csx_to_global(csx_result, cut_axis, cut_global_val, cell_box, surf_
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _partition_free_axis(fixed_axis: int) -> int:
+    """Return the isoline's free parameter axis for an SSX partition.
+
+    Partitions are isolines of one of the two surfaces: S1 owns axes 0 (s)
+    and 1 (t), S2 owns axes 2 (u) and 3 (v). If one of a surface's two axes
+    is held fixed by the partition, the other one is free.
+    """
+    return {0: 1, 1: 0, 2: 3, 3: 2}[fixed_axis]
+
+
+def _classify_on_axis(local_param: int, tangent_component: float) -> Optional[str]:
+    """Design §4 (local_param, sign) table.
+
+    Returns "in" or "out" for the owning cell, or None if the tangent is
+    exactly orthogonal to the axis (degenerate case; caller may still record
+    the crossing without a direction or skip it).
+    """
+    if local_param not in (0, 1):
+        raise ValueError(f"local_param must be 0 or 1, got {local_param}")
+    if tangent_component > 0:
+        return "in" if local_param == 0 else "out"
+    if tangent_component < 0:
+        return "out" if local_param == 0 else "in"
+    return None
+
+
+def _build_outer_partitions(owner_cell: "_Cell") -> list[PartitionCurve]:
+    """Create the 8 outer partitions of the top-level [0,1]⁴ for a cell that
+    spans the full [0,1]⁴ (so box[i] == (0.0, 1.0) for every axis).
+
+    Each outer partition is an edge isoline of S1 or S2 held at one of its
+    boundary values 0 or 1; the free axis is the surface's other axis.
+    """
+    parts: list[PartitionCurve] = []
+    for axis in range(4):
+        free = _partition_free_axis(axis)
+        extent = owner_cell.box[free]
+        for side in (0, 1):
+            p = PartitionCurve(
+                axis=axis, value=float(side),
+                free_axis=free, global_extent=(float(extent[0]), float(extent[1])),
+                adjacents=[owner_cell], registrations=[],
+            )
+            parts.append(p)
+    return parts
+
+
+def _on_axis_local(global_val: float, lo: float, hi: float, tol: float = 1e-8) -> Optional[int]:
+    """Return 0 if `global_val` equals `lo`, 1 if it equals `hi`, else None."""
+    if abs(global_val - lo) < tol:
+        return 0
+    if abs(global_val - hi) < tol:
+        return 1
+    return None
+
+
+def _classify_boundary_point(point: BoundaryPoint, cell: "_Cell") -> None:
+    """Design §4: produce one IsolineRegistration per on-boundary axis.
+
+    The raw tangent stored on the point carries sign info that is invariant
+    under the positive affine global↔local rescale, so classification works
+    directly from `point.tangent_raw[i]` and the point's local param derived
+    from the cell's box on axis `i`.
+    """
+    if point.tangent_raw is None:
+        return
+
+    for i in range(4):
+        local_param = _on_axis_local(point.stuv[i], cell.box[i][0], cell.box[i][1])
+        if local_param is None:
+            continue  # axis strictly interior for this cell — no registration (§4)
+
+        direction = _classify_on_axis(local_param, float(point.tangent_raw[i]))
+        if direction is None:
+            continue  # tangent exactly orthogonal to axis — degenerate, skip
+
+        # Find the cell's partition whose fixed axis is i and whose value
+        # equals the cell's box.lo (if local_param==0) or box.hi (local_param==1).
+        target_value = cell.box[i][local_param]
+        match = None
+        for p in cell.partitions:
+            if p.axis == i and abs(p.value - target_value) < 1e-8:
+                match = p
+                break
+        if match is None:
+            continue  # no partition yet recorded on this axis/value for this cell
+
+        reg = IsolineRegistration(
+            partition=match,
+            param=float(point.stuv[match.free_axis]),
+            direction=direction,
+            owner=cell,
+            point=point,
+        )
+        match.registrations.append(reg)
+        point.registrations.append(reg)
+
+
 def _split_bern_scalar_tensor(T, axis, t):
     """Split a scalar 4D Bernstein tensor (no trailing value dim) along `axis` at `t`.
 
@@ -1661,7 +1759,7 @@ class _Cell:
     """A sub-problem in the domain decomposition stack."""
     g1: object                          # GaussMapBern for S1 sub-patch (local [0,1]²)
     g2: object                          # GaussMapBern for S2 sub-patch (local [0,1]²)
-    crossings: list                     # BoundaryCrossing in GLOBAL coords
+    crossings: list                     # BoundaryPoint in GLOBAL coords
     box: tuple                          # 4D parameter range in GLOBAL coords
     depth: int = 0
     # TΨᵢ Bernstein tensors for this sub-cell's local [0,1]⁴ — propagated by
@@ -1671,6 +1769,9 @@ class _Cell:
     T2: Optional[NDArray[np.float64]] = None
     T3: Optional[NDArray[np.float64]] = None
     T4: Optional[NDArray[np.float64]] = None
+    # Isolines bounding this cell (design §5). Top-level cell owns 8 outer
+    # partitions; sub-cells will inherit/create their own in a later iteration.
+    partitions: list[PartitionCurve] = field(default_factory=list)
 
 
 def bez_ssx(
@@ -1733,9 +1834,25 @@ def bez_ssx(
         P2_cart = S2
     T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1_cart, P2_cart)
 
-    # --- Loop-absence check (top level) ---
+    # --- Top-level cell + outer partitions (design §5) ---
     box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
+    T1_arr = _tpsi_to_numpy(T1)
+    T2_arr = _tpsi_to_numpy(T2)
+    T3_arr = _tpsi_to_numpy(T3)
+    T4_arr = _tpsi_to_numpy(T4)
+    top_cell = _Cell(
+        g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
+        T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr,
+    )
+    top_cell.partitions = _build_outer_partitions(top_cell)
 
+    # §4 classification: one IsolineRegistration per on-boundary axis per
+    # boundary crossing. Still produced unconditionally — consumers land in
+    # later iterations.
+    for c in crossings:
+        _classify_boundary_point(c, top_cell)
+
+    # --- Loop-absence check (top level) ---
     if _check_loop_free(g1, g2, T1, T2, T3, T4):
         if not crossings and not overlap_branches:
             return {'branches': [], 'points': []}
@@ -1744,12 +1861,7 @@ def bez_ssx(
         return {'branches': branches, 'points': points}
 
     # --- ITERATIVE DOMAIN DECOMPOSITION ---
-    T1_arr = _tpsi_to_numpy(T1)
-    T2_arr = _tpsi_to_numpy(T2)
-    T3_arr = _tpsi_to_numpy(T3)
-    T4_arr = _tpsi_to_numpy(T4)
-    stack = [_Cell(g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
-                   T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr)]
+    stack = [top_cell]
     all_branches = list(overlap_branches)
     all_points = []
 
