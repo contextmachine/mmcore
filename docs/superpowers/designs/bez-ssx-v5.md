@@ -129,6 +129,24 @@ These are exactly the minors defined in §1.2 — the `TΨᵢ` Bernstein tensors
 
 **Rank-deficient Jacobian at a non-tangent point** (e.g., purely planar intersections where two surface partial derivatives are parallel) is left as a future edge case. It would require a secondary route for classification; we will address it only if an input triggers it.
 
+### 4.2 Classification inside a tangent cell — deferred to "Φ-side classifier"
+
+When `_check_tangency` certifies that `TΨ = 0` has a simultaneous root inside the cell (design §6 step 3, the C₂ case), the surfaces are tangent on the entire intersection curve restricted to that cell. Consequently every `TΨᵢ` vanishes on the intersection curve, and the cofactor tangent `T_Ψ = (+TΨ₁, −TΨ₂, +TΨ₃, −TΨ₄)` of §4.1 is *identically zero* at every boundary crossing of the cell. The `(local_param, sign(T[i]))` table in §4 then has nothing to sign — no registrations are produced, and §9 assembly has no input for this cell.
+
+**The resolution, and the reason it's deferred.** The Φ regulated system (design §1.4, §8) has rank 3 where Ψ has rank 2 — that is the whole point of deflation. Its Jacobian `J_Φ` (3×4) has a well-defined, non-zero cofactor column at every point on the intersection curve. Using *that* cofactor column as the classification tangent yields in/out registrations in tangent cells just as §4.1 yields them in non-tangent cells. The §9 adjacency walk then proceeds identically.
+
+**What the implementation would look like.** Let `(psi_rows, t_idx)` be the Φ-equation choice already produced by `_choose_phi_equations` for the tangent cell. The 3×4 `J_Φ = vstack([J_Ψ[psi_rows, :], grad(TΨ_{t_idx})])`. Its cofactor column at a point `stuv` is
+
+```
+T_Φ[i] = (−1)^i · det(J_Φ without column i)
+```
+
+four scalars, each a polynomial in `(s, t, u, v)` obtainable from the surface evaluators and the `TΨ_{t_idx}` Bernstein tensor's gradient. Classification is structurally identical to §4.1 — just with `T_Φ` instead of `T_Ψ`.
+
+**Integration point.** Right after `_check_tangency(cell)` returns True and before the cell's crossings are handed to `_deflate_tangent_cell`, re-run classification on those crossings using `_classify_boundary_point_phi(point, cell, psi_rows, t_idx)`. Existing `IsolineRegistration`s from the Ψ classifier (all with direction = None / skipped) are replaced by the Φ classifier's. `_deflate_tangent_cell` then pairs via registrations as in the non-tangent path.
+
+**Current state.** The Φ-side classifier is NOT yet implemented. `_pair_crossings_for_tracing` produces zero pairs when the cell has no registrations and `_deflate_tangent_cell` returns empty fragments + all-unpaired `SSXPoint`s. Tangential test cases therefore regress (0 branches, crossings emitted as isolated points) until §4.2 lands. This is an intentional regression: the alternative was a heuristic stuv-distance fallback that violated §10.1 and hid the real gap. The regression is visible in the measurements log and will be closed when this section is implemented.
+
 ## 5. Partition-curve topology
 
 An **isoline** is a 1D curve embedded in `[0,1]⁴`. It is completely specified by one fixed coordinate (which of `s,t,u,v` is held constant, and at what value) and the global interval of the free coordinate. Every isoline either is one of the eight outer faces of the top-level `[0,1]⁴` (fixed axis = 0 or 1, global extent = `[0,1]`), or an internal partition produced by a subdivision (fixed axis = some global value, global extent = the free-coord range of the parent cell at split time).

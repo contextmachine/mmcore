@@ -711,79 +711,52 @@ def _march_to_boundary(
 # Φ-tracer crossing pairing — used only inside _deflate_tangent_cell (§8)
 # ---------------------------------------------------------------------------
 
-def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
-    """Pair boundary crossings for Φ tracing.
+def _pair_crossings_for_tracing(crossings, originals, cell):
+    """Pair boundary crossings for Φ tracing (design §8).
 
-    When `originals` and `cell` are supplied, we pair design-§5 "in"
-    registrations with "out" registrations in the owning cell's view. A
-    through-touch crossing (in on some axes, out on others in the same cell)
-    counts as an "in" once, pairable with any remaining "out".
+    Pairs design-§5 "in" registrations with "out" registrations in the
+    owning cell's view. A through-touch crossing (in on some axes, out on
+    others in the same cell) counts as an "in" once, pairable with any
+    remaining "out".
 
-    Falls back to stuv-distance nearest-neighbour pairing when the caller
-    doesn't provide cell context — this only runs in legacy call sites.
+    When the cell is tangent (C₂) the cofactor tangent is identically zero
+    on the intersection curve, classification produces no registrations,
+    and this function returns `(pairs=[], unpaired=all)`. That is the
+    correct signal that a Φ-side classifier (design §4.2 deferred) is
+    required. No heuristic fallback.
 
-    Returns `(pairs, unpaired)` where `pairs` is a list of `(i, j)` index
+    Returns `(pairs, unpaired)` with `pairs` a list of `(i, j)` index
     tuples into `crossings`.
     """
     n = len(crossings)
     if n < 2:
         return [], list(range(n))
 
-    # Registration-based pairing when we have cell context AND at least one
-    # registration exists. The tangential (C₂) case has TΨ ≡ 0 on the
-    # intersection curve, so the cofactor tangent is zero and classification
-    # produces no registrations at all; in that case we fall through to the
-    # legacy pairing below.
-    if originals is not None and cell is not None:
-        in_ids: list[int] = []
-        out_ids: list[int] = []
-        any_registration = False
-        for idx, orig in enumerate(originals):
-            cell_regs = [r for r in orig.registrations if r.owner is cell]
-            if cell_regs:
-                any_registration = True
-            has_in = any(r.direction == "in" for r in cell_regs)
-            has_out = any(r.direction == "out" for r in cell_regs)
-            if has_in:
-                in_ids.append(idx)
-            if has_out and not has_in:
-                out_ids.append(idx)
-        if any_registration:
-            remaining_out = list(out_ids)
-            pairs: list[tuple[int, int]] = []
-            for i in in_ids:
-                if not remaining_out:
-                    break
-                j = min(
-                    remaining_out,
-                    key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
-                )
-                pairs.append((i, j))
-                remaining_out.remove(j)
-            paired_ids = {i for p in pairs for i in p}
-            unpaired = [k for k in range(n) if k not in paired_ids]
-            return pairs, unpaired
+    in_ids: list[int] = []
+    out_ids: list[int] = []
+    for idx, orig in enumerate(originals):
+        cell_regs = [r for r in orig.registrations if r.owner is cell]
+        has_in = any(r.direction == "in" for r in cell_regs)
+        has_out = any(r.direction == "out" for r in cell_regs)
+        if has_in:
+            in_ids.append(idx)
+        if has_out and not has_in:
+            out_ids.append(idx)
 
-    # Legacy fallback: stuv-distance nearest-neighbour.
-    remaining = list(range(n))
-    pairs_fb: list[tuple[int, int]] = []
-    while len(remaining) >= 2:
-        best_i, best_j = 0, 1
-        best_dist = float("inf")
-        for ii in range(len(remaining)):
-            for jj in range(ii + 1, len(remaining)):
-                ci = crossings[remaining[ii]]
-                cj = crossings[remaining[jj]]
-                d = float(np.linalg.norm(ci.stuv - cj.stuv))
-                if d < best_dist:
-                    best_dist = d
-                    best_i, best_j = ii, jj
-        if best_dist == float("inf"):
+    remaining_out = list(out_ids)
+    pairs: list[tuple[int, int]] = []
+    for i in in_ids:
+        if not remaining_out:
             break
-        pairs_fb.append((remaining[best_i], remaining[best_j]))
-        remaining.pop(best_j)
-        remaining.pop(best_i)
-    return pairs_fb, remaining
+        j = min(
+            remaining_out,
+            key=lambda k: float(np.linalg.norm(crossings[i].stuv - crossings[k].stuv)),
+        )
+        pairs.append((i, j))
+        remaining_out.remove(j)
+    paired_ids = {i for p in pairs for i in p}
+    unpaired = [k for k in range(n) if k not in paired_ids]
+    return pairs, unpaired
 
 
 # ---------------------------------------------------------------------------
@@ -954,38 +927,38 @@ def _march_phi_curve(
 
 
 def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
-                          *, originals=None, cell=None):
+                          *, originals, cell):
     """Handle a confirmed-tangent cell by tracing the regulated Φ curve.
 
-    1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations
-    2. March Φ between boundary crossing pairs selected via in/out
-       registrations (design §4/§8) when `originals` and `cell` are supplied.
-    3. Filter points that are also on the full intersection (Ψ=0)
+    1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations.
+    2. Pair crossings by in/out registrations in the owning cell
+       (design §4 / §8); if the cell's registrations are empty (C₂ whole-
+       curve-tangent case), no pairs are produced — this surfaces the
+       design §4.2 deferred work (Φ-side classifier) rather than falling
+       back to a heuristic.
+    3. March Φ between each pair. Filter points that are also on the full
+       intersection (Ψ = 0).
 
-    Returns `(fragments, points)`. Fragments carry `start_point` / `end_point`
-    references — to `originals[i]` / `originals[j]` when originals are
-    provided, otherwise None — so the §9 assembly can chain Φ-fragments
-    alongside Ψ-fragments (design §8).
+    Returns `(fragments, points)`. Fragments carry `start_point` /
+    `end_point` references to `originals[i]` / `originals[j]` so the §9
+    assembly can chain Φ-fragments alongside Ψ-fragments.
     """
-    from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
-
     T_arrs = [np.asarray(T, dtype=np.float64)[..., np.newaxis] for T in [T1, T2, T3, T4]]
 
     fragments: list[_Fragment] = []
     points: list[SSXPoint] = []
 
     if len(crossings) < 2:
-        for c in crossings:
+        for c in originals:
             points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
         return fragments, points
 
-    # Choose Φ equations from the first crossing
     psi_rows, t_idx = _choose_phi_equations(
         P1_cart, P2_cart, T_arrs, crossings[0].stuv, rational=False,
     )
     T_chosen = T_arrs[t_idx]
 
-    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
+    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals, cell)
 
     for i, j in pairs:
         stuv_path, xyz_path = _march_phi_curve(
@@ -995,7 +968,6 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
         )
         if len(stuv_path) < 2:
             continue
-        # Check that points lie on the actual intersection (full Ψ=0).
         valid_mask = np.zeros(len(stuv_path), dtype=bool)
         for k in range(len(stuv_path)):
             p1 = eval_surface(P1_cart, stuv_path[k, 0], stuv_path[k, 1], rational=False)
@@ -1004,17 +976,14 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
                 valid_mask[k] = True
         if not np.any(valid_mask):
             continue
-        start_pt = originals[i] if originals is not None else None
-        end_pt = originals[j] if originals is not None else None
         fragments.append(_Fragment(
-            start_point=start_pt, end_point=end_pt,
+            start_point=originals[i], end_point=originals[j],
             stuv_path=stuv_path[valid_mask],
             xyz_path=xyz_path[valid_mask],
         ))
 
     for k in unpaired:
-        src = originals[k] if originals is not None else crossings[k]
-        points.append(SSXPoint(stuv=src.stuv, xyz=src.xyz))
+        points.append(SSXPoint(stuv=originals[k].stuv, xyz=originals[k].xyz))
 
     return fragments, points
 
