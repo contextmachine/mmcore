@@ -1779,23 +1779,26 @@ def _classify_on_axis(local_param: int, tangent_component: float) -> Optional[st
     return None
 
 
-def _build_cell_partitions(owner_cell: "_Cell") -> list[PartitionCurve]:
-    """Create the 8 partitions corresponding to a cell's 8 box faces.
+def _build_cell_partitions(owner_cell: "_Cell",
+                           skip: Optional[tuple[int, int]] = None) -> list[PartitionCurve]:
+    """Create the partitions corresponding to a cell's 8 box faces.
 
     Each partition is the isoline fixing one of the cell's axes at its lower
     or upper box bound; the free axis is the owning surface's other axis,
     with extent equal to the cell's box range on that axis.
 
-    For the top-level cell (box = [0,1]⁴) this yields the 8 outer faces of
-    the full parameter domain; for a sub-cell it yields its own 8 faces in
-    global coordinates. Partitions are unshared at this stage — cross-cell
-    matching across internal partitions is handled in a later iteration.
+    If `skip` is provided as `(axis, side_idx)` that one face is omitted —
+    used when the caller will splice in a shared internal partition in its
+    place (design §5 invariants: an internal partition's object is unique
+    and adjacent to exactly two cells).
     """
     parts: list[PartitionCurve] = []
     for axis in range(4):
         free = _partition_free_axis(axis)
         extent = owner_cell.box[free]
         for side_idx in (0, 1):
+            if skip is not None and skip == (axis, side_idx):
+                continue
             value = owner_cell.box[axis][side_idx]
             p = PartitionCurve(
                 axis=axis, value=float(value),
@@ -2084,11 +2087,26 @@ def bez_ssx(
         box_R[cut_axis] = (cut_global_val, cell.box[cut_axis][1])
         box_R = tuple(box_R)
 
+        # --- Shared internal partition at the cut (design §5 Inv. A) ---
+        # The new face created by this cut is a single PartitionCurve shared
+        # by both sub-cells. Its adjacents list will collect L and R below.
+        shared_free = _partition_free_axis(cut_axis)
+        shared_extent = cell.box[shared_free]
+        internal_partition = PartitionCurve(
+            axis=cut_axis, value=float(cut_global_val),
+            free_axis=shared_free,
+            global_extent=(float(shared_extent[0]), float(shared_extent[1])),
+            adjacents=[], registrations=[],
+        )
+
         if left_cx:
             L_cell = _Cell(g1=g1_L, g2=g2_L, crossings=left_cx,
                            box=box_L, depth=cell.depth + 1,
                            T1=T1_L, T2=T2_L, T3=T3_L, T4=T4_L)
-            L_cell.partitions = _build_cell_partitions(L_cell)
+            # L's high-side face on the cut axis is the shared internal partition
+            L_cell.partitions = _build_cell_partitions(L_cell, skip=(cut_axis, 1))
+            L_cell.partitions.append(internal_partition)
+            internal_partition.adjacents.append(L_cell)
             for c in left_cx:
                 _classify_boundary_point(c, L_cell)
             stack.append(L_cell)
@@ -2096,7 +2114,10 @@ def bez_ssx(
             R_cell = _Cell(g1=g1_R, g2=g2_R, crossings=right_cx,
                            box=box_R, depth=cell.depth + 1,
                            T1=T1_R, T2=T2_R, T3=T3_R, T4=T4_R)
-            R_cell.partitions = _build_cell_partitions(R_cell)
+            # R's low-side face on the cut axis is the shared internal partition
+            R_cell.partitions = _build_cell_partitions(R_cell, skip=(cut_axis, 0))
+            R_cell.partitions.append(internal_partition)
+            internal_partition.adjacents.append(R_cell)
             for c in right_cx:
                 _classify_boundary_point(c, R_cell)
             stack.append(R_cell)

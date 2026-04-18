@@ -190,3 +190,26 @@ Not fixing this in iter-6. The residual heuristics (`_merge_adjacent_branches`, 
   2. A post-trace assembly pass that walks shared internal partitions and matches in/out pairs by `param`.
 
 These are iter-7 and iter-8. Case 5 is expected to return to 2 branches once both land. Iteration remains in "bringing implementation to design" mode — no heuristic fallbacks.
+
+## 2026-04-18 — Iteration 7: share internal partitions across L/R (Inv. A prerequisite)
+
+**Goal:** when a parent cell splits at `(cut_axis, cut_global_val)`, the new face separating the two children must be a single `PartitionCurve` object shared by both of them. Design §5 Invariant A requires that a crossing on this face appears in *both* cells' views with flipped direction — impossible if each child builds its own copy.
+
+**Change:**
+- Gave `_build_cell_partitions` an optional `skip=(axis, side_idx)` parameter that omits one box face, making space for the splice-in.
+- In the subdivision branch: create a single `PartitionCurve` at `(cut_axis, cut_global_val)`, set its `free_axis` = the other axis of the owning surface, and its `global_extent` = the parent's range on that free axis. Skip the cut face when building each child's own partitions, append the shared one, and grow its `adjacents` list.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-6 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | −1.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.2  | −0.1 ms  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.4  | −1.6 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.6  | −0.6 ms  | OK |
+| case5       | 3 / 2 | 105 | 8.36e-04 | 697.4 | +0.7 ms  | MISMATCH (unchanged from iter-6) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 78.2  | +1.3 ms  | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Verification of sharing.** Case 5 instrumentation: 49 cells produced by 24 splits, yielding 24 distinct `PartitionCurve` objects with `len(adjacents) == 2` — exactly one per split. Outer partitions (the 8 boundary faces of any sub-cell that isn't on the cut) remain unshared with `len(adjacents) == 1`. Total: 368 partition objects across 49 cells, as expected for unshared outer + shared internal.
+
+**Outcome:** structural enabler for iter-8 is in place. No behaviour change — no consumer reads `adjacents` yet. Case 5 still MISMATCH at 3 branches; next iter wires the cross-cell assembly and is expected to close it.
