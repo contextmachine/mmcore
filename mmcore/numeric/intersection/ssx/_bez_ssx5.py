@@ -740,14 +740,20 @@ def _march_to_boundary(
     if direction_hint is not None and np.dot(tang_prev, direction_hint) < 0:
         tang_prev = -tang_prev
 
+    _first_step = True
     for _ in range(max_points):
-        # Predictor — do NOT clip. Letting `predicted` leave [0,1]⁴ is
-        # how we detect that the intersection curve crossed a cell
-        # boundary on this step: the event is the sign change of
-        # (predicted[i] − boundary_value), not a distance test.
         predicted = current + step * tang_prev
 
-        crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(current, predicted)
+        if _first_step:
+            # On the first step, clamp prediction to [0,1]⁴ instead of
+            # triggering a boundary event. This prevents the marcher from
+            # bouncing off a face that the start point sits on: the tiny
+            # outward component in the tangent is numerical noise, and the
+            # corrector will pull the point back onto the true curve.
+            predicted = np.clip(predicted, 0.0, 1.0)
+
+        crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(
+            current, predicted)
         if crossed_axis is not None:
             # Curve left the cell somewhere in (current, predicted).
             # Initial guess: linear interpolation at the crossing fraction,
@@ -802,6 +808,7 @@ def _march_to_boundary(
 
         current = corrected
         tang_prev = tang_new
+        _first_step = False
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
 
@@ -1366,72 +1373,74 @@ def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bo
 
 
 def _trace_cell_by_registrations(cell, atol):
-    """Design §7: trace fragments inside a loop-free cell by following
-    unvisited boundary points with an `in` registration, matching exit
-    points by exact `(partition, param)` identity on the cell's own
-    partitions (Invariant D). Multi-axis corners are handled by consuming
-    every same-direction registration on the start/end point in one go —
-    the single march describes the curve's single passage through the
-    corner, no matter how many cell faces the corner touches.
+    """Trace all branch segments inside a certified cell.
 
-    Returns `(fragments, points)`. Fragments carry the actual
-    `BoundaryPoint` endpoints so the §9 assembly can chain them by
-    object identity (two fragments touching the same point on an internal
-    shared partition are two halves of the same through-curve).
+    For each boundary crossing, march in one direction. If the march
+    immediately exits (corner touch), try the opposite direction.
+    If neither direction produces a segment, skip the point.
+    Match the exit to the nearest unconsumed crossing by stuv proximity.
+    No in/out classification needed.
     """
     fragments: list[_Fragment] = []
     points: list = []
+    used: set[int] = set()
+    min_seg_len = 1e-10
 
-    # Collect unique start points: any BoundaryPoint owned by this cell
-    # with at least one unconsumed `in` registration.
-    start_points: list[BoundaryPoint] = []
-    seen: set[int] = set()
-    for p in cell.partitions:
-        for reg in p.registrations:
-            if reg.owner is cell and reg.direction == "in" and not reg.consumed:
-                key = id(reg.point)
-                if key in seen:
-                    continue
-                seen.add(key)
-                start_points.append(reg.point)
-
-    for start_point in start_points:
-        if not _cell_has_unused_direction(start_point, cell, "in"):
-            continue  # consumed by a prior march that happened to touch this point
-
-        _consume_cell_directions(start_point, cell, "in")
-
-        start_local = _global_to_local(start_point.stuv, cell.box)
-        stuv_local, xyz_local = _march_to_boundary(
-            cell.g1.surface, cell.g2.surface, start_local,
-            atol=atol, rational=True,
-        )
-
-        if len(stuv_local) < 2:
+    for i, start_cx in enumerate(cell.crossings):
+        if i in used:
             continue
 
-        stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
-        for j in range(len(stuv_local)):
-            stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
-        stuv_global[0] = start_point.stuv.copy()
+        start_local = _global_to_local(start_cx.stuv, cell.box)
 
-        end_reg = _find_exit_registration(cell, stuv_global[-1])
-        end_point: Optional[BoundaryPoint] = None
-        if end_reg is not None:
-            end_point = end_reg.point
-            stuv_global[-1] = end_point.stuv.copy()
-            xyz_local[-1] = end_point.xyz.copy()
-            _consume_cell_directions(end_point, cell, "out")
+        for attempt in range(2):
+            hint = None
+            if attempt == 1:
+                tang, _, _ = _ssx_tangent_4d(
+                    cell.g1.surface, cell.g2.surface,
+                    *start_local, rational=True)
+                if tang is None:
+                    break
+                hint = -tang
 
-        if np.linalg.norm(stuv_global[-1] - stuv_global[0]) <= 1e-10:
-            continue  # zero-length through-touch; no fragment recorded
+            stuv_local, xyz_local = _march_to_boundary(
+                cell.g1.surface, cell.g2.surface, start_local,
+                atol=atol, rational=True, direction_hint=hint,
+            )
 
-        fragments.append(_Fragment(
-            start_point=start_point,
-            end_point=end_point,
-            stuv_path=stuv_global,
-            xyz_path=xyz_local,
-        ))
+            if len(stuv_local) < 2:
+                continue
+
+            stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
+            for j in range(len(stuv_local)):
+                stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
+            stuv_global[0] = start_cx.stuv.copy()
+
+            if np.linalg.norm(stuv_global[-1] - stuv_global[0]) <= min_seg_len:
+                continue
+
+            best_j = None
+            best_dist = float('inf')
+            for j, cx in enumerate(cell.crossings):
+                if j == i or j in used:
+                    continue
+                d = np.linalg.norm(cx.stuv - stuv_global[-1])
+                if d < best_dist:
+                    best_dist = d
+                    best_j = j
+
+            if best_j is not None and best_dist < 1e-6:
+                end_cx = cell.crossings[best_j]
+                stuv_global[-1] = end_cx.stuv.copy()
+                xyz_local[-1] = end_cx.xyz.copy()
+                used.add(i)
+                used.add(best_j)
+                fragments.append(_Fragment(
+                    start_point=start_cx,
+                    end_point=end_cx,
+                    stuv_path=stuv_global,
+                    xyz_path=xyz_local,
+                ))
+                break
 
     return fragments, points
 
@@ -1549,7 +1558,7 @@ def _choose_multi_cut(crossings_global, box, min_margin: float = 0.05):
     Returns `(axis, sorted_cut_values_global)` or `(None, None)` if no
     axis has any valid interior cut.
     """
-    if len(crossings_global) <= 2:
+    if not crossings_global:
         return None, None
 
     best_axis: Optional[int] = None
@@ -1815,6 +1824,248 @@ def _split_bern_scalar_tensor(T, axis, t):
     return left[..., 0], right[..., 0]
 
 
+def _pinned_count(point: BoundaryPoint, cell_box, tol: float = 1e-8) -> int:
+    """Count how many of the 4D stuv coordinates sit on a cell boundary."""
+    count = 0
+    for i in range(4):
+        lo, hi = cell_box[i]
+        if abs(point.stuv[i] - lo) < tol or abs(point.stuv[i] - hi) < tol:
+            count += 1
+    return count
+
+
+def _is_pinned(val, lo, hi, tol=1e-8):
+    return abs(val - lo) < tol or abs(val - hi) < tol
+
+
+def _compute_split_plan(crossings, cell_box, min_margin=0.05):
+    """Determine per-surface split axes and values from productive crossings.
+
+    For each crossing, check S1 pair (s,t) and S2 pair (u,v):
+    - If both params in a pair are pinned → skip this crossing entirely.
+    - If exactly 1 pinned → the free param gives the split value for that surface.
+    - If 0 pinned → pick the param closer to center as the split value.
+
+    Returns (s1_axis, s1_cuts, s2_axis, s2_cuts) where each axis is 0/1 for
+    S1 or 2/3 for S2, and cuts are sorted global values. Returns None for
+    axis/cuts if no productive crossing provides a split for that surface.
+    """
+    s1_candidates = {}  # axis -> set of global values
+    s2_candidates = {}
+
+    for c in crossings:
+        stuv = c.stuv
+        # Check S1 pair
+        s_pin = _is_pinned(stuv[0], cell_box[0][0], cell_box[0][1])
+        t_pin = _is_pinned(stuv[1], cell_box[1][0], cell_box[1][1])
+        # Check S2 pair
+        u_pin = _is_pinned(stuv[2], cell_box[2][0], cell_box[2][1])
+        v_pin = _is_pinned(stuv[3], cell_box[3][0], cell_box[3][1])
+
+        if (s_pin and t_pin) or (u_pin and v_pin):
+            continue
+
+        # S1 split: only when exactly 1 of (s,t) is pinned.
+        # If 0 pinned → no guided split for S1 from this crossing (→ midpoint).
+        if s_pin and not t_pin:
+            s1_candidates.setdefault(1, set()).add(float(stuv[1]))
+        elif t_pin and not s_pin:
+            s1_candidates.setdefault(0, set()).add(float(stuv[0]))
+
+        # S2 split: only when exactly 1 of (u,v) is pinned.
+        if u_pin and not v_pin:
+            s2_candidates.setdefault(3, set()).add(float(stuv[3]))
+        elif v_pin and not u_pin:
+            s2_candidates.setdefault(2, set()).add(float(stuv[2]))
+
+    def _pick_best(candidates, box):
+        if not candidates:
+            return None, None
+        best_axis = max(candidates, key=lambda a: len(candidates[a]))
+        lo, hi = box[best_axis]
+        span = hi - lo
+        cuts = sorted(v for v in candidates[best_axis]
+                      if min_margin < (v - lo) / span < 1 - min_margin)
+        if not cuts:
+            return None, None
+        return best_axis, cuts
+
+    s1_axis, s1_cuts = _pick_best(s1_candidates, cell_box)
+    s2_axis, s2_cuts = _pick_best(s2_candidates, cell_box)
+    return s1_axis, s1_cuts, s2_axis, s2_cuts
+
+
+def _split_surface_multi(g, axis_4d, cut_values, cell_box):
+    """Multi-cut a GaussMapBern along one axis. Returns list of pieces."""
+    local_axis = axis_4d if axis_4d < 2 else axis_4d - 2
+    lo, hi = cell_box[axis_4d]
+    remain = g
+    remain_lo = lo
+    pieces = []
+    for cv in cut_values:
+        local_cut = (cv - remain_lo) / (hi - remain_lo)
+        left, right = (remain.split_u(local_cut) if local_axis == 0
+                       else remain.split_v(local_cut))
+        pieces.append(left)
+        remain = right
+        remain_lo = cv
+    pieces.append(remain)
+    return pieces
+
+
+def _split_tensor_multi(T, axis_4d, cut_values, cell_box):
+    """Multi-cut a TΨᵢ tensor along one axis. Returns list of pieces."""
+    lo, hi = cell_box[axis_4d]
+    remain = T
+    remain_lo = lo
+    pieces = []
+    for cv in cut_values:
+        local_cut = (cv - remain_lo) / (hi - remain_lo)
+        left, right = _split_bern_scalar_tensor(remain, axis=axis_4d, t=local_cut)
+        pieces.append(left)
+        remain = right
+        remain_lo = cv
+    pieces.append(remain)
+    return pieces
+
+
+def _csx_on_cut_face(cell, cut_axis: int, cut_global_val: float, atol: float):
+    """Run boundary CSX on one cut face of a cell.
+
+    Extracts the isoline of the surface that owns `cut_axis` at the local
+    parameter corresponding to `cut_global_val`, runs `bez_csx` against the
+    other surface, and returns the results as global `BoundaryPoint` objects.
+
+    This is the paper §5.1 "compute new xsection points on each dividing line".
+    """
+    surf_to_split = 1 if cut_axis < 2 else 2
+    local_axis = cut_axis if cut_axis < 2 else cut_axis - 2
+    cell_lo, cell_hi = cell.box[cut_axis]
+    cell_span = cell_hi - cell_lo
+    if cell_span < 1e-15:
+        return []
+    cut_local = (cut_global_val - cell_lo) / cell_span
+
+    if surf_to_split == 1:
+        isoline = _extract_isoline(cell.g1.surface, local_axis, cut_local)
+        csx_result = bez_csx(isoline, cell.g2.surface, atol=atol, rational=True)
+    else:
+        isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
+        csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
+
+    return _isoline_csx_to_global(
+        csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
+        S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
+    )
+
+
+def _pick_midpoint_axis(cell) -> int:
+    """Pick the axis to split at 0.5 when no productive cuts exist."""
+    return cell.depth % 4
+
+
+def _midpoint_split(cell, axis: int, atol: float):
+    """Split cell at midpoint of `axis`. Returns (left, right, mid_global, new_crossings).
+
+    Performs a single binary cut at local 0.5 on the chosen axis, runs CSX on
+    the new cut face, deduplicates against inherited crossings, and returns the
+    two sub-cells with their crossings and partitions fully set up.
+    """
+    surf_to_split = 1 if axis < 2 else 2
+    local_axis = axis if axis < 2 else axis - 2
+    lo, hi = cell.box[axis]
+    mid_global = 0.5 * (lo + hi)
+
+    # Split surface / Gauss map
+    if surf_to_split == 1:
+        left_g1, right_g1 = (cell.g1.split_u(0.5) if local_axis == 0
+                             else cell.g1.split_v(0.5))
+        left_g2, right_g2 = cell.g2, cell.g2
+    else:
+        left_g2, right_g2 = (cell.g2.split_u(0.5) if local_axis == 0
+                             else cell.g2.split_v(0.5))
+        left_g1, right_g1 = cell.g1, cell.g1
+
+    # Split TΨᵢ tensors
+    left_T1, right_T1 = _split_bern_scalar_tensor(cell.T1, axis=axis, t=0.5)
+    left_T2, right_T2 = _split_bern_scalar_tensor(cell.T2, axis=axis, t=0.5)
+    left_T3, right_T3 = _split_bern_scalar_tensor(cell.T3, axis=axis, t=0.5)
+    left_T4, right_T4 = _split_bern_scalar_tensor(cell.T4, axis=axis, t=0.5)
+
+    left_box = list(cell.box)
+    left_box[axis] = (lo, mid_global)
+    left_box = tuple(left_box)
+
+    right_box = list(cell.box)
+    right_box[axis] = (mid_global, hi)
+    right_box = tuple(right_box)
+
+    # CSX on the new cut face
+    new_crossings = _csx_on_cut_face(cell, axis, mid_global, atol)
+
+    # Invariant C dedup: unify with inherited crossings
+    deduped_new: list = []
+    for nc in new_crossings:
+        assert abs(nc.stuv[axis] - mid_global) < 1e-8, \
+            f"CSX crossing must be on cut face: stuv[{axis}]={nc.stuv[axis]}, expected {mid_global}"
+        match = None
+        for ec in cell.crossings:
+            if np.linalg.norm(ec.stuv - nc.stuv) < atol:
+                match = ec
+                break
+        if match is None:
+            pc = _pinned_count(nc, left_box if nc.stuv[axis] <= mid_global + 1e-10 else right_box)
+            assert pc == 1, \
+                f"New crossing must be 1-pinned in its strip, got {pc}: stuv={nc.stuv}"
+            deduped_new.append(nc)
+        else:
+            match.stuv[axis] = mid_global
+
+    # Pool = inherited + genuinely new
+    all_cx = list(cell.crossings) + deduped_new
+
+    # Distribute crossings to strips
+    left_cx = [c for c in all_cx if c.stuv[axis] <= mid_global + 1e-10]
+    right_cx = [c for c in all_cx if c.stuv[axis] >= mid_global - 1e-10]
+
+    # Separate genuinely new crossings per strip (for next-level cut decisions)
+    left_new = [c for c in deduped_new if c.stuv[axis] <= mid_global + 1e-10]
+    right_new = [c for c in deduped_new if c.stuv[axis] >= mid_global - 1e-10]
+
+    left_cell = _Cell(g1=left_g1, g2=left_g2, crossings=left_cx, box=left_box,
+                      depth=cell.depth + 1,
+                      T1=left_T1, T2=left_T2, T3=left_T3, T4=left_T4,
+                      new_crossings=left_new)
+    right_cell = _Cell(g1=right_g1, g2=right_g2, crossings=right_cx, box=right_box,
+                       depth=cell.depth + 1,
+                       T1=right_T1, T2=right_T2, T3=right_T3, T4=right_T4,
+                       new_crossings=right_new)
+
+    # Partitions: skip the cut-axis face, splice in shared internal partition
+    shared_free = _partition_free_axis(axis)
+    shared_extent = cell.box[shared_free]
+    shared_partition = PartitionCurve(
+        axis=axis, value=float(mid_global),
+        free_axis=shared_free,
+        global_extent=(float(shared_extent[0]), float(shared_extent[1])),
+        adjacents=[left_cell, right_cell], registrations=[],
+    )
+
+    left_cell.partitions = _build_cell_partitions(left_cell, skip=(axis, 1))
+    left_cell.partitions.append(shared_partition)
+
+    right_cell.partitions = _build_cell_partitions(right_cell, skip=(axis, 0))
+    right_cell.partitions.append(shared_partition)
+
+    # Classify all crossings per sub-cell
+    for c in left_cx:
+        _classify_boundary_point(c, left_cell)
+    for c in right_cx:
+        _classify_boundary_point(c, right_cell)
+
+    return left_cell, right_cell
+
+
 @dataclass
 class _Cell:
     """A sub-problem in the domain decomposition stack.
@@ -1842,6 +2093,11 @@ class _Cell:
     T4: Optional[NDArray[np.float64]] = None
     # Isolines bounding this cell (design §5).
     partitions: list[PartitionCurve] = field(default_factory=list)
+    # Crossings discovered by CSX on this cell's NEW cut faces (not inherited
+    # from parent). Only these drive the next subdivision decision. Inherited
+    # crossings are in `crossings` for tracing but should not be re-used for
+    # cutting — cutting at inherited coordinates produces zero-info strips.
+    new_crossings: list = field(default_factory=list)
 
 
 def bez_ssx(
@@ -1902,6 +2158,7 @@ def bez_ssx(
     top_cell = _Cell(
         g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
         T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr,
+        new_crossings=list(crossings),
     )
     top_cell.partitions = _build_outer_partitions(top_cell)
 
@@ -1918,12 +2175,18 @@ def bez_ssx(
     # through the same 4-step lifecycle: cheap certificates → tangency →
     # subdivision. If it's loop-free at top level, the first iteration
     # traces it and the loop exits.
-    stack = [top_cell]
+    from collections import deque
+    queue = deque([top_cell])
     all_fragments: list[_Fragment] = []
     all_points = []
 
-    while stack:
-        cell = stack.pop()
+    while queue:
+        cell = queue.popleft()
+
+        # AABB pruning: if the two sub-patches' control-point bounding boxes
+        # don't overlap, there is no intersection in this cell. Drop it.
+        if _prune_ssx_cell(cell.g1.surface, cell.g2.surface, atol, rational=True):
+            continue
 
         # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
         # Gauss map separability as fallback (design §6, §10 principle 8).
@@ -1980,158 +2243,172 @@ def bez_ssx(
                 all_points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
             continue
 
-        # --- §6.5: multi-crossing cut ---
-        cut_axis, cut_values = _choose_multi_cut(cell.crossings, cell.box)
+        # --- Dual-surface subdivision ---
+        # Both surfaces are split at each step. Productive crossings provide
+        # per-surface split values; if a surface has no guided split, it gets
+        # a midpoint cut on its longest-span axis.
+        s1_axis, s1_cuts, s2_axis, s2_cuts = _compute_split_plan(
+            cell.new_crossings, cell.box)
 
-        if cut_axis is None:
-            # No productive cut on any axis — trace directly via §7.
-            if cell.crossings:
-                fr, pt = _trace_cell_by_registrations(cell, atol)
-                all_fragments.extend(fr)
-                all_points.extend(pt)
-            continue
+        # Midpoint fallback per surface when no guided cuts
+        if s1_axis is None:
+            s1_span_s = cell.box[0][1] - cell.box[0][0]
+            s1_span_t = cell.box[1][1] - cell.box[1][0]
+            s1_axis = 0 if s1_span_s >= s1_span_t else 1
+            s1_cuts = [0.5 * (cell.box[s1_axis][0] + cell.box[s1_axis][1])]
+        if s2_axis is None:
+            s2_span_u = cell.box[2][1] - cell.box[2][0]
+            s2_span_v = cell.box[3][1] - cell.box[3][0]
+            s2_axis = 2 if s2_span_u >= s2_span_v else 3
+            s2_cuts = [0.5 * (cell.box[s2_axis][0] + cell.box[s2_axis][1])]
 
-        surf_to_split = 1 if cut_axis < 2 else 2
-        local_axis = cut_axis if cut_axis < 2 else cut_axis - 2
-        cell_lo, cell_hi = cell.box[cut_axis]
-        cell_span = cell_hi - cell_lo
+        # Split S1 (Gauss map) along s1_axis
+        g1_pieces = _split_surface_multi(cell.g1, s1_axis, s1_cuts, cell.box)
+        # Split S2 (Gauss map) along s2_axis
+        g2_pieces = _split_surface_multi(cell.g2, s2_axis, s2_cuts, cell.box)
 
-        # Per-cut internal CSX — isolines come from the ORIGINAL cell's
-        # surface, so each cut_local is relative to `cell.box`.
-        new_crossings_per_cut: list[list] = []
-        for cv in cut_values:
-            cut_local_orig = (cv - cell_lo) / cell_span
-            if surf_to_split == 1:
-                isoline = _extract_isoline(cell.g1.surface, local_axis, cut_local_orig)
-                csx_result = bez_csx(isoline, cell.g2.surface, atol=atol, rational=True)
-            else:
-                isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local_orig)
-                csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
-            nc = _isoline_csx_to_global(
-                csx_result, cut_axis, cv, cell.box, surf_to_split,
-                S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
-            )
-            # Design §5 Invariant C — identical-stuv unify. Internal CSX at a
-            # cut can re-discover a crossing that already exists (L1 or from
-            # an earlier cut in this same subdivision). Reuse the existing
-            # BoundaryPoint object instead of creating a fresh one at the
-            # same physical point, and snap its `cut_axis` coordinate to the
-            # exact cut value so the distribute step sends it to both strips.
-            deduped: list = []
-            for new_c in nc:
-                match = None
-                for ec in cell.crossings:
-                    if np.linalg.norm(ec.stuv - new_c.stuv) < atol:
-                        match = ec
-                        break
-                if match is None:
-                    for earlier in new_crossings_per_cut:
-                        for ec in earlier:
-                            if np.linalg.norm(ec.stuv - new_c.stuv) < atol:
-                                match = ec
-                                break
-                        if match is not None:
-                            break
-                if match is None:
-                    deduped.append(new_c)
-                else:
-                    match.stuv[cut_axis] = cv
-            new_crossings_per_cut.append(deduped)
+        # Split TΨᵢ along BOTH axes sequentially
+        T_list = [cell.T1, cell.T2, cell.T3, cell.T4]
+        T_after_s1 = [_split_tensor_multi(T, s1_axis, s1_cuts, cell.box) for T in T_list]
+        T_pieces = []
+        for i1 in range(len(g1_pieces)):
+            row = []
+            for T_idx in range(4):
+                T_s1_piece = T_after_s1[T_idx][i1]
+                sub_box = list(cell.box)
+                s1_lo = cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1 - 1]
+                s1_hi = s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1]
+                sub_box[s1_axis] = (s1_lo, s1_hi)
+                pieces_s2 = _split_tensor_multi(T_s1_piece, s2_axis, s2_cuts, tuple(sub_box))
+                row.append(pieces_s2)
+            T_pieces.append(row)
 
-        # Shared internal partitions — one per cut, each adjacent to
-        # exactly the two strips it separates (filled in below).
-        shared_free = _partition_free_axis(cut_axis)
-        shared_extent = cell.box[shared_free]
-        internal_partitions = [
-            PartitionCurve(
-                axis=cut_axis, value=float(cv),
-                free_axis=shared_free,
-                global_extent=(float(shared_extent[0]), float(shared_extent[1])),
-                adjacents=[], registrations=[],
-            )
-            for cv in cut_values
-        ]
+        # --- CSX: cut_line vs each piece of the opposite surface ---
+        # Split first, then CSX. Each cut line is intersected with each
+        # piece of the opposite surface separately, so crossings are found
+        # on the refined geometry and map deterministically to sub-cells.
+        s1_other = 1 - s1_axis if s1_axis < 2 else 1 - (s1_axis - 2)
+        s1_local_axis = s1_axis if s1_axis < 2 else s1_axis - 2
+        s2_other_global = ({2: 3, 3: 2})[s2_axis]
+        s2_local_axis = s2_axis - 2
 
-        # Sequential de Casteljau: peel off one strip per cut, from left.
-        # Each iteration splits the current "remain" at `cv` expressed in
-        # `remain`'s local frame (which differs from `cell`'s frame after
-        # the first peel).
-        remain_g1, remain_g2 = cell.g1, cell.g2
-        remain_T1, remain_T2 = cell.T1, cell.T2
-        remain_T3, remain_T4 = cell.T3, cell.T4
-        remain_lo = cell_lo
-        strip_data = []  # (g1, g2, T1, T2, T3, T4, box)
+        # Per-sub-cell new crossings: new_cx_grid[i1][i2] = list
+        n1 = len(g1_pieces)
+        n2 = len(g2_pieces)
+        new_cx_grid = [[[] for _ in range(n2)] for _ in range(n1)]
 
-        for cv in cut_values:
-            remain_hi = cell_hi
-            local_cut = (cv - remain_lo) / (remain_hi - remain_lo)
-            if surf_to_split == 1:
-                left_g1, right_g1 = (remain_g1.split_u(local_cut) if local_axis == 0
-                                     else remain_g1.split_v(local_cut))
-                left_g2, right_g2 = remain_g2, remain_g2
-            else:
-                left_g2, right_g2 = (remain_g2.split_u(local_cut) if local_axis == 0
-                                     else remain_g2.split_v(local_cut))
-                left_g1, right_g1 = remain_g1, remain_g1
-            left_T1, right_T1 = _split_bern_scalar_tensor(remain_T1, axis=cut_axis, t=local_cut)
-            left_T2, right_T2 = _split_bern_scalar_tensor(remain_T2, axis=cut_axis, t=local_cut)
-            left_T3, right_T3 = _split_bern_scalar_tensor(remain_T3, axis=cut_axis, t=local_cut)
-            left_T4, right_T4 = _split_bern_scalar_tensor(remain_T4, axis=cut_axis, t=local_cut)
+        # a/b: CSX(cut_line_s1, S2_piece) for each S1 cut × each S2 piece
+        for cut_idx, cv in enumerate(s1_cuts):
+            s1_lo_box, s1_hi_box = cell.box[s1_axis]
+            cut_local_s1 = (cv - s1_lo_box) / (s1_hi_box - s1_lo_box)
+            isoline_s1 = _extract_isoline(cell.g1.surface, s1_local_axis, cut_local_s1)
 
-            sbox = list(cell.box)
-            sbox[cut_axis] = (remain_lo, cv)
-            strip_data.append((left_g1, left_g2,
-                               left_T1, left_T2, left_T3, left_T4,
-                               tuple(sbox)))
+            for s2_idx in range(n2):
+                s2_piece_surf = g2_pieces[s2_idx].surface
+                csx_r = bez_csx(isoline_s1, s2_piece_surf, atol=atol, rational=True)
 
-            remain_g1, remain_g2 = right_g1, right_g2
-            remain_T1, remain_T2 = right_T1, right_T2
-            remain_T3, remain_T4 = right_T3, right_T4
-            remain_lo = cv
+                s2_lo = cell.box[s2_axis][0] if s2_idx == 0 else s2_cuts[s2_idx - 1]
+                s2_hi = s2_cuts[s2_idx] if s2_idx < len(s2_cuts) else cell.box[s2_axis][1]
+                s2_other_lo, s2_other_hi = cell.box[s2_other_global]
 
-        # Final strip: the right-most remainder.
-        final_box = list(cell.box)
-        final_box[cut_axis] = (remain_lo, cell_hi)
-        strip_data.append((remain_g1, remain_g2,
-                           remain_T1, remain_T2, remain_T3, remain_T4,
-                           tuple(final_box)))
+                for iso_pt in csx_r.get('isolated', []):
+                    stuv = np.zeros(4, dtype=np.float64)
+                    stuv[s1_axis] = cv
+                    s1_other_lo, s1_other_hi = cell.box[s1_other]
+                    stuv[s1_other] = s1_other_lo + float(iso_pt['t']) * (s1_other_hi - s1_other_lo)
+                    if s2_local_axis == 0:
+                        stuv[s2_axis] = s2_lo + float(iso_pt['u']) * (s2_hi - s2_lo)
+                        stuv[s2_other_global] = s2_other_lo + float(iso_pt['v']) * (s2_other_hi - s2_other_lo)
+                    else:
+                        stuv[s2_other_global] = s2_other_lo + float(iso_pt['u']) * (s2_other_hi - s2_other_lo)
+                        stuv[s2_axis] = s2_lo + float(iso_pt['v']) * (s2_hi - s2_lo)
 
-        # Crossings pool: existing + every cut's newly-discovered crossings.
-        all_cx = list(cell.crossings)
-        for nc in new_crossings_per_cut:
-            all_cx.extend(nc)
+                    xyz = np.asarray(iso_pt['point'], dtype=np.float64)
+                    stuv_local = _global_to_local(stuv, cell.box)
+                    tang, _, _ = _ssx_tangent_4d(
+                        cell.g1.surface, cell.g2.surface,
+                        stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
+                        rational=True)
+                    bp = BoundaryPoint(stuv=stuv, xyz=xyz, face=(s1_axis, -1), tangent_raw=tang)
+                    new_cx_grid[cut_idx][s2_idx].append(bp)
+                    new_cx_grid[cut_idx + 1][s2_idx].append(bp)
 
-        # Build strip cells.
-        k = len(strip_data)
-        for i, (g1_i, g2_i, T1_i, T2_i, T3_i, T4_i, box_i) in enumerate(strip_data):
-            slo, shi = box_i[cut_axis]
-            strip_cx = [c for c in all_cx
-                        if slo - 1e-10 <= c.stuv[cut_axis] <= shi + 1e-10]
-            if not strip_cx:
-                continue  # Empty strip — drop.
+        # c/d: CSX(cut_line_s2, S1_piece) for each S2 cut × each S1 piece
+        for cut_idx, cv in enumerate(s2_cuts):
+            s2_lo_box, s2_hi_box = cell.box[s2_axis]
+            cut_local_s2 = (cv - s2_lo_box) / (s2_hi_box - s2_lo_box)
+            isoline_s2 = _extract_isoline(cell.g2.surface, s2_local_axis, cut_local_s2)
 
-            scell = _Cell(g1=g1_i, g2=g2_i, crossings=strip_cx,
-                          box=box_i, depth=cell.depth + 1,
-                          T1=T1_i, T2=T2_i, T3=T3_i, T4=T4_i)
+            for s1_idx in range(n1):
+                s1_piece_surf = g1_pieces[s1_idx].surface
+                csx_r = bez_csx(isoline_s2, s1_piece_surf, atol=atol, rational=True)
 
-            # Skip the strip's two cut-axis faces that are shared internals.
-            skip_faces: list[tuple[int, int]] = []
-            if i > 0:
-                skip_faces.append((cut_axis, 0))
-            if i < k - 1:
-                skip_faces.append((cut_axis, 1))
-            scell.partitions = _build_cell_partitions(scell, skip_faces=skip_faces)
-            if i > 0:
-                scell.partitions.append(internal_partitions[i - 1])
-                internal_partitions[i - 1].adjacents.append(scell)
-            if i < k - 1:
-                scell.partitions.append(internal_partitions[i])
-                internal_partitions[i].adjacents.append(scell)
+                s1_lo = cell.box[s1_axis][0] if s1_idx == 0 else s1_cuts[s1_idx - 1]
+                s1_hi = s1_cuts[s1_idx] if s1_idx < len(s1_cuts) else cell.box[s1_axis][1]
+                s1_other_lo, s1_other_hi = cell.box[s1_other]
 
-            for c in strip_cx:
-                _classify_boundary_point(c, scell)
+                for iso_pt in csx_r.get('isolated', []):
+                    stuv = np.zeros(4, dtype=np.float64)
+                    stuv[s2_axis] = cv
+                    s2_other_lo2, s2_other_hi2 = cell.box[s2_other_global]
+                    stuv[s2_other_global] = s2_other_lo2 + float(iso_pt['t']) * (s2_other_hi2 - s2_other_lo2)
+                    if s1_local_axis == 0:
+                        stuv[s1_axis] = s1_lo + float(iso_pt['u']) * (s1_hi - s1_lo)
+                        stuv[s1_other] = s1_other_lo + float(iso_pt['v']) * (s1_other_hi - s1_other_lo)
+                    else:
+                        stuv[s1_other] = s1_other_lo + float(iso_pt['u']) * (s1_other_hi - s1_other_lo)
+                        stuv[s1_axis] = s1_lo + float(iso_pt['v']) * (s1_hi - s1_lo)
 
-            stack.append(scell)
+                    xyz = np.asarray(iso_pt['point'], dtype=np.float64)
+                    stuv_local = _global_to_local(stuv, cell.box)
+                    tang, _, _ = _ssx_tangent_4d(
+                        cell.g1.surface, cell.g2.surface,
+                        stuv_local[0], stuv_local[1], stuv_local[2], stuv_local[3],
+                        rational=True)
+                    bp = BoundaryPoint(stuv=stuv, xyz=xyz, face=(s2_axis, -1), tangent_raw=tang)
+                    new_cx_grid[s1_idx][cut_idx].append(bp)
+                    new_cx_grid[s1_idx][cut_idx + 1].append(bp)
+
+        # Build Cartesian product of S1 pieces × S2 pieces
+        for i1 in range(n1):
+            s1_lo = cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1 - 1]
+            s1_hi = s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1]
+            for i2 in range(n2):
+                s2_lo = cell.box[s2_axis][0] if i2 == 0 else s2_cuts[i2 - 1]
+                s2_hi = s2_cuts[i2] if i2 < len(s2_cuts) else cell.box[s2_axis][1]
+
+                sub_box = list(cell.box)
+                sub_box[s1_axis] = (s1_lo, s1_hi)
+                sub_box[s2_axis] = (s2_lo, s2_hi)
+                sub_box = tuple(sub_box)
+
+                # Inherited crossings from parent — check ALL 4 axes
+                sub_inherited = [c for c in cell.crossings
+                                 if all(sub_box[ax][0] - 1e-10 <= c.stuv[ax] <= sub_box[ax][1] + 1e-10
+                                        for ax in range(4))]
+
+                # New crossings: deterministic from CSX grid
+                sub_new_raw = new_cx_grid[i1][i2]
+                # Dedup new against inherited
+                sub_new = []
+                for nc in sub_new_raw:
+                    if not any(np.linalg.norm(nc.stuv - ec.stuv) < atol for ec in sub_inherited):
+                        if not any(np.linalg.norm(nc.stuv - dc.stuv) < atol for dc in sub_new):
+                            sub_new.append(nc)
+
+                sub_cx = sub_inherited + sub_new
+
+                scell = _Cell(
+                    g1=g1_pieces[i1], g2=g2_pieces[i2],
+                    crossings=sub_cx, box=sub_box, depth=cell.depth + 1,
+                    T1=T_pieces[i1][0][i2], T2=T_pieces[i1][1][i2],
+                    T3=T_pieces[i1][2][i2], T4=T_pieces[i1][3][i2],
+                    new_crossings=sub_new,
+                )
+                scell.partitions = _build_cell_partitions(scell)
+                for c in sub_cx:
+                    _classify_boundary_point(c, scell)
+                queue.append(scell)
 
     # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
     all_branches = _assemble_fragments(all_fragments)

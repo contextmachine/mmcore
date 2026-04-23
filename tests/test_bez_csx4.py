@@ -194,3 +194,34 @@ def test_degree_one_line_no_false_positive_variants():
         assert len(result["isolated"]) == 0, (
             f"False positive for line {label}: got {result['isolated']}"
         )
+
+def test_case_13():
+    """missing second isolated intersection"""
+    # may vary slightly (values taken from third-party software)
+
+
+    excepted=[
+        {   't':0.0, 'u':0.326507, 'v':0.356348},
+        {   't':0.654374, 'u':0.633137, 'v':0.163511}
+    ]
+
+
+
+
+    C = np.array([[8.446359931193093, -39.19858842345994, 0.7182627669008318], [10.622854420468764, -38.91014606375564, 2.0882761678970088], [12.48389559934674, -38.81378122751128, 3.469350420794018], [15.0, -38.62105155502256, 5.071820879820981]])
+
+
+
+    # Line parallel to y-axis at various (x, z) that don't satisfy z=x
+    S =np.array( [[[7.4968198, -34.44808135, 6.627417], [4.89170045910665, -39.13729615771332, -4.42516829776066], [-0.016883173357102876, -44.594332395950104, 0.8101986397153593]], [[11.989753624247342, -35.42881907275406, 6.6274169999999994], [7.443691937074275, -40.76501466713547, -4.882652796843839], [3.454490070369776, -44.96214894393917, 0.5694145013516874]], [[14.847212913305142, -36.95471497775948, 6.6274169999999994], [9.56529033335222, -42.536197535294875, -4.488016026845241], [5.924649611832621, -46.255670751572566, 0.7771204997432491]], [[16.23843504869012, -39.53348121435317, 6.6274169999999994], [11.830092620085596, -44.58445479257182, -3.241257987764865], [8.72332454261908, -47.47050603984768, -0.38590063418195103]]]
+                          )
+    result = bez_csx(C, S, atol=1e-3, rational=False)
+    assert (len(result["isolated"]) == 2) and (len(result["overlaps"]) == 0), f"expected 2 isolated intersections, {len(result['isolated'])} found {result}"
+    for i, inter in enumerate(   sorted(result["isolated"], key=lambda x: x["t"])):
+        assert np.allclose(
+            [inter[key] for key in ["t", "u", "v"]],
+       [excepted[i][key]  for key in ["t", "u", "v"]]), f"expected {excepted[i]}, got {inter}"
+
+
+
+
