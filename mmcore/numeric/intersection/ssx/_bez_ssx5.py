@@ -148,6 +148,19 @@ def _prune_ssx_cell(S1_h, S2_h, atol, rational=True):
     return False
 
 
+def _aabb_disjoint(S1_h, S2_h, atol):
+    """Fast AABB-only check: True if the two patches' bounding boxes are
+    disjoint (no possible intersection). Cheaper than `_prune_ssx_cell`
+    because it skips the sq-dist net computation."""
+    pts1 = S1_h[..., :-1] / S1_h[..., -1:]
+    pts2 = S2_h[..., :-1] / S2_h[..., -1:]
+    bb1 = np.array(aabb(pts1.reshape(-1, pts1.shape[-1])))
+    bb2 = np.array(aabb(pts2.reshape(-1, pts2.shape[-1])))
+    bb1[0] -= atol; bb1[1] += atol
+    bb2[0] -= atol; bb2[1] += atol
+    return not aabb_intersect(bb1, bb2)
+
+
 # ---------------------------------------------------------------------------
 # Level 2: Boundary analysis (8 CSX problems)
 # ---------------------------------------------------------------------------
@@ -2032,14 +2045,22 @@ def _midpoint_split(cell, axis: int, atol: float):
     left_new = [c for c in deduped_new if c.stuv[axis] <= mid_global + 1e-10]
     right_new = [c for c in deduped_new if c.stuv[axis] >= mid_global - 1e-10]
 
+    # Propagate F_sq alongside TΨᵢ
+    if cell.F_sq is not None:
+        left_F, right_F = _split_bern_scalar_tensor(cell.F_sq, axis=axis, t=0.5)
+    else:
+        left_F = right_F = None
+
     left_cell = _Cell(g1=left_g1, g2=left_g2, crossings=left_cx, box=left_box,
                       depth=cell.depth + 1,
                       T1=left_T1, T2=left_T2, T3=left_T3, T4=left_T4,
-                      new_crossings=left_new)
+                      new_crossings=left_new,
+                      F_sq=left_F, w_scale=cell.w_scale)
     right_cell = _Cell(g1=right_g1, g2=right_g2, crossings=right_cx, box=right_box,
                        depth=cell.depth + 1,
                        T1=right_T1, T2=right_T2, T3=right_T3, T4=right_T4,
-                       new_crossings=right_new)
+                       new_crossings=right_new,
+                       F_sq=right_F, w_scale=cell.w_scale)
 
     # Partitions: skip the cut-axis face, splice in shared internal partition
     shared_free = _partition_free_axis(axis)
@@ -2098,6 +2119,12 @@ class _Cell:
     # crossings are in `crossings` for tracing but should not be re-used for
     # cutting — cutting at inherited coordinates produces zero-info strips.
     new_crossings: list = field(default_factory=list)
+    # Squared-distance Bernstein net (4D scalar tensor), propagated from the
+    # top level by de Casteljau-splitting alongside TΨᵢ. Avoids reconstructing
+    # the net per cell; only the cheap min-of-net check runs per cell.
+    F_sq: Optional[NDArray[np.float64]] = None
+    # Top-level w_scale (max weight product) — constant across the tree.
+    w_scale: float = 1.0
 
 
 def bez_ssx(
@@ -2155,10 +2182,25 @@ def bez_ssx(
     T2_arr = _tpsi_to_numpy(T2)
     T3_arr = _tpsi_to_numpy(T3)
     T4_arr = _tpsi_to_numpy(T4)
+
+    # Build sq-dist net once at top level; propagated by de Casteljau split.
+    if rational:
+        S1_h_top = S1
+        S2_h_top = S2
+    else:
+        S1_h_top = np.concatenate([S1, np.ones(S1.shape[:-1]+(1,))], axis=-1)
+        S2_h_top = np.concatenate([S2, np.ones(S2.shape[:-1]+(1,))], axis=-1)
+    F_sq_top = surface_surface_distance_squared_net_homog(
+        S1_h_top, S2_h_top, rational=True)
+    _, S1w_top = extract_weights(S1_h_top, rational=True)
+    _, S2w_top = extract_weights(S2_h_top, rational=True)
+    w_scale_top = _weight_max_product(S1w_top.ravel(), S2w_top.ravel())
+
     top_cell = _Cell(
         g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
         T1=T1_arr, T2=T2_arr, T3=T3_arr, T4=T4_arr,
         new_crossings=list(crossings),
+        F_sq=F_sq_top, w_scale=w_scale_top,
     )
     top_cell.partitions = _build_outer_partitions(top_cell)
 
@@ -2183,10 +2225,18 @@ def bez_ssx(
     while queue:
         cell = queue.popleft()
 
-        # AABB pruning: if the two sub-patches' control-point bounding boxes
-        # don't overlap, there is no intersection in this cell. Drop it.
-        if _prune_ssx_cell(cell.g1.surface, cell.g2.surface, atol, rational=True):
+        # Cheap AABB pruning first: if control-point bounding boxes don't
+        # overlap, there is no intersection in this cell.
+        if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
             continue
+
+        # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
+        # split alongside TΨᵢ at every subdivision — never reconstructed).
+        if cell.F_sq is not None:
+            if _check_min_of_net(cell.F_sq, atol, cell.w_scale):
+                continue
+            if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
+                continue
 
         # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
         # Gauss map separability as fallback (design §6, §10 principle 8).
@@ -2203,13 +2253,34 @@ def bez_ssx(
         # and must be traced via the regulated Φ system (design §1.4, §8),
         # NOT by further subdivision — deflation makes the Φ-curve regular
         # where Ψ is rank-deficient.
-        P1_cart_local = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
-        P2_cart_local = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
-        local_box = ((0.0, 1.0),) * 4
-        tangency = _check_tangency(
-            cell.T1, cell.T2, cell.T3, cell.T4,
-            P1_cart_local, P2_cart_local, local_box,
-        )
+        #
+        # Cheap pre-check: at a tangent point TΨᵢ all vanish (design §1.4).
+        # Evaluate |TΨ| at the cell's existing crossings — if it's clearly
+        # non-zero anywhere, the curve is transversal and we skip Krawczyk.
+        from mmcore.numeric.bern import bern_eval as _bern_eval
+        is_clearly_transversal = False
+        if cell.crossings:
+            for c in cell.crossings:
+                stuv_loc = _global_to_local(c.stuv, cell.box)
+                t1v = np.asarray(_bern_eval(cell.T1, stuv_loc)).reshape(-1)[0]
+                t2v = np.asarray(_bern_eval(cell.T2, stuv_loc)).reshape(-1)[0]
+                t3v = np.asarray(_bern_eval(cell.T3, stuv_loc)).reshape(-1)[0]
+                t4v = np.asarray(_bern_eval(cell.T4, stuv_loc)).reshape(-1)[0]
+                cofactor_norm = (t1v*t1v + t2v*t2v + t3v*t3v + t4v*t4v) ** 0.5
+                if cofactor_norm > 1e-6:
+                    is_clearly_transversal = True
+                    break
+
+        if is_clearly_transversal:
+            tangency = False
+        else:
+            P1_cart_local = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+            P2_cart_local = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+            local_box = ((0.0, 1.0),) * 4
+            tangency = _check_tangency(
+                cell.T1, cell.T2, cell.T3, cell.T4,
+                P1_cart_local, P2_cart_local, local_box,
+            )
         if tangency is True and cell.crossings:
             # Convert crossings to the cell's local stuv for the Φ tracer.
             crossings_local = [
@@ -2271,6 +2342,9 @@ def bez_ssx(
         T_list = [cell.T1, cell.T2, cell.T3, cell.T4]
         T_after_s1 = [_split_tensor_multi(T, s1_axis, s1_cuts, cell.box) for T in T_list]
         T_pieces = []
+        F_sq_after_s1 = (_split_tensor_multi(cell.F_sq, s1_axis, s1_cuts, cell.box)
+                         if cell.F_sq is not None else None)
+        F_sq_pieces = []
         for i1 in range(len(g1_pieces)):
             row = []
             for T_idx in range(4):
@@ -2282,6 +2356,16 @@ def bez_ssx(
                 pieces_s2 = _split_tensor_multi(T_s1_piece, s2_axis, s2_cuts, tuple(sub_box))
                 row.append(pieces_s2)
             T_pieces.append(row)
+            # F_sq propagation (single 4D tensor, same axis convention)
+            if F_sq_after_s1 is not None:
+                sub_box = list(cell.box)
+                s1_lo = cell.box[s1_axis][0] if i1 == 0 else s1_cuts[i1 - 1]
+                s1_hi = s1_cuts[i1] if i1 < len(s1_cuts) else cell.box[s1_axis][1]
+                sub_box[s1_axis] = (s1_lo, s1_hi)
+                F_sq_pieces.append(
+                    _split_tensor_multi(F_sq_after_s1[i1], s2_axis, s2_cuts, tuple(sub_box)))
+            else:
+                F_sq_pieces.append([None] * (len(s2_cuts) + 1))
 
         # --- CSX: cut_line vs each piece of the opposite surface ---
         # Split first, then CSX. Each cut line is intersected with each
@@ -2387,7 +2471,7 @@ def bez_ssx(
                                  if all(sub_box[ax][0] - 1e-10 <= c.stuv[ax] <= sub_box[ax][1] + 1e-10
                                         for ax in range(4))]
 
-                # New crossings: deterministic from CSX grid
+                # New crossings: deterministic from per-piece CSX grid
                 sub_new_raw = new_cx_grid[i1][i2]
                 # Dedup new against inherited
                 sub_new = []
@@ -2404,6 +2488,8 @@ def bez_ssx(
                     T1=T_pieces[i1][0][i2], T2=T_pieces[i1][1][i2],
                     T3=T_pieces[i1][2][i2], T4=T_pieces[i1][3][i2],
                     new_crossings=sub_new,
+                    F_sq=F_sq_pieces[i1][i2] if F_sq_pieces[i1] else None,
+                    w_scale=cell.w_scale,
                 )
                 scell.partitions = _build_cell_partitions(scell)
                 for c in sub_cx:
