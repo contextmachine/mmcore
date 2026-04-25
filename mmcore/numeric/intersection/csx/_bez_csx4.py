@@ -571,12 +571,13 @@ def _phase2_isolated_search(
         u_span = u1 - u0
         v_span = v1 - v0
         if t_span <= ptol_t:
-            # Micro-fragment: report center as isolated intersection
+            # Micro-fragment: verify actual distance before reporting
             t_mid = 0.5 * (t0 + t1)
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
             pt = eval_curve(C_orig, t_mid, rational=rational)
-            if not _is_duplicate(isolated, pt, atol):
+            pt_s = eval_surface(S_orig, u_mid, v_mid, rational=rational)
+            if float(np.linalg.norm(pt - pt_s)) < atol and not _is_duplicate(isolated, pt, atol):
                 isolated.append({
                     "t": float(t_mid), "u": float(u_mid), "v": float(v_mid),
                     "point": pt, "_micro": True,
@@ -591,8 +592,6 @@ def _phase2_isolated_search(
             C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
         )
 
-
-        step_norm = abs(last_step[0]) + abs(last_step[1]) + abs(last_step[2])
         residual_ok = float(np.linalg.norm(G)) < atol
         newton_stalled = (
                 abs(last_step[0]) <= ptol_t
@@ -600,7 +599,6 @@ def _phase2_isolated_search(
                 and abs(last_step[2]) <= ptol_v
         )
         if newton_stalled:
-
 
             if residual_ok and t0 - ptol_t <= t_sol <= t1 + ptol_t:
                 pt = eval_curve(C_orig, t_sol, rational=rational)
@@ -618,8 +616,27 @@ def _phase2_isolated_search(
                         ptol_t, ptol_u, ptol_v, rational,
                     )
                     stack.extend(sub_cells)
-                # else: known intersection — cell is in its attraction basin
-                continue
+                    continue
+
+                # Known root: its convergence basin covers
+                # [min(t_sol, t_mid), max(t_sol, t_mid)] along t.
+                # When t is the dominant span, split at t_mid and keep
+                # only the far half. Otherwise fall through to normal
+                # subdivision (which picks u or v).
+                if t_span >= max(u_span, v_span):
+                    seg_c_L, seg_c_R = _subdivide_curve(seg_c)
+                    F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
+                    if t_sol <= t_mid:
+                        pw_R = seg_c_R[:, -1].copy() if rational else np.ones(seg_c_R.shape[0])
+                        stack.append((F_R, seg_c_R, pw_R, sw.copy(),
+                                      t_mid, t1, u0, u1, v0, v1, depth + 1))
+                    else:
+                        pw_L = seg_c_L[:, -1].copy() if rational else np.ones(seg_c_L.shape[0])
+                        stack.append((F_L, seg_c_L, pw_L, sw.copy(),
+                                      t0, t_mid, u0, u1, v0, v1, depth + 1))
+                    continue
+                # t is not the dominant span — fall through to
+                # subdivide along u or v
 
             else:
                 # Newton converged but OUTSIDE the cell range — the nearest
