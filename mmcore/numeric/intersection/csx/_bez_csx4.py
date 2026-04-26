@@ -629,21 +629,54 @@ def _phase2_isolated_search(
                     continue
 
                 # Known root: its convergence basin covers
-                # [min(t_sol, t_mid), max(t_sol, t_mid)] along t.
-                # When t is the dominant span, split at t_mid and keep
-                # only the far half. Otherwise fall through to normal
-                # subdivision (which picks u or v).
+                # [min(t_sol, t_mid), max(t_sol, t_mid)] along t for the
+                # cell's current (u, v) center. When t is the dominant
+                # span, we can split at t_mid and discard the half
+                # toward the known root — but ONLY if no other root
+                # exists at different (u, v) in the cell. Verify this
+                # by Newton-probing the (u, v) corners opposite the
+                # known root's (u_sol, v_sol).
                 if t_span >= max(u_span, v_span):
-                    seg_c_L, seg_c_R = _subdivide_curve(seg_c)
-                    F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
-                    if t_sol <= t_mid:
-                        pw_R = seg_c_R[:, -1].copy() if rational else np.ones(seg_c_R.shape[0])
-                        stack.append((F_R, seg_c_R, pw_R, sw.copy(),
-                                      t_mid, t1, u0, u1, v0, v1, depth + 1))
-                    else:
-                        pw_L = seg_c_L[:, -1].copy() if rational else np.ones(seg_c_L.shape[0])
-                        stack.append((F_L, seg_c_L, pw_L, sw.copy(),
-                                      t0, t_mid, u0, u1, v0, v1, depth + 1))
+                    # Probe the four (u, v) corners: if any reveals a
+                    # hidden root, add it and skip the basin split.
+                    new_root_found = False
+                    for u_seed, v_seed in (
+                        (u0, v0), (u0, v1), (u1, v0), (u1, v1)
+                    ):
+                        t_alt, u_alt, v_alt, G_alt, _ = newton_csx(
+                            C_orig, S_orig, t_mid, u_seed, v_seed, rational=rational,
+                        )
+                        if (float(np.linalg.norm(G_alt)) < atol
+                                and t0 - ptol_t <= t_alt <= t1 + ptol_t):
+                            pt_alt = eval_curve(C_orig, t_alt, rational=rational)
+                            if not _is_duplicate(isolated, pt_alt, atol):
+                                isolated.append({
+                                    "t": float(t_alt), "u": float(u_alt), "v": float(v_alt),
+                                    "point": pt_alt,
+                                })
+                                sub_cells = _cutout_3d(
+                                    F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+                                    float(t_alt), float(u_alt), float(v_alt),
+                                    ptol_t, ptol_u, ptol_v, rational,
+                                )
+                                stack.extend(sub_cells)
+                                new_root_found = True
+                                break
+
+                    if not new_root_found:
+                        # Corner probe also converged to the known root
+                        # (or stalled). Basin assumption is supported —
+                        # safe to discard the basin half.
+                        seg_c_L, seg_c_R = _subdivide_curve(seg_c)
+                        F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
+                        if t_sol <= t_mid:
+                            pw_R = seg_c_R[:, -1].copy() if rational else np.ones(seg_c_R.shape[0])
+                            stack.append((F_R, seg_c_R, pw_R, sw.copy(),
+                                          t_mid, t1, u0, u1, v0, v1, depth + 1))
+                        else:
+                            pw_L = seg_c_L[:, -1].copy() if rational else np.ones(seg_c_L.shape[0])
+                            stack.append((F_L, seg_c_L, pw_L, sw.copy(),
+                                          t0, t_mid, u0, u1, v0, v1, depth + 1))
                     continue
                 # t is not the dominant span — fall through to
                 # subdivide along u or v
