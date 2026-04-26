@@ -2274,22 +2274,34 @@ def bez_ssx(
         # to be non-empty to produce fragments (`if tangency is True and
         # cell.crossings` below). A True result without crossings is wasted.
         # Cells with no crossings simply fall through to subdivision either way.
-        from mmcore.numeric.bern import bern_eval as _bern_eval
+        #
+        # Geometric tangency pre-check: at a SSX-tangent crossing the two
+        # surface normals are parallel, so sin(angle(N1, N2)) ≈ 0. At a
+        # transversal crossing they are not parallel, so sin(angle) > 0.
+        # We previously used the algebraic |TΨᵢ| pre-check, but its slope is
+        # O(10⁴) near the tangent locus — a Newton-precision crossing
+        # (~1e-8 off the locus) gives |TΨ| ~ 1e-4, far above any usable
+        # threshold, so genuine tangents were misclassified as transversal.
+        # The dot/cross-product test scales linearly (slope ~1) with the
+        # offset, so a 1e-3 threshold (≈0.06°) gives ~10⁴× headroom.
         is_clearly_transversal = False
         if not cell.crossings:
             is_clearly_transversal = True
         else:
-            # Cheap pre-check: at a tangent point TΨᵢ all vanish (design §1.4).
-            # Evaluate |TΨ| at the cell's crossings — if non-zero anywhere,
-            # the curve is transversal and we skip the Krawczyk check.
             for c in cell.crossings:
-                stuv_loc = _global_to_local(c.stuv, cell.box)
-                t1v = np.asarray(_bern_eval(cell.T1, stuv_loc)).reshape(-1)[0]
-                t2v = np.asarray(_bern_eval(cell.T2, stuv_loc)).reshape(-1)[0]
-                t3v = np.asarray(_bern_eval(cell.T3, stuv_loc)).reshape(-1)[0]
-                t4v = np.asarray(_bern_eval(cell.T4, stuv_loc)).reshape(-1)[0]
-                cofactor_norm = (t1v*t1v + t2v*t2v + t3v*t3v + t4v*t4v) ** 0.5
-                if cofactor_norm > 1e-6:
+                s, t, u, v = c.stuv  # global stuv on the original surfaces
+                _, du1, dv1 = eval_surface_d1(S1, s, t, rational=rational)
+                _, du2, dv2 = eval_surface_d1(S2, u, v, rational=rational)
+                N1 = np.cross(du1, dv1)
+                N2 = np.cross(du2, dv2)
+                n1m = float(np.linalg.norm(N1))
+                n2m = float(np.linalg.norm(N2))
+                if n1m < 1e-30 or n2m < 1e-30:
+                    # Degenerate parametrization at this point — can't decide,
+                    # skip and let the next crossing or _check_tangency decide.
+                    continue
+                sin_ang = float(np.linalg.norm(np.cross(N1, N2))) / (n1m * n2m)
+                if sin_ang > 1e-3:  # ≈ 0.06° off-parallel → clearly transversal
                     is_clearly_transversal = True
                     break
 
