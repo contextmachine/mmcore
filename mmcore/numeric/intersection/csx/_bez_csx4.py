@@ -571,17 +571,27 @@ def _phase2_isolated_search(
         u_span = u1 - u0
         v_span = v1 - v0
         if t_span <= ptol_t:
-            # Micro-fragment: verify actual distance before reporting
+            # Micro-fragment: verify cell center is near a root, then
+            # Newton-refine before reporting. Refinement collapses
+            # near-duplicates (parametrically close to a known root but
+            # geometrically just over atol) onto the exact known root,
+            # so the dedup catches them.
             t_mid = 0.5 * (t0 + t1)
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
-            pt = eval_curve(C_orig, t_mid, rational=rational)
+            pt_c = eval_curve(C_orig, t_mid, rational=rational)
             pt_s = eval_surface(S_orig, u_mid, v_mid, rational=rational)
-            if float(np.linalg.norm(pt - pt_s)) < atol and not _is_duplicate(isolated, pt, atol):
-                isolated.append({
-                    "t": float(t_mid), "u": float(u_mid), "v": float(v_mid),
-                    "point": pt, "_micro": True,
-                })
+            if float(np.linalg.norm(pt_c - pt_s)) < atol:
+                t_r, u_r, v_r, G_r, _ = newton_csx(
+                    C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
+                )
+                if float(np.linalg.norm(G_r)) < atol:
+                    pt_r = eval_curve(C_orig, t_r, rational=rational)
+                    if not _is_duplicate(isolated, pt_r, atol):
+                        isolated.append({
+                            "t": float(t_r), "u": float(u_r), "v": float(v_r),
+                            "point": pt_r, "_micro": True,
+                        })
             continue
 
         # Try Newton from cell center
@@ -638,10 +648,30 @@ def _phase2_isolated_search(
                 # t is not the dominant span — fall through to
                 # subdivide along u or v
 
-            else:
-                # Newton converged but OUTSIDE the cell range — the nearest
-                # intersection is not in this cell. Prune.
+            elif residual_ok:
+                # Newton converged to a real root, but it lies outside
+                # this cell's tolerance range. The root will be found
+                # by a cell that contains it — prune this one.
                 continue
+            else:
+                # Newton stalled with bad residual. Distinguish:
+                #   • Clamped at the [0,1] domain boundary → the stall
+                #     is a numerical artifact; the cell may still
+                #     contain a root that Newton couldn't reach. Fall
+                #     through to subdivision.
+                #   • At an INTERIOR stationary point of ||C-S||² with
+                #     residual > atol → the cell's min of ||C-S|| is at
+                #     least this residual, which exceeds atol. No root
+                #     can exist in this cell — prune.
+                _bnd = 1e-12
+                clamped = (
+                    t_sol <= _bnd or t_sol >= 1.0 - _bnd or
+                    u_sol <= _bnd or u_sol >= 1.0 - _bnd or
+                    v_sol <= _bnd or v_sol >= 1.0 - _bnd
+                )
+                if not clamped:
+                    continue
+                # else: fall through to subdivision
 
         if depth >= max_depth:
             continue
