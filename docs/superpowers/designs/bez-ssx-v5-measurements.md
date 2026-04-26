@@ -517,3 +517,59 @@ Two branches hit the marcher's 2000-point safety cap. The marcher is oscillating
 **Case 5 and case 6 both improve dramatically in residual.** The event-based boundary crossing gives an *exact* endpoint (via 3×3 Newton) instead of wherever the regular corrector happened to park. Case 5: residual `7.64e-04 → 8.18e-08` (four orders); case 6: `1.63e-04 → 6.34e-08` (three orders). Branch counts exactly match expectations on both.
 
 **Only remaining MISMATCH** on the original five test cases is the overlap duplicate, which is a separate gap (overlap endpoints don't participate in §5 `BoundaryPoint` classification). Everything curve-tracing-related is now correct to machine noise.
+
+## 2026-04-25/26 — Major revision: dual-surface subdivision + perf optimizations
+
+End of a long debugging session. Earlier in the session, case 6 reported 2/2
+"OK" at the baseline but the second branch was a duplicate of the open branch
+— the loop was entirely missing. This was traced to a chain of issues that
+together prevented the loop from being discovered, distributed, and traced.
+
+Design changes (recorded in `bez-ssx-v5.md` change history):
+- **Dual-surface Cartesian-product subdivision** replacing single-axis multi-cut
+- **Per-piece CSX** (a/b/c/d) for distribution determinism
+- **F_sq propagation** (build once at top, split alongside TΨᵢ)
+- **GJK separability** check between AABB and sq-dist net
+- **Cofactor-based tangency pre-check** + skip `_check_tangency` for cells
+  with no crossings
+- **Simplified tracer** (no in/out classification — march and match by stuv
+  proximity)
+- **Marcher first-step clamping** so a march starting on a face doesn't
+  bounce off it
+- **All-4-axes inheritance check** at sub-cell construction
+- **BFS** traversal (deque) instead of LIFO stack
+- A `bez_csx` false-negative bug was identified during this session and fixed
+  (separately, in `_bez_csx4`)
+
+Final measurements (commit `4dc6cc6` + GJK `3dcb2f9`):
+
+| case | branches (act/exp) | pts | residual | t (ms) | status |
+|------|-------------------:|----:|---------:|-------:|:------:|
+| planes      | 1/1 | 10 | 3.55e-15 |  13 | OK |
+| transversal | 1/1 | 13 | 6.07e-09 |  14 | OK |
+| tangential  | 1/1 |  9 | 3.97e-15 |  66 | OK |
+| overlaps    | 3/2 |  6 | 2.87e+02 |  23 | MISMATCH (pre-existing) |
+| case 5      | 2/2 | 54 | 8.27e-08 | 475 | OK |
+| **case 6**  | **2/2** | **164** | **8.85e-04** | **1673** | **OK (loop found)** |
+
+CSX unit tests: 12/12 pass.
+
+For comparison, the reference Gauss-map-only `detect_intersections` from
+`_ssx4.py` runs case 6 in 88 ms (no tracing, just leaf certification). Our
+algorithm is ~19× slower but does the full job: boundary CSX, dual-surface
+splitting, marching, fragment assembly. At session start the gap was 344×.
+
+Profile of remaining costs in case 6:
+- `bez_csx` (per-piece CSX): 1042 ms (64 %) — fundamental cost of dual-surface
+  subdivision
+- `_check_loop_free` (Gauss separability LP): 434 ms (27 %) — cost of
+  certifying loop-freeness when TΨᵢ monotonicity fails
+- `_check_tangency`: 0 ms (never called — fully short-circuited by cofactor
+  pre-check)
+- Pruning + bookkeeping: ~140 ms (9 %)
+
+Items left for next iterations:
+- §4.2 Φ-side classifier
+- §5 overlap endpoint integration (overlaps 3-4/2 → 2/2)
+- §9 adjacency-walk assembly variant
+- Cython port of `separate_gauss_maps` (would directly cut the 27 % LP cost)

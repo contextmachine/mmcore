@@ -339,3 +339,122 @@ Three coordinated design changes motivated by (1) per-cell certificate analysis 
 - **§9 revision — Adjacency walk.** Chains extend step by step along *shared partitions*, not via `BoundaryPoint` identity. Each step crosses one shared partition, matching `(param, direction)` between the two adjacent cells' views (§9.1). Outer-face `"in"` registrations seed open branches; remaining unconsumed `"in"`s seed closed branches. Forks (reaching an already-visited point) emit the chain and, if the alternative path has nontrivial length, emit it as a separate branch — cusp / self-intersection handling.
 
 No implementation changes yet. Next iterations (12–14) land them one at a time, measuring after each.
+
+### 2026-04-25/26 — Major design revision: dual-surface Cartesian-product subdivision
+
+Long debugging session that landed a fundamentally different subdivision
+strategy and a number of correctness/performance fixes. The single-axis
+multi-cut (§6.5 above) and the adjacency-walk assembly (§9 above) were both
+rolled back in favour of simpler, more robust replacements.
+
+**§6.5 → Dual-surface Cartesian-product split.** The single-axis multi-cut left
+one of the two surfaces under-subdivided. Concretely: a cut on axis `s`
+splits S1 only (S2 stays at parent resolution), so after k levels of S1-side
+guided cuts, S2 still spans nearly the full domain — and Gauss separability
+never fires because S2's normal cone covers a wide range of directions.
+
+The replacement: at every subdivision step we pick **one S1 axis and one S2
+axis simultaneously**, splitting both surfaces. Each cell produces
+`(k_s1+1) × (k_s2+1)` children via Cartesian product. Both surfaces refine
+at every level; Gauss separability fires much sooner.
+
+A 1-pinned crossing contributes a guided split value to *its* surface only:
+the free axis of `(s,t)` for S1, the free axis of `(u,v)` for S2. If a surface
+pair has 0 or 2 pinned coordinates from the productive crossings, that
+surface gets a midpoint cut on its longest-span axis as a fallback.
+
+**Per-piece CSX (a/b/c/d).** With dual-surface splits, the parent's full-surface
+CSX assigns crossings to cells based on their `(s,t,u,v)` coordinates — but at
+piece boundaries this distribution can fail by floating-point margins. Instead
+we run CSX once per cut line × opposite surface piece pair (4 calls per dual
+split, or `k_s1·n_s2 + k_s2·n_s1` for multi-cut). Each crossing is then
+deterministically registered against the two adjacent strips it sits between.
+
+**§9 → ID-based fragment assembly (instead of adjacency walk).** Crossings on
+shared cut faces are the SAME `BoundaryPoint` object in both adjacent cells
+(per Invariant-C dedup at split time). Fragments chain by `id(BoundaryPoint)`
+match. The adjacency-walk variant from the previous design was rolled back —
+identity matching is sufficient when crossings are properly unified.
+
+**§7 → Simplified tracer (no in/out classification).** The `(local_param,
+sign(T[i]))` tracer was replaced with a direct match-by-stuv-proximity scheme.
+For each unused crossing in a certified cell, march to the boundary; match
+the exit by stuv distance (≤ 1e-6) against any unused crossing; on match,
+save the fragment and consume both endpoints. If the first march immediately
+exits (corner-touch), retry with reversed tangent. If neither works, skip.
+This eliminates registration bookkeeping and the Φ-side classifier as a
+prerequisite (§4.2 still useful but no longer blocking).
+
+**§4 → Cofactor tangent with `tangent_raw` on every CSX-discovered crossing.**
+The cofactor formula from §4.1 is computed by evaluating `(+TΨ₁, −TΨ₂, +TΨ₃,
+−TΨ₄)` at the crossing's local stuv (using `bern_eval`). Stored on the
+`BoundaryPoint` by both `_find_ssx_boundary_zeros` (L1) and the per-piece CSX.
+Classification (when used by other paths like Φ-tracing) reads it directly.
+
+**Marcher robustness — first-step clamping.** The event-based boundary-crossing
+detection treats any predictor step that exits `[0,1]⁴` as a cell exit. For a
+march starting on a face (e.g. start at u=1.0), the predictor's tiny outward
+component due to numerical noise immediately triggers an exit on the same
+face. The first predictor step is now clamped to `[0,1]⁴` instead of
+triggering a boundary event; the corrector pulls the point onto the curve
+inside the cell. Subsequent steps use the original event-based detection.
+
+**Boundary CSX rule.** Per design's earlier Q2 (paper-faithful): only the new
+cut faces are CSX'd at each level. Inherited faces' crossings are propagated
+from the parent by 4D box containment on **all 4 axes** (was 2). The 4-axis
+inheritance fixes a class of distribution bugs where a parent's crossing
+sat in only one child's range on cut axes but outside the parent's range on
+non-cut axes (rare, but happens with rounding).
+
+**Pruning hierarchy (cheap-first).** The main loop now runs:
+1. AABB disjoint test (fast, ~0.01 ms) — bounding-box separability
+2. GJK separability on convex hulls of control nets (~0.003 ms) — guarded by
+   `_trust_gjk` to avoid low-dimensional patch issues
+3. Sq-dist Bernstein net min/Lipschitz tests on the **propagated** F_sq
+   (~0.15 ms; F_sq is built once at top, split alongside TΨᵢ at every
+   subdivision — never reconstructed)
+4. Loop-free certificate (TΨᵢ monotonicity + Gauss separability)
+5. Tangency check (Krawczyk) — skipped when (a) the cell has no crossings
+   or (b) any crossing has a clearly non-zero cofactor norm (transversal)
+6. Subdivide
+
+`_check_tangency` was empirically shown to fire True only for genuinely
+tangent geometries (the tangential test case). For case 5 and case 6 it
+spent 100 % of its time confirming what was already known via cheaper checks
+or via the no-crossings short-circuit. The cofactor pre-check + no-crossings
+guard eliminate 100 % of the wasted Krawczyk calls.
+
+**BFS instead of DFS.** The cell stack is now a `deque` processed FIFO. With
+DFS, a cell at depth 12 could be processed before its siblings at depths 2-3,
+and crossings discovered during deep processing could not benefit shallower
+siblings. BFS keeps siblings together. (Functional in the current design;
+could matter more once §9 adjacency walk is reintroduced.)
+
+**Performance after this revision.**
+| case        | start of session | end of session | reference (`detect_intersections`) |
+|-------------|-----------------:|---------------:|-----------------------------------:|
+| planes      | 11 ms            | 13 ms          | n/a                                |
+| transversal | 11 ms            | 14 ms          | n/a                                |
+| tangential  | 45 ms            | 66 ms          | n/a                                |
+| case 5      | 481 ms           | 475 ms         | n/a                                |
+| **case 6**  | **n/a (loop missing)** | **1.6 s**      | 0.088 s                          |
+
+Case 6 baseline reported 2/2 OK at session start but the second branch was
+a duplicate of the open branch — the loop was entirely missing. End-of-session
+case 6 produces 2 distinct branches with the loop fully traced. Reference
+implementation (Gauss-only, no tracing) is still ~18× faster, but the gap
+closed from ~344× at the height of the debugging session.
+
+**Items deferred to future iterations (still on design list, not yet
+implemented):**
+- §4.2 Φ-side classifier for tangent cells (current code uses legacy
+  `.face`-based pairing inside `_deflate_tangent_cell`)
+- §5 overlap endpoint integration (overlap branches don't go through the
+  `BoundaryPoint`/registration system; persistent `overlaps 4/2 → 3/2`
+  MISMATCH)
+- §9 adjacency-walk assembly variant (current implementation uses ID-based
+  chaining which works for current cases but lacks the cusp/self-intersection
+  handling described in the original §9 revision)
+- Performance: `bez_csx` (53 % of case 6) and Gauss separability LP (38 %)
+  are the dominant remaining costs; further reduction would need either
+  algorithmic restructuring or native (Cython) implementations.
