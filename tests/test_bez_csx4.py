@@ -302,5 +302,44 @@ def test_case_15():
             f"expected {excepted[i]}, got {inter}"
 
 
+def test_case_16():
+    """missed isolated intersection — degree-2 curve vs bicubic surface.
 
+    Same class of bug as test_case_14: a degree-2 segment intersects this
+    3x3 surface at exactly one transversal point. v4 currently returns 0
+    isolated. Discovered while debugging bez_ssx case 10 (the s=0 face of
+    S1 vs S2). Independently verified via Newton: distance at the root is
+    0 to machine precision; curve-vs-tangent-plane angle ≈ 47°
+    (transversal, not tangent).
+    """
+    excepted = [
+        {'t': 0.385582, 'u': 0.870815, 'v': 0.007269},
+    ]
+
+    C = np.array([
+        [33.05079627, -57.09987394, 0.0],
+        [29.5295466,  -63.44484237, 6.7646494],
+        [21.73708777, -71.24200956, 0.0],
+    ])
+
+    S = np.array([
+        [[29.63685574, -70.79194487, 4.04308391],
+         [33.99717923, -70.79194487, 7.50248027],
+         [39.66180486, -70.79194487, 4.18744742]],
+        [[29.63685574, -66.43162138, 0.58368755],
+         [33.99717923, -66.43162138, 4.04308391],
+         [39.66180486, -66.43162138, 0.72805106]],
+        [[29.63685574, -60.76699576, 3.89872039],
+         [33.99717923, -60.76699576, 7.35811675],
+         [39.66180486, -60.76699576, 4.04308391]],
+    ])
+
+    result = bez_csx(C, S, atol=1e-3, rational=False)
+    assert (len(result["isolated"]) == 1) and (len(result["overlaps"]) == 0), \
+        f"expected 1 isolated intersection, {len(result['isolated'])} found {result}"
+    for i, inter in enumerate(sorted(result["isolated"], key=lambda x: x["t"])):
+        assert np.allclose(
+            [inter[key] for key in ["t", "u", "v"]],
+            [excepted[i][key] for key in ["t", "u", "v"]]), \
+            f"expected {excepted[i]}, got {inter}"
 
