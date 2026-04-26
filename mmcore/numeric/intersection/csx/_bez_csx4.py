@@ -802,18 +802,23 @@ def bez_csx(
 
     t_exclude = []  # t-intervals to cut from the curve
 
-    # Accept boundary zeros
+    # Accept boundary zeros. Each candidate is refined via Newton:
+    # boundary analysis can return near-miss candidates (e.g., CCX
+    # finds where curves are closest, even if the closest distance
+    # is above atol) that lie near a real root just inside the
+    # boundary. Newton refinement converges to the real root if one
+    # exists nearby; otherwise the candidate is rejected.
     for bz in csx_boundary_zeros:
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
-        pt_c = eval_curve(C, t_bz, rational=rational)
-        pt_s = eval_surface(S, u_bz, v_bz, rational=rational)
-        if float(np.linalg.norm(pt_c - pt_s)) < atol:
-            if not _is_duplicate(isolated, pt_c, atol):
+        t_r, u_r, v_r, G_r, _ = newton_csx(C, S, t_bz, u_bz, v_bz, rational=rational)
+        if float(np.linalg.norm(G_r)) < atol:
+            pt_r = eval_curve(C, t_r, rational=rational)
+            if not _is_duplicate(isolated, pt_r, atol):
                 isolated.append({
-                    "t": float(t_bz), "u": float(u_bz), "v": float(v_bz),
-                    "point": pt_c,
+                    "t": float(t_r), "u": float(u_r), "v": float(v_r),
+                    "point": pt_r,
                 })
-                t_exclude.append((t_bz - ptol_t, t_bz + ptol_t))
+                t_exclude.append((t_r - ptol_t, t_r + ptol_t))
 
     # Valley check for overlap
     if len(csx_boundary_zeros) >= 2:
