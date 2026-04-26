@@ -343,3 +343,51 @@ def test_case_16():
             [excepted[i][key] for key in ["t", "u", "v"]]), \
             f"expected {excepted[i]}, got {inter}"
 
+
+def test_case_17():
+    """missed second isolated — degree-1 line vs 4x3 bicubic surface.
+
+    A degree-1 segment intersects this 4x3 surface at exactly two
+    transversal points. v4 currently returns 1 isolated (finds the
+    boundary one at t=1, misses the interior one at t≈0.88).
+    Discovered while debugging bez_ssx case 9: the v=0.0685 cut isoline
+    of S2 (a bilinear) intersected with S1 (the swept ribbon). Per-piece
+    CSX missed one of the two real crossings, which silently dropped
+    the second branch of case 9. Independently verified via Newton:
+    distance at the missed root is 0 to machine precision; crossing
+    angle ≈ 5.4° (transversal, not tangent).
+    """
+    excepted = [
+        {'t': 0.879717, 'u': 0.153108, 'v': 0.915742},
+        {'t': 1.000000, 'u': 0.009786, 'v': 0.888249},
+    ]
+
+    C = np.array([
+        [40.59861684732258, -75.67084987336429, 0.03773919903009087],
+        [23.611352553570853, -69.50908733196081, 1.3579939980205344],
+    ])
+
+    S = np.array([
+        [[33.05079627, -57.09987394, 0.0],
+         [29.5295466,  -63.44484237, 6.7646494],
+         [21.73708777, -71.24200956, 0.0]],
+        [[40.28725776, -58.67948118, 0.0],
+         [32.51384961, -66.4481508,  9.37051336],
+         [28.97354926, -69.99318967, 0.0]],
+        [[43.28107855, -61.67330197, 0.0],
+         [35.49815262, -69.45145922, 9.37051336],
+         [28.73859119, -79.68670826, 0.0]],
+        [[45.10433572, -68.20265667, 0.0],
+         [41.48244052, -72.46428996, 4.71678541],
+         [38.71855016, -76.6579268,  0.0]],
+    ])
+
+    result = bez_csx(C, S, atol=1e-3, rational=False)
+    assert (len(result["isolated"]) == 2) and (len(result["overlaps"]) == 0), \
+        f"expected 2 isolated intersections, {len(result['isolated'])} found {result}"
+    for i, inter in enumerate(sorted(result["isolated"], key=lambda x: x["t"])):
+        assert np.allclose(
+            [inter[key] for key in ["t", "u", "v"]],
+            [excepted[i][key] for key in ["t", "u", "v"]]), \
+            f"expected {excepted[i]}, got {inter}"
+
