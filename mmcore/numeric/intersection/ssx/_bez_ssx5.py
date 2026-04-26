@@ -2254,12 +2254,18 @@ def bez_ssx(
         # NOT by further subdivision — deflation makes the Φ-curve regular
         # where Ψ is rank-deficient.
         #
-        # Cheap pre-check: at a tangent point TΨᵢ all vanish (design §1.4).
-        # Evaluate |TΨ| at the cell's existing crossings — if it's clearly
-        # non-zero anywhere, the curve is transversal and we skip Krawczyk.
+        # Skip when there are no crossings: deflation requires `cell.crossings`
+        # to be non-empty to produce fragments (`if tangency is True and
+        # cell.crossings` below). A True result without crossings is wasted.
+        # Cells with no crossings simply fall through to subdivision either way.
         from mmcore.numeric.bern import bern_eval as _bern_eval
         is_clearly_transversal = False
-        if cell.crossings:
+        if not cell.crossings:
+            is_clearly_transversal = True
+        else:
+            # Cheap pre-check: at a tangent point TΨᵢ all vanish (design §1.4).
+            # Evaluate |TΨ| at the cell's crossings — if non-zero anywhere,
+            # the curve is transversal and we skip the Krawczyk check.
             for c in cell.crossings:
                 stuv_loc = _global_to_local(c.stuv, cell.box)
                 t1v = np.asarray(_bern_eval(cell.T1, stuv_loc)).reshape(-1)[0]
