@@ -38,7 +38,9 @@ from mmcore.numeric.intersection.ssx._ssx4 import (
     _append_unique_point,
     GaussMapBern,
     separate_gauss_maps,
+    _trust_gjk,
 )
+from mmcore.numeric.algorithms.cygjk import gjk
 
 
 # ---------------------------------------------------------------------------
@@ -2229,6 +2231,15 @@ def bez_ssx(
         # overlap, there is no intersection in this cell.
         if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
             continue
+
+        # GJK separability: tighter than AABB, much cheaper than the sq-dist
+        # net or Gauss separability. Test the convex hulls of the two control
+        # nets — if they're separated, the surfaces don't intersect.
+        if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
+            P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
+            P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
+            if not gjk(P1_pts, P2_pts, atol, 64):
+                continue
 
         # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
         # split alongside TΨᵢ at every subdivision — never reconstructed).
