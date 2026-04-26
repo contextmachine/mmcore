@@ -2211,8 +2211,13 @@ def bez_ssx(
     for c in crossings:
         _classify_boundary_point(c, top_cell)
 
-    if not crossings and not overlap_branches:
-        return {'branches': [], 'points': []}
+    # NOTE: do NOT early-return when there are no boundary crossings.
+    # A purely interior intersection (e.g. case 7's closed loop strictly
+    # inside [0,1]⁴) has zero boundary crossings on the top-level box but is
+    # still a real intersection. The midpoint-fallback path inside the
+    # subdivision loop discovers it. Cheap certificates (AABB, GJK, F_sq,
+    # loop_free) inside the loop will terminate cells with no actual
+    # intersection.
 
     # --- Iterative domain decomposition (single code path, design §6) ---
     # The top-level cell enters the same stack as any sub-cell and goes
