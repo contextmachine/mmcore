@@ -610,7 +610,13 @@ def _phase2_isolated_search(
         )
         if newton_stalled:
 
-            if residual_ok and t0 - ptol_t <= t_sol <= t1 + ptol_t:
+            # Use a small FP slack on top of ptol_t. Newton can converge
+            # to t = 1.0 (or 0.0) by ~1 ULP, while t1 + ptol_t computed
+            # by FP arithmetic may be slightly less than 1.0 even though
+            # algebraically equal. Without this slack, a real root at the
+            # domain boundary is mis-classified as "outside cell".
+            _fp_slack = 1e-12
+            if residual_ok and t0 - ptol_t - _fp_slack <= t_sol <= t1 + ptol_t + _fp_slack:
                 pt = eval_curve(C_orig, t_sol, rational=rational)
                 is_new = not _is_duplicate(isolated, pt, atol)
                 if is_new:
@@ -776,7 +782,7 @@ def _compute_remaining_intervals(excludes, lo, hi):
 # ---------------------------------------------------------------------------
 # Main algorithm: two-phase architecture
 # ---------------------------------------------------------------------------
-
+from mmcore.numeric._aabb import aabb, aabb_intersect
 def bez_csx(
     C,
     S,
@@ -814,6 +820,18 @@ def bez_csx(
     """
     C = np.asarray(C, dtype=np.float64)
     S = np.asarray(S, dtype=np.float64)
+
+    if rational:
+        c_pts = C[:, :-1] / C[:, -1:]
+        s_pts = S.reshape((-1,4))[:,:-1]/  S.reshape((-1,4))[:,-1:]
+    else:
+        c_pts = C
+        s_pts = S.reshape((-1,3))
+
+    if not aabb_intersect(aabb(np.ascontiguousarray(c_pts)),  aabb(np.ascontiguousarray(s_pts))):
+        return {"isolated": [], "overlaps": []}
+
+
 
     F = curve_surface_distance_squared_net_homog(C, S, rational=rational)
 
@@ -890,11 +908,19 @@ def bez_csx(
         from mmcore.numeric.intersection._sq_dist_classify import (
             _check_min_of_net, _weight_max_product,
         )
+
+        if rational:
+            cb_pts = C_sub[:, :-1] / C_sub[:, -1:]
+
+        else:
+            cb_pts = C_sub
+
+        if not aabb_intersect(aabb(np.ascontiguousarray(cb_pts)), aabb(np.ascontiguousarray(s_pts))):
+            continue
         _, Pw_sub = extract_weights(C_sub, rational=rational)
         w_sc = _weight_max_product(Pw_sub, Sw.ravel())
         if _check_min_of_net(F_sub, atol, w_sc):
             continue
-
         # Search for isolated intersections
         phase2_iso = _phase2_isolated_search(
             F_sub, C_sub, S, C_orig, S_orig,

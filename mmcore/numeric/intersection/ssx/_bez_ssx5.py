@@ -1547,6 +1547,55 @@ def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
         xyz_full = np.concatenate(xyz_pieces, axis=0)
         branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
 
+    # --- Drop short slivers that lie on top of another branch ---
+    # When the fragment graph has a Y-junction (≥3 fragments meeting at the
+    # same BoundaryPoint, e.g. because two adjacent cells redundantly traced
+    # the same curve segment), the chain walker peels off the main path and
+    # leaves the spurious side fragment as a separate short "branch". Such
+    # a sliver lies entirely within another (longer) branch in 3-space.
+    #
+    # Criterion (intentionally narrow to avoid false positives):
+    #   - The candidate branch has FEW points (≤ 5).
+    #   - Every one of its xyz samples lies within `diam * 1e-2` of some
+    #     sample on a longer branch.
+    # The "few points" guard prevents accidentally dropping a legitimate
+    # short branch that simply has nothing nearby; the proximity threshold
+    # scales with the spatial diameter of the longer branches so it stays
+    # meaningful across geometry sizes.
+    SLIVER_MAX_PTS = 5
+    if len(branches) > 1:
+        diam = 0.0
+        for b in branches:
+            xyz = b.curve[1]
+            if len(xyz) >= 2:
+                d = float(np.linalg.norm(xyz.max(axis=0) - xyz.min(axis=0)))
+                if d > diam:
+                    diam = d
+        sliver_tol = max(1e-9, diam * 1e-2)
+
+        keep = []
+        order = sorted(range(len(branches)),
+                       key=lambda k: -len(branches[k].curve[1]))
+        kept_xyz = []
+        for idx in order:
+            xyz = branches[idx].curve[1]
+            is_sliver = False
+            if len(xyz) <= SLIVER_MAX_PTS:
+                for big in kept_xyz:
+                    ok = True
+                    for p in xyz:
+                        d_min = float(np.linalg.norm(big - p, axis=1).min())
+                        if d_min > sliver_tol:
+                            ok = False
+                            break
+                    if ok:
+                        is_sliver = True
+                        break
+            if not is_sliver:
+                keep.append(branches[idx])
+                kept_xyz.append(xyz)
+        branches = keep
+
     return branches
 
 

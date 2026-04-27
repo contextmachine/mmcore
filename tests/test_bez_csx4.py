@@ -391,3 +391,55 @@ def test_case_17():
             [excepted[i][key] for key in ["t", "u", "v"]]), \
             f"expected {excepted[i]}, got {inter}"
 
+
+def test_case_18():
+    """missed second isolated — rational=True sub-piece variant of test_case_17.
+
+    Same two geometric crossings as test_case_17, but exercised on the
+    s∈[0, 0.5] half-piece of the original surface (after a De Casteljau
+    split at s=0.5) with rational=True (weights = 1). This is the form
+    bez_ssx actually calls per-piece CSX in: rational mode with w=1
+    added, against a sub-piece of the original surface.
+
+    test_case_17 (rational=False, full surface) currently passes.
+    test_case_18 (rational=True, sub-piece) currently fails — v4 finds
+    only 1 of 2 isolated. So the v4 fix must extend to the rational +
+    sub-piece code path.
+
+    Discovered while debugging bez_ssx case 9 — the per-piece CSX
+    of the v=0.0685 cut isoline against the s∈[0, 0.5] piece of S1.
+    Both roots Newton-verified at machine precision.
+    """
+    excepted = [
+        {'t': 0.879717, 'u': 0.306216, 'v': 0.915742},
+        {'t': 1.000000, 'u': 0.0195725, 'v': 0.888249},
+    ]
+
+    C = np.array([
+        [40.598616847322575, -75.67084987336429, 0.03773919903009087, 1.0],
+        [23.61135255357085,  -69.50908733196081, 1.3579939980205342,  1.0],
+    ])
+
+    S = np.array([
+        [[33.05079627, -57.09987394, 0.0, 1.0],
+         [29.5295466,  -63.44484237, 6.7646494,  1.0],
+         [21.73708777, -71.24200956, 0.0,        1.0]],
+        [[36.669027015,    -57.88967756,    0.0,        1.0],
+         [31.021698105,    -64.946496585,   8.06758138, 1.0],
+         [25.355318515,    -70.617599615,   0.0,        1.0]],
+        [[39.226597585,       -59.033034567499996, 0.0,        1.0],
+         [32.51384961,        -66.4481507975,      8.71904737, 1.0],
+         [27.105694370000002, -72.72877429,        0.0,        1.0]],
+        [[41.107517615000006, -60.7951100075,     0.0,        1.0],
+         [34.38099922625,     -67.95099529875,    8.463064371249999, 1.0],
+         [29.19900741,        -74.61745376875001, 0.0,        1.0]],
+    ])
+
+    result = bez_csx(C, S, atol=1e-3, rational=True)
+    assert (len(result["isolated"]) == 2) and (len(result["overlaps"]) == 0), \
+        f"expected 2 isolated intersections, {len(result['isolated'])} found {result}"
+    for i, inter in enumerate(sorted(result["isolated"], key=lambda x: x["t"])):
+        assert np.allclose(
+            [inter[key] for key in ["t", "u", "v"]],
+            [excepted[i][key] for key in ["t", "u", "v"]]), \
+            f"expected {excepted[i]}, got {inter}"
