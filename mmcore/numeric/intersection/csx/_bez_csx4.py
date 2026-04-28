@@ -18,7 +18,8 @@ from mmcore.numeric.bern import (
 )
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
-    extract_weights, eval_curve, eval_surface, newton_csx,
+    extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
+    newton_csx,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
@@ -92,6 +93,41 @@ def _compute_param_tols_csx(C, S, atol, rational):
     ptol_t = float(bez_curve_param_tolerance(C, tol=atol, rational=rational))
     ptol_u, ptol_v = bez_surface_param_tolerance(S, tol=atol, rational=rational)
     return ptol_t, float(ptol_u), float(ptol_v)
+
+
+# Floor on sin(angle) below which the angle-aware tolerance stops tightening.
+# 1e-3 corresponds to ≈ 0.06° between the curve tangent and the surface tangent
+# plane; tighter than that we treat the configuration as effectively tangent
+# (a different topology) and accept residuals at the floor scale.
+_CSX_SIN_ANG_FLOOR = 1e-3
+
+
+def _csx_eff_atol(C, S, t, u, v, atol, rational):
+    """Angle-aware geometric tolerance for accepting a CSX root candidate.
+
+    A pure ``||C(t) - S(u, v)|| < atol`` test is misleading when the curve
+    grazes the surface: the residual stays small in a "thick gap" of width
+    ``atol / sin(angle)`` around the true intersection, so Newton can settle
+    at a stationary point of the squared distance that is *far* from any
+    real root.
+
+    The xyz distance from the true intersection at the candidate is
+    approximately ``residual / sin(angle)`` where ``angle`` is the angle
+    between the curve tangent ``C'(t)`` and the surface tangent plane.
+    Requiring ``residual < atol * sin(angle)`` keeps the implied xyz error
+    below ``atol`` regardless of grazing. The floor avoids collapsing the
+    tolerance to zero in the exactly-tangent limit.
+    """
+    _pt_c, c_d = eval_curve_d1(C, float(t), rational=rational)
+    _pt_s, s_du, s_dv = eval_surface_d1(S, float(u), float(v), rational=rational)
+    N = np.cross(s_du, s_dv)
+    n_norm = float(np.linalg.norm(N))
+    c_norm = float(np.linalg.norm(c_d))
+    if n_norm > 1e-30 and c_norm > 1e-30:
+        sin_ang = abs(float(np.dot(c_d, N))) / (c_norm * n_norm)
+    else:
+        sin_ang = 0.0
+    return atol * max(sin_ang, _CSX_SIN_ANG_FLOOR)
 
 
 def _boundary_zero_to_tuv(bz: BoundaryZero,
@@ -191,7 +227,6 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
         # (not just on its edges). Use Newton on the point-on-surface problem.
         pt = eval_curve(C, float(t_side), rational=rational)
         # Simple Newton: project point onto surface
-        from mmcore.numeric.intersection._bezier_common import eval_surface_d1
         u_s, v_s = 0.5, 0.5  # seed from center
         for _it in range(20):
             s_pt, s_du, s_dv = eval_surface_d1(S, u_s, v_s, rational=rational)
@@ -218,7 +253,8 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
             else:
                 break
         G_final = eval_surface(S, u_s, v_s, rational=rational) - pt
-        if float(np.linalg.norm(G_final)) < atol:
+        if float(np.linalg.norm(G_final)) < _csx_eff_atol(
+                C, S, float(t_side), u_s, v_s, atol, rational):
             # Found a point-on-surface intersection — add as BoundaryZero
             bz = BoundaryZero(axis=0, side=t_side, param=u_s, param2=v_s)
             # Check not duplicate
@@ -581,11 +617,13 @@ def _phase2_isolated_search(
             v_mid = 0.5 * (v0 + v1)
             pt_c = eval_curve(C_orig, t_mid, rational=rational)
             pt_s = eval_surface(S_orig, u_mid, v_mid, rational=rational)
-            if float(np.linalg.norm(pt_c - pt_s)) < atol:
+            if float(np.linalg.norm(pt_c - pt_s)) < _csx_eff_atol(
+                    C_orig, S_orig, t_mid, u_mid, v_mid, atol, rational):
                 t_r, u_r, v_r, G_r, _ = newton_csx(
                     C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
                 )
-                if float(np.linalg.norm(G_r)) < atol:
+                if float(np.linalg.norm(G_r)) < _csx_eff_atol(
+                        C_orig, S_orig, t_r, u_r, v_r, atol, rational):
                     pt_r = eval_curve(C_orig, t_r, rational=rational)
                     if not _is_duplicate(isolated, pt_r, atol):
                         isolated.append({
@@ -602,7 +640,8 @@ def _phase2_isolated_search(
             C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
         )
 
-        residual_ok = float(np.linalg.norm(G)) < atol
+        residual_ok = float(np.linalg.norm(G)) < _csx_eff_atol(
+            C_orig, S_orig, t_sol, u_sol, v_sol, atol, rational)
         newton_stalled = (
                 abs(last_step[0]) <= ptol_t
                 and abs(last_step[1]) <= ptol_u
@@ -652,7 +691,8 @@ def _phase2_isolated_search(
                         t_alt, u_alt, v_alt, G_alt, _ = newton_csx(
                             C_orig, S_orig, t_mid, u_seed, v_seed, rational=rational,
                         )
-                        if (float(np.linalg.norm(G_alt)) < atol
+                        if (float(np.linalg.norm(G_alt)) < _csx_eff_atol(
+                                    C_orig, S_orig, t_alt, u_alt, v_alt, atol, rational)
                                 and t0 - ptol_t <= t_alt <= t1 + ptol_t):
                             pt_alt = eval_curve(C_orig, t_alt, rational=rational)
                             if not _is_duplicate(isolated, pt_alt, atol):
@@ -862,7 +902,7 @@ def bez_csx(
     for bz in csx_boundary_zeros:
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
         t_r, u_r, v_r, G_r, _ = newton_csx(C, S, t_bz, u_bz, v_bz, rational=rational)
-        if float(np.linalg.norm(G_r)) < atol:
+        if float(np.linalg.norm(G_r)) < _csx_eff_atol(C, S, t_r, u_r, v_r, atol, rational):
             pt_r = eval_curve(C, t_r, rational=rational)
             if not _is_duplicate(isolated, pt_r, atol):
                 isolated.append({

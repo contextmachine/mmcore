@@ -141,6 +141,12 @@ def make_cases() -> list[Case]:
                     [39.66180486, -60.76699576, 4.04308391]]])
     cases.append(Case("case10", s1_swept, s2, 2, "two branches (both partial)"))
 
+    s2 = np.array([[[39.589021714123604, -77.29117490559284, 3.5489239217672024],
+                    [44.639980924198085, -66.5333265772515, 4.9752720370625365]],
+                   [[22.4486815782254, -71.16713476157344, 5.071030903961587],
+                    [29.735619889641292, -59.85827526536872, 3.5489239217672024]]])
+    cases.append(Case("case11", s1_swept, s2, 1, "single closed loop, interior — currently fragmented"))
+
     return cases
 
 

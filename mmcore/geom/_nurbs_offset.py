@@ -158,6 +158,7 @@ def _recognise_curve(
     # --- LINE --------------------------------------------------------
     base, dirn = _fit_line_pca(P)
     # Distance of every sample to PCA line
+    print(P.shape, base.shape, dirn.shape)
     dists = np.linalg.norm(np.cross(P - base, dirn), axis=1)
     if np.all(dists < tol):
         # Ensure projections are inside extents (optional – see paper)

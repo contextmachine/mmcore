@@ -473,7 +473,18 @@ def _ssx_correct(S1, S2, s, t, u, v, rational=True, max_iter=5, tol=1e-14):
     Minimizes ||S1(s,t) - S2(u,v)|| using damped pseudoinverse steps.
     Only a few iterations — the predictor should be close.
 
-    Returns refined (s, t, u, v) and the residual norm.
+    Returns (s, t, u, v, residual, sin_ang) where:
+      - residual = ||S1(s,t) - S2(u,v)|| at the corrected point
+      - sin_ang = ||N1 × N2|| / (||N1|| ||N2||) — sin of the angle between
+        the two surface normals at the corrected point.
+
+    Why sin_ang matters: when the surfaces approach each other slowly
+    (sin_ang ≈ 0), a corrector based purely on `residual < atol` accepts
+    points anywhere in the "thick gap" between the surfaces — these can be
+    far from the true intersection curve. The xyz distance from the true
+    SSX curve at the corrected point is approximately `residual / sin_ang`,
+    so callers should require `residual < atol * sin_ang` (with a floor)
+    to avoid such false positives.
     """
     for _ in range(max_iter):
         pt1, du1, dv1 = eval_surface_d1(S1, s, t, rational=rational)
@@ -498,8 +509,18 @@ def _ssx_correct(S1, S2, s, t, u, v, rational=True, max_iter=5, tol=1e-14):
         u = max(0.0, min(1.0, u + delta[2]))
         v = max(0.0, min(1.0, v + delta[3]))
 
-    G = eval_surface(S1, s, t, rational=rational) - eval_surface(S2, u, v, rational=rational)
-    return s, t, u, v, float(np.linalg.norm(G))
+    pt1f, du1f, dv1f = eval_surface_d1(S1, s, t, rational=rational)
+    pt2f, du2f, dv2f = eval_surface_d1(S2, u, v, rational=rational)
+    G = pt1f - pt2f
+    N1 = np.cross(du1f, dv1f)
+    N2 = np.cross(du2f, dv2f)
+    n1m = float(np.linalg.norm(N1))
+    n2m = float(np.linalg.norm(N2))
+    if n1m > 1e-30 and n2m > 1e-30:
+        sin_ang = float(np.linalg.norm(np.cross(N1, N2))) / (n1m * n2m)
+    else:
+        sin_ang = 0.0
+    return s, t, u, v, float(np.linalg.norm(G)), sin_ang
 
 
 def _march_intersection_curve(
@@ -570,8 +591,8 @@ def _march_intersection_curve(
         dist_to_end = float(np.linalg.norm(current - target))
         if dist_to_end < max(step * 2, min_step * 4):
             # Close enough — add the endpoint and stop
-            s, t, u, v, res = _ssx_correct(S1, S2, *target, rational=rational)
-            if res < atol:
+            s, t, u, v, res, sin_ang = _ssx_correct(S1, S2, *target, rational=rational)
+            if res < atol * max(sin_ang, 1e-3):
                 final = np.array([s, t, u, v])
             else:
                 final = target
@@ -586,12 +607,13 @@ def _march_intersection_curve(
         predicted = np.clip(predicted, 0.0, 1.0)
 
         # Corrector: project back onto intersection curve
-        s, t, u, v, residual = _ssx_correct(
+        s, t, u, v, residual, sin_ang = _ssx_correct(
             S1, S2, predicted[0], predicted[1], predicted[2], predicted[3],
             rational=rational,
         )
 
-        if residual > atol:
+        eff_atol = atol * max(sin_ang, 1e-3)
+        if residual > eff_atol:
             # Corrector failed — reduce step and retry
             step = max(min_step, step * 0.5)
             continue
@@ -792,11 +814,18 @@ def _march_to_boundary(
             break
 
         # No crossing: predicted stays inside [0,1]⁴. Normal corrector path.
-        s, t, u, v, residual = _ssx_correct(
+        s, t, u, v, residual, sin_ang = _ssx_correct(
             S1, S2, *predicted, rational=rational,
         )
 
-        if residual > atol:
+        # Angle-aware acceptance: ||r|| < atol alone is misleading when the
+        # surfaces approach slowly (small sin_ang). The xyz distance from the
+        # true SSX curve is ≈ residual / sin_ang, so require residual to be
+        # tighter when surfaces are close to parallel. The floor (1e-3) caps
+        # how aggressive the tightening can get — without it, slowly
+        # converging segments would never accept any correction at all.
+        eff_atol = atol * max(sin_ang, 1e-3)
+        if residual > eff_atol:
             step = max(min_step, step * 0.5)
             continue
 
@@ -1396,16 +1425,52 @@ def _trace_cell_by_registrations(cell, atol):
     Match the exit to the nearest unconsumed crossing by stuv proximity.
     No in/out classification needed.
     """
+    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+
     fragments: list[_Fragment] = []
     points: list = []
     used: set[int] = set()
-    min_seg_len = 1e-10
+
+    # Per-axis parametric tolerance for the cell's local sub-surfaces.
+    # Used to size the marcher's initial step: it should be at least ptol
+    # (smaller is sub-resolution) and at most ~1/4 of the local distance to
+    # the nearest partner crossing (so we don't fly past the partner if it
+    # is close).
+    try:
+        ptol_s, ptol_t = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
+        ptol_u, ptol_v = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
+    except Exception:
+        ptol_s = ptol_t = ptol_u = ptol_v = 1e-6
+    ptol_min = max(float(ptol_s), float(ptol_t), float(ptol_u), float(ptol_v))
+    # Hard floor: never go below 1e-9 (avoid pathological zero/negative)
+    ptol_min = max(ptol_min, 1e-9)
 
     for i, start_cx in enumerate(cell.crossings):
         if i in used:
             continue
 
         start_local = _global_to_local(start_cx.stuv, cell.box)
+
+        # Distance in local stuv to the nearest unused partner crossing.
+        # This sets the upper bound on the marcher's first step: we want
+        # to step toward the partner, not past it.
+        nearest_local_dist = float('inf')
+        for j, cx in enumerate(cell.crossings):
+            if j == i or j in used:
+                continue
+            local_j = _global_to_local(cx.stuv, cell.box)
+            d = float(np.linalg.norm(local_j - start_local))
+            if d < nearest_local_dist:
+                nearest_local_dist = d
+
+        if nearest_local_dist == float('inf'):
+            # No other crossing in this cell — fall back to the marcher's default
+            initial_step = 0.05
+        else:
+            # Aim for 1/4 of the parameter-space distance, but never smaller
+            # than ptol (sub-resolution step is wasted) and never larger than
+            # the marcher's max step (0.25, i.e. a quarter of [0,1]).
+            initial_step = min(0.25, max(ptol_min, 0.25 * nearest_local_dist))
 
         for attempt in range(2):
             hint = None
@@ -1420,18 +1485,25 @@ def _trace_cell_by_registrations(cell, atol):
             stuv_local, xyz_local = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, start_local,
                 atol=atol, rational=True, direction_hint=hint,
+                initial_step=initial_step,
+                min_step=ptol_min,
             )
 
             if len(stuv_local) < 2:
+                continue
+
+            # Stuck-at-start detector: if the END of the marcher trace is
+            # within ptol of the start (in LOCAL stuv), the chosen direction
+            # was effectively outward and the corrector kept pulling us back.
+            # Try the opposite direction. We compare in LOCAL coordinates so
+            # the threshold scales correctly with subdivision depth.
+            if float(np.linalg.norm(stuv_local[-1] - stuv_local[0])) <= ptol_min:
                 continue
 
             stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
             for j in range(len(stuv_local)):
                 stuv_global[j] = _local_to_global(stuv_local[j], cell.box)
             stuv_global[0] = start_cx.stuv.copy()
-
-            if np.linalg.norm(stuv_global[-1] - stuv_global[0]) <= min_seg_len:
-                continue
 
             best_j = None
             best_dist = float('inf')
@@ -1460,12 +1532,22 @@ def _trace_cell_by_registrations(cell, atol):
     return fragments, points
 
 
-def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
+def _assemble_fragments(
+    fragments: list[_Fragment],
+    *,
+    S1_full=None, S2_full=None, atol_full: float = 1e-3,
+    rational_full: bool = True,
+) -> list[SSXBranch]:
     """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
     full branches. Two fragments touching the same `BoundaryPoint` object
     represent the same through-curve crossing an internal partition, one
     from each adjacent cell — by Invariant A/B those are the only partial
     branches the point can connect.
+
+    The `S1_full / S2_full / atol_full / rational_full` keyword args enable
+    a final closing-segment march for near-closed loops whose chain has a
+    small id-graph gap (different `BoundaryPoint` objects produced for the
+    same physical point in different parts of the subdivision tree).
     """
     from collections import defaultdict
 
@@ -1545,6 +1627,48 @@ def _assemble_fragments(fragments: list[_Fragment]) -> list[SSXBranch]:
 
         stuv_full = np.concatenate(stuv_pieces, axis=0)
         xyz_full = np.concatenate(xyz_pieces, axis=0)
+
+        # March the closing segment of near-closed loops.
+        #
+        # A loop intersection traversed by subdivisions sometimes ends up
+        # with a small chain gap: the SAME geometric point on the loop is
+        # independently produced as different `BoundaryPoint` objects in
+        # cells from different parts of the subdivision tree, so the
+        # id-based chain walker can't bridge them. Symptom: a chain whose
+        # two free endpoints (BOTH interior — neither on the [0,1]⁴ box
+        # boundary) are much closer to each other than to the rest of the
+        # chain. Close the loop by actually marching the missing segment
+        # from end_point.stuv to start_point.stuv using the
+        # known-endpoint marcher; the resulting samples are real curve
+        # points (not a duplicate-start placeholder).
+        if S1_full is not None and len(xyz_full) >= 4:
+            steps = np.linalg.norm(np.diff(xyz_full, axis=0), axis=1)
+            steps = steps[steps > 0]
+            if len(steps) > 0:
+                gap = float(np.linalg.norm(xyz_full[-1] - xyz_full[0]))
+                median_step = float(np.median(steps))
+                # Only close when both endpoints are strictly INTERIOR. Open
+                # boundary-to-boundary branches naturally end at the [0,1]⁴
+                # box boundary; we must NOT join those.
+                start_interior = bool(np.all((stuv_full[0] > 1e-9) &
+                                             (stuv_full[0] < 1 - 1e-9)))
+                end_interior = bool(np.all((stuv_full[-1] > 1e-9) &
+                                           (stuv_full[-1] < 1 - 1e-9)))
+                if (start_interior and end_interior
+                        and median_step > 0
+                        and gap < 10.0 * median_step):
+                    closing_stuv, closing_xyz = _march_intersection_curve(
+                        S1_full, S2_full,
+                        stuv_full[-1], stuv_full[0],
+                        atol=atol_full, rational=rational_full,
+                    )
+                    if len(closing_stuv) >= 2:
+                        # Skip the first sample (duplicates xyz_full[-1]).
+                        stuv_full = np.concatenate(
+                            [stuv_full, closing_stuv[1:]], axis=0)
+                        xyz_full = np.concatenate(
+                            [xyz_full, closing_xyz[1:]], axis=0)
+
         branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
 
     # --- Drop short slivers that lie on top of another branch ---
@@ -2580,7 +2704,19 @@ def bez_ssx(
                 queue.append(scell)
 
     # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
-    all_branches = _assemble_fragments(all_fragments)
+    # Pass the original surfaces so the assembly can march any small chain
+    # gap that arises when a closed-loop intersection ends up with the same
+    # geometric point produced as different BoundaryPoint instances in
+    # cells from different parts of the subdivision tree.
+    if rational:
+        S1_for_close, S2_for_close, rational_close = S1, S2, True
+    else:
+        S1_for_close, S2_for_close, rational_close = S1, S2, False
+    all_branches = _assemble_fragments(
+        all_fragments,
+        S1_full=S1_for_close, S2_full=S2_for_close,
+        atol_full=atol, rational_full=rational_close,
+    )
     all_branches.extend(overlap_branches)
     return {'branches': all_branches, 'points': all_points}
 
