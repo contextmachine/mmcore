@@ -131,8 +131,8 @@ def _prune_ssx_cell(S1_h, S2_h, atol, rational=True):
 
     bb1 = np.array(aabb(pts1.reshape(-1, pts1.shape[-1])))
     bb2 = np.array(aabb(pts2.reshape(-1, pts2.shape[-1])))
-    bb1[0] -= atol; bb1[1] += atol
-    bb2[0] -= atol; bb2[1] += atol
+    #bb1[0] -= atol; bb1[1] += atol
+    #bb2[0] -= atol; bb2[1] += atol
     if not aabb_intersect(bb1, bb2):
         return True
 
@@ -158,8 +158,7 @@ def _aabb_disjoint(S1_h, S2_h, atol):
     pts2 = S2_h[..., :-1] / S2_h[..., -1:]
     bb1 = np.array(aabb(pts1.reshape(-1, pts1.shape[-1])))
     bb2 = np.array(aabb(pts2.reshape(-1, pts2.shape[-1])))
-    bb1[0] -= atol; bb1[1] += atol
-    bb2[0] -= atol; bb2[1] += atol
+
     return not aabb_intersect(bb1, bb2)
 
 
@@ -587,6 +586,7 @@ def _march_intersection_curve(
         tang_prev = -tang_prev
 
     for _ in range(max_points):
+        #print("M@",_,step)
         # Check if we're close enough to the target
         dist_to_end = float(np.linalg.norm(current - target))
         if dist_to_end < max(step * 2, min_step * 4):
@@ -631,6 +631,7 @@ def _march_intersection_curve(
         # Get new tangent
         tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, s, t, u, v, rational=rational, direction_hint=hint)
         if tang_new is None:
+            #print('ttth')
             step = max(min_step, step * 0.5)
             continue
 
@@ -688,7 +689,7 @@ def _ssx_correct_fixed(S1, S2, stuv_init, fixed_axis: int, fixed_value: float,
         except np.linalg.LinAlgError:
             break
         for k, idx in enumerate(free_cols):
-            params[idx] = max(0.0, min(1.0, params[idx] + float(delta_free[k])))
+            params[idx] =  params[idx] + float(delta_free[k])
 
     return np.array(params, dtype=np.float64)
 
@@ -749,7 +750,7 @@ def _march_to_boundary(
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,
-    max_points=2000,
+    max_points=40,
     direction_hint=None,
     no_progress_tol=1e-8,
     max_no_progress=3,
@@ -771,6 +772,7 @@ def _march_to_boundary(
     tang_prev, _, _ = _ssx_tangent_4d(S1, S2, *current, rational=rational,
                                        direction_hint=direction_hint)
     if tang_prev is None:
+        #print('tamgg')
         return np.array(stuv_pts), np.array(xyz_pts)
 
     # Orient tangent using hint if provided
@@ -778,16 +780,16 @@ def _march_to_boundary(
         tang_prev = -tang_prev
 
     _first_step = True
-    for _ in range(max_points):
+    for iter_num in range(max_points):
         predicted = current + step * tang_prev
 
-        if _first_step:
+        #if _first_step:
             # On the first step, clamp prediction to [0,1]⁴ instead of
             # triggering a boundary event. This prevents the marcher from
             # bouncing off a face that the start point sits on: the tiny
             # outward component in the tangent is numerical noise, and the
             # corrector will pull the point back onto the true curve.
-            predicted = np.clip(predicted, 0.0, 1.0)
+        #    #predicted = np.clip(predicted, 0.0, 1.0)
 
         crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(
             current, predicted)
@@ -817,6 +819,7 @@ def _march_to_boundary(
         s, t, u, v, residual, sin_ang = _ssx_correct(
             S1, S2, *predicted, rational=rational,
         )
+        #print('_ssx_correct', predicted,s,t,u,v,residual,sin_ang)
 
         # Angle-aware acceptance: ||r|| < atol alone is misleading when the
         # surfaces approach slowly (small sin_ang). The xyz distance from the
@@ -825,8 +828,11 @@ def _march_to_boundary(
         # how aggressive the tightening can get — without it, slowly
         # converging segments would never accept any correction at all.
         eff_atol = atol * max(sin_ang, 1e-3)
+        #print('eff_atol', eff_atol, residual,step, iter_num)
+
         if residual > eff_atol:
             step = max(min_step, step * 0.5)
+
             continue
 
         corrected = np.array([s, t, u, v])
@@ -835,6 +841,7 @@ def _march_to_boundary(
         tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, *corrected, rational=rational,
                                             direction_hint=tang_prev)
         if tang_new is None:
+            #print('tamgg')
             step = max(min_step, step * 0.5)
             continue
 
@@ -842,8 +849,9 @@ def _march_to_boundary(
             tang_new = -tang_new
 
         # Step adaptation
-        cos_angle = np.clip(np.dot(tang_prev, tang_new), -1.0, 1.0)
+        cos_angle = np.dot(tang_prev/    np.linalg.norm(tang_prev), tang_new/np.linalg.norm(tang_new))
         angle = np.arccos(abs(cos_angle))
+        #print('cos_angel',cos_angle,'angle',angle)
         if angle > 1e-10:
             step = step * min(2.0, max(0.25, angle_threshold / angle))
         else:
@@ -912,25 +920,25 @@ def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
         unpaired = [k for k in range(n) if k not in paired_ids]
         return pairs, unpaired
 
-    # Legacy fallback: stuv-distance nearest-neighbour.
-    remaining = list(range(n))
-    pairs_fb: list[tuple[int, int]] = []
-    while len(remaining) >= 2:
-        best_i, best_j = 0, 1
-        best_dist = float("inf")
-        for ii in range(len(remaining)):
-            for jj in range(ii + 1, len(remaining)):
-                ci = crossings[remaining[ii]]
-                cj = crossings[remaining[jj]]
-                d = float(np.linalg.norm(ci.stuv - cj.stuv))
-                if d < best_dist:
-                    best_dist = d
-                    best_i, best_j = ii, jj
-        if best_dist == float("inf"):
-            break
-        pairs_fb.append((remaining[best_i], remaining[best_j]))
-        remaining.pop(best_j)
-        remaining.pop(best_i)
+    ## Legacy fallback: stuv-distance nearest-neighbour.
+    #remaining = list(range(n))
+    #pairs_fb: list[tuple[int, int]] = []
+    #while len(remaining) >= 2:
+    #    best_i, best_j = 0, 1
+    #    best_dist = float("inf")
+    #    for ii in range(len(remaining)):
+    #        for jj in range(ii + 1, len(remaining)):
+    #            ci = crossings[remaining[ii]]
+    #            cj = crossings[remaining[jj]]
+    #            d = float(np.linalg.norm(ci.stuv - cj.stuv))
+    #            if d < best_dist:
+    #                best_dist = d
+    #                best_i, best_j = ii, jj
+    #    if best_dist == float("inf"):
+    #        break
+    #    pairs_fb.append((remaining[best_i], remaining[best_j]))
+    #    remaining.pop(best_j)
+    #    remaining.pop(best_i)
     return pairs_fb, remaining
 
 
@@ -1439,7 +1447,9 @@ def _trace_cell_by_registrations(cell, atol):
     try:
         ptol_s, ptol_t = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
         ptol_u, ptol_v = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
-    except Exception:
+    except Exception as e:
+        raise e
+
         ptol_s = ptol_t = ptol_u = ptol_v = 1e-6
     ptol_min = max(float(ptol_s), float(ptol_t), float(ptol_u), float(ptol_v))
     # Hard floor: never go below 1e-9 (avoid pathological zero/negative)
@@ -2025,8 +2035,8 @@ def _pinned_count(point: BoundaryPoint, cell_box, tol: float = 1e-8) -> int:
 def _is_pinned(val, lo, hi, tol=1e-8):
     return abs(val - lo) < tol or abs(val - hi) < tol
 
-
-def _compute_split_plan(crossings, cell_box, min_margin=0.05):
+# FIXME: Previously, `min_margin=0.05` was used here. This resulted in some segments of certain intersecting branches being omitted in certain cases. I reduced `min_margin` to 1e-5, and this helped in the specific cases I tested. But this is still a rough approach. We need to calculate `min_margin` based on the parametric tolerance or something similar. To be honest, I still don’t really understand why a high min_margin led to candidates being lost
+def _compute_split_plan(crossings, cell_box, min_margin=1e-8):
     """Determine per-surface split axes and values from productive crossings.
 
     For each crossing, check S1 pair (s,t) and S2 pair (u,v):
@@ -2140,7 +2150,7 @@ def _csx_on_cut_face(cell, cut_axis: int, cut_global_val: float, atol: float):
     else:
         isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
         csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
-
+    csx_result['isolated'] = list((lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_result['isolated']))
     return _isoline_csx_to_global(
         csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
         S1_local=cell.g1.surface, S2_local=cell.g2.surface, rational=True,
@@ -2190,6 +2200,7 @@ def _midpoint_split(cell, axis: int, atol: float):
 
     # CSX on the new cut face
     new_crossings = _csx_on_cut_face(cell, axis, mid_global, atol)
+
 
     # Invariant C dedup: unify with inherited crossings
     deduped_new: list = []
@@ -2410,13 +2421,14 @@ def bez_ssx(
         if _aabb_disjoint(cell.g1.surface, cell.g2.surface, atol):
             continue
 
+
         # GJK separability: tighter than AABB, much cheaper than the sq-dist
         # net or Gauss separability. Test the convex hulls of the two control
         # nets — if they're separated, the surfaces don't intersect.
         if _trust_gjk(cell.g1) and _trust_gjk(cell.g2):
             P1_pts = (cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]).reshape(-1, 3)
             P2_pts = (cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]).reshape(-1, 3)
-            if not gjk(P1_pts, P2_pts, atol, 64):
+            if not gjk(P1_pts, P2_pts, atol, 15):
                 continue
 
         # Sq-dist net pruning using the PROPAGATED F_sq (built once at top,
@@ -2429,13 +2441,14 @@ def bez_ssx(
 
         # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
         # Gauss map separability as fallback (design §6, §10 principle 8).
+
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
-            if cell.crossings:
-                fr, pt = _trace_cell_by_registrations(cell, atol)
-                all_fragments.extend(fr)
-                all_points.extend(pt)
-            continue
+                if cell.crossings:
+                    fr, pt = _trace_cell_by_registrations(cell, atol)
+                    all_fragments.extend(fr)
+                    all_points.extend(pt)
+                continue
 
         # §6 step 3: Krawczyk-based tangency certification. If TΨ = 0 has a
         # simultaneous root in this cell, the intersection is tangential (C₂)
@@ -2525,9 +2538,10 @@ def bez_ssx(
         # Both surfaces are split at each step. Productive crossings provide
         # per-surface split values; if a surface has no guided split, it gets
         # a midpoint cut on its longest-span axis.
+
         s1_axis, s1_cuts, s2_axis, s2_cuts = _compute_split_plan(
             cell.new_crossings, cell.box)
-
+        #print(s1_axis, s1_cuts, s2_axis, s2_cuts,cell.box,[nc.xyz.tolist() for nc in cell.new_crossings])
         # Midpoint fallback per surface when no guided cuts
         if s1_axis is None:
             s1_span_s = cell.box[0][1] - cell.box[0][0]
@@ -2539,7 +2553,7 @@ def bez_ssx(
             s2_span_v = cell.box[3][1] - cell.box[3][0]
             s2_axis = 2 if s2_span_u >= s2_span_v else 3
             s2_cuts = [0.5 * (cell.box[s2_axis][0] + cell.box[s2_axis][1])]
-
+        #print(s1_axis, s1_cuts, s2_axis, s2_cuts, cell.box,[nc.xyz.tolist() for nc in cell.new_crossings])
         # Split S1 (Gauss map) along s1_axis
         g1_pieces = _split_surface_multi(cell.g1, s1_axis, s1_cuts, cell.box)
         # Split S2 (Gauss map) along s2_axis
@@ -2597,6 +2611,9 @@ def bez_ssx(
             for s2_idx in range(n2):
                 s2_piece_surf = g2_pieces[s2_idx].surface
                 csx_r = bez_csx(isoline_s1, s2_piece_surf, atol=atol, rational=True)
+                #print(csx_r)
+                csx_r['isolated'] = list(filter(
+                    lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_r['isolated']))
 
                 s2_lo = cell.box[s2_axis][0] if s2_idx == 0 else s2_cuts[s2_idx - 1]
                 s2_hi = s2_cuts[s2_idx] if s2_idx < len(s2_cuts) else cell.box[s2_axis][1]
@@ -2633,6 +2650,8 @@ def bez_ssx(
             for s1_idx in range(n1):
                 s1_piece_surf = g1_pieces[s1_idx].surface
                 csx_r = bez_csx(isoline_s2, s1_piece_surf, atol=atol, rational=True)
+                csx_r['isolated'] = list(filter(
+                    lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_r['isolated']))
 
                 s1_lo = cell.box[s1_axis][0] if s1_idx == 0 else s1_cuts[s1_idx - 1]
                 s1_hi = s1_cuts[s1_idx] if s1_idx < len(s1_cuts) else cell.box[s1_axis][1]
@@ -2675,17 +2694,19 @@ def bez_ssx(
 
                 # Inherited crossings from parent — check ALL 4 axes
                 sub_inherited = [c for c in cell.crossings
-                                 if all(sub_box[ax][0] - 1e-10 <= c.stuv[ax] <= sub_box[ax][1] + 1e-10
+                                 if all(sub_box[ax][0]<= c.stuv[ax] <= sub_box[ax][1]
                                         for ax in range(4))]
 
                 # New crossings: deterministic from per-piece CSX grid
                 sub_new_raw = new_cx_grid[i1][i2]
+                #print('sub_new_raw',[nc.xyz.tolist() for nc in sub_new_raw])
                 # Dedup new against inherited
                 sub_new = []
                 for nc in sub_new_raw:
-                    if not any(np.linalg.norm(nc.stuv - ec.stuv) < atol for ec in sub_inherited):
-                        if not any(np.linalg.norm(nc.stuv - dc.stuv) < atol for dc in sub_new):
-                            sub_new.append(nc)
+
+                    #if not any(np.linalg.norm(nc.stuv - ec.stuv) < 1e-6 for ec in sub_inherited):
+                    #    if not any(np.linalg.norm(nc.stuv - dc.stuv) <  1e-6 for dc in sub_new):
+                    sub_new.append(nc)
 
                 sub_cx = sub_inherited + sub_new
 
