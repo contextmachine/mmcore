@@ -660,38 +660,116 @@ def _march_intersection_curve(
 
 
 def _ssx_correct_fixed(S1, S2, stuv_init, fixed_axis: int, fixed_value: float,
-                       rational: bool = True, max_iter: int = 10, tol: float = 1e-14):
-    """Damped Newton solving `Ψ(s,t,u,v) = 0` with `stuv[fixed_axis] = fixed_value`.
+                       rational: bool = True, max_iter: int = 60, tol: float = 1e-14):
+    """Damped Newton with line search solving `Ψ(s,t,u,v) = 0` with
+    `stuv[fixed_axis] = fixed_value`.
 
     Three free parameters, three equations (`S1(s,t) - S2(u,v) = 0`). Used
     by `_march_to_boundary` when the predictor has detected a boundary
     crossing: the crossed axis is clamped to the boundary value and the
     remaining three parameters are solved for exactly, giving the precise
     point at which the intersection curve exits the cell.
+
+    Convergence is QUADRATIC in transversal regions, but only LINEAR (with
+    factor close to 1) when the surfaces meet at a glancing angle — there
+    Newton can need dozens of iterations to reach the same precision. The
+    function therefore:
+      - line-searches each step so ||G|| is monotone-decreasing;
+      - exits as soon as ||G||² < `tol` (a true zero in machine precision);
+      - else returns the best point found within `max_iter`.
+
+    Returns `(params, residual, sin_ang)`:
+      - params : (4,) ndarray
+      - residual : ‖S1 - S2‖ at params (xyz units)
+      - sin_ang : sin of the angle between the two surface normals at
+        params; the xyz distance from the true SSX curve at params is
+        approximately `residual / sin_ang`, so callers can validate
+        precision via the same chain-rule rule used elsewhere.
     """
     params = [float(x) for x in stuv_init]
     params[fixed_axis] = float(fixed_value)
     free_cols = [i for i in range(4) if i != fixed_axis]
 
+    pt1, du1, dv1 = eval_surface_d1(S1, params[0], params[1], rational=rational)
+    pt2, du2, dv2 = eval_surface_d1(S2, params[2], params[3], rational=rational)
+    G = pt1 - pt2
+    g2 = float(np.dot(G, G))
+
     for _ in range(max_iter):
-        pt1, du1, dv1 = eval_surface_d1(S1, params[0], params[1], rational=rational)
-        pt2, du2, dv2 = eval_surface_d1(S2, params[2], params[3], rational=rational)
-        G = pt1 - pt2
-        if float(np.dot(G, G)) < tol:
+        if g2 < tol:
             break
 
         J = np.column_stack([du1, dv1, -du2, -dv2])  # (3, 4)
         J_free = J[:, free_cols]
-        A = J_free.T @ J_free + 1e-12 * np.eye(3)
+        A = J_free.T @ J_free + 1e-14 * np.eye(3)
         b = -J_free.T @ G
         try:
             delta_free = np.linalg.solve(A, b)
         except np.linalg.LinAlgError:
             break
-        for k, idx in enumerate(free_cols):
-            params[idx] =  params[idx] + float(delta_free[k])
 
-    return np.array(params, dtype=np.float64)
+        # Line-search with clamping so ||G|| is monotone-decreasing AND the
+        # iterates stay in [0,1]⁴ (the cell-local parameter domain). Free
+        # axes drifting outside [0,1] would extrapolate the local Bezier
+        # patch off-surface — the residual could go to zero against a
+        # nonsensical surface continuation, giving a "false" intersection
+        # that's nowhere near the true SSX curve.
+        accepted = False
+        step_scale = 1.0
+        new_params = list(params)
+        new_g2 = g2
+        new_G = G
+        new_pt1 = pt1
+        new_du1 = du1
+        new_dv1 = dv1
+        new_pt2 = pt2
+        new_du2 = du2
+        new_dv2 = dv2
+        for _ls in range(20):
+            cand = list(params)
+            for k, idx in enumerate(free_cols):
+                v = params[idx] + step_scale * float(delta_free[k])
+                # Clamp free axis to [0,1] — prevents the corrector from
+                # wandering outside the local cell parametrization, which
+                # would silently evaluate an extrapolated Bezier surface.
+                if v < 0.0:
+                    v = 0.0
+                elif v > 1.0:
+                    v = 1.0
+                cand[idx] = v
+            # Re-pin the fixed axis (in case rounding drifted it).
+            cand[fixed_axis] = float(fixed_value)
+            p1c, du1c, dv1c = eval_surface_d1(S1, cand[0], cand[1], rational=rational)
+            p2c, du2c, dv2c = eval_surface_d1(S2, cand[2], cand[3], rational=rational)
+            Gc = p1c - p2c
+            gc2 = float(np.dot(Gc, Gc))
+            if gc2 < g2:
+                new_params = cand
+                new_g2 = gc2
+                new_G = Gc
+                new_pt1, new_du1, new_dv1 = p1c, du1c, dv1c
+                new_pt2, new_du2, new_dv2 = p2c, du2c, dv2c
+                accepted = True
+                break
+            step_scale *= 0.5
+        if not accepted:
+            break
+        params = new_params
+        g2 = new_g2
+        G = new_G
+        pt1, du1, dv1 = new_pt1, new_du1, new_dv1
+        pt2, du2, dv2 = new_pt2, new_du2, new_dv2
+
+    residual = float(g2 ** 0.5)
+    N1 = np.cross(du1, dv1)
+    N2 = np.cross(du2, dv2)
+    n1m = float(np.linalg.norm(N1))
+    n2m = float(np.linalg.norm(N2))
+    if n1m > 1e-30 and n2m > 1e-30:
+        sin_ang = float(np.linalg.norm(np.cross(N1, N2))) / (n1m * n2m)
+    else:
+        sin_ang = 0.0
+    return np.array(params, dtype=np.float64), residual, sin_ang
 
 
 def _detect_boundary_crossing(current, predicted):
@@ -801,18 +879,24 @@ def _march_to_boundary(
             # boundary-crossing point.
             stuv_init = current + crossed_alpha * (predicted - current)
             stuv_init[crossed_axis] = crossed_val
-            final = _ssx_correct_fixed(
+            final, fres, fsin = _ssx_correct_fixed(
                 S1, S2, stuv_init,
                 fixed_axis=crossed_axis, fixed_value=crossed_val,
                 rational=rational,
             )
-            final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
-            # Verify residual — if Newton didn't converge, fall back to the
-            # interpolated guess so the caller still gets a non-degenerate
-            # stopping point.
-            resid_xyz = final_xyz - eval_surface(S1, final[0], final[1], rational=rational)
-            stuv_pts.append(final)
-            xyz_pts.append(final_xyz)
+            # Angle-aware acceptance: if the corrector didn't converge
+            # tightly enough for the local angle, the exit is unreliable.
+            # The marcher silently appended such points before, then a
+            # downstream tight match (1e-6 stuv) would fail. Now we either
+            # accept a precise exit or REFUSE to commit a sloppy one — the
+            # caller (the simplified tracer) treats a returned trace whose
+            # last step doesn't extend the path as "no fragment", so this
+            # naturally cascades to a retry / further subdivision.
+            eff_atol = atol * max(fsin, 1e-3)
+            if fres <= eff_atol:
+                final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
+                stuv_pts.append(final)
+                xyz_pts.append(final_xyz)
             break
 
         # No crossing: predicted stays inside [0,1]⁴. Normal corrector path.
