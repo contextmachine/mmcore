@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mmcore.numeric.aabb import aabb_offset
+from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import extract_weights, eval_curve, newton_ccx
@@ -91,6 +93,7 @@ def _compute_param_tols(C1, C2, atol, rational):
     from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance
     tol_u = bez_curve_param_tolerance(C1, tol=atol, rational=rational)
     tol_v = bez_curve_param_tolerance(C2, tol=atol, rational=rational)
+
     return float(tol_u), float(tol_v)
 
 
@@ -335,7 +338,14 @@ def bez_ccx(
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
-
+    if rational:
+        bb1=aabb_offset(aabb(C1[...,:-1] /C1[...,None,-1]),atol/2)
+        bb2=aabb_offset(aabb(C2[...,:-1] / C2[..., None, -1]),atol/2)
+    else:
+        bb1 = aabb_offset(aabb(C1 ),atol/2)
+        bb2 = aabb_offset(aabb(C2),atol/2)
+    if not aabb_intersect(bb1, bb2):
+        return {"isolated": [], "overlaps": []}
     F = curve_curve_squared_net_homog(C1, C2, rational=rational)
 
     _, Pw = extract_weights(C1, rational=rational)

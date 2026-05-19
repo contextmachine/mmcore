@@ -1,32 +1,20 @@
-import functools
 import itertools
-import os
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
 
 import numpy as np
-from mmcore.geom import nurbs
 
-from mmcore.numeric.vectors import vector_projection, scalar_dot, scalar_norm, dot
+from . import sbern
+from .intersection._bern_zero_1d import _newton_bernstein_root_1d
+from mmcore.numeric.vectors import vector_projection, scalar_dot
 
-from mmcore.geom.bvh import Object3D, find_closest
+
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
-from mmcore.geom.polygon import BoundingBox
 
-from mmcore.numeric.numeric import divide_interval
-from mmcore.numeric.aabb import aabb_overlap
+
 from mmcore.numeric.fdm import PDE
-from mmcore.numeric.newton.cnewton import newtons_method
 
-from mmcore.numeric.divide_and_conquer import iterative_divide_and_conquer_min, divide_and_conquer_min_2d, \
-    divide_and_conquer_min_2d_vectorized
 
-from scipy.optimize import newton
-import multiprocessing as mp
-
-from mmcore.numeric.fdm import bounded_fdm
-
-import math
 
 # Utility function to calculate the Euclidean distance between two points
 import math
@@ -142,64 +130,7 @@ def min_distance(points):
     # Use the recursive utility to find the closest pair
     return closest_util(points_sorted_x, points_sorted_y, len(points_sorted_x))
 
-from mmcore.numeric.newton import cnewton
 
-from mmcore.geom.bvh import NURBSCurveObject3D, build_bvh,_find_closest_vicinity,BVHNode
-from numpy.typing import NDArray
-class _BVHN(BVHNode):
-    object: Optional[NURBSCurveObject3D]
-def _find_cls(bvh:_BVHN, point):
-    if bvh.object is not None:
-        sd=sdBox(point - bvh.bounding_box.min_point, bvh.bounding_box.dims)
-
-
-
-    if bvh.left is not None and bvh.right is not None:
-
-        left_sd = sdBox(point - bvh.left.bounding_box.min_point, bvh.left.bounding_box.dims)
-        right_sd = sdBox(point - bvh.right.bounding_box.min_point, bvh.right.bounding_box.dims)
-        if left_sd < right_sd:
-            return _find_closest_vicinity(bvh.left, point)
-        elif left_sd > right_sd:
-            return _find_closest_vicinity(bvh.right, point)
-        else:
-            left, left_sd = _find_closest_vicinity(bvh.left, point)
-            right, right_sd = _find_closest_vicinity(bvh.right, point)
-            if left_sd <= right_sd:
-                return left_sd
-            else:
-                return right_sd
-
-
-from mmcore.numeric.newton.bounded import bounded_newtons_method
-
-
-def closest_point_on_nurbs_curve(curve: NURBSCurve, point: NDArray[float], tol=1e-6, on_curve=False,max_iter=100)->tuple[bool, tuple[float,float]]:
-
-
-    bvh = build_bvh([NURBSCurveObject3D(c) for c in nurbs.decompose_curve(curve)])
-    rr = find_closest(bvh, point, breadth=not on_curve)
-
-    
-    if rr is None or len(rr[0])==0:
-        return False,closest_point_on_nurbs_curve(curve,point,tol,on_curve=False)[1]
-    def inner(crv):
-        nonlocal tol
-        a,b=crv.interval()
-
-
-        def objective(t):
-            d = (curve.evaluate(t[0]) - point)
-            return scalar_dot(d, d)
-        if on_curve:
-            res=bounded_newtons_method(objective, [sum([a,b]) / 2], [(a,b)], tol=tol,min_value=0.)
-        else:
-            res=newtons_method(objective, np.array([(a+ b)/2]), tol=tol,max_iter=max_iter)
-            #print(res)
-
-
-        return res, objective(res)
-    return True,sorted((inner(_curve.curve) for _curve in rr[0]),key=lambda x: x[1])[0]
 
 
 def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=20):
@@ -248,76 +179,6 @@ def foot_point(S, P, s0, t0, partial_derivatives=None, epsilon=1e-6, alpha_max=2
     return S(s, t), s, t
 
 
-def closest_point_on_curve_single(curve, point, tol=1e-3):
-    """
-
-    :param curve: The curve on which to find the closest point.
-    :param point: The point for which to find the closest point on the curve.
-    :param tol: The tolerance for the minimum finding algorithm. Defaults to 1e-5.
-    :return: The closest point on the curve to the given point, distance.
-
-    """
-    _fn = getattr(curve, "evaluate", curve)
-
-    def distance_func(t):
-        return scalar_norm(point - _fn(t))
-
-    t0, t1 = curve.interval()
-
-    t_best, d_best = t0, distance_func(t0)
-    t, d = t1, distance_func(t1)
-    if d < d_best:
-        t_best = t
-        d_best = d
-
-    for bnds in divide_interval(*curve.interval(), step=0.5):
-        # t,d=find_best(distance_func, bnds, spt=spt)
-        t, d = iterative_divide_and_conquer_min(distance_func, bnds, tol=tol)
-        if d < d_best:
-            t_best = t
-            d_best = d
-
-    return t_best, d_best
-
-
-class _ClosestPointSolution:
-    def __init__(self, curve, tol=1e-5):
-        self.curve = curve
-        self.tol = tol
-
-    def __call__(self, point):
-        return closest_point_on_curve_single(self.curve, point, tol=self.tol)
-
-
-def closest_points_on_curve_mp(curve, points, tol=1e-3, workers=1):
-    if workers == -1:
-        workers = os.cpu_count()
-    with mp.Pool(workers) as pool:
-        solution = _ClosestPointSolution(curve, tol=tol)
-        return list(pool.map(solution, points
-                             ))
-
-
-def closest_point_on_curve(curve, pts, tol=1e-3, workers=1):
-    pts = pts if isinstance(pts, np.ndarray) else np.array(pts)
-
-    if pts.ndim == 1:
-        return closest_point_on_curve_single(curve, pts, tol=tol)
-
-    if workers == 1:
-        return [closest_point_on_curve_single(curve, pt, tol=tol) for pt in pts]
-    else:
-        return closest_points_on_curve_mp(curve, pts, tol=tol, workers=workers)
-
-
-def local_closest_point_on_curve(curve, t0, point, tol=1e-3, **kwargs):
-    def fun(t):
-        # C' (u) •(C(u) - P)
-        return scalar_dot(curve.derivative(t), curve.evaluate(t) - point)
-
-    dfun = bounded_fdm(fun, curve.interval())
-    res = newton(fun, t0, fprime=dfun, tol=tol, **kwargs)
-    return res, np.linalg.norm(curve.evaluate(res) - point)
 
 
 def closest_point_on_ray(ray, point):
@@ -332,20 +193,15 @@ def closest_point_on_line(line, point):
     return start + vector_projection(point - start, direction)
 
 from mmcore.numeric.numeric import compute_parametric_tolerance_surface,compute_parametric_tolerance_curve
-from mmcore.geom.bvh import BoundingBox,sdBox,contains_point,build_bvh
-class NURBSSurfaceBvhObject(Object3D):
-    def __init__(self,surf):
-        self.surf=surf
-        super().__init__(BoundingBox(*self.surf.bbox()))
 
 
 _float64_eps=np.finfo(float).eps
 import functools
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
+from numpy.typing import NDArray
 
-NDArray = np.ndarray
-NURBSCurveTuple = Tuple  # adjust to your real alias
+
 
 
 def _nurbs_curve_closest_point_divide_and_conquer(
@@ -702,28 +558,503 @@ def _nurbs_surface_closest_point_divide_and_conquer(
 
     # ------------------------------------------------------------------ ❹
     return (dist_best, eval_best, tol_best), (u_cur, v_cur)
+from mmcore.numeric.newton.cnewton import newton
+from mmcore.numeric import bern_sq_dist
+from mmcore.numeric.intersection._bezier_common import newton_ccx, eval_curve, _clamp01, eval_curve_d1
+from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance,bez_surface_param_tolerance
+from mmcore.numeric.ndinterval import interval
+
+from more_itertools import pairwise
 
 
-import itertools
+def _split_intervs(ints: list[interval]):
+    """"""
+
+    vls = np.unique(list(itertools.chain.from_iterable((i.l, i.u) for i in ints)))
+
+    includes = []
+    intervs = []
+    for i, j in pairwise(vls):
+        interv = interval(i, j)
+        intervs.append(interv)
+        for inter in ints:
+
+            includes.append((inter.subseteq(interv), inter.subseteq(interv)))
+
+    return intervs, includes
+
+def _interv_is_nan(interv:interval):
+    return np.isnan(interv.l) or np.isnan(interv.u)
+class IntervTree:
+
+    interv:interval
+    value:Any
+    left:'IntervTree|None'
+    right:'IntervTree|None'
+
+    def __init__(self, interv:interval, value=None):
+
+        self.interv=interv
+        self.value=value
+
+        self.left=None
+        self.right=None
 
 
-def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], spt: float = 0.001, angle_tol: float = None):
+    def trim_value(self,interv:interval):
+        return self.value
+
+    def split_value(self, t: float):
+
+        first = interval(self.interv.l, t)
+        sec = interval(t, self.interv.u)
+
+
+
+        return self.__class__(first,  value=self.value),self.__class__(sec, value=self.value)
+    def split(self, t:float):
+        if not interval(t,t).subset(self.interv):
+            return False,self
+        if self.left is None:
+
+
+
+            self.left,self.right=self.split_value(t)
+
+            return True,(self.left,self.right)
+        else:
+            success1,leafs1=self.left.split(t)
+            success2,leafs2=self.right.split(t)
+
+            if success1 and success2:
+                #print(success1,leafs1,success2,leafs2)
+                raise ValueError("impossible")
+            elif success1:
+                return True,leafs1
+            elif success2:
+                return True,leafs2
+            else:
+                return True,(self.left,self.right)
+
+
+
+
+
+
+    def find_leafs(self, interv:interval, _vls=None):
+        if _vls is None:
+            _vls=[]
+
+        inter=self.interv.intersection(interv)
+        if _interv_is_nan(inter) or inter.norm()==0:
+            return _vls
+        elif self.left is None and self.right is None:
+
+            _vls.append(self)
+        else:
+            if self.left is not None:
+                self.left.find_leafs(interv, _vls)
+            if self.right is not None:
+                self.right.find_leafs(interv, _vls)
+
+        return _vls
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.interv},{self.value})"
+    def add_child(self,child:interval, val:interval, leafs=None):
+        if leafs is None:
+            leafs=[]
+        res=self.interv.intersection(child)
+        if _interv_is_nan(res) or res.norm()==0:
+            return False
+
+        for i in [res.l,res.u]:
+            succ,_leafs=self.split(i)
+
+        for leaf in self.find_leafs(child):
+
+
+            if leaf.interv.equal(child):
+                leaf.value=val
+                leafs.append(leaf)
+
+
+
+            else:
+                leaf.add_child( leaf.interv.intersection(child),val, leafs)
+
+
+
+
+        return leafs
+
+
+
+
+
+    def find_val(self,t:float, _vls=None):
+        if _vls is None:
+            _vls=[]
+        t_interv=interval(t)
+
+        if self.interv.supseteq(t_interv):
+            if self.left is None and self.right is None:
+                _vls.append(self)
+            else:
+                self.left.find_val(t, _vls)
+                self.right.find_val(t, _vls)
+
+
+
+        return _vls
+
+from .bern import bernstein_partial_derivative_coeffs
+@dataclass
+class BezPointCurveTreeData:
+    curve:NDArray
+    F:NDArray
+    Qw:NDArray
+    rational:bool
+
+
+    def split(self,t):
+        FQwl,FQwr=_subdivide_curve(np.array(list(zip(self.F, self.Qw))), t)
+        crvl, crvr = _subdivide_curve(self.curve, t)
+
+        return BezPointCurveTreeData(crvl, FQwl[...,0],FQwl[...,1],self.rational),BezPointCurveTreeData(crvr, FQwr[...,0],FQwr[...,1],self.rational)
+def _subdivide_curve(ctrl, t=0.5):
+    n = ctrl.shape[0] - 1
+    tmp = ctrl.copy()
+    left = [tmp[0].copy()]
+    right_rev = [tmp[n].copy()]
+    for r in range(1, n + 1):
+        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
+        left.append(tmp[0].copy())
+        right_rev.append(tmp[n - r].copy())
+    return np.array(left), np.array(right_rev[::-1])
+
+
+class BezPointCurveTree(IntervTree):
+    def __init__(self, interv, value: BezPointCurveTreeData, atol=1e-3, flat_tol=1e-6):
+
+        super().__init__(interv, value)
+
+        self.bounds = interval(*bern_sq_dist.bounds_point_curve(self.value.F, self.value.Qw))
+        self.flat_tol = flat_tol
+        self.atol = atol
+        self.ptol=bez_curve_param_tolerance(value.curve, flat_tol, rational=value.rational,interval=(interv.l,interv.u))
+
+
+
+
+
+        self.dF=np.squeeze(bernstein_partial_derivative_coeffs(value.F[:,None], 0))
+        #self.dQw = bernstein_partial_derivative_coeffs(value.Qw[:,None], 0)
+
+        self.dbounds=interval(*bern_sq_dist.bounds_point_curve(self.dF,self.value.Qw))
+
+
+
+
+    @property
+    def is_monotone(self):
+        return not interval(0.,0.).subset(self.dbounds)
+
+    @property
+    def is_flat(self):
+
+
+        return self.dbounds.norm()<self.flat_tol
+
+    @property
+    def is_small(self):
+        return self.interv.norm()<self.ptol
+    def split_value(self, t: float):
+        first = interval(self.interv.l, t)
+        sec = interval(t, self.interv.u)
+
+        vl,vr=self.value.split(     (t-self.interv.l)/(self.interv.u-self.interv.l))
+        self.left,self.right=BezPointCurveTree(first,vl,atol=self.atol,flat_tol=self.flat_tol),BezPointCurveTree(sec,vr,atol=self.atol,flat_tol=self.flat_tol)
+        return self.left,self.right
+
+
+def newton_closest_point(
+    C,
+    point,
+    u0: float,
+    *,
+    rational: bool = False,
+    tol: float = 1e-14,
+    step_tol: float = 1e-14,
+    max_it: int = 30,
+    lm_damp: float = 1e-12,
+):
+    """LM-damped local closest-point solve for a Bézier curve and a point.
+
+    Minimizes
+
+        ||C(u) - point||^2,    u in [0, 1]
+
+    starting from the initial guess u0.
+
+    This is the 1D analogue of the LM-damped Newton/Gauss-Newton
+    curve-curve solver. It solves the local least-squares problem obtained
+    by linearizing
+
+        C(u + du) - point ~= C(u) - point + C'(u) du.
+
+    Runs until stationarity < tol, step < step_tol, line search fails,
+    or max_it.
+
+    Parameters
+    ----------
+    C : curve object / control net
+        Bézier curve representation accepted by eval_curve/eval_curve_d1.
+    point : array_like
+        Target point.
+    u0 : float
+        Initial parameter guess.
+    rational : bool, optional
+        Passed through to eval_curve/eval_curve_d1.
+    tol : float, optional
+        Tolerance for the first-order optimality condition
+
+            dot(C(u) - point, C'(u)) = 0.
+
+    step_tol : float, optional
+        Tolerance for the parameter step.
+    max_it : int, optional
+        Maximum number of Newton iterations.
+    lm_damp : float, optional
+        Levenberg-Marquardt damping added to the 1D normal equation.
+
+    Returns
+    -------
+    u : float
+        Best parameter found, clamped to [0, 1].
+    R : ndarray
+        Final residual vector C(u) - point.
+    sqdist : float
+        Final squared distance ||C(u) - point||^2.
+    last_du : float
+        Last accepted parameter step. The caller can compare abs(last_du)
+        against a parametric tolerance.
+    """
+    point = np.asarray(point, dtype=float)
+
+    u = _clamp01(float(u0))
+    last_du = 1.0  # initial large step
+
+    for _ in range(max_it):
+        p, d = eval_curve_d1(C, u, rational=rational)
+
+        R = p - point
+        sqdist = float(np.dot(R, R))
+
+        # First derivative of 1/2 * squared distance.
+        g = float(np.dot(R, d))
+
+        # KKT-style stationarity for the constrained interval [0, 1].
+        #
+        # Interior: g == 0.
+        # At u = 0: valid minimum if g >= 0.
+        # At u = 1: valid minimum if g <= 0.
+        if (
+            abs(g) < tol
+            or (u <= 0.0 and g >= -tol)
+            or (u >= 1.0 and g <= tol)
+        ):
+            last_du = 0.0
+            break
+
+        # 1D LM/Gauss-Newton normal equation:
+        #
+        #   (dot(d, d) + lambda) du = -dot(R, d)
+        #
+        # This is equivalent to minimizing the squared distance to the
+        # tangent-line approximation of the curve.
+        A = float(np.dot(d, d)) + lm_damp
+        b = -g
+
+        if A <= 0.0 or not np.isfinite(A):
+            last_du = 0.0
+            break
+
+        du = b / A
+
+        if not np.isfinite(du):
+            last_du = 0.0
+            break
+
+        if du * du < step_tol * step_tol:
+            last_du = float(du)
+            break
+
+        step = 1.0
+        accepted = False
+
+        for _ls in range(8):
+            un = _clamp01(u + step * du)
+            actual_du = un - u
+
+            if actual_du * actual_du < step_tol * step_tol:
+                last_du = float(actual_du)
+                u = un
+                accepted = True
+                break
+
+            Rn = eval_curve(C, un, rational=rational) - point
+            sqdist_n = float(np.dot(Rn, Rn))
+
+            # Monotone backtracking: accept only if squared distance
+            # does not increase.
+            if sqdist_n <= sqdist:
+                last_du = float(actual_du)
+                u = un
+                accepted = True
+                break
+
+            step *= 0.5
+
+        if not accepted:
+            last_du = 0.0
+            break
+
+        if last_du * last_du < step_tol * step_tol:
+            break
+
+    R = eval_curve(C, u, rational=rational) - point
+    sqdist = float(np.dot(R, R))
+
+    return u, R, sqdist, last_du
+def bez_curve_closest_point(curve:NDArray, point:NDArray,atol=1e-3,rational=False):
+    F=bern_sq_dist.point_curve_distance_squared_net_homog(point, curve, rational=rational)
+    Qw=curve[..., -1] if rational else np.ones_like(curve[...,0])
+
+    root=BezPointCurveTree(interval(0., 1.), value=BezPointCurveTreeData(curve, F, Qw, rational))
+    stack = [root]
+    candidates=[]
+    while stack:
+
+        leaf:BezPointCurveTree=stack.pop()
+
+
+
+        if leaf.is_monotone:
+
+            continue
+
+
+
+
+        elif leaf.is_flat:
+
+            t = _newton_bernstein_root_1d(leaf.dF, 0.5)
+            tglob = (leaf.interv.u - leaf.interv.l) * t + leaf.interv.l
+            dd=eval_curve(leaf.value.curve,t,rational=rational)-point
+
+            sqdist = np.dot(dd,dd)
+
+
+            leaf.best_t,leaf.best_d=tglob,sqdist
+            candidates.append(leaf)
+
+            continue
+
+        elif leaf.is_small:
+            t = _newton_bernstein_root_1d(leaf.dF, 0.5)
+            tglob = (leaf.interv.u - leaf.interv.l) * t + leaf.interv.l
+            dd=eval_curve(leaf.value.curve,t,rational=rational)-point
+
+            sqdist = np.dot(dd,dd)
+
+            leaf.best_t, leaf.best_d = tglob, sqdist
+            candidates.append(leaf)
+            continue
+        else:
+
+            #t, R ,sqdist,_=newton_closest_point(leaf.value.curve,point,0.5,rational=rational,max_it=15)
+            t=_newton_bernstein_root_1d(leaf.dF,0.5)
+            tglob = (leaf.interv.u - leaf.interv.l) * t + leaf.interv.l
+            dd = eval_curve(leaf.value.curve, t, rational=rational) - point
+
+            sqdist = np.dot(dd, dd)
+
+
+
+
+            candidates.append(leaf)
+
+
+
+            leaf.best_t,leaf.best_d=tglob,sqdist
+
+            if (1-t)<1e-8 or (t<1e-8):
+                continue
+
+            success,lr=leaf.split(tglob)
+
+            if success:
+                l,r=lr
+                if l.is_monotone and r.is_monotone:
+
+
+                    leaf.left=None
+                    leaf.right=None
+                elif l.is_monotone:
+                    leaf.left=None
+                    stack.append(r)
+                elif r.is_monotone:
+                    leaf.right=None
+                    stack.append(l)
+
+                else:
+                    stack.append(l)
+                    stack.append(r)
+
+
+
+
+
+    best_cand=min(candidates,key=lambda x:x.best_d)
+    return best_cand.best_t,best_cand.best_d
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], atol: float = 0.001, spt=None,angle_tol: float = None):
     if isinstance(self, NURBSCurve):
         self=_nurbs_to_tuple(self)
     candidates = decompose_curve(self)
+    if spt is not None:
+        atol=spt
 
-    best_f = [float("inf"), {}, (None, None)]
+    best_f = float("inf")
     best_x = None
     for candidate in candidates:
+        rational = not np.allclose(candidate.weights, 1)
+        bez=sbern.nurbs_bezier_to_bern(candidate,rational=rational)
 
-        min_val, min_t = _nurbs_curve_closest_point_divide_and_conquer(candidate, point, spt=spt, angle_tol=angle_tol)
-      
-        if best_f[0] > min_val[0]:
+        min_t ,min_val= bez_curve_closest_point(bez, point, atol=atol,rational=rational)
+
+        if best_f > min_val:
             best_f = min_val
             best_x = min_t
     
     
-    return best_x, (best_f[0], *best_f[1:])
+    return best_x, best_f
+
 
 
 def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt:float=0.001, angle_tol:float=None):
@@ -750,85 +1081,13 @@ def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt
 
 
 
-
-
-def closest_points_on_surface(surface, pts, tol=1e-6):
-    """
-    Compute the closest points on a surface to a given set of points using a classic approach.
-
-    :param surface: The surface object.
-    :param pts: The set of points as a numpy array.
-    :param tol: The tolerance value for the division and conquest algorithm. Default is 1e-6.
-    :return: The closest points on the surface corresponding to the given set of points as a numpy array of (u, v) pairs.
-    """
-
-    surface.build_tree(10, 10)
-
-    def objective(u, v):
-        d = surface.evaluate(np.array((u, v))) - pt
-        return scalar_dot(d, d)
-
-    uvs = np.zeros((len(pts), 2))
-
-    for i, pt in enumerate(pts):
-        objects = contains_point(surface.tree, pt)
-        if len(objects) == 0:
-            uvs[i] = np.array(
-                divide_and_conquer_min_2d(objective, *surface.interval(), tol=tol)
-            )
-        else:
-            uvs_ranges = np.array(
-                list(itertools.chain.from_iterable(o.uvs for o in objects))
-            )
-            uvs[i] = np.array(
-                divide_and_conquer_min_2d(
-                    objective,
-                    (np.min(uvs_ranges[..., 0]), np.max(uvs_ranges[..., 0])),
-                    (np.min(uvs_ranges[..., 1]), np.max(uvs_ranges[..., 1])),
-                    tol=tol,
-                )
-            )
-    return uvs
-
-
-def closest_point_on_surface_batched(surface, pts, tol=1e-6):
-    """
-    Compute the closest points on a surface to a given set of points using a vectorized approach.
-
-    :param surface: The surface object.
-    :param pts: The set of points as a numpy array.
-    :param tol: The tolerance value for the division and conquest algorithm. Default is 1e-6.
-    :return: The closest points on the surface corresponding to the given set of points as a numpy array of (u, v) pairs.
-    """
-
-    def objective(u, v):
-        d = surface(np.array((u, v)).T) - pts
-        return np.array(dot(d, d))
-
-    (u_min, u_max), (v_min, v_max) = surface.interval()
-    x_range = np.empty((2, len(pts)))
-    x_range[0] = u_min
-    x_range[1] = u_max
-    y_range = np.empty((2, len(pts)))
-    y_range[0] = v_min
-    y_range[1] = v_max
-
-    uvs = np.array(
-        divide_and_conquer_min_2d_vectorized(
-            objective, x_range=x_range, y_range=y_range, tol=tol
-        )
-    )
-    return uvs.T
-
 # Example usage
-__all__ = ["closest_point_on_curve",
-
+__all__ = [
+    "closest_point_on_ray",
            "closest_point_on_line",
            "foot_point",
-           "closest_point_on_curve_single",
-           "closest_points_on_curve_mp",
-           "closest_points_on_curve_mp",
-           "local_closest_point_on_curve"
+           "nurbs_surface_closest_point",
+           "nurbs_curve_closest_point"
            ]
 if __name__ == "__main__":
     points = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]

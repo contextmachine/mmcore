@@ -157,6 +157,7 @@ def max_residual(branches: list, S1: np.ndarray, S2: np.ndarray, rational: bool)
 
         for i in range(len(stuv)):
             s, t, u, v = stuv[i]
+
             p1 = eval_surface(S1, s, t, rational=rational)
             p2 = eval_surface(S2, u, v, rational=rational)
             d = float(np.linalg.norm(p1 - p2))

@@ -79,7 +79,8 @@ def point_in_region(
 
     isolated, overlaps = nurbs_ccx_multiple([seg] + list(region_curves), tol=tol)
 
-    endpoint_eps = _PIP_ENDPOINT_EPS_MUL * tol
+    endpoint_eps = 1/np.linalg.norm(seg.control_points[-1]-seg.control_points[0]) * tol
+
 
     # Line equation for the segment: f(q) = (q.y - pt.y)*d.x - (q.x - pt.x)*d.y
     # f > 0, f < 0, f == 0 tells which side of the line the query point lies on.

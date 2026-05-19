@@ -174,9 +174,9 @@ def find_bernstein_zeros_1d(coeffs: NDArray, atol: float,
     zeros = []
 
     # 1. Check endpoints (exact values)
-    if coeffs[0] < atol_sq:
+    if abs(coeffs[0]) < atol_sq:
         zeros.append(t_start)
-    if coeffs[-1] < atol_sq:
+    if abs(coeffs[-1]) < atol_sq:
         zeros.append(t_end)
 
     # 2. Quick exit: all coefficients positive and above threshold → no interior zeros

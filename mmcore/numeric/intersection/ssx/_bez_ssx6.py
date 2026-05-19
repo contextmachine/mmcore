@@ -17,7 +17,9 @@ Architecture:
 from __future__ import annotations
 
 import dataclasses
+import sys
 from dataclasses import dataclass, field
+from functools import cached_property, lru_cache
 from typing import Optional, NamedTuple
 
 import numpy as np
@@ -25,7 +27,7 @@ from numpy.typing import NDArray
 from scipy.spatial import KDTree
 
 from mmcore.geom._nurbs_interp import interpolate_nurbs_curve
-from mmcore.geom._nurbs_knots import join_curves
+from mmcore.geom._nurbs_join import join_curves,join_curves_by_spec
 from mmcore.numeric.bern import eval_bezier
 from mmcore.numeric.bern_sq_dist import surface_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
@@ -2060,14 +2062,1130 @@ class _Cell:
     F_sq: Optional[NDArray[np.float64]] = None
     # Top-level w_scale (max weight product) — constant across the tree.
     w_scale: float = 1.0
+from mmcore.geom._nurbs_eval import NURBSCurveTuple
 
-class BezSSXBranch(NamedTuple):
-    stuv: NDArray[np.float64]
-    xyz: NDArray[np.float64]
+class BezSSXBranch:
+        stuv: NDArray[np.float64]
+        xyz: NDArray[np.float64]
+        atol:float=1e-12
+        is_overlap:bool=False
+        xyz_curve:NURBSCurveTuple=field(init=False,default=None)
+        st_curve:NURBSCurveTuple=field(init=False,default=None)
+        uv_curve:NURBSCurveTuple=field(init=False,default=None)
+
+        def __post_init__(self):
+            mask=    np.linalg.norm(        self.xyz-np.roll(     self.xyz,1,axis=0),axis=1)>self.atol
+
+            self.xyz=np.ascontiguousarray(self.xyz[mask])
+            self.stuv = np.ascontiguousarray(self.stuv[mask])
+
+
+
+        def build_interp(self):
+            deg = self.degree
+            if deg > 0:
+
+
+                self.xyz_curve = interpolate_nurbs_curve(self.xyz, degree=deg, tol=self.atol)
+                self.st_curve = interpolate_nurbs_curve(self.stuv[..., :2], degree=deg, tol=self.atol)
+                self.uv_curve = interpolate_nurbs_curve(self.stuv[..., 2:], degree=deg, tol=self.atol)
+                return True
+            return False
+
+
+
+
+        def closed(self,rtol=1.e-5, atol=1.e-8 ):
+
+            return np.allclose(self.stuv[0]-self.stuv[-1],0.,rtol=rtol, atol=atol)
+
+        @property
+        def degree(self):
+            return min(len(self.xyz)-1,3)
+
+        @property
+        def is_valid(self):
+            if self.degree<1:
+                return False
+            if any([self.xyz_curve is None,self.st_curve is None,self.uv_curve is None]):
+                return False
+            return (self.xyz_curve.control_points.shape[0]>=2) and  (self.xyz_curve.control_points.shape[0]==self.st_curve.control_points.shape[0]==self.uv_curve.control_points.shape[0])
+if sys.version_info >= (3, 11):
+
+    BezSSXBranch=dataclass(slots=True,unsafe_hash=True)(BezSSXBranch)
+else:
+    BezSSXBranch = dataclass(unsafe_hash=True)(BezSSXBranch)
+
 
 from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
 
 
+
+from dataclasses import FrozenInstanceError
+
+from typing import Any, Callable, Iterable, Optional, Sequence
+
+import numpy as np
+
+# =============================================================================
+
+# Requires the join algorithm from the previous block:
+
+#
+
+#   join_curves(...)
+
+#   join_curves_by_spec(...)
+
+#   JoinChainSpec
+
+#   NURBSCurveTuple
+
+#
+
+# This adapter joins BezSSXBranch-like objects and keeps:
+
+#   - xyz_curve
+
+#   - st_curve
+
+#   - uv_curve
+
+#   - raw xyz samples
+
+#   - raw stuv samples
+
+#
+
+# in the same source order / reversal / parameterisation / knot-removal pattern.
+
+# =============================================================================
+
+_CURVE_ATTR_ALIASES = {
+
+    "xyz": "xyz_curve",
+
+    "xyz_curve": "xyz_curve",
+
+    "st": "st_curve",
+
+    "st_curve": "st_curve",
+
+    "uv": "uv_curve",
+
+    "uv_curve": "uv_curve",
+
+}
+
+def _resolve_curve_attr(selector: str) -> str:
+
+    try:
+
+        return _CURVE_ATTR_ALIASES[selector]
+
+    except KeyError:
+
+        raise ValueError(
+
+            f"Unknown curve selector {selector!r}. "
+
+            f"Expected one of {sorted(_CURVE_ATTR_ALIASES)}."
+
+        )
+
+def _safe_setattr(obj: Any, name: str, value: Any):
+
+    """
+
+    Works for normal dataclasses and frozen dataclasses.
+
+    """
+
+    try:
+
+        setattr(obj, name, value)
+
+    except (FrozenInstanceError, AttributeError):
+
+        object.__setattr__(obj, name, value)
+
+def _branch_curve(branch: Any, selector: str | Callable[[Any], Any]):
+
+    if callable(selector):
+
+        crv = selector(branch)
+
+        if crv is None:
+
+            raise ValueError("Custom curve selector returned None")
+
+        return crv
+
+    attr = _resolve_curve_attr(selector)
+
+    crv = getattr(branch, attr, None)
+
+    if crv is None:
+
+        raise ValueError(f"Branch has no built curve at attribute {attr!r}")
+
+    return crv
+
+def _ensure_branch_interpolated(
+
+    branch: Any,
+
+    *,
+
+    build_interp: bool = True,
+
+    check_valid: bool = True,
+
+):
+
+    """
+
+    Ensures branch.xyz_curve, branch.st_curve and branch.uv_curve exist.
+
+    The supplied BezSSXBranch has build_interp(), so this calls it when needed.
+
+    """
+
+    missing = any(
+
+        getattr(branch, attr, None) is None
+
+        for attr in ("xyz_curve", "st_curve", "uv_curve")
+
+    )
+
+    if missing and build_interp:
+
+        ok = branch.build_interp()
+
+        if ok is False:
+
+            raise ValueError("branch.build_interp() returned False")
+
+    if check_valid and hasattr(branch, "is_valid"):
+
+        if not branch.is_valid:
+
+            raise ValueError("Invalid BezSSXBranch: branch.is_valid is False")
+
+    for attr in ("xyz_curve", "st_curve", "uv_curve"):
+
+        if getattr(branch, attr, None) is None:
+
+            raise ValueError(f"Branch has no {attr}; call build_interp() first")
+
+def _validate_branch_samples(branch: Any, index: int):
+
+    xyz = np.asarray(branch.xyz, dtype=float)
+
+    stuv = np.asarray(branch.stuv, dtype=float)
+
+    if xyz.ndim != 2:
+
+        raise ValueError(f"Branch {index}: xyz must be a 2D array")
+
+    if stuv.ndim != 2:
+
+        raise ValueError(f"Branch {index}: stuv must be a 2D array")
+
+    if len(xyz) != len(stuv):
+
+        raise ValueError(
+
+            f"Branch {index}: len(xyz)={len(xyz)} but len(stuv)={len(stuv)}"
+
+        )
+
+    if len(xyz) < 2:
+
+        raise ValueError(f"Branch {index}: at least two raw samples are required")
+
+    if stuv.shape[1] < 4:
+
+        raise ValueError(
+
+            f"Branch {index}: stuv must have at least 4 columns: s, t, u, v"
+
+        )
+
+def _copy_branch_samples(branch: Any, *, reversed_: bool):
+
+    xyz = np.ascontiguousarray(np.asarray(branch.xyz, dtype=float).copy())
+
+    stuv = np.ascontiguousarray(np.asarray(branch.stuv, dtype=float).copy())
+
+    if reversed_:
+
+        xyz = np.ascontiguousarray(xyz[::-1].copy())
+
+        stuv = np.ascontiguousarray(stuv[::-1].copy())
+
+    return xyz, stuv
+
+def _snap_sample_endpoint(
+
+    A: np.ndarray,
+
+    a_idx: int,
+
+    B: np.ndarray,
+
+    b_idx: int,
+
+    *,
+
+    policy: str,
+
+):
+
+    """
+
+    Snap raw sample endpoints.
+
+    policy:
+
+      - "average": both endpoints become 0.5 * (A + B)
+
+      - "left":    B endpoint becomes A endpoint
+
+      - "right":   A endpoint becomes B endpoint
+
+      - "none":    no snapping
+
+    """
+
+    if policy == "none":
+
+        return
+
+    if policy == "average":
+
+        p = 0.5 * (A[a_idx] + B[b_idx])
+
+        A[a_idx] = p
+
+        B[b_idx] = p
+
+        return
+
+    if policy == "left":
+
+        B[b_idx] = A[a_idx]
+
+        return
+
+    if policy == "right":
+
+        A[a_idx] = B[b_idx]
+
+        return
+
+    raise ValueError(
+
+        f"Unknown raw endpoint snap policy {policy!r}. "
+
+        "Expected 'average', 'left', 'right' or 'none'."
+
+    )
+
+def merge_branch_samples_by_spec(
+
+    branches: Sequence[Any],
+
+    spec,
+
+    *,
+
+    endpoint_policy: str = "average",
+
+    drop_join_duplicates: bool = True,
+
+    keep_cycle_closure_sample: bool = True,
+
+):
+
+    """
+
+    Merge raw branch.xyz and branch.stuv arrays according to one JoinChainSpec.
+
+    This does not resample. It only:
+
+      - orders source branches
+
+      - reverses raw arrays when the curve segment was reversed
+
+      - snaps join endpoints using endpoint_policy
+
+      - removes duplicate join samples between consecutive segments
+
+    Returns
+
+    -------
+
+    xyz, stuv
+
+    """
+
+    if not spec.segments:
+
+        raise ValueError("Cannot merge samples from an empty JoinChainSpec")
+
+    xyz_pieces = []
+
+    stuv_pieces = []
+
+    for seg in spec.segments:
+
+        branch = branches[int(seg.source_index)]
+
+        xyz, stuv = _copy_branch_samples(
+
+            branch,
+
+            reversed_=bool(seg.is_reversed),
+
+        )
+
+        xyz_pieces.append(xyz)
+
+        stuv_pieces.append(stuv)
+
+    # Snap consecutive joins.
+
+    for i in range(len(xyz_pieces) - 1):
+
+        _snap_sample_endpoint(
+
+            xyz_pieces[i],
+
+            -1,
+
+            xyz_pieces[i + 1],
+
+            0,
+
+            policy=endpoint_policy,
+
+        )
+
+        _snap_sample_endpoint(
+
+            stuv_pieces[i],
+
+            -1,
+
+            stuv_pieces[i + 1],
+
+            0,
+
+            policy=endpoint_policy,
+
+        )
+
+    # Snap cycle closure last -> first.
+
+    if spec.is_cycle and keep_cycle_closure_sample:
+
+        if len(xyz_pieces) == 1:
+
+            _snap_sample_endpoint(
+
+                xyz_pieces[0],
+
+                -1,
+
+                xyz_pieces[0],
+
+                0,
+
+                policy=endpoint_policy,
+
+            )
+
+            _snap_sample_endpoint(
+
+                stuv_pieces[0],
+
+                -1,
+
+                stuv_pieces[0],
+
+                0,
+
+                policy=endpoint_policy,
+
+            )
+
+        else:
+
+            _snap_sample_endpoint(
+
+                xyz_pieces[-1],
+
+                -1,
+
+                xyz_pieces[0],
+
+                0,
+
+                policy=endpoint_policy,
+
+            )
+
+            _snap_sample_endpoint(
+
+                stuv_pieces[-1],
+
+                -1,
+
+                stuv_pieces[0],
+
+                0,
+
+                policy=endpoint_policy,
+
+            )
+
+    xyz_parts = [xyz_pieces[0]]
+
+    stuv_parts = [stuv_pieces[0]]
+
+    for i in range(1, len(xyz_pieces)):
+
+        if drop_join_duplicates:
+
+            xyz_parts.append(xyz_pieces[i][1:])
+
+            stuv_parts.append(stuv_pieces[i][1:])
+
+        else:
+
+            xyz_parts.append(xyz_pieces[i])
+
+            stuv_parts.append(stuv_pieces[i])
+
+    xyz_merged = np.ascontiguousarray(np.vstack(xyz_parts))
+
+    stuv_merged = np.ascontiguousarray(np.vstack(stuv_parts))
+
+    if spec.is_cycle and not keep_cycle_closure_sample and len(xyz_merged) > 1:
+
+        xyz_merged = np.ascontiguousarray(xyz_merged[:-1])
+
+        stuv_merged = np.ascontiguousarray(stuv_merged[:-1])
+
+    if len(xyz_merged) != len(stuv_merged):
+
+        raise RuntimeError("Internal error: merged xyz/stuv lengths differ")
+
+    return xyz_merged, stuv_merged
+
+def _default_branch_factory(
+
+    *,
+
+    template: Any,
+
+    xyz: np.ndarray,
+
+    stuv: np.ndarray,
+
+    xyz_curve,
+
+    st_curve,
+
+    uv_curve,
+
+    source_branches: Sequence[Any],
+
+    spec,
+
+):
+
+    """
+
+    Create a new object of the same class as template.
+
+    Important:
+
+    The supplied BezSSXBranch.__post_init__ removes duplicate points. For joined
+
+    closed cycles we often intentionally keep the final closure sample, so this
+
+    factory restores xyz/stuv after construction.
+
+    """
+
+    cls = type(template)
+
+    atol = max(float(getattr(b, "atol", 1e-12)) for b in source_branches)
+
+    is_overlap = any(bool(getattr(b, "is_overlap", False)) for b in source_branches)
+
+    obj = None
+
+    # Most likely dataclass constructor.
+
+    try:
+
+        obj = cls(
+
+            stuv=np.ascontiguousarray(stuv.copy()),
+
+            xyz=np.ascontiguousarray(xyz.copy()),
+
+            atol=atol,
+
+            is_overlap=is_overlap,
+
+        )
+
+    except TypeError:
+
+        pass
+
+    # Fallback constructor without optional fields.
+
+    if obj is None:
+
+        try:
+
+            obj = cls(
+
+                stuv=np.ascontiguousarray(stuv.copy()),
+
+                xyz=np.ascontiguousarray(xyz.copy()),
+
+            )
+
+        except TypeError:
+
+            pass
+
+    # Last-resort construction without __init__.
+
+    if obj is None:
+
+        obj = cls.__new__(cls)
+
+    # Restore exactly the merged raw arrays, regardless of __post_init__.
+
+    _safe_setattr(obj, "stuv", np.ascontiguousarray(stuv.copy()))
+
+    _safe_setattr(obj, "xyz", np.ascontiguousarray(xyz.copy()))
+
+    _safe_setattr(obj, "atol", atol)
+
+    _safe_setattr(obj, "is_overlap", is_overlap)
+
+    _safe_setattr(obj, "xyz_curve", xyz_curve)
+
+    _safe_setattr(obj, "st_curve", st_curve)
+
+    _safe_setattr(obj, "uv_curve", uv_curve)
+
+    return obj
+
+def _materialize_joined_branches_from_specs(
+
+    branches: Sequence[Any],
+
+    specs: Sequence[Any],
+
+    *,
+
+    precomputed_joined_curves: Optional[dict[str, Sequence[Any]]] = None,
+
+    branch_factory: Optional[Callable[..., Any]] = None,
+
+    raw_endpoint_policy: str = "average",
+
+    drop_join_duplicates: bool = True,
+
+    keep_cycle_closure_sample: bool = True,
+
+    snap_curves: bool = True,
+
+    strict_order: bool = True,
+
+    apply_recorded_knot_removals: bool = True,
+
+    validate_replayed_knot_removal: bool = False,
+
+    replay_knot_removal_tolerance: float = 1e-4,
+
+    knot_remover=None,
+
+):
+
+    """
+
+    Builds output BezSSXBranch-like objects from specs.
+
+    precomputed_joined_curves can contain any of:
+
+      - "xyz_curve"
+
+      - "st_curve"
+
+      - "uv_curve"
+
+    Missing curve families are replayed with join_curves_by_spec().
+
+    """
+
+    precomputed_joined_curves = dict(precomputed_joined_curves or {})
+
+    joined_curves_by_attr = {}
+
+    for attr in ("xyz_curve", "st_curve", "uv_curve"):
+
+        if attr in precomputed_joined_curves:
+
+            joined_curves_by_attr[attr] = list(precomputed_joined_curves[attr])
+
+        else:
+
+            source_curves = [getattr(b, attr) for b in branches]
+
+            joined_curves_by_attr[attr] = join_curves_by_spec(
+
+                source_curves,
+
+                specs,
+
+                snap=snap_curves,
+
+                strict_order=strict_order,
+
+                apply_recorded_knot_removals=apply_recorded_knot_removals,
+
+                validate_replayed_knot_removal=validate_replayed_knot_removal,
+
+                replay_knot_removal_tolerance=replay_knot_removal_tolerance,
+
+                knot_remover=knot_remover,
+
+            )
+
+    factory = branch_factory or _default_branch_factory
+
+    out = []
+
+    for out_i, spec in enumerate(specs):
+
+        xyz_raw, stuv_raw = merge_branch_samples_by_spec(
+
+            branches,
+
+            spec,
+
+            endpoint_policy=raw_endpoint_policy,
+
+            drop_join_duplicates=drop_join_duplicates,
+
+            keep_cycle_closure_sample=keep_cycle_closure_sample,
+
+        )
+
+        source_branches = [branches[int(i)] for i in spec.source_indices]
+
+        template = source_branches[0]
+
+        obj = factory(
+
+            template=template,
+
+            xyz=xyz_raw,
+
+            stuv=stuv_raw,
+
+            xyz_curve=joined_curves_by_attr["xyz_curve"][out_i],
+
+            st_curve=joined_curves_by_attr["st_curve"][out_i],
+
+            uv_curve=joined_curves_by_attr["uv_curve"][out_i],
+
+            source_branches=source_branches,
+
+            spec=spec,
+
+        )
+
+        out.append(obj)
+
+    return out
+
+def join_bezssx_branches(
+
+    branches: Iterable[Any],
+
+    *,
+
+    driver: str | Callable[[Any], Any] = "xyz_curve",
+
+    tol: float = 1e-6,
+
+    build_interp: bool = True,
+
+    check_valid: bool = True,
+
+    branch_factory: Optional[Callable[..., Any]] = None,
+
+    raw_endpoint_policy: str = "average",
+
+    drop_join_duplicates: bool = True,
+
+    keep_cycle_closure_sample: bool = True,
+
+    snap_replayed_curves: bool = True,
+
+    strict_replayed_order: bool = True,
+
+    validate_replayed_knot_removal: bool = False,
+
+    replay_knot_removal_tolerance: Optional[float] = None,
+
+    **join_kwargs,
+
+):
+
+    """
+
+    Join BezSSXBranch-like objects.
+
+    Parameters
+
+    ----------
+
+    branches:
+
+        Iterable of BezSSXBranch-like objects.
+
+    driver:
+
+        Which interpolated curve family should determine topology.
+
+        Accepted strings:
+
+          - "xyz" or "xyz_curve"
+
+          - "st"  or "st_curve"
+
+          - "uv"  or "uv_curve"
+
+        You may also pass a callable:
+
+            driver=lambda branch: branch.xyz_curve
+
+    tol:
+
+        Topological endpoint tolerance used by join_curves().
+
+    raw_endpoint_policy:
+
+        How to snap raw xyz/stuv join samples:
+
+          - "average": same idea as curve endpoint snapping
+
+          - "left": keep previous segment endpoint
+
+          - "right": keep next segment endpoint
+
+          - "none": do not alter raw endpoints
+
+    keep_cycle_closure_sample:
+
+        If True, closed joined chains keep final sample equal to first sample.
+
+    join_kwargs:
+
+        Forwarded to join_curves(), for example:
+
+          - reparameterize_c1=True
+
+          - c1_direction_tol=1e-6
+
+          - remove_c1_knots=True
+
+          - knot_removal_tolerance=...
+
+          - knot_remover=...
+
+    Returns
+
+    -------
+
+    joined_branches, specs
+
+    """
+
+    branches = list(branches)
+
+    if not branches:
+
+        raise ValueError("Empty branch list")
+
+    for i, b in enumerate(branches):
+
+        _validate_branch_samples(b, i)
+
+        _ensure_branch_interpolated(
+
+            b,
+
+            build_interp=build_interp,
+
+            check_valid=check_valid,
+
+        )
+
+    driver_curves = [_branch_curve(b, driver) for b in branches]
+
+    joined_driver_curves, specs = join_curves(
+
+        driver_curves,
+
+        tol=tol,
+
+        **join_kwargs,
+
+    )
+
+    if replay_knot_removal_tolerance is None:
+
+        replay_knot_removal_tolerance = join_kwargs.get("knot_removal_tolerance", tol)
+
+        if replay_knot_removal_tolerance is None:
+
+            replay_knot_removal_tolerance = tol
+
+    precomputed = {}
+
+    if not callable(driver):
+
+        driver_attr = _resolve_curve_attr(driver)
+
+        precomputed[driver_attr] = joined_driver_curves
+
+    joined_branches = _materialize_joined_branches_from_specs(
+
+        branches,
+
+        specs,
+
+        precomputed_joined_curves=precomputed,
+
+        branch_factory=branch_factory,
+
+        raw_endpoint_policy=raw_endpoint_policy,
+
+        drop_join_duplicates=drop_join_duplicates,
+
+        keep_cycle_closure_sample=keep_cycle_closure_sample,
+
+        snap_curves=snap_replayed_curves,
+
+        strict_order=strict_replayed_order,
+
+        apply_recorded_knot_removals=True,
+
+        validate_replayed_knot_removal=validate_replayed_knot_removal,
+
+        replay_knot_removal_tolerance=float(replay_knot_removal_tolerance),
+
+        knot_remover=join_kwargs.get("knot_remover", None),
+
+    )
+
+    return joined_branches, specs
+
+def join_bezssx_branches_by_spec(
+
+    branches: Iterable[Any],
+
+    specs: Sequence[Any],
+
+    *,
+
+    build_interp: bool = True,
+
+    check_valid: bool = True,
+
+    branch_factory: Optional[Callable[..., Any]] = None,
+
+    raw_endpoint_policy: str = "average",
+
+    drop_join_duplicates: bool = True,
+
+    keep_cycle_closure_sample: bool = True,
+
+    snap_curves: bool = True,
+
+    strict_order: bool = True,
+
+    apply_recorded_knot_removals: bool = True,
+
+    validate_replayed_knot_removal: bool = False,
+
+    replay_knot_removal_tolerance: float = 1e-4,
+
+    knot_remover=None,
+
+):
+
+    """
+
+    Replay a previously computed BezSSXBranch join operation on another
+
+    corresponding branch set.
+
+    This uses the same:
+
+      - source branch indices
+
+      - segment reversals
+
+      - degree elevations
+
+      - C1 reparameterised segment lengths
+
+      - accepted knot removals
+
+      - raw xyz/stuv merge order
+
+    """
+
+    branches = list(branches)
+
+    if not branches:
+
+        raise ValueError("Empty branch list")
+
+    for i, b in enumerate(branches):
+
+        _validate_branch_samples(b, i)
+
+        _ensure_branch_interpolated(
+
+            b,
+
+            build_interp=build_interp,
+
+            check_valid=check_valid,
+
+        )
+
+    return _materialize_joined_branches_from_specs(
+
+        branches,
+
+        specs,
+
+        precomputed_joined_curves=None,
+
+        branch_factory=branch_factory,
+
+        raw_endpoint_policy=raw_endpoint_policy,
+
+        drop_join_duplicates=drop_join_duplicates,
+
+        keep_cycle_closure_sample=keep_cycle_closure_sample,
+
+        snap_curves=snap_curves,
+
+        strict_order=strict_order,
+
+        apply_recorded_knot_removals=apply_recorded_knot_removals,
+
+        validate_replayed_knot_removal=validate_replayed_knot_removal,
+
+        replay_knot_removal_tolerance=float(replay_knot_removal_tolerance),
+
+        knot_remover=knot_remover,
+
+    )
+
+# =============================================================================
+
+# Example usage
+
+# =============================================================================
+
+# Join using xyz geometry as the topology driver:
+
+#
+
+# joined, specs = join_bezssx_branches(
+
+#     branches,
+
+#     driver="xyz",
+
+#     tol=1e-6,
+
+#     reparameterize_c1=True,
+
+#     c1_direction_tol=1e-6,
+
+#     remove_c1_knots=True,
+
+#     knot_removal_tolerance=1e-5,
+
+# )
+
+#
+
+# Replay exactly the same join on a corresponding branch set:
+
+#
+
+# joined_other = join_bezssx_branches_by_spec(
+
+#     other_branches,
+
+#     specs,
+
+#     validate_replayed_knot_removal=False,
+
+# )
+
+#
+
+# Join based on parameter-space ST instead:
+
+#
+
+# joined_by_st, specs_st = join_bezssx_branches(
+
+#     branches,
+
+#     driver="st",
+
+#     tol=1e-6,
+
+# )
+
+#
+
+# Join based on UV instead:
+
+#
+
+# joined_by_uv, specs_uv = join_bezssx_branches(
+
+#     branches,
+
+#     driver="uv",
+
+#     tol=1e-6,
+
+# )
 def build_branches(cell, isolated_boundary_inters, atol, all_points=None, all_fragments=None ):
     if all_points is None:
         all_points=[]
@@ -2289,7 +3407,7 @@ def bez_ssx(
     # traces it and the loop exits.
     from collections import deque
     queue = deque([top_cell])
-    all_fragments: list[_Fragment] = []
+    all_fragments: list[BezSSXBranch] = []
     all_points = []
 
     while queue:
@@ -2617,19 +3735,29 @@ def bez_ssx(
     #    atol_full=atol, rational_full=rational_close,
     #)
     #all_branches.extend(overlap_branches)
-    frags=all_fragments
-    if frags:
-        mcc=[interpolate_nurbs_curve(b.xyz,degree=min(len(b.xyz)-1,3), tol=1e-12) for b in frags]
-        mccc = [interpolate_nurbs_curve(b.stuv, degree=min(len(b.stuv) - 1, 3), tol=1e-12) for b in frags]
+    #frags=all_fragments
+    #if frags:
+    #    #mcc=[interpolate_nurbs_curve(b.xyz,degree=min(len(b.xyz)-1,3), tol=1e-12) for b in frags]
+   #     #mccc = [interpolate_nurbs_curve(b.stuv, degree=min(len(b.stuv) - 1, 3), tol=1e-12) for b in frags]
+    closed_frags=[]
+    frags=[]
+    st_curves=[]
+    uv_curves=[]
+    xyz_curves=[]
+    if all_fragments:
+        for frag in all_fragments:
+            if frag.build_interp():
+                if frag.is_valid:
+                    if frag.closed():
+                        closed_frags.append(frag)
+                        continue
+                    frags.append(frag)
 
-        mmcc = list(filter(lambda x: nurbs_length(x) > (2 * 1e-6), mcc))
-        _,mmccc=zip(*list(filter(lambda x: nurbs_length(mcc[x[0]]) > (2 * 1e-6), enumerate(mccc))))
+        if len(frags)>0:
+            frags,_=join_bezssx_branches(frags)
 
-        try:
 
-            return {'branches':     [BezSSXBranch( j.control_points,i.control_points)for i,j in zip(    join_curves(mmcc, 1e-12) ,    join_curves(mmccc,1e-12))  ] , 'points': all_points}
-        except ValueError as e:
-            return {'branches': [BezSSXBranch(j.control_points, i.control_points) for i, j in
-                                 zip(mmcc, mmccc)], 'points': all_points}
+        return {'branches':     frags , 'points': all_points}
+
 
     return {'branches': all_fragments, 'points': all_points}

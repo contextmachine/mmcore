@@ -148,7 +148,7 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
 # ---------------------------------------------------------------------------
 # nurbs_ccx: two-curve intersection
 # ---------------------------------------------------------------------------
-
+from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
 def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
     """Find all intersections between two NURBS curves.
 
@@ -202,7 +202,7 @@ def nurbs_ccx(curve1, curve2, tol: float = 1e-3, **kwargs):
             )
             # Verify NURBS-level distance (Bezier-level may be valid at knot
             # seams but NURBS-level can differ)
-            from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+
             pt1 = evaluate_nurbs_curve(curve1, u_glob, 0)['C']
             pt2 = evaluate_nurbs_curve(curve2, v_glob, 0)['C']
             if float(np.linalg.norm(pt1 - pt2)) >= tol:

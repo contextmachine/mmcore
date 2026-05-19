@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from mmcore.numeric.aabb import aabb_offset
+from mmcore.numeric._aabb import aabb_intersect, aabb
 from mmcore.numeric.bern import (
     de_casteljau_split_nd, bernstein_boundary_nd,
     bernstein_eval_nd, bernstein_partial_derivative_coeffs,
@@ -121,8 +123,10 @@ def _csx_eff_atol(C, S, t, u, v, atol, rational):
     _pt_c, c_d = eval_curve_d1(C, float(t), rational=rational)
     _pt_s, s_du, s_dv = eval_surface_d1(S, float(u), float(v), rational=rational)
     N = np.cross(s_du, s_dv)
+
     n_norm = float(np.linalg.norm(N))
     c_norm = float(np.linalg.norm(c_d))
+
     if n_norm > 1e-30 and c_norm > 1e-30:
         sin_ang = abs(float(np.dot(c_d, N))) / (c_norm * n_norm)
     else:
@@ -166,7 +170,7 @@ def _boundary_zero_to_tuv(bz: BoundaryZero,
 # CSX boundary analysis: find zeros on the 6 faces of [0,1]^3
 # ---------------------------------------------------------------------------
 
-def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
+def _find_csx_boundary_zeros(F_3d, C, S, atol,ptol_t,ptol_u,ptol_v ,rational):
     """Find precise intersection points on the boundary faces of the CSX domain.
 
     The 6 faces of [0,1]^3 decompose into two types:
@@ -197,11 +201,6 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
         _, Cw = extract_weights(C, rational=rational)
         pw_point = np.array([Cw[0 if t_side == 0 else -1]])
 
-        from mmcore.numeric.intersection._sq_dist_classify import (
-            _check_min_of_net, _weight_max_product,
-            _find_precise_boundary_zeros as _find_precise_bz_2d,
-        )
-
         w_scale = _weight_max_product(pw_point, sw_flat)
 
         # Quick check: if min of 2D face > 0, no intersection at this endpoint
@@ -227,6 +226,7 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
         # (not just on its edges). Use Newton on the point-on-surface problem.
         pt = eval_curve(C, float(t_side), rational=rational)
         # Simple Newton: project point onto surface
+        from mmcore.numeric.intersection._bezier_common import eval_surface_d1
         u_s, v_s = 0.5, 0.5  # seed from center
         for _it in range(20):
             s_pt, s_du, s_dv = eval_surface_d1(S, u_s, v_s, rational=rational)
@@ -253,13 +253,12 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
             else:
                 break
         G_final = eval_surface(S, u_s, v_s, rational=rational) - pt
-        if float(np.linalg.norm(G_final)) < _csx_eff_atol(
-                C, S, float(t_side), u_s, v_s, atol, rational):
+        if float(np.linalg.norm(G_final)) < atol:
             # Found a point-on-surface intersection — add as BoundaryZero
             bz = BoundaryZero(axis=0, side=t_side, param=u_s, param2=v_s)
             # Check not duplicate
             is_dup = any(
-                abs(z.param - u_s) < 0.01 and z.param2 is not None and abs(z.param2 - v_s) < 0.01
+                abs(z.param - u_s) < ptol_u and z.param2 is not None and abs(z.param2 - v_s) < ptol_v
                 for z in zeros if z.axis == 0 and z.side == t_side
             )
             if not is_dup:
@@ -276,7 +275,7 @@ def _find_csx_boundary_zeros(F_3d, C, S, atol, rational):
             iso_curve = S[:, 0 if surf_side == 0 else -1, :]  # shape (m+1, D)
 
         # AABB pre-filter: skip isocurves whose bounding box doesn't overlap the curve's
-        from mmcore.numeric._aabb import aabb, aabb_intersect
+
         if rational:
             c_pts = C[:, :-1] / C[:, -1:]
             iso_pts = iso_curve[:, :-1] / iso_curve[:, -1:]
@@ -617,6 +616,7 @@ def _phase2_isolated_search(
             v_mid = 0.5 * (v0 + v1)
             pt_c = eval_curve(C_orig, t_mid, rational=rational)
             pt_s = eval_surface(S_orig, u_mid, v_mid, rational=rational)
+
             if float(np.linalg.norm(pt_c - pt_s)) < _csx_eff_atol(
                     C_orig, S_orig, t_mid, u_mid, v_mid, atol, rational):
                 t_r, u_r, v_r, G_r, _ = newton_csx(
@@ -822,7 +822,13 @@ def _compute_remaining_intervals(excludes, lo, hi):
 # ---------------------------------------------------------------------------
 # Main algorithm: two-phase architecture
 # ---------------------------------------------------------------------------
-from mmcore.numeric._aabb import aabb, aabb_intersect
+
+from mmcore.numeric.intersection._sq_dist_classify import (
+    _check_min_of_net, _weight_max_product,
+    _find_precise_boundary_zeros as _find_precise_bz_2d,
+)
+
+
 def bez_csx(
     C,
     S,
@@ -868,7 +874,7 @@ def bez_csx(
         c_pts = C
         s_pts = S.reshape((-1,3))
 
-    if not aabb_intersect(aabb(np.ascontiguousarray(c_pts)),  aabb(np.ascontiguousarray(s_pts))):
+    if not aabb_intersect(aabb_offset( aabb(np.ascontiguousarray(c_pts)),atol/2), aabb_offset( aabb(np.ascontiguousarray(s_pts)),atol/2)):
         return {"isolated": [], "overlaps": []}
 
 
@@ -889,7 +895,7 @@ def bez_csx(
     # ===================================================================
     # PHASE 1: Boundary analysis + overlap detection (initial patch only)
     # ===================================================================
-    csx_boundary_zeros = _find_csx_boundary_zeros(F, C, S, atol, rational)
+    csx_boundary_zeros = _find_csx_boundary_zeros(F, C, S, atol,  ptol_t, ptol_u, ptol_v, rational)
 
     t_exclude = []  # t-intervals to cut from the curve
 
@@ -902,6 +908,7 @@ def bez_csx(
     for bz in csx_boundary_zeros:
         t_bz, u_bz, v_bz = _boundary_zero_to_tuv(bz, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
         t_r, u_r, v_r, G_r, _ = newton_csx(C, S, t_bz, u_bz, v_bz, rational=rational)
+
         if float(np.linalg.norm(G_r)) < _csx_eff_atol(C, S, t_r, u_r, v_r, atol, rational):
             pt_r = eval_curve(C, t_r, rational=rational)
             if not _is_duplicate(isolated, pt_r, atol):
@@ -937,7 +944,7 @@ def bez_csx(
     t_intervals = _compute_remaining_intervals(t_exclude, 0.0, 1.0)
 
     for t_lo, t_hi in t_intervals:
-        if t_hi - t_lo < ptol_t * 0.1:
+        if (t_hi - t_lo) < ptol_t:
             continue
 
         # Restrict net and curve to sub-interval
@@ -957,10 +964,12 @@ def bez_csx(
 
         if not aabb_intersect(aabb(np.ascontiguousarray(cb_pts)), aabb(np.ascontiguousarray(s_pts))):
             continue
+
         _, Pw_sub = extract_weights(C_sub, rational=rational)
         w_sc = _weight_max_product(Pw_sub, Sw.ravel())
         if _check_min_of_net(F_sub, atol, w_sc):
             continue
+
         # Search for isolated intersections
         phase2_iso = _phase2_isolated_search(
             F_sub, C_sub, S, C_orig, S_orig,
