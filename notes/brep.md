@@ -30,4 +30,10 @@ flowchart TD
     
     class CompSolid,Solid,Shell,Face,Wire,Edge,Vertex blue
     class Surface,Curve,Point pink
+
 ```
+
+| kind           | P (Parametric) | I (Implicit)  |   |
+|----------------|----------------|---------------|---|
+| P (Parametric) | PP             | IP (not impl) |   |
+| I (Implicit)   | IP  (not impl) | II (not impl) |   |

@@ -26,7 +26,7 @@ def clean_exts(exts):
             c_file=source.replace('pyx','c')
             cpp_file = source.replace('pyx', 'cpp')
 
-            if c_file.endswith('triangle.c'):
+            if c_file.endswith('triangle.c') or c_file.endswith('_gjk.cpp'):
                 pass
             else:
 
@@ -44,5 +44,5 @@ def clean_exts(exts):
                 delete_files( "*.so","./"+"/".join(lib.split('/')[:-1]))
 
 if __name__ == '__main__':
-    from build import extensions
-    clean_exts(extensions)
+    from build import cython_extensions
+    clean_exts(cython_extensions)

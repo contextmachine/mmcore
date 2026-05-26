@@ -7,16 +7,15 @@ from mmcore.geom.nurbs import NURBSSurface, subdivide_surface, decompose_surface
 
 from mmcore.numeric.algorithms.quicksort import unique
 
-from mmcore.numeric.algorithms.surface_area import v_min
-from mmcore.numeric.intersection.csx import nurbs_csx
-from mmcore.numeric.intersection.ssx.boundary_intersection import extract_isocurve
 from mmcore.numeric.monomial import bezier_to_monomial, monomial_to_bezier
 from mmcore.numeric.vectors import unit, scalar_dot, scalar_norm
 from mmcore.numeric.algorithms.cygjk import gjk
 
 from scipy.spatial import ConvexHull
 def convex_hull(pts):
-    return np.array(pts)[ConvexHull(np.array(pts),qhull_options='QJ' ).vertices]
+    pts=np.array(pts)
+    hull=ConvexHull(pts, qhull_options='QJ')
+    return pts[hull.vertices],hull
 
 def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
 
@@ -33,46 +32,6 @@ def is_flat(surf, u_min, u_max, v_min, v_max, tolerance=1e-3):
     # Define an appropriate tolerance for flatness
 
     return distance < tolerance
-
-
-#def decompose_surface(surface, decompose_dir="uv"):
-#    def decompose_direction(srf, idx):
-#        srf_list = []
-#        knots = srf.knots_u if idx == 0 else srf.knots_v
-#        degree = srf.degree[idx]
-#        unique_knots = sorted(set(knots[degree + 1: -(degree + 1)]))
-#
-#        while unique_knots:
-#            knot = unique_knots[0]
-#            if idx == 0:
-#                srfs = split_surface_u(srf, knot)
-#            else:
-#                srfs = split_surface_v(srf, knot)
-#            srf_list.append(srfs[0])
-#            srf = srfs[1]
-#            unique_knots = unique_knots[1:]
-#        srf_list.append(srf)
-#        return srf_list
-#
-#    if not isinstance(surface, NURBSSurface):
-#        raise ValueError("Input must be an instance of NURBSSurface class")
-#
-#    surf = surface.copy()
-#
-#    if decompose_dir == "u":
-#        return decompose_direction(surf, 0)
-#    elif decompose_dir == "v":
-#        return decompose_direction(surf, 1)
-#    elif decompose_dir == "uv":
-#        multi_surf = []
-#        surfs_u = decompose_direction(surf, 0)
-#        for sfu in surfs_u:
-#            multi_surf += decompose_direction(sfu, 1)
-#        return multi_surf
-#    else:
-#        raise ValueError(
-#            f"Cannot decompose in {decompose_dir} direction. Acceptable values: u, v, uv"
-#        )
 
 
 def compute_partial_derivative(coeffs, variable):
@@ -109,39 +68,28 @@ def cross_product(a, b):
     return result
 
 
+def compute_gauss_map(control_points):
+    """Compute the Gauss map for a Bézier patch with degree elevation."""
+    F = bezier_to_monomial(control_points)
+    Fu = compute_partial_derivative(F, "u")
+    Fv = compute_partial_derivative(F, "v")
+
+    N = cross_product(Fu, Fv)
+
+    # N_normalized = normalize_polynomial(N)
+    # print(N_normalized)
+    # N_normalized[np.isnan(N_normalized)]=0.
+    gauss_map = monomial_to_bezier(N)
+
+    return gauss_map
+
+
 def is_bezier(surface: NURBSSurface):
     kv, ku = unique(surface.knots_u).shape[0], unique(surface.knots_u).shape[0]
     if kv.shape[0] < 2 or ku.shape[0] < 2:
         raise ValueError("Degenerated patch")
 
     return kv.shape[0] == 2 and ku.shape[0] == 2
-
-
-def normalize_polynomial(v, epsilon=1e-10):
-    """Normalize a 3D vector polynomial with improved stability."""
-    norm_squared = v[:, :, 0] ** 2 + v[:, :, 1] ** 2 + v[:, :, 2] ** 2
-    max_norm = np.max(norm_squared)
-    if max_norm < epsilon:
-        return np.zeros_like(v)
-    norm = np.sqrt(norm_squared / max_norm)
-    return v / (norm[:, :, np.newaxis] * np.sqrt(max_norm))
-
-"""
-# Example usage and verification
-bezier_patch = np.array(
-    [
-        [[0, 0, 0], [0, 1, 0], [0, 2, 0]],
-        [[1, 0, 1], [1, 1, 2], [1, 2, 1]],
-        [[2, 0, 0], [2, 1, 0], [2, 2, 0]],
-    ]
-)
-
-gauss_map, normalized_gauss_map = compute_gauss_map(bezier_patch)
-print("Gauss map control points:")
-print(gauss_map)
-
-"""
-
 
 def compute_gauss_mapw(control_points, weights=None):
     """Compute the Gauss map for a rational Bézier patch."""
@@ -168,19 +116,174 @@ def compute_gauss_mapw(control_points, weights=None):
 
     return gauss_map
 
+def normalize_polynomial(v, epsilon=1e-10):
+    """Normalize a 3D vector polynomial with improved stability."""
+    norm_squared = v[:, :, 0] ** 2 + v[:, :, 1] ** 2 + v[:, :, 2] ** 2
+    max_norm = np.max(norm_squared)
+    if max_norm < epsilon:
+        return np.zeros_like(v)
+    norm = np.sqrt(norm_squared / max_norm)
+    return v / (norm[:, :, np.newaxis] * np.sqrt(max_norm))
 
-def compute_gauss_map(control_points):
-    """Compute the Gauss map for a Bézier patch with degree elevation."""
-    F = bezier_to_monomial(control_points)
-    Fu = compute_partial_derivative(F, "u")
-    Fv = compute_partial_derivative(F, "v")
 
-    N = cross_product(Fu, Fv)
+import numpy as np
 
-    # N_normalized = normalize_polynomial(N)
-    # print(N_normalized)
-    # N_normalized[np.isnan(N_normalized)]=0.
-    gauss_map = monomial_to_bezier(N)
+
+# --- Helper functions for polynomial arithmetic in two variables ---
+
+def poly_mult_2d(A, B):
+    """
+    Multiply two bivariate polynomials A(u,v) and B(u,v) given in the (power) monomial form.
+    A: NumPy array of shape (deg_u_A+1, deg_v_A+1) (or with extra trailing dimensions)
+    B: NumPy array of shape (deg_u_B+1, deg_v_B+1)
+    Returns the product as a NumPy array of shape
+        (deg_u_A+deg_u_B+1, deg_v_A+deg_v_B+1) (and extra dimensions preserved).
+    """
+    a_rows, a_cols = A.shape[:2]
+    b_rows, b_cols = B.shape[:2]
+    out_rows = a_rows + b_rows - 1
+    out_cols = a_cols + b_cols - 1
+
+    # If A and B are scalar (or have last dim = 1) this works component–wise.
+    if A.ndim == 2:
+        C = np.zeros((out_rows, out_cols))
+        for i in range(a_rows):
+            for j in range(a_cols):
+                C[i:i + b_rows, j:j + b_cols] += A[i, j] * B
+    else:
+        d = A.shape[2]
+        C = np.zeros((out_rows, out_cols, d))
+        for i in range(a_rows):
+            for j in range(a_cols):
+                C[i:i + b_rows, j:j + b_cols, :] += A[i, j, :] * B  # Here we assume B is scalar (or with d=1)
+    return C
+
+
+def poly_subtract(A, B):
+    """
+    Subtract two polynomials in monomial form.
+    If their coefficient arrays have different shapes, the smaller is padded (in the higher degrees) with zeros.
+    """
+    # Determine target shape (for u and v) as the maximum along each axis.
+    shape_A = A.shape[:2]
+    shape_B = B.shape[:2]
+    target_shape = (max(shape_A[0], shape_B[0]), max(shape_A[1], shape_B[1]))
+    A_pad = elevate_polynomial(A, target_shape) if shape_A != target_shape else A
+    B_pad = elevate_polynomial(B, target_shape) if shape_B != target_shape else B
+    return A_pad - B_pad
+
+
+def elevate_polynomial(poly, target_shape):
+    """
+    "Elevate" (pad) a polynomial (given in monomial form) to a higher degree by adding zeros.
+    poly: NumPy array of shape (p, q) or (p, q, d)
+    target_shape: tuple (P, Q) with P >= p and Q >= q.
+    (In the power basis, a polynomial of true degree d has zero coefficients for u^i v^j with i or j beyond d.)
+    """
+    current_shape = poly.shape[:2]
+    if poly.ndim == 2:
+        new_poly = np.zeros(target_shape)
+        new_poly[:current_shape[0], :current_shape[1]] = poly
+    else:
+        new_poly = np.zeros((target_shape[0], target_shape[1], poly.shape[2]))
+        new_poly[:current_shape[0], :current_shape[1], :] = poly
+    return new_poly
+
+
+
+def compute_gauss_map_rational(control_points):
+    """
+    Compute the Gaussian map for a rational Bézier patch.
+
+    The input 'control_points' is assumed to be a NumPy array of shape (N, M, 4) in homogeneous coordinates,
+    where each control point is [w*x, w*y, w*z, w] (i.e. the first three coordinates are pre–weighted).
+
+    The algorithm is as follows:
+      1. For each scalar field (X, Y, Z, and the weight W) convert from Bernstein to monomial form.
+      2. Compute the partial derivatives with respect to u and v in the monomial basis.
+      3. For each coordinate X, Y, Z, form the “numerator” of the rational derivative using the quotient rule,
+         that is, compute A = (F_u * W - F * W_u) and B = (F_v * W - F * W_v).
+      4. Compute the cross product of the vectors A and B (coordinate–wise using the polynomial convolution).
+      5. The Gaussian map (in rational form) is then given by the homogeneous patch
+             ( N_x, N_y, N_z, W^4 )
+         where W^4 is computed by multiplying the weight polynomial with itself four times.
+      6. Because the degrees may not match (often the N components come out one degree lower),
+         elevate them (i.e. pad with zero–coefficients) so that all four components have the same degree.
+      7. Convert the resulting homogeneous polynomial (in monomial form) back to a rational Bézier patch.
+
+    Returns:
+       gauss_map: a NumPy array of the Gaussian map’s control net in rational Bézier (homogeneous) form.
+    """
+    # Split control points into spatial components and weight.
+    n, m, _ = control_points.shape
+    # Each component is taken as an array of shape (n, m, 1)
+    X = control_points[:, :, 0:1]
+    Y = control_points[:, :, 1:2]
+    Z = control_points[:, :, 2:3]
+    W = control_points[:, :, 3:4]
+
+    # Convert each to monomial representation.
+
+    X_mon = bezier_to_monomial(X)
+    Y_mon = bezier_to_monomial(Y)
+    Z_mon = bezier_to_monomial(Z)
+    W_mon = bezier_to_monomial(W)
+
+    # Compute partial derivatives in the monomial basis.
+    X_u = compute_partial_derivative(X_mon, "u")
+    X_v = compute_partial_derivative(X_mon, "v")
+    Y_u = compute_partial_derivative(Y_mon, "u")
+    Y_v = compute_partial_derivative(Y_mon, "v")
+    Z_u = compute_partial_derivative(Z_mon, "u")
+    Z_v = compute_partial_derivative(Z_mon, "v")
+    W_u = compute_partial_derivative(W_mon, "u")
+    W_v = compute_partial_derivative(W_mon, "v")
+
+    # For each scalar component, compute the rational derivative numerator parts:
+    # For example, for X (scalar), the “adjusted” derivative numerator is: X_u*W - X*W_u.
+    # (Here we work with the zeroth component of the last dimension because our arrays have shape (..., 1).)
+    A_x = poly_subtract(poly_mult_2d(X_u[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(X_mon[..., 0], W_u[..., 0]))
+    A_y = poly_subtract(poly_mult_2d(Y_u[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(Y_mon[..., 0], W_u[..., 0]))
+    A_z = poly_subtract(poly_mult_2d(Z_u[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(Z_mon[..., 0], W_u[..., 0]))
+
+    B_x = poly_subtract(poly_mult_2d(X_v[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(X_mon[..., 0], W_v[..., 0]))
+    B_y = poly_subtract(poly_mult_2d(Y_v[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(Y_mon[..., 0], W_v[..., 0]))
+    B_z = poly_subtract(poly_mult_2d(Z_v[..., 0], W_mon[..., 0]),
+                        poly_mult_2d(Z_mon[..., 0], W_v[..., 0]))
+
+    # Compute the cross product in the monomial basis.
+    # Remember: (A × B)_x = A_y*B_z - A_z*B_y, etc.
+    N_x = poly_subtract(poly_mult_2d(A_y, B_z),
+                        poly_mult_2d(A_z, B_y))
+    N_y = poly_subtract(poly_mult_2d(A_z, B_x),
+                        poly_mult_2d(A_x, B_z))
+    N_z = poly_subtract(poly_mult_2d(A_x, B_y),
+                        poly_mult_2d(A_y, B_x))
+
+    # Compute the denominator polynomial. Because the quotient rule for each derivative gave you a
+    # denominator of W^2, the cross product has denominator W^4.
+    # Compute W^2 then square it.
+    W2 = poly_mult_2d(W_mon[..., 0], W_mon[..., 0])
+    W4 = poly_mult_2d(W2, W2)
+
+    # In general the N (numerator) polynomials come out with a slightly lower degree than W^4.
+    # Determine the shape (i.e. number of monomial coefficients) for W4 and elevate the N components to that.
+    target_shape = W4.shape  # (rows, cols)
+    N_x_elev = elevate_polynomial(N_x, target_shape)
+    N_y_elev = elevate_polynomial(N_y, target_shape)
+    N_z_elev = elevate_polynomial(N_z, target_shape)
+
+    # Stack the three numerator components and the weight polynomial into one 4–component polynomial.
+    # The resulting array has shape (target_shape[0], target_shape[1], 4).
+    N_mon = np.stack([N_x_elev, N_y_elev, N_z_elev, W4], axis=-1)
+
+    # Convert from monomial representation back to a rational Bézier patch (i.e. to Bernstein representation).
+    gauss_map = monomial_to_bezier(N_mon)
 
     return gauss_map
 
@@ -198,19 +301,22 @@ class GaussMap:
 
     @classmethod
     def from_surf(cls, surf):
-        _map = compute_gauss_map(np.array(surf.control_points))
+        _map = compute_gauss_map_rational(np.array(surf.control_points_w))
         #print((_map.tolist(),np.array(surf.control_points).tolist()))
         # Compute convex hull
-        return cls(NURBSSurface(np.array(unit(_map.reshape((-1, 3)))).reshape(_map.shape),
+        _map_flat=_map.reshape((-1, 4))
+        _map_pt=_map_flat[...,:-1]/_map_flat[...,-1][...,-1]
+
+        return cls(NURBSSurface(np.array(unit( _map_pt)).reshape((*_map.shape[:-1],3)),
                                 (_map.shape[0] - 1, _map.shape[1] - 1)), surf)
 
-    def subdivide(self):
+    def subdivide(self, u=0.5,v=0.5):
         (umin, umax), (vmin, vmax) = self.surface.interval()
-        umid = (umin + umax) * 0.5
-        vmid = (vmin + vmax) * 0.5
+        umid = umin+(( umax-umin ) * u)
+        vmid = vmin+(( vmax-vmin ) * v)
         (mumin, mumax), (mvmin, mvmax) = self._map.interval()
-        mumid = (mumin + mumax) * 0.5
-        mvmid = (mvmin + mvmax) * 0.5
+        mumid = mumin+(( mumax-mumin ) * u)
+        mvmid = mvmin+(( mvmax-mvmin ) * v)
         try:
 
             srf = subdivide_surface(self.surface,umid,vmid,tol=1e-12,normalize_knots=False)
@@ -221,7 +327,7 @@ class GaussMap:
             raise err
         if len(self.children)==0:
             self.children = []
-            for i in range(4):
+            for i in range(len(mp)):
                 f = mp[i]
                 s = srf[i]
 
@@ -231,6 +337,7 @@ class GaussMap:
 
             return  self.children
         else:
+            #print("SSS")
             return self.children
 
     def compute(self):
@@ -256,8 +363,10 @@ class GaussMap:
         # Compute convex hull
 
         #self._polar_convex_hull = ConvexHull(np.array(unit(self._map.control_points_flat)), qhull_options='QJ')
-        self._convex_hull_on_sphere=np.array(convex_hull(unit(self._map.control_points_flat)))
+        vxs,hull=convex_hull(unit(self._map.control_points_flat))
+        self._convex_hull_on_sphere=np.array(vxs)
         #self.hull=self._polar_convex_hull.points[self._polar_convex_hull.vertices]
+        self._chull=hull
         self.hull =self._convex_hull_on_sphere
     def bounds(self):
         """Compute bounds on the Gauss map."""
@@ -268,7 +377,8 @@ class GaussMap:
 
         return gjk(self.bounds(), other.bounds())
 
-
+  
+        
 def linear_program_solver(c, A_ub, b_ub, A_eq, b_eq):
     """
     Solve a linear programming problem using scipy's linprog function.
@@ -380,361 +490,8 @@ def find_common_side_vector(N1, N2):
 #     print("Gauss maps cannot be separated")
 
 
-from mmcore.numeric.aabb import aabb, aabb_intersect,aabb_intersection
-from mmcore.geom.bvh import BoundingBox, Object3D, build_bvh, intersect_bvh_objects
-
-
-class DebugTree:
-
-    def __init__(self, data=None, layer=0):
-        self.layer = layer
-        self.data = data
-        self.chidren = []
-
-    def subd(self, count):
-        for i in range(count):
-            self.chidren.append(DebugTree(layer=self.layer + 1))
-        return self.chidren
-
-#def aabb_intersection(bb1,bb2):
-#    return np.asarray([np.maximum(bb1[0],bb2[0]),np.minimum(bb1[1],bb2[1])])
-
-
-def _detect_intersections_deep(g1, g2, chs:dict,tol=0.01, dbg: DebugTree = None):
-    """
-    Подпрограмма процедуры detect_intersections. Принимает карты гаусса патча безье и выполняет рекурсивное подразбиение.
-    Существует три варианта завершения:
-    1. Патчи являются разделимыми (вернет пустой список)
-    2. Патчи имеют одно тривиальное пересечение (граница одного патча явно пересекается с другим)
-    3. Патчи пересекаются в одной точке. (В этом случае при релаксации будет найдено конкретное положение этой точки)
-
-    :param g1:
-    :param g2:
-    :param tol:
-    :param dbg:
-    :return:
-    """
-    #bb1, bb2 = BoundingBox(*np.array(g1.surface.bbox())), BoundingBox(
-    #    *np.array(g2.surface.bbox())
-    #)
-    bb1=np.array(aabb(g1.surface.control_points_flat))
-    bb2=np.array(aabb(g2.surface.control_points_flat))
-    #dddd = [False, False, False, False, False]
-    #dbg.data = (g1, g2, dddd)
-
-    if not aabb_intersect(bb1,bb2):
-        # ББокы не пересекаются
-        #dddd[0] = True
-
-        return []
-    diag=bb1[1] - bb1[0]
-
-    if scalar_norm(diag) < tol:
-        #dddd[1] = True
-
-        # Бокс стал пренебрежительно маленьким, мы в сингулярной точке.
-        return [(g1.surface, g2.surface)]
-    ii=np.zeros((2,3))
-    aabb_intersection(bb1,bb2,ii)
-
-    if np.min(ii[1]-ii[0]) < tol:
-        # Бокс не маленький, но очень плоский. объекты не пересекаются
-        #dddd[2] = True
-
-        return []
-    #if is_flat(g1.surface.evaluate_v2, 0.,1.,0.,1.) and is_flat(g2.surface.evaluate_v2, 0.,1.,0.,1.):
-    #    print('f')
-    #    return [g1.surface, g2.surface]
-    #if id(g1.surface) not in chs:
-    #    chs[id(g1.surface)] =  ConvexHull(g1.surface.control_points_flat)
-    #if id(g2.surface) not in chs:
-    #    chs[id(g2.surface)] =  ConvexHull(g2.surface.control_points_flat)
-    #h1, h2 = chs[id(g1.surface)], chs[id(g2.surface)]
-    #if not gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-8, 25):
-    if not gjk(g1.surface.control_points_flat, g2.surface.control_points_flat, 1e-8, 25):
-        # Поверхности не пересекаются
-        #dddd[3] = True
-        return []
-    if g1.hull is None:
-        g1.compute()
-    if g2.hull is None:
-        g2.compute()
-    bb11, bb21 = aabb(g1.bounds()), aabb(g2.bounds())
-
-    if not aabb_intersect(bb21,bb11):
-        # Поверхности вероятнее всего пересекаются и не содержать петель
-        #dddd[3] = True
-        return [(g1.surface, g2.surface)]
-
-    intersections = []
-    #ss = g1.intersects(g2)
-    n1, n2 = separate_gauss_maps(g1,g2)
-    if (n1 is not None) and (n2 is not None):
-
-        return []
-    #if not ss:
-    #    # Поверхности вероятнее всего пересекаются и не содержать петель (для тех кто провалил прошлый тест)
-
-    #    dddd[4] = True
-    #    return [(g1.surface, g2.surface)]
-    # Все тесты провалены, новый этап подразбиения
-    #print('ddd', g1.surface.interval(), g2.surface.interval())
-    g11 = g1.subdivide()
-    g12 = g2.subdivide()
-
-    #dbg1 = dbg.subd(16)
-    ii = 0
-    for gg in g11:
-        for gh in g12:
-            #print('dd',gg.surface.interval(),gh.surface.interval())
-            #res = _detect_intersections_deep(gg, gh, chs,tol=tol, dbg= dbg1[ii])
-            res = _detect_intersections_deep(gg, gh, chs,tol=tol)
-            ii += 1
-
-            intersections.extend(res)
-    return intersections
-
-
-class NURBSObject(Object3D):
-    def __init__(self, surface: NURBSSurface):
-        self.surface = surface
-        super().__init__(BoundingBox(*np.asarray(self.surface.bbox())))
-
-
-def detect_intersections(surf1, surf2, tol=0.1, debug_tree: DebugTree=None) -> list[tuple[NURBSSurface, NURBSSurface]]:
-    """
-    Detects intersections between two NURBS surfaces by using a combination of surface decomposition into Bezier patches,
-    bounding volume hierarchy (BVH) traversal, convex hull checks, and Gauss map analysis. The function efficiently finds
-    intersecting subpatches of the surfaces.
-
-    Algorithm Overview:
-        1. Decomposes the input NURBS surfaces into smaller Bezier patches using a well-known algorithm.
-        2. Constructs a BVH (Bounding Volume Hierarchy) for both decomposed surfaces to enable efficient pairwise testing.
-        3. For each pair of potentially intersecting Bezier patches (as determined by BVH intersection tests), checks if
-           their convex hulls intersect using the GJK (Gilbert-Johnson-Keerthi) algorithm.
-        4. If convex hulls intersect, builds Gauss maps for further testing, including potential recursive subdivision
-           for patches that cannot be easily separated.
-        5. Records the state of the algorithm at each recursion step using the provided `debug_tree`.
-
-    Bezier Patch Decomposition:
-        The initial decomposition of the NURBS surface is not merely into smaller patches but specifically into **Bezier patches**.
-        This step is critical because the algorithm for constructing a Gauss map requires the surface to be expressed in the
-        monomial basis. NURBS surfaces, by default, are expressed in the non-monomial B-spline basis, but Bezier surfaces are
-        represented in the Bernstein basis, which can be decomposed into the monomial form. Therefore, decomposing the NURBS surface
-        into Bezier patches is a necessary precondition before constructing the Gauss map and performing the intersection tests.
-
-    :param surf1: The first NURBS surface.
-    :type surf1: NURBSSurface
-    :param surf2: The second NURBS surface.
-    :type surf2: NURBSSurface
-    :param debug_tree: A debugging tree that stores the state of the algorithm at every recursive step. This is used for
-        tracing and debugging the intersection detection process. It is mainly for development purposes and may be removed
-        in the final implementation.
-    :type debug_tree: DebugTree
-
-    :returns: A list of tuples, where each tuple contains two NURBS surfaces (subpatches) that intersect.
-    :rtype: list[tuple[NURBSSurface, NURBSSurface]]
-
-    Detailed Workflow:
-        1. **Bezier Patch Decomposition:**
-           The input NURBS surfaces `surf1` and `surf2` are decomposed into **Bezier patches** using a well-known
-           decomposition algorithm. This decomposition is necessary because the Gauss map construction relies on the
-           Bernstein basis, which is a property of Bezier surfaces. The decomposition ensures that the patches can be
-           represented in monomial form for further geometric processing.
-
-        2. **Building BVH:**
-           A BVH is built for each set of Bezier patches using `build_bvh()`. This hierarchical structure allows for efficient
-           pruning of patch pairs that are unlikely to intersect based on their bounding volumes.
-
-        3. **BVH Intersection:**
-           The BVH structures for the two surfaces are traversed using `intersect_bvh_objects()`, which efficiently identifies
-           pairs of Bezier patches that have overlapping bounding volumes.
-
-        4. **Convex Hull Check (GJK Algorithm):**
-           For each pair of Bezier patches returned by the BVH intersection test, the convex hulls of the control points are
-           computed. The GJK algorithm is then used to check whether the convex hulls intersect. If the convex hulls do not
-           intersect, the patches are discarded.
-
-        5. **Gauss Map and Deep Intersection Check:**
-           If the convex hulls intersect, Gauss maps are constructed for both patches using `GaussMap.from_surf()`. These maps
-           help in further checking the intersection geometry. If the Gauss maps cannot be separated, the patches are considered
-           to intersect. In cases where additional refinement is necessary, the algorithm calls `_detect_intersections_deep()`
-           to perform recursive subdivision and deeper checks on the patches.
-
-    Example Usage:
-
-    .. code-block:: python
-
-        surface1 = NURBSSurface(...)  # Create first NURBS surface
-        surface2 = NURBSSurface(...)  # Create second NURBS surface
-        debug_tree = DebugTree()      # Initialize the debug tree for tracing
-
-        # Detect intersections between the two surfaces
-        intersections = detect_intersections(surface1, surface2, debug_tree)
-
-        # Process and output the results
-        for surf_pair in intersections:
-            surf1, surf2 = surf_pair
-            print(f"Intersecting surfaces: {surf1}, {surf2}")
-
-    Performance Considerations:
-        - The BVH structure significantly reduces the number of patch pairs that need to be checked, improving performance
-          compared to a brute-force approach.
-        - The convex hull and Gauss map checks allow for early elimination of non-intersecting patches, further speeding
-          up the process.
-
-    Notes:
-        - This method is designed for use with NURBS surfaces and leverages Bezier patch decomposition, which is crucial
-          for the construction of Gauss maps in the monomial basis.
-        - The current implementation strikes a balance between performance and robustness, but further optimization may
-          be possible, particularly in reducing the number of recursive subdivisions.
-
-    """
-    s1d = decompose_surface(surf1, normalize_knots=False )
-    s2d = decompose_surface(surf2, normalize_knots=False)
-
-    #subs = debug_tree.subd(len(s1d) * len(s2d))
-    index = 0
-    intersections = []
-    #for _ in s1d:
-    #    _.normalize_knots()
-    #for _ in s2d:
-    #    _.normalize_knots()
-    tree1 = build_bvh([NURBSObject(s) for s in s1d])
-    tree2 = build_bvh([NURBSObject(s) for s in s2d])
-    gauss_maps=dict()
-    for obj1, obj2 in intersect_bvh_objects(tree1, tree2):
-
-        f = obj1.object.surface
-        s = obj2.object.surface
-        #dddd = [False, False, False]
-        #subs[index].data = (f, s, dddd)
-
-        #h1, h2 = ConvexHull(f.control_points_flat), ConvexHull(
-        #    s.control_points_flat
-        #)
-        chs=dict()
-        #print('k',f.interval(),s.interval())
-        #if gjk(h1.points[h1.vertices], h2.points[h2.vertices], 1e-5, 25):
-        if gjk(f.control_points_flat, s.control_points_flat, 1e-5, 25):
-
-            # Convex Hulls пересекаются
-            # Строим карты гаусса для дальнейших проверок
-            if id(f) not in gauss_maps:
-                gauss_maps[id(f)]=GaussMap.from_surf(f)
-            if id(s) not in gauss_maps:
-                gauss_maps[id(s)]=GaussMap.from_surf(s)
-
-            ss, ff =gauss_maps[id(f)], gauss_maps[id(s)]
-            ss.compute()
-            ff.compute()
-            #dddd[1] = True
-
-
-
-            p1, p2 = separate_gauss_maps(ff, ss)
-
-            if (p1 is None) or (p2 is None):
-                # Карты не могут быть разделены, запускаем глубокую проверку для данных патчей
-                #dddd[2] = True
-                #sbb = subs[index].subd(1)
-                #
-                intersections.extend(_detect_intersections_deep(ss, ff, chs, tol=tol))
-        index += 1
-    return intersections
-
 
 if __name__ == "__main__":
     from mmcore._test_data import ssx as td
 
-    S1, S2 = td[1]
-    TOL=1e-2
-    import time
-    s=time.perf_counter_ns()
-    res = detect_intersections(S1, S2,TOL)
-    print((time.perf_counter_ns()-s)*1e-9)
-    fff = []
-    for i, j in res:
-        ip = np.array(i.control_points)
-        jp = np.array(j.control_points)
 
-        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
-            import warnings
-
-            warnings.warn("NAN")
-        else:
-            fff.append((ip.tolist(), jp.tolist()))
-
-    with open('../../tests/norm1.txt', 'w') as f:
-        print(fff, file=f)
-
-    S1, S2 = td[2]
-
-    import time
-    s=time.perf_counter_ns()
-    res = detect_intersections(S1, S2,TOL)
-    print((time.perf_counter_ns()-s)*1e-9)
-    fff = []
-    s=time.perf_counter_ns()
-    ptss=[]
-    for i, j in res:
-        ip = np.array(i.control_points)
-        jp = np.array(j.control_points)
-
-
-
-
-
-        if np.any(np.isnan(ip.flatten())) or np.any(np.isnan(jp.flatten())):
-            import warnings
-
-            warnings.warn("NAN")
-        else:
-            fff.append((ip.tolist(), jp.tolist()))
-        ff=False
-        (umin,umax),(v_min,v_max)=i.interval()
-        for l in (lambda : extract_isocurve(i, v_min, 'v'),
-                  lambda : extract_isocurve(i, umin, 'u'),
-                  lambda : extract_isocurve(i, umax, 'u'),
-                  lambda : extract_isocurve(i, v_max, 'v')):
-            c=l()
-            #print([c.control_points.tolist(),np.array(j.control_points_flat
-            #      ).tolist()])
-
-            res=nurbs_csx(c,j,tol=TOL,ptol=1e-5)
-
-            if len(res)>0:
-                    for oo in res:
-
-                        ptss.append(c.evaluate(oo[2][0]).tolist())
-
-                    ff=True
-
-                    continue
-            #print(ptss)
-        if not ff:
-            (umin, umax), (v_min, v_max) = j.interval()
-            for l in (lambda : extract_isocurve(j, v_min, 'v'),
-                  lambda : extract_isocurve(j, umin, 'u'),
-                  lambda : extract_isocurve(j, umax, 'u'),
-                  lambda : extract_isocurve(j, v_max, 'v')):
-                c = l()
-                res = nurbs_csx(c, i,tol=TOL,ptol=1e-7)
-                for oo in res:
-                    ptss.append(c.evaluate(oo[2][0]).tolist())
-    print((time.perf_counter_ns() - s) * 1e-9)
-
-    with open('../../tests/norm2.txt', 'w') as f:
-        print(fff, file=f)
-
-    print(ptss)
-    def get_first_layer_dbg(dbg: DebugTree):
-        cnds = []
-        for ch in dbg.chidren:
-            if ch.data:
-
-                if all(ch.data[-1]):
-                    cnds.append(
-                        [np.array(ch.data[0].control_points).tolist(), np.array(ch.data[1].control_points).tolist()])
-
-        return cnds

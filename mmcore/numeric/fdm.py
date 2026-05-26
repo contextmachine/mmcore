@@ -1,25 +1,61 @@
+from __future__ import annotations
 import dataclasses
 import functools
 import math
 import sys
 import warnings
 from enum import Enum
+from functools import lru_cache
 
 from mmcore.numeric.vectors import scalar_dot, scalar_norm, norm
-from typing import Callable, Optional, Iterable
+from typing import Callable, Optional, Iterable,Literal
 
 import numpy as np
-from scipy.optimize import minimize
-
-DEFAULT_H = 1e-3
-_DECIMALS = 5
-from scipy.sparse import eye, csr_matrix
-
-_PDE_H = csr_matrix(eye(128))
 
 
+FloatType=Literal["float32","float64"]
+
+_MACHINE_EPS:dict[FloatType, float]={
+'float32':np.finfo(np.float32).eps.item(),
+'float64':np.finfo(np.float64).eps.item(),
+
+}
+
+_MACHINE_EPS_SQ:dict[FloatType, float]={
+'float32':np.sqrt(np.finfo(np.float32).eps).item(),
+'float64':np.sqrt(np.finfo(np.float64).eps).item(),
+
+}
+_MACHINE_EPS_CBRT:dict[FloatType, float]={
+'float32':np.cbrt(np.finfo(np.float32).eps).item(),
+'float64':np.cbrt(np.finfo(np.float64).eps).item(),
+
+}
+_MACHINE_DECIMALS:dict[FloatType, int]={
+'float32':np.finfo(np.float32).precision,
+'float64':np.finfo(np.float64).precision,
+
+}
+
+_MACHINE_DECIMALS_SQ:dict[FloatType, int]={
+'float32':math.ceil(np.finfo(np.float32).precision/2),
+'float64':math.ceil(np.finfo(np.float64).precision/2),
+
+}
+
+
+def _get_decimals(x:float)->int:
+    return int(math.ceil(-math.log10(x)))
+
+DEFAULT_H = _MACHINE_EPS_CBRT['float64'] #  (Sauer, Timothy (2012). Numerical Analysis. Pearson. p.248.)[https://en.wikipedia.org/wiki/Numerical_differentiation#cite_ref-7]
+_DECIMALS = _get_decimals(DEFAULT_H)
+
+
+#_PDE_H = csr_matrix(eye(128))
+
+@lru_cache(maxsize=128)
 def _get_pde_h(dim):
-    return _PDE_H[:dim, :dim]
+    return np.eye(dim)
 
 
 def fdm(f, method="central", h=DEFAULT_H):
@@ -485,7 +521,7 @@ def gradient(f, point, h=DEFAULT_H):
     return grad
 
 
-def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,h=1e-5):
+def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,h=1e-4):
     """
     Apply Newton's method to find the root of a function.
     The same powerful newton converging in a few iterations.
@@ -514,30 +550,122 @@ def newtons_method(f, initial_point, tol=0.00001, max_iter=100, no_warn=False, f
     else:
         hess=hess
     grad=None
+    step=None
+    prev_fpt=f(point)
     for _ in range(max_iter):
+        
         grad = _grad(point)
         H = hess( point)
-
+      
+        # More robust verification here
         try:
 
-            H_inv = np.linalg.inv(H)
+            H_inv = np.linalg.pinv(H)
         except np.linalg.LinAlgError:
             if not no_warn:
                 warnings.warn(f"Hessian is singular at the point {point}")
             break
         step = H_inv @ grad
         new_point = point - step
+        fpt=f(new_point)
+        if fpt>prev_fpt or (np.abs(fpt-prev_fpt) <tol):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        else:
+            prev_fpt = fpt
+       
         if scalar_norm(new_point - point) < tol:
             if full_return:
                 return new_point,grad,H, H_inv,_
+          
             return new_point
         point = new_point
+        
     if not no_warn:
-        warnings.warn(f"Iteration limit {max_iter} at {point} ")
+        
+        warnings.warn(f"Iteration limit {max_iter} at point: {point}, step: {step} ")
     if full_return:
         return None, grad, H, H_inv, max_iter
     return None
 
+
+def bounded_newtons_method(f, initial_point, bounds,tol=0.00001, max_iter=100, no_warn=False, full_return=False, grad=None, hess=None,
+                   h=1e-4):
+    """
+    Apply Newton's method to find the root of a function.
+    The same powerful newton converging in a few iterations.
+
+    :param f: The function for which the root is to be found.
+    :param initial_point: The initial point for the iteration.
+    :param tol: Tolerance for the stopping criterion. Default is DEFAULT_H.
+    :param max_iter: Maximum number of iterations. Default is 100.
+    :param no_warn: If True, suppress warnings. Default is False.
+    :param full_return: If True, return all intermediate variables. Default is False.
+    :param grad: The gradient of the function. If None, compute the gradient using the gradient function.
+    :param hess: The Hessian of the function. If None, compute the Hessian using the hessian function.
+    :return: The root of the function if found, None otherwise.
+
+    """
+    point = np.asarray(initial_point)
+    low,up=np.asarray(list(zip(*bounds)))
+    H_inv = None
+    H = None
+    if grad is None:
+        _grad = lambda x: gradient(f, x, h)
+    else:
+        _grad = grad
+    if hess is None:
+        hess = lambda x: hessian(f, x, h)
+    
+    else:
+        hess = hess
+    grad = None
+    step = None
+    prev_fpt = f(point)
+    for _ in range(max_iter):
+        
+        grad = _grad(point)
+        H = hess(point)
+        
+        # More robust verification here
+        try:
+            
+            H_inv = np.linalg.pinv(H)
+        except np.linalg.LinAlgError:
+            if not no_warn:
+                warnings.warn(f"Hessian is singular at the point {point}")
+            break
+        step = H_inv @ grad
+        new_point = point - step
+        mask=(low<new_point)| (new_point> up)
+       
+        if np.all(mask):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        new_point = np.clip(new_point, low, up)
+        
+        fpt = f(new_point)
+        if fpt > prev_fpt or (np.abs(fpt - prev_fpt) < tol):
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            return new_point
+        else:
+            prev_fpt = fpt
+        
+        if scalar_norm(new_point - point) < tol:
+            if full_return:
+                return new_point, grad, H, H_inv, _
+            
+            return new_point
+        point = new_point
+    
+    if not no_warn:
+        warnings.warn(f"Iteration limit {max_iter} at point: {point}, step: {step} ")
+    if full_return:
+        return None, grad, H, H_inv, max_iter
+    return None
 def hessian_multi(f, points, h=DEFAULT_H):
     """
     Calculate the Hessian matrix of a given function `f` at a given `point`.
@@ -752,24 +880,6 @@ def multi_newtons_method(f, initial_point, tol=1e-6, max_iter=100, no_warn=False
 
 
 
-
-def calculate_bnds(surface, centroid=(0., 0., 0.)):
-    cons = {'type': 'eq', 'fun': surface}
-
-    axis = np.eye(3)
-    bounds = np.zeros((2, 3))
-
-    c = np.array(centroid, dtype=float)
-    for j, n in enumerate(axis):
-        x1 = minimize(lambda point: -1 * scalar_dot(n, point - c), centroid,
-                      constraints=cons)
-        x2 = minimize(lambda point: -1 * scalar_dot(-n, point - c), centroid,
-                      constraints=cons)
-        bounds[0][j] = x1.x[j]
-
-        bounds[1][j] = x2.x[j]
-
-    return bounds
 if __name__ == '__main__':
     from mmcore.geom.primitives import Cylinder
 

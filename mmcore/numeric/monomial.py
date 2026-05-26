@@ -25,7 +25,6 @@ def bpmat(n, method="mmcore"):
     )
 
 
-
 def bezier_to_monomial(control_points, bmethod="mmcore"):
     """
     Convert Bezier curve control points to monomial coefficients.
@@ -52,14 +51,20 @@ def bezier_to_monomial(control_points, bmethod="mmcore"):
          [[2. 3. 0.]
           [1. 0. 4.]]]
     """
-    n, m, dim = control_points.shape
-    Mu = bpmat(n - 1,method=bmethod)
-    Mv = bpmat(m - 1,method=bmethod)
+    if len(control_points.shape) == 3:
+        n, m, dim = control_points.shape
+        Mu = bpmat(n - 1,method=bmethod).astype(control_points.dtype)
+        Mv = bpmat(m - 1,method=bmethod).astype(control_points.dtype)
 
-    monomial_coeffs = np.zeros((n, m, dim))
-    for d in range(dim):
-        monomial_coeffs[:, :, d] = Mu @ control_points[:, :, d] @ Mv.T
-
+        monomial_coeffs = np.zeros((n, m, dim),dtype=control_points.dtype)
+        for d in range(dim):
+            monomial_coeffs[:, :, d] = Mu @ control_points[:, :, d] @ Mv.T
+    else:
+        n, dim = control_points.shape
+        Mu = bpmat(n - 1, method=bmethod).astype(control_points.dtype)
+        monomial_coeffs = np.zeros((n, dim),dtype=control_points.dtype)
+        for d in range(dim):
+            monomial_coeffs[:, d] = Mu @ control_points[:, d]
     return monomial_coeffs
 
 
@@ -84,18 +89,25 @@ def monomial_to_bezier(monomial_coeffs, bmethod="mmcore"):
         >>> monomial_coeffs = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
         >>> control_points = monomial_to_bezier(monomial_coeffs, bmethod="mmcore")
     """
-    n, m, dim = monomial_coeffs.shape
-    #print(n - 1)
-    #print(m-1)
-    Mu_inv = np.linalg.inv(bpmat(n - 1, method=bmethod))
-    Mv_inv = np.linalg.inv(bpmat(m - 1, method=bmethod))
+    if len(monomial_coeffs.shape) == 3:
+        n, m, dim = monomial_coeffs.shape
+        # print(n - 1)
+        # print(m-1)
+        Mu_inv = np.linalg.inv(bpmat(n - 1, method=
+                                     'scipy')).astype(monomial_coeffs.dtype)
+        Mv_inv = np.linalg.inv(bpmat(m - 1, method='scipy')).astype(monomial_coeffs.dtype)
 
-    control_points = np.zeros((n, m, dim))
-    for d in range(dim):
-        control_points[:, :, d] = Mu_inv @ monomial_coeffs[:, :, d] @ Mv_inv.T
-
+        control_points = np.zeros((n, m, dim),dtype=monomial_coeffs.dtype)
+        for d in range(dim):
+            control_points[:,:, d] = Mu_inv @ monomial_coeffs[:,:, d] @ Mv_inv.T
+    else:
+        n, dim = monomial_coeffs.shape
+        Mu_inv = np.linalg.inv(bpmat(n - 1, method=bmethod)).astype(monomial_coeffs.dtype)
+        print(Mu_inv)
+        control_points = np.zeros((n,  dim),dtype=monomial_coeffs.dtype)
+        for d in range(dim):
+            control_points[:, d] = Mu_inv @ monomial_coeffs[:, d]
     return control_points
-
 
 
 def homogeneous_monomial_to_rational_bezier(homogeneous_coeffs):
@@ -114,14 +126,14 @@ def homogeneous_monomial_to_rational_bezier(homogeneous_coeffs):
     n, m, _ = homogeneous_coeffs.shape
 
     # Convert each component (including the weight) to Bézier form
-    bezier_coeffs = np.zeros((n, m, 4))
+    bezier_coeffs = np.zeros((n, m, 4),dtype=homogeneous_coeffs.dtype)
     for d in range(4):
         bezier_coeffs[:, :, d] = monomial_to_bezier(
             homogeneous_coeffs[:, :, d : d + 1]
         )[:, :, 0]
 
     # Normalize the control points by the weight
-    rational_control_points = np.zeros((n, m, 4))
+    rational_control_points = np.zeros((n, m, 4),dtype=homogeneous_coeffs.dtype)
     rational_control_points[:, :, 3] = bezier_coeffs[:, :, 3]  # Weights
     for d in range(3):
         rational_control_points[:, :, d] = (
@@ -131,12 +143,10 @@ def homogeneous_monomial_to_rational_bezier(homogeneous_coeffs):
     return rational_control_points
 
 
-
-
 def evaluate_bezier_patch(control_points, u, v):
     """Evaluate a Bézier patch at given parameter values."""
     n, m, dim = control_points.shape
-    result = np.zeros(dim)
+    result = np.zeros(dim,dtype=control_points.dtype)
     for i in range(n):
         for j in range(m):
             b_u = comb(n - 1, i) * (u**i) * ((1 - u) ** (n - 1 - i))
@@ -155,12 +165,12 @@ def evaluate_rational_bezier_patch(control_points, weights, u, v):
     numpy.ndarray: The point on the rational Bézier patch at (u, v)
     """
     n, m, dim = control_points.shape
-    numerator = np.zeros(dim)
+    numerator = np.zeros(dim,dtype=control_points.dtype)
     denominator = 0.0
     for i in range(n):
         for j in range(m):
-            b_u = comb(n - 1, i) * (u**i) * ((1 - u) ** (n - 1 - i))
-            b_v = comb(m - 1, j) * (v**j) * ((1 - v) ** (m - 1 - j))
+            b_u = comb(n - 1, i) * (u**i) * ((1 - u) ** (n - 1 - i)).astype(control_points.dtype)
+            b_v = comb(m - 1, j) * (v**j) * ((1 - v) ** (m - 1 - j)).astype(control_points.dtype)
             basis = b_u * b_v * weights[i, j]
             numerator += control_points[i, j] * basis
             denominator += basis
@@ -169,7 +179,7 @@ def evaluate_rational_bezier_patch(control_points, weights, u, v):
 def evaluate_monomial2d(coeffs, u, v):
     """Evaluate a monomial form surface at (u,v)."""
     n, m, dim = coeffs.shape
-    result = np.zeros(dim)
+    result = np.zeros(dim,dtype=coeffs.dtype)
     for i in range(n):
         for j in range(m):
             for d in range(dim):
@@ -192,7 +202,7 @@ def cross_product_monomial(a_coeffs, b_coeffs):
     n2, m2, _ = b_coeffs.shape
     n, m = n1 + n2 - 1, m1 + m2 - 1
 
-    result = np.zeros((n, m, 3))
+    result = np.zeros((n, m, 3),dtype=a_coeffs.dtype)
     print(list(product(range(n1), range(m1), range(n2), range(m2))))
 
     for i1, j1, i2, j2 in product(range(n1), range(m1), range(n2), range(m2)):
@@ -213,7 +223,6 @@ def cross_product_monomial(a_coeffs, b_coeffs):
     return result
 
 
-
 def monomial_partial_derivatives(coeffs):
     """
     Compute partial derivatives of a bivariate polynomial in monomial form.
@@ -230,12 +239,12 @@ def monomial_partial_derivatives(coeffs):
     n, m, dim = coeffs.shape
 
     # Partial derivative with respect to u
-    du_coeffs = np.zeros((n - 1, m, dim))
+    du_coeffs = np.zeros((n - 1, m, dim),dtype=coeffs.dtype)
     for i in range(1, n):
         du_coeffs[i - 1, :, :] = i * coeffs[i, :, :]
 
     # Partial derivative with respect to v
-    dv_coeffs = np.zeros((n, m - 1, dim))
+    dv_coeffs = np.zeros((n, m - 1, dim),dtype=coeffs.dtype)
     for j in range(1, m):
         dv_coeffs[:, j - 1, :] = j * coeffs[:, j, :]
 

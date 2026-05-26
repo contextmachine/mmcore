@@ -10,8 +10,9 @@ from mmcore.geom.surfaces import CurveOnSurface, Surface
 from enum import Enum
 from mmcore.numeric.vectors import scalar_norm
 
-from mmcore.numeric.intersection.csx import curve_surface_intersection
+from mmcore.numeric.intersection.csx import curve_surface_intersection, nurbs_csx
 from mmcore.numeric.intersection.ssx.boundary_intersection import find_boundary_intersections
+from mmcore.geom.nurbs_iso import extract_isocurve
 
 
 class TerminatorType(int, Enum):
@@ -142,12 +143,12 @@ def surface_surface_boundary_intersection(surf1: Surface, surf2: Surface, tol=1e
         uv1 = []
         uv2 = []
         xyz = []
-        for l in find_boundary_intersections(surf1, surf2, tol=tol):
+        for l in find_boundary_intersections(surf1, surf2, spt=tol):
             if not tuple(l.point) in xyz and not l.surface1_params in uv1 and not l.surface2_params  in uv2:
 
                 xyz.append(tuple(l.point))
-                #print(l.surface1_params,closest_point_on_nurbs_surface( surf1, l.point, tol=tol))
-                #print(l.surface2_params, closest_point_on_nurbs_surface(surf2, l.point, tol=tol))
+                #print(l.surface1_params,closest_point_on_nurbs_surface( surf1, l.point, spt=spt))
+                #print(l.surface2_params, closest_point_on_nurbs_surface(surf2, l.point, spt=spt))
                 uv1.append(l.surface1_params)
                 uv2.append(l.surface2_params)
                 #uv1.append(l.surface1_params)

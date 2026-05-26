@@ -355,7 +355,8 @@ class Union2D(Implicit2D):
 
 class Union3D(Implicit3D):
     def __init__(self, a: Implicit3D, b: Implicit3D):
-        super().__init__()
+        self.dxdy = fdm(self.implicit)
+        self._tree = None
         self.a = a
         self.b = b
         self._bounds = None
@@ -381,7 +382,8 @@ class Union3D(Implicit3D):
 
 class Intersection2D(Implicit2D):
     def __init__(self, a: Implicit2D, b: Implicit2D):
-        super().__init__()
+        self.dxdy = fdm(self.implicit)
+        self._tree = None
         self.a = a
         self.b = b
         self._bounds = None
@@ -403,11 +405,13 @@ class Intersection2D(Implicit2D):
 
     def bounds(self):
         return self._bounds
-
+    def vimplicit(self, pts):
+        return np.max([self.a(pts)    ,self.b(pts)],axis=0     )
 
 class Intersection3D(Implicit3D):
     def __init__(self, a: Implicit3D, b: Implicit3D):
-        super().__init__()
+        self.dxdy = fdm(self.implicit)
+        self._tree = None
         self.a = a
         self.b = b
         self._bounds = None
@@ -425,11 +429,14 @@ class Intersection3D(Implicit3D):
         )
 
     def implicit(self, v):
+     
         return np.array(op_intersection(self.a.implicit(v), self.b.implicit(v)))
 
     def bounds(self):
         return self._bounds
 
+    def vimplicit(self, pts):
+        return np.max([self.a(pts)    ,self.b(pts)],axis=0     )
 
 class Sub2D(Implicit2D):
     def __init__(self, a: Implicit2D, b: Implicit2D):

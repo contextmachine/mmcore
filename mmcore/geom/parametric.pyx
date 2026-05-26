@@ -3,7 +3,7 @@ cimport cython
 import numpy as np
 cimport numpy as cnp
 
-from mmcore.numeric.interval import _interval
+
 
 cnp.import_array()
 from mmcore.numeric.vectors cimport sub3d
@@ -11,7 +11,7 @@ from mmcore.numeric.vectors cimport sub3d
 cdef double DEFAULT_H=1e-3
 from mmcore.numeric cimport vectors
 from mmcore.numeric cimport calgorithms
-from mmcore.geom.evaluator cimport surface_evaluator
+
 from libc.math cimport fabs
 @cython.boundscheck(False)
 @cython.wraparound(False)

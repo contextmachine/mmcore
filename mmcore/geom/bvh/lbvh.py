@@ -1,0 +1,633 @@
+from __future__ import annotations
+import dataclasses
+from dataclasses import InitVar,field
+from typing import Optional, Iterable
+import numpy as np
+
+from numpy.typing import NDArray
+def left(i):
+    return 2 *i + 1
+
+
+def right(i):
+    return 2 * i + 2
+
+
+def parent(i):
+    return (i - 1) // 2
+
+
+@dataclasses.dataclass
+class AABB:
+
+    min: np.ndarray = np.inf
+    max: np.ndarray = -np.inf
+    _array: Optional[NDArray] = field(init=False, default=None, repr=False,compare=False)
+   
+    
+    def _ensure_array(self):
+        if self._array is None:
+            self._array = np.array((self.min, self.max), float)
+            self.min = self._array[0, :]
+            self.max = self._array[1, :]
+        
+    def __array__(self, dtype=None,copy:bool=None) -> NDArray[np.float64]:
+      
+            if self._array is None:
+                
+                self._ensure_array()
+            return self._array.__array__(dtype,copy=copy)
+    
+
+    @property
+    def dim(self):
+        return self.min.shape[-1]
+
+    def merge(self, other: "AABB"):
+
+        return AABB(np.min([self.min, other.min], axis=0), np.max([self.max, other.max], axis=0))
+
+    @classmethod
+    def from_points(cls, pts):
+        ptsarr=np.asarray(pts)
+        return AABB(np.min(ptsarr,axis=0),np.max(ptsarr,axis=0))
+
+    @classmethod
+    def from_dim(cls, dim:int=3):
+        _bnds = np.zeros((2,dim))
+        ptsarr = np.asarray(_bnds)
+        return AABB(np.min(ptsarr, axis=0), np.max(ptsarr, axis=0))
+
+    def intersects(self, other: "AABB") -> bool:
+        """Return True if this box intersects with another."""
+        # No intersection if one is completely to one side of the other
+        return not (np.any(self.max < other.min) or np.any(self.min > other.max))
+
+    def intersects_exact(self, other: "AABB") -> bool:
+        """Return True if this box intersects with another."""
+        # No intersection if one is completely to one side of the other
+        return not (np.any(self.max <= other.min) or np.any(self.min >= other.max))
+    def offset(self, d:float):
+        return AABB(self.min-d,self.max+d)
+    def offset_inplace(self, d:float):
+        self.min-=d
+        self.max+=d
+    def contains(self, obj:NDArray[float]|AABB):
+        """
+     
+        
+        :param obj:  point or AABB
+        :type obj:
+        :return:
+        :rtype:
+        """
+        if isinstance(obj,AABB):
+            return np.all(self.min<=obj.min) and  np.all(self.max>=obj.max)
+        else:
+            return np.all(self.min <= obj) and np.all(self.max>=obj)
+    
+    def contains_point(self, pt) -> bool:
+        
+        return not (np.any(self.max <= pt) or np.any(self.min >= pt))
+    
+    def diag(self):
+        return self.max-self.min
+    def centroid(self):
+        return (self.max+self.min)/2
+    
+    def is_finite(self):
+        return np.all(np.isfinite(self.min    ) )and np.all(np.isfinite(self.max))
+    def is_empty(self, allow_flat=False):
+        m=np.prod(self.diag()).item()
+        return m<0 if  allow_flat else m<=0
+    def is_flat(self,rtol=1.e-5, atol=1.e-8,):
+        m = np.prod(self.diag()).item()
+        return np.isclose(m,0,rtol=rtol,atol=atol)
+    
+    def volume(self):
+        if self.dim!=3:
+            raise ValueError(f'volume method is undefined for the {self.dim}-dim AABB')
+        else :
+           
+            return np.prod(self.diag()).item()
+    
+    def __iter__(self):
+        return iter((self.min,self.max))
+    
+   
+    def intersection(self, other:AABB)->AABB:
+        
+        min_pt = np.maximum(self.min, other.min)
+        max_pt = np.minimum(self.max, other.max)
+        if np.any(min_pt>max_pt):
+            return AABB()
+        return AABB(min_pt,max_pt)
+    
+    def sd(self, point):
+        # ensure numpy arrays
+        p = np.asarray(point, dtype=float)
+        # compute box center and half-sizes
+        center = (self.min + self.max) * 0.5
+        half_size = (self.max - self.min) * 0.5
+        
+        # transform point into box‐centered local coordinates
+        local_p = p - center
+        
+        # compute difference from half-sizes
+        q = np.abs(local_p) - half_size
+        
+        # outside distance: length of positive parts of q
+        q_pos = np.maximum(q, 0.0)
+        outside_dist = np.linalg.norm(q_pos)
+        
+        # inside distance: the largest negative component (or zero)
+        inside_dist = min(np.max(q), 0.0)
+        
+        return outside_dist + inside_dist
+
+
+@dataclasses.dataclass(unsafe_hash=True)
+class BVHNode:
+    bbox: AABB = dataclasses.field(default_factory=AABB)
+    left: int = -1
+    right: int = -1
+
+    object: int = -1
+
+    def is_leaf(self):
+        return self.object!= -1
+
+
+def split_objects(objects: list[tuple[int, AABB]])-> tuple[list[tuple[int, AABB]], list[tuple[int, AABB]]]:
+    """Splits list of objects into two halves"""
+    # Calculate bounding box of each object
+    assert len(objects)>0
+    # Compute the midpoint of each centroid
+    centroids = [[(box.min[i] + box.max[i]) / 2 for i in range(box.dim)] for ix, box in objects]
+
+    # Choose the axis to split along (longest axis)
+    centroid_array = np.array(centroids)
+    min_centroid = np.min(centroid_array, axis=0)
+    max_centroid = np.max(centroid_array, axis=0)
+    axis = np.argmax(max_centroid - min_centroid)
+
+    # Sort objects along chosen axis by centroids
+
+    objects.sort(key=lambda obj: (obj[1].min[axis] + obj[1].max[axis]) / 2)
+
+    # Split objects into two halves
+
+    mid_index = len(objects) // 2
+    # print(objects[:mid_index], objects[mid_index:])
+
+    return objects[:mid_index], objects[mid_index:]
+
+
+def split_objects_v2(objects: list[tuple[int, AABB]]) -> tuple[list[tuple[int, AABB]], list[tuple[int, AABB]]]:
+    """Splits list of objects into two halves"""
+    # Calculate bounding box of each object
+    assert len(objects) > 0
+    # Compute the midpoint of each centroid
+    centroids = [[(box.min[i] + box.max[i]) / 2 for i in range(box.dim)] for ix, box in objects]
+
+    # Choose the axis to split along (longest axis)
+    centroid_array = np.array(centroids)
+    min_centroid = np.min(centroid_array, axis=0)
+    max_centroid = np.max(centroid_array, axis=0)
+    axis = np.argmax(max_centroid - min_centroid)
+
+    # Sort objects along chosen axis by centroids
+
+    objects.sort(key=lambda obj: obj[1].min[axis]+(obj[1].max[axis]-obj[1].min[axis] ) *0.5)
+
+    # Split objects into two halves
+
+    mid_index = len(objects) // 2
+
+    # print(objects[:mid_index], objects[mid_index:])
+
+    return objects[:mid_index], objects[mid_index:]
+
+from collections import defaultdict
+from mmcore.ds.union_find import group_tuples
+@dataclasses.dataclass
+class BVH:
+    nodes: list[BVHNode] = dataclasses.field(default_factory=list)
+    root_index: Optional[int] = None
+    max_objects_in_leaf:int=1
+    leafs:list[int]=None
+    def get_root(self) -> BVHNode:
+        return self.nodes[self.root_index]
+
+    def resize(self, new_size):
+        old_size=len(self.nodes)
+        print(old_size,new_size)
+        if new_size==old_size:
+            return
+        elif old_size>new_size:
+
+            for i in range(new_size,old_size):
+                self.nodes.pop(-1)
+        else:
+            self.nodes.extend([None]*(new_size-old_size+1))
+
+    def _build_bvh_internal(self, objects: list[tuple[int, AABB]], current_index: int=0)->int:
+        """Recursively build the BVH tree given a list of objects with bounding boxes"""
+
+        if current_index >= len(self.nodes):
+            self.resize(current_index+1)
+
+
+        node = self.nodes[current_index]
+        if node is None:
+            node=BVHNode()
+            self.nodes[current_index]=node
+        if len(objects) <= self.max_objects_in_leaf:
+            # Leaf node
+
+            node.bbox = objects[0][1]
+            node.object = objects[0][0]
+            self.leafs.append(current_index)
+            return current_index
+
+        # Recursively build internal nodes
+        left_objs, right_objs = split_objects(objects)
+
+        node.left = self._build_bvh_internal(left_objs,  current_index=left(current_index))
+
+        node.right = self._build_bvh_internal(right_objs,  current_index=right(current_index))
+
+        # Merge bounding boxes
+        self.nodes[current_index].bbox = self.nodes[node.left].bbox.merge(self.nodes[node.right].bbox)
+
+        # Create and return internal node
+
+        return current_index
+
+    def build(self, bboxes: list[AABB]):
+        self.leafs=[]
+        self.nodes = [None]*(2 * len(bboxes) - 1)
+
+        self.root_index = self._build_bvh_internal([(i, bbox) for i, bbox in enumerate(bboxes)], current_index=0)
+        return self
+
+    def separable(self, i, exact: bool = True):
+        node = self.nodes[i]
+        if node is None:
+            raise ValueError(f"Node {i} does not exist")
+        if node.is_leaf():
+            return False
+        if exact:
+            return not self.nodes[node.left].bbox.intersects_exact(self.nodes[node.right].bbox)
+        else:
+            return not self.nodes[node.left].bbox.intersects(self.nodes[node.right].bbox)
+
+    def find_intersecting_leaves(self, exact:bool=True) -> dict[int, set[int]]:
+        """
+        Returns a dictionary mapping each leaf node index to a list of other leaf node indices
+        whose bounding boxes intersect with it (excluding itself).
+        """
+        
+        overlaps: dict[int, set[int]] = defaultdict(set)
+
+        def recurse(i: int, j: int):
+            # avoid duplicate and self pairs
+            
+            node_i = self.nodes[i]
+            node_j = self.nodes[j]
+            if node_i is None or node_j is None:
+                return
+            # prune if bboxes do not intersect
+            if exact:
+                if not node_i.bbox.intersects_exact(node_j.bbox):
+                    return
+            else:
+                if not node_i.bbox.intersects(node_j.bbox):
+                    return
+            # if both are leaves, record overlap
+
+            if node_i.is_leaf() and node_j.is_leaf():
+                if i != j:
+                    overlaps[i].add(j)
+                    
+                    overlaps[j].add(i)
+                    
+                    
+                return
+            # recurse on children combinations
+            if not node_i.is_leaf() and not node_j.is_leaf():
+                recurse(node_i.left, node_j.left)
+                recurse(node_i.left, node_j.right)
+                recurse(node_i.right, node_j.left)
+                recurse(node_i.right, node_j.right)
+            elif not node_i.is_leaf():
+                recurse(node_i.left, j)
+                recurse(node_i.right, j)
+            else:
+                recurse(i, node_j.left)
+                recurse(i, node_j.right)
+
+        recurse(self.root_index, self.root_index)
+        return overlaps
+ 
+    def build_intersection_leaves_pairs(self,overlaps:dict[int,Iterable[int]]|None=None,exact:bool=True )->set[tuple[int,int]]:
+        if overlaps is None:
+            overlaps=self.find_intersecting_leaves(exact=exact)
+            
+        pairs=set()
+        for k, items in overlaps.items():
+            for item in items:
+                pairs.add((min(k, item), max(k, item)))
+        return pairs
+    
+    
+    def build_intersection_leaves_groups(self,pairs_or_overlaps: dict[int,Iterable[int]] | set[tuple[int,int]] | None=None, exact=True) -> list[list[tuple[int,int]]]:
+        if pairs_or_overlaps is None:
+            pairs_or_overlaps=self.find_intersecting_leaves(exact=exact)
+            
+        if isinstance(pairs_or_overlaps, dict):
+            pairs=self.build_intersection_leaves_pairs(pairs_or_overlaps)
+        elif isinstance(pairs_or_overlaps,set):
+            pairs=pairs_or_overlaps
+        else:
+            raise ValueError(f"pairs_or_overlaps must be dict or set, got {type(pairs_or_overlaps)}")
+        
+        return group_tuples(list(pairs))
+        
+    def find_intersecting_leaves2(self, exact:bool=True) -> dict[int, list[int]]:
+        """
+        Returns a dictionary mapping each leaf node index to a list of other leaf node indices
+        whose bounding boxes intersect with it (excluding itself).
+        """
+        dct=dict()
+        for leaf_node_ix in self.leafs:
+            res=_inter_bvh_node(self, leaf_node_ix,exact=exact)
+            if len(res)>0:
+                dct[leaf_node_ix]=res
+
+        return dct
+
+    def get_leaves(self, node=None):
+        if node is None:
+            return (self.nodes[i] for i in self.leafs)
+        else:
+
+            stack=[node
+                   ]
+            while stack:
+                current=stack.pop(0)
+                if current.is_leaf():
+                    yield current
+                else:
+                    stack.append(self.nodes[current.left])
+                    stack.append(self.nodes[current.right])
+    def get_bboxes(self):
+        stack=[self.root_index]
+        while stack:
+            current=stack.pop()
+            node=self.nodes[current]
+            yield np.array(node.bbox)
+            if self.nodes[current].is_leaf():
+                continue
+            stack.append(self.nodes[current].left)
+            stack.append(self.nodes[current].right)
+        
+def build_bvh(bboxes,  max_objects_in_leaf:int=1)->BVH:
+    tree = BVH(max_objects_in_leaf=max_objects_in_leaf)
+    tree.build(bboxes)
+    return tree
+
+
+import heapq
+
+from typing import Callable
+
+import numpy as np
+
+
+def point_segment_distance2(P: np.ndarray, A: np.ndarray, B: np.ndarray) -> float:
+    """
+    Distance from point P to segment AB.
+    """
+    AB = B - A
+    t = np.dot(P - A, AB) / np.dot(AB, AB)
+    t = np.clip(t, 0.0, 1.0)
+    proj = A + t * AB
+    d=P - proj
+    return np.dot(d,d)
+
+
+def point_triangle_distance2(P: np.ndarray, A: np.ndarray, B: np.ndarray, C: np.ndarray) -> float:
+    """
+    Distance from point P to triangle ABC.
+    """
+    # Triangle plane
+    AB = B - A
+    AC = C - A
+    normal = np.cross(AB, AC)
+    norm_len = np.linalg.norm(normal)
+
+    # Degenerate triangle -> fallback to segment distances
+    if norm_len < 1e-8:
+        return min(point_segment_distance2(P, A, B), point_segment_distance2(P, B, C), point_segment_distance2(P, C, A))
+
+    n_unit = normal / norm_len
+    # signed distance to plane
+    dist_plane = np.dot(P - A, n_unit)
+    # projection of P onto plane
+    P_proj = P - dist_plane * n_unit
+
+    # Barycentric test for P_proj in triangle
+    v0, v1, v2 = C - A, B - A, P_proj - A
+    dot00 = np.dot(v0, v0)
+    dot01 = np.dot(v0, v1)
+    dot02 = np.dot(v0, v2)
+    dot11 = np.dot(v1, v1)
+    dot12 = np.dot(v1, v2)
+    denom = dot00 * dot11 - dot01 * dot01
+
+    if abs(denom) > 1e-8:
+        u = (dot11 * dot02 - dot01 * dot12) / denom
+        v = (dot00 * dot12 - dot01 * dot02) / denom
+        if (u >= 0) and (v >= 0) and (u + v <= 1):
+            return dist_plane*dist_plane
+
+    # Otherwise, closest to one of the edges
+    return min(point_segment_distance2(P, A, B), point_segment_distance2(P, B, C), point_segment_distance2(P, C, A))
+
+def aabb_point_dist2(p: np.ndarray, node: BVHNode) -> float:
+    """As before: squared distance from p to node.bbox."""
+    d2 = 0.0
+    for i in range(3):
+        if p[i] < node.bbox.min[i]:
+            d = node.bbox.min[i] - p[i]
+            d2 += d*d
+        elif p[i] > node.bbox.max[i]:
+            d = p[i] - node.bbox.max[i]
+            d2 += d*d
+    return d2
+from typing import Any
+def bvh_nearest_point(
+        tree: BVH,
+        primitives:list|NDArray,
+    point: np.ndarray,
+    node_to_point_dist2: Callable[[np.ndarray, BVHNode], float],
+    primitive_to_point_dist2: Callable[[np.ndarray, Any], float],
+) -> tuple[float, int]:
+    """
+    Best-first search for the leaf in `tree` whose primitive is closest to `point`.
+
+    Arguments
+    ---------
+    tree : BVH
+        Your built BVH, whose leaves have `.object` = primitive ID.
+    point : np.ndarray
+        The 3D query point.
+    node_to_point_dist2 :
+        Lower-bound squared distance from `point` to `node.bbox` (or whatever volume).
+    primitive_to_point_dist2 :
+        Exact squared distance from `point` to the primitive with ID `leaf.object`.
+
+    Returns
+    -------
+    (distance, leaf_node_index)
+
+
+    Example of usage:
+    -------
+
+    """
+    best_d2 = float("inf")
+    best_node = -1
+
+    # Min-heap of (lower_bound_dist2, node_index)
+    pq: list[tuple[float, int]] = []
+    root = tree.root_index
+    heapq.heappush(pq, (node_to_point_dist2(point, tree.nodes[root]), root))
+
+    while pq:
+        lb2, ni = heapq.heappop(pq)
+        # If this bound can't beat the best exact, we're done
+        if lb2 >= best_d2:
+            break
+
+        node = tree.nodes[ni]
+        if node.is_leaf():
+            # exact test
+            exact2 = primitive_to_point_dist2(point, primitives[node.object])
+            if exact2 < best_d2:
+                best_d2, best_node = exact2, ni
+            continue
+
+        # otherwise push children whose bbox‐bound < current best
+        for c in (node.left, node.right):
+            child = tree.nodes[c]
+            child_lb2 = node_to_point_dist2(point, child)
+            if child_lb2 < best_d2:
+                heapq.heappush(pq, (child_lb2, c))
+
+    return np.sqrt(best_d2), best_node
+def _triangle_to_point_dist2(p,t): return point_triangle_distance2(p, t[0],t[1],t[2])
+
+def triangle_soup_point_distance(point:NDArray[float], tris:NDArray[float],  bvh:BVH=None)->tuple[tuple[float,int,BVHNode], BVH]:
+    boxes=[None]*tris.shape[0]
+    for i in range(tris.shape[0]):
+
+        boxes[i]=AABB.from_points(tris[i])
+
+    if bvh is None:
+        bvh:BVH=build_bvh(boxes)
+
+    dst,node_index=bvh_nearest_point(bvh, tris, point, node_to_point_dist2=aabb_point_dist2, primitive_to_point_dist2=_triangle_to_point_dist2)
+    node=bvh.nodes[node_index]
+    return (dst, node.object, node), bvh
+
+
+def mesh_point_distance(point:NDArray[float], vertices:NDArray[float],   faces:NDArray[int], bvh:BVH=None)->tuple[tuple[float,int,BVHNode], BVH]:
+    """
+
+    :param point:
+    :param vertices:
+    :param faces:
+    :param bvh:
+    :return:
+    """
+    return triangle_soup_point_distance(point,vertices[faces], bvh=bvh)
+
+def _inter_bvh_node(bvh: BVH, node_ix: int,exact:bool=True):
+
+    stack = [bvh.root_index]
+    ints = []
+    self=bvh.nodes[ node_ix]
+    fun = self.bbox.intersects_exact if exact else self.bbox.intersects
+    while stack:
+        current_ix = stack.pop()
+        node = bvh.nodes[current_ix]
+        if node is None:
+            continue
+        if current_ix==node_ix:
+            continue
+
+        if fun(node.bbox):
+            if node.is_leaf():
+                ints.append(current_ix)
+            else:
+                if node.left != -1:
+
+                    stack.append(node.left)
+                if node.right != -1:
+
+                    stack.append(node.right)
+                
+    return ints
+
+def inter_bvh(bvh: BVH, bbox: AABB,exact:bool=True):
+    stack = [bvh.root_index]
+    ints = []
+    fun = AABB.intersects_exact if exact else AABB.intersects
+    while stack:
+        current_ix = stack.pop()
+        node = bvh.nodes[current_ix]
+        if node is None:
+            continue
+        if fun(bbox,node.bbox):
+            if node.is_leaf():
+                ints.append(current_ix)
+            else:
+                if node.left != -1:
+
+                    stack.append(node.left)
+                if node.right != -1:
+
+                    stack.append(node.right)
+    return ints
+def bvh_intersect(bvh1:BVH,bvh2:BVH,exact:bool=True)->list[tuple[BVHNode,BVHNode]]:
+    root1:BVHNode=bvh1.get_root()
+    root2:BVHNode=bvh2.get_root()
+    stack=[(root1, root2)]
+    res=[]
+    while stack:
+        a,b=stack.pop()
+        if a is None or b is None:
+            continue
+        if not exact:
+            is_inter=a.bbox.intersects(b.bbox)
+        else:
+            is_inter = a.bbox.intersects_exact(b.bbox)
+        if not is_inter:
+            continue
+        elif a.is_leaf() and b.is_leaf():
+            res.append((a,b))
+        elif a.is_leaf() :
+
+            stack.append((a,bvh2.nodes[b.left]))
+            stack.append((a,bvh2.nodes[b.right]))
+        elif b.is_leaf():
+            stack.append(( bvh1.nodes[a.left],b))
+            stack.append(( bvh1.nodes[a.right],b))
+        else:
+            for first in [bvh1.nodes[a.left],bvh1.nodes[a.right]]:
+                for second in [ bvh2.nodes[b.left], bvh2.nodes[b.right]] :
+
+                    stack.append((first, second))
+    return res

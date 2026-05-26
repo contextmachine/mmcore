@@ -2,17 +2,14 @@ name: poetry-build
 
 on:
   push:
-    branches:
-      - "*"
-  pull_request:
-    branches:
-      - "master"
+    branches: [ "master","dev", "tiny", "0.53.0"]
+
 
 jobs:
   build:
     strategy:
       matrix:
-        os: [ "ubuntu-latest", "macos-latest", "windows-latest"]
+        os: [ "ubuntu-latest", "macos-latest", "windows-latest" ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         exclude:
           - os: windows-latest
@@ -38,50 +35,86 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
 
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "poetry"
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
       - name: Load cached venv
         id: cached-pip-wheels
         uses: actions/cache@v3
         with:
           path: ~/.cache
-          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}-${{ hashFiles('**/poetry.lock') }}
+          key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ steps.extract_branch.outputs.branch }}
 
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
 
       - name: Poetry build
-        run: |
-          source $VENV
-          poetry build
+        run: poetry build
 
       - name: Artifact name
         id: artifactname
         run: |
           cd dist
-          echo "wheelfile=$(ls *.whl | head -1)" >> $GITHUB_OUTPUT
-
-      - name: Modify artifact name
-        id: modify_name
-        run: |
-          ARTIFACT_NAME="${{ steps.artifactname.outputs.wheelfile }}"
-          EXTENSION="${ARTIFACT_NAME##*.}"
-          BASENAME="${ARTIFACT_NAME%.*}"
-          NEW_NAME="${BASENAME}-${{ github.run_id }}.${EXTENSION}"
-          echo "new_wheelfile_name=$NEW_NAME" >> $GITHUB_OUTPUT
-         
+          echo "wheelfile=$(ls *.whl| head -1)" >> $GITHUB_OUTPUT
 
       - name: Debug artifact name
         run: |
-          echo "New artifact name: ${{  steps.modify_name.outputs.new_wheelfile_name }}"
+          echo "Artifact name: ${{  steps.artifactname.outputs.wheelfile}}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4.3.1
         with:
           path: dist
-          name: ${{  steps.modify_name.outputs.new_wheelfile_name }}
+          name: ${{  steps.artifactname.outputs.wheelfile }}
           overwrite: true
+  upload_pypi:
+    needs: [ build ]
+    if: ${{ github.ref == 'refs/heads/tiny' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mmcore/
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mmcore-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
+
+  upload_test_pypi:
+    needs: [ build ]
+    if: ${{ github.ref == 'refs/heads/test' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: test-pypi
+      url: https://test.pypi.org/project/mmcore/
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mmcore-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          user: __token__
+          password: ${{ secrets.TEST_PYPI_TOKEN }}

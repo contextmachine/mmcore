@@ -1,11 +1,11 @@
 import time
 
 import numpy as np
-
+from mmcore.geom._nurbs_eval import _tuple_to_nurbs, NURBSSurfaceTuple, _nurbs_to_tuple
 from mmcore.geom.nurbs import NURBSSurface
-from mmcore.numeric.intersection.ssx import ssx
+from mmcore.numeric.intersection.ssx import nurbs_ssx
 
-s1 = NURBSSurface(
+s1 = _nurbs_to_tuple(NURBSSurface(
     **{
         "control_points": np.array(
             [
@@ -461,8 +461,8 @@ s1 = NURBSSurface(
 
     }
 )
-
-s2 = NURBSSurface(
+)
+s2 =_nurbs_to_tuple( NURBSSurface(
     **{
         "control_points": np.array(
             [
@@ -916,51 +916,34 @@ s2 = NURBSSurface(
         "degree": (3, 1),
 
     }
-)
+))
 
-s=time.time()
-result=ssx(s1,s2,0.001)
+import logging
+from examples.ssx.common_helpers import parse_args, save_pkl, draw_ssx, VIEWER_INSTALLED, CurveMaterial, ControlNetMaterial, PointMaterial
+args = parse_args()
+logging.basicConfig(level=getattr(logging, args.loglevel, logging.INFO))
+from mmcore.numeric.intersection.ssx import nurbs_ssx
 
+s = time.time()
+result = nurbs_ssx(s1, s2, atol=args.atol, angle_tol=args.angle_tol)
 
+print(f"intersection computed at: {time.time() - s} sec.")
+print(len(result[0]), "branch(s)")
+print(len(result[1]), "pts(s)")
 
-print(f'intersection computed at: {time.time() - s} sec.')
+if args.save_pkl or args.pkl_path is not None:
+    path = save_pkl(s1, s2, result, fp=args.pkl_path)
+    print(path.absolute().as_posix())
 
+RENDER = args.viewer and VIEWER_INSTALLED
 
-print(f'\n({s1} X \n\t{s2}):')
-
-for i, (spatial, uv1, uv2) in enumerate(result):
-            print(f'\t{i + 1}. {spatial}, {uv1}, {uv2}')
-            cpts=(spatial.control_points).tolist()
-            cpts_repr = repr(cpts)
-            if len(cpts)>4:
-                cpts_repr=f'[{cpts[1]}, {cpts[2]}, ... , {cpts[-2]}, {cpts[-1]}]'
-            print(f'\t\tcontrol points: {cpts_repr}')
-            print(f'\t\tdegree: {spatial.degree}')
-
-
-
-
-try:
-    from mmcore.renderer.renderer3dv2 import CADRenderer,Camera
-
-    print(dir(Camera))
-    centr=np.average(s1.control_points_flat, axis=0)
-    renderer=CADRenderer(camera=Camera( zoom=75.
-        )
+if RENDER:
+    inter_curves_mat = CurveMaterial(
+        (0.0, 1.0, 0.5, 1.0),
+        show_control_net=args.show_inter_cpts,
+        control_net_material=ControlNetMaterial((0.0, 1.0, 0.5, 0.7), control_point_material=PointMaterial((0.0, 1.0, 0.5, 0.4), size=8)),
     )
 
-    renderer.add_nurbs_surface(s1,color=(1.,1.,1.))
-    renderer.add_nurbs_surface(s2,color=(1.,1.,1.))
+    viewer = draw_ssx(s1, s2, result, intersection_curves_material=inter_curves_mat)
 
-    for (crv,uv1,uv2) in result:
-        renderer.add_nurbs_curve(crv, color=(0.,1.,0.5))
-
-
-    renderer.run()
-
-except ModuleNotFoundError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except ImportError as err:
-    print("mmcore.renderer is not installed, skip preview.")
-except Exception as err:
-    raise err
+    viewer.run()

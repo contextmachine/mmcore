@@ -17,3 +17,9 @@ dist
 .computer-use-demo
 *.gh
 *.3dm
+/hyper-book/
+.venv
+.cadence
+.claude-memory
+poetry.lock
+.claude

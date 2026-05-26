@@ -7,9 +7,6 @@ from mmcore.numeric.newton.cnewton import  newtons_method
 from mmcore.numeric.fdm import classify_critical_point_2d, CriticalPointType
 
 
-
-
-
 def recursive_divide_and_conquer_min(fun, bounds, tol):
     """
     Find the minimum value of a function within a given range using a recursive divide and conquer approach.
@@ -21,14 +18,14 @@ def recursive_divide_and_conquer_min(fun, bounds, tol):
 
     Algorithm Steps:
     1. Decompose the range into two parts, m1 and m2.
-    2. Check if the precision level is achieved (high - low < tol). If yes, return the midpoint (x_min) and the corresponding function value.
+    2. Check if the precision level is achieved (high - low < spt). If yes, return the midpoint (x_min) and the corresponding function value.
     3. If not, compare the function values at m1 and m2.
     4. Recurse on the range with the lower function value.
     5. Repeat steps 2-4 until the minimum value is found within the desired precision level.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
-    - The space complexity is O(log(1/tol)) due to the recursive calls.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
+    - The space complexity is O(log(1/spt)) due to the recursive calls.
 
     Example Usage:
     >>> def square(x):
@@ -66,14 +63,14 @@ def recursive_divide_and_conquer_max(fun, bounds, tol):
 
     Algorithm Steps:
     1. Decompose the range into two parts, m1 and m2.
-    2. Check if the precision level is achieved (high - low < tol). If yes, return the midpoint (x_min) and the corresponding function value.
+    2. Check if the precision level is achieved (high - low < spt). If yes, return the midpoint (x_min) and the corresponding function value.
     3. If not, compare the function values at m1 and m2.
     4. Recurse on the range with the lower function value.
     5. Repeat steps 2-4 until the minimum value is found within the desired precision level.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
-    - The space complexity is O(log(1/tol)) due to the recursive calls.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
+    - The space complexity is O(log(1/spt)) due to the recursive calls.
 
     Example Usage:
     >>> def square(x):
@@ -110,7 +107,7 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
     :return: A tuple containing the x-coordinate and the minimum value found within the given range.
 
     Complexity Analysis:
-    - The time complexity of this algorithm is O(log(1/tol)), where tol is the desired precision level.
+    - The time complexity of this algorithm is O(log(1/spt)), where spt is the desired precision level.
     - The space complexity is O(1) as we're using iteration now.
 
     Example Usage:
@@ -134,13 +131,82 @@ def iterative_divide_and_conquer_min(fun, bounds, tol):
     x_min = (low + high) / 2
 
     return x_min, fun(x_min)
+_invphi = (math.sqrt(5) - 1) / 2  # approximately 0.61803398875
+
+def golden_section_search(fun, bounds, tol):
+    """
+    Find the minimum value of a unimodal function on a closed interval using the Golden Section Search.
+
+    Parameters:
+        fun   : A callable function f(x) assumed to be unimodal on the interval.
+        bounds: A tuple (a, b) representing the lower and upper bounds of the interval.
+        tol   : The tolerance for the width of the search interval; the algorithm stops when (b - a) < spt.
+
+    Returns:
+        A tuple (x_min, f_min) where x_min is the approximate location of the minimum and f_min = fun(x_min).
+
+    The algorithm reuses function evaluations so that each iteration requires only one new evaluation,
+    achieving a logarithmic convergence rate in terms of the interval width.
+    """
+    a, b = bounds
+    # The constant invphi is 1/phi, where phi is the golden ratio (~1.618)
 
 
+    # Compute the two interior points
+    c = b - _invphi * (b - a)
+    d = a + _invphi * (b - a)
+    fc = fun(c)
+    fd = fun(d)
+
+    # Loop until the current interval is small enough
+    while (b - a) > tol:
+        if fc < fd:
+            # The minimum is in [a, d]
+            b = d
+            d = c
+            fd = fc
+            c = b - _invphi * (b - a)
+            fc = fun(c)
+        else:
+            # The minimum is in [c, b]
+            a = c
+            c = d
+            fc = fd
+            d = a + _invphi * (b - a)
+            fd = fun(d)
+
+    # At this point, the minimum is approximately in [a, b].
+    # To be robust, check the endpoints as well as the midpoint.
+    x_mid = (a + b) / 2
+    candidates = [(a, fun(a)), (x_mid, fun(x_mid)), (b, fun(b))]
+    x_min, f_min = min(candidates, key=lambda pair: pair[1])
+
+    return x_min, f_min
 
 
 import itertools
 
 
+def golden_section_search_2d(f, x_bounds, y_bounds, tol):
+    x_min, x_max = x_bounds
+    y_min, y_max = y_bounds
+
+    x = (x_min + x_max) / 2
+    y = (y_min + y_max) / 2
+
+    for _ in range(100):  # max iterations
+        x_old, y_old = x, y
+
+        # Optimize along x with y fixed
+        x, _ = golden_section_search(lambda xi: f(xi, y), (x_min, x_max), tol)
+
+        # Optimize along y with x fixed
+        y, _ = golden_section_search(lambda yi: f(x, yi), (y_min, y_max), tol)
+
+        if abs(x - x_old) < tol and abs(y - y_old) < tol:
+            break
+
+    return x, y
 
 
 def recursive_divide_and_conquer_roots(fun, bounds, tol=0.01):
@@ -214,7 +280,24 @@ def divide_and_conquer_min_2d(f, x_range, y_range, tol=1e-6):
         x_max = min(x_max, x_range[1])
         y_min = max(y_min, y_range[0])
         y_max = min(y_max, y_range[1])
-    return (x_min + x_max) / 2, (y_min + y_max) / 2
+    # Instead of just returning midpoint, do robust final evaluation
+    x_mid = (x_min + x_max) / 2
+    y_mid = (y_min + y_max) / 2
+
+    final_candidates = [
+        (f(x_min, y_min), (x_min, y_min)),
+        (f(x_max, y_min), (x_max, y_min)),
+        (f(x_min, y_max), (x_min, y_max)),
+        (f(x_max, y_max), (x_max, y_max)),
+        (f(x_mid, y_min), (x_mid, y_min)),
+        (f(x_max, y_mid), (x_max, y_mid)),
+        (f(x_mid, y_max), (x_mid, y_max)),
+        (f(x_min, y_mid), (x_min, y_mid)),
+        (f(x_mid, y_mid), (x_mid, y_mid)),
+    ]
+
+    min_val, min_coords = min(final_candidates, key=lambda pair: pair[0])
+    return min_coords
 
 def divide_and_conquer_min_2d_vectorized(f, x_range, y_range, tol=1e-6):
     """
@@ -424,7 +507,6 @@ def divide_and_conquer_min_nd(f, bounds, tol=1e-6):
     return [(mins[i] + maxs[i]) / 2 for i in range(n_vars)]
 
 
-
 def find_all_minima(f, x_range, y_range, grid_density=11, tol=1e-6):
     """
 
@@ -446,7 +528,7 @@ def find_all_minima(f, x_range, y_range, grid_density=11, tol=1e-6):
     ... y_range = (-2, 4)
     ... tolerance = 1e-6
 
-    >>> minima = find_all_minima(f, x_range, y_range, grid_density=20, tol=tolerance)
+    >>> minima = find_all_minima(f, x_range, y_range, grid_density=20, spt=tolerance)
     >>> minima
     [(-0.20955570735465462, 2.068488218049512, 0.8814236284722828), (0.6239490890366713, 1.2349839216539054, -0.08077762630018981), (0.6319616334813937, 2.9100055589078364, 0.23559259074534356), (1.4654659299114376, 2.0765007624783474, -0.7266086640277386)]
 
@@ -531,7 +613,3 @@ def test_all_roots(fun, bounds, tol):
         if t21 - t11 <= tol:
             return []
         return [*test_all_roots(fun, (t21 + tol, t1), tol)]
-
-
-
-

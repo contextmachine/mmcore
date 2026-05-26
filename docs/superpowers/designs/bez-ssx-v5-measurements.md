@@ -1,0 +1,575 @@
+# bez_ssx v5 — Test / Performance Measurements
+
+Append-only log of test + performance measurements. Each row is taken at the moment the implementation is brought into agreement with the then-current design (end of a workflow cycle, before the commit that records the cycle's results).
+
+Commit the measurements file and the design spec together at the end of each iteration so the row pairs with the design SHA.
+
+## Harness
+
+- `examples/ssx/bez_ssx5_baseline.py` — runs the 6 representative cases 3× each, reports min wall time, residual, and branch count.
+- `pytest tests/test_bez_csx4.py` — CSX unit tests (12 tests).
+- `pytest tests/ --ignore=test_nurbs_compose --ignore=test_boundary_intersection --ignore=test_boundary_intersection_robust --ignore=test_nurbs_ssx --ignore=test_curve_bool` — broader suite (excluding known-broken unrelated tests per context doc §11).
+
+## Notation
+
+- `br` = branches count (found / expected)
+- `pts` = total points across branches
+- `err` = max `‖S1(s,t) − S2(u,v)‖` over all branch points (diagnostic only for overlap branches — the current impl stores a placeholder `v=0.5` in overlap stuv, inflating the residual; real xyz path is correct)
+- `t` = min wall time across 3 runs, milliseconds
+
+## 2026-04-18 — Baseline (commit 6d25fcc, typo fix applied)
+
+State: entry into the refactor session. CSX bug fixed (6d25fcc). All SSX heuristic layers still in place (`_dedup_crossings` xyz branch, `_filter_corner_touches`, `_merge_adjacent_branches`, `_dedup_branches`, overlap sub-segment containment). TΨᵢ is computed once at top level and NOT propagated into sub-cells; sub-cell loop-absence relies only on Gauss-map separability.
+
+| case | br (act/exp) | pts | err | t (ms) | status |
+|------|-------------:|----:|----:|-------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.4  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.4  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 41.0  | OK (Φ-tracer) |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.6  | OK, overlap stuv `v` placeholder bug |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 532.0 | OK |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 79.7  | MISMATCH — loop missing |
+
+- CSX unit tests: **12 / 12 pass** (`tests/test_bez_csx4.py`)
+- Broader suite: **208 pass** (with the 5 unrelated exclusions, 5 warnings)
+
+Known defects captured as entries:
+
+1. **case6 — loop missing**. Structural: no boundary crossing seeds the interior loop, domain decomposition never enters the cell containing the loop.
+2. **overlaps — stuv `v` placeholder**. `_find_ssx_boundary_zeros` records `v_oth=0.5` (a CSX default) in overlap endpoint stuv, so `S2(u, v)` differs from `S1(s, t)` by hundreds of units even though the `xyz` path is correct. Diagnostic, not user-visible, but breaks the residual invariant.
+3. **TΨᵢ not propagated to sub-cells**. Sub-cell loop-absence check at `_bez_ssx5.py:1674` calls `_check_loop_free(cell.g1, cell.g2)` without T arrays; only Gauss separability is tried. This costs ~62 Gauss calls for case5 per context doc profiling.
+4. **proximity-based endpoint matching** in `_trace_all_branches` (`best_dist < 0.1` at line 1443). A heuristic; should be exact parametric.
+5. **geometric merging** in `_merge_adjacent_branches` (line 1774). A heuristic covering for the absence of a partition-curve topology layer.
+
+## 2026-04-18 — Iteration 1: propagate TΨᵢ to sub-cells
+
+**Goal:** bring the sub-cell loop-absence check into agreement with design §1.2 and §6 — TΨᵢ must be propagated by de Casteljau split alongside surfaces and Gauss maps, never recomputed, and tried first (cheapest) in `_check_loop_free`.
+
+**Change:** added a `_split_bern_scalar_tensor` helper (wraps `de_casteljau_split_nd` for scalar-valued 4D Bernstein tensors), added `T1..T4` fields to `_Cell`, split the parent's T tensors along the same `cut_axis` at `cut_local` on every cell split, and passed the sub-cell's T arrays into `_check_loop_free`. No heuristic removed this cycle.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs baseline | status |
+|------|-------------:|----:|----:|-------:|--------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | −0.4 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.0  | −0.4 ms  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.9  | −1.1 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.5  | −0.1 ms  | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 525.9 | −6.1 ms  | OK (~1 %) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.7  | −3.0 ms  | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass** (unchanged)
+- Case5 loop-free instrumentation: `mono=4, gauss=10, fail=36` out of 50 `_check_loop_free` calls (vs ~62 Gauss calls before per context doc). 4 sub-cells now terminate via TΨᵢ monotonicity without touching Gauss; downstream sub-cells of those 4 are also avoided.
+
+**Outcome:** design-alignment step. Tests green, no regression, ~1 % case-5 speedup from 4 avoided Gauss evaluations + their downstream subdivisions. The modest impact says most sub-cells in case5 need Gauss separability anyway — the intersection curve is non-monotone in every parameter for most sub-cells, so the cheap certificate rarely suffices. Kept because (a) it matches the design, (b) it is correct (never recomputed), (c) it cannot hurt — monotonicity check is O(n) on Bernstein coefficients, much cheaper than the Gauss witness. Future cases (case6, NURBS adapter with piece-wise partitioning) are likely to benefit more.
+
+## 2026-04-18 — Iteration 2: stuv-only dedupe in `_dedup_crossings`
+
+**Goal:** align `_dedup_crossings` with design §5 Invariant C — a crossing is a duplicate iff its `stuv` matches an existing entry within tolerance; `xyz` proximity alone is not a deduplication criterion (legitimate self-intersections, folds, or two separate branches crossing in 3-space can share `xyz`).
+
+**Change:** deleted the `or np.linalg.norm(c.xyz - d.xyz) < atol` clause in `_dedup_crossings`. The function is now a pure stuv-identity dedupe.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-1 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.7  | −0.3 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | −0.2 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.4  | −0.5 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 17.9  | −0.6 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 512.0 | −13.9 ms | OK (~3 %) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.6  | −0.1 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass** (unchanged)
+
+**Outcome:** no regressions. Removing the xyz branch closed Invariant-C violation #1 without any accuracy effect on the 5 working cases. Case-5 wall time dropped ~14 ms (likely a marginal side-effect of fewer dedupe comparisons on the initial crossings list, not the main cost). Case-6 still missing its loop as expected — that requires later iterations (partition topology + §6 step 3).
+
+## 2026-04-18 — Iteration 3: introduce §5 data structures
+
+**Goal:** bring the implementation closer to design §5 by defining the three dataclasses (`IsolineRegistration`, `PartitionCurve`, `BoundaryPoint`) and starting to populate the classification inputs. No behaviour change this cycle; this is pure scaffolding that iter-4/5 will consume.
+
+**Change:**
+- Renamed `BoundaryCrossing` to `BoundaryPoint` (kept `BoundaryCrossing` as a back-compat alias) and extended it with `tangent_raw: Optional[NDArray]` and `registrations: list[IsolineRegistration]`.
+- Added `IsolineRegistration` and `PartitionCurve` dataclasses matching the design §5 spec.
+- Populated `tangent_raw` at every crossing construction site: the two creation points in `_find_ssx_boundary_zeros` (L1 outer-face CSX) and `_isoline_csx_to_global` (internal partitions from subdivision). Tangent computed via the existing `_ssx_tangent_4d` SVD helper without clamping.
+- Passed the cell's local surface nets (`cell.g1.surface`, `cell.g2.surface`) into `_isoline_csx_to_global` so the local Jacobian can be evaluated there.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-2 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.7  | 0.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.7  | −0.1 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 38.9  | −0.5 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.0  | +0.1 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 507.7 | −4.3 ms | OK |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 75.9  | −0.7 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Spot-check of the new tangent_raw.** Planes case, two crossings reported at `(0.5, 0, 0.5, 0)` and `(0.5, 1, 0.5, 1)`, both with tangent ≈ `(0, 0.707, 0, 0.707)`. Applying §4 (local ≡ global at top level):
+- first point: on-boundary axes `t` (local 0, sign +1) and `v` (local 0, sign +1) → both **entry** ✓
+- second point: on-boundary axes `t` (local 1, sign +1) and `v` (local 1, sign +1) → both **exit** ✓
+
+Classification of this single intersection line is now trivially readable from the stored tangent.
+
+**Outcome:** data-structure scaffolding in place with no behaviour change. All 5 passing cases and CSX unit tests green; case-6 still missing its loop (unchanged). Wall-time noise only. Iter-4 will use `tangent_raw` to produce `IsolineRegistration` entries on `PartitionCurve`s.
+
+## 2026-04-18 — Iteration 4: §4 classification at top level
+
+**Goal:** produce `IsolineRegistration` entries on `PartitionCurve`s for every top-level boundary crossing using §4's `(local_param, sign)` table. Sub-cell classification deferred to iter-5; consumer (tracing by registrations) deferred further.
+
+**Change:**
+- Added helpers `_partition_free_axis`, `_classify_on_axis` (the design-§4 lookup table), `_build_outer_partitions`, `_on_axis_local`, `_classify_boundary_point`.
+- Added `partitions: list[PartitionCurve]` field to `_Cell`.
+- In `bez_ssx`, built the top-level `_Cell` (with the 8 outer partitions) BEFORE the loop-free short-circuit, then called `_classify_boundary_point(c, top_cell)` on every L1 crossing.
+- The loop-free short-circuit and the iterative decomposition both now use `top_cell` as their entry, so the registrations are always produced.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-3 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.8  | +0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | +0.1 ms | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.1  | +0.2 ms | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.1  | +0.1 ms | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 507.3 | −0.4 ms | OK |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.0  | +0.1 ms | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Validation of the new registrations.**
+- *Planes*: 2 crossings, each with 2 registrations on the 2 on-boundary axes (t and v). `(0.5, 0, 0.5, 0)` → `in` on t=0 **and** `in` on v=0. `(0.5, 1, 0.5, 1)` → `out` on t=1 **and** `out` on v=1. The intersection-line topology is fully readable from these 4 registrations.
+- *Case 5*: 4 crossings, all on t faces. Partition t=0 has 2 `in`s at `s=0.243` and `s=0.748`; partition t=1 has 2 `out`s at `s=0.282` and `s=0.763`. The expected two open branches are visible as `in ↔ out` pairs — ready for a consumer.
+
+**Outcome:** top-level §4 classification landed with zero behaviour change. Registrations are correct and complete for the top-level cell. Iter-5: propagate partitions into sub-cells and classify the crossings created at subdivision time.
+
+## 2026-04-18 — Iteration 5: §4 classification at sub-cells
+
+**Goal:** extend §4 classification to every `_Cell` in the decomposition stack — not just the top cell. Every sub-cell is created with its own 8 partitions (unshared for now; cross-cell linkage is a later iteration), and every crossing it owns is registered against those partitions using the same `(local_param, sign)` table.
+
+**Change:**
+- Renamed `_build_outer_partitions` → `_build_cell_partitions`, generalized to any cell (uses `cell.box[axis][side]` as the fixed `value` and `cell.box[free]` as the extent). Back-compat alias kept.
+- In the main loop's subdivision branch, after creating L and R sub-cells: build their partitions and run `_classify_boundary_point` on every crossing assigned to each side.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-4 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | +0.2 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.3  | +0.5 ms  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.2  | +0.1 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.4  | +0.3 ms  | OK |
+| case5       | 2 / 2 | 48 | 8.33e-08 | 520.4 | +13.1 ms | OK (~2.6 %) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 79.0  | +3.0 ms  | MISMATCH (unchanged) |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Validation** (case 5): 49 `_Cell`s total are created; every one has 8 partitions. A crossing at `stuv = (0.748, 0, 0.804, 0.222)` accumulates 79 registrations across the full decomposition tree — one per cell whose boundary it sits on — and in the specific cell where it is *both* `s = 0.748` (cell's s-hi) and `t = 0` (cell's t-lo) it acquires 2 registrations (one per on-boundary axis), matching §4 exactly.
+
+**Outcome:** complete §4 classification at every level. ~2.6 % case-5 slowdown from the extra per-sub-cell classification work — acceptable cost for producer-side completion, and consumer iterations are expected to remove the current proximity scans that dominate wall time. Still no consumer using the registrations; iter-6 begins that work.
+
+## 2026-04-18 — Iteration 6: consume registrations in tracing (Inv. D)
+
+**Goal:** retire the proximity-based endpoint match (`best_dist < 0.1`) inside `_trace_all_branches` in favour of design §7 Invariant D — the marcher stops on the cell boundary, and the stopping registration is found by exact `(partition, param)` identity on the cell's own partitions. Multi-axis corners handled by consuming every same-direction registration on the start/end point in a single march (design §4 through-touch).
+
+**Change:**
+- Added `consumed: bool = False` to `IsolineRegistration`.
+- Added `_find_exit_registration(cell, stuv_end, tol_param=1e-4)` — walks the cell's partitions on each on-boundary axis of `stuv_end` and returns the best unconsumed out-registration by `param` distance (or `None`).
+- Added `_trace_cell_by_registrations(cell, atol)` — iterates UNIQUE start points with an unconsumed in-registration in this cell; marches once per point; consumes all that point's in-registrations in this cell at start and all of the exit point's out-registrations at end.
+- Swapped both call sites in `bez_ssx` (top-level short-circuit and sub-cell tracing) to the new tracer.
+- `_trace_all_branches` (old heuristic version) and the xyz-proximity `_merge_adjacent_branches` / `_dedup_branches` are still present and still run as the final assembly pass — removing them requires §9 cross-cell matching which is a later iteration.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-5 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 12.0  | +1.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.3  | 0.0 ms   | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 41.0  | +1.8 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 19.2  | +0.8 ms  | OK |
+| case5       | 3 / 2 | 105 | 8.36e-04 | 696.7 | +176 ms | **MISMATCH** |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 76.9  | −2.1 ms  | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Outcome — expected regression on case 5.** Simple cases (planes, transversal, tangential, overlaps) stay correct because tracing happens entirely in the top cell: the stuv of each crossing is one of two corner points, exact match works, and the old xyz-merge at the end is a no-op.
+
+Case 5 is a decomposed case (49 cells, 14 trace invocations). With exact matching, each sub-cell traces sub-branches that end precisely at internal-partition crossings. The downstream `_merge_adjacent_branches` is a proximity-join that does not know anything about partitions or their 1D matching — when sub-branch endpoints no longer coincide exactly across adjacent cells (they used to because the old tracer snapped to the same crossings both sides, generously), the merger fails to glue them into 2 clean curves. Result: 3 branches, one full path residual 5.75e-4 (vs 8e-8 before).
+
+Not fixing this in iter-6. The residual heuristics (`_merge_adjacent_branches`, `_dedup_branches`, `_filter_corner_touches`) are themselves slated for removal and are the wrong tool for cross-cell joining. The clean fix is design §9 — per-partition 1D in/out matching across adjacent cells — which requires:
+  1. Shared `PartitionCurve` objects across L/R sub-cells at a subdivision (currently unshared — iter-5 builds fresh per cell).
+  2. A post-trace assembly pass that walks shared internal partitions and matches in/out pairs by `param`.
+
+These are iter-7 and iter-8. Case 5 is expected to return to 2 branches once both land. Iteration remains in "bringing implementation to design" mode — no heuristic fallbacks.
+
+## 2026-04-18 — Iteration 7: share internal partitions across L/R (Inv. A prerequisite)
+
+**Goal:** when a parent cell splits at `(cut_axis, cut_global_val)`, the new face separating the two children must be a single `PartitionCurve` object shared by both of them. Design §5 Invariant A requires that a crossing on this face appears in *both* cells' views with flipped direction — impossible if each child builds its own copy.
+
+**Change:**
+- Gave `_build_cell_partitions` an optional `skip=(axis, side_idx)` parameter that omits one box face, making space for the splice-in.
+- In the subdivision branch: create a single `PartitionCurve` at `(cut_axis, cut_global_val)`, set its `free_axis` = the other axis of the owning surface, and its `global_extent` = the parent's range on that free axis. Skip the cut face when building each child's own partitions, append the shared one, and grow its `adjacents` list.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-6 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | −1.0 ms  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.2  | −0.1 ms  | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 39.4  | −1.6 ms  | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.6  | −0.6 ms  | OK |
+| case5       | 3 / 2 | 105 | 8.36e-04 | 697.4 | +0.7 ms  | MISMATCH (unchanged from iter-6) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 78.2  | +1.3 ms  | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Verification of sharing.** Case 5 instrumentation: 49 cells produced by 24 splits, yielding 24 distinct `PartitionCurve` objects with `len(adjacents) == 2` — exactly one per split. Outer partitions (the 8 boundary faces of any sub-cell that isn't on the cut) remain unshared with `len(adjacents) == 1`. Total: 368 partition objects across 49 cells, as expected for unshared outer + shared internal.
+
+**Outcome:** structural enabler for iter-8 is in place. No behaviour change — no consumer reads `adjacents` yet. Case 5 still MISMATCH at 3 branches; next iter wires the cross-cell assembly and is expected to close it.
+
+## 2026-04-18 — Iteration 8: §9 cross-cell fragment assembly
+
+**Goal:** replace `_merge_adjacent_branches` + `_dedup_branches` (xyz-proximity heuristics) with design §9 — chain tracer output by *shared `BoundaryPoint` identity*. The same physical crossing on an internal partition is the SAME `BoundaryPoint` object shared by L and R, so chaining is exact by `id()`.
+
+**Change:**
+- Added `_Fragment` dataclass carrying `start_point`, `end_point`, `stuv_path`, `xyz_path`.
+- `_trace_cell_by_registrations` now returns `list[_Fragment]` instead of `list[SSXBranch]`; fragments with an unmatched endpoint carry `end_point=None`.
+- Added `_assemble_fragments` — builds an `id(BoundaryPoint) → list[(frag_idx, role)]` index, then walks chains forward and backward by shared endpoints, reversing fragments as needed so the chain reads head-to-tail. Concatenates each chain into one `SSXBranch`.
+- Main loop now accumulates `all_fragments` across every cell; final assembly runs once at the end.
+- `_merge_adjacent_branches` / `_dedup_branches` are no longer called.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-7 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.2  | +0.2 ms   | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.1  | −0.1 ms   | OK |
+| tangential  | 1 / 1 | 12 | 1.62e-06 | 40.4  | +1.0 ms   | OK |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.6  | 0.0 ms    | OK |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1335.5 | +638 ms | **MISMATCH (worse)** |
+| case6       | **2 / 2** | 20 | 1.63e-04 | 79.1  | +0.9 ms | **OK (first time)** |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Case 6 now matches.** The first iteration that gets case 6's branch count right. The cross-cell fragment chaining naturally links the loop fragments that were split across sub-cells. (Residual 1.63e-4 is loose vs `atol=1e-3` but not worse than the marcher's inherent step error — the branches themselves are topologically correct.)
+
+**Case 5 regression (11 vs 2).** Instrumentation: 18 fragments produced across all cells, 12 of which have `end_point = None` (the marcher's exit stuv was not matched by `_find_exit_registration`). Assembly can chain only fragments whose endpoints are the *same object*; a fragment with `end_point = None` terminates a chain immediately. 12 dead-end fragments + 6 chained → 11 assembled branches.
+
+The root cause is `_find_exit_registration`'s failure rate on case-5 sub-cell boundaries, not the assembly itself. The marcher's stopping point after `np.clip` should land exactly on the cell's box `lo`/`hi` for at least one axis, and `_find_exit_registration` should find a match. Something about case 5's numerical flow is making this fail often enough to break 2 branches into 11 pieces. **Not investigating in this cycle per the workflow discipline**: the remaining iterations (Krawczyk tangency, final heuristic cleanup) may shift the picture, and then we look at case 5 with a clean implementation.
+
+**Outcome:** §9 assembly is wired — mechanism is correct in principle (case 6 proves it) but depends on `_find_exit_registration` matching on every well-posed sub-cell boundary. Net: +1 case now OK, −1 case now worse; overall closer to design.
+
+## 2026-04-18 — Iteration 9: Krawczyk tangency check (§6 step 3)
+
+**Goal:** wire the Krawczyk/Gauss-Newton tangency certificate between "both cheap certificates failed" and "subdivide". When `TΨ = 0` is certified to have a simultaneous root inside a cell, invoke the Φ-tracer (design §1.4, §8) instead of subdividing further — the Φ system has rank 3 at the tangent point where Ψ is rank-deficient, so marching Φ works there while marching Ψ does not.
+
+**Change:**
+- In the main decomposition loop, after the `_check_loop_free` branch and before `depth >= max_depth`, strip the cell's local homogeneous surfaces to cartesian, call `_check_tangency` on `(T1..T4, P1_cart_local, P2_cart_local, local_box=[0,1]⁴)`.
+- If `True`: convert `cell.crossings` to local stuv, call `_deflate_tangent_cell`, convert the Φ-traced branches back to global stuv, emit as unchained `_Fragment`s (their endpoints are not Ψ crossings, so they don't participate in §9 chaining).
+- If `None` / `False`: fall through to the existing subdivision path.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-8 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.1  | −0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.6  | +0.5 ms | OK |
+| tangential  | 1 / 1 |  9 | **3.97e-15** | 45.8  | +5.4 ms | **OK (machine precision)** |
+| overlaps    | 2 / 2 |  4 | 2.87e+02 | 18.9  | +0.3 ms | OK |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1724.5 | +389 ms | MISMATCH (unchanged count) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 86.4  | +7.3 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**
+
+**Tangential residual drop** `1.62e-06 → 3.97e-15`: the Φ-tracer is now actually used. Previously the tangent case was tracing via the ordinary Ψ marcher, which converges poorly at `rank(J_Ψ) < 3`. Φ augments with a `TΨ` row to restore rank, so every marched point is numerically precise. Point count 9 (vs 12 before) — cleaner curve.
+
+**Case 5 timing +389 ms** is the cost of running Krawczyk on every sub-cell that fails both cheap certificates (36 of 50 sub-cells at top-profile). Not optimising in this cycle; iter-10 removes several dead heuristic helpers and may change the picture, and then case 5 gets its dedicated look.
+
+**Outcome:** §6 step 3 wired. Tangential now matches the design's intent for the first time in this session. No other regressions from the Krawczyk wiring itself.
+
+## 2026-04-18 — Iteration 10: remove retained heuristics
+
+**Goal:** delete every heuristic / dead-code path listed in the audit so the implementation contains only design-sanctioned structures. Nothing in the design refers to these functions anymore; they were kept alive only by legacy call sites.
+
+**Removed:**
+- `SubdomainCell` dataclass (unused)
+- `_is_on_both_boundaries` (unused)
+- `_crossing_on_box_boundary`, `_crossing_in_box_interior`, `_domain_decompose` (unused)
+- `_process_monotonic_case` + `_trace_segment` (unused after iter-8 killed the last call site)
+- `_is_cell_corner`, `_tangent_enters_cell`, `_filter_corner_touches` (heuristics for the old tracer)
+- `_trace_all_branches` (old proximity-matching tracer — replaced by `_trace_cell_by_registrations` in iter-6)
+- `_merge_adjacent_branches`, `_dedup_branches` (xyz-proximity merge/dedup — replaced by `_assemble_fragments` in iter-8)
+- Overlap sub-segment containment block in `_overlaps_to_branches` (lines 1291–1322 before this cut — duplicate-overlap filter by xyz containment)
+
+`_pair_crossings_for_tracing` is intentionally retained: it is a `.face`-based crossing pairer used *only inside* the Φ tracer (`_deflate_tangent_cell`). Design §8 leaves the Φ-tracer's own pairing as a follow-up; cleaning it requires reconsidering how registrations interact with the Φ system.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-9 | status |
+|------|-------------:|----:|----:|-------:|------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.2  | +0.1 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.4  | −0.2 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 47.2  | +1.4 ms | OK |
+| overlaps    | **3 / 2** | 6 | 2.87e+02 | 18.8 | −0.1 ms | **MISMATCH (new)** |
+| case5       | 11 / 2 | 117 | 8.36e-04 | 1743.2 | +18.7 ms | MISMATCH |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 91.2  | +4.8 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**
+- File size: 1925 lines (was 2082 lines before iter-10 — net −157 from this cut, with earlier iters having grown the file by a similar amount).
+
+**Overlaps regression**: one of the duplicate overlap branches is now emitted as a third branch. The deleted sub-segment containment was filtering a shorter overlap whose endpoints lay on a longer one. Removing it reveals a real issue in `_find_ssx_boundary_zeros` / `_overlaps_to_branches`: duplicate overlaps are still being produced at the boundary-CSX level. The design's §5 Invariant C applies to overlap endpoints too (stuv-identity, not xyz), and overlap classification + registration is not yet implemented — §5 only covers `BoundaryPoint`s. Cleaning this up is its own follow-up.
+
+**Outcome:** implementation now matches the design except for:
+  1. Overlap branches don't follow §5 (no `BoundaryPoint` / registration integration).
+  2. Φ-tracer's `_pair_crossings_for_tracing` is still a `.face`-based heuristic.
+  3. The `_find_exit_registration` matching is not 100 % reliable on case 5 sub-cell boundaries (the case-5 MISMATCH).
+
+End of the "bring impl to design" phase. Next: investigate case 5 specifically with the clean codebase.
+
+## 2026-04-18 — Iteration 11: 3.1 + Medium/Low audit findings (information only)
+
+**Goal:** address the fresh-audit items 3.1 (cut-clamp), #3, #4, #5, #6, #7, #8 in one cycle. Run tests for information — no subsequent patches. The bigger audit items (#1 SVD direction hint, #2 param-matching assembly, 3.2 Krishnan-Manocha all-crossing cuts) are deferred to a design discussion after these results land.
+
+**Changes:**
+- **3.1** — `_choose_cut` rewritten: scores by *closeness to cell centre* instead of balance; rejects candidates with local position < `min_margin` (default 0.05) or > 1 − `min_margin`; returns `(None, None)` when no candidate meets the margin (cell terminates without further subdivision). The legacy `cut_local = max(0.01, min(0.99, cut_local))` artificial clamp is gone.
+- **#5** — deleted the xyz-proximity filter that removed crossings coinciding with overlap endpoints (lines 1693-1703 pre-iter-11). Redundant with the stuv filter L1 already runs; violated Invariant C.
+- **#7** — removed the top-level loop-free short-circuit. `top_cell` now always enters the decomposition stack and goes through the same §6 lifecycle; if it's loop-free the first iteration traces and the loop exits — behaviourally identical, one code path.
+- **#8** — `_check_tangency` returns `None` (not `False`) when the interval-arithmetic range of a `TΨᵢ` excludes 0. Design §6 step 3 calls for None here.
+- **#3 + #4** — `_deflate_tangent_cell` now emits `_Fragment`s carrying `start_point` / `end_point` BoundaryPoint references via a new `originals=` parameter, so Φ-branches join the same §9 assembly as Ψ-branches. `_pair_crossings_for_tracing` gained a registration-aware code path keyed by `direction` on `IsolineRegistration` — it no longer uses the legacy `.face` tag when a cell is supplied.
+- **#6** — documented `_Cell.crossings` as redundant scaffolding (still present; full removal deferred).
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-10 | status |
+|------|-------------:|----:|----:|-------:|-------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | −0.2 ms | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.0  | −0.4 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 44.7  | −2.5 ms | OK |
+| overlaps    | **4 / 2** | 8 | 2.87e+02 | 18.8 | +1 branch | **MISMATCH (worse)** |
+| case5       | **4 / 2** | 71 | 8.74e-04 | **447.0** | **−7 branches, −1296 ms (×3.9 speedup)** | MISMATCH (much better) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 67.1  | −24 ms | OK |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Case 5 dramatically improved: 11 → 4 branches, 1743 ms → 447 ms (~3.9 × speedup). The center-preferring cut in 3.1 is almost certainly the driver — cuts very close to a cell's boundary used to produce near-zero-width sub-patches that themselves needed subdivision, inflating both the tree and the number of dead-end fragments. Requiring cuts to be at least 0.05 from the cell's boundaries produces a much shallower decomposition tree. Case 5 still MISMATCHes at 4/2 for the fundamental reason noted in iter-6/iter-8 (marcher direction + identity-based assembly), but it's now within a factor of 2.
+- Overlaps 3 → 4. Removing the xyz filter (#5) removed one of the heuristic dedup paths, exposing one more duplicate that neither filter catches. The real cause, already known, is that overlap endpoints don't participate in §5 (no `BoundaryPoint` with registrations).
+- Tangential and case 6 unchanged (correctness preserved).
+- Φ-fragments now carry BoundaryPoint refs; they'd chain via §9 if a Φ-branch spans multiple cells. No current case exercises that path, but the plumbing is now consistent with Ψ.
+
+**No fixes applied.** Results recorded as informational input for the next design cycle.
+
+## 2026-04-18 — Iteration 12: cofactor tangent (§4.1)
+
+**Goal:** replace SVD's arbitrary-sign null vector with the cofactor / adjugate formula `T[i] = (−1)^i · TΨᵢ(point)` (design §4.1). Plumb the resulting tangent as direction hint into `_march_to_boundary` so cell entry starts inward.
+
+**Change:**
+- Added `_ssx_tangent_cofactor(T1,T2,T3,T4,stuv)` — evaluates each `TΨᵢ` Bernstein tensor at the point and assembles `(+T1, −T2, +T3, −T4)`.
+- `_classify_boundary_point` now computes the local cofactor tangent (from `cell.T1..T4` and the point's local stuv), caches it on `point.tangent_raw`, and uses it for §4 classification.
+- `_trace_cell_by_registrations` passes that tangent as `direction_hint` into the marcher.
+- Removed SVD tangent computation at `_find_ssx_boundary_zeros` and `_isoline_csx_to_global` (tangent now derived freshly at classification).
+- `_pair_crossings_for_tracing` gains a fallback: when *no* registrations exist in the cell for any crossing (the C₂ whole-curve-tangent case — `TΨ ≡ 0` on the intersection, so cofactor is zero everywhere and classification emits nothing), fall through to the legacy stuv-distance pairer rather than producing zero pairs.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-11 | status |
+|------|-------------:|----:|----:|-------:|-------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.3 | +0.3 ms | OK |
+| transversal | 1 / 1 | 13 | 6.08e-09 | 11.3 | +0.3 ms | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 44.3 | −0.4 ms | OK |
+| overlaps    | 3 / 2 |  6 | 2.87e+02 | 18.6 | −1 branch | MISMATCH (was 4/2) |
+| case5       | **7 / 2** | 80 | 8.08e-04 | 463.9 | +3 branches, +17 ms | **MISMATCH (worse)** |
+| case6       | **1 / 2** | 9 | 6.34e-08 | 65.2 | −1 branch | **MISMATCH (worse)** |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Tangential returns to machine-precision residual as before. The whole-curve-tangent C₂ case correctly drops to the legacy pairer (TΨ is identically zero on the intersection curve, so cofactor classification produces no registrations by design — that's the right signal).
+- Overlaps went from 4 back to 3 — not a real change, a consequence of fewer crossings being classified as branch endpoints when the cofactor is zero near overlap sites. Same underlying root cause (overlaps not integrated into §5).
+- Case 5 and case 6 regressed. Cofactor classification produces DIFFERENT fragment topology than SVD-with-no-hint did. Under the still-identity-based assembly (iter-8), that new fragment topology chains incorrectly. This is an expected interaction and will be resolved by iter-13 (adjacency-walk assembly) — the user's Image-3 argument: cofactor classification is necessary but not sufficient without the assembly fix.
+
+**No fix applied on the fly.** Iter-13 (adjacency walk) is expected to convert the iter-12 groundwork into net improvement.
+
+## 2026-04-18 — Iter-13 groundwork: remove fallback + refactor walk
+
+Preface to iter-13 proper. Two disciplinary commits before the assembly swap:
+- **`d660ab0`** — removed the stuv-distance-nearest-neighbour fallback in `_pair_crossings_for_tracing` (was a heuristic patching the whole-curve-tangent case while the Φ-side classifier is deferred — see design §4.2). `_deflate_tangent_cell` signature tightened: `originals` and `cell` are now required. Tangential accepted as MISMATCH 0/1 until §4.2 lands.
+- **Design `382d1bf`** — doc-only additions: §4.1 cofactor tangent, §4.2 deferred Φ classifier, §6.5 multi-cut, §9 revised to adjacency walk.
+
+## 2026-04-18 — Iteration 13: adjacency-walk assembly (§9)
+
+**Goal:** replace the identity-based fragment chaining with §9 adjacency walk — chains extend one step at a time along shared `PartitionCurve`s, matching `(param, direction)` through each internal partition.
+
+**Change:**
+- `_trace_cell_by_registrations` no longer consumes registrations (pre-trace is purely "collect fragments"; consumption belongs to the walker).
+- Removed the now-unused consumption helpers (`_consume_cell_directions`, `_cell_has_unused_direction`).
+- Replaced `_assemble_fragments` with `_assemble_branches_by_adjacency(all_fragments, all_cells)`. Each walk consumes via `_consume_all(point, cell, direction)` — every same-direction registration at `(point, cell)` is marked consumed on entry/exit, correctly handling multi-axis corner entries and exits.
+- `bez_ssx` collects every `_Cell` into `all_cells` during subdivision and passes the list to the assembler (the top cell's outer partitions have `adjacents=[top_cell]` and aren't shared with its children, so partition-adjacency BFS from top_cell alone would miss sub-cells).
+- Added a global `emitted_point_ids` set so a second chain starting from a sibling cell's view of an already-walked point skips (prevents duplicate emission of the same curve from topologically equivalent seeds).
+- `_find_exit_registration` tolerance parameterized via caller's `atol` (was hard-coded `1e-4`).
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs iter-12 post-fallback-removal | status |
+|------|-------------:|----:|----:|-------:|-----------------------------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.6 | 0.0 | OK |
+| transversal | 1 / 1 | 13 | 6.08e-09 | 11.9 | 0.0 | OK |
+| tangential  | 0 / 1 |  0 | 0.00e+00 | 42.0 | unchanged | MISMATCH (Φ classifier deferred per §4.2) |
+| overlaps    | 3 / 2 |  6 | 2.87e+02 | 18.6 | 0 | MISMATCH (unchanged — overlap vs §5) |
+| case5       | **3 / 2** | 62 | **5.79e-08** | 473.4 | **err 8e-4 → 5.79e-08**, −4 branches, +14 ms | MISMATCH (improved) |
+| case6       | 1 / 2 |  9 | 6.34e-08 | 66.9 | unchanged | MISMATCH |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Case-5 analysis.** The big win is accuracy: residual dropped by 4 orders of magnitude (8e-4 → 5.79e-08). This is the cofactor-tangent + adjacency-walk combination: the marcher starts with the correct inward direction hint (no more outward-clipped zero-length fragments), and the adjacency walk follows partition-share with exact `(param, direction)` matching instead of xyz proximity. Case 5 dropped 11 → 3 branches compared to iter-12's identity-based assembly.
+
+The remaining extra branch is a **duplicate** of one of the 2 real branches. Root cause: when subdivision's internal CSX call re-discovers an existing crossing at slightly-different `stuv` (numerical noise, ~4e-9), two distinct `BoundaryPoint` objects exist for the same physical point. The adjacency walk's `emitted_point_ids` dedupe uses object identity, so the second walk from the duplicate point is not skipped. A proper fix — Invariant-C-at-subdivision-time dedupe — requires careful handling (my first attempt was too aggressive and broke case 5 differently); deferred to a dedicated micro-iteration.
+
+**Tangential regressed** to 0/1 as expected: pre-iter-13 Φ-pairing heuristic is gone; the Φ-side classifier that's supposed to replace it is deferred (design §4.2).
+
+**Iter-13 is a net improvement on case 5** (correct residual, closer branch count) but reveals two distinct design items now visible: (a) BoundaryPoint unification at subdivision, and (b) the Φ-side classifier. Both already captured in the design doc. No in-session heuristic fallback applied.
+
+## 2026-04-18 — Rollback to iter-11 state (case 6 = 2/2 recovered)
+
+After iter-13 and a first attempt at iter-14 (multi-cut — broke case 5 to 0/2, 3× slower), the adjacency walk + cofactor tangent combination turned out to interact poorly with the rest of the pipeline. Symptoms: case 6 lost its loop at iter-12 (cofactor tangent changing the fragment topology under still-identity assembly), case 5 kept a duplicate branch at iter-13 (sibling-cell in-regs at the same physical point), and iter-14 multi-cut exploded to 58 cells with 0 successful walks.
+
+Decision: revert `mmcore/numeric/intersection/ssx/_bez_ssx5.py` to its state at iter-11 (`655ea32`) — the last point where case 6 was 2/2 — and retry §6.5 multi-cut directly on that foundation. The design doc (§4.1 cofactor, §4.2 deferred Φ classifier, §9 adjacency walk) remains; it is still the target we want to reach, just not the path we're taking right now. Rollback is pure code revert — measurements entries for iter-12/iter-13 kept as historical record.
+
+Baseline after rollback (`655ea32` code on top of current docs):
+
+| case | br (act/exp) | pts | err | t (ms) | status |
+|------|-------------:|----:|----:|-------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 11.0  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.1  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 46.1  | OK (Φ via legacy `.face` pairing) |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 18.5  | MISMATCH |
+| case5       | 4 / 2 | 71 | 8.74e-04 | 442.9 | MISMATCH |
+| case6       | **2 / 2** | 20 | 1.63e-04 | 67.2  | **OK** |
+
+- CSX unit tests: **12 / 12 pass**.
+
+Next: implement §6.5 multi-cut on this baseline as a fresh iter-14.
+
+## 2026-04-18 — Iteration 14 (retry): §6.5 multi-crossing cut on iter-11 base
+
+**Goal:** subdivide at *all* crossing parameter values on the chosen axis in one pass (Krishnan-Manocha 1997). k strips per subdivision instead of 2; TΨᵢ coefficient hull tightens proportionally. Axis selection prefers the axis with the most valid interior cuts, tiebreak by spread.
+
+**Change:**
+- `_choose_cut` replaced by `_choose_multi_cut(crossings, box, min_margin)`, returning `(axis, sorted_cut_values)` or `(None, None)`. Legacy `_choose_cut` retained as a thin shim for any remaining callers (none outside the main loop in current code).
+- `_build_cell_partitions` gains `skip_faces: list[(axis, side)]` (keeps single-tuple `skip` for back-compat).
+- Main-loop subdivision branch rewritten: for each cut value, runs one isoline CSX (k calls per subdivision); builds shared `PartitionCurve` per cut with `adjacents=[strip_i, strip_{i+1}]`; sequential de Casteljau on surface/Gauss/TΨᵢ produces k strip cells; each strip builds its own partitions skipping the two cut-axis faces that are shared internals; classification runs per strip.
+
+| case | br (act/exp) | pts | err | t (ms) | Δ vs rollback | status |
+|------|-------------:|----:|----:|-------:|--------------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 12.0  | +1.0  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 11.7  | +0.6  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 46.9  | +0.8  | OK |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 19.2  | +0.7  | MISMATCH (unchanged) |
+| case5       | **30 / 2** | 8173 | 9.55e-04 | **1561.1** | +26 branches, 3.5× slower | **MISMATCH (worse)** |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 70.0  | +2.8  | **OK** (preserved) |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Interpretation.**
+- Simple cases (planes, transversal, tangential, case 6) untouched — multi-cut doesn't activate for ≤ 2 crossings or narrows down to a binary split in practice.
+- Case 5 explodes: the multi-cut at each subdivision level creates new `BoundaryPoint` objects at every cut value via `_isoline_csx_to_global`. When a new crossing's `stuv` matches an existing `cell.crossings` entry (L1 crossing or previous-level new crossing) within numerical noise, the identity-based assembly can't recognise them as the same physical point; each side of each cut emits its own fragment, and the identity-chain walker emits one full branch per fragment pair. Hence 30 branches for 2 physical curves.
+- The exact cascading duplication matches the iter-13 "Invariant-C-at-subdivision" observation: identity-based assembly is fundamentally incompatible with multi-cut unless `BoundaryPoint` identity is unified at every cut boundary. That unification done aggressively (as I tried in iter-13) drops crossings needed by the other side of the cut; done carefully it would preserve both distribution AND identity.
+
+**Outcome.** Multi-cut design is correct; the implementation plumbing works; but identity-based assembly can't absorb the extra crossings it produces without a BoundaryPoint-unification step that's more careful than "merge by stuv distance and drop the duplicate". The iter-13 adjacency-walk + cofactor branch was designed to sidestep this by matching on `(partition, param)` rather than object identity — so multi-cut is really a natural companion of the adjacency-walk redesign, not a drop-in on top of identity assembly.
+
+Not fixing in-session. Keeping iter-14 multi-cut code in place (plumbing is useful), accepting the regression on case 5 as the signal that the next real step is to revisit cofactor + adjacency-walk with the lessons from this session.
+
+## 2026-04-18 — Iter-14 + subdivision-time Invariant C (BoundaryPoint unification)
+
+**Goal:** apply design §5 Invariant C (identical stuv → unify) at every internal CSX call during subdivision, not just at L1. When `_isoline_csx_to_global` returns a crossing whose stuv matches an existing `BoundaryPoint` (from `cell.crossings` or from an earlier cut in this same subdivision), reuse the existing object and snap its `stuv[cut_axis]` to the exact cut value so the distribute step sends it to both strips adjacent to the cut.
+
+**Instrumentation before the fix.** 40 leaves marched, 153 total marches, 39 leaves had ≥1 `BoundaryPoint` pair at the same physical stuv but with different `id()`s. 108 of the 153 marches were duplicates (same start stuv, different object identity, same leaf).
+
+**After the fix:**
+
+| metric | before dedup | after dedup |
+|---|---|---|
+| leaves marched | 40 | 21 |
+| total marches | 153 | 26 |
+| leaves with duplicate-stuv-different-id | 39 | **0** |
+| duplicate marches | 108 | **0** |
+
+And case 5 branch count: **30 → 4**, time: **1561 ms → 766 ms**.
+
+| case | br (act/exp) | pts | err | t (ms) | status |
+|------|-------------:|----:|----:|-------:|:------:|
+| planes      | 1 / 1 | 10 | 3.55e-15 | 10.6  | OK |
+| transversal | 1 / 1 | 13 | 6.07e-09 | 10.8  | OK |
+| tangential  | 1 / 1 |  9 | 3.97e-15 | 43.7  | OK |
+| overlaps    | 4 / 2 |  8 | 2.87e+02 | 18.4  | MISMATCH (pre-existing) |
+| case5       | **4 / 2** | 4051 | 7.64e-04 | 766.0 | MISMATCH (count matches pre-multi-cut baseline; point count inflated) |
+| case6       | 2 / 2 | 20 | 1.63e-04 | 69.0  | OK |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Remaining issue with case 5: marcher oscillation.** Case 5's 4 output branches are:
+- branch 1: 20 pts, clean (length 14.05 in 3D, start→end 13.80) — one of the real branches.
+- branch 2: 9 pts, clean (length 1.25) — likely a short side-branch in a small strip.
+- branch 0: **2020 pts**, 1993 near-duplicates with earlier points (length 14.24, start→end 14.17 — so the branch ACTUALLY covers the right curve but with 100× oversampling).
+- branch 3: **2002 pts**, 1990 near-duplicates, length 0.90 — the marcher is jittering at the 2000-point safety cap.
+
+Two branches hit the marcher's 2000-point safety cap. The marcher is oscillating at one end of these branches — in a very thin strip, the tangent's absolute sign (SVD-based, arbitrary) likely points outward, causing the marcher to take a tiny step, clip to the boundary, reverse, step again, etc. This is the same symptom that motivated the §4.1 cofactor tangent design, and it hurts multi-cut more than binary because multi-cut produces many thin strips with poorly-conditioned tangent evaluation near the edges.
+
+**Overall.** Subdivision-time Invariant-C dedup is a clean, small change (one block in the main loop) that fully eliminates the duplicate-marching problem highlighted by the user's diagnostic. Multi-cut is now no worse than binary on case 5 branch count (4/2 either way), and substantially reduces the non-productive sub-cells. What's left is the marcher-oscillation problem that predates multi-cut but is exposed more in multi-cut strips.
+
+## 2026-04-18 — Boundary-crossing event detection in the marcher
+
+**Goal:** replace `np.clip(predicted, 0, 1)` + tolerance-based `_on_boundary` test with an *event* — the intersection curve crosses the cell boundary somewhere in the interval `(current, predicted)` exactly when some `predicted[i]` leaves `[0,1]`. When that event fires, clamp the crossed axis to its exact boundary value and solve the three-free-parameter Newton problem for the exact crossing.
+
+**Why.** Diagnosis on case 5 showed the marcher parked 10⁻⁶ to 10⁻³ from the expected exit boundary (the Ψ=0 curve doesn't pass through the cell corner at machine precision), `_on_boundary(tol=1e-8)` never fired, and the loop hit the 2000-point safety cap with thousands of duplicate samples. No tolerance value cleanly separates "close enough to stop" from "interior point passing nearby" — but the *transition* event does, by construction.
+
+**Change:**
+- Added `_detect_boundary_crossing(current, predicted)`: walks all four axes and, if any `predicted[i]` is outside `[0,1]`, returns the axis, boundary value (0 or 1), and fraction `α` of the step at which the crossing occurred (the minimum over all exits, i.e. which axis we crossed *first*).
+- Added `_ssx_correct_fixed(S1, S2, stuv_init, fixed_axis, fixed_value, rational)`: damped Newton on `Ψ=0` with one axis held fixed, using the three remaining parameters. Gives the exact boundary-crossing point of the intersection curve.
+- `_march_to_boundary` no longer clips the predictor. At each step, if `_detect_boundary_crossing` fires, it initialises from `current + α·(predicted − current)` (with the crossed axis snapped to its boundary), runs `_ssx_correct_fixed`, appends the result, and breaks. The old tolerance-based `_on_boundary` check is removed from this path.
+
+| case | prev | after boundary-crossing event | Δ |
+|------|-----:|------------------------------:|---|
+| planes      | 1/1, 10 pts, err 3.55e-15, 10.7 ms | 1/1, 10 pts, err 3.55e-15, 10.7 ms | — |
+| transversal | 1/1, 13 pts, err 6.07e-09, 10.8 ms | 1/1, 13 pts, err 6.07e-09, 10.9 ms | — |
+| tangential  | 1/1,  9 pts, err 3.97e-15, 43.7 ms | 1/1,  9 pts, err 3.97e-15, 43.8 ms | — |
+| overlaps    | 4/2 MISMATCH | 4/2 MISMATCH | unchanged (pre-existing overlap/§5 gap) |
+| **case 5**  | **4/2, 4051 pts, err 7.64e-04, 766 ms** | **2/2, 65 pts, err 8.18e-08, 476 ms** | **fixed** |
+| case 6      | 2/2, 20 pts, err 1.63e-04, 69 ms | 2/2, 18 pts, err 6.34e-08, 68 ms | err dropped 3 orders of magnitude |
+
+- CSX unit tests: **12 / 12 pass**.
+
+**Case 5 and case 6 both improve dramatically in residual.** The event-based boundary crossing gives an *exact* endpoint (via 3×3 Newton) instead of wherever the regular corrector happened to park. Case 5: residual `7.64e-04 → 8.18e-08` (four orders); case 6: `1.63e-04 → 6.34e-08` (three orders). Branch counts exactly match expectations on both.
+
+**Only remaining MISMATCH** on the original five test cases is the overlap duplicate, which is a separate gap (overlap endpoints don't participate in §5 `BoundaryPoint` classification). Everything curve-tracing-related is now correct to machine noise.
+
+## 2026-04-25/26 — Major revision: dual-surface subdivision + perf optimizations
+
+End of a long debugging session. Earlier in the session, case 6 reported 2/2
+"OK" at the baseline but the second branch was a duplicate of the open branch
+— the loop was entirely missing. This was traced to a chain of issues that
+together prevented the loop from being discovered, distributed, and traced.
+
+Design changes (recorded in `bez-ssx-v5.md` change history):
+- **Dual-surface Cartesian-product subdivision** replacing single-axis multi-cut
+- **Per-piece CSX** (a/b/c/d) for distribution determinism
+- **F_sq propagation** (build once at top, split alongside TΨᵢ)
+- **GJK separability** check between AABB and sq-dist net
+- **Cofactor-based tangency pre-check** + skip `_check_tangency` for cells
+  with no crossings
+- **Simplified tracer** (no in/out classification — march and match by stuv
+  proximity)
+- **Marcher first-step clamping** so a march starting on a face doesn't
+  bounce off it
+- **All-4-axes inheritance check** at sub-cell construction
+- **BFS** traversal (deque) instead of LIFO stack
+- A `bez_csx` false-negative bug was identified during this session and fixed
+  (separately, in `_bez_csx4`)
+
+Final measurements (commit `4dc6cc6` + GJK `3dcb2f9`):
+
+| case | branches (act/exp) | pts | residual | t (ms) | status |
+|------|-------------------:|----:|---------:|-------:|:------:|
+| planes      | 1/1 | 10 | 3.55e-15 |  13 | OK |
+| transversal | 1/1 | 13 | 6.07e-09 |  14 | OK |
+| tangential  | 1/1 |  9 | 3.97e-15 |  66 | OK |
+| overlaps    | 3/2 |  6 | 2.87e+02 |  23 | MISMATCH (pre-existing) |
+| case 5      | 2/2 | 54 | 8.27e-08 | 475 | OK |
+| **case 6**  | **2/2** | **164** | **8.85e-04** | **1673** | **OK (loop found)** |
+
+CSX unit tests: 12/12 pass.
+
+For comparison, the reference Gauss-map-only `detect_intersections` from
+`_ssx4.py` runs case 6 in 88 ms (no tracing, just leaf certification). Our
+algorithm is ~19× slower but does the full job: boundary CSX, dual-surface
+splitting, marching, fragment assembly. At session start the gap was 344×.
+
+Profile of remaining costs in case 6:
+- `bez_csx` (per-piece CSX): 1042 ms (64 %) — fundamental cost of dual-surface
+  subdivision
+- `_check_loop_free` (Gauss separability LP): 434 ms (27 %) — cost of
+  certifying loop-freeness when TΨᵢ monotonicity fails
+- `_check_tangency`: 0 ms (never called — fully short-circuited by cofactor
+  pre-check)
+- Pruning + bookkeeping: ~140 ms (9 %)
+
+Items left for next iterations:
+- §4.2 Φ-side classifier
+- §5 overlap endpoint integration (overlaps 3-4/2 → 2/2)
+- §9 adjacency-walk assembly variant
+- Cython port of `separate_gauss_maps` (would directly cut the 27 % LP cost)

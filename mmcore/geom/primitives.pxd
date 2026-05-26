@@ -2,6 +2,8 @@ cdef class Implicit3D:
     cdef double[:,:] _bounds
     cdef double cimplicit(self, double x, double y, double z)  noexcept nogil
     cdef void cgradient(self, double x, double y, double z, double[:] result)  noexcept nogil
+    cdef void cimplicit_multi(self, double[:,:] pts, double[:] sd)  noexcept nogil
+    
 cdef class Sphere(Implicit3D):
     cdef double ox
     cdef double oy

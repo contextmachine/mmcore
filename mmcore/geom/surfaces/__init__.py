@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
 
+
 from mmcore.geom.curves.curve import Curve
 from mmcore.geom.parametric import ParametricCurve
 from mmcore.geom.parametric import BiLinear as CBiLinear
@@ -19,10 +20,10 @@ from mmcore.geom.polygon import polygon_build_bvh
 from mmcore.numeric.algorithms.point_in_curve import point_in_parametric_curve
 from mmcore.numeric.fdm import Grad, DEFAULT_H
 from mmcore.numeric.newton.cnewton import newtons_method
-from mmcore.numeric.numeric import evaluate_normal2
+
 from mmcore.numeric.vectors import scalar_dot, scalar_cross, scalar_unit, scalar_norm
 
-from mmcore.topo.mesh.tess import as_bvh, tessellate_surface
+from mmcore.topo.mesh.tess import  tessellate_surface
 
 
 class TwoPointForm:
@@ -95,8 +96,6 @@ def compute_intersection_curvature(Su1, Sv1, Suu1, Suv1, Svv1, Su2, Sv2, Suu2, S
     return curvature_vector, T
 
 
-from mmcore.geom.implicit import ParametrizedImplicit2D
-
 
 class CurveOnSurface(Curve):
     def __init__(self, surf: "Surface", curve: "Curve|Callable", interval=(0., 1.)):
@@ -123,7 +122,7 @@ class CurveOnSurface(Curve):
             self._polygon = self.curve(np.linspace(*self.curve.interval(), 50))[:, :2]
         self._edges = [(self._polygon[i], self._polygon[(i + 1) % len(self._polygon)]) for i in
                        range(len(self._polygon))]
-        self._bvh_uv_root = polygon_build_bvh(tuple(tuple(i) for i in self._edges))
+        self._bvh_uv_root = polygon_build_bvh(self._polygon)
 
     def plane_at(self, t):
         O = self.evaluate(t)
@@ -144,16 +143,18 @@ class CurveOnSurface(Curve):
         return self._eval_crv_func(t)[..., :2]
 
     def interval(self):
-        return self._interval
+        return self.curve.interval()
 
     def point_inside(self, uv):
 
         return point_in_parametric_curve(self.curve, uv)
 
 
+
+
 from mmcore.geom.bvh import BVHNode, contains_point
 from mmcore.numeric.divide_and_conquer import divide_and_conquer_min_2d
-from mmcore.numeric.fdm import gradient as fgrdient
+
 from mmcore.geom.evaluator import surface_evaluator
 
 class Surface:

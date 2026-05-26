@@ -5,12 +5,26 @@ from typing import Any
 import numpy as np
 from mmcore.numeric._aabb import aabb,aabb_intersect,aabb_intersection,ray_aabb_intersect,segment_aabb_intersect,segment_aabb_clip,aabb_segm3d,aabb_intersect_fast_3d
 from mmcore.numeric.numeric import curve_bound_points, curve_bound_points2
-from mmcore.numeric.routines import cartesian_product
-__all__=["aabb", "aabb_intersect","aabb_intersection", "point_in_aabb", "aabb_overlap",'curve_aabb','curve_aabb2','curve_aabb_eager',"segment_aabb_intersect","segment_aabb_clip","ray_aabb_intersect",'aabb_segm3d',"aabb_intersect_fast_3d"]
-@np.vectorize(signature="(i),(i)->(j,i)")
-def box_from_intervals(start, end):
-    return cartesian_product(*(np.dstack((start, end))[0]))
 
+__all__=["aabb", "aabb_intersect","aabb_intersection", "point_in_aabb", "aabb_overlap",'curve_aabb','curve_aabb2','curve_aabb_eager',"segment_aabb_intersect","segment_aabb_clip","ray_aabb_intersect",'aabb_segm3d',"aabb_intersect_fast_3d"]
+
+
+
+
+def box_from_intervals(start, end):
+
+    return np.array(list(zip(start, end)))
+
+
+
+
+
+box_from_intervals=np.vectorize(box_from_intervals,signature="(i),(i)->(j,i)")
+def aabb_offset(bbox, d):
+    bb=np.copy(bbox)
+    bb[1]+=d
+    bb[0]-=d
+    return bb
 
 def point_in_aabb(bbox,point):
     if bbox.shape[-1]==2:
@@ -109,3 +123,4 @@ def curve_aabb_eager(curve, bounds=None, cnt=8):
 
     vals = np.linspace(*bounds, cnt, dtype=float)
     return aabb(curve(vals))
+

@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from typing import Tuple
+
 from numpy.typing import NDArray
 from math import sqrt
 from mmcore.numeric.plane.cplane import plane_plane_intersection, plane_plane_intersect, evaluate_plane, \
@@ -209,8 +212,8 @@ def plane_ray_intersection(plane, ray):
     return ray_plane_intersection(pln,ray)
 
 
-#def plane_plane_plane_intersect(self, other, third, tol=1e-15):
-#    return plane_line_intersect(third, plane_plane_intersect(self, other), tol)
+#def plane_plane_plane_intersect(self, other, third, spt=1e-15):
+#    return plane_line_intersect(third, plane_plane_intersect(self, other), spt)
 
 
 def plane_from_normal_origin(normal, origin):
@@ -283,3 +286,81 @@ def transform(pln, m): ...
 
 
 def offset(pln): ...
+def ray_triangle_overlap_segment(
+    O, D, V0, V1, V2,
+    epsilon: float = 1e-8
+) -> Tuple[bool, float, float]:
+    """
+    Find the interval [t0, t1] (t0 ≤ t1, t ≥ 0) for which the *coplanar* ray
+        R(t) = O + t D
+    stays on / inside the triangle (V0,V1,V2).
+
+    Parameters
+    ----------
+    O, D : (3,) array_like
+        Ray origin and direction.  *D is **not** normalised here.*
+    V0, V1, V2 : (3,) array_like
+        Triangle vertices.
+    epsilon : float
+        Tolerance used for numerical tests.
+
+    Returns
+    -------
+    has_overlap : bool
+        True  → the ray overlaps the triangle on a non-empty segment
+        False → no part of the ray meets the triangle
+    t0, t1 : float
+        Ray parameters of the segment’s start and end points
+        (undefined when has_overlap is False).
+
+    Notes
+    -----
+    • If `t0 == t1`, the overlap is a single point (a vertex or an edge touch).
+    • The routine never returns ∞.  A fully-contained infinite ray can only
+      occur when D ≈ 0; this is treated as “no overlap”.
+    """
+    # ---------- 1. convert to flat NumPy vectors -----------------------
+    O  = np.asarray(O,  dtype=float).reshape(3)
+    D  = np.asarray(D,  dtype=float).reshape(3)
+    V0 = np.asarray(V0, dtype=float).reshape(3)
+    V1 = np.asarray(V1, dtype=float).reshape(3)
+    V2 = np.asarray(V2, dtype=float).reshape(3)
+
+    if np.linalg.norm(D) < epsilon:          # degenerate “ray” – a point
+        return False, 0.0, 0.0
+
+    # ---------- 2. barycentric representation of the ray --------------
+    # Build a 3×2 basis of the triangle plane:  P = V0 + u*E1 + v*E2
+    E1, E2 = V1 - V0, V2 - V0
+    B = np.column_stack((E1, E2))           # shape (3,2)
+    B_pinv = np.linalg.pinv(B)              # Moore–Penrose pseudo-inverse (2×3)
+
+    u0, v0 = B_pinv @ (O - V0)              # barycentric coords of the origin
+    du, dv = B_pinv @ D                     # barycentric velocity along the ray
+    w0 = 1.0 - u0 - v0
+    dw = -(du + dv)
+
+    # ---------- 3. clip the 1-D interval against u,v,w ≥ 0 -------------
+    # Start with the half-line t ∈ [0, +∞).
+    t_min, t_max = 0.0, np.inf
+
+    for b, a in ((u0, du), (v0, dv), (w0, dw)):
+        if abs(a) < epsilon:                # coefficient ~ 0  →  no slope
+            if b < -epsilon:                # always negative → outside
+                return False, 0.0, 0.0
+            continue                        # always satisfied; nothing to clip
+
+        t_cross = -b / a
+        if a > 0:                           # inequality:  t ≥ t_cross
+            t_min = max(t_min, t_cross)
+        else:                               # a < 0      →  t ≤ t_cross
+            t_max = min(t_max, t_cross)
+
+        if t_min - t_max > epsilon:         # empty interval → no overlap
+            return False, 0.0, 0.0
+
+    # Clamp very small negatives caused by ε-noise
+    t0 = max(t_min, 0.0)
+    t1 = max(t0, t_max)                     # ensure ordering (handles touches)
+
+    return True, t0, t1

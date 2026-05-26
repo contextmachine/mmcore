@@ -6,7 +6,7 @@
 [![pip downloads](https://img.shields.io/pypi/dm/mmcore)](https://pypi.python.org/project/mmcore)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/mmcore.svg)](https://pypi.python.org/project/mmcore)
 
-![](notes/images/img.png)
+![](notes/images/Screenshot%202025-05-29%20at%2022.56.31.png)
 
 <!-- TOC -->
 * [mmcore](#mmcore)
@@ -36,6 +36,41 @@
   * [Contributing](#contributing)
   * [License](#license)
 <!-- TOC -->
+## NEW in 0.53.0
+
+### CSX overlaps handling
+The nurbs_csx implementation now correctly handles overlaps (see image below).
+
+![](./notes/images/Screenshot%202025-09-16%20at%2006.45.09.png)
+
+The example shown in the figure can be found in [./examples/csx/overlap_nurbs_intersection_3.py](./examples/csx/overlap_nurbs_intersection_3.py)
+
+### NURBS SSX improvements 
+- Rational cases are fully processed.
+- Significantly improved robustness. 
+- Tangential intersections no longer cause branches to be interrupted. For example, [here](./examples/ssx/nurbs_nurbs_intersection_2.py).
+At the detect intersections stage, a bug in the gjk implementation that led to false negatives in a number of cases has been fixed.
+На этапе, detect intersections исправлен баг в реализации gjk, приводивший к ложноотрицательному выходу в ряде случаев
+- Added 9 usage examples covering various cases.
+- The implementation of the march method has been brought more into line with the (validated ode solver described here)[https://www.cad-journal.net/files/vol_1/CAD_1%281-4%29_2004_449-457.pdf].
+- Adaptive refinement is now used instead of the march method to construct a single intersection branch.
+- 
+<div style="display:flex; align-items:flex-start; gap:0.75rem;">
+  <img src="./notes/images/Screenshot%202025-05-29%20at%2019.10.39.png" alt="Image 1" height="200"/>
+  <img src="./notes/images/Screenshot%202025-05-29%20at%2023.05.02.png" alt="Image 2" height="200"/>
+  <img src="./notes/images/img_1.png" alt="Image 3" height="200"/>
+</div>
+
+
+
+
+
+
+### Significantly expanded NURBS construction methods
+...
+
+### Redesign of the NURBS object system
+...
 
 ## Overview
 
@@ -46,27 +81,61 @@ The library provides a comprehensive set of geometric modeling tools, numerical 
 **Note:** mmcore is under active development and does not currently guarantee backwards compatibility. The API may change significantly between versions.
 
 ## Key Features
+> accuracy corresponds to commercial CAD engines
+- Parametric Representations (NURBS)
+  - NURBS curves and surfaces (only nurbs supported)
+    - Basic NURBS operations
+      - evaluation
+      - knots operations
+      - degree operations
+      - interpolation
+      - extend  (curve, surface)
+      - offset (curve, surface)
+    - Advanced NURBS operations
+      - reparametrization
+      - Change of basis (to/from monomial, to/from scaled bernstein)
+      - Exact composition
+      - Gauss-maps
+      - Implicitization (ruled surfaces only)
+    - Construction
+      - base primitives (circle,arc,sphere,cylinder,torus,...)
+      - ruled
+      - revolution
+    - Differential operations
+      - General differential operation for curves and surface (Fundamental forms, metric tensor, etc.)
+      - Curvatures (curve, surface, sectional)
+      - Parameter space tolerance evaluation
+      - adaptive approximation/tessellation
+    - CAD algorithms 
+      - Closest point (robust, curve/surface)
+      - Intersection
+        - CCX (curve-curve intersection, all points and overlaps)
+        - CSX (curve-surface intersection, all points, overlaps detection WIP )
+        - SSX (surface-surface intersection, all intersection branches)
+      - Geometric properties
+        - Curve length
+        - Curve area (closed planar NURBS curve)
+        - Surface area (closed planar NURBS curve)
+        - Area of surface (WIP)
+        - Area of trimmed surface (WIP)
+- Implicit Representations 
+  - Evaluation (value,gradient)
+  - User-defined implicit functions support
+  - Boolean operations (union, intersection, difference, xor)
+  - Implicit approximation
+  - CAD algorithms
+      - Closest point on 2d/3d implicit
+      - Closest point on intersection curve between 3d implicits
+      - Intersection (Fairly fast)
+        - 2d x 2d
+        - 3d x 3d 
+  - Tessellation
+    - marching cubes
+- Topology (WIP)
+- Compat
+  - STEP (write, NURBS only)
 
-- **Geometric Modeling**
-  - Complete NURBS curves and surfaces implementation
-  - Advanced surface analysis with fundamental forms
-  - Comprehensive intersection algorithms
-  - Implicit geometry support with boolean operations
-  - Primitive shapes and surface analysis tools
-
-- **Numerical Methods**
-  - General purpose optimization algorithms (Newton method, divide-and-conquer)
-  - Robust numerical integration (RK45 and alternatives)
-  - Interval arithmetic support
-  - Advanced intersection algorithms for curves and surfaces
-  - CAD-specific computational geometry algorithms
-  
-- **Performance Optimization**
-  - Critical algorithms implemented in C/C++/Cython 
-  - Fastest NURBS implementation in python.
-  - BVH (Bounding Volume Hierarchy) for efficient spatial queries
-  - Vectorized operations outperforming numpy for 2D-4D cases
-
+* exact: corresponds to commercial CAD engines *
     
 ## Installation
 

@@ -8,14 +8,14 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from mmcore.geom.implicit.tree import ImplicitTree2D, implicit_find_features
-from mmcore.numeric import scalar_norm
 
 from mmcore.numeric.aabb import curve_aabb, aabb_overlap, curve_aabb_eager
 from mmcore.numeric.divide_and_conquer import test_all_roots
 from mmcore.numeric.routines import divide_interval
-from mmcore.geom.nurbs import NURBSCurve, split_curve_multiple, split_curve
-
-__all__ = ["ccx", "curve_curve_intersect", "curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
+from mmcore.geom.nurbs import NURBSCurve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,_nurbs_to_tuple,_tuple_to_nurbs
+from ._nccx4 import nurbs_ccx,nurbs_ccx_multiple
+__all__ = ["ccx", "curve_curve_intersect", 'nurbs_ccx_multiple','nurbs_ccx',"curve_x_axis", "curve_x_ray", "curve_pix","curve_ppx", "curve_iix"]
 
 def _calculate_spline_tolerance(spline, default_tol=1e-3):
     """
@@ -37,7 +37,7 @@ def curve_x_ray(curve, orig, axis=1, step=0.5):
     orig=orig if isinstance(orig, np.ndarray) else np.array(orig,dtype=float)
     return curve_pix(curve, lambda xyz: (orig - xyz)[axis], step=step)
 
-def ccx(curve1, curve2, tol: float = 0.01):
+def ccx(curve1, curve2, tol: float = 0.001):
     """
     Compute the intersection points between two curves (Curve X Curve Intersection).
 
@@ -77,7 +77,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
     +-------------------+-------------------+---------------------------+
     | Implicit          | Parametric        | `curve_pix`                |
     +-------------------+-------------------+---------------------------+
-    | Parametric        | Parametric        | `curve_ppx`                |
+    | Parametric        | Parametric        | Error raised              |
     +-------------------+-------------------+---------------------------+
     | Implicit          | Implicit          | `curve_iix`                |
     +-------------------+-------------------+---------------------------+
@@ -92,7 +92,7 @@ def ccx(curve1, curve2, tol: float = 0.01):
 
         >>> from mmcore.geom.nurbs import NURBSCurve
         >>> nc1, nc2 = NURBSCurve(pts1, degree=1), NURBSCurve(pts2, degree=1)
-        >>> ccx(nc1, nc2, tol=1e-3)
+        >>> ccx(nc1, nc2, spt=1e-3)
         [(0.4714, 0.1658), (0.4718, 0.1659), (1.4348, 0.3157), (1.4353, 0.3157),
          (2.1610, 0.1302), (2.1609, 0.1304)]
 
@@ -100,16 +100,19 @@ def ccx(curve1, curve2, tol: float = 0.01):
         >>> pts3 = np.copy(pts1)
         >>> pts3[..., -1] += 1e-11  # Slight adjustment to the z-coordinate
         >>> nc3 = NURBSCurve(pts3, degree=1)
-        >>> ccx(nc3, nc2, tol=1e-3)  # No intersections found due to coplanarity
+        >>> ccx(nc3, nc2, spt=1e-3)  # No intersections found due to coplanarity
         []
 
     """
+
+    if isinstance(curve1, (NURBSCurve,NURBSCurveTuple)) and isinstance(curve2,  (NURBSCurve,NURBSCurveTuple)):
+        return nurbs_ccx(curve1, curve2, tol=tol)
+    
+
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):
         return curve_pix(curve2, curve1)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "evaluate"):
         return curve_pix(curve1, curve2)
-    elif hasattr(curve2, "evaluate") and hasattr(curve1, "evaluate"):
-        return curve_ppx(curve1, curve2, tol=tol)
     elif hasattr(curve2, "implicit") and hasattr(curve1, "implicit"):
         raise curve_iix(
             curve1, curve2)
@@ -182,7 +185,7 @@ def curve_pix(curve, implicit: Callable[[ArrayLike], float], step: float = 0.5, 
     """
     implicit_form= getattr(implicit, "implicit", implicit)
     evaluate_parametric_form = getattr(curve, "evaluate", curve)
-    #tol = tol
+    #spt = spt
     roots = []
     for start, end in divide_interval(*curve.interval(), step=step):
         roots.extend(
@@ -239,7 +242,7 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
         ...                              (49.260, -13.419, 0.0)]))
         >>> second = NURBSpline(np.array([(40.965, -3.892, 0.0), (-9.548, -28.039, 0.0),
         ...                               (4.168, -58.265, 0.0), (37.269, -58.101, 0.0)]))
-        >>> intersections = curve_ppx(first, second, tol=0.001)
+        >>> intersections = curve_ppx(first, second, spt=0.001)
         >>> print(intersections)
         [(0.6007, 0.3717)]
     """
@@ -321,7 +324,6 @@ def curve_ppx(curve1, curve2, tol: float = 0.001, tol_bbox=0.1, bounds1=None, bo
     return sorted((tuple(np.average(val,axis=0)) for val in _categorize_with_defaultdict(result, index.tolist()).values()),key=lambda x:x[0])
 
 
-
 def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None):
     """
     Find intersections between two implicit curves (Implicit X Implicit).
@@ -373,10 +375,6 @@ def curve_iix(curve1, curve2, tree: ImplicitTree2D = None, rtol=None, atol=None)
         tree = ImplicitTree2D(lambda v: min(curve1.implicit(v), curve2.implicit(v)), depth=4)
         tree.build()
     return list(implicit_find_features((curve1, curve2), tree.border, atol=atol, rtol=rtol))
-
-
-
-
 
 
 def curve_intersect_old(curve1, curve2, tol: float = 0.01) -> list[tuple[float, float]]:

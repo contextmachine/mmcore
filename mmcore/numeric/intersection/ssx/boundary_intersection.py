@@ -5,38 +5,22 @@ with another surface.
 """
 from __future__ import annotations
 
-from typing import List, Tuple, Optional
+
+from typing import List, Tuple
 import numpy as np
 
-from mmcore.geom.nurbs import NURBSSurface, NURBSCurve, find_span, basis_functions
+from mmcore.geom.nurbs import NURBSSurface
 
-from mmcore.numeric.algorithms.surface_area import v_max
+from mmcore.geom._nurbs_eval import _nurbs_to_tuple, _tuple_to_nurbs,NURBSCurveTuple
+from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.geom.curves.bspline_first import NURBSCurve
+from mmcore.geom.nurbs_iso import extract_surface_boundaries
+from mmcore.numeric.algorithms.pull_curve import pull_back
+from mmcore.numeric.closest_point import nurbs_surface_closest_point
 from mmcore.numeric.intersection.csx import nurbs_csx
+from mmcore.numeric.interval import Interval, IntervalND
 
 
-
-def extract_surface_boundaries(surface: NURBSSurface) -> List[NURBSCurve]:
-    """
-    Extract the four boundary curves of a NURBS surface.
-    
-    Args:
-        surface (NURBSSurface): The input NURBS surface
-        
-    Returns:
-        List[NURBSCurve]: List of four boundary curves in order:
-            [u=0 curve, u=1 curve, v=0 curve, v=1 curve]
-    """
-    (u_min, u_max), (v_min, v_max) = surface.interval()
-    
-    # Extract iso-curves at the boundaries
-
-
-    u0_curve = extract_isocurve(surface, u_min, 'u')  # v-direction curve at u=0
-    u1_curve = extract_isocurve(surface, u_max, 'u')  # v-direction curve at u=1
-    v0_curve = extract_isocurve(surface, v_min, 'v')  # u-direction curve at v=0
-    v1_curve = extract_isocurve(surface, v_max, 'v')  # u-direction curve at v=1
-    
-    return [u0_curve, u1_curve, v0_curve, v1_curve]
 
 class IntersectionPoint:
     """Class representing an intersection point between a boundary curve and a surface"""
@@ -73,6 +57,7 @@ class IntersectionPoint:
             
         # Keep this for backward compatibility
         self.surface_params = surface_params
+        self.stuv=np.array([self.surface1_params[0], self.surface1_params[1],self.surface2_params[0],self.surface2_params[1] ])
         
     def get_start_params(self) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -107,32 +92,151 @@ class IntersectionPoint:
         else:  # v=1 curve
             return (param, vmax)
 
-def find_boundary_intersections(surf1: NURBSSurface, 
-                              surf2: NURBSSurface, 
-                              tol: float = 1e-6) -> List[IntersectionPoint]:
+
+class IntersectionOverlap:
+    """Class representing an intersection point between a boundary curve and a surface"""
+    
+    def __init__(self,
+                 point: np.ndarray,
+                 curve_param: Interval,
+                 surface_params: Tuple[Interval, Interval],
+                 boundary_index: int,
+                 is_from_first_surface: bool, interval,overlap_segm):
+        """
+        Initialize an intersection point.
+
+        Args:
+            point (np.ndarray): 3D intersection point
+            curve_param (float): Parameter value on the boundary curve
+            surface_params (Tuple[float, float]): (u,v) parameters on the intersected surface
+            boundary_index (int): Index of the boundary curve (0-3)
+            is_from_first_surface (bool): True if the boundary is from the first surface
+        """
+        
+        self.point = point
+        self.curve_param = curve_param
+        self.boundary_index = boundary_index
+        self.is_from_first_surface = is_from_first_surface
+        self.umin, self.umax = interval[0]
+        self.vmin, self.vmax = interval[1]
+    
+        surface_params111=np.array([(surface_params[0].low,surface_params[1].low),(surface_params[0].upp,surface_params[1].upp)])
+
+        # Store parameters for both surfaces
+        if is_from_first_surface:
+            self.surface1_params =(self._boundary_index_to_params(boundary_index, curve_param.low, self.umin, self.umax,
+                                                                  self.vmin, self.vmax),self._boundary_index_to_params(boundary_index, curve_param.upp, self.umin, self.umax,
+                                                                  self.vmin, self.vmax))
+            self.surface2_params=surface_params111
+          
+        else:
+            self.surface1_params = surface_params111
+            self.surface2_params = (self._boundary_index_to_params(boundary_index, curve_param.low, self.umin, self.umax,
+                                                                  self.vmin, self.vmax),self._boundary_index_to_params(boundary_index, curve_param.upp, self.umin, self.umax,
+                                                                  self.vmin, self.vmax))
+        
+        # Keep this for backward compatibility
+        self.surface_params = surface_params
+        self._segm=trim_curve(overlap_segm,curve_param.low,curve_param.upp)
+        
+        
+        
+        
+        
+    def get_start_params(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get the parameter values on both surfaces for starting curve tracing.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]:
+                (array([u1,v1]), array([u2,v2])) parameters for both surfaces
+        """
+        if self.is_from_first_surface:
+            # For first surface, convert boundary index to fixed parameter
+            u1, v1 = self._boundary_index_to_params(self.boundary_index, self.curve_param, self.umin, self.umax,
+                                                    self.vmin, self.vmax)
+            # For second surface, use the found parameters
+            u2, v2 = self.surface_params
+        else:
+            # For second surface, convert boundary index to fixed parameter
+            u2, v2 = self._boundary_index_to_params(self.boundary_index, self.curve_param, self.umin, self.umax,
+                                                    self.vmin, self.vmax)
+            # For first surface, use the found parameters
+            u1, v1 = self.surface_params
+        
+        return (np.array([u1, v1]), np.array([u2, v2]))
+    
+    @staticmethod
+    def _boundary_index_to_params(boundary_index: int, param: float, umin, umax, vmin, vmax) -> Tuple[float, float]:
+        """Convert boundary index and curve parameter to surface parameters"""
+        if boundary_index == 0:  # u=0 curve
+            return (umin, param)
+        elif boundary_index == 1:  # u=1 curve
+            return (umax, param)
+        elif boundary_index == 2:  # v=0 curve
+            return (param, vmin)
+        else:  # v=1 curve
+            return (param, vmax)
+    def get_ends(self,surf):
+        ssss = _nurbs_to_tuple(surf)
+        (u0, v0), _ = nurbs_surface_closest_point(ssss, self._segm.start())
+        (u1, v1), _ = nurbs_surface_closest_point(ssss, self._segm.end())
+        return (u0, v0), (u1, v1)
+    def pull(self, surf):
+        ssss=_nurbs_to_tuple(surf)
+        (u0,v0),_=nurbs_surface_closest_point(ssss, self._segm.start())
+        (u1, v1), _ = nurbs_surface_closest_point(ssss, self._segm.end())
+        return pull_back(ssss, self._segm, *self._segm.interval(), u0,v0,u1,v1,tol=1e-3)
+def _proc_overlap(surf,curve,point:IntervalND,params:tuple[Interval,Interval,Interval], boundary_index:int,is_from_first_surface:bool)->IntersectionOverlap:
+    over=trim_curve(_nurbs_to_tuple(curve),  params[0].low,params[0].upp)
+    return IntersectionOverlap(point,    curve_param=params[0],
+        surface_params=params[1:],
+        boundary_index=boundary_index,
+        is_from_first_surface=is_from_first_surface,
+        interval=surf.interval(),overlap_segm=over)
+   
+
+def find_boundary_intersections(surf1: NURBSSurface, surf2: NURBSSurface, spt: float = 1e-3,    angle_tol: float = 0.05235987755982989,) -> tuple[List[IntersectionPoint],List[tuple[IntersectionPoint,IntersectionPoint]]]:
     """
     Find all intersection points between the boundaries of two NURBS surfaces.
     
     Args:
         surf1 (NURBSSurface): First NURBS surface
         surf2 (NURBSSurface): Second NURBS surface
-        tol (float): Tolerance for intersection detection
+        spt (float): Spatial tolerance
+        tol (float): Parameter tolerance
         
     Returns:
         List[IntersectionPoint]: List of found intersection points
+
     """
     intersection_points = []
-    
+    overlaps = []
     # Get boundaries of both surfaces
     boundaries1 = extract_surface_boundaries(surf1)
     boundaries2 = extract_surface_boundaries(surf2)
     
+    #print(boundaries1)
+    #print(boundaries2)
+    #print([boundary.control_points.tolist() for boundary in boundaries1])
+    #print([boundary.control_points.tolist() for boundary in boundaries2])
     # Find intersections of surf1's boundaries with surf2
+    
     for i, boundary in enumerate(boundaries1):
-        intersections = nurbs_csx(boundary, surf2, tol=tol)
-
+        intersections = nurbs_csx(boundary, surf2, tol=spt)
+        #intersections =int_cs(boundary,surf2,spt=spt,spt=spt)
+        #print(i,intersections,boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
             # params[0] is curve parameter, params[1:] are surface parameters
+            if intersection_type == 'degenerate' :
+                print(intersection_type)
+            if intersection_type=='overlap' :
+                print(intersection_type)
+            
+                overlaps.append(_proc_overlap(surf1,curve=boundary,point=point,  params=params, is_from_first_surface=True,      boundary_index=i)
+             )
+                continue
+            
             intersection_points.append(
                 IntersectionPoint(
                     point=point,
@@ -146,8 +250,22 @@ def find_boundary_intersections(surf1: NURBSSurface,
     
     # Find intersections of surf2's boundaries with surf1
     for i, boundary in enumerate(boundaries2):
-        intersections = nurbs_csx(boundary, surf1, tol=tol)
+        intersections = nurbs_csx(boundary, surf1, tol=spt)
+        #intersections = int_cs(boundary, surf1, spt=spt, spt=spt)
+        #print(i, intersections, boundary.control_points.tolist())
         for intersection_type, point, params in intersections:
+            if intersection_type == 'degenerate':
+                    print(intersection_type)
+                
+            if intersection_type == 'overlap':
+                    print(intersection_type)
+                    
+                    overlaps.append(
+                        _proc_overlap(surf2 ,curve=boundary,point=point, params=params, is_from_first_surface=False, boundary_index=i)
+                        )
+        
+                    continue
+            
             intersection_points.append(
                 IntersectionPoint(
                     point=point,
@@ -158,19 +276,26 @@ def find_boundary_intersections(surf1: NURBSSurface,
                     interval=surf2.interval(),
                 )
             )
+            
     
     # Remove duplicate points (within tolerance)
     unique_points = []
     for point in intersection_points:
         is_duplicate = False
         for existing_point in unique_points:
-            if np.linalg.norm(point.point - existing_point.point) < tol:
+            N=np.linalg.norm(point.stuv - existing_point.stuv)
+            #print("N",N)
+
+
+            if  N < 1e-6:
                 is_duplicate = True
                 break
+            ...
         if not is_duplicate:
             unique_points.append(point)
     
-    return unique_points
+    return unique_points,overlaps
+
 
 def sort_boundary_intersections(points: List[IntersectionPoint]) -> List[List[IntersectionPoint]]:
     """
@@ -224,79 +349,3 @@ def sort_boundary_intersections(points: List[IntersectionPoint]) -> List[List[In
     return sequences
 
 
-def extract_isocurve(
-        surface: NURBSSurface, param: float, direction: str = "u"
-) -> NURBSCurve:
-    """
-    Extract an isocurve from a NURBS surface at a given parameter in the u or v direction.
-    Args:
-    surface (NURBSSurface): The input NURBS surface.
-    param (float): The parameter value at which to extract the isocurve.
-    direction (str): The direction of the isocurve, either 'u' or 'v'. Default is 'u'.
-    Returns:
-    NURBSCurve: The extracted isocurve as a NURBS curve.
-    Raises:
-    ValueError: If the direction is not 'u' or 'v', or if the param is out of range.
-    """
-    if direction not in ["u", "v"]:
-        raise ValueError("Direction must be either 'u' or 'v'.")
-    interval = surface.interval()
-    #print('ij', surface.knots_u, surface.knots_v, surface.interval())
-    if direction == "u":
-        # For u-direction: we fix u and vary v
-        # First check if the u parameter is in range
-        param_range = interval[0]  # u range
-        if param < param_range[0] or param > param_range[1]:
-            raise ValueError(f"Parameter {param} is out of range {param_range}")
-
-        # Find the span and basis functions in u direction (the direction we're fixing)
-        n_u = surface.shape[0] - 1  # number of control points in u direction - 1
-        degree_u = surface.degree[0]
-        span = find_span(n_u, degree_u, param, surface.knots_u, 0)
-        basis = basis_functions(span, param, degree_u, surface.knots_u)
-
-        # The resulting curve will have as many control points as the surface has in v direction
-        m = surface.shape[1]
-        control_points = np.zeros((m, 4))
-
-        # Compute control points for the extracted curve
-        for i in range(m):  # iterate over v direction
-            for j in range(degree_u + 1):  # combine with basis functions
-                control_points[i] += basis[j] * surface.control_points_w[span - degree_u + j, i]
-
-            # Return curve with v-direction degree and knots since we're varying in v
-
-        cc=NURBSCurve(control_points, degree=surface.degree[1],knots=surface.knots_v)
-        #cc.knots=surface.knots_v
-
-        #print('j', cc.knots,cc.interval())
-        return cc
-
-    else:  # direction == 'v'
-        # For v-direction: we fix v and vary u
-        # First check if the v parameter is in range
-        param_range = interval[1]  # v range
-        if param < param_range[0] or param > param_range[1]:
-            raise ValueError(f"Parameter {param} is out of range {param_range}")
-
-        # Find the span and basis functions in v direction (the direction we're fixing)
-        n_v = surface.shape[1] - 1  # number of control points in v direction - 1
-        degree_v = surface.degree[1]
-        span = find_span(n_v, degree_v, param, surface.knots_v, 0)
-        basis = basis_functions(span, param, degree_v, surface.knots_v)
-
-        # The resulting curve will have as many control points as the surface has in u direction
-        m = surface.shape[0]
-        control_points = np.zeros((m, 4))
-
-        # Compute control points for the extracted curve
-        for i in range(m):  # iterate over u direction
-            for j in range(degree_v + 1):  # combine with basis functions
-                control_points[i] += basis[j] * surface.control_points_w[i, span - degree_v + j]
-        cc = NURBSCurve(control_points, surface.degree[0],surface.knots_u)
-        #print('i',cc.knots,cc.interval())
-        #cc.knots = surface.knots_u
-
-
-        # Return curve with u-direction degree and knots since we're varying in u
-        return cc

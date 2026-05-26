@@ -49,20 +49,23 @@ cpts = np.array(
     ]
 )  # Control points definition
 surface = create_ruled_from_points(cpts, degree=3)
-ppt=np.array([[-0.37262838311109858, 19.712808549356065, 16.404873399828443], [-2.0414404128973751, -1.2964047904304496, 3.1698065065994614]])
+ppt = np.array(
+    [[-0.37262838311109858, 19.712808549356065, 16.404873399828443], [-2.0414404128973751, -1.2964047904304496, 3.1698065065994614]]
+)
 
 from mmcore.geom.primitives import Cylinder
 
-cc=Cylinder(*ppt,3.0)
+cc = Cylinder(*ppt, 3.0)
 from mmcore.numeric.marching import marching_intersection_curve_points
 
-initial_point=np.array([-4.8015033570999908, 10.591609456337622, 9.7754043957510461])
-res= marching_intersection_curve_points(cc.implicit,surface.implicit,cc.gradient,surface.gradient,initial_point,tol=1e-3 ,step=0.8).tolist()
+initial_point = np.array([-4.8015033570999908, 10.591609456337622, 9.7754043957510461])
+res = marching_intersection_curve_points(
+    cc.implicit, surface.implicit, cc.gradient, surface.gradient, initial_point, tol=1e-3, step=0.8
+).tolist()
 print(res)
 from mmcore.geom.curves.bspline import interpolate_nurbs_curve
 
-uvs=closest_points_on_surface(surface,np.array(res))
-curve=CurveOnSurface(surface, interpolate_nurbs_curve(uvs, degree=2))
+uvs = closest_points_on_surface(surface, np.array(res))
+curve = CurveOnSurface(surface, interpolate_nurbs_curve(uvs, degree=2))
 
-offset_curve=OffsetOnSurface(curve, 0.3)
-
+offset_curve = OffsetOnSurface(curve, 0.3)

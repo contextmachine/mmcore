@@ -3,7 +3,7 @@ from typing import Union
 import numpy as np
 from scipy.optimize import linprog
 from scipy.spatial import ConvexHull
-
+from mmcore.numeric.algorithms.moller import intersect_triangles_segment_one
 
 from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
 
@@ -143,6 +143,53 @@ class Curve(GeometricObject):
         return self.control_points
 
 
+import numpy as np
+
+
+def _tessellate(mesh: np.ndarray, closed_u: bool = False, closed_v: bool = False) -> np.ndarray:
+    """
+    Constructs a tessellation of triangles from a rectangular mesh of points,
+    with optional closure (wrap-around) in the u and v directions.
+
+    Parameters:
+        mesh (np.ndarray): A numpy array of shape (u, v, 3) representing the grid of points.
+        closed_u (bool): If True, the grid is closed in the u direction (last row connects to first row).
+        closed_v (bool): If True, the grid is closed in the v direction (last column connects to first column).
+
+    Returns:
+        np.ndarray: An array of triangles with shape (N, 3, 3), where each triangle is defined
+                    by three points in 3D space. The number of triangles is 2*(u')*(v'),
+                    with u' = u if closed_u else u - 1, and v' = v if closed_v else v - 1.
+    """
+    u, v, _ = mesh.shape
+    triangles = []
+
+    # Determine the iteration limits based on whether the grid is closed in each direction
+    u_range = u if closed_u else u - 1
+    v_range = v if closed_v else v - 1
+
+    for i in range(u_range):
+        for j in range(v_range):
+            # Determine the next indices using modulo arithmetic if closed, otherwise simply add 1
+            i_next = (i + 1) % u if closed_u else i + 1
+            j_next = (j + 1) % v if closed_v else j + 1
+
+            # Four vertices of the current cell
+            A = mesh[i, j]
+            B = mesh[i_next, j]
+            C = mesh[i, j_next]
+            D = mesh[i_next, j_next]
+
+            # Create two triangles for the cell:
+            # Triangle 1: vertices A, B, C
+            triangles.append([A, B, C])
+            # Triangle 2: vertices B, D, C
+            triangles.append([B, D, C])
+
+    return np.array(triangles)
+
+
+
 def spatial_separability(points1, points2, tol=1e-6):
     """
     Test for spatial separability of two sets of points using axis-aligned bounding boxes and the GJK algorithm.
@@ -194,20 +241,98 @@ def spatial_separability(points1, points2, tol=1e-6):
     """
     # Compute the axis-aligned bounding boxes (AABB) for both point sets
     bb1 = aabb(points1)
-    bb2 = aabb(points2)
+    bb2 = aabb(points2.reshape((-1,points2.shape[-1])))
 
     # If bounding boxes do not intersect, the objects are separable
+
     if not aabb_intersect(bb1, bb2):
         return True
 
+
     # Use the GJK algorithm for a more detailed check of separability
-    gjk_res = gjk(points1, points2, tol=tol)
-    if not gjk_res:
-        return True
+    #gjk_res = gjk(points1, points2, spt=1e-5)
+    #if not gjk_res:
+    #    return False
 
     return False
 
 
+def spatial_separability_curve_surf(points1, points2, tol=1e-6):
+    """
+    Test for spatial separability of two sets of points using axis-aligned bounding boxes and the GJK algorithm.
+
+    This algorithm is based on the spatial separability method discussed in section 4.2 of
+    "Robust and Efficient Surface Intersection for Solid Modeling" by Michael Edward Hohmeyer B.A.
+
+    **Key Differences:**
+
+    - Instead of the linear solver originally proposed by Hohmeyer, this implementation uses the GJK (Gilbert-Johnson-Keerthi) algorithm as a more efficient test.
+    - GJK is both faster and can handle more cases of separability compared to the linear solver.
+    - The original :class:`SpatialSeparabilityTest` class is included for reference and comparison,
+    but is not well-suited for direct API use with flat sets of control points. The `spatial_separability`
+    function adapts the approach for simpler use cases.
+
+    :param points1:
+        A set of points (control points) representing the first geometric object.
+        Expected shape is (n, 3), where n is the number of points.
+    :type points1: np.ndarray
+
+    :param points2:
+        A set of points (control points) representing the second geometric object.
+        Expected shape is (m, 3), where m is the number of points.
+    :type points2: np.ndarray
+
+    :param tol:
+        Tolerance for the GJK algorithm. Defaults to 1e-8.
+    :type tol: float, optional
+
+    :return:
+        True if the two sets of points are spatially separable, meaning there is no intersection between them.
+    :rtype: bool
+
+    **Notes:**
+
+    - The method first checks the axis-aligned bounding boxes (AABB) of both point sets.
+    - If the AABBs do not intersect, the objects are immediately considered separable.
+    - If the AABBs intersect, the GJK algorithm is used as an additional, more thorough test for separability.
+
+    **Examples:**
+
+    .. code-block:: python
+
+        >>> points1 = np.random.rand(10, 3)  # Random set of points representing the first object
+        >>> points2 = np.random.rand(8, 3)   # Random set of points representing the second object
+        >>> result = spatial_separability(points1, points2)
+        >>> print(result)
+        True
+    """
+    # Compute the axis-aligned bounding boxes (AABB) for both point sets
+    bb1 = aabb(points1)
+    bb2 = aabb(points2.reshape((-1, points2.shape[-1])))
+
+    # If bounding boxes do not intersect, the objects are separable
+
+    if not aabb_intersect(bb1, bb2):
+        return True
+
+    tris = _tessellate(points2, closed_u=True, closed_v=True)
+    points11=np.roll(points1, 1, axis=0)
+    pt=np.zeros(3)
+    for i in range(points1.shape[0]):
+        a,b=points1[i],points11[i]
+        intersection_point,flag=intersect_triangles_segment_one(np.ascontiguousarray(tris[:, 0, :]), np.ascontiguousarray(tris[:, 1, :]),
+                                    np.ascontiguousarray(tris[:, 2, :]),a,b,pt )
+        #print(intersection_point)
+        if flag>0:
+            return False
+
+    # Use the GJK algorithm for a more detailed check of separability
+    # gjk_res = gjk(points1, points2, spt=1e-5)
+    # if not gjk_res:
+
+    return True
+
+    #return True
 # Example usage
 if __name__ == "__main__":
     # Create two non-intersecting surfaces

@@ -1,6 +1,7 @@
 # cython: language_level=3
 # distutils: language = c++
 import functools
+from mmcore.geom.knots cimport find_span_linear,knot_insertion_alpha,knot_removal_alpha_i,knot_removal_alpha_j,find_span_inline,   find_multiplicity
 
 cimport cython
 from libcpp.vector cimport vector
@@ -581,8 +582,8 @@ cdef inline double point_distance(double* a, double* b ,int dim) noexcept nogil:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, double tol=1e-4, int num=1,bint is_periodic=0):
-    cdef int s = find_multiplicity(u, knotvector,1e-12)
+cpdef knot_removal(int degree, double[:] knotvector, double[:, :] ctrlpts, double u, double tol=1e-12, int num=1,bint is_periodic=0):
+    cdef int s = find_multiplicity(u, knotvector, 1e-12)
     cdef int n = ctrlpts.shape[0]
     #n, degree,  u, knotvector, is_periodic
     cdef int r = find_span_inline(n-1, degree,  u, knotvector,is_periodic)
@@ -1217,6 +1218,15 @@ cdef class NURBSCurve(ParametricCurve):
     def degree(self,v):
         cdef int val=int(v)
         self.set_degree(val)
+    
+    @property 
+    def order(self):
+        """Order is degree + 1 (for compatibility with correct implementation)"""
+        return self._degree + 1
+    @order.setter
+    def order(self, v):
+        cdef int val = int(v)
+        self.set_degree(val - 1)
 
     cpdef bint is_periodic(self):
         """
@@ -1270,7 +1280,12 @@ cdef class NURBSCurve(ParametricCurve):
 
     @property
     def control_points(self):
-        return np.asarray(self._control_points[:,:-1])
+        cdef double[:,:] cpts=np.empty((self._control_points.shape[0],self._control_points.shape[1]-1) )
+        cdef int i,j
+        for i in range(self._control_points.shape[0]):
+            for j in range(cpts.shape[1]):
+                cpts[i,j]=self._control_points[i,j]/self._control_points[i,3]
+        return np.asarray(cpts)
 
 
     @property
@@ -1279,6 +1294,7 @@ cdef class NURBSCurve(ParametricCurve):
 
     @control_points.setter
     def control_points(self, control_points):
+        cdef int i, j
         if control_points.shape[0]<(self._degree+1):
             raise ValueError("The number of control points cannot be less than degree+1.")
         if not control_points.shape[0]==self._control_points.shape[0]:
@@ -1286,12 +1302,18 @@ cdef class NURBSCurve(ParametricCurve):
                              "If you know what you are doing, assign control points directly by setting the _control_points attribute value. "
                              "However, you will have to clear caches, update the knots and possibly the periodicity.")
 
-        self._control_points = np.ones((control_points.shape[0],4))
+        #self._control_points = np.ones((control_points.shape[0],4))
+        
         if control_points.shape[1]==4:
-                self._control_points[:]=control_points
+                raise ValueError("To set rational control points, use control_pointsw.")
+                
+        
         else:
-
-                self._control_points[:, :control_points.shape[1]] = control_points
+            for i in range(control_points.shape[0]):
+                for j in range(control_points.shape[1]):
+                    self._control_points[i,j]=control_points[i,j]*self._control_points[i, 3]
+            
+            
 
         self._evaluate_cached.cache_clear()
 
@@ -1313,47 +1335,59 @@ cdef class NURBSCurve(ParametricCurve):
         return np.asarray(self._control_points[:, 3])
     @weights.setter
     def weights(self, double[:] v):
-        self._control_points[:, 3]=v
+        cdef int i,j
+        for i in range(self._control_points.shape[0]):
+            for j in range(3):
+                
+                self._control_points[i,j]/self._control_points[i,3] * v[i]
+            self._control_points[i, 3]=v[i]
+            
         self._evaluate_cached.cache_clear()
 
     @property
     def greville_abscissae(self):
         return np.asarray(self._greville_abscissae)
+    
+    def interval(self):
+        """Return the parameter interval like NURBSCurveTuple"""
+        return (self._interval[0], self._interval[1])
 
 
     cdef void generate_knots(self):
         """
-        This function generates default knots based on the number of control points
-        :return: A numpy array of knots
-
+        This function generates default knots based on the number of control points.
+        Uses the same algorithm as the correct implementation.
+        
         Notes
         ------
-        **Difference with OpenNURBS**
-
-        OpenNURBS uses a knots vector shorter by one knot on each side. 
-        The original explanation can be found in `opennurbs/opennurbs_evaluate_nurbs.h`.
-        [source](https://github.com/mcneel/opennurbs/blob/19df20038249fc40771dbd80201253a76100842c/opennurbs_evaluate_nurbs.h#L116-L148)
-        mmcore uses the standard knotvector length according to DeBoor and The NURBS Book.
-
-        **Difference with geomdl**
-
-        Unlike geomdl, the knots vector is not automatically normalised from 0 to 1.
-        However, there are no restrictions on the use of the knots normalised vector. 
-
+        This implementation now matches the correct algorithm from _nurbs_knots.py
         """
         cdef int n = len(self._control_points)
-        self._knots = np.concatenate((
-            np.zeros(self._degree + 1),
-            np.arange(1, n - self._degree),
-            np.full(self._degree + 1, n - self._degree)
-        ))
-
+        cdef int degree = self._degree
+        
+        # Generate knots using the same algorithm as in _nurbs_knots.py
+        # knots = [0] * (degree + 1) + list(range(1, n - degree)) + [n - degree] * (degree + 1)
+        cdef list knot_list = []
+        cdef int i
+        
+        # Add initial knots (degree + 1 zeros)
+        for i in range(degree + 1):
+            knot_list.append(0.0)
+        
+        # Add middle knots
+        for i in range(1, n - degree):
+            knot_list.append(float(i))
+            
+        # Add final knots
+        for i in range(degree + 1):
+            knot_list.append(float(n - degree))
+        
+        self._knots = np.array(knot_list, dtype=np.float64)
         self.knots_update_hook()
 
     cpdef knots_update_hook(self):
         self._update_interval()
-        self._greville_abscissae = greville_abscissae(self.knots,self.degree
-                                                      )
+        self._greville_abscissae = greville_abscissae(self._knots, self._degree)
 
 
     cdef void generate_knots_periodic(self):
@@ -1369,8 +1403,16 @@ cdef class NURBSCurve(ParametricCurve):
         self.knots_update_hook()
 
     cdef _update_interval(self):
-        self._interval[0] =  self._knots[0]
-        self._interval[1] = self._knots[self._knots.shape[0]-1]
+        """
+        Calculate the effective parameter interval using the correct algorithm.
+        The effective interval is [knots[degree], knots[num_control_points]]
+        """
+        cdef int degree = self._degree
+        cdef int num_knots = self._knots.shape[0]
+        cdef int num_control_points = num_knots - degree - 1
+        
+        self._interval[0] = self._knots[degree]
+        self._interval[1] = self._knots[num_control_points]
     cpdef double[:,:] generate_control_points_periodic(self, double[:,:] cpts):
         cdef int n = len(cpts)
         cdef int i
@@ -1448,28 +1490,52 @@ cdef class NURBSCurve(ParametricCurve):
     @cython.wraparound(False)
     cdef void cevaluate(self, double t, double[:] result) noexcept nogil:
         """
-        Compute a point on a NURBS-spline curve.
+        Compute a point on a NURBS-spline curve using the correct evaluation algorithm.
 
         :param t: The parameter value.
         :return: np.array with shape (3,).
         """
-        cdef double w
-        cdef double* _result_buffer=<double*>malloc(sizeof(double)*4)
-        cdef int n= len(self._control_points)-1
-        #cdef double * res = <double *> malloc(sizeof(double) * 4)
-
-        _result_buffer[0] = 0.
-        _result_buffer[1] = 0.
-        _result_buffer[2] = 0.
-        _result_buffer[3] = 0.
-
-        curve_point(n, self._degree, self._knots, self._control_points, t, _result_buffer, self._periodic)
-
-        result[0] = _result_buffer[0]
-        result[1] = _result_buffer[1]
-        result[2] = _result_buffer[2]
-
-        free(_result_buffer)
+        # Convert the current data structure to match the correct implementation format
+        cdef int p = self._degree
+        cdef int n = self._control_points.shape[0]
+        cdef int span = find_span_inline(n-1, p, t, self._knots, self._periodic)
+        cdef int d = 0  # Only computing position, not derivatives
+        cdef int dim = 3  # 3D coordinates
+        
+        # Allocate basis functions array
+        cdef double* N = <double*>malloc(sizeof(double) * (p + 1))
+        basis_funs(span, t, p, self._knots, N)
+        
+        # Initialize homogeneous derivatives
+        cdef double* d_hom = <double*>malloc(sizeof(double) * (dim + 1))
+        cdef int i, j
+        cdef double w, px, py, pz
+        
+        # Initialize to zero
+        for i in range(dim + 1):
+            d_hom[i] = 0.0
+        
+        # Compute homogeneous coordinates
+        for j in range(p + 1):
+            i = span - p + j
+            px = self._control_points[i, 0]
+            py = self._control_points[i, 1] 
+            pz = self._control_points[i, 2]
+            w = self._control_points[i, 3]
+            
+            # Add weighted contribution
+            d_hom[0] += N[j] * px
+            d_hom[1] += N[j] * py
+            d_hom[2] += N[j] * pz
+            d_hom[3] += N[j] * w
+        
+        # Dehomogenize to get the point on the curve
+        result[0] = d_hom[0] / d_hom[3]
+        result[1] = d_hom[1] / d_hom[3]
+        result[2] = d_hom[2] / d_hom[3]
+        
+        free(N)
+        free(d_hom)
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -1501,31 +1567,7 @@ cdef class NURBSCurve(ParametricCurve):
         self._knots=knots
         self._evaluate_cached.cache_clear()
 
-    @cython.cdivision(True)
-    @cython.initializedcheck(False)
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef void cevaluate_ptr(self, double t, double *result ) noexcept nogil:
-        """
-        Compute a point on a NURBS-spline curve.
-
-        :param t: The parameter value.
-        :return: np.array with shape (3,).
-        """
-        cdef double w
-        cdef int n = len(self._control_points) - 1
-
-        result[0]=0.
-        result[1] = 0.
-        result[2]=0.
-        result[3] = 0.
-
-
-        curve_point(n, self._degree, self._knots, self._control_points, t, result, self._periodic)
-
-
-        result[3]=1.
-
+  
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -1582,27 +1624,78 @@ cdef class NURBSCurve(ParametricCurve):
         cdef int i
         #cdef double[:, :]  CK = np.zeros((du + 1, 4))
         #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
-        curve_derivs_alg1(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK,self._periodic)
+        curve_derivs_alg1(n, self._degree, self._knots, self._control_points, t, d, CK,self._periodic)
 
     @cython.cdivision(True)
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void cderivatives2(self, double t, int d, double[:,:] CK ) :
-           """
-           :param t: The parameter value.
-           :type t: float
-           :param d: The number of derivatives to compute.
-           :type d: int
-           :return: np.array with shape (d+1,M) where M is the number of vector components.
-           """
-           cdef int n = len(self._control_points) - 1
-           cdef int i
-           #cdef double[:, :]  CK = np.zeros((du + 1, 4))
-           #cdef double[:, :, :] PK = np.zeros((d + 1, self._degree + 1,  self._control_points.shape[1]-1))
-           cdef double[:,:,:] PK= np.zeros((d + 1, self._degree + 1, self._control_points.shape[1]-1 ))
-
-           curve_derivs_alg2(n, self._degree, self._knots, self._control_points[:,:-1], t, d, CK, PK,self._periodic)
+    cdef void cderivatives2(self, double t, int d, double[:,:] CK):
+        """
+        Compute derivatives using the correct NURBS evaluation algorithm.
+        
+        :param t: The parameter value.
+        :type t: float
+        :param d: The number of derivatives to compute.
+        :type d: int
+        :param CK: Output array with shape (d+1, 3) for derivatives.
+        """
+        cdef int p = self._degree
+        cdef int n = self._control_points.shape[0]
+        cdef int span = find_span_inline(n-1, p, t, self._knots, self._periodic)
+        cdef int dim = 3  # 3D coordinates
+        cdef int du = min(d, p)
+        
+        # Get basis function derivatives
+        cdef double[:, :] ders = ders_basis_funs(span, t, p, du, self._knots)
+        
+        # Initialize homogeneous derivatives d_hom[k] for k = 0, 1, ..., d
+        cdef double** d_hom = <double**>malloc((du + 1) * sizeof(double*))
+        cdef int k, j, i, coord
+        cdef double px, py, pz, w
+        
+        for k in range(du + 1):
+            d_hom[k] = <double*>malloc((dim + 1) * sizeof(double))
+            for coord in range(dim + 1):
+                d_hom[k][coord] = 0.0
+        
+        # Compute homogeneous derivatives
+        for k in range(du + 1):
+            for j in range(p + 1):
+                i = span - p + j
+                px = self._control_points[i, 0]
+                py = self._control_points[i, 1]
+                pz = self._control_points[i, 2]
+                w = self._control_points[i, 3]
+                
+                # Form the homogeneous coordinate [w*P, w]
+                d_hom[k][0] += ders[k, j] * px
+                d_hom[k][1] += ders[k, j] * py
+                d_hom[k][2] += ders[k, j] * pz
+                d_hom[k][3] += ders[k, j] * w
+        
+        # Dehomogenize to get the derivatives
+        # 0th derivative (position)
+        CK[0, 0] = d_hom[0][0] / d_hom[0][3]
+        CK[0, 1] = d_hom[0][1] / d_hom[0][3]
+        CK[0, 2] = d_hom[0][2] / d_hom[0][3]
+        
+        # First derivative
+        if du >= 1:
+            CK[1, 0] = (d_hom[1][0] - d_hom[1][3] * CK[0, 0]) / d_hom[0][3]
+            CK[1, 1] = (d_hom[1][1] - d_hom[1][3] * CK[0, 1]) / d_hom[0][3]
+            CK[1, 2] = (d_hom[1][2] - d_hom[1][3] * CK[0, 2]) / d_hom[0][3]
+        
+        # Second derivative
+        if du >= 2:
+            CK[2, 0] = (d_hom[2][0] - d_hom[2][3] * CK[0, 0]) / d_hom[0][3] - 2 * (d_hom[1][3] / d_hom[0][3]) * CK[1, 0]
+            CK[2, 1] = (d_hom[2][1] - d_hom[2][3] * CK[0, 1]) / d_hom[0][3] - 2 * (d_hom[1][3] / d_hom[0][3]) * CK[1, 1]
+            CK[2, 2] = (d_hom[2][2] - d_hom[2][3] * CK[0, 2]) / d_hom[0][3] - 2 * (d_hom[1][3] / d_hom[0][3]) * CK[1, 2]
+        
+        # Clean up
+        for k in range(du + 1):
+            free(d_hom[k])
+        free(d_hom)
 
     @cython.cdivision(True)
     @cython.initializedcheck(False)
@@ -1725,7 +1818,7 @@ cdef class NURBSCurve(ParametricCurve):
         cdef double[:,:] cpts = self._control_points.copy()
 
         # Find knot span
-        cdef int span = find_span_inline(n-1, self._degree, t, self._knots,0)
+        cdef int span = find_span_linear( self._degree, self._knots,n, t)
         cdef double[:] k_v = knot_insertion_kv(self._knots, t, span, count)
         cdef int s_u = find_multiplicity(t, self._knots, 1e-12)
         # Compute new knot vector
@@ -1794,6 +1887,8 @@ cdef class NURBSCurve(ParametricCurve):
 
         crv._evaluate_cached = functools.lru_cache(maxsize=None)(self._evaluate)
         return crv
+    
+
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -2088,7 +2183,7 @@ cpdef double[:] greville_abscissae(double[:] knots, int degree):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint normalize_knots=False):
+cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-12,bint normalize_knots=False):
 
     cdef int degree = obj._degree
     cdef double[:] knotvector = obj._knots
@@ -2104,7 +2199,7 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint norma
 
         raise ValueError("Cannot split from the domain edge ")
 
-    ks = find_span_inline(n_ctrlpts , degree, param, knotvector, 0) - degree + 1
+    ks = find_span_linear(degree,knotvector,n_ctrlpts , param) - degree + 1
 
     s = find_multiplicity(param, knotvector,1e-12)
     r = degree - s
@@ -2118,7 +2213,8 @@ cpdef tuple split_curve(NURBSCurve obj, double param, double tol=1e-7,bint norma
     cdef double[:, :] tcpts = temp_obj._control_points
     cdef double[:] temp_knots = temp_obj._knots
     # Knot vectors
-    knot_span = find_span_inline(temp_obj._control_points.shape[0] , degree, param, temp_knots, 0) + 1
+
+    knot_span = find_span_linear(degree,temp_knots, temp_obj._control_points.shape[0] , param) + 1
     #cdef double[:] curve1_kv = np.empty((knot_span + 1,), dtype=np.float64)
     #cdef double[:] curve2_kv = np.empty((temp_obj._knots.shape[0] - knot_span+  degree+ 1,), dtype=np.float64)
     cdef vector[double] surf1_kv = vector[double](knot_span )
@@ -2189,7 +2285,7 @@ cpdef tuple split_curve2(NURBSCurve obj, double param, double tol=1e-12):
         fabs(param - obj._interval[0]) <= tol or fabs(param - obj._interval[1]) <= tol):
         raise ValueError("Cannot split from the domain edge")
 
-    ks = find_span_inline(n_ctrlpts, degree, param, knotvector, 0) - degree + 1
+    ks = find_span_linear(degree, knotvector,n_ctrlpts,  param) - degree + 1
     s = find_multiplicity(param, knotvector, 1e-12)
     r = degree - s
 
@@ -2200,7 +2296,7 @@ cpdef tuple split_curve2(NURBSCurve obj, double param, double tol=1e-12):
     cdef double[:] temp_knots = temp_obj._knots
 
     # Knot vectors
-    knot_span = find_span_inline(temp_obj._control_points.shape[0], degree, param, temp_knots, 0) + 1
+    knot_span = find_span_linear(degree, temp_knots,temp_obj._control_points.shape[0], param) + 1
 
     # Calculate sizes of new knot vectors
     cdef int nknots1 = knot_span + 1  # +1 to include param at the end
@@ -2363,6 +2459,7 @@ cdef class NURBSSurface(ParametricSurface):
                 pts[i,1]/=w
                 pts[i,2]/=w
         return pts
+
     @property
     def control_points_flat_w(self):
 
@@ -2698,7 +2795,20 @@ cdef class NURBSSurface(ParametricSurface):
             free(self._control_points_arr)
 
 
+    @property
+    def rational_control_points(self):
+        return np.copy(self.control_points_view)
+    @property
+    def weights(self):
+        cdef cnp.ndarray[double, ndim=2] cpt = np.zeros((self.control_points_view.shape[0],self.control_points_view.shape[1]))
+        cdef size_t i,j
 
+        for i in range(self.control_points_view.shape[0]):
+
+            for j in range(self.control_points_view.shape[1]):
+                cpt[i,j]=self.control_points_view[i,j, 3]
+
+        return cpt
 
 
 @cython.boundscheck(False)

@@ -4,14 +4,22 @@ import os
 sys.path.append(os.getcwd())
 
 if sys.platform.startswith("win"):
-    import pyMSVC
-
-    environment = pyMSVC.setup_environment()
-    print(environment)
+    try:
+        import pyMSVC  # type: ignore
+    except Exception as exc:  # pragma: no cover - best effort logging for build time failures
+        print(
+            "Warning: failed to import pyMSVC, continuing without MSVC environment auto-configuration."
+        )
+        print(f"Import error: {exc}")
+    else:
+        environment = pyMSVC.setup_environment()
+        if isinstance(environment, dict):
+            os.environ.update(environment)
+        # print(environment)
 
 import setuptools
 import numpy
-
+print('numpy:',numpy.__version__)
 # rest of setup code here
 from setuptools import Extension, Distribution
 from setuptools.command.build_ext import build_ext
@@ -33,9 +41,11 @@ define_macros = [
     ("NO_TIMER", 1),
     ("TRILIBRARY", 1),
     ("ANSI_DECLARATORS", 1),
+    ("CYTHON_TRACE",1),
+    ("CYTHON_TRACE_NOGIL",1),
 ]
 if sys.platform == "darwin" :
-    compile_args += ["-mcpu=apple-m1",'-flto']#+["-march=armv8-a+simd"]
+    compile_args += ["-mcpu=native",'-flto']#+["-march=armv8-a+simd"]
 
 elif sys.platform == "linux" and platform.machine() == "aarch64" :
     compile_args+=["-march=armv8-a+simd"]
@@ -49,9 +59,36 @@ if sys.platform == "win32":
 # see pyproject.toml for other metadata
 # mmcore/numeric/algorithms/moller.pyx
 
-extensions = [
+cython_extensions = [
     Extension(
-
+        "mmcore.numeric._bern_homog",
+        ["mmcore/numeric/_bern_homog.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric._cap_witness",
+        ["mmcore/numeric/_cap_witness.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric.cbern",
+        ["mmcore/numeric/cbern.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric._implicitize_utils",
+        ["mmcore/numeric/_implicitize_utils.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
         "mmcore.numeric.newton.cnewton",
         ["mmcore/numeric/newton/cnewton.pyx"],
         extra_compile_args=compile_args,
@@ -59,14 +96,12 @@ extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-
         "mmcore.numeric.algorithms.moller",
         ["mmcore/numeric/algorithms/moller.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-
     Extension(
         "mmcore.numeric._aabb",
         ["mmcore/numeric/_aabb.pyx"],
@@ -74,7 +109,6 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-
     Extension(
         "mmcore.geom.nurbs",
         ["mmcore/geom/nurbs.pyx"],
@@ -98,16 +132,16 @@ extensions = [
     #   extra_compile_args=["-std=c++11"]+compile_args,
     #        extra_link_args=link_args,
     #   include_dirs=include_dirs),
-    Extension(
-        "mmcore.numeric.matrix",
-        ["mmcore/numeric/matrix/__init__.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #     "mmcore.numeric.matrix",
+    #     ["mmcore/numeric/matrix/__init__.pyx"],
+    #     extra_compile_args=compile_args,
+    #     extra_link_args=link_args,
+    #     include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.numeric.algorithms.cygjk",
-        ["mmcore/numeric/algorithms/cygjk.pyx"],
+        ["mmcore/numeric/algorithms/cygjk.pyx", "mmcore/numeric/algorithms/_gjk.cpp"],
         language="c++",
         extra_compile_args=cpp_compile_args + compile_args,
         extra_link_args=link_args,
@@ -162,13 +196,13 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves._cubic",
-        ["mmcore/geom/curves/_cubic.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.curves._cubic",
+    #    ["mmcore/geom/curves/_cubic.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.geom.implicit.tree.cbuild_tree3d",
         ["mmcore/geom/implicit/tree/cbuild_tree3d.pyx"],
@@ -191,8 +225,8 @@ extensions = [
         include_dirs=include_dirs,
     ),
     Extension(
-        "mmcore.numeric.intersection.ssx._ssi",
-        ["mmcore/numeric/intersection/ssx/_ssi.pyx"],
+        "mmcore.numeric.intersection.ssx._ssx_utils",
+        ["mmcore/numeric/intersection/ssx/_ssx_utils.pyx"],
         extra_compile_args=compile_args,
         extra_link_args=link_args,
         include_dirs=include_dirs,
@@ -204,13 +238,13 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.surfaces.ellipsoid",
-        ["mmcore/geom/surfaces/ellipsoid.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+    # Extension(
+    #    "mmcore.geom.surfaces.ellipsoid",
+    #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
+    #    extra_compile_args=compile_args,
+    #    extra_link_args=link_args,
+    #    include_dirs=include_dirs,
+    # ),
     Extension(
         "mmcore.numeric.integrate.romberg",
         ["mmcore/numeric/integrate/romberg.pyx"],
@@ -218,8 +252,21 @@ extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
+    Extension(
+        "mmcore.numeric.intersection.csx._cbez_csx",
+        ["mmcore/numeric/intersection/csx/_cbez_csx.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
+    Extension(
+        "mmcore.numeric._cdecasteljau",
+        ["mmcore/numeric/_cdecasteljau.pyx"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+        include_dirs=include_dirs,
+    ),
 ]
-
 
 
 link_args = []
@@ -227,7 +274,7 @@ include_dirs = [*include_dirs, "mmcore/topo/mesh/triangle-c"]
 if sys.platform == "darwin":
     link_args += ["-mno-sse", "-mno-sse2", "-mno-sse3"]
 
-extensions.append(
+cython_extensions.append(
     Extension(
         "mmcore.topo.mesh.triangle.core",
         [
@@ -241,6 +288,18 @@ extensions.append(
     )
 )
 
+native_extensions = [
+    Extension(
+        name="mmcore.numeric.ndinterval",
+        sources=["mmcore/numeric/_ndinterval/ndinterval.c"],
+        depends=[
+            "mmcore/numeric/_ndinterval/ndinterval.h",
+        ],
+        include_dirs=[numpy.get_include(), "mmcore/numeric/_ndinterval"],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
+    )
+]
 logo = rf"""
                                                 
        ____ ___  ____ ___  _________  ________ 
@@ -261,20 +320,26 @@ compiler_directives = dict(
     nonecheck=False,
     overflowcheck=False,
     initializedcheck=False,
-    embedsignature=True,
+    embedsignature=False,
     language_level="3str",
+    freethreading_compatible=True,
+    #subinterpreters_compatible=True,
+    profile=True,
+    linetrace =True
+
 )
+compiler_directives["embedsignature.format"] = 'python'
 
 if __name__ == "__main__":
     print(logo)
     ext_modules = cythonize(
-        extensions,
+        cython_extensions,
         nthreads=os.cpu_count(),
         include_path=[numpy.get_include()],
         compiler_directives=compiler_directives
 
     )
-    dist = Distribution({"ext_modules": ext_modules})
+    dist = Distribution({"ext_modules": native_extensions+ext_modules})
     cmd = build_ext(dist)
     cmd.ensure_finalized()
     cmd.run()
