@@ -65,6 +65,18 @@ def _subdivide_sq_dist_net(F, axis, t=0.5):
     left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
     return left_v[..., 0], right_v[..., 0]
 
+def _subdivide_sq_dist_net_2d(F, u=0.5,v=0.5):
+    """Subdivide the scalar sq-dist Bernstein net along *axis*.
+
+    ``de_casteljau_split_nd`` requires a trailing value dimension, so we
+    temporarily add one and squeeze it back off.
+    """
+    Fv = F[..., np.newaxis]
+
+    left_v, right_v = de_casteljau_split_nd(Fv, axis=1, t=u)
+    left_u_left_v,right_u_left_v=de_casteljau_split_nd(left_v, axis=0, t=v)
+    left_u_right_v,right_u_right_v =de_casteljau_split_nd(right_v, axis=0, t=v)
+    return left_u_left_v[..., 0], left_u_right_v[..., 0],right_u_right_v[..., 0],right_u_left_v[..., 0]
 
 def _boundary_zero_to_uv(bz: BoundaryZero, u0: float, u1: float, v0: float, v1: float) -> tuple[float, float]:
     """Convert a BoundaryZero from the classifier into global (u, v) parameters.
@@ -216,7 +228,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         cells += 1
 
         seg1, seg2, F_cell, pw, qw, u0, u1, v0, v1, depth = stack.pop()
-
+        #print(f"CCX: {cells} cells: {( ( u0, u1), (v0, v1), depth)}")
         # AABB prune: cheapest possible check — control point bounding boxes
         from mmcore.numeric._aabb import aabb, aabb_intersect
         if rational:
@@ -246,7 +258,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         for ax in range(2):
             dF = bernstein_partial_derivative_coeffs(Fv, axis=ax)
             coeffs = dF[..., 0]
-            if np.min(coeffs) >= 0 or np.max(coeffs) <= 0:
+            if np.min(coeffs) > 0 or np.max(coeffs) <= 0:
                 can_have_stationary = False
                 break
         if not can_have_stationary:
@@ -257,6 +269,7 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
             u_mid = 0.5 * (u0 + u1)
             v_mid = 0.5 * (v0 + v1)
             pt = eval_curve(C1_orig, u_mid, rational=rational)
+
             if not _is_duplicate(isolated, pt, atol):
                 isolated.append({"u": float(u_mid), "v": float(v_mid), "point": pt, "_micro": True})
             continue
@@ -264,55 +277,70 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
         # Newton from cell center
         u_mid = 0.5 * (u0 + u1)
         v_mid = 0.5 * (v0 + v1)
-        u_sol, v_sol, G, last_step = newton_ccx(
-            C1_orig, C2_orig, u_mid, v_mid, rational=rational,
-        )
-        step_norm = abs(last_step[0]) + abs(last_step[1])
-        residual_ok = float(np.linalg.norm(G)) < atol
-        converged = ((step_norm > 0 or residual_ok)
-                     and abs(last_step[0]) <= ptol_u
-                     and abs(last_step[1]) <= ptol_v)
+        uv_candidates=[(u0 , v0),(u0,v1),(u1,v1),(u1,v0)]
+        root_found=False
+        is_converged=False
+        for u_mid,v_mid in uv_candidates:
+            if root_found:
+                break
+            u_sol, v_sol, G, last_step = newton_ccx(
+                C1_orig,C2_orig, u_mid, v_mid, rational=rational,
+            )
+            step_norm = abs(last_step[0]) + abs(last_step[1])
+            residual_ok = float(np.linalg.norm(G)) < atol
+            converged = ((step_norm > 0 or residual_ok)
+                         and abs(last_step[0]) < ptol_u
+                         and abs(last_step[1]) < ptol_v)
+            #print(f"CCX: {cells} cells NEWTON: {( u_sol, v_sol, G, last_step, ( u0, u1), (v0, v1), depth)}: {converged}")
+            if converged:
+                    is_converged = True
+            if converged and u0  < u_sol < u1  and v0  < v_sol < v1 :
 
-        if converged and u0 - ptol_u <= u_sol <= u1 + ptol_u and v0 - ptol_v <= v_sol <= v1 + ptol_v:
-            pt = eval_curve(C1_orig, u_sol, rational=rational)
-            is_new = not _is_duplicate(isolated, pt, atol)
-            if is_new:
-                isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
-                sub_cells = _cutout_2d(
-                    F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
-                    float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
-                )
-                stack.extend(sub_cells)
-            continue
+                pt = eval_curve(C1_orig, u_sol, rational=rational)
+                is_new = not _is_duplicate(isolated, pt, atol)
+                #print(f"CCX: is_new: {is_new}")
+                if is_new:
+                    isolated.append({"u": float(u_sol), "v": float(v_sol), "point": pt})
+                    sub_cells = _cutout_2d(
+                        F_cell, seg1, seg2, pw, qw, u0, u1, v0, v1, depth,
+                        float(u_sol), float(v_sol), ptol_u, ptol_v, rational,
+                    )
+                    stack.extend(sub_cells)
+                    root_found=True
+                    break
 
-        if converged:
+        if root_found:continue
+
+
+
+        if is_converged:
             # Converged outside cell → prune
             continue
+
 
         if depth >= max_depth:
             continue
 
         # Subdivide
-        u_span = u1 - u0
-        v_span = v1 - v0
-        axis = 0 if u_span >= v_span else 1
 
-        if axis == 0:
-            u_mid_split = 0.5 * (u0 + u1)
-            seg1_L, seg1_R = _subdivide_curve(seg1)
-            F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
-            pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
-            pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
-            stack.append((seg1_L, seg2.copy(), F_L, pw_L, qw.copy(), u0, u_mid_split, v0, v1, depth+1))
-            stack.append((seg1_R, seg2.copy(), F_R, pw_R, qw.copy(), u_mid_split, u1, v0, v1, depth+1))
-        else:
-            v_mid_split = 0.5 * (v0 + v1)
-            seg2_L, seg2_R = _subdivide_curve(seg2)
-            F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=1)
-            qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
-            qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
-            stack.append((seg1.copy(), seg2_L, F_L, pw.copy(), qw_L, u0, u1, v0, v_mid_split, depth+1))
-            stack.append((seg1.copy(), seg2_R, F_R, pw.copy(), qw_R, u0, u1, v_mid_split, v1, depth+1))
+
+
+
+        u_mid_split = 0.5 * (u0 + u1)
+        v_mid_split = 0.5 * (v0 + v1)
+        seg1_L, seg1_R = _subdivide_curve(seg1)
+        seg2_L, seg2_R = _subdivide_curve(seg2)
+        F_LL, F_LR, F_RR,F_RL, =_subdivide_sq_dist_net_2d(F_cell,0.5 ,0.5)
+
+
+        pw_L = seg1_L[:, -1].copy() if rational else np.ones(seg1_L.shape[0])
+        pw_R = seg1_R[:, -1].copy() if rational else np.ones(seg1_R.shape[0])
+        qw_L = seg2_L[:, -1].copy() if rational else np.ones(seg2_L.shape[0])
+        qw_R = seg2_R[:, -1].copy() if rational else np.ones(seg2_R.shape[0])
+        stack.append((seg1_L, seg2_L, F_LL, pw_L, qw_L, u0, u_mid_split, v0, v_mid_split, depth+1))
+        stack.append((seg1_L, seg2_R, F_LR, pw_L, qw_R,u0, u_mid_split, v_mid_split, v1, depth+1))
+        stack.append((seg1_R, seg2_R, F_RR, pw_R,  qw_R,u_mid_split, u1, v_mid_split, v1, depth+1))
+        stack.append((seg1_R, seg2_L, F_RL, pw_R, qw_L,u_mid_split, u1,  v0, v_mid_split, depth+1))
 
     return isolated[n_known:]
 
@@ -320,6 +348,8 @@ def _phase2_ccx(F, C1, C2, C1_orig, C2_orig,
 # ---------------------------------------------------------------------------
 # Main algorithm: two-phase architecture
 # ---------------------------------------------------------------------------
+from .._bezier_common import _compute_remaining_intervals
+
 
 def bez_ccx(
     C1,
@@ -338,14 +368,7 @@ def bez_ccx(
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
-    if rational:
-        bb1=aabb_offset(aabb(C1[...,:-1] /C1[...,None,-1]),atol/2)
-        bb2=aabb_offset(aabb(C2[...,:-1] / C2[..., None, -1]),atol/2)
-    else:
-        bb1 = aabb_offset(aabb(C1 ),atol/2)
-        bb2 = aabb_offset(aabb(C2),atol/2)
-    if not aabb_intersect(bb1, bb2):
-        return {"isolated": [], "overlaps": []}
+
     F = curve_curve_squared_net_homog(C1, C2, rational=rational)
 
     _, Pw = extract_weights(C1, rational=rational)
@@ -363,7 +386,7 @@ def bez_ccx(
     # PHASE 1: Boundary analysis + overlap (initial patch only)
     # ===================================================================
     cls = classify_sq_dist_net(F, atol, Pw, Qw)
-
+    #print(f"CCX: {cls} (phase 1)")
     if cls.kind == NO_INTERSECTION:
         return {"isolated": [], "overlaps": []}
 
@@ -417,7 +440,7 @@ def bez_ccx(
         u_lo_ovl = min(ovl["u_range"])
         u_hi_ovl = max(ovl["u_range"])
         for u_bz, v_bz, pt in boundary_hits:
-            if not (u_lo_ovl - atol <= u_bz <= u_hi_ovl + atol):
+            if not (u_lo_ovl-ptol_u <= u_bz <= u_hi_ovl + ptol_u):
                 if not _is_duplicate(isolated, pt, atol):
                     isolated.append({"u": u_bz, "v": v_bz, "point": pt})
     else:
@@ -442,7 +465,7 @@ def bez_ccx(
     for iso in isolated:
         u_exclude.append((iso["u"] - ptol_u, iso["u"] + ptol_u))
 
-    from mmcore.numeric.intersection.csx._bez_csx4 import _compute_remaining_intervals
+
     u_intervals = _compute_remaining_intervals(u_exclude, 0.0, 1.0)
 
     for u_lo, u_hi in u_intervals:

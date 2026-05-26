@@ -1195,7 +1195,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
     )
     T_chosen = T_arrs[t_idx]
 
-    #pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
+    pairs, unpaired = _pair_crossings_for_tracing(crossings, originals=originals, cell=cell)
     build_branches(cell, crossings,atol=atol,marcher_2pt=lambda start,end,**kwargs:_march_phi_curve(P1_cart,P2_cart,T_chosen,psi_rows,start,end),marcher_to_boundary=_march_phi_curve_to_boundary,all_points=points,all_fragments=fragments )
     for i, j in pairs:
         stuv_path, xyz_path = _march_phi_curve(
@@ -1223,7 +1223,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
         fragments.append(BezSSXBranch(
 
             stuv=np.array([_local_to_global(pt,   box)  for pt in stuv_path ])     ,
-            xyz=xyz_path,
+            xyz=xyz_path,atol=atol
         ))
 
     for k in unpaired:
@@ -1355,7 +1355,7 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
 
         stuv_path = np.stack([ovl.stuv_start, ovl.stuv_end], axis=0)
         xyz_path = np.stack([xyz_start, xyz_end], axis=0)
-        branches.append(BezSSXBranch(stuv_path, xyz_path))
+        branches.append(BezSSXBranch(stuv_path, xyz_path,atol=atol, is_overlap=True))
 
     return branches
 
@@ -3202,7 +3202,7 @@ def build_branches(cell, isolated_boundary_inters, atol, all_points=None, all_fr
         stuv_ptol = np.array([*s1_ptol, *s2_ptol], dtype=float)
         if len(isol) == 2:
             if np.all(np.abs(isol[0].stuv-isol[1].stuv)<stuv_ptol):
-                all_fragments.append(BezSSXBranch(np.array([_local_to_global(i, cell.box) for i in [isol[0].stuv,isol[1].stuv]]),  np.array([isol[0].xyz,isol[1].xyz])))
+                all_fragments.append(BezSSXBranch(np.array([_local_to_global(i, cell.box) for i in [isol[0].stuv,isol[1].stuv]]),  np.array([isol[0].xyz,isol[1].xyz]),atol=atol))
             else:
                 res_stuv, res_xyz = _march_intersection_curve(cell.g1.surface, cell.g2.surface, isol[0].stuv, isol[1].stuv, atol=atol,
                                                           rational=True,max_points=32,min_step=min(stuv_ptol))
@@ -3229,7 +3229,7 @@ def build_branches(cell, isolated_boundary_inters, atol, all_points=None, all_fr
                     mask1 = np.all(np.abs(kd1 - res_stuv[None, -1, :]) < stuv_ptol, axis=1)
                     if np.any(mask1):
                         isol_stack.pop(next(np.nditer(np.arange(len(isol_stack))[mask1])))
-                        all_fragments.append(BezSSXBranch(np.array([_local_to_global(i,cell.box)for i in res_stuv]), res_xyz))
+                        all_fragments.append(BezSSXBranch(np.array([_local_to_global(i,cell.box)for i in res_stuv]), res_xyz,atol=atol*2))
                         continue
                 if maby_ends:
                     kd1 = np.array([i.stuv for i in maby_ends])
@@ -3237,7 +3237,7 @@ def build_branches(cell, isolated_boundary_inters, atol, all_points=None, all_fr
                     if np.any(mask1):
                         maby_ends.pop(next(np.nditer(np.arange(len(maby_ends))[mask1])))
                         all_fragments.append(
-                            BezSSXBranch(np.array([_local_to_global(i, cell.box) for i in res_stuv]), res_xyz))
+                            BezSSXBranch(np.array([_local_to_global(i, cell.box) for i in res_stuv]), res_xyz,atol=atol*2))
                         continue
                 maby_ends.append(stuv)
 
@@ -3249,6 +3249,7 @@ def build_branches(cell, isolated_boundary_inters, atol, all_points=None, all_fr
 
 
 def build_tangential_branches(cell, isolated_boundary_inters, atol,all_points=None, all_fragments=None ):
+
     print('tan branches')
     if all_points is None:
         all_points=[]
@@ -3275,7 +3276,7 @@ def build_tangential_branches(cell, isolated_boundary_inters, atol,all_points=No
             res_stuv, res_xyz = _march_phi_curve(cell.g1.surface, cell.g2.surface,T_chosen,psi_rows , isol[0].stuv, isol[1].stuv,atol=atol,
                                                           rational=True)
 
-            all_fragments.append(BezSSXBranch(np.array([_local_to_global(i,cell.box)for i in res_stuv]), res_xyz))
+            all_fragments.append(BezSSXBranch(np.array([_local_to_global(i,cell.box)for i in res_stuv]), res_xyz,atol=atol*2))
         else:
             raise NotImplementedError("More than two isolated boundary intersections not supported")
             isol_stack = list(isol)
@@ -3754,7 +3755,7 @@ def bez_ssx(
                     frags.append(frag)
 
         if len(frags)>0:
-            frags,_=join_bezssx_branches(frags)
+            frags,_=join_bezssx_branches(frags,tol=2*atol)
 
 
         return {'branches':     frags , 'points': all_points}

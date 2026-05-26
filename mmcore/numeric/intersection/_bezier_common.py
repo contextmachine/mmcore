@@ -368,3 +368,30 @@ def newton_csx(
 
     G = eval_curve(C, t, rational=rational) - eval_surface(S, u, v, rational=rational)
     return t, u, v, G, (last_dt, last_du, last_dv)
+
+
+def _compute_remaining_intervals(excludes, lo, hi):
+    """Compute [lo, hi] minus the union of exclude intervals."""
+    if not excludes:
+        return [(lo, hi)]
+
+    excludes = sorted(excludes, key=lambda x: x[0])
+    merged = [excludes[0]]
+    for a, b in excludes[1:]:
+        if a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+
+    result = []
+    cursor = lo
+    for ex_lo, ex_hi in merged:
+        ex_lo = max(ex_lo, lo)
+        ex_hi = min(ex_hi, hi)
+        if cursor < ex_lo:
+            result.append((cursor, ex_lo))
+        cursor = max(cursor, ex_hi)
+    if cursor < hi:
+        result.append((cursor, hi))
+
+    return result

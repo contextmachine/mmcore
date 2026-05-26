@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import sys
+import uuid
 from dataclasses import dataclass, field
 try:
     from itertools import pairwise
@@ -40,7 +41,7 @@ _B_AUTOID=itertools.count()
 class Vertex:
     point: Tuple[float, float, float]
     tol: float = 1e-6
-    id: int = field(default_factory=lambda :next(_V_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
 
 
 
@@ -55,14 +56,14 @@ class HalfEdge:
     vert: Optional[int] = None  # head vertex
     orient: bool = True
     pcurve: Optional[int] = None
-    id: int = field(default_factory=lambda :next(_HE_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
 @dataclass
 class Edge:
     v_start: int
     v_end: int
     geom: Optional[int] = None
     param: Tuple[float, float] = (0.0, 1.0)
-    id: int = field(default_factory=lambda :next(_E_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
     he: Optional[int] = None
 
 @dataclass
@@ -70,7 +71,7 @@ class Loop:
     face: Optional[int]
     he: int  # entry half‑edge id
     is_outer: bool = True
-    id: int = field(default_factory=lambda :next(_L_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
 
 
 @dataclass
@@ -81,7 +82,7 @@ class Face:
     shell: Optional[int] = None
     same_sense: bool = True
     surf: Optional[int] = None
-    id: int = field(default_factory=lambda :next(_F_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
 
 
 @dataclass
@@ -89,7 +90,7 @@ class Shell:
     faces: List[int]
     body: Optional[int] = None
     closed: bool = False
-    id: int = field(default_factory=lambda :next(_S_AUTOID), init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int, init=False)
 
 
 @dataclass
@@ -97,7 +98,7 @@ class Body:
     shells: List[int]
     lump_type: str = "solid"
     attributes: Dict[str, Any] = field(default_factory=dict)
-    id: int = field(default_factory=lambda :next(_B_AUTOID),  init=False)
+    id: int = field(default_factory=lambda :uuid.uuid4().int,  init=False)
 
 
 
@@ -296,17 +297,17 @@ class BRep:
         return v
 
     def new_curve(self, geom) -> int:
-        cid = next(_G_CRV_AUTOID)
+        cid = uuid.uuid4().int
         self.G_CRV[cid] = geom
         return cid
 
     def new_pcurve(self, geom) -> int:
-        cid = next(_G_PCRV_AUTOID)
+        cid = uuid.uuid4().int
         self.G_PCRV[cid] = geom
         return cid
 
     def new_surface(self, geom) -> int:
-        sid = next(_G_SRF_AUTOID)
+        sid = uuid.uuid4().int
         self.G_SRF[sid] = geom
         return sid
     def _edge_split(self, edge_id: int, v_new: int) -> tuple[Edge, HalfEdge, HalfEdge]:
@@ -2168,6 +2169,7 @@ class BRep:
         he.pcurve = pcurve_id
         return pcurve_id
 
+from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface
 
 def _march_curve_on_surface(crv_3d, srf, t_start, t_end, uv_start, uv_end, tol):
     """March along a 3D curve, tracking its image in surface UV space.
@@ -2195,7 +2197,6 @@ def _march_curve_on_surface(crv_3d, srf, t_start, t_end, uv_start, uv_end, tol):
         uv_points: list of ndarray — UV points along the curve (including endpoints).
         t_params: list of float — corresponding curve parameter values.
     """
-    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve, evaluate_nurbs_surface
 
     uv_points = [uv_start.copy()]
     t_params = [t_start]

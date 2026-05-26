@@ -64,6 +64,7 @@ def _squeeze_value_dim(arr: NDArray) -> NDArray:
 def _check_min_of_net(F: NDArray, atol: float, w_scale: float) -> bool:
     """Return True if net proves NO_INTERSECTION."""
     lb = float(np.min(F)) / (w_scale ** 2)
+    #print(f"lb = {lb}")
     return lb > atol * atol
 
 

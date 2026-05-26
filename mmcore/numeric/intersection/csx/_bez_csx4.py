@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from .._bezier_common import _compute_remaining_intervals
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric._aabb import aabb_intersect, aabb
 from mmcore.numeric.bern import (
     de_casteljau_split_nd, bernstein_boundary_nd,
-    bernstein_eval_nd, bernstein_partial_derivative_coeffs,
+    bernstein_partial_derivative_coeffs,
 )
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
@@ -25,12 +26,6 @@ from mmcore.numeric.intersection._bezier_common import (
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
-    classify_sq_dist_net,
-    NO_INTERSECTION,
-    UNIQUE_ISOLATED,
-    OVERLAP,
-    INDETERMINATE,
-    BOUNDARY_ZERO,
     BoundaryZero,
     _boundary_zero_to_param_point,
 )
@@ -562,8 +557,8 @@ def _phase2_isolated_search(
     _, Sw = extract_weights(S, rational=rational)
 
     # Start with known points from Phase 1 so pre-Newton dedup can skip them
-    isolated = list(known_points) if known_points else []
-    n_known = len(isolated)
+    isolated = known_points
+
     cells = 0
 
     stack = [(F_sub, C_sub, Pw.copy(), Sw.copy(),
@@ -625,7 +620,7 @@ def _phase2_isolated_search(
                 if float(np.linalg.norm(G_r)) < _csx_eff_atol(
                         C_orig, S_orig, t_r, u_r, v_r, atol, rational):
                     pt_r = eval_curve(C_orig, t_r, rational=rational)
-                    if not _is_duplicate(isolated, pt_r, atol):
+                    if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v):
                         isolated.append({
                             "t": float(t_r), "u": float(u_r), "v": float(v_r),
                             "point": pt_r, "_micro": True,
@@ -633,21 +628,28 @@ def _phase2_isolated_search(
             continue
 
         # Try Newton from cell center
+
+        cands=[]
+        for t in (t1 , t0):
+            for u in (u1, u0):
+                for v in (v1, v0):
+                    cands.append((t,u,v))
+        success_once=False
         t_mid = 0.5 * (t0 + t1)
-        u_mid = 0.5 * (u0 + u1)
+        u_mid = 0.5 * (u0 + u1)#for t,u,v in cands:
         v_mid = 0.5 * (v0 + v1)
         t_sol, u_sol, v_sol, G, last_step = newton_csx(
-            C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
+            C_orig, S_orig, t_mid,u_mid,v_mid, rational=rational,
         )
 
         residual_ok = float(np.linalg.norm(G)) < _csx_eff_atol(
             C_orig, S_orig, t_sol, u_sol, v_sol, atol, rational)
         newton_stalled = (
-                abs(last_step[0]) <= ptol_t
-                and abs(last_step[1]) <= ptol_u
-                and abs(last_step[2]) <= ptol_v
+                abs(last_step[0]) <=ptol_t
+                and abs(last_step[1])<=ptol_u
+                and abs(last_step[2])<=ptol_v
         )
-        if newton_stalled:
+        if True:
 
             # Use a small FP slack on top of ptol_t. Newton can converge
             # to t = 1.0 (or 0.0) by ~1 ULP, while t1 + ptol_t computed
@@ -655,9 +657,9 @@ def _phase2_isolated_search(
             # algebraically equal. Without this slack, a real root at the
             # domain boundary is mis-classified as "outside cell".
             _fp_slack = 1e-12
-            if residual_ok and t0 - ptol_t - _fp_slack <= t_sol <= t1 + ptol_t + _fp_slack:
+            if residual_ok and t0  <= t_sol <= t1 and u0 <= u_sol <= u1 and v0 <= v_sol <= v1:
                 pt = eval_curve(C_orig, t_sol, rational=rational)
-                is_new = not _is_duplicate(isolated, pt, atol)
+                is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol,pt, atol,ptol_t,ptol_u,ptol_v)
                 if is_new:
                     isolated.append({
                         "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
@@ -693,9 +695,9 @@ def _phase2_isolated_search(
                         )
                         if (float(np.linalg.norm(G_alt)) < _csx_eff_atol(
                                     C_orig, S_orig, t_alt, u_alt, v_alt, atol, rational)
-                                and t0 - ptol_t <= t_alt <= t1 + ptol_t):
+                                and t0  <= t_alt <= t1 ):
                             pt_alt = eval_curve(C_orig, t_alt, rational=rational)
-                            if not _is_duplicate(isolated, pt_alt, atol):
+                            if not np.allclose(pt_alt, pt, atol=atol, rtol=0) :
                                 isolated.append({
                                     "t": float(t_alt), "u": float(u_alt), "v": float(v_alt),
                                     "point": pt_alt,
@@ -728,6 +730,7 @@ def _phase2_isolated_search(
                 # subdivide along u or v
 
             elif residual_ok:
+
                 # Newton converged to a real root, but it lies outside
                 # this cell's tolerance range. The root will be found
                 # by a cell that contains it — prune this one.
@@ -751,6 +754,9 @@ def _phase2_isolated_search(
                 if not clamped:
                     continue
                 # else: fall through to subdivision
+        else:
+            print(f'newton is not stalling: {last_step} [{(t0,t1)} {(u0,u1)} {(v0,v1)}] {(t_mid,u_mid,v_mid)}->{(t_sol,u_sol,v_sol)} xyz: {eval_curve(C_orig,t_mid,rational=rational)}')
+
 
         if depth >= max_depth:
             continue
@@ -789,34 +795,7 @@ def _phase2_isolated_search(
             stack.append((F_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
     # Return only NEW results (exclude the pre-loaded known points)
-    return isolated[n_known:]
-
-
-def _compute_remaining_intervals(excludes, lo, hi):
-    """Compute [lo, hi] minus the union of exclude intervals."""
-    if not excludes:
-        return [(lo, hi)]
-
-    excludes = sorted(excludes, key=lambda x: x[0])
-    merged = [excludes[0]]
-    for a, b in excludes[1:]:
-        if a <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
-        else:
-            merged.append((a, b))
-
-    result = []
-    cursor = lo
-    for ex_lo, ex_hi in merged:
-        ex_lo = max(ex_lo, lo)
-        ex_hi = min(ex_hi, hi)
-        if cursor < ex_lo:
-            result.append((cursor, ex_lo))
-        cursor = max(cursor, ex_hi)
-    if cursor < hi:
-        result.append((cursor, hi))
-
-    return result
+    return isolated
 
 
 # ---------------------------------------------------------------------------
@@ -911,7 +890,7 @@ def bez_csx(
 
         if float(np.linalg.norm(G_r)) < _csx_eff_atol(C, S, t_r, u_r, v_r, atol, rational):
             pt_r = eval_curve(C, t_r, rational=rational)
-            if not _is_duplicate(isolated, pt_r, atol):
+            if not _is_duplicate(isolated,t_r, u_r, v_r, pt_r, atol,ptol_t,ptol_u,ptol_v):
                 isolated.append({
                     "t": float(t_r), "u": float(u_r), "v": float(v_r),
                     "point": pt_r,
@@ -971,22 +950,22 @@ def bez_csx(
             continue
 
         # Search for isolated intersections
-        phase2_iso = _phase2_isolated_search(
+        _phase2_iso = _phase2_isolated_search(
             F_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
             max_depth=max_depth, max_cells=max_cells,
         )
 
-        for iso in phase2_iso:
-            if not _is_duplicate(isolated, iso["point"], atol):
-                isolated.append(iso)
+
 
     return {"isolated": isolated, "overlaps": overlaps}
 
 
-def _is_duplicate(isolated, pt, atol):
+def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
     for entry in isolated:
-        if np.linalg.norm(np.asarray(entry["point"]) - pt) < atol:
+        if abs(entry['t'] -t       )<ptol_t and abs(entry['u'] -u) <ptol_u and abs(entry['v'] -v) <ptol_v and np.linalg.norm(pt-entry['point'])<atol:
+
+
             return True
     return False

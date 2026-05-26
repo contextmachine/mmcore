@@ -1020,41 +1020,26 @@ def bez_curve_closest_point(curve:NDArray, point:NDArray,atol=1e-3,rational=Fals
     return best_cand.best_t,best_cand.best_d
 
 
+import itertools
 
 
-
-
-
-
-
-
-
-
-
-
-
-def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], atol: float = 0.001, spt=None,angle_tol: float = None):
+def nurbs_curve_closest_point(self: NURBSCurveTuple, point: NDArray[float], spt: float = 0.001,
+                              angle_tol: float = None):
     if isinstance(self, NURBSCurve):
-        self=_nurbs_to_tuple(self)
+        self = _nurbs_to_tuple(self)
     candidates = decompose_curve(self)
-    if spt is not None:
-        atol=spt
 
-    best_f = float("inf")
+    best_f = [float("inf"), {}, (None, None)]
     best_x = None
     for candidate in candidates:
-        rational = not np.allclose(candidate.weights, 1)
-        bez=sbern.nurbs_bezier_to_bern(candidate,rational=rational)
 
-        min_t ,min_val= bez_curve_closest_point(bez, point, atol=atol,rational=rational)
+        min_val, min_t = _nurbs_curve_closest_point_divide_and_conquer(candidate, point, spt=spt, angle_tol=angle_tol)
 
-        if best_f > min_val:
+        if best_f[0] > min_val[0]:
             best_f = min_val
             best_x = min_t
-    
-    
-    return best_x, best_f
 
+    return best_x, (best_f[0], *best_f[1:])
 
 
 def nurbs_surface_closest_point(self:NURBSSurfaceTuple, point:NDArray[float],spt:float=0.001, angle_tol:float=None):
