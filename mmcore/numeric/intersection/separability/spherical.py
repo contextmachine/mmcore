@@ -184,7 +184,12 @@ def center_projection_to_xy(origin, point):
     projected_y = origin[1] + t * (point[1] - origin[1])
 
     return np.array([projected_x, projected_y])
-from mmcore.geom.polygon import convex_hull2d
+def convex_hull2d(pts):
+    pts = np.array(pts)[...,:2]
+    from scipy.spatial import ConvexHull
+    ch = ConvexHull(pts)
+    return ch.points[ch.vertices]
+
 def project_poly(poly, vec):
     vec=np.array(vec)
     poly=np.array(poly)

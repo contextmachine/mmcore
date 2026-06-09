@@ -8,7 +8,7 @@ import numpy as np
 from mmcore.numeric.vectors import solve2x2, scalar_norm
 from numpy._typing import NDArray
 
-from mmcore.geom.vec import unit, make_perpendicular
+from mmcore.numeric.vectors import unit
 from mmcore.numeric import scalar_dot, scalar_cross
 from mmcore.numeric.aabb import point_in_aabb
 

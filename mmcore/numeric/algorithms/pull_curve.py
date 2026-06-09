@@ -17,7 +17,7 @@ def pull_curve(surf:NURBSSurfaceTuple, curve:NURBSCurveTuple):
     """
     from numpy._typing import NDArray
 
-from mmcore.geom.surfaces import Surface
+
 #FIXME Что то на поверхности, improve_uv или еще где то рядом имеет серьезный баг из-за которого марш просто прекращается в как либо точке. Что на спиральках что здесь
 class Sphere(Surface):
     def evaluate(self, uv) -> NDArray[float]:

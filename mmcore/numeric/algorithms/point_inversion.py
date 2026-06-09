@@ -1,8 +1,6 @@
 import numpy as np
 
-
-from mmcore.geom.curves.curve import Curve
-from mmcore.geom.surfaces import Surface
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple
 from mmcore.numeric.vectors import scalar_dot, scalar_norm, dot, norm, cross, solve2x2
 from numpy.typing import NDArray
 
@@ -11,7 +9,7 @@ from numpy.typing import NDArray
 # Assuming the following functions are already implemented
 
 
-def point_inversion_curve(curve: Curve, P: np.ndarray, u0: float, tol1: float, tol2: float,
+def point_inversion_curve(curve: NURBSCurveTuple, P: np.ndarray, u0: float, tol1: float, tol2: float,
                           max_iter: int = 100) -> float:
     """
     Perform point inversion on a curve to find parameter u such that C(u) is close to P
@@ -79,7 +77,7 @@ import numpy as np
 # Assuming the following functions are already implemented 0.6741571976269591
 
 
-def point_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: float, tol1: float, tol2: float,
+def point_inversion_surface(surface: NURBSSurfaceTuple, P: np.ndarray, u0: float, v0: float, tol1: float, tol2: float,
                             max_iter: int = 100) -> (
         float, float):
     """
@@ -203,7 +201,7 @@ _vec_solve = np.vectorize(np.linalg.solve, signature='(i,i),(i)->(i)'
                           )
 
 
-def points_inversion_surface(surface: Surface, P: np.ndarray, u0: float, v0: float, tol1: float, tol2: float,
+def points_inversion_surface(surface: NURBSSurfaceTuple, P: np.ndarray, u0: float, v0: float, tol1: float, tol2: float,
                                    max_iter: int = 100) -> (
         float, float):
     """

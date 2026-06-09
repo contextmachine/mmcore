@@ -964,7 +964,7 @@ def bez_csx(
 
 def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
     for entry in isolated:
-        if abs(entry['t'] -t       )<ptol_t and abs(entry['u'] -u) <ptol_u and abs(entry['v'] -v) <ptol_v and np.linalg.norm(pt-entry['point'])<atol:
+        if (abs(entry['t'] -t       )<ptol_t) and (abs(entry['u'] -u) )<ptol_u and (abs(entry['v'] -v) <ptol_v )and np.linalg.norm(pt-entry['point'])<atol:
 
 
             return True

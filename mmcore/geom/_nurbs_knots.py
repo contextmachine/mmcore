@@ -1978,6 +1978,27 @@ def degree_reduction(degree, ctrlpts, **kwargs):
     return pts_red
 
 
+def degree_reduction_bez(bez: NDArray, num: int = 1):
+    """Elevate the degree of a NURBS curve."""
+    return np.array(degree_reduction(degree=bez.shape[0]-1-num, ctrlpts=bez.tolist()),dtype=bez.dtype)
+  
+ 
+def degree_reduction_curve(curve: NURBSCurveTuple, num: int = 1,tol=1e-6):
+    """Elevate the degree of a NURBS curve."""
+    bezz=[]
+    for bez in decompose_curve(curve):
+        hcpts=to_homogeneous_1d(bez.control_points, bez.weights)
+        hcpts_new=degree_reduction_bez(hcpts,num=num)
+        cpts,w=from_homogeneous_1d(hcpts_new)
+        bez_new=NURBSCurveTuple(bez.order-1,generate_knots(cpts.shape[0],bez.degree-num,bez.interval()),control_points=cpts,weights=w)
+        bezz.append(bez_new)
+    jj=join_curves(bezz, tol=tol)
+    if len(jj)>1:
+        raise ValueError(f"Cannot join curves: {jj}")
+    else:
+        return jj[0]
+
+
 def refine_curve(curve: NURBSCurveTuple, new_knots, density: int = 0, **kwargs):
     """Refine a NURBS curve by inserting new knots.
 

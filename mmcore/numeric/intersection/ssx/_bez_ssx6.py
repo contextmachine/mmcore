@@ -182,7 +182,7 @@ def _aabb_disjoint(S1_h, S2_h, atol):
         d=bbi[1,:]-bbi[0,:]
 
         ##print('d',d)
-        if np.sum(d==0)>=2:
+        if np.sum(np.abs(d)<atol)>=2:
 
             ##print('pdd',  np.prod(d))
             return True
@@ -225,7 +225,9 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     """
     crossings = []
     overlaps = []
-
+    ptol_s,ptol_t=bez_surface_param_tolerance(S1_h,rational=rational,tol=atol)
+    ptol_u,ptol_v=bez_surface_param_tolerance(S2_h,rational=rational,tol=atol)
+    ptol=np.array([ptol_s,ptol_t,ptol_u,ptol_v])
     def _process_face(iso, other_surf, axis, side, owner_is_s1):
         result = bez_csx(iso, other_surf, atol=atol, rational=rational)
 
@@ -275,8 +277,8 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
                 else S2_h[:, 0 if side == 0 else -1, :]
             _process_face(iso, S1_h, s2_axis, side, owner_is_s1=False)
 
-    crossings = _dedup_crossings(crossings, atol)
-    overlaps = _dedup_overlaps(overlaps, atol)
+    crossings = _dedup_crossings(crossings,ptol)
+    overlaps = _dedup_overlaps(overlaps, ptol)
 
     # Remove crossings that are endpoints of overlaps (redundant — overlap covers them)
     if overlaps:
@@ -284,8 +286,8 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
         for c in crossings:
             is_ovl_endpoint = False
             for ovl in overlaps:
-                if (np.linalg.norm(c.stuv - ovl.stuv_start) < atol or
-                        np.linalg.norm(c.stuv - ovl.stuv_end) < atol):
+                if (np.all(np.abs(c.stuv - ovl.stuv_start) < ptol) or
+                        np.all(np.abs(c.stuv - ovl.stuv_end) < ptol)):
                     is_ovl_endpoint = True
                     break
             if not is_ovl_endpoint:
@@ -295,7 +297,7 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     return crossings, overlaps
 
 
-def _dedup_crossings(crossings, atol):
+def _dedup_crossings(crossings, ptol):
     """Unify crossings with identical stuv.
 
     Design §5 Invariant C: two crossings with identical `stuv` (within tolerance)
@@ -311,13 +313,13 @@ def _dedup_crossings(crossings, atol):
 
     deduped = []
     for c in crossings:
-        is_dup = any(np.linalg.norm(c.stuv - d.stuv) < atol for d in deduped)
+        is_dup = any(np.all(np.abs(c.stuv - d.stuv) < ptol ) for d in deduped)
         if not is_dup:
             deduped.append(c)
     return deduped
 
 
-def _dedup_overlaps(overlaps, atol):
+def _dedup_overlaps(overlaps, ptol):
     """Remove duplicate boundary overlaps.
 
     An overlap whose endpoints both lie on boundaries of both surfaces
@@ -332,11 +334,11 @@ def _dedup_overlaps(overlaps, atol):
         is_dup = False
         for d in deduped:
             # Check same direction
-            same = (np.linalg.norm(ovl.stuv_start - d.stuv_start) < atol and
-                    np.linalg.norm(ovl.stuv_end - d.stuv_end) < atol)
+            same =np.all(np.abs(ovl.stuv_start - d.stuv_start) < ptol) and      np.all(np.abs(ovl.stuv_end - d.stuv_end) < ptol)
+
             # Check reversed direction
-            rev = (np.linalg.norm(ovl.stuv_start - d.stuv_end) < atol and
-                   np.linalg.norm(ovl.stuv_end - d.stuv_start) < atol)
+            rev = (np.all(np.abs(ovl.stuv_start - d.stuv_end) < ptol) and
+                   np.all(np.abs(ovl.stuv_end - d.stuv_start) < ptol))
             if same or rev:
                 is_dup = True
                 break
@@ -464,16 +466,19 @@ def _ssx_tangent_4d(S1, S2, s, t, u, v, rational=True, direction_hint=None):
     pt2, du2, dv2 = eval_surface_d1(S2, u, v, rational=rational)
 
     J = np.column_stack([du1, dv1, -du2, -dv2])  # (3, 4)
+    rank=np.linalg.matrix_rank(J)
     try:
         _, sigma, Vt = np.linalg.svd(J, full_matrices=True)
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as e:
+        print(f"SVD failed: {e}")
         return None, pt1, pt2
 
     # For a 3×4 Jacobian, the null space is (4 - rank)-dimensional.
     # With rank 3, null_dim = 1 and the last row of Vt is the tangent.
     # With rank < 3, null_dim > 1 and we need direction_hint.
-    tol_sv = max(J.shape) * sigma[0] * 1e-10 if sigma[0] > 0 else 1e-10
-    rank = int(np.sum(sigma > tol_sv))
+
+    #tol_sv = max(J.shape) * sigma[0] * 1e-10 if sigma[0] > 0 else 1e-10
+    #rank = int(np.sum(sigma > tol_sv))
     null_dim = 4 - rank  # for a 3×4 matrix
 
     if null_dim <= 0:
@@ -481,6 +486,9 @@ def _ssx_tangent_4d(S1, S2, s, t, u, v, rational=True, direction_hint=None):
 
     if null_dim == 1 or direction_hint is None:
         tangent = Vt[-1]
+        #print("tang",tangent)
+        norm = np.linalg.norm(tangent)
+        tangent = tangent / norm
     else:
         # Project direction_hint onto the null space
         null_vecs = Vt[-null_dim:]  # (null_dim, 4)
@@ -489,6 +497,8 @@ def _ssx_tangent_4d(S1, S2, s, t, u, v, rational=True, direction_hint=None):
         norm = np.linalg.norm(tangent)
         if norm < 1e-14:
             tangent = Vt[-1]  # fallback
+            norm = np.linalg.norm(tangent)
+            tangent = tangent / norm
         else:
             tangent = tangent / norm
 
@@ -1420,35 +1430,6 @@ def _global_to_local(stuv_global, box):
 # Registration-based tracing (design §7)
 # ---------------------------------------------------------------------------
 
-def _find_exit_registration(cell, stuv_end, tol_param=1e-4):
-    """Design §7 Invariant D: locate the unique unconsumed "out" registration
-    owned by `cell` that matches the marcher's stopping point.
-
-    The marcher is guaranteed to stop on the cell's boundary (it clamps to
-    `[0,1]⁴` in local coords); therefore `stuv_end` must have at least one
-    on-boundary axis for this cell. We walk every matching partition on
-    every on-boundary axis and return the first unconsumed out-registration
-    whose `param` matches `stuv_end[free_axis]` within `tol_param`.
-    """
-    best: Optional[IsolineRegistration] = None
-    best_residual = float("inf")
-    for i in range(4):
-        local = _on_axis_local(stuv_end[i], cell.box[i][0], cell.box[i][1])
-        if local is None:
-            continue
-        target_value = cell.box[i][local]
-        for p in cell.partitions:
-            if p.axis != i or abs(p.value - target_value) > 1e-8:
-                continue
-            target_param = float(stuv_end[p.free_axis])
-            for reg in p.registrations:
-                if reg.consumed or reg.owner is not cell or reg.direction != "out":
-                    continue
-                r = abs(reg.param - target_param)
-                if r < tol_param and r < best_residual:
-                    best = reg
-                    best_residual = r
-    return best
 
 
 @dataclass
@@ -3316,7 +3297,7 @@ def bez_ssx(
     S2,
     atol=1e-3,
     rational=True,
-    max_depth=12,
+    max_depth=24,
 ) -> dict:
     """Bezier surface-surface intersection v5.
 
@@ -3446,7 +3427,7 @@ def bez_ssx(
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
 
-                    isol, over = _find_ssx_boundary_zeros(cell.g1.surface, cell.g2.surface, atol, rational=True)
+                    isol, over = _find_ssx_boundary_zeros(cell.g1.surface, cell.g2.surface, atol=atol, rational=True)
                     if len(isol) == 0:
                         continue
                     #print('crossings:',len(cell.crossings),'isol:',len(isol),'over:',len(over))
@@ -3528,6 +3509,7 @@ def bez_ssx(
             continue
 
         if cell.depth >= max_depth:
+            print('max depth reached')
             for c in cell.crossings:
                 all_points.append(SSXPoint(stuv=c.stuv, xyz=c.xyz))
             continue
@@ -3538,7 +3520,7 @@ def bez_ssx(
         # a midpoint cut on its longest-span axis.
 
         s1_axis, s1_cuts, s2_axis, s2_cuts = _compute_split_plan(
-            cell.new_crossings, cell.box)
+            cell.crossings, cell.box)
         ##print(s1_axis, s1_cuts, s2_axis, s2_cuts,cell.box,[nc.xyz.tolist() for nc in cell.new_crossings])
         # Midpoint fallback per surface when no guided cuts
         if s1_axis is None:
@@ -3758,7 +3740,7 @@ def bez_ssx(
             frags,_=join_bezssx_branches(frags,tol=2*atol)
 
 
-        return {'branches':     frags , 'points': all_points}
+        return {'branches':     frags+closed_frags , 'points': all_points}
 
 
     return {'branches': all_fragments, 'points': all_points}

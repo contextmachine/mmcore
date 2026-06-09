@@ -4,7 +4,7 @@ import numpy as np
 from scipy.special import comb
 from itertools import product
 from mmcore.geom.nurbs import NURBSSurface
-from mmcore.geom.surfaces import Surface
+
 from mmcore.numeric.binom import binomial_coefficient_py
 from functools import lru_cache
 @lru_cache(maxsize=None)
@@ -267,85 +267,3 @@ def normal_vector_monomial(coeffs):
     return cross_product_monomial(du_coeffs, dv_coeffs)
 
 
-class Monomial2D(Surface):
-    """
-    Represents a 2D monomial surface with various conversion and operation methods.
-    """
-    def __init__(self, coeffs):
-        super().__init__()
-
-        self.coeffs = np.array(coeffs,dtype=float)
-    def evaluate(self,uv):
-        return evaluate_monomial2d(self.coeffs, uv[0], uv[1])
-
-    def to_bernstein_basis(self):
-        """
-        Converts the polynomial coefficients from the monomial basis to the Bernstein basis.
-
-        Returns:
-            list: A list of coefficients in the Bernstein basis.
-
-        Example:
-            >>> m = Monomial2D(np.array([
-            ...     [[0, 0, 0], [0, 0, 0], [1, 3, 1]],
-            ...     [[0, -1, -2], [2, 0, 0], [0, 0, 0]],
-            ...     [[1, 2, 3], [0, 0, 0], [0, 0, 0]],
-            ... ]))
-            >>> bernstein_coeffs = polynomial.to_bernstein_basis()
-            >>> print(bernstein_coeffs)
-        """
-        return monomial_to_bezier(self.coeffs)
-
-    @classmethod
-    def from_bernstein_basis(cls,coeffs):
-        return cls(bezier_to_monomial(coeffs))
-
-    def to_bezier(self)->NURBSSurface:
-        m,n=self.coeffs.shape[:2]
-        m-=1
-        n-=1
-        return NURBSSurface(self.coeffs, (m,n))
-    def evaluate_v2(self, u,v):
-        return evaluate_monomial2d(self.coeffs, u, v)
-    @classmethod
-    def from_bezier(cls, surf:NURBSSurface):
-        return cls(np.array(surf.control_points).copy())
-
-    @classmethod
-    def from_nurbs(cls, surf: NURBSSurface):
-        m,n=surf.degree
-        size_u,size_v,_=surf.control_points.shape
-
-        if m==(size_u-1) and n==(size_v-1):
-            return cls.from_bezier(surf)
-        else:
-            raise NotImplementedError("The transformation for complex NURBS surfaces has not been implemented at this time. Decompose the patch into bezier patches and transform each of them.")
-
-    def to_nurbs(self)->NURBSSurface:
-        return self.to_bezier()
-
-    def cross(self, other:Monomial2D)->Monomial2D:
-        return Monomial2D(cross_product_monomial(self.coeffs,other.coeffs))
-
-    def monomial_derivatives(self)->tuple[Monomial2D,Monomial2D]:
-        du,dv=monomial_partial_derivatives(self.coeffs)
-        return Monomial2D(du),Monomial2D(dv)
-
-    def monomial_normal(self)->Monomial2D:
-        """
-        >>> m = Monomial2D(np.array([
-        ...     [[0, 0, 0], [0, 0, 0], [1, 3, 1]],
-        ...     [[0, -1, -2], [2, 0, 0], [0, 0, 0]],
-        ...     [[1, 2, 3], [0, 0, 0], [0, 0, 0]],
-        ... ]))
-        >>> normal_coeffs=normal_vector_monomial(m.coeffs)
-        >>> normal_vector=evaluate_monomial2d(normal_coeffs,0.5,0.5)
-        >>> unit_normal_vector=normal_vector/np.linalg.norm(normal_vector)
-        >>> numeric_normal_vector=m.normal(np.array((0.5,0.5)))
-        >>> np.allclose(unit_normal_vector,numeric_normal_vector)
-        True
-
-        :return:
-        """
-        n_coeffs = normal_vector_monomial(self.coeffs)
-        return Monomial2D(n_coeffs)

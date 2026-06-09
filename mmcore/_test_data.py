@@ -4,9 +4,6 @@ import numpy as np
 
 ssx = []
 csx=[]
-from mmcore.geom.surfaces import Surface, Coons
-
-from mmcore.geom.curves.bspline import NURBSpline
 
 pts1 = np.array(
     [

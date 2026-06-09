@@ -4,13 +4,14 @@ import abc
 from typing import Union
 import numpy as np
 
-from mmcore.numeric import plane_on_curve
+from mmcore.geom._nurbs_eval import NURBSCurveTuple,BSplineCurveTuple
+
 from mmcore.numeric.marching import marching_implicit_curve_points
 from mmcore.geom.implicit.tree import ImplicitTree3D, ImplicitTree2D
 from mmcore.numeric.vectors import scalar_norm
 
 from mmcore.numeric.fdm import fdm
-from mmcore.geom.curves.knot import interpolate_curve
+from mmcore.geom._nurbs_interp  import interpolate_curve
 
 
 def op_union(d1, d2):
@@ -257,8 +258,8 @@ class Implicit2D(Implicit):
         cpts, knots, deg = interpolate_curve(self.points(step=step), degree=degree)
         z = np.zeros((*cpts.shape[:-1], 3), dtype=float)
         z[..., :2] = cpts
-        from mmcore.geom.curves.bspline import NURBSpline
-        return NURBSpline(control_points=z, knots=np.array(knots, float), degree=degree)
+
+        return BSplineCurveTuple(order=degree+1,knot=knots,control_points=z).to_nurbs()
 
     def build_tree(self, depth=3):
         self._tree = ImplicitTree2D(self.implicit, depth, bounds=self.bounds())
@@ -464,103 +465,5 @@ class Sub3D(Implicit3D):
         return self.a.bounds()
 
 
-from mmcore.geom.curves.bspline import interpolate_nurbs_curve, NURBSpline
-
-from mmcore.geom.curves.curve import Curve
-from mmcore.numeric.algorithms.implicit_point import curve_point
 
 
-class ParametrizedImplicit2D(Implicit2D, Curve):
-    def __init__(self, a: Implicit2D, b: NURBSpline, periodic=True, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._implicit_form = a
-        self._parametric_form = b
-        self.periodic = periodic
-    def interval(self):
-        return tuple(self._parametric_form.interval())
-    def bounds(self):
-        return self._implicit_form.bounds()
-
-    def implicit(self, v):
-        return self._implicit_form.implicit(v)
-
-    def gradient(self, v):
-        return self._implicit_form.gradient(v)
-
-    def evaluate(self, t: float):
-        return curve_point(self._implicit_form.implicit, self._parametric_form.evaluate(t)[:2],
-                           grad=self._implicit_form.gradient)
-
-    def evaluate_multi(self, t):
-        pts = self._parametric_form.evaluate_multi(t)
-        return np.array([
-            curve_point(self._implicit_form.implicit, pt[:2],
-                        grad=self._implicit_form.gradient) for pt in pts])
-
-    def tangent(self, t):
-        return self._parametric_form.tangent(t)[:2]
-
-    def normal(self, t):
-        return self._implicit_form.gradient(self._parametric_form.evaluate(t)[:2])
-
-    def derivative(self, t):
-        return self._parametric_form.derivative(t)[:2]
-    def plane_at(self, t):
-        return plane_on_curve(
-            (*self.evaluate(t),0), (*self.tangent(t),0), (*self.second_derivative(t),0)
-        )
-    def second_derivative(self, t):
-        return self._parametric_form.second_derivative(t)[:2]
-
-    def is_periodic(self):
-        return self.periodic
-
-    def point_inside(self, pt):
-        return self._implicit_form.point_inside(pt)
-
-    @classmethod
-    def from_implicit2d(cls, obj: Implicit2D, start=None, end=None, max_points=None, degree=3, step=0.2,
-                        delta=0.001):
-        return parametrize_implicit2d(obj, start, end, max_points, degree, step, delta)
-    @property
-    def control_points(self):
-        return self._parametric_form.control_points
-    @property
-    def degree(self):
-        return self._parametric_form.degree
-
-    @property
-    def implicit_form(self):
-        return self._implicit_form
-    @property
-    def parametric_form(self):
-        return self._parametric_form
-
-def parametrize_implicit2d(obj: Implicit2D, start=None, end=None, max_points=None, degree=3, step=0.2,
-                           delta=0.001) -> ParametrizedImplicit2D:
-    periodic = True
-    if start is None and end is None:
-        v0 = np.array(obj.v0())
-        v1 = v0
-    elif end is None:
-        v0 = np.array(start)
-        v1 = v0
-    else:
-        if not np.allclose(end, start):
-            periodic = False
-            v0 = np.array(start)
-            v1 = np.array(end)
-        else:
-            v0 = np.array(start)
-            v1 = v0
-
-    res = marching_implicit_curve_points(
-        obj.implicit, v0=v0, v1=v1, max_points=max_points, step=step, delta=delta
-    )
-    pts = np.zeros((len(res), 3))
-    pts[:, :2] = res
-    crv = interpolate_nurbs_curve(pts, degree=degree)
-    if periodic:
-        crv.make_periodic()
-
-    return ParametrizedImplicit2D(obj, crv, periodic)

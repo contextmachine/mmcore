@@ -437,6 +437,7 @@ def find_min_distance(R_l, bspline_curve, surface, tol=1e-6, max_iter=50):
     This descent method uses a simple (cubic interpolation based) line search.
     """
 
+
     def f(t):
         S_t = map_curve_to_surface(bspline_curve, surface, t)
         # print(R_l,S_t)
@@ -445,7 +446,7 @@ def find_min_distance(R_l, bspline_curve, surface, tol=1e-6, max_iter=50):
         # print(f'f: {t}, {res}',flush=True,end=' '*80+'\r')
         return res
 
-    t_current, f_t = golden_section_search(f, (0.0, 1.0), tol)
+    t_current, f_t = golden_section_search(f, (bspline_curve), tol)
 
     # print("\rTC", (t_current,f_t),)
     return f_t

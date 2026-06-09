@@ -13,8 +13,7 @@ from mmcore.geom._nurbs_eval import NURBSCurveTuple,NURBSSurfaceTuple,_nurbs_to_
 
 
 from mmcore.numeric.vectors import solve2x2
-from mmcore.numeric.intersection.ssx._ssx_utils import improve_uv as cimprove_uv
-from mmcore.numeric.algorithms.point_inversion import point_inversion_surface
+
 
 
 import numpy as np
@@ -35,19 +34,6 @@ def improve_uv(du, dv, xyz_old, xyz_better, res):
 
     return solve2x2(max_det[0], np.array(max_det[1]), res)
 
-
-def improve_uv_robust(surf, uv_old, du, dv, xyz_old, xyz_better, uv_better=None, ptol=1e-6):
-    if uv_better is None:
-        uv_better = np.zeros(2)
-
-    success_first = cimprove_uv(du, dv, xyz_old, xyz_better, uv_better)
-
-    if success_first == 1:
-        uv_better[:] = point_inversion_surface(surf, xyz_better, *uv_old, ptol, ptol)
-    else:
-        uv_better += uv_old
-
-    return uv_better
 
 
 

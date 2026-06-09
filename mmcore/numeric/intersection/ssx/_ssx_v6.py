@@ -558,7 +558,7 @@ def _trust_gjk(g: GaussMapBern, *, min_rank_quality: float = 1e-10) -> bool:
 # ======================================================================================
 
 def bez_detect_inter_pairs(g1: GaussMapBern, g2: GaussMapBern, *, atol: float, angle_tol: float = 0.05235987755982989,
-                           slab_tol_scale: float = 0, gjk_tol: float = 1e-5, gjk_max_iter: int = 64,
+                           gjk_tol: float = 1e-5, gjk_max_iter: int = 64,
                            gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 32, magic_start_depth: int = 6,
                            flat_angle: float = 0.05235987755982989) -> list[tuple[NDArray[np.float64], NDArray[np.float64]]]:
     """
@@ -676,6 +676,24 @@ def bez_detect_inter_pairs(g1: GaussMapBern, g2: GaussMapBern, *, atol: float, a
                 stack.append((other, k, depth + 1))
 
     return out
+
+def bez_detect_inters(s1: NDArray, s2: NDArray, *, atol: float,rational:bool=True, angle_tol: float = 0.05235987755982989,
+                            gjk_tol: float = 1e-5, gjk_max_iter: int = 64,
+                           gm_eps: float = 1e-5, gm_tol: float = 1e-8, max_depth: int = 32, magic_start_depth: int = 6,
+                           flat_angle: float = 0.05235987755982989) -> list[tuple[NDArray[np.float64], NDArray[np.float64]]]:
+    if not rational:
+        H1=np.ones((*s1.shape[:-1],s1.shape[-1]+1),dtype=s1.dtype)
+        H1[...,:-1]=s1
+        H2 = np.ones((*s2.shape[:-1], s2.shape[-1] + 1), dtype=s2.dtype)
+        H2[..., :-1] = s2
+    else:
+        H1=np.copy(s1)
+        H2=np.copy(s2)
+    gm1=GaussMapBern.from_surf(H1,rational=True)
+    gm2=GaussMapBern.from_surf(H2,rational=True)
+    return bez_detect_inter_pairs(gm1,gm2,atol=atol, gjk_tol=gjk_tol, gjk_max_iter=gjk_max_iter, gm_eps=gm_eps,
+                                   gm_tol=gm_tol, max_depth=max_depth, magic_start_depth=magic_start_depth,
+                                   angle_tol=angle_tol, flat_angle=flat_angle)
 
 
 def detect_intersections(

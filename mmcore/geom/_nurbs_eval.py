@@ -7,6 +7,8 @@ import numpy as np
 
 from typing import TypedDict, NamedTuple
 from numpy.typing import NDArray
+
+from build import link_args
 from mmcore.geom import nurbs
 
 from mmcore.numeric.calgorithms import evaluate_curvature
@@ -27,12 +29,23 @@ class BSplineCurveTuple(NamedTuple):
     def end(self):
 
         return self.control_points[-1]
+    def interval(self):
+        return _curve_interval(self)
+    @property
+    def degree(self):
+        return self.order-1
+    def to_nurbs(self):
+        return NURBSCurveTuple(self.order, self.knot, self.control_points, np.ones((self.control_points.shape[0],),dtype=self.control_points.dtype))
 
 class NURBSCurveTuple(NamedTuple):
     order:int
     knot:NDArray[np.float64]
     control_points:NDArray[np.float64] # Not homogeneous
     weights:NDArray[np.float64]
+
+    def to_nurbs(self):
+        return NURBSCurveTuple(self.order, self.knot, np.copy(self.control_points),np.copy(self.weights))
+
 
     def start(self):
 
