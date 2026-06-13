@@ -81,6 +81,57 @@ def _subdivide_surface_weights(sw, axis, t=0.5):
     return left, right
 
 
+def _residual_vec_net(C, S, rational):
+    """Bernstein coefficient net of the homogeneous vector residual
+
+        G(t,u,v) = C(t)·w_S(u,v) − S(u,v)·w_C(t),   shape (p+1, m+1, n+1, 3).
+
+    t and (u,v) are disjoint variables, so the products are plain outer
+    products — no degree elevation. For non-rational input the weights are
+    1 and this is the difference net C[i] − S[j,k].
+
+    Unlike the squared-distance net (which is sign-blind: it must resolve
+    |G|² > 0 to prune, an O(h²) hull race against d²), a single component
+    whose coefficient hull excludes zero proves G ≠ 0 in the cell. Near
+    transversal roots the components change sign cleanly, so this prune
+    terminates the near-contact band orders of magnitude earlier.
+    """
+    if rational:
+        Cp, Cw = C[:, :-1], C[:, -1]
+        Sp, Sw = S[..., :-1], S[..., -1]
+    else:
+        Cp = C
+        Cw = np.ones(C.shape[0], dtype=np.float64)
+        Sp = S
+        Sw = np.ones(S.shape[:2], dtype=np.float64)
+    return (Cp[:, None, None, :] * Sw[None, :, :, None]
+            - Sp[None, :, :, :] * Cw[:, None, None, None])
+
+
+def _residual_excludes_zero(G_cell):
+    """True if some component's Bernstein hull excludes 0 → no zero of G."""
+    for c in range(3):
+        comp = G_cell[..., c]
+        if float(comp.min()) > 0.0 or float(comp.max()) < 0.0:
+            return True
+    return False
+
+
+def _restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a Bernstein net WITH a trailing value dim along one axis."""
+    span = cell_hi - cell_lo
+    if span < 1e-30:
+        return Fv
+    frac_lo = (lo - cell_lo) / span
+    frac_hi = (hi - cell_lo) / span
+    if frac_lo > 1e-12:
+        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
+    if frac_hi < 1.0 - 1e-12:
+        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
+        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
+    return Fv
+
+
 def _compute_param_tols_csx(C, S, atol, rational):
     """Compute parametric tolerances for curve and surface.
 
@@ -483,7 +534,7 @@ def _restrict_net_axis(F_cell, axis, lo, hi, cell_lo, cell_hi):
     return Fv[..., 0]
 
 
-def _cutout_3d(F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
                t_cut, u_cut, v_cut, ptol_t, ptol_u, ptol_v, rational):
     """Cut out a ptol-neighborhood around (t_cut, u_cut, v_cut) from a cell.
 
@@ -513,10 +564,13 @@ def _cutout_3d(F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
                 if t_hi - t_lo < 1e-15 or u_hi - u_lo < 1e-15 or v_hi - v_lo < 1e-15:
                     continue
 
-                # Restrict the net to this sub-box
+                # Restrict the nets to this sub-box
                 F_sub = _restrict_net_axis(F_cell, 0, t_lo, t_hi, t0, t1)
                 F_sub = _restrict_net_axis(F_sub, 1, u_lo, u_hi, u0, u1)
                 F_sub = _restrict_net_axis(F_sub, 2, v_lo, v_hi, v0, v1)
+                G_sub = _restrict_net_axis_v(G_cell, 0, t_lo, t_hi, t0, t1)
+                G_sub = _restrict_net_axis_v(G_sub, 1, u_lo, u_hi, u0, u1)
+                G_sub = _restrict_net_axis_v(G_sub, 2, v_lo, v_hi, v0, v1)
 
                 # Restrict curve to t sub-interval
                 C_sub = _restrict_curve(seg_c,
@@ -530,14 +584,14 @@ def _cutout_3d(F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
                 else:
                     sw_sub = sw.copy()
 
-                sub_cells.append((F_sub, C_sub, pw_sub, sw_sub,
+                sub_cells.append((F_sub, G_sub, C_sub, pw_sub, sw_sub,
                                   t_lo, t_hi, u_lo, u_hi, v_lo, v_hi, depth + 1))
 
     return sub_cells
 
 
 def _phase2_isolated_search(
-    F_sub, C_sub, S, C_orig, S_orig,
+    F_sub, G_sub, C_sub, S, C_orig, S_orig,
     t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
     known_points=None,
     max_depth=50, max_cells=50_000,
@@ -561,7 +615,7 @@ def _phase2_isolated_search(
 
     cells = 0
 
-    stack = [(F_sub, C_sub, Pw.copy(), Sw.copy(),
+    stack = [(F_sub, G_sub, C_sub, Pw.copy(), Sw.copy(),
               t_lo, t_hi, 0.0, 1.0, 0.0, 1.0, 0)]
 
     while stack:
@@ -569,12 +623,47 @@ def _phase2_isolated_search(
             break
         cells += 1
 
-        F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth = stack.pop()
+        F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth = stack.pop()
+
+        # Vector-residual sign prune: one component of G = C·w_S − S·w_C
+        # whose coefficient hull excludes 0 proves no zero in the cell.
+        # Cheapest and by far the most decisive prune near transversal
+        # roots — run it first.
+        if _residual_excludes_zero(G_cell):
+            continue
 
         # Quick prune: min-of-net
         sw_flat = sw.ravel()
         w_sc = _weight_max_product(pw, sw_flat)
         if _check_min_of_net(F_cell, atol, w_sc):
+            continue
+
+        # Strict-positivity certificate: by the Bernstein convex-hull
+        # property, min(F) > 0 over the coefficients proves ||C-S||² > 0
+        # everywhere in the cell — no zero exists, prune. This terminates
+        # near-miss "valleys" (distance dips below atol with no zero) after
+        # a few subdivisions; without it they are scanned at ptol
+        # resolution, which costs tens of thousands of cells per glancing
+        # approach (SSX guided cuts produce these routinely).
+        if float(np.min(F_cell)) > 0.0:
+            continue
+
+        # Resolution-floor prune: a cell that lies entirely inside the
+        # ±2·ptol box of a known root cannot contain an additional zero
+        # distinguishable from that root at the algorithm's parametric
+        # resolution (ptol is the same indistinguishability scale the
+        # cutout and the dedup already assume). Without this, the cells
+        # hugging a cutout hole — where F genuinely dips toward zero — can
+        # never certify positivity and grind down to ptol one level at a
+        # time.
+        _near_known = False
+        for _e in isolated:
+            if (t0 >= _e["t"] - 2.0 * ptol_t and t1 <= _e["t"] + 2.0 * ptol_t
+                    and u0 >= _e["u"] - 2.0 * ptol_u and u1 <= _e["u"] + 2.0 * ptol_u
+                    and v0 >= _e["v"] - 2.0 * ptol_v and v1 <= _e["v"] + 2.0 * ptol_v):
+                _near_known = True
+                break
+        if _near_known:
             continue
 
         # Lipschitz prune
@@ -628,134 +717,70 @@ def _phase2_isolated_search(
             continue
 
         # Try Newton from cell center
-
-        cands=[]
-        for t in (t1 , t0):
-            for u in (u1, u0):
-                for v in (v1, v0):
-                    cands.append((t,u,v))
-        success_once=False
         t_mid = 0.5 * (t0 + t1)
-        u_mid = 0.5 * (u0 + u1)#for t,u,v in cands:
+        u_mid = 0.5 * (u0 + u1)
         v_mid = 0.5 * (v0 + v1)
+        # Newton is BOUNDED to the cell: an unbounded trajectory draining
+        # into an attractor outside the cell proves nothing and (before
+        # this was bounded) forced a full subdivision cascade along the
+        # boundary of every excluded root neighborhood.
         t_sol, u_sol, v_sol, G, last_step = newton_csx(
-            C_orig, S_orig, t_mid,u_mid,v_mid, rational=rational,
+            C_orig, S_orig, t_mid, u_mid, v_mid, rational=rational,
+            bounds=(t0, t1, u0, u1, v0, v1),
         )
 
         residual_ok = float(np.linalg.norm(G)) < _csx_eff_atol(
             C_orig, S_orig, t_sol, u_sol, v_sol, atol, rational)
-        newton_stalled = (
-                abs(last_step[0]) <=ptol_t
-                and abs(last_step[1])<=ptol_u
-                and abs(last_step[2])<=ptol_v
+
+        # Small FP slack on the in-cell test: Newton can converge to a root
+        # at the cell boundary that lands ~1 ULP outside the FP-computed
+        # bound; without slack such a root is mis-classified as "outside".
+        _fp_slack = 1e-12
+        in_cell = (
+            t0 - _fp_slack <= t_sol <= t1 + _fp_slack
+            and u0 - _fp_slack <= u_sol <= u1 + _fp_slack
+            and v0 - _fp_slack <= v_sol <= v1 + _fp_slack
         )
-        if True:
 
-            # Use a small FP slack on top of ptol_t. Newton can converge
-            # to t = 1.0 (or 0.0) by ~1 ULP, while t1 + ptol_t computed
-            # by FP arithmetic may be slightly less than 1.0 even though
-            # algebraically equal. Without this slack, a real root at the
-            # domain boundary is mis-classified as "outside cell".
-            _fp_slack = 1e-12
-            if residual_ok and t0  <= t_sol <= t1 and u0 <= u_sol <= u1 and v0 <= v_sol <= v1:
-                pt = eval_curve(C_orig, t_sol, rational=rational)
-                is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol,pt, atol,ptol_t,ptol_u,ptol_v)
-                if is_new:
-                    isolated.append({
-                        "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
-                        "point": pt,
-                    })
-                    # 3D cutout: split cell into 27 boxes, discard center,
-                    # push remaining 26 for further search
-                    sub_cells = _cutout_3d(
-                        F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
-                        float(t_sol), float(u_sol), float(v_sol),
-                        ptol_t, ptol_u, ptol_v, rational,
-                    )
-                    stack.extend(sub_cells)
-                    continue
-
-                # Known root: its convergence basin covers
-                # [min(t_sol, t_mid), max(t_sol, t_mid)] along t for the
-                # cell's current (u, v) center. When t is the dominant
-                # span, we can split at t_mid and discard the half
-                # toward the known root — but ONLY if no other root
-                # exists at different (u, v) in the cell. Verify this
-                # by Newton-probing the (u, v) corners opposite the
-                # known root's (u_sol, v_sol).
-                if t_span >= max(u_span, v_span):
-                    # Probe the four (u, v) corners: if any reveals a
-                    # hidden root, add it and skip the basin split.
-                    new_root_found = False
-                    for u_seed, v_seed in (
-                        (u0, v0), (u0, v1), (u1, v0), (u1, v1)
-                    ):
-                        t_alt, u_alt, v_alt, G_alt, _ = newton_csx(
-                            C_orig, S_orig, t_mid, u_seed, v_seed, rational=rational,
-                        )
-                        if (float(np.linalg.norm(G_alt)) < _csx_eff_atol(
-                                    C_orig, S_orig, t_alt, u_alt, v_alt, atol, rational)
-                                and t0  <= t_alt <= t1 ):
-                            pt_alt = eval_curve(C_orig, t_alt, rational=rational)
-                            if not np.allclose(pt_alt, pt, atol=atol, rtol=0) :
-                                isolated.append({
-                                    "t": float(t_alt), "u": float(u_alt), "v": float(v_alt),
-                                    "point": pt_alt,
-                                })
-                                sub_cells = _cutout_3d(
-                                    F_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
-                                    float(t_alt), float(u_alt), float(v_alt),
-                                    ptol_t, ptol_u, ptol_v, rational,
-                                )
-                                stack.extend(sub_cells)
-                                new_root_found = True
-                                break
-
-                    if not new_root_found:
-                        # Corner probe also converged to the known root
-                        # (or stalled). Basin assumption is supported —
-                        # safe to discard the basin half.
-                        seg_c_L, seg_c_R = _subdivide_curve(seg_c)
-                        F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
-                        if t_sol <= t_mid:
-                            pw_R = seg_c_R[:, -1].copy() if rational else np.ones(seg_c_R.shape[0])
-                            stack.append((F_R, seg_c_R, pw_R, sw.copy(),
-                                          t_mid, t1, u0, u1, v0, v1, depth + 1))
-                        else:
-                            pw_L = seg_c_L[:, -1].copy() if rational else np.ones(seg_c_L.shape[0])
-                            stack.append((F_L, seg_c_L, pw_L, sw.copy(),
-                                          t0, t_mid, u0, u1, v0, v1, depth + 1))
-                    continue
-                # t is not the dominant span — fall through to
-                # subdivide along u or v
-
-            elif residual_ok:
-
-                # Newton converged to a real root, but it lies outside
-                # this cell's tolerance range. The root will be found
-                # by a cell that contains it — prune this one.
-                continue
-            else:
-                # Newton stalled with bad residual. Distinguish:
-                #   • Clamped at the [0,1] domain boundary → the stall
-                #     is a numerical artifact; the cell may still
-                #     contain a root that Newton couldn't reach. Fall
-                #     through to subdivision.
-                #   • At an INTERIOR stationary point of ||C-S||² with
-                #     residual > atol → the cell's min of ||C-S|| is at
-                #     least this residual, which exceeds atol. No root
-                #     can exist in this cell — prune.
-                _bnd = 1e-12
-                clamped = (
-                    t_sol <= _bnd or t_sol >= 1.0 - _bnd or
-                    u_sol <= _bnd or u_sol >= 1.0 - _bnd or
-                    v_sol <= _bnd or v_sol >= 1.0 - _bnd
+        if residual_ok:
+            pt = eval_curve(C_orig, t_sol, rational=rational)
+            is_new = not _is_duplicate(isolated, t_sol, u_sol, v_sol, pt,
+                                       atol, ptol_t, ptol_u, ptol_v)
+            if is_new:
+                # A genuine root. Record it regardless of which cell it
+                # lies in — _is_duplicate protects against a double add
+                # when the root's home cell converges to it later.
+                isolated.append({
+                    "t": float(t_sol), "u": float(u_sol), "v": float(v_sol),
+                    "point": pt,
+                })
+            if in_cell:
+                # Cut the root's ptol-neighborhood out of THIS cell so the
+                # remaining sub-cells cannot re-converge to the same
+                # attractor. Valid for newly found and already-known roots
+                # alike — the cutout is what guarantees progress.
+                sub_cells = _cutout_3d(
+                    F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,
+                    float(t_sol), float(u_sol), float(v_sol),
+                    ptol_t, ptol_u, ptol_v, rational,
                 )
-                if not clamped:
-                    continue
-                # else: fall through to subdivision
-        else:
-            print(f'newton is not stalling: {last_step} [{(t0,t1)} {(u0,u1)} {(v0,v1)}] {(t_mid,u_mid,v_mid)}->{(t_sol,u_sol,v_sol)} xyz: {eval_curve(C_orig,t_mid,rational=rational)}')
+                stack.extend(sub_cells)
+                continue
+            # Root outside this cell: one Newton trajectory draining to an
+            # outside attractor says NOTHING about other roots inside the
+            # cell (regression: bez_ssx case 10 lost the branch segment
+            # s in [0.57, 0.75] to this prune). Fall through to
+            # subdivision; the strict-positivity / min-of-net / Lipschitz /
+            # derivative-sign prunes terminate root-free sub-cells.
+        # not residual_ok: Newton stalled or exhausted its iterations. A
+        # single failed trajectory is likewise not evidence that the cell
+        # is root-free — fall through to subdivision. (Near-miss "valleys"
+        # where ||C-S|| dips below atol without a zero are terminated by
+        # the strict-positivity certificate at the top of the loop, NOT by
+        # trusting the stall: reporting or excising sub-atol valleys here
+        # destroys sub-tolerance topology that the SSX layer depends on —
+        # e.g. near-tangent loops whose paired crossings are connected by
+        # a sub-atol valley.)
 
 
         if depth >= max_depth:
@@ -765,14 +790,15 @@ def _phase2_isolated_search(
         spans = [t1 - t0, u1 - u0, v1 - v0]
         axis = int(np.argmax(spans))
 
+        G_L, G_R = de_casteljau_split_nd(G_cell, axis=axis, t=0.5)
         if axis == 0:
             t_split = 0.5 * (t0 + t1)
             seg_c_L, seg_c_R = _subdivide_curve(seg_c)
             F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=0)
             pw_L = seg_c_L[:, -1].copy() if rational else np.ones(seg_c_L.shape[0])
             pw_R = seg_c_R[:, -1].copy() if rational else np.ones(seg_c_R.shape[0])
-            stack.append((F_L, seg_c_L, pw_L, sw.copy(), t0, t_split, u0, u1, v0, v1, depth+1))
-            stack.append((F_R, seg_c_R, pw_R, sw.copy(), t_split, t1, u0, u1, v0, v1, depth+1))
+            stack.append((F_L, G_L, seg_c_L, pw_L, sw.copy(), t0, t_split, u0, u1, v0, v1, depth+1))
+            stack.append((F_R, G_R, seg_c_R, pw_R, sw.copy(), t_split, t1, u0, u1, v0, v1, depth+1))
         elif axis == 1:
             u_split = 0.5 * (u0 + u1)
             F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=1)
@@ -781,8 +807,8 @@ def _phase2_isolated_search(
             else:
                 sw_L = sw.copy()
                 sw_R = sw.copy()
-            stack.append((F_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u_split, v0, v1, depth+1))
-            stack.append((F_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u_split, u1, v0, v1, depth+1))
+            stack.append((F_L, G_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u_split, v0, v1, depth+1))
+            stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u_split, u1, v0, v1, depth+1))
         else:
             v_split = 0.5 * (v0 + v1)
             F_L, F_R = _subdivide_sq_dist_net(F_cell, axis=2)
@@ -791,8 +817,8 @@ def _phase2_isolated_search(
             else:
                 sw_L = sw.copy()
                 sw_R = sw.copy()
-            stack.append((F_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u1, v0, v_split, depth+1))
-            stack.append((F_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
+            stack.append((F_L, G_L, seg_c.copy(), pw.copy(), sw_L, t0, t1, u0, u1, v0, v_split, depth+1))
+            stack.append((F_R, G_R, seg_c.copy(), pw.copy(), sw_R, t0, t1, u0, u1, v_split, v1, depth+1))
 
     # Return only NEW results (exclude the pre-loaded known points)
     return isolated
@@ -859,6 +885,7 @@ def bez_csx(
 
 
     F = curve_surface_distance_squared_net_homog(C, S, rational=rational)
+    G_full = _residual_vec_net(C, S, rational=rational)
 
     _, Pw = extract_weights(C, rational=rational)
     _, Sw = extract_weights(S, rational=rational)
@@ -926,8 +953,9 @@ def bez_csx(
         if (t_hi - t_lo) < ptol_t:
             continue
 
-        # Restrict net and curve to sub-interval
+        # Restrict nets and curve to sub-interval
         F_sub = _restrict_net_t(F, t_lo, t_hi)
+        G_sub = _restrict_net_axis_v(G_full, 0, t_lo, t_hi, 0.0, 1.0)
         C_sub = _restrict_curve(C, t_lo, t_hi)
 
         # Quick check: all positive → no intersection
@@ -951,7 +979,7 @@ def bez_csx(
 
         # Search for isolated intersections
         _phase2_iso = _phase2_isolated_search(
-            F_sub, C_sub, S, C_orig, S_orig,
+            F_sub, G_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
             max_depth=max_depth, max_cells=max_cells,

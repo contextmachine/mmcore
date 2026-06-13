@@ -443,3 +443,43 @@ def test_case_18():
             [inter[key] for key in ["t", "u", "v"]],
             [excepted[i][key] for key in ["t", "u", "v"]]), \
             f"expected {excepted[i]}, got {inter}"
+
+
+def test_case_19_interior_root_not_pruned_by_outside_basin():
+    """Regression: phase-2 pruned a whole cell because Newton from the cell
+    center converged to a root OUTSIDE the cell (the t=0 boundary root,
+    already excluded from the search interval by phase 1). The interior
+    root at t~0.5356 was silently lost.
+
+    Extracted from bez_ssx case 10 (examples/ssx/bez_ssx5_case10.py): the
+    curve is the S2 isoline at u=0.30863 restricted to v in [0.3642, 0.9834]
+    (a subdivision cut face), the surface is the matching de Casteljau piece
+    of S1. SSX lost the branch segment s in [0.57, 0.75] because this
+    crossing was never registered.
+    """
+    C = np.array([
+        [32.98566961861533, -67.97624934909058, 4.174218355677444, 1.0],
+        [35.97968293692663, -67.97624934909058, 4.788662820718871, 1.0],
+        [39.473772059842304, -67.97624934909058, 2.8057580722952005, 1.0],
+    ])
+
+    S = np.array([
+        [[35.138894229011775, -65.38692059391325, 4.034711061953261, 1.0],
+         [33.259522252203, -67.51791403978095, 4.6333398494434554, 1.0],
+         [31.503554672958494, -69.57544202356137, 3.6246620839551396, 1.0]],
+        [[37.414583913330304, -67.2409983833853, 4.0654045715392, 1.0],
+         [35.491018636559495, -69.4127819485895, 4.668587345212076, 1.0],
+         [33.766077362440214, -71.55807823458665, 3.6522362023272756, 1.0]],
+        [[39.4950028428197, -69.4554164762803, 3.5311794986980405, 1.0],
+         [37.743984530723395, -71.5675032096166, 4.055099469485858, 1.0],
+         [36.083116890736406, -73.81327077121055, 3.1723045948113477, 1.0]],
+        [[42.4388198233443, -71.47896978523977, 2.234894386095701, 1.0],
+         [41.42777629852405, -72.78012635464769, 2.566484950072648, 1.0],
+         [40.497708882687974, -74.07486560833775, 2.0077613535487226, 1.0]],
+    ])
+
+    result = bez_csx(C, S, atol=1e-3, rational=True)
+    ts = sorted(p["t"] for p in result["isolated"])
+    assert len(ts) == 2, f"expected 2 isolated roots (t=0.0 and t~0.5356), got {result['isolated']}"
+    assert abs(ts[0] - 0.0) < 1e-3, f"boundary root at t=0 missing: {ts}"
+    assert abs(ts[1] - 0.535593) < 1e-3, f"interior root at t~0.5356 missing: {ts}"
