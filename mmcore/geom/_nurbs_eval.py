@@ -8,7 +8,8 @@ import numpy as np
 from typing import TypedDict, NamedTuple
 from numpy.typing import NDArray
 
-from build import link_args
+
+
 from mmcore.geom import nurbs
 
 from mmcore.numeric.calgorithms import evaluate_curvature
@@ -735,8 +736,7 @@ def nurbs_curve(control_points, knots, degree: int| None = None, *, weights=None
 
 
 
-
-def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple | NURBSSurfaceTuple:
+def _nurbs_to_tuple(s1):
     if isinstance(s1,nurbs.NURBSSurface):
         
         surf1 = NURBSSurfaceTuple(order_u=s1.degree[0] + 1, order_v=s1.degree[1] + 1, knot_u=np.array(s1.knots_u),
@@ -752,6 +752,8 @@ def _nurbs_to_tuple(s1:nurbs.NURBSCurve | nurbs.NURBSSurface)->NURBSCurveTuple |
     else:
 
         raise TypeError(f"Arguments must be {nurbs.NURBSCurve.__module__}.{nurbs.NURBSCurve.__name__} or {nurbs.NURBSSurface.__module__}.{nurbs.NURBSSurface.__name__}, not {type(s1).__name__}")
+
+
 
 
 def _tuple_to_nurbs(obj:BSplineCurveTuple|NURBSCurveTuple|BSplineSurfaceTuple|NURBSSurfaceTuple):

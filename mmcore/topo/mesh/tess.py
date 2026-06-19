@@ -4,7 +4,7 @@ from typing import Collection,TypedDict
 import numpy as np
 from ._classes import Tessellation, Mesh, tess_to_mesh
 from mmcore.geom.nurbs import NURBSSurface, decompose_surface
-from mmcore.geom.polygon import is_point_in_polygon_bvh, polygon_build_bvh
+
 from mmcore.numeric.algorithms.adaptive_polyline import adaptive_polyline
 from mmcore.numeric.routines import uvs
 from mmcore.topo.mesh.triangle import triangulate
@@ -13,42 +13,6 @@ from mmcore.geom.nurbs_iso import extract_surface_boundaries
 from ...geom._nurbs_eval import to_homogeneous_2d
 from ...numeric.approx import adaptive_bern_sampler_2d
 
-
-def tessellate_curve_on_surface(crv: 'CurveOnSurface', u_count=25, v_count=25, boundary_count=100):
-    plgn = polygon = crv.curve(np.linspace(*tuple(crv.interval()), boundary_count))[..., :2]
-
-    edges = [(polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))]
-    bvh_root = polygon_build_bvh(edges)
-
-    mask = []
-    pts = []
-    uu = np.linspace(0.0, 1.0, u_count)
-    vv = np.linspace(0.0, 1.0, v_count)
-
-    for i in range(u_count):
-        for j in range(v_count):
-            u = uu[i]
-            v = vv[j]
-            point = (u, v)
-            r = is_point_in_polygon_bvh(bvh_root, point)
-
-            mask.append(r)
-            pts.append((u, v))
-    edges = []
-    boundary = segments_by_loop(plgn, start_index=0)
-    edges.extend(boundary)
-    trires = triangulate(
-        dict(
-            vertices=np.asarray(
-                [*plgn[..., :2], *np.array(pts)[np.array(mask, dtype=bool)]],
-                dtype=float,
-            ),
-            segments=np.array(edges, dtype=np.int32),
-        )
-    )
-    trires["position"] = crv.surf(trires["vertices"])
-
-    return trires
 
 
 def _process_trim(trim: 'CurveOnSurface',tol=1e-2):

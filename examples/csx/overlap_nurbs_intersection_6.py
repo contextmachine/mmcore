@@ -222,8 +222,12 @@ if args.viewer:
         viewer.run()
 
     except ModuleNotFoundError as err:
+        import traceback
+        traceback.print_exc()
         print("mmcore.renderer is not installed, skip preview.")
     except ImportError as err:
+        import traceback
+        traceback.print_exc()
         print("mmcore.renderer is not installed, skip preview.")
     except Exception as err:
         raise err

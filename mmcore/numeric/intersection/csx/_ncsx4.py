@@ -192,19 +192,15 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
 # nurbs_csx: NURBS curve × NURBS surface intersection
 # ---------------------------------------------------------------------------
 
-def nurbs_csx(
-    curve,
-    surface,
-    tol: float = 1e-3,
-    **kwargs,
-):
+def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 1e-3, **kwargs):
     """Find all intersections between a NURBS curve and a NURBS surface.
+
 
     Parameters
     ----------
     curve : NURBSCurve or NURBSCurveTuple
     surface : NURBSSurface or NURBSSurfaceTuple
-    tol : float
+    atol : float
         Geometric tolerance.
 
     Returns
@@ -228,10 +224,10 @@ def nurbs_csx(
 
     # Build BVHs
     bvh_curves = build_bvh([
-        AABB.from_points(seg.control_points).offset(tol) for seg in curve_segs
+        AABB.from_points(seg.control_points).offset(atol) for seg in curve_segs
     ])
     bvh_surfs = build_bvh([
-        _surface_patch_aabb(patch, tol) for patch in surf_patches
+        _surface_patch_aabb(patch, atol) for patch in surf_patches
     ])
 
     raw_isolated = []
@@ -248,7 +244,7 @@ def nurbs_csx(
             pts_c = seg.control_points
             pts_s = patch.control_points
 
-        result = bez_csx_v4(pts_c, pts_s, atol=tol, rational=rational)
+        result = bez_csx_v4(pts_c, pts_s, atol=atol, rational=rational)
 
         seg_interval = seg.interval()
         patch_interval = patch.interval()  # ((u0, u1), (v0, v1))
@@ -284,13 +280,13 @@ def nurbs_csx(
     # ---------------------------------------------------------------
     # Post-processing: merge overlaps, classify micro-fragments
     # ---------------------------------------------------------------
-    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
+    ptol_t = float(nurbs_curve_param_tolerance(curve, atol))
 
     # 1. Merge adjacent overlaps by t-range
     merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
 
     # 2. Parametric dedup of isolated points
-    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
+    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, atol)
 
     # 3. Classify micro-fragments: isolated points adjacent to overlaps
     #    become part of the overlap; others remain isolated

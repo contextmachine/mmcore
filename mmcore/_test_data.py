@@ -63,9 +63,8 @@ pts2 = np.array(
     ]
 )
 
-s01 = Coons(*(NURBSpline(pts) for pts in pts1))
-s02 = Coons(*(NURBSpline(pts) for pts in pts2))
-ssx.append((s01, s02))
+
+
 curve111,curve112=np.array([
                 [
                     [65.66864862623089, 93.74205665737186, 41.41100531879138, 1.0],

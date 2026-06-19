@@ -154,13 +154,7 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves.deboor",
-        ["mmcore/geom/curves/deboor.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+
     Extension(
         "mmcore.geom.primitives",
         ["mmcore/geom/primitives.pyx"],
@@ -182,13 +176,7 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.curves._nurbs",
-        ["mmcore/geom/curves/_nurbs.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+
     Extension(
         "mmcore.numeric.routines._routines",
         ["mmcore/numeric/routines/_routines.pyx"],
@@ -231,13 +219,7 @@ cython_extensions = [
         extra_link_args=link_args,
         include_dirs=include_dirs,
     ),
-    Extension(
-        "mmcore.geom.evaluator.surface_evaluator",
-        ["mmcore/geom/evaluator/surface_evaluator.pyx"],
-        extra_compile_args=compile_args,
-        extra_link_args=link_args,
-        include_dirs=include_dirs,
-    ),
+
     # Extension(
     #    "mmcore.geom.surfaces.ellipsoid",
     #    ["mmcore/geom/surfaces/ellipsoid.pyx"],
