@@ -466,74 +466,103 @@ def knot_removal(
         degree, knotvector, ctrlpts, u, num=1,
         tol=1e-12, s=None, span=None):
     """
-    Remove `num` copies of knot value *u* (at most `degree`) from a
-    B‑spline/NURBS curve.  Returns (new_knots, new_ctrlpts).
+    Remove knot value *u* up to ``num`` times (never more than its multiplicity)
+    from a B-spline/NURBS curve.  Returns ``(new_knots, new_ctrlpts)`` with the
+    ``t`` numerically-removable copies left out (``0 <= t <= num``); if no copy
+    is removable the inputs are returned unchanged.
 
-    Implementation follows Algorithm A5.8 (Piegl & Tiller, 2nd ed.).
+    Faithful transcription of Algorithm A5.8 (RemoveCurveKnot) from Piegl &
+    Tiller, The NURBS Book, 2nd ed.  Control points are assumed to already be in
+    the representation to operate on (homogeneous for rational curves).
     """
-
-    # ---- set‑up ----------------------------------------------------------
+    # ---- set-up ----------------------------------------------------------
     p = degree
+    ord_ = p + 1
     U = list(knotvector)                  # work on mutable copies
     P = [np.array(Pi, dtype=float) for Pi in ctrlpts]
+    n = len(P) - 1
 
-    # multiplicity and span
+    # multiplicity and span (index of the LAST occurrence of u)
     s = s if s is not None else U.count(u)
     if s == 0:
         raise ValueError("knot value is not present in the vector")
-    r = span if span is not None else next(i for i in range(len(U)-1) if
-                                           U[i] <= u < U[i+1] or
-                                           (u == U[-1] and i == len(U)-2))
+    if span is not None:
+        r = span
+    else:
+        r = next(i for i in range(len(U) - 1)
+                 if U[i] <= u < U[i + 1] or (u == U[-1] and i == len(U) - 2))
+    while r + 1 < len(U) and U[r + 1] == u:   # advance to the last occurrence
+        r += 1
 
     num = min(num, s)                     # cannot remove more than s copies
 
-    # ---- main loop -------------------------------------------------------
-    for t in range(1, num+1):
-        first = r - p
-        last  = r - s
-        # temp array
-        temp = [None] * (2*p+1)
+    first = r - p
+    last = r - s
+    temp = [None] * (2 * p + 2)
 
-        temp[0]               = P[first-1].copy()
-        temp[last-first+2]    = P[last+1].copy()
+    # ---- main loop: each pass removes one more copy if it is removable ----
+    t = 0
+    for it in range(num):
+        off = first - 1                   # index offset between temp and P
+        temp[0] = P[off].copy()
+        temp[last + 1 - off] = P[last + 1].copy()
         i, j = first, last
-        ii, jj = 1, last-first+1
-        removable = False
+        ii, jj = 1, last - off
 
-        while j - i >= t:
-            alpha_i = (u - U[i])   / (U[i+p+1-t]   - U[i])
-            alpha_j = (u - U[j-t]) / (U[j+p+1] - U[j-t])
+        while j - i > it:
+            alfi = (u - U[i]) / (U[i + ord_ + it] - U[i])
+            alfj = (u - U[j - it]) / (U[j + ord_] - U[j - it])
+            temp[ii] = (P[i] - (1.0 - alfi) * temp[ii - 1]) / alfi
+            temp[jj] = (P[j] - alfj * temp[jj + 1]) / (1.0 - alfj)
+            i += 1; ii += 1
+            j -= 1; jj -= 1
 
-            temp[ii] = (P[i]   - (1-alpha_i)*temp[ii-1]) / alpha_i
-            temp[jj] = (P[j]   -  alpha_j   *temp[jj+1]) / (1-alpha_j)
-
-            i  += 1;  j  -= 1
-            ii += 1;  jj -= 1
-
-        # ‑‑ error test ---------------------------------------------------
-        if j - i < t:                      # Case 1 (Eq. 5.30)
-            removable = np.linalg.norm(temp[ii-1] - temp[jj+1]) <= tol
-        else:                              # Case 2 (Eq. 5.31)
-            alpha = (u - U[i]) / (U[i+p+1-t] - U[i])
-            testp = alpha*temp[ii+t+1] + (1-alpha)*temp[ii-1]
+        # error test (Eqs. 5.30 / 5.31)
+        if j - i < it:
+            removable = np.linalg.norm(temp[ii - 1] - temp[jj + 1]) <= tol
+        else:
+            alfi = (u - U[i]) / (U[i + ord_ + it] - U[i])
+            testp = alfi * temp[ii + it + 1] + (1.0 - alfi) * temp[ii - 1]
             removable = np.linalg.norm(P[i] - testp) <= tol
 
         if not removable:
-            break                          # cannot remove further
+            break                          # cannot remove any further
 
-        # ‑‑ update polygon ----------------------------------------------
+        # successful removal: write the new control points back
         i, j = first, last
-        while j - i > t:
-            P[i] = temp[i-first+1]
-            P[j] = temp[j-first+1]
+        while j - i > it:
+            P[i] = temp[i - off]
+            P[j] = temp[j - off]
             i += 1; j -= 1
 
-        # ‑‑ delete one knot ---------------------------------------------
-        del U[r]                # remove ONE copy of u
-        del P[last]             # remove the matching control point
-        r -= 1; s -= 1          # array shrank by one
+        first -= 1
+        last += 1
+        t += 1
+
+    if t == 0:
+        return np.asarray(U), np.asarray(P)
+
+    # ---- shift knots: drop t copies of u at index r ----------------------
+    for k in range(r + 1, len(U)):
+        U[k - t] = U[k]
+    U = U[:len(U) - t]
+
+    # ---- shift control points (A5.8 'fout' bookkeeping) ------------------
+    fout = (2 * r - s - p) // 2
+    i = fout
+    j = fout
+    for k in range(1, t):
+        if k % 2 == 1:
+            i += 1
+        else:
+            j -= 1
+    for k in range(i + 1, n + 1):
+        P[j] = P[k]
+        j += 1
+    P = P[:len(P) - t]
 
     return np.asarray(U), np.asarray(P)
+
 
 def insert_knot_curve(curve:NURBSCurveTuple,u:float, num:int=1):
     """Insert a knot into a curve multiple times.
@@ -1820,33 +1849,27 @@ def remove_knot_curve(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwarg
 
 
 def remove_knot_curve_max(curve: NURBSCurveTuple, knot: float, num: int = 1, **kwargs):
-    """Removes a knot from a spline curve."""
-    stack = [(knot, num)]
+    """Remove up to ``num`` copies of ``knot``, as many as are numerically
+    removable.  Returns ``(new_curve, number_actually_removed)``.
+
+    Removal is attempted one copy at a time so the returned count reflects what
+    actually came out (knot_removal stops as soon as a copy is not removable).
+    """
     crv = curve
-    result_n = 0
+    removed = 0
+    attempts = min(num, find_multiplicity(knot, crv.knot))
 
-    while stack:
-
-        k, n = stack.pop(0)
-        #print(k, n)
-        mult = find_multiplicity(k, crv.knot)
-
-        if mult < n:
-            if n > 1:
-
-                stack.append((k, n - 1))
-                continue
-            else:
-                result_n = 0
-                break
-        result_n = n
-        span = _find_span_linear(crv.order - 1, crv.knot, crv.control_points.shape[0], k)
+    for _ in range(attempts):
+        span = _find_span_linear(crv.order - 1, crv.knot, crv.control_points.shape[0], knot)
         hpts = to_homogeneous_1d(crv.control_points, crv.weights)
-        new_kv, new_pt = knot_removal(crv.order - 1, crv.knot.tolist(), ctrlpts=hpts, u=k, num=n, span=span, **kwargs)
+        new_kv, new_pt = knot_removal(crv.order - 1, crv.knot.tolist(), ctrlpts=hpts,
+                                      u=knot, num=1, span=span, **kwargs)
+        if len(new_kv) >= len(crv.knot):   # nothing came out this round → stop
+            break
         crv = NURBSCurveTuple(crv.order, np.array(new_kv), *from_homogeneous_1d(np.array(new_pt)))
-    #print(result_n, crv.knot.shape, curve.knot.shape)
-    # new_kv=knot_removal_kv(curve.knot.tolist(),span=span, r=num)
-    return crv, result_n
+        removed += 1
+
+    return crv, removed
 
 
 def remove_knot_surface_u(self: NURBSSurfaceTuple, t: float, num: int = 1, **kwargs):
