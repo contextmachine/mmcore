@@ -37,11 +37,15 @@
   * [License](#license)
 <!-- TOC -->
 ## NEW in 0.53.0
+### Intersection algorithms improvements
+
+![CCX](notes/images/img_2.png)
+
 
 ### CSX overlaps handling
 The nurbs_csx implementation now correctly handles overlaps (see image below).
 
-![](./notes/images/Screenshot%202025-09-16%20at%2006.45.09.png)
+
 
 The example shown in the figure can be found in [./examples/csx/overlap_nurbs_intersection_3.py](./examples/csx/overlap_nurbs_intersection_3.py)
 

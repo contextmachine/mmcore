@@ -2,8 +2,7 @@ import itertools
 
 import numpy as np
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
-from mmcore.geom._nurbs_knots import trim_curve
-from mmcore.geom.curves.deboor import evaluate_nurbs
+
 
 val = [ NURBSCurveTuple(
     order=19,
