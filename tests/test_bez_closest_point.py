@@ -218,3 +218,42 @@ def test_curve_closest_multiple_minima_U_shape():
     assert len(minima) >= 2  # both arms
     t_ref, d_ref = _dense_min_curve(C, P, rational=False)
     assert abs(res[0]["distance"] - d_ref) < 1e-3
+
+
+# tests/test_bez_closest_point.py  (append)
+from mmcore.numeric._bez_closest_point import bez_surface_closest_points
+
+
+def _dense_min_surface(S, P, rational, n=200):
+    us = np.linspace(0, 1, n)
+    vs = np.linspace(0, 1, n)
+    best = (None, None, np.inf)
+    for u in us:
+        for v in vs:
+            d = np.linalg.norm(eval_surface(S, u, v, rational=rational) - P)
+            if d < best[2]:
+                best = (u, v, d)
+    return best
+
+
+def test_surface_closest_plane_interior():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])   # unit square z=0
+    P = np.array([0.3, 0.4, 5.0])
+    res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
+    assert len(res) >= 1
+    assert res == sorted(res, key=lambda e: e["distance"])
+    assert abs(res[0]["u"] - 0.3) < 1e-4 and abs(res[0]["v"] - 0.4) < 1e-4
+    assert abs(res[0]["distance"] - 5.0) < 1e-4
+    assert res[0]["kind"] == "min"
+
+
+def test_surface_closest_curved_patch_matches_dense_grid():
+    # Non-planar biquadratic-ish patch (bilinear with a bump via z)
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 2.0, 0.0]],
+                  [[2.0, 0.0, 0.0], [2.0, 1.0, 0.0], [2.0, 2.0, 0.0]]])
+    P = np.array([1.0, 1.0, 3.0])
+    res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
+    u_ref, v_ref, d_ref = _dense_min_surface(S, P, rational=False)
+    assert abs(res[0]["distance"] - d_ref) < 5e-3
