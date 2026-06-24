@@ -147,3 +147,116 @@ def eval_surface_d2(S, u, v, rational=True):
     pt, su, sv, suu, suv, svv = project_surface_homog_to_cartesian(Sh0, Shu, Shv, Shuu, Shuv, Shvv)
     return (np.asarray(pt), np.asarray(su), np.asarray(sv),
             np.asarray(suu), np.asarray(suv), np.asarray(svv))
+
+
+# mmcore/numeric/_bez_closest_point.py  (append)
+
+def newton_curve_closest_point(C, point, u0, *, rational=False,
+                               tol=1e-14, step_tol=1e-14, max_it=30, lm_damp=1e-12,
+                               bounds=(0.0, 1.0)):
+    """LM-damped 1D closest-point solve of ``<C(u)-point, C'(u)> = 0``.
+
+    Clamped to ``bounds=(lo, hi)``. Returns ``(u, R, sqdist, last_du)`` with
+    ``R = C(u) - point``.
+    """
+    point = np.asarray(point, dtype=np.float64)
+    lo, hi = bounds
+    u = min(max(float(u0), lo), hi)
+    last_du = 1.0
+    for _ in range(max_it):
+        p, d = eval_curve_d1(C, u, rational=rational)
+        R = p - point
+        sq = float(np.dot(R, R))
+        g = float(np.dot(R, d))
+        if abs(g) < tol or (u <= lo and g >= -tol) or (u >= hi and g <= tol):
+            last_du = 0.0
+            break
+        A = float(np.dot(d, d)) + lm_damp
+        if A <= 0.0 or not np.isfinite(A):
+            last_du = 0.0
+            break
+        du = -g / A
+        if du * du < step_tol * step_tol:
+            last_du = float(du)
+            break
+        step = 1.0
+        accepted = False
+        for _ls in range(8):
+            un = min(max(u + step * du, lo), hi)
+            Rn = eval_curve(C, un, rational=rational) - point
+            if float(np.dot(Rn, Rn)) <= sq:
+                last_du = un - u
+                u = un
+                accepted = True
+                break
+            step *= 0.5
+        if not accepted:
+            last_du = 0.0
+            break
+    R = eval_curve(C, u, rational=rational) - point
+    return u, R, float(np.dot(R, R)), last_du
+
+
+def newton_surface_closest_point(S, point, u0, v0, *, rational=False,
+                                 tol=1e-13, step_tol=1e-14, max_it=40, lm_damp=1e-10,
+                                 bounds=None):
+    """LM-damped 2x2 closest-point solve of the stationarity system
+
+        r_u = <S(u,v)-point, S_u> = 0
+        r_v = <S(u,v)-point, S_v> = 0
+
+    The Jacobian is the Hessian of (1/2)||S-point||^2. ``bounds`` =
+    ``(u_lo,u_hi,v_lo,v_hi)`` clamps iterates to the current cell.
+    Returns ``(u, v, R, last_step)`` with ``R = (r_u, r_v)``.
+    """
+    point = np.asarray(point, dtype=np.float64)
+    if bounds is None:
+        u_lo, u_hi, v_lo, v_hi = 0.0, 1.0, 0.0, 1.0
+    else:
+        u_lo, u_hi, v_lo, v_hi = bounds
+    u = min(max(float(u0), u_lo), u_hi)
+    v = min(max(float(v0), v_lo), v_hi)
+    last_step = (1.0, 1.0)
+
+    def residual(uu, vv):
+        pt, su, sv, suu, suv, svv = eval_surface_d2(S, uu, vv, rational=rational)
+        dvec = pt - point
+        r = np.array([np.dot(dvec, su), np.dot(dvec, sv)])
+        H = np.array([
+            [np.dot(su, su) + np.dot(dvec, suu), np.dot(su, sv) + np.dot(dvec, suv)],
+            [np.dot(su, sv) + np.dot(dvec, suv), np.dot(sv, sv) + np.dot(dvec, svv)],
+        ])
+        return r, H, float(np.dot(dvec, dvec))
+
+    for _ in range(max_it):
+        r, H, sq = residual(u, v)
+        if float(np.dot(r, r)) < tol * tol:
+            last_step = (0.0, 0.0)
+            break
+        A = H + lm_damp * np.eye(2)
+        try:
+            delta = np.linalg.solve(A, -r)
+        except np.linalg.LinAlgError:
+            last_step = (0.0, 0.0)
+            break
+        if float(np.dot(delta, delta)) < step_tol * step_tol:
+            last_step = (float(delta[0]), float(delta[1]))
+            break
+        step = 1.0
+        accepted = False
+        rn2 = float(np.dot(r, r))
+        for _ls in range(10):
+            un = min(max(u + step * delta[0], u_lo), u_hi)
+            vn = min(max(v + step * delta[1], v_lo), v_hi)
+            rr, _, _ = residual(un, vn)
+            if float(np.dot(rr, rr)) <= rn2:
+                last_step = (un - u, vn - v)
+                u, v = un, vn
+                accepted = True
+                break
+            step *= 0.5
+        if not accepted:
+            last_step = (0.0, 0.0)
+            break
+    r, _, _ = residual(u, v)
+    return u, v, r, last_step

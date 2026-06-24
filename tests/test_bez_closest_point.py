@@ -140,3 +140,39 @@ def test_eval_surface_d2_matches_finite_difference():
             - eval_surface(S, u - h, v + h, rational=False) + eval_surface(S, u - h, v - h, rational=False)) / (4 * h**2)
     assert np.allclose(Suu, fSuu, atol=1e-2)
     assert np.allclose(Suv, fSuv, atol=1e-2)
+
+
+# tests/test_bez_closest_point.py  (append)
+from mmcore.numeric._bez_closest_point import (
+    newton_curve_closest_point, newton_surface_closest_point,
+)
+
+
+def test_newton_curve_closest_point_segment():
+    C = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])   # segment along x
+    P = np.array([0.5, 1.0, 0.0])                       # foot at x=0.5 -> t=0.25
+    u, R, sq, _ = newton_curve_closest_point(C, P, 0.6, rational=False)
+    assert abs(u - 0.25) < 1e-9
+    assert abs(sq - 1.0) < 1e-9
+
+
+def test_newton_surface_closest_point_plane_bounded():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])  # unit square z=0
+    P = np.array([0.3, 0.4, 7.0])
+    u, v, R, step = newton_surface_closest_point(
+        S, P, 0.5, 0.5, rational=False, bounds=(0.0, 1.0, 0.0, 1.0))
+    assert abs(u - 0.3) < 1e-9 and abs(v - 0.4) < 1e-9
+    # residual r = (<S-P,Su>, <S-P,Sv>) ~ 0
+    assert np.linalg.norm(R) < 1e-7
+
+
+def test_newton_surface_respects_cell_bounds():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    P = np.array([0.3, 0.4, 7.0])
+    # True foot (0.3,0.4) lies OUTSIDE this cell; solver must stay inside.
+    u, v, R, step = newton_surface_closest_point(
+        S, P, 0.65, 0.65, rational=False, bounds=(0.6, 0.9, 0.6, 0.9))
+    assert 0.6 - 1e-9 <= u <= 0.9 + 1e-9
+    assert 0.6 - 1e-9 <= v <= 0.9 + 1e-9
