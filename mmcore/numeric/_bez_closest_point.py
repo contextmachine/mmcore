@@ -452,6 +452,48 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     return out
 
 
-# mmcore/numeric/_bez_closest_point.py  (append — REPLACED in Task 7)
+# mmcore/numeric/_bez_closest_point.py  (REPLACE the _add_surface_boundary_minima stub)
 def _add_surface_boundary_minima(S, point, out, F, Sw, rational, atol, ptol_u, ptol_v):
-    pass
+    """Add KKT-valid minima on the 4 edges and 4 corners of the patch."""
+    point = np.asarray(point, dtype=np.float64)
+
+    # Edges as isocurves (control nets). (fixed_axis, side, isocurve net)
+    # surf axis 0 == u, axis 1 == v.
+    edges = [
+        (0, 0.0, S[0, :, :]),    # u = 0, runs along v
+        (0, 1.0, S[-1, :, :]),   # u = 1
+        (1, 0.0, S[:, 0, :]),    # v = 0, runs along u
+        (1, 1.0, S[:, -1, :]),   # v = 1
+    ]
+    for fixed_axis, side, iso in edges:
+        iso_res = bez_curve_closest_points(iso, point, atol=atol, rational=rational)
+        for e in iso_res:
+            s = e["t"]
+            if fixed_axis == 0:
+                u, v = side, s
+            else:
+                u, v = s, side
+            _try_add_boundary(S, point, out, u, v, rational, atol, ptol_u, ptol_v)
+
+    # Corners.
+    for u, v in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]:
+        _try_add_boundary(S, point, out, u, v, rational, atol, ptol_u, ptol_v)
+
+
+def _try_add_boundary(S, point, out, u, v, rational, atol, ptol_u, ptol_v):
+    """KKT filter + dedup for a boundary candidate at (u, v)."""
+    pt, su, sv = eval_surface_d1(S, u, v, rational=rational)
+    dvec = pt - point
+    gu = float(np.dot(dvec, su))   # (1/2) dg/du
+    gv = float(np.dot(dvec, sv))   # (1/2) dg/dv
+    # KKT: at u=0 need gu>=0 (cannot descend by increasing u); at u=1 need gu<=0; etc.
+    if u <= ptol_u and gu < -atol:
+        return
+    if u >= 1.0 - ptol_u and gu > atol:
+        return
+    if v <= ptol_v and gv < -atol:
+        return
+    if v >= 1.0 - ptol_v and gv > atol:
+        return
+    dist = float(np.linalg.norm(dvec))
+    _dedup_add(out, u, v, dist, np.asarray(pt), "boundary_min", ptol_u, ptol_v, atol)

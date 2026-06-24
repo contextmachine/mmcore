@@ -257,3 +257,24 @@ def test_surface_closest_curved_patch_matches_dense_grid():
     res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
     u_ref, v_ref, d_ref = _dense_min_surface(S, P, rational=False)
     assert abs(res[0]["distance"] - d_ref) < 5e-3
+
+
+# tests/test_bez_closest_point.py  (append)
+def test_surface_closest_on_edge():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])   # unit square z=0
+    P = np.array([-1.0, 0.4, 0.0])                       # nearest point is edge u=0, v=0.4
+    res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
+    assert res[0]["kind"] == "boundary_min"
+    assert abs(res[0]["u"]) < 1e-5 and abs(res[0]["v"] - 0.4) < 1e-4
+    assert abs(res[0]["distance"] - 1.0) < 1e-5
+
+
+def test_surface_closest_on_corner():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    P = np.array([-1.0, -1.0, 0.0])                       # nearest is corner (u=0,v=0)
+    res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
+    assert res[0]["kind"] == "boundary_min"
+    assert abs(res[0]["u"]) < 1e-5 and abs(res[0]["v"]) < 1e-5
+    assert abs(res[0]["distance"] - np.sqrt(2.0)) < 1e-5
