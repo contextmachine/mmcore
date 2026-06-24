@@ -378,8 +378,14 @@ def test_rational_arc_min_and_max_classified():
 
 def test_cross_check_curve_vs_legacy_single_min():
     from mmcore.numeric.closest_point import bez_curve_closest_point
+    # Symmetric arch (apex (1,1) at t=0.5). The query MUST be a single-minimum
+    # case for the legacy comparison to be valid: a point ABOVE the apex, placed
+    # asymmetrically so the unique minimum is a clean interior root that the
+    # legacy interior-only solver also finds. (A point BELOW the arch would give
+    # two equidistant endpoint minima, where the legacy solver wrongly returns
+    # the apex maximum — not a valid cross-check.)
     C = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, 0.0, 0.0]])
-    P = np.array([1.0, -1.0, 0.0])
+    P = np.array([0.3, 3.0, 0.0])
     res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
     t_legacy, d_legacy = bez_curve_closest_point(C, P, atol=1e-6, rational=False)
     assert abs(res[0]["t"] - t_legacy) < 1e-2
