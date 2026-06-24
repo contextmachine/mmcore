@@ -618,3 +618,18 @@ def _merge_surface(merged, u, v, src, dist, kind, atol):
     if "eval" in src:
         entry["eval"] = src["eval"]
     merged.append(entry)
+
+
+# mmcore/numeric/_bez_closest_point.py  (append at end)
+__all__ = [
+    "point_curve_stationarity_net",
+    "point_surface_stationarity_nets",
+    "eval_curve_d2",
+    "eval_surface_d2",
+    "newton_curve_closest_point",
+    "newton_surface_closest_point",
+    "bez_curve_closest_points",
+    "bez_surface_closest_points",
+    "nurbs_curve_closest_points",
+    "nurbs_surface_closest_points",
+]

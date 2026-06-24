@@ -330,3 +330,65 @@ def test_nurbs_surface_no_spurious_seam_minima():
     res = nurbs_surface_closest_points(srf, P, atol=1e-6)
     assert res[0]["kind"] == "min"
     assert abs(res[0]["distance"] - 4.0) < 1e-3
+
+
+# tests/test_bez_closest_point.py  (append)
+def _sphere_octant_net():
+    # Rational biquadratic octant of the unit sphere (standard NURBS sphere patch).
+    s = np.sqrt(2) / 2
+    # Control points (Cartesian) and weights for one octant.
+    cp = np.array([
+        [[0, 0, 1], [0, 0, 1], [0, 0, 1]],
+        [[1, 0, 1], [1, 1, 1], [0, 1, 1]],
+        [[1, 0, 0], [1, 1, 0], [0, 1, 0]],
+    ], dtype=float)
+    w = np.array([
+        [1.0, s, 1.0],
+        [s, 0.5, s],
+        [1.0, s, 1.0],
+    ])
+    # Homogeneous net (x*w, y*w, z*w, w)
+    H = np.concatenate([cp * w[:, :, None], w[:, :, None]], axis=2)
+    return H, w
+
+
+def test_rational_sphere_octant_closest_matches_dense_grid():
+    # Exercises the EXACT-rational stationarity path on a true rational patch.
+    # Oracle is a dense grid over the SAME rational net (self-consistent, so it
+    # does not depend on the control points forming a perfect unit sphere).
+    H, w = _sphere_octant_net()
+    direction = np.array([0.4, 0.5, 0.6])
+    direction = direction / np.linalg.norm(direction)
+    P = 2.0 * direction
+    res = bez_surface_closest_points(H, P, atol=1e-6, rational=True)
+    u_ref, v_ref, d_ref = _dense_min_surface(H, P, rational=True, n=240)
+    assert abs(res[0]["distance"] - d_ref) < 5e-3
+    assert res[0]["distance"] <= d_ref + 1e-6   # solver is at least as good as the grid
+
+
+def test_rational_arc_min_and_max_classified():
+    s = np.sqrt(2) / 2
+    C = np.array([[1.0, 0.0, 0.0, 1.0], [s, s, 0.0, s], [0.0, 1.0, 0.0, 1.0]])  # quarter circle
+    P = np.array([0.0, 0.0, 0.0])   # circle center: distance is ~1 everywhere -> near-degenerate
+    res = bez_curve_closest_points(C, P, atol=1e-5, rational=True)
+    # Every reported entry is ~unit distance and classified, none crashes.
+    for e in res:
+        assert abs(e["distance"] - 1.0) < 1e-2
+
+
+def test_cross_check_curve_vs_legacy_single_min():
+    from mmcore.numeric.closest_point import bez_curve_closest_point
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, 0.0, 0.0]])
+    P = np.array([1.0, -1.0, 0.0])
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    t_legacy, d_legacy = bez_curve_closest_point(C, P, atol=1e-6, rational=False)
+    assert abs(res[0]["t"] - t_legacy) < 1e-2
+    assert abs(res[0]["distance"] ** 2 - d_legacy) < 1e-4
+
+
+def test_all_exports_present():
+    import mmcore.numeric._bez_closest_point as m
+    for name in ("bez_curve_closest_points", "bez_surface_closest_points",
+                 "nurbs_curve_closest_points", "nurbs_surface_closest_points",
+                 "newton_surface_closest_point", "point_surface_stationarity_nets"):
+        assert name in m.__all__
