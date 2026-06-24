@@ -284,3 +284,49 @@ def test_surface_closest_on_corner():
     assert res[0]["kind"] == "boundary_min"
     assert abs(res[0]["u"]) < 1e-5 and abs(res[0]["v"]) < 1e-5
     assert abs(res[0]["distance"] - np.sqrt(2.0)) < 1e-5
+
+
+# tests/test_bez_closest_point.py  (append)
+from mmcore.numeric._bez_closest_point import (
+    nurbs_curve_closest_points, nurbs_surface_closest_points,
+)
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple
+
+
+def _bezier_curve_tuple(ctrl_xyz, weights):
+    n = len(ctrl_xyz)
+    deg = n - 1
+    knot = np.concatenate([np.zeros(deg + 1), np.ones(deg + 1)])
+    return NURBSCurveTuple(deg + 1, knot.astype(float),
+                           np.asarray(ctrl_xyz, float), np.asarray(weights, float))
+
+
+def test_nurbs_curve_closest_global_matches_dense():
+    # VALID two-span degree-2 NURBS: 4 control points, order 3 -> 7 knots
+    # (n_knots = n_ctrl + order = 4 + 3), single interior knot 0.5 -> 2 spans.
+    cps = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, -1.0, 0.0], [3.0, 1.0, 0.0]])
+    w = np.ones(4)
+    knot = np.array([0, 0, 0, 0.5, 1, 1, 1], float)
+    crv = NURBSCurveTuple(3, knot, cps, w)
+    P = np.array([1.5, 1.0, 0.0])
+    res = nurbs_curve_closest_points(crv, P, atol=1e-6)
+    # Dense ground truth over the global domain [0,1]
+    from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
+    ts = np.linspace(0, 1, 4000)
+    d = np.array([np.linalg.norm(evaluate_nurbs_curve(crv, t, d_order=0)["C"] - P) for t in ts])
+    assert abs(res[0]["distance"] - d.min()) < 5e-3
+
+
+def test_nurbs_surface_no_spurious_seam_minima():
+    # Flat 2x2-span plane: an interior seam must NOT yield boundary minima.
+    cps = np.zeros((3, 3, 3))
+    for i in range(3):
+        for j in range(3):
+            cps[i, j] = [i * 0.5, j * 0.5, 0.0]
+    w = np.ones((3, 3))
+    knot = np.array([0, 0, 0, 1, 1, 1], float)  # single-span biquadratic, no interior seam
+    srf = NURBSSurfaceTuple(3, 3, knot, knot, cps, w)
+    P = np.array([0.5, 0.5, 4.0])               # foot is interior
+    res = nurbs_surface_closest_points(srf, P, atol=1e-6)
+    assert res[0]["kind"] == "min"
+    assert abs(res[0]["distance"] - 4.0) < 1e-3

@@ -509,3 +509,112 @@ def _try_add_boundary(S, point, out, u, v, rational, atol, ptol_u, ptol_v):
         return
     dist = float(np.linalg.norm(dvec))
     _dedup_add(out, u, v, dist, np.asarray(pt), "boundary_min", ptol_u, ptol_v, atol)
+
+
+# mmcore/numeric/_bez_closest_point.py  (append)
+from mmcore.geom.nurbs import NURBSCurve, NURBSSurface
+from mmcore.geom._nurbs_eval import (
+    NURBSCurveTuple, NURBSSurfaceTuple, _nurbs_to_tuple,
+    _curve_interval, _surface_interval, to_homogeneous_1d, to_homogeneous_2d,
+)
+from mmcore.geom._nurbs_knots import decompose_curve, decompose_surface
+
+
+def _patch_curve_net(patch):
+    """Homogeneous (q+1,4) net for a single-span Bézier curve patch tuple."""
+    return np.asarray(to_homogeneous_1d(patch.control_points, patch.weights), dtype=np.float64)
+
+
+def _patch_surface_net(patch):
+    """Homogeneous (m+1,n+1,4) net for a single-span Bézier surface patch tuple."""
+    return np.asarray(to_homogeneous_2d(patch.control_points, patch.weights), dtype=np.float64)
+
+
+def nurbs_curve_closest_points(curve, point, atol=1e-3):
+    """All local minima of ``||point - curve(t)||`` for a NURBS curve.
+
+    Returns ``{"t","point","distance","kind"}`` in GLOBAL parameter, sorted by
+    distance. Internal patch seams are deduped; only the global domain ends are
+    ``boundary_min``.
+    """
+    if isinstance(curve, NURBSCurve):
+        curve = _nurbs_to_tuple(curve)
+    point = np.asarray(point, dtype=np.float64)
+    g_lo, g_hi = _curve_interval(curve)
+    patches = decompose_curve(curve)
+
+    merged = []
+    for patch in patches:
+        p_lo, p_hi = _curve_interval(patch)
+        net = _patch_curve_net(patch)
+        local = bez_curve_closest_points(net, point, atol=atol, rational=True)
+        for e in local:
+            t_glob = p_lo + e["t"] * (p_hi - p_lo)
+            kind = e["kind"]
+            # An endpoint that is an interior seam is not a real boundary min.
+            if kind == "boundary_min" and not (abs(t_glob - g_lo) < 1e-9 or abs(t_glob - g_hi) < 1e-9):
+                kind = "min"
+            _merge_curve(merged, t_glob, e["point"], e["distance"], kind, atol)
+
+    merged.sort(key=lambda x: x["distance"])
+    return merged
+
+
+def _merge_curve(merged, t, pt, dist, kind, atol):
+    pt = np.asarray(pt)
+    for e in merged:
+        if abs(e["t"] - t) < 1e-7 or np.linalg.norm(e["point"] - pt) < max(atol, 1e-9):
+            if dist < e["distance"]:
+                e.update(t=float(t), point=pt, distance=float(dist), kind=kind)
+            return
+    merged.append({"t": float(t), "point": pt, "distance": float(dist), "kind": kind})
+
+
+def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
+    """All local minima of ``||point - surface(u,v)||`` for a NURBS surface.
+
+    Returns ``{"u","v","point","distance","kind"[, "eval"]}`` in GLOBAL params,
+    sorted by distance. Internal seams deduped; only the global domain border is
+    ``boundary_min``.
+    """
+    if isinstance(surface, NURBSSurface):
+        surface = _nurbs_to_tuple(surface)
+    point = np.asarray(point, dtype=np.float64)
+    (gu_lo, gu_hi), (gv_lo, gv_hi) = _surface_interval(surface)
+    patches = decompose_surface(surface)
+
+    merged = []
+    for patch in patches:
+        (pu_lo, pu_hi), (pv_lo, pv_hi) = _surface_interval(patch)
+        net = _patch_surface_net(patch)
+        local = bez_surface_closest_points(net, point, atol=atol, rational=True,
+                                           want_eval=want_eval)
+        for e in local:
+            u_glob = pu_lo + e["u"] * (pu_hi - pu_lo)
+            v_glob = pv_lo + e["v"] * (pv_hi - pv_lo)
+            kind = e["kind"]
+            if kind == "boundary_min":
+                on_global = (abs(u_glob - gu_lo) < 1e-9 or abs(u_glob - gu_hi) < 1e-9
+                             or abs(v_glob - gv_lo) < 1e-9 or abs(v_glob - gv_hi) < 1e-9)
+                if not on_global:
+                    kind = "min"
+            _merge_surface(merged, u_glob, v_glob, e, dist=e["distance"], kind=kind, atol=atol)
+
+    merged.sort(key=lambda x: x["distance"])
+    return merged
+
+
+def _merge_surface(merged, u, v, src, dist, kind, atol):
+    pt = np.asarray(src["point"])
+    for e in merged:
+        if ((abs(e["u"] - u) < 1e-7 and abs(e["v"] - v) < 1e-7)
+                or np.linalg.norm(e["point"] - pt) < max(atol, 1e-9)):
+            if dist < e["distance"]:
+                e.update(u=float(u), v=float(v), point=pt, distance=float(dist), kind=kind)
+                if "eval" in src:
+                    e["eval"] = src["eval"]
+            return
+    entry = {"u": float(u), "v": float(v), "point": pt, "distance": float(dist), "kind": kind}
+    if "eval" in src:
+        entry["eval"] = src["eval"]
+    merged.append(entry)
