@@ -260,3 +260,97 @@ def newton_surface_closest_point(S, point, u0, v0, *, rational=False,
             break
     r, _, _ = residual(u, v)
     return u, v, r, last_step
+
+
+# mmcore/numeric/_bez_closest_point.py  (append)
+from mmcore.numeric.bern import de_casteljau_split_nd
+from mmcore.geom._nurbs_param_tol import bez_curve_param_tolerance, bez_surface_param_tolerance
+
+
+def _split_net(net, axis, t=0.5):
+    L, R = de_casteljau_split_nd(net[..., None], axis=axis, t=t)
+    return L[..., 0], R[..., 0]
+
+
+def _hull_excludes_zero(net):
+    return float(net.min()) > 0.0 or float(net.max()) < 0.0
+
+
+def _g_curve_value(F, Qw, t):
+    return float(bern_sq_dist.eval_point_curve_distance_sq(F, Qw, t))
+
+
+def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
+                             max_cells=20000):
+    """All local minima of ``||point - C(t)||`` on a Bézier curve.
+
+    Returns a list of ``{"t", "point", "distance", "kind"}`` sorted ascending
+    by distance (``result[0]`` is the global closest). ``kind`` is ``"min"``
+    (interior) or ``"boundary_min"`` (an endpoint).
+    """
+    C = np.asarray(C, dtype=np.float64)
+    point = np.asarray(point, dtype=np.float64)
+    N, F, Qw = point_curve_stationarity_net(point, C, rational=rational)
+    ptol = float(bez_curve_param_tolerance(C, atol, rational=rational))
+    ptol = max(ptol, 1e-12)
+
+    candidates = []  # (t_global, distance, kind)
+
+    def add_candidate(t, kind):
+        t = min(max(float(t), 0.0), 1.0)
+        dist = np.sqrt(max(_g_curve_value(F, Qw, t), 0.0))
+        for ct, _, _ in candidates:
+            if abs(ct - t) < ptol:
+                return
+        candidates.append((t, dist, kind))
+
+    # Endpoints are always boundary candidates (KKT handled at classification).
+    # Subdivision tree on N.
+    stack = [(N, 0.0, 1.0, 0)]
+    cells = 0
+    while stack and cells < max_cells:
+        cells += 1
+        Ncell, t0, t1, depth = stack.pop()
+        if _hull_excludes_zero(Ncell):
+            continue
+        if (t1 - t0) <= ptol or depth > 60:
+            tmid = 0.5 * (t0 + t1)
+            u, R, sq, _ = newton_curve_closest_point(C, point, tmid, rational=rational,
+                                                     bounds=(t0, t1))
+            add_candidate(u, "min")
+            continue
+        L, Rr = _split_net(Ncell, axis=0, t=0.5)
+        tm = 0.5 * (t0 + t1)
+        stack.append((L, t0, tm, depth + 1))
+        stack.append((Rr, tm, t1, depth + 1))
+
+    # Endpoint candidates.
+    add_candidate(0.0, "boundary_min")
+    add_candidate(1.0, "boundary_min")
+
+    # Classify: interior candidate is a min iff g''(t) > 0; endpoints accepted
+    # only if KKT (no descent into the interior).
+    results = []
+    for t, dist, kind in candidates:
+        pt, c1, c2 = eval_curve_d2(C, t, rational=rational)
+        dvec = pt - point
+        gpp = float(np.dot(c1, c1) + np.dot(dvec, c2))     # (1/2) g''  up to +2 factor
+        gp = float(np.dot(dvec, c1))                       # (1/2) g'
+        if kind == "boundary_min":
+            if t <= ptol and gp < -atol:        # descends into interior -> not a min
+                continue
+            if t >= 1.0 - ptol and gp > atol:
+                continue
+            results.append({"t": t, "point": np.asarray(pt), "distance": dist, "kind": "boundary_min"})
+        else:
+            if gpp <= 0.0:
+                continue                          # maximum, not a minimum
+            results.append({"t": t, "point": np.asarray(pt), "distance": dist, "kind": "min"})
+
+    if not results:   # degenerate: fall back to the nearest sampled candidate
+        t, dist, kind = min(candidates, key=lambda c: c[1])
+        pt = eval_curve(C, t, rational=rational)
+        results.append({"t": t, "point": np.asarray(pt), "distance": dist, "kind": kind})
+
+    results.sort(key=lambda e: e["distance"])
+    return results

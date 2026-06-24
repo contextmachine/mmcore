@@ -176,3 +176,45 @@ def test_newton_surface_respects_cell_bounds():
         S, P, 0.65, 0.65, rational=False, bounds=(0.6, 0.9, 0.6, 0.9))
     assert 0.6 - 1e-9 <= u <= 0.9 + 1e-9
     assert 0.6 - 1e-9 <= v <= 0.9 + 1e-9
+
+
+# tests/test_bez_closest_point.py  (append)
+from mmcore.numeric._bez_closest_point import bez_curve_closest_points
+
+
+def _dense_min_curve(C, P, rational, nsamp=4000):
+    ts = np.linspace(0, 1, nsamp)
+    d = np.array([np.linalg.norm(eval_curve(C, t, rational=rational) - P) for t in ts])
+    k = int(np.argmin(d))
+    return ts[k], d[k]
+
+
+def test_curve_closest_interior_min():
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, 0.0, 0.0]])
+    P = np.array([1.0, -1.0, 0.0])
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    assert len(res) >= 1
+    assert res == sorted(res, key=lambda e: e["distance"])
+    t_ref, d_ref = _dense_min_curve(C, P, rational=False)
+    assert abs(res[0]["distance"] - d_ref) < 1e-3
+    assert abs(res[0]["t"] - t_ref) < 1e-2
+
+
+def test_curve_closest_boundary_min():
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])  # straight along x
+    P = np.array([-1.0, 1.0, 0.0])                                     # nearest is t=0 endpoint
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    assert res[0]["kind"] == "boundary_min"
+    assert abs(res[0]["t"]) < 1e-6
+    assert abs(res[0]["distance"] - np.sqrt(2.0)) < 1e-6
+
+
+def test_curve_closest_multiple_minima_U_shape():
+    # Cubic "U": two arms -> a point inside has two local minima
+    C = np.array([[-2.0, 2.0, 0.0], [-2.0, -3.0, 0.0], [2.0, -3.0, 0.0], [2.0, 2.0, 0.0]])
+    P = np.array([0.0, 1.0, 0.0])
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    minima = [e for e in res if e["kind"] == "min"]
+    assert len(minima) >= 2  # both arms
+    t_ref, d_ref = _dense_min_curve(C, P, rational=False)
+    assert abs(res[0]["distance"] - d_ref) < 1e-3
