@@ -70,3 +70,50 @@ def _bernstein_product_nd(a, b):
         raise ValueError("operands must have the same number of axes")
     num = _ndconv_full(_scale_by_binoms(a), _scale_by_binoms(b))
     return _unscale_by_binoms(num)
+
+
+# mmcore/numeric/_bez_closest_point.py  (append)
+from mmcore.numeric import bern_sq_dist
+from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
+
+
+def _deriv_net(net, axis):
+    """Bernstein coeffs of the partial derivative along ``axis`` (scalar net in/out)."""
+    return bernstein_partial_derivative_coeffs(net[..., None], axis)[..., 0]
+
+
+def point_curve_stationarity_net(point, C, rational=True):
+    """Return ``(N, F, Qw)`` where ``N(t)=0`` iff ``d/dt ||point-C(t)||^2 = 0``.
+
+    ``N = F'·w − 2F·w'`` (exact); for non-rational input ``N = F'``.
+    ``F`` is the squared-distance numerator net and ``Qw`` the weight net.
+    """
+    C = np.asarray(C, dtype=np.float64)
+    F = bern_sq_dist.point_curve_distance_squared_net_homog(point, C, rational=rational)
+    Qw = C[:, -1].copy() if rational else np.ones(C.shape[0], dtype=np.float64)
+    Fp = _deriv_net(F, 0)
+    if not rational:
+        return Fp, F, Qw
+    wp = _deriv_net(Qw, 0)
+    N = _bernstein_product_nd(Fp, Qw) - 2.0 * _bernstein_product_nd(F, wp)
+    return N, F, Qw
+
+
+def point_surface_stationarity_nets(point, S, rational=True):
+    """Return ``(N_u, N_v, F, Sw)``; a joint stationary point needs both nets = 0.
+
+    ``N_u = F_u·w − 2F·w_u``, ``N_v = F_v·w − 2F·w_v`` (exact); non-rational →
+    ``N_u = F_u``, ``N_v = F_v``.
+    """
+    S = np.asarray(S, dtype=np.float64)
+    F = bern_sq_dist.point_surface_distance_squared_net_homog(point, S, rational=rational)
+    Sw = S[:, :, -1].copy() if rational else np.ones(S.shape[:2], dtype=np.float64)
+    Fu = _deriv_net(F, 0)
+    Fv = _deriv_net(F, 1)
+    if not rational:
+        return Fu, Fv, F, Sw
+    wu = _deriv_net(Sw, 0)
+    wv = _deriv_net(Sw, 1)
+    Nu = _bernstein_product_nd(Fu, Sw) - 2.0 * _bernstein_product_nd(F, wu)
+    Nv = _bernstein_product_nd(Fv, Sw) - 2.0 * _bernstein_product_nd(F, wv)
+    return Nu, Nv, F, Sw
