@@ -17,17 +17,9 @@ def _bern_eval_2d(net, u, v):
     return float(Bu @ net @ Bv)
 
 
-def _eval_bern_1d(coeffs, t):
-    n = len(coeffs) - 1
-    B = np.array([comb(n, i) * t**i * (1 - t) ** (n - i) for i in range(n + 1)])
-    return float(B @ coeffs)
-
-
-def _eval_bern_2d(net, u, v):
-    m, n = net.shape[0] - 1, net.shape[1] - 1
-    Bu = np.array([comb(m, i) * u**i * (1 - u) ** (m - i) for i in range(m + 1)])
-    Bv = np.array([comb(n, j) * v**j * (1 - v) ** (n - j) for j in range(n + 1)])
-    return float(Bu @ net @ Bv)
+# Alias for the stationarity-net tests (same scalar-net evaluators as above).
+_eval_bern_1d = _bern_eval_1d
+_eval_bern_2d = _bern_eval_2d
 
 
 def test_bernstein_product_1d_matches_pointwise():
@@ -314,22 +306,38 @@ def test_nurbs_curve_closest_global_matches_dense():
     from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
     ts = np.linspace(0, 1, 4000)
     d = np.array([np.linalg.norm(evaluate_nurbs_curve(crv, t, d_order=0)["C"] - P) for t in ts])
-    assert abs(res[0]["distance"] - d.min()) < 5e-3
+    assert abs(res[0]["distance"] - d.min()) < 1e-4
 
 
-def test_nurbs_surface_no_spurious_seam_minima():
-    # Flat 2x2-span plane: an interior seam must NOT yield boundary minima.
-    cps = np.zeros((3, 3, 3))
-    for i in range(3):
-        for j in range(3):
-            cps[i, j] = [i * 0.5, j * 0.5, 0.0]
-    w = np.ones((3, 3))
-    knot = np.array([0, 0, 0, 1, 1, 1], float)  # single-span biquadratic, no interior seam
+def test_nurbs_surface_multispan_seam_dedup():
+    # Genuine 2x2-span flat plane: interior knot 0.5 in u and v -> 4 Bézier
+    # patches. The query's foot lands at the symmetric centre S(0.5,0.5), which
+    # sits EXACTLY on the interior seam shared by all 4 patches. The wrapper must
+    # (a) find it, (b) label it "min" (interior seam is not a global edge), and
+    # (c) dedup the 4 per-patch corner reports into a SINGLE result.
+    xs = np.linspace(0.0, 2.0, 4)
+    cps = np.zeros((4, 4, 3))
+    for i in range(4):
+        for j in range(4):
+            cps[i, j] = [xs[i], xs[j], 0.0]
+    w = np.ones((4, 4))
+    knot = np.array([0, 0, 0, 0.5, 1, 1, 1], float)  # interior knot 0.5 -> 2 spans/axis
     srf = NURBSSurfaceTuple(3, 3, knot, knot, cps, w)
-    P = np.array([0.5, 0.5, 4.0])               # foot is interior
+    P = np.array([1.0, 1.0, 4.0])                     # foot is S(0.5,0.5) = (1,1,0)
     res = nurbs_surface_closest_points(srf, P, atol=1e-6)
-    assert res[0]["kind"] == "min"
     assert abs(res[0]["distance"] - 4.0) < 1e-3
+    assert res[0]["kind"] == "min"
+    assert abs(res[0]["u"] - 0.5) < 1e-3 and abs(res[0]["v"] - 0.5) < 1e-3
+    # Dedup: exactly ONE minimum near the seam centre (not 4 from the 4 patches).
+    near_centre = [e for e in res
+                   if abs(e["u"] - 0.5) < 1e-2 and abs(e["v"] - 0.5) < 1e-2]
+    assert len(near_centre) == 1
+    # Every boundary_min must sit on the GLOBAL border, never an interior seam.
+    for e in res:
+        if e["kind"] == "boundary_min":
+            on_global = (abs(e["u"]) < 1e-6 or abs(e["u"] - 1.0) < 1e-6
+                         or abs(e["v"]) < 1e-6 or abs(e["v"] - 1.0) < 1e-6)
+            assert on_global, f"interior seam point mislabeled boundary_min: {e}"
 
 
 # tests/test_bez_closest_point.py  (append)

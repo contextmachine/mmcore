@@ -402,9 +402,14 @@ def _classify_surface_min(S, point, u, v, rational, atol):
 
 
 def _dedup_add(out, u, v, dist, pt, kind, ptol_u, ptol_v, atol):
+    # Treat as a duplicate if the parameters coincide OR the geometric point
+    # coincides. The OR (vs AND) prevents double-reporting a single minimum
+    # reached from two cells whose parameter approaches differ by more than one
+    # ptol in a single axis; two genuinely distinct minima differ in BOTH the
+    # parameters and the point, so neither clause fires and both are kept.
     for e in out:
-        if (abs(e["u"] - u) < ptol_u and abs(e["v"] - v) < ptol_v
-                and np.linalg.norm(e["point"] - pt) < max(atol, 1e-9)):
+        if ((abs(e["u"] - u) < ptol_u and abs(e["v"] - v) < ptol_v)
+                or np.linalg.norm(e["point"] - pt) < max(atol, 1e-9)):
             return
     out.append({"u": float(u), "v": float(v), "point": pt, "distance": float(dist), "kind": kind})
 
@@ -556,12 +561,27 @@ from mmcore.geom._nurbs_knots import decompose_curve, decompose_surface
 
 
 def _patch_curve_net(patch):
-    """Homogeneous (q+1,4) net for a single-span Bézier curve patch tuple."""
+    """Homogeneous (q+1,4) net for a single-span Bézier curve patch tuple.
+
+    INVARIANT (relied on by the param mapping in the wrappers): this strips the
+    knot vector and returns a raw control-point net, which the Bézier cores
+    interpret on Bernstein coordinates ``[0, 1]``. Because ``decompose_curve``
+    reconstructs each patch's control points geometrically (knot insertion), that
+    ``[0, 1]`` Bernstein parameterization corresponds *exactly* to the patch's
+    global knot interval ``[p_lo, p_hi]``. Hence ``t_global = p_lo + t_local *
+    (p_hi - p_lo)`` is the correct inverse. Do NOT change this to return a
+    NURBSCurveTuple without also fixing the mapping.
+    """
     return np.asarray(to_homogeneous_1d(patch.control_points, patch.weights), dtype=np.float64)
 
 
 def _patch_surface_net(patch):
-    """Homogeneous (m+1,n+1,4) net for a single-span Bézier surface patch tuple."""
+    """Homogeneous (m+1,n+1,4) net for a single-span Bézier surface patch tuple.
+
+    Same ``[0, 1]`` Bernstein invariant as ``_patch_curve_net`` (per axis): the
+    stripped control net's local ``[0,1]^2`` maps affinely onto the patch's
+    global ``[pu_lo,pu_hi] x [pv_lo,pv_hi]`` interval.
+    """
     return np.asarray(to_homogeneous_2d(patch.control_points, patch.weights), dtype=np.float64)
 
 
@@ -601,6 +621,11 @@ def _merge_curve(merged, t, pt, dist, kind, atol):
         if abs(e["t"] - t) < 1e-7 or np.linalg.norm(e["point"] - pt) < max(atol, 1e-9):
             if dist < e["distance"]:
                 e.update(t=float(t), point=pt, distance=float(dist), kind=kind)
+            elif kind == "boundary_min" and e["kind"] != "boundary_min":
+                # Coincident point that also lies on the global domain boundary:
+                # it IS a boundary minimum even if a sibling patch reported it as
+                # interior. Promote the kind without disturbing the better point.
+                e["kind"] = "boundary_min"
             return
     merged.append({"t": float(t), "point": pt, "distance": float(dist), "kind": kind})
 
@@ -648,6 +673,9 @@ def _merge_surface(merged, u, v, src, dist, kind, atol):
                 e.update(u=float(u), v=float(v), point=pt, distance=float(dist), kind=kind)
                 if "eval" in src:
                     e["eval"] = src["eval"]
+            elif kind == "boundary_min" and e["kind"] != "boundary_min":
+                # Coincident global-boundary point: promote kind (see _merge_curve).
+                e["kind"] = "boundary_min"
             return
     entry = {"u": float(u), "v": float(v), "point": pt, "distance": float(dist), "kind": kind}
     if "eval" in src:
