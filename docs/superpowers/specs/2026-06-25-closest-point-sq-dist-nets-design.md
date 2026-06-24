@@ -67,7 +67,9 @@ exact Bernstein net.
 **Non-rational simplification:** `w ≡ 1`, `w_u = w_v = 0`, so `N_u = F_u`, `N_v = F_v`, `N = F'` — the
 plain partial-derivative nets (what the existing 1D curve solver uses today).
 
-**Net degrees:** `N_u` has bidegree `(3m−1, 2n)`, `N_v` has `(2m, 3n−1)`, `N` has degree `3q−1`.
+**Net degrees:** `N_u` has bidegree `(3m−1, 3n)`, `N_v` has `(3m, 3n−1)`, `N` has degree `3q−1`. (The
+`w_u`/`w_v` cross terms carry full dependence on the *other* axis, so both v- and u-degrees rise to
+`3n`/`3m` respectively — the code derives shapes dynamically and does not hard-code these.)
 
 ### 3.3 Construction primitives
 
