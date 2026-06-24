@@ -117,3 +117,33 @@ def point_surface_stationarity_nets(point, S, rational=True):
     Nu = _bernstein_product_nd(Fu, Sw) - 2.0 * _bernstein_product_nd(F, wu)
     Nv = _bernstein_product_nd(Fv, Sw) - 2.0 * _bernstein_product_nd(F, wv)
     return Nu, Nv, F, Sw
+
+
+# mmcore/numeric/_bez_closest_point.py  (append)
+from mmcore.numeric._bern_homog import (
+    eval_bezier_curve_homog_with_derivs,
+    eval_bezier_surface_homog_with_derivs,
+    project_curve_homog_to_cartesian,
+    project_surface_homog_to_cartesian,
+)
+from mmcore.numeric.intersection._bezier_common import (
+    _to_homog_curve, _to_homog_surface, eval_curve, eval_curve_d1,
+    eval_surface, eval_surface_d1, extract_weights, _clamp01,
+)
+
+
+def eval_curve_d2(C, t, rational=True):
+    """Return ``(point, C1, C2)`` Euclidean curve value and 1st/2nd derivatives."""
+    Ph = _to_homog_curve(C, rational=rational)
+    Ch, Chd, Ch2 = eval_bezier_curve_homog_with_derivs(Ph, float(t), True)
+    pt, d1, d2 = project_curve_homog_to_cartesian(Ch, Chd, Ch2)
+    return np.asarray(pt), np.asarray(d1), np.asarray(d2)
+
+
+def eval_surface_d2(S, u, v, rational=True):
+    """Return ``(point, Su, Sv, Suu, Suv, Svv)`` Euclidean surface value/derivatives."""
+    Sh = _to_homog_surface(S, rational=rational)
+    Sh0, Shu, Shv, Shuu, Shuv, Shvv = eval_bezier_surface_homog_with_derivs(Sh, float(u), float(v), True)
+    pt, su, sv, suu, suv, svv = project_surface_homog_to_cartesian(Sh0, Shu, Shv, Shuu, Shuv, Shvv)
+    return (np.asarray(pt), np.asarray(su), np.asarray(sv),
+            np.asarray(suu), np.asarray(suv), np.asarray(svv))

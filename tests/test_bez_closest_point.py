@@ -109,3 +109,34 @@ def test_surface_stationarity_nets_nonrational_are_partials():
     # Gradient of g vanishes at (u,v)=(0.3,0.4): both nets bracket zero there.
     assert _eval_bern_2d(Nu, 0.3, 0.4) == 0.0 or abs(_eval_bern_2d(Nu, 0.3, 0.4)) < 1e-9
     assert abs(_eval_bern_2d(Nv, 0.3, 0.4)) < 1e-9
+
+
+# tests/test_bez_closest_point.py  (append)
+from mmcore.numeric._bez_closest_point import eval_curve_d2, eval_surface_d2
+from mmcore.numeric.intersection._bezier_common import eval_curve, eval_surface
+
+
+def test_eval_curve_d2_matches_finite_difference():
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, 0.0, 0.0], [3.0, 1.0, 0.0]])
+    t = 0.37
+    pt, d1, d2 = eval_curve_d2(C, t, rational=False)
+    h = 1e-5
+    fd1 = (eval_curve(C, t + h, rational=False) - eval_curve(C, t - h, rational=False)) / (2 * h)
+    fd2 = (eval_curve(C, t + h, rational=False) - 2 * eval_curve(C, t, rational=False)
+           + eval_curve(C, t - h, rational=False)) / h**2
+    assert np.allclose(d1, fd1, atol=1e-5)
+    assert np.allclose(d2, fd2, atol=1e-3)
+
+
+def test_eval_surface_d2_matches_finite_difference():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.5]],
+                  [[1.0, 0.0, 0.5], [1.0, 1.0, 0.0]]])
+    u, v = 0.4, 0.6
+    pt, Su, Sv, Suu, Suv, Svv = eval_surface_d2(S, u, v, rational=False)
+    h = 1e-4
+    fSuu = (eval_surface(S, u + h, v, rational=False) - 2 * eval_surface(S, u, v, rational=False)
+            + eval_surface(S, u - h, v, rational=False)) / h**2
+    fSuv = (eval_surface(S, u + h, v + h, rational=False) - eval_surface(S, u + h, v - h, rational=False)
+            - eval_surface(S, u - h, v + h, rational=False) + eval_surface(S, u - h, v - h, rational=False)) / (4 * h**2)
+    assert np.allclose(Suu, fSuu, atol=1e-2)
+    assert np.allclose(Suv, fSuv, atol=1e-2)
