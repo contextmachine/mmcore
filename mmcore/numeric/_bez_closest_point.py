@@ -8,6 +8,7 @@ Replaces the unreliable divide-and-conquer code in ``closest_point.py``
 """
 from __future__ import annotations
 
+import warnings
 from math import comb
 
 import numpy as np
@@ -324,19 +325,26 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
         stack.append((L, t0, tm, depth + 1))
         stack.append((Rr, tm, t1, depth + 1))
 
+    if cells >= max_cells and stack:
+        warnings.warn(
+            "bez_curve_closest_points: subdivision hit max_cells cap; "
+            "result may be incomplete.")
+
     # Endpoint candidates.
     add_candidate(0.0, "boundary_min")
     add_candidate(1.0, "boundary_min")
 
-    # Classify: interior candidate is a min iff g''(t) > 0; endpoints accepted
-    # only if KKT (no descent into the interior).
+    # Classify: derive kind from parameter position (ignore stored kind).
+    # Boundary candidates accepted only if KKT (no descent into the interior);
+    # interior candidate is a min iff g''(t) > 0.
     results = []
     for t, dist, kind in candidates:
         pt, c1, c2 = eval_curve_d2(C, t, rational=rational)
         dvec = pt - point
         gpp = float(np.dot(c1, c1) + np.dot(dvec, c2))     # (1/2) g''  up to +2 factor
         gp = float(np.dot(dvec, c1))                       # (1/2) g'
-        if kind == "boundary_min":
+        is_boundary = (t <= ptol) or (t >= 1.0 - ptol)
+        if is_boundary:
             if t <= ptol and gp < -atol:        # descends into interior -> not a min
                 continue
             if t >= 1.0 - ptol and gp > atol:
@@ -419,7 +427,6 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
             continue
         # Split the wider axis (carry F, Nu, Nv together).
         if (u1 - u0) >= (v1 - v0):
-            ax = 0
             um = 0.5 * (u0 + u1)
             FL, FR = _split_net(Fc, 0)
             NuL, NuR = _split_net(Nuc, 0)
@@ -433,6 +440,11 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
             NvL, NvR = _split_net(Nvc, 1)
             stack.append((FL, NuL, NvL, u0, u1, v0, vm, depth + 1))
             stack.append((FR, NuR, NvR, u0, u1, vm, v1, depth + 1))
+
+    if cells >= max_cells and stack:
+        warnings.warn(
+            "bez_surface_closest_points: subdivision hit max_cells cap; "
+            "result may be incomplete.")
 
     if not _interior_only:
         _add_surface_boundary_minima(S, point, out, F, Sw, rational, atol, ptol_u, ptol_v)

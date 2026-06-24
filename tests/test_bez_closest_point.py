@@ -55,10 +55,16 @@ from mmcore.numeric._bez_closest_point import (
     point_surface_stationarity_nets,
 )
 from mmcore.numeric import bern_sq_dist
+from mmcore.numeric.intersection._bezier_common import eval_curve
 
 
 def _g_curve(F, Qw, t):
     return bern_sq_dist.eval_point_curve_distance_sq(F, Qw, t)
+
+
+def _g_indep(C, P, t, rational):
+    d = eval_curve(C, t, rational=rational) - P
+    return float(np.dot(d, d))
 
 
 def test_curve_stationarity_net_nonrational_is_Fprime():
@@ -76,7 +82,7 @@ def test_curve_stationarity_net_nonrational_is_Fprime():
     for k in sign_changes:
         t0 = ts[k]
         h = 1e-5
-        gp = (_g_curve(F, Qw, min(1, t0 + h)) - _g_curve(F, Qw, max(0, t0 - h))) / (2 * h)
+        gp = (_g_indep(C, P, min(1, t0 + h), False) - _g_indep(C, P, max(0, t0 - h), False)) / (2 * h)
         assert abs(gp) < 1e-1  # near-zero at the bracketed root
 
 
@@ -96,7 +102,7 @@ def test_curve_stationarity_net_rational_tracks_true_derivative():
     for k in sc:
         t0 = ts[k]
         h = 1e-5
-        gp = (_g_curve(F, Qw, min(1, t0 + h)) - _g_curve(F, Qw, max(0, t0 - h))) / (2 * h)
+        gp = (_g_indep(C, P, min(1, t0 + h), True) - _g_indep(C, P, max(0, t0 - h), True)) / (2 * h)
         assert abs(gp) < 1e-2
 
 
