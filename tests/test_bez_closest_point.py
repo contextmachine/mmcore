@@ -398,3 +398,33 @@ def test_all_exports_present():
                  "nurbs_curve_closest_points", "nurbs_surface_closest_points",
                  "newton_surface_closest_point", "point_surface_stationarity_nets"):
         assert name in m.__all__
+
+
+def test_curve_degenerate_constant_no_thrash():
+    import warnings
+    # All control points coincide -> C(t) is a constant point and the distance
+    # is constant in t (N == 0). Must return that point quickly, NOT grind to the
+    # max_cells cap (which would emit a UserWarning -> error here).
+    C = np.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
+    P = np.array([4.0, 6.0, 3.0])   # distance 5 from the constant point
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    assert len(res) >= 1
+    assert abs(res[0]["distance"] - 5.0) < 1e-9
+    assert np.allclose(res[0]["point"], [1.0, 2.0, 3.0])
+
+
+def test_surface_degenerate_constant_no_thrash():
+    import warnings
+    # Fully degenerate patch: every control point coincides. Both partial nets
+    # are identically zero -> flat guard must short-circuit without thrashing.
+    Q = np.array([1.0, 2.0, 3.0])
+    S = np.tile(Q, (2, 2, 1)).astype(float)   # shape (2,2,3), all == Q
+    P = np.array([1.0, 2.0, 8.0])             # distance 5
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        res = bez_surface_closest_points(S, P, atol=1e-6, rational=False)
+    assert len(res) >= 1
+    assert abs(res[0]["distance"] - 5.0) < 1e-9
+    assert np.allclose(res[0]["point"], Q)

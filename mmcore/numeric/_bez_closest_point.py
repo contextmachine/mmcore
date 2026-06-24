@@ -295,6 +295,17 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
     ptol = float(bez_curve_param_tolerance(C, atol, rational=rational))
     ptol = max(ptol, 1e-12)
 
+    # Flat-region scale. The stationarity net N has the natural magnitude of the
+    # products that form it (~ ||F|| * ||Qw||). When a cell's net amplitude is
+    # negligible against this scale, N is numerically zero there: the distance is
+    # locally constant, so there is no isolated stationary structure to resolve
+    # (e.g. a degenerate "pole" isocurve where C(t) collapses to a point, giving
+    # N == 0 analytically). Subdividing such a region grinds to max_cells, so we
+    # detect it and emit a single representative candidate instead.
+    flat_ref = max(float(np.max(np.abs(F))) * float(np.max(np.abs(Qw))), 1.0)
+    flat_amp = 1e-9 * flat_ref
+    global_flat = float(np.max(np.abs(N))) <= flat_amp
+
     candidates = []  # (t_global, distance, kind)
 
     def add_candidate(t, kind):
@@ -306,13 +317,21 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
         candidates.append((t, dist, kind))
 
     # Endpoints are always boundary candidates (KKT handled at classification).
-    # Subdivision tree on N.
-    stack = [(N, 0.0, 1.0, 0)]
+    # Subdivision tree on N (skipped entirely when the distance is constant).
     cells = 0
+    stack = [] if global_flat else [(N, 0.0, 1.0, 0)]
+    if global_flat:
+        add_candidate(0.5, "min")
     while stack and cells < max_cells:
         cells += 1
         Ncell, t0, t1, depth = stack.pop()
         if _hull_excludes_zero(Ncell):
+            continue
+        if float(np.max(np.abs(Ncell))) <= flat_amp:
+            # Locally flat: no stationary structure here, take one representative.
+            u, R, sq, _ = newton_curve_closest_point(
+                C, point, 0.5 * (t0 + t1), rational=rational, bounds=(t0, t1))
+            add_candidate(u, "min")
             continue
         if (t1 - t0) <= ptol or depth > 60:
             tmid = 0.5 * (t0 + t1)
@@ -405,6 +424,12 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     ptol_u = max(float(ptol_u), 1e-12)
     ptol_v = max(float(ptol_v), 1e-12)
 
+    # Flat-region scale (see bez_curve_closest_points). When BOTH partials are
+    # numerically zero over a cell, the gradient vanishes identically there: a
+    # degenerate region with no isolated stationary structure to resolve.
+    # Subdividing it grinds to max_cells, so we emit one representative instead.
+    flat_amp = 1e-9 * max(float(np.max(np.abs(F))) * float(np.max(np.abs(Sw))), 1.0)
+
     out = []
 
     # Interior subdivision.
@@ -415,6 +440,16 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
         Fc, Nuc, Nvc, u0, u1, v0, v1, depth = stack.pop()
         # Joint stationarity prune: a stationary point needs BOTH partials = 0.
         if _hull_excludes_zero(Nuc) or _hull_excludes_zero(Nvc):
+            continue
+        if (float(np.max(np.abs(Nuc))) <= flat_amp
+                and float(np.max(np.abs(Nvc))) <= flat_amp):
+            # Both partials ~ 0: flat/degenerate region, take one representative.
+            um, vm = 0.5 * (u0 + u1), 0.5 * (v0 + v1)
+            u, v, R, _ = newton_surface_closest_point(
+                S, point, um, vm, rational=rational, bounds=(u0, u1, v0, v1))
+            is_min, dist, pt = _classify_surface_min(S, point, u, v, rational, atol)
+            if is_min:
+                _dedup_add(out, u, v, dist, pt, "min", ptol_u, ptol_v, atol)
             continue
         small = (u1 - u0) <= ptol_u and (v1 - v0) <= ptol_v
         if small or depth > 80:
