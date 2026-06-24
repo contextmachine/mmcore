@@ -1076,13 +1076,13 @@ def _bezier_curve_tuple(ctrl_xyz, weights):
 
 
 def test_nurbs_curve_closest_global_matches_dense():
-    # Two-span (knot 0.5) degree-2 NURBS as a plain polyline-ish curve
-    cps = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, 0.0, 0.0],
-                    [3.0, -2.0, 0.0], [4.0, 0.0, 0.0]])
-    w = np.ones(5)
+    # VALID two-span degree-2 NURBS: 4 control points, order 3 -> 7 knots
+    # (n_knots = n_ctrl + order = 4 + 3), single interior knot 0.5 -> 2 spans.
+    cps = np.array([[0.0, 0.0, 0.0], [1.0, 2.0, 0.0], [2.0, -1.0, 0.0], [3.0, 1.0, 0.0]])
+    w = np.ones(4)
     knot = np.array([0, 0, 0, 0.5, 1, 1, 1], float)
     crv = NURBSCurveTuple(3, knot, cps, w)
-    P = np.array([2.0, 1.0, 0.0])
+    P = np.array([1.5, 1.0, 0.0])
     res = nurbs_curve_closest_points(crv, P, atol=1e-6)
     # Dense ground truth over the global domain [0,1]
     from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
