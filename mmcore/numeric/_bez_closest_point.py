@@ -683,6 +683,147 @@ def _merge_surface(merged, u, v, src, dist, kind, atol):
     merged.append(entry)
 
 
+# ---------------------------------------------------------------------------
+# Valley marching: trace a degenerate sq-distance valley instead of
+# subdividing it. See
+# docs/superpowers/specs/2026-06-28-closest-point-valley-marching-design.md
+# ---------------------------------------------------------------------------
+
+def _surface_g_derivs(S, point, u, v, rational):
+    """Pointwise g = ||S(u,v)-point||^2 and its 1st/2nd derivatives.
+
+    Returns (g, g_u, g_v, g_uu, g_uv, g_vv).
+    """
+    pt, su, sv, suu, suv, svv = eval_surface_d2(S, u, v, rational=rational)
+    d = pt - point
+    g = float(np.dot(d, d))
+    gu = 2.0 * float(np.dot(d, su))
+    gv = 2.0 * float(np.dot(d, sv))
+    guu = 2.0 * (float(np.dot(su, su)) + float(np.dot(d, suu)))
+    guv = 2.0 * (float(np.dot(su, sv)) + float(np.dot(d, suv)))
+    gvv = 2.0 * (float(np.dot(sv, sv)) + float(np.dot(d, svv)))
+    return g, gu, gv, guu, guv, gvv
+
+
+def _g_diag_sign_net(N_diag, Sw, axis):
+    """Bernstein net whose sign equals sign(d^2 g / d{axis}^2) over the cell.
+
+    M_aa = N_{a,a}*w - 3*N_a*w_a, where N_diag = N_u (axis 0) or N_v (axis 1)
+    and Sw is the (cell-local) weight net. For non-rational input w == 1 so
+    w_a == 0 and this reduces to the second-derivative net N_{a,a}.
+    """
+    Ndd = _deriv_net(N_diag, axis)
+    Swd = _deriv_net(Sw, axis)
+    return _bernstein_product_nd(Ndd, Sw) - 3.0 * _bernstein_product_nd(N_diag, Swd)
+
+
+def _hull_positive(net):
+    """True if the Bernstein hull proves the polynomial is > 0 over the cell."""
+    return float(net.min()) > 0.0
+
+
+def _surface_g_value(S, point, u, v, rational):
+    s = eval_surface(S, u, v, rational=rational) - point
+    return float(np.dot(s, s))
+
+
+def _valley_floor_solve(S, point, march_val, corr_seed, corr_lo, corr_hi,
+                        march_axis, rational, ctol, max_it=40):
+    """Solve dg/d(corr) = 0 in [corr_lo, corr_hi] at fixed march coordinate.
+
+    march_axis in {0,1}; the corrector axis is the other one. Returns
+    (corr_value, ok). ok = strictly-interior root with positive cross-valley
+    curvature (a genuine valley-floor point), not boundary-captured.
+    """
+    span = max(corr_hi - corr_lo, 1e-300)
+    c = min(max(corr_seed, corr_lo), corr_hi)
+    hit_boundary = False
+    for _ in range(max_it):
+        u, v = (march_val, c) if march_axis == 0 else (c, march_val)
+        _, gu, gv, guu, _, gvv = _surface_g_derivs(S, point, u, v, rational)
+        gc = gv if march_axis == 0 else gu      # dg/d(corr)
+        gcc = gvv if march_axis == 0 else guu    # d2g/d(corr)^2
+        if abs(gcc) < 1e-300:
+            return c, False
+        step = -gc / gcc
+        cn = min(max(c + step, corr_lo), corr_hi)
+        hit_boundary = (cn <= corr_lo + 1e-15) or (cn >= corr_hi - 1e-15)
+        c = cn
+        if abs(step) < ctol:
+            break
+    u, v = (march_val, c) if march_axis == 0 else (c, march_val)
+    _, gu, gv, guu, _, gvv = _surface_g_derivs(S, point, u, v, rational)
+    gcc = gvv if march_axis == 0 else guu
+    eps = 1e-9 * span
+    ok = (not hit_boundary) and (gcc > 0.0) and (corr_lo + eps < c < corr_hi - eps)
+    return c, ok
+
+
+def _march_valley_cell(S, point, out, u0, u1, v0, v1, march_axis, rational,
+                       atol, ptol_u, ptol_v, n_samples=48):
+    """Trace the valley floor across a certified cell and add its minima to out.
+
+    march_axis: 0 = march u / correct v ; 1 = march v / correct u (the corrector
+    axis is the one whose cross-valley curvature was certified positive). Adds
+    {"u","v","point","distance","kind"} entries via _dedup_add. Emits a single
+    "degenerate_min" if the whole floor is equidistant.
+    """
+    m_lo, m_hi = (u0, u1) if march_axis == 0 else (v0, v1)
+    c_lo, c_hi = (v0, v1) if march_axis == 0 else (u0, u1)
+    ctol = 1e-12 * max(c_hi - c_lo, 1.0)
+    ms = np.linspace(m_lo, m_hi, n_samples + 1)
+
+    # Trace: floor[k] = (mval, c, phi, g) or None where the floor leaves the cell.
+    floor = []
+    c_seed = 0.5 * (c_lo + c_hi)
+    for mval in ms:
+        c, ok = _valley_floor_solve(S, point, mval, c_seed, c_lo, c_hi,
+                                    march_axis, rational, ctol)
+        if not ok:
+            floor.append(None)
+            continue
+        c_seed = c
+        u, v = (mval, c) if march_axis == 0 else (c, mval)
+        _, gu, gv, _, _, _ = _surface_g_derivs(S, point, u, v, rational)
+        phi = gu if march_axis == 0 else gv     # along-valley gradient = dh/d(march)
+        g = _surface_g_value(S, point, u, v, rational)
+        floor.append((mval, c, phi, g))
+
+    valid = [f for f in floor if f is not None]
+    if not valid:
+        return
+
+    # Degenerate minimum manifold: floor equidistant => phi ~ 0 throughout.
+    gscale = max(abs(f[3]) for f in valid)
+    if (max(abs(f[2]) for f in valid) <= 1e-7 * max(gscale, 1.0)) and len(valid) >= 3:
+        mval, c, _, g = valid[len(valid) // 2]
+        u, v = (mval, c) if march_axis == 0 else (c, mval)
+        pt = eval_surface(S, u, v, rational=rational)
+        _dedup_add(out, u, v, float(np.sqrt(max(g, 0.0))), np.asarray(pt),
+                   "degenerate_min", ptol_u, ptol_v, atol)
+        return
+
+    # Event detection on CONTIGUOUS floor samples (skip across None gaps).
+    for k in range(len(floor) - 1):
+        a, b = floor[k], floor[k + 1]
+        if a is None or b is None:
+            continue
+        if np.sign(a[2]) == np.sign(b[2]):
+            continue
+        if (b[2] - a[2]) <= 0.0:
+            continue                       # +->- is a saddle/max, not a minimum
+        # -> + crossing: linear-interpolate the march coordinate, re-correct, polish.
+        mstar = a[0] - a[2] * (b[0] - a[0]) / (b[2] - a[2])
+        cstar, ok = _valley_floor_solve(S, point, mstar, 0.5 * (a[1] + b[1]),
+                                        c_lo, c_hi, march_axis, rational, ctol)
+        ustar, vstar = (mstar, cstar) if march_axis == 0 else (cstar, mstar)
+        uu, vv, _, _ = newton_surface_closest_point(
+            S, point, ustar, vstar, rational=rational, bounds=(u0, u1, v0, v1))
+        is_min, dist, pt = _classify_surface_min(S, point, uu, vv, rational, atol)
+        if is_min:
+            _dedup_add(out, uu, vv, dist, pt, "min", ptol_u, ptol_v, atol)
+
+
 # mmcore/numeric/_bez_closest_point.py  (append at end)
 __all__ = [
     "point_curve_stationarity_net",

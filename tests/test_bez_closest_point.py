@@ -436,3 +436,137 @@ def test_surface_degenerate_constant_no_thrash():
     assert len(res) >= 1
     assert abs(res[0]["distance"] - 5.0) < 1e-9
     assert np.allclose(res[0]["point"], Q)
+
+
+# ===================================================================
+# Valley marching (2026-06-28)
+# ===================================================================
+from mmcore.numeric._bez_closest_point import (
+    _surface_g_derivs, _g_diag_sign_net, point_surface_stationarity_nets,
+    _valley_floor_solve, _march_valley_cell,
+)
+
+
+def _eval_bern_2d_local(net, u, v):  # scalar bivariate Bernstein eval
+    mm, nn = net.shape[0] - 1, net.shape[1] - 1
+    Bu = np.array([comb(mm, i) * u**i * (1 - u) ** (mm - i) for i in range(mm + 1)])
+    Bv = np.array([comb(nn, j) * v**j * (1 - v) ** (nn - j) for j in range(nn + 1)])
+    return float(Bu @ net @ Bv)
+
+
+def _ruled_U_surface(H=4.0):
+    # A cubic "U" curve in z=0 extruded in +z by H -> a ruled surface with a
+    # clean v-valley (linear in v => g_vv constant > 0) and 2 u-minima.
+    cu = np.array([[-2.0, 2.0, 0.0], [-2.0, -3.0, 0.0], [2.0, -3.0, 0.0], [2.0, 2.0, 0.0]])
+    net = np.zeros((4, 2, 3))
+    net[:, 0, :] = cu
+    net[:, 1, :] = cu + np.array([0.0, 0.0, H])
+    return net
+
+
+def test_surface_g_derivs_matches_finite_difference():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.5]],
+                  [[1.0, 0.0, 0.5], [1.0, 1.0, 0.0]]])
+    P = np.array([0.4, 0.6, 2.0])
+    u, v = 0.37, 0.62
+    g, gu, gv, guu, guv, gvv = _surface_g_derivs(S, P, u, v, rational=False)
+
+    def gfun(uu, vv):
+        s = eval_surface(S, uu, vv, rational=False) - P
+        return float(np.dot(s, s))
+    h = 1e-5
+    assert abs(g - gfun(u, v)) < 1e-9
+    assert abs(gu - (gfun(u + h, v) - gfun(u - h, v)) / (2 * h)) < 1e-3
+    assert abs(gv - (gfun(u, v + h) - gfun(u, v - h)) / (2 * h)) < 1e-3
+    assert abs(gvv - (gfun(u, v + h) - 2 * gfun(u, v) + gfun(u, v - h)) / h**2) < 1e-1
+    assert abs(guv - (gfun(u + h, v + h) - gfun(u + h, v - h)
+                      - gfun(u - h, v + h) + gfun(u - h, v - h)) / (4 * h**2)) < 1e-1
+
+
+def test_g_diag_sign_net_sign_matches_gvv_rational():
+    s = np.sqrt(2) / 2
+    cp = np.array([[[0, 0, 1], [0, 0, 1], [0, 0, 1]],
+                   [[1, 0, 1], [1, 1, 1], [0, 1, 1]],
+                   [[1, 0, 0], [1, 1, 0], [0, 1, 0]]], dtype=float)
+    w = np.array([[1.0, s, 1.0], [s, 0.5, s], [1.0, s, 1.0]])
+    H = np.concatenate([cp * w[:, :, None], w[:, :, None]], axis=2)
+    P = np.array([0.3, 0.2, 0.4])
+    Nu, Nv, F, Sw = point_surface_stationarity_nets(P, H, rational=True)
+    Mvv = _g_diag_sign_net(Nv, Sw, axis=1)
+    for u in (0.2, 0.5, 0.8):
+        for v in (0.25, 0.6, 0.85):
+            _, _, _, _, _, gvv = _surface_g_derivs(H, P, u, v, rational=True)
+            assert np.sign(_eval_bern_2d_local(Mvv, u, v)) == np.sign(gvv)
+
+
+def test_g_diag_sign_net_nonrational_is_second_derivative():
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 2.0, 0.0]],
+                  [[2.0, 0.0, 0.0], [2.0, 1.0, 0.0], [2.0, 2.0, 0.0]]])
+    P = np.array([1.0, 1.0, 3.0])
+    Nu, Nv, F, Sw = point_surface_stationarity_nets(P, S, rational=False)
+    Mvv = _g_diag_sign_net(Nv, Sw, axis=1)
+    for u in (0.3, 0.7):
+        for v in (0.3, 0.7):
+            _, _, _, _, _, gvv = _surface_g_derivs(S, P, u, v, rational=False)
+            assert np.sign(_eval_bern_2d_local(Mvv, u, v)) == np.sign(gvv)
+
+
+def test_valley_floor_solve_finds_interior_floor():
+    S = _ruled_U_surface(H=4.0)
+    P = np.array([0.0, 1.0, 2.0])
+    c, ok = _valley_floor_solve(S, P, march_val=0.5, corr_seed=0.5,
+                                corr_lo=0.0, corr_hi=1.0, march_axis=0,
+                                rational=False, ctol=1e-9)
+    assert ok
+    assert abs(c - 0.5) < 1e-6
+
+
+def test_valley_floor_solve_reports_not_ok_off_floor():
+    S = _ruled_U_surface(H=4.0)
+    P = np.array([0.0, 1.0, -5.0])
+    c, ok = _valley_floor_solve(S, P, march_val=0.5, corr_seed=0.5,
+                                corr_lo=0.0, corr_hi=1.0, march_axis=0,
+                                rational=False, ctol=1e-9)
+    assert not ok
+
+
+def test_march_valley_cell_finds_two_minima():
+    S = _ruled_U_surface(H=4.0)
+    P = np.array([0.0, 1.0, 2.0])
+    out = []
+    _march_valley_cell(S, P, out, 0.0, 1.0, 0.0, 1.0, march_axis=0,
+                       rational=False, atol=1e-6, ptol_u=1e-4, ptol_v=1e-4)
+    mins = [e for e in out if e["kind"] == "min"]
+    assert len(mins) == 2
+    for e in mins:
+        assert abs(e["v"] - 0.5) < 1e-3
+    us = sorted(e["u"] for e in mins)
+    assert us[0] < 0.25 and us[1] > 0.75
+
+
+def _circle_extruded_surface(r=3.0, H=4.0):
+    # Rational quarter-circle (radius r, centred at origin in xy) extruded in z
+    # by H. With P on the axis, every u is equidistant -> a flat valley in u.
+    s = np.sqrt(2) / 2
+    # homogeneous circle control points (x*w, y*w, 0, w)
+    circ = np.array([[r, 0.0, 0.0, 1.0],
+                     [r * s, r * s, 0.0, s],
+                     [0.0, r, 0.0, 1.0]])
+    net = np.zeros((3, 2, 4))
+    net[:, 0, :] = circ                       # v=0 layer, z=0
+    net[:, 1, :] = circ.copy()
+    net[:, 1, 2] = circ[:, 3] * H             # v=1 layer, z*w = H*w  -> z=H
+    return net
+
+
+def test_march_valley_cell_degenerate_manifold():
+    net = _circle_extruded_surface(r=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 2.0])             # on the axis, mid-height
+    out = []
+    _march_valley_cell(net, P, out, 0.0, 1.0, 0.0, 1.0, march_axis=0,
+                       rational=True, atol=1e-6, ptol_u=1e-4, ptol_v=1e-4)
+    assert len(out) == 1
+    assert out[0]["kind"] == "degenerate_min"
+    assert abs(out[0]["v"] - 0.5) < 1e-3
+    assert abs(out[0]["distance"] - 3.0) < 1e-3   # radius
