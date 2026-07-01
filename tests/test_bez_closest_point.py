@@ -734,3 +734,29 @@ def test_circle_offcenter_periodic_seam_single_result():
     assert len(res) == 1
     assert res[0]["kind"] == "min"
     assert abs(res[0]["distance"] - (R - 0.3)) < 1e-9
+
+
+def test_nonplanar_spherical_equidistant_curve_general_pull():
+    # Witness that the closest set can be a genuinely NON-PLANAR curve on the
+    # sphere: a band ruled along e_z x gamma, tangent to the sphere along the
+    # stereographic image of a parabola (provably non-planar: stereographic
+    # projection maps only lines/circles to plane sections). The exact-circle
+    # certification must DECLINE and the general tracer must carry the answer.
+    from examples.closest_point.nonplanar_equidistant_band import nonplanar_band
+    R = 2.0
+    net = nonplanar_band(radius=R)
+    res = bez_surface_closest_points(net, np.zeros(3), atol=1e-6, rational=True)
+    assert len(res) == 1
+    c = res[0]
+    assert c["kind"] == "degenerate_curve"
+    assert "circle" not in c, "non-planar spherical curve must NOT certify as a circle"
+    X = c["points"]
+    # exact sphere membership and exact distance R
+    assert np.max(np.abs(np.linalg.norm(X, axis=1) - R)) < 1e-9
+    assert abs(c["distance"] - R) < 1e-9
+    # genuine non-planarity (SVD ratio; a circle would give ~0)
+    s = np.linalg.svd(X - X.mean(0), compute_uv=False)
+    assert s[-1] / s[0] > 0.01
+    # the trace covers the full band (v = 0.5 line, edge to edge in u)
+    assert np.all(np.abs(c["uv"][:, 1] - 0.5) < 1e-6)
+    assert c["uv"][:, 0].max() - c["uv"][:, 0].min() > 0.9
