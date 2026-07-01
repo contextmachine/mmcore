@@ -55,10 +55,22 @@ val = NURBSSurfaceTuple(
            [0.70710678, 0.70710678, 0.70710678],
            [1.        , 1.        , 1.        ]])
 )
-pt=np.array([24642.121905, 59188.548359, 0])
-from mmcore.numeric._bez_closest_point import nurbs_surface_closest_points
-import time
-s=time.perf_counter()
-res=nurbs_surface_closest_points(val,pt)
-print(f"Time taken: {time.perf_counter()-s} secs.")
-print(res)
+pt = np.array([24642.121905, 59188.548359, 0])
+
+if __name__ == "__main__":
+    # A funnel of revolution at coordinate scale ~1e5 with a degenerate pole
+    # edge; the query point lies near the axis, producing a shallow ring
+    # "valley" in the squared-distance field. This case used to grind the
+    # subdivision to its cell cap (17+ s); the band branch-and-bound resolves
+    # it in milliseconds and returns the two symmetric global minima
+    # (the ring valley is NOT exactly equidistant, so the answer is two
+    # isolated points, not a degenerate curve).
+    from mmcore.numeric._bez_closest_point import nurbs_surface_closest_points
+    import time
+
+    s = time.perf_counter()
+    res = nurbs_surface_closest_points(val, pt)
+    print(f"Time taken: {time.perf_counter() - s:.3f} secs.")
+    for e in res:
+        print(f"  {e['kind']:14s} dist={e['distance']:.6f} "
+              f"u={e['u']:.6f} v={e['v']:.3f} point={np.round(e['point'], 3)}")
