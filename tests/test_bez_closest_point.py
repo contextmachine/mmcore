@@ -439,29 +439,60 @@ def test_surface_degenerate_constant_no_thrash():
 
 
 # ===================================================================
-# Valley marching (2026-06-28)
+# Band semantics + degenerate closest-point sets (2026-07-02)
 # ===================================================================
+import warnings as _warnings
 from mmcore.numeric._bez_closest_point import (
-    _surface_g_derivs, _g_diag_sign_net, point_surface_stationarity_nets,
-    _valley_floor_solve, _march_valley_cell,
+    _surface_g_derivs, trace_equidistant_curve, nurbs_surface_closest_points,
 )
 
 
-def _eval_bern_2d_local(net, u, v):  # scalar bivariate Bernstein eval
-    mm, nn = net.shape[0] - 1, net.shape[1] - 1
-    Bu = np.array([comb(mm, i) * u**i * (1 - u) ** (mm - i) for i in range(mm + 1)])
-    Bv = np.array([comb(nn, j) * v**j * (1 - v) ** (nn - j) for j in range(nn + 1)])
-    return float(Bu @ net @ Bv)
-
-
 def _ruled_U_surface(H=4.0):
-    # A cubic "U" curve in z=0 extruded in +z by H -> a ruled surface with a
-    # clean v-valley (linear in v => g_vv constant > 0) and 2 u-minima.
+    # A cubic "U" curve in z=0 extruded in +z by H: clean v-valley, 2 u-minima.
     cu = np.array([[-2.0, 2.0, 0.0], [-2.0, -3.0, 0.0], [2.0, -3.0, 0.0], [2.0, 2.0, 0.0]])
     net = np.zeros((4, 2, 3))
     net[:, 0, :] = cu
     net[:, 1, :] = cu + np.array([0.0, 0.0, H])
     return net
+
+
+def _quarter_cylinder(r=3.0, H=4.0):
+    # Rational quarter-circle (radius r) extruded in z: P on the axis sees a
+    # flat equidistant ring at the P height.
+    s = np.sqrt(2) / 2
+    circ = np.array([[r, 0.0, 0.0, 1.0],
+                     [r * s, r * s, 0.0, s],
+                     [0.0, r, 0.0, 1.0]])
+    net = np.zeros((3, 2, 4))
+    net[:, 0, :] = circ
+    net[:, 1, :] = circ.copy()
+    net[:, 1, 2] = circ[:, 3] * H
+    return net
+
+
+def _quarter_cone(R=3.0, H=4.0):
+    s = np.sqrt(2) / 2
+    circ = np.array([[R, 0, 0, 1], [R * s, R * s, 0, s], [0, R, 0, 1]], dtype=float)
+    cone = np.zeros((3, 2, 4))
+    cone[:, 1, :] = circ                                   # v=1: base circle z=0
+    cone[:, 0, :] = np.array([[0, 0, H, 1],
+                              [0, 0, H * s, s],
+                              [0, 0, H, 1]], dtype=float)  # v=0: apex (0,0,H)
+    return cone
+
+
+def _quarter_elliptical_cone(a=4.0, b=2.0, H=4.0):
+    s = np.sqrt(2) / 2
+    ell = np.array([[a, 0, 0, 1], [a * s, b * s, 0, s], [0, b, 0, 1]], dtype=float)
+    cone = np.zeros((3, 2, 4))
+    cone[:, 1, :] = ell
+    cone[:, 0, :] = np.array([[0, 0, H, 1], [0, 0, H * s, s], [0, 0, H, 1]], dtype=float)
+    return cone
+
+
+def _dist_point_segment_2d(p, a, b):
+    t = np.clip(np.dot(p - a, b - a) / np.dot(b - a, b - a), 0.0, 1.0)
+    return float(np.linalg.norm(p - (a + t * (b - a)))), float(t)
 
 
 def test_surface_g_derivs_matches_finite_difference():
@@ -483,90 +514,174 @@ def test_surface_g_derivs_matches_finite_difference():
                       - gfun(u - h, v + h) + gfun(u - h, v - h)) / (4 * h**2)) < 1e-1
 
 
-def test_g_diag_sign_net_sign_matches_gvv_rational():
-    s = np.sqrt(2) / 2
-    cp = np.array([[[0, 0, 1], [0, 0, 1], [0, 0, 1]],
-                   [[1, 0, 1], [1, 1, 1], [0, 1, 1]],
-                   [[1, 0, 0], [1, 1, 0], [0, 1, 0]]], dtype=float)
-    w = np.array([[1.0, s, 1.0], [s, 0.5, s], [1.0, s, 1.0]])
-    H = np.concatenate([cp * w[:, :, None], w[:, :, None]], axis=2)
-    P = np.array([0.3, 0.2, 0.4])
-    Nu, Nv, F, Sw = point_surface_stationarity_nets(P, H, rational=True)
-    Mvv = _g_diag_sign_net(Nv, Sw, axis=1)
-    for u in (0.2, 0.5, 0.8):
-        for v in (0.25, 0.6, 0.85):
-            _, _, _, _, _, gvv = _surface_g_derivs(H, P, u, v, rational=True)
-            assert np.sign(_eval_bern_2d_local(Mvv, u, v)) == np.sign(gvv)
+# ---------------- band contract ----------------
+
+def test_band_contract_far_local_minima_dropped_curve():
+    # Asymmetric query near the right arm of the "U": the left-arm local
+    # minimum is real but farther than atol -> must NOT be reported.
+    C = np.array([[-2.0, 2.0, 0.0], [-2.0, -3.0, 0.0], [2.0, -3.0, 0.0], [2.0, 2.0, 0.0]])
+    P = np.array([1.0, 1.0, 0.0])
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    assert len(res) >= 1
+    gmin = res[0]["distance"]
+    for e in res:
+        assert e["distance"] <= gmin + 1e-6
+    # the left arm is > 1 unit farther: it must be gone
+    assert all(e["t"] > 0.5 for e in res if "t" in e)
 
 
-def test_g_diag_sign_net_nonrational_is_second_derivative():
-    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.0]],
-                  [[1.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 2.0, 0.0]],
-                  [[2.0, 0.0, 0.0], [2.0, 1.0, 0.0], [2.0, 2.0, 0.0]]])
-    P = np.array([1.0, 1.0, 3.0])
-    Nu, Nv, F, Sw = point_surface_stationarity_nets(P, S, rational=False)
-    Mvv = _g_diag_sign_net(Nv, Sw, axis=1)
-    for u in (0.3, 0.7):
-        for v in (0.3, 0.7):
-            _, _, _, _, _, gvv = _surface_g_derivs(S, P, u, v, rational=False)
-            assert np.sign(_eval_bern_2d_local(Mvv, u, v)) == np.sign(gvv)
-
-
-def test_valley_floor_solve_finds_interior_floor():
-    S = _ruled_U_surface(H=4.0)
-    P = np.array([0.0, 1.0, 2.0])
-    c, ok = _valley_floor_solve(S, P, march_val=0.5, corr_seed=0.5,
-                                corr_lo=0.0, corr_hi=1.0, march_axis=0,
-                                rational=False, ctol=1e-9)
-    assert ok
-    assert abs(c - 0.5) < 1e-6
-
-
-def test_valley_floor_solve_reports_not_ok_off_floor():
-    S = _ruled_U_surface(H=4.0)
-    P = np.array([0.0, 1.0, -5.0])
-    c, ok = _valley_floor_solve(S, P, march_val=0.5, corr_seed=0.5,
-                                corr_lo=0.0, corr_hi=1.0, march_axis=0,
-                                rational=False, ctol=1e-9)
-    assert not ok
-
-
-def test_march_valley_cell_finds_two_minima():
-    S = _ruled_U_surface(H=4.0)
-    P = np.array([0.0, 1.0, 2.0])
-    out = []
-    _march_valley_cell(S, P, out, 0.0, 1.0, 0.0, 1.0, march_axis=0,
-                       rational=False, atol=1e-6, ptol_u=1e-4, ptol_v=1e-4)
-    mins = [e for e in out if e["kind"] == "min"]
+def test_band_contract_equidistant_pair_kept():
+    # Symmetric query: two equidistant minima are BOTH part of the answer set.
+    C = np.array([[-2.0, 2.0, 0.0], [-2.0, -3.0, 0.0], [2.0, -3.0, 0.0], [2.0, 2.0, 0.0]])
+    P = np.array([0.0, 1.0, 0.0])
+    res = bez_curve_closest_points(C, P, atol=1e-6, rational=False)
+    mins = [e for e in res if e["kind"] == "min"]
     assert len(mins) == 2
-    for e in mins:
-        assert abs(e["v"] - 0.5) < 1e-3
-    us = sorted(e["u"] for e in mins)
-    assert us[0] < 0.25 and us[1] > 0.75
+    assert abs(mins[0]["distance"] - mins[1]["distance"]) < 1e-6
 
 
-def _circle_extruded_surface(r=3.0, H=4.0):
-    # Rational quarter-circle (radius r, centred at origin in xy) extruded in z
-    # by H. With P on the axis, every u is equidistant -> a flat valley in u.
+# ---------------- degenerate sets ----------------
+
+def test_sphere_center_whole_patch():
+    H, w = _sphere_octant_net()
+    res = bez_surface_closest_points(H, np.zeros(3), atol=1e-6, rational=True)
+    assert len(res) == 1
+    assert res[0]["kind"] == "degenerate_surface"
+    assert abs(res[0]["distance"] - 1.0) < 1e-9
+    assert res[0]["u_range"] == (0.0, 1.0) and res[0]["v_range"] == (0.0, 1.0)
+
+
+def test_cone_axis_ring_traced():
+    cone = _quarter_cone(R=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.6])
+    d_ref, t_ref = _dist_point_segment_2d(np.array([0.0, 1.6]),
+                                          np.array([0.0, 4.0]), np.array([3.0, 0.0]))
+    res = bez_surface_closest_points(cone, P, atol=1e-6, rational=True)
+    curves = [e for e in res if e["kind"] == "degenerate_curve"]
+    assert len(curves) == 1
+    c = curves[0]
+    assert abs(c["distance"] - d_ref) < 1e-4
+    # ring is the isoline v = t_ref, spanning the full quarter arc in u
+    assert np.all(np.abs(c["uv"][:, 1] - t_ref) < 1e-3)
+    assert c["uv"][:, 0].min() < 0.05 and c["uv"][:, 0].max() > 0.95
+    # every traced point is equidistant
+    d = np.linalg.norm(c["points"] - P[None, :], axis=1)
+    assert np.max(np.abs(d - d_ref)) < 1e-4
+    # no stray point entities besides the ring
+    assert all(e["kind"] == "degenerate_curve" for e in res)
+
+
+def test_cylinder_axis_ring_traced():
+    cyl = _quarter_cylinder(r=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 2.0])       # on the axis, mid-height
+    res = bez_surface_closest_points(cyl, P, atol=1e-6, rational=True)
+    curves = [e for e in res if e["kind"] == "degenerate_curve"]
+    assert len(curves) == 1
+    c = curves[0]
+    assert abs(c["distance"] - 3.0) < 1e-6
+    assert np.all(np.abs(c["uv"][:, 1] - 0.5) < 1e-3)
+
+
+def test_elliptical_cone_isolated_min():
+    econe = _quarter_elliptical_cone(a=4.0, b=2.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.0])
+    d_ref, t_ref = _dist_point_segment_2d(np.array([0.0, 1.0]),
+                                          np.array([0.0, 4.0]), np.array([2.0, 0.0]))
+    res = bez_surface_closest_points(econe, P, atol=1e-6, rational=True)
+    # deterministic single minimum on the minor axis (u=1 edge of the quarter)
+    assert len(res) == 1
+    e = res[0]
+    assert e["kind"] in ("min", "boundary_min")
+    assert abs(e["distance"] - d_ref) < 1e-6
+    assert abs(e["u"] - 1.0) < 1e-6 and abs(e["v"] - t_ref) < 1e-4
+
+
+def test_trace_equidistant_curve_direct():
+    cone = _quarter_cone(R=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.6])
+    u0, v0, _, _ = newton_surface_closest_point(cone, P, 0.5, 0.5,
+                                                rational=True, bounds=(0, 1, 0, 1))
+    tr = trace_equidistant_curve(cone, P, u0, v0, rational=True)
+    assert tr is not None
+    d = np.linalg.norm(tr["points"] - P[None, :], axis=1)
+    assert np.std(d) < 1e-6
+    assert tr["uv"][:, 0].max() - tr["uv"][:, 0].min() > 0.9
+
+
+def test_trace_rejects_isolated_seed():
+    # At a well-conditioned isolated minimum the tracer must decline.
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    P = np.array([0.3, 0.4, 5.0])
+    assert trace_equidistant_curve(S, P, 0.3, 0.4, rational=False) is None
+
+
+# ---------------- surfcp1 regression ----------------
+
+def test_surfcp1_no_blowup_and_correct():
+    import examples.closest_point.surfcp1 as scp
+    val, P = scp.val, scp.pt
+    import time
+    t = time.perf_counter()
+    with _warnings.catch_warnings(record=True) as wl:
+        _warnings.simplefilter("always")
+        res = nurbs_surface_closest_points(val, P, atol=1e-3)
+    dt = time.perf_counter() - t
+    cap = [w for w in wl if "max_cells" in str(w.message)]
+    assert not cap, "band B&B should prevent the max_cells blow-up"
+    assert dt < 5.0, f"expected fast result, took {dt:.1f}s"
+    # two symmetric global minima; far local minima (pole at ~9133) are gone
+    assert len(res) >= 2
+    gmin = res[0]["distance"]
+    assert abs(gmin - 8504.837) < 1e-1
+    for e in res:
+        assert e["distance"] <= gmin + 1e-3
+
+
+# ---------------- NURBS-level degenerate assembly ----------------
+
+def _full_cone_nurbs(R=3.0, H=4.0):
     s = np.sqrt(2) / 2
-    # homogeneous circle control points (x*w, y*w, 0, w)
-    circ = np.array([[r, 0.0, 0.0, 1.0],
-                     [r * s, r * s, 0.0, s],
-                     [0.0, r, 0.0, 1.0]])
-    net = np.zeros((3, 2, 4))
-    net[:, 0, :] = circ                       # v=0 layer, z=0
-    net[:, 1, :] = circ.copy()
-    net[:, 1, 2] = circ[:, 3] * H             # v=1 layer, z*w = H*w  -> z=H
-    return net
+    circ = np.array([[R, 0, 0], [R, R, 0], [0, R, 0], [-R, R, 0], [-R, 0, 0],
+                     [-R, -R, 0], [0, -R, 0], [R, -R, 0], [R, 0, 0]], dtype=float)
+    wrow = np.array([1, s, 1, s, 1, s, 1, s, 1], dtype=float)
+    cps = np.zeros((9, 2, 3))
+    cps[:, 0, :] = np.array([0.0, 0.0, H])     # apex row (degenerate)
+    cps[:, 1, :] = circ
+    w = np.column_stack([wrow, wrow])
+    knot_u = np.array([0, 0, 0, .25, .25, .5, .5, .75, .75, 1, 1, 1], dtype=float)
+    knot_v = np.array([0, 0, 1, 1], dtype=float)
+    return NURBSSurfaceTuple(3, 2, knot_u, knot_v, cps, w)
 
 
-def test_march_valley_cell_degenerate_manifold():
-    net = _circle_extruded_surface(r=3.0, H=4.0)
-    P = np.array([0.0, 0.0, 2.0])             # on the axis, mid-height
-    out = []
-    _march_valley_cell(net, P, out, 0.0, 1.0, 0.0, 1.0, march_axis=0,
-                       rational=True, atol=1e-6, ptol_u=1e-4, ptol_v=1e-4)
-    assert len(out) == 1
-    assert out[0]["kind"] == "degenerate_min"
-    assert abs(out[0]["v"] - 0.5) < 1e-3
-    assert abs(out[0]["distance"] - 3.0) < 1e-3   # radius
+def test_nurbs_full_cone_ring_stitched_closed():
+    srf = _full_cone_nurbs(R=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.6])
+    d_ref, _ = _dist_point_segment_2d(np.array([0.0, 1.6]),
+                                      np.array([0.0, 4.0]), np.array([3.0, 0.0]))
+    res = nurbs_surface_closest_points(srf, P, atol=1e-6)
+    curves = [e for e in res if e["kind"] == "degenerate_curve"]
+    assert len(curves) == 1, f"expected one stitched ring, got {len(curves)}"
+    c = curves[0]
+    assert c["closed"], "full-revolution ring must be closed"
+    assert abs(c["distance"] - d_ref) < 1e-4
+    # the ring spans the full global u domain
+    assert c["uv"][:, 0].max() - c["uv"][:, 0].min() > 0.9
+    d = np.linalg.norm(c["points"] - P[None, :], axis=1)
+    assert np.max(np.abs(d - d_ref)) < 1e-3
+
+
+def test_nurbs_circle_center_degenerate_segment():
+    s = np.sqrt(2) / 2
+    R = 2.5
+    cps = np.array([[R, 0, 0], [R, R, 0], [0, R, 0], [-R, R, 0], [-R, 0, 0],
+                    [-R, -R, 0], [0, -R, 0], [R, -R, 0], [R, 0, 0]], dtype=float)
+    w = np.array([1, s, 1, s, 1, s, 1, s, 1], dtype=float)
+    knot = np.array([0, 0, 0, .25, .25, .5, .5, .75, .75, 1, 1, 1], dtype=float)
+    crv = NURBSCurveTuple(3, knot, cps, w)
+    res = nurbs_curve_closest_points(crv, np.zeros(3), atol=1e-6)
+    assert len(res) == 1
+    e = res[0]
+    assert e["kind"] == "degenerate_segment"
+    assert abs(e["distance"] - R) < 1e-9
+    assert abs(e["t_range"][0] - 0.0) < 1e-9 and abs(e["t_range"][1] - 1.0) < 1e-9
