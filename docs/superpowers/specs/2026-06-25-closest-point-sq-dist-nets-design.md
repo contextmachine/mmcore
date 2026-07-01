@@ -1,7 +1,11 @@
 # Closest-Point via Squared-Distance Bernstein Nets — Design Spec
 
 **Date:** 2026-06-25
-**Status:** Approved (design); pending implementation plan
+**Status:** Implemented; **result contract superseded** — the "return all local
+minima" decision (§2) was replaced by band semantics (the set of globally
+closest entities within `d_min + atol`, including structured degenerate sets).
+See `2026-07-02-closest-point-band-bnb-design.md`. The module structure, net
+construction, prunes and Newton kernels described here still apply.
 **Branch:** `closest-point-sq-dist-nets`
 
 ## 1. Motivation
