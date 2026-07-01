@@ -685,3 +685,52 @@ def test_nurbs_circle_center_degenerate_segment():
     assert e["kind"] == "degenerate_segment"
     assert abs(e["distance"] - R) < 1e-9
     assert abs(e["t_range"][0] - 0.0) < 1e-9 and abs(e["t_range"][1] - 1.0) < 1e-9
+
+
+# ---------------- exact-circle certification (spherical-curve planarity) ----
+
+def test_cone_ring_certified_as_exact_circle():
+    # Every equidistant curve lies on the sphere of radius d_min about the
+    # query; a PLANAR spherical curve is exactly a circle. The cone ring is
+    # planar -> the entity must carry the exact circle with analytic data.
+    cone = _quarter_cone(R=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.6])
+    d_ref, t_ref = _dist_point_segment_2d(np.array([0.0, 1.6]),
+                                          np.array([0.0, 4.0]), np.array([3.0, 0.0]))
+    # analytic foot in the (r, z) half-plane -> ring center (0,0,z*), radius r*
+    foot = np.array([0.0, 4.0]) + t_ref * (np.array([3.0, 0.0]) - np.array([0.0, 4.0]))
+    res = bez_surface_closest_points(cone, P, atol=1e-6, rational=True)
+    c = [e for e in res if e["kind"] == "degenerate_curve"][0]
+    assert "circle" in c, "planar ring must be certified as an exact circle"
+    circ = c["circle"]
+    assert abs(circ["radius"] - foot[0]) < 1e-6
+    assert np.allclose(circ["center"], [0.0, 0.0, foot[1]], atol=1e-6)
+    assert abs(abs(circ["normal"][2]) - 1.0) < 1e-9        # axis-aligned plane
+    assert abs(circ["arc_angle"] - np.pi / 2) < 0.05       # quarter revolution
+
+
+def test_full_cone_ring_certified_full_circle():
+    srf = _full_cone_nurbs(R=3.0, H=4.0)
+    P = np.array([0.0, 0.0, 1.6])
+    res = nurbs_surface_closest_points(srf, P, atol=1e-6)
+    c = [e for e in res if e["kind"] == "degenerate_curve"][0]
+    assert c["closed"]
+    assert "circle" in c
+    assert abs(c["circle"]["arc_angle"] - 2 * np.pi) < 0.05
+
+
+def test_circle_offcenter_periodic_seam_single_result():
+    # Off-center query on a closed NURBS circle: the closest point sits ON the
+    # periodic seam (t=0==t=1). The wrapper must recognize closure and return
+    # ONE entity, kind "min" (a seam is not a boundary).
+    s = np.sqrt(2) / 2
+    R = 2.5
+    cps = R * np.array([[1, 0, 0], [1, 1, 0], [0, 1, 0], [-1, 1, 0], [-1, 0, 0],
+                        [-1, -1, 0], [0, -1, 0], [1, -1, 0], [1, 0, 0]], dtype=float)
+    w = np.array([1, s, 1, s, 1, s, 1, s, 1], dtype=float)
+    knot = np.array([0, 0, 0, .25, .25, .5, .5, .75, .75, 1, 1, 1], dtype=float)
+    crv = NURBSCurveTuple(3, knot, cps, w)
+    res = nurbs_curve_closest_points(crv, np.array([0.3, 0.0, 0.0]), atol=1e-6)
+    assert len(res) == 1
+    assert res[0]["kind"] == "min"
+    assert abs(res[0]["distance"] - (R - 0.3)) < 1e-9

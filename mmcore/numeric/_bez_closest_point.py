@@ -629,6 +629,44 @@ def _uv_dist_to_polyline(u, v, uv):
     return float(np.min(np.hypot(uv[:, 0] - u, uv[:, 1] - v)))
 
 
+def _certify_circle(points, query):
+    """Exact-circle certificate for a traced equidistant curve.
+
+    Every equidistant curve lies ON the sphere of radius d_min about the
+    query point (tangentially — the surface cannot enter the sphere). A
+    PLANAR curve on a sphere is exactly a circle (plane ∩ sphere), so
+    planarity of the traced points certifies a circle: the common case of
+    any surface of revolution queried on its axis (cones, cylinders, tori).
+
+    Returns ``{"center", "normal", "radius", "arc_angle"}`` (arc_angle is the
+    swept angle in radians; ~2π for a closed ring) or ``None`` when the
+    spherical curve is genuinely non-planar.
+    """
+    X = np.asarray(points, dtype=np.float64)
+    if len(X) < 3:
+        return None
+    c = X.mean(axis=0)
+    Y = X - c
+    scale = float(np.max(np.linalg.norm(Y, axis=1)))
+    if scale < 1e-300:
+        return None
+    _, sing, Vt = np.linalg.svd(Y, full_matrices=False)
+    n = Vt[-1]
+    if sing[-1] > 1e-6 * scale:
+        return None                                  # non-planar
+    query = np.asarray(query, dtype=np.float64)
+    center = query + n * float(np.dot(c - query, n))  # sphere center -> plane
+    r = np.linalg.norm(X - center, axis=1)
+    radius = float(np.mean(r))
+    if float(np.max(r) - np.min(r)) > 1e-6 * max(scale, 1e-12):
+        return None
+    e1 = (X[0] - center) / max(float(np.linalg.norm(X[0] - center)), 1e-300)
+    e2 = np.cross(n, e1)
+    ang = np.unwrap(np.arctan2((X - center) @ e2, (X - center) @ e1))
+    return {"center": center, "normal": n, "radius": radius,
+            "arc_angle": float(np.max(ang) - np.min(ang))}
+
+
 # ---------------------------------------------------------------------------
 # Surface core: best-first branch-and-bound (band semantics)
 # ---------------------------------------------------------------------------
@@ -774,6 +812,9 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
         tr["v"] = float(tr["uv"][len(tr["uv"]) // 2, 1])
         tr["point"] = np.asarray(tr["points"][len(tr["points"]) // 2])
         tr["kind"] = "degenerate_curve"
+        cert = _certify_circle(tr["points"], point)
+        if cert is not None:
+            tr["circle"] = cert     # planar spherical curve == exact circle
         curves_out.append(tr)
 
     # A traced curve consumes point candidates lying on it.
@@ -937,6 +978,12 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
     patches = decompose_curve(curve)
     band = atol
 
+    # Geometric closure (clamped NURBS: endpoints are the end control points).
+    # On a closed curve the domain ends are a periodic seam, not a boundary.
+    cp = np.asarray(curve.control_points, dtype=np.float64)
+    geo_scale = float(np.linalg.norm(cp.max(0) - cp.min(0)))
+    closed = float(np.linalg.norm(cp[0] - cp[-1])) < 1e-9 * max(geo_scale, 1e-12)
+
     best = np.inf
     pts = []
     segs = []
@@ -956,10 +1003,14 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
                 continue
             t_glob = p_lo + e["t"] * (p_hi - p_lo)
             kind = e["kind"]
-            if kind == "boundary_min" and not (abs(t_glob - g_lo) < 1e-9
-                                               or abs(t_glob - g_hi) < 1e-9):
-                kind = "min"      # interior seam, not a real domain end
+            if kind == "boundary_min":
+                at_ends = (abs(t_glob - g_lo) < 1e-9 or abs(t_glob - g_hi) < 1e-9)
+                if closed or not at_ends:
+                    kind = "min"      # seam (periodic or internal), not a real end
             _merge_curve_point(pts, t_glob, e["point"], e["distance"], kind, atol)
+
+    if closed:
+        pts = _merge_periodic_seam_1d(pts, g_lo, g_hi, atol, geo_scale)
 
     # Merge adjacent degenerate segments (equidistant arc spanning seams).
     segs.sort(key=lambda s: s["t_range"][0])
@@ -1001,6 +1052,29 @@ def _merge_curve_point(merged, t, pt, dist, kind, atol):
     merged.append({"t": float(t), "point": pt, "distance": float(dist), "kind": kind})
 
 
+def _merge_periodic_seam_1d(pts, g_lo, g_hi, atol, geo_scale):
+    """On a closed curve, a candidate near t=g_lo and one near t=g_hi can be
+    the SAME physical point polished from the two sides of the periodic seam
+    (their Newton slop puts them just outside the plain geometric dedup).
+    Merge such pairs, keeping the nearer one."""
+    span = max(g_hi - g_lo, 1e-300)
+    seam_t = 1e-3 * span
+    seam_geo = max(atol, 1e-6 * max(geo_scale, 1.0))
+    out = []
+    for e in sorted(pts, key=lambda x: x["distance"]):
+        dup = False
+        for kept in out:
+            near_opposite_ends = (
+                (e["t"] - g_lo < seam_t and g_hi - kept["t"] < seam_t)
+                or (kept["t"] - g_lo < seam_t and g_hi - e["t"] < seam_t))
+            if near_opposite_ends and np.linalg.norm(e["point"] - kept["point"]) < seam_geo:
+                dup = True
+                break
+        if not dup:
+            out.append(e)
+    return out
+
+
 def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     """Globally closest entities of a NURBS surface (band semantics), in
     GLOBAL parameters, sorted ascending by distance.
@@ -1016,6 +1090,14 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     (gu_lo, gu_hi), (gv_lo, gv_hi) = _surface_interval(surface)
     patches = decompose_surface(surface)
     band = atol
+
+    # Geometric closure per direction (clamped net: opposite border rows
+    # coincide). A closed direction's domain ends are a periodic seam.
+    cps = np.asarray(surface.control_points, dtype=np.float64)
+    geo_scale = float(np.linalg.norm(cps.reshape(-1, cps.shape[-1]).max(0)
+                                     - cps.reshape(-1, cps.shape[-1]).min(0)))
+    closed_u = float(np.max(np.linalg.norm(cps[0] - cps[-1], axis=-1))) < 1e-9 * max(geo_scale, 1e-12)
+    closed_v = float(np.max(np.linalg.norm(cps[:, 0] - cps[:, -1], axis=-1))) < 1e-9 * max(geo_scale, 1e-12)
 
     best = np.inf
     pts = []
@@ -1053,14 +1135,34 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
                 u_g, v_g = to_gu(e["u"]), to_gv(e["v"])
                 kind = e["kind"]
                 if kind == "boundary_min":
-                    on_global = (abs(u_g - gu_lo) < 1e-9 or abs(u_g - gu_hi) < 1e-9
-                                 or abs(v_g - gv_lo) < 1e-9 or abs(v_g - gv_hi) < 1e-9)
+                    # A domain border only counts as a real boundary when the
+                    # surface is OPEN in that direction (a revolution's u seam
+                    # is a periodic seam, not an edge).
+                    on_global = ((not closed_u and (abs(u_g - gu_lo) < 1e-9
+                                                    or abs(u_g - gu_hi) < 1e-9))
+                                 or (not closed_v and (abs(v_g - gv_lo) < 1e-9
+                                                       or abs(v_g - gv_hi) < 1e-9)))
                     if not on_global:
                         kind = "min"
                 _merge_surface_point(pts, u_g, v_g, e, kind, atol)
 
+    if closed_u:
+        pts = _merge_periodic_seam_2d(pts, "u", gu_lo, gu_hi, atol, geo_scale)
+    if closed_v:
+        pts = _merge_periodic_seam_2d(pts, "v", gv_lo, gv_hi, atol, geo_scale)
+
+    # Stitch tolerance must swallow the trace-endpoint slop at patch seams
+    # (a trace ends within ~step of the seam in local params).
     curves = _stitch_degenerate_curves(curves, band,
-                                       stitch_tol=1e-6 * max(gu_hi - gu_lo, gv_hi - gv_lo))
+                                       stitch_tol=0.02 * max(gu_hi - gu_lo, gv_hi - gv_lo))
+    # Re-certify circles on the stitched result (a full ring assembled from
+    # per-patch arcs is certified as one exact circle).
+    for c in curves:
+        cert = _certify_circle(c["points"], point)
+        if cert is not None:
+            c["circle"] = cert
+        else:
+            c.pop("circle", None)
 
     # Points lying on a degenerate curve (or inside a degenerate patch) are
     # subsumed by the larger entity.
@@ -1103,6 +1205,29 @@ def _merge_surface_point(merged, u, v, src, kind, atol):
     if "eval" in src:
         entry["eval"] = src["eval"]
     merged.append(entry)
+
+
+def _merge_periodic_seam_2d(pts, axis, g_lo, g_hi, atol, geo_scale):
+    """Merge point entities duplicated across a periodic parameter seam
+    (same physical point polished from both sides of ``axis``'s domain ends).
+    Keeps the nearer duplicate."""
+    span = max(g_hi - g_lo, 1e-300)
+    seam_t = 1e-3 * span
+    seam_geo = max(atol, 1e-6 * max(geo_scale, 1.0))
+    key = axis  # "u" or "v"
+    out = []
+    for e in sorted(pts, key=lambda x: x["distance"]):
+        dup = False
+        for kept in out:
+            near_opposite_ends = (
+                (e[key] - g_lo < seam_t and g_hi - kept[key] < seam_t)
+                or (kept[key] - g_lo < seam_t and g_hi - e[key] < seam_t))
+            if near_opposite_ends and np.linalg.norm(e["point"] - kept["point"]) < seam_geo:
+                dup = True
+                break
+        if not dup:
+            out.append(e)
+    return out
 
 
 def _stitch_degenerate_curves(curves, band, stitch_tol):
