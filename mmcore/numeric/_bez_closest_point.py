@@ -577,13 +577,49 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
         eps = 1e-12
         return u <= eps or u >= 1.0 - eps or v <= eps or v >= 1.0 - eps
 
+    def transverse_correct(u, v):
+        """Correct onto the equidistant manifold along the TRANSVERSE
+        direction only (the largest-|eigenvalue| eigenvector of the Hessian).
+
+        A full 2x2 Newton corrector is wrong here: on real data the ring is
+        degenerate only to rounding (lam_min != 0 exactly), and full Newton
+        also converges TANGENTIALLY toward the nearest noise-scale stationary
+        point, cancelling the predictor's progress (observed as thousands of
+        trace points with no net motion). Correcting only along the transverse
+        eigenvector leaves the tangential coordinate untouched.
+        Returns (u, v, g, ok)."""
+        g = None
+        for _ in range(8):
+            g, gu, gv, guu, guv, gvv = _surface_g_derivs(S, point, u, v, rational)
+            H = np.array([[guu, guv], [guv, gvv]])
+            lam, vec = np.linalg.eigh(H)
+            j = int(np.argmax(np.abs(lam)))
+            e = vec[:, j]
+            lam_t = float(lam[j])
+            if abs(lam_t) < 1e-300:
+                return u, v, g, False
+            r = gu * e[0] + gv * e[1]        # gradient along transverse dir
+            delta = -r / lam_t
+            if abs(delta) > 4.0 * step:
+                return u, v, g, False        # corrector diverging
+            un = min(max(u + delta * e[0], 0.0), 1.0)
+            vn = min(max(v + delta * e[1], 0.0), 1.0)
+            moved = float(np.hypot(un - u, vn - v))
+            u, v = un, vn
+            if moved < 1e-15:
+                break
+        return u, v, g, True
+
+    drift_tol = max(dist_band, 1e-7 * max(d0, 1.0))
     closed = False
     legs = []
     for direction in (1.0, -1.0):
         u, v = float(u0), float(v0)
         prev_t = None
         leg = []
-        for k in range(max_steps):
+        cum_arc = 0.0
+        stall_run = 0
+        for _k in range(max_steps):
             _, _, t, _ = _hessian_eigs(S, point, u, v, rational)
             t = t * direction
             if prev_t is not None and float(np.dot(t, prev_t)) < 0.0:
@@ -593,21 +629,26 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
             hit_edge = not (0.0 <= un <= 1.0 and 0.0 <= vn <= 1.0)
             un = min(max(un, 0.0), 1.0)
             vn = min(max(vn, 0.0), 1.0)
-            uc, vc, rr, _ = newton_surface_closest_point(
-                S, point, un, vn, rational=rational, bounds=(0.0, 1.0, 0.0, 1.0))
-            g = float(np.dot(eval_surface(S, uc, vc, rational=rational) - point,
-                             eval_surface(S, uc, vc, rational=rational) - point))
-            if abs(np.sqrt(max(g, 0.0)) - d0) > max(dist_band, 1e-7 * max(d0, 1.0)):
-                # drifted off the equidistant level -> stop this leg here
+            uc, vc, g, ok = transverse_correct(un, vn)
+            if not ok or g is None:
                 break
-            if abs(uc - u) < 1e-13 and abs(vc - v) < 1e-13:
-                break                     # stuck (e.g. pinned at a corner)
+            if abs(np.sqrt(max(g, 0.0)) - d0) > drift_tol:
+                break                     # drifted off the equidistant level
+            adv = float(np.hypot(uc - u, vc - v))
+            if adv < 0.05 * step:
+                stall_run += 1            # no net progress: don't spin forever
+                if stall_run >= 3:
+                    break
+            else:
+                stall_run = 0
             leg.append((uc, vc))
+            cum_arc += adv
             u, v = uc, vc
             if hit_edge or on_boundary(u, v):
                 break
-            # closure: back near the seed after leaving it
-            if direction > 0 and k > 5 and np.hypot(u - u0, v - v0) < 0.75 * step:
+            # closure: back near the seed AFTER genuinely travelling (a
+            # stalled trace hovering at the seed must not read as a loop)
+            if direction > 0 and cum_arc > 10.0 * step and np.hypot(u - u0, v - v0) < 0.75 * step:
                 closed = True
                 break
         legs.append(leg)
@@ -619,6 +660,12 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
     if len(pts_uv) < 3:
         return None
     uv = np.array(pts_uv, dtype=np.float64)
+    # Minimum-extent validity: a trace that never achieved real arc length is
+    # a failed trace (it must fall back to isolated handling and must NOT
+    # consume other seeds or emit a micro-fragment entity).
+    arc_len = float(np.sum(np.hypot(np.diff(uv[:, 0]), np.diff(uv[:, 1]))))
+    if arc_len < 3.0 * step:
+        return None
     xyz = np.array([eval_surface(S, uu, vv, rational=rational) for uu, vv in pts_uv])
     dists = np.linalg.norm(xyz - point[None, :], axis=1)
     return {"uv": uv, "points": xyz, "distance": float(np.mean(dists)),
@@ -1151,10 +1198,16 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     if closed_v:
         pts = _merge_periodic_seam_2d(pts, "v", gv_lo, gv_hi, atol, geo_scale)
 
+    # Chain/subsume in NORMALIZED parameters: real domains can be extremely
+    # anisotropic (e.g. u in [0, 2pi], v in [0, 1.8e4]); raw uv distances would
+    # be dominated by the larger axis and meaningless for the smaller one.
+    u_ext = max(gu_hi - gu_lo, 1e-300)
+    v_ext = max(gv_hi - gv_lo, 1e-300)
+
     # Stitch tolerance must swallow the trace-endpoint slop at patch seams
     # (a trace ends within ~step of the seam in local params).
-    curves = _stitch_degenerate_curves(curves, band,
-                                       stitch_tol=0.02 * max(gu_hi - gu_lo, gv_hi - gv_lo))
+    curves = _stitch_degenerate_curves(curves, band, stitch_tol=0.02,
+                                       u_ext=u_ext, v_ext=v_ext)
     # Re-certify circles on the stitched result (a full ring assembled from
     # per-patch arcs is certified as one exact circle).
     for c in curves:
@@ -1168,9 +1221,9 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     # subsumed by the larger entity.
     def subsumed(e):
         for c in curves:
+            uv_n = c["uv"] / np.array([u_ext, v_ext])
             if (abs(e["distance"] - c["distance"]) <= band
-                    and _uv_dist_to_polyline(e["u"], e["v"], c["uv"])
-                    < 0.05 * max(gu_hi - gu_lo, gv_hi - gv_lo)):
+                    and _uv_dist_to_polyline(e["u"] / u_ext, e["v"] / v_ext, uv_n) < 0.05):
                 return True
         for s in surfs:
             if (s["u_range"][0] - 1e-9 <= e["u"] <= s["u_range"][1] + 1e-9
@@ -1230,14 +1283,21 @@ def _merge_periodic_seam_2d(pts, axis, g_lo, g_hi, atol, geo_scale):
     return out
 
 
-def _stitch_degenerate_curves(curves, band, stitch_tol):
+def _stitch_degenerate_curves(curves, band, stitch_tol, u_ext=1.0, v_ext=1.0):
     """Chain traced curve entities whose endpoints meet (patch seams).
 
-    A chain whose final endpoints also meet is marked ``closed`` (e.g. the
-    equidistant ring of a full surface of revolution).
+    Endpoint proximity is measured in NORMALIZED parameters (uv divided by
+    the per-axis domain extents) so anisotropic domains do not skew the
+    tolerance. A chain whose final endpoints also meet is marked ``closed``
+    (e.g. the equidistant ring of a full surface of revolution).
     """
     if len(curves) <= 1:
         return curves
+    scale = np.array([u_ext, v_ext], dtype=np.float64)
+
+    def gap(p, q):
+        return float(np.hypot(*((p - q) / scale)))
+
     pool = [dict(c) for c in curves]
     out = []
     while pool:
@@ -1254,18 +1314,17 @@ def _stitch_degenerate_curves(curves, band, stitch_tol):
                 a0, a1 = cur["uv"][0], cur["uv"][-1]
                 b0, b1 = other["uv"][0], other["uv"][-1]
                 join = None
-                if np.hypot(*(a1 - b0)) < stitch_tol:
+                if gap(a1, b0) < stitch_tol:
                     join = (cur["uv"], other["uv"], cur["points"], other["points"])
-                elif np.hypot(*(a1 - b1)) < stitch_tol:
+                elif gap(a1, b1) < stitch_tol:
                     join = (cur["uv"], other["uv"][::-1], cur["points"], other["points"][::-1])
-                elif np.hypot(*(a0 - b1)) < stitch_tol:
+                elif gap(a0, b1) < stitch_tol:
                     join = (other["uv"], cur["uv"], other["points"], cur["points"])
-                elif np.hypot(*(a0 - b0)) < stitch_tol:
+                elif gap(a0, b0) < stitch_tol:
                     join = (other["uv"][::-1], cur["uv"], other["points"][::-1], cur["points"])
                 if join is not None:
                     uv = np.vstack([join[0], join[1][1:]])
                     xyz = np.vstack([join[2], join[3][1:]])
-                    n_tot = len(curves)
                     cur = {"kind": "degenerate_curve", "uv": uv, "points": xyz,
                            "closed": False, "u": float(uv[len(uv) // 2, 0]),
                            "v": float(uv[len(uv) // 2, 1]),
@@ -1275,14 +1334,17 @@ def _stitch_degenerate_curves(curves, band, stitch_tol):
                     changed = True
                     break
         # Closure of the assembled chain: either the UV ends meet (a loop
-        # inside the domain) or the 3-D endpoints coincide (a ring across a
-        # periodic parameter seam, where uv=0 and uv=1 are the same physical
-        # point but maximally distant in parameter space).
+        # inside the domain) or the 3-D endpoints meet across a periodic
+        # parameter seam (there uv=0 and uv=1 are the same physical point but
+        # maximally distant in parameter space). Traces legitimately stop up
+        # to ~a step short of patch edges, so "meet" in 3-D means within a
+        # few trace sample steps, measured from the polyline itself.
         if len(cur["uv"]) > 3:
-            uv_meet = np.hypot(*(cur["uv"][0] - cur["uv"][-1])) < stitch_tol
-            diag = float(np.linalg.norm(cur["points"].max(0) - cur["points"].min(0)))
+            uv_meet = gap(cur["uv"][0], cur["uv"][-1]) < stitch_tol
+            seg = np.linalg.norm(np.diff(cur["points"], axis=0), axis=1)
+            step_3d = float(np.mean(seg)) if len(seg) else 0.0
             xyz_meet = (float(np.linalg.norm(cur["points"][0] - cur["points"][-1]))
-                        < 1e-6 * max(diag, 1e-12))
+                        < max(2.0 * step_3d, 1e-12))
             if uv_meet or xyz_meet:
                 cur["closed"] = True
         out.append(cur)

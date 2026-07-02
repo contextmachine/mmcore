@@ -760,3 +760,36 @@ def test_nonplanar_spherical_equidistant_curve_general_pull():
     # the trace covers the full band (v = 0.5 line, edge to edge in u)
     assert np.all(np.abs(c["uv"][:, 1] - 0.5) < 1e-6)
     assert c["uv"][:, 0].max() - c["uv"][:, 0].min() > 0.9
+
+
+# ---------------- real Rhino data (ModelAbsoluteTolerance = 1e-3) ----------
+# Arbitrary-orientation surfaces of revolution queried on the axis: the ring
+# is degenerate only to floating-point rounding (lam_min != 0 exactly), which
+# is what the transverse-only trace corrector exists for — a full 2x2 Newton
+# corrector slides tangentially and stalls into micro-fragments.
+
+def _assert_single_closed_ring(val, query, atol=1e-3, min_u_coverage=0.95):
+    res = nurbs_surface_closest_points(val, query, atol=atol)
+    assert len(res) == 1, f"expected one ring entity, got {[e['kind'] for e in res]}"
+    c = res[0]
+    assert c["kind"] == "degenerate_curve"
+    assert c["closed"], "full-revolution ring must be closed"
+    assert "circle" in c, "planar ring must certify as an exact circle"
+    assert abs(c["circle"]["arc_angle"] - 2 * np.pi) < 0.02
+    d = np.linalg.norm(c["points"] - np.asarray(query)[None, :], axis=1)
+    assert d.max() - d.min() <= atol, "ring must be equidistant within atol"
+    ku = np.asarray(val.knot_u, dtype=float)
+    u_dom = ku[-1] - ku[0]
+    assert (c["uv"][:, 0].max() - c["uv"][:, 0].min()) > min_u_coverage * u_dom, \
+        "ring must cover the full revolution (no missing fragments)"
+    return c
+
+
+def test_rhino_rotated_cone_single_closed_ring():
+    from examples.closest_point.rotated_cone import val, query
+    _assert_single_closed_ring(val, query)
+
+
+def test_rhino_paraboloid_single_closed_ring():
+    from examples.closest_point.paraboloid import val, query
+    _assert_single_closed_ring(val, query)
