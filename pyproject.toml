@@ -1,6 +1,6 @@
 [build-system]
 requires = ["poetry-core", "cython>=3.1",
-      "numpy==1.24.3; python_version <= '3.11'",
+      "numpy==2.0.2; python_version <= '3.11'",
       "numpy>=2.0.2; python_version > '3.11' and python_version < '3.14'",
 
     "numpy>=2.4.0; python_version >= '3.14'",
@@ -10,7 +10,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mmcore"
-version = "0.53.0"
+version = "0.54.0"
 description = "mmcore"
 authors = ["Andrew Astakhov <sthv.developer@gmail.com>", ]
 license = "Apache License Version 2.0"

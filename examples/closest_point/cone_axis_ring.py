@@ -26,6 +26,7 @@ def full_cone(radius=3.0, height=4.0):
     weights = np.column_stack([wrow, wrow])
     knot_u = np.array([0, 0, 0, .25, .25, .5, .5, .75, .75, 1, 1, 1], dtype=float)
     knot_v = np.array([0, 0, 1, 1], dtype=float)
+
     return NURBSSurfaceTuple(3, 2, knot_u, knot_v, cps, weights)
 
 

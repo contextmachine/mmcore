@@ -3,14 +3,16 @@ import numpy as np
 from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
 from mmcore.numeric._bez_closest_point import nurbs_surface_closest_points
 
+import numpy as np
+from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+
 
 val = NURBSSurfaceTuple(
     order_u=3,
     order_v=2,
-    knot_u=np.array([    0.        ,     0.        ,     0.        ,  9393.01092241,
-            9393.01092241, 18786.02184483, 18786.02184483, 28179.03276724,
-           28179.03276724, 37572.04368966, 37572.04368966, 37572.04368966]),
-    knot_v=np.array([    0.        ,     0.        , 12268.57175443, 12268.57175443]),
+    knot_u=np.array([0.  , 0.  , 0.  , 0.25, 0.25, 0.5 , 0.5 , 0.75, 0.75, 1.  , 1.  ,
+           1.  ]),
+    knot_v=np.array([0., 0., 1., 1.]),
     control_points=np.array([[[20949.04757432, 62731.69387923, -4094.18138263],
             [26488.26531008, 55368.39245528,  5974.30602132]],
 
@@ -48,12 +50,12 @@ val = NURBSSurfaceTuple(
            [1.        , 1.        ]])
 )
 
-query = np.array([25317.249206, 61395.297031, 0.0])  # on the rotation axis
+query = np.array([25317.249205828590, 61395.297030994217, 0.0])  # on the rotation axis
 
 if __name__ == "__main__":
     import time
 
-    R, H = 3.0, 4.0
+
     cone = val
 
 

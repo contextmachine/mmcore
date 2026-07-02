@@ -1054,7 +1054,8 @@ def elevate_derivative_net_homog(P4, int order=2):
     cdef cnp.ndarray[f64, ndim=2] P = np.asarray(P4, dtype=np.float64, order="C")
     cdef int dh = P.shape[1]
     cdef list nets = [P.copy()]
-
+    cdef size_t nets_cnt=P.shape[0]
+    cdef int nets_last_i
     cdef int k, i, j, n
     cdef cnp.ndarray[f64, ndim=2] prev
     cdef cnp.ndarray[f64, ndim=2] d
@@ -1062,7 +1063,9 @@ def elevate_derivative_net_homog(P4, int order=2):
     cdef f64[:, ::1] mvD
 
     for k in range(1, order + 1):
-        prev = nets[-1]
+        nets_cnt=len(nets)
+        nets_last_i = nets_cnt-1
+        prev = nets[nets_last_i]
         n = prev.shape[0] - 1
         if n <= 0:
             nets.append(prev[:1].copy())
