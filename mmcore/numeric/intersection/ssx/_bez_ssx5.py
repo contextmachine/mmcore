@@ -430,22 +430,44 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
         return None  # Undetermined due to error
 
 
-def _tangency_witness(cell):
-    """Gauss-Newton witness point of the deflated system Δ = Ψ ∩ TΨ on the
-    cell (local [0,1]⁴ coords). Returns (ok, x_local(4,), residual).
+def _tangency_witness(cell, atol):
+    """Gauss-Newton witness point(s) of the deflated system Δ = Ψ ∩ TΨ on the
+    cell (local [0,1]⁴ coords). Returns (ok, roots, best_residual) where
+    `roots` is a list of DISTINCT local witness points, the box-center
+    start's root first when it converges.
 
     Mirrors `_check_tangency`'s DeflatedSystem construction exactly (same
     interval nets, same local box) but runs the witness tighter
     (tol_f=1e-10, max_iter=24): `_check_tangency` only needs a fast
-    yes/no, this point is EMITTED as a typed singularity's coordinates.
+    yes/no, these points are EMITTED as typed singularities' coordinates.
     Kept separate so `_check_tangency`'s ternary contract (and the
     diagnostic scripts that monkeypatch it) stay untouched.
+
+    Enumeration: one cell can hold SEVERAL isolated tangencies (e.g.
+    z = 16·((s-0.45)(s-0.9))² + (2t-1)² touches z=0 twice, both touches in
+    the crossing-less TOP cell). A single center start converges into one
+    basin and the emission branch `continue`s, silently dropping the rest —
+    and multistart GN cannot fix that: between two touches the height
+    function has a critical point where all four TΨ rows vanish but Ψ ≠ 0,
+    a genuine local minimum of ‖Δ‖ that traps every start on the far side
+    (measured: all s=0.75 lattice starts die there at ‖Δ‖≈4e-2). So after
+    the primary center witness, enumerate ALL Δ-roots with `solve_zero_dim`
+    on the nets {Ψ·3, TΨ·4} — Bernstein hull exclusion prunes that trap
+    sheet outright (its Ψ hull excludes 0). If the budget exhausts (Δ's
+    zero set 1-dimensional, e.g. a tangent LOOP — Task 5's territory),
+    `roots` is a valid lower bound: every entry is still a converged
+    witness. Cost is confined to genuine crossing-less tangent cells (zero
+    across coverage cases 5–11 and the legacy tangential case).
     """
     from mmcore.numeric.bern import bern_eval as _bern_eval
     from mmcore.numeric.ndinterval import interval as iv_interval, get_iarray
     from mmcore.numeric.intersection._deflate import (
         DeflatedSystem, gauss_newton_witness, _box_from_any,
     )
+    from mmcore.numeric.intersection.ssx._ssx5_singular import (
+        BoxNet, psi_vector_net, solve_zero_dim,
+    )
+    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
     P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
     P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
     try:
@@ -456,10 +478,44 @@ def _tangency_witness(cell):
             bern_eval=_bern_eval, interval_ctor=iv_interval,
         )
         Bf = _box_from_any(tuple(iv_interval(0.0, 1.0) for _ in range(4)))
-        ok, xw, fn = gauss_newton_witness(sys_, Bf, tol_f=1e-10, max_iter=24)
-        return ok, xw, fn
+
+        ps, pt = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
+        pu, pv = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
+        ptol = np.maximum(
+            np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
+
+        def _gn(x0):
+            ok_, xw_, _fn = gauss_newton_witness(sys_, Bf, x0=x0,
+                                                 tol_f=1e-10, max_iter=24)
+            return np.asarray(xw_, dtype=np.float64) if ok_ else None
+
+        def _xyz(x):
+            return eval_surface(cell.g1.surface, x[0], x[1], rational=True)
+
+        roots = []
+        first = _gn(None)          # primary witness: box-center start
+        if first is not None:
+            roots.append(first)
+        G = psi_vector_net(cell.g1.surface, cell.g2.surface)
+        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+        nets += [BoxNet(np.asarray(T, dtype=np.float64)[..., None],
+                        axes=(0, 1, 2, 3))
+                 for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+        sols, _exhausted = solve_zero_dim(nets, _gn, ptol,
+                                          max_cells=2000, dedup_xyz=_xyz,
+                                          atol=atol)
+        for sol in sols:
+            # same destructive-dedup rule as solve_zero_dim's own _dup:
+            # 1·ptol per-axis box AND xyz <= atol
+            if not any(np.all(np.abs(sol - r_) <= ptol)
+                       and float(np.linalg.norm(_xyz(sol) - _xyz(r_))) <= atol
+                       for r_ in roots):
+                roots.append(sol)
+        best_fn = min((float(np.linalg.norm(sys_.delta_point(r_)))
+                       for r_ in roots), default=np.inf)
+        return bool(roots), roots, best_fn
     except Exception:
-        return False, None, np.inf
+        return False, [], np.inf
 
 
 # ---------------------------------------------------------------------------
@@ -3071,12 +3127,16 @@ def bez_ssx(
             # Isolated tangent point (or tangent feature with no boundary
             # contact). The Gauss-Newton witness from _check_tangency is the
             # point — recompute it here tighter to get coordinates (cheap:
-            # one small GN solve; often this fires at the TOP cell, before
-            # any subdivision) and emit a typed singularity. Neighboring
-            # cells can also confirm the same tangency; the unify_tol box +
-            # 2·atol xyz dedup collapses them to one emitted point.
-            ok, xw, fn = _tangency_witness(cell)
-            if ok:
+            # often this fires at the TOP cell, before any subdivision) and
+            # emit typed singularities. The witness enumerates every distinct
+            # Δ-root in the cell (solve_zero_dim hull exclusion): one big
+            # cell can hold several isolated tangencies, and `continue`
+            # would silently drop the ones the center start missed.
+            # Neighboring cells can also confirm the same tangency; the
+            # unify_tol box + 2·atol xyz dedup collapses them to one emitted
+            # point per tangency.
+            ok, roots, fn = _tangency_witness(cell, atol)
+            for xw in roots:
                 stuv_g = _local_to_global(np.asarray(xw), cell.box)
                 xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
                 if not any(g.kind == "tangent_point"

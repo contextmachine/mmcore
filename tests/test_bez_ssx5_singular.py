@@ -269,3 +269,48 @@ def test_isolated_tangent_point_found():
     assert np.allclose(g.stuv[:2], [0.5, 0.5], atol=1e-4)
     assert np.allclose(g.xyz, [0.5, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
+
+
+def _double_touch_asym():
+    """S1: z = 16*((s-0.45)(s-0.9))^2 + (2t-1)^2 (deg 4x2), touching the z=0
+    plane at (s,t) = (0.45, 0.5) AND (0.9, 0.5).
+
+    Both touches sit inside the crossing-less TOP cell, and the box-center
+    Gauss-Newton start converges into the s=0.45 basin only — a single-start
+    witness followed by `continue` silently drops the s=0.9 tangency.
+    (The symmetric variant survives by luck: the center start stalls between
+    the basins, _check_tangency returns None, and subdivision separates the
+    roots before any emission.)
+    """
+    from math import comb
+
+    def mono_to_bern(a):
+        n = len(a) - 1
+        return [sum(a[j] * comb(i, j) / comb(n, j) for j in range(i + 1))
+                for i in range(n + 1)]
+
+    # q(s) = (s-0.45)(s-0.9) = s^2 - 1.35 s + 0.405 ; z_s(s) = 16 q(s)^2
+    qs = np.polynomial.polynomial.polymul(
+        [0.405, -1.35, 1.0], [0.405, -1.35, 1.0]) * 16.0
+    zb = mono_to_bern(qs)                            # deg 4 Bernstein
+    xb = mono_to_bern([0.0, 1.0, 0.0, 0.0, 0.0])     # x(s) = s, deg 4
+    zc = [1.0, -1.0, 1.0]                            # (2t-1)^2, deg 2
+    yb = [0.0, 0.5, 1.0]                             # y(t) = t, deg 2
+    S1 = np.array([[[xb[i], yb[j], zb[i] + zc[j]] for j in range(3)]
+                   for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    return S1, S2
+
+
+def test_two_isolated_tangent_points_same_cell():
+    S1, S2 = _double_touch_asym()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = sorted((g for g in r["singularities"] if g.kind == "tangent_point"),
+                  key=lambda g: float(g.stuv[0]))
+    assert len(sing) == 2
+    assert np.allclose(sing[0].stuv[:2], [0.45, 0.5], atol=1e-4)
+    assert np.allclose(sing[0].xyz, [0.45, 0.5, 0.0], atol=1e-3)
+    assert np.allclose(sing[1].stuv[:2], [0.9, 0.5], atol=1e-4)
+    assert np.allclose(sing[1].xyz, [0.9, 0.5, 0.0], atol=1e-3)
+    assert r["branches"] == []          # nothing else to trace
