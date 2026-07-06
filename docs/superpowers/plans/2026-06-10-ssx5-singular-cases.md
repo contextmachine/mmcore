@@ -678,14 +678,18 @@ In `_bez_ssx5.py`, in the crossing-less tangency branch (Task 3's code), after e
             # find loops/features around the tangency that have no boundary
             # crossings, then march Phi from each seed and keep the
             # Psi-valid samples (same filtering as _deflate_tangent_cell).
-            # NOTE: this whole block nests under `if ok:` from the witness
-            # emission above — `xw` seeds the Phi-equation choice; without a
-            # witness, fall back to the cell center np.full(4, 0.5).
+            # NOTE (as-built after 237c8c9): this whole block nests under
+            # `if roots:` from the witness ENUMERATION above — Task 3 shipped
+            # `_tangency_witness(cell, atol) -> (ok, roots, best_fn)` where
+            # `roots` lists ALL tangent points in the cell (center GN witness
+            # first, then solve_zero_dim enumeration; ok == bool(roots)).
+            # `roots[0]` seeds the Phi-equation choice; without any root,
+            # fall back to the cell center np.full(4, 0.5).
             psi_rows, t_idx = _choose_phi_equations(
                 P1_cart_local, P2_cart_local,
                 [np.asarray(T, dtype=np.float64)[..., None]
                  for T in (cell.T1, cell.T2, cell.T3, cell.T4)],
-                np.asarray(xw), rational=False)
+                np.asarray(roots[0]), rational=False)
             seeds = phi_loop_seeds(
                 cell.g1.surface, cell.g2.surface,
                 (cell.T1, cell.T2, cell.T3, cell.T4),
