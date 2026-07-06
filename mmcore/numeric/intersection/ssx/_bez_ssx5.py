@@ -3669,6 +3669,15 @@ def bez_ssx(
     all_fragments: list[_Fragment] = []
     all_points = []
     all_singularities: list[SSXSingularity] = []
+    # C3 gate (paper Theorem 3): stays False while every traced cell's own
+    # 3D image is certified injective AND no tangency arm emitted anything.
+    # Theorem 3 is a PER-BOX certificate — cross-box image collisions (two
+    # far-apart preimage strips meeting at one 3D point, the umbrella X)
+    # are exactly what a straddling T-hull on the coarser ancestor cell
+    # flags before subdivision separates the strips.
+    from mmcore.numeric.intersection.ssx._ssx5_singular import theorem3_excludes_c3
+
+    c3_possible = False
 
     while queue:
         cell = queue.popleft()
@@ -3730,6 +3739,9 @@ def bez_ssx(
                                         all_singularities,
                                         enumerate_all=False)
                 if cell.crossings:
+                    if not c3_possible and not theorem3_excludes_c3(
+                            cell.T1, cell.T2, cell.T3, cell.T4):
+                        c3_possible = True
                     fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
                     all_fragments.extend(fr)
                     all_points.extend(pt)
@@ -3802,6 +3814,7 @@ def bez_ssx(
             # spelled out because THIS site depends on full enumeration
             # (multi-touch cells); `roots` feeds Task 5's Φ∩L seeding
             # (_choose_phi_equations takes roots[0]).
+            c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
                                             all_singularities,
                                             enumerate_all=True)
@@ -3852,6 +3865,7 @@ def bez_ssx(
             # center witness costs ~ms; a witness landing ON a traced
             # tangential/overlap branch is dropped by the post-assembly
             # subsumption filter, so the curve case emits nothing.
+            c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                                 enumerate_all=False)
             # Convert crossings to the cell's local stuv for the Φ tracer.
@@ -4238,6 +4252,24 @@ def bez_ssx(
             kind="cusp", stuv=np.asarray(hit["stuv"], dtype=np.float64),
             xyz=np.asarray(hit["xyz"], dtype=np.float64),
             branch_links=links))
+
+    # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
+    # Runs AFTER tracing (branch geometry drives the candidate search) and
+    # only when the Theorem-3 gate fired: on regular transversal cases every
+    # traced cell certifies an injective image and no tangency arm ran, so
+    # the O(N^2) segment-pair search is skipped entirely.
+    if c3_possible and all_branches:
+        from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
+
+        for hit in c3_pass(S1_h_top, S2_h_top, all_branches, atol,
+                           ptol4_global):
+            z = hit["z"]
+            all_singularities.append(SSXSingularity(
+                kind="self_intersection",
+                stuv=np.array([z[0], z[1], z[4], z[5]]),
+                stuv_mate=np.array([z[2], z[3], z[4], z[5]]),
+                xyz=np.asarray(hit["xyz"], dtype=np.float64),
+                branch_links=hit["links"]))
 
     # A reported point within 2·atol (xyz) of an emitted tangent_point is
     # not a separate intersection — it is the certified tangency itself,

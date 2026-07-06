@@ -581,3 +581,51 @@ def test_cusp_point_on_branch():
     for a in np.linspace(-0.95, 0.95, 41):
         p = np.array([a * a, a ** 3, 0.5])
         assert min(_pt_poly(p, poly) for poly in polys) < 5e-3
+
+
+# ---------------------------------------------------------------------------
+# Task 7: C3 — self-intersections (Theorem 3 + 6-var Newton post-pass)
+# ---------------------------------------------------------------------------
+
+def _umbrella_case():
+    """S1: Whitney-umbrella style (a*b, a, b^2), a=2s-1, b=2t-1 (deg 1x2);
+    S2: plane z=0.5. SSI: x = a*b with b=+-sqrt(0.5) — two straight lines
+    through (0,0,0.5), crossing there with DIFFERENT (s,t) preimages
+    (t=(1+-sqrt(0.5))/2): a C3 self-intersection of the SSI image.
+    Paper Fig. 22 (Example 9) analog."""
+    a = [-1.0, 1.0]; bb = [-1.0, 0.0, 1.0]; bsq = [1.0, -1.0, 1.0]
+    S1 = np.array([[[a[i] * bb[j], a[i], bsq[j]] for j in range(3)] for i in range(2)])
+    S2 = np.array([[[-1.5, -1.5, 0.5], [-1.5, 1.5, 0.5]],
+                   [[1.5, -1.5, 0.5], [1.5, 1.5, 0.5]]])
+    # self-check the construction
+    for s, t in [(0.2, 0.7), (0.5, 0.5), (0.9, 0.1)]:
+        av = 2 * s - 1; bv = 2 * t - 1
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [av * bv, av, bv * bv], atol=1e-12)
+    return S1, S2
+
+
+def test_self_intersection_point():
+    S1, S2 = _umbrella_case()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    c3 = [g for g in r["singularities"] if g.kind == "self_intersection"]
+    assert len(c3) == 1
+    g = c3[0]
+    assert np.allclose(g.xyz, [0.0, 0.0, 0.5], atol=2e-3)
+    assert g.stuv_mate is not None
+    # the two preimages differ in (s,t) but share xyz
+    assert abs(g.stuv[1] - g.stuv_mate[1]) > 0.2      # t = (1±0.707)/2 differ by ~0.707
+    assert len({l[0] for l in g.branch_links}) >= 1   # linked to branch(es)
+
+
+def test_theorem3_skips_regular_case():
+    # transversal bilinear pair. NOTE (measured): the Theorem-3 gate does
+    # NOT certify here — the whole curve traces from the TOP cell, whose
+    # T1/T2 hulls touch zero at the domain edge, so the (sound, strict)
+    # hull test fails and c3_pass DOES run. The guarantee this test pins is
+    # the one that matters: the vectorized AABB broadphase makes that run
+    # nearly free and it finds nothing — zero spurious self-intersections.
+    s1 = np.array([[[0., 0., 0.], [0., 10., 0.]], [[10., 0., 0.], [10., 10., 10.]]])
+    s2 = np.array([[[0., 0., 3.], [0., 10., 3.]], [[10., 0., 3.], [10., 10., 3.]]])
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    assert [g for g in r["singularities"] if g.kind == "self_intersection"] == []

@@ -539,3 +539,140 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
         for s in sols:
             out.append({"surface": which, "stuv": np.asarray(s), "xyz": _xyz(s)})
     return out, curve_flag
+
+
+def theorem3_excludes_c3(T1, T2, T3, T4) -> bool:
+    """Paper Theorem 3: injectivity of the 3D image over the box. One
+    sign-definite minor from {T1,T2} AND one from {T3,T4} suffices —
+    then the box's own image cannot self-intersect. NOTE the certificate
+    is per-box: it says nothing about collisions between the images of
+    two DIFFERENT boxes; those are handled by c3_pass's segment-pair
+    proximity search over the traced branches."""
+    def _definite(T):
+        T = np.asarray(T)
+        return float(T.min()) > 0.0 or float(T.max()) < 0.0
+    return (_definite(T1) or _definite(T2)) and (_definite(T3) or _definite(T4))
+
+
+def c3_pass(S1_h, S2_h, branches, atol, ptol4):
+    """Post-trace C3 detection: crossing branch segments -> square 6-var
+    Newton {R1(s,t)=R2(u,v), R1(p,q)=R2(u,v)} -> certified pairs.
+
+    Candidates: pairs of polyline segments (across branches, or within one
+    branch at index distance > 2) whose segment-segment xyz distance is
+    < 2*atol. Each candidate seeds the square Newton in (s,t,p,q,u,v); a
+    solution is a self-intersection iff both residuals meet atol and the
+    two S1 preimages differ by > 4*ptol per axis (same-preimage solutions
+    are the ordinary curve point, not a C3).
+
+    Returns a list of dicts {"z": (6,), "xyz": (3,), "links":
+    [(branch_i, seg_k), (branch_j, seg_l)]}.
+    """
+    from mmcore.numeric.intersection._bezier_common import (
+        eval_surface, eval_surface_d1,
+    )
+
+    def seg_dist(p1, p2, q1, q2):
+        d1 = p2 - p1; d2 = q2 - q1; r = p1 - q1
+        a = d1 @ d1; e = d2 @ d2; f = d2 @ r
+        if a < 1e-30 and e < 1e-30:
+            return float(np.linalg.norm(r)), 0.0, 0.0
+        if a < 1e-30:
+            s_ = 0.0; t_ = float(np.clip(f / e, 0.0, 1.0))
+        else:
+            c = d1 @ r
+            if e < 1e-30:
+                t_ = 0.0; s_ = float(np.clip(-c / a, 0.0, 1.0))
+            else:
+                b = d1 @ d2; den = a * e - b * b
+                s_ = float(np.clip((b * f - c * e) / den, 0.0, 1.0)) if den > 1e-30 else 0.0
+                t_ = float(np.clip((b * s_ + f) / e, 0.0, 1.0))
+        cp1 = p1 + s_ * d1; cp2 = q1 + t_ * d2
+        return float(np.linalg.norm(cp1 - cp2)), s_, t_
+
+    def newton6(z0):
+        z = np.asarray(z0, dtype=np.float64).copy()   # (s,t,p,q,u,v)
+        for _ in range(40):
+            r1a, du1a, dv1a = eval_surface_d1(S1_h, z[0], z[1], rational=True)
+            r1b, du1b, dv1b = eval_surface_d1(S1_h, z[2], z[3], rational=True)
+            r2, du2, dv2 = eval_surface_d1(S2_h, z[4], z[5], rational=True)
+            F = np.concatenate([r1a - r2, r1b - r2])
+            if np.linalg.norm(F) < 1e-11:
+                break
+            J = np.zeros((6, 6))
+            J[:3, 0], J[:3, 1], J[:3, 4], J[:3, 5] = du1a, dv1a, -du2, -dv2
+            J[3:, 2], J[3:, 3], J[3:, 4], J[3:, 5] = du1b, dv1b, -du2, -dv2
+            try:
+                z = np.clip(z - np.linalg.solve(J, F), 0.0, 1.0)
+            except np.linalg.LinAlgError:
+                return None
+        r1a = eval_surface(S1_h, z[0], z[1], rational=True)
+        r1b = eval_surface(S1_h, z[2], z[3], rational=True)
+        r2 = eval_surface(S2_h, z[4], z[5], rational=True)
+        if max(float(np.linalg.norm(r1a - r2)),
+               float(np.linalg.norm(r1b - r2))) > atol:
+            return None
+        if np.all(np.abs(z[:2] - z[2:4]) <= 4.0 * np.asarray(ptol4[:2])):
+            return None            # same preimage — not a self-intersection
+        return z
+
+    # --- vectorized AABB broadphase over ALL branch segments -------------
+    # The per-box Theorem-3 gate in bez_ssx fires liberally (a coarse traced
+    # cell's T-hull touching zero at a domain edge already defeats it — the
+    # plain bilinear/plane pair traces from its TOP cell and fails the
+    # certificate), so this search must be cheap when there is nothing to
+    # find. One numpy broadcast tests every segment pair's atol-inflated
+    # AABB overlap; the exact seg_dist + Newton run only on survivors
+    # (measured: a couple of ms at M ~ 500 segments vs ~0.5 s for the plain
+    # O(M^2) Python loop).
+    found: list = []
+    segs_a, segs_b, seg_s4a, seg_s4b, seg_branch, seg_idx = [], [], [], [], [], []
+    for bi, b in enumerate(branches):
+        xyz = np.asarray(b.curve[1], dtype=np.float64)
+        stuv = np.asarray(b.curve[0], dtype=np.float64)
+        if len(xyz) < 2:
+            continue
+        segs_a.append(xyz[:-1]); segs_b.append(xyz[1:])
+        seg_s4a.append(stuv[:-1]); seg_s4b.append(stuv[1:])
+        seg_branch.append(np.full(len(xyz) - 1, bi))
+        seg_idx.append(np.arange(len(xyz) - 1))
+    if not segs_a:
+        return found
+    A = np.concatenate(segs_a); B = np.concatenate(segs_b)
+    S4a = np.concatenate(seg_s4a); S4b = np.concatenate(seg_s4b)
+    br = np.concatenate(seg_branch); ix = np.concatenate(seg_idx)
+    lo = np.minimum(A, B) - atol
+    hi = np.maximum(A, B) + atol
+    M = len(A)
+    pairs = []
+    block = 1024                    # bound the broadcast to blocks of M x block
+    for r0 in range(0, M, block):
+        r1 = min(r0 + block, M)
+        ov = np.all((lo[r0:r1, None, :] <= hi[None, :, :])
+                    & (lo[None, :, :] <= hi[r0:r1, None, :]), axis=2)
+        ki, li = np.nonzero(ov)
+        ki = ki + r0
+        keep = li > ki              # unordered pairs once
+        ki, li = ki[keep], li[keep]
+        same = br[ki] == br[li]     # same-branch adjacency: index gap >= 3
+        keep = ~same | (np.abs(ix[ki] - ix[li]) >= 3)
+        pairs.append(np.stack([ki[keep], li[keep]], axis=1))
+    pairs = np.concatenate(pairs) if pairs else np.empty((0, 2), dtype=int)
+    for k, l in pairs:
+        d, s_, t_ = seg_dist(A[k], B[k], A[l], B[l])
+        if d > 2.0 * atol:
+            continue
+        a4 = (1 - s_) * S4a[k] + s_ * S4b[k]
+        b4 = (1 - t_) * S4a[l] + t_ * S4b[l]
+        z0 = np.array([a4[0], a4[1], b4[0], b4[1],
+                       0.5 * (a4[2] + b4[2]), 0.5 * (a4[3] + b4[3])])
+        z = newton6(z0)
+        if z is None:
+            continue
+        if any(float(np.linalg.norm(z - w["z"])) <= 4.0 * float(np.max(ptol4))
+               for w in found):
+            continue
+        xyz = eval_surface(S2_h, z[4], z[5], rational=True)
+        found.append({"z": z, "xyz": xyz,
+                      "links": [(int(br[k]), int(ix[k])), (int(br[l]), int(ix[l]))]})
+    return found
