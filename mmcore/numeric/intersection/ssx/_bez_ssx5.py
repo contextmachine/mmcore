@@ -1339,12 +1339,15 @@ def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
 # Level 4b: Φ-tracer for C₂ tangent cells
 # ---------------------------------------------------------------------------
 
-def _choose_phi_equations(S1, S2, T_arrs, seed_stuv, rational):
+def _choose_phi_equations(S1, S2, T_arrs, seed_stuv, rational, ranked=False):
     """Choose the best 2 Ψ equations + 1 TΨ equation for the regulated system Φ.
 
     Picks the combination giving the best-conditioned 3×4 Jacobian at the seed.
 
     Returns (psi_rows, t_index) — indices into Ψ (0-2) and TΨ (0-3).
+    With `ranked=True` returns the whole candidate list ordered best-first
+    (used by the Φ∩L loop seeding to retry with the runner-up equations
+    when the Ψ-validity filter fragments a Φ-marched loop).
     """
     from itertools import combinations
     from mmcore.numeric.bern import bernstein_eval_nd, bernstein_partial_derivative_coeffs
@@ -1355,8 +1358,7 @@ def _choose_phi_equations(S1, S2, T_arrs, seed_stuv, rational):
     J_psi = np.column_stack([du1, dv1, -du2, -dv2])  # (3, 4)
 
     params = np.array(seed_stuv)
-    best_score = -1.0
-    best_choice = ((0, 1), 0)
+    scored: list[tuple[float, tuple[int, int], int]] = []
 
     for ti in range(4):
         Tv = T_arrs[ti]
@@ -1372,11 +1374,14 @@ def _choose_phi_equations(S1, S2, T_arrs, seed_stuv, rational):
             J_phi = np.vstack([J_psi[list(psi_rows), :], grad.reshape(1, 4)])
             svals = np.linalg.svd(J_phi, compute_uv=False)
             score = float(svals[-1])  # smallest singular value — want it large
-            if score > best_score:
-                best_score = score
-                best_choice = (psi_rows, ti)
+            scored.append((score, psi_rows, ti))
 
-    return best_choice
+    scored.sort(key=lambda e: -e[0])
+    if ranked:
+        return [(psi_rows, ti) for _, psi_rows, ti in scored]
+    if not scored:
+        return (0, 1), 0
+    return scored[0][1], scored[0][2]
 
 
 def _eval_phi(S1, S2, T_arr, psi_rows, s, t, u, v, rational):
@@ -1575,6 +1580,426 @@ def _march_phi_curve(
         xyz_pts.append(pt1.copy())
 
     return np.array(stuv_pts), np.array(xyz_pts)
+
+
+# ---------------------------------------------------------------------------
+# Level 4b': Φ∩L loop seeding for crossing-less tangent cells (paper §5.3.2)
+# ---------------------------------------------------------------------------
+
+def _cell_ptol4(cell, atol):
+    """Per-axis parametric tolerance of the cell's LOCAL sub-surfaces (4,)."""
+    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    ps, pt = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
+    pu, pv = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
+    return np.maximum(np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
+
+
+def _march_closed_from_seed(seed, correct, tangent, midcheck, atol, h_max,
+                            displace=0.02, min_step=1e-6, max_step=0.25,
+                            angle_threshold=0.1, max_points=2000):
+    """Closed-loop predictor-corrector engine: displace one step off `seed`
+    along the curve tangent, then march AWAY until the path returns to the
+    seed. System-agnostic — the Ψ and Φ marchers supply the callbacks:
+
+      correct(x4)        -> (x4_on_curve, xyz3, ok)
+      tangent(x4, prev4) -> (tang4_unit, dir3, speed)  — oriented to prev
+                            when given; (None, None, 0.0) if degenerate
+      midcheck(a4, b4, a3, b3) -> True if the curve deviates > sagitta
+                            tolerance from the chord at the stuv midpoint
+
+    The target-based marchers orient every step TOWARD their target, so
+    seeding them with target == start walks straight back and "arrives"
+    after one step. Here the arrival check is ARMED only once the path has
+    escaped 3x the displacement radius, forcing the march the long way
+    around; `sign(displace)` picks the branch direction at the seed (the
+    Risk-2 flip: a through-the-singularity path is retried with the other
+    sign by the caller).
+
+    Returns (stuv_path, xyz_path) with path[0] == path[-1] == the corrected
+    seed on genuine closure, else None (degenerate tangent, corrector
+    failure streak, cell-boundary exit, arming never reached, or
+    max_points without closure). Loops whose diameter is below the arming
+    radius (~3*|displace| in local parameters) are NOT resolvable by this
+    engine — at the size-gated terminal cells where the seeding runs, such
+    loops are within tolerance of the emitted tangent point itself.
+    """
+    seed = np.asarray(seed, dtype=np.float64)
+    x0, xyz0, ok = correct(seed)
+    if not ok:
+        return None
+    seed = x0                                # snap the seed onto the curve
+    tang, _d3, speed0 = tangent(seed, None)
+    if tang is None or speed0 <= 0.0:
+        return None
+    step0 = abs(float(displace))
+    if displace < 0:
+        tang = -tang
+    x1_pred = np.clip(seed + step0 * tang, 0.0, 1.0)
+    x1, xyz1, ok = correct(x1_pred)
+    if not ok or float(np.linalg.norm(x1 - seed)) < 0.25 * step0:
+        return None                          # displacement collapsed back
+    away = x1 - seed
+    away /= float(np.linalg.norm(away))
+    tang_prev, t3_prev, speed = tangent(x1, away)
+    if tang_prev is None:
+        return None
+
+    stuv_pts = [seed.copy(), x1.copy()]
+    xyz_pts = [np.asarray(xyz0, dtype=np.float64),
+               np.asarray(xyz1, dtype=np.float64)]
+    current = x1
+    sag_tol = 2.0 * atol
+    h = 0.25 * h_max
+    h_floor = 1e-6 * h_max
+    arm_radius = 3.0 * step0
+    armed = False
+    closed = False
+    rejects = 0
+
+    for _ in range(max_points):
+        step = max(min_step, min(max_step, h / max(speed, 1e-12)))
+        dist = float(np.linalg.norm(current - seed))
+        if not armed and dist > arm_radius:
+            armed = True
+        predicted = None
+        if armed and dist < max(2.0 * step, 4.0 * min_step):
+            # Arrival: commit the seed unless the closing chord deviates —
+            # then retarget the predictor at the halfway point (same
+            # pattern as the target-based marchers).
+            if (h > 2.0 * h_floor
+                    and dist > 4.0 * min_step
+                    and float(np.linalg.norm(np.asarray(xyz0) - np.asarray(xyz_pts[-1]))) > atol
+                    and midcheck(current, seed, xyz_pts[-1], xyz0)):
+                h = max(h_floor, h * 0.5)
+                predicted = np.clip(current + 0.5 * (seed - current), 0.0, 1.0)
+            else:
+                stuv_pts.append(seed.copy())
+                xyz_pts.append(np.asarray(xyz0, dtype=np.float64))
+                closed = True
+                break
+
+        if predicted is None:
+            predicted = np.clip(current + step * tang_prev, 0.0, 1.0)
+
+        x, xyz, ok = correct(predicted)
+        if not ok:
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
+            continue
+        # The loop leaves this cell — not an interior loop; the size-gated
+        # subdivision fall-through owns boundary-crossing features.
+        if np.any(x <= 1e-9) or np.any(x >= 1.0 - 1e-9):
+            return None
+
+        tang_new, t3_new, speed_new = tangent(x, tang_prev)
+        if tang_new is None:
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
+            continue
+
+        # No-progress guard (predictor pinned by clipping/corrector).
+        if float(np.linalg.norm(x - current)) <= min_step:
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
+            continue
+
+        if t3_prev is not None and t3_new is not None:
+            cos3 = float(np.clip(np.dot(t3_prev, t3_new), -1.0, 1.0))
+            angle3 = float(np.arccos(abs(cos3)))
+            chord = float(np.linalg.norm(np.asarray(xyz) - np.asarray(xyz_pts[-1])))
+            if chord * angle3 / 8.0 > sag_tol and h > 2.0 * h_floor:
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
+                continue
+            if h > 2.0 * h_floor and midcheck(current, x, xyz_pts[-1], xyz):
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
+                continue
+            if angle3 > 1e-10:
+                h = h * min(2.0, max(0.25, angle_threshold / angle3))
+            else:
+                h = h * 1.5
+            h = max(atol, min(h_max, h))
+
+        rejects = 0
+        current = x
+        tang_prev = tang_new
+        if t3_new is not None:
+            t3_prev = t3_new
+            speed = speed_new
+        stuv_pts.append(current.copy())
+        xyz_pts.append(np.asarray(xyz, dtype=np.float64))
+
+    if not closed:
+        return None
+    return np.array(stuv_pts), np.array(xyz_pts)
+
+
+def _march_psi_closed(cell, seed_local, atol, h_max, displace=0.02):
+    """Closed-loop march of the ordinary (transversal) Ψ system from a
+    full-Ψ seed strictly inside the cell. Backend for Φ∩L seeds that
+    refine onto a TRANSVERSAL loop point (Ψ-Jacobian rank 3): the Φ curve
+    only MEETS such a loop at its TΨ_k-extremes — between them Φ leaves the
+    intersection set (and, measured on the touch-plus-loop test geometry,
+    rides the Ψ-valid-at-tolerance touch valley straight through the
+    singularity, Risk 2) — while the Ψ marcher follows the actual loop.
+
+    Returns a GLOBAL closed `_Fragment` (start/end = None) or None.
+    """
+    S1h, S2h = cell.g1.surface, cell.g2.surface
+
+    def correct(x):
+        s, t, u, v, res, sin_ang = _ssx_correct(S1h, S2h, *x, rational=True)
+        ok = res <= atol * max(sin_ang, 1e-3)
+        xc = np.array([s, t, u, v])
+        return xc, eval_surface(S1h, s, t, rational=True), ok
+
+    def tangent(x, prev):
+        tang, _, _ = _ssx_tangent_4d(S1h, S2h, *x, rational=True,
+                                     direction_hint=prev)
+        if tang is None:
+            return None, None, 0.0
+        if prev is not None and float(np.dot(tang, prev)) < 0.0:
+            tang = -tang
+        d3, sp = _tangent_3d(S1h, x, tang, rational=True)
+        return tang, d3, sp
+
+    def midcheck(a4, b4, a3, b3):
+        return _mid_chord_deviates(S1h, S2h, a4, b4, a3, b3,
+                                   atol, 2.0 * atol, True)
+
+    res = _march_closed_from_seed(seed_local, correct, tangent, midcheck,
+                                  atol, h_max, displace=displace)
+    if res is None:
+        return None
+    stuv_path, xyz_path = res
+    if len(stuv_path) < 6:
+        return None
+    ptol4 = _cell_ptol4(cell, atol)
+    if not np.all(np.abs(stuv_path[-1] - stuv_path[0]) <= 8.0 * ptol4):
+        return None
+    stuv_g = np.array([_local_to_global(x, cell.box) for x in stuv_path])
+    return _Fragment(start_point=None, end_point=None,
+                     stuv_path=stuv_g, xyz_path=xyz_path, tangential=False)
+
+
+def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
+                      displace=0.02):
+    """March Φ = {Ψ_a, Ψ_b, TΨ_k} from a seed with no known endpoint until
+    the path returns to its start (closed loop) or exits the cell. Keeps
+    only Ψ-valid samples (|S1-S2| < atol); requires >= 6 valid samples and
+    closure within 8·ptol to emit a closed tangential fragment; otherwise
+    returns None. Backend for Φ∩L seeds that sit on a TANGENT curve
+    (rank-deficient Ψ-Jacobian, where the Ψ marcher's tangent is not
+    unique — same reason `_deflate_tangent_cell` traces Φ).
+
+    Displaces one predictor-corrector step off the seed along the Φ tangent
+    (SVD null vector of `_jac_phi`), then marches away with the closed-loop
+    engine; `sign(displace)` selects the branch (Risk-2 flip).
+
+    Returns a GLOBAL closed `_Fragment` (start/end = None) or None.
+    """
+    T_arrs = [np.asarray(T, dtype=np.float64)[..., None]
+              for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+    T_arr = T_arrs[t_idx]
+    P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+    P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+
+    def correct(x0):
+        x = np.asarray(x0, dtype=np.float64).copy()
+        for _ in range(5):
+            f = _eval_phi(P1c, P2c, T_arr, psi_rows, *x, rational=False)
+            if float(np.dot(f, f)) < 1e-20:
+                break
+            Jc = _jac_phi(P1c, P2c, T_arr, psi_rows, *x, rational=False)
+            A = Jc.T @ Jc + 1e-12 * np.eye(4)
+            try:
+                delta = np.linalg.solve(A, -Jc.T @ f)
+            except np.linalg.LinAlgError:
+                break
+            x = np.clip(x + delta, 0.0, 1.0)
+        res = float(np.linalg.norm(
+            _eval_phi(P1c, P2c, T_arr, psi_rows, *x, rational=False)))
+        # Same acceptance as _march_phi_curve's corrector (T-component units
+        # are not xyz units — the 100x slack absorbs the scale mismatch).
+        return x, eval_surface(P1c, x[0], x[1], rational=False), res <= atol * 100.0
+
+    def tangent(x, prev):
+        J = _jac_phi(P1c, P2c, T_arr, psi_rows, *x, rational=False)
+        try:
+            _, _, Vt = np.linalg.svd(J, full_matrices=True)
+        except np.linalg.LinAlgError:
+            return None, None, 0.0
+        tang = Vt[-1]
+        if prev is not None and float(np.dot(tang, prev)) < 0.0:
+            tang = -tang
+        d3, sp1 = _tangent_3d(P1c, x, tang, rational=False)
+        _, du2, dv2 = eval_surface_d1(P2c, x[2], x[3], rational=False)
+        sp2 = float(np.linalg.norm(du2 * tang[2] + dv2 * tang[3]))
+        return tang, d3, max(sp1, sp2)
+
+    def midcheck(a4, b4, a3, b3):
+        xm, _, okm = correct(0.5 * (np.asarray(a4) + np.asarray(b4)))
+        if not okm:
+            return False
+        pm = eval_surface(P1c, xm[0], xm[1], rational=False)
+        a3 = np.asarray(a3, dtype=np.float64)
+        b3 = np.asarray(b3, dtype=np.float64)
+        ab = b3 - a3
+        den = float(np.dot(ab, ab))
+        if den < 1e-30:
+            return False
+        tt = float(np.clip(np.dot(pm - a3, ab) / den, 0.0, 1.0))
+        return float(np.linalg.norm(a3 + tt * ab - pm)) > 2.0 * atol
+
+    res = _march_closed_from_seed(seed_local, correct, tangent, midcheck,
+                                  atol, h_max, displace=displace)
+    if res is None:
+        return None
+    stuv_path, xyz_path = res
+    ptol4 = _cell_ptol4(cell, atol)
+    if not np.all(np.abs(stuv_path[-1] - stuv_path[0]) <= 8.0 * ptol4):
+        return None
+    # Ψ-validity filter (same as _deflate_tangent_cell): keep samples on
+    # the actual intersection.
+    keep = []
+    for k in range(len(stuv_path)):
+        p1 = eval_surface(P1c, stuv_path[k, 0], stuv_path[k, 1], rational=False)
+        p2 = eval_surface(P2c, stuv_path[k, 2], stuv_path[k, 3], rational=False)
+        if float(np.linalg.norm(p1 - p2)) < atol:
+            keep.append(k)
+    if len(keep) < 6:
+        return None
+    stuv_g = np.array([_local_to_global(stuv_path[k], cell.box) for k in keep])
+    xyz_g = xyz_path[np.asarray(keep)]
+    return _Fragment(start_point=None, end_point=None,
+                     stuv_path=stuv_g, xyz_path=xyz_g, tangential=True)
+
+
+def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
+    """Paper §5.3.2: tiny Ψ-loops around a tangency can have no boundary
+    crossings; the regulated Φ curve meets every such loop >= 2x (Lemma 2:
+    along a closed loop the 4D tangent is ∝ (T¹,−T²,T³,−T⁴), and the loop's
+    k-th coordinate has >= 2 extremes — TΨ_k = 0 there, i.e. ON Φ). Slice Φ
+    with the four deterministic axis mid-planes, refine each Φ∩L seed onto
+    the FULL intersection, and march closed loops from the survivors.
+
+    The full-Ψ refinement (Gauss-Newton on all three Ψ components) is the
+    load-bearing filter: Φ∩L solutions satisfy only TWO Ψ components, so
+    they include sub-tolerance-valley points (measured on the touch-plus-
+    loop geometry: the whole valley-floor ring at |Ψ| = eps^2/4 < atol —
+    marching THAT would report a phantom ring at the wrong radius) and,
+    on symmetric geometries, ptol-ladder samples of a degenerate solution
+    LINE. Refinement converges the genuine near-loop seeds onto the loop
+    (residual ~1e-12), stalls on the valley floor (the critical manifold of
+    ‖Ψ‖² — the z-residual is orthogonal to the Jacobian's column space), and
+    snaps line samples onto the actual intersection set; the 0.01·atol
+    acceptance separates the two outcomes cleanly.
+
+    Backend choice per refined seed (design latitude, measured): normals
+    angle sin_ang > 1e-3 (the pipeline's own transversality bar) => the
+    loop is transversal, march Ψ (`_march_psi_closed`); else the seed lies
+    on a tangent curve, march Φ (`_march_phi_closed`, retrying with the
+    runner-up (psi_rows, t_idx) if Ψ-validity fragments the loop). A
+    Ψ-marched path that passes within 2·atol of an emitted tangent point
+    while claiming closure is a through-the-singularity artifact (Risk 2) —
+    retried with the flipped displacement, then discarded. The Φ branch
+    skips that rejection: its seeds are ON the Δ set, whose closed
+    components are legitimately covered with emitted Δ-witness samples.
+
+    Returns a list of GLOBAL closed fragments; duplicates of subdivision-
+    traced geometry are absorbed downstream by `_drop_duplicate_fragments`
+    containment.
+    """
+    from mmcore.numeric.intersection.ssx._ssx5_singular import phi_loop_seeds
+
+    P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+    P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+    T_arrs = [np.asarray(T, dtype=np.float64)[..., None]
+              for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+    seed_pt = np.asarray(roots[0]) if roots else np.full(4, 0.5)
+    ranked = _choose_phi_equations(P1c, P2c, T_arrs, seed_pt,
+                                   rational=False, ranked=True)
+    if not ranked:
+        return []
+    psi_rows, t_idx = ranked[0]
+    ptol4 = _cell_ptol4(cell, atol)
+    try:
+        seeds = phi_loop_seeds(cell.g1.surface, cell.g2.surface,
+                               (cell.T1, cell.T2, cell.T3, cell.T4),
+                               psi_rows, t_idx, atol, ptol=ptol4)
+    except (np.linalg.LinAlgError, FloatingPointError):
+        return []
+    if not seeds:
+        return []
+
+    tangent_xyz = [np.asarray(g.xyz, dtype=np.float64)
+                   for g in all_singularities if g.kind == "tangent_point"]
+
+    def _near_tangent_point(path_xyz):
+        return any(float(np.linalg.norm(np.asarray(p) - txyz)) <= 2.0 * atol
+                   for p in np.asarray(path_xyz) for txyz in tangent_xyz)
+
+    refined: list[tuple] = []
+    for seed in seeds:
+        s, t, u, v, res, sin_ang = _ssx_correct(
+            cell.g1.surface, cell.g2.surface, *seed,
+            rational=True, max_iter=15, tol=1e-24)
+        if res > 0.01 * atol:
+            continue                    # not on the intersection set
+        x = np.array([s, t, u, v])
+        xyz = eval_surface(cell.g1.surface, s, t, rational=True)
+        if any(float(np.linalg.norm(xyz - txyz)) <= 2.0 * atol
+               for txyz in tangent_xyz):
+            continue                    # the tangency itself — nothing to march
+        if any(np.all(np.abs(x - rx) <= ptol4)
+               and float(np.linalg.norm(xyz - rxyz)) <= atol
+               for rx, rxyz, _ in refined):
+            continue                    # destructive dedup: 1·ptol AND atol xyz
+        refined.append((x, xyz, sin_ang))
+
+    fragments: list[_Fragment] = []
+    for x, xyz, sin_ang in refined:
+        if any(len(fr.xyz_path) >= 2
+               and _dist_point_polyline(xyz, np.asarray(fr.xyz_path)) <= 2.0 * atol
+               for fr in fragments):
+            continue                    # this loop is already marched
+        frag = None
+        if sin_ang > 1e-3:
+            for disp in (0.02, -0.02):
+                frag = _march_psi_closed(cell, x, atol, h_max, displace=disp)
+                if frag is not None and not _near_tangent_point(frag.xyz_path):
+                    break
+                frag = None
+        else:
+            # No tangent-point-proximity rejection here: a Φ-backend seed is
+            # by construction ON the Δ set (rank-deficient), so its closed
+            # component (a tangent LOOP) is itself peppered with emitted
+            # Δ-witness samples — proximity along the path is the expected
+            # case, not a through-artifact. (The concrete Risk-2 through-
+            # march starts from a TRANSVERSAL seed, which the Ψ branch
+            # above owns.)
+            for pr, ti in ranked[:2]:
+                for disp in (0.02, -0.02):
+                    frag = _march_phi_closed(cell, x, pr, ti, atol, h_max,
+                                             displace=disp)
+                    if frag is not None:
+                        break
+                if frag is not None:
+                    break
+        if frag is not None:
+            fragments.append(frag)
+    return fragments
 
 
 def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
@@ -3213,18 +3638,32 @@ def bez_ssx(
             ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
                                             all_singularities,
                                             enumerate_all=True)
+            if ok:
+                # Paper §5.3.2: slice the regulated Φ curve with the four
+                # deterministic axis mid-planes to seed loops around the
+                # tangency that have no boundary crossings, then march each
+                # refined seed around its closed loop (Ψ or Φ backend, see
+                # _phi_slice_loop_fragments). Loops the subdivision below
+                # ALSO finds are absorbed by _drop_duplicate_fragments
+                # containment — the seeding can add geometry, never
+                # duplicate it; loops inside the size-gated blind window
+                # (cells that `continue` below) are found ONLY here.
+                all_fragments.extend(_phi_slice_loop_fragments(
+                    cell, roots, atol, h_max, all_singularities))
             # Emitting the tangency does NOT resolve the cell: the same
             # crossing-less cell can hold coexisting transversal features —
             # z = q(q-1/2) (Mexican hat) has the touch at the center AND a
             # transversal ring at q = 1/2, and an unconditional `continue`
-            # here silently deleted the ring (Task 5's Φ∩L seeding cannot
-            # recover it: the ring is transversal, not on Φ). Stop only when
-            # the cell is at tolerance scale (all four GLOBAL spans within
-            # 4·unify_tol); otherwise fall through to the subdivision path
-            # like any other uncertified cell — descendants that re-confirm
-            # the same tangency are absorbed by the emission dedup above.
-            # A failed witness (ok=False: the blanket exception path) must
-            # not vanish either — fall through regardless of size so the
+            # here silently deleted the ring (the ring is transversal and
+            # NOT on Φ — even the Φ∩L seeding above only reaches it through
+            # the full-Ψ refinement of nearby Φ points, which is
+            # opportunistic, not certified). Stop only when the cell is at
+            # tolerance scale (all four GLOBAL spans within 4·unify_tol);
+            # otherwise fall through to the subdivision path like any other
+            # uncertified cell — descendants that re-confirm the same
+            # tangency are absorbed by the emission dedup above.
+            # A failed witness (ok=False: the exception path) must not
+            # vanish either — fall through regardless of size so the
             # cell is never dropped with neither emission nor subdivision.
             spans = np.array([hi - lo for (lo, hi) in cell.box])
             if ok and np.all(spans <= 4.0 * unify_tol):

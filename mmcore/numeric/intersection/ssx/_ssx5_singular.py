@@ -287,3 +287,86 @@ def solve_zero_dim(
         stack.append((tuple(bl), left_nets))
         stack.append((tuple(br), right_nets))
     return sols, bool(stack)
+
+
+def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
+                   max_cells=4000):
+    """Seed points of the regulated curve Phi = {Psi_a, Psi_b, T_k} sliced by
+    deterministic mid-planes (paper 5.3.2; axis-aligned L instead of random
+    hyperplanes — random L can miss small features, admitted in their 7.1).
+    Returns a list of (4,) local-coordinate seeds.
+
+    Exclusion nets: ALL THREE Psi components + T_k + L (stronger exclusion is
+    sound — a genuine loop point on Phi has full Psi = 0, and pruning the
+    off-intersection part of Phi keeps the search 0-dimensional); Newton
+    solves the square {Psi_a, Psi_b, T_k, L}.
+
+    Newton uses a Levenberg-damped solve (J^T J + lambda I), NOT a plain
+    `np.linalg.solve`: on symmetric geometries the loop's T_k-extreme points
+    land exactly ON an axis mid-plane with grad(T_k) PARALLEL to the plane
+    normal (measured on the r^4 - eps*r^2 touch-plus-loop test: at
+    (0.6, 0.5, u, 0.5), grad T_k has only a t-component while L is t=0.5, so
+    the square Jacobian is rank 3 and the solution set is locally the whole
+    reparameterized t=0.5 line). A plain solve raises/diverges there and the
+    plane contributes NO seeds; the damped step converges onto the solution
+    manifold instead, and the caller's full-Psi refinement snaps such
+    manifold samples onto the actual intersection set.
+
+    Seeds are opportunistic: per-plane budget exhaustion
+    (`exhausted=True` from `solve_zero_dim`) only degrades seeding
+    redundancy (4 mid-planes, each meeting a loop >= 2x by Lemma 2) —
+    seeds already found stay valid, so exhaustion is NOT an error and
+    `max_cells` must not be raised to chase it.
+    """
+    from mmcore.numeric.intersection._bezier_common import eval_surface_d1
+
+    S1_h = np.asarray(S1_h, dtype=np.float64)
+    S2_h = np.asarray(S2_h, dtype=np.float64)
+    G = psi_vector_net(S1_h, S2_h)
+    Tk = np.asarray(T_nets[t_idx], dtype=np.float64)[..., None]
+    # T_k partial-derivative nets, once (NOT per Newton iteration)
+    dTk = [bernstein_partial_derivative_coeffs(Tk, axis=ax) for ax in range(4)]
+
+    def _eval_nd(net, x):
+        # bernstein_eval_nd returns a shape-(1,) array (value dim kept)
+        from mmcore.numeric.bern import bernstein_eval_nd
+        return float(bernstein_eval_nd(net, x).item())
+
+    def newton_factory(axis, value):
+        def newton(x0):
+            x = np.asarray(x0, dtype=np.float64).copy()
+            for _ in range(30):
+                p1, du1, dv1 = eval_surface_d1(S1_h, x[0], x[1], rational=True)
+                p2, du2, dv2 = eval_surface_d1(S2_h, x[2], x[3], rational=True)
+                psi = p1 - p2
+                tval = _eval_nd(Tk, x)
+                F = np.array([psi[psi_rows[0]], psi[psi_rows[1]], tval,
+                              x[axis] - value])
+                if np.linalg.norm(F) < 1e-11:
+                    return np.clip(x, 0.0, 1.0)
+                Jpsi = np.column_stack([du1, dv1, -du2, -dv2])
+                grad_t = np.array([_eval_nd(dTk[ax], x) for ax in range(4)])
+                J = np.vstack([Jpsi[psi_rows[0]], Jpsi[psi_rows[1]], grad_t,
+                               np.eye(4)[axis]])
+                A = J.T @ J + 1e-12 * np.eye(4)
+                try:
+                    x = np.clip(x - np.linalg.solve(A, J.T @ F), 0.0, 1.0)
+                except np.linalg.LinAlgError:
+                    return None
+            return None
+        return newton
+
+    ptol = np.asarray(ptol, dtype=np.float64)
+    seeds: list = []
+    for axis in range(4):
+        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+        nets.append(BoxNet(Tk, axes=(0, 1, 2, 3)))
+        nets.append(BoxNet(linear_net_4d(-0.5, tuple(np.eye(4)[axis])),
+                           axes=(0, 1, 2, 3)))
+        ax_sols, _ax_exhausted = solve_zero_dim(
+            nets, newton_factory(axis, 0.5), ptol,
+            max_cells=max_cells, atol=atol)
+        for s in ax_sols:
+            if not any(np.all(np.abs(s - t) <= ptol) for t in seeds):
+                seeds.append(s)
+    return seeds

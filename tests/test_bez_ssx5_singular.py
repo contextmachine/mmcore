@@ -432,3 +432,51 @@ def test_no_contact_lifted_paraboloid_emits_nothing():
     assert r["branches"] == []
     assert r["points"] == []
     assert r["singularities"] == []
+
+
+# ---------------------------------------------------------------------------
+# Task 5: C2 — tiny loops near tangency via Φ ∩ L seeding
+# ---------------------------------------------------------------------------
+
+def _touch_plus_loop(eps=0.04):
+    """S1: z = r^4 - eps*r^2 with r^2=(2s-1)^2+(2t-1)^2  (deg 4x4);
+    S2: z=0. SSI: tangent point at r=0 PLUS transversal loop at r=sqrt(eps).
+    Paper Fig. 24 (Example 11) analog."""
+    from math import comb
+
+    def mono_to_bern(a):
+        n = len(a) - 1
+        return np.array([sum(a[j] * comb(k, j) / comb(n, j) for j in range(k + 1))
+                         for k in range(n + 1)])
+    f = np.array([1.0, -4.0, 4.0])                       # (2x-1)^2 monomial
+    f2 = np.convolve(f, f)                               # degree 4
+    z_st = np.zeros((5, 5))
+    z_st[:5, 0] += f2; z_st[0, :5] += f2
+    z_st[:3, :3] += 2.0 * np.outer(f, f)
+    z_st[:3, 0] -= eps * f; z_st[0, :3] -= eps * f
+    M = np.array([mono_to_bern(np.eye(5)[j]) for j in range(5)])   # rows: x^j in deg-4 Bernstein
+    Bz = M.T @ z_st @ M
+    xs = mono_to_bern([0.0, 1.0, 0.0, 0.0, 0.0])         # x = s in deg-4 Bernstein
+    S1 = np.array([[[xs[i], xs[j], Bz[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    # self-check the construction: net vs r^4 - eps*r^2 at random samples
+    rng = np.random.default_rng(42)
+    for s, t in rng.uniform(0, 1, (25, 2)):
+        r2 = (2 * s - 1) ** 2 + (2 * t - 1) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, r2 * r2 - eps * r2], atol=1e-12)
+    return S1, S2
+
+
+def test_tangent_point_plus_tiny_loop():
+    S1, S2 = _touch_plus_loop(eps=0.04)     # loop radius 0.1 in s-units
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1 and np.allclose(sing[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    loops = [b for b in r["branches"]
+             if np.linalg.norm(np.asarray(b.curve[1])[0] - np.asarray(b.curve[1])[-1]) < 5e-3]
+    assert len(loops) == 1, f"expected the r=sqrt(eps) loop, got {len(loops)} closed branches"
+    xyz = np.asarray(loops[0].curve[1])
+    rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
+    assert np.allclose(rr, 0.1, atol=5e-3)   # circle of radius sqrt(0.04)/2 in s-units
