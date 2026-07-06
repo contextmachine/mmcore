@@ -80,7 +80,8 @@ def test_solve_zero_dim_finds_plane_slice_roots():
                 return None
         return x if np.linalg.norm(F) < 1e-9 else None
 
-    sols = solve_zero_dim(nets, newton, ptol=np.full(4, 1e-5), max_cells=5000)
+    sols, exhausted = solve_zero_dim(nets, newton, ptol=np.full(4, 1e-5), max_cells=5000)
+    assert not exhausted
     # ground truth via CSX on the isoline
     from mmcore.numeric.bern import de_casteljau_split_nd
     from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
@@ -91,6 +92,52 @@ def test_solve_zero_dim_finds_plane_slice_roots():
     ref_t = sorted(p["t"] for p in ref)
     got_t = sorted(s[1] for s in sols)
     assert np.allclose(ref_t, got_t, atol=1e-6)
+
+
+def test_solve_zero_dim_reports_budget_exhaustion():
+    # two-root system: S1 has z = (2t-1)^2 (ruled in s), S2 is the plane
+    # z = 0.5; sliced with s = 0.5 the roots are t = (1 ± sqrt(0.5))/2.
+    # A starved budget must be distinguishable from a complete enumeration
+    # (pre-flag, max_cells=3 returned a silently-partial solution list).
+    xs = [0.0, 1.0]; ys = [0.0, 0.5, 1.0]; zc = [1.0, -1.0, 1.0]
+    s1 = np.array([[[xs[i], ys[j], zc[j]] for j in range(3)] for i in range(2)])
+    s2 = np.array([[[-0.5, -0.5, 0.5], [-0.5, 1.5, 0.5]],
+                   [[1.5, -0.5, 0.5], [1.5, 1.5, 0.5]]])
+    S1h, S2h = _homog(s1), _homog(s2)
+    G = psi_vector_net(S1h, S2h)
+    nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+    nets.append(BoxNet(linear_net_4d(-0.5, (1.0, 0.0, 0.0, 0.0)), axes=(0, 1, 2, 3)))
+
+    def newton(x0):
+        # square Newton on {Psi(3), s - 0.5}
+        x = np.asarray(x0, float).copy()
+        for _ in range(30):
+            p1, du1, dv1 = eval_surface_d1(S1h, x[0], x[1], rational=True)
+            p2, du2, dv2 = eval_surface_d1(S2h, x[2], x[3], rational=True)
+            F = np.concatenate([p1 - p2, [x[0] - 0.5]])
+            J = np.zeros((4, 4))
+            J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
+            J[3, 0] = 1.0
+            if np.linalg.norm(F) < 1e-12:
+                break
+            try:
+                x = np.clip(x - np.linalg.solve(J, F), 0.0, 1.0)
+            except np.linalg.LinAlgError:
+                return None
+        return x if np.linalg.norm(F) < 1e-9 else None
+
+    # full budget: complete enumeration, both roots, exhausted=False
+    sols, exhausted = solve_zero_dim(nets, newton, ptol=np.full(4, 1e-5), max_cells=5000)
+    assert not exhausted
+    assert len(sols) == 2
+    want_t = sorted([(1.0 - np.sqrt(0.5)) / 2.0, (1.0 + np.sqrt(0.5)) / 2.0])
+    assert np.allclose(sorted(s[1] for s in sols), want_t, atol=1e-6)
+
+    # starved budget: pending boxes dropped -> exhausted=True, partial sols
+    sols_starved, exhausted_starved = solve_zero_dim(
+        nets, newton, ptol=np.full(4, 1e-5), max_cells=3)
+    assert exhausted_starved
+    assert len(sols_starved) < 2
 
 
 def test_sigma_net_matches_fd():

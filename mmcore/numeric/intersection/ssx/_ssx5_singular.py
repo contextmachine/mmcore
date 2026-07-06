@@ -28,15 +28,18 @@ from mmcore.numeric.intersection._deflate import (
 
 
 def psi_vector_net(S1_h: np.ndarray, S2_h: np.ndarray) -> np.ndarray:
-    """Bernstein net of Psi = C1*w2 - C2*w1, shape (m1,n1,m2,n2,3).
+    """Bernstein net of Psi = C1(s,t)*W2(u,v) - C2(u,v)*W1(s,t), shape (m1,n1,m2,n2,3).
 
     S1_h, S2_h are homogeneous control nets in the mmcore convention
-    (trailing column = weight, leading D columns = weight*point). (s,t) and
-    (u,v) are disjoint variables, so the products are outer products —
-    exact, no degree elevation (same trick as the CSX residual/G-net).
+    (trailing column = weight, leading D columns = weight*point); P1/w1 and
+    P2/w2 below are the COEFFICIENT arrays of the weighted-numerator
+    polynomials C1(s,t)/C2(u,v) and of the weight polynomials
+    W1(s,t)/W2(u,v). (s,t) and (u,v) are disjoint variables, so the
+    products are outer products — exact, no degree elevation (same trick
+    as the CSX residual/G-net).
 
     This net's zero set coincides with R1(s,t) == R2(u,v) (the true
-    rational-surface intersection condition) because w1, w2 > 0 everywhere
+    rational-surface intersection condition) because W1, W2 > 0 everywhere
     for valid weights — clearing the denominators only rescales by a
     positive factor. It is intended for hull-exclusion pruning only; Newton
     refinement must use the smooth rational evaluators directly (see
@@ -165,6 +168,10 @@ class BoxNet:
     axes: tuple
 
     def excludes_zero(self) -> bool:
+        """Bernstein hull test: True proves the net has no zero over its box.
+
+        NaN coefficients make both comparisons False — fail-open (never
+        excludes), the safe direction."""
         c = self.coeffs
         return float(c.min()) > 0.0 or float(c.max()) < 0.0
 
@@ -187,16 +194,31 @@ def solve_zero_dim(
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
-    Hull-exclusion subdivision + center-seeded Newton, budget-bounded
-    (`max_cells` — never raise this to "fix" a hang; a hang means the
-    solution set isn't 0-dimensional and callers must handle that case
-    themselves, e.g. via a curve_flag on solution-count overflow).
+    Returns
+    -------
+    (sols, exhausted) : tuple[list, bool]
+        `sols` — list of (4,) solutions found. `exhausted` — True iff the
+        `max_cells` budget ran out with boxes still pending, i.e. the
+        enumeration may be INCOMPLETE and `sols` is only a lower bound.
+        Callers must check it (a silently-truncated list is
+        indistinguishable from a complete one otherwise). Never raise
+        `max_cells` to chase `exhausted=False` on a hang — a blown budget
+        usually means the solution set isn't 0-dimensional and callers
+        must handle that case themselves (e.g. a curve_flag path).
 
-    Newton runs in GLOBAL coordinates on smooth evaluators; the nets are
-    only used for hull-exclusion pruning within each box. The same root can
-    therefore be (re-)found from several surviving boxes — `_dup` handles
-    it (the CSX-proven destructive-dedup pattern: 1·ptol per-axis box AND,
-    if `dedup_xyz` is given, xyz <= atol).
+    Hull-exclusion subdivision + center-seeded Newton. Newton runs in
+    GLOBAL coordinates on smooth evaluators; the nets are only used for
+    hull-exclusion pruning within each box. The same root can therefore be
+    (re-)found from several surviving boxes — `_dup` handles it (the
+    CSX-proven destructive-dedup pattern: 1·ptol per-axis box AND, if
+    `dedup_xyz` is given, xyz <= atol).
+
+    The split axis is the one with the largest span measured in units of
+    its OWN ptol (span_i / ptol_i), and the resolution floor fires only
+    when that max ratio is <= 1 (every axis at/below its ptol). With
+    heterogeneous per-axis ptols a plain widest-axis rule could stop while
+    a tighter-ptol axis is still under-refined by orders of magnitude; for
+    uniform ptol this is behavior-identical to widest-axis.
     """
     ptol = np.asarray(ptol, dtype=np.float64)
     sols: list = []
@@ -224,12 +246,16 @@ def solve_zero_dim(
             inside = all(bx[i][0] - 1e-12 <= sol[i] <= bx[i][1] + 1e-12 for i in range(4))
             if inside and not _dup(sol):
                 sols.append(sol)
-        spans = [hi - lo for lo, hi in bx]
-        widest = int(np.argmax(spans))
-        if spans[widest] <= float(ptol[widest]):
-            continue      # resolution floor
-        # split the widest axis; nets and box split in lockstep so the
-        # net's local 0.5 is exactly the box's global midpoint
+        # split the axis with the largest span in units of its OWN ptol —
+        # with heterogeneous per-axis ptols the absolutely-widest axis can
+        # already be resolved while a tighter-ptol axis is still orders of
+        # magnitude above its floor
+        ratios = [(hi - lo) / float(ptol[i]) for i, (lo, hi) in enumerate(bx)]
+        widest = int(np.argmax(ratios))
+        if ratios[widest] <= 1.0:
+            continue      # resolution floor: every axis at/below its ptol
+        # nets and box split in lockstep so the net's local 0.5 is exactly
+        # the box's global midpoint
         left_nets, right_nets = [], []
         for n in bnets:
             l, r = n.split(widest, 0.5)
@@ -239,4 +265,4 @@ def solve_zero_dim(
         br = list(bx); br[widest] = (m, bx[widest][1])
         stack.append((tuple(bl), left_nets))
         stack.append((tuple(br), right_nets))
-    return sols
+    return sols, bool(stack)
