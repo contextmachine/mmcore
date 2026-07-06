@@ -430,7 +430,7 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
         return None  # Undetermined due to error
 
 
-def _tangency_witness(cell, atol, enumerate_all=True):
+def _tangency_witness(cell, atol, *, enumerate_all=True):
     """Gauss-Newton witness point(s) of the deflated system Δ = Ψ ∩ TΨ on the
     cell (local [0,1]⁴ coords). Returns (ok, roots, best_residual) where
     `roots` is a list of DISTINCT local witness points, the box-center
@@ -516,8 +516,9 @@ def _tangency_witness(cell, atol, enumerate_all=True):
             for sol in sols:
                 # same destructive-dedup rule as solve_zero_dim's own _dup:
                 # 1·ptol per-axis box AND xyz <= atol
+                sol_xyz = _xyz(sol)
                 if not any(np.all(np.abs(sol - r_) <= ptol)
-                           and float(np.linalg.norm(_xyz(sol) - _xyz(r_))) <= atol
+                           and float(np.linalg.norm(sol_xyz - _xyz(r_))) <= atol
                            for r_ in roots):
                     roots.append(sol)
         best_fn = min((float(np.linalg.norm(sys_.delta_point(r_)))
@@ -528,7 +529,7 @@ def _tangency_witness(cell, atol, enumerate_all=True):
 
 
 def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
-                        enumerate_all=True):
+                        *, enumerate_all=True):
     """Run the Δ = Ψ ∩ TΨ witness on a tangent cell and emit every distinct
     root as a 'tangent_point' singularity into `all_singularities`.
 
@@ -542,8 +543,10 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
     (matching-ladder: unify_tol per-axis box AND 2·atol xyz) collapses all
     re-confirmations onto ONE emitted point per touch.
 
-    Returns `ok` from `_tangency_witness` (True iff at least one converged
-    witness exists) — the crossing-less arm's size gate needs it.
+    Returns `(ok, roots)`: `ok` from `_tangency_witness` (True iff at least
+    one converged witness exists — the crossing-less arm's size gate needs
+    it) and the LOCAL witness points — Task 5's Φ∩L seeding consumes
+    `roots[0]` in the crossing-less arm (`_choose_phi_equations` seed).
     """
     ok, roots, _fn = _tangency_witness(cell, atol, enumerate_all=enumerate_all)
     for xw in roots:
@@ -555,7 +558,7 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                    for g in all_singularities):
             all_singularities.append(SSXSingularity(
                 kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
-    return ok
+    return ok, roots
 
 
 def _dist_point_polyline(pxyz, poly):
@@ -2342,17 +2345,6 @@ def _assemble_fragments(
     if len(branches) > 1:
         sliver_tol = 4.0 * atol_full
 
-        def _pt_to_polyline(p, poly):
-            a = poly[:-1]
-            b = poly[1:]
-            ab = b - a
-            ap = p[None, :] - a
-            denom = np.einsum("ij,ij->i", ab, ab)
-            denom = np.where(denom < 1e-30, 1e-30, denom)
-            tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
-            proj = a + tt[:, None] * ab
-            return float(np.linalg.norm(proj - p[None, :], axis=1).min())
-
         keep = []
         order = sorted(range(len(branches)),
                        key=lambda k: -len(branches[k].curve[1]))
@@ -2364,7 +2356,7 @@ def _assemble_fragments(
                 for big in kept_xyz:
                     if len(big) < 2:
                         continue
-                    if all(_pt_to_polyline(np.asarray(p), big) <= sliver_tol
+                    if all(_dist_point_polyline(np.asarray(p), big) <= sliver_tol
                            for p in xyz):
                         is_sliver = True
                         break
@@ -3214,8 +3206,13 @@ def bez_ssx(
             # cell can hold several isolated tangencies, and `continue`
             # would silently drop the ones the center start missed.
             # Emission + dedup live in _emit_tangent_roots (shared with the
-            # crossing-bearing arm below).
-            ok = _emit_tangent_roots(cell, atol, unify_tol, all_singularities)
+            # loop-free and crossing-bearing sites). enumerate_all=True is
+            # spelled out because THIS site depends on full enumeration
+            # (multi-touch cells); `roots` feeds Task 5's Φ∩L seeding
+            # (_choose_phi_equations takes roots[0]).
+            ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
+                                            all_singularities,
+                                            enumerate_all=True)
             # Emitting the tangency does NOT resolve the cell: the same
             # crossing-less cell can hold coexisting transversal features —
             # z = q(q-1/2) (Mexican hat) has the touch at the center AND a
@@ -3518,12 +3515,25 @@ def bez_ssx(
     # Tangent points coexisting with TRANSVERSAL branches (the saddle X)
     # are not affected — this tests tangential/overlap branches only.
     # Runs FIRST so the micro-branch and near-touch point filters below see
-    # only genuinely isolated touches.
+    # only genuinely isolated touches. Micro-scale tangential polylines
+    # (arc ≤ 16·atol — the micro-branch filter's cap, computed identically)
+    # are EXCLUDED from the subsuming set: a Ψ-valid Φ-micro-fragment AT a
+    # touch would otherwise eat the typed point here, drop it from
+    # _tangent_xyz, and thereby shield ITSELF from the micro-branch filter
+    # (junk kept, singularity lost). With the floor, micro-branches can
+    # never subsume a tangent_point, so the two filters are
+    # order-independent for micro-branches.
     if all_singularities:
-        _one_dim_polys = [np.asarray(b.curve[1], dtype=np.float64)
-                          for b in all_branches
-                          if b.kind in ("overlap", "tangential")
-                          and len(b.curve[1]) >= 2]
+        _one_dim_polys = []
+        for b in all_branches:
+            if b.kind not in ("overlap", "tangential"):
+                continue
+            _poly = np.asarray(b.curve[1], dtype=np.float64)
+            if len(_poly) < 2:
+                continue
+            _arc = float(np.linalg.norm(np.diff(_poly, axis=0), axis=1).sum())
+            if _arc > 16.0 * atol:
+                _one_dim_polys.append(_poly)
         if _one_dim_polys:
             all_singularities = [
                 g for g in all_singularities
@@ -3541,7 +3551,10 @@ def bez_ssx(
     # vertex lies within 4·atol (xyz) of some emitted tangent point AND its
     # total xyz arc length is ≤ 16·atol — the length cap is a safety net so
     # nothing long can ever be eaten (the Mexican-hat ring's vertices sit
-    # ~0.35 from the touch; saddle arms extend far beyond 4·atol).
+    # ~0.35 from the touch; saddle arms extend far beyond 4·atol). The
+    # 16·atol constant is shared with the subsumption filter's floor above:
+    # tangential/overlap polylines AT or BELOW it cannot subsume a
+    # tangent_point there, so they are still deletable here.
     _tangent_xyz = [g.xyz for g in all_singularities if g.kind == "tangent_point"]
     if _tangent_xyz and all_branches:
         _tp = np.asarray(_tangent_xyz, dtype=np.float64)          # (K, 3)
@@ -3588,15 +3601,7 @@ def bez_ssx(
                 poly = np.asarray(b.curve[1])
                 if len(poly) < 2:
                     continue
-                a = poly[:-1]
-                bb = poly[1:]
-                ab = bb - a
-                ap = pxyz[None, :] - a
-                denom = np.einsum("ij,ij->i", ab, ab)
-                denom = np.where(denom < 1e-30, 1e-30, denom)
-                tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
-                proj = a + tt[:, None] * ab
-                if float(np.linalg.norm(proj - pxyz[None, :], axis=1).min()) <= 4.0 * atol:
+                if _dist_point_polyline(pxyz, poly) <= 4.0 * atol:
                     on_branch = True
                     break
             if not on_branch:
