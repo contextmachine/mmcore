@@ -560,6 +560,8 @@ def _pt_poly(p, poly):
 
 ### Task 5: C₂ — tiny loops near tangency via Φ ∩ L seeding
 
+> **AS-BUILT (committed `2d030bb` + `7ed47c0`):** (1) `phi_loop_seeds` uses a Levenberg-damped Newton instead of the sketch's plain solve — symmetric geometries put mid-plane box centers exactly on degenerate manifolds where plain solve raises. (2) The load-bearing filter is `_phi_slice_loop_fragments`' full-Ψ Gauss-Newton refinement of every seed (rejects the sub-tolerance valley-floor ring at |Ψ|=ε²/4 < atol that would march a phantom loop at the wrong radius); backend per refined seed: sin_ang > 1e-3 → ordinary Ψ marcher (transversal loop — Φ only MEETS such loops at T_k extremes, plan risk 2), else Φ marcher. (3) `_march_closed_from_seed` shared closed-loop engine: arrival check armed only outside 3× the displacement radius; displacement sign picks the branch (risk-2 flip retry); Ψ-marched closures passing within 2·atol of an emitted tangent point are through-the-singularity artifacts (flipped, then discarded). (4) DEFECT-D (found post-commit): the crossing-BEARING arm's `continue` deleted a coexisting isolated touch (repro `z=(2t−1)²((s−0.7)²+(t−0.2)²)`: witness converges into the CURVE's basin; the cell is the only holder). Subdivide-until-tolerance costs 1349× on tangent curves (legacy crossed-saddles 0.15s→3m23s), so instead `_emit_offcurve_tangent_roots` enumerates the cell's REMAINING Δ-roots in place: `solve_zero_dim` with Newton SKIPPED inside the traced fragments' tube (param 4·ptol + box radius AND xyz 4·atol) and far-from-tube boxes explored FIRST (max-heap priority; budget exhaustion starves only the curve flood). `solve_zero_dim` gained `skip_newton`/`priority` hooks. Measured: touch found exactly, legacy tangential 4.2s (known cost: budget-bounded flood on the tangent-curve top cell — profiling follow-up option: KD-tree cover queries).
+
 **Context (paper §5.3.2, Fig 9):** in a tangent cell, a tiny Ψ-loop around the tangency has no boundary crossings and can be smaller than subdivision reaches by `max_depth`. The regulated Φ curve passes through the tangency AND crosses the loop's neighborhood; slicing Φ with a mid-plane L yields seed points from which the loop is marched directly.
 
 **Files:**
@@ -773,6 +775,8 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max):
 
 ### Task 6: C₁ — cusp detection (Σ nets, global pass, output)
 
+> **AS-BUILT (committed `5243787`):** as designed, with the synced tuple API (`sols, exhausted`; curve_flag on >12 or exhausted-with->1; exhausted-with-0/1 documented as the truncation blind spot). Wiring runs AFTER the post-assembly branch filters so `branch_links` index the FINAL branch list (the filters drop branches), before the point filters. The Σ-hull precheck confirmed zero-cost on all coverage cases and both legacy minis; the cuspidal-edge branch covers the cusp curve within 5e-3 THROUGH the cusp with no marcher changes (xyz-reparameterized stepping absorbs 3D-speed→0).
+
 **Files:**
 - Modify: `mmcore/numeric/intersection/ssx/_ssx5_singular.py` (add `c1_pass`)
 - Modify: `mmcore/numeric/intersection/ssx/_bez_ssx5.py` (call after assembly; branch links)
@@ -943,6 +947,8 @@ In `bez_ssx`, after `_assemble_fragments` (and before the points-on-branch filte
 ---
 
 ### Task 7: C₃ — self-intersections (Theorem-3 certificate + post-trace Newton)
+
+> **AS-BUILT (committed `47e5d36`) — one MEASURED DEVIATION from checkpoint 1:** the Theorem-3 gate does NOT certify the plain bilinear/plane case — the curve traces from the TOP cell, whose T1/T2 hulls touch zero at the domain edge, so a sound strict hull test fails there; the flag fires on all 7 coverage cases for the same reason. Checkpoint 1's expectation ("must pass by the FLAG being False") is unachievable with a sound per-box certificate. Resolution: keep the flag (it is cheap and would certify genuinely definite cells), and make the fired path free — `c3_pass`'s candidate search is a vectorized AABB broadphase over all branch segments (atol-inflated, blocked numpy broadcast, same-branch index gap ≥ 3) so the exact seg-dist + 6-var Newton run only on genuinely near pairs. Instrumented: 1 `c3_pass` call per coverage case, 0 spurious self-intersections, timings bit-identical to the pre-C3 baseline. Umbrella: exactly 1 `self_intersection` at (0,0,0.5), preimages t=0.1464/0.8536 sharing (u,v). Closed-loop wrap seams are rejected by the same-preimage 4·ptol guard, not by the adjacency mask.
 
 **Files:**
 - Modify: `mmcore/numeric/intersection/ssx/_ssx5_singular.py` (add `c3_pass`, `theorem3_excludes_c3`)

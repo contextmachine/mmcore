@@ -96,6 +96,10 @@ def check_case(case, atol=1e-3, n_ref=200):
               f"step med/max {med:.4f}/{mx:.4f}")
         polys.append(xyz)
 
+    for g in res.get("singularities", []):
+        print(f"    singularity {g.kind}: stuv={np.round(g.stuv, 5).tolist()} "
+              f"xyz={np.round(g.xyz, 5).tolist()} links={g.branch_links}")
+
     ref, ws = reference_cloud(S1, S2, atol=atol, n=n_ref)
     if not len(ref):
         print("    (no reference points)")
