@@ -430,11 +430,18 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
         return None  # Undetermined due to error
 
 
-def _tangency_witness(cell, atol):
+def _tangency_witness(cell, atol, enumerate_all=True):
     """Gauss-Newton witness point(s) of the deflated system Δ = Ψ ∩ TΨ on the
     cell (local [0,1]⁴ coords). Returns (ok, roots, best_residual) where
     `roots` is a list of DISTINCT local witness points, the box-center
     start's root first when it converges.
+
+    `enumerate_all=False` runs ONLY the center Gauss-Newton witness and
+    skips the `solve_zero_dim` enumeration — for call sites where Δ's zero
+    set may be 1-dimensional (a tangent CURVE, e.g. the legacy crossed
+    saddles): enumerating it burns the whole max_cells budget to return
+    ptol-spaced samples of the curve (measured: 2.28 s for 69 samples on
+    the crossed-saddles top cell vs ~150 ms for the entire case).
 
     Mirrors `_check_tangency`'s DeflatedSystem construction exactly (same
     interval nets, same local box) but runs the witness tighter
@@ -479,11 +486,6 @@ def _tangency_witness(cell, atol):
         )
         Bf = _box_from_any(tuple(iv_interval(0.0, 1.0) for _ in range(4)))
 
-        ps, pt = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
-        pu, pv = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
-        ptol = np.maximum(
-            np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
-
         def _gn(x0):
             ok_, xw_, _fn = gauss_newton_witness(sys_, Bf, x0=x0,
                                                  tol_f=1e-10, max_iter=24)
@@ -496,26 +498,77 @@ def _tangency_witness(cell, atol):
         first = _gn(None)          # primary witness: box-center start
         if first is not None:
             roots.append(first)
-        G = psi_vector_net(cell.g1.surface, cell.g2.surface)
-        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
-        nets += [BoxNet(np.asarray(T, dtype=np.float64)[..., None],
-                        axes=(0, 1, 2, 3))
-                 for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
-        sols, _exhausted = solve_zero_dim(nets, _gn, ptol,
-                                          max_cells=2000, dedup_xyz=_xyz,
-                                          atol=atol)
-        for sol in sols:
-            # same destructive-dedup rule as solve_zero_dim's own _dup:
-            # 1·ptol per-axis box AND xyz <= atol
-            if not any(np.all(np.abs(sol - r_) <= ptol)
-                       and float(np.linalg.norm(_xyz(sol) - _xyz(r_))) <= atol
-                       for r_ in roots):
-                roots.append(sol)
+        if enumerate_all:
+            ps, pt = bez_surface_param_tolerance(cell.g1.surface, atol, rational=True)
+            pu, pv = bez_surface_param_tolerance(cell.g2.surface, atol, rational=True)
+            # 1e-9 per-axis floor: guards degenerate nets from unbounded span/ptol ratios
+            ptol = np.maximum(
+                np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
+            G = psi_vector_net(cell.g1.surface, cell.g2.surface)
+            nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+            nets += [BoxNet(np.asarray(T, dtype=np.float64)[..., None],
+                            axes=(0, 1, 2, 3))
+                     for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+            # max_cells=2000: interim cost cap; 1-dim Δ-sets (tangent curves/loops) are Task 5's territory
+            sols, _exhausted = solve_zero_dim(nets, _gn, ptol,
+                                              max_cells=2000, dedup_xyz=_xyz,
+                                              atol=atol)
+            for sol in sols:
+                # same destructive-dedup rule as solve_zero_dim's own _dup:
+                # 1·ptol per-axis box AND xyz <= atol
+                if not any(np.all(np.abs(sol - r_) <= ptol)
+                           and float(np.linalg.norm(_xyz(sol) - _xyz(r_))) <= atol
+                           for r_ in roots):
+                    roots.append(sol)
         best_fn = min((float(np.linalg.norm(sys_.delta_point(r_)))
                        for r_ in roots), default=np.inf)
         return bool(roots), roots, best_fn
     except Exception:
         return False, [], np.inf
+
+
+def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
+                        enumerate_all=True):
+    """Run the Δ = Ψ ∩ TΨ witness on a tangent cell and emit every distinct
+    root as a 'tangent_point' singularity into `all_singularities`.
+
+    Shared by all THREE tangency emission sites of the subdivision loop —
+    crossing-less (isolated touches), loop-free with all-four T hulls
+    containing 0 (touches ON the subdivision cut lattice), and
+    crossing-bearing (tangent cell whose boundary transversal arms pierce;
+    passes enumerate_all=False, see _tangency_witness). The same physical
+    touch is re-confirmed by neighbor cells, by tangent descendants at
+    several depths, and possibly by several arms; the dedup
+    (matching-ladder: unify_tol per-axis box AND 2·atol xyz) collapses all
+    re-confirmations onto ONE emitted point per touch.
+
+    Returns `ok` from `_tangency_witness` (True iff at least one converged
+    witness exists) — the crossing-less arm's size gate needs it.
+    """
+    ok, roots, _fn = _tangency_witness(cell, atol, enumerate_all=enumerate_all)
+    for xw in roots:
+        stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
+        if not any(g.kind == "tangent_point"
+                   and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
+                   and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
+                   for g in all_singularities):
+            all_singularities.append(SSXSingularity(
+                kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
+    return ok
+
+
+def _dist_point_polyline(pxyz, poly):
+    """Min distance from a 3D point to a polyline's segments (poly: (N,3))."""
+    a = poly[:-1]
+    b = poly[1:]
+    ab = b - a
+    ap = pxyz[None, :] - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    denom = np.where(denom < 1e-30, 1e-30, denom)
+    tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
+    proj = a + tt[:, None] * ab
+    return float(np.linalg.norm(proj - pxyz[None, :], axis=1).min())
 
 
 # ---------------------------------------------------------------------------
@@ -3064,6 +3117,34 @@ def bez_ssx(
 
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
+                # C2 touch ON the subdivision lattice: when the tangent point
+                # coincides with cut values (the saddle's X at s=t=1/2 under
+                # midpoint cuts), the children are loop-free via a NON-STRICT
+                # monotone T net that attains 0 exactly at the touch corner,
+                # so no cell holding the touch ever reaches the tangency arms
+                # below — the touch surfaces only as a boundary crossing of
+                # loop-free cells and would go unreported. Emit the Δ-witness
+                # here too, gated by the necessary condition for any TΨ = 0
+                # in the cell: ALL FOUR T-net hulls contain 0 (a strictly
+                # one-signed net excludes tangency). Regular transversal
+                # cells almost always carry a strictly one-signed net, so the
+                # gate costs 8 min/max on already-carried nets. Near-tangent
+                # (but touch-free) geometries DO pass the hull gate (case 5:
+                # 13 cells, case 11's near-tangent loop: 5), so the witness
+                # runs center-GN only (enumerate_all=False, ~1 ms/call —
+                # full solve_zero_dim enumeration on those cells measured
+                # ~2 s per case, a 1.3–1.6x coverage-case regression). The
+                # center start suffices here: a lattice touch is pinned to a
+                # corner of a small post-subdivision cell (guided cuts pass
+                # exactly through the discovered touch crossing), unlike the
+                # crossing-less arm whose one large cell can hold several
+                # distant touches and keeps the full enumeration.
+                if (cell.T1 is not None and all(
+                        float(np.min(T)) <= 0.0 <= float(np.max(T))
+                        for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
+                    _emit_tangent_roots(cell, atol, unify_tol,
+                                        all_singularities,
+                                        enumerate_all=False)
                 if cell.crossings:
                     fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
                     all_fragments.extend(fr)
@@ -3132,19 +3213,9 @@ def bez_ssx(
             # Δ-root in the cell (solve_zero_dim hull exclusion): one big
             # cell can hold several isolated tangencies, and `continue`
             # would silently drop the ones the center start missed.
-            # Neighboring cells can also confirm the same tangency; the
-            # unify_tol box + 2·atol xyz dedup collapses them to one emitted
-            # point per tangency.
-            ok, roots, fn = _tangency_witness(cell, atol)
-            for xw in roots:
-                stuv_g = _local_to_global(np.asarray(xw), cell.box)
-                xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
-                if not any(g.kind == "tangent_point"
-                           and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
-                           and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
-                           for g in all_singularities):
-                    all_singularities.append(SSXSingularity(
-                        kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
+            # Emission + dedup live in _emit_tangent_roots (shared with the
+            # crossing-bearing arm below).
+            ok = _emit_tangent_roots(cell, atol, unify_tol, all_singularities)
             # Emitting the tangency does NOT resolve the cell: the same
             # crossing-less cell can hold coexisting transversal features —
             # z = q(q-1/2) (Mexican hat) has the touch at the center AND a
@@ -3163,6 +3234,23 @@ def bez_ssx(
                 continue
 
         if tangency is True and cell.crossings:
+            # C2 with transversal branches THROUGH the touch (saddle
+            # X-crossing): a cell holding such a tangent point is crossing-
+            # BEARING (the arms pierce its boundary), so the crossing-less
+            # arm above never sees it. Emit the center Δ-witness here too,
+            # through the same dedup. enumerate_all=False — this arm is the
+            # one that fires on tangent CURVES (the legacy crossed-saddles
+            # case traces its curve right below via _deflate_tangent_cell),
+            # where Δ's zero set is 1-dimensional and full enumeration
+            # burned the whole solve_zero_dim budget to emit ptol-spaced
+            # curve samples (measured: 69 tangent_points, 2.43 s vs 0.15 s
+            # for the case — a >2x slowdown gate per the Task 4 plan). The
+            # center witness costs ~ms; a witness landing ON a traced
+            # tangential/overlap branch is dropped by the post-assembly
+            # subsumption filter, so the curve case emits nothing. Task 5
+            # owns typed 1-dim tangencies.
+            _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
+                                enumerate_all=False)
             # Convert crossings to the cell's local stuv for the Φ tracer.
             crossings_local = [
                 BoundaryPoint(
@@ -3415,6 +3503,35 @@ def bez_ssx(
         unify_tol=unify_tol, h_max=h_max,
     )
     all_branches.extend(overlap_branches)
+
+    # A tangent_point ON a 1-dimensional tangential feature is not an
+    # isolated C2 touch: overlap regions and traced tangent curves (branch
+    # kind 'overlap'/'tangential') consist entirely of Δ-roots, so the
+    # witness on a cell holding one converges to an arbitrary sample of the
+    # curve (measured: the legacy overlaps case emitted its domain corner;
+    # the crossed-saddles center witness lands on the tangent curve). The
+    # richer feature already reports the contact — drop the redundant point
+    # (Task 5 will type tangent curves explicitly). Same ON-a-branch
+    # semantics and 4·atol tolerance as the points-on-branch filter below;
+    # the polyline is a chorded approximation, so points ON the true curve
+    # sit up to the 2·atol sagitta off it (measured max 1.9e-3 = 1.9·atol).
+    # Tangent points coexisting with TRANSVERSAL branches (the saddle X)
+    # are not affected — this tests tangential/overlap branches only.
+    # Runs FIRST so the micro-branch and near-touch point filters below see
+    # only genuinely isolated touches.
+    if all_singularities:
+        _one_dim_polys = [np.asarray(b.curve[1], dtype=np.float64)
+                          for b in all_branches
+                          if b.kind in ("overlap", "tangential")
+                          and len(b.curve[1]) >= 2]
+        if _one_dim_polys:
+            all_singularities = [
+                g for g in all_singularities
+                if not (g.kind == "tangent_point" and any(
+                    _dist_point_polyline(np.asarray(g.xyz, dtype=np.float64),
+                                         poly) <= 4.0 * atol
+                    for poly in _one_dim_polys))
+            ]
 
     # Spurious micro-branches at emitted tangent points: subdividing around
     # a touch (the size-gated tangency arm above) re-exposes the old

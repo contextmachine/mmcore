@@ -267,6 +267,9 @@ def test_isolated_tangent_point_found():
     assert len(sing) == 1
     g = sing[0]
     assert np.allclose(g.stuv[:2], [0.5, 0.5], atol=1e-4)
+    # S2 spans x,y in [-0.5, 1.5] bilinearly => u=(x+0.5)/2, v=(y+0.5)/2;
+    # the touch at xyz=(0.5, 0.5, 0) has the S2 preimage (0.5, 0.5).
+    assert np.allclose(g.stuv[2:], [0.5, 0.5], atol=1e-4)
     assert np.allclose(g.xyz, [0.5, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
     # near-touch grazing seeds are subsumed by the emitted singularity
@@ -312,8 +315,11 @@ def test_two_isolated_tangent_points_same_cell():
                   key=lambda g: float(g.stuv[0]))
     assert len(sing) == 2
     assert np.allclose(sing[0].stuv[:2], [0.45, 0.5], atol=1e-4)
+    # S2 preimage of the touch: u=(x+0.5)/2, v=(y+0.5)/2 (bilinear span)
+    assert np.allclose(sing[0].stuv[2:], [0.475, 0.5], atol=1e-4)
     assert np.allclose(sing[0].xyz, [0.45, 0.5, 0.0], atol=1e-3)
     assert np.allclose(sing[1].stuv[:2], [0.9, 0.5], atol=1e-4)
+    assert np.allclose(sing[1].stuv[2:], [0.7, 0.5], atol=1e-4)
     assert np.allclose(sing[1].xyz, [0.9, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
     # near-touch grazing seeds are subsumed by the emitted singularities
@@ -371,3 +377,58 @@ def test_tangent_point_with_coexisting_transversal_ring():
     assert np.allclose(rr, np.sqrt(0.5) / 2.0, atol=5e-3)
     # near-touch grazing seeds are subsumed by the emitted singularity
     assert r["points"] == []
+
+
+# ---------------------------------------------------------------------------
+# Task 4: C2 — tangent point WITH transversal branches (saddle X-crossing)
+# ---------------------------------------------------------------------------
+
+def _saddle_touch():
+    """S1: z = (2s-1)^2 - (2t-1)^2 saddle; S2: z=0 plane.
+    SSI = two straight lines s=t and s=1-t crossing at the tangent point (0.5,0.5)."""
+    zc = [1.0, -1.0, 1.0]; xs = [0.0, 0.5, 1.0]
+    S1 = np.array([[[xs[i], xs[j], zc[i] - zc[j]] for j in range(3)] for i in range(3)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    return S1, S2
+
+
+def _pt_poly(p, poly):
+    a, b = poly[:-1], poly[1:]
+    ab = b - a
+    den = np.einsum("ij,ij->i", ab, ab); den[den < 1e-30] = 1e-30
+    tt = np.clip(np.einsum("ij,ij->i", p[None] - a, ab) / den, 0, 1)
+    return float(np.linalg.norm(a + tt[:, None] * ab - p[None], axis=1).min())
+
+
+def test_saddle_tangent_point_with_branches():
+    S1, S2 = _saddle_touch()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1
+    assert np.allclose(sing[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    # both diagonals fully covered (sample the two true lines, X in [0,1]):
+    polys = [np.asarray(b.curve[1]) for b in r["branches"]]
+    assert polys, "no branches traced"
+    for diag in (lambda a: (a, a, 0.0), lambda a: (a, 1.0 - a, 0.0)):
+        for a in np.linspace(0.01, 0.99, 33):
+            p = np.array(diag(a))
+            d = min(_pt_poly(p, poly) for poly in polys)
+            assert d < 5e-3, f"diagonal point {p} missed by {d}"
+    # the X-crossing CSX near-roots at the touch are marched into the arms,
+    # and anything at the touch itself is subsumed by the singularity
+    assert r["points"] == []
+
+
+def test_no_contact_lifted_paraboloid_emits_nothing():
+    # Regression guard for the size-gated tangency arm: lift the paraboloid
+    # clear of the plane (min gap 0.1, no contact anywhere) — every cell is
+    # crossing-less and the F_sq prune must kill the pair early, with no
+    # spurious tangent_point emission and no pruning fallout.
+    S1, S2 = _paraboloid_touch()
+    S1 = S1.copy()
+    S1[..., 2] += 0.1
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    assert r["branches"] == []
+    assert r["points"] == []
+    assert r["singularities"] == []
