@@ -422,3 +422,120 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
             if not any(np.all(np.abs(s - t) <= ptol) for t in seeds):
                 seeds.append(s)
     return seeds
+
+
+def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
+    """Global C1 detection (paper Fig. 5): parameterization cusps ON the SSI.
+
+    A C1 singularity is a point of the intersection curve where one
+    surface's parameterization is degenerate: Sigma_i = dR_i/da x dR_i/db
+    vanishes. Solving {Psi = 0} ∩ {Sigma_i = 0} per surface keeps exactly
+    the cusp candidates that lie on the intersection.
+
+    Returns (hits, curve_flag). `hits` entries are dicts:
+      {"surface": 1|2, "stuv": (4,), "xyz": (3,)}  — isolated cusp, or
+      {"surface": 1|2, "curve_samples": (N,4)}      — 1-dimensional set
+    (cusp CURVE, paper's infinite case): flagged when the enumeration
+    returns many solutions (>12) or exhausts its budget after finding
+    several — a 1-dim solution set floods `solve_zero_dim` by design.
+    `exhausted` with 0-1 solutions is surfaced as-is (the found root is
+    emitted; absence is NOT proof in that case — the enumeration may have
+    been truncated mid-search, e.g. Newton failing near a degenerate spot).
+
+    Cheap global precheck (the common case): Sigma_i = 0 needs ALL THREE
+    components zero, so ONE component whose Bernstein hull excludes zero
+    over the whole [0,1]^2 proves the normal never vanishes on surface i —
+    skip it for the cost of three min/max scans. Regular surfaces
+    (all 7 coverage cases, all legacy minis) exit here.
+    """
+    from mmcore.numeric.intersection._bezier_common import (
+        eval_surface, eval_surface_d1,
+    )
+
+    out: list = []
+    curve_flag = False
+    G = psi_vector_net(S1_h, S2_h)
+    for which, (Sh, axes2) in enumerate(((S1_h, (0, 1)), (S2_h, (2, 3))), start=1):
+        # bez_ssx always passes homogeneous nets (w == 1 for polynomial
+        # input): unit weights take the exact polynomial branch on the
+        # Cartesian part; genuinely rational input takes the
+        # homogeneous-numerator branch (zeros coincide, w > 0).
+        if np.allclose(Sh[..., -1], 1.0, rtol=0.0, atol=1e-14):
+            N = sigma_normal_net(np.ascontiguousarray(Sh[..., :-1]), rational=False)
+        else:
+            N = sigma_normal_net(Sh, rational=True)
+        if any(float(N[..., c].min()) > 0.0 or float(N[..., c].max()) < 0.0
+               for c in range(3)):
+            continue
+
+        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+        nets += [BoxNet(np.ascontiguousarray(N[..., c:c + 1]), axes=axes2)
+                 for c in range(3)]
+        nscale = float(np.abs(N).max())
+        if nscale <= 0.0:
+            # Sigma identically zero — a globally degenerate parameterization
+            # (e.g. a surface collapsed to a curve). Not a meaningful cusp
+            # enumeration; report as a curve-style hit with no samples.
+            curve_flag = True
+            out.append({"surface": which, "curve_samples": np.empty((0, 4))})
+            continue
+
+        def newton(x0, _Sh=Sh, _axes=axes2, _ns=nscale):
+            # Gauss-Newton (lstsq) on the overdetermined {Psi(3), Sigma(3)}.
+            # Sigma rows' Jacobian by forward differences on the two owning
+            # axes — exact d(cross) is verbose; 1e-7 FD is adequate for a
+            # refiner whose acceptance is checked independently below.
+            x = np.asarray(x0, dtype=np.float64).copy()
+            for _ in range(40):
+                p1, du1, dv1 = eval_surface_d1(S1_h, x[0], x[1], rational=True)
+                p2, du2, dv2 = eval_surface_d1(S2_h, x[2], x[3], rational=True)
+                psi = p1 - p2
+                _, dua, dvb = eval_surface_d1(_Sh, x[_axes[0]], x[_axes[1]],
+                                              rational=True)
+                Nv = np.cross(dua, dvb)
+                if (np.linalg.norm(psi) < 1e-10
+                        and np.linalg.norm(Nv) < 1e-8 * _ns):
+                    return np.clip(x, 0.0, 1.0)
+                J = np.zeros((6, 4))
+                J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
+                for ax in _axes:
+                    xp = x.copy()
+                    xp[ax] += 1e-7
+                    _, duap, dvbp = eval_surface_d1(
+                        _Sh, xp[_axes[0]], xp[_axes[1]], rational=True)
+                    J[3:, ax] = (np.cross(duap, dvbp) - Nv) / (1e-7 * _ns)
+                F = np.concatenate([psi, Nv / _ns])
+                try:
+                    dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
+                except np.linalg.LinAlgError:
+                    return None
+                x = np.clip(x + dx, 0.0, 1.0)
+                if float(np.linalg.norm(dx)) < 1e-12:
+                    break
+            p1 = eval_surface_d1(S1_h, x[0], x[1], rational=True)[0]
+            p2 = eval_surface_d1(S2_h, x[2], x[3], rational=True)[0]
+            _, dua, dvb = eval_surface_d1(_Sh, x[_axes[0]], x[_axes[1]],
+                                          rational=True)
+            if (np.linalg.norm(p1 - p2) < atol
+                    and np.linalg.norm(np.cross(dua, dvb)) < 1e-6 * _ns):
+                return np.clip(x, 0.0, 1.0)
+            return None
+
+        def _xyz(sol):
+            return eval_surface(S1_h, sol[0], sol[1], rational=True)
+
+        sols, exhausted = solve_zero_dim(nets, newton, ptol4,
+                                         max_cells=max_cells,
+                                         dedup_xyz=_xyz, atol=atol)
+        if len(sols) > 12 or (exhausted and len(sols) > 1):
+            # Many hits, or a truncated enumeration that already found
+            # several: a 1-dimensional solution set (cusp curve).
+            curve_flag = True
+            out.append({"surface": which, "curve_samples": np.asarray(sols)})
+            continue
+        # NOTE: exhausted with 0-1 solutions means the enumeration may be
+        # incomplete; the found root (if any) is still emitted — absence is
+        # not proof in that case (documented blind spot, plan risk 3).
+        for s in sols:
+            out.append({"surface": which, "stuv": np.asarray(s), "xyz": _xyz(s)})
+    return out, curve_flag

@@ -4200,6 +4200,45 @@ def bez_ssx(
             _kept_branches.append(b)
         all_branches = _kept_branches
 
+    # --- C1 pass (paper Fig. 5): parameterization cusps ON the SSI ---
+    # Cusps are properties of a surface's parameterization (Sigma_i = 0),
+    # not of the marching — the 4D curve is REGULAR through a C1 point
+    # (T3=T4=0 but T1,T2 != 0 there), so the branches above already walk
+    # through it; this pass only locates and types the cusp. Runs AFTER the
+    # branch filters so branch_links index the FINAL branch list (the two
+    # filters above drop branches; everything below only touches points).
+    # Regular surfaces exit via c1_pass's Sigma-hull precheck at the cost
+    # of six min/max scans — zero measurable time on all coverage cases.
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
+
+    ptol4_global = np.maximum(np.array(
+        [float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-9)
+    c1_hits, _c1_curve = c1_pass(S1_h_top, S2_h_top, atol, ptol4_global)
+    for hit in c1_hits:
+        if "curve_samples" in hit:
+            samples = np.asarray(hit["curve_samples"], dtype=np.float64)
+            anchor = samples[0] if len(samples) else np.full(4, np.nan)
+            xyz_anchor = (eval_surface(S1_h_top, anchor[0], anchor[1],
+                                       rational=True)
+                          if len(samples) else np.full(3, np.nan))
+            all_singularities.append(SSXSingularity(
+                kind="cusp_curve", stuv=anchor, xyz=xyz_anchor,
+                samples=samples))
+            continue
+        links = []
+        for bi, b in enumerate(all_branches):
+            xyz = np.asarray(b.curve[1])
+            if len(xyz) < 1:
+                continue
+            d = np.linalg.norm(xyz - hit["xyz"][None, :], axis=1)
+            k = int(d.argmin())
+            if d[k] <= 4.0 * atol:
+                links.append((bi, k))
+        all_singularities.append(SSXSingularity(
+            kind="cusp", stuv=np.asarray(hit["stuv"], dtype=np.float64),
+            xyz=np.asarray(hit["xyz"], dtype=np.float64),
+            branch_links=links))
+
     # A reported point within 2·atol (xyz) of an emitted tangent_point is
     # not a separate intersection — it is the certified tangency itself,
     # re-found by CSX grazing-valley seeds while subdividing around the

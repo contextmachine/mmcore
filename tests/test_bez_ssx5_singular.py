@@ -543,3 +543,41 @@ def test_tangent_line_with_coexisting_isolated_touch():
     assert np.allclose(xyz[:, 1], 0.5, atol=2e-3) and np.allclose(xyz[:, 2], 0.0, atol=2e-3)
     assert xyz[:, 0].min() < 0.02 and xyz[:, 0].max() > 0.98   # full span
     assert r["points"] == []
+
+
+# ---------------------------------------------------------------------------
+# Task 6: C1 — parameterization cusps (Sigma nets, global pass)
+# ---------------------------------------------------------------------------
+
+def _cusp_edge_case():
+    """S1(s,t) = ((2s-1)^2, (2s-1)^3, t): cuspidal edge along s=0.5 (deg 3x1).
+    S2: plane z=0.5 spanning x in [-0.5,1.5], y in [-1.5,1.5].
+    SSI: the classic cusp curve (a^2, a^3, 0.5) — C1 cusp point at
+    stuv=(0.5, 0.5, ., .), xyz=(0,0,0.5). Paper Fig. 18 (Example 5) analog."""
+    x3 = [1.0, -1.0 / 3.0, -1.0 / 3.0, 1.0]      # (2s-1)^2 in deg-3 Bernstein
+    y3 = [-1.0, 1.0, -1.0, 1.0]                  # (2s-1)^3 in deg-3 Bernstein
+    S1 = np.array([[[x3[i], y3[i], float(j)] for j in range(2)] for i in range(4)])
+    S2 = np.array([[[-0.5, -1.5, 0.5], [-0.5, 1.5, 0.5]],
+                   [[1.5, -1.5, 0.5], [1.5, 1.5, 0.5]]])
+    # self-check the construction
+    for s, t in [(0.1, 0.3), (0.5, 0.5), (0.85, 0.9)]:
+        a = 2 * s - 1
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [a * a, a ** 3, t], atol=1e-12)
+    return S1, S2
+
+
+def test_cusp_point_on_branch():
+    S1, S2 = _cusp_edge_case()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    cusps = [g for g in r["singularities"] if g.kind == "cusp"]
+    assert len(cusps) == 1
+    g = cusps[0]
+    assert abs(g.stuv[0] - 0.5) < 1e-4 and abs(g.stuv[1] - 0.5) < 1e-3
+    assert np.allclose(g.xyz, [0.0, 0.0, 0.5], atol=1e-3)
+    assert g.branch_links, "cusp not linked to its branch"
+    # the branch itself must cover the cusp curve including near the cusp
+    polys = [np.asarray(b.curve[1]) for b in r["branches"]]
+    for a in np.linspace(-0.95, 0.95, 41):
+        p = np.array([a * a, a ** 3, 0.5])
+        assert min(_pt_poly(p, poly) for poly in polys) < 5e-3
