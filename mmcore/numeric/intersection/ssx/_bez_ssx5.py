@@ -524,7 +524,13 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
         best_fn = min((float(np.linalg.norm(sys_.delta_point(r_)))
                        for r_ in roots), default=np.inf)
         return bool(roots), roots, best_fn
-    except Exception:
+    except (np.linalg.LinAlgError, FloatingPointError):
+        # Numerical failure of the witness/enumeration — an honest "could
+        # not certify" (ok=False; the caller falls through to subdivision).
+        # Deliberately NOT a blanket `except Exception`: contract errors
+        # (e.g. psi_vector_net shape mismatches, solve_zero_dim's
+        # empty-nets ValueError) are programming bugs and must propagate,
+        # not silently degrade every tangency emission to a miss.
         return False, [], np.inf
 
 
@@ -559,6 +565,156 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
             all_singularities.append(SSXSingularity(
                 kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
     return ok, roots
+
+
+def _dist_point_polyline_nd(p, poly):
+    """Min distance from an n-D point to a polyline's segments (poly: (N,n))."""
+    p = np.asarray(p, dtype=np.float64)
+    poly = np.asarray(poly, dtype=np.float64)
+    if len(poly) == 1:
+        return float(np.linalg.norm(poly[0] - p))
+    a = poly[:-1]
+    b = poly[1:]
+    ab = b - a
+    ap = p[None, :] - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    denom = np.where(denom < 1e-30, 1e-30, denom)
+    tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
+    proj = a + tt[:, None] * ab
+    return float(np.linalg.norm(proj - p[None, :], axis=1).min())
+
+
+def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
+                                 all_singularities, max_cells=2000):
+    """Enumerate Δ = Ψ ∩ TΨ roots of a crossing-bearing tangent cell that lie
+    OFF the already-traced Φ-fragments, and emit them as tangent_points.
+
+    On a cell holding a tangent CURVE, Δ's zero set contains the whole
+    curve — a plain full enumeration walks it at ptol resolution (measured
+    2.4 s on the legacy crossed-saddles top cell, all of it emitting curve
+    samples the post-assembly subsumption filter deletes again). Instead:
+
+    - Newton attempts are SKIPPED for boxes inside the traced fragments'
+      tube — center within 4·ptol/axis (scaled, + the box's own radius) of
+      a fragment's stuv polyline AND within 4·atol xyz of its xyz polyline
+      (the same matching-ladder pair: a parametric box is not a metric
+      ball, so a param-close but metric-far root still gets its Newton).
+      Skipped boxes still SUBDIVIDE — a coarse near-curve box can also
+      contain the coexisting touch.
+    - Boxes far from the tube are explored FIRST (max-heap on the scaled
+      stuv distance), so when the near-curve box flood exhausts the budget
+      (`exhausted=True` — expected and fine), only skippable curve samples
+      are starved, not undiscovered isolated touches. The guarantee is
+      heuristic (a geometry with huge off-tube Δ structure can still
+      exhaust first) — roots found are always valid.
+
+    With no fragments (nothing traced), this degrades to the plain
+    budget-bounded full enumeration.
+    """
+    from mmcore.numeric.bern import bern_eval as _bern_eval
+    from mmcore.numeric.ndinterval import interval as iv_interval, get_iarray
+    from mmcore.numeric.intersection._deflate import (
+        DeflatedSystem, gauss_newton_witness, _box_from_any,
+    )
+    from mmcore.numeric.intersection.ssx._ssx5_singular import (
+        BoxNet, ShiftedPositiveNet, psi_vector_net, solve_zero_dim,
+    )
+
+    P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+    P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+    ptol4 = _cell_ptol4(cell, atol)
+    scale = 4.0 * ptol4                       # tube radius: matching ladder
+
+    stuv_polys = [np.asarray(f.stuv_path, dtype=np.float64) / scale[None, :]
+                  for f in fragments_local if len(f.stuv_path)]
+    xyz_polys = [np.asarray(f.xyz_path, dtype=np.float64)
+                 for f in fragments_local if len(f.xyz_path)]
+
+    def _scaled_param_dist(p4):
+        if not stuv_polys:
+            return np.inf
+        q = np.asarray(p4, dtype=np.float64) / scale
+        return min(_dist_point_polyline_nd(q, poly) for poly in stuv_polys)
+
+    def _box_center_radius(bx):
+        c = np.array([0.5 * (lo + hi) for lo, hi in bx])
+        r = np.array([0.5 * (hi - lo) for lo, hi in bx])
+        return c, float(np.linalg.norm(r / scale)), float(np.sum(r / scale))
+
+    def skip_newton(bx):
+        # Both tests carry the box's OWN radius as slack: the skip decision
+        # is re-made at every level (skipped boxes still subdivide), so it
+        # only needs to be accurate at FINE scales — where the center
+        # approximates any root the box could hold. Without the slack the
+        # center-only xyz test fails for every coarse near-curve box and
+        # each pays a ~6 ms interval-GN (measured: 1069 attempts, 6.2 s on
+        # the crossed-saddles top cell). The xyz slack uses the tolerance
+        # ladder's own compounding bound (per-axis ptol ~ atol of motion,
+        # 1-norm over axes).
+        if not stuv_polys:
+            return False
+        c, box_r2, box_r1 = _box_center_radius(bx)
+        if _scaled_param_dist(c) > 1.0 + box_r2:
+            return False
+        cxyz = eval_surface(cell.g1.surface, c[0], c[1], rational=True)
+        return min(_dist_point_polyline_nd(cxyz, poly)
+                   for poly in xyz_polys) <= 4.0 * atol * (1.0 + box_r1)
+
+    def priority(bx):
+        if not stuv_polys:
+            return 0.0
+        c, _, _ = _box_center_radius(bx)
+        return _scaled_param_dist(c)
+
+    try:
+        sys_ = DeflatedSystem(
+            P1=get_iarray(P1c, P1c), P2=get_iarray(P2c, P2c),
+            T=tuple(np.asarray(T, dtype=iv_interval)
+                    for T in (cell.T1, cell.T2, cell.T3, cell.T4)),
+            bern_eval=_bern_eval, interval_ctor=iv_interval,
+        )
+        Bf = _box_from_any(tuple(iv_interval(0.0, 1.0) for _ in range(4)))
+
+        def _gn(x0):
+            ok_, xw_, _fn = gauss_newton_witness(sys_, Bf, x0=x0,
+                                                 tol_f=1e-10, max_iter=24)
+            return np.asarray(xw_, dtype=np.float64) if ok_ else None
+
+        def _xyz(x):
+            return eval_surface(cell.g1.surface, x[0], x[1], rational=True)
+
+        G = psi_vector_net(cell.g1.surface, cell.g2.surface)
+        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
+        nets += [BoxNet(np.asarray(T, dtype=np.float64)[..., None],
+                        axes=(0, 1, 2, 3))
+                 for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+        if cell.F_sq is not None:
+            # One-sided sq-dist exclusion (same threshold as
+            # _check_min_of_net): kills the off-tube boxes where individual
+            # Ψ-component hulls are weak — e.g. crossed saddles share their
+            # xy control layout, so Ψ_x = Ψ_y = 0 on a whole 2-dim diagonal
+            # set and the component nets exclude almost nothing there
+            # (measured: 1069 interval-GN attempts, 6.2 s, without this
+            # net; a handful with it).
+            thresh = (atol * cell.w_scale) ** 2
+            nets.append(ShiftedPositiveNet(
+                np.asarray(cell.F_sq, dtype=np.float64)[..., None] - thresh,
+                axes=(0, 1, 2, 3)))
+        sols, _exhausted = solve_zero_dim(
+            nets, _gn, ptol4, max_cells=max_cells, dedup_xyz=_xyz, atol=atol,
+            skip_newton=skip_newton, priority=priority)
+    except (np.linalg.LinAlgError, FloatingPointError):
+        return
+
+    for xw in sols:
+        stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
+        if not any(g.kind == "tangent_point"
+                   and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
+                   and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
+                   for g in all_singularities):
+            all_singularities.append(SSXSingularity(
+                kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
 
 
 def _dist_point_polyline(pxyz, poly):
@@ -1325,6 +1481,17 @@ def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
             )
             pairs.append((i, j))
             remaining_out.remove(j)
+        if not pairs and n == 2:
+            # Tangent-curve boundary endpoints have a rank-deficient
+            # Ψ-Jacobian (2D null space), so `tangent_raw` is an arbitrary
+            # null vector and §4 classification can register BOTH crossings
+            # with the same direction — the in/out matching then starves
+            # and the whole curve went untraced (measured: the t=0.5
+            # tangent-line repro returned 0 branches). With exactly two
+            # crossings the pairing is unambiguous — pair them and let the
+            # Φ-march itself verify connectivity (the Ψ-validity filter in
+            # _deflate_tangent_cell discards the samples if they are not).
+            return [(0, 1)], []
         paired_ids = {i for p in pairs for i in p}
         unpaired = [k for k in range(n) if k not in paired_ids]
         return pairs, unpaired
@@ -3662,9 +3829,10 @@ def bez_ssx(
             # otherwise fall through to the subdivision path like any other
             # uncertified cell — descendants that re-confirm the same
             # tangency are absorbed by the emission dedup above.
-            # A failed witness (ok=False: the exception path) must not
-            # vanish either — fall through regardless of size so the
-            # cell is never dropped with neither emission nor subdivision.
+            # A failed witness (ok=False: GN non-convergence or the
+            # numerical-failure path) must not vanish either — fall through
+            # regardless of size so the cell is never dropped with neither
+            # emission nor subdivision.
             spans = np.array([hi - lo for (lo, hi) in cell.box])
             if ok and np.all(spans <= 4.0 * unify_tol):
                 continue
@@ -3683,8 +3851,7 @@ def bez_ssx(
             # for the case — a >2x slowdown gate per the Task 4 plan). The
             # center witness costs ~ms; a witness landing ON a traced
             # tangential/overlap branch is dropped by the post-assembly
-            # subsumption filter, so the curve case emits nothing. Task 5
-            # owns typed 1-dim tangencies.
+            # subsumption filter, so the curve case emits nothing.
             _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                                 enumerate_all=False)
             # Convert crossings to the cell's local stuv for the Φ tracer.
@@ -3713,6 +3880,28 @@ def bez_ssx(
             # pt_local's SSXPoint.stuv is already global — we passed
             # `originals` so _deflate_tangent_cell copied from them.
             all_points.extend(pt_local)
+            # Tracing the Φ curve between this cell's crossings does NOT by
+            # itself resolve the cell: the deflation only reaches features
+            # ON Φ through the boundary crossings, and the center witness
+            # converges into the CURVE's basin — a coexisting ISOLATED
+            # touch in the same cell (z = (2t-1)^2*((s-0.7)^2+(t-0.2)^2):
+            # tangent line at t=0.5 PLUS a touch at (0.7,0.2)) is off every
+            # traced fragment and the plain `continue` deleted it with NO
+            # descendants ever seeing it (this cell was the only holder —
+            # there is no "some other cell covers it" on this path).
+            # Subdividing instead (the crossing-less arm's e1db506
+            # treatment) is correct but measured 1349x slower on the legacy
+            # crossed-saddles case (0.15 s -> 200 s): cells along a
+            # 1-dimensional tangent curve can never be certified away, so
+            # the size gate forces a full dyadic descent along the curve's
+            # length. Enumerate the cell's REMAINING Δ-roots here instead:
+            # hull-exclusion subdivision with the Newton attempts SKIPPED
+            # inside the traced fragments' tube (those roots are curve
+            # samples the subsumption filter would delete anyway) and
+            # far-from-tube boxes explored FIRST, so a budget exhaustion
+            # starves only the curve flood, never the coexisting touch.
+            _emit_offcurve_tangent_roots(cell, fr_local, atol, unify_tol,
+                                         all_singularities)
             continue
 
         if cell.depth >= max_depth:

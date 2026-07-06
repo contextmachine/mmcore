@@ -480,3 +480,66 @@ def test_tangent_point_plus_tiny_loop():
     xyz = np.asarray(loops[0].curve[1])
     rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
     assert np.allclose(rr, 0.1, atol=5e-3)   # circle of radius sqrt(0.04)/2 in s-units
+
+
+# ---------------------------------------------------------------------------
+# Follow-up: coexisting features on the crossing-BEARING tangency arm
+# ---------------------------------------------------------------------------
+
+def _line_plus_touch():
+    """S1: z = (2t-1)^2 * ((s-0.7)^2 + (t-0.2)^2) (deg 2x4), z >= 0:
+    tangent LINE along t=0.5 PLUS a coexisting isolated touch at (0.7, 0.2).
+    S2: z=0 plane. The line's cell is crossing-BEARING (the line pierces the
+    domain boundary), so the crossing-less arm never sees it — the touch is
+    off every traced Phi-fragment and must be found by the off-curve
+    enumeration (_emit_offcurve_tangent_roots), not by subdivision."""
+    from math import comb
+
+    A = np.array([1.0, -4.0, 4.0])                      # (2t-1)^2 in t
+    Mb = np.zeros((3, 3))                               # (s-0.7)^2 + (t-0.2)^2
+    Mb[2, 0] = 1.0; Mb[1, 0] = -1.4; Mb[0, 0] = 0.49 + 0.04
+    Mb[0, 1] = -0.4; Mb[0, 2] = 1.0
+    Mz = np.zeros((3, 5))                               # s-deg 2, t-deg 4
+    for si in range(3):
+        for tj in range(3):
+            for k in range(3):
+                Mz[si, tj + k] += Mb[si, tj] * A[k]
+
+    def mono_to_bern(a, n):
+        return np.array([sum(a[j] * comb(i, j) / comb(n, j)
+                             for j in range(min(i, len(a) - 1) + 1))
+                         for i in range(n + 1)])
+
+    Ks = np.array([mono_to_bern(np.eye(3)[j], 2) for j in range(3)])
+    Kt = np.array([mono_to_bern(np.eye(5)[j], 4) for j in range(5)])
+    Bz = Ks.T @ Mz @ Kt
+    xs = np.array([0.0, 0.5, 1.0])
+    yt = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
+    S1 = np.array([[[xs[i], yt[j], Bz[i, j]] for j in range(5)] for i in range(3)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    for s, t in [(0.3, 0.8), (0.7, 0.2), (0.5, 0.5), (0.9, 0.35)]:
+        want = (2 * t - 1) ** 2 * ((s - 0.7) ** 2 + (t - 0.2) ** 2)
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, want], atol=1e-12)
+    return S1, S2
+
+
+def test_tangent_line_with_coexisting_isolated_touch():
+    # DEFECT-D regression: the crossing-bearing tangency arm `continue`d
+    # after Phi-tracing the line, deleting the coexisting isolated touch at
+    # (0.7, 0.2) — the center witness converges into the CURVE's basin, and
+    # this cell is the only holder (no descendants ever see the touch).
+    S1, S2 = _line_plus_touch()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1, f"expected only the isolated touch, got {len(tps)}"
+    assert np.allclose(tps[0].xyz, [0.7, 0.2, 0.0], atol=2e-3)
+    assert np.allclose(tps[0].stuv[:2], [0.7, 0.2], atol=1e-3)
+    # the tangent line itself is traced as one tangential branch: (s, 0.5, 0)
+    tang = [b for b in r["branches"] if b.kind == "tangential"]
+    assert len(tang) == 1
+    xyz = np.asarray(tang[0].curve[1])
+    assert np.allclose(xyz[:, 1], 0.5, atol=2e-3) and np.allclose(xyz[:, 2], 0.0, atol=2e-3)
+    assert xyz[:, 0].min() < 0.02 and xyz[:, 0].max() > 0.98   # full span
+    assert r["points"] == []

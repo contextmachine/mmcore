@@ -195,6 +195,30 @@ class BoxNet:
         return BoxNet(lo, self.axes), BoxNet(hi, self.axes)
 
 
+@dataclass(frozen=True, eq=False)
+class ShiftedPositiveNet(BoxNet):
+    """One-sided exclusion net: excludes iff min(coeffs) > 0.
+
+    For SHIFTED squared-distance nets (coeffs = F_sq − thresh): `min > 0`
+    proves the box is entirely OUTSIDE the tolerance shell (no Ψ-zero —
+    excludable), but `max < 0` only proves it is entirely INSIDE the shell
+    (i.e. ON the intersection at tolerance — the opposite of excludable),
+    so the base class's two-sided hull test would wrongly prune exactly
+    the boxes that matter. Splits preserve the subclass.
+    """
+
+    def excludes_zero(self) -> bool:
+        c = self.coeffs
+        return float(c.min()) > 0.0
+
+    def split(self, global_axis: int, t: float = 0.5):
+        if global_axis not in self.axes:
+            return self, self
+        d = self.axes.index(global_axis)
+        lo, hi = de_casteljau_split_nd(self.coeffs, axis=d, t=t)
+        return ShiftedPositiveNet(lo, self.axes), ShiftedPositiveNet(hi, self.axes)
+
+
 def solve_zero_dim(
     nets: list,                       # non-empty list[BoxNet] — ALL must contain 0 for a box to survive
     newton: Callable,                 # (x0: (4,)) -> Optional[(4,) solution in GLOBAL coords]
@@ -203,6 +227,8 @@ def solve_zero_dim(
     max_cells: int = 20000,
     dedup_xyz: Optional[Callable] = None,   # (sol) -> (3,) point, for xyz dedup
     atol: float = 1e-3,
+    skip_newton: Optional[Callable] = None,  # (box) -> True to skip the Newton attempt
+    priority: Optional[Callable] = None,     # (box) -> float; HIGHER pops first (heap)
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
@@ -235,6 +261,16 @@ def solve_zero_dim(
     Raises ValueError on empty `nets`: with nothing to prune, every box
     survives and the search silently degrades to an exhaustive Newton
     multistart burning the whole `max_cells` budget.
+
+    `skip_newton(box)` suppresses the Newton attempt on a box WITHOUT
+    affecting its subdivision — for callers that can prove any root inside
+    a region is already represented elsewhere (e.g. within the tube of an
+    already-traced tangent curve, whose emissions the downstream
+    subsumption filter would delete anyway). `priority(box)` switches the
+    pending set from LIFO to a max-heap ordered by the callable — callers
+    facing a 1-dimensional solution component use it to explore boxes FAR
+    from the known component first, so a `max_cells` exhaustion eats only
+    the (skippable) component flood, not undiscovered isolated roots.
     """
     if not nets:
         raise ValueError(
@@ -253,20 +289,36 @@ def solve_zero_dim(
                     return True
         return False
 
-    stack = [(tuple(box), list(nets))]
+    if priority is None:
+        pending = [(tuple(box), list(nets))]
+        _push = pending.append
+        _pop = pending.pop
+    else:
+        import heapq
+        _tie = iter(range(1 << 62))          # heap tiebreak — boxes aren't comparable
+        pending = [(-float(priority(tuple(box))), next(_tie), tuple(box), list(nets))]
+
+        def _push(item):
+            heapq.heappush(pending, (-float(priority(item[0])), next(_tie), item[0], item[1]))
+
+        def _pop():
+            e = heapq.heappop(pending)
+            return e[2], e[3]
+
     cells = 0
-    while stack and cells < max_cells:
+    while pending and cells < max_cells:
         cells += 1
-        bx, bnets = stack.pop()
+        bx, bnets = _pop()
         if any(n.excludes_zero() for n in bnets):
             continue
-        mid = np.array([0.5 * (lo + hi) for lo, hi in bx])
-        sol = newton(mid)
-        if sol is not None:
-            sol = np.asarray(sol, dtype=np.float64)
-            inside = all(bx[i][0] - 1e-12 <= sol[i] <= bx[i][1] + 1e-12 for i in range(4))
-            if inside and not _dup(sol):
-                sols.append(sol)
+        if skip_newton is None or not skip_newton(bx):
+            mid = np.array([0.5 * (lo + hi) for lo, hi in bx])
+            sol = newton(mid)
+            if sol is not None:
+                sol = np.asarray(sol, dtype=np.float64)
+                inside = all(bx[i][0] - 1e-12 <= sol[i] <= bx[i][1] + 1e-12 for i in range(4))
+                if inside and not _dup(sol):
+                    sols.append(sol)
         # split the axis with the largest span in units of its OWN ptol —
         # with heterogeneous per-axis ptols the absolutely-widest axis can
         # already be resolved while a tighter-ptol axis is still orders of
@@ -284,9 +336,9 @@ def solve_zero_dim(
         m = 0.5 * (bx[widest][0] + bx[widest][1])
         bl = list(bx); bl[widest] = (bx[widest][0], m)
         br = list(bx); br[widest] = (m, bx[widest][1])
-        stack.append((tuple(bl), left_nets))
-        stack.append((tuple(br), right_nets))
-    return sols, bool(stack)
+        _push((tuple(bl), left_nets))
+        _push((tuple(br), right_nets))
+    return sols, bool(pending)
 
 
 def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
