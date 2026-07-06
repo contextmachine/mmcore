@@ -392,6 +392,8 @@ def test_sigma_net_matches_fd():
 
 ### Task 3: C₂ — isolated tangent points (fix the gate that loses them)
 
+> **AS-BUILT (committed `23e39bc` + `237c8c9` + `e1db506`) — supersedes the snippet below in three ways:** (1) `_tangency_witness(cell, atol)` returns `(ok, roots, best_fn)` — center GN witness first, then `solve_zero_dim` enumeration of ALL Δ-roots in the cell (a single-witness `continue` demonstrably lost the second of two touches sharing one crossing-less cell); every root goes through the emission dedup. (2) The `continue` is size-gated, NOT unconditional: fall through to subdivision unless `ok` AND all four GLOBAL cell spans ≤ 4·unify_tol — an unconditional `continue` deleted coexisting transversal features in the same cell (Mexican hat `z=q(q−1/2)`: touch + transversal ring; Φ∩L cannot recover the ring — it is transversal, not on Φ). A failed witness also falls through (never drop a cell with neither emission nor subdivision). (3) A post-assembly filter drops micro-branches at emitted tangent points (every vertex ≤ 4·atol xyz of a tangent point AND arc ≤ 16·atol) — subdividing past the touch re-exposes CSX grazing-valley micro-fragments. Open question deliberately left to Task 4: near-touch SSXPoints (~1·atol from the touch) now surface in `result['points']` and need the analogous filter.
+
 **Context:** `_bez_ssx5.py` main loop sets `is_clearly_transversal = True` when `cell.crossings` is empty — so a cell containing ONLY an isolated tangency never runs `_check_tangency`, subdivides to `max_depth`, and emits nothing. Verified live: paraboloid-touching-plane returns `{}` today.
 
 **Files:**
