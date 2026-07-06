@@ -245,3 +245,27 @@ def test_sigma_net_rational_matches_direction():
         # normalized cross product ~ 0 => parallel; positive dot => same orientation
         assert np.linalg.norm(np.cross(got, want)) < 1e-6 * gn * wn
         assert np.dot(got, want) > 0
+
+
+# ---------------------------------------------------------------------------
+# Task 3: C2 — isolated tangent points (crossing-less tangency gate)
+# ---------------------------------------------------------------------------
+
+def _paraboloid_touch():
+    """S1: z = (2s-1)^2 + (2t-1)^2 (deg 2x2), touching S2: z=0 plane at (0.5,0.5)."""
+    xs = [0.0, 0.5, 1.0]; zc = [1.0, -1.0, 1.0]     # Bernstein coeffs of (2x-1)^2
+    S1 = np.array([[[xs[i], xs[j], zc[i] + zc[j]] for j in range(3)] for i in range(3)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    return S1, S2
+
+
+def test_isolated_tangent_point_found():
+    S1, S2 = _paraboloid_touch()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1
+    g = sing[0]
+    assert np.allclose(g.stuv[:2], [0.5, 0.5], atol=1e-4)
+    assert np.allclose(g.xyz, [0.5, 0.5, 0.0], atol=1e-3)
+    assert r["branches"] == []          # nothing else to trace

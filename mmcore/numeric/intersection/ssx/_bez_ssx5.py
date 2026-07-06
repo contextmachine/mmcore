@@ -430,6 +430,38 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
         return None  # Undetermined due to error
 
 
+def _tangency_witness(cell):
+    """Gauss-Newton witness point of the deflated system Δ = Ψ ∩ TΨ on the
+    cell (local [0,1]⁴ coords). Returns (ok, x_local(4,), residual).
+
+    Mirrors `_check_tangency`'s DeflatedSystem construction exactly (same
+    interval nets, same local box) but runs the witness tighter
+    (tol_f=1e-10, max_iter=24): `_check_tangency` only needs a fast
+    yes/no, this point is EMITTED as a typed singularity's coordinates.
+    Kept separate so `_check_tangency`'s ternary contract (and the
+    diagnostic scripts that monkeypatch it) stay untouched.
+    """
+    from mmcore.numeric.bern import bern_eval as _bern_eval
+    from mmcore.numeric.ndinterval import interval as iv_interval, get_iarray
+    from mmcore.numeric.intersection._deflate import (
+        DeflatedSystem, gauss_newton_witness, _box_from_any,
+    )
+    P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
+    P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+    try:
+        sys_ = DeflatedSystem(
+            P1=get_iarray(P1c, P1c), P2=get_iarray(P2c, P2c),
+            T=tuple(np.asarray(T, dtype=iv_interval)
+                    for T in (cell.T1, cell.T2, cell.T3, cell.T4)),
+            bern_eval=_bern_eval, interval_ctor=iv_interval,
+        )
+        Bf = _box_from_any(tuple(iv_interval(0.0, 1.0) for _ in range(4)))
+        ok, xw, fn = gauss_newton_witness(sys_, Bf, tol_f=1e-10, max_iter=24)
+        return ok, xw, fn
+    except Exception:
+        return False, None, np.inf
+
+
 # ---------------------------------------------------------------------------
 # Level 4a: Domain decomposition
 # ---------------------------------------------------------------------------
@@ -2988,11 +3020,6 @@ def bez_ssx(
         # NOT by further subdivision — deflation makes the Φ-curve regular
         # where Ψ is rank-deficient.
         #
-        # Skip when there are no crossings: deflation requires `cell.crossings`
-        # to be non-empty to produce fragments (`if tangency is True and
-        # cell.crossings` below). A True result without crossings is wasted.
-        # Cells with no crossings simply fall through to subdivision either way.
-        #
         # Geometric tangency pre-check: at a SSX-tangent crossing the two
         # surface normals are parallel, so sin(angle(N1, N2)) ≈ 0. At a
         # transversal crossing they are not parallel, so sin(angle) > 0.
@@ -3004,7 +3031,14 @@ def bez_ssx(
         # offset, so a 1e-3 threshold (≈0.06°) gives ~10⁴× headroom.
         is_clearly_transversal = False
         if not cell.crossings:
-            is_clearly_transversal = True
+            # An isolated tangency or interior tangent loop lives in exactly
+            # this kind of cell (no boundary crossings). Whether tangency is
+            # even possible is already known for free: _check_monotonicity
+            # failed (we are past the loop-free gate), i.e. all four T-Psi
+            # hulls straddle zero. Run the tangency check instead of
+            # assuming transversality — assuming it silently deleted
+            # isolated tangent points (paper Fig. 24/25 class).
+            pass
         else:
             for c in cell.crossings:
                 s, t, u, v = c.stuv  # global stuv on the original surfaces
@@ -3033,6 +3067,26 @@ def bez_ssx(
                 cell.T1, cell.T2, cell.T3, cell.T4,
                 P1_cart_local, P2_cart_local, local_box,
             )
+        if tangency is True and not cell.crossings:
+            # Isolated tangent point (or tangent feature with no boundary
+            # contact). The Gauss-Newton witness from _check_tangency is the
+            # point — recompute it here tighter to get coordinates (cheap:
+            # one small GN solve; often this fires at the TOP cell, before
+            # any subdivision) and emit a typed singularity. Neighboring
+            # cells can also confirm the same tangency; the unify_tol box +
+            # 2·atol xyz dedup collapses them to one emitted point.
+            ok, xw, fn = _tangency_witness(cell)
+            if ok:
+                stuv_g = _local_to_global(np.asarray(xw), cell.box)
+                xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
+                if not any(g.kind == "tangent_point"
+                           and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
+                           and float(np.linalg.norm(g.xyz - xyz_w)) <= 2.0 * atol
+                           for g in all_singularities):
+                    all_singularities.append(SSXSingularity(
+                        kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
+            continue
+
         if tangency is True and cell.crossings:
             # Convert crossings to the cell's local stuv for the Φ tracer.
             crossings_local = [
