@@ -104,6 +104,8 @@ git commit -m "feat(ssx5): typed singularity output schema (SSXSingularity, bran
 
 ### Task 2: `_ssx5_singular.py` — nets + zero-dimensional Bernstein solver
 
+> **AS-BUILT (committed `3fb0d7e` + `21b8ac8` + `33aa60b`) — supersedes the sketch below:** `solve_zero_dim` returns a 2-tuple `(sols, exhausted)` — `exhausted=True` means the max_cells budget ran out with boxes unexplored, so the enumeration may be INCOMPLETE and absence is not proof. The resolution floor is ratio-based (stop splitting when `max_i span_i/ptol_i <= 1`; split axis = arg-max ratio). `BoxNet` is `frozen=True, eq=False`. Degenerate inputs raise `ValueError` (empty `nets`; degree-0 patches into `sigma_normal_net`). Rational `sigma_normal_net` is fully implemented (identity `R_a x R_b = N_hom / w^4`). All later-task snippets below have been updated to the tuple API — copy them as shown.
+
 **Files:**
 - Create: `mmcore/numeric/intersection/ssx/_ssx5_singular.py`
 - Test: `tests/test_bez_ssx5_singular.py`
@@ -658,8 +660,12 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
         nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
         nets.append(BoxNet(Tk, axes=(0, 1, 2, 3)))
         nets.append(BoxNet(linear_net_4d(-0.5, tuple(np.eye(4)[axis])), axes=(0, 1, 2, 3)))
-        for s in solve_zero_dim(nets, newton_factory(axis, 0.5), ptol,
-                                max_cells=max_cells, atol=atol):
+        ax_sols, ax_exhausted = solve_zero_dim(nets, newton_factory(axis, 0.5), ptol,
+                                               max_cells=max_cells, atol=atol)
+        # AS-BUILT: solve_zero_dim returns (sols, exhausted). Exhaustion here
+        # only degrades seeding redundancy (4 mid-planes, each cutting a loop
+        # >= 2x) — seeds already found stay valid; nothing is invalidated.
+        for s in ax_sols:
             if not any(np.all(np.abs(s - t) <= np.asarray(ptol)) for t in seeds):
                 seeds.append(s)
     return seeds
@@ -876,12 +882,18 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
             from mmcore.numeric.intersection._bezier_common import eval_surface
             return eval_surface(S1_h, sol[0], sol[1], rational=True)
 
-        sols = solve_zero_dim(nets, newton, ptol4, max_cells=max_cells,
-                              dedup_xyz=_xyz, atol=atol)
-        if len(sols) > 12:
-            curve_flag = True          # 1-dimensional set: report samples
+        sols, exhausted = solve_zero_dim(nets, newton, ptol4, max_cells=max_cells,
+                                         dedup_xyz=_xyz, atol=atol)
+        if len(sols) > 12 or (exhausted and len(sols) > 1):
+            # Many hits, or a truncated enumeration that already found several:
+            # treat as a 1-dimensional solution set (cusp curve) — report samples.
+            curve_flag = True
             out.append({"surface": which, "curve_samples": np.asarray(sols)})
             continue
+        # AS-BUILT NOTE: `exhausted` with 0-1 solutions means the enumeration may
+        # be incomplete (deep subdivision with Newton failing near a singularity).
+        # Do not treat absence as proof there — the implementer must surface this
+        # case (at minimum a comment + report mention; do not silently drop it).
         for s in sols:
             out.append({"surface": which, "stuv": np.asarray(s), "xyz": _xyz(s)})
     return out, curve_flag
@@ -1111,7 +1123,7 @@ In `bez_ssx`: during the main loop, right where `_check_loop_free` succeeds and 
 
 1. **Tolerance interplay** — every new dedup/match uses the established ladders (1·ptol+atol destructive; 4·ptol+2·atol matching). Any deviation needs a measured justification.
 2. **Φ-loop marching near the tangency** — the Φ curve passes THROUGH the tangent point; a loop seed marching "toward" the seed may take the short way through the singularity instead of around the loop. The Ψ-validity filter kills the through-branch samples (they're on Φ but not on Ψ)... unless the segment is Ψ-valid too. If the emitted "loop" is actually seed→tangent-point→seed, detect via winding (path bbox ≪ expected) and re-seed from the other Φ-branch (flip the displacing step sign in `_march_phi_closed`).
-3. **`solve_zero_dim` cell blowup near Σ/TΨ zero CURVES** (1-dim solution sets): the resolution floor (`spans ≤ ptol` → stop) bounds cells at ~(1/ptol) along the curve — with max_cells=20000 the budget cuts off first; the `curve_flag` path (>12 solutions) is the intended handling. Never raise max_cells to "fix" a hang.
+3. **`solve_zero_dim` cell blowup near Σ/TΨ zero CURVES** (1-dim solution sets): the resolution floor (ratio-based: stop splitting when `max_i span_i/ptol_i ≤ 1`) bounds cells at ~(1/ptol) along the curve — with max_cells=20000 the budget cuts off first and sets `exhausted=True`; the `curve_flag` path (>12 solutions, or exhausted with >1) is the intended handling. Never raise max_cells to "fix" a hang.
 4. **C₂ multiplicity ≥ 3** (paper's own admitted limit, §7.1): out of scope; the deflation handles multiplicity 2. Document, don't attempt.
 5. **Rational Σ nets** — polynomial branch is required; homogeneous-numerator branch is best-effort within Task 2 (all planned tests are polynomial). If deferred, `c1_pass` must raise a clear `NotImplementedError` for rational inputs rather than silently skipping.
 
