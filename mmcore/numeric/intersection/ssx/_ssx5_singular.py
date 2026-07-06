@@ -127,6 +127,13 @@ def sigma_normal_net(S: np.ndarray, rational: bool) -> np.ndarray:
     step is required.
     """
     S = np.asarray(S, dtype=np.float64)
+    if S.ndim != 3 or S.shape[0] < 2 or S.shape[1] < 2:
+        raise ValueError(
+            "sigma_normal_net requires a (m+1, n+1, 3|4) control net with degree >= 1 in "
+            f"BOTH parametric directions (got shape {S.shape}); a degree-0 direction has an "
+            "identically-zero partial derivative — the normal net would be identically zero — "
+            "and the underlying Bernstein product primitives fail on empty derivative nets."
+        )
     if not rational:
         if S.shape[-1] == 4:
             if not np.allclose(S[..., -1], 1.0, rtol=0.0, atol=1e-12):
@@ -155,7 +162,7 @@ def sigma_normal_net(S: np.ndarray, rational: bool) -> np.ndarray:
     return np.asarray(bernstein_patch_cross_same_params(A.tolist(), B.tolist()), dtype=np.float64)
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class BoxNet:
     """A scalar Bernstein net over a sub-box of [0,1]^4.
 
@@ -163,9 +170,14 @@ class BoxNet:
     dim of size 1. `axes[i]` is the global axis the i-th tensor dim varies
     along; restriction along a global axis not in `axes` is a no-op (the
     net is constant along axes it doesn't depend on).
+
+    Frozen: the foreign-axis no-op split returns the SAME instance for both
+    children, so instances are shared across sibling boxes and must never
+    be mutated. (`eq=False` keeps identity equality — the dataclass-generated
+    `__eq__` would raise on ndarray fields.)
     """
     coeffs: NDArray[np.float64]
-    axes: tuple
+    axes: tuple[int, ...]
 
     def excludes_zero(self) -> bool:
         """Bernstein hull test: True proves the net has no zero over its box.
@@ -184,7 +196,7 @@ class BoxNet:
 
 
 def solve_zero_dim(
-    nets: list,                       # list[BoxNet] — ALL must contain 0 for a box to survive
+    nets: list,                       # non-empty list[BoxNet] — ALL must contain 0 for a box to survive
     newton: Callable,                 # (x0: (4,)) -> Optional[(4,) solution in GLOBAL coords]
     ptol,                             # (4,) per-axis parametric resolution
     box=((0.0, 1.0),) * 4,
@@ -219,7 +231,16 @@ def solve_zero_dim(
     heterogeneous per-axis ptols a plain widest-axis rule could stop while
     a tighter-ptol axis is still under-refined by orders of magnitude; for
     uniform ptol this is behavior-identical to widest-axis.
+
+    Raises ValueError on empty `nets`: with nothing to prune, every box
+    survives and the search silently degrades to an exhaustive Newton
+    multistart burning the whole `max_cells` budget.
     """
+    if not nets:
+        raise ValueError(
+            "solve_zero_dim: `nets` must be non-empty — with nothing to prune, the search "
+            "degrades to an exhaustive Newton multistart over the whole budget."
+        )
     ptol = np.asarray(ptol, dtype=np.float64)
     sols: list = []
 

@@ -169,6 +169,62 @@ def test_sigma_net_accepts_cartesian_and_rejects_bad_weights():
         sigma_normal_net(S_bad, rational=False)
 
 
+def test_sigma_net_degree0_raises():
+    # degree-0 in either parametric direction: the partial derivative is
+    # identically zero, so the normal net is meaningless — must be a loud
+    # ValueError at entry, not a raw IndexError deep in _deflate.py.
+    # Covers BOTH branches (polynomial and rational).
+    rng = np.random.default_rng(5)
+    deg0_u = rng.uniform(-1, 1, (1, 3, 3))   # degree 0 along the first direction
+    deg0_v = rng.uniform(-1, 1, (3, 1, 3))   # degree 0 along the second direction
+    for bad in (deg0_u, deg0_v):
+        with pytest.raises(ValueError, match="degree >= 1"):
+            sigma_normal_net(_homog(bad), rational=False)
+        with pytest.raises(ValueError, match="degree >= 1"):
+            sigma_normal_net(_homog(bad), rational=True)
+
+
+def test_solve_zero_dim_empty_nets_raises():
+    # nets=[] would silently degrade to an exhaustive Newton multistart
+    # burning the whole budget — must be rejected loudly.
+    with pytest.raises(ValueError, match="non-empty"):
+        solve_zero_dim([], lambda x0: None, ptol=np.full(4, 1e-3))
+
+
+def test_boxnet_partial_axes_restriction():
+    # Task-6 shape: a Sigma net depends only on (s,t) — a 2-dim BoxNet
+    # embedded in the 4D solver frame via axes=(0, 1).
+    from mmcore.numeric.bern import de_casteljau_split_nd, bernstein_eval_nd
+    rng = np.random.default_rng(21)
+    S = rng.uniform(-1, 1, (3, 3, 3))
+    N = sigma_normal_net(_homog(S), rational=False)
+    bn = BoxNet(N[..., 0:1], axes=(0, 1))            # x-component net
+    # (a) restriction along a foreign global axis (u or v) is an identity
+    # no-op returning the SAME (frozen, shared) instance for both children
+    for foreign in (2, 3):
+        l, r = bn.split(foreign, 0.5)
+        assert l is bn and r is bn
+    with pytest.raises(AttributeError):              # frozen: shared instances stay immutable
+        bn.axes = (0, 2)
+    # (b) restriction along an own global axis matches de_casteljau_split_nd
+    # and evaluates consistently on the half-domains
+    l, r = bn.split(1, 0.5)
+    L, R = de_casteljau_split_nd(bn.coeffs, axis=1, t=0.5)
+    assert l.axes == (0, 1) and r.axes == (0, 1)
+    assert np.allclose(l.coeffs, L) and np.allclose(r.coeffs, R)
+    for a, b in rng.uniform(0, 1, (5, 2)):
+        assert np.allclose(bernstein_eval_nd(l.coeffs, [a, b]),
+                           bernstein_eval_nd(bn.coeffs, [a, 0.5 * b]), atol=1e-12)
+        assert np.allclose(bernstein_eval_nd(r.coeffs, [a, b]),
+                           bernstein_eval_nd(bn.coeffs, [a, 0.5 + 0.5 * b]), atol=1e-12)
+    # (c) excludes_zero on the restricted 2-axis net
+    assert BoxNet(np.abs(bn.coeffs) + 0.5, axes=(0, 1)).excludes_zero()
+    assert BoxNet(-np.abs(bn.coeffs) - 0.5, axes=(0, 1)).excludes_zero()
+    mixed = bn.coeffs.copy()
+    mixed.flat[0], mixed.flat[-1] = -1.0, 1.0
+    assert not BoxNet(mixed, axes=(0, 1)).excludes_zero()
+
+
 def test_sigma_net_rational_matches_direction():
     # Acceptance gate for the rational branch (genuinely rational surface:
     # random control points + random weights in [0.5, 2.0]). Scale-invariant
