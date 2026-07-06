@@ -3145,7 +3145,22 @@ def bez_ssx(
                            for g in all_singularities):
                     all_singularities.append(SSXSingularity(
                         kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
-            continue
+            # Emitting the tangency does NOT resolve the cell: the same
+            # crossing-less cell can hold coexisting transversal features —
+            # z = q(q-1/2) (Mexican hat) has the touch at the center AND a
+            # transversal ring at q = 1/2, and an unconditional `continue`
+            # here silently deleted the ring (Task 5's Φ∩L seeding cannot
+            # recover it: the ring is transversal, not on Φ). Stop only when
+            # the cell is at tolerance scale (all four GLOBAL spans within
+            # 4·unify_tol); otherwise fall through to the subdivision path
+            # like any other uncertified cell — descendants that re-confirm
+            # the same tangency are absorbed by the emission dedup above.
+            # A failed witness (ok=False: the blanket exception path) must
+            # not vanish either — fall through regardless of size so the
+            # cell is never dropped with neither emission nor subdivision.
+            spans = np.array([hi - lo for (lo, hi) in cell.box])
+            if ok and np.all(spans <= 4.0 * unify_tol):
+                continue
 
         if tangency is True and cell.crossings:
             # Convert crossings to the cell's local stuv for the Φ tracer.
@@ -3400,6 +3415,32 @@ def bez_ssx(
         unify_tol=unify_tol, h_max=h_max,
     )
     all_branches.extend(overlap_branches)
+
+    # Spurious micro-branches at emitted tangent points: subdividing around
+    # a touch (the size-gated tangency arm above) re-exposes the old
+    # pathology — CSX grazing-valley roots near the touch yield ~2·atol
+    # micro-fragments, and crossing-bearing descendant tangent cells can add
+    # Ψ-valid Φ-fragments there. Drop a branch only when EVERY polyline
+    # vertex lies within 4·atol (xyz) of some emitted tangent point AND its
+    # total xyz arc length is ≤ 16·atol — the length cap is a safety net so
+    # nothing long can ever be eaten (the Mexican-hat ring's vertices sit
+    # ~0.35 from the touch; saddle arms extend far beyond 4·atol).
+    _tangent_xyz = [g.xyz for g in all_singularities if g.kind == "tangent_point"]
+    if _tangent_xyz and all_branches:
+        _tp = np.asarray(_tangent_xyz, dtype=np.float64)          # (K, 3)
+        _kept_branches = []
+        for b in all_branches:
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            if len(xyz):
+                d_min = np.linalg.norm(
+                    xyz[:, None, :] - _tp[None, :, :], axis=2).min(axis=1)
+                if np.all(d_min <= 4.0 * atol):
+                    arc = (float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum())
+                           if len(xyz) > 1 else 0.0)
+                    if arc <= 16.0 * atol:
+                        continue
+            _kept_branches.append(b)
+        all_branches = _kept_branches
 
     # A reported point that lies ON a found branch is not an isolated
     # intersection — it is a corner-touch seed whose curve was traced by a

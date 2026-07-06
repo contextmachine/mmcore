@@ -314,3 +314,54 @@ def test_two_isolated_tangent_points_same_cell():
     assert np.allclose(sing[1].stuv[:2], [0.9, 0.5], atol=1e-4)
     assert np.allclose(sing[1].xyz, [0.9, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
+
+
+def _mexican_hat():
+    """S1: z = q(q-1/2), q=(2s-1)^2+(2t-1)^2 (deg 4x4): tangent point at the
+    center PLUS a transversal ring at q=1/2 — both inside one crossing-less
+    cell. The tangency emission must not delete the ring."""
+    from math import comb
+
+    # z(s,t) = A(s) + A(t) + 2*C(s)*C(t) in monomials, where
+    # C(x) = (2x-1)^2 and A(x) = (2x-1)^4 - 0.5*(2x-1)^2.
+    C = np.array([1.0, -4.0, 4.0])
+    A = np.array([0.5, -6.0, 22.0, -32.0, 16.0])
+    M = np.zeros((5, 5))
+    M[:, 0] += A
+    M[0, :] += A
+    M[:3, :3] += 2.0 * np.outer(C, C)
+    # per-axis monomial -> Bernstein at degree 4: b_i = sum_j K[i,j] a_j
+    K = np.array([[comb(i, j) / comb(4, j) if j <= i else 0.0
+                   for j in range(5)] for i in range(5)])
+    Z = K @ M @ K.T
+    xb = np.array([i / 4.0 for i in range(5)])   # x(s)=s, y(t)=t at deg 4
+    S1 = np.array([[[xb[i], xb[j], Z[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    # self-check the construction: net vs q(q-1/2) at a few samples
+    for s, t in [(0.2, 0.7), (0.5, 0.5), (0.85, 0.15), (0.5, 0.146)]:
+        q = (2 * s - 1) ** 2 + (2 * t - 1) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, q * (q - 0.5)], atol=1e-12)
+    return S1, S2
+
+
+def test_tangent_point_with_coexisting_transversal_ring():
+    # DEFECT-A regression: the crossing-less tangency arm used to `continue`
+    # unconditionally after emitting the tangent point, deleting the whole
+    # cell — including the genuine transversal ring that coexists with the
+    # touch in the same crossing-less cell.
+    S1, S2 = _mexican_hat()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1
+    assert np.allclose(sing[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    closed = [b for b in r["branches"]
+              if np.linalg.norm(np.asarray(b.curve[1])[0] - np.asarray(b.curve[1])[-1]) < 5e-3]
+    assert len(closed) == 1, f"ring lost or duplicated: {len(closed)} closed branches"
+    xyz = np.asarray(closed[0].curve[1])
+    # the true ring: q = 1/2 is the circle of radius sqrt(1/2) in
+    # (2s-1, 2t-1)-coords -> radius sqrt(1/2)/2 in (s,t); x=s, y=t, z=0,
+    # so the xyz ring has radius sqrt(1/2)/2 ~ 0.35355 about (0.5, 0.5, 0).
+    rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
+    assert np.allclose(rr, np.sqrt(0.5) / 2.0, atol=5e-3)
