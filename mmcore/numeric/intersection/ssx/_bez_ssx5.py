@@ -3442,6 +3442,23 @@ def bez_ssx(
             _kept_branches.append(b)
         all_branches = _kept_branches
 
+    # A reported point within 2·atol (xyz) of an emitted tangent_point is
+    # not a separate intersection — it is the certified tangency itself,
+    # re-found by CSX grazing-valley seeds while subdividing around the
+    # touch (measured on the paraboloid/Mexican-hat cases: 4 seeds at the
+    # touch + 4 at ±1·atol on the grazing valley). Subsume them into the
+    # typed singularity. Matching-ladder xyz guard only (2·atol); no param
+    # guard needed — any Ψ-point that close to the certified tangency is
+    # indistinguishable from it at tolerance.
+    if all_points and _tangent_xyz:
+        _tp_pts = np.asarray(_tangent_xyz, dtype=np.float64)      # (K, 3)
+        all_points = [
+            p for p in all_points
+            if float(np.linalg.norm(
+                _tp_pts - np.asarray(p.xyz, dtype=np.float64)[None, :],
+                axis=1).min()) > 2.0 * atol
+        ]
+
     # A reported point that lies ON a found branch is not an isolated
     # intersection — it is a corner-touch seed whose curve was traced by a
     # neighboring cell. Keep only genuinely isolated points.

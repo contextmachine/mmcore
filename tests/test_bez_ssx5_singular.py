@@ -269,6 +269,8 @@ def test_isolated_tangent_point_found():
     assert np.allclose(g.stuv[:2], [0.5, 0.5], atol=1e-4)
     assert np.allclose(g.xyz, [0.5, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
+    # near-touch grazing seeds are subsumed by the emitted singularity
+    assert r["points"] == []
 
 
 def _double_touch_asym():
@@ -314,6 +316,8 @@ def test_two_isolated_tangent_points_same_cell():
     assert np.allclose(sing[1].stuv[:2], [0.9, 0.5], atol=1e-4)
     assert np.allclose(sing[1].xyz, [0.9, 0.5, 0.0], atol=1e-3)
     assert r["branches"] == []          # nothing else to trace
+    # near-touch grazing seeds are subsumed by the emitted singularities
+    assert r["points"] == []
 
 
 def _mexican_hat():
@@ -365,3 +369,5 @@ def test_tangent_point_with_coexisting_transversal_ring():
     # so the xyz ring has radius sqrt(1/2)/2 ~ 0.35355 about (0.5, 0.5, 0).
     rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
     assert np.allclose(rr, np.sqrt(0.5) / 2.0, atol=5e-3)
+    # near-touch grazing seeds are subsumed by the emitted singularity
+    assert r["points"] == []
