@@ -528,7 +528,7 @@ def _march_intersection_curve(
     *,
     atol=1e-3,
     rational=True,
-    initial_step=0.05,
+    h_max=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,   # radians — target angle between consecutive tangents
@@ -567,10 +567,13 @@ def _march_intersection_curve(
     xyz_pts = [xyz_start]
 
     sag_tol = 2.0 * atol
+    if h_max is None:
+        h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
+    h = 0.25 * h_max
+    h_floor = 1e-6 * h_max
 
     current = stuv_start.copy().astype(np.float64)
     target = stuv_end.copy().astype(np.float64)
-    step = initial_step
 
     # Direction hint: vector from start to end
     hint = target - current
@@ -587,27 +590,44 @@ def _march_intersection_curve(
     if np.dot(tang_prev, target - current) < 0:
         tang_prev = -tang_prev
 
-    t3_prev = _tangent_3d(S1, current, tang_prev, rational=rational)
+    t3_prev, speed = _tangent_3d(S1, current, tang_prev, rational=rational)
 
+    rejects = 0
     for _ in range(max_points):
+        # xyz-target → stuv step via the local speed (see _march_to_boundary)
+        step = max(min_step, min(max_step, h / max(speed, 1e-12)))
+
         # Check if we're close enough to the target
         dist_to_end = float(np.linalg.norm(current - target))
+        predicted = None
         if dist_to_end < max(step * 2, min_step * 4):
-            # Close enough — add the endpoint and stop
+            # Close enough — commit the endpoint, unless the closing chord
+            # deviates from the curve. In that case retarget the predictor
+            # at the stuv halfway point toward the target (real progress;
+            # merely halving h can leave the arrival window pinned).
             s, t, u, v, res, sin_ang = _ssx_correct(S1, S2, *target, rational=rational)
             if res < atol * max(sin_ang, 1e-3):
                 final = np.array([s, t, u, v])
             else:
                 final = target
-            stuv_pts.append(final)
-            xyz_pts.append(eval_surface(S1, final[0], final[1], rational=rational))
-            break
+            final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
+            if (h > 2.0 * h_floor
+                    and dist_to_end > 4.0 * min_step
+                    and float(np.linalg.norm(final_xyz - np.asarray(xyz_pts[-1]))) > atol
+                    and _mid_chord_deviates(S1, S2, current, final,
+                                            xyz_pts[-1], final_xyz,
+                                            atol, sag_tol, rational)):
+                h = max(h_floor, h * 0.5)
+                predicted = np.clip(current + 0.5 * (target - current), 0.0, 1.0)
+                # fall through to the corrector on the halfway point
+            else:
+                stuv_pts.append(final)
+                xyz_pts.append(final_xyz)
+                break
 
-        # Predictor: step along tangent
-        predicted = current + step * tang_prev
-
-        # Clamp to [0,1]⁴
-        predicted = np.clip(predicted, 0.0, 1.0)
+        if predicted is None:
+            # Predictor: step along tangent, clamped to [0,1]⁴
+            predicted = np.clip(current + step * tang_prev, 0.0, 1.0)
 
         # Corrector: project back onto intersection curve
         s, t, u, v, residual, sin_ang = _ssx_correct(
@@ -617,11 +637,27 @@ def _march_intersection_curve(
 
         eff_atol = atol * max(sin_ang, 1e-3)
         if residual > eff_atol:
-            # Corrector failed — reduce step and retry
-            step = max(min_step, step * 0.5)
+            # Corrector failed — reduce step and retry (with a stagnation
+            # escape: clamped steps make these iterations bit-identical).
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         corrected = np.array([s, t, u, v])
+
+        # Wall-park guard: a step below both the parametric and geometric
+        # resolution is no progress (e.g. the predictor clipped against a
+        # domain wall the curve exits through) — don't append duplicates.
+        if (float(np.linalg.norm(corrected - current)) <= min_step
+                and float(np.linalg.norm(
+                    eval_surface(S1, s, t, rational=rational)
+                    - np.asarray(xyz_pts[-1]))) <= atol):
+            rejects += 1
+            if rejects >= 25:
+                break
+            continue
 
         # Update direction hint toward remaining target
         hint = target - corrected
@@ -632,39 +668,43 @@ def _march_intersection_curve(
         # Get new tangent
         tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, s, t, u, v, rational=rational, direction_hint=hint)
         if tang_new is None:
-            step = max(min_step, step * 0.5)
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         # Orient tangent consistently (same direction as previous)
         if np.dot(tang_new, tang_prev) < 0:
             tang_new = -tang_new
 
-        # Angles in both parameter space and xyz space (see
-        # _march_to_boundary for why both are needed)
-        cos_angle = np.clip(np.dot(tang_prev, tang_new), -1.0, 1.0)
-        angle = float(np.arccos(abs(cos_angle)))
-
-        t3_new = _tangent_3d(S1, corrected, tang_new, rational=rational)
+        t3_new, speed_new = _tangent_3d(S1, corrected, tang_new, rational=rational)
         if t3_prev is not None and t3_new is not None:
             cos3 = float(np.clip(np.dot(t3_prev, t3_new), -1.0, 1.0))
             angle3 = float(np.arccos(abs(cos3)))
             chord = float(np.linalg.norm(pt1 - xyz_pts[-1]))
-            if chord * angle3 / 8.0 > sag_tol and step > 2.0 * min_step:
-                step = max(min_step, step * 0.5)
+            if chord * angle3 / 8.0 > sag_tol and h > 2.0 * h_floor:
+                h = max(h_floor, h * 0.5)
                 continue
-            angle = max(angle, angle3)
-
-        # Adapt step size based on curvature
-        if angle > 1e-10:
-            step = step * min(2.0, max(0.25, angle_threshold / angle))
-        else:
-            step = min(max_step, step * 1.5)  # very low curvature — grow step
-        step = max(min_step, min(max_step, step))
+            if _mid_chord_deviates(S1, S2, current, corrected,
+                                   xyz_pts[-1], pt1, atol, sag_tol,
+                                   rational) and h > 2.0 * h_floor:
+                h = max(h_floor, h * 0.5)
+                continue
+            # Adapt the xyz target by 3D curvature only.
+            if angle3 > 1e-10:
+                h = h * min(2.0, max(0.25, angle_threshold / angle3))
+            else:
+                h = h * 1.5
+            h = max(atol, min(h_max, h))
 
         # Accept the point
+        rejects = 0
         current = corrected
         tang_prev = tang_new
-        t3_prev = t3_new if t3_new is not None else t3_prev
+        if t3_new is not None:
+            t3_prev = t3_new
+            speed = speed_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
 
@@ -832,18 +872,56 @@ def _on_boundary(stuv, tol=1e-5):
 
 
 def _tangent_3d(S1, stuv, tang4, rational=True):
-    """3D direction of the intersection curve: dX = S1_s·ds + S1_t·dt.
+    """3D direction AND speed of the intersection curve along the (unit)
+    4D tangent: dX = S1_s·ds + S1_t·dt.
 
-    Returns a unit 3-vector or None when degenerate. Used for xyz-space
-    step control — the 4D parameter-space tangent can be perfectly straight
-    while the xyz curve undulates (wavy surfaces), and vice versa.
+    Returns (unit_dir, speed) or (None, 0.0) when degenerate. `speed` is
+    the xyz arc length per unit stuv step along `tang4` — the local
+    reparameterization factor that converts an xyz step target h into a
+    stuv step: step_stuv = h / speed. Sizing steps this way makes sampling
+    density a property of the GEOMETRY, invariant under reparameterization
+    of either surface; parameter-space curvature (which appears and
+    vanishes under rescaling) never enters step sizing.
     """
     _, du1, dv1 = eval_surface_d1(S1, stuv[0], stuv[1], rational=rational)
     d3 = du1 * tang4[0] + dv1 * tang4[1]
     n = float(np.linalg.norm(d3))
     if n < 1e-30:
-        return None
-    return d3 / n
+        return None, 0.0
+    return d3 / n, n
+
+
+def _local_diag(S, rational=True):
+    """Diagonal of the Euclidean control-net AABB (fallback xyz scale)."""
+    pts = S[..., :-1] / S[..., -1:] if rational else S
+    flat = pts.reshape(-1, pts.shape[-1])
+    return float(np.linalg.norm(flat.max(axis=0) - flat.min(axis=0)))
+
+
+def _mid_chord_deviates(S1, S2, stuv_a, stuv_b, xyz_a, xyz_b, atol, sag_tol,
+                        rational):
+    """True if the curve deviates more than sag_tol from the chord at its
+    parametric midpoint.
+
+    The endpoint-tangent sagitta estimate is blind to S-shaped spans: an
+    inflection inside the step leaves both endpoint tangents parallel
+    while the middle bulges. Correcting the stuv midpoint onto the curve
+    and measuring its distance to the chord catches exactly that case.
+    """
+    mid = 0.5 * (np.asarray(stuv_a, dtype=np.float64)
+                 + np.asarray(stuv_b, dtype=np.float64))
+    ms, mt, mu, mv, mres, msin = _ssx_correct(S1, S2, *mid, rational=rational)
+    if mres > atol * max(msin, 1e-3):
+        return False  # midpoint correction unreliable — don't judge
+    xm = eval_surface(S1, ms, mt, rational=rational)
+    a3 = np.asarray(xyz_a, dtype=np.float64)
+    b3 = np.asarray(xyz_b, dtype=np.float64)
+    ab = b3 - a3
+    denom = float(np.dot(ab, ab))
+    if denom < 1e-30:
+        return False
+    tt = float(np.clip(np.dot(xm - a3, ab) / denom, 0.0, 1.0))
+    return float(np.linalg.norm(a3 + tt * ab - xm)) > sag_tol
 
 
 def _march_to_boundary(
@@ -851,28 +929,28 @@ def _march_to_boundary(
     *,
     atol=1e-3,
     rational=True,
-    initial_step=0.05,
+    h_init=None,
+    h_max=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,
     max_points=400,
     direction_hint=None,
     sag_tol=None,
-    no_progress_tol=1e-8,
-    max_no_progress=3,
 ):
     """March from stuv_start until the curve hits a domain boundary [0,1]⁴.
 
     Like _march_intersection_curve but without a known endpoint.
     Stops when any parameter reaches 0 or 1.
 
-    Step control runs in BOTH spaces: the angle between consecutive 4D
-    parameter tangents AND the angle between consecutive 3D xyz tangents
-    drive the step size, and a chord-deviation (sagitta) bound rejects
-    steps whose xyz chord strays more than `sag_tol` from the curve.
-    Parameter-space-only control under-samples regions where the stuv path
-    is straight but the xyz curve bends (the "half smooth, half rough"
-    defect).
+    Step control is xyz-driven (local reparameterization): the marcher
+    maintains a target xyz chord length `h`, adapted purely by the 3D
+    turning angle and a chord-deviation (sagitta) bound, and converts it
+    to a stuv step each iteration via the local speed |dX/d(stuv)| along
+    the tangent. Parameter-space curvature never sizes steps — it appears
+    and vanishes under reparameterization while xyz accuracy is what
+    matters. The stuv step is still clamped to [min_step, max_step] as a
+    Newton-basin floor and cell-escape ceiling.
 
     Returns (stuv_path, xyz_path, exit_info) where exit_info is
     (axis, value) of the boundary face the march exited through, or None
@@ -880,13 +958,16 @@ def _march_to_boundary(
     """
     if sag_tol is None:
         sag_tol = 2.0 * atol
+    if h_max is None:
+        h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
+    h = h_init if h_init is not None else 0.25 * h_max
+    h_floor = 1e-6 * h_max
 
     stuv_pts = [stuv_start.copy()]
     xyz_pts = [eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)]
     exit_info = None
 
     current = stuv_start.copy().astype(np.float64)
-    step = initial_step
 
     # Initial tangent
     tang_prev, _, _ = _ssx_tangent_4d(S1, S2, *current, rational=rational,
@@ -898,9 +979,11 @@ def _march_to_boundary(
     if direction_hint is not None and np.dot(tang_prev, direction_hint) < 0:
         tang_prev = -tang_prev
 
-    t3_prev = _tangent_3d(S1, current, tang_prev, rational=rational)
+    t3_prev, speed = _tangent_3d(S1, current, tang_prev, rational=rational)
 
+    rejects = 0
     for iter_num in range(max_points):
+        step = max(min_step, min(max_step, h / max(speed, 1e-12)))
         predicted = current + step * tang_prev
 
         crossed_axis, crossed_val, crossed_alpha = _detect_boundary_crossing(
@@ -922,14 +1005,37 @@ def _march_to_boundary(
             # refused exit leaves exit_info=None and the caller decides
             # what to do with the partial trace.
             eff_atol = atol * max(fsin, 1e-3)
-            if fres <= eff_atol:
-                final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
+            if fres > eff_atol:
+                break
+
+            final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
+            # The exit chord gets the same deviation scrutiny as any other
+            # step: the fixed-axis Newton can slide along the face far
+            # from the interpolated guess (case 10: a 0.47-long exit chord
+            # cutting the corner by 6.5mm). Halving h alone CANNOT shrink
+            # this chord — the ray-face intersection init (and hence the
+            # deterministic fixed-axis Newton result) is independent of
+            # the step length. Instead retarget the predictor at the
+            # interior halfway point toward the face and run the normal
+            # corrector on it: the march makes real progress toward the
+            # boundary and the eventual exit chord shrinks geometrically.
+            interior_len = 0.5 * crossed_alpha * step
+            if (h > 2.0 * h_floor
+                    and interior_len > 0.25 * min_step
+                    and _mid_chord_deviates(S1, S2, current, final,
+                                            xyz_pts[-1], final_xyz,
+                                            atol, sag_tol, rational)):
+                h = max(h_floor, h * 0.5)
+                predicted = current + interior_len * tang_prev
+                # fall through to the interior corrector below
+            else:
                 stuv_pts.append(final)
                 xyz_pts.append(final_xyz)
                 exit_info = (crossed_axis, crossed_val)
-            break
+                break
 
-        # No crossing: predicted stays inside [0,1]⁴. Normal corrector path.
+        # Interior corrector path (also handles the retargeted predictor
+        # from a rejected exit chord above).
         s, t, u, v, residual, sin_ang = _ssx_correct(
             S1, S2, *predicted, rational=rational,
         )
@@ -943,7 +1049,13 @@ def _march_to_boundary(
         eff_atol = atol * max(sin_ang, 1e-3)
 
         if residual > eff_atol:
-            step = max(min_step, step * 0.5)
+            # Stagnation escape: with the stuv step clamped at min_step,
+            # halving h changes nothing and iterations repeat bit-identically
+            # — stop burning the budget and return the partial trace.
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         corrected = np.array([s, t, u, v])
@@ -952,18 +1064,16 @@ def _march_to_boundary(
         tang_new, pt1, _ = _ssx_tangent_4d(S1, S2, *corrected, rational=rational,
                                             direction_hint=tang_prev)
         if tang_new is None:
-            step = max(min_step, step * 0.5)
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         if np.dot(tang_new, tang_prev) < 0:
             tang_new = -tang_new
 
-        # Angles in both spaces
-        cos4 = np.dot(tang_prev / np.linalg.norm(tang_prev),
-                      tang_new / np.linalg.norm(tang_new))
-        angle = float(np.arccos(np.clip(abs(cos4), -1.0, 1.0)))
-
-        t3_new = _tangent_3d(S1, corrected, tang_new, rational=rational)
+        t3_new, speed_new = _tangent_3d(S1, corrected, tang_new, rational=rational)
         if t3_prev is not None and t3_new is not None:
             cos3 = float(np.clip(np.dot(t3_prev, t3_new), -1.0, 1.0))
             angle3 = float(np.arccos(abs(cos3)))
@@ -971,21 +1081,33 @@ def _march_to_boundary(
             # step's xyz chord deviates more than sag_tol from the curve,
             # redo it with a smaller step.
             chord = float(np.linalg.norm(pt1 - xyz_pts[-1]))
-            if chord * angle3 / 8.0 > sag_tol and step > 2.0 * min_step:
-                step = max(min_step, step * 0.5)
+            if chord * angle3 / 8.0 > sag_tol and h > 2.0 * h_floor:
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
                 continue
-            angle = max(angle, angle3)
+            if _mid_chord_deviates(S1, S2, current, corrected,
+                                   xyz_pts[-1], pt1, atol, sag_tol,
+                                   rational) and h > 2.0 * h_floor:
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
+                continue
+            # Adapt the xyz target by 3D curvature only.
+            if angle3 > 1e-10:
+                h = h * min(2.0, max(0.25, angle_threshold / angle3))
+            else:
+                h = h * 1.5
+            h = max(atol, min(h_max, h))
 
-        # Step adaptation on the combined angle
-        if angle > 1e-10:
-            step = step * min(2.0, max(0.25, angle_threshold / angle))
-        else:
-            step = min(max_step, step * 1.5)
-        step = max(min_step, min(max_step, step))
-
+        rejects = 0
         current = corrected
         tang_prev = tang_new
-        t3_prev = t3_new if t3_new is not None else t3_prev
+        if t3_new is not None:
+            t3_prev = t3_new
+            speed = speed_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
 
@@ -1131,7 +1253,7 @@ def _march_phi_curve(
     *,
     atol=1e-3,
     rational=True,
-    initial_step=0.05,
+    h_max=None,
     min_step=1e-6,
     max_step=0.25,
     angle_threshold=0.1,
@@ -1139,21 +1261,62 @@ def _march_phi_curve(
 ):
     """March along the Φ-curve from stuv_start toward stuv_end.
 
-    Same predictor-corrector as _march_intersection_curve but on the
-    regulated system Φ = {Ψ_i, Ψ_j, TΨ_k} instead of Ψ.
-
-    At each point, also records whether the full Ψ is satisfied (indicating
-    the point is on the actual intersection curve, not just on Φ).
+    Same xyz-driven predictor-corrector as _march_intersection_curve but on
+    the regulated system Φ = {Ψ_i, Ψ_j, TΨ_k} instead of Ψ. Deviation
+    checks use the Φ corrector (the Ψ corrector is the wrong system here),
+    and the reparameterization speed is the max over BOTH surface images:
+    off the Ψ curve the S1 image can stall while (u,v) sweeps, and an
+    S1-only speed would peg the stuv step at max_step.
     """
     stuv_pts = [stuv_start.copy()]
     xyz_start = eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)
     xyz_pts = [xyz_start]
 
     sag_tol = 2.0 * atol
+    if h_max is None:
+        h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
+    h = 0.25 * h_max
+    h_floor = 1e-6 * h_max
 
     current = stuv_start.copy().astype(np.float64)
     target = stuv_end.copy().astype(np.float64)
-    step = initial_step
+
+    def _phi_correct(x0):
+        x = np.asarray(x0, dtype=np.float64).copy()
+        for _ in range(5):
+            f = _eval_phi(S1, S2, T_arr, psi_rows, *x, rational=rational)
+            if np.dot(f, f) < 1e-20:
+                break
+            Jc = _jac_phi(S1, S2, T_arr, psi_rows, *x, rational=rational)
+            A = Jc.T @ Jc + 1e-12 * np.eye(4)
+            try:
+                delta = np.linalg.solve(A, -Jc.T @ f)
+            except np.linalg.LinAlgError:
+                break
+            x = np.clip(x + delta, 0.0, 1.0)
+        res = float(np.linalg.norm(
+            _eval_phi(S1, S2, T_arr, psi_rows, *x, rational=rational)))
+        return x, res
+
+    def _phi_mid_deviates(a_stuv, b_stuv, a_xyz, b_xyz):
+        xm, res = _phi_correct(0.5 * (np.asarray(a_stuv) + np.asarray(b_stuv)))
+        if res > atol * 100:
+            return False
+        pm = eval_surface(S1, xm[0], xm[1], rational=rational)
+        a3 = np.asarray(a_xyz, dtype=np.float64)
+        b3 = np.asarray(b_xyz, dtype=np.float64)
+        ab = b3 - a3
+        den = float(np.dot(ab, ab))
+        if den < 1e-30:
+            return False
+        tt = float(np.clip(np.dot(pm - a3, ab) / den, 0.0, 1.0))
+        return float(np.linalg.norm(a3 + tt * ab - pm)) > sag_tol
+
+    def _phi_dir_speed(x, tang):
+        d1, sp1 = _tangent_3d(S1, x, tang, rational=rational)
+        _, du2, dv2 = eval_surface_d1(S2, x[2], x[3], rational=rational)
+        sp2 = float(np.linalg.norm(du2 * tang[2] + dv2 * tang[3]))
+        return d1, max(sp1, sp2)
 
     # Get tangent direction from Φ Jacobian
     J = _jac_phi(S1, S2, T_arr, psi_rows, *current, rational=rational)
@@ -1163,33 +1326,39 @@ def _march_phi_curve(
     if np.dot(tang_prev, target - current) < 0:
         tang_prev = -tang_prev
 
-    t3_prev = _tangent_3d(S1, current, tang_prev, rational=rational)
+    t3_prev, speed = _phi_dir_speed(current, tang_prev)
 
+    rejects = 0
     for _ in range(max_points):
-        dist_to_end = float(np.linalg.norm(current - target))
-        if dist_to_end < step * 2:
-            stuv_pts.append(target.copy())
-            xyz_pts.append(eval_surface(S1, target[0], target[1], rational=rational))
-            break
+        step = max(min_step, min(max_step, h / max(speed, 1e-12)))
 
-        # Predictor
-        predicted = np.clip(current + step * tang_prev, 0.0, 1.0)
+        dist_to_end = float(np.linalg.norm(current - target))
+        predicted = None
+        if dist_to_end < step * 2:
+            final_xyz = eval_surface(S1, target[0], target[1], rational=rational)
+            if (h > 2.0 * h_floor
+                    and dist_to_end > 4.0 * min_step
+                    and float(np.linalg.norm(final_xyz - np.asarray(xyz_pts[-1]))) > atol
+                    and _phi_mid_deviates(current, target, xyz_pts[-1], final_xyz)):
+                h = max(h_floor, h * 0.5)
+                predicted = np.clip(current + 0.5 * (target - current), 0.0, 1.0)
+                # fall through to the corrector on the halfway point
+            else:
+                stuv_pts.append(target.copy())
+                xyz_pts.append(final_xyz)
+                break
+
+        if predicted is None:
+            # Predictor
+            predicted = np.clip(current + step * tang_prev, 0.0, 1.0)
 
         # Corrector: Newton on Φ = 0
-        x = predicted.copy()
-        for _ in range(5):
-            f = _eval_phi(S1, S2, T_arr, psi_rows, *x, rational=rational)
-            if np.dot(f, f) < 1e-20:
-                break
-            Jc = _jac_phi(S1, S2, T_arr, psi_rows, *x, rational=rational)
-            JT = Jc.T
-            A = JT @ Jc + 1e-12 * np.eye(4)
-            delta = np.linalg.solve(A, -JT @ f)
-            x = np.clip(x + delta, 0.0, 1.0)
-
-        residual = np.linalg.norm(_eval_phi(S1, S2, T_arr, psi_rows, *x, rational=rational))
+        x, residual = _phi_correct(predicted)
         if residual > atol * 100:
-            step = max(min_step, step * 0.5)
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         # New tangent
@@ -1198,7 +1367,10 @@ def _march_phi_curve(
             _, _, Vt = np.linalg.svd(J, full_matrices=True)
             tang_new = Vt[-1]
         except np.linalg.LinAlgError:
-            step = max(min_step, step * 0.5)
+            rejects += 1
+            if rejects >= 25:
+                break
+            h = max(h_floor, h * 0.5)
             continue
 
         if np.dot(tang_new, tang_prev) < 0:
@@ -1206,30 +1378,37 @@ def _march_phi_curve(
 
         pt1 = eval_surface(S1, x[0], x[1], rational=rational)
 
-        # Angles in both parameter space and xyz space (see
-        # _march_to_boundary for why both are needed)
-        cos_angle = np.clip(np.dot(tang_prev, tang_new), -1.0, 1.0)
-        angle = float(np.arccos(abs(cos_angle)))
-
-        t3_new = _tangent_3d(S1, x, tang_new, rational=rational)
+        t3_new, speed_new = _phi_dir_speed(x, tang_new)
         if t3_prev is not None and t3_new is not None:
             cos3 = float(np.clip(np.dot(t3_prev, t3_new), -1.0, 1.0))
             angle3 = float(np.arccos(abs(cos3)))
             chord = float(np.linalg.norm(pt1 - xyz_pts[-1]))
-            if chord * angle3 / 8.0 > sag_tol and step > 2.0 * min_step:
-                step = max(min_step, step * 0.5)
+            if chord * angle3 / 8.0 > sag_tol and h > 2.0 * h_floor:
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
                 continue
-            angle = max(angle, angle3)
+            if (h > 2.0 * h_floor
+                    and _phi_mid_deviates(current, x, xyz_pts[-1], pt1)):
+                rejects += 1
+                if rejects >= 25:
+                    break
+                h = max(h_floor, h * 0.5)
+                continue
+            # Adapt the xyz target by 3D curvature only.
+            if angle3 > 1e-10:
+                h = h * min(2.0, max(0.25, angle_threshold / angle3))
+            else:
+                h = h * 1.5
+            h = max(atol, min(h_max, h))
 
-        if angle > 1e-10:
-            step = step * min(2.0, max(0.25, angle_threshold / angle))
-        else:
-            step = min(max_step, step * 1.5)
-        step = max(min_step, min(max_step, step))
-
+        rejects = 0
         current = x
         tang_prev = tang_new
-        t3_prev = t3_new if t3_new is not None else t3_prev
+        if t3_new is not None:
+            t3_prev = t3_new
+        speed = speed_new
         stuv_pts.append(current.copy())
         xyz_pts.append(pt1.copy())
 
@@ -1237,7 +1416,7 @@ def _march_phi_curve(
 
 
 def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol,
-                          *, originals=None, cell=None):
+                          *, originals=None, cell=None, h_max=None):
     """Handle a confirmed-tangent cell by tracing the regulated Φ curve.
 
     1. Choose the best Φ = {Ψ_i, Ψ_j, TΨ_k} equations
@@ -1274,7 +1453,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
         stuv_path, xyz_path = _march_phi_curve(
             P1_cart, P2_cart, T_chosen, psi_rows,
             crossings[i].stuv, crossings[j].stuv,
-            atol=atol, rational=False,
+            atol=atol, rational=False, h_max=h_max,
         )
         if len(stuv_path) < 2:
             continue
@@ -1551,7 +1730,7 @@ def _cell_has_unused_direction(point: BoundaryPoint, cell, direction: str) -> bo
     )
 
 
-def _trace_cell_by_registrations(cell, atol):
+def _trace_cell_by_registrations(cell, atol, h_max=None):
     """Trace all branch segments inside a certified cell.
 
     For each boundary crossing, march in one direction. If the march
@@ -1592,26 +1771,24 @@ def _trace_cell_by_registrations(cell, atol):
 
         start_local = _global_to_local(start_cx.stuv, cell.box)
 
-        # Distance in local stuv to the nearest unused partner crossing.
-        # This sets the upper bound on the marcher's first step: we want
-        # to step toward the partner, not past it.
-        nearest_local_dist = float('inf')
+        # XYZ distance to the nearest unused partner crossing bounds the
+        # marcher's initial xyz step target: step toward the partner, not
+        # past it. (xyz, not stuv — step sizing is geometry-driven.)
+        cell_h_max = h_max if h_max is not None else max(
+            0.05 * _local_diag(cell.g1.surface, rational=True), 4.0 * atol)
+        nearest_xyz = float('inf')
         for j, cx in enumerate(cell.crossings):
             if j == i or j in used:
                 continue
-            local_j = _global_to_local(cx.stuv, cell.box)
-            d = float(np.linalg.norm(local_j - start_local))
-            if d < nearest_local_dist:
-                nearest_local_dist = d
+            d = float(np.linalg.norm(np.asarray(cx.xyz, dtype=np.float64)
+                                     - np.asarray(start_cx.xyz, dtype=np.float64)))
+            if d < nearest_xyz:
+                nearest_xyz = d
 
-        if nearest_local_dist == float('inf'):
-            # No other crossing in this cell — fall back to the marcher's default
-            initial_step = 0.05
+        if nearest_xyz == float('inf'):
+            h_init = 0.25 * cell_h_max
         else:
-            # Aim for 1/4 of the parameter-space distance, but never smaller
-            # than ptol (sub-resolution step is wasted) and never larger than
-            # the marcher's max step (0.25, i.e. a quarter of [0,1]).
-            initial_step = min(0.25, max(ptol_min, 0.25 * nearest_local_dist))
+            h_init = min(cell_h_max, max(atol, 0.25 * nearest_xyz))
 
         traced = False
         for attempt in range(2):
@@ -1627,19 +1804,27 @@ def _trace_cell_by_registrations(cell, atol):
             stuv_local, xyz_local, exit_info = _march_to_boundary(
                 cell.g1.surface, cell.g2.surface, start_local,
                 atol=atol, rational=True, direction_hint=hint,
-                initial_step=initial_step,
+                h_init=h_init, h_max=cell_h_max,
                 min_step=ptol_min,
             )
 
             if len(stuv_local) < 2:
                 continue
 
-            # Stuck-at-start detector: if the END of the marcher trace is
-            # within ptol of the start (in LOCAL stuv), the chosen direction
-            # was effectively outward and the corrector kept pulling us back.
-            # Try the opposite direction. We compare in LOCAL coordinates so
-            # the threshold scales correctly with subdivision depth.
-            if float(np.linalg.norm(stuv_local[-1] - stuv_local[0])) <= ptol_min:
+            # Bounce/degenerate detector, in XYZ over the WHOLE path: a
+            # march made no real progress only if EVERY sample stayed
+            # within the geometric tolerance of the seed (outward bounce
+            # or jitter) — try the opposite direction then. Endpoint-only
+            # displacement is not enough: a genuine hairpin arc (thin
+            # needle loop) returns to within atol of its start while its
+            # interior travels far — real geometry, keep it. (The older
+            # stuv-vs-ptol test was worse still: it deleted micro-fragments
+            # tiny in parameter space but many atol long in xyz, e.g.
+            # case 10's final sliver to the v=1 domain corner.)
+            path_xyz = np.asarray(xyz_local, dtype=np.float64)
+            disp_xyz = float(np.linalg.norm(
+                path_xyz - path_xyz[0][None, :], axis=1).max())
+            if disp_xyz <= atol:
                 continue
 
             stuv_global = np.empty((len(stuv_local), 4), dtype=np.float64)
@@ -1662,7 +1847,18 @@ def _trace_cell_by_registrations(cell, atol):
                     best_score = score
                     best_j = j
 
-            if best_j is not None and best_score <= 1.0:
+            # A parametric match must also agree in xyz: within the 4·ptol
+            # box two genuinely distinct crossings can be many atol apart
+            # in space (large surface derivatives). If the xyz check fails,
+            # fall through to endpoint synthesis — recoverable, unlike a
+            # wrong match which bends the branch end onto the wrong point.
+            # The 2·atol radius matches the unification guard exactly:
+            # anything accepted here can also be unified across cells (a
+            # looser match created a chain-break window at (2, 4]·atol).
+            if (best_j is not None and best_score <= 1.0
+                    and float(np.linalg.norm(
+                        np.asarray(cell.crossings[best_j].xyz, dtype=np.float64)
+                        - np.asarray(xyz_local[-1], dtype=np.float64))) <= 2.0 * atol):
                 end_cx = cell.crossings[best_j]
                 stuv_global[-1] = end_cx.stuv.copy()
                 xyz_local[-1] = end_cx.xyz.copy()
@@ -1707,7 +1903,8 @@ def _trace_cell_by_registrations(cell, atol):
     return fragments, points
 
 
-def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol) -> None:
+def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol,
+                              unify_atol: float = 1e-3) -> None:
     """Replace fragment endpoint objects that represent the same physical
     crossing with one canonical `BoundaryPoint` (in place).
 
@@ -1747,6 +1944,12 @@ def _unify_fragment_endpoints(fragments: list[_Fragment], unify_tol) -> None:
     for a in range(n):
         for b in range(a + 1, n):
             if not np.all(np.abs(objs[a].stuv - objs[b].stuv) <= tol):
+                continue
+            # xyz guard: a parametric box is not a metric ball — where
+            # surface derivatives are large, points within the stuv box can
+            # be many atol apart in space and are genuinely distinct.
+            if float(np.linalg.norm(np.asarray(objs[a].xyz, dtype=np.float64)
+                                    - np.asarray(objs[b].xyz, dtype=np.float64))) > 2.0 * unify_atol:
                 continue
             ra, rb = _find(a), _find(b)
             if ra == rb:
@@ -1819,6 +2022,7 @@ def _assemble_fragments(
     S1_full=None, S2_full=None, atol_full: float = 1e-3,
     rational_full: bool = True,
     unify_tol=None,
+    h_max=None,
 ) -> list[SSXBranch]:
     """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
     full branches. Two fragments touching the same `BoundaryPoint` object
@@ -1834,7 +2038,7 @@ def _assemble_fragments(
     from collections import defaultdict
 
     if unify_tol is not None and len(fragments) > 1:
-        _unify_fragment_endpoints(fragments, unify_tol)
+        _unify_fragment_endpoints(fragments, unify_tol, unify_atol=atol_full)
         fragments = _drop_duplicate_fragments(fragments, atol_full)
 
     # Map each BoundaryPoint to the fragments that touch it.
@@ -1947,6 +2151,7 @@ def _assemble_fragments(
                         S1_full, S2_full,
                         stuv_full[-1], stuv_full[0],
                         atol=atol_full, rational=rational_full,
+                        h_max=h_max,
                     )
                     if len(closing_stuv) >= 2:
                         # Skip the first sample (duplicates xyz_full[-1]).
@@ -2594,6 +2799,7 @@ def bez_ssx(
     atol=1e-3,
     rational=True,
     max_depth=12,
+    max_xyz_step=None,
 ) -> dict:
     """Bezier surface-surface intersection v5.
 
@@ -2666,6 +2872,24 @@ def bez_ssx(
     _gp_u, _gp_v = bez_surface_param_tolerance(S2_h_top, atol, rational=True)
     unify_tol = 4.0 * np.maximum(
         np.array([float(_gp_s), float(_gp_t), float(_gp_u), float(_gp_v)]), 1e-12)
+    # Destructive dedup uses the tight 1·ptol radius (plus an xyz guard at
+    # the call sites); the looser 4·ptol box is reserved for matching /
+    # unification where a miss is recoverable.
+    dedup_tol = unify_tol / 4.0
+
+    # Global xyz step ceiling for all marchers. NOT an accuracy criterion —
+    # accuracy is governed by the chord-deviation (sagitta) control at
+    # 2·atol, which measurements show is the binding constraint nearly
+    # everywhere (point counts and max deviation are almost identical with
+    # the cap at 0.01·diag vs 0.5·diag). The cap only bounds how much
+    # geometry a single chord can skip, keeping the finite-probe deviation
+    # checks (endpoint tangents + one midpoint) inside their trust region:
+    # a chord spanning multiple inflections can fool O(1) probes, and the
+    # midpoint corrector's Newton seed degrades with chord length.
+    # 0.05·diag serves that role while binding almost nowhere.
+    _pts_joint = np.vstack([P1_cart.reshape(-1, 3), P2_cart.reshape(-1, 3)])
+    _diag = float(np.linalg.norm(_pts_joint.max(axis=0) - _pts_joint.min(axis=0)))
+    h_max = max_xyz_step if max_xyz_step is not None else max(0.05 * _diag, 4.0 * atol)
 
     top_cell = _Cell(
         g1=g1, g2=g2, crossings=crossings, box=box, depth=0,
@@ -2730,7 +2954,7 @@ def bez_ssx(
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
                 if cell.crossings:
-                    fr, pt = _trace_cell_by_registrations(cell, atol)
+                    fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
                     all_fragments.extend(fr)
                     all_points.extend(pt)
                 continue
@@ -2799,7 +3023,7 @@ def bez_ssx(
                 P1_cart_local, P2_cart_local,
                 cell.T1, cell.T2, cell.T3, cell.T4,
                 local_box, crossings_local, atol,
-                originals=cell.crossings, cell=cell,
+                originals=cell.crossings, cell=cell, h_max=h_max,
             )
             for f in fr_local:
                 stuv_glob = np.empty_like(f.stuv_path)
@@ -2983,17 +3207,25 @@ def bez_ssx(
                                         for ax in range(4))]
 
                 # New crossings: deterministic from per-piece CSX grid.
-                # Dedup against inherited crossings and against each other
-                # at the parametric-tolerance scale — duplicates here become
-                # duplicate march seeds, duplicate fragments and broken
-                # id-chains downstream.
+                # Dedup against inherited crossings and against each other —
+                # duplicates here become duplicate march seeds, duplicate
+                # fragments and broken id-chains downstream. The radius is
+                # 1·ptol per axis AND atol in xyz: a parametric box alone is
+                # not a metric ball (|Δstuv| ≤ 4·ptol admits xyz separations
+                # of ~16·atol where derivatives are large), and deleting a
+                # genuinely distinct crossing starves its cell of a march
+                # seed (case 10 lost its v=1 endpoint segment exactly this
+                # way — a crossing 4e-4 away in stuv but 5.3mm away in xyz
+                # was merged into the domain-corner crossing).
                 sub_new_raw = new_cx_grid[i1][i2]
                 sub_new = []
                 for nc in sub_new_raw:
-                    if any(np.all(np.abs(nc.stuv - ec.stuv) <= unify_tol)
+                    if any(np.all(np.abs(nc.stuv - ec.stuv) <= dedup_tol)
+                           and float(np.linalg.norm(nc.xyz - ec.xyz)) <= atol
                            for ec in sub_inherited):
                         continue
-                    if any(np.all(np.abs(nc.stuv - dc.stuv) <= unify_tol)
+                    if any(np.all(np.abs(nc.stuv - dc.stuv) <= dedup_tol)
+                           and float(np.linalg.norm(nc.xyz - dc.xyz)) <= atol
                            for dc in sub_new):
                         continue
                     sub_new.append(nc)
@@ -3027,7 +3259,7 @@ def bez_ssx(
         all_fragments,
         S1_full=S1_for_close, S2_full=S2_for_close,
         atol_full=atol, rational_full=rational_close,
-        unify_tol=unify_tol,
+        unify_tol=unify_tol, h_max=h_max,
     )
     all_branches.extend(overlap_branches)
 
