@@ -848,6 +848,7 @@ class SSXBranch:
     curve: NURBSCurveTuple
     closed: bool = False
     overlap: bool = False
+    kind: str = "transversal"   # 'transversal' | 'tangential' | 'overlap'
     curve_xyz: NURBSCurveTuple=field(default=None,init=False)
     curve_st: NURBSCurveTuple=field(default=None,init=False)
     curve_uv: NURBSCurveTuple=field(default=None,init=False)

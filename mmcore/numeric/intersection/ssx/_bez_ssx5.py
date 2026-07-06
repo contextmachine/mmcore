@@ -99,6 +99,24 @@ BoundaryCrossing = BoundaryPoint
 
 
 @dataclass
+class SSXSingularity:
+    """A certified singular feature of the SSI (Cheng et al. 2023 C1/C2/C3).
+
+    kind:
+      'tangent_point'      — C2: T_Psi = 0, isolated or on branches
+      'cusp'               — C1: surface-parameterization cusp on the curve
+      'cusp_curve'         — C1 infinite case: samples of a singular curve
+      'self_intersection'  — C3: two 4D preimages, one 3D point
+    """
+    kind: str
+    stuv: NDArray[np.float64]                    # (4,) primary preimage
+    xyz: NDArray[np.float64]                     # (3,)
+    stuv_mate: Optional[NDArray[np.float64]] = None   # (4,) C3 second preimage
+    branch_links: list = field(default_factory=list)  # [(branch_index, vertex_index)]
+    samples: Optional[NDArray[np.float64]] = None     # (N,4) for 'cusp_curve'
+
+
+@dataclass
 class BoundaryOverlap:
     """A curve segment where S1 and S2 overlap on a boundary face of [0,1]⁴."""
     stuv_start: NDArray[np.float64]  # (4,)
@@ -1472,6 +1490,7 @@ def _deflate_tangent_cell(P1_cart, P2_cart, T1, T2, T3, T4, box, crossings, atol
             start_point=start_pt, end_point=end_pt,
             stuv_path=stuv_path[valid_mask],
             xyz_path=xyz_path[valid_mask],
+            tangential=True,
         ))
 
     for k in unpaired:
@@ -1603,7 +1622,7 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
 
         stuv_path = np.stack([ovl.stuv_start, ovl.stuv_end], axis=0)
         xyz_path = np.stack([xyz_start, xyz_end], axis=0)
-        branches.append(SSXBranch(curve=(stuv_path, xyz_path), overlap=True))
+        branches.append(SSXBranch(curve=(stuv_path, xyz_path), overlap=True, kind="overlap"))
 
     return branches
 
@@ -1710,6 +1729,7 @@ class _Fragment:
     end_point: Optional[BoundaryPoint]
     stuv_path: NDArray[np.float64]
     xyz_path: NDArray[np.float64]
+    tangential: bool = False
 
 
 def _consume_cell_directions(point: BoundaryPoint, cell, direction: str) -> None:
@@ -2160,7 +2180,9 @@ def _assemble_fragments(
                         xyz_full = np.concatenate(
                             [xyz_full, closing_xyz[1:]], axis=0)
 
-        branches.append(SSXBranch(curve=(stuv_full, xyz_full)))
+        branch_kind = ("tangential" if any(fragments[idx].tangential for idx, _ in chain)
+                       else "transversal")
+        branches.append(SSXBranch(curve=(stuv_full, xyz_full), kind=branch_kind))
 
     # --- Drop short slivers that lie on top of another branch ---
     # When the fragment graph has a Y-junction (≥3 fragments meeting at the
@@ -2808,14 +2830,14 @@ def bez_ssx(
     Surfaces in sub-cells are in LOCAL [0,1]² (De Casteljau reparameterized).
     Conversion between local and global uses the cell's box.
 
-    Returns dict with 'branches' and 'points'.
+    Returns dict with 'branches', 'points', and 'singularities'.
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
 
     # --- Level 1: Pruning ---
     if _prune_ssx_cell(S1, S2, atol, rational=rational):
-        return {'branches': [], 'points': []}
+        return {'branches': [], 'points': [], 'singularities': []}
 
     # --- Build GaussMapBern ONCE ---
     if rational:
@@ -2921,6 +2943,7 @@ def bez_ssx(
     queue = deque([top_cell])
     all_fragments: list[_Fragment] = []
     all_points = []
+    all_singularities: list[SSXSingularity] = []
 
     while queue:
         cell = queue.popleft()
@@ -3032,6 +3055,7 @@ def bez_ssx(
                 all_fragments.append(_Fragment(
                     start_point=f.start_point, end_point=f.end_point,
                     stuv_path=stuv_glob, xyz_path=f.xyz_path,
+                    tangential=f.tangential,
                 ))
             # pt_local's SSXPoint.stuv is already global — we passed
             # `originals` so _deflate_tangent_cell copied from them.
@@ -3290,6 +3314,6 @@ def bez_ssx(
                 kept_points.append(p)
         all_points = kept_points
 
-    return {'branches': all_branches, 'points': all_points}
+    return {'branches': all_branches, 'points': all_points, 'singularities': all_singularities}
 
 
