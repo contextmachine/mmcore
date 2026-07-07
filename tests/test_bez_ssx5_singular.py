@@ -1499,3 +1499,65 @@ def test_cone_apex_no_phantom_tangent_point():
     # and the transversal branch through the apex is traced
     assert len(r["branches"]) == 1
     assert r["branches"][0].kind == "transversal"
+
+
+def test_short_cusp_curve_typed_as_curve_not_isolated():
+    # Ledger L14 regression: a cusp curve clipped to t-extent 0.2 (200x
+    # resolution) yielded 11 xyz-dedup-sparse solutions — under the raw
+    # count>12/exhausted heuristic it shipped as 11 isolated 'cusp's.
+    # The connectivity probe (midpoint Newton between consecutive
+    # solutions along the cloud's principal axis) types it 'cusp_curve'.
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
+    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+    x3 = [1.0, -1.0 / 3.0, -1.0 / 3.0, 1.0]
+    y3 = [-1.0, 1.0, -1.0, 1.0]
+    S1 = np.array([[[x3[i], y3[i], float(j)] for j in range(2)] for i in range(4)])
+    S2 = np.array([[[0.0, -1.5, 0.4], [0.0, 1.5, 0.4]],
+                   [[0.0, -1.5, 0.6], [0.0, 1.5, 0.6]]])   # plane x=0, z in [0.4,0.6]
+    S1h, S2h = _homog(S1), _homog(S2)
+    atol = 1e-3
+    ps, pt = bez_surface_param_tolerance(S1h, atol, rational=True)
+    pu, pv = bez_surface_param_tolerance(S2h, atol, rational=True)
+    ptol4 = np.maximum(np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
+    hits, flag = c1_pass(S1h, S2h, atol, ptol4)
+    assert flag
+    assert len(hits) == 1 and "curve_samples" in hits[0]
+    assert len(hits[0]["curve_samples"]) >= 2
+    assert hits[0]["surface"] == 1
+
+
+def test_two_isolated_cusps_stay_isolated():
+    # Ledger L14 negative control: du=0 at BOTH s=0.3 and s=0.7 (two
+    # genuinely isolated parameterization cusps on one surface) — the
+    # connectivity probe must NOT glue them into a phantom cusp_curve
+    # (their midpoint Newton falls back onto an endpoint or diverges).
+    from math import comb
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c1_pass
+    from mmcore.geom._nurbs_param_tol import bez_surface_param_tolerance
+
+    def mono_to_bern(a, n):
+        return np.array([sum(a[j] * comb(i, j) / comb(n, j)
+                             for j in range(min(i, len(a) - 1) + 1))
+                         for i in range(n + 1)])
+
+    # x'(s) = 6(s-0.3)(s-0.7),  y'(s) = 24(s-0.3)(s-0.7)(s-0.5)
+    xb = mono_to_bern(6.0 * np.array([0.0, 0.21, -0.5, 1.0 / 3.0, 0.0]), 4)
+    yb = mono_to_bern(24.0 * np.array([0.0, -0.105, 0.355, -0.5, 0.25]), 4)
+    S1 = np.array([[[xb[i], yb[i], float(j)] for j in range(2)] for i in range(5)])
+    for s in (0.15, 0.3, 0.5, 0.7, 0.9):
+        p = eval_surface(_homog(S1), s, 0.4, rational=True)
+        want_x = 6.0 * (s ** 3 / 3 - 0.5 * s ** 2 + 0.21 * s)
+        want_y = 24.0 * (0.25 * s ** 4 - 0.5 * s ** 3 + 0.355 * s ** 2 - 0.105 * s)
+        assert np.allclose(p, [want_x, want_y, 0.4], atol=1e-12)
+    S2 = np.array([[[-1.0, -1.0, 0.5], [-1.0, 1.0, 0.5]],
+                   [[1.0, -1.0, 0.5], [1.0, 1.0, 0.5]]])
+    S1h, S2h = _homog(S1), _homog(S2)
+    atol = 1e-3
+    ps, pt = bez_surface_param_tolerance(S1h, atol, rational=True)
+    pu, pv = bez_surface_param_tolerance(S2h, atol, rational=True)
+    ptol4 = np.maximum(np.array([float(ps), float(pt), float(pu), float(pv)]), 1e-9)
+    hits, flag = c1_pass(S1h, S2h, atol, ptol4)
+    assert not flag, "two isolated cusps wrongly glued into a cusp_curve"
+    cusps = [h for h in hits if "stuv" in h]
+    assert len(cusps) == 2
+    assert sorted(round(float(h["stuv"][0]), 2) for h in cusps) == [0.3, 0.7]

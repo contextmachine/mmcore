@@ -376,6 +376,7 @@ def solve_zero_dim(
     skip_newton: Optional[Callable] = None,  # (box) -> True to skip the Newton attempt
     priority: Optional[Callable] = None,     # (box) -> float; HIGHER pops first (heap)
     max_boxes: Optional[int] = None,         # hard backstop on TOTAL processed boxes
+    stats: Optional[dict] = None,            # out-param: solver-side counters (see below)
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
@@ -459,6 +460,14 @@ def solve_zero_dim(
         )
     ptol = np.asarray(ptol, dtype=np.float64)
     sols: list = []
+    # `stats` out-param (ledger L14): 'floor_boxes' counts boxes that hit
+    # the resolution floor WITHOUT being hull-excluded — the solver-side
+    # dimensionality signature. Isolated roots leave O(1) floor boxes per
+    # root; a 1-dimensional zero set floods ~(arc length / ptol) of them
+    # even when xyz-dedup collapses the returned `sols` to a sparse
+    # handful (measured: cusp curve at 200x resolution -> 11 sols but
+    # hundreds of floor boxes; a lone cusp -> a few dozen).
+    floor_boxes = 0
 
     def _dup(x):
         for s in sols:
@@ -513,6 +522,7 @@ def solve_zero_dim(
         ratios = [(hi - lo) / float(ptol[i]) for i, (lo, hi) in enumerate(bx)]
         widest = int(np.argmax(ratios))
         if ratios[widest] <= 1.0:
+            floor_boxes += 1
             continue      # resolution floor: every axis at/below its ptol
         # nets and box split in lockstep so the net's local 0.5 is exactly
         # the box's global midpoint
@@ -525,6 +535,8 @@ def solve_zero_dim(
         br = list(bx); br[widest] = (m, bx[widest][1])
         _push((tuple(bl), left_nets))
         _push((tuple(br), right_nets))
+    if stats is not None:
+        stats["floor_boxes"] = floor_boxes
     return sols, bool(pending)
 
 
@@ -625,6 +637,49 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
                 seeds.append(s)
                 seed_xyz.append(s_xyz)
     return seeds
+
+
+def _connected_one_dim(sols, newton, ptol) -> bool:
+    """True when 2..12 solutions sample a CONNECTED 1-dimensional zero set.
+
+    Ledger L14: sort the cloud along its principal axis, then for each
+    consecutive pair Newton the parametric MIDPOINT with the same solver
+    the enumeration used. On a genuine curve the midpoint converges to a
+    NEW root strictly between the pair (inside their joint AABB +ptol and
+    distinct from both at 1·ptol); between genuinely isolated cusps it
+    diverges or falls back onto an endpoint. Curve-like iff at least half
+    the tested pairs connect. Pairs already adjacent at resolution
+    (≤ 2·ptol per axis) count as connected — they are indistinguishable
+    from a curve at solver resolution by definition. Cost: ≤ n-1
+    Gauss-Newton calls, only on the ambiguous 2..12 window."""
+    if len(sols) < 2 or len(sols) > 12:
+        return False
+    P = np.asarray(sols, dtype=np.float64)
+    ptol = np.asarray(ptol, dtype=np.float64)
+    U = P - P.mean(axis=0)
+    try:
+        _, _, Vt = np.linalg.svd(U, full_matrices=False)
+    except np.linalg.LinAlgError:
+        return False
+    P = P[np.argsort(U @ Vt[0])]
+    tested = 0
+    connected = 0
+    for a, b in zip(P[:-1], P[1:]):
+        tested += 1
+        if np.all(np.abs(b - a) <= 2.0 * ptol):
+            connected += 1
+            continue
+        m = newton(0.5 * (a + b))
+        if m is None:
+            continue
+        m = np.asarray(m, dtype=np.float64)
+        lo = np.minimum(a, b) - ptol
+        hi = np.maximum(a, b) + ptol
+        if (np.all(m >= lo) and np.all(m <= hi)
+                and np.any(np.abs(m - a) > ptol)
+                and np.any(np.abs(m - b) > ptol)):
+            connected += 1
+    return tested > 0 and 2 * connected >= tested
 
 
 def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
@@ -757,9 +812,23 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
         sols, exhausted = solve_zero_dim(nets, newton, ptol4,
                                          max_cells=max_cells,
                                          dedup_xyz=_xyz, atol=atol)
-        if len(sols) > 12 or (exhausted and len(sols) > 1):
-            # Many hits, or a truncated enumeration that already found
-            # several: a 1-dimensional solution set (cusp curve).
+        # 1-dimensional-set detection (ledger L14): raw count and the
+        # exhausted flag miss a REALISTIC cusp curve whose xyz-dedup'd
+        # solutions land in the 2..12 window without budget exhaustion
+        # (measured: cuspidal edge in plane x=0 clipped to t-extent 0.2 =
+        # 200x resolution -> 11 isolated 'cusp's). Solver-side counters
+        # were measured NON-discriminative for face-aligned curves (the
+        # common case — guided cuts pass through crossings, and dyadic
+        # feature coordinates sit exactly on split faces: the descent
+        # terminates by exclusion with ZERO resolution-floor boxes on
+        # curves, 16 on the isolated control — inverted and fragile).
+        # Decisive test: CONNECTIVITY — Newton the midpoints of
+        # consecutive solutions; a curve yields new on-segment roots,
+        # isolated cusps yield dups or divergence.
+        curve_like = (len(sols) > 12
+                      or (exhausted and len(sols) > 1)
+                      or _connected_one_dim(sols, newton, ptol4))
+        if curve_like:
             curve_flag = True
             out.append({"surface": which, "curve_samples": np.asarray(sols)})
             continue
