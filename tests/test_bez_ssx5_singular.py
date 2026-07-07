@@ -941,6 +941,48 @@ def test_offlattice_touch_plus_loop_found():
     assert covered >= 20, f"ring coverage collapsed: {covered}/24 samples"
 
 
+def _cylinder_on_plane():
+    """S1 deg (1,2): z = (2t-1)^2 — a parabolic cylinder TANGENT to z=0
+    along the whole line t=0.5; S2: z=0 plane spanning [-0.5, 1.5]^2.
+    Non-strict monotone T-hulls certify the top cell loop-free, so the
+    tangent line is traced by the plain Ψ tracer through the LOOP-FREE
+    path (never reaching `_deflate_tangent_cell`)."""
+    S1 = np.array([[[0., 0., 1.], [0., 0.5, -1.], [0., 1., 1.]],
+                   [[1., 0., 1.], [1., 0.5, -1.], [1., 1., 1.]]])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    return S1, S2
+
+
+def test_tangent_line_loop_free_path_tagged_tangential():
+    # Ledger L5 regression: the loop-free-path-traced tangent line shipped
+    # kind='transversal' — breaking the output contract AND blinding the
+    # kind-keyed subsumption filter, so the on-line center witness survived
+    # as a stray tangent_point. Tagging is by MEASUREMENT
+    # (_fragment_on_tangent_locus: normal alignment escalating to the
+    # Δ-snap — the Ψ-marched samples wander ~1.4e-3 off t=0.5 in the
+    # sub-tolerance valley, sin_ang up to 1.1e-2, so alignment alone can't
+    # certify), never by provenance.
+    # NOTE the mixed geometry z = (t-0.5)^2*(s-0.5) from the ledger is NOT
+    # testable here: its tangent line t=0.5 is lost in ASSEMBLY (only
+    # ~2e-3-long stubs near the degenerate X at (0.5,0.5) ship — measured
+    # identical before/after this fix), an L10-family loss, so there is no
+    # branch to assert a kind on.
+    S1, S2 = _cylinder_on_plane()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    assert len(r["branches"]) == 1
+    b = r["branches"][0]
+    assert b.kind == "tangential", f"tangent line shipped kind={b.kind!r}"
+    xyz = np.asarray(b.curve[1])
+    assert np.allclose(xyz[:, 1], 0.5, atol=2e-3)
+    assert np.allclose(xyz[:, 2], 0.0, atol=2e-3)
+    assert xyz[:, 0].min() < 0.02 and xyz[:, 0].max() > 0.98   # full span
+    # the on-line witness is subsumed by the (now correctly kinded) branch
+    assert r["singularities"] == [], (
+        f"stray on-curve witnesses survived: "
+        f"{[(g.kind, np.round(np.asarray(g.xyz), 4).tolist()) for g in r['singularities']]}")
+
+
 def _plane_patch(x0, x1):
     return np.array([[[x0, 0., 0.], [x0, 1., 0.]],
                      [[x1, 0., 0.], [x1, 1., 0.]]], dtype=np.float64)

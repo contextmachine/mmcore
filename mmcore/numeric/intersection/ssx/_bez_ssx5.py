@@ -719,6 +719,139 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
     return ok, roots
 
 
+def _delta_float_gn(T1, T2, T3, T4, P1c, P2c):
+    """Plain-float Gauss-Newton factory on Δ = {Ψ(3), TΨ1..4} over a cell's
+    LOCAL [0,1]⁴, from its cartesian control nets and T tensors.
+
+    Same control flow and acceptance ladder as _deflate.gauss_newton_witness
+    (tol_f=1e-10 convergence; step < 1e-12 or max_iter=24 accept at
+    fnorm < 1e-8; full-box [0,1]^4 clamp) but evaluated via per-axis
+    Bernstein basis rows contracted against a stacked T net and
+    eval_surface_d1 for the Ψ rows, instead of the generic interval-capable
+    evaluator — ~0.1 ms per start vs ~40 ms (the plan's Risk-7 note:
+    "plain-float GN in the enumeration's Newton callback"; measured 77% of
+    the blind-band repro's runtime on the generic path).
+
+    The four T nets are degree-elevated to one common shape and stacked
+    (trailing dim 4): the GN then needs 5 einsums per Jacobian instead of
+    20 (elevation coefficients are convex combinations of the originals,
+    so the represented polynomials are identical; consumers using Tstack
+    for hull tests only tighten).
+
+    NOTE the 1e-8 stall acceptance bounds how deep a sub-tolerance valley
+    this GN can REJECT: the TΨ=0, Ψ≠0 trap sheet of a touch-plus-loop
+    valley has ‖Δ‖ = |Ψ| = eps²/4, distinguishable from a true root down
+    to eps ≈ 2e-4 — below that the whole feature is sub-7·atol anyway.
+
+    Returns `(gn, Tstack)`; `gn(x0) -> Optional[(4,) local root]`.
+    Raises np.linalg.LinAlgError / FloatingPointError like the evaluators
+    it wraps — callers keep their own numerical-failure policy.
+    """
+    from math import comb as _comb
+    _Tnets = [np.asarray(T, dtype=np.float64) for T in (T1, T2, T3, T4)]
+    _ONE1 = np.ones(1)
+    _ZERO1 = np.zeros(1)
+    _ES = "i,j,k,l,ijklm->m"
+    _binoms: dict = {}
+
+    def _bin(n):
+        r = _binoms.get(n)
+        if r is None:
+            r = np.array([_comb(n, i) for i in range(n + 1)],
+                         dtype=np.float64)
+            _binoms[n] = r
+        return r
+
+    def _elev_mat(n, m):
+        # Bernstein degree elevation n -> m (m > n):
+        # c'_i = sum_j E[i, j] c_j, E[i, j] = C(n,j)*C(m-n,i-j)/C(m,i)
+        E = np.zeros((m + 1, n + 1))
+        for i in range(m + 1):
+            for j in range(max(0, i - (m - n)), min(n, i) + 1):
+                E[i, j] = _comb(n, j) * _comb(m - n, i - j) / _comb(m, i)
+        return E
+
+    _degs = [max(T.shape[ax] - 1 for T in _Tnets) for ax in range(4)]
+    Tstack = np.empty(tuple(d + 1 for d in _degs) + (4,))
+    for k, T in enumerate(_Tnets):
+        A = T
+        for ax in range(4):
+            n = A.shape[ax] - 1
+            if n < _degs[ax]:
+                A = np.moveaxis(
+                    np.tensordot(_elev_mat(n, _degs[ax]), A,
+                                 axes=(1, ax)), 0, ax)
+        Tstack[..., k] = A
+
+    def _basis_pair(n, xval):
+        # Bernstein basis row B_{i,n}(x) and its derivative row
+        # B'_{i,n} = n * (B_{i-1,n-1} - B_{i,n-1}).
+        if n == 0:
+            return _ONE1, _ZERO1
+        i = np.arange(n + 1)
+        b = _bin(n) * xval ** i * (1.0 - xval) ** (n - i)
+        j = np.arange(n)
+        bl = _bin(n - 1) * xval ** j * (1.0 - xval) ** (n - 1 - j)
+        d = np.empty(n + 1)
+        d[0] = -n * bl[0]
+        d[n] = n * bl[n - 1]
+        if n > 1:
+            d[1:n] = n * (bl[:n - 1] - bl[1:])
+        return b, d
+
+    def _delta_F(x):
+        p1 = eval_surface(P1c, x[0], x[1], rational=False)
+        p2 = eval_surface(P2c, x[2], x[3], rational=False)
+        bb = [_basis_pair(_degs[ax], x[ax])[0] for ax in range(4)]
+        F = np.empty(7)
+        F[:3] = p1 - p2
+        F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
+        return F
+
+    def _delta_F_J(x):
+        p1, du1, dv1 = eval_surface_d1(P1c, x[0], x[1], rational=False)
+        p2, du2, dv2 = eval_surface_d1(P2c, x[2], x[3], rational=False)
+        pairs = [_basis_pair(_degs[ax], x[ax]) for ax in range(4)]
+        bb = [p[0] for p in pairs]
+        F = np.empty(7)
+        J = np.zeros((7, 4))
+        F[:3] = p1 - p2
+        J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
+        F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
+        for ax in range(4):
+            rows = [pairs[q][1] if q == ax else bb[q] for q in range(4)]
+            J[3:, ax] = np.einsum(_ES, rows[0], rows[1], rows[2],
+                                  rows[3], Tstack)
+        return F, J
+
+    def gn(x0):
+        x = np.clip(np.asarray(x0, dtype=np.float64), 0.0, 1.0)
+        fnorm_prev = None
+        for _ in range(24):
+            F, J = _delta_F_J(x)
+            fnorm = float(np.linalg.norm(F))
+            if fnorm < 1e-10:
+                return x
+            try:
+                dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
+            except np.linalg.LinAlgError:
+                return None
+            if float(np.linalg.norm(dx)) < 1e-12:
+                return x if fnorm < 1e-8 else None
+            alpha = 1.0
+            for _ls in range(12):
+                xn = np.clip(x + alpha * dx, 0.0, 1.0)
+                fnorm_n = float(np.linalg.norm(_delta_F(xn)))
+                if fnorm_prev is None or fnorm_n < fnorm:
+                    x = xn
+                    fnorm_prev = fnorm_n
+                    break
+                alpha *= 0.5
+        return x if float(np.linalg.norm(_delta_F(x))) < 1e-8 else None
+
+    return gn, Tstack
+
+
 def _dist_point_polyline_nd(p, poly):
     """Min distance from an n-D point to a polyline's segments (poly: (N,n))."""
     p = np.asarray(p, dtype=np.float64)
@@ -844,126 +977,13 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         return _center_pdist(bx, c)
 
     try:
-        # Dedicated float Gauss-Newton on Δ = {Ψ(3), TΨ1..4}. Same control
-        # flow and acceptance ladder as _deflate.gauss_newton_witness
-        # (tol_f=1e-10 convergence; step < 1e-12 or max_iter=24 accept at
-        # fnorm < 1e-8; full-box [0,1]^4 clamp) but evaluated via per-axis
-        # Bernstein basis rows contracted against a stacked T net and
-        # eval_surface_d1 for the Ψ rows, instead of the generic
-        # interval-capable evaluator — the enumeration calls it per
-        # surviving box and the generic path measured 77% of the
-        # blind-band repro's runtime (the plan's Risk-7 optimization note:
-        # "plain-float GN in the enumeration's Newton callback").
-        #
-        # The four T nets are degree-elevated to one common shape and
-        # stacked (trailing dim 4): the GN then needs 5 einsums per
-        # Jacobian instead of 20, and the solver splits ONE VectorBoxNet
-        # per box instead of four BoxNets (elevation coefficients are
-        # convex combinations of the originals, so the elevated hulls are
-        # subsets — exclusion only tightens; the represented polynomials
-        # are identical).
-        from math import comb as _comb
-        _Tnets = [np.asarray(T, dtype=np.float64)
-                  for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
-        _ONE1 = np.ones(1)
-        _ZERO1 = np.zeros(1)
-        _ES = "i,j,k,l,ijklm->m"
-        _binoms: dict = {}
-
-        def _bin(n):
-            r = _binoms.get(n)
-            if r is None:
-                r = np.array([_comb(n, i) for i in range(n + 1)],
-                             dtype=np.float64)
-                _binoms[n] = r
-            return r
-
-        def _elev_mat(n, m):
-            # Bernstein degree elevation n -> m (m > n):
-            # c'_i = sum_j E[i, j] c_j, E[i, j] = C(n,j)*C(m-n,i-j)/C(m,i)
-            E = np.zeros((m + 1, n + 1))
-            for i in range(m + 1):
-                for j in range(max(0, i - (m - n)), min(n, i) + 1):
-                    E[i, j] = _comb(n, j) * _comb(m - n, i - j) / _comb(m, i)
-            return E
-
-        _degs = [max(T.shape[ax] - 1 for T in _Tnets) for ax in range(4)]
-        Tstack = np.empty(tuple(d + 1 for d in _degs) + (4,))
-        for k, T in enumerate(_Tnets):
-            A = T
-            for ax in range(4):
-                n = A.shape[ax] - 1
-                if n < _degs[ax]:
-                    A = np.moveaxis(
-                        np.tensordot(_elev_mat(n, _degs[ax]), A,
-                                     axes=(1, ax)), 0, ax)
-            Tstack[..., k] = A
-
-        def _basis_pair(n, xval):
-            # Bernstein basis row B_{i,n}(x) and its derivative row
-            # B'_{i,n} = n * (B_{i-1,n-1} - B_{i,n-1}).
-            if n == 0:
-                return _ONE1, _ZERO1
-            i = np.arange(n + 1)
-            b = _bin(n) * xval ** i * (1.0 - xval) ** (n - i)
-            j = np.arange(n)
-            bl = _bin(n - 1) * xval ** j * (1.0 - xval) ** (n - 1 - j)
-            d = np.empty(n + 1)
-            d[0] = -n * bl[0]
-            d[n] = n * bl[n - 1]
-            if n > 1:
-                d[1:n] = n * (bl[:n - 1] - bl[1:])
-            return b, d
-
-        def _delta_F(x):
-            p1 = eval_surface(P1c, x[0], x[1], rational=False)
-            p2 = eval_surface(P2c, x[2], x[3], rational=False)
-            bb = [_basis_pair(_degs[ax], x[ax])[0] for ax in range(4)]
-            F = np.empty(7)
-            F[:3] = p1 - p2
-            F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
-            return F
-
-        def _delta_F_J(x):
-            p1, du1, dv1 = eval_surface_d1(P1c, x[0], x[1], rational=False)
-            p2, du2, dv2 = eval_surface_d1(P2c, x[2], x[3], rational=False)
-            pairs = [_basis_pair(_degs[ax], x[ax]) for ax in range(4)]
-            bb = [p[0] for p in pairs]
-            F = np.empty(7)
-            J = np.zeros((7, 4))
-            F[:3] = p1 - p2
-            J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
-            F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
-            for ax in range(4):
-                rows = [pairs[q][1] if q == ax else bb[q] for q in range(4)]
-                J[3:, ax] = np.einsum(_ES, rows[0], rows[1], rows[2],
-                                      rows[3], Tstack)
-            return F, J
-
-        def _gn(x0):
-            x = np.clip(np.asarray(x0, dtype=np.float64), 0.0, 1.0)
-            fnorm_prev = None
-            for _ in range(24):
-                F, J = _delta_F_J(x)
-                fnorm = float(np.linalg.norm(F))
-                if fnorm < 1e-10:
-                    return x
-                try:
-                    dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
-                except np.linalg.LinAlgError:
-                    return None
-                if float(np.linalg.norm(dx)) < 1e-12:
-                    return x if fnorm < 1e-8 else None
-                alpha = 1.0
-                for _ls in range(12):
-                    xn = np.clip(x + alpha * dx, 0.0, 1.0)
-                    fnorm_n = float(np.linalg.norm(_delta_F(xn)))
-                    if fnorm_prev is None or fnorm_n < fnorm:
-                        x = xn
-                        fnorm_prev = fnorm_n
-                        break
-                    alpha *= 0.5
-            return x if float(np.linalg.norm(_delta_F(x))) < 1e-8 else None
+        # Dedicated float Gauss-Newton on Δ = {Ψ(3), TΨ1..4} + the stacked
+        # T net (see `_delta_float_gn`) — the enumeration calls it per
+        # surviving box, and the solver splits ONE VectorBoxNet (Tstack)
+        # per box instead of four BoxNets (the elevated hulls are subsets
+        # of the originals — exclusion only tightens).
+        _gn, Tstack = _delta_float_gn(cell.T1, cell.T2, cell.T3, cell.T4,
+                                      P1c, P2c)
 
         def _xyz(x):
             return eval_surface(cell.g1.surface, x[0], x[1], rational=True)
@@ -2446,20 +2466,33 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
                      stuv_path=stuv_g, xyz_path=xyz_g, tangential=True)
 
 
-def _phi_closed_frag_normals_aligned(cell, frag, bar=1e-3):
-    """Ledger L2: validate a Φ-marched CLOSED fragment as a genuine TANGENT
-    feature — the two surface normals must stay aligned, sin(angle) <= the
-    pipeline's own 1e-3 transversality bar, at EVERY kept sample.
+def _fragment_normals_aligned(cell, frag, bar=1e-3):
+    """Tangency-by-MEASUREMENT test on a fragment's kept samples: the two
+    surface normals must stay aligned, sin(angle) <= the pipeline's own
+    1e-3 transversality bar, at EVERY sample. Two consumers:
 
-    Why: the Φ corrector solves only {Ψ_a, Ψ_b, TΨ_k} and accepts at
-    atol*100, and the Ψ-validity keep-filter passes anything within atol of
-    the intersection — a SUB-TOLERANCE valley (touch-plus-loop at eps=1e-3:
-    valley floor |Ψ_z| = eps²/4 = 2.5e-7) satisfies both, so the marcher
-    ships a closed 'tangential' phantom that is transversal-normal along
-    most of its arc (measured: sin_ang up to 2.56e-2 on the phantom vs
-    3.96e-7 max on the genuine tangent circle of z=(q-1/4)² — five decades
-    of separation around the 1e-3 bar). A genuine tangent feature has
-    TΨ = 0, i.e. parallel normals, along the whole path.
+    - Ledger L2: validate a Φ-marched CLOSED fragment as a genuine TANGENT
+      feature. The Φ corrector solves only {Ψ_a, Ψ_b, TΨ_k} and accepts at
+      atol*100, and the Ψ-validity keep-filter passes anything within atol
+      of the intersection — a SUB-TOLERANCE valley (touch-plus-loop at
+      eps=1e-3: valley floor |Ψ_z| = eps²/4 = 2.5e-7) satisfies both, so
+      the marcher ships a closed 'tangential' phantom that is
+      transversal-normal along most of its arc (measured: sin_ang up to
+      2.56e-2 on the phantom vs 3.96e-7 max on the genuine tangent circle
+      of z=(q-1/4)² — five decades of separation around the 1e-3 bar). A
+      genuine tangent feature has TΨ = 0, i.e. parallel normals, along the
+      whole path.
+
+    NOT usable for ledger L5's tagging of Ψ-traced loop-free fragments —
+    measured both failure directions there: Ψ-marched samples of a GENUINE
+    tangent curve wander in the sub-tolerance valley (cylinder-on-plane
+    line: ~1.4e-3 off t=0.5, sin_ang up to 1.08e-2 — an order ABOVE this
+    bar), while a genuine TRANSVERSAL ring deep in a valley sits BELOW it
+    (touch-plus-loop at eps=1e-3: ring |∇z| = 2·eps^1.5 ≈ 6e-5, all
+    samples "aligned"). L5 uses the Δ-snap (`_fragment_on_tangent_locus`)
+    instead. Φ-marched fragments (the L2 consumer here) are corrected onto
+    Δ itself and sit at sin_ang ~4e-7, so for them this bar separates
+    cleanly (phantom max 2.56e-2 — five decades of margin).
 
     Degenerate-normal samples (‖N‖ < 1e-30) are skipped — cannot decide
     there, same convention as the transversality pre-check on crossings.
@@ -2479,6 +2512,70 @@ def _phi_closed_frag_normals_aligned(cell, frag, bar=1e-3):
             continue
         if float(np.linalg.norm(np.cross(N1, N2))) > bar * n1m * n2m:
             return False
+    return True
+
+
+def _fragment_on_tangent_locus(cell, frag, atol):
+    """Ledger L5: decide by MEASUREMENT whether a Ψ-traced fragment from a
+    loop-free cell (tangency hull gate fired) is a tangent CURVE. A tangent
+    curve traces fine through the loop-free path (non-strict monotone
+    T-hulls certify loop-free) but shipped kind='transversal', breaking the
+    output contract AND blinding the kind-keyed subsumption filter (stray
+    on-curve tangent_points survived). Tangentiality is decided here by
+    measurement, never by provenance — the caller only measures fragments
+    from cells whose hull gate fired, and a failing fragment keeps
+    kind='transversal' (the zero-risk direction for coverage geometry).
+
+    The test: EVERY sample must Δ-SNAP — Gauss-Newton onto the deflated
+    set Δ = Ψ ∩ TΨ (plain-float `_delta_float_gn`, ~0.1 ms/start) moving
+    at most 2·atol in xyz (the matching ladder). Normal alignment CANNOT
+    decide this either way (measured, both directions):
+
+    - the genuine cylinder-on-plane tangent line's Ψ-marched samples
+      WANDER in the sub-tolerance valley (the Ψ corrector is rank-
+      deficient transversally and stalls at |Ψ_z| ~ 7e-6 ≈ 1.4e-3 param
+      off the line) → sin_ang up to 1.08e-2, an order ABOVE the pipeline's
+      1e-3 transversality bar — an "any misaligned ⇒ transversal" rule
+      loses the tag;
+    - the touch-plus-loop eps=1e-3 ring is genuinely TRANSVERSAL (sign
+      change) yet its normals align to |∇z| = 2·eps^1.5 ≈ 6e-5, BELOW the
+      bar at every sample — an "all aligned ⇒ tangential" rule flips the
+      committed L2 ground truth (tangential == []).
+
+    The Δ-snap separates both: wandered tangent-line samples snap back
+    onto the locus (~1·atol motion, on-curve Δ-roots everywhere); the
+    eps=1e-3 ring's samples are 15.8·atol from the only Δ-root (the
+    touch) → reject; near-tangent TOUCH-FREE cells (case 5: 20 gate-fired
+    cells, case 11: 10) have no Δ-root at all → the first sample rejects
+    (the GN also rejects the TΨ=0,Ψ≠0 trap sheet down to ‖Ψ‖ ≈ 1e-8, see
+    `_delta_float_gn`). A transversal fragment passing near an isolated
+    touch cannot pass either: only its sub-2·atol-to-the-touch samples
+    snap, the rest move too far. (A micro-fragment entirely within 2·atol
+    of a touch can pass, but micro tangential polylines are below the
+    subsumption filter's 16·atol arc floor and are owned by the
+    micro-branch filter.)
+
+    Numerical failure of the factory/GN (LinAlgError, FloatingPointError)
+    keeps the fragment transversal — fail-safe in the coverage-kind
+    direction.
+    """
+    S1h = cell.g1.surface
+    xyz_path = np.asarray(frag.xyz_path)
+    try:
+        P1c = S1h[..., :-1] / S1h[..., -1:]
+        P2c = cell.g2.surface[..., :-1] / cell.g2.surface[..., -1:]
+        gn, _Tstack = _delta_float_gn(cell.T1, cell.T2, cell.T3, cell.T4,
+                                      P1c, P2c)
+        for k, x_g in enumerate(np.asarray(frag.stuv_path)):
+            x = _global_to_local(x_g, cell.box)
+            xw = gn(x)
+            if xw is None:
+                return False
+            xyz_w = eval_surface(S1h, xw[0], xw[1], rational=True)
+            if float(np.linalg.norm(xyz_w - xyz_path[k])) > 2.0 * atol:
+                return False
+    except (np.linalg.LinAlgError, FloatingPointError):
+        return False
     return True
 
 
@@ -2518,7 +2615,7 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
     skips that rejection: its seeds are ON the Δ set, whose closed
     components are legitimately covered with emitted Δ-witness samples.
     Every Φ-marched closed fragment must additionally pass the L2 tangency
-    validation (`_phi_closed_frag_normals_aligned`: sin_ang <= 1e-3 at
+    validation (`_fragment_normals_aligned`: sin_ang <= 1e-3 at
     every sample) before it is emitted as `tangential` — sub-tolerance
     valleys (floor |Ψ| < atol) are Ψ-valid and Φ-marchable yet
     transversal-normal, and such a phantom both ships wrong geometry AND
@@ -2604,8 +2701,7 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
                     frag = _march_phi_closed(cell, x, pr, ti, atol, h_max,
                                              displace=disp)
                     if (frag is not None
-                            and not _phi_closed_frag_normals_aligned(cell,
-                                                                     frag)):
+                            and not _fragment_normals_aligned(cell, frag)):
                         # Ledger L2: transversal-normal somewhere along the
                         # closed path => a sub-tolerance-valley phantom, not
                         # a tangent feature. Normal alignment is a property
@@ -4358,6 +4454,23 @@ def bez_ssx(
                         cell.T1, cell.T2, cell.T3, cell.T4):
                     c3_possible = True
                 fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
+                if tangent_gate:
+                    # Ledger L5: a tangent CURVE traces fine through this
+                    # loop-free path (non-strict monotone T-hulls) but
+                    # shipped kind='transversal'. Tag by MEASUREMENT
+                    # (`_fragment_on_tangent_locus`: normal alignment,
+                    # escalating to the Δ-snap for valley-wandered
+                    # samples) => tangential fragment (propagates to the
+                    # branch kind via assembly's any-fragment rule, and
+                    # the kind-keyed subsumption filter then eats the
+                    # stray on-curve witnesses). Only fired-gate cells are
+                    # measured — transversal fragments exit on their first
+                    # failing sample.
+                    for f in fr:
+                        if (not f.tangential and len(f.stuv_path) >= 2
+                                and _fragment_on_tangent_locus(cell, f,
+                                                               atol)):
+                            f.tangential = True
                 all_fragments.extend(fr)
                 all_points.extend(pt)
             continue
