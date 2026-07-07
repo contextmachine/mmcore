@@ -794,6 +794,22 @@ def _umbrella_case():
     return S1, S2
 
 
+def _assert_links_nearest_vertex(g, branches):
+    # Ledger L11 contract: every branch_link carries the VERTEX index
+    # nearest g.xyz on that branch's polyline (4*atol is unachievable at
+    # default chord density — umbrella chords ~0.22, so the nearest vertex
+    # legitimately sits up to ~half a chord away; what the contract
+    # guarantees is OPTIMALITY: no other vertex on that branch is closer).
+    assert g.branch_links, "expected at least one branch link"
+    for bi, vi in g.branch_links:
+        poly = np.asarray(branches[bi].curve[1], dtype=np.float64)
+        assert 0 <= vi < len(poly)
+        d = np.linalg.norm(poly - np.asarray(g.xyz)[None, :], axis=1)
+        assert float(d[vi]) <= float(d.min()) + 1e-12, (
+            f"link (b{bi},v{vi}) is {d[vi]:.6f} from xyz but vertex "
+            f"{int(d.argmin())} is closer ({d.min():.6f})")
+
+
 def test_self_intersection_point():
     S1, S2 = _umbrella_case()
     r = bez_ssx(S1, S2, 1e-3, rational=False)
@@ -805,6 +821,7 @@ def test_self_intersection_point():
     # the two preimages differ in (s,t) but share xyz
     assert abs(g.stuv[1] - g.stuv_mate[1]) > 0.2      # t = (1±0.707)/2 differ by ~0.707
     assert len({l[0] for l in g.branch_links}) >= 1   # linked to branch(es)
+    _assert_links_nearest_vertex(g, r["branches"])
 
 
 def test_self_intersection_point_s2_side():
@@ -825,6 +842,7 @@ def test_self_intersection_point_s2_side():
     assert np.all(np.abs(g.stuv[:2] - g.stuv_mate[:2]) <= 1e-9)
     assert abs(g.stuv[3] - g.stuv_mate[3]) > 0.2       # v = (1±0.707)/2
     assert len({l[0] for l in g.branch_links}) >= 1
+    _assert_links_nearest_vertex(g, r["branches"])
 
 
 def _cusp_edge_on_split_plane():
@@ -926,6 +944,40 @@ def test_cross_cell_self_intersections_figure_eight():
         # both preimages on S1 (s = 0.5 -+ 1/2.4), shared plane preimage
         assert abs(g.stuv[0] - g.stuv_mate[0]) > 0.5
         assert np.all(np.abs(g.stuv[2:] - g.stuv_mate[2:]) <= 1e-9)
+        # both SSI branches pass through each crossing
+        assert len({l[0] for l in g.branch_links}) == 2
+        _assert_links_nearest_vertex(g, r["branches"])
+
+
+def test_c3_dedup_both_guards():
+    # Ledger L16: the old dedup ball — norm(z1 - z2) <= 4*max(ptol4) with
+    # NO xyz guard — merged distinct C3 points hundreds of atol apart in
+    # xyz whenever one parametric axis is slow (large ptol). The binding
+    # both-guards ladder: same hit only if xyz <= 2*atol AND the unordered
+    # preimage pairs match per-axis within 4*ptol.
+    from mmcore.numeric.intersection.ssx._ssx5_singular import _c3_same_hit
+
+    atol = 1e-3
+    ptol4 = np.array([0.3, 0.3, 1e-4, 1e-4])           # s,t slow; u,v fast
+    a = (np.array([0.10, 0.5, 0.5, 0.5]), np.array([0.90, 0.5, 0.5, 0.5]),
+         np.array([0.0, 0.0, 0.0]))
+    # param-close per-axis (|ds| = 0.25 <= 4*0.3) — the old 6D ball
+    # (norm ~0.35 <= 4*max(ptol4) = 1.2) MERGED this pair — but 500*atol
+    # apart in xyz: must be DISTINCT.
+    b = (np.array([0.35, 0.5, 0.5, 0.5]), np.array([0.65, 0.5, 0.5, 0.5]),
+         np.array([0.5, 0.0, 0.0]))
+    assert not _c3_same_hit(*a, *b, atol, ptol4)
+    # xyz-coincident but preimage pairs differing beyond 4*ptol on a fast
+    # axis: distinct (one 3D point, genuinely different preimage pairs).
+    c = (a[0].copy(), np.array([0.90, 0.5, 0.9, 0.9]), a[2].copy())
+    assert not _c3_same_hit(*a, *c, atol, ptol4)
+    # same feature, tiny param/xyz noise: merged.
+    d = (a[0] + 1e-5, a[1] - 1e-5, a[2] + np.array([5e-4, 0.0, 0.0]))
+    assert _c3_same_hit(*a, *d, atol, ptol4)
+    # same feature with primary/mate SWAPPED (the two role-assignment runs
+    # can present it either way): merged.
+    e = (a[1].copy(), a[0].copy(), a[2].copy())
+    assert _c3_same_hit(*a, *e, atol, ptol4)
 
 
 # ---------------------------------------------------------------------------

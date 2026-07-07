@@ -695,6 +695,30 @@ def theorem3_excludes_c3(T1, T2, T3, T4) -> bool:
     return (_definite(T1) or _definite(T2)) and (_definite(T3) or _definite(T4))
 
 
+def _c3_same_hit(stuv_a, mate_a, xyz_a, stuv_b, mate_b, xyz_b, atol, ptol4):
+    """Both-guards C3 dedup predicate (ledger L16): two hits are the SAME
+    self-intersection only if their 3D points agree within 2*atol AND
+    their unordered preimage pairs match per-axis within 4*ptol4. Failing
+    EITHER guard means distinct: a 4*ptol parametric box is not a metric
+    ball (the old norm(z) <= 4*max(ptol4) ball merged distinct C3 points
+    hundreds of atol apart in xyz wherever some axis' ptol is large), and
+    one 3D point can carry genuinely distinct preimage pairs (both
+    surfaces 2-to-1 there). Primary/mate may swap between the two
+    role-assignment runs and between seeds, so both orderings are tested.
+    """
+    if float(np.linalg.norm(np.asarray(xyz_a, dtype=np.float64)
+                            - np.asarray(xyz_b, dtype=np.float64))) > 2.0 * atol:
+        return False
+    box4 = 4.0 * np.asarray(ptol4, dtype=np.float64)
+    sa = np.asarray(stuv_a, dtype=np.float64)
+    ma = np.asarray(mate_a, dtype=np.float64)
+    for pb, qb in ((stuv_b, mate_b), (mate_b, stuv_b)):
+        if (np.all(np.abs(sa - np.asarray(pb, dtype=np.float64)) <= box4)
+                and np.all(np.abs(ma - np.asarray(qb, dtype=np.float64)) <= box4)):
+            return True
+    return False
+
+
 def c3_pass(S1_h, S2_h, branches, atol, ptol4):
     """Post-trace C3 detection: crossing branch segments -> square 6-var
     Newton on BOTH role assignments -> certified pairs.
@@ -713,16 +737,28 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
 
     Candidates: pairs of polyline segments (across branches, or within one
     branch at index distance > 2) whose segment-segment xyz distance is
-    < 2*atol. Each candidate seeds the square Newton in the doubled side's
+    <= 5*atol (ledger L23: each traced chord may deviate up to the 2*atol
+    sagitta bar from its true curve, so two chords can pass ~4*atol apart
+    while the true curves intersect — 2*atol missed those; 5*atol adds
+    slack, and the broadphase AABB padding matches at 2.5*atol per box).
+    Each candidate seeds the square Newton in the doubled side's
     variables; a solution is a self-intersection iff both residuals meet
     atol and the doubled-side preimages differ by > 4*ptol on some axis
-    (same-preimage solutions are the ordinary curve point, not a C3).
+    (same-preimage solutions are the ordinary curve point, not a C3 —
+    this guard is also what keeps the wider window safe: near-miss
+    candidates between branches that do NOT cross converge back onto a
+    single preimage and are rejected).
+
+    Dedup: `_c3_same_hit` (both-guards, ledger L16); a duplicate re-find
+    contributes any NEW branch links to the kept hit.
 
     Returns a list of dicts {"stuv": (4,), "stuv_mate": (4,), "xyz": (3,),
-    "links": [(branch_i, k), (branch_j, l)]}. `stuv` is the primary 4D
-    preimage (s,t,u,v); `stuv_mate` differs from it in the doubled side
-    only: (p,q,u,v) for an S1-side double, (s,t,u',v') for an S2-side
-    double.
+    "links": [(branch_i, vertex_k), (branch_j, vertex_l)]}. `stuv` is the
+    primary 4D preimage (s,t,u,v); `stuv_mate` differs from it in the
+    doubled side only: (p,q,u,v) for an S1-side double, (s,t,u',v') for an
+    S2-side double. Links carry VERTEX indices of the linked branch's
+    polyline — the vertex nearest the refined crossing (ledger L11), not
+    the broadphase segment index.
     """
     from mmcore.numeric.intersection._bezier_common import (
         eval_surface, eval_surface_d1,
@@ -800,14 +836,14 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         return hits
 
     # --- vectorized AABB broadphase over ALL branch segments -------------
-    # The per-box Theorem-3 gate in bez_ssx fires liberally (a coarse traced
-    # cell's T-hull touching zero at a domain edge already defeats it — the
-    # plain bilinear/plane pair traces from its TOP cell and fails the
-    # certificate), so this search must be cheap when there is nothing to
-    # find. One numpy broadcast tests every segment pair's atol-inflated
-    # AABB overlap; the exact seg_dist + Newton run only on survivors
-    # (measured: a couple of ms at M ~ 500 segments vs ~0.5 s for the plain
-    # O(M^2) Python loop).
+    # bez_ssx runs this pass UNCONDITIONALLY whenever a collision is
+    # possible (ledger L8 removed the unsound per-cell Theorem-3 gate), so
+    # this search must be cheap when there is nothing to find. One numpy
+    # broadcast tests every segment pair's 2.5*atol-inflated AABB overlap
+    # (pairwise 5*atol — matching the seg_dist window, ledger L23); the
+    # exact seg_dist + Newton run only on survivors (measured: a couple of
+    # ms at M ~ 500 segments vs ~0.5 s for the plain O(M^2) Python loop;
+    # 0 pairs on coverage case 10's 115 well-separated segments).
     found: list = []
     segs_a, segs_b, seg_s4a, seg_s4b, seg_branch, seg_idx = [], [], [], [], [], []
     for bi, b in enumerate(branches):
@@ -824,8 +860,8 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
     A = np.concatenate(segs_a); B = np.concatenate(segs_b)
     S4a = np.concatenate(seg_s4a); S4b = np.concatenate(seg_s4b)
     br = np.concatenate(seg_branch); ix = np.concatenate(seg_idx)
-    lo = np.minimum(A, B) - atol
-    hi = np.maximum(A, B) + atol
+    lo = np.minimum(A, B) - 2.5 * atol
+    hi = np.maximum(A, B) + 2.5 * atol
     M = len(A)
     pairs = []
     block = 1024                    # bound the broadcast to blocks of M x block
@@ -841,27 +877,50 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         keep = ~same | (np.abs(ix[ki] - ix[li]) >= 3)
         pairs.append(np.stack([ki[keep], li[keep]], axis=1))
     pairs = np.concatenate(pairs) if pairs else np.empty((0, 2), dtype=int)
-    def _pair_dist(h, stuv, mate):
-        # Distance between two hits as unordered preimage PAIRS: the two
-        # runs (and re-finds from other candidate seeds) may present the
-        # same feature with primary/mate swapped.
-        d_direct = max(float(np.abs(h["stuv"] - stuv).max()),
-                       float(np.abs(h["stuv_mate"] - mate).max()))
-        d_swap = max(float(np.abs(h["stuv"] - mate).max()),
-                     float(np.abs(h["stuv_mate"] - stuv).max()))
-        return min(d_direct, d_swap)
+
+    def _anchor_vertex(bi, seg_k, xyz):
+        # Ledger L11: links carry VERTEX indices — the polyline vertex
+        # nearest the refined crossing, found by walking downhill from the
+        # seeding segment (the broadphase segment index pointed up to
+        # ~half a chord away from the Newton-refined point). The walk, not
+        # a global argmin, keeps the anchor on the LOCAL pass when one
+        # branch crosses itself: the other pass's globally-nearest vertex
+        # would collapse both links onto one location.
+        poly = np.asarray(branches[bi].curve[1], dtype=np.float64)
+        v = int(seg_k)
+        d = float(np.linalg.norm(poly[v] - xyz))
+        d2 = float(np.linalg.norm(poly[v + 1] - xyz))
+        if d2 < d:
+            v, d = v + 1, d2
+        improved = True
+        while improved:
+            improved = False
+            for w in (v - 1, v + 1):
+                if 0 <= w < len(poly):
+                    dw = float(np.linalg.norm(poly[w] - xyz))
+                    if dw < d:
+                        v, d = w, dw
+                        improved = True
+                        break
+        return v
 
     for k, l in pairs:
         d, s_, t_ = seg_dist(A[k], B[k], A[l], B[l])
-        if d > 2.0 * atol:
-            continue
+        if d > 5.0 * atol:          # ledger L23 (was 2*atol, below the
+            continue                # 4*atol worst-case chord-pair gap)
         a4 = (1 - s_) * S4a[k] + s_ * S4b[k]
         b4 = (1 - t_) * S4a[l] + t_ * S4b[l]
         for stuv, mate, xyz in solve_candidate(a4, b4):
-            if any(_pair_dist(h, stuv, mate) <= 4.0 * float(np.max(ptol4))
-                   for h in found):
+            links = [(int(br[k]), _anchor_vertex(int(br[k]), int(ix[k]), xyz)),
+                     (int(br[l]), _anchor_vertex(int(br[l]), int(ix[l]), xyz))]
+            dup = next((h for h in found
+                        if _c3_same_hit(h["stuv"], h["stuv_mate"], h["xyz"],
+                                        stuv, mate, xyz, atol, ptol4)), None)
+            if dup is not None:
+                for ln in links:
+                    if ln not in dup["links"]:
+                        dup["links"].append(ln)
                 continue
             found.append({"stuv": stuv, "stuv_mate": mate, "xyz": xyz,
-                          "links": [(int(br[k]), int(ix[k])),
-                                    (int(br[l]), int(ix[l]))]})
+                          "links": links})
     return found

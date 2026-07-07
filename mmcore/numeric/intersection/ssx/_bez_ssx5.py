@@ -113,6 +113,13 @@ class SSXSingularity:
     carries the second S1 preimage, stuv_mate = (p,q,u,v); an S2-side
     double (umbrella-as-S2 class, ledger L7) carries the second S2
     preimage, stuv_mate = (s,t,u',v').
+
+    branch_links contract (ledger L11): each link is (branch_index,
+    vertex_index) where vertex_index addresses the linked branch's
+    polyline VERTEX nearest this singularity's xyz (locally — for a
+    branch crossing itself, each link anchors on its own pass). It is a
+    position on the polyline, not a segment id; the vertex itself can
+    still sit up to ~half a chord from xyz at coarse chord spacing.
     """
     kind: str
     stuv: NDArray[np.float64]                    # (4,) primary preimage
