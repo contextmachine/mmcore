@@ -1561,3 +1561,31 @@ def test_two_isolated_cusps_stay_isolated():
     cusps = [h for h in hits if "stuv" in h]
     assert len(cusps) == 2
     assert sorted(round(float(h["stuv"][0]), 2) for h in cusps) == [0.3, 0.7]
+
+
+@pytest.mark.parametrize("k", [10.0, 100.0])
+def test_touch_detection_scale_covariant(k):
+    # Ledger L18 regression (B C13): at 7d47f68 the double-touch fixture
+    # lost its typed tangent_points at x10 coordinate scale — INSIDE the
+    # documented O(1)-O(100) envelope. Fixed by the intervening gates
+    # (L4 probe-descent witness fallback, L1 hull margins): measured
+    # clean through x100 on paraboloid, double-touch and saddle. The
+    # envelope boundary now sits at ~x300 (1 of 2 touches) / x1000 (0) —
+    # OUTSIDE the documented envelope, the pre-existing accepted limit
+    # (plan risk 6). Scaling coords AND atol by k is a pure unit change:
+    # the result must be covariant.
+    S1, S2 = _paraboloid_touch()
+    r = bez_ssx(S1 * k, S2 * k, 1e-3 * k, rational=False)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1
+    assert np.allclose(np.asarray(tps[0].xyz) / k, [0.5, 0.5, 0.0], atol=1e-3)
+    assert r["branches"] == [] and r["points"] == []
+
+    S1d, S2d = _double_touch_asym()
+    r = bez_ssx(S1d * k, S2d * k, 1e-3 * k, rational=False)
+    tps = sorted((g for g in r["singularities"] if g.kind == "tangent_point"),
+                 key=lambda g: float(g.stuv[0]))
+    assert len(tps) == 2
+    assert np.allclose(tps[0].stuv[:2], [0.45, 0.5], atol=1e-3)
+    assert np.allclose(tps[1].stuv[:2], [0.9, 0.5], atol=1e-3)
+    assert r["branches"] == [] and r["points"] == []
