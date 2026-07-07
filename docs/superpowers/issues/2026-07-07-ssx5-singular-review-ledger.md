@@ -64,8 +64,8 @@ mark an item `CLAIMED(<who>)` before starting it; both sessions edit the same fi
 
 ## P2 — quality / debris / harness
 
-- [ ] **L19. Valley-debris SSXPoints at 2.2–4.5·atol from a touch, multiply emitted** — [A m1 ↔ B C15] Point-stack dedup exists since `3b80072` but the 2·atol subsumption radius leaves the 2.2–4.5·atol band; multiplicity partially fixed — re-measure, then either widen with a param guard or accept + document.
-- [ ] **L20. Near-tangent transversal valley runtime 2.5–3.7× vs base** — [A m2] Profile `_emit_offcurve_tangent_roots`/probe frequency on the valley geometry; the interval-GN in `_tangency_witness` (Risk-7) is the known hotspot.
+- [ ] **L19. Valley-debris SSXPoints at 2.2–4.5·atol from a touch, multiply emitted** — CLAIMED(main-session) — [A m1 ↔ B C15] Point-stack dedup exists since `3b80072` but the 2·atol subsumption radius leaves the 2.2–4.5·atol band; multiplicity partially fixed — re-measure, then either widen with a param guard or accept + document.
+- [ ] **L20. Near-tangent transversal valley runtime 2.5–3.7× vs base** — CLAIMED(main-session) — [A m2] Profile `_emit_offcurve_tangent_roots`/probe frequency on the valley geometry; the interval-GN in `_tangency_witness` (Risk-7) is the known hotspot.
 - [x] **L21. `phi_loop_seeds` cross-plane dedup omits the xyz guard** — CLAIMED(main-session) — [A m5] One-line ladder fix.
   → FIXED `f2f8497`: destructive ladder applied (merge only when 1·ptol/axis AND xyz ≤ atol; seed xyz cached alongside).
 - [x] **L22. `c1_pass` computes `surface: 1|2` but wiring drops it** — CLAIMED(main-session) — [A m4] Extend `SSXSingularity` (additive field) or encode in `samples`/doc.
