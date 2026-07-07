@@ -2207,6 +2207,42 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
                      stuv_path=stuv_g, xyz_path=xyz_g, tangential=True)
 
 
+def _phi_closed_frag_normals_aligned(cell, frag, bar=1e-3):
+    """Ledger L2: validate a Φ-marched CLOSED fragment as a genuine TANGENT
+    feature — the two surface normals must stay aligned, sin(angle) <= the
+    pipeline's own 1e-3 transversality bar, at EVERY kept sample.
+
+    Why: the Φ corrector solves only {Ψ_a, Ψ_b, TΨ_k} and accepts at
+    atol*100, and the Ψ-validity keep-filter passes anything within atol of
+    the intersection — a SUB-TOLERANCE valley (touch-plus-loop at eps=1e-3:
+    valley floor |Ψ_z| = eps²/4 = 2.5e-7) satisfies both, so the marcher
+    ships a closed 'tangential' phantom that is transversal-normal along
+    most of its arc (measured: sin_ang up to 2.56e-2 on the phantom vs
+    3.96e-7 max on the genuine tangent circle of z=(q-1/4)² — five decades
+    of separation around the 1e-3 bar). A genuine tangent feature has
+    TΨ = 0, i.e. parallel normals, along the whole path.
+
+    Degenerate-normal samples (‖N‖ < 1e-30) are skipped — cannot decide
+    there, same convention as the transversality pre-check on crossings.
+    Normals are evaluated on the cell's LOCAL nets: reparameterization
+    scales derivatives by positive factors, so sin(angle) is invariant.
+    """
+    S1h, S2h = cell.g1.surface, cell.g2.surface
+    for x_g in np.asarray(frag.stuv_path):
+        x = _global_to_local(x_g, cell.box)
+        _, du1, dv1 = eval_surface_d1(S1h, x[0], x[1], rational=True)
+        _, du2, dv2 = eval_surface_d1(S2h, x[2], x[3], rational=True)
+        N1 = np.cross(du1, dv1)
+        N2 = np.cross(du2, dv2)
+        n1m = float(np.linalg.norm(N1))
+        n2m = float(np.linalg.norm(N2))
+        if n1m < 1e-30 or n2m < 1e-30:
+            continue
+        if float(np.linalg.norm(np.cross(N1, N2))) > bar * n1m * n2m:
+            return False
+    return True
+
+
 def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
     """Paper §5.3.2: tiny Ψ-loops around a tangency can have no boundary
     crossings; the regulated Φ curve meets every such loop >= 2x (Lemma 2:
@@ -2242,6 +2278,14 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
     retried with the flipped displacement, then discarded. The Φ branch
     skips that rejection: its seeds are ON the Δ set, whose closed
     components are legitimately covered with emitted Δ-witness samples.
+    Every Φ-marched closed fragment must additionally pass the L2 tangency
+    validation (`_phi_closed_frag_normals_aligned`: sin_ang <= 1e-3 at
+    every sample) before it is emitted as `tangential` — sub-tolerance
+    valleys (floor |Ψ| < atol) are Ψ-valid and Φ-marchable yet
+    transversal-normal, and such a phantom both ships wrong geometry AND
+    lets the post-assembly subsumption filter delete the genuine touch it
+    passes through. A validation failure stops the retry ladder for that
+    seed (the phantom is geometry, not an equation-choice artifact).
 
     Returns a list of GLOBAL closed fragments; duplicates of subdivision-
     traced geometry are absorbed downstream by `_drop_duplicate_fragments`
@@ -2315,13 +2359,28 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
             # case, not a through-artifact. (The concrete Risk-2 through-
             # march starts from a TRANSVERSAL seed, which the Ψ branch
             # above owns.)
+            phantom = False
             for pr, ti in ranked[:2]:
                 for disp in (0.02, -0.02):
                     frag = _march_phi_closed(cell, x, pr, ti, atol, h_max,
                                              displace=disp)
+                    if (frag is not None
+                            and not _phi_closed_frag_normals_aligned(cell,
+                                                                     frag)):
+                        # Ledger L2: transversal-normal somewhere along the
+                        # closed path => a sub-tolerance-valley phantom, not
+                        # a tangent feature. Normal alignment is a property
+                        # of the marched GEOMETRY, not of the (psi_rows,
+                        # t_idx) choice — the ranked-equation retry exists
+                        # for Ψ-validity FRAGMENTATION and would only
+                        # re-march the same phantom here, so stop retrying
+                        # this seed outright.
+                        frag = None
+                        phantom = True
+                        break
                     if frag is not None:
                         break
-                if frag is not None:
+                if frag is not None or phantom:
                     break
         if frag is not None:
             fragments.append(frag)

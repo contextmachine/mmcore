@@ -482,6 +482,58 @@ def test_tangent_point_plus_tiny_loop():
     assert np.allclose(rr, 0.1, atol=5e-3)   # circle of radius sqrt(0.04)/2 in s-units
 
 
+def test_touch_plus_loop_small_eps_no_phantom_tangential():
+    # Ledger L2 regression (~33 s: the phantom candidates are still marched
+    # before being rejected — the cost is the deep subdivision plus four
+    # Φ∩L seeding rounds around a sub-tolerance feature cluster, not the
+    # validation itself). At eps=1e-3 the valley floor (eps²/4 = 2.5e-7)
+    # is Ψ-valid at atol and passes the 0.01·atol seed-refinement
+    # acceptance; the Φ closed-loop marcher then shipped TWO 375-pt phantom
+    # 'tangential' branches (transversal-normal along the arc, sin_ang up
+    # to 2.6e-2, geometry up to 58·atol off the true SSI) — and one passed
+    # through the touch, so the post-assembly subsumption filter deleted
+    # the genuine tangent_point. Ground truth: exactly one touch at
+    # (0.5,0.5,0) plus one transversal ring of radius sqrt(eps)/2 = 0.0158.
+    S1, S2 = _touch_plus_loop(eps=1e-3)
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1, f"expected exactly 1 tangent_point, got {len(tps)}"
+    assert np.allclose(tps[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    assert [b for b in r["branches"] if b.kind == "tangential"] == [], \
+        "phantom 'tangential' branch shipped from the sub-tolerance valley"
+    want_r = np.sqrt(1e-3) / 2.0                        # 0.01581
+    closed = [b for b in r["branches"]
+              if np.linalg.norm(np.asarray(b.curve[1])[0]
+                                - np.asarray(b.curve[1])[-1]) < 5e-3]
+    ring_like = []
+    for b in closed:
+        rr = np.linalg.norm(np.asarray(b.curve[1])[:, :2] - 0.5, axis=1)
+        if np.allclose(rr, want_r, atol=5e-3):
+            ring_like.append(b)
+    assert ring_like, (
+        f"transversal ring r~{want_r:.4f} lost; closed branches: "
+        f"{[np.linalg.norm(np.asarray(b.curve[1])[:, :2] - 0.5, axis=1).mean() for b in closed]}")
+
+
+@pytest.mark.parametrize("eps", [5e-3, 8e-3])
+def test_touch_plus_loop_controls_stay_clean(eps):
+    # L2 controls: these eps values were clean BEFORE the fix and must stay
+    # clean after it (the tangency validation must not reject genuine
+    # geometry or resurrect phantoms at coarser feature scales).
+    S1, S2 = _touch_plus_loop(eps=eps)
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1 and np.allclose(tps[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    assert [b for b in r["branches"] if b.kind == "tangential"] == []
+    want_r = np.sqrt(eps) / 2.0
+    closed = [b for b in r["branches"]
+              if np.linalg.norm(np.asarray(b.curve[1])[0]
+                                - np.asarray(b.curve[1])[-1]) < 5e-3]
+    assert any(np.allclose(
+        np.linalg.norm(np.asarray(b.curve[1])[:, :2] - 0.5, axis=1),
+        want_r, atol=5e-3) for b in closed)
+
+
 # ---------------------------------------------------------------------------
 # Follow-up: coexisting features on the crossing-BEARING tangency arm
 # ---------------------------------------------------------------------------
