@@ -1,0 +1,60 @@
+# Ledger — SSX v5 singular-cases: consolidated adversarial-review findings
+
+**Date:** 2026-07-07
+**Component:** `mmcore/numeric/intersection/ssx/_bez_ssx5.py`, `_ssx5_singular.py`
+**Sources (two independent multi-agent reviews, reconciled here):**
+- **[A]** background-session workflow (6 lens reviewers + refuting verifiers, pinned at `3b80072`): 14 confirmed majors, 0 refuted, 8 minors.
+- **[B]** interactive-session review (24 agents, pinned at `7d47f68`): 18 confirmed findings C1–C18, 0 refuted — summarized in the project memory `project_ssx5_singular_cases.md` UPDATE section.
+
+Line numbers refer to `3b80072`. Repro snippets are one-liner summaries; [A] items have full
+repro + verifier evidence in the workflow result (session task `we2hgfi5c`). **None of these
+items is sanctioned by the plan's AS-BUILT notes — all are real work items.** Coordination:
+mark an item `CLAIMED(<who>)` before starting it; both sessions edit the same files.
+
+## P0 — soundness / user-visible wrong topology
+
+- [ ] **L1. `BoxNet.excludes_zero` strict-comparison roundoff unsoundness** — `_ssx5_singular.py:188` — [A M4+M7+M11: three lenses independently] `min() > 0.0` with no roundoff margin: after a de Casteljau split exactly through a zero (any dyadic feature coordinate, s=0.5 ubiquitous — guided cuts deliberately pass through crossings), the restricted net's min drifts to ~+3e-17 and BOTH children of the solution-carrying box are excluded. Consequences observed: C1 cusp CURVE collapses to one isolated `cusp` with false-complete enumeration (cuspidal edge vs plane x=0); touch-owning cells knifed out. Fix: exclusion margin scaled to net magnitude (exclude only if `min > k·eps·max|c|`, symmetric for max<0) — margin makes exclusion STRICTER, stays sound. Audit the same pattern in `_definite`/`theorem3_excludes_c3`, `ShiftedPositiveNet`, the loop-free probe's hull gate, and Σ precheck in `c1_pass`. → CLAIMED(bg-session), fix in flight.
+
+- [ ] **L2. Φ-slice fabricates phantom `tangential` branches from sub-tolerance valleys; subsumption then deletes the real touch** — `_bez_ssx5.py:2284` — [A M1 ↔ B C16] At `eps=1e-3` the touch-plus-loop valley floor (`eps²/4 = 2.5e-7`) passes the `0.01·atol` refinement acceptance; `sin_ang ≤ 1e-3` routes seeds to the Φ marcher; TWO 375-pt phantom `tangential` branches (arc ~0.59, up to 58·atol off the true SSI) ship, one passes through the touch → filter L3 deletes the genuinely-emitted tangent_point. Ground truth: {1 touch, 1 transversal ring r=0.0158}. Controls: eps=8e-3/5e-3 clean. Fix direction: a Φ-marched closed fragment must be validated as a TANGENT feature (TΨ residual along path, not just Ψ-validity), and/or valley seeds rejected by normal-angle at the REFINED point against surface-pair, not seed sin_ang alone. → CLAIMED(bg-session), fix in flight.
+
+- [ ] **L3. Post-assembly tangent_point subsumption is xyz-only (4·atol, no parametric guard)** — `_bez_ssx5.py:4352` — [A M2 ↔ B C14] Violates the module's own binding both-guards convention: a certified touch whose 4D preimage is ~1e5·ptol from the overlap/tangential branch's preimage (z-wall of 640·atol between them) is deleted on 3D proximity alone. Repro: skew ruled patch vs plane with u=0 isoline overlap + genuine touch at (0.8, 0.5); touch 3·atol from the polyline in xyz → `singularities == []`. Fix: require BOTH xyz ≤ 4·atol AND per-axis stuv proximity to the branch's stuv polyline (4·ptol box vs nearest stuv sample, using the branch's stored curve[0]). → CLAIMED(bg-session), fix in flight.
+
+- [ ] **L4. Loop-free arm: center-only witness + unconditional `continue` drops touch-owning cells** — `_bez_ssx5.py:3897` — [A M8 ↔ B C3] When the touch is NOT lattice-pinned (e.g. r⁴−εr² centered at (0.3,0.3)), the coarse loop-free cell's center GN diverges/lands elsewhere, the arm continues without subdivision fallback, and ALL touches are lost (`singularities == []`). Fix: on witness failure (or non-convergence) in a cell whose hull gate fired, fall through to subdivision instead of continuing; bounded by the existing size gate.
+
+- [ ] **L5. Tangent curves traced via the loop-free path carry `kind='transversal'`** — `_bez_ssx5.py:3904` — [A M13+M9 ↔ B C17] Non-strict monotone T-hulls (≥0 touching zero along the curve) certify loop-free; fragments trace fine but never get `tangential`, which (a) breaks the output contract, (b) blinds filter L3's kind-keyed subsumption → stray tangent_points on the curve survive. Repro: cylinder z=(2t−1)² on plane; also (t−0.5)²·(s−0.5) mixed case. Fix: a loop-free cell whose hull gate fired AND whose traced fragment has near-zero TΨ along it should tag `tangential` (measure TΨ residual along the polyline, same bar as L2's fix).
+
+- [ ] **L6. 1-dim Δ-sets mishandled as isolated points** — [A M14 ↔ B C4] Two faces: (i) crossing-less 1-dim tangent curve floods ~300 spurious `tangent_point`s (exhausted flag ignored by `_emit_tangent_roots` consumers — B C4); (ii) coplanar PARTIAL overlap emits a phantom interior tangent_point (paper Fig 8 classifies overlap interior as 2-dim C2 — A M14, `_bez_ssx5.py:3897`). Fix: when enumeration returns `exhausted=True` with many roots (or roots on a positive-dimensional set — collinearity/curve_flag-style test), emit NOTHING typed as points from that cell; defer to deflation/overlap machinery.
+
+- [ ] **L7. C3 pass structurally blind to S2-side doubles** — `_ssx5_singular.py:680` — [A M5 ↔ B C8] System {R1(s,t)=R2(u,v), R1(p,q)=R2(u,v)} + (s,t)≠(p,q) guard only certifies S1-side double preimages. Umbrella passed as S2 (plane as S1) → self-intersection invisible. Fix: run the pass twice with roles swapped (second system {R2=R1, R2=R1}), or add the symmetric 6-var system; dedup across both.
+
+- [ ] **L8. `c3_possible` per-cell Theorem-3 gate is semantically wrong for cross-cell C3** — `_bez_ssx5.py:3901` — [A M6, mine only] Theorem 3 is per-box injectivity; a C3 whose two preimages lie in DIFFERENT traced cells passes every per-cell check and `c3_pass` never runs. Repro: figure-eight wall vs plane (both preimages S1-side, separate cells) → 0 self_intersections. Fix: c3_possible must consider PAIRS (any two traced cells whose xyz AABBs overlap and that aren't jointly certified), or simply always run the (broadphase-cheap) c3_pass when ≥2 branches/segments share xyz proximity.
+
+- [ ] **L9. Rational inputs: TΨ minor nets built from dehomogenized control points are NOT the rational surface's minors** — `_bez_ssx5.py:3746` — [A M12, mine only] `P_cart = S[...,:-1]/S[...,-1:]` feeding `minors_Tpsi_from_control_nets` is wrong for non-uniform weights; the whole tangency chain inherits it → C2 tangency silently lost on rational input at O(1) scale (weight-2 rationalized paraboloid: no tangent_point, spurious micro-branch instead). NOTE `bez_ssx`'s signature default is `rational=True`. Fix: build TΨ from the homogeneous quotient-rule derivative nets (the `_deflate.py` machinery already has the homogeneous product primitives; same pattern as `sigma_normal_net`'s rational branch), or document loudly + gate rational inputs into the polynomial path only when weights≈1.
+
+- [ ] **L10. Loop-assembly cluster: off-lattice touch+loop returns 4 out-and-back doubled arcs with ~120° missing** — [B C1 critical + C2 + C6] Partition cuts through the touch bind cells that never trace their arcs; `_assemble_fragments`'s closing-march `gap < 10·median_step` misfires on short arcs of small loops and retraces backwards; thin loops route THROUGH the touch. (Related to L4 — same off-lattice geometry family.) Fix: needs a dedicated pass on assembly's closed-loop path with the off-lattice repro pinned first.
+
+## P1 — contract violations / wrong metadata
+
+- [ ] **L11. C3 `branch_links` store broadphase SEGMENT indices, not refined vertex indices** — `_ssx5_singular.py:742` — [A M10] Umbrella: links point 52·atol away from the actual crossing. Fix: re-anchor links after Newton (nearest vertex on each linked branch to the refined xyz).
+- [ ] **L12. C1 `branch_links` use min-VERTEX distance, not point-to-segment** — `_bez_ssx5.py:4415` — [A m3 ↔ B C10] A cusp exactly ON a coarse branch span gets `links=[]`. Fix: `_dist_point_polyline` + nearest-vertex-of-nearest-segment.
+- [ ] **L13. C1 `nscale` mixes homogeneous-net scale (w⁴) with weight-invariant rational residual** — [B C9] Weight rescale flips cusp detection. Fix alongside L9 (same homogeneous-vs-cartesian hygiene).
+- [ ] **L14. `curve_flag` heuristic (>12 sols) types a genuine cusp CURVE as 3 isolated cusps** — [B C18; partially rooted in L1] Re-measure after L1 lands; then base the flag on collinearity/parameter-span of the solution cloud, not count alone.
+- [ ] **L15. Cone-apex class: Σ=0 degenerate-parametrization contact emits phantom `tangent_point` at a transversal crossing** — `_bez_ssx5.py:537` — [A M3] All four TΨ minors vanish at Σᵢ=0 regardless of tangency; witness doesn't exclude it. Repro: bilinear cone (s·t, s, s(2t−1)) vs z=0 → phantom point at apex where crossing is transversal. Fix: witness acceptance must check actual normal alignment (or Σ≠0) at the converged point; if Σ=0, classify as C1 candidate, not C2.
+- [ ] **L16. C3 dedup ball `4·max(ptol4)` without xyz guard merges distinct C3 points 500·atol apart** — [B C12] Apply the binding both-guards ladder.
+- [ ] **L17. Nondeterminism: module-global PRNG in the hemisphere-witness search** — [B C5] Identical calls alternate 3/2 branch counts. Fix: seed per-call deterministically (e.g. from the cell box hash) or use a fixed lattice.
+- [ ] **L18. Witness chain absolute tolerances lose touches at ×10 coordinate scale** — [B C13] INSIDE the documented O(1)–O(100) envelope, so not covered by the ×1000 accepted limit. Fix: scale-normalize `tol_f`/stall bars by the T-net magnitude (the Risk-6 fix direction, now needed at ×10, not ×1000).
+
+## P2 — quality / debris / harness
+
+- [ ] **L19. Valley-debris SSXPoints at 2.2–4.5·atol from a touch, multiply emitted** — [A m1 ↔ B C15] Point-stack dedup exists since `3b80072` but the 2·atol subsumption radius leaves the 2.2–4.5·atol band; multiplicity partially fixed — re-measure, then either widen with a param guard or accept + document.
+- [ ] **L20. Near-tangent transversal valley runtime 2.5–3.7× vs base** — [A m2] Profile `_emit_offcurve_tangent_roots`/probe frequency on the valley geometry; the interval-GN in `_tangency_witness` (Risk-7) is the known hotspot.
+- [ ] **L21. `phi_loop_seeds` cross-plane dedup omits the xyz guard** — [A m5] One-line ladder fix.
+- [ ] **L22. `c1_pass` computes `surface: 1|2` but wiring drops it** — [A m4] Extend `SSXSingularity` (additive field) or encode in `samples`/doc.
+- [ ] **L23. C3 candidate filter 2·atol vs 4·atol worst-case chord-pair gap** — [A m7] Two chords can pass 2.5·atol apart while true curves intersect (sagitta 2·atol each side). Widen broadphase/seg_dist threshold to 4·atol + slack; cost is broadphase-bounded.
+- [ ] **L24. Coverage harness zero-singularities expectation is print-only** — [A m8] Turn into an assertion (exit code) so CI catches spurious-singularity regressions.
+- [ ] **L25. Edge-graze transversal arc loss** — [A m6] PRE-EXISTING at `40a79a1` (not from this diff); track separately.
+
+## Refuted / already-fixed during review
+
+- Off-curve budget starvation (B C7) — fixed by `3b80072` (skip-exempt budgeting) before/while the reviews ran.
+- ×1000-scale branch TRUNCATION — pre-existing core-marcher behavior, bit-identical at base (B C11); the ×1000 tangency-detection limit stays an accepted, documented limit (plan Risk 6) — but see L18 for ×10.
