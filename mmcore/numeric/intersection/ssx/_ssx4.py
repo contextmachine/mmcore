@@ -292,6 +292,29 @@ try:
 except Exception:
     hemisphere_witness_incremental_fast = hemisphere_witness_incremental  # fallback (your python version)
     print('using hemisphere_witness_incremental')
+
+
+def reset_witness_rng() -> None:
+    """Reset the hemisphere-witness shuffle RNGs to their fixed seeds.
+
+    The randomized-incremental cap search consumes a module-global PRNG
+    (numpy `_RNG` in the Python path; a never-reseeded xorshift32 state in
+    the Cython fast path), so on MARGINAL near-tangent normal sets the
+    witness outcome — and through `separate_gauss_maps` the main loop's
+    trace-vs-subdivide decision — depended on how many draws EARLIER calls
+    had consumed: bit-identical repeated bez_ssx calls returned different
+    branch topologies (measured [3,2,3,2,2,2] by call index; fresh
+    processes always agree). A witness miss is completeness-only (found
+    caps are margin-verified), so pinning the shuffle costs nothing sound;
+    reproducibility is worth far more than the randomized average case.
+    Called once at every bez_ssx entry."""
+    global _RNG
+    _RNG = np.random.default_rng(0)
+    try:
+        from mmcore.numeric._cap_witness import set_rng_seed
+        set_rng_seed(0)
+    except Exception:
+        pass
 # @time_prof
 
 

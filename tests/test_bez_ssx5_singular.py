@@ -1338,3 +1338,138 @@ def test_cusp_detection_weight_invariant():
     cusps_nu = _run(S1_nu)
     assert len(cusps_nu) == 1, f"non-uniform weights flipped cusp detection: {len(cusps_nu)}"
     assert np.allclose(cusps_nu[0].xyz, [0.0, 0.0, 0.5], atol=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial-review round: C1 (off-lattice loop topology) + C5 (determinism)
+# ---------------------------------------------------------------------------
+
+def _offcenter_touch_plus_loop(eps=0.04, ds=0.05, dt=0.02):
+    """z = q(q-eps), q = (2s-1-2ds)^2 + (2t-1-2dt)^2 (deg 4x4): touch at
+    (0.5+ds, 0.5+dt) OFF the midpoint-cut lattice, transversal circle of
+    radius sqrt(eps)/2 around it. The generic-placement variant of
+    _touch_plus_loop: guided cuts land tangent to the circle (grazing
+    corners) and partition it into arcs — C1-review regression."""
+    from math import comb
+    Cs = np.array([(1 + 2 * ds) ** 2, -4 * (1 + 2 * ds), 4.0])   # (2s-1-2ds)^2
+    Ct = np.array([(1 + 2 * dt) ** 2, -4 * (1 + 2 * dt), 4.0])
+    M = np.zeros((5, 5))
+    M[:5, 0] += np.convolve(Cs, Cs)
+    M[0, :5] += np.convolve(Ct, Ct)
+    M[:3, :3] += 2.0 * np.outer(Cs, Ct)
+    M[:3, 0] -= eps * Cs
+    M[0, :3] -= eps * Ct
+    K = np.array([[comb(i, j) / comb(4, j) if j <= i else 0.0
+                   for j in range(5)] for i in range(5)])
+    Z = K @ M @ K.T
+    xb = np.array([i / 4.0 for i in range(5)])
+    S1 = np.array([[[xb[i], xb[j], Z[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(3)
+    for s, t in rng.uniform(0, 1, (25, 2)):
+        q = (2 * s - 1 - 2 * ds) ** 2 + (2 * t - 1 - 2 * dt) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, q * (q - eps)], atol=1e-10)
+    return S1, S2
+
+
+def test_offlattice_tangent_point_plus_loop():
+    # C1 regression (final adversarial review, CONFIRMED critical): at any
+    # generic (off-lattice) touch placement the loop used to come back as
+    # FOUR out-and-back "closed" doubled arcs with two ~59-deg sectors
+    # silently missing (52*atol worst gap) — grazing-corner seeds bounced
+    # both march directions, junction slivers were eaten by containment
+    # dedup's terminal-vertex clamp, and the closing march retraced arcs
+    # backward. Must be: ONE closed loop, full circle, one tangent point.
+    S1, S2 = _offcenter_touch_plus_loop(0.04, 0.05, 0.02)
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1
+    assert np.allclose(sing[0].xyz, [0.55, 0.52, 0.0], atol=2e-3)
+    loops = [b for b in r["branches"]
+             if np.linalg.norm(np.asarray(b.curve[1])[0] - np.asarray(b.curve[1])[-1]) < 5e-3]
+    assert len(loops) == 1, f"expected 1 closed loop, got {len(loops)} of {len(r['branches'])}"
+    xyz = np.asarray(loops[0].curve[1])
+    rr = np.linalg.norm(xyz[:, :2] - np.array([0.55, 0.52]), axis=1)
+    assert np.allclose(rr, 0.1, atol=5e-3)
+    # full angular coverage: every 5-deg sector of the true circle hit
+    th = np.radians(np.arange(0.0, 360.0, 5.0))
+    ring = np.stack([0.55 + 0.1 * np.cos(th), 0.52 + 0.1 * np.sin(th),
+                     np.zeros_like(th)], axis=1)
+    for p in ring:
+        assert _pt_poly(p, xyz) < 2e-3, f"circle point {p} missed"
+
+
+def test_repeated_calls_bit_identical():
+    # C5 regression (final adversarial review, CONFIRMED major): the
+    # hemisphere-witness shuffle consumed module-global PRNG state, so
+    # bit-identical inputs returned different branch topologies by call
+    # index ([3,2,3,2,2,2] measured on this exact fixture) — the witness
+    # RNGs are now reset at every bez_ssx entry. Marginal near-tangent
+    # geometry chosen deliberately: regular cases never flipped.
+    S1, S2 = _touch_plus_loop(0.012)
+    sigs = []
+    for _ in range(2):
+        r = bez_ssx(S1.copy(), S2.copy(), 5e-3, rational=False)
+        sig = (len(r["branches"]), len(r["points"]), len(r["singularities"]),
+               tuple(np.asarray(b.curve[1]).tobytes() for b in r["branches"]))
+        sigs.append(sig)
+    assert sigs[0] == sigs[1], "bez_ssx is call-history dependent"
+    # C6 regression on the same runs (CONFIRMED major): a 2-point
+    # 'transversal' bridge from the touch to the ring used to survive all
+    # filters — its single chord slides along the sub-atol grazing valley
+    # (samples Ψ-valid, chord fiction: est. true-curve distance
+    # residual/sin_ang ≈ 4.6·atol). Expect exactly the ring + the touch.
+    assert len(r["branches"]) == 1
+    assert len(r["points"]) == 0
+    xyz = np.asarray(r["branches"][0].curve[1])
+    assert np.linalg.norm(xyz[0] - xyz[-1]) < 1e-9      # closed
+    rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
+    assert np.allclose(rr, np.sqrt(0.012) / 2.0, atol=2.5e-3)
+
+
+def test_aniso_tangent_point_plus_thin_loop():
+    # C6/C2-adjacent regression (final adversarial review): aspect-16
+    # ellipse (cap curvature κ≈160) — two Φ∩L seeds each marched a full
+    # copy of the loop and 2·atol-sagitta samplings of the caps sat
+    # ~3.7·atol apart, defeating containment dedup: the result carried TWO
+    # closed duplicate rings plus partial-arc debris. Seeded closed loops
+    # now march at 0.5·atol sagitta. Expect ONE closed ellipse + the touch.
+    from math import comb
+    eps, k = 0.04, 16.0
+    C = np.array([1.0, -4.0, 4.0])
+    M = np.zeros((5, 5))
+    C2 = np.convolve(C, C)
+    M[:5, 0] += C2
+    M[0, :5] += (k * k) * C2
+    M[:3, :3] += 2.0 * k * np.outer(C, C)
+    M[:3, 0] -= eps * C
+    M[0, :3] -= eps * k * C
+    K = np.array([[comb(i, j) / comb(4, j) if j <= i else 0.0
+                   for j in range(5)] for i in range(5)])
+    Z = K @ M @ K.T
+    xb = np.array([i / 4.0 for i in range(5)])
+    S1 = np.array([[[xb[i], xb[j], Z[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(5)
+    for s, t in rng.uniform(0, 1, (25, 2)):
+        q = (2 * s - 1) ** 2 + k * (2 * t - 1) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, q * (q - eps)], atol=1e-10)
+
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    sing = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(sing) == 1 and np.allclose(sing[0].xyz, [0.5, 0.5, 0.0], atol=2e-3)
+    assert len(r["branches"]) == 1, \
+        f"expected the single ellipse, got {len(r['branches'])} branches"
+    xyz = np.asarray(r["branches"][0].curve[1])
+    assert np.linalg.norm(xyz[0] - xyz[-1]) < 1e-9      # closed
+    # on the true ellipse: q = eps
+    q = (2 * xyz[:, 0] - 1) ** 2 + k * (2 * xyz[:, 1] - 1) ** 2
+    assert np.allclose(q, eps, atol=0.2 * eps)
+    # both semi-axes reached
+    rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
+    assert abs(rr.max() - np.sqrt(eps) / 2.0) < 5e-3
+    assert abs(rr.min() - np.sqrt(eps / k) / 2.0) < 5e-3

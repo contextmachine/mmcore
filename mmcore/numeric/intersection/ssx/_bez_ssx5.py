@@ -39,6 +39,7 @@ from mmcore.numeric.intersection.ssx._ssx4 import (
     GaussMapBern,
     separate_gauss_maps,
     _trust_gjk,
+    reset_witness_rng,
 )
 from mmcore.numeric.algorithms.cygjk import gjk
 
@@ -2175,7 +2176,8 @@ def _cell_ptol4(cell, atol):
 
 def _march_closed_from_seed(seed, correct, tangent, midcheck, atol, h_max,
                             displace=0.02, min_step=1e-6, max_step=0.25,
-                            angle_threshold=0.1, max_points=2000):
+                            angle_threshold=0.1, max_points=2000,
+                            sag_tol=None):
     """Closed-loop predictor-corrector engine: displace one step off `seed`
     along the curve tangent, then march AWAY until the path returns to the
     seed. System-agnostic — the Ψ and Φ marchers supply the callbacks:
@@ -2227,7 +2229,8 @@ def _march_closed_from_seed(seed, correct, tangent, midcheck, atol, h_max,
     xyz_pts = [np.asarray(xyz0, dtype=np.float64),
                np.asarray(xyz1, dtype=np.float64)]
     current = x1
-    sag_tol = 2.0 * atol
+    if sag_tol is None:
+        sag_tol = 2.0 * atol
     h = 0.25 * h_max
     h_floor = 1e-6 * h_max
     arm_radius = 3.0 * step0
@@ -2354,11 +2357,19 @@ def _march_psi_closed(cell, seed_local, atol, h_max, displace=0.02):
         return tang, d3, sp
 
     def midcheck(a4, b4, a3, b3):
+        # Half the standard sagitta budget: seeded closed loops are the
+        # inputs of every downstream duplicate-containment test (two seeds
+        # on one loop each march a full copy), and two 2·atol-sagitta
+        # samplings of a high-curvature cap sit up to ~4·atol apart —
+        # outside the 2·atol containment that is supposed to collapse
+        # them (measured: aspect-16 ellipse caps, κ≈160, copies 1.8·atol
+        # off-curve each). At 0.5·atol the copies stay ≤ 1·atol apart.
         return _mid_chord_deviates(S1h, S2h, a4, b4, a3, b3,
-                                   atol, 2.0 * atol, True)
+                                   atol, 0.5 * atol, True)
 
     res = _march_closed_from_seed(seed_local, correct, tangent, midcheck,
-                                  atol, h_max, displace=displace)
+                                  atol, h_max, displace=displace,
+                                  sag_tol=0.5 * atol)
     if res is None:
         return None
     stuv_path, xyz_path = res
@@ -2441,10 +2452,13 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
         if den < 1e-30:
             return False
         tt = float(np.clip(np.dot(pm - a3, ab) / den, 0.0, 1.0))
-        return float(np.linalg.norm(a3 + tt * ab - pm)) > 2.0 * atol
+        # 0.5·atol: same tightened budget as the Ψ backend — see the
+        # comment there (duplicate-loop containment headroom).
+        return float(np.linalg.norm(a3 + tt * ab - pm)) > 0.5 * atol
 
     res = _march_closed_from_seed(seed_local, correct, tangent, midcheck,
-                                  atol, h_max, displace=displace)
+                                  atol, h_max, displace=displace,
+                                  sag_tol=0.5 * atol)
     if res is None:
         return None
     stuv_path, xyz_path = res
@@ -3113,18 +3127,58 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             h_init = min(cell_h_max, max(atol, 0.25 * nearest_xyz))
 
         traced = False
-        for attempt in range(2):
+        tang_seed = None
+        for attempt in range(4):
             hint = None
-            if attempt == 1:
-                tang, _, _ = _ssx_tangent_4d(
-                    cell.g1.surface, cell.g2.surface,
-                    *start_local, rational=True)
-                if tang is None:
+            seed_local = start_local
+            prepend_crossing = False
+            if attempt >= 1:
+                if tang_seed is None:
+                    tang_seed, _, _ = _ssx_tangent_4d(
+                        cell.g1.surface, cell.g2.surface,
+                        *start_local, rational=True)
+                if tang_seed is None:
                     break
-                hint = -tang
+            if attempt == 1:
+                hint = -tang_seed
+            elif attempt >= 2:
+                # Grazing-corner recovery (attempts 2/3, reached only when
+                # both plain marches bounced). A guided cut tangent to the
+                # curve puts a crossing AT a box corner with the curve
+                # tangent pointing microscopically OUT of one face: the
+                # ray-face init then exits at alpha~0 in the true direction
+                # (bounce-killed) and trivially through the adjacent face
+                # the seed sits on in the other — the whole in-cell arc
+                # (off-lattice touch+loop: 2 x ~59 deg = ~1/3 of the circle)
+                # silently degraded to an SSXPoint. Displace the seed a few
+                # steps ALONG the curve tangent, Newton-correct back onto
+                # the curve, and march from the interior point instead; the
+                # crossing itself is prepended so the fragment still starts
+                # at the registered stuv (the first chord skips the graze
+                # dip within sagitta h^2*kappa/2 << atol).
+                sign = 1.0 if attempt == 2 else -1.0
+                seed_local = None
+                for alpha in (0.02, 0.05, 0.1):
+                    cand = np.clip(start_local + sign * alpha * tang_seed,
+                                   1e-6, 1.0 - 1e-6)
+                    cs, ct, cu, cv, res, sin_ang = _ssx_correct(
+                        cell.g1.surface, cell.g2.surface, *cand,
+                        rational=True)
+                    corr = np.array([cs, ct, cu, cv])
+                    if (res < atol * max(sin_ang, 1e-3)
+                            and np.all(corr > 1e-9)
+                            and np.all(corr < 1.0 - 1e-9)
+                            and np.any(np.abs(corr - start_local)
+                                       > 4.0 * ptol_local)):
+                        seed_local = corr
+                        hint = sign * tang_seed
+                        prepend_crossing = True
+                        break
+                if seed_local is None:
+                    continue
 
             stuv_local, xyz_local, exit_info = _march_to_boundary(
-                cell.g1.surface, cell.g2.surface, start_local,
+                cell.g1.surface, cell.g2.surface, seed_local,
                 atol=atol, rational=True, direction_hint=hint,
                 h_init=h_init, h_max=cell_h_max,
                 min_step=ptol_min,
@@ -3132,6 +3186,12 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
 
             if len(stuv_local) < 2:
                 continue
+            if prepend_crossing:
+                stuv_local = np.vstack([np.asarray(start_local)[None, :],
+                                        np.asarray(stuv_local)])
+                xyz_local = np.vstack([np.asarray(start_cx.xyz,
+                                                  dtype=np.float64)[None, :],
+                                       np.asarray(xyz_local)])
 
             # Bounce/degenerate detector, in XYZ over the WHOLE path: a
             # march made no real progress only if EVERY sample stayed
@@ -3345,6 +3405,7 @@ def _assemble_fragments(
     rational_full: bool = True,
     unify_tol=None,
     h_max=None,
+    barrier_xyz=None,
 ) -> list[SSXBranch]:
     """Design §9: chain fragments that share a `BoundaryPoint` endpoint into
     full branches. Two fragments touching the same `BoundaryPoint` object
@@ -3356,12 +3417,30 @@ def _assemble_fragments(
     a final closing-segment march for near-closed loops whose chain has a
     small id-graph gap (different `BoundaryPoint` objects produced for the
     same physical point in different parts of the subdivision tree).
+
+    `barrier_xyz` (optional, (K,3)): emitted tangent-point positions.
+    Branches TERMINATE at singular points (paper semantics): two
+    TRANSVERSAL fragments are never chained through a junction within
+    2·atol of a barrier point — doing so paired arms arbitrarily at
+    X-crossings and stitched V-spikes through the touch on thin tangent
+    loops. Tangential (Φ-traced) fragments are exempt: a tangent CURVE
+    legitimately passes through its own tangency locus.
     """
     from collections import defaultdict
 
     if unify_tol is not None and len(fragments) > 1:
         _unify_fragment_endpoints(fragments, unify_tol, unify_atol=atol_full)
         fragments = _drop_duplicate_fragments(fragments, atol_full)
+
+    barrier = None
+    if barrier_xyz is not None and len(barrier_xyz):
+        barrier = np.asarray(barrier_xyz, dtype=np.float64).reshape(-1, 3)
+
+    def _at_barrier(pt: BoundaryPoint) -> bool:
+        if barrier is None or pt is None:
+            return False
+        d = np.linalg.norm(barrier - np.asarray(pt.xyz, dtype=np.float64)[None, :], axis=1)
+        return bool(d.min() <= 2.0 * atol_full)
 
     # Map each BoundaryPoint to the fragments that touch it.
     touches: dict[int, list[tuple[int, str]]] = defaultdict(list)
@@ -3376,9 +3455,13 @@ def _assemble_fragments(
 
     def _pop_neighbour(pt: BoundaryPoint, self_idx: int) -> Optional[tuple[int, str]]:
         pool = touches.get(id(pt), [])
+        block_transversal = (_at_barrier(pt)
+                             and not fragments[self_idx].tangential)
         for j, role in pool:
             if j == self_idx or consumed[j]:
                 continue
+            if block_transversal and not fragments[j].tangential:
+                continue    # barrier: transversal chains end at the touch
             return j, role
         return None
 
@@ -3466,16 +3549,40 @@ def _assemble_fragments(
                                              (stuv_full[0] < 1 - 1e-9)))
                 end_interior = bool(np.all((stuv_full[-1] > 1e-9) &
                                            (stuv_full[-1] < 1 - 1e-9)))
+                # Two retrace guards (off-lattice touch+loop pathology): a
+                # SHORT open arc (< ~180 deg of a small loop) whose true
+                # complement went untraced ALSO has interior endpoints with
+                # a small gap — but there the end->start chord points
+                # BACKWARD across the arc's opening, so the known-endpoint
+                # marcher walks back along the already-traced arc and
+                # manufactures an out-and-back "closed" branch (net angular
+                # progress 0, half the samples duplicated).
+                #  1. Pre-guard: only attempt the close when the traced
+                #     path is most-of-a-loop (path length > 3x gap); a
+                #     <180-deg arc has path ~ gap (chord) and must stay
+                #     open for assembly/dedup to handle.
+                #  2. Post-guard: reject a closing segment whose interior
+                #     samples ALL lie on the existing polyline (2*atol) —
+                #     that is a retrace, not the missing sliver.
+                path_len = float(steps.sum())
                 if (start_interior and end_interior
                         and median_step > 0
-                        and gap < 10.0 * median_step):
+                        and gap < 10.0 * median_step
+                        and path_len > 3.0 * gap):
                     closing_stuv, closing_xyz = _march_intersection_curve(
                         S1_full, S2_full,
                         stuv_full[-1], stuv_full[0],
                         atol=atol_full, rational=rational_full,
                         h_max=h_max,
                     )
-                    if len(closing_stuv) >= 2:
+                    is_retrace = False
+                    if len(closing_xyz) > 3:
+                        interior = np.asarray(closing_xyz[1:-1],
+                                              dtype=np.float64)
+                        is_retrace = all(
+                            _dist_point_polyline(p, xyz_full)
+                            <= 2.0 * atol_full for p in interior)
+                    if len(closing_stuv) >= 2 and not is_retrace:
                         # Skip the first sample (duplicates xyz_full[-1]).
                         stuv_full = np.concatenate(
                             [stuv_full, closing_stuv[1:]], axis=0)
@@ -3485,6 +3592,221 @@ def _assemble_fragments(
         branch_kind = ("tangential" if any(fragments[idx].tangential for idx, _ in chain)
                        else "transversal")
         branches.append(SSXBranch(curve=(stuv_full, xyz_full), kind=branch_kind))
+
+    # --- Join open branches across sub-tolerance junction gaps ---
+    # Guided cuts pass THROUGH discovered crossings, so a small loop is
+    # partitioned into arcs whose junction micro-slivers (~1° of arc) are
+    # eaten by the containment dedup (its point-to-polyline distance clamps
+    # at a keeper's terminal VERTEX, so a sliver extending a fragment's end
+    # by < 2·atol per sample looks "contained" — off-lattice touch+loop:
+    # four arcs arrived here open with 1–2.4·atol endpoint gaps and were
+    # previously force-"closed" individually into out-and-back doubles).
+    # Join open, strictly-interior, tangent-consistent endpoint pairs
+    # within 4·atol (junction chord sagitta κL²/8 ≈ 2e-5 ≪ atol); a branch
+    # whose own two ends meet closes exactly. Junctions within 2·atol of a
+    # barrier point are never joined — branches terminate at singularities.
+    if len(branches) >= 1:
+        def _ends(b):
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            stuv = np.asarray(b.curve[0], dtype=np.float64)
+            return stuv, xyz
+
+        def _interior(p4):
+            return bool(np.all(p4 > 1e-9) and np.all(p4 < 1.0 - 1e-9))
+
+        def _near_barrier_xyz(p3):
+            if barrier is None:
+                return False
+            return bool(np.linalg.norm(
+                barrier - np.asarray(p3)[None, :], axis=1).min() <= 2.0 * atol_full)
+
+        def _dir(xyz, at_start):
+            # unit direction pointing OUT of the branch at the given end
+            if len(xyz) < 2:
+                return None
+            v = xyz[0] - xyz[1] if at_start else xyz[-1] - xyz[-2]
+            n = float(np.linalg.norm(v))
+            return v / n if n > 1e-15 else None
+
+        def _chord_is_real(pa4, pc4):
+            # Same truth test as the valley-fiction filter: estimated
+            # true-curve distance at the junction-chord midpoint must be
+            # within tolerance — inside a sub-atol grazing valley every
+            # RESIDUAL is small, but junctions between genuine arcs also
+            # pass, and outside valleys this rejects fiction chords.
+            if S1_full is None:
+                return True
+            mid = 0.5 * (np.asarray(pa4) + np.asarray(pc4))
+            p1, du1, dv1 = eval_surface_d1(S1_full, mid[0], mid[1],
+                                           rational=rational_full)
+            p2, du2, dv2 = eval_surface_d1(S2_full, mid[2], mid[3],
+                                           rational=rational_full)
+            res = float(np.linalg.norm(p1 - p2))
+            N1 = np.cross(du1, dv1)
+            N2 = np.cross(du2, dv2)
+            n1 = float(np.linalg.norm(N1))
+            n2 = float(np.linalg.norm(N2))
+            sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
+                       if n1 > 1e-30 and n2 > 1e-30 else 1.0)
+            return res / max(sin_ang, 1e-3) <= 2.0 * atol_full
+
+        changed = True
+        while changed:
+            changed = False
+            open_ends = []      # (branch_idx, end_is_start, stuv4, xyz3, out_dir)
+            for bi, b in enumerate(branches):
+                stuv, xyz = _ends(b)
+                if len(xyz) < 2:
+                    continue
+                if float(np.linalg.norm(xyz[0] - xyz[-1])) <= 1e-9:
+                    continue    # already exactly closed
+                # Only SUBSTANTIAL arcs participate (> 16·atol — the
+                # established micro-branch scale): the pass exists for
+                # loop arcs partitioned at guided-cut corners. Near-touch
+                # valley junk (2-5·atol arcs) must stay open and fall to
+                # the micro-branch/sliver filters — joining it self-closed
+                # junk blobs and frankenjoined junk onto genuine ring arcs
+                # in sub-tolerance clusters (eps=1e-3 touch+loop), after
+                # which containment ate the clean ring.
+                arc_b = float(np.linalg.norm(
+                    np.diff(xyz, axis=0), axis=1).sum())
+                if arc_b <= 16.0 * atol_full:
+                    continue
+                for at_start in (True, False):
+                    p4 = stuv[0] if at_start else stuv[-1]
+                    p3 = xyz[0] if at_start else xyz[-1]
+                    if not _interior(p4) or _near_barrier_xyz(p3):
+                        continue
+                    open_ends.append((bi, at_start, p4, p3,
+                                      _dir(xyz, at_start)))
+            best = None
+            for a in range(len(open_ends)):
+                for c in range(a + 1, len(open_ends)):
+                    ia, sa, _, pa, da = open_ends[a]
+                    ic, sc, _, pc, dc = open_ends[c]
+                    if ia == ic and sa == sc:
+                        continue
+                    gap = float(np.linalg.norm(pa - pc))
+                    if gap > 4.0 * atol_full:
+                        continue
+                    # tangent consistency: the two out-directions must be
+                    # roughly opposed (the curve continues), and when the
+                    # gap is resolvable the chord must agree with both.
+                    if da is not None and dc is not None:
+                        if float(np.dot(da, dc)) > -0.2:
+                            continue
+                        if gap > 0.25 * atol_full:
+                            chord = (pc - pa) / gap
+                            if (float(np.dot(da, chord)) < 0.2
+                                    or float(np.dot(dc, -chord)) < 0.2):
+                                continue
+                    if ia == ic:
+                        # self-join → closure; require most-of-a-loop
+                        xyz = np.asarray(branches[ia].curve[1], dtype=np.float64)
+                        path_len = float(np.linalg.norm(
+                            np.diff(xyz, axis=0), axis=1).sum())
+                        if path_len <= 3.0 * gap:
+                            continue
+                    if gap > 0.25 * atol_full and not _chord_is_real(
+                            open_ends[a][2], open_ends[c][2]):
+                        continue
+                    if best is None or gap < best[0]:
+                        best = (gap, a, c)
+            if best is None:
+                break
+            _, a, c = best
+            ia, sa, *_ = open_ends[a]
+            ic, sc, *_ = open_ends[c]
+            sa_stuv, sa_xyz = _ends(branches[ia])
+            if ia == ic:
+                # close the loop exactly: repeat the start sample at the end
+                stuv_j = np.concatenate([sa_stuv, sa_stuv[:1]], axis=0)
+                xyz_j = np.concatenate([sa_xyz, sa_xyz[:1]], axis=0)
+                branches[ia] = SSXBranch(curve=(stuv_j, xyz_j),
+                                         kind=branches[ia].kind)
+                changed = True
+                continue
+            sc_stuv, sc_xyz = _ends(branches[ic])
+            # orient A to END at the junction, B to START at it
+            if sa:
+                sa_stuv, sa_xyz = sa_stuv[::-1], sa_xyz[::-1]
+            if not sc:
+                sc_stuv, sc_xyz = sc_stuv[::-1], sc_xyz[::-1]
+            stuv_j = np.concatenate([sa_stuv, sc_stuv], axis=0)
+            xyz_j = np.concatenate([sa_xyz, sc_xyz], axis=0)
+            kind_j = ("tangential"
+                      if "tangential" in (branches[ia].kind, branches[ic].kind)
+                      else "transversal")
+            keep_i, drop_i = (ia, ic) if ia < ic else (ic, ia)
+            branches[keep_i] = SSXBranch(curve=(stuv_j, xyz_j), kind=kind_j)
+            del branches[drop_i]
+            changed = True
+
+    # --- Branch-level containment dedup (post-join) ---
+    # Partial (non-contained) FRAGMENT overlaps are a known round-1 residue:
+    # two traversal families can each cover a loop in pieces that pairwise
+    # overlap only partially, so fragment containment keeps both families
+    # and the join pass then assembles TWO full copies of the same loop.
+    # At branch level the copies ARE mutually contained — apply the same
+    # proven 2·atol geometric containment (every sample of the shorter
+    # within 2·atol of the longer's polyline), longest kept first.
+    if len(branches) > 1:
+        order = sorted(range(len(branches)),
+                       key=lambda k: -len(branches[k].curve[1]))
+        kept_idx: list[int] = []
+        for idx in order:
+            xyz = np.asarray(branches[idx].curve[1], dtype=np.float64)
+            contained = False
+            for kidx in kept_idx:
+                poly = np.asarray(branches[kidx].curve[1], dtype=np.float64)
+                if len(poly) < 2 or not len(xyz):
+                    continue
+                if all(_dist_point_polyline(p, poly) <= 2.0 * atol_full
+                       for p in xyz):
+                    contained = True
+                    break
+            if not contained:
+                kept_idx.append(idx)
+        branches = [branches[k] for k in sorted(kept_idx)]
+
+    # --- Drop valley-fiction branches (grazing-gap bridges) ---
+    # A march seeded at a near-touch grazing corner can exit-commit a single
+    # chord that slides along a sub-atol valley from the touch to the loop
+    # (the exit-commit gate bypasses the mid-chord check when there is no
+    # interior progress): every SAMPLE is Ψ-valid at tolerance, but the
+    # chord is not ON the intersection set. Per _ssx_correct's own contract
+    # the true-curve distance at a point is ≈ residual / sin_ang; drop a
+    # branch only when EVERY chord midpoint fails at 2·atol — genuine
+    # branches have good chords (ring chords measure ~1e-4·atol here),
+    # bridges are all-fiction (single chord at 4–12·atol). Cheap: real
+    # branches exit at their first good chord.
+    if S1_full is not None and branches:
+        _kept_v = []
+        for b in branches:
+            stuv_b = np.asarray(b.curve[0], dtype=np.float64)
+            if len(stuv_b) < 2:
+                _kept_v.append(b)
+                continue
+            all_bad = True
+            for k in range(len(stuv_b) - 1):
+                mid = 0.5 * (stuv_b[k] + stuv_b[k + 1])
+                p1, du1, dv1 = eval_surface_d1(S1_full, mid[0], mid[1],
+                                               rational=rational_full)
+                p2, du2, dv2 = eval_surface_d1(S2_full, mid[2], mid[3],
+                                               rational=rational_full)
+                res = float(np.linalg.norm(p1 - p2))
+                N1 = np.cross(du1, dv1)
+                N2 = np.cross(du2, dv2)
+                n1 = float(np.linalg.norm(N1))
+                n2 = float(np.linalg.norm(N2))
+                sin_ang = (float(np.linalg.norm(np.cross(N1, N2))) / (n1 * n2)
+                           if n1 > 1e-30 and n2 > 1e-30 else 1.0)
+                if res / max(sin_ang, 1e-3) <= 2.0 * atol_full:
+                    all_bad = False
+                    break
+            if not all_bad:
+                _kept_v.append(b)
+        branches = _kept_v
 
     # --- Drop short slivers that lie on top of another branch ---
     # When the fragment graph has a Y-junction (≥3 fragments meeting at the
@@ -4186,6 +4508,12 @@ def bez_ssx(
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
+
+    # Reproducibility: the Gauss-separability witness search draws from
+    # module-global PRNGs; without a per-call reset, bit-identical inputs
+    # returned different branch topologies depending on call history
+    # (trace-vs-subdivide flips on marginal near-tangent cells).
+    reset_witness_rng()
 
     # --- Level 1: Pruning ---
     if _prune_ssx_cell(S1, S2, atol, rational=rational):
@@ -4908,6 +5236,8 @@ def bez_ssx(
         S1_full=S1_for_close, S2_full=S2_for_close,
         atol_full=atol, rational_full=rational_close,
         unify_tol=unify_tol, h_max=h_max,
+        barrier_xyz=[g.xyz for g in all_singularities
+                     if g.kind == "tangent_point"],
     )
     all_branches.extend(overlap_branches)
 
