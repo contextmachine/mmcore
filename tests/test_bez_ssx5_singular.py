@@ -857,3 +857,92 @@ def test_theorem3_skips_regular_case():
     s2 = np.array([[[0., 0., 3.], [0., 10., 3.]], [[10., 0., 3.], [10., 10., 3.]]])
     r = bez_ssx(s1, s2, 1e-3, rational=False)
     assert [g for g in r["singularities"] if g.kind == "self_intersection"] == []
+
+
+# ---------------------------------------------------------------------------
+# Ledger L4 / L5 / L6: loop-free-arm probe descent, measured tangential
+# tagging, 1-dim Δ-sets
+# ---------------------------------------------------------------------------
+
+def _plane_patch(x0, x1):
+    return np.array([[[x0, 0., 0.], [x0, 1., 0.]],
+                     [[x1, 0., 0.], [x1, 1., 0.]]], dtype=np.float64)
+
+
+def test_partial_overlap_no_phantom_tangent_point():
+    # Ledger L6(ii) regression: coplanar PARTIAL overlap (strip x in [1,2])
+    # emitted a phantom "isolated" tangent_point at the strip's dead center
+    # (0.75, 0.5, 0.25, 0.5) through the loop-free arm — every interior
+    # point of a 2-dim overlap region is a Δ-root (paper Fig. 8 classifies
+    # the overlap interior as 2-dim C2), and the strip INTERIOR is far from
+    # every overlap-boundary polyline, so the post-assembly subsumption
+    # filter could never catch it. Witness emission is now suppressed
+    # inside the detected overlap regions' parametric boxes
+    # (_overlap_region_boxes from the BoundaryOverlap segments).
+    r = bez_ssx(_plane_patch(0, 2), _plane_patch(1, 3), 1e-3, rational=False)
+    overlaps = [b for b in r["branches"] if b.kind == "overlap"]
+    assert overlaps, "overlap branches lost — fixture no longer tests L6(ii)"
+    assert r["singularities"] == [], (
+        f"phantom tangent_point inside the overlap strip: "
+        f"{[(g.kind, np.round(np.asarray(g.stuv), 4).tolist()) for g in r['singularities']]}")
+
+
+def _offlattice_tangent_ring(cx=0.3, rad2=0.04):
+    """S1: z = (r^2 - rad2)^2 with r^2 = (2(s-cx))^2 + (2(t-cx))^2
+    (deg 4x4); S2: z=0. z >= 0 with equality exactly on the circle
+    r^2 = rad2 — a CLOSED, crossing-less TANGENT ring of radius
+    sqrt(rad2)/2 about (cx, cx), off the dyadic lattice (unlike
+    `_closed_tangent_loop`, whose (0.5, 0.5) center lets every witness
+    start ON the feature)."""
+    from math import comb
+
+    def mono_to_bern(a):
+        return np.array([sum(a[j] * comb(k, j) / comb(4, j)
+                             for j in range(min(k, len(a) - 1) + 1))
+                         for k in range(5)])
+
+    f = np.array([4.0 * cx * cx, -8.0 * cx, 4.0])        # (2(x-cx))^2
+    f2 = np.convolve(f, f)
+    z_st = np.zeros((5, 5))
+    z_st[:5, 0] += f2
+    z_st[0, :5] += f2
+    z_st[:3, :3] += 2.0 * np.outer(f, f)
+    z_st[:3, 0] -= 2.0 * rad2 * f
+    z_st[0, :3] -= 2.0 * rad2 * f
+    z_st[0, 0] += rad2 * rad2
+    M = np.array([mono_to_bern(np.eye(5)[j]) for j in range(5)])
+    Bz = M.T @ z_st @ M
+    xs = mono_to_bern([0.0, 1.0])
+    S1 = np.array([[[xs[i], xs[j], Bz[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(3)
+    for s, t in rng.uniform(0, 1, (20, 2)):
+        r2 = (2 * (s - cx)) ** 2 + (2 * (t - cx)) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, (r2 - rad2) ** 2], atol=1e-12)
+    return S1, S2
+
+
+def test_tangent_curve_no_point_flood():
+    # Ledger L6(i) regression (B C4 family): a crossing-less 1-dim tangent
+    # curve flooded spurious tangent_points — the crossing-less arm's full
+    # enumeration ignored solve_zero_dim's `exhausted` flag (top cell here:
+    # 16 deduped roots, exhausted=True — ptol-ladder SAMPLES of the ring,
+    # not isolated touches), and `_emit_offcurve_tangent_roots` in
+    # crossing-bearing descendants whose Φ-tracing produced nothing (no
+    # tube) degraded to plain full enumeration (measured 33- and 17-point
+    # floods). Both consumers now suppress emission on the 1-dim signature
+    # (`_delta_roots_curve_like`: >12 roots, or exhausted with several) and
+    # leave the curve to the tracing machinery, which ships it `tangential`.
+    S1, S2 = _offlattice_tangent_ring()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tang = [b for b in r["branches"] if b.kind == "tangential"]
+    assert tang, f"tangent ring lost: kinds={[b.kind for b in r['branches']]}"
+    ring = max(tang, key=lambda b: len(b.curve[1]))
+    rr = np.linalg.norm(np.asarray(ring.curve[1])[:, :2] - 0.3, axis=1)
+    assert np.allclose(rr, 0.1, atol=5e-3)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 0, (
+        f"point flood from the 1-dim tangent ring: {len(tps)} tangent_points "
+        f"(was 4 surviving of ~50 emitted pre-fix)")

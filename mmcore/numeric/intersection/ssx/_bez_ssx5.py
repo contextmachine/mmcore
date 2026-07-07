@@ -432,9 +432,13 @@ def _check_tangency(T1, T2, T3, T4, P1_cart, P2_cart, box):
 
 def _tangency_witness(cell, atol, *, enumerate_all=True):
     """Gauss-Newton witness point(s) of the deflated system Δ = Ψ ∩ TΨ on the
-    cell (local [0,1]⁴ coords). Returns (ok, roots, best_residual) where
-    `roots` is a list of DISTINCT local witness points, the box-center
-    start's root first when it converges.
+    cell (local [0,1]⁴ coords). Returns (ok, roots, best_residual,
+    exhausted) where `roots` is a list of DISTINCT local witness points, the
+    box-center start's root first when it converges, and `exhausted`
+    surfaces `solve_zero_dim`'s budget flag (always False when
+    `enumerate_all=False` — no enumeration ran). Callers must treat
+    `exhausted=True` with several roots as the 1-dimensional-Δ signature
+    (ledger L6, `_delta_roots_curve_like`), not as a complete enumeration.
 
     `enumerate_all=False` runs ONLY the center Gauss-Newton witness and
     skips the `solve_zero_dim` enumeration — for call sites where Δ's zero
@@ -495,6 +499,7 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
             return eval_surface(cell.g1.surface, x[0], x[1], rational=True)
 
         roots = []
+        exhausted = False
         first = _gn(None)          # primary witness: box-center start
         if first is not None:
             roots.append(first)
@@ -510,9 +515,9 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
                             axes=(0, 1, 2, 3))
                      for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
             # max_cells=2000: interim cost cap; 1-dim Δ-sets (tangent curves/loops) are Task 5's territory
-            sols, _exhausted = solve_zero_dim(nets, _gn, ptol,
-                                              max_cells=2000, dedup_xyz=_xyz,
-                                              atol=atol)
+            sols, exhausted = solve_zero_dim(nets, _gn, ptol,
+                                             max_cells=2000, dedup_xyz=_xyz,
+                                             atol=atol)
             for sol in sols:
                 # same destructive-dedup rule as solve_zero_dim's own _dup:
                 # 1·ptol per-axis box AND xyz <= atol
@@ -523,7 +528,7 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
                     roots.append(sol)
         best_fn = min((float(np.linalg.norm(sys_.delta_point(r_)))
                        for r_ in roots), default=np.inf)
-        return bool(roots), roots, best_fn
+        return bool(roots), roots, best_fn, exhausted
     except (np.linalg.LinAlgError, FloatingPointError):
         # Numerical failure of the witness/enumeration — an honest "could
         # not certify" (ok=False; the caller falls through to subdivision).
@@ -531,11 +536,116 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
         # (e.g. psi_vector_net shape mismatches, solve_zero_dim's
         # empty-nets ValueError) are programming bugs and must propagate,
         # not silently degrade every tangency emission to a miss.
-        return False, [], np.inf
+        return False, [], np.inf, False
+
+
+def _delta_roots_curve_like(roots, exhausted):
+    """Ledger L6(i): True when a Δ-root enumeration looks like ptol-ladder
+    SAMPLES of a 1-dimensional zero set (a tangent curve/loop) rather than
+    isolated tangencies. Two signatures, same convention as `c1_pass`'s
+    curve_flag:
+
+    - more distinct roots than any plausible multi-touch cell (> 12), or
+    - a blown budget with several roots (`exhausted=True` means the
+      subdivision frontier never emptied — on a genuinely 0-dimensional
+      set the hull exclusion empties it well within the budget; measured
+      on the off-lattice tangent ring (z=(r²-0.04)² about (0.3,0.3)):
+      top-cell enumeration 16 deduped roots exhausted, crossing-bearing
+      off-curve floods 17-39 sols exhausted, vs 1-2 roots exhausted=False
+      on every isolated-touch fixture).
+
+    Consumers emit NO tangent_points from such a cell — 1-dim tangencies
+    are owned by the deflation/tracing machinery (Φ-tracer, Φ∩L seeding),
+    and the flood samples are exactly what the post-assembly subsumption
+    filter would have to delete again (and provably does NOT fully delete
+    when the traced polyline is locally sparse or tracing failed: measured
+    4 surviving on-ring debris points of ~50 emitted pre-fix).
+    """
+    return len(roots) > 12 or (exhausted and len(roots) > 1)
+
+
+def _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+    """Ledger L6(ii): True if the GLOBAL 4D point lies inside any detected
+    overlap region's parametric box (see `_overlap_region_boxes`)."""
+    if not overlap_boxes:
+        return False
+    p = np.asarray(stuv_g, dtype=np.float64)
+    return any(bool(np.all(p >= B[:, 0]) and np.all(p <= B[:, 1]))
+               for B in overlap_boxes)
+
+
+def _overlap_region_boxes(boundary_overlaps, S1_h, atol, unify_tol):
+    """Ledger L6(ii): padded 4D parametric AABBs of the detected coplanar
+    overlap REGIONS, for suppressing tangent_point emission in their
+    interior (paper Fig. 8: the overlap interior is a 2-dimensional C2 set;
+    every point of it is a Δ-root, so any witness converging there emits a
+    phantom "isolated" touch — measured: plane_patch(0,2) vs
+    plane_patch(1,3) emitted the strip's dead center (0.75,0.5,0.25,0.5)).
+
+    The overlap machinery stores only the region's BOUNDARY segments
+    (`BoundaryOverlap` start/end stuv from the 8 boundary-CSX calls), not
+    region boxes — reconstruct minimally: group segments into connected
+    components (endpoints within the matching ladder: per-axis unify_tol
+    AND xyz <= 2*atol), then take each component's stuv AABB padded by
+    unify_tol per axis. For a partial-overlap strip the component box IS
+    the strip's parametric box (the boundary segments span it).
+
+    Known limits (accepted, documented): (a) segment (u,v)-images are taken
+    from endpoints only — a strongly curved overlap boundary can bulge
+    outside the endpoint AABB and under-suppress; (b) a genuine isolated
+    touch inside the AABB of a non-convex overlap region but outside the
+    region itself would be over-suppressed (geometrically exotic: the
+    surfaces already coincide on the region); (c) legacy overlap
+    bookkeeping can store corrupt other-surface stuv (the L3 4-vs-2 gap),
+    which skews those axes' extents. All three degrade toward the
+    PRE-EXISTING behaviors (phantom kept / point subsumed), never corrupt
+    branch geometry.
+    """
+    if not boundary_overlaps:
+        return []
+    segs = []
+    for ovl in boundary_overlaps:
+        a = np.asarray(ovl.stuv_start, dtype=np.float64)
+        b = np.asarray(ovl.stuv_end, dtype=np.float64)
+        axyz = eval_surface(S1_h, a[0], a[1], rational=True)
+        bxyz = eval_surface(S1_h, b[0], b[1], rational=True)
+        segs.append((a, b, axyz, bxyz))
+    n = len(segs)
+    parent = list(range(n))
+
+    def _find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def _ends_match(pa, pxyz, qa, qxyz):
+        return (np.all(np.abs(pa - qa) <= unify_tol)
+                and float(np.linalg.norm(pxyz - qxyz)) <= 2.0 * atol)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            ia, ib, iaxyz, ibxyz = segs[i]
+            ja, jb, jaxyz, jbxyz = segs[j]
+            if (_ends_match(ia, iaxyz, ja, jaxyz) or _ends_match(ia, iaxyz, jb, jbxyz)
+                    or _ends_match(ib, ibxyz, ja, jaxyz)
+                    or _ends_match(ib, ibxyz, jb, jbxyz)):
+                parent[_find(i)] = _find(j)
+
+    comps: dict = {}
+    for i in range(n):
+        comps.setdefault(_find(i), []).append(i)
+    boxes = []
+    for idxs in comps.values():
+        pts = np.array([p for i in idxs for p in (segs[i][0], segs[i][1])])
+        B = np.stack([pts.min(axis=0) - unify_tol,
+                      pts.max(axis=0) + unify_tol], axis=1)   # (4, 2)
+        boxes.append(B)
+    return boxes
 
 
 def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
-                        *, enumerate_all=True):
+                        *, enumerate_all=True, overlap_boxes=None):
     """Run the Δ = Ψ ∩ TΨ witness on a tangent cell and emit every distinct
     root as a 'tangent_point' singularity into `all_singularities`.
 
@@ -549,14 +659,37 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
     (matching-ladder: unify_tol per-axis box AND 2·atol xyz) collapses all
     re-confirmations onto ONE emitted point per touch.
 
+    Two emission suppressions (ledger L6), neither affecting the return:
+
+    - 1-dim Δ-sets: when the full enumeration carries the curve signature
+      (`_delta_roots_curve_like`: > 12 roots, or exhausted with several),
+      the roots are ptol-ladder samples of a tangent CURVE, not isolated
+      touches — emit NOTHING and let the caller's fall-through subdivide;
+      the deflation/tracing machinery owns 1-dim tangencies (descendants
+      become crossing-bearing and Φ-trace the curve as a `tangential`
+      branch that legitimately subsumes any residual on-curve witness).
+    - overlap interiors: a root inside a detected coplanar overlap
+      region's parametric box (`overlap_boxes` from
+      `_overlap_region_boxes`) is a sample of a 2-dimensional C2 set the
+      overlap branches already report — skip it (paper Fig. 8; the strip
+      interior is far from every overlap boundary POLYLINE, so the
+      post-assembly subsumption filter cannot catch it).
+
     Returns `(ok, roots)`: `ok` from `_tangency_witness` (True iff at least
     one converged witness exists — the crossing-less arm's size gate needs
     it) and the LOCAL witness points — Task 5's Φ∩L seeding consumes
     `roots[0]` in the crossing-less arm (`_choose_phi_equations` seed).
+    Suppressed roots stay in `roots`: they are genuine Δ-roots and valid
+    seeds; only their typing as isolated points is wrong.
     """
-    ok, roots, _fn = _tangency_witness(cell, atol, enumerate_all=enumerate_all)
+    ok, roots, _fn, exhausted = _tangency_witness(
+        cell, atol, enumerate_all=enumerate_all)
+    if enumerate_all and _delta_roots_curve_like(roots, exhausted):
+        return ok, roots
     for xw in roots:
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+            continue
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
                    and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
@@ -585,7 +718,8 @@ def _dist_point_polyline_nd(p, poly):
 
 
 def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
-                                 all_singularities, max_cells=2000):
+                                 all_singularities, max_cells=2000,
+                                 overlap_boxes=None):
     """Enumerate Δ = Ψ ∩ TΨ roots of a crossing-bearing tangent cell that lie
     OFF the already-traced Φ-fragments, and emit them as tangent_points.
 
@@ -841,8 +975,24 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
     except (np.linalg.LinAlgError, FloatingPointError):
         return
 
+    if _delta_roots_curve_like(sols, _exhausted):
+        # Ledger L6(i): the off-tube "roots" carry the 1-dim signature —
+        # this happens when the Φ-tracer failed (no fragments, no tube, so
+        # this degraded to a plain full enumeration of the tangent CURVE:
+        # measured 33- and 17-point floods with nfrags=0 on the off-lattice
+        # tangent ring) or when the tube only partially covers the curve.
+        # Emit nothing: the curve's typing belongs to tracing, and unlike
+        # the crossing-less arm there is no subdivision fall-through here
+        # (the arm `continue`s — the 1349x note), so suppressed samples are
+        # simply dropped. A genuine multi-touch cell is unaffected (its
+        # enumeration terminates: 1-2 roots, exhausted=False, measured on
+        # the blind-band delta-sweep and the line-plus-touch fixtures).
+        return
+
     for xw in sols:
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
+        if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
+            continue
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
                    and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
@@ -3912,6 +4062,13 @@ def bez_ssx(
     # unification where a miss is recoverable.
     dedup_tol = unify_tol / 4.0
 
+    # Ledger L6(ii): parametric boxes of the detected coplanar overlap
+    # regions — every tangency emission site skips witness roots inside
+    # them (the overlap interior is a 2-dim C2 set the overlap branches
+    # already report; an "isolated" point there is a phantom).
+    overlap_boxes = _overlap_region_boxes(
+        boundary_overlaps, S1_h_top, atol, unify_tol)
+
     # Global xyz step ceiling for all marchers. NOT an accuracy criterion —
     # accuracy is governed by the chord-deviation (sagitta) control at
     # 2·atol, which measurements show is the binding constraint nearly
@@ -4034,7 +4191,8 @@ def bez_ssx(
                         for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
                     _emit_tangent_roots(cell, atol, unify_tol,
                                         all_singularities,
-                                        enumerate_all=False)
+                                        enumerate_all=False,
+                                        overlap_boxes=overlap_boxes)
                 if cell.crossings:
                     if not c3_possible and not theorem3_excludes_c3(
                             cell.T1, cell.T2, cell.T3, cell.T4):
@@ -4114,7 +4272,8 @@ def bez_ssx(
             c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
                                             all_singularities,
-                                            enumerate_all=True)
+                                            enumerate_all=True,
+                                            overlap_boxes=overlap_boxes)
             if ok:
                 # Paper §5.3.2: slice the regulated Φ curve with the four
                 # deterministic axis mid-planes to seed loops around the
@@ -4164,7 +4323,8 @@ def bez_ssx(
             # subsumption filter, so the curve case emits nothing.
             c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
-                                enumerate_all=False)
+                                enumerate_all=False,
+                                overlap_boxes=overlap_boxes)
             # Convert crossings to the cell's local stuv for the Φ tracer.
             crossings_local = [
                 BoundaryPoint(
@@ -4221,7 +4381,8 @@ def bez_ssx(
             # crossing-LESS arm. Accepted (the subdivision alternative is
             # the 1349x path above).
             _emit_offcurve_tangent_roots(cell, fr_local, atol, unify_tol,
-                                         all_singularities)
+                                         all_singularities,
+                                         overlap_boxes=overlap_boxes)
             continue
 
         if cell.depth >= max_depth:
