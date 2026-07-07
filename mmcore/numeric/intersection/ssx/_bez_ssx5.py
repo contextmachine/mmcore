@@ -602,22 +602,32 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
       Skipped boxes still SUBDIVIDE — a coarse near-curve box can also
       contain the coexisting touch.
     - Boxes far from the tube are explored FIRST (max-heap on the scaled
-      stuv distance), so when the near-curve box flood exhausts the budget
-      (`exhausted=True` — expected and fine), only skippable curve samples
-      are starved, not undiscovered isolated touches. The guarantee is
-      heuristic (a geometry with huge off-tube Δ structure can still
-      exhaust first) — roots found are always valid.
+      stuv distance), and `max_cells` charges ONLY actual Newton attempts
+      (`solve_zero_dim`'s skip-aware budget): neither the skipped on-curve
+      flood nor its hull-excluded siblings can starve the budget before an
+      off-curve touch's boxes subdivide out of the tube slack. Under the
+      original per-pop charging this starvation was real — a blind band at
+      5–15·atol from the curve (4·atol and below is legitimately subsumed
+      by the post-assembly filter); measured post-fix: touches at
+      5–20·atol all found at the default budget. What remains heuristic:
+      the traversal backstop (`max_cells + 16·charged`) can still truncate
+      a slow-converging frontier (`exhausted=True`), and a geometry with
+      more off-tube Δ structure than the Newton budget covers can exhaust
+      `max_cells` itself — roots found are always valid either way.
 
     With no fragments (nothing traced), this degrades to the plain
     budget-bounded full enumeration.
+
+    KNOWN LIMIT (review 2d030bb+7ed47c0): this enumeration recovers only
+    Δ-ROOTS (tangencies). A coexisting TRANSVERSAL feature that is not on
+    Δ — e.g. a small transversal LOOP with no boundary crossings sharing
+    this crossing-bearing cell — is still lost: the arm `continue`s
+    without subdividing, and the Φ∩L loop seeding runs only on the
+    crossing-LESS arm (the Mexican-hat treatment). Subdividing instead
+    costs 1349x on tangent curves (see the arm's comment); accepted gap.
     """
-    from mmcore.numeric.bern import bern_eval as _bern_eval
-    from mmcore.numeric.ndinterval import interval as iv_interval, get_iarray
-    from mmcore.numeric.intersection._deflate import (
-        DeflatedSystem, gauss_newton_witness, _box_from_any,
-    )
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
-        BoxNet, ShiftedPositiveNet, psi_vector_net, solve_zero_dim,
+        ShiftedPositiveNet, VectorBoxNet, psi_vector_net, solve_zero_dim,
     )
 
     P1c = cell.g1.surface[..., :-1] / cell.g1.surface[..., -1:]
@@ -641,20 +651,34 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         r = np.array([0.5 * (hi - lo) for lo, hi in bx])
         return c, float(np.linalg.norm(r / scale)), float(np.sum(r / scale))
 
+    # `priority` (at push) and `skip_newton` (at pop) both need the center's
+    # scaled param distance to the fragment polylines — cache it per box so
+    # each box pays the polyline scan once (~tens of thousands of boxes on
+    # a tube flood).
+    _pdist_cache: dict = {}
+
+    def _center_pdist(bx, c):
+        d = _pdist_cache.get(bx)
+        if d is None:
+            d = _scaled_param_dist(c)
+            _pdist_cache[bx] = d
+        return d
+
     def skip_newton(bx):
         # Both tests carry the box's OWN radius as slack: the skip decision
         # is re-made at every level (skipped boxes still subdivide), so it
         # only needs to be accurate at FINE scales — where the center
         # approximates any root the box could hold. Without the slack the
         # center-only xyz test fails for every coarse near-curve box and
-        # each pays a ~6 ms interval-GN (measured: 1069 attempts, 6.2 s on
-        # the crossed-saddles top cell). The xyz slack uses the tolerance
-        # ladder's own compounding bound (per-axis ptol ~ atol of motion,
-        # 1-norm over axes).
+        # each pays a Gauss-Newton attempt (measured: 1069 attempts, 6.2 s
+        # on the crossed-saddles top cell with the old interval-evaluator
+        # witness). The xyz slack uses the tolerance ladder's own
+        # compounding bound (per-axis ptol ~ atol of motion, 1-norm over
+        # axes).
         if not stuv_polys:
             return False
         c, box_r2, box_r1 = _box_center_radius(bx)
-        if _scaled_param_dist(c) > 1.0 + box_r2:
+        if _center_pdist(bx, c) > 1.0 + box_r2:
             return False
         cxyz = eval_surface(cell.g1.surface, c[0], c[1], rational=True)
         return min(_dist_point_polyline_nd(cxyz, poly)
@@ -664,30 +688,135 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         if not stuv_polys:
             return 0.0
         c, _, _ = _box_center_radius(bx)
-        return _scaled_param_dist(c)
+        return _center_pdist(bx, c)
 
     try:
-        sys_ = DeflatedSystem(
-            P1=get_iarray(P1c, P1c), P2=get_iarray(P2c, P2c),
-            T=tuple(np.asarray(T, dtype=iv_interval)
-                    for T in (cell.T1, cell.T2, cell.T3, cell.T4)),
-            bern_eval=_bern_eval, interval_ctor=iv_interval,
-        )
-        Bf = _box_from_any(tuple(iv_interval(0.0, 1.0) for _ in range(4)))
+        # Dedicated float Gauss-Newton on Δ = {Ψ(3), TΨ1..4}. Same control
+        # flow and acceptance ladder as _deflate.gauss_newton_witness
+        # (tol_f=1e-10 convergence; step < 1e-12 or max_iter=24 accept at
+        # fnorm < 1e-8; full-box [0,1]^4 clamp) but evaluated via per-axis
+        # Bernstein basis rows contracted against a stacked T net and
+        # eval_surface_d1 for the Ψ rows, instead of the generic
+        # interval-capable evaluator — the enumeration calls it per
+        # surviving box and the generic path measured 77% of the
+        # blind-band repro's runtime (the plan's Risk-7 optimization note:
+        # "plain-float GN in the enumeration's Newton callback").
+        #
+        # The four T nets are degree-elevated to one common shape and
+        # stacked (trailing dim 4): the GN then needs 5 einsums per
+        # Jacobian instead of 20, and the solver splits ONE VectorBoxNet
+        # per box instead of four BoxNets (elevation coefficients are
+        # convex combinations of the originals, so the elevated hulls are
+        # subsets — exclusion only tightens; the represented polynomials
+        # are identical).
+        from math import comb as _comb
+        _Tnets = [np.asarray(T, dtype=np.float64)
+                  for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+        _ONE1 = np.ones(1)
+        _ZERO1 = np.zeros(1)
+        _ES = "i,j,k,l,ijklm->m"
+        _binoms: dict = {}
+
+        def _bin(n):
+            r = _binoms.get(n)
+            if r is None:
+                r = np.array([_comb(n, i) for i in range(n + 1)],
+                             dtype=np.float64)
+                _binoms[n] = r
+            return r
+
+        def _elev_mat(n, m):
+            # Bernstein degree elevation n -> m (m > n):
+            # c'_i = sum_j E[i, j] c_j, E[i, j] = C(n,j)*C(m-n,i-j)/C(m,i)
+            E = np.zeros((m + 1, n + 1))
+            for i in range(m + 1):
+                for j in range(max(0, i - (m - n)), min(n, i) + 1):
+                    E[i, j] = _comb(n, j) * _comb(m - n, i - j) / _comb(m, i)
+            return E
+
+        _degs = [max(T.shape[ax] - 1 for T in _Tnets) for ax in range(4)]
+        Tstack = np.empty(tuple(d + 1 for d in _degs) + (4,))
+        for k, T in enumerate(_Tnets):
+            A = T
+            for ax in range(4):
+                n = A.shape[ax] - 1
+                if n < _degs[ax]:
+                    A = np.moveaxis(
+                        np.tensordot(_elev_mat(n, _degs[ax]), A,
+                                     axes=(1, ax)), 0, ax)
+            Tstack[..., k] = A
+
+        def _basis_pair(n, xval):
+            # Bernstein basis row B_{i,n}(x) and its derivative row
+            # B'_{i,n} = n * (B_{i-1,n-1} - B_{i,n-1}).
+            if n == 0:
+                return _ONE1, _ZERO1
+            i = np.arange(n + 1)
+            b = _bin(n) * xval ** i * (1.0 - xval) ** (n - i)
+            j = np.arange(n)
+            bl = _bin(n - 1) * xval ** j * (1.0 - xval) ** (n - 1 - j)
+            d = np.empty(n + 1)
+            d[0] = -n * bl[0]
+            d[n] = n * bl[n - 1]
+            if n > 1:
+                d[1:n] = n * (bl[:n - 1] - bl[1:])
+            return b, d
+
+        def _delta_F(x):
+            p1 = eval_surface(P1c, x[0], x[1], rational=False)
+            p2 = eval_surface(P2c, x[2], x[3], rational=False)
+            bb = [_basis_pair(_degs[ax], x[ax])[0] for ax in range(4)]
+            F = np.empty(7)
+            F[:3] = p1 - p2
+            F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
+            return F
+
+        def _delta_F_J(x):
+            p1, du1, dv1 = eval_surface_d1(P1c, x[0], x[1], rational=False)
+            p2, du2, dv2 = eval_surface_d1(P2c, x[2], x[3], rational=False)
+            pairs = [_basis_pair(_degs[ax], x[ax]) for ax in range(4)]
+            bb = [p[0] for p in pairs]
+            F = np.empty(7)
+            J = np.zeros((7, 4))
+            F[:3] = p1 - p2
+            J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
+            F[3:] = np.einsum(_ES, bb[0], bb[1], bb[2], bb[3], Tstack)
+            for ax in range(4):
+                rows = [pairs[q][1] if q == ax else bb[q] for q in range(4)]
+                J[3:, ax] = np.einsum(_ES, rows[0], rows[1], rows[2],
+                                      rows[3], Tstack)
+            return F, J
 
         def _gn(x0):
-            ok_, xw_, _fn = gauss_newton_witness(sys_, Bf, x0=x0,
-                                                 tol_f=1e-10, max_iter=24)
-            return np.asarray(xw_, dtype=np.float64) if ok_ else None
+            x = np.clip(np.asarray(x0, dtype=np.float64), 0.0, 1.0)
+            fnorm_prev = None
+            for _ in range(24):
+                F, J = _delta_F_J(x)
+                fnorm = float(np.linalg.norm(F))
+                if fnorm < 1e-10:
+                    return x
+                try:
+                    dx, *_ = np.linalg.lstsq(J, -F, rcond=None)
+                except np.linalg.LinAlgError:
+                    return None
+                if float(np.linalg.norm(dx)) < 1e-12:
+                    return x if fnorm < 1e-8 else None
+                alpha = 1.0
+                for _ls in range(12):
+                    xn = np.clip(x + alpha * dx, 0.0, 1.0)
+                    fnorm_n = float(np.linalg.norm(_delta_F(xn)))
+                    if fnorm_prev is None or fnorm_n < fnorm:
+                        x = xn
+                        fnorm_prev = fnorm_n
+                        break
+                    alpha *= 0.5
+            return x if float(np.linalg.norm(_delta_F(x))) < 1e-8 else None
 
         def _xyz(x):
             return eval_surface(cell.g1.surface, x[0], x[1], rational=True)
 
         G = psi_vector_net(cell.g1.surface, cell.g2.surface)
-        nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
-        nets += [BoxNet(np.asarray(T, dtype=np.float64)[..., None],
-                        axes=(0, 1, 2, 3))
-                 for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+        nets = []
         if cell.F_sq is not None:
             # One-sided sq-dist exclusion (same threshold as
             # _check_min_of_net): kills the off-tube boxes where individual
@@ -695,11 +824,17 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
             # xy control layout, so Ψ_x = Ψ_y = 0 on a whole 2-dim diagonal
             # set and the component nets exclude almost nothing there
             # (measured: 1069 interval-GN attempts, 6.2 s, without this
-            # net; a handful with it).
+            # net; a handful with it). Listed FIRST: it is the strongest
+            # off-tube pruner and `any()` short-circuits.
             thresh = (atol * cell.w_scale) ** 2
             nets.append(ShiftedPositiveNet(
                 np.asarray(cell.F_sq, dtype=np.float64)[..., None] - thresh,
                 axes=(0, 1, 2, 3)))
+        # Ψ components and the elevated T stack ride as vector bundles:
+        # identical exclusion semantics to seven scalar BoxNets, one
+        # de Casteljau split each per box instead of seven total.
+        nets.append(VectorBoxNet(G, axes=(0, 1, 2, 3)))
+        nets.append(VectorBoxNet(Tstack, axes=(0, 1, 2, 3)))
         sols, _exhausted = solve_zero_dim(
             nets, _gn, ptol4, max_cells=max_cells, dedup_xyz=_xyz, atol=atol,
             skip_newton=skip_newton, priority=priority)
@@ -1482,6 +1617,11 @@ def _pair_crossings_for_tracing(crossings, originals=None, cell=None):
             pairs.append((i, j))
             remaining_out.remove(j)
         if not pairs and n == 2:
+            # BELT-AND-BRACES — currently unexercised by any test: on the
+            # geometries that motivated it the in/out registrations now
+            # pair successfully (verified by instrumentation 2026-07-07);
+            # kept because registration starvation on rank-deficient
+            # endpoints is input-dependent, not structurally impossible.
             # Tangent-curve boundary endpoints have a rank-deficient
             # Ψ-Jacobian (2D null space), so `tangent_raw` is an arbitrary
             # null vector and §4 classification can register BOTH crossings
@@ -1952,9 +2092,9 @@ def _march_psi_closed(cell, seed_local, atol, h_max, displace=0.02):
     stuv_path, xyz_path = res
     if len(stuv_path) < 6:
         return None
-    ptol4 = _cell_ptol4(cell, atol)
-    if not np.all(np.abs(stuv_path[-1] - stuv_path[0]) <= 8.0 * ptol4):
-        return None
+    # Closure is exact by construction: _march_closed_from_seed appends the
+    # corrected seed itself on closure (path[-1] == path[0] bitwise), so no
+    # epsilon closure re-check is needed here.
     stuv_g = np.array([_local_to_global(x, cell.box) for x in stuv_path])
     return _Fragment(start_point=None, end_point=None,
                      stuv_path=stuv_g, xyz_path=xyz_path, tangential=False)
@@ -1964,11 +2104,13 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
                       displace=0.02):
     """March Φ = {Ψ_a, Ψ_b, TΨ_k} from a seed with no known endpoint until
     the path returns to its start (closed loop) or exits the cell. Keeps
-    only Ψ-valid samples (|S1-S2| < atol); requires >= 6 valid samples and
-    closure within 8·ptol to emit a closed tangential fragment; otherwise
-    returns None. Backend for Φ∩L seeds that sit on a TANGENT curve
-    (rank-deficient Ψ-Jacobian, where the Ψ marcher's tangent is not
-    unique — same reason `_deflate_tangent_cell` traces Φ).
+    only Ψ-valid samples (|S1-S2| < atol); requires >= 6 valid samples
+    forming ONE contiguous cyclic run (closure itself is exact by
+    construction — the closed-loop engine ends on the seed) to emit a
+    closed tangential fragment; otherwise returns None, which triggers the
+    caller's ranked-equation retry. Backend for Φ∩L seeds that sit on a
+    TANGENT curve (rank-deficient Ψ-Jacobian, where the Ψ marcher's
+    tangent is not unique — same reason `_deflate_tangent_cell` traces Φ).
 
     Displaces one predictor-corrector step off the seed along the Φ tangent
     (SVD null vector of `_jac_phi`), then marches away with the closed-loop
@@ -2034,9 +2176,9 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
     if res is None:
         return None
     stuv_path, xyz_path = res
-    ptol4 = _cell_ptol4(cell, atol)
-    if not np.all(np.abs(stuv_path[-1] - stuv_path[0]) <= 8.0 * ptol4):
-        return None
+    # Closure is exact by construction: _march_closed_from_seed appends the
+    # corrected seed itself on closure (path[-1] == path[0] bitwise), so no
+    # epsilon closure re-check is needed here.
     # Ψ-validity filter (same as _deflate_tangent_cell): keep samples on
     # the actual intersection.
     keep = []
@@ -2046,6 +2188,18 @@ def _march_phi_closed(cell, seed_local, psi_rows, t_idx, atol, h_max,
         if float(np.linalg.norm(p1 - p2)) < atol:
             keep.append(k)
     if len(keep) < 6:
+        return None
+    # Connectivity re-check: the fragment is emitted as CLOSED (start/end
+    # None), but the keep-filter runs post-closure and can cut samples out
+    # of the middle — e.g. a through-the-singularity march is Ψ-valid near
+    # the seed and near the tangency but not between them. Kept samples
+    # must form ONE contiguous run on the cycle (path[0] == path[-1], so
+    # indices live on a ring); otherwise Ψ-validity has fragmented the
+    # loop and this attempt fails — which is exactly what the caller's
+    # ranked-equation retry exists for (_phi_slice_loop_fragments).
+    kept_mask = np.zeros(len(stuv_path), dtype=bool)
+    kept_mask[keep] = True
+    if int(np.sum(kept_mask & ~np.roll(kept_mask, 1))) > 1:
         return None
     stuv_g = np.array([_local_to_global(stuv_path[k], cell.box) for k in keep])
     xyz_g = xyz_path[np.asarray(keep)]
@@ -2062,16 +2216,21 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
     the FULL intersection, and march closed loops from the survivors.
 
     The full-Ψ refinement (Gauss-Newton on all three Ψ components) is the
-    load-bearing filter: Φ∩L solutions satisfy only TWO Ψ components, so
-    they include sub-tolerance-valley points (measured on the touch-plus-
-    loop geometry: the whole valley-floor ring at |Ψ| = eps^2/4 < atol —
-    marching THAT would report a phantom ring at the wrong radius) and,
-    on symmetric geometries, ptol-ladder samples of a degenerate solution
-    LINE. Refinement converges the genuine near-loop seeds onto the loop
-    (residual ~1e-12), stalls on the valley floor (the critical manifold of
-    ‖Ψ‖² — the z-residual is orthogonal to the Jacobian's column space), and
-    snaps line samples onto the actual intersection set; the 0.01·atol
-    acceptance separates the two outcomes cleanly.
+    SECOND line of defense against phantom geometry — the first is
+    upstream: `phi_loop_seeds` carries ALL THREE Ψ components as
+    hull-exclusion nets, which already prunes the sub-tolerance-valley
+    boxes (e.g. the touch-plus-loop valley-floor ring at |Ψ| = eps^2/4
+    < atol, whose third component is bounded away from 0 — review of
+    2d030bb verified the valley never seeds). What the refinement still
+    owns: Φ∩L Newton solves only TWO Ψ components plus {T_k, L}, so its
+    solutions can sit off the true intersection in the third component —
+    on symmetric geometries the damped Newton returns ptol-ladder samples
+    of a degenerate solution LINE, and any near-loop seed carries O(step)
+    error. Refinement converges genuine near-loop seeds onto the loop
+    (residual ~1e-12), stalls on critical manifolds of ‖Ψ‖² (the residual
+    is orthogonal to the Jacobian's column space), and snaps line samples
+    onto the actual intersection set; the 0.01·atol acceptance separates
+    the outcomes cleanly.
 
     Backend choice per refined seed (design latitude, measured): normals
     angle sin_ang > 1e-3 (the pipeline's own transversality bar) => the
@@ -3911,9 +4070,18 @@ def bez_ssx(
             # length. Enumerate the cell's REMAINING Δ-roots here instead:
             # hull-exclusion subdivision with the Newton attempts SKIPPED
             # inside the traced fragments' tube (those roots are curve
-            # samples the subsumption filter would delete anyway) and
-            # far-from-tube boxes explored FIRST, so a budget exhaustion
-            # starves only the curve flood, never the coexisting touch.
+            # samples the subsumption filter would delete anyway),
+            # far-from-tube boxes explored FIRST, and only Newton attempts
+            # charged against the budget (skip-exempt charging — under
+            # per-pop charging the flood's excluded siblings starved the
+            # budget and touches at 5-15*atol from the curve fell into a
+            # blind band).
+            # KNOWN LIMIT: this recovers only Δ-roots. A coexisting
+            # TRANSVERSAL loop (not on Δ) with no boundary crossings in
+            # this cell is still lost — the `continue` below skips
+            # subdivision, and the Φ∩L loop seeding runs only on the
+            # crossing-LESS arm. Accepted (the subdivision alternative is
+            # the 1349x path above).
             _emit_offcurve_tangent_roots(cell, fr_local, atol, unify_tol,
                                          all_singularities)
             continue
@@ -4306,6 +4474,23 @@ def bez_ssx(
             if not on_branch:
                 kept_points.append(p)
         all_points = kept_points
+
+    # The same isolated point can be reported by several cells/arms (e.g.
+    # touch-plus-loop at eps=0.02 surfaced two coincident SSXPoints ~2·atol
+    # from the touch). Standard matching-ladder dedup: unify_tol per-axis
+    # stuv box AND xyz <= 2·atol.
+    if all_points:
+        _uniq_points = []
+        for p in all_points:
+            if not any(
+                np.all(np.abs(np.asarray(p.stuv) - np.asarray(q.stuv))
+                       <= unify_tol)
+                and float(np.linalg.norm(np.asarray(p.xyz)
+                                         - np.asarray(q.xyz))) <= 2.0 * atol
+                for q in _uniq_points
+            ):
+                _uniq_points.append(p)
+        all_points = _uniq_points
 
     return {'branches': all_branches, 'points': all_points, 'singularities': all_singularities}
 

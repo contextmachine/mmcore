@@ -486,19 +486,21 @@ def test_tangent_point_plus_tiny_loop():
 # Follow-up: coexisting features on the crossing-BEARING tangency arm
 # ---------------------------------------------------------------------------
 
-def _line_plus_touch():
-    """S1: z = (2t-1)^2 * ((s-0.7)^2 + (t-0.2)^2) (deg 2x4), z >= 0:
-    tangent LINE along t=0.5 PLUS a coexisting isolated touch at (0.7, 0.2).
+def _line_plus_touch(cy=0.2):
+    """S1: z = (2t-1)^2 * ((s-0.7)^2 + (t-cy)^2) (deg 2x4), z >= 0:
+    tangent LINE along t=0.5 PLUS a coexisting isolated touch at (0.7, cy).
     S2: z=0 plane. The line's cell is crossing-BEARING (the line pierces the
     domain boundary), so the crossing-less arm never sees it — the touch is
     off every traced Phi-fragment and must be found by the off-curve
-    enumeration (_emit_offcurve_tangent_roots), not by subdivision."""
+    enumeration (_emit_offcurve_tangent_roots), not by subdivision.
+    `cy` close to 0.5 puts the touch at xyz distance |0.5 - cy| from the
+    tangent line (the blind-band regression family)."""
     from math import comb
 
     A = np.array([1.0, -4.0, 4.0])                      # (2t-1)^2 in t
-    Mb = np.zeros((3, 3))                               # (s-0.7)^2 + (t-0.2)^2
-    Mb[2, 0] = 1.0; Mb[1, 0] = -1.4; Mb[0, 0] = 0.49 + 0.04
-    Mb[0, 1] = -0.4; Mb[0, 2] = 1.0
+    Mb = np.zeros((3, 3))                               # (s-0.7)^2 + (t-cy)^2
+    Mb[2, 0] = 1.0; Mb[1, 0] = -1.4; Mb[0, 0] = 0.49 + cy * cy
+    Mb[0, 1] = -2.0 * cy; Mb[0, 2] = 1.0
     Mz = np.zeros((3, 5))                               # s-deg 2, t-deg 4
     for si in range(3):
         for tj in range(3):
@@ -518,8 +520,8 @@ def _line_plus_touch():
     S1 = np.array([[[xs[i], yt[j], Bz[i, j]] for j in range(5)] for i in range(3)])
     S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
                    [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
-    for s, t in [(0.3, 0.8), (0.7, 0.2), (0.5, 0.5), (0.9, 0.35)]:
-        want = (2 * t - 1) ** 2 * ((s - 0.7) ** 2 + (t - 0.2) ** 2)
+    for s, t in [(0.3, 0.8), (0.7, cy), (0.5, 0.5), (0.9, 0.35)]:
+        want = (2 * t - 1) ** 2 * ((s - 0.7) ** 2 + (t - cy) ** 2)
         p = eval_surface(_homog(S1), s, t, rational=True)
         assert np.allclose(p, [s, t, want], atol=1e-12)
     return S1, S2
@@ -543,6 +545,82 @@ def test_tangent_line_with_coexisting_isolated_touch():
     assert np.allclose(xyz[:, 1], 0.5, atol=2e-3) and np.allclose(xyz[:, 2], 0.0, atol=2e-3)
     assert xyz[:, 0].min() < 0.02 and xyz[:, 0].max() > 0.98   # full span
     assert r["points"] == []
+
+
+@pytest.mark.parametrize("delta", [0.01, 0.005])
+def test_offcurve_touch_near_tangent_line_blind_band(delta):
+    # Budget-starvation blind-band regression (review of 2d030bb+7ed47c0):
+    # with the original per-pop max_cells charging in solve_zero_dim, the
+    # on-curve Delta-flood's hull-excluded siblings starved the budget and
+    # an isolated touch at 5-15*atol xyz from a coexisting tangent LINE was
+    # silently lost (found at 20*atol, lost at 15/12.5/10/5*atol). The
+    # skip-aware budget (Newton attempts charge; flood traversal is free,
+    # bounded by max_cells + 16*charged) closes the band down to 5*atol —
+    # 4*atol and below is legitimately subsumed by the post-assembly
+    # tangent-point filter.
+    cy = 0.5 - delta                     # touch at (s, t) = (0.7, cy)
+    S1, S2 = _line_plus_touch(cy)
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tang = [b for b in r["branches"] if b.kind == "tangential"]
+    assert len(tang) == 1, f"expected the tangent line branch, got {len(tang)}"
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    want = np.array([0.7, cy, 0.0])
+    hits = [g for g in tps
+            if np.linalg.norm(np.asarray(g.xyz) - want) <= 2e-3]
+    assert hits, (f"off-curve touch at {delta / 1e-3:.0f}*atol from the "
+                  f"tangent line lost (blind band): {[g.xyz for g in tps]}")
+
+
+def _closed_tangent_loop():
+    """S1: z = (q - 1/4)^2 with q = (2s-1)^2 + (2t-1)^2 (deg 4x4); S2: z=0.
+    z >= 0 with equality exactly on the circle q = 1/4 — a CLOSED TANGENT
+    LOOP (radius 0.5 in (2s-1)-units = 0.25 in s-units), rank-deficient
+    Psi-Jacobian everywhere on it, and NO isolated touch (z = 1/16 at the
+    center). No boundary crossings anywhere: the crossing-less arm's
+    Phi ∩ L seeding must find it and the Phi closed-loop marcher
+    (_march_phi_closed backend, sin_ang <= 1e-3) must trace it."""
+    from math import comb
+
+    def mono_to_bern(a):
+        return np.array([sum(a[j] * comb(k, j) / comb(4, j)
+                             for j in range(k + 1)) for k in range(5)])
+
+    f = np.array([1.0, -4.0, 4.0])                       # (2x-1)^2 monomial
+    f2 = np.convolve(f, f)                               # (2x-1)^4
+    z_st = np.zeros((5, 5))                              # q^2 - q/2 + 1/16
+    z_st[:5, 0] += f2; z_st[0, :5] += f2
+    z_st[:3, :3] += 2.0 * np.outer(f, f)
+    z_st[:3, 0] -= 0.5 * f; z_st[0, :3] -= 0.5 * f
+    z_st[0, 0] += 0.0625
+    M = np.array([mono_to_bern(np.eye(5)[j]) for j in range(5)])
+    Bz = M.T @ z_st @ M
+    xs = mono_to_bern([0.0, 1.0, 0.0, 0.0, 0.0])         # x = s in deg-4
+    S1 = np.array([[[xs[i], xs[j], Bz[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(7)
+    for s, t in rng.uniform(0, 1, (20, 2)):
+        q = (2 * s - 1) ** 2 + (2 * t - 1) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, (q - 0.25) ** 2], atol=1e-12)
+    return S1, S2
+
+
+def test_closed_tangent_loop_via_phi_marcher():
+    # Pipeline coverage for the Phi closed-loop backend (_march_phi_closed):
+    # the touch-plus-loop case exercises only the Psi backend (its loop is
+    # transversal); here the loop itself is a tangent curve, so the seeds
+    # refine to sin_ang ~ 0 and the Phi marcher must close it.
+    S1, S2 = _closed_tangent_loop()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tang = [b for b in r["branches"] if b.kind == "tangential"]
+    assert len(tang) == 1, f"expected 1 tangential loop, got {len(tang)}"
+    assert len(r["branches"]) == 1
+    xyz = np.asarray(tang[0].curve[1])
+    endgap = float(np.linalg.norm(xyz[0] - xyz[-1]))
+    assert endgap < 1e-9, f"loop not closed: endgap {endgap}"
+    rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
+    assert np.allclose(rr, 0.25, atol=5e-3)   # circle q=1/4 -> radius 0.25 in s-units
 
 
 # ---------------------------------------------------------------------------

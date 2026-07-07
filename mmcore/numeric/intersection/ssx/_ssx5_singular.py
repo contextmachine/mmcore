@@ -196,6 +196,30 @@ class BoxNet:
 
 
 @dataclass(frozen=True, eq=False)
+class VectorBoxNet(BoxNet):
+    """A BUNDLE of scalar nets sharing one tensor shape (trailing value dim
+    of size k): semantically identical to k separate `BoxNet`s over the
+    same axes — the box survives only if EVERY component's hull contains 0,
+    so exclusion fires when ANY component excludes. Bundling exists purely
+    to cut per-box split cost (one de Casteljau call instead of k; measured
+    on the off-curve tangent enumeration's tube flood, net splitting was
+    the dominant per-box cost). Splits preserve the subclass.
+    """
+
+    def excludes_zero(self) -> bool:
+        c = self.coeffs
+        flat = c.reshape(-1, c.shape[-1])
+        return bool(np.any((flat.min(axis=0) > 0.0) | (flat.max(axis=0) < 0.0)))
+
+    def split(self, global_axis: int, t: float = 0.5):
+        if global_axis not in self.axes:
+            return self, self
+        d = self.axes.index(global_axis)
+        lo, hi = de_casteljau_split_nd(self.coeffs, axis=d, t=t)
+        return VectorBoxNet(lo, self.axes), VectorBoxNet(hi, self.axes)
+
+
+@dataclass(frozen=True, eq=False)
 class ShiftedPositiveNet(BoxNet):
     """One-sided exclusion net: excludes iff min(coeffs) > 0.
 
@@ -229,20 +253,54 @@ def solve_zero_dim(
     atol: float = 1e-3,
     skip_newton: Optional[Callable] = None,  # (box) -> True to skip the Newton attempt
     priority: Optional[Callable] = None,     # (box) -> float; HIGHER pops first (heap)
+    max_boxes: Optional[int] = None,         # hard backstop on TOTAL processed boxes
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
     Returns
     -------
     (sols, exhausted) : tuple[list, bool]
-        `sols` — list of (4,) solutions found. `exhausted` — True iff the
-        `max_cells` budget ran out with boxes still pending, i.e. the
-        enumeration may be INCOMPLETE and `sols` is only a lower bound.
-        Callers must check it (a silently-truncated list is
-        indistinguishable from a complete one otherwise). Never raise
-        `max_cells` to chase `exhausted=False` on a hang — a blown budget
-        usually means the solution set isn't 0-dimensional and callers
-        must handle that case themselves (e.g. a curve_flag path).
+        `sols` — list of (4,) solutions found. `exhausted` — True iff a
+        budget (EITHER `max_cells` or `max_boxes`, see below) ran out with
+        boxes still pending, i.e. the enumeration may be INCOMPLETE and
+        `sols` is only a lower bound. Callers must check it (a
+        silently-truncated list is indistinguishable from a complete one
+        otherwise). Never raise `max_cells` to chase `exhausted=False` on
+        a hang — a blown budget usually means the solution set isn't
+        0-dimensional and callers must handle that case themselves
+        (e.g. a curve_flag path).
+
+    Budget contract
+    ---------------
+    `max_cells` bounds the CHARGED units, `max_boxes` (default
+    `16 * max_cells`) bounds ALL processed boxes:
+
+    - Without `skip_newton`, every processed box charges one unit — the
+      historical semantics, unchanged (both new bounds below can then
+      never bind before `max_cells` does, since every box charges).
+    - With `skip_newton`, ONLY boxes whose Newton attempt actually runs
+      charge (the expensive unit is the Newton/interval-GN attempt;
+      hull-exclusion scans and splits are in the same cheap class):
+      neither the skip-suppressed 1-dim component flood NOR its
+      hull-excluded sibling boxes can starve the budget before an
+      off-component isolated root's boxes subdivide out of the skip
+      region (the blind band that lost touches at 5–15·atol from a
+      coexisting tangent curve — measured: the excluded siblings alone
+      out-charged the touch 1582:0 under per-pop charging).
+    - Traversal is bounded by `boxes <= max_cells + 16*cells` (checked at
+      pop): free (skip/exclusion) traversal beyond the first `max_cells`
+      boxes must be PAID FOR by charged Newton work. A pure flood with no
+      Newton-eligible frontier (a fully-traced tangent curve's tube,
+      where every root is skip-subsumed) stops after exactly `max_cells`
+      boxes — the same traversal the historical per-pop budget allowed —
+      while a frontier still attempting Newtons extends the traversal
+      (measured on the blind-band family: the off-curve touch is
+      accepted at box 1.5-7.2k with the box count at 29-60% of the
+      bound at that moment, i.e. >= 1.7x margin).
+    - `max_boxes` is the hard termination backstop on top of that: a
+      pathological flood whose frontier keeps attempting Newtons still
+      stops there. Stopping at ANY bound with work pending returns
+      `exhausted=True`.
 
     Hull-exclusion subdivision + center-seeded Newton. Newton runs in
     GLOBAL coordinates on smooth evaluators; the nets are only used for
@@ -269,8 +327,8 @@ def solve_zero_dim(
     subsumption filter would delete anyway). `priority(box)` switches the
     pending set from LIFO to a max-heap ordered by the callable — callers
     facing a 1-dimensional solution component use it to explore boxes FAR
-    from the known component first, so a `max_cells` exhaustion eats only
-    the (skippable) component flood, not undiscovered isolated roots.
+    from the known component first, so budget exhaustion hits the
+    (skippable) component flood last, not undiscovered isolated roots.
     """
     if not nets:
         raise ValueError(
@@ -305,13 +363,20 @@ def solve_zero_dim(
             e = heapq.heappop(pending)
             return e[2], e[3]
 
-    cells = 0
-    while pending and cells < max_cells:
-        cells += 1
+    if max_boxes is None:
+        max_boxes = 16 * max_cells
+    cells = 0      # charged units (see "Budget contract" above)
+    boxes = 0      # every processed box — bounded by the backstops
+    while (pending and cells < max_cells
+           and boxes < min(max_boxes, max_cells + 16 * cells)):
+        boxes += 1
         bx, bnets = _pop()
         if any(n.excludes_zero() for n in bnets):
+            if skip_newton is None:
+                cells += 1
             continue
         if skip_newton is None or not skip_newton(bx):
+            cells += 1
             mid = np.array([0.5 * (lo + hi) for lo, hi in bx])
             sol = newton(mid)
             if sol is not None:
