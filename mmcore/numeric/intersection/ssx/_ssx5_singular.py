@@ -680,6 +680,12 @@ def theorem3_excludes_c3(T1, T2, T3, T4) -> bool:
     two DIFFERENT boxes; those are handled by c3_pass's segment-pair
     proximity search over the traced branches.
 
+    UNWIRED as of ledger L8: bez_ssx no longer consults this as a gate for
+    c3_pass — "every traced cell certifies" does NOT imply "no C3" (the
+    cross-cell blind spot: two preimage strips in different cells, each
+    truthfully injective on its own). The certificate itself remains sound
+    and exported for per-box use; it is just not a valid GLOBAL gate.
+
     Definiteness carries the L1 roundoff margin: a net is sign-definite
     only if its hull CLEARS zero by more than K*eps*max|c| — a
     split-drifted zero coefficient must not certify injectivity (a larger

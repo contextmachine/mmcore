@@ -867,16 +867,65 @@ def test_cusp_curve_on_split_plane_not_knifed_out():
 
 
 def test_theorem3_skips_regular_case():
-    # transversal bilinear pair. NOTE (measured): the Theorem-3 gate does
-    # NOT certify here — the whole curve traces from the TOP cell, whose
-    # T1/T2 hulls touch zero at the domain edge, so the (sound, strict)
-    # hull test fails and c3_pass DOES run. The guarantee this test pins is
-    # the one that matters: the vectorized AABB broadphase makes that run
-    # nearly free and it finds nothing — zero spurious self-intersections.
+    # transversal bilinear pair. Since ledger L8 there is no per-cell
+    # Theorem-3 gate at all — c3_pass runs whenever a collision is even
+    # possible (here: one branch with plenty of segments). The guarantee
+    # this test pins is the one that matters: the vectorized AABB
+    # broadphase makes that unconditional run nearly free and it finds
+    # nothing — zero spurious self-intersections on regular geometry.
     s1 = np.array([[[0., 0., 0.], [0., 10., 0.]], [[10., 0., 0.], [10., 10., 10.]]])
     s2 = np.array([[[0., 0., 3.], [0., 10., 3.]], [[10., 0., 3.], [10., 10., 3.]]])
     r = bez_ssx(s1, s2, 1e-3, rational=False)
     assert [g for g in r["singularities"] if g.kind == "self_intersection"] == []
+
+
+def _figure_eight_wall_case():
+    """S1 deg (3,2): P[i][j] = (X[i], Y[j], Z[i]+Q[j]) — the family
+    S1(s,t) = (p^3 - p, 1.2 t, 0.35 p^2 + 0.3 + 0.16 (t-0.5)^2), p = 1.2(2s-1):
+    a figure-eight wall whose 3D surface self-intersects along the line
+    {x=0, z = 0.65 + 0.16(t-0.5)^2} (p = +-1, i.e. s = 0.5 +- 1/2.4).
+    S2: plane z = 0.66 cuts that line at t = 0.25 and t = 0.75, so the SSI
+    (two branches at s ~ 0.08 and s ~ 0.92) crosses itself in 3D at
+    (0, 0.3, 0.66) and (0, 0.9, 0.66) — with the two preimages of each
+    crossing in DIFFERENT traced cells (first guided cuts split at
+    s ~ 0.102/0.898; measured: every branch-carrying traced cell certifies
+    per-cell Theorem 3, so no per-cell gate can see this C3 — ledger L8)."""
+    X = [-0.528, 2.128, -2.128, 0.528]
+    Z = [0.804, 0.132, 0.132, 0.804]
+    Y = [0.0, 0.6, 1.2]
+    Q = [0.04, -0.04, 0.04]
+    S1 = np.array([[[X[i], Y[j], Z[i] + Q[j]] for j in range(3)] for i in range(4)])
+    S2 = np.array([[[-1.5, -0.5, 0.66], [-1.5, 1.7, 0.66]],
+                   [[1.5, -0.5, 0.66], [1.5, 1.7, 0.66]]])
+    # self-check the family and the wall's 3D double points
+    for s, t in [(0.1, 0.2), (0.5, 0.5), (0.85, 0.9)]:
+        p = 1.2 * (2 * s - 1)
+        ref = [p ** 3 - p, 1.2 * t, 0.35 * p * p + 0.3 + 0.16 * (t - 0.5) ** 2]
+        assert np.allclose(eval_surface(_homog(S1), s, t, rational=True), ref, atol=1e-12)
+    for t in (0.25, 0.75):
+        p1 = eval_surface(_homog(S1), 0.5 - 1 / 2.4, t, rational=True)
+        p2 = eval_surface(_homog(S1), 0.5 + 1 / 2.4, t, rational=True)
+        assert np.linalg.norm(p1 - p2) < 1e-12 and abs(p1[2] - 0.66) < 1e-12
+    return S1, S2
+
+
+def test_cross_cell_self_intersections_figure_eight():
+    # Ledger L8: both preimages S1-side, in separate traced cells that each
+    # certify per-cell injectivity — the removed c3_possible gate stayed
+    # silent on exactly this class (any firing was subdivision-path luck
+    # via empty corner-crossing cells). c3_pass must now run structurally
+    # and report BOTH crossings (they are 600*atol apart in xyz — the
+    # ledger-L16 dedup must keep them distinct).
+    S1, S2 = _figure_eight_wall_case()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    c3 = [g for g in r["singularities"] if g.kind == "self_intersection"]
+    assert len(c3) == 2, f"expected both crossings, got {len(c3)}"
+    got = sorted([tuple(np.round(g.xyz, 3)) for g in c3])
+    assert np.allclose(got, [(0.0, 0.3, 0.66), (0.0, 0.9, 0.66)], atol=2e-3)
+    for g in c3:
+        # both preimages on S1 (s = 0.5 -+ 1/2.4), shared plane preimage
+        assert abs(g.stuv[0] - g.stuv_mate[0]) > 0.5
+        assert np.all(np.abs(g.stuv[2:] - g.stuv_mate[2:]) <= 1e-9)
 
 
 # ---------------------------------------------------------------------------

@@ -4296,17 +4296,16 @@ def bez_ssx(
     all_fragments: list[_Fragment] = []
     all_points = []
     all_singularities: list[SSXSingularity] = []
-    # C3 gate (paper Theorem 3): stays False while every traced cell's own
-    # 3D image is certified injective AND no tangency arm emitted anything.
-    # Theorem 3 is a PER-BOX certificate — cross-box image collisions (two
-    # far-apart preimage strips meeting at one 3D point, the umbrella X)
-    # are exactly what a straddling T-hull on the coarser ancestor cell
-    # flags before subdivision separates the strips.
+    # NOTE no per-cell C3 gate here (ledger L8): Theorem 3 is a PER-BOX
+    # injectivity certificate — a C3 whose two preimages lie in DIFFERENT
+    # traced cells passes every per-cell check (each branch-carrying cell
+    # certifies its own image injective, truthfully), so "some traced cell
+    # failed the certificate" is NOT a sound trigger for the post-trace
+    # c3_pass. The pass now runs unconditionally whenever a collision is
+    # possible at all (see the c3_pass call site below).
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
-        theorem3_excludes_c3, hull_excludes_zero, psi_vector_net,
+        hull_excludes_zero, psi_vector_net,
     )
-
-    c3_possible = False
 
     while queue:
         cell = queue.popleft()
@@ -4456,9 +4455,6 @@ def bez_ssx(
                         <= 4.0 * unify_tol):
                     queue.extend(_probe_children(cell))
             if cell.crossings:
-                if not c3_possible and not theorem3_excludes_c3(
-                        cell.T1, cell.T2, cell.T3, cell.T4):
-                    c3_possible = True
                 fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
                 if tangent_gate:
                     # Ledger L5: a tangent CURVE traces fine through this
@@ -4548,7 +4544,6 @@ def bez_ssx(
             # spelled out because THIS site depends on full enumeration
             # (multi-touch cells); `roots` feeds Task 5's Φ∩L seeding
             # (_choose_phi_equations takes roots[0]).
-            c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
                                             all_singularities,
                                             enumerate_all=True,
@@ -4600,7 +4595,6 @@ def bez_ssx(
             # center witness costs ~ms; a witness landing ON a traced
             # tangential/overlap branch is dropped by the post-assembly
             # subsumption filter, so the curve case emits nothing.
-            c3_possible = True     # tangency arm: Theorem 3 cannot hold here
             _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                                 enumerate_all=False,
                                 overlap_boxes=overlap_boxes)
@@ -5014,11 +5008,22 @@ def bez_ssx(
             branch_links=links))
 
     # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
-    # Runs AFTER tracing (branch geometry drives the candidate search) and
-    # only when the Theorem-3 gate fired: on regular transversal cases every
-    # traced cell certifies an injective image and no tangency arm ran, so
-    # the O(N^2) segment-pair search is skipped entirely.
-    if c3_possible and all_branches:
+    # Runs AFTER tracing (branch geometry drives the candidate search).
+    # Ledger L8: the old trigger — "some traced cell failed the per-cell
+    # Theorem-3 certificate" — was semantically wrong: Theorem 3 certifies
+    # only that ONE box's image is injective; a C3 whose two preimages lie
+    # in DIFFERENT traced cells (figure-eight wall: s≈0.08 and s≈0.92
+    # strips, each cell truthfully certified) passes every per-cell check
+    # and the pass never ran. Run it whenever a collision is possible at
+    # all: >= 2 branches (cross-branch), or a branch long enough to reach
+    # its own segments past the broadphase index gap >= 3 (>= 8 segments,
+    # within-branch). The vectorized AABB broadphase keeps the fired path
+    # free on regular geometry (measured: 0 candidate pairs on coverage
+    # case 10's 115 segments, ~0.3 ms; the old gate fired on every regular
+    # coverage case anyway — top-cell T-hulls touch zero at domain edges —
+    # so this was already the de-facto hot path).
+    if all_branches and (len(all_branches) >= 2 or any(
+            len(np.asarray(b.curve[1])) >= 9 for b in all_branches)):
         from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
 
         for hit in c3_pass(S1_h_top, S2_h_top, all_branches, atol,
