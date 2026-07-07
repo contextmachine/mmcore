@@ -24,7 +24,7 @@ from numpy.typing import NDArray
 
 from mmcore.numeric.bern_sq_dist import surface_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
-    extract_weights, eval_surface, eval_surface_d1,
+    extract_weights, eval_surface, eval_surface_d1, eval_curve,
 )
 from mmcore.numeric.intersection._sq_dist_classify import (
     _check_min_of_net, _check_lipschitz, _weight_max_product,
@@ -245,6 +245,37 @@ def _map_csx_to_stuv(s1_axis, side, t_crv, u_other, v_other, owner_is_s1):
     return stuv
 
 
+def _invert_point_on_surface(S_h, P, rational=True, grid=4, iters=12):
+    """(u,v) minimizing |S(u,v) − P| — small Gauss-Newton from the best
+    point of a coarse grid, clamped to [0,1]². Used to RESOLVE boundary
+    overlap endpoints: CSX reports t/u/v ranges whose index-pairing is
+    meaningless for curve-on-surface overlaps (corner-sharing bilinear
+    repro: the s=1 edge's claim carried u=(0,0), v=(0.5,0.5) — a single
+    garbage surface point for the whole edge)."""
+    P = np.asarray(P, dtype=np.float64)
+    best, best_d = None, np.inf
+    for gu in np.linspace(0.0, 1.0, grid + 1):
+        for gv in np.linspace(0.0, 1.0, grid + 1):
+            d = float(np.linalg.norm(eval_surface(S_h, gu, gv, rational=rational) - P))
+            if d < best_d:
+                best_d, best = d, (gu, gv)
+    u, v = best
+    for _ in range(iters):
+        pt, du, dv = eval_surface_d1(S_h, u, v, rational=rational)
+        r = pt - P
+        J = np.column_stack([du, dv])
+        A = J.T @ J + 1e-14 * np.eye(2)
+        try:
+            step = np.linalg.solve(A, -(J.T @ r))
+        except np.linalg.LinAlgError:
+            break
+        u = float(np.clip(u + step[0], 0.0, 1.0))
+        v = float(np.clip(v + step[1], 0.0, 1.0))
+        if float(np.linalg.norm(step)) < 1e-14:
+            break
+    return u, v
+
+
 def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     """Find all intersection points and overlaps on the boundary of [0,1]⁴.
 
@@ -269,12 +300,49 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
 
         for ovl in result.get('overlaps', []):
             tr = ovl.get('t_range', (0.0, 1.0))
-            ur = ovl.get('u_range', (0.0, 1.0))
-            vr = ovl.get('v_range', (0.0, 1.0))
-            # Overlap start
-            stuv_s = _map_csx_to_stuv(axis, side, tr[0], ur[0], vr[0], owner_is_s1)
-            stuv_e = _map_csx_to_stuv(axis, side, tr[1], ur[1], vr[1], owner_is_s1)
+            # ENDPOINT RESOLUTION (corner-sharing bilinear repro): the
+            # claim's u/v_range endpoints are NOT paired with the t_range
+            # endpoints in any meaningful order for a curve-on-surface
+            # overlap — resolve each t-endpoint's true surface preimage by
+            # point inversion instead of trusting the index pairing.
+            uv_pairs = []
+            for t_end in (tr[0], tr[1]):
+                cpt = eval_curve(iso, float(t_end), rational=rational)
+                uv_pairs.append(_invert_point_on_surface(
+                    other_surf, cpt, rational=rational))
+            stuv_s = _map_csx_to_stuv(axis, side, tr[0],
+                                      uv_pairs[0][0], uv_pairs[0][1],
+                                      owner_is_s1)
+            stuv_e = _map_csx_to_stuv(axis, side, tr[1],
+                                      uv_pairs[1][0], uv_pairs[1][1],
+                                      owner_is_s1)
             face_id = axis if owner_is_s1 else axis + 2
+            # GEOMETRIC VERIFICATION of the overlap claim (corner-sharing
+            # bilinear repro: CSX claimed the whole s=1 edge "overlaps" a
+            # SINGLE surface point — t_range (0,1) with degenerate
+            # u/v_range — and the index-paired endpoints landed ~39 model
+            # units off the intersection). The endpoint pairing above is
+            # index-based and unverified, and everything downstream trusts
+            # it: `_overlaps_to_branches` ships exactly this stuv chord as
+            # a 2-point branch, and the crossing filter below DELETES
+            # genuine crossings near the claimed endpoints (which starved
+            # a genuine branch down to a stub). Accept the claim only if
+            # the SHIPPED chord is on both surfaces: residual
+            # |S1(s,t) − S2(u,v)| ≤ 2·atol (matching ladder) at 5 chord
+            # samples. A rejected claim contributes NOTHING — no overlap,
+            # no endpoint crossings, no crossing filtering; the face's
+            # 'isolated' roots (reported independently by CSX) remain the
+            # source of genuine seeds there.
+            chord_ok = True
+            for _lam in (0.0, 0.25, 0.5, 0.75, 1.0):
+                _sm = (1.0 - _lam) * stuv_s + _lam * stuv_e
+                _p1 = eval_surface(S1_h, _sm[0], _sm[1], rational=rational)
+                _p2 = eval_surface(S2_h, _sm[2], _sm[3], rational=rational)
+                if float(np.linalg.norm(_p1 - _p2)) > 2.0 * atol:
+                    chord_ok = False
+                    break
+            if not chord_ok:
+                continue
             overlaps.append(BoundaryOverlap(stuv_start=stuv_s, stuv_end=stuv_e,
                                             face=(face_id, side)))
             # Also add endpoints as crossings (they connect to interior branches)
@@ -3153,7 +3221,21 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
         else:
             h_init = min(cell_h_max, max(atol, 0.25 * nearest_xyz))
 
-        traced = False
+        # Candidate collection across attempts: commit the FIRST substantial
+        # fragment (arc > 16·atol, the micro-branch scale) immediately, but
+        # keep trying further attempts while only micro fragments came back.
+        # Two graze diseases need the extra attempts:
+        #  - both plain marches BOUNCE (grazing corner, off-lattice loop) —
+        #    attempts 2/3 march from a displaced, corrected interior seed;
+        #  - a plain march makes a little progress and then exits through a
+        #    face the curve merely GRAZES (corner-sharing bilinear repro:
+        #    the arc from the (1,1,0,0) domain corner dipped out at u=0
+        #    after 0.142 and the remaining 32-unit arc was silently lost) —
+        #    the displaced attempts march PAST the dip and return the full
+        #    arc; the longest candidate wins, and genuine micro-fragments
+        #    (case 10's 5.3·atol sliver) keep winning when the extra
+        #    attempts find nothing longer.
+        candidates = []   # (arc_xyz, stuv_global, xyz_local, matched_j)
         tang_seed = None
         for attempt in range(4):
             hint = None
@@ -3169,20 +3251,12 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             if attempt == 1:
                 hint = -tang_seed
             elif attempt >= 2:
-                # Grazing-corner recovery (attempts 2/3, reached only when
-                # both plain marches bounced). A guided cut tangent to the
-                # curve puts a crossing AT a box corner with the curve
-                # tangent pointing microscopically OUT of one face: the
-                # ray-face init then exits at alpha~0 in the true direction
-                # (bounce-killed) and trivially through the adjacent face
-                # the seed sits on in the other — the whole in-cell arc
-                # (off-lattice touch+loop: 2 x ~59 deg = ~1/3 of the circle)
-                # silently degraded to an SSXPoint. Displace the seed a few
-                # steps ALONG the curve tangent, Newton-correct back onto
-                # the curve, and march from the interior point instead; the
-                # crossing itself is prepended so the fragment still starts
-                # at the registered stuv (the first chord skips the graze
-                # dip within sagitta h^2*kappa/2 << atol).
+                # Displaced-seed recovery: step the seed a few percent
+                # ALONG the curve tangent, Newton-correct back onto the
+                # curve, march from the interior point; the registered
+                # crossing is prepended so the fragment still starts at
+                # the registered stuv (the first chord skips the graze
+                # dip within sagitta h²·kappa/2 << atol).
                 sign = 1.0 if attempt == 2 else -1.0
                 seed_local = None
                 for alpha in (0.02, 0.05, 0.1):
@@ -3244,7 +3318,9 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             # Match the exit against the cell's crossings within the
             # parametric tolerance. Consumed crossings stay eligible as
             # endpoints (a corner can terminate two fragments) but only
-            # unconsumed ones are removed from the seed pool.
+            # unconsumed ones are removed from the seed pool. Side effects
+            # (endpoint stamping, `used` bookkeeping) are DEFERRED to the
+            # winning candidate.
             best_j = None
             best_score = float('inf')
             for j, cx in enumerate(cell.crossings):
@@ -3261,25 +3337,59 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             # in space (large surface derivatives). If the xyz check fails,
             # fall through to endpoint synthesis — recoverable, unlike a
             # wrong match which bends the branch end onto the wrong point.
-            # The 2·atol radius matches the unification guard exactly:
-            # anything accepted here can also be unified across cells (a
-            # looser match created a chain-break window at (2, 4]·atol).
+            # The 2·atol radius matches the unification guard exactly.
+            matched_j = None
             if (best_j is not None and best_score <= 1.0
                     and float(np.linalg.norm(
                         np.asarray(cell.crossings[best_j].xyz, dtype=np.float64)
                         - np.asarray(xyz_local[-1], dtype=np.float64))) <= 2.0 * atol):
-                end_cx = cell.crossings[best_j]
+                matched_j = best_j
+
+            arc_xyz = float(np.linalg.norm(
+                np.diff(path_xyz, axis=0), axis=1).sum())
+            candidates.append((arc_xyz, stuv_global,
+                               np.asarray(xyz_local, dtype=np.float64),
+                               matched_j, exit_info,
+                               np.asarray(stuv_local[-1], dtype=np.float64)))
+
+            # Graze-exit suspicion: the march ended on a face NO registered
+            # crossing accounts for, with the curve tangent nearly PARALLEL
+            # to that face — the signature of the curve dipping just outside
+            # the box and re-entering (corner-sharing bilinear repro: the
+            # arc from the (1,1,0,0) domain corner dipped out at u=0 after
+            # 0.142 = 142·atol — arc length alone cannot flag it). Keep
+            # attempting; the displaced-seed marches (2/3) start PAST the
+            # dip and recover the remaining arc; winner-by-length decides.
+            graze_exit = False
+            if matched_j is None and exit_info is not None:
+                tang_exit, _, _ = _ssx_tangent_4d(
+                    cell.g1.surface, cell.g2.surface,
+                    *np.asarray(stuv_local[-1], dtype=np.float64),
+                    rational=True)
+                if tang_exit is not None:
+                    _ax = exit_info[0]
+                    if (abs(float(tang_exit[_ax]))
+                            < 0.1 * float(np.linalg.norm(tang_exit))):
+                        graze_exit = True
+            if arc_xyz > 16.0 * atol and not graze_exit:
+                break     # substantial fragment, honest exit — done
+
+        if candidates:
+            candidates.sort(key=lambda c: -c[0])
+            _, stuv_global, xyz_local, matched_j, exit_info, exit_local = candidates[0]
+            if matched_j is not None:
+                end_cx = cell.crossings[matched_j]
                 stuv_global[-1] = end_cx.stuv.copy()
                 xyz_local[-1] = end_cx.xyz.copy()
-                used.add(best_j)
+                used.add(matched_j)
             elif exit_info is not None:
                 # No registered crossing here — the marcher just proved one
                 # exists (Newton-converged exit on a face). Synthesize it.
                 axis = exit_info[0]
-                side = 0 if stuv_local[-1][axis] < 0.5 else 1
+                side = 0 if exit_local[axis] < 0.5 else 1
                 tang_end, _, _ = _ssx_tangent_4d(
                     cell.g1.surface, cell.g2.surface,
-                    *stuv_local[-1], rational=True)
+                    *exit_local, rational=True)
                 end_cx = BoundaryPoint(
                     stuv=stuv_global[-1].copy(),
                     xyz=xyz_local[-1].copy(),
@@ -3300,10 +3410,8 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 stuv_path=stuv_global,
                 xyz_path=xyz_local,
             ))
-            traced = True
-            break
 
-        if not traced and i not in used:
+        if not candidates and i not in used:
             # Both directions failed (genuine corner touch or marcher
             # failure). Surface the crossing as an isolated point instead
             # of silently dropping it.
@@ -5268,6 +5376,108 @@ def bez_ssx(
     )
     all_branches.extend(overlap_branches)
 
+    # --- Overlap-curve JUNCTION singularities ---
+    # Two 1-dimensional overlap/tangential features meeting at a point are
+    # a structural singularity of the SSI, and at such a junction the
+    # surfaces are genuinely tangent (measured sin_ang = 0 exactly on both
+    # the corner-sharing bilinear repro and the legacy overlaps corner).
+    # The Δ-witness cannot report these: junction points sit inside the L6
+    # overlap suppression boxes by construction (they are overlap segment
+    # ENDPOINTS), which is correct for the witness junk that suppression
+    # exists for — so junctions are emitted STRUCTURALLY here instead.
+    # Rules: ≥2 DISTINCT overlap/tangential branches meeting within the
+    # matching ladder (2·atol xyz), genuinely non-collinear directions
+    # (a collinear meeting is one curve artificially split — no feature),
+    # verified tangency at the junction (healthy, parallel normals).
+    if len(all_branches) >= 2:
+        def _sin_ang_at(s4):
+            _, du1, dv1 = eval_surface_d1(S1_h_top, s4[0], s4[1], rational=True)
+            _, du2, dv2 = eval_surface_d1(S2_h_top, s4[2], s4[3], rational=True)
+            N1 = np.cross(du1, dv1)
+            N2 = np.cross(du2, dv2)
+            return (float(np.linalg.norm(np.cross(N1, N2)))
+                    / max(float(np.linalg.norm(N1)) * float(np.linalg.norm(N2)),
+                          1e-300))
+
+        def _sin_ang_inward(b, at_start, d_iso):
+            # sin_ang at the polyline point d_iso ALONG the branch from
+            # the given end (stuv interpolated on the owning segment).
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            stuv = np.asarray(b.curve[0], dtype=np.float64)
+            if not at_start:
+                xyz = xyz[::-1]
+                stuv = stuv[::-1]
+            walked = 0.0
+            for k in range(len(xyz) - 1):
+                seg = float(np.linalg.norm(xyz[k + 1] - xyz[k]))
+                if walked + seg >= d_iso and seg > 1e-15:
+                    lam = (d_iso - walked) / seg
+                    return _sin_ang_at((1.0 - lam) * stuv[k] + lam * stuv[k + 1])
+                walked += seg
+            return _sin_ang_at(stuv[-1])
+
+        _ends = []       # (branch_idx, xyz, stuv, out_dir, vertex, branch, at_start)
+        for bi, b in enumerate(all_branches):
+            if b.kind not in ("overlap", "tangential"):
+                continue
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            stuv = np.asarray(b.curve[0], dtype=np.float64)
+            if len(xyz) < 2:
+                continue
+            if float(np.linalg.norm(xyz[0] - xyz[-1])) <= 2.0 * atol:
+                continue    # closed branch: its "ends" are a seam, not a junction
+            for at_start in (True, False):
+                p3 = xyz[0] if at_start else xyz[-1]
+                p4 = stuv[0] if at_start else stuv[-1]
+                v = (xyz[1] - xyz[0]) if at_start else (xyz[-2] - xyz[-1])
+                n = float(np.linalg.norm(v))
+                if n < 1e-15:
+                    continue
+                _ends.append((bi, p3, p4, v / n,
+                              0 if at_start else len(xyz) - 1, b, at_start))
+        for a in range(len(_ends)):
+            for c in range(a + 1, len(_ends)):
+                ba, pa, sa4, da, ka, bra, sta = _ends[a]
+                bc, pc, sc4, dc, kc, brc, stc = _ends[c]
+                if ba == bc:
+                    continue
+                if float(np.linalg.norm(pa - pc)) > 2.0 * atol:
+                    continue
+                # non-collinear meeting (collinear = artificial split)
+                if float(np.linalg.norm(np.cross(da, dc))) < 0.1:
+                    continue
+                if _normals_degenerate_at(S1_h_top, S2_h_top, sa4):
+                    continue
+                if _sin_ang_at(sa4) > 1e-3:
+                    continue
+                # ISOLATION: a genuine junction tangency is 0-dimensional —
+                # sin_ang must GROW away from the point along BOTH branches
+                # (corner-sharing repro: 0 at the junction, ~0.25 at the
+                # far edge ends). A junction inside a coplanar overlap
+                # strip or on a 1-dim tangent curve has sin_ang ~ 0 in the
+                # whole neighborhood (tangency is 1- or 2-dimensional
+                # there) and is exactly the class the L6 suppression
+                # exists for — skip it.
+                _arc_a = float(np.linalg.norm(
+                    np.diff(np.asarray(bra.curve[1], dtype=np.float64),
+                            axis=0), axis=1).sum())
+                _arc_c = float(np.linalg.norm(
+                    np.diff(np.asarray(brc.curve[1], dtype=np.float64),
+                            axis=0), axis=1).sum())
+                d_iso_a = max(8.0 * atol, 0.05 * _arc_a)
+                d_iso_c = max(8.0 * atol, 0.05 * _arc_c)
+                if (_sin_ang_inward(bra, sta, d_iso_a) <= 1e-3
+                        or _sin_ang_inward(brc, stc, d_iso_c) <= 1e-3):
+                    continue
+                if not any(g.kind == "tangent_point"
+                           and np.all(np.abs(g.stuv - sa4) <= unify_tol)
+                           and float(np.linalg.norm(np.asarray(g.xyz) - pa)) <= 2.0 * atol
+                           for g in all_singularities):
+                    all_singularities.append(SSXSingularity(
+                        kind="tangent_point", stuv=np.asarray(sa4, dtype=np.float64),
+                        xyz=np.asarray(pa, dtype=np.float64),
+                        branch_links=[(ba, ka), (bc, kc)]))
+
     # A tangent_point ON a 1-dimensional tangential feature is not an
     # isolated C2 touch: overlap regions and traced tangent curves (branch
     # kind 'overlap'/'tangential') consist entirely of Δ-roots, so the
@@ -5313,15 +5523,39 @@ def bez_ssx(
                 _one_dim_polys.append(
                     (_poly, np.asarray(b.curve[0], dtype=np.float64)))
         if _one_dim_polys:
+            def _interior_subsumed(g):
+                # JUNCTION EXCEPTION (corner-sharing bilinear repro): a
+                # tangent_point at the ENDPOINT of an overlap/tangential
+                # branch is a structural feature — two shared-edge overlap
+                # curves meeting at a genuine surface-surface tangency
+                # (sin_ang = 0 measured) — not an interior re-confirmation
+                # of the 1-dim feature. Subsume only points whose nearest
+                # branch location is in the polyline INTERIOR (farther
+                # than 2·atol from both branch ends).
+                gxyz = np.asarray(g.xyz, dtype=np.float64)
+                gstuv = np.asarray(g.stuv, dtype=np.float64)
+                for poly_xyz, poly_stuv in _one_dim_polys:
+                    if not _point_on_branch_both_guards(
+                            gxyz, gstuv, poly_xyz, poly_stuv, atol,
+                            unify_tol, S1_h_top, S2_h_top):
+                        continue
+                    # The endpoint exception applies to genuinely OPEN
+                    # ends only: a CLOSED branch's start/end is an
+                    # assembly seam — interior in curve terms — and
+                    # witness debris near the seam must still be
+                    # subsumed (tangent-ring regression).
+                    branch_open = (float(np.linalg.norm(
+                        poly_xyz[0] - poly_xyz[-1])) > 2.0 * atol)
+                    near_end = branch_open and (
+                        float(np.linalg.norm(gxyz - poly_xyz[0])) <= 2.0 * atol
+                        or float(np.linalg.norm(gxyz - poly_xyz[-1])) <= 2.0 * atol)
+                    if not near_end:
+                        return True
+                return False
+
             all_singularities = [
                 g for g in all_singularities
-                if not (g.kind == "tangent_point" and any(
-                    _point_on_branch_both_guards(
-                        np.asarray(g.xyz, dtype=np.float64),
-                        np.asarray(g.stuv, dtype=np.float64),
-                        poly_xyz, poly_stuv, atol, unify_tol,
-                        S1_h_top, S2_h_top)
-                    for poly_xyz, poly_stuv in _one_dim_polys))
+                if not (g.kind == "tangent_point" and _interior_subsumed(g))
             ]
 
     # Spurious micro-branches at emitted tangent points: subdividing around

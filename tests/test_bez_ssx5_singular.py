@@ -1589,3 +1589,68 @@ def test_touch_detection_scale_covariant(k):
     assert np.allclose(tps[0].stuv[:2], [0.45, 0.5], atol=1e-3)
     assert np.allclose(tps[1].stuv[:2], [0.9, 0.5], atol=1e-3)
     assert r["branches"] == [] and r["points"] == []
+
+
+# ---------------------------------------------------------------------------
+# Ledger L27: corner-sharing bilinear patches (user-reported)
+# ---------------------------------------------------------------------------
+
+def _shared_edge_pair(flatten_s2=False):
+    """Two bilinear patches sharing THREE corners and TWO whole edges:
+    S1(s=1 edge) == S2(v=0 edge) (segment B-A) and S1(t=0 edge) ==
+    S2(u=1 edge) (segment C-A), meeting at A = (48.557, -45.524, 0) where
+    the surfaces are exactly tangent (sin_ang = 0). True SSI: the two
+    shared edges as overlap curves + the junction tangency at A."""
+    S1 = np.array([[[78.47558485, -33.55696868, 0.], [90.44303132, -69.45930808, 5.98372323]],
+                   [[48.55696868, -45.52441515, 0.], [60.52441515, -75.44303132, 0.]]])
+    S2 = np.array([[[60.52441515, -75.44303132, 0.], [93.44303132, -69.45930808, -1.98372323]],
+                   [[48.55696868, -45.52441515, 0.], [78.47558485, -33.55696868, 0.]]])
+    if flatten_s2:
+        S2 = S2.copy()
+        S2[..., 2] = 0.0
+    return S1, S2
+
+
+@pytest.mark.parametrize("flatten_s2", [False, True])
+def test_shared_edges_junction_tangent_point(flatten_s2):
+    # L27 regression (user report): the CSX boundary-overlap claims for the
+    # shared edges carried garbage index-paired (u,v) endpoints (a whole
+    # edge "overlapping" one surface point, residual ~39 model units =
+    # 39000*atol); the unverified claims shipped as 3 garbage branches AND
+    # their endpoints filtered out the genuine crossings, starving one true
+    # branch to a 0.142 stub. The flat-projection variant additionally ran
+    # orders of magnitude slower. Now: overlap endpoints are resolved by
+    # point inversion + the shipped chord is residual-verified, and the
+    # junction of the two overlap curves is emitted structurally as the
+    # tangent_point the geometry demands (sin_ang = 0 measured at A).
+    A = np.array([48.55696868, -45.52441515, 0.0])
+    B = np.array([60.52441515, -75.44303132, 0.0])
+    C = np.array([78.47558485, -33.55696868, 0.0])
+    S1, S2 = _shared_edge_pair(flatten_s2)
+    import time
+    t0 = time.time()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    dt = time.time() - t0
+    assert dt < 10.0, f"corner case took {dt:.1f}s (flat-variant slowdown regression)"
+
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1
+    assert np.allclose(tps[0].xyz, A, atol=2e-3)
+
+    assert len(r["branches"]) == 2
+    ends = []
+    for b in r["branches"]:
+        assert b.kind == "overlap"
+        xyz = np.asarray(b.curve[1])
+        # every shipped sample must be ON both surfaces
+        stuv = np.asarray(b.curve[0])
+        for s4 in stuv:
+            p1 = eval_surface(_homog(S1), s4[0], s4[1], rational=True)
+            p2 = eval_surface(_homog(S2), s4[2], s4[3], rational=True)
+            assert np.linalg.norm(p1 - p2) <= 2e-3
+        ends.append({tuple(np.round(xyz[0], 3)), tuple(np.round(xyz[-1], 3))})
+    want_AB = {tuple(np.round(A, 3)), tuple(np.round(B, 3))}
+    want_AC = {tuple(np.round(A, 3)), tuple(np.round(C, 3))}
+    assert (ends[0] == want_AB and ends[1] == want_AC) or \
+           (ends[0] == want_AC and ends[1] == want_AB)
+    assert r["points"] == []
