@@ -1186,3 +1186,113 @@ def test_tangent_curve_no_point_flood():
     assert len(tps) == 0, (
         f"point flood from the 1-dim tangent ring: {len(tps)} tangent_points "
         f"(was 4 surviving of ~50 emitted pre-fix)")
+
+
+# ---------------------------------------------------------------------------
+# L9: rational-input hygiene — TPsi minor nets from the quotient-rule
+# numerator columns (dehomogenized control-point minors are the WRONG
+# surface pair for non-uniform weights).
+# ---------------------------------------------------------------------------
+
+from mmcore.numeric.intersection.ssx._ssx5_singular import (
+    _same_param_product_vec_scalar, minors_Tpsi_rational,
+)
+
+
+def _rationalize_s(S_h, wnet):
+    """Multiply numerator (xyz) AND weight of a homogeneous net by the scalar
+    net wnet(s) via the EXACT same-parameter Bernstein product — leaves the
+    geometric surface P/w unchanged while making the weights non-uniform."""
+    P = S_h[..., :3]; w = S_h[..., 3]
+    Pnew = _same_param_product_vec_scalar(P, wnet)
+    wnew = _same_param_product_vec_scalar(w[..., None], wnet)[..., 0]
+    return np.concatenate([Pnew, wnew[..., None]], axis=-1)
+
+
+def test_rational_tpsi_minors_match_true_jacobian():
+    # The rational TPsi nets must match the TRUE rational-Jacobian minors in
+    # SIGN and zero-crossings — each numerator minor equals the true minor
+    # times a strictly positive power-of-W factor:
+    #   T1,T2 : W1^2 W2^4 ;  T3,T4 : W1^4 W2^2   (W1,W2 > 0).
+    from mmcore.numeric.bern import bernstein_eval_nd
+
+    def _triple(a, b, c):
+        return float(np.dot(a, np.cross(b, c)))
+
+    def _rand_rat(rng, mu, mv):
+        P = rng.uniform(-2, 2, (mu + 1, mv + 1, 3))
+        w = rng.uniform(0.3, 3.0, (mu + 1, mv + 1))          # strictly positive
+        return np.concatenate([P * w[..., None], w[..., None]], axis=-1)
+
+    rng = np.random.default_rng(20260707)
+    sign_ok = sign_tot = 0
+    worst_rel = 0.0
+    for _ in range(40):
+        S1h = _rand_rat(rng, rng.integers(1, 4), rng.integers(1, 4))
+        S2h = _rand_rat(rng, rng.integers(1, 4), rng.integers(1, 4))
+        Tn = [np.asarray(T, dtype=np.float64) for T in minors_Tpsi_rational(S1h, S2h)]
+        for _ in range(8):
+            s, t, u, v = rng.uniform(0, 1, 4)
+            net = np.array([bernstein_eval_nd(T[..., None], np.array([s, t, u, v])).item()
+                            for T in Tn])
+            _, R1s, R1t = eval_surface_d1(S1h, s, t, rational=True)
+            _, R2u, R2v = eval_surface_d1(S2h, u, v, rational=True)
+            tru = np.array([_triple(R1t, R2u, R2v), _triple(R1s, R2u, R2v),
+                            -_triple(R1s, R1t, R2v), -_triple(R1s, R1t, R2u)])
+            W1 = float(eval_surface(S1h, s, t, rational=False)[-1])
+            W2 = float(eval_surface(S2h, u, v, rational=False)[-1])
+            factor = np.array([W1**2 * W2**4, W1**2 * W2**4,
+                               W1**4 * W2**2, W1**4 * W2**2])
+            expected = factor * tru
+            scale = np.maximum(np.abs(net), np.abs(expected))
+            for k in range(4):
+                sign_tot += 1
+                if np.sign(net[k]) == np.sign(tru[k]) or scale[k] < 1e-12:
+                    sign_ok += 1
+                if scale[k] > 1e-9:
+                    worst_rel = max(worst_rel, abs(net[k] - expected[k]) / scale[k])
+    assert sign_ok == sign_tot, f"sign disagreement {sign_ok}/{sign_tot}"
+    assert worst_rel < 1e-9, f"ratio error {worst_rel:.2e} exceeds 1e-9"
+
+
+def test_rational_weights_tangent_point_found():
+    # The paraboloid touch (isolated C2), rationalized EXACTLY by multiplying
+    # numerator + weight by the deg-(1,0) net [[1],[2]] (weights 1..2, same
+    # geometry). The dehomogenized-control-point minors describe a different
+    # surface pair and lose the touch; the quotient-rule minors keep it.
+    S1, S2 = _paraboloid_touch()
+    S1_h = _homog(S1); S2_h = _homog(S2)
+    S1_rat = _rationalize_s(S1_h, np.array([[1.0], [2.0]]))
+    # geometry unchanged
+    rng = np.random.default_rng(3)
+    for s, t in rng.uniform(0, 1, (10, 2)):
+        assert np.allclose(eval_surface(S1_h, s, t, rational=True),
+                           eval_surface(S1_rat, s, t, rational=True), atol=1e-11)
+    assert S1_rat[..., -1].max() > 1.5 and S1_rat[..., -1].min() < 1.01  # non-uniform
+    r = bez_ssx(S1_rat, S2_h, 1e-3, rational=True)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1, f"rationalized paraboloid lost its touch: {len(tps)} tangent_points"
+    g = tps[0]
+    assert np.allclose(g.stuv[:2], [0.5, 0.5], atol=1e-3)
+    assert np.allclose(g.xyz, [0.5, 0.5, 0.0], atol=1e-3)
+    assert r["branches"] == [] and r["points"] == []      # same contract as poly test
+
+
+def test_rational_transversal_sanity_matches_polynomial():
+    # A plain transversal pair, rationalized the same exact way, must trace
+    # the SAME branch (1 branch, coverage within 5e-3 of the polynomial twin).
+    s1 = np.array([[[0., 0., 5.], [0., 10., 5.]], [[10., 0., 5.], [10., 10., 5.]]])
+    s2 = np.array([[[0., 0., 0.], [0., 10., 0.]], [[10., 0., 10.], [10., 10., 10.]]])
+    rp = bez_ssx(s1, s2, 1e-3, rational=False)
+    assert len(rp["branches"]) == 1
+    S1_rat = _rationalize_s(_homog(s1), np.array([[1.0], [2.0]]))
+    for s, t in np.random.default_rng(0).uniform(0, 1, (6, 2)):
+        assert np.allclose(eval_surface(_homog(s1), s, t, rational=True),
+                           eval_surface(S1_rat, s, t, rational=True), atol=1e-10)
+    rr = bez_ssx(S1_rat, _homog(s2), 1e-3, rational=True)
+    assert len(rr["branches"]) == 1, f"transversal rational gave {len(rr['branches'])} branches"
+    poly = np.asarray(rp["branches"][0].curve[1])
+    ratp = np.asarray(rr["branches"][0].curve[1])
+    idx = np.linspace(0, len(poly) - 1, 20, dtype=int)
+    for i in idx:
+        assert _pt_poly(poly[i], ratp) <= 5e-3

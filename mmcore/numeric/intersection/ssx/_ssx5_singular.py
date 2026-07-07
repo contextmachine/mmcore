@@ -210,6 +210,65 @@ def sigma_normal_net(S: np.ndarray, rational: bool) -> np.ndarray:
     return np.asarray(bernstein_patch_cross_same_params(A.tolist(), B.tolist()), dtype=np.float64)
 
 
+def _rational_jacobian_numerator_columns(S_h: np.ndarray):
+    """The two quotient-rule NUMERATOR column nets of a rational surface's
+    Jacobian, as exact Bernstein vec3 patches over the surface's own (a,b)
+    params (ledger L9).
+
+    For R = P/w (P = weighted-numerator net S_h[...,:-1], w = weight net
+    S_h[...,-1], mmcore convention), the quotient rule gives
+        R_a = (P_a*w - P*w_a) / w^2,   R_b = (P_b*w - P*w_b) / w^2.
+    This returns the NUMERATORS
+        col_a = P_a*w - P*w_a,   col_b = P_b*w - P*w_b
+    (built from the same exact same-parameter Bernstein products as
+    `sigma_normal_net`'s rational branch — `_same_param_product_vec_scalar`).
+    Since w > 0 everywhere for valid weights, R_a = col_a / w^2 with a
+    strictly positive denominator, so any minor formed from these columns
+    equals the true rational-Jacobian minor times a positive power-of-w
+    factor — identical zero set and sign structure.
+    """
+    S_h = np.asarray(S_h, dtype=np.float64)
+    if S_h.ndim != 3 or S_h.shape[-1] != 4:
+        raise ValueError(
+            "_rational_jacobian_numerator_columns requires a homogeneous "
+            f"(m+1, n+1, 4) control net (got shape {S_h.shape})")
+    P, w = S_h[..., :-1], S_h[..., -1]
+    Pa = bernstein_partial_derivative_coeffs(P, axis=0)
+    Pb = bernstein_partial_derivative_coeffs(P, axis=1)
+    wa = bernstein_partial_derivative_coeffs(w[..., None], axis=0)[..., 0]
+    wb = bernstein_partial_derivative_coeffs(w[..., None], axis=1)[..., 0]
+    col_a = (_same_param_product_vec_scalar(Pa, w)
+             - _same_param_product_vec_scalar(P, wa))
+    col_b = (_same_param_product_vec_scalar(Pb, w)
+             - _same_param_product_vec_scalar(P, wb))
+    return col_a, col_b
+
+
+def minors_Tpsi_rational(S1_h: np.ndarray, S2_h: np.ndarray):
+    """TPsi minor nets for genuinely RATIONAL surface input (ledger L9).
+
+    The polynomial path (`minors_Tpsi_from_control_nets` on dehomogenized
+    control points) is WRONG for non-uniform weights: the Bernstein net of
+    per-control-point quotients P/w is NOT the rational surface R = P/w, so
+    its derivatives — hence its minors — describe a different surface pair.
+
+    Instead build the true rational Jacobian's NUMERATOR columns via the
+    quotient rule (`_rational_jacobian_numerator_columns`) and form the four
+    minors from them (`minors_from_column_nets`). Each numerator minor equals
+    the corresponding true rational minor times a strictly positive
+    power-of-W factor (W1, W2 > 0 for valid weights), so it shares the true
+    minor's zero set AND sign structure — exactly what every consumer needs
+    (hull gates, sign-definiteness certificates, monotonicity, deflation
+    zero-finding). Returns nested-list nets, same container type as
+    `minors_Tpsi_from_control_nets`.
+    """
+    from mmcore.numeric.intersection._deflate import minors_from_column_nets
+    A_s, A_t = _rational_jacobian_numerator_columns(S1_h)
+    B_u, B_v = _rational_jacobian_numerator_columns(S2_h)
+    return minors_from_column_nets(
+        A_s.tolist(), A_t.tolist(), B_u.tolist(), B_v.tolist())
+
+
 @dataclass(frozen=True, eq=False)
 class BoxNet:
     """A scalar Bernstein net over a sub-box of [0,1]^4.

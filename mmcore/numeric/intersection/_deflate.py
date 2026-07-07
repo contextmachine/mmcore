@@ -165,24 +165,46 @@ def negate_4d_scalar(S):
                         for j in range(nt+1)]
                         for i in range(ms+1)]
 
+def minors_from_column_nets(col_s, col_t, col_u, col_v):
+    """The four 3x3 minors of the Jacobian [col_s, col_t, -col_u, -col_v] as
+    scalar 4D Bernstein nets.
+
+    `col_s`, `col_t` are vec3 Bernstein patches on (s,t); `col_u`, `col_v`
+    are vec3 Bernstein patches on (u,v) (nested lists of 3-vectors — the
+    `_deflate.py` convention). Cross-surface products are OUTER products
+    (disjoint variables), same-surface products are same-parameter
+    convolutions — exactly the machinery `minors_Tpsi_from_control_nets`
+    uses, factored out so a caller can pass ARBITRARY column nets (e.g. the
+    rational quotient-rule numerator columns P_a*w - P*w_a, whose minors
+    share the true rational-Jacobian minors' zero set and sign structure up
+    to a positive power-of-W factor — ledger L9).
+
+    Returns (T1, T2, T3, T4) with the SAME sign/definition convention as
+    `minors_Tpsi_from_control_nets`:
+        T1 =  col_t · (col_u x col_v)
+        T2 =  col_s · (col_u x col_v)
+        T3 = -(col_s x col_t) · col_v
+        T4 = -(col_s x col_t) · col_u
+    """
+    N1 = bernstein_patch_cross_same_params(col_s, col_t)  # col_s x col_t  on (s,t)
+    N2 = bernstein_patch_cross_same_params(col_u, col_v)  # col_u x col_v  on (u,v)
+
+    T1 = outer_dot_4d(col_t, N2)                  #  col_t · N2
+    T2 = outer_dot_4d(col_s, N2)                  #  col_s · N2
+    T3 = negate_4d_scalar(outer_dot_4d(N1, col_v))# -col_v · N1
+    T4 = negate_4d_scalar(outer_dot_4d(N1, col_u))# -col_u · N1
+
+    return T1, T2, T3, T4
+
+
 def minors_Tpsi_from_control_nets(P1, P2):
-    # first derivatives
+    # first derivatives — the Jacobian columns R1_s, R1_t, R2_u, R2_v
     A = bernstein_patch_derivative_s(P1)  # R1_s
     B = bernstein_patch_derivative_t(P1)  # R1_t
     C = bernstein_patch_derivative_s(P2)  # R2_u
     D = bernstein_patch_derivative_t(P2)  # R2_v
 
-    # normals
-    N1 = bernstein_patch_cross_same_params(A, B)  # N1 = R1_s x R1_t
-    N2 = bernstein_patch_cross_same_params(C, D)  # N2 = R2_u x R2_v
-
-    # minor determinants (scalar 4D Bernstein nets)
-    T1 = outer_dot_4d(B,  N2)                 #  R1_t · N2
-    T2 = outer_dot_4d(A,  N2)                 #  R1_s · N2
-    T3 = negate_4d_scalar(outer_dot_4d(N1, D))# -R2_v · N1
-    T4 = negate_4d_scalar(outer_dot_4d(N1, C))# -R2_u · N1
-
-    return T1, T2, T3, T4
+    return minors_from_column_nets(A, B, C, D)
 
 import numpy as np
 from dataclasses import dataclass

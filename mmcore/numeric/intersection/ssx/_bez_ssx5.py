@@ -4215,7 +4215,28 @@ def bez_ssx(
     else:
         P1_cart = S1
         P2_cart = S2
-    T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1_cart, P2_cart)
+    # TΨᵢ minor nets. For rational input with NON-UNIFORM weights the
+    # dehomogenized control net P/w does NOT represent the rational surface
+    # R = P/w (control-point quotients != function quotient), so its
+    # derivatives — hence its minors — describe the WRONG surface pair, and
+    # the whole tangency chain silently loses C2 contacts (ledger L9,
+    # measured on a weight-2 rationalized paraboloid). Build the minors from
+    # the quotient-rule NUMERATOR columns instead: each numerator minor
+    # equals the true rational minor times a strictly positive power-of-W
+    # factor, so it shares the true minor's zero set and sign structure —
+    # all every consumer needs (hull gates, sign-definiteness certificates,
+    # monotonicity, deflation zero-finding). Unit weights (all coverage
+    # cases + every polynomial test) take the exact polynomial path,
+    # BIT-IDENTICAL to pre-L9. (`S1[..., -1]` is a genuine weight column
+    # only when `rational`; the short-circuit keeps it unread otherwise.)
+    if rational and not (
+            np.allclose(S1[..., -1], 1.0, rtol=0.0, atol=1e-12)
+            and np.allclose(S2[..., -1], 1.0, rtol=0.0, atol=1e-12)):
+        from mmcore.numeric.intersection.ssx._ssx5_singular import (
+            minors_Tpsi_rational)
+        T1, T2, T3, T4 = minors_Tpsi_rational(S1, S2)
+    else:
+        T1, T2, T3, T4 = minors_Tpsi_from_control_nets(P1_cart, P2_cart)
 
     # --- Top-level cell + outer partitions (design §5) ---
     box = ((0.0, 1.0), (0.0, 1.0), (0.0, 1.0), (0.0, 1.0))
