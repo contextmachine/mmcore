@@ -99,11 +99,17 @@ def check_case(case, atol=1e-3, n_ref=200):
     for g in res.get("singularities", []):
         print(f"    singularity {g.kind}: stuv={np.round(g.stuv, 5).tolist()} "
               f"xyz={np.round(g.xyz, 5).tolist()} links={g.branch_links}")
+    # Ledger L24: the regular coverage cases must produce ZERO typed
+    # singularities — enforced (exit code), not just printed, so CI
+    # catches spurious-singularity regressions.
+    clean_singularities = not res.get("singularities", [])
+    if not clean_singularities:
+        print(f"    SPURIOUS SINGULARITIES: {len(res['singularities'])} (expected 0)")
 
     ref, ws = reference_cloud(S1, S2, atol=atol, n=n_ref)
     if not len(ref):
         print("    (no reference points)")
-        return True
+        return clean_singularities
     miss_tol = 5 * atol
     dists = np.array([min((point_to_polyline_dist(p, poly) for poly in polys),
                           default=np.inf) for p in ref])
@@ -112,7 +118,7 @@ def check_case(case, atol=1e-3, n_ref=200):
           + (f"; MISSED {int(missed.sum())} "
              f"(worst {float(dists[missed].max()):.4f} at s={ws[missed][np.argmax(dists[missed])]:.4f})"
              if missed.any() else ""))
-    return not missed.any()
+    return (not missed.any()) and clean_singularities
 
 
 if __name__ == "__main__":

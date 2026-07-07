@@ -128,6 +128,10 @@ class SSXSingularity:
     stuv_mate: Optional[NDArray[np.float64]] = None   # (4,) C3 second preimage
     branch_links: list = field(default_factory=list)  # [(branch_index, vertex_index)]
     samples: Optional[NDArray[np.float64]] = None     # (N,4) for 'cusp_curve'
+    surface: Optional[int] = None    # C1 only (ledger L22): 1|2 — WHICH
+    #                                  surface's parameterization is
+    #                                  degenerate (Sigma_i = 0) at the
+    #                                  cusp / along the cusp curve.
 
 
 @dataclass
@@ -5349,21 +5353,37 @@ def bez_ssx(
                           if len(samples) else np.full(3, np.nan))
             all_singularities.append(SSXSingularity(
                 kind="cusp_curve", stuv=anchor, xyz=xyz_anchor,
-                samples=samples))
+                samples=samples, surface=hit.get("surface")))
             continue
         links = []
         for bi, b in enumerate(all_branches):
-            xyz = np.asarray(b.curve[1])
-            if len(xyz) < 1:
+            xyz = np.asarray(b.curve[1], dtype=np.float64)
+            if len(xyz) < 2:
                 continue
-            d = np.linalg.norm(xyz - hit["xyz"][None, :], axis=1)
-            k = int(d.argmin())
-            if d[k] <= 4.0 * atol:
-                links.append((bi, k))
+            # Ledger L12: linkage must use point-to-SEGMENT distance — a
+            # cusp exactly ON a coarse low-curvature span sits up to
+            # half a chord (~h_max/2 >> 4·atol) from every VERTEX while
+            # the polyline passes through it. Anchor the link at the
+            # nearer endpoint of the nearest segment (same vertex
+            # contract as C3's branch_links, ledger L11).
+            if _dist_point_polyline(hit["xyz"], xyz) > 4.0 * atol:
+                continue
+            a, bseg = xyz[:-1], xyz[1:]
+            ab = bseg - a
+            den = np.einsum("ij,ij->i", ab, ab)
+            den = np.where(den < 1e-30, 1e-30, den)
+            tt = np.clip(np.einsum("ij,ij->i",
+                                   hit["xyz"][None, :] - a, ab) / den, 0.0, 1.0)
+            dseg = np.linalg.norm(a + tt[:, None] * ab - hit["xyz"][None, :],
+                                  axis=1)
+            kseg = int(dseg.argmin())
+            k = kseg if (np.linalg.norm(xyz[kseg] - hit["xyz"])
+                         <= np.linalg.norm(xyz[kseg + 1] - hit["xyz"])) else kseg + 1
+            links.append((bi, k))
         all_singularities.append(SSXSingularity(
             kind="cusp", stuv=np.asarray(hit["stuv"], dtype=np.float64),
             xyz=np.asarray(hit["xyz"], dtype=np.float64),
-            branch_links=links))
+            branch_links=links, surface=hit.get("surface")))
 
     # --- C3 pass (paper §5.4): 3D self-intersections of the SSI image ---
     # Runs AFTER tracing (branch geometry drives the candidate search).

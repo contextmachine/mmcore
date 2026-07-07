@@ -595,8 +595,11 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
             return None
         return newton
 
+    from mmcore.numeric.intersection._bezier_common import eval_surface
+
     ptol = np.asarray(ptol, dtype=np.float64)
     seeds: list = []
+    seed_xyz: list = []
     for axis in range(4):
         nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
         nets.append(BoxNet(Tk, axes=(0, 1, 2, 3)))
@@ -606,8 +609,21 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
             nets, newton_factory(axis, 0.5), ptol,
             max_cells=max_cells, atol=atol)
         for s in ax_sols:
-            if not any(np.all(np.abs(s - t) <= ptol) for t in seeds):
+            # Destructive dedup ladder (ledger L21): a parametric box is
+            # not a metric ball — merge cross-plane seeds only when BOTH
+            # param-close (1·ptol/axis) AND xyz-close (≤ atol). A seed
+            # pair within ptol on a steep axis can be many atol apart in
+            # space and must survive as two seeds.
+            s_xyz = eval_surface(S1_h, s[0], s[1], rational=True)
+            dup = False
+            for t, t_xyz in zip(seeds, seed_xyz):
+                if (np.all(np.abs(s - t) <= ptol)
+                        and float(np.linalg.norm(s_xyz - t_xyz)) <= atol):
+                    dup = True
+                    break
+            if not dup:
                 seeds.append(s)
+                seed_xyz.append(s_xyz)
     return seeds
 
 
