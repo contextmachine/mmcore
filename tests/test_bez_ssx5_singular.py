@@ -696,6 +696,45 @@ def test_self_intersection_point():
     assert len({l[0] for l in g.branch_links}) >= 1   # linked to branch(es)
 
 
+def _cusp_edge_on_split_plane():
+    """S1(s,t) = ((2s-1)^2, (2s-1)^3, t) (deg 3x1) vs S2: plane x=0 spanning
+    y in [-1.5,1.5], z in [-0.5,1.5]. Unlike `_cusp_edge_case` (plane z=0.5,
+    ONE isolated C1 point), here the whole set {Psi=0} n {Sigma1=0} is the
+    CURVE {s=0.5, t free}: x = (2s-1)^2 vanishes exactly where Sigma1 does,
+    and S1(0.5, t) = (0, 0, t) lies in the plane for every t."""
+    x3 = [1.0, -1.0 / 3.0, -1.0 / 3.0, 1.0]      # (2s-1)^2 in deg-3 Bernstein
+    y3 = [-1.0, 1.0, -1.0, 1.0]                  # (2s-1)^3 in deg-3 Bernstein
+    S1 = np.array([[[x3[i], y3[i], float(j)] for j in range(2)] for i in range(4)])
+    S2 = np.array([[[0.0, -1.5, -0.5], [0.0, -1.5, 1.5]],
+                   [[0.0, 1.5, -0.5], [0.0, 1.5, 1.5]]])
+    for s, t in [(0.1, 0.3), (0.5, 0.5), (0.85, 0.9), (0.5, 0.0), (0.5, 1.0)]:
+        a = 2 * s - 1
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [a * a, a ** 3, t], atol=1e-12)
+    return S1, S2
+
+
+def test_cusp_curve_on_split_plane_not_knifed_out():
+    # Ledger L1 regression: the strict `min > 0` Bernstein hull test excluded
+    # BOTH children after solve_zero_dim's first split through s=0.5 — the
+    # mathematically-zero coefficients drift to ~eps/8 under de Casteljau,
+    # collapsing the 1-dimensional cusp CURVE to ONE isolated `cusp` with a
+    # false-complete enumeration. With the roundoff margin the enumeration
+    # floods (>12 sols) and the curve_flag types it as `cusp_curve`.
+    S1, S2 = _cusp_edge_on_split_plane()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    curves = [g for g in r["singularities"] if g.kind == "cusp_curve"]
+    assert curves, (
+        f"cusp curve knifed out: kinds={[g.kind for g in r['singularities']]}")
+    assert [g for g in r["singularities"] if g.kind == "cusp"] == [], \
+        "cusp curve mistyped as isolated cusp(s)"
+    samples = np.concatenate([np.asarray(g.samples) for g in curves])
+    assert len(samples) >= 13         # the >12-sols curve_flag path fired
+    # every sample on the true singular curve {s = 0.5}, covering most of t
+    assert np.allclose(samples[:, 0], 0.5, atol=1e-6)
+    assert samples[:, 1].max() - samples[:, 1].min() > 0.8
+
+
 def test_theorem3_skips_regular_case():
     # transversal bilinear pair. NOTE (measured): the Theorem-3 gate does
     # NOT certify here — the whole curve traces from the TOP cell, whose

@@ -27,6 +27,54 @@ from mmcore.numeric.intersection._deflate import (
 )
 
 
+# --- Roundoff margin for Bernstein hull sign tests (ledger L1) ---------------
+#
+# De Casteljau splits are convex-combination schemes: a split EXACTLY through
+# a zero of the polynomial (dyadic feature coordinates are ubiquitous — the
+# guided cuts deliberately pass through discovered crossings, and
+# solve_zero_dim always halves) leaves the mathematically-zero corner
+# coefficient at a small nonzero float. Measured on the cuspidal-edge M11
+# nets ((2s-1)^2 deg-3, split at s=0.5): the zero coefficients come out at
+# +2.776e-17 = eps/8 (absolute, with max|parent| = 1) and stay EXACTLY that
+# value down the whole zero-adjacent descent (corner coefficients of the
+# kept child are never recombined), while the child's max|c| shrinks 4x per
+# level for a quadratic zero. A strict `min > 0` hull test then excludes
+# BOTH children of the solution-carrying box — the zero set is knifed out.
+#
+# Fix: a hull may only claim "clears zero" when it clears by MORE than
+# MARGIN = HULL_MARGIN_K * eps * max|coeffs| of the net under test.
+# K = 128 gives 128*eps ~ 2.8e-14 relative — >= 256x the measured drift at
+# the split (1.1e-16 relative to the child max) and orders of magnitude
+# below any genuine signal; it keeps zero-adjacent boxes alive for ~4
+# extra split levels per axis (the drift is constant absolute while the
+# child max shrinks), which is what lets 1-dimensional zero sets flood the
+# enumeration again (the c1_pass curve_flag path needs those hits).
+#
+# DIRECTION (critical): a LARGER margin makes exclusion / definiteness
+# certification STRICTER — fewer boxes excluded, fewer sign-definite
+# certificates, tangency probes firing MORE often. That is always the SOUND
+# direction; never shrink the margin to buy pruning speed. Conversely a
+# "contains zero" test built on this helper (`not hull_excludes_zero`)
+# fires MORE often with a larger margin — also the safe direction.
+HULL_MARGIN_K = 128.0
+_HULL_MARGIN_K_EPS = HULL_MARGIN_K * float(np.finfo(np.float64).eps)
+
+
+def hull_excludes_zero(coeffs) -> bool:
+    """Bernstein hull sign test with the L1 roundoff margin: True proves the
+    net has no zero over its box AND the clearance is not split-roundoff
+    debris (`min > K*eps*max|c|`, symmetric for `max < 0`).
+
+    NaN coefficients make both comparisons False — fail-open (never
+    excludes), the safe direction. An identically-zero net has margin 0 and
+    never excludes."""
+    c = np.asarray(coeffs)
+    mn = float(c.min())
+    mx = float(c.max())
+    m = _HULL_MARGIN_K_EPS * max(mx, -mn)      # = K * eps * max|c|
+    return mn > m or mx < -m
+
+
 def psi_vector_net(S1_h: np.ndarray, S2_h: np.ndarray) -> np.ndarray:
     """Bernstein net of Psi = C1(s,t)*W2(u,v) - C2(u,v)*W1(s,t), shape (m1,n1,m2,n2,3).
 
@@ -182,10 +230,10 @@ class BoxNet:
     def excludes_zero(self) -> bool:
         """Bernstein hull test: True proves the net has no zero over its box.
 
-        NaN coefficients make both comparisons False — fail-open (never
-        excludes), the safe direction."""
-        c = self.coeffs
-        return float(c.min()) > 0.0 or float(c.max()) < 0.0
+        Margin-guarded (`hull_excludes_zero`, ledger L1): a strict `> 0`
+        knifed out zero sets after de Casteljau splits exactly through a
+        zero. NaN coefficients never exclude (fail-open)."""
+        return hull_excludes_zero(self.coeffs)
 
     def split(self, global_axis: int, t: float = 0.5):
         if global_axis not in self.axes:
@@ -207,9 +255,14 @@ class VectorBoxNet(BoxNet):
     """
 
     def excludes_zero(self) -> bool:
+        # Per-component L1 roundoff margin — semantically identical to
+        # `hull_excludes_zero` on each of the k bundled scalar nets.
         c = self.coeffs
         flat = c.reshape(-1, c.shape[-1])
-        return bool(np.any((flat.min(axis=0) > 0.0) | (flat.max(axis=0) < 0.0)))
+        mn = flat.min(axis=0)
+        mx = flat.max(axis=0)
+        m = _HULL_MARGIN_K_EPS * np.maximum(mx, -mn)   # K * eps * max|c| per component
+        return bool(np.any((mn > m) | (mx < -m)))
 
     def split(self, global_axis: int, t: float = 0.5):
         if global_axis not in self.axes:
@@ -229,6 +282,16 @@ class ShiftedPositiveNet(BoxNet):
     (i.e. ON the intersection at tolerance — the opposite of excludable),
     so the base class's two-sided hull test would wrongly prune exactly
     the boxes that matter. Splits preserve the subclass.
+
+    L1 margin audit: deliberately NO roundoff margin here. The caller's
+    shift (`thresh = (atol*w_scale)^2`, _emit_offcurve_tangent_roots)
+    already dwarfs de Casteljau drift: a mathematically-zero F_sq
+    coefficient drifting by ~eps*max|F_sq| ~ eps*D^2*w^2 (D = xyz scale)
+    would need D > atol/sqrt(eps) ~ 7e4 model units to overcome the
+    atol^2*w^2 shift — far outside the documented O(1)–O(100) envelope.
+    Adding the relative margin anyway would change the net's tolerance
+    semantics (the threshold is a calibrated shell radius, not a sign
+    test), so it is left strict on purpose.
     """
 
     def excludes_zero(self) -> bool:
@@ -529,8 +592,11 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
             N = sigma_normal_net(np.ascontiguousarray(Sh[..., :-1]), rational=False)
         else:
             N = sigma_normal_net(Sh, rational=True)
-        if any(float(N[..., c].min()) > 0.0 or float(N[..., c].max()) < 0.0
-               for c in range(3)):
+        # L1 margin-guarded skip: one component clearing zero by MORE than
+        # the roundoff margin proves Sigma_i never vanishes — a strict test
+        # would let a drifted-but-mathematically-zero coefficient skip a
+        # genuine cusp enumeration (larger margin = skip LESS = sound).
+        if any(hull_excludes_zero(N[..., c]) for c in range(3)):
             continue
 
         nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
@@ -612,10 +678,14 @@ def theorem3_excludes_c3(T1, T2, T3, T4) -> bool:
     then the box's own image cannot self-intersect. NOTE the certificate
     is per-box: it says nothing about collisions between the images of
     two DIFFERENT boxes; those are handled by c3_pass's segment-pair
-    proximity search over the traced branches."""
+    proximity search over the traced branches.
+
+    Definiteness carries the L1 roundoff margin: a net is sign-definite
+    only if its hull CLEARS zero by more than K*eps*max|c| — a
+    split-drifted zero coefficient must not certify injectivity (a larger
+    margin certifies LESS, the sound direction)."""
     def _definite(T):
-        T = np.asarray(T)
-        return float(T.min()) > 0.0 or float(T.max()) < 0.0
+        return hull_excludes_zero(T)
     return (_definite(T1) or _definite(T2)) and (_definite(T3) or _definite(T4))
 
 

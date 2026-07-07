@@ -3834,7 +3834,9 @@ def bez_ssx(
     # far-apart preimage strips meeting at one 3D point, the umbrella X)
     # are exactly what a straddling T-hull on the coarser ancestor cell
     # flags before subdivision separates the strips.
-    from mmcore.numeric.intersection.ssx._ssx5_singular import theorem3_excludes_c3
+    from mmcore.numeric.intersection.ssx._ssx5_singular import (
+        theorem3_excludes_c3, hull_excludes_zero,
+    )
 
     c3_possible = False
 
@@ -3891,8 +3893,15 @@ def bez_ssx(
                 # exactly through the discovered touch crossing), unlike the
                 # crossing-less arm whose one large cell can hold several
                 # distant touches and keeps the full enumeration.
-                if (cell.T1 is not None and all(
-                        float(np.min(T)) <= 0.0 <= float(np.max(T))
+                # "Contains 0" is margin-consistent with the L1 hull
+                # convention: a hull counts as containing 0 unless it CLEARS
+                # zero by the roundoff margin (`not hull_excludes_zero`) —
+                # a lattice touch's mathematically-zero T coefficient drifts
+                # to ~eps/8 after the guided cut through it, and the strict
+                # `min <= 0` gate then never fired. The margin makes the
+                # probe fire MORE often — the safe direction.
+                if (cell.T1 is not None and not any(
+                        hull_excludes_zero(T)
                         for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
                     _emit_tangent_roots(cell, atol, unify_tol,
                                         all_singularities,
