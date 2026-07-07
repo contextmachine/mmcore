@@ -675,6 +675,65 @@ def test_closed_tangent_loop_via_phi_marcher():
     assert np.allclose(rr, 0.25, atol=5e-3)   # circle q=1/4 -> radius 0.25 in s-units
 
 
+def _skew_ruled_touch_near_overlap(c=0.003 / 0.8):
+    """S1(u,v) deg (3,2): x=v, y=c*u, z=10*u*((u-0.8)^2+(v-0.5)^2); S2: z=0
+    plane spanning [-0.5,1.5]^2. The u=0 isoline is an OVERLAP branch
+    (x=v, y=0, z=0); a genuine isolated TOUCH sits at (u,v)=(0.8,0.5),
+    xyz=(0.5, 0.8c, 0). For c=0.003/0.8 the touch is 3*atol from the
+    overlap polyline in xyz but du=0.8 away in parameters, with a 640*atol
+    z-wall between the sheets (z=0.64 at u=0.4, v=0.5)."""
+    from math import comb
+
+    # z monomial-in-u coefficients: 10*(u(u-0.8)^2 (x) 1 + u (x) (v-0.5)^2)
+    M = np.zeros((4, 3))
+    M[:, 0] += 10.0 * np.array([0.0, 0.64, -1.6, 1.0])   # 10*u(u-0.8)^2
+    M[1, 0] += 2.5                                       # 10*u*0.25
+    M[1, 1] += -10.0                                     # 10*u*(-v)
+    M[1, 2] += 10.0                                      # 10*u*v^2
+    K3 = np.array([[comb(i, j) / comb(3, j) if j <= i else 0.0
+                    for j in range(4)] for i in range(4)])
+    K2 = np.array([[comb(i, j) / comb(2, j) if j <= i else 0.0
+                    for j in range(3)] for i in range(3)])
+    Bz = K3 @ M @ K2.T
+    xu = np.array([0.0, 0.5, 1.0])                       # x = v (deg 2)
+    yu = c * np.array([0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0])  # y = c*u (deg 3)
+    S1 = np.array([[[xu[j], yu[i], Bz[i, j]] for j in range(3)]
+                   for i in range(4)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(9)
+    for u, v in rng.uniform(0, 1, (20, 2)):
+        want = [v, c * u, 10.0 * u * ((u - 0.8) ** 2 + (v - 0.5) ** 2)]
+        p = eval_surface(_homog(S1), u, v, rational=True)
+        assert np.allclose(p, want, atol=1e-12)
+    return S1, S2
+
+
+def test_param_far_touch_near_overlap_not_subsumed():
+    # Ledger L3 regression: the post-assembly tangent_point subsumption
+    # filter was xyz-only (4*atol, no parametric guard) and deleted this
+    # certified touch — 3*atol from the u=0 overlap polyline in xyz but on
+    # a DIFFERENT sheet (du=0.8, 640*atol z-wall between). Both guards
+    # (xyz <= 4*atol AND per-axis stuv <= 2*unify_tol at the same segment
+    # location) keep it. Control c=0.05/0.8 (touch 50*atol away) reported
+    # the touch even before the fix.
+    S1, S2 = _skew_ruled_touch_near_overlap()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    # the subsumption-tempting configuration is really present: an overlap
+    # branch passing within 4*atol (xyz) of the touch
+    overlaps = [b for b in r["branches"] if b.kind == "overlap"]
+    assert overlaps, "u=0 overlap branch lost — fixture no longer tests L3"
+    touch_xyz = np.array([0.5, 0.003, 0.0])
+    assert min(_pt_poly(touch_xyz, np.asarray(b.curve[1]))
+               for b in overlaps) <= 4e-3
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    assert len(tps) == 1, (
+        f"param-far touch subsumed by the overlap branch: {len(tps)} "
+        f"tangent_points, kinds={[g.kind for g in r['singularities']]}")
+    assert np.allclose(tps[0].xyz, touch_xyz, atol=2e-3)
+    assert np.allclose(tps[0].stuv[:2], [0.8, 0.5], atol=1e-3)
+
+
 # ---------------------------------------------------------------------------
 # Task 6: C1 — parameterization cusps (Sigma nets, global pass)
 # ---------------------------------------------------------------------------

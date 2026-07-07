@@ -865,6 +865,76 @@ def _dist_point_polyline(pxyz, poly):
     return float(np.linalg.norm(proj - pxyz[None, :], axis=1).min())
 
 
+def _point_on_branch_both_guards(pxyz, pstuv, poly_xyz, poly_stuv,
+                                 atol, unify_tol, S1_h, S2_h):
+    """Both-guards ON-a-branch test (ledger L3, module tolerance-ladder
+    convention: a parametric box is not a metric ball, and 3D proximity is
+    not 4D identity). True iff SOME polyline location is close to the point
+    in BOTH spaces:
+
+    - xyz: point-to-segment distance <= 4*atol (the branch polyline is a
+      chorded approximation — on-curve points sit up to the 2*atol sagitta
+      off it), AND
+    - stuv: per-axis |pstuv - stuv interpolated at that SAME segment
+      location| <= 2*unify_tol (= 8*ptol/axis: the witness and the traced
+      samples are each ~ptol-accurate, and the polyline's stuv chord
+      interpolation adds the stuv-space sagitta).
+
+    All xyz-close segments are tested, not just the single nearest one — a
+    closed/looping polyline can pass the same xyz neighborhood twice (once
+    parameter-near, once parameter-far), and keying on whichever pass is
+    marginally nearer would make subsumption order-dependent.
+
+    Without the stuv guard a certified touch whose 4D preimage is FAR from
+    the branch's preimage was deleted on 3D proximity alone (skew ruled
+    patch: touch at (u,v)=(0.8,0.5) sits 3*atol in xyz from the u=0 overlap
+    isoline but du=0.8 away in parameters, with a 640*atol z-wall between
+    the sheets -> `singularities == []`).
+
+    Bookkeeping self-check with xyz-only FALLBACK: the stuv guard judges
+    against the branch's STORED preimages, so it is only meaningful where
+    those are self-consistent — both segment vertices must evaluate (on
+    BOTH full surfaces S1_h/S2_h, homogeneous) to within 2*atol of their
+    stored xyz. Marched/assembled branches always pass (their xyz IS the
+    S1 eval and |S1-S2| <= atol at kept samples; measured 1.8e-13 on the
+    skew-ruled overlap). Legacy boundary-overlap branches can carry
+    corrupted other-surface params (the known-broken 4-vs-2 overlap
+    bookkeeping: stored v=0.5 where the true preimage is 1.0, off by
+    ~1e5*atol) — an xyz-close segment that FAILS the self-check falls back
+    to the pre-L3 xyz-only subsumption instead of leaking every on-region
+    witness the broken stuv cannot vouch for.
+    """
+    a = poly_xyz[:-1]
+    b = poly_xyz[1:]
+    ab = b - a
+    ap = pxyz[None, :] - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    denom = np.where(denom < 1e-30, 1e-30, denom)
+    tt = np.clip(np.einsum("ij,ij->i", ap, ab) / denom, 0.0, 1.0)
+    proj = a + tt[:, None] * ab
+    d = np.linalg.norm(proj - pxyz[None, :], axis=1)
+    close = np.nonzero(d <= 4.0 * atol)[0]
+    if close.size == 0:
+        return False
+    for k in close:
+        consistent = True
+        for vtx in (k, k + 1):
+            p1 = eval_surface(S1_h, poly_stuv[vtx, 0], poly_stuv[vtx, 1],
+                              rational=True)
+            p2 = eval_surface(S2_h, poly_stuv[vtx, 2], poly_stuv[vtx, 3],
+                              rational=True)
+            if (float(np.linalg.norm(p1 - poly_xyz[vtx])) > 2.0 * atol
+                    or float(np.linalg.norm(p2 - poly_xyz[vtx])) > 2.0 * atol):
+                consistent = False
+                break
+        if not consistent:
+            return True         # xyz-close + unreliable stuv: legacy behavior
+        stuv_near = poly_stuv[k] + tt[k] * (poly_stuv[k + 1] - poly_stuv[k])
+        if bool(np.all(np.abs(stuv_near - pstuv) <= 2.0 * unify_tol)):
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Level 4a: Domain decomposition
 # ---------------------------------------------------------------------------
@@ -4386,10 +4456,20 @@ def bez_ssx(
     # curve (measured: the legacy overlaps case emitted its domain corner;
     # the crossed-saddles center witness lands on the tangent curve). The
     # richer feature already reports the contact — drop the redundant point
-    # (Task 5 will type tangent curves explicitly). Same ON-a-branch
-    # semantics and 4·atol tolerance as the points-on-branch filter below;
-    # the polyline is a chorded approximation, so points ON the true curve
-    # sit up to the 2·atol sagitta off it (measured max 1.9e-3 = 1.9·atol).
+    # (Task 5 will type tangent curves explicitly). "ON a branch" is the
+    # BOTH-GUARDS test (ledger L3, _point_on_branch_both_guards): xyz
+    # point-to-segment ≤ 4·atol — same tolerance as the points-on-branch
+    # filter below; the polyline is a chorded approximation, so points ON
+    # the true curve sit up to the 2·atol sagitta off it (measured max
+    # 1.9e-3 = 1.9·atol) — AND per-axis stuv ≤ 2·unify_tol against the
+    # branch's stuv interpolated at the same segment location. xyz-only
+    # subsumption deleted a certified touch on a DIFFERENT sheet 3·atol
+    # from an overlap isoline (Δu = 0.8 in parameters, 640·atol z-wall
+    # between). Genuine on-curve witnesses lie on the branch in stuv too
+    # (they and the samples are ~ptol-accurate) and keep subsuming; a
+    # branch segment whose stored stuv fails its own xyz self-check (the
+    # known-corrupt legacy overlap bookkeeping) falls back to xyz-only —
+    # see _point_on_branch_both_guards.
     # Tangent points coexisting with TRANSVERSAL branches (the saddle X)
     # are not affected — this tests tangential/overlap branches only.
     # Runs FIRST so the micro-branch and near-touch point filters below see
@@ -4411,14 +4491,18 @@ def bez_ssx(
                 continue
             _arc = float(np.linalg.norm(np.diff(_poly, axis=0), axis=1).sum())
             if _arc > 16.0 * atol:
-                _one_dim_polys.append(_poly)
+                _one_dim_polys.append(
+                    (_poly, np.asarray(b.curve[0], dtype=np.float64)))
         if _one_dim_polys:
             all_singularities = [
                 g for g in all_singularities
                 if not (g.kind == "tangent_point" and any(
-                    _dist_point_polyline(np.asarray(g.xyz, dtype=np.float64),
-                                         poly) <= 4.0 * atol
-                    for poly in _one_dim_polys))
+                    _point_on_branch_both_guards(
+                        np.asarray(g.xyz, dtype=np.float64),
+                        np.asarray(g.stuv, dtype=np.float64),
+                        poly_xyz, poly_stuv, atol, unify_tol,
+                        S1_h_top, S2_h_top)
+                    for poly_xyz, poly_stuv in _one_dim_polys))
             ]
 
     # Spurious micro-branches at emitted tangent points: subdividing around
