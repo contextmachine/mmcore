@@ -666,11 +666,35 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
             # Sigma identically zero — a globally degenerate parameterization
             # (e.g. a surface collapsed to a curve). Not a meaningful cusp
             # enumeration; report as a curve-style hit with no samples.
+            # (max|N| is the exact identically-zero test — a sampled scale
+            # could miss it — so it stays the gate here.)
             curve_flag = True
             out.append({"surface": which, "curve_samples": np.empty((0, 4))})
             continue
 
-        def newton(x0, _Sh=Sh, _axes=axes2, _ns=nscale):
+        # L13: weight-INVARIANT acceptance scale for the GN below. The GN
+        # normalizes the CARTESIAN normal Nv = cross(du,dv) (from rational
+        # eval_surface_d1 — invariant under a uniform weight rescale) by a
+        # scale; using the homogeneous NUMERATOR net max |N| (which scales
+        # as W^4) made acceptance weight-DEPENDENT, so rescaling every
+        # weight by a constant c sent nscale -> c^4 nscale while Nv stayed
+        # fixed and cusp detection FLIPPED (B C9). Use the max Cartesian
+        # normal magnitude over a small sample grid instead: a cusp is where
+        # the normal vanishes, so the grid max is a representative
+        # non-degenerate scale (floored so a near-degenerate patch cannot
+        # divide by ~0). Sampled, not the net-coefficient bound, so it is
+        # the actual |cross(du,dv)| magnitude the residual is measured in.
+        _grid = np.linspace(0.0, 1.0, 5)
+        cart_nscale = 0.0
+        for _ga in _grid:
+            for _gb in _grid:
+                _, _gdu, _gdv = eval_surface_d1(Sh, float(_ga), float(_gb),
+                                                rational=True)
+                cart_nscale = max(cart_nscale,
+                                  float(np.linalg.norm(np.cross(_gdu, _gdv))))
+        cart_nscale = max(cart_nscale, 1e-12)
+
+        def newton(x0, _Sh=Sh, _axes=axes2, _ns=cart_nscale):
             # Gauss-Newton (lstsq) on the overdetermined {Psi(3), Sigma(3)}.
             # Sigma rows' Jacobian by forward differences on the two owning
             # axes — exact d(cross) is verbose; 1e-7 FD is adequate for a

@@ -1296,3 +1296,45 @@ def test_rational_transversal_sanity_matches_polynomial():
     idx = np.linspace(0, len(poly) - 1, 20, dtype=int)
     for i in idx:
         assert _pt_poly(poly[i], ratp) <= 5e-3
+
+
+# ---------------------------------------------------------------------------
+# L13: C1 cusp acceptance scale must be weight-invariant (a pure weight
+# rescale must not flip cusp detection).
+# ---------------------------------------------------------------------------
+
+def test_cusp_detection_weight_invariant():
+    # Shipped cusp geometry: cuspidal edge ((2s-1)^2,(2s-1)^3,t) vs plane z=0.5.
+    S1, S2 = _cusp_edge_case()
+    S1_h = _homog(S1); S2_h = _homog(S2)
+
+    def _run(S1_test):
+        r = bez_ssx(S1_test, S2_h, 1e-3, rational=True)
+        return [g for g in r["singularities"] if g.kind == "cusp"]
+
+    # (a) pure constant weight rescale (surface UNCHANGED). The C1 GN
+    # acceptance normalized the weight-invariant Cartesian normal residual by
+    # a homogeneous-numerator scale (~W^4), so multiplying every weight by a
+    # constant scaled the acceptance threshold by c^4 — a weight-dependent
+    # bound (B C9). The fix normalizes by a sampled Cartesian normal scale
+    # (weight-invariant). NOTE on this cuspidal-edge geometry the cusp is
+    # found at ANY scale in BOTH old and new code (Sigma = 0 EXACTLY at the
+    # cusp, so `norm(Nv) < tol*scale` holds for any positive scale); this is
+    # a regression guard locking the invariance, not a live-flip repro
+    # (exact cusps are inherently scale-robust — measured c in 0.003..100).
+    S1_w3 = S1_h.copy(); S1_w3[..., :] *= 3.0     # P*=3 AND w*=3 => R = P/w unchanged
+    for s, t in np.random.default_rng(1).uniform(0, 1, (8, 2)):
+        assert np.allclose(eval_surface(S1_h, s, t, rational=True),
+                           eval_surface(S1_w3, s, t, rational=True), atol=1e-11)
+    cusps = _run(S1_w3)
+    assert len(cusps) == 1, f"constant weight rescale flipped cusp detection: {len(cusps)}"
+    assert np.allclose(cusps[0].xyz, [0.0, 0.0, 0.5], atol=1e-3)
+
+    # (b) non-uniform weight net [[1],[2]] along s (surface still unchanged).
+    S1_nu = _rationalize_s(S1_h, np.array([[1.0], [2.0], [1.0], [1.0]]))
+    for s, t in np.random.default_rng(2).uniform(0, 1, (8, 2)):
+        assert np.allclose(eval_surface(S1_h, s, t, rational=True),
+                           eval_surface(S1_nu, s, t, rational=True), atol=1e-10)
+    cusps_nu = _run(S1_nu)
+    assert len(cusps_nu) == 1, f"non-uniform weights flipped cusp detection: {len(cusps_nu)}"
+    assert np.allclose(cusps_nu[0].xyz, [0.0, 0.0, 0.5], atol=1e-3)
