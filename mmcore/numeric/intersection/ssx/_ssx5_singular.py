@@ -691,21 +691,37 @@ def theorem3_excludes_c3(T1, T2, T3, T4) -> bool:
 
 def c3_pass(S1_h, S2_h, branches, atol, ptol4):
     """Post-trace C3 detection: crossing branch segments -> square 6-var
-    Newton {R1(s,t)=R2(u,v), R1(p,q)=R2(u,v)} -> certified pairs.
+    Newton on BOTH role assignments -> certified pairs.
+
+    The SSI image self-intersects when two DISTINCT 4D preimages share one
+    3D point. The doubled preimage can live on either surface (ledger L7):
+
+      S1-side: {R1(s,t) = R2(u,v), R1(p,q) = R2(u,v)}, guard (s,t) != (p,q)
+      S2-side: {R2(u,v) = R1(s,t), R2(u',v') = R1(s,t)}, guard (u,v) != (u',v')
+
+    A double preimage on S1 with a SINGLE S2 preimage (the Whitney-umbrella
+    class with the umbrella as S1) only solves the first system — its
+    mirror (umbrella as S2, same S1 preimage on the plane, two S2
+    preimages) only the second. Both systems run on the same broadphase
+    candidates and their hits are deduplicated together.
 
     Candidates: pairs of polyline segments (across branches, or within one
     branch at index distance > 2) whose segment-segment xyz distance is
-    < 2*atol. Each candidate seeds the square Newton in (s,t,p,q,u,v); a
-    solution is a self-intersection iff both residuals meet atol and the
-    two S1 preimages differ by > 4*ptol per axis (same-preimage solutions
-    are the ordinary curve point, not a C3).
+    < 2*atol. Each candidate seeds the square Newton in the doubled side's
+    variables; a solution is a self-intersection iff both residuals meet
+    atol and the doubled-side preimages differ by > 4*ptol on some axis
+    (same-preimage solutions are the ordinary curve point, not a C3).
 
-    Returns a list of dicts {"z": (6,), "xyz": (3,), "links":
-    [(branch_i, seg_k), (branch_j, seg_l)]}.
+    Returns a list of dicts {"stuv": (4,), "stuv_mate": (4,), "xyz": (3,),
+    "links": [(branch_i, k), (branch_j, l)]}. `stuv` is the primary 4D
+    preimage (s,t,u,v); `stuv_mate` differs from it in the doubled side
+    only: (p,q,u,v) for an S1-side double, (s,t,u',v') for an S2-side
+    double.
     """
     from mmcore.numeric.intersection._bezier_common import (
         eval_surface, eval_surface_d1,
     )
+    ptol4 = np.asarray(ptol4, dtype=np.float64)
 
     def seg_dist(p1, p2, q1, q2):
         d1 = p2 - p1; d2 = q2 - q1; r = p1 - q1
@@ -725,31 +741,57 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         cp1 = p1 + s_ * d1; cp2 = q1 + t_ * d2
         return float(np.linalg.norm(cp1 - cp2)), s_, t_
 
-    def newton6(z0):
-        z = np.asarray(z0, dtype=np.float64).copy()   # (s,t,p,q,u,v)
+    def newton6(z0, Sa_h, Sb_h, guard_ptol):
+        # z = (a1,a2, b1,b2, c1,c2): solve {Ra(a) = Rb(c), Ra(b) = Rb(c)}.
+        # (a1,a2) and (b1,b2) are the DOUBLED-side preimages on Sa; (c1,c2)
+        # is the single preimage on Sb. Called once per candidate with
+        # (S1_h, S2_h) and once with the roles swapped (ledger L7).
+        z = np.asarray(z0, dtype=np.float64).copy()
         for _ in range(40):
-            r1a, du1a, dv1a = eval_surface_d1(S1_h, z[0], z[1], rational=True)
-            r1b, du1b, dv1b = eval_surface_d1(S1_h, z[2], z[3], rational=True)
-            r2, du2, dv2 = eval_surface_d1(S2_h, z[4], z[5], rational=True)
-            F = np.concatenate([r1a - r2, r1b - r2])
+            ra, dua, dva = eval_surface_d1(Sa_h, z[0], z[1], rational=True)
+            rb, dub, dvb = eval_surface_d1(Sa_h, z[2], z[3], rational=True)
+            rc, duc, dvc = eval_surface_d1(Sb_h, z[4], z[5], rational=True)
+            F = np.concatenate([ra - rc, rb - rc])
             if np.linalg.norm(F) < 1e-11:
                 break
             J = np.zeros((6, 6))
-            J[:3, 0], J[:3, 1], J[:3, 4], J[:3, 5] = du1a, dv1a, -du2, -dv2
-            J[3:, 2], J[3:, 3], J[3:, 4], J[3:, 5] = du1b, dv1b, -du2, -dv2
+            J[:3, 0], J[:3, 1], J[:3, 4], J[:3, 5] = dua, dva, -duc, -dvc
+            J[3:, 2], J[3:, 3], J[3:, 4], J[3:, 5] = dub, dvb, -duc, -dvc
             try:
                 z = np.clip(z - np.linalg.solve(J, F), 0.0, 1.0)
             except np.linalg.LinAlgError:
                 return None
-        r1a = eval_surface(S1_h, z[0], z[1], rational=True)
-        r1b = eval_surface(S1_h, z[2], z[3], rational=True)
-        r2 = eval_surface(S2_h, z[4], z[5], rational=True)
-        if max(float(np.linalg.norm(r1a - r2)),
-               float(np.linalg.norm(r1b - r2))) > atol:
+        ra = eval_surface(Sa_h, z[0], z[1], rational=True)
+        rb = eval_surface(Sa_h, z[2], z[3], rational=True)
+        rc = eval_surface(Sb_h, z[4], z[5], rational=True)
+        if max(float(np.linalg.norm(ra - rc)),
+               float(np.linalg.norm(rb - rc))) > atol:
             return None
-        if np.all(np.abs(z[:2] - z[2:4]) <= 4.0 * np.asarray(ptol4[:2])):
+        if np.all(np.abs(z[:2] - z[2:4]) <= 4.0 * np.asarray(guard_ptol)):
             return None            # same preimage — not a self-intersection
         return z
+
+    def solve_candidate(a4, b4):
+        """Run both role assignments from one candidate's interpolated 4D
+        params; return normalized hits [(stuv, stuv_mate, xyz), ...]."""
+        hits = []
+        # S1-side double: z = (s,t, p,q, u,v)
+        z = newton6(np.array([a4[0], a4[1], b4[0], b4[1],
+                              0.5 * (a4[2] + b4[2]), 0.5 * (a4[3] + b4[3])]),
+                    S1_h, S2_h, ptol4[:2])
+        if z is not None:
+            hits.append((np.array([z[0], z[1], z[4], z[5]]),
+                         np.array([z[2], z[3], z[4], z[5]]),
+                         eval_surface(S2_h, z[4], z[5], rational=True)))
+        # S2-side double: z = (u,v, u',v', s,t)
+        z = newton6(np.array([a4[2], a4[3], b4[2], b4[3],
+                              0.5 * (a4[0] + b4[0]), 0.5 * (a4[1] + b4[1])]),
+                    S2_h, S1_h, ptol4[2:])
+        if z is not None:
+            hits.append((np.array([z[4], z[5], z[0], z[1]]),
+                         np.array([z[4], z[5], z[2], z[3]]),
+                         eval_surface(S1_h, z[4], z[5], rational=True)))
+        return hits
 
     # --- vectorized AABB broadphase over ALL branch segments -------------
     # The per-box Theorem-3 gate in bez_ssx fires liberally (a coarse traced
@@ -793,21 +835,27 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         keep = ~same | (np.abs(ix[ki] - ix[li]) >= 3)
         pairs.append(np.stack([ki[keep], li[keep]], axis=1))
     pairs = np.concatenate(pairs) if pairs else np.empty((0, 2), dtype=int)
+    def _pair_dist(h, stuv, mate):
+        # Distance between two hits as unordered preimage PAIRS: the two
+        # runs (and re-finds from other candidate seeds) may present the
+        # same feature with primary/mate swapped.
+        d_direct = max(float(np.abs(h["stuv"] - stuv).max()),
+                       float(np.abs(h["stuv_mate"] - mate).max()))
+        d_swap = max(float(np.abs(h["stuv"] - mate).max()),
+                     float(np.abs(h["stuv_mate"] - stuv).max()))
+        return min(d_direct, d_swap)
+
     for k, l in pairs:
         d, s_, t_ = seg_dist(A[k], B[k], A[l], B[l])
         if d > 2.0 * atol:
             continue
         a4 = (1 - s_) * S4a[k] + s_ * S4b[k]
         b4 = (1 - t_) * S4a[l] + t_ * S4b[l]
-        z0 = np.array([a4[0], a4[1], b4[0], b4[1],
-                       0.5 * (a4[2] + b4[2]), 0.5 * (a4[3] + b4[3])])
-        z = newton6(z0)
-        if z is None:
-            continue
-        if any(float(np.linalg.norm(z - w["z"])) <= 4.0 * float(np.max(ptol4))
-               for w in found):
-            continue
-        xyz = eval_surface(S2_h, z[4], z[5], rational=True)
-        found.append({"z": z, "xyz": xyz,
-                      "links": [(int(br[k]), int(ix[k])), (int(br[l]), int(ix[l]))]})
+        for stuv, mate, xyz in solve_candidate(a4, b4):
+            if any(_pair_dist(h, stuv, mate) <= 4.0 * float(np.max(ptol4))
+                   for h in found):
+                continue
+            found.append({"stuv": stuv, "stuv_mate": mate, "xyz": xyz,
+                          "links": [(int(br[k]), int(ix[k])),
+                                    (int(br[l]), int(ix[l]))]})
     return found

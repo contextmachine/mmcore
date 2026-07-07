@@ -807,6 +807,26 @@ def test_self_intersection_point():
     assert len({l[0] for l in g.branch_links}) >= 1   # linked to branch(es)
 
 
+def test_self_intersection_point_s2_side():
+    # Ledger L7: the 6-var system {R1(s,t)=R2(u,v), R1(p,q)=R2(u,v)} with
+    # the (s,t)!=(p,q) guard only certifies S1-side doubles — swapping the
+    # umbrella to the S2 role made the SAME self-intersection structurally
+    # invisible (the two preimages differ on S2, the plane preimage is
+    # unique, so the guard rejected every solution). The symmetric system
+    # {R2=R1, R2'=R1} with the guard on the (u,v) pair catches it.
+    S2umb, S1plane = _umbrella_case()          # umbrella now plays S2
+    r = bez_ssx(S1plane, S2umb, 1e-3, rational=False)
+    c3 = [g for g in r["singularities"] if g.kind == "self_intersection"]
+    assert len(c3) == 1
+    g = c3[0]
+    assert np.allclose(g.xyz, [0.0, 0.0, 0.5], atol=2e-3)
+    # stuv convention for an S2-side double: primary (s,t,u,v); the mate
+    # carries the SECOND S2 preimage — stuv_mate = (s,t,u',v').
+    assert np.all(np.abs(g.stuv[:2] - g.stuv_mate[:2]) <= 1e-9)
+    assert abs(g.stuv[3] - g.stuv_mate[3]) > 0.2       # v = (1±0.707)/2
+    assert len({l[0] for l in g.branch_links}) >= 1
+
+
 def _cusp_edge_on_split_plane():
     """S1(s,t) = ((2s-1)^2, (2s-1)^3, t) (deg 3x1) vs S2: plane x=0 spanning
     y in [-1.5,1.5], z in [-0.5,1.5]. Unlike `_cusp_edge_case` (plane z=0.5,

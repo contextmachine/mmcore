@@ -107,6 +107,12 @@ class SSXSingularity:
       'cusp'               — C1: surface-parameterization cusp on the curve
       'cusp_curve'         — C1 infinite case: samples of a singular curve
       'self_intersection'  — C3: two 4D preimages, one 3D point
+
+    For 'self_intersection', `stuv` is the primary preimage (s,t,u,v) and
+    `stuv_mate` differs from it in the DOUBLED side only: an S1-side double
+    carries the second S1 preimage, stuv_mate = (p,q,u,v); an S2-side
+    double (umbrella-as-S2 class, ledger L7) carries the second S2
+    preimage, stuv_mate = (s,t,u',v').
     """
     kind: str
     stuv: NDArray[np.float64]                    # (4,) primary preimage
@@ -5017,11 +5023,10 @@ def bez_ssx(
 
         for hit in c3_pass(S1_h_top, S2_h_top, all_branches, atol,
                            ptol4_global):
-            z = hit["z"]
             all_singularities.append(SSXSingularity(
                 kind="self_intersection",
-                stuv=np.array([z[0], z[1], z[4], z[5]]),
-                stuv_mate=np.array([z[2], z[3], z[4], z[5]]),
+                stuv=np.asarray(hit["stuv"], dtype=np.float64),
+                stuv_mate=np.asarray(hit["stuv_mate"], dtype=np.float64),
                 xyz=np.asarray(hit["xyz"], dtype=np.float64),
                 branch_links=hit["links"]))
 
