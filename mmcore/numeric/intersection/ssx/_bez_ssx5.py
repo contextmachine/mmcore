@@ -171,11 +171,30 @@ def _prune_ssx_cell(S1_h, S2_h, atol, rational=True):
 def _aabb_disjoint(S1_h, S2_h, atol):
     """Fast AABB-only check: True if the two patches' bounding boxes are
     disjoint (no possible intersection). Cheaper than `_prune_ssx_cell`
-    because it skips the sq-dist net computation."""
+    because it skips the sq-dist net computation.
+
+    Roundoff margin (ledger L4 — the L1 pattern in a spot the L1 audit
+    missed): guided cuts pass EXACTLY through touch coordinates, so a
+    control net whose true extremum is exactly 0 at a box corner drifts by
+    ~eps per de Casteljau level — measured on the off-lattice touch+loop
+    (touch (0.3,0.3)): at depth 8 the S1 patch's z-hull max drifted to
+    -3e-17 against the plane's exact z = [0, 0] and this strict test
+    pruned every touch-holding cell (`aabb_intersect` itself is non-strict,
+    so ONLY the drift kills). Inflate one box by the shared L1 margin
+    (`HULL_MARGIN_K = 128` · eps, scaled to the boxes' coordinate
+    magnitude, ~3e-14 at O(1)) — orders below atol and any genuine
+    separation, so pruning power is unaffected; inflation only makes the
+    prune STRICTER to certify, the sound direction.
+    """
     pts1 = S1_h[..., :-1] / S1_h[..., -1:]
     pts2 = S2_h[..., :-1] / S2_h[..., -1:]
     bb1 = np.array(aabb(pts1.reshape(-1, pts1.shape[-1])))
     bb2 = np.array(aabb(pts2.reshape(-1, pts2.shape[-1])))
+    from mmcore.numeric.intersection.ssx._ssx5_singular import _HULL_MARGIN_K_EPS
+    m = _HULL_MARGIN_K_EPS * max(
+        float(np.abs(bb1).max()), float(np.abs(bb2).max()), 1e-30)
+    bb1[0] -= m
+    bb1[1] += m
 
     return not aabb_intersect(bb1, bb2)
 
@@ -3976,6 +3995,67 @@ class _Cell:
     F_sq: Optional[NDArray[np.float64]] = None
     # Top-level w_scale (max weight product) — constant across the tree.
     w_scale: float = 1.0
+    # Ledger L4: a probe-only cell hunts Δ-touches the parent's center
+    # witness missed (loop-free arm, hull gate fired, witness failed). It
+    # carries ONLY nets/boxes — no crossings, no partitions — and its
+    # lifecycle is the lean probe arm of the queue loop: prunes → hull
+    # gate → center witness → lean net-split descent. It never traces
+    # (the parent already traced its geometry — that is what keeps the
+    # descent duplication-free) and never runs cut-face CSX.
+    probe_only: bool = False
+
+
+def _probe_children(cell):
+    """Lean 2x2 net-split of a probe(-able) cell (ledger L4).
+
+    Splits each surface at the midpoint of its longest GLOBAL axis and
+    de Casteljau-propagates T1..T4 and F_sq — nothing else: no cut-face
+    CSX, no crossing distribution, no partitions (the children are
+    probe_only and never trace). Cost per level is four de Casteljau
+    sweeps vs the main subdivision's CSX-per-cut (measured ~60 ms per
+    fall-through on case 5's 20 near-tangent cells — the lean descent is
+    what keeps the L4 recovery inside the coverage timing budget).
+
+    Termination of the descent (probe arm): AABB/GJK/F_sq prunes, hull
+    gate clearing (near-tangent cells: T hulls exclude 0 within a few
+    levels), witness success (touch emitted), or the 4·unify_tol size
+    gate — each level halves one axis per surface, longest-first, so all
+    four spans reach the gate in finitely many levels.
+    """
+    b = cell.box
+    s1_axis = 0 if (b[0][1] - b[0][0]) >= (b[1][1] - b[1][0]) else 1
+    s2_axis = 2 if (b[2][1] - b[2][0]) >= (b[3][1] - b[3][0]) else 3
+    g1_lr = cell.g1.split_u(0.5) if s1_axis == 0 else cell.g1.split_v(0.5)
+    g2_lr = cell.g2.split_u(0.5) if s2_axis == 2 else cell.g2.split_v(0.5)
+
+    def _split2(T):
+        # -> [i1][i2] pieces along (s1_axis, s2_axis), local midpoints
+        if T is None:
+            return [[None, None], [None, None]]
+        a, c = _split_bern_scalar_tensor(T, axis=s1_axis, t=0.5)
+        a1, a2 = _split_bern_scalar_tensor(a, axis=s2_axis, t=0.5)
+        c1, c2 = _split_bern_scalar_tensor(c, axis=s2_axis, t=0.5)
+        return [[a1, a2], [c1, c2]]
+
+    Ts = [_split2(T) for T in (cell.T1, cell.T2, cell.T3, cell.T4)]
+    Fs = _split2(cell.F_sq)
+    m1 = 0.5 * (b[s1_axis][0] + b[s1_axis][1])
+    m2 = 0.5 * (b[s2_axis][0] + b[s2_axis][1])
+    out = []
+    for i1 in range(2):
+        for i2 in range(2):
+            sub = list(b)
+            sub[s1_axis] = (b[s1_axis][0], m1) if i1 == 0 else (m1, b[s1_axis][1])
+            sub[s2_axis] = (b[s2_axis][0], m2) if i2 == 0 else (m2, b[s2_axis][1])
+            out.append(_Cell(
+                g1=g1_lr[i1], g2=g2_lr[i2], crossings=[], box=tuple(sub),
+                depth=cell.depth + 1,
+                T1=Ts[0][i1][i2], T2=Ts[1][i1][i2],
+                T3=Ts[2][i1][i2], T4=Ts[3][i1][i2],
+                new_crossings=[], F_sq=Fs[i1][i2], w_scale=cell.w_scale,
+                probe_only=True,
+            ))
+    return out
 
 
 def bez_ssx(
@@ -4121,7 +4201,7 @@ def bez_ssx(
     # are exactly what a straddling T-hull on the coarser ancestor cell
     # flags before subdivision separates the strips.
     from mmcore.numeric.intersection.ssx._ssx5_singular import (
-        theorem3_excludes_c3, hull_excludes_zero,
+        theorem3_excludes_c3, hull_excludes_zero, psi_vector_net,
     )
 
     c3_possible = False
@@ -4152,55 +4232,135 @@ def bez_ssx(
             if _check_lipschitz(cell.F_sq, atol, cell.w_scale):
                 continue
 
+        # Ledger L4 probe descent: a probe-only cell exists solely to find
+        # the Δ-touch its loop-free ancestor's center witness missed (the
+        # off-lattice touch pinned at a box corner, where the center GN
+        # lands in the touch/valley trap and diverges). Lifecycle: the
+        # sound prunes above → hull gate (some T hull excluding 0 proves
+        # no Δ-root — drop) → center witness (success emits and ends this
+        # probe line; the emission dedup absorbs re-confirmations from
+        # sibling probes) → lean 2x2 net-split descent, bounded by the
+        # same 4·unify_tol size gate as the crossing-less arm. Probes
+        # never trace and never CSX — the ancestor already traced this
+        # geometry, which is what keeps the descent duplication-free.
+        if cell.probe_only:
+            if (cell.T1 is None or any(
+                    hull_excludes_zero(T)
+                    for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
+                continue
+            # Component-wise Ψ hull exclusion (sound: a Δ-root needs Ψ = 0
+            # too). The T hulls alone cannot end a probe line along the
+            # TRAP SHEET — the critical set where all four TΨ vanish but
+            # Ψ != 0 (the touch-plus-loop valley floor: a 1-dim ring with
+            # |Ψ_z| = eps²/4, INSIDE the atol tolerance band, so the
+            # F_sq-vs-atol prune above keeps it too) — and the descent
+            # walked that ring to the size gate (measured +3.7 s on the
+            # off-lattice repro). A sign-carrying Ψ component excludes it
+            # as soon as the cell-local range drops under the floor value
+            # (1-2 probe levels here); touch cells keep Ψ = 0 and survive.
+            # Margin at COORDINATE scale, not per-component net scale
+            # (`hull_excludes_zero`'s max|c| convention is WRONG here —
+            # the L1 drift race): the split drift in a mathematically-zero
+            # corner coefficient originates from the O(coordinate)-scale
+            # surface nets, while a touch-hugging component's own range
+            # shrinks without bound (measured on the touch cell at d=8:
+            # G_z hull [-3.9e-4, -9.8e-17] — true max is 0 AT the corner,
+            # drift 1e-16, per-component margin 1.1e-17 wrongly excluded
+            # and the touch was lost again).
+            S1h_p, S2h_p = cell.g1.surface, cell.g2.surface
+            G = psi_vector_net(S1h_p, S2h_p)
+            from mmcore.numeric.intersection.ssx._ssx5_singular import (
+                _HULL_MARGIN_K_EPS as _gK)
+            gm = _gK * (float(np.abs(S1h_p[..., :-1]).max())
+                        * float(np.abs(S2h_p[..., -1]).max())
+                        + float(np.abs(S2h_p[..., :-1]).max())
+                        * float(np.abs(S1h_p[..., -1]).max()))
+            if any(float(G[..., k].min()) > gm or float(G[..., k].max()) < -gm
+                   for k in range(3)):
+                continue
+            ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
+                                            all_singularities,
+                                            enumerate_all=False,
+                                            overlap_boxes=overlap_boxes)
+            if not (ok and roots) and not np.all(
+                    np.array([hi - lo for (lo, hi) in cell.box])
+                    <= 4.0 * unify_tol):
+                queue.extend(_probe_children(cell))
+            continue
+
         # Loop-absence on this sub-cell — TΨᵢ monotonicity (cheap) tried first,
         # Gauss map separability as fallback (design §6, §10 principle 8).
 
         if _check_loop_free(cell.g1, cell.g2,
                             cell.T1, cell.T2, cell.T3, cell.T4):
-                # C2 touch ON the subdivision lattice: when the tangent point
-                # coincides with cut values (the saddle's X at s=t=1/2 under
-                # midpoint cuts), the children are loop-free via a NON-STRICT
-                # monotone T net that attains 0 exactly at the touch corner,
-                # so no cell holding the touch ever reaches the tangency arms
-                # below — the touch surfaces only as a boundary crossing of
-                # loop-free cells and would go unreported. Emit the Δ-witness
-                # here too, gated by the necessary condition for any TΨ = 0
-                # in the cell: ALL FOUR T-net hulls contain 0 (a strictly
-                # one-signed net excludes tangency). Regular transversal
-                # cells almost always carry a strictly one-signed net, so the
-                # gate costs 8 min/max on already-carried nets. Near-tangent
-                # (but touch-free) geometries DO pass the hull gate (case 5:
-                # 13 cells, case 11's near-tangent loop: 5), so the witness
-                # runs center-GN only (enumerate_all=False, ~1 ms/call —
-                # full solve_zero_dim enumeration on those cells measured
-                # ~2 s per case, a 1.3–1.6x coverage-case regression). The
-                # center start suffices here: a lattice touch is pinned to a
-                # corner of a small post-subdivision cell (guided cuts pass
-                # exactly through the discovered touch crossing), unlike the
-                # crossing-less arm whose one large cell can hold several
-                # distant touches and keeps the full enumeration.
-                # "Contains 0" is margin-consistent with the L1 hull
-                # convention: a hull counts as containing 0 unless it CLEARS
-                # zero by the roundoff margin (`not hull_excludes_zero`) —
-                # a lattice touch's mathematically-zero T coefficient drifts
-                # to ~eps/8 after the guided cut through it, and the strict
-                # `min <= 0` gate then never fired. The margin makes the
-                # probe fire MORE often — the safe direction.
-                if (cell.T1 is not None and not any(
-                        hull_excludes_zero(T)
-                        for T in (cell.T1, cell.T2, cell.T3, cell.T4))):
-                    _emit_tangent_roots(cell, atol, unify_tol,
-                                        all_singularities,
-                                        enumerate_all=False,
-                                        overlap_boxes=overlap_boxes)
-                if cell.crossings:
-                    if not c3_possible and not theorem3_excludes_c3(
-                            cell.T1, cell.T2, cell.T3, cell.T4):
-                        c3_possible = True
-                    fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
-                    all_fragments.extend(fr)
-                    all_points.extend(pt)
-                continue
+            # C2 touch ON the subdivision lattice: when the tangent point
+            # coincides with cut values (the saddle's X at s=t=1/2 under
+            # midpoint cuts), the children are loop-free via a NON-STRICT
+            # monotone T net that attains 0 exactly at the touch corner,
+            # so no cell holding the touch ever reaches the tangency arms
+            # below — the touch surfaces only as a boundary crossing of
+            # loop-free cells and would go unreported. Emit the Δ-witness
+            # here too, gated by the necessary condition for any TΨ = 0
+            # in the cell: ALL FOUR T-net hulls contain 0 (a strictly
+            # one-signed net excludes tangency). Regular transversal
+            # cells almost always carry a strictly one-signed net, so the
+            # gate costs 8 min/max on already-carried nets. Near-tangent
+            # (but touch-free) geometries DO pass the hull gate (case 5:
+            # 13 cells, case 11's near-tangent loop: 5), so the witness
+            # runs center-GN only (enumerate_all=False, ~1 ms/call —
+            # full solve_zero_dim enumeration on those cells measured
+            # ~2 s per case, a 1.3–1.6x coverage-case regression). The
+            # center start suffices here: a lattice touch is pinned to a
+            # corner of a small post-subdivision cell (guided cuts pass
+            # exactly through the discovered touch crossing), unlike the
+            # crossing-less arm whose one large cell can hold several
+            # distant touches and keeps the full enumeration.
+            # "Contains 0" is margin-consistent with the L1 hull
+            # convention: a hull counts as containing 0 unless it CLEARS
+            # zero by the roundoff margin (`not hull_excludes_zero`) —
+            # a lattice touch's mathematically-zero T coefficient drifts
+            # to ~eps/8 after the guided cut through it, and the strict
+            # `min <= 0` gate then never fired. The margin makes the
+            # probe fire MORE often — the safe direction.
+            tangent_gate = (cell.T1 is not None and not any(
+                hull_excludes_zero(T)
+                for T in (cell.T1, cell.T2, cell.T3, cell.T4)))
+            if tangent_gate:
+                ok, roots = _emit_tangent_roots(cell, atol, unify_tol,
+                                                all_singularities,
+                                                enumerate_all=False,
+                                                overlap_boxes=overlap_boxes)
+                # Ledger L4: the hull gate says a touch is POSSIBLE but
+                # the center-only witness failed (GN diverged or landed
+                # outside — e.g. an off-lattice touch sitting at this
+                # cell's box corner, where the center start dies in the
+                # touch/valley trap: the (0.3,0.3) touch-plus-loop lost
+                # its touch through exactly this arm's old unconditional
+                # `continue`). Push a lean PROBE descent (probe_only
+                # cells: hull gate + center witness + net-split, no
+                # tracing/CSX — see the probe arm above) to hunt the
+                # missed root, bounded by the same 4·unify_tol size gate.
+                # The cell itself still traces below exactly as before —
+                # probes never trace, so nothing is double-collected, and
+                # the traced geometry is bit-identical to the pre-L4
+                # baseline. Guided-cut subdivision instead of probes
+                # measured +1.2 s on case 5 (20 near-tangent witness
+                # failures x ~60 ms of cut-face CSX) and degraded the
+                # off-lattice ring's arc coverage (descendant traces
+                # replaced the parent's) — the lean descent costs ~ms and
+                # keeps the traced geometry untouched.
+                if not (ok and roots) and not np.all(
+                        np.array([hi - lo for (lo, hi) in cell.box])
+                        <= 4.0 * unify_tol):
+                    queue.extend(_probe_children(cell))
+            if cell.crossings:
+                if not c3_possible and not theorem3_excludes_c3(
+                        cell.T1, cell.T2, cell.T3, cell.T4):
+                    c3_possible = True
+                fr, pt = _trace_cell_by_registrations(cell, atol, h_max=h_max)
+                all_fragments.extend(fr)
+                all_points.extend(pt)
+            continue
 
         # §6 step 3: Krawczyk-based tangency certification. If TΨ = 0 has a
         # simultaneous root in this cell, the intersection is tangential (C₂)

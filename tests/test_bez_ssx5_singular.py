@@ -864,6 +864,83 @@ def test_theorem3_skips_regular_case():
 # tagging, 1-dim Δ-sets
 # ---------------------------------------------------------------------------
 
+def _touch_plus_loop_offlattice(cx=0.3, eps=0.04):
+    """Off-lattice variant of `_touch_plus_loop`: S1: z = r^4 - eps*r^2 with
+    r^2 = (2(s-cx))^2 + (2(t-cx))^2 (deg 4x4); S2: z=0. Touch at (cx, cx)
+    plus a transversal ring of radius sqrt(eps)/2 in s-units. With cx off
+    the dyadic lattice the guided cuts pin the touch to box CORNERS of the
+    loop-free cells, where the box-center Gauss-Newton witness dies in the
+    touch/valley trap."""
+    from math import comb
+
+    def mono_to_bern(a):
+        return np.array([sum(a[j] * comb(k, j) / comb(4, j)
+                             for j in range(min(k, len(a) - 1) + 1))
+                         for k in range(5)])
+
+    f = np.array([4.0 * cx * cx, -8.0 * cx, 4.0])        # (2(x-cx))^2 monomial
+    f2 = np.convolve(f, f)
+    z_st = np.zeros((5, 5))
+    z_st[:5, 0] += f2
+    z_st[0, :5] += f2
+    z_st[:3, :3] += 2.0 * np.outer(f, f)
+    z_st[:3, 0] -= eps * f
+    z_st[0, :3] -= eps * f
+    M = np.array([mono_to_bern(np.eye(5)[j]) for j in range(5)])
+    Bz = M.T @ z_st @ M
+    xs = mono_to_bern([0.0, 1.0])
+    S1 = np.array([[[xs[i], xs[j], Bz[i, j]] for j in range(5)] for i in range(5)])
+    S2 = np.array([[[-0.5, -0.5, 0.], [-0.5, 1.5, 0.]],
+                   [[1.5, -0.5, 0.], [1.5, 1.5, 0.]]])
+    rng = np.random.default_rng(42)
+    for s, t in rng.uniform(0, 1, (20, 2)):
+        r2 = (2 * (s - cx)) ** 2 + (2 * (t - cx)) ** 2
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s, t, r2 * r2 - eps * r2], atol=1e-12)
+    return S1, S2
+
+
+def test_offlattice_touch_plus_loop_found():
+    # Ledger L4 regression: the loop-free arm's hull gate fired on the
+    # touch-holding cells but the center-only witness failed (the (0.3,0.3)
+    # touch sits at a box corner — guided cuts pass through the ring
+    # crossings at s/t = 0.3 — and the center GN dies in the touch/valley
+    # trap), and the arm `continue`d without any fallback: ALL touches were
+    # lost (singularities == []). The probe descent (lean net-split
+    # probe_only cells) now hunts the missed root; also pins the
+    # `_aabb_disjoint` roundoff margin (the same L1 drift pattern pruned
+    # the depth-8 touch-holding probe cells: patch z-hull max drifted to
+    # -3e-17 against the plane's exact z = [0, 0]).
+    S1, S2 = _touch_plus_loop_offlattice()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    tps = [g for g in r["singularities"] if g.kind == "tangent_point"]
+    hits = [g for g in tps
+            if np.linalg.norm(np.asarray(g.xyz) - [0.3, 0.3, 0.0]) <= 2e-3]
+    assert hits, (f"off-lattice touch lost (L4): tangent_points at "
+                  f"{[np.round(np.asarray(g.xyz), 4).tolist() for g in tps]}")
+    # The transversal ring r=0.1 about (0.3, 0.3): every traced branch lies
+    # ON the true circle (no phantom geometry) ...
+    polys = [np.asarray(b.curve[1]) for b in r["branches"]
+             if len(b.curve[1]) >= 2]
+    assert polys, "ring completely lost"
+    for poly in polys:
+        rr = np.linalg.norm(poly[:, :2] - 0.3, axis=1)
+        assert np.allclose(rr, 0.1, atol=5e-3), "branch off the true ring"
+        assert np.allclose(poly[:, 2], 0.0, atol=2e-3)
+    # ... and covers most of it. NOT asserted: full 24/24 coverage or a
+    # single closed branch — the off-lattice ring assembles as ~6 fragments
+    # with arc gaps up to ~19*atol (measured IDENTICAL before/after the L4
+    # fix; the probe descent never traces, so traced geometry is
+    # bit-identical to baseline). That loop-assembly cluster is ledger L10,
+    # not L4 — tighten this to 24/24 + closedness when L10 lands.
+    covered = 0
+    for a in np.linspace(0, 2 * np.pi, 24, endpoint=False):
+        p = np.array([0.3 + 0.1 * np.cos(a), 0.3 + 0.1 * np.sin(a), 0.0])
+        if min(_pt_poly(p, poly) for poly in polys) <= 5e-3:
+            covered += 1
+    assert covered >= 20, f"ring coverage collapsed: {covered}/24 samples"
+
+
 def _plane_patch(x0, x1):
     return np.array([[[x0, 0., 0.], [x0, 1., 0.]],
                      [[x1, 0., 0.], [x1, 1., 0.]]], dtype=np.float64)
