@@ -1473,3 +1473,29 @@ def test_aniso_tangent_point_plus_thin_loop():
     rr = np.linalg.norm(xyz[:, :2] - 0.5, axis=1)
     assert abs(rr.max() - np.sqrt(eps) / 2.0) < 5e-3
     assert abs(rr.min() - np.sqrt(eps / k) / 2.0) < 5e-3
+
+
+def test_cone_apex_no_phantom_tangent_point():
+    # Ledger L15 regression: at a Sigma=0 parameterization degeneracy all
+    # four T-Psi minors vanish regardless of geometry, so the Delta-witness
+    # converges at the bilinear cone's apex although the 3D crossing there
+    # is TRANSVERSAL — a phantom C2 'tangent_point' shipped alongside the
+    # correct C1 'cusp_curve'. The C2 emitters now reject Sigma=0 roots
+    # (normal-degeneracy test, reparameterization-invariant).
+    S1 = np.array([[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                   [[0.0, 1.0, -1.0], [1.0, 1.0, 1.0]]])   # (s*t, s, s*(2t-1))
+    S2 = np.array([[[-1.5, -1.5, 0.0], [-1.5, 1.5, 0.0]],
+                   [[1.5, -1.5, 0.0], [1.5, 1.5, 0.0]]])
+    for s, t in [(0.3, 0.8), (0.0, 0.5), (1.0, 0.25), (0.6, 0.5)]:
+        p = eval_surface(_homog(S1), s, t, rational=True)
+        assert np.allclose(p, [s * t, s, s * (2 * t - 1)], atol=1e-12)
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+    assert [g for g in r["singularities"] if g.kind == "tangent_point"] == [], \
+        "phantom C2 tangent_point at the Sigma=0 apex"
+    # the C1 classification must remain
+    c1 = [g for g in r["singularities"] if g.kind in ("cusp", "cusp_curve")]
+    assert c1 and all(g.surface == 1 for g in c1)
+    assert any(np.linalg.norm(g.xyz) < 5e-3 for g in c1)
+    # and the transversal branch through the apex is traced
+    assert len(r["branches"]) == 1
+    assert r["branches"][0].kind == "transversal"

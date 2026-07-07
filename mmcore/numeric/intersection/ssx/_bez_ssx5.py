@@ -727,6 +727,8 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
         if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
             continue
+        if _normals_degenerate_at(cell.g1.surface, cell.g2.surface, xw):
+            continue    # L15: Sigma=0 root — C1 candidate, not a C2 touch
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
                    and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
@@ -735,6 +737,25 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
             all_singularities.append(SSXSingularity(
                 kind="tangent_point", stuv=stuv_g, xyz=xyz_w))
     return ok, roots
+
+
+def _normals_degenerate_at(S1h, S2h, x4) -> bool:
+    """True when either surface's parameterization is degenerate at the
+    4D point (Sigma_i = du_i x dv_i vanishes relative to |du_i||dv_i| —
+    reparameterization-invariant, so cell-LOCAL nets are fine).
+
+    Ledger L15: Sigma = 0 makes ALL FOUR T-Psi minors vanish at any
+    crossing, so the Delta-witness converges there even when the 3D
+    crossing is TRANSVERSAL (bilinear cone apex vs plane). A vanishing
+    normal is a C1 parameterization-cusp candidate, not a C2 tangency —
+    c1_pass reports it as cusp/cusp_curve with its `surface` tag."""
+    _, du1, dv1 = eval_surface_d1(S1h, x4[0], x4[1], rational=True)
+    _, du2, dv2 = eval_surface_d1(S2h, x4[2], x4[3], rational=True)
+    n1 = float(np.linalg.norm(np.cross(du1, dv1)))
+    n2 = float(np.linalg.norm(np.cross(du2, dv2)))
+    s1 = float(np.linalg.norm(du1)) * float(np.linalg.norm(dv1))
+    s2 = float(np.linalg.norm(du2)) * float(np.linalg.norm(dv2))
+    return n1 <= 1e-6 * s1 + 1e-300 or n2 <= 1e-6 * s2 + 1e-300
 
 
 def _delta_float_gn(T1, T2, T3, T4, P1c, P2c):
@@ -1050,6 +1071,8 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         stuv_g = _local_to_global(np.asarray(xw), cell.box)
         if _stuv_in_overlap_boxes(stuv_g, overlap_boxes):
             continue
+        if _normals_degenerate_at(cell.g1.surface, cell.g2.surface, xw):
+            continue    # L15: Sigma=0 root — C1 candidate, not a C2 touch
         xyz_w = eval_surface(cell.g1.surface, xw[0], xw[1], rational=True)
         if not any(g.kind == "tangent_point"
                    and np.all(np.abs(g.stuv - stuv_g) <= unify_tol)
