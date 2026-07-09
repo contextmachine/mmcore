@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import math
 import sys
 import time
@@ -412,26 +413,27 @@ uniform mat4 uView;
 uniform mat4 uModel;
 uniform float uPointSize;
 
-out vec3 vWorldPos;
-out vec3 vWorldNormal;
+out vec3 vViewNormal;
 
 void main(){
     vec4 worldPos = uModel * vec4(aPos, 1.0);
     gl_Position = uProjection * uView * worldPos;
     gl_PointSize = uPointSize;
 
+    // Plasticity-style shading is camera-locked: everything is a function of
+    // the VIEW-space normal. uView is rigid (rotation + translation), so
+    // mat3(uView) is a pure rotation and safe for normals.
     mat3 normalMat = transpose(inverse(mat3(uModel)));
-    vWorldPos = worldPos.xyz;
-    vWorldNormal = normalMat * aNormal;
+    vViewNormal = mat3(uView) * (normalMat * aNormal);
 }
 """
 
 FRAG_SRC = """
 #version 330 core
-// uRenderKind: 0 = flat color (lines/regular points), 1 = snap sprite, 2 = Gooch-shaded surface
+// uRenderKind: 0 = flat color (lines/regular points), 1 = snap sprite,
+//              2 = Plasticity-style shaded surface (fitted two-light NPR rig)
 uniform vec4 uColor;
 uniform vec4 uBorderColor;
-uniform vec3 uInkColor;
 uniform int uRenderKind;
 
 uniform float uPtSize;
@@ -440,20 +442,26 @@ uniform float uInnerSizePx;
 uniform float uCrossOutPx;
 uniform float uCrossThickPx;
 
-uniform vec3 uLightDirWorld;   // direction from shaded point toward the light
-uniform vec3 uCameraPosWorld;
+// ---- Plasticity rig: fitted constants come in as uniforms (all view-space) ----
+uniform vec3  uKeyDir;      // warm key direction, view space
+uniform vec3  uKeyColor;    // warm key color
+uniform vec3  uAmbColor;    // cool ambient
+uniform float uAlbedo;
+uniform float uWrap;        // wrapped-Lambert softness
+uniform vec3  uGndDir;      // ground-bounce direction, view space
+uniform vec3  uGndColor;    // warm bounce color
+uniform float uGndI;
+uniform vec3  uGlareColor;
+uniform float uGlareI;
+uniform float uGlareE;
+uniform float uRimK;
+uniform float uRimE;
+// ---- user controls (1.0 = fitted reference look) ----
+uniform float uHighlight;   // glare brightness
+uniform float uShadow;      // fill level: lower = darker shadows
+uniform float uKeyGain;     // warm lit-side brightness
 
-uniform vec3 uGoochCool;
-uniform vec3 uGoochWarm;
-uniform float uGoochAlpha;
-uniform float uGoochBeta;
-uniform float uSpecularStrength;
-uniform float uSpecularPower;
-uniform float uRimStrength;
-uniform float uRimPower;
-
-in vec3 vWorldPos;
-in vec3 vWorldNormal;
+in vec3 vViewNormal;
 
 out vec4 FragColor;
 
@@ -484,31 +492,32 @@ void main(){
     }
 
     if(uRenderKind == 2){
-        vec3 N = normalize(vWorldNormal);
-        vec3 V = normalize(uCameraPosWorld - vWorldPos);
+        vec3 n = normalize(vViewNormal);
+        // Two-sided shading for thin CAD sheets. Orthographic camera:
+        // the view vector in view space is exactly +z, so back-facing
+        // is simply n.z < 0.
+        if(n.z < 0.0) n = -n;
 
-        // Two-sided shading keeps thin CAD sheets readable from both sides.
-        if(dot(N, V) < 0.0){
-            N = -N;
-        }
+        // warm key, wrapped Lambert: warmth and brightness rise together;
+        // shaded faces fall to the cool ambient
+        vec3 L = normalize(uKeyDir);
+        float D = clamp((dot(n, L) + uWrap) / (1.0 + uWrap), 0.0, 1.0);
+        vec3 c = uAlbedo * (uShadow * uAmbColor + uKeyGain * uKeyColor * D);
 
-        vec3 L = normalize(uLightDirWorld);
-        float ndl = clamp(dot(N, L), -1.0, 1.0);
-        float t = 0.5 * (ndl + 1.0);
+        // warm ground bounce (fills the underside; scaled by the shadow knob)
+        c += uAlbedo * uGndI * uShadow * uGndColor * max(dot(n, normalize(uGndDir)), 0.0);
 
-        vec3 base = clamp(uColor.rgb, 0.0, 1.0);
-        vec3 cool = clamp(uGoochCool + uGoochAlpha * base, 0.0, 1.0);
-        vec3 warm = clamp(uGoochWarm + uGoochBeta * base, 0.0, 1.0);
-        vec3 col = mix(cool, warm, t);
+        // warm glare: with ortho projection V = (0,0,1), so H is constant
+        vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+        c += uGlareColor * uHighlight * uGlareI * pow(max(dot(n, H), 0.0), uGlareE);
 
-        vec3 H = normalize(L + V);
-        float spec = pow(max(dot(N, H), 0.0), max(1.0, uSpecularPower));
-        col = mix(col, vec3(1.0), clamp(spec * uSpecularStrength, 0.0, 1.0));
+        // rim darkening into the dark background
+        c *= 1.0 - uRimK * pow(1.0 - max(n.z, 0.0), uRimE);
 
-        float rim = pow(1.0 - abs(dot(N, V)), max(1.0, uRimPower));
-        col = mix(col, uInkColor, clamp(rim * uRimStrength, 0.0, 1.0));
+        // per-object tint: (1,1,1) reproduces the fitted look exactly
+        c *= uColor.rgb;
 
-        FragColor = vec4(col, uColor.a);
+        FragColor = vec4(clamp(c, 0.0, 1.0), uColor.a);
         return;
     }
 
@@ -539,6 +548,87 @@ def make_program() -> int:
     return prog
 
 
+LINE_VERT_SRC = """
+#version 330 core
+// Screen-space thick lines: each segment is a quad; every vertex knows its own
+// endpoint, the opposite endpoint, which end it is, and which side to offset.
+layout(location=0) in vec3 aPos;      // this endpoint
+layout(location=1) in vec3 aOther;    // opposite endpoint of the segment
+layout(location=2) in vec2 aSideEnd;  // x: side (-1/+1), y: end (0/1)
+
+uniform mat4 uMVP;
+uniform vec2 uViewportPx;   // framebuffer size in pixels
+uniform float uWidthPx;     // total line width in pixels
+
+void main(){
+    vec4 cs = uMVP * vec4(aPos, 1.0);
+    vec4 co = uMVP * vec4(aOther, 1.0);
+    vec2 ss = cs.xy / cs.w * 0.5 * uViewportPx;
+    vec2 so = co.xy / co.w * 0.5 * uViewportPx;
+    // consistent along-segment direction regardless of which end we are
+    vec2 d = (aSideEnd.y < 0.5) ? (so - ss) : (ss - so);
+    float len = max(length(d), 1e-6);
+    vec2 n = vec2(-d.y, d.x) / len;
+    vec2 off_px = n * aSideEnd.x * 0.5 * uWidthPx;
+    cs.xy += off_px / (0.5 * uViewportPx) * cs.w;
+    gl_Position = cs;
+}
+"""
+
+LINE_FRAG_SRC = """
+#version 330 core
+uniform vec4 uLineColor;
+out vec4 FragColor;
+void main(){ FragColor = uLineColor; }
+"""
+
+
+def make_line_program() -> int:
+    def compile_shader(src, typ):
+        s = glCreateShader(typ)
+        glShaderSource(s, src)
+        glCompileShader(s)
+        if glGetShaderiv(s, GL_COMPILE_STATUS) != GL_TRUE:
+            raise RuntimeError(glGetShaderInfoLog(s).decode())
+        return s
+
+    vs = compile_shader(LINE_VERT_SRC, GL_VERTEX_SHADER)
+    fs = compile_shader(LINE_FRAG_SRC, GL_FRAGMENT_SHADER)
+    prog = glCreateProgram()
+    glAttachShader(prog, vs)
+    glAttachShader(prog, fs)
+    glLinkProgram(prog)
+    if glGetProgramiv(prog, GL_LINK_STATUS) != GL_TRUE:
+        raise RuntimeError(glGetProgramInfoLog(prog).decode())
+    glDeleteShader(vs)
+    glDeleteShader(fs)
+    return prog
+
+
+def build_thick_line_geometry(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Polyline (N,3) -> interleaved quad vertices (4*(N-1), 8) and indices.
+
+    Vertex layout: [self.xyz, other.xyz, side, end]. Butt joints: adequate for
+    CAD linework at 2-4 px; switch to miters if sharp corners ever show notches.
+    """
+    pts = np.ascontiguousarray(pts, dtype=np.float32)
+    p0, p1 = pts[:-1], pts[1:]
+    nseg = len(p0)
+    verts = np.empty((nseg, 4, 8), dtype=np.float32)
+    for k, (a, b, side, end) in enumerate(
+        [(p0, p1, -1.0, 0.0), (p0, p1, 1.0, 0.0), (p1, p0, -1.0, 1.0), (p1, p0, 1.0, 1.0)]
+    ):
+        verts[:, k, 0:3] = a
+        verts[:, k, 3:6] = b
+        verts[:, k, 6] = side
+        verts[:, k, 7] = end
+    idx = (
+        np.arange(nseg, dtype=np.uint32)[:, None] * 4
+        + np.array([0, 1, 2, 2, 1, 3], dtype=np.uint32)[None, :]
+    ).ravel()
+    return verts.reshape(-1, 8), idx
+
+
 # =========================
 # Viewer settings
 # =========================
@@ -560,28 +650,54 @@ class SnapSettings:
 
 
 @dataclass
-class GoochSettings:
-    # These defaults are tuned for technical illustrations rather than realism.
-    cool_color: tuple[float, float, float] = (0.05, 0.05, 0.45)
-    warm_color: tuple[float, float, float] = (0.35, 0.35, 0.35)
-    alpha: float = 0.9
-    beta: float = 0.9
-    specular_strength: float = 0.12
-    specular_power: float = 40.0
-    rim_strength: float = 0.30
-    rim_power: float = 2.0
-    ink_color: tuple[float, float, float] = (0.08, 0.08, 0.10)
+class PlasticityShadingSettings:
+    """Fitted two-light NPR rig (Plasticity-style viewport shading).
 
-    # Base world-space light direction (point -> light). This is blended with a
-    # camera-relative "headlight" so the model stays readable while orbiting.
-    light_dir: tuple[float, float, float] = (0.5, 0.5, -1.00)
-    headlight_mix: float = 0.0
+    All directions are in VIEW space — the rig is locked to the camera by
+    construction, which is what keeps the shading stable while orbiting
+    (this replaces the old world-light + headlight_mix machinery).
+    Constants were least-squares fitted to pixel samples from a Plasticity
+    screenshot; palette is display-space, so no output gamma is applied.
+    """
+
+    key_dir: tuple[float, float, float] = (-0.436, 0.900, 0.031)
+    key_color: tuple[float, float, float] = (0.812, 0.710, 0.526)   # warm key
+    amb_color: tuple[float, float, float] = (0.100, 0.136, 0.214)   # cool ambient
+    albedo: float = 0.793
+    wrap: float = 0.5
+    gnd_dir: tuple[float, float, float] = (0.15, -0.92, 0.36)
+    gnd_color: tuple[float, float, float] = (0.85, 0.68, 0.48)      # warm bounce
+    gnd_intensity: float = 0.500
+    glare_color: tuple[float, float, float] = (1.0, 0.90, 0.72)     # warm glare
+    glare_intensity: float = 0.040
+    glare_power: float = 21.1
+    rim_strength: float = 0.889
+    rim_power: float = 1.676
+
+    # User controls, 1.0 = fitted reference look:
+    highlight: float = 1.0   # glare brightness (0..3)
+    shadow: float = 1.0      # fill level; lower = darker shadows (0.4..1.6)
+    key_gain: float = 1.0    # warm lit-side brightness (0.8..1.3)
+
+
+@dataclass
+class EdgeSettings:
+    """Plasticity-style linework. Background is ~0.09, so both edge colors sit
+    BELOW it: dark lines stay readable on lit faces AND against the dark field.
+    Widths are in window points; multiplied by the content scale at draw time,
+    so 2.0 means 2 device-independent pixels on a retina display too."""
+
+    inner_width: float = 1.75    # isocurves and other interior linework
+    outline_width: float = 3.0   # surface boundaries / B-rep edges
+    inner_color: tuple[float, float, float, float] = (0.055, 0.058, 0.070, 1.0)
+    outline_color: tuple[float, float, float, float] = (0.030, 0.032, 0.040, 1.0)
 
 
 @dataclass
 class ViewerSettings:
     snap: SnapSettings = field(default_factory=SnapSettings)
-    gooch: GoochSettings = field(default_factory=GoochSettings)
+    shading: PlasticityShadingSettings = field(default_factory=PlasticityShadingSettings)
+    edges: EdgeSettings = field(default_factory=EdgeSettings)
 
 
 # =========================
@@ -630,6 +746,8 @@ class Viewer:
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.COCOA_RETINA_FRAMEBUFFER, glfw.TRUE)
+        # Thick screen-space line quads alias badly without multisampling.
+        glfw.window_hint(glfw.SAMPLES, 8)
 
         self.window = glfw.create_window(width, height, "Snap Viewer", None, None)
         if not self.window:
@@ -639,13 +757,17 @@ class Viewer:
 
         self.color_table: dict[int, tuple[float, float, float, float]] = {}
         self.program = make_program()
+        self.line_program = make_line_program()
+        self.loc_line_uMVP = glGetUniformLocation(self.line_program, "uMVP")
+        self.loc_line_uViewportPx = glGetUniformLocation(self.line_program, "uViewportPx")
+        self.loc_line_uWidthPx = glGetUniformLocation(self.line_program, "uWidthPx")
+        self.loc_line_uColor = glGetUniformLocation(self.line_program, "uLineColor")
 
         self.loc_uP = glGetUniformLocation(self.program, "uProjection")
         self.loc_uV = glGetUniformLocation(self.program, "uView")
         self.loc_uM = glGetUniformLocation(self.program, "uModel")
         self.loc_uColor = glGetUniformLocation(self.program, "uColor")
         self.loc_uBorderColor = glGetUniformLocation(self.program, "uBorderColor")
-        self.loc_uInkColor = glGetUniformLocation(self.program, "uInkColor")
         self.loc_uRenderKind = glGetUniformLocation(self.program, "uRenderKind")
         self.loc_uPtSize = glGetUniformLocation(self.program, "uPtSize")
         self.loc_uBorderPx = glGetUniformLocation(self.program, "uBorderPx")
@@ -654,18 +776,26 @@ class Viewer:
         self.loc_uCrossOutPx = glGetUniformLocation(self.program, "uCrossOutPx")
         self.loc_uCrossThickPx = glGetUniformLocation(self.program, "uCrossThickPx")
 
-        self.loc_uLightDirWorld = glGetUniformLocation(self.program, "uLightDirWorld")
-        self.loc_uCameraPosWorld = glGetUniformLocation(self.program, "uCameraPosWorld")
-        self.loc_uGoochCool = glGetUniformLocation(self.program, "uGoochCool")
-        self.loc_uGoochWarm = glGetUniformLocation(self.program, "uGoochWarm")
-        self.loc_uGoochAlpha = glGetUniformLocation(self.program, "uGoochAlpha")
-        self.loc_uGoochBeta = glGetUniformLocation(self.program, "uGoochBeta")
-        self.loc_uSpecularStrength = glGetUniformLocation(self.program, "uSpecularStrength")
-        self.loc_uSpecularPower = glGetUniformLocation(self.program, "uSpecularPower")
-        self.loc_uRimStrength = glGetUniformLocation(self.program, "uRimStrength")
-        self.loc_uRimPower = glGetUniformLocation(self.program, "uRimPower")
+        # Plasticity rig uniforms
+        self.loc_uKeyDir = glGetUniformLocation(self.program, "uKeyDir")
+        self.loc_uKeyColor = glGetUniformLocation(self.program, "uKeyColor")
+        self.loc_uAmbColor = glGetUniformLocation(self.program, "uAmbColor")
+        self.loc_uAlbedo = glGetUniformLocation(self.program, "uAlbedo")
+        self.loc_uWrap = glGetUniformLocation(self.program, "uWrap")
+        self.loc_uGndDir = glGetUniformLocation(self.program, "uGndDir")
+        self.loc_uGndColor = glGetUniformLocation(self.program, "uGndColor")
+        self.loc_uGndI = glGetUniformLocation(self.program, "uGndI")
+        self.loc_uGlareColor = glGetUniformLocation(self.program, "uGlareColor")
+        self.loc_uGlareI = glGetUniformLocation(self.program, "uGlareI")
+        self.loc_uGlareE = glGetUniformLocation(self.program, "uGlareE")
+        self.loc_uRimK = glGetUniformLocation(self.program, "uRimK")
+        self.loc_uRimE = glGetUniformLocation(self.program, "uRimE")
+        self.loc_uHighlight = glGetUniformLocation(self.program, "uHighlight")
+        self.loc_uShadow = glGetUniformLocation(self.program, "uShadow")
+        self.loc_uKeyGain = glGetUniformLocation(self.program, "uKeyGain")
 
         glEnable(GL_DEPTH_TEST)
+        glEnable(GL_MULTISAMPLE)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         glEnable(GL_PROGRAM_POINT_SIZE)
@@ -687,7 +817,8 @@ class Viewer:
         self.snap_hit: Optional[SnapHit] = None
         self.points: list[tuple[np.ndarray, tuple[float, float, float, float], float]] = []
 
-        self.lines: list[tuple[int, int, int, np.ndarray]] = []
+        # Each line: (vao, vbo, ebo, index_count, color_rgba, width_pt)
+        self.lines: list[tuple[int, int, int, int, np.ndarray, float]] = []
         # Each mesh: (vao, vbo, nbo, ebo, index_count, color_rgba, centroid_world)
         self.meshes: list[tuple[int, int, int, int, int, np.ndarray, np.ndarray]] = []
 
@@ -731,25 +862,48 @@ class Viewer:
 
     # ---------- Scene build ----------
 
-    def _add_curve(self, curve: RationalBezier, color=(1.0, 1.0, 1.0, 1.0), samples=128):
+    def _add_curve(
+        self,
+        curve: RationalBezier,
+        color=None,
+        samples=128,
+        width_px: float | None = None,
+        role: Literal["inner", "outline"] = "outline",
+    ):
+        """role picks the EdgeSettings defaults when color/width_px are None."""
+        e = self.settings.edges
+        if color is None:
+            color = e.inner_color if role == "inner" else e.outline_color
+        if width_px is None:
+            width_px = e.inner_width if role == "inner" else e.outline_width
+
         self.curves.append(curve)
         self.color_table[id(curve)] = color
 
         idx = len(self.curves) - 1
         pts = curve.polyline(samples=samples).astype(np.float32)
+        verts, indices = build_thick_line_geometry(pts)
 
         vao = glGenVertexArrays(1)
         glBindVertexArray(vao)
 
         vbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
-        glBufferData(GL_ARRAY_BUFFER, pts.nbytes, pts, GL_STATIC_DRAW)
-
+        glBufferData(GL_ARRAY_BUFFER, verts.nbytes, verts, GL_STATIC_DRAW)
+        stride = 8 * 4
         glEnableVertexAttribArray(0)
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+        glEnableVertexAttribArray(1)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
+        glEnableVertexAttribArray(2)
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(24))
+
+        ebo = glGenBuffers(1)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
 
         self.scene_info.bbox.merge(AABB.from_points(pts))
-        self.lines.append((vao, vbo, pts.shape[0], np.array(color, dtype=np.float32)))
+        self.lines.append((vao, vbo, ebo, indices.size, np.array(color, dtype=np.float32), float(width_px)))
         return idx
 
     def _mesh_upload(self, vertices: np.ndarray, faces: np.ndarray, color) -> Optional[int]:
@@ -762,7 +916,8 @@ class Viewer:
         centroid = vertices.mean(axis=0).astype(np.float32)
 
         if len(color) == 3:
-            color = (*color, 0.25)
+            # Plasticity style reads best opaque; edges/isocurves carry structure.
+            color = (*color, 1.0)
         color_arr = np.array(color, dtype=np.float32)
 
         vao = glGenVertexArrays(1)
@@ -788,7 +943,7 @@ class Viewer:
         self.meshes.append((vao, vbo, nbo, ebo, faces.size, color_arr, centroid))
         return len(self.meshes) - 1
 
-    def _add_surface_mesh(self, surface, color=(0.70, 0.74, 0.88, 0.70), tol=0.05):
+    def _add_surface_mesh(self, surface, color=(1.0, 1.0, 1.0, 1.0), tol=0.05):
         surf = _tuple_to_nurbs(surface) if isinstance(surface, NURBSSurfaceTuple) else surface
         mesh = surface_to_mesh(surf, tol=tol)
         return self._mesh_upload(mesh["position"], mesh["faces"], color=color)
@@ -846,7 +1001,7 @@ class Viewer:
 
     # ---------- Render & snap ----------
 
-    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0), *args, **kwargs):
+    def _add_nurbs_curve(self, curve: NURBSCurveTuple, color=None, *args, **kwargs):
         beziers = decompose_curve(curve)
         return tuple(
             self.add(
@@ -859,14 +1014,14 @@ class Viewer:
             for bezier in beziers
         )
 
-    def add_nurbs_curve(self, curve: NURBSCurveTuple, color=(1.0, 1.0, 1.0, 1.0), *args, **kwargs):
+    def add_nurbs_curve(self, curve: NURBSCurveTuple, color=None, *args, **kwargs):
         return self._add_nurbs_curve(curve, color, *args, **kwargs)
 
     def add_nurbs_surface(
         self,
         surface: NURBSSurfaceTuple,
-        color=(1.0, 1.0, 1.0, 1.0),
-        surface_color=(0.70, 0.74, 0.88, 0.70),
+        color=None,
+        surface_color=(1.0, 1.0, 1.0, 1.0),
         u_count=1,
         v_count=1,
         show_edges: bool = True,
@@ -885,27 +1040,27 @@ class Viewer:
         us = np.linspace(u0, u1, u_count + 2)[1:-1]
         vs = np.linspace(v0, v1, v_count + 2)[1:-1]
 
-        iso_color = (color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3])
+        iso_color = None if color is None else (color[0] * 0.5, color[1] * 0.5, color[2] * 0.5, color[3])
 
         isolines = []
         if show_isocurves:
             for crv in [extract_isocurve(surface, u, "u") for u in us] + [
                 extract_isocurve(surface, v, "v") for v in vs
             ]:
-                isolines.append(self._add_nurbs_curve(crv, iso_color, *args, **kwargs))
+                isolines.append(self._add_nurbs_curve(crv, iso_color, role="inner", *args, **kwargs))
 
         bnds = []
         if show_edges:
             for bnd in extract_surface_boundaries(surface):
-                bnds.append(self._add_nurbs_curve(bnd, color, *args, **kwargs))
+                bnds.append(self._add_nurbs_curve(bnd, color, role="outline", *args, **kwargs))
 
         return tuple(meshes) + tuple(bnds) + tuple(isolines)
 
     def add_brep(
         self,
         brep,
-        edge_color=(1.0, 1.0, 1.0, 1.0),
-        surface_color=(0.70, 0.74, 0.88, 0.70),
+        edge_color=None,
+        surface_color=(1.0, 1.0, 1.0, 1.0),
         tol=0.05,
         show_edges=True,
         shade=True,
@@ -942,34 +1097,15 @@ class Viewer:
                 t0, t1 = sorted(edge.param)
                 try:
                     trimmed = trim_curve(crv, t0, t1)
-                    self._add_nurbs_curve(trimmed, color=edge_color)
+                    self._add_nurbs_curve(trimmed, color=edge_color, role="outline")
                 except Exception:
-                    self._add_nurbs_curve(crv, color=edge_color)
+                    self._add_nurbs_curve(crv, color=edge_color, role="outline")
 
         return results
 
-    def _add_mesh(self, mesh, color=(0.70, 0.74, 0.88, 0.70)):
+    def _add_mesh(self, mesh, color=(1.0, 1.0, 1.0, 1.0)):
         """Upload a Mesh dict (position, faces) to GL. Returns mesh index."""
         return self._mesh_upload(mesh["position"], mesh["faces"], color=color)
-
-    def _compute_light_dir(self) -> np.ndarray:
-        """
-        World-space light direction (from point toward light).
-        Blend a fixed world light with a camera-relative headlight so the
-        technical shading remains readable while orbiting.
-        """
-        g = self.settings.gooch
-        eye = self.cam.eye().astype(np.float32)
-        forward_to_scene = normalize(self.cam.target.astype(np.float32) - eye)
-        V = self.cam.view_matrix()
-        right = normalize(V[0, 0:3].astype(np.float32))
-        up = normalize(V[1, 0:3].astype(np.float32))
-
-        headlight = normalize((-forward_to_scene) + 0.25 * right + 0.35 * up)
-        world_light = normalize(np.array(g.light_dir, dtype=np.float32))
-
-        mix = float(np.clip(g.headlight_mix, 0.0, 1.0))
-        return normalize((1.0 - mix) * world_light + mix * headlight).astype(np.float32)
 
     def _upload_frame_uniforms(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray):
         """
@@ -982,34 +1118,39 @@ class Viewer:
         glUniformMatrix4fv(self.loc_uV, 1, GL_TRUE, V_row)
         glUniformMatrix4fv(self.loc_uM, 1, GL_TRUE, M_row)
 
-        eye = self.cam.eye().astype(np.float32)
-        light_dir = self._compute_light_dir()
-        gooch = self.settings.gooch
+        s = self.settings.shading
+        glUniform3fv(self.loc_uKeyDir, 1, normalize(np.array(s.key_dir, dtype=np.float32)))
+        glUniform3fv(self.loc_uKeyColor, 1, np.array(s.key_color, dtype=np.float32))
+        glUniform3fv(self.loc_uAmbColor, 1, np.array(s.amb_color, dtype=np.float32))
+        glUniform1f(self.loc_uAlbedo, float(s.albedo))
+        glUniform1f(self.loc_uWrap, float(s.wrap))
+        glUniform3fv(self.loc_uGndDir, 1, normalize(np.array(s.gnd_dir, dtype=np.float32)))
+        glUniform3fv(self.loc_uGndColor, 1, np.array(s.gnd_color, dtype=np.float32))
+        glUniform1f(self.loc_uGndI, float(s.gnd_intensity))
+        glUniform3fv(self.loc_uGlareColor, 1, np.array(s.glare_color, dtype=np.float32))
+        glUniform1f(self.loc_uGlareI, float(s.glare_intensity))
+        glUniform1f(self.loc_uGlareE, float(s.glare_power))
+        glUniform1f(self.loc_uRimK, float(s.rim_strength))
+        glUniform1f(self.loc_uRimE, float(s.rim_power))
+        glUniform1f(self.loc_uHighlight, float(s.highlight))
+        glUniform1f(self.loc_uShadow, float(s.shadow))
+        glUniform1f(self.loc_uKeyGain, float(s.key_gain))
 
-        glUniform3fv(self.loc_uCameraPosWorld, 1, eye)
-        glUniform3fv(self.loc_uLightDirWorld, 1, light_dir)
-        glUniform3fv(self.loc_uGoochCool, 1, np.array(gooch.cool_color, dtype=np.float32))
-        glUniform3fv(self.loc_uGoochWarm, 1, np.array(gooch.warm_color, dtype=np.float32))
-        glUniform1f(self.loc_uGoochAlpha, float(gooch.alpha))
-        glUniform1f(self.loc_uGoochBeta, float(gooch.beta))
-        glUniform1f(self.loc_uSpecularStrength, float(gooch.specular_strength))
-        glUniform1f(self.loc_uSpecularPower, float(gooch.specular_power))
-        glUniform1f(self.loc_uRimStrength, float(gooch.rim_strength))
-        glUniform1f(self.loc_uRimPower, float(gooch.rim_power))
-        glUniform3fv(self.loc_uInkColor, 1, np.array(gooch.ink_color, dtype=np.float32))
+    def _draw_lines(self, P_row: np.ndarray, V_row: np.ndarray, M_row: np.ndarray, vinfo: ViewportInfo):
+        if not self.lines:
+            return
+        glUseProgram(self.line_program)
+        MVP = (P_row @ V_row @ M_row).astype(np.float32)
+        glUniformMatrix4fv(self.loc_line_uMVP, 1, GL_TRUE, MVP)
+        glUniform2f(self.loc_line_uViewportPx, float(vinfo.fb_w), float(vinfo.fb_h))
+        # widths are authored in window points -> device pixels via content scale
+        scale = 0.5 * (vinfo.sx + vinfo.sy)
 
-    def _draw_lines(self):
-        glUseProgram(self.program)
-        glUniform1i(self.loc_uRenderKind, 0)
-        glUniform1f(self.loc_uPtSize, 1.0)
-        glUniform1f(self.loc_uPointSize, 1.0)
-        glUniform1f(self.loc_uBorderPx, 0.0)
-
-        for vao, vbo, nverts, color in self.lines:
+        for vao, vbo, ebo, index_count, color, width_pt in self.lines:
             glBindVertexArray(vao)
-            glUniform4fv(self.loc_uColor, 1, color)
-            glUniform4fv(self.loc_uBorderColor, 1, color)
-            glDrawArrays(GL_LINE_STRIP, 0, nverts)
+            glUniform4fv(self.loc_line_uColor, 1, color)
+            glUniform1f(self.loc_line_uWidthPx, width_pt * scale)
+            glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, None)
 
     def _draw_mesh_record(self, record):
         vao, vbo, nbo, ebo, index_count, color, centroid = record
@@ -1151,11 +1292,12 @@ class Viewer:
             self._upload_frame_uniforms(P_row, V_row, M_row)
             self._compute_snap(vinfo, M_cpu)
 
-            glClearColor(0.07, 0.07, 0.08, 1.0)
+            # Background from the fitted reference (Plasticity uses ~0.09).
+            glClearColor(0.09, 0.09, 0.10, 1.0)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
             self._draw_surfaces(V_row)
-            self._draw_lines()
+            self._draw_lines(P_row, V_row, M_row, vinfo)
 
             for point_arr, color, size_px in self.points:
                 self._draw_point(point_arr, size_px=size_px, color=color)
@@ -1165,8 +1307,9 @@ class Viewer:
 
             glfw.swap_buffers(self.window)
 
-        for vao, vbo, _, _ in self.lines:
+        for vao, vbo, ebo, _, _, _ in self.lines:
             glDeleteBuffers(1, [vbo])
+            glDeleteBuffers(1, [ebo])
             glDeleteVertexArrays(1, [vao])
 
         for vao, vbo, nbo, ebo, _, _, _ in self.meshes:
