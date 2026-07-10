@@ -19,7 +19,11 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-from mmcore.numeric.bern import de_casteljau_split_nd, bernstein_partial_derivative_coeffs
+from mmcore.numeric.bern import (
+    bernstein_eval_nd,
+    bernstein_partial_derivative_coeffs,
+    de_casteljau_split_nd,
+)
 from mmcore.numeric.intersection._deflate import (
     bernstein_patch_derivative_s,
     bernstein_patch_derivative_t,
@@ -377,6 +381,10 @@ def solve_zero_dim(
     priority: Optional[Callable] = None,     # (box) -> float; HIGHER pops first (heap)
     max_boxes: Optional[int] = None,         # hard backstop on TOTAL processed boxes
     stats: Optional[dict] = None,            # out-param: solver-side counters (see below)
+    charge_box: Optional[Callable[[int], bool]] = None,
+    # shared outer budget: charge_box(1) must approve BEFORE a box is processed
+    max_results: Optional[int] = None,
+    stop_when: Optional[Callable[[list], bool]] = None,
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
@@ -384,9 +392,10 @@ def solve_zero_dim(
     -------
     (sols, exhausted) : tuple[list, bool]
         `sols` — list of (4,) solutions found. `exhausted` — True iff a
-        budget (EITHER `max_cells` or `max_boxes`, see below) ran out with
-        boxes still pending, i.e. the enumeration may be INCOMPLETE and
-        `sols` is only a lower bound. Callers must check it (a
+        budget (`max_cells`, `max_boxes`, or the optional shared
+        `charge_box`, see below) ran out with boxes still pending, i.e. the
+        enumeration may be INCOMPLETE and `sols` is only a lower bound.
+        Callers must check it (a
         silently-truncated list is indistinguishable from a complete one
         otherwise). Never raise `max_cells` to chase `exhausted=False` on
         a hang — a blown budget usually means the solution set isn't
@@ -424,6 +433,12 @@ def solve_zero_dim(
       pathological flood whose frontier keeps attempting Newtons still
       stops there. Stopping at ANY bound with work pending returns
       `exhausted=True`.
+    - `charge_box`, when supplied, is a shared outer-budget callback. It is
+      invoked as `charge_box(1)` immediately before each box is popped. A
+      false result stops the solve without processing that box and returns
+      `exhausted=True`; the local `max_cells` / `max_boxes` limits remain in
+      force independently. This lets one SSX-level allowance cover several
+      nested zero-dimensional solves instead of resetting at every call.
 
     Hull-exclusion subdivision + center-seeded Newton. Newton runs in
     GLOBAL coordinates on smooth evaluators; the nets are only used for
@@ -468,6 +483,11 @@ def solve_zero_dim(
     # handful (measured: cusp curve at 200x resolution -> 11 sols but
     # hundreds of floor boxes; a lone cusp -> a few dozen).
     floor_boxes = 0
+    # A surviving box at the parametric resolution floor is not by itself
+    # a proof that a zero exists or that none exists.  Record the subset for
+    # which Newton produced no in-box root witness so callers making a
+    # topological type claim can surface honest partial status.
+    unresolved_floor_boxes = 0
 
     def _dup(x):
         for s in sols:
@@ -498,14 +518,25 @@ def solve_zero_dim(
         max_boxes = 16 * max_cells
     cells = 0      # charged units (see "Budget contract" above)
     boxes = 0      # every processed box — bounded by the backstops
+    external_budget_exhausted = False
+    stop_requested = False
     while (pending and cells < max_cells
-           and boxes < min(max_boxes, max_cells + 16 * cells)):
+           and boxes < min(max_boxes, max_cells + 16 * cells)
+           and (max_results is None or len(sols) < max_results)
+           and not stop_requested):
+        # The shared allowance is charged before the pop: denial must leave
+        # the next box unprocessed so `exhausted=True` faithfully means the
+        # returned solution list is only partial.
+        if charge_box is not None and not charge_box(1):
+            external_budget_exhausted = True
+            break
         boxes += 1
         bx, bnets = _pop()
         if any(n.excludes_zero() for n in bnets):
             if skip_newton is None:
                 cells += 1
             continue
+        box_has_root_witness = False
         if skip_newton is None or not skip_newton(bx):
             cells += 1
             mid = np.array([0.5 * (lo + hi) for lo, hi in bx])
@@ -513,8 +544,12 @@ def solve_zero_dim(
             if sol is not None:
                 sol = np.asarray(sol, dtype=np.float64)
                 inside = all(bx[i][0] - 1e-12 <= sol[i] <= bx[i][1] + 1e-12 for i in range(4))
-                if inside and not _dup(sol):
-                    sols.append(sol)
+                if inside:
+                    box_has_root_witness = True
+                    if not _dup(sol):
+                        sols.append(sol)
+                        if stop_when is not None and stop_when(sols):
+                            stop_requested = True
         # split the axis with the largest span in units of its OWN ptol —
         # with heterogeneous per-axis ptols the absolutely-widest axis can
         # already be resolved while a tighter-ptol axis is still orders of
@@ -523,6 +558,8 @@ def solve_zero_dim(
         widest = int(np.argmax(ratios))
         if ratios[widest] <= 1.0:
             floor_boxes += 1
+            if not box_has_root_witness:
+                unresolved_floor_boxes += 1
             continue      # resolution floor: every axis at/below its ptol
         # nets and box split in lockstep so the net's local 0.5 is exactly
         # the box's global midpoint
@@ -535,13 +572,23 @@ def solve_zero_dim(
         br = list(bx); br[widest] = (m, bx[widest][1])
         _push((tuple(bl), left_nets))
         _push((tuple(br), right_nets))
+    exhausted = bool(pending)
+    result_limit_reached = bool(
+        pending and max_results is not None and len(sols) >= max_results)
     if stats is not None:
         stats["floor_boxes"] = floor_boxes
-    return sols, bool(pending)
+        stats["unresolved_floor_boxes"] = unresolved_floor_boxes
+        stats["cells_processed"] = cells
+        stats["boxes_processed"] = boxes
+        stats["budget_exhausted"] = exhausted
+        stats["external_budget_exhausted"] = external_budget_exhausted
+        stats["result_limit_reached"] = result_limit_reached
+        stats["stop_requested"] = stop_requested
+    return sols, exhausted
 
 
 def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
-                   max_cells=4000):
+                   max_cells=4000, charge_box=None, stats=None):
     """Seed points of the regulated curve Phi = {Psi_a, Psi_b, T_k} sliced by
     deterministic mid-planes (paper 5.3.2; axis-aligned L instead of random
     hyperplanes — random L can miss small features, admitted in their 7.1).
@@ -567,7 +614,11 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
     (`exhausted=True` from `solve_zero_dim`) only degrades seeding
     redundancy (4 mid-planes, each meeting a loop >= 2x by Lemma 2) —
     seeds already found stay valid, so exhaustion is NOT an error and
-    `max_cells` must not be raised to chase it.
+    `max_cells` must not be raised to chase it. `charge_box`, when supplied,
+    is passed unchanged to every plane solve so an SSX-level allowance is
+    shared across them. The return value stays backward-compatible; callers
+    that need to surface truncation may pass `stats` and inspect
+    `budget_exhausted` / `external_budget_exhausted`.
     """
     from mmcore.numeric.intersection._bezier_common import eval_surface_d1
 
@@ -612,14 +663,29 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
     ptol = np.asarray(ptol, dtype=np.float64)
     seeds: list = []
     seed_xyz: list = []
+    any_exhausted = False
+    external_budget_exhausted = False
+    cells_processed = 0
+    boxes_processed = 0
+    solve_calls = 0
     for axis in range(4):
         nets = [BoxNet(G[..., k:k + 1], axes=(0, 1, 2, 3)) for k in range(3)]
         nets.append(BoxNet(Tk, axes=(0, 1, 2, 3)))
         nets.append(BoxNet(linear_net_4d(-0.5, tuple(np.eye(4)[axis])),
                            axes=(0, 1, 2, 3)))
-        ax_sols, _ax_exhausted = solve_zero_dim(
+        ax_stats = {}
+        ax_sols, ax_exhausted = solve_zero_dim(
             nets, newton_factory(axis, 0.5), ptol,
-            max_cells=max_cells, atol=atol)
+            max_cells=max_cells, max_results=256,
+            atol=atol, charge_box=charge_box,
+            stats=ax_stats)
+        solve_calls += 1
+        any_exhausted |= bool(ax_exhausted)
+        external_budget_exhausted |= bool(
+            ax_stats.get("external_budget_exhausted", False)
+        )
+        cells_processed += int(ax_stats.get("cells_processed", 0))
+        boxes_processed += int(ax_stats.get("boxes_processed", 0))
         for s in ax_sols:
             # Destructive dedup ladder (ledger L21): a parametric box is
             # not a metric ball — merge cross-plane seeds only when BOTH
@@ -636,6 +702,17 @@ def phi_loop_seeds(S1_h, S2_h, T_nets, psi_rows, t_idx, atol, ptol,
             if not dup:
                 seeds.append(s)
                 seed_xyz.append(s_xyz)
+        # A denied shared charge cannot become available again during this
+        # synchronous call. Preserve the partial seeds and avoid three more
+        # futile solve invocations.
+        if external_budget_exhausted:
+            break
+    if stats is not None:
+        stats["solve_calls"] = solve_calls
+        stats["cells_processed"] = cells_processed
+        stats["boxes_processed"] = boxes_processed
+        stats["budget_exhausted"] = any_exhausted
+        stats["external_budget_exhausted"] = external_budget_exhausted
     return seeds
 
 
@@ -682,7 +759,8 @@ def _connected_one_dim(sols, newton, ptol) -> bool:
     return tested > 0 and 2 * connected >= tested
 
 
-def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
+def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000,
+            charge_box=None, stats=None):
     """Global C1 detection (paper Fig. 5): parameterization cusps ON the SSI.
 
     A C1 singularity is a point of the intersection curve where one
@@ -700,6 +778,13 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
     emitted; absence is NOT proof in that case — the enumeration may have
     been truncated mid-search, e.g. Newton failing near a degenerate spot).
 
+    `max_cells` is one allowance for the whole C1 pass, shared by the two
+    possible surface solves (it is not reset per surface). `charge_box`, if
+    supplied, additionally shares an outer SSX-level allowance with other
+    singularity work. The historical `(hits, curve_flag)` return is retained;
+    pass `stats` to inspect `budget_exhausted` and distinguish an incomplete
+    C1 pass from a complete empty result.
+
     Cheap global precheck (the common case): Sigma_i = 0 needs ALL THREE
     components zero, so ONE component whose Bernstein hull excludes zero
     over the whole [0,1]^2 proves the normal never vanishes on surface i —
@@ -713,6 +798,13 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
     out: list = []
     curve_flag = False
     G = psi_vector_net(S1_h, S2_h)
+    cells_remaining = max(0, int(max_cells))
+    cells_processed = 0
+    boxes_processed = 0
+    solve_calls = 0
+    any_exhausted = False
+    external_budget_exhausted = False
+    incomplete = False
     for which, (Sh, axes2) in enumerate(((S1_h, (0, 1)), (S2_h, (2, 3))), start=1):
         # bez_ssx always passes homogeneous nets (w == 1 for polynomial
         # input): unit weights take the exact polynomial branch on the
@@ -743,6 +835,33 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
             out.append({"surface": which, "curve_samples": np.empty((0, 4))})
             continue
 
+        sigma_roundoff_tol = _HULL_MARGIN_K_EPS * nscale
+
+        def _sigma_numerator_is_roundoff_zero(
+                x, _N=N, _axes=axes2, _tol=sigma_roundoff_tol):
+            """Certify the exact polynomial Sigma numerator as numerical zero.
+
+            The Cartesian normal is suitable for conditioning the GN system,
+            but not for a topological ``Sigma == 0`` claim: a fixed local-angle
+            or sampled-normal ratio can accept a merely small regular normal,
+            while derivative-zero rational cusps suffer cancellation in the
+            quotient-rule Cartesian evaluation.  The Bernstein numerator net
+            is the algebraic system being subdivided and has the same zero set
+            for valid positive weights.  Evaluate that net at the candidate and
+            allow only its coefficient-scale roundoff envelope.
+            """
+            value = np.asarray(
+                bernstein_eval_nd(
+                    _N,
+                    (float(x[_axes[0]]), float(x[_axes[1]])),
+                ),
+                dtype=np.float64,
+            )
+            return bool(
+                np.all(np.isfinite(value))
+                and float(np.linalg.norm(value)) <= _tol
+            )
+
         # L13: weight-INVARIANT acceptance scale for the GN below. The GN
         # normalizes the CARTESIAN normal Nv = cross(du,dv) (from rational
         # eval_surface_d1 — invariant under a uniform weight rescale) by a
@@ -765,7 +884,8 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
                                   float(np.linalg.norm(np.cross(_gdu, _gdv))))
         cart_nscale = max(cart_nscale, 1e-12)
 
-        def newton(x0, _Sh=Sh, _axes=axes2, _ns=cart_nscale):
+        def newton(x0, _Sh=Sh, _axes=axes2, _ns=cart_nscale,
+                   _sigma_zero=_sigma_numerator_is_roundoff_zero):
             # Gauss-Newton (lstsq) on the overdetermined {Psi(3), Sigma(3)}.
             # Sigma rows' Jacobian by forward differences on the two owning
             # axes — exact d(cross) is verbose; 1e-7 FD is adequate for a
@@ -779,7 +899,7 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
                                               rational=True)
                 Nv = np.cross(dua, dvb)
                 if (np.linalg.norm(psi) < 1e-10
-                        and np.linalg.norm(Nv) < 1e-8 * _ns):
+                        and _sigma_zero(x)):
                     return np.clip(x, 0.0, 1.0)
                 J = np.zeros((6, 4))
                 J[:3, 0], J[:3, 1], J[:3, 2], J[:3, 3] = du1, dv1, -du2, -dv2
@@ -799,19 +919,52 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
                     break
             p1 = eval_surface_d1(S1_h, x[0], x[1], rational=True)[0]
             p2 = eval_surface_d1(S2_h, x[2], x[3], rational=True)[0]
-            _, dua, dvb = eval_surface_d1(_Sh, x[_axes[0]], x[_axes[1]],
-                                          rational=True)
             if (np.linalg.norm(p1 - p2) < atol
-                    and np.linalg.norm(np.cross(dua, dvb)) < 1e-6 * _ns):
+                    and _sigma_zero(x)):
                 return np.clip(x, 0.0, 1.0)
             return None
 
         def _xyz(sol):
             return eval_surface(S1_h, sol[0], sol[1], rational=True)
 
+        if cells_remaining <= 0:
+            # This surface still needs enumeration, so a consumed shared
+            # local allowance makes the overall C1 result incomplete.
+            any_exhausted = True
+            incomplete = True
+            break
+        # Reserve a fair share for every not-yet-visited surface. A
+        # positive-dimensional C1 set can consume any allowance; handing it
+        # the whole remainder starved the second surface on two-cone apex
+        # cases even though both sets were readily classifiable.
+        solve_allowance = max(1, cells_remaining // (3 - which))
+        solve_stats = {}
         sols, exhausted = solve_zero_dim(nets, newton, ptol4,
-                                         max_cells=max_cells,
-                                         dedup_xyz=_xyz, atol=atol)
+                                         max_cells=solve_allowance,
+                                         max_results=64,
+                                         dedup_xyz=_xyz, atol=atol,
+                                         charge_box=charge_box,
+                                         stats=solve_stats)
+        solve_calls += 1
+        used_cells = int(solve_stats.get("cells_processed", 0))
+        cells_processed += used_cells
+        boxes_processed += int(solve_stats.get("boxes_processed", 0))
+        cells_remaining = max(0, cells_remaining - used_cells)
+        any_exhausted |= bool(exhausted)
+        external_budget_exhausted |= bool(
+            solve_stats.get("external_budget_exhausted", False)
+        )
+        if int(solve_stats.get("unresolved_floor_boxes", 0)) > 0:
+            # These boxes survived every Bernstein exclusion test but had
+            # no in-box Newton witness at the requested resolution.  They
+            # are ambiguous: neither an empty C1 set nor a cusp is proven.
+            incomplete = True
+        if external_budget_exhausted:
+            incomplete = True
+            # A shared-budget denial can truncate the solution cloud in a
+            # way that mimics either isolated cusps or a curve.  Keep prior
+            # certified hits, but make no schema claim for this surface.
+            break
         # 1-dimensional-set detection (ledger L14): raw count and the
         # exhausted flag miss a REALISTIC cusp curve whose xyz-dedup'd
         # solutions land in the 2..12 window without budget exhaustion
@@ -825,18 +978,61 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000):
         # Decisive test: CONNECTIVITY — Newton the midpoints of
         # consecutive solutions; a curve yields new on-segment roots,
         # isolated cusps yield dups or divergence.
-        curve_like = (len(sols) > 12
-                      or (exhausted and len(sols) > 1)
-                      or _connected_one_dim(sols, newton, ptol4))
+        curve_like = (bool(solve_stats.get("stop_requested", False))
+                      or len(sols) > 12
+                      or (exhausted and len(sols) > 1))
+        connection_denied = False
+
+        def _charged_connection_newton(x0):
+            nonlocal cells_remaining, cells_processed
+            nonlocal any_exhausted, external_budget_exhausted, incomplete
+            nonlocal connection_denied
+            if cells_remaining <= 0:
+                any_exhausted = True
+                incomplete = True
+                connection_denied = True
+                return None
+            if charge_box is not None and not charge_box(1):
+                any_exhausted = True
+                external_budget_exhausted = True
+                incomplete = True
+                connection_denied = True
+                return None
+            cells_remaining -= 1
+            cells_processed += 1
+            return newton(x0)
+
+        if not curve_like:
+            curve_like = _connected_one_dim(
+                sols, _charged_connection_newton, ptol4)
+        if connection_denied:
+            # The gray-zone dimension test was truncated.  Its roots are
+            # certified C1 members, but we cannot safely choose between the
+            # isolated-cusp and cusp-curve output schemas.
+            break
         if curve_like:
             curve_flag = True
             out.append({"surface": which, "curve_samples": np.asarray(sols)})
-            continue
-        # NOTE: exhausted with 0-1 solutions means the enumeration may be
-        # incomplete; the found root (if any) is still emitted — absence is
-        # not proof in that case (documented blind spot, plan risk 3).
-        for s in sols:
-            out.append({"surface": which, "stuv": np.asarray(s), "xyz": _xyz(s)})
+        else:
+            # NOTE: exhausted with 0-1 solutions means the enumeration may be
+            # incomplete; the found root (if any) is still emitted — absence is
+            # not proof in that case (documented blind spot, plan risk 3).
+            for s in sols:
+                out.append({"surface": which, "stuv": np.asarray(s), "xyz": _xyz(s)})
+            if exhausted:
+                incomplete = True
+        if external_budget_exhausted:
+            incomplete = True
+        if external_budget_exhausted or (exhausted and cells_remaining <= 0):
+            break
+    if stats is not None:
+        stats["solve_calls"] = solve_calls
+        stats["cells_processed"] = cells_processed
+        stats["boxes_processed"] = boxes_processed
+        stats["cells_remaining"] = cells_remaining
+        stats["budget_exhausted"] = any_exhausted
+        stats["external_budget_exhausted"] = external_budget_exhausted
+        stats["incomplete"] = incomplete
     return out, curve_flag
 
 
@@ -887,7 +1083,8 @@ def _c3_same_hit(stuv_a, mate_a, xyz_a, stuv_b, mate_b, xyz_b, atol, ptol4):
     return False
 
 
-def c3_pass(S1_h, S2_h, branches, atol, ptol4):
+def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
+            max_work=250_000, charge_work=None, stats=None):
     """Post-trace C3 detection: crossing branch segments -> square 6-var
     Newton on BOTH role assignments -> certified pairs.
 
@@ -920,6 +1117,12 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
     Dedup: `_c3_same_hit` (both-guards, ledger L16); a duplicate re-find
     contributes any NEW branch links to the kept hit.
 
+    ``max_work`` bounds segment setup, every unordered AABB comparison, and
+    all downstream exact/Newton/anchor/dedup work. Blocks are streamed and
+    processed immediately, so dense input cannot materialize an unbounded
+    O(M^2) pair array. ``charge_work`` optionally spends the same work from
+    an enclosing SSX allowance; ``stats`` reports local/external exhaustion.
+
     Returns a list of dicts {"stuv": (4,), "stuv_mate": (4,), "xyz": (3,),
     "links": [(branch_i, vertex_k), (branch_j, vertex_l)]}. `stuv` is the
     primary 4D preimage (s,t,u,v); `stuv_mate` differs from it in the
@@ -932,6 +1135,39 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         eval_surface, eval_surface_d1,
     )
     ptol4 = np.asarray(ptol4, dtype=np.float64)
+    max_work = max(0, int(max_work))
+    work_processed = 0
+    pairs_processed = 0
+    candidate_pairs = 0
+    budget_exhausted = False
+    external_budget_exhausted = False
+
+    def _spend(amount=1):
+        """Charge a bounded C3 work unit before performing it."""
+        nonlocal work_processed, budget_exhausted, external_budget_exhausted
+        amount = max(0, int(amount))
+        if budget_exhausted:
+            return False
+        if work_processed + amount > max_work:
+            budget_exhausted = True
+            return False
+        if charge_work is not None and not charge_work(amount):
+            budget_exhausted = True
+            external_budget_exhausted = True
+            return False
+        work_processed += amount
+        return True
+
+    def _publish_stats():
+        if stats is not None:
+            stats.update(
+                work_processed=int(work_processed),
+                pairs_processed=int(pairs_processed),
+                candidate_pairs=int(candidate_pairs),
+                budget_exhausted=bool(budget_exhausted),
+                external_budget_exhausted=bool(external_budget_exhausted),
+                incomplete=bool(budget_exhausted),
+            )
 
     def seg_dist(p1, p2, q1, q2):
         d1 = p2 - p1; d2 = q2 - q1; r = p1 - q1
@@ -958,6 +1194,8 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         # (S1_h, S2_h) and once with the roles swapped (ledger L7).
         z = np.asarray(z0, dtype=np.float64).copy()
         for _ in range(40):
+            if not _spend(1):
+                return None
             ra, dua, dva = eval_surface_d1(Sa_h, z[0], z[1], rational=True)
             rb, dub, dvb = eval_surface_d1(Sa_h, z[2], z[3], rational=True)
             rc, duc, dvc = eval_surface_d1(Sb_h, z[4], z[5], rational=True)
@@ -971,6 +1209,8 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
                 z = np.clip(z - np.linalg.solve(J, F), 0.0, 1.0)
             except np.linalg.LinAlgError:
                 return None
+        if not _spend(1):
+            return None
         ra = eval_surface(Sa_h, z[0], z[1], rational=True)
         rb = eval_surface(Sa_h, z[2], z[3], rational=True)
         rc = eval_surface(Sb_h, z[4], z[5], rational=True)
@@ -1019,11 +1259,15 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         stuv = np.asarray(b.curve[0], dtype=np.float64)
         if len(xyz) < 2:
             continue
+        if not _spend(len(xyz) - 1):
+            _publish_stats()
+            return found
         segs_a.append(xyz[:-1]); segs_b.append(xyz[1:])
         seg_s4a.append(stuv[:-1]); seg_s4b.append(stuv[1:])
         seg_branch.append(np.full(len(xyz) - 1, bi))
         seg_idx.append(np.arange(len(xyz) - 1))
     if not segs_a:
+        _publish_stats()
         return found
     A = np.concatenate(segs_a); B = np.concatenate(segs_b)
     S4a = np.concatenate(seg_s4a); S4b = np.concatenate(seg_s4b)
@@ -1031,20 +1275,6 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
     lo = np.minimum(A, B) - 2.5 * atol
     hi = np.maximum(A, B) + 2.5 * atol
     M = len(A)
-    pairs = []
-    block = 1024                    # bound the broadcast to blocks of M x block
-    for r0 in range(0, M, block):
-        r1 = min(r0 + block, M)
-        ov = np.all((lo[r0:r1, None, :] <= hi[None, :, :])
-                    & (lo[None, :, :] <= hi[r0:r1, None, :]), axis=2)
-        ki, li = np.nonzero(ov)
-        ki = ki + r0
-        keep = li > ki              # unordered pairs once
-        ki, li = ki[keep], li[keep]
-        same = br[ki] == br[li]     # same-branch adjacency: index gap >= 3
-        keep = ~same | (np.abs(ix[ki] - ix[li]) >= 3)
-        pairs.append(np.stack([ki[keep], li[keep]], axis=1))
-    pairs = np.concatenate(pairs) if pairs else np.empty((0, 2), dtype=int)
 
     def _anchor_vertex(bi, seg_k, xyz):
         # Ledger L11: links carry VERTEX indices — the polyline vertex
@@ -1056,6 +1286,8 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
         # would collapse both links onto one location.
         poly = np.asarray(branches[bi].curve[1], dtype=np.float64)
         v = int(seg_k)
+        if not _spend(2):
+            return None
         d = float(np.linalg.norm(poly[v] - xyz))
         d2 = float(np.linalg.norm(poly[v + 1] - xyz))
         if d2 < d:
@@ -1065,6 +1297,8 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
             improved = False
             for w in (v - 1, v + 1):
                 if 0 <= w < len(poly):
+                    if not _spend(1):
+                        return None
                     dw = float(np.linalg.norm(poly[w] - xyz))
                     if dw < d:
                         v, d = w, dw
@@ -1072,18 +1306,31 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
                         break
         return v
 
-    for k, l in pairs:
+    def _process_pair(k, l):
+        if not _spend(1):
+            return
         d, s_, t_ = seg_dist(A[k], B[k], A[l], B[l])
         if d > 5.0 * atol:          # ledger L23 (was 2*atol, below the
-            continue                # 4*atol worst-case chord-pair gap)
+            return                  # 4*atol worst-case chord-pair gap)
         a4 = (1 - s_) * S4a[k] + s_ * S4b[k]
         b4 = (1 - t_) * S4a[l] + t_ * S4b[l]
-        for stuv, mate, xyz in solve_candidate(a4, b4):
-            links = [(int(br[k]), _anchor_vertex(int(br[k]), int(ix[k]), xyz)),
-                     (int(br[l]), _anchor_vertex(int(br[l]), int(ix[l]), xyz))]
-            dup = next((h for h in found
-                        if _c3_same_hit(h["stuv"], h["stuv_mate"], h["xyz"],
-                                        stuv, mate, xyz, atol, ptol4)), None)
+        candidate_hits = solve_candidate(a4, b4)
+        if budget_exhausted:
+            return
+        for stuv, mate, xyz in candidate_hits:
+            ak = _anchor_vertex(int(br[k]), int(ix[k]), xyz)
+            al = _anchor_vertex(int(br[l]), int(ix[l]), xyz)
+            if budget_exhausted or ak is None or al is None:
+                return
+            links = [(int(br[k]), ak), (int(br[l]), al)]
+            dup = None
+            for h in found:
+                if not _spend(1):
+                    return
+                if _c3_same_hit(h["stuv"], h["stuv_mate"], h["xyz"],
+                                stuv, mate, xyz, atol, ptol4):
+                    dup = h
+                    break
             if dup is not None:
                 for ln in links:
                     if ln not in dup["links"]:
@@ -1091,4 +1338,54 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4):
                 continue
             found.append({"stuv": stuv, "stuv_mate": mate, "xyz": xyz,
                           "links": links})
+
+    # Stream bounded square tiles of the upper triangle.  The old code
+    # appended every surviving pair from every Mx1024 broadcast and only
+    # then began exact work, so a dense polyline could allocate O(M^2)
+    # memory before any soft limit had a chance to fire.  Each tile is
+    # charged *before* its AABB broadcast; denial leaves it wholly
+    # unprocessed and therefore makes the returned hit set explicitly
+    # partial.
+    block = 256
+    stop = False
+    for r0 in range(0, M, block):
+        r1 = min(r0 + block, M)
+        for c0 in range(r0, M, block):
+            c1 = min(c0 + block, M)
+            nr, nc = r1 - r0, c1 - c0
+            pair_count = (nr * (nr - 1) // 2
+                          if c0 == r0 else nr * nc)
+            if pair_count <= 0:
+                continue
+            if not _spend(pair_count):
+                stop = True
+                break
+            pairs_processed += pair_count
+
+            ov = np.all(
+                (lo[r0:r1, None, :] <= hi[None, c0:c1, :])
+                & (lo[None, c0:c1, :] <= hi[r0:r1, None, :]),
+                axis=2,
+            )
+            ki, li = np.nonzero(ov)
+            ki = ki + r0
+            li = li + c0
+            if c0 == r0:
+                keep = li > ki      # unordered pairs once on diagonal tile
+                ki, li = ki[keep], li[keep]
+            same = br[ki] == br[li]
+            keep = ~same | (np.abs(ix[ki] - ix[li]) >= 3)
+            ki, li = ki[keep], li[keep]
+            candidate_pairs += len(ki)
+            for k, l in zip(ki, li):
+                _process_pair(int(k), int(l))
+                if budget_exhausted:
+                    stop = True
+                    break
+            if stop:
+                break
+        if stop:
+            break
+
+    _publish_stats()
     return found

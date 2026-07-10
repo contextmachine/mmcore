@@ -9,6 +9,7 @@ import pytest
 
 from mmcore.geom._nurbs_eval import NURBSCurveTuple, evaluate_nurbs_curve
 from mmcore.numeric.intersection.ccx._nccx4 import nurbs_ccx, nurbs_ccx_multiple
+import mmcore.numeric.intersection.ccx._nccx4 as nccx4
 
 
 # ---------------------------------------------------------------------------
@@ -192,3 +193,177 @@ class TestNurbsCCXPair:
         )
         iso, ovl = nurbs_ccx(c1, c2, tol=0.001)
         assert iso is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: bounded Bezier solver status must not be lost at the NURBS boundary
+# ---------------------------------------------------------------------------
+
+def _overlapping_lines():
+    c1 = NURBSCurveTuple(
+        order=2,
+        knot=np.array([0., 0., 1., 1.]),
+        control_points=np.array([[0., 0., 0.], [1., 0., 0.]]),
+        weights=np.ones(2),
+    )
+    c2 = NURBSCurveTuple(
+        order=2,
+        knot=np.array([0., 0., 1., 1.]),
+        control_points=np.array([[0., 0., 0.], [1., 0., 0.]]),
+        weights=np.ones(2),
+    )
+    return c1, c2
+
+
+def _partial_ccx_result(*args, **kwargs):
+    return {
+        'isolated': [],
+        'overlaps': [],
+        'budget_exhausted': True,
+        'cells_processed': 7,
+        'boundary_topology_complete': False,
+    }
+
+
+def test_nurbs_ccx_rejects_silent_partial_result(monkeypatch):
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
+        nurbs_ccx(c1, c2)
+
+    isolated, overlaps, status = nurbs_ccx(c1, c2, return_status=True)
+    assert isolated is None
+    assert overlaps is None
+    assert status['budget_exhausted'] is True
+    assert status['boundary_topology_complete'] is False
+    assert status['cells_processed'] == 7
+    assert status['partial_results'] == 1
+
+
+def test_nurbs_ccx_multiple_rejects_silent_partial_result(monkeypatch):
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
+        nurbs_ccx_multiple([c1, c2])
+
+    isolated, overlaps, status = nurbs_ccx_multiple(
+        [c1, c2], return_status=True,
+    )
+    assert isolated is None
+    assert overlaps is None
+    assert status['budget_exhausted'] is True
+    assert status['partial_results'] >= 1
+
+
+def test_nurbs_ccx_shares_max_cells_across_all_span_pairs(monkeypatch):
+    calls = []
+
+    def complete_but_spends_allowance(*_args, **kwargs):
+        allowance = int(kwargs['max_cells'])
+        calls.append(allowance)
+        return {
+            'isolated': [],
+            'overlaps': [],
+            'budget_exhausted': False,
+            'cells_processed': allowance,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', complete_but_spends_allowance)
+    isolated, overlaps, status = nurbs_ccx(
+        CURVES_2D[0], CURVES_2D[0], max_cells=3,
+        return_status=True,
+    )
+
+    assert isolated is None and overlaps is None
+    assert calls == [3]
+    assert status['cells_processed'] == 3
+    assert status['max_cells'] == 3
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_multiple_shares_max_cells_across_candidates(monkeypatch):
+    calls = []
+
+    def complete_but_spends_allowance(*_args, **kwargs):
+        allowance = int(kwargs['max_cells'])
+        calls.append(allowance)
+        return {
+            'isolated': [],
+            'overlaps': [],
+            'budget_exhausted': False,
+            'cells_processed': allowance,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', complete_but_spends_allowance)
+    isolated, overlaps, status = nurbs_ccx_multiple(
+        [CURVES_2D[0], CURVES_2D[0]], max_cells=2,
+        return_status=True,
+    )
+
+    assert isolated is None and overlaps is None
+    assert calls == [2]
+    assert status['cells_processed'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_shares_max_results_across_span_pairs(monkeypatch):
+    calls = []
+
+    def one_overlap(*_args, **kwargs):
+        calls.append(int(kwargs['max_results']))
+        return {
+            'isolated': [],
+            'overlaps': [{
+                'u_range': (0.0, 1.0),
+                'v_range': (0.0, 1.0),
+            }],
+            'budget_exhausted': False,
+            'cells_processed': 0,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', one_overlap)
+    _isolated, overlaps, status = nurbs_ccx(
+        CURVES_2D[0], CURVES_2D[0], max_cells=100,
+        max_results=2, return_status=True,
+    )
+
+    assert calls == [2, 1]
+    assert overlaps is not None and len(overlaps) == 2
+    assert status['results_processed'] == 2
+    assert status['max_results'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True
+
+
+def test_nurbs_ccx_sanitizes_one_span_to_remaining_result_budget(monkeypatch):
+    c1, c2 = _overlapping_lines()
+
+    def overproduces(*_args, **_kwargs):
+        return {
+            'isolated': [],
+            'overlaps': [
+                {'u_range': (0.0, 0.2), 'v_range': (0.0, 0.2)},
+                {'u_range': (0.3, 0.5), 'v_range': (0.3, 0.5)},
+                {'u_range': (0.6, 0.8), 'v_range': (0.6, 0.8)},
+            ],
+            'budget_exhausted': False,
+            'cells_processed': 1,
+            'boundary_topology_complete': True,
+        }
+
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', overproduces)
+    _isolated, overlaps, status = nurbs_ccx(
+        c1, c2, max_cells=10, max_results=2, return_status=True,
+    )
+
+    assert overlaps is not None and len(overlaps) == 2
+    assert status['results_processed'] == 2
+    assert status['complete'] is False
+    assert status['budget_exhausted'] is True

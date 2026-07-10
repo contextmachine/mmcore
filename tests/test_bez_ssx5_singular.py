@@ -15,6 +15,30 @@ def test_result_has_singularities_key_and_branch_kind():
     assert all(b.kind in ("transversal", "tangential", "overlap") for b in r["branches"])
 
 
+def test_case11_default_nested_csx_budget_preserves_closed_loop():
+    """A sound global budget must not make the historical case 11 partial.
+
+    One internal line/surface cut needs just over 20k CSX cells.  The former
+    per-call default stopped at 20k even though the call-wide SSX allowance
+    still had more than 200k cells available, discarded the two certified
+    cut roots, and returned zero branches with ``budget_exhausted=True``.
+    """
+    from examples.ssx.bez_ssx5_case11 import S1, S2
+
+    # This is deliberately tight enough that paying for a discarded 20k
+    # attempt and then restarting cannot complete, while one topology-critical
+    # CSX call with the established allowance finishes the whole SSX solve.
+    result = bez_ssx(
+        S1, S2, 1e-3, rational=False, max_cells=60_000)
+
+    assert not result["budget_exhausted"], result["budget_usage"]
+    assert len(result["branches"]) == 1, result
+    xyz = np.asarray(result["branches"][0].curve[1], dtype=float)
+    assert np.linalg.norm(xyz[0] - xyz[-1]) <= 2e-3
+    assert len(xyz) >= 32
+    assert np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum() > 1.0
+
+
 # ---------------------------------------------------------------------------
 # Task 2: _ssx5_singular.py — nets + zero-dimensional Bernstein solver
 # ---------------------------------------------------------------------------
@@ -723,6 +747,10 @@ def test_param_far_touch_near_overlap_not_subsumed():
     # branch passing within 4*atol (xyz) of the touch
     overlaps = [b for b in r["branches"] if b.kind == "overlap"]
     assert overlaps, "u=0 overlap branch lost — fixture no longer tests L3"
+    assert len(overlaps) == 1
+    assert len(r["branches"]) == 1, (
+        "a regular tracer duplicated a subset of the certified overlap: "
+        f"{[b.kind for b in r['branches']]}")
     touch_xyz = np.array([0.5, 0.003, 0.0])
     assert min(_pt_poly(touch_xyz, np.asarray(b.curve[1]))
                for b in overlaps) <= 4e-3
@@ -813,6 +841,8 @@ def _assert_links_nearest_vertex(g, branches):
 def test_self_intersection_point():
     S1, S2 = _umbrella_case()
     r = bez_ssx(S1, S2, 1e-3, rational=False)
+    assert r["budget_exhausted"] is False
+    assert r["budget_usage"]["cell_counts"].get("c3", 0) > 0
     c3 = [g for g in r["singularities"] if g.kind == "self_intersection"]
     assert len(c3) == 1
     g = c3[0]
@@ -878,7 +908,7 @@ def test_cusp_curve_on_split_plane_not_knifed_out():
     assert [g for g in r["singularities"] if g.kind == "cusp"] == [], \
         "cusp curve mistyped as isolated cusp(s)"
     samples = np.concatenate([np.asarray(g.samples) for g in curves])
-    assert len(samples) >= 13         # the >12-sols curve_flag path fired
+    assert len(samples) >= 13
     # every sample on the true singular curve {s = 0.5}, covering most of t
     assert np.allclose(samples[:, 0], 0.5, atol=1e-6)
     assert samples[:, 1].max() - samples[:, 1].min() > 0.8
@@ -1501,6 +1531,37 @@ def test_cone_apex_no_phantom_tangent_point():
     assert r["branches"][0].kind == "transversal"
 
 
+def test_small_nonzero_surface_normal_is_not_retyped_as_degenerate():
+    """A poorly conditioned but regular parametrization is still regular."""
+    from mmcore.numeric.monomial import monomial_to_bezier
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _normals_degenerate_at)
+
+    eps = 5e-7
+    mono = np.zeros((3, 4, 3), dtype=np.float64)
+    mono[1, 0, 0] = 1.0
+    mono[0, 1, 0] = 1.0                    # x = s + t
+    mono[0, 0, 1] = -0.125
+    mono[0, 1, 1] = 0.75 + eps
+    mono[0, 2, 1] = -1.5
+    mono[0, 3, 1] = 1.0                    # y = (t-.5)^3 + eps*t
+    mono[2, 0, 2] = 1.0
+    mono[1, 0, 2] = -1.0
+    mono[0, 2, 2] = 1.0
+    mono[0, 1, 2] = -1.0
+    mono[0, 0, 2] = 0.5                    # z = (s-.5)^2 + (t-.5)^2
+    surface = _homog(monomial_to_bezier(mono))
+    plane = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+
+    _, ds, dt = eval_surface_d1(surface, 0.5, 0.5, rational=True)
+    assert np.linalg.norm(np.cross(ds, dt)) == pytest.approx(eps)
+    assert not _normals_degenerate_at(
+        surface, plane, np.full(4, 0.5))
+
+
 def test_short_cusp_curve_typed_as_curve_not_isolated():
     # Ledger L14 regression: a cusp curve clipped to t-extent 0.2 (200x
     # resolution) yielded 11 xyz-dedup-sparse solutions — under the raw
@@ -1654,3 +1715,1037 @@ def test_shared_edges_junction_tangent_point(flatten_s2):
     assert (ends[0] == want_AB and ends[1] == want_AC) or \
            (ends[0] == want_AC and ends[1] == want_AB)
     assert r["points"] == []
+
+
+# ---------------------------------------------------------------------------
+# Ledger L30 / L26: rational cone tangent branch and no-hang budgets
+# ---------------------------------------------------------------------------
+
+def test_rational_delta_witness_evaluates_true_surfaces():
+    """The Delta refiner must not use per-control-point dehomogenization.
+
+    On case 14's exact rational cone generator, the false polynomial
+    ``P_i / w_i`` surfaces miss by hundreds of ``atol``.  The rational
+    witness must converge on the true homogeneous quotient surfaces.
+    """
+    from examples.ssx.bez_ssx5_case14 import S1, S2
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import _delta_float_gn
+    from mmcore.numeric.intersection.ssx._ssx5_singular import minors_Tpsi_rational
+
+    T = minors_Tpsi_rational(S1, S2)
+    gn, _ = _delta_float_gn(*T, S1, S2, rational=True, atol=1e-3)
+    root = gn(np.full(4, 0.5))
+    assert root is not None
+    p1 = eval_surface(S1, root[0], root[1], rational=True)
+    p2 = eval_surface(S2, root[2], root[3], rational=True)
+    assert np.linalg.norm(p1 - p2) < 1e-7
+    assert abs(root[0] - 0.251168868) < 1e-5
+    assert abs(root[2] - 0.109103476) < 1e-5
+
+    P1_wrong = S1[..., :-1] / S1[..., -1:]
+    P2_wrong = S2[..., :-1] / S2[..., -1:]
+    wrong_res = np.linalg.norm(
+        eval_surface(P1_wrong, root[0], root[1], rational=False)
+        - eval_surface(P2_wrong, root[2], root[3], rational=False))
+    assert wrong_res > 0.1
+
+
+def test_rational_delta_scaling_does_not_accept_physical_gap():
+    """Conditioning scale must not become the physical root tolerance."""
+    span = 1.0e9
+    p1 = np.array([
+        [[0.0, 0.0, 0.0], [0.0, span, 0.0]],
+        [[span, 0.0, 0.0], [span, span, 0.0]],
+    ])
+    p2 = p1.copy()
+    p2[..., 2] = 1.0e-2
+    S1 = np.concatenate([p1, np.ones((2, 2, 1))], axis=-1)
+    S2 = np.concatenate([p2, np.ones((2, 2, 1))], axis=-1)
+    zero_minor = np.zeros((1, 1, 1, 1), dtype=np.float64)
+
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import _delta_float_gn
+    gn, _ = _delta_float_gn(
+        zero_minor, zero_minor, zero_minor, zero_minor,
+        S1, S2, rational=True, atol=1e-3)
+    assert gn(np.full(4, 0.5)) is None
+
+
+def test_rational_delta_scaling_does_not_retype_transversal_loop():
+    """A large remote T coefficient cannot hide physical normal mismatch."""
+    from scipy.signal import convolve2d
+    from mmcore.numeric.monomial import monomial_to_bezier
+    from mmcore.numeric.intersection._deflate import (
+        minors_Tpsi_from_control_nets)
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _check_tangency, _delta_float_gn)
+
+    radius, scale = 0.2, 1.0e7
+    delta = 0.01 / scale
+    q = np.zeros((3, 3))
+    q[2, 0] = 1.0
+    q[1, 0] = -2.0 * (0.5 + radius)
+    q[0, 0] = (0.5 + radius) ** 2 + 0.25 - radius ** 2
+    q[0, 2] = 1.0
+    q[0, 1] = -1.0
+    h = np.zeros((3, 3))
+    h[2, 0] = 1.0
+    h[1, 0] = -1.0
+    h[0, 0] = 0.5 + delta
+    h[0, 2] = 1.0
+    h[0, 1] = -1.0
+    f = scale * convolve2d(q, h)
+
+    m1 = np.zeros((5, 5, 3))
+    m1[1, 0, 0] = 1.0
+    m1[0, 1, 1] = 1.0
+    m1[..., 2] = f
+    m2 = np.zeros((5, 5, 3))
+    m2[1, 0, 0] = 1.0
+    m2[0, 1, 1] = 1.0
+    p1, p2 = monomial_to_bezier(m1), monomial_to_bezier(m2)
+    s1 = np.concatenate([p1, np.ones(p1.shape[:2] + (1,))], axis=-1)
+    s2 = np.concatenate([p2, np.ones(p2.shape[:2] + (1,))], axis=-1)
+    T = minors_Tpsi_from_control_nets(p1.tolist(), p2.tolist())
+    x = np.full(4, 0.5)
+
+    _, du1, dv1 = eval_surface_d1(s1, x[0], x[1], rational=True)
+    _, du2, dv2 = eval_surface_d1(s2, x[2], x[3], rational=True)
+    n1, n2 = np.cross(du1, dv1), np.cross(du2, dv2)
+    sin_angle = float(np.linalg.norm(np.cross(n1, n2))
+                      / (np.linalg.norm(n1) * np.linalg.norm(n2)))
+    assert sin_angle > 3e-3
+
+    gn, _ = _delta_float_gn(
+        *T, s1, s2, rational=True, atol=1e-3)
+    assert gn(x) is None
+    assert _check_tangency(
+        *T, s1, s2, ((0.0, 1.0),) * 4,
+        rational=True, atol=1e-3) is not True
+
+
+def test_rational_minor_fast_path_requires_exact_uniform_weights():
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _weight_net_uniform)
+
+    surface = np.zeros((2, 2, 4), dtype=np.float64)
+    surface[..., -1] = 3.0
+    assert _weight_net_uniform(surface)
+    surface[1, 1, -1] += 5e-13
+    assert not _weight_net_uniform(surface)
+
+
+def test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved():
+    """Collapsed endpoint fibers must still seed a regular interior branch.
+
+    Each surface below is a rational quadratic cone wedge with one collapsed
+    boundary edge.  The two wedges meet transversally along the z axis, but
+    both ends of that SSI are represented by positive-dimensional boundary
+    parameter fibers.  Treating fibers only as C2/tangency metadata drops the
+    entire regular branch.
+    """
+    a = np.sqrt(0.5)
+    weights = np.array([[1.0, 1.0], [a, a], [1.0, 1.0]])
+    A = np.array([0.0, 0.0, 0.0])
+    B = np.array([0.0, 0.0, 1.0])
+
+    s1_euclidean = np.empty((3, 2, 3), dtype=np.float64)
+    s1_euclidean[:, 0, :] = A
+    s1_euclidean[:, 1, :] = np.array([
+        B + [1.0, 0.0, 0.0], B, B - [1.0, 0.0, 0.0],
+    ])
+    s2_euclidean = np.empty((3, 2, 3), dtype=np.float64)
+    s2_euclidean[:, 0, :] = B
+    s2_euclidean[:, 1, :] = np.array([
+        A + [0.0, 1.0, 0.0], A, A - [0.0, 1.0, 0.0],
+    ])
+
+    S1 = np.concatenate(
+        [s1_euclidean * weights[..., None], weights[..., None]], axis=-1)
+    S2 = np.concatenate(
+        [s2_euclidean * weights[..., None], weights[..., None]], axis=-1)
+
+    r = bez_ssx(
+        S1, S2, 1e-3, rational=True,
+        max_cells=60_000, max_csx_calls=2_000,
+    )
+    assert r["budget_exhausted"] is True
+    assert r["budget_usage"]["incomplete"] is True
+    assert r["budget_usage"]["cells_processed"] <= 60_000
+    assert len(r["branches"]) == 1
+    assert r["points"] == []
+    assert [g for g in r["singularities"]
+            if g.kind == "tangent_point"] == []
+    regular = [b for b in r["branches"] if b.kind == "transversal"]
+    assert len(regular) == 1
+    stuv = np.asarray(regular[0].curve[0])
+    xyz = np.asarray(regular[0].curve[1])
+    expected_ends = np.array([
+        [0.5, 0.0, 0.5, 1.0],
+        [0.5, 1.0, 0.5, 0.0],
+    ])
+    direct = max(np.linalg.norm(stuv[0] - expected_ends[0]),
+                 np.linalg.norm(stuv[-1] - expected_ends[1]))
+    reverse = max(np.linalg.norm(stuv[0] - expected_ends[1]),
+                  np.linalg.norm(stuv[-1] - expected_ends[0]))
+    assert min(direct, reverse) <= 2e-3
+    assert np.linalg.norm(xyz[-1] - xyz[0]) > 0.99
+    assert np.linalg.norm(np.diff(xyz, axis=0), axis=1).sum() > 0.99
+    for q in np.linspace(0.0, 1.0, 21):
+        assert _pt_poly(np.array([0.0, 0.0, q]), xyz) <= 5e-3
+
+    interior_sines = []
+    for i, x in enumerate(stuv):
+        p1 = eval_surface(S1, x[0], x[1], rational=True)
+        p2 = eval_surface(S2, x[2], x[3], rational=True)
+        assert np.linalg.norm(p1 - p2) <= 2e-3
+        if 0 < i < len(stuv) - 1:
+            _, ds1, dt1 = eval_surface_d1(
+                S1, x[0], x[1], rational=True)
+            _, ds2, dt2 = eval_surface_d1(
+                S2, x[2], x[3], rational=True)
+            n1, n2 = np.cross(ds1, dt1), np.cross(ds2, dt2)
+            interior_sines.append(
+                np.linalg.norm(np.cross(n1, n2))
+                / (np.linalg.norm(n1) * np.linalg.norm(n2)))
+    assert interior_sines and min(interior_sines) >= 0.9
+
+    swapped = bez_ssx(
+        S2, S1, 1e-3, rational=True,
+        max_cells=60_000, max_csx_calls=2_000,
+    )
+    swapped_regular = [
+        b for b in swapped["branches"] if b.kind == "transversal"]
+    assert len(swapped_regular) == 1
+    swapped_xyz = np.asarray(swapped_regular[0].curve[1])
+    for q in np.linspace(0.0, 1.0, 21):
+        assert _pt_poly(np.array([0.0, 0.0, q]), swapped_xyz) <= 5e-3
+
+
+def test_case14_rational_cones_return_certified_branch_and_explicit_partial_status():
+    from examples.ssx.bez_ssx5_case14 import S1, S2
+
+    r = bez_ssx(
+        S1, S2, 1e-3, rational=True,
+        max_cells=60_000, max_csx_calls=2_000,
+    )
+    # The tangent generator is certified, but the positive-dimensional
+    # Delta complement search cannot prove that no additional isolated root
+    # exists before its local frontier cap.  That is useful partial output,
+    # never a complete topology claim.
+    assert r["budget_exhausted"] is True
+    assert r["budget_usage"]["cells_processed"] <= 60_000
+    assert len(r["branches"]) == 1
+    assert [g for g in r["singularities"]
+            if g.kind == "tangent_point"] == []
+    branch = r["branches"][0]
+    assert branch.kind == "tangential"
+    xyz = np.asarray(branch.curve[1])
+
+    # Ground truth is the shared cone generator between the two apices.
+    a = eval_surface(S1, 0.251168868, 0.0, rational=True)
+    b = eval_surface(S1, 0.251168868, 1.0, rational=True)
+    for q in np.linspace(0.0, 1.0, 21):
+        assert _pt_poly((1.0 - q) * a + q * b, xyz) <= 5e-3
+
+    stuv = np.asarray(branch.curve[0])
+    for x in stuv:
+        p1 = eval_surface(S1, x[0], x[1], rational=True)
+        p2 = eval_surface(S2, x[2], x[3], rational=True)
+        assert np.linalg.norm(p1 - p2) <= 2e-3
+
+
+def test_case14_tangent_generator_is_homogeneous_scale_invariant():
+    """Independent common weight factors cannot change rational geometry."""
+    from examples.ssx.bez_ssx5_case14 import S1, S2
+
+    r = bez_ssx(
+        S1 * 1e-6, S2 * 1e6, 1e-3, rational=True,
+        max_cells=60_000, max_csx_calls=2_000,
+    )
+    tangential = [b for b in r["branches"] if b.kind == "tangential"]
+    assert len(tangential) == 1
+    assert [g for g in r["singularities"]
+            if g.kind == "tangent_point"] == []
+    for x in np.asarray(tangential[0].curve[0]):
+        p1 = eval_surface(S1, x[0], x[1], rational=True)
+        p2 = eval_surface(S2, x[2], x[3], rational=True)
+        assert np.linalg.norm(p1 - p2) <= 2e-3
+    xyz = np.asarray(tangential[0].curve[1])
+    a = eval_surface(S1, 0.251168868, 0.0, rational=True)
+    b = eval_surface(S1, 0.251168868, 1.0, rational=True)
+    for q in np.linspace(0.0, 1.0, 21):
+        assert _pt_poly((1.0 - q) * a + q * b, xyz) <= 5e-3
+
+
+def test_case13_rational_tangency_terminates_with_explicit_partial_status():
+    """A deduplicated tangency must not re-run Phi seeding per descendant."""
+    from examples.ssx.bez_ssx5_case13 import S1, S2
+
+    r = bez_ssx(
+        S1, S2, 1e-3, rational=True,
+        max_cells=30_000, max_csx_calls=2_000,
+    )
+
+    # A residual near-tangent cell reaches a depth/CSX uncertainty frontier.
+    # The point below is certified, but absence of more topology is not.
+    assert r["budget_exhausted"] is True
+    assert r["budget_usage"]["cells_processed"] <= 30_000
+    assert r["branches"] == [] and r["points"] == []
+    tangencies = [g for g in r["singularities"]
+                  if g.kind == "tangent_point"]
+    assert len(tangencies) == 1
+    x = np.asarray(tangencies[0].stuv)
+    assert np.allclose(
+        x, [0.3066527232, 0.3043305321, 0.3786701630, 0.3198906377],
+        atol=2e-3)
+    p1 = eval_surface(S1, x[0], x[1], rational=True)
+    p2 = eval_surface(S2, x[2], x[3], rational=True)
+    assert np.linalg.norm(p1 - p2) <= 2e-3
+    assert np.allclose(p1, [4.639676354, -3.932548333, 0.295239623],
+                       atol=2e-3)
+    _, du1, dv1 = eval_surface_d1(S1, x[0], x[1], rational=True)
+    _, du2, dv2 = eval_surface_d1(S2, x[2], x[3], rational=True)
+    n1, n2 = np.cross(du1, dv1), np.cross(du2, dv2)
+    sin_angle = float(np.linalg.norm(np.cross(n1, n2))
+                      / (np.linalg.norm(n1) * np.linalg.norm(n2)))
+    assert sin_angle <= 1e-6
+
+
+def test_bez_ssx_global_soft_budget_returns_partial_result(monkeypatch):
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    s1 = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                   [[1., 0., 0.], [1., 1., 0.]]])
+    s2 = np.array([[[0., 0., -1.], [0., 1., 1.]],
+                   [[1., 0., -1.], [1., 1., 1.]]])
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("the 4-D distance net was built with zero allowance")
+
+    monkeypatch.setattr(
+        ssx5, "surface_surface_distance_squared_net_homog", forbidden)
+    r = ssx5.bez_ssx(
+        s1, s2, 1e-3, rational=False,
+        max_cells=0, max_csx_calls=8,
+    )
+    assert r["budget_exhausted"] is True
+    assert set(("branches", "points", "singularities")) <= set(r)
+
+
+def test_bez_ssx_preflights_distance_net_work(monkeypatch):
+    """A tiny global allowance cannot start a superlinear 4-D net build."""
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    surface = np.zeros((8, 8, 3), dtype=np.float64)
+    surface[..., 0] = np.linspace(0.0, 1.0, 8)[:, None]
+    surface[..., 1] = np.linspace(0.0, 1.0, 8)[None, :]
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("distance-net construction bypassed its preflight charge")
+
+    monkeypatch.setattr(
+        ssx5, "surface_surface_distance_squared_net_homog", forbidden)
+    result = ssx5.bez_ssx(
+        surface, surface, 1e-3, rational=False,
+        max_cells=1, max_csx_calls=1,
+    )
+    assert result["budget_exhausted"] is True
+    assert result["budget_usage"]["cells_processed"] == 0
+
+
+def test_bez_ssx_output_budget_bounds_postprocessing():
+    """A finite cell queue must not feed unbounded quadratic assembly."""
+    s1 = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                   [[1., 0., 0.], [1., 1., 0.]]])
+    s2 = np.array([[[0., 0., -1.], [0., 1., 1.]],
+                   [[1., 0., -1.], [1., 1., 1.]]])
+    r = bez_ssx(
+        s1, s2, 1e-3, rational=False,
+        max_output_items=0,
+    )
+    assert r["budget_exhausted"] is True
+    assert r["budget_usage"]["output_items"] == 0
+    assert r["branches"] == [] and r["points"] == []
+
+
+def test_zero_postprocess_budget_skips_all_postassembly_scans():
+    """Certified overlaps may survive, but junction/filter scans may not run."""
+    s1, s2 = _shared_edge_pair(False)
+    result = bez_ssx(
+        s1, s2, 1e-3, rational=False,
+        max_postprocess_work=0,
+    )
+
+    usage = result["budget_usage"]
+    assert result["budget_exhausted"] is True
+    assert usage["postprocess_work"] == 0
+    assert usage["postprocess_exhausted"] is True
+    assert result["singularities"] == []
+    assert result["points"] == []
+    assert result["branches"]
+    assert all(branch.kind == "overlap" for branch in result["branches"])
+
+
+def test_bez_ssx_depth_cap_reports_unresolved_partial_result():
+    """A depth limit is a soft stop, not a proof that an empty cell is done."""
+    from examples.ssx.bez_ssx5_coverage_check import load_case_surfaces
+
+    s1, s2, rational = load_case_surfaces(7)
+    r = bez_ssx(
+        s1, s2, 1e-3, rational=rational,
+        max_depth=0, max_cells=20_000, max_csx_calls=100,
+    )
+    assert r["budget_exhausted"] is True
+
+
+def test_bez_ssx_surfaces_c1_local_truncation(monkeypatch):
+    """A locally capped C1 enumeration must not masquerade as complete."""
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    s1 = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                   [[1., 0., 0.], [1., 1., 0.]]])
+    s2 = np.array([[[0., 0., -1.], [0., 1., 1.]],
+                   [[1., 0., -1.], [1., 1., 1.]]])
+
+    def fake_c1(*_args, stats=None, **_kwargs):
+        stats.update(budget_exhausted=True,
+                     external_budget_exhausted=False,
+                     incomplete=False)
+        return [], False
+
+    monkeypatch.setattr(singular, "c1_pass", fake_c1)
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    assert r["budget_exhausted"] is True
+
+
+def test_phi_seed_local_truncation_marks_shared_budget(monkeypatch):
+    """Missing a capped Phi slice can omit a whole closed component."""
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    surface = _homog(np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]]))
+    budget = ssx._SSXSoftBudget(max_cells=100, max_csx_calls=10)
+    zero = np.zeros((1, 1, 1, 1), dtype=np.float64)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        T1=zero, T2=zero, T3=zero, T4=zero,
+        work_budget=budget,
+    )
+
+    monkeypatch.setattr(
+        ssx, "_choose_phi_equations",
+        lambda *_a, **_k: [((0, 1), 0)])
+
+    def fake_phi(*_args, stats=None, **_kwargs):
+        if stats is not None:
+            stats.update(budget_exhausted=True,
+                         external_budget_exhausted=False)
+        return []
+
+    monkeypatch.setattr(singular, "phi_loop_seeds", fake_phi)
+    assert ssx._phi_slice_loop_fragments(
+        cell, [np.full(4, 0.5)], 1e-3, 0.1, []) == []
+    assert budget.incomplete is True and budget.exhausted is False
+    assert budget.result_fields()["budget_exhausted"] is True
+
+
+def test_deflate_tangent_cell_does_not_march_after_shared_budget_exhaustion(
+        monkeypatch):
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    surface = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+    crossings = [
+        ssx5.BoundaryPoint(np.zeros(4), np.zeros(3), (0, 0)),
+        ssx5.BoundaryPoint(
+            np.ones(4), np.array([1., 1., 0.]), (0, 1)),
+    ]
+    budget = ssx5._SSXSoftBudget(max_cells=0, max_csx_calls=1)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        work_budget=budget,
+    )
+    monkeypatch.setattr(
+        ssx5, "_pair_crossings_for_tracing",
+        lambda *_a, **_k: ([(0, 1)], []))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("a tangent marcher ran after hard budget exhaustion")
+
+    monkeypatch.setattr(ssx5, "_march_intersection_curve", forbidden)
+    monkeypatch.setattr(ssx5, "_march_phi_curve", forbidden)
+    fragments, points = ssx5._deflate_tangent_cell(
+        surface, surface, 0., 0., 0., 0., ((0., 1.),) * 4,
+        crossings, 1e-3, cell=cell, originals=crossings)
+
+    assert fragments == [] and points == []
+    assert budget.exhausted and budget.incomplete
+    assert budget.cell_counts.get("singular_trace", 0) == 0
+
+
+def test_registration_trace_stops_before_march_when_shared_budget_is_empty(
+        monkeypatch):
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    surface = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+    crossings = [
+        ssx5.BoundaryPoint(
+            np.array([0., 0., 0., 0.]), np.array([0., 0., 0.]), (0, 0)),
+        ssx5.BoundaryPoint(
+            np.array([1., 1., 1., 1.]), np.array([1., 1., 0.]), (0, 1)),
+    ]
+    budget = ssx5._SSXSoftBudget(max_cells=0, max_csx_calls=1)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        crossings=crossings,
+        box=((0., 1.),) * 4,
+        work_budget=budget,
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("registration tracing ran after hard budget exhaustion")
+
+    monkeypatch.setattr(ssx5, "_march_to_boundary", forbidden)
+    fragments, points = ssx5._trace_cell_by_registrations(
+        cell, atol=1e-3)
+
+    assert fragments == [] and points == []
+    assert budget.exhausted and budget.incomplete
+    assert budget.cell_counts.get("branch_trace", 0) == 0
+
+
+def test_fragment_dedup_stops_when_postprocess_budget_is_empty():
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    xyz = np.column_stack([
+        np.linspace(0., 1., 1000), np.zeros(1000), np.zeros(1000)])
+    stuv = np.column_stack([
+        np.linspace(0., 1., 1000), np.zeros((1000, 3))])
+    fragments = [
+        ssx5._Fragment(None, None, stuv.copy(), xyz.copy()),
+        ssx5._Fragment(None, None, stuv.copy(), xyz.copy()),
+    ]
+    budget = ssx5._SSXSoftBudget(max_cells=0, max_csx_calls=1)
+
+    kept = ssx5._drop_duplicate_fragments(
+        fragments, 1e-3, work_budget=budget)
+
+    # Unknown containment is never used to delete a certified fragment.
+    assert kept == fragments
+    assert budget.exhausted and budget.incomplete
+    assert budget.cell_counts.get("assembly", 0) == 0
+
+
+def test_assembly_does_not_close_or_scan_pairs_after_budget_denial(monkeypatch):
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    stuv = np.array([
+        [0.20, 0.20, 0.20, 0.20],
+        [0.80, 0.20, 0.80, 0.20],
+        [0.80, 0.80, 0.80, 0.80],
+        [0.21, 0.21, 0.21, 0.21],
+    ])
+    xyz = np.array([
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [0.01, 0.01, 0.0],
+    ])
+    fragment = ssx5._Fragment(None, None, stuv, xyz)
+    surface = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+    budget = ssx5._SSXSoftBudget(max_cells=0, max_csx_calls=1)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("closing march ran without shared-budget allowance")
+
+    monkeypatch.setattr(ssx5, "_march_intersection_curve", forbidden)
+    branches = ssx5._assemble_fragments(
+        [fragment], S1_full=surface, S2_full=surface,
+        atol_full=1e-3, rational_full=True, work_budget=budget)
+
+    assert len(branches) <= 1
+    assert budget.exhausted and budget.incomplete
+    assert budget.cell_counts.get("assembly", 0) == 0
+
+
+def test_assembly_pair_join_stops_at_postprocess_budget():
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    fragments = []
+    for i in range(40):
+        x0 = 0.1 + 0.01 * i
+        xyz = np.array([[x0, 0., 0.], [x0 + 0.02, 0., 0.]])
+        stuv = np.array([
+            [0.2 + 1e-4 * i] * 4,
+            [0.3 + 1e-4 * i] * 4,
+        ])
+        fragments.append(ssx5._Fragment(None, None, stuv, xyz))
+    budget = ssx5._SSXSoftBudget(
+        max_cells=100, max_csx_calls=1, max_postprocess_work=8)
+
+    branches = ssx5._assemble_fragments(
+        fragments, atol_full=1e-3, unify_tol=None,
+        work_budget=budget)
+
+    assert branches
+    assert budget.postprocess_work <= 8
+    assert budget.postprocess_exhausted
+    assert budget.result_fields()["budget_exhausted"] is True
+
+
+def test_phi_slice_closed_march_stops_on_external_budget_exhaustion(
+        monkeypatch):
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    surface = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+    budget = ssx5._SSXSoftBudget(max_cells=0, max_csx_calls=1)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        T1=0., T2=0., T3=0., T4=0., work_budget=budget,
+    )
+    monkeypatch.setattr(
+        ssx5, "_choose_phi_equations",
+        lambda *_a, **_k: [((0, 1), 0)])
+
+    def exhausted_seed_search(
+            *_args, charge_box=None, stats=None, **_kwargs):
+        assert charge_box(1) is False
+        stats.update(
+            budget_exhausted=True, external_budget_exhausted=True)
+        return [np.full(4, 0.25)]
+
+    monkeypatch.setattr(
+        singular, "phi_loop_seeds", exhausted_seed_search)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("continuation work ran after external budget denial")
+
+    monkeypatch.setattr(ssx5, "_ssx_correct", forbidden)
+    monkeypatch.setattr(ssx5, "_march_psi_closed", forbidden)
+    monkeypatch.setattr(ssx5, "_march_phi_closed", forbidden)
+    fragments = ssx5._phi_slice_loop_fragments(
+        cell, [np.full(4, 0.25)], 1e-3, 0.1, [])
+
+    assert fragments == []
+    assert budget.exhausted and budget.incomplete
+
+
+def test_tangent_marchers_report_zero_iterations_on_initial_failure(
+        monkeypatch):
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    surface = _homog(np.array([
+        [[0., 0., 0.], [0., 1., 0.]],
+        [[1., 0., 0.], [1., 1., 0.]],
+    ]))
+    monkeypatch.setattr(
+        ssx5, "_ssx_tangent_4d",
+        lambda *_a, **_k: (None, None, None))
+    stats = {"iterations": 99}
+    path, _ = ssx5._march_intersection_curve(
+        surface, surface, np.zeros(4), np.ones(4),
+        max_points=7, stats=stats)
+    assert len(path) == 1 and stats["iterations"] == 0
+
+    monkeypatch.setattr(ssx5, "_jac_phi", lambda *_a, **_k: np.eye(4))
+    stats = {"iterations": 99}
+    path, _ = ssx5._march_phi_curve(
+        surface, surface, np.zeros((1, 1, 1, 1, 1)), (0, 1),
+        np.zeros(4), np.ones(4), max_points=7, stats=stats)
+    assert len(path) == 1 and stats["iterations"] == 0
+
+
+def test_delta_local_dimension_requires_rank_and_two_sided_continuation():
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _delta_root_local_dimension)
+
+    class FakeGN:
+        roundoff_scale = 1.0
+
+        def __init__(self, jacobian, mode):
+            self.jacobian = lambda _x: np.asarray(jacobian, dtype=float)
+            self.mode = mode
+
+        def __call__(self, seed):
+            if self.mode == "line":
+                return np.asarray(seed, dtype=float)
+            return np.full(4, 0.5)
+
+        @staticmethod
+        def physical_residual(_x):
+            return 0.0
+
+        @staticmethod
+        def residual(_x):
+            return np.zeros(7)
+
+    root = np.full(4, 0.5)
+    ptol = np.full(4, 1e-3)
+    full_rank = FakeGN(np.eye(4), "isolated")
+    assert _delta_root_local_dimension(full_rank, root, ptol) is False
+
+    rank3 = np.diag([1.0, 1.0, 1.0, 0.0])
+    regular_curve = FakeGN(rank3, "line")
+    charged = []
+    assert _delta_root_local_dimension(
+        regular_curve, root, ptol,
+        charge_work=lambda n: charged.append(n) or True) is True
+    assert charged == [24, 24]
+
+    singular_isolated = FakeGN(rank3, "isolated")
+    assert _delta_root_local_dimension(
+        singular_isolated, root, ptol) is None
+    assert _delta_root_local_dimension(
+        regular_curve, root, ptol,
+        charge_work=lambda _n: False) is None
+
+
+def test_offcurve_delta_local_truncation_marks_shared_budget(monkeypatch):
+    """Zero or one roots from a capped Delta solve are still only partial."""
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    surface = _homog(np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]]))
+    budget = ssx._SSXSoftBudget(max_cells=100, max_csx_calls=10)
+    zero = np.zeros((1, 1, 1, 1), dtype=np.float64)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        T1=zero, T2=zero, T3=zero, T4=zero,
+        F_sq=None, w_scale=1.0,
+        box=((0.0, 1.0),) * 4,
+        work_budget=budget,
+    )
+
+    def fake_delta(*_args, **_kwargs):
+        return (lambda _x: None), np.zeros((1, 1, 1, 1, 4))
+
+    def fake_solve(*_args, **_kwargs):
+        assert _kwargs["max_results"] == 64
+        return [], True
+
+    monkeypatch.setattr(ssx, "_delta_float_gn", fake_delta)
+    monkeypatch.setattr(singular, "solve_zero_dim", fake_solve)
+    ssx._emit_offcurve_tangent_roots(
+        cell, [], 1e-3, np.full(4, 4e-3), [], max_cells=2)
+    assert budget.incomplete is True and budget.exhausted is False
+    assert budget.result_fields()["budget_exhausted"] is True
+
+
+def test_primary_delta_witness_local_truncation_marks_shared_budget(monkeypatch):
+    """A capped one-root tangency witness is valid partial evidence only."""
+    from types import SimpleNamespace
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx
+
+    surface = _homog(np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]]))
+    budget = ssx._SSXSoftBudget(max_cells=100, max_csx_calls=10)
+    zero = np.zeros((1, 1, 1, 1), dtype=np.float64)
+    cell = SimpleNamespace(
+        g1=SimpleNamespace(surface=surface),
+        g2=SimpleNamespace(surface=surface),
+        T1=zero, T2=zero, T3=zero, T4=zero,
+        box=((0.0, 1.0),) * 4,
+        work_budget=budget,
+    )
+
+    monkeypatch.setattr(
+        ssx, "_tangency_witness",
+        lambda *_a, **_k: (True, [np.full(4, 0.5)], None, True))
+    ssx._emit_tangent_roots(
+        cell, 1e-3, np.full(4, 4e-3), [], enumerate_all=True)
+    assert budget.incomplete is True and budget.exhausted is False
+    assert budget.result_fields()["budget_exhausted"] is True
+
+
+def test_solve_zero_dim_result_cap_stops_positive_dimensional_flood():
+    net = BoxNet(
+        np.zeros((2, 2, 2, 2, 1), dtype=np.float64),
+        axes=(0, 1, 2, 3))
+    stats = {}
+    sols, exhausted = solve_zero_dim(
+        [net], lambda x: np.asarray(x), ptol=np.full(4, 1e-6),
+        max_cells=10_000, max_results=5, stats=stats)
+    assert len(sols) == 5 and exhausted
+    assert stats["result_limit_reached"] is True
+    assert stats["boxes_processed"] < 100
+
+
+def test_c3_pair_search_has_a_local_soft_budget():
+    """The vectorized broadphase must not materialize an unbounded M^2 set."""
+    from types import SimpleNamespace
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
+
+    surface = _homog(np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]]))
+    xyz = np.column_stack([
+        np.linspace(0.0, 1.0, 5),
+        np.zeros(5),
+        np.zeros(5),
+    ])
+    stuv = np.column_stack([
+        np.linspace(0.0, 1.0, 5),
+        np.zeros(5),
+        np.linspace(0.0, 1.0, 5),
+        np.zeros(5),
+    ])
+    branches = [SimpleNamespace(curve=(stuv, xyz)),
+                SimpleNamespace(curve=(stuv, xyz))]
+    stats = {}
+    hits = c3_pass(
+        surface, surface, branches, atol=1e-3, ptol4=np.full(4, 1e-3),
+        max_work=3, stats=stats)
+    assert hits == []
+    assert stats["budget_exhausted"] is True
+    assert stats["pairs_processed"] <= 3
+
+
+def test_ssx_point_dedup_uses_bounded_spatial_buckets():
+    """Final duplicate cleanup must scale with points, not all point pairs."""
+    from mmcore.numeric.intersection.ssx._ssx4 import SSXPoint
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _deduplicate_ssx_points)
+
+    points = []
+    for i in range(200):
+        stuv = np.array([10.0 * i, 0.0, 0.0, 0.0])
+        xyz = np.array([10.0 * i, 0.0, 0.0])
+        points.append(SSXPoint(stuv=stuv, xyz=xyz))
+        points.append(SSXPoint(
+            stuv=stuv + np.array([5e-4, 0.0, 0.0, 0.0]),
+            xyz=xyz + np.array([5e-4, 0.0, 0.0])))
+
+    stats = {}
+    unique = _deduplicate_ssx_points(
+        points, unify_tol=np.full(4, 1e-3), atol=1e-3, stats=stats)
+    assert len(unique) == 200
+    assert stats["comparisons"] < 4 * len(points)
+    assert stats["bucket_probes"] < 120 * len(points)
+
+
+def test_solve_zero_dim_shared_budget_denial_stops_before_box():
+    net = BoxNet(
+        np.zeros((2, 2, 2, 2, 1), dtype=np.float64),
+        axes=(0, 1, 2, 3))
+    calls = {"charge": 0, "newton": 0}
+
+    def charge_box(units=1):
+        calls["charge"] += units
+        return calls["charge"] <= 3
+
+    def newton(_x0):
+        calls["newton"] += 1
+        return None
+
+    stats = {}
+    sols, exhausted = solve_zero_dim(
+        [net], newton, ptol=np.full(4, 1e-3), max_cells=100,
+        charge_box=charge_box, stats=stats)
+    assert sols == [] and exhausted
+    assert calls == {"charge": 4, "newton": 3}
+    assert stats["boxes_processed"] == 3
+    assert stats["external_budget_exhausted"]
+
+
+def test_c1_pass_fair_shares_one_budget_across_surfaces(monkeypatch):
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    surface = _homog(np.array(
+        [[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+         [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]]))
+    normal = np.empty((2, 2, 3), dtype=np.float64)
+    normal[..., 0] = [[-1.0, 1.0], [-1.0, 1.0]]
+    normal[..., 1] = [[1.0, -1.0], [1.0, -1.0]]
+    normal[..., 2] = [[-1.0, -1.0], [1.0, 1.0]]
+    monkeypatch.setattr(singular, "sigma_normal_net", lambda *_a, **_k: normal)
+
+    limits = []
+    sentinel_charge = lambda _units=1: True
+
+    def fake_solve(*_args, max_cells, charge_box=None, stats=None, **_kwargs):
+        assert charge_box is sentinel_charge
+        assert _kwargs["max_results"] == 64
+        limits.append(max_cells)
+        used = min(3, max_cells)
+        stats.update(cells_processed=used, boxes_processed=used,
+                     budget_exhausted=False,
+                     external_budget_exhausted=False,
+                     stop_requested=False)
+        return [], False
+
+    monkeypatch.setattr(singular, "solve_zero_dim", fake_solve)
+    stats = {}
+    hits, curve_flag = singular.c1_pass(
+        surface, surface, atol=1e-3, ptol4=np.full(4, 1e-3),
+        max_cells=5, charge_box=sentinel_charge, stats=stats)
+    assert hits == [] and not curve_flag
+    assert limits == [2, 3] and sum(limits) == 5
+    assert stats["cells_processed"] == 5
+
+
+def test_c1_connectivity_probe_respects_shared_budget(monkeypatch):
+    import mmcore.numeric.intersection.ssx._ssx5_singular as singular
+
+    surface = _homog(np.array(
+        [[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+         [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]]))
+    normal = np.empty((2, 2, 3), dtype=np.float64)
+    normal[..., 0] = [[-1.0, 1.0], [-1.0, 1.0]]
+    normal[..., 1] = [[1.0, -1.0], [1.0, -1.0]]
+    normal[..., 2] = [[-1.0, -1.0], [1.0, 1.0]]
+    monkeypatch.setattr(
+        singular, "sigma_normal_net", lambda *_a, **_k: normal)
+
+    sols = [np.full(4, 0.25), np.full(4, 0.75)]
+
+    def fake_solve(*_args, stats=None, **_kwargs):
+        stats.update(
+            cells_processed=1, boxes_processed=1,
+            budget_exhausted=False,
+            external_budget_exhausted=False,
+            stop_requested=False)
+        return list(sols), False
+
+    def fake_connected(_sols, newton, _ptol):
+        assert newton(np.full(4, 0.5)) is None
+        return False
+
+    charges = []
+    monkeypatch.setattr(singular, "solve_zero_dim", fake_solve)
+    monkeypatch.setattr(singular, "_connected_one_dim", fake_connected)
+    stats = {}
+    hits, curve_flag = singular.c1_pass(
+        surface, surface, atol=1e-3, ptol4=np.full(4, 1e-3),
+        max_cells=100,
+        charge_box=lambda n=1: charges.append(n) or False,
+        stats=stats)
+
+    assert hits == [] and curve_flag is False
+    assert charges == [1]
+    assert stats["external_budget_exhausted"] is True
+    assert stats["incomplete"] is True
+    assert stats["solve_calls"] == 1
+
+
+def test_subdivided_gauss_cone_contains_true_surface_normal():
+    from mmcore.numeric.intersection.ssx._ssx4 import (
+        GaussMapBern, separate_gauss_maps)
+
+    points = np.array([
+        [[0.0, 0.0, 0.12590804260840438],
+         [0.0, 0.5, 0.4045619445326789],
+         [0.0, 1.0, 0.43568455289279767]],
+        [[0.5, 0.0, 0.41487198131264286],
+         [0.5, 0.5, 0.32849583092501017],
+         [0.5, 1.0, 0.3231481813148787]],
+        [[1.0, 0.0, 0.6622262078328403],
+         [1.0, 0.5, -0.5856500620605981],
+         [1.0, 1.0, 0.6529671930891621]],
+    ])
+    surface = _homog(points)
+    left = GaussMapBern.from_surf(surface, rational=True).split_u(0.5)[0]
+    _, du, dv = eval_surface_d1(surface, 0.485, 0.01, rational=True)
+    normal = np.cross(du, dv)
+    normal /= np.linalg.norm(normal)
+    w_left, w_sample = separate_gauss_maps(
+        left.map_dirs(), np.repeat(normal[None, :], 4, axis=0))
+    assert w_left is None or w_sample is None
+
+
+def test_coverage_harness_preserves_case_rational_flag():
+    from examples.ssx.bez_ssx5_coverage_check import load_case_surfaces
+
+    p1, p2, polynomial_rational = load_case_surfaces(5)
+    r1, r2, rational = load_case_surfaces(13)
+    assert polynomial_rational is False and p1.shape[-1] == p2.shape[-1] == 3
+    assert rational is True and r1.shape[-1] == r2.shape[-1] == 4
+
+
+def test_coverage_check_propagates_rational_flag(monkeypatch):
+    import examples.ssx.bez_ssx5_coverage_check as coverage
+
+    surface = _homog(np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]]))
+    seen = {}
+    monkeypatch.setattr(
+        coverage, "load_case_surfaces",
+        lambda _case: (surface, surface, True))
+
+    def fake_ssx(*_args, rational, **_kwargs):
+        seen["ssx"] = rational
+        return {"branches": [], "points": [], "singularities": [],
+                "budget_exhausted": False}
+
+    def fake_reference(*_args, rational, **_kwargs):
+        seen["reference"] = rational
+        return np.empty((0, 3)), np.empty(0)
+
+    monkeypatch.setattr(coverage, "bez_ssx", fake_ssx)
+    monkeypatch.setattr(coverage, "reference_cloud", fake_reference)
+    assert coverage.check_case(999, n_ref=1) is True
+    assert seen == {"ssx": True, "reference": True}
+
+
+def test_coverage_check_rejects_partial_ssx(monkeypatch):
+    import examples.ssx.bez_ssx5_coverage_check as coverage
+
+    surface = np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]])
+    monkeypatch.setattr(
+        coverage, "load_case_surfaces",
+        lambda _case: (surface, surface, False))
+    monkeypatch.setattr(
+        coverage, "bez_ssx",
+        lambda *_a, **_k: {
+            "branches": [], "points": [], "singularities": [],
+            "budget_exhausted": True,
+        })
+    monkeypatch.setattr(
+        coverage, "reference_cloud",
+        lambda *_a, **_k: pytest.fail("partial SSX reached reference oracle"))
+    assert coverage.check_case(999, n_ref=1) is False
+
+
+def test_reference_cloud_rejects_partial_csx(monkeypatch):
+    import examples.ssx.bez_ssx5_coverage_check as coverage
+
+    surface = np.array(
+        [[[0., 0., 0.], [0., 1., 0.]],
+         [[1., 0., 0.], [1., 1., 0.]]])
+    monkeypatch.setattr(
+        coverage, "bez_csx",
+        lambda *_a, **_k: {
+            "isolated": [], "overlaps": [],
+            "budget_exhausted": True,
+            "boundary_topology_complete": False,
+        })
+    with pytest.raises(RuntimeError, match="reference CSX incomplete"):
+        coverage.reference_cloud(surface, surface, n=1, rational=False)

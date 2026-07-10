@@ -52,6 +52,132 @@ def _map_local_to_global_csx(t_loc, u_loc, v_loc, t0, t1, u0, u1, v0, v1):
     return t_glob, u_glob, v_glob
 
 
+_BEZIER_LIMIT_KWARGS = ('max_depth',)
+_DEFAULT_MAX_CELLS = 100_000
+_DEFAULT_MAX_RESULTS = 4_096
+
+
+def _bezier_limit_kwargs(kwargs):
+    """Forward only the bounded-solver controls understood by bez_csx v4."""
+    return {name: kwargs[name] for name in _BEZIER_LIMIT_KWARGS
+            if name in kwargs}
+
+
+def _new_status(max_cells, max_results):
+    return {
+        'complete': True,
+        'budget_exhausted': False,
+        'boundary_topology_complete': True,
+        'cells_processed': 0,
+        'max_cells': int(max_cells),
+        'results_processed': 0,
+        'max_results': int(max_results),
+        'partial_results': 0,
+        'parameter_fibers': [],
+    }
+
+
+def _mark_incomplete(status, context, return_status, message):
+    status['complete'] = False
+    status['budget_exhausted'] = True
+    status['partial_results'] += 1
+    if not return_status:
+        raise RuntimeError(f"{context}: {message}; pass return_status=True "
+                           "to receive explicit partial status")
+
+
+def _remaining_allowances(status):
+    return (
+        max(0, status['max_cells'] - status['cells_processed']),
+        max(0, status['max_results'] - status['results_processed']),
+    )
+
+
+def _map_parameter_fiber(fiber, seg_interval, patch_interval):
+    """Map a Bezier CSX parameter fiber into global NURBS parameters."""
+    mapped = dict(fiber)
+    t0, t1 = seg_interval
+    (u0, u1), (v0, v1) = patch_interval
+
+    if 't_range' in mapped:
+        lo, hi = mapped['t_range']
+        mapped['t_range'] = (t0 + (t1 - t0) * lo,
+                             t0 + (t1 - t0) * hi)
+    if 'u_range' in mapped:
+        lo, hi = mapped['u_range']
+        mapped['u_range'] = (u0 + (u1 - u0) * lo,
+                             u0 + (u1 - u0) * hi)
+    if 'v_range' in mapped:
+        lo, hi = mapped['v_range']
+        mapped['v_range'] = (v0 + (v1 - v0) * lo,
+                             v0 + (v1 - v0) * hi)
+    if 't' in mapped:
+        mapped['t'] = t0 + (t1 - t0) * mapped['t']
+    if 'u' in mapped:
+        mapped['u'] = u0 + (u1 - u0) * mapped['u']
+    if 'v' in mapped:
+        mapped['v'] = v0 + (v1 - v0) * mapped['v']
+    return mapped
+
+
+def _consume_bezier_status(
+    result, status, seg_interval, patch_interval, return_status,
+    cell_allowance, result_allowance,
+):
+    """Aggregate and sanitize one span result under call-wide allowances."""
+    result = dict(result)
+    reported_cells = max(0, int(result.get('cells_processed', 0)))
+    # Charge every candidate dispatch, including an AABB-fast rejection that
+    # reports zero solver cells, so a large candidate set remains bounded.
+    charged_cells = max(1, reported_cells)
+    cells_overrun = charged_cells > cell_allowance
+    status['cells_processed'] += min(charged_cells, cell_allowance)
+
+    kept = 0
+    result_overrun = False
+    for key in ('isolated', 'overlaps', 'parameter_fibers'):
+        values = list(result.get(key, ()) or ())
+        remaining = max(0, result_allowance - kept)
+        if len(values) > remaining:
+            values = values[:remaining]
+            result_overrun = True
+        result[key] = values
+        kept += len(values)
+    status['results_processed'] += kept
+
+    exhausted = bool(result.get('budget_exhausted', False))
+    exhausted = exhausted or cells_overrun or result_overrun
+    topology_complete = bool(result.get('boundary_topology_complete', True))
+    incomplete = exhausted or not topology_complete
+    fibers = result['parameter_fibers']
+
+    status['budget_exhausted'] |= exhausted
+    status['boundary_topology_complete'] &= topology_complete
+    if incomplete:
+        status['complete'] = False
+        status['partial_results'] += 1
+        if not return_status:
+            raise RuntimeError(
+                f"nurbs_csx spans {seg_interval} x {patch_interval}: "
+                "incomplete Bezier CSX result (budget exhausted or boundary "
+                "topology incomplete); pass return_status=True to receive "
+                "explicit partial status"
+            )
+
+    if fibers:
+        status['parameter_fibers'].extend(
+            _map_parameter_fiber(fiber, seg_interval, patch_interval)
+            for fiber in fibers
+        )
+        if not return_status:
+            raise RuntimeError(
+                f"nurbs_csx spans {seg_interval} x {patch_interval}: "
+                "positive-dimensional parameter fiber cannot be represented "
+                "by the legacy two-value return; pass return_status=True"
+            )
+    return result, incomplete
+
+
 # ---------------------------------------------------------------------------
 # Overlap merging
 # ---------------------------------------------------------------------------
@@ -192,7 +318,14 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
 # nurbs_csx: NURBS curve × NURBS surface intersection
 # ---------------------------------------------------------------------------
 
-def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 1e-3, **kwargs):
+def nurbs_csx(
+    curve: NURBSCurveTuple,
+    surface: NURBSSurfaceTuple,
+    atol: float = 1e-3,
+    *,
+    return_status: bool = False,
+    **kwargs,
+):
     """Find all intersections between a NURBS curve and a NURBS surface.
 
 
@@ -209,6 +342,11 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
         Each entry: {'t': float, 'u': float, 'v': float, 'point': ndarray}
     overlaps : list[dict] or None
         Each entry: {'t_range': (t0,t1), 'u_range': (u0,u1), 'v_range': (v0,v1)}
+    status : dict, optional
+        Returned as a third value only when ``return_status=True``. It carries
+        aggregate bounded-solver diagnostics and globally mapped
+        ``parameter_fibers``. Without that opt-in, partial or
+        positive-dimensional sub-results raise ``RuntimeError``.
     """
     if isinstance(curve, NURBSCurve):
         curve = _nurbs_to_tuple(curve)
@@ -232,6 +370,12 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
 
     raw_isolated = []
     raw_overlaps = []
+    aggregate_max_cells = max(
+        0, int(kwargs.get('max_cells', _DEFAULT_MAX_CELLS)))
+    aggregate_max_results = max(
+        0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
+    status = _new_status(aggregate_max_cells, aggregate_max_results)
+    bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
     for a, b in bvh_intersect(bvh_curves, bvh_surfs, exact=False):
         seg = curve_segs[a.object]
@@ -244,10 +388,26 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
             pts_c = seg.control_points
             pts_s = patch.control_points
 
-        result = bez_csx_v4(pts_c, pts_s, atol=atol, rational=rational)
-
         seg_interval = seg.interval()
         patch_interval = patch.interval()  # ((u0, u1), (v0, v1))
+        context = f"nurbs_csx spans {seg_interval} x {patch_interval}"
+        remaining_cells, remaining_results = _remaining_allowances(status)
+        if remaining_cells <= 0 or remaining_results <= 0:
+            _mark_incomplete(
+                status, context, return_status,
+                "aggregate CSX cell/result budget exhausted")
+            break
+        call_kwargs = dict(bezier_kwargs)
+        call_kwargs['max_cells'] = remaining_cells
+        call_kwargs['max_results'] = remaining_results
+        result = bez_csx_v4(
+            pts_c, pts_s, atol=atol, rational=rational, **call_kwargs,
+        )
+
+        result, stop_after_span = _consume_bezier_status(
+            result, status, seg_interval, patch_interval, return_status,
+            remaining_cells, remaining_results,
+        )
 
         for iso in result['isolated']:
             t_glob, u_glob, v_glob = _map_local_to_global_csx(
@@ -276,6 +436,8 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
                 'u_range': (u0g, u1g),
                 'v_range': (v0g, v1g),
             })
+        if stop_after_span:
+            break
 
     # ---------------------------------------------------------------
     # Post-processing: merge overlaps, classify micro-fragments
@@ -321,4 +483,6 @@ def nurbs_csx(curve: NURBSCurveTuple, surface: NURBSSurfaceTuple, atol: float = 
     isolated = deduped_isolated if deduped_isolated else None
     overlaps = merged_overlaps if merged_overlaps else None
 
+    if return_status:
+        return isolated, overlaps, status
     return isolated, overlaps

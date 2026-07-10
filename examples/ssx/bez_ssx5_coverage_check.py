@@ -29,13 +29,20 @@ def _extract_isoline(S, axis, value):
     return left[:, -1, :]
 
 
-def reference_cloud(S1, S2, atol=1e-3, n=200, axis=0):
+def reference_cloud(S1, S2, atol=1e-3, n=200, axis=0, rational=False):
     """Slice S1 along `axis`, CSX each isoline against S2."""
-    S1h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
-    S2h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
+    if rational:
+        S1h, S2h = S1, S2
+    else:
+        S1h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
+        S2h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
     pts, params = [], []
     for w in np.linspace(1e-9, 1.0 - 1e-9, n):
         r = bez_csx(_extract_isoline(S1h, axis, float(w)), S2h, atol=atol, rational=True)
+        if (r.get("budget_exhausted", False)
+                or not r.get("boundary_topology_complete", True)):
+            raise RuntimeError(
+                f"reference CSX incomplete at slice {float(w):.12g}")
         for p in r.get("isolated", []):
             pts.append(np.asarray(p["point"], dtype=float))
             params.append(float(w))
@@ -73,14 +80,15 @@ def load_case_surfaces(case):
         fn = next(v for k, v in ns.items() if callable(v) and k.startswith("bez_ssx_case"))
         fn()
         s1, s2 = captured["s1"], captured["s2"]
-    return np.asarray(s1, dtype=float), np.asarray(s2, dtype=float)
+    return (np.asarray(s1, dtype=float), np.asarray(s2, dtype=float),
+            bool(ns.get("RATIONAL", False)))
 
 
 def check_case(case, atol=1e-3, n_ref=200):
     import time
-    S1, S2 = load_case_surfaces(case)
+    S1, S2, rational = load_case_surfaces(case)
     t0 = time.time()
-    res = bez_ssx(S1, S2, atol, rational=False)
+    res = bez_ssx(S1, S2, atol, rational=rational)
     dt = time.time() - t0
 
     polys = []
@@ -99,14 +107,23 @@ def check_case(case, atol=1e-3, n_ref=200):
     for g in res.get("singularities", []):
         print(f"    singularity {g.kind}: stuv={np.round(g.stuv, 5).tolist()} "
               f"xyz={np.round(g.xyz, 5).tolist()} links={g.branch_links}")
+    if res.get("budget_exhausted", False):
+        print("    INCOMPLETE SSX RESULT: soft budget/depth/output limit reached")
+        return False
     # Ledger L24: the regular coverage cases must produce ZERO typed
     # singularities — enforced (exit code), not just printed, so CI
     # catches spurious-singularity regressions.
-    clean_singularities = not res.get("singularities", [])
+    clean_singularities = (case not in ALL_CASES
+                           or not res.get("singularities", []))
     if not clean_singularities:
         print(f"    SPURIOUS SINGULARITIES: {len(res['singularities'])} (expected 0)")
 
-    ref, ws = reference_cloud(S1, S2, atol=atol, n=n_ref)
+    try:
+        ref, ws = reference_cloud(
+            S1, S2, atol=atol, n=n_ref, rational=rational)
+    except RuntimeError as exc:
+        print(f"    INCOMPLETE REFERENCE: {exc}")
+        return False
     if not len(ref):
         print("    (no reference points)")
         return clean_singularities

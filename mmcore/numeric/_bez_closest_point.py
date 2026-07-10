@@ -61,6 +61,16 @@ _DEGEN_EIG_RATIO = 1e-6
 _STATIONARY_COS_TOL = 1e-4
 
 
+def _publish_work_stats(stats, cells_processed, budget_exhausted, **breakdown):
+    """Populate an optional mutable stats mapping without changing results."""
+    if stats is None:
+        return
+    stats.clear()
+    stats.update(cells_processed=int(cells_processed),
+                 budget_exhausted=bool(budget_exhausted),
+                 **{key: int(value) for key, value in breakdown.items()})
+
+
 # ---------------------------------------------------------------------------
 # Bernstein algebra
 # ---------------------------------------------------------------------------
@@ -384,7 +394,7 @@ def _is_stationary_point(S, point, u, v, rational):
 # ---------------------------------------------------------------------------
 
 def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
-                             max_cells=20000, upper_bound=None):
+                             max_cells=20000, upper_bound=None, stats=None):
     """Globally closest points of a Bézier curve (band semantics).
 
     Returns the set of entities within ``atol`` of the global minimum
@@ -395,7 +405,8 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
     provably all-or-nothing).
 
     ``upper_bound``: externally-known distance bound (e.g. from sibling
-    patches) used for band clipping only.
+    patches) used for band clipping only.  When supplied, ``stats`` is updated
+    with ``cells_processed`` and ``budget_exhausted``.
     """
     C = np.asarray(C, dtype=np.float64)
     point = np.asarray(point, dtype=np.float64)
@@ -413,6 +424,7 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
     if d_hi0 - d_lo0 < band:
         pt = eval_curve(C, 0.5, rational=rational)
         dist = float(np.linalg.norm(pt - point))
+        _publish_work_stats(stats, 0, False)
         return [{"kind": "degenerate_segment", "t_range": (0.0, 1.0),
                  "t": 0.5, "point": np.asarray(pt), "distance": dist}]
 
@@ -433,6 +445,7 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
                 return
         candidates.append((t, dist, kind))
 
+    max_cells = max(int(max_cells), 0)
     cells = 0
     stack = [(N, F, W2, 0.0, 1.0, 0)]
     while stack and cells < max_cells:
@@ -455,7 +468,8 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
         stack.append((NL, FL, WL, t0, tm, depth + 1))
         stack.append((NR, FR, WR, tm, t1, depth + 1))
 
-    if cells >= max_cells and stack:
+    budget_exhausted = bool(stack and cells >= max_cells)
+    if budget_exhausted:
         warnings.warn(
             "bez_curve_closest_points: subdivision hit max_cells cap; "
             "result may be incomplete.")
@@ -495,6 +509,7 @@ def bez_curve_closest_points(C, point, atol=1e-3, rational=False,
         gmin = min(e["distance"] for e in results)
         results = [e for e in results if e["distance"] <= gmin + band]
     results.sort(key=lambda e: e["distance"])
+    _publish_work_stats(stats, cells, budget_exhausted)
     return results
 
 
@@ -548,7 +563,8 @@ def _hessian_eigs(S, point, u, v, rational):
 # ---------------------------------------------------------------------------
 
 def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
-                            max_steps=2000, dist_band=None):
+                            max_steps=2000, dist_band=None,
+                            max_total_steps=None, stats=None):
     """Trace the 1-D equidistant stationary curve of ``g = ||S - point||^2``
     through the degenerate stationary seed ``(u0, v0)``.
 
@@ -561,17 +577,33 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
     Returns ``{"uv": (N,2), "points": (N,3), "distance", "closed"}`` or
     ``None`` when the trace is invalid (corrector failure right away, or the
     distance drifts out of ``dist_band`` — the seed was not on a genuine
-    equidistant curve; caller falls back to isolated handling).
+    equidistant curve; caller falls back to isolated handling). The optional
+    ``max_total_steps`` caps both directions together; ``stats`` reports
+    ``steps_processed`` and whether that cap (or a per-leg cap) truncated the
+    trace. A truncated trace is never returned as a complete curve.
     """
     S = np.asarray(S, dtype=np.float64)
     point = np.asarray(point, dtype=np.float64)
+    max_steps = max(0, int(max_steps))
+    if max_total_steps is None:
+        max_total_steps = 2 * max_steps
+    max_total_steps = max(0, int(max_total_steps))
+    steps_processed = 0
+
+    def finish(result, budget_exhausted=False):
+        if stats is not None:
+            stats.clear()
+            stats.update(steps_processed=int(steps_processed),
+                         budget_exhausted=bool(budget_exhausted))
+        return result
+
     lam0, lam1, _, g0 = _hessian_eigs(S, point, u0, v0, rational)
     d0 = np.sqrt(max(g0, 0.0))
     if dist_band is None:
         dist_band = max(1e-9, 1e-6 * max(d0, 1.0))
     scale = max(abs(lam1), 1e-30)
     if abs(lam1) < 1e-30 or abs(lam0) > _DEGEN_EIG_RATIO * scale:
-        return None       # not rank-1 degenerate (rank-0 flat or isolated)
+        return finish(None)  # not rank-1 degenerate (rank-0 flat or isolated)
 
     def on_boundary(u, v):
         eps = 1e-12
@@ -612,6 +644,7 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
 
     drift_tol = max(dist_band, 1e-7 * max(d0, 1.0))
     closed = False
+    truncated = False
     legs = []
     for direction in (1.0, -1.0):
         u, v = float(u0), float(v0)
@@ -620,6 +653,10 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
         cum_arc = 0.0
         stall_run = 0
         for _k in range(max_steps):
+            if steps_processed >= max_total_steps:
+                truncated = True
+                break
+            steps_processed += 1
             _, _, t, _ = _hessian_eigs(S, point, u, v, rational)
             t = t * direction
             if prev_t is not None and float(np.dot(t, prev_t)) < 0.0:
@@ -651,25 +688,32 @@ def trace_equidistant_curve(S, point, u0, v0, *, rational=False, step=0.01,
             if direction > 0 and cum_arc > 10.0 * step and np.hypot(u - u0, v - v0) < 0.75 * step:
                 closed = True
                 break
+        else:
+            # Reaching a continuation cap is not a geometric termination
+            # certificate, so the accumulated polyline is only partial.
+            truncated = True
         legs.append(leg)
-        if closed:
+        if closed or truncated:
             break
 
+    if truncated:
+        return finish(None, True)
     fwd, bwd = legs[0], (legs[1] if len(legs) > 1 else [])
     pts_uv = bwd[::-1] + [(float(u0), float(v0))] + fwd
     if len(pts_uv) < 3:
-        return None
+        return finish(None)
     uv = np.array(pts_uv, dtype=np.float64)
     # Minimum-extent validity: a trace that never achieved real arc length is
     # a failed trace (it must fall back to isolated handling and must NOT
     # consume other seeds or emit a micro-fragment entity).
     arc_len = float(np.sum(np.hypot(np.diff(uv[:, 0]), np.diff(uv[:, 1]))))
     if arc_len < 3.0 * step:
-        return None
+        return finish(None)
     xyz = np.array([eval_surface(S, uu, vv, rational=rational) for uu, vv in pts_uv])
     dists = np.linalg.norm(xyz - point[None, :], axis=1)
-    return {"uv": uv, "points": xyz, "distance": float(np.mean(dists)),
-            "closed": bool(closed)}
+    return finish({"uv": uv, "points": xyz,
+                   "distance": float(np.mean(dists)),
+                   "closed": bool(closed)})
 
 
 def _uv_dist_to_polyline(u, v, uv):
@@ -720,7 +764,8 @@ def _certify_circle(points, query):
 
 def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
                                want_eval=False, max_cells=20000,
-                               upper_bound=None, _interior_only=False):
+                               upper_bound=None, _interior_only=False,
+                               stats=None):
     """Globally closest entities of a Bézier surface patch (band semantics).
 
     Returns entities within ``atol`` of the global minimum distance, sorted
@@ -732,6 +777,10 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     * ``{"kind":"degenerate_surface", ...}`` — the whole patch is equidistant.
 
     ``upper_bound``: externally-known distance bound used for band clipping.
+    The four boundary-curve searches, surface subdivision queue, and
+    degenerate-curve continuation share the single ``max_cells`` allowance.
+    When supplied, ``stats`` is updated with total, boundary, surface, and
+    trace-step counts plus ``budget_exhausted``.
     """
     S = np.asarray(S, dtype=np.float64)
     point = np.asarray(point, dtype=np.float64)
@@ -750,6 +799,8 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     if d_hi0 - d_lo0 < band:
         pt = eval_surface(S, 0.5, 0.5, rational=rational)
         dist = float(np.linalg.norm(pt - point))
+        _publish_work_stats(stats, 0, False, boundary_cells=0,
+                            surface_cells=0, trace_steps=0)
         return [{"kind": "degenerate_surface", "u_range": (0.0, 1.0),
                  "v_range": (0.0, 1.0), "u": 0.5, "v": 0.5,
                  "point": np.asarray(pt), "distance": dist}]
@@ -761,15 +812,20 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
 
     # Boundary first: cheap, seeds `best` early, and its entities join the
     # final band filter like everything else.
+    max_cells = max(int(max_cells), 0)
     boundary_points = []
     boundary_curves = []
+    boundary_stats = {"cells_processed": 0, "budget_exhausted": False}
     if not _interior_only:
         _surface_boundary_entities(S, point, boundary_points, boundary_curves,
-                                   rational, atol, ptol_u, ptol_v)
+                                   rational, atol, ptol_u, ptol_v,
+                                   max_cells=max_cells, stats=boundary_stats)
         for e in boundary_points:
             best = min(best, e["distance"])
         for e in boundary_curves:
             best = min(best, e["distance"])
+    boundary_cells = int(boundary_stats["cells_processed"])
+    budget_exhausted = bool(boundary_stats["budget_exhausted"])
 
     def try_add_point(u, v):
         nonlocal best
@@ -784,8 +840,9 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     pops = 0
     capped = False
     while pq:
-        if pops >= max_cells:
+        if budget_exhausted or boundary_cells + pops >= max_cells:
             capped = True
+            budget_exhausted = True
             break
         lb, _, Fc, W2c, Nuc, Nvc, u0, u1, v0, v1, depth = heapq.heappop(pq)
         pops += 1
@@ -844,14 +901,47 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
             "bez_surface_closest_points: hit max_cells cap; "
             "result may be incomplete.")
 
-    # Trace equidistant curves from unconsumed degenerate seeds.
+    # Trace equidistant curves from unconsumed degenerate seeds. Continuation
+    # iterations consume the same allowance as subdivision cells; a truncated
+    # polyline is never promoted to a complete closest-set entity.
     trace_step = 0.01
-    for (su_, sv_) in degen_seeds:
+    trace_steps = 0
+    trace_capped = False
+    if (degen_seeds and not budget_exhausted
+            and boundary_cells + pops >= max_cells):
+        budget_exhausted = True
+        trace_capped = True
+    trace_seeds = () if budget_exhausted else degen_seeds
+    for (su_, sv_) in trace_seeds:
         if any(_uv_dist_to_polyline(su_, sv_, c["uv"]) < 2.0 * trace_step
                for c in curves_out):
             continue                       # already covered by a traced curve
+        remaining = max_cells - boundary_cells - pops - trace_steps
+        if remaining <= 0:
+            budget_exhausted = True
+            trace_capped = True
+            break
+        trace_stats = {}
         tr = trace_equidistant_curve(S, point, su_, sv_, rational=rational,
-                                     step=trace_step, dist_band=band)
+                                     step=trace_step, dist_band=band,
+                                     max_steps=min(2000, remaining),
+                                     max_total_steps=remaining,
+                                     stats=trace_stats)
+        if 'steps_processed' not in trace_stats:
+            # Fail closed if a substituted/older tracer omits accounting.
+            charged_steps = remaining
+            trace_incomplete = True
+        else:
+            reported_steps = max(0, int(trace_stats['steps_processed']))
+            charged_steps = min(remaining, max(1, reported_steps))
+            trace_incomplete = (
+                bool(trace_stats.get('budget_exhausted', False))
+                or reported_steps > remaining)
+        trace_steps += charged_steps
+        if trace_incomplete:
+            budget_exhausted = True
+            trace_capped = True
+            break
         if tr is None:
             try_add_point(su_, sv_)        # fall back to isolated handling
             continue
@@ -863,6 +953,11 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
         if cert is not None:
             tr["circle"] = cert     # planar spherical curve == exact circle
         curves_out.append(tr)
+
+    if trace_capped and not capped:
+        warnings.warn(
+            "bez_surface_closest_points: degenerate continuation hit the "
+            "shared max_cells cap; result may be incomplete.")
 
     # A traced curve consumes point candidates lying on it.
     def consumed_by_curve(e):
@@ -893,6 +988,11 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
             if e["kind"] in ("min", "boundary_min"):
                 pt, su, sv, _, _, _ = eval_surface_d2(S, e["u"], e["v"], rational=rational)
                 e["eval"] = {"S": pt, "Su": su, "Sv": sv, "normal": np.cross(su, sv)}
+    _publish_work_stats(
+        stats, boundary_cells + pops + trace_steps, budget_exhausted,
+        boundary_cells=boundary_cells, surface_cells=pops,
+        trace_steps=trace_steps,
+    )
     return entities
 
 
@@ -901,7 +1001,8 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
 # ---------------------------------------------------------------------------
 
 def _surface_boundary_entities(S, point, out_points, out_curves,
-                               rational, atol, ptol_u, ptol_v):
+                               rational, atol, ptol_u, ptol_v,
+                               max_cells=20000, stats=None):
     """Collect KKT-valid minima on the 4 edges + 4 corners of the patch.
 
     Point results go to ``out_points``; a whole-edge equidistant segment
@@ -915,8 +1016,20 @@ def _surface_boundary_entities(S, point, out_points, out_curves,
         (1, 0.0, S[:, 0, :]),    # v = 0, runs along u
         (1, 1.0, S[:, -1, :]),   # v = 1
     ]
+    max_cells = max(int(max_cells), 0)
+    cells = 0
+    budget_exhausted = False
     for fixed_axis, side, iso in edges:
-        iso_res = bez_curve_closest_points(iso, point, atol=atol, rational=rational)
+        remaining = max_cells - cells
+        if remaining <= 0:
+            budget_exhausted = True
+            break
+        curve_stats = {}
+        iso_res = bez_curve_closest_points(
+            iso, point, atol=atol, rational=rational,
+            max_cells=remaining, stats=curve_stats)
+        cells += int(curve_stats["cells_processed"])
+        budget_exhausted = bool(curve_stats["budget_exhausted"])
         for e in iso_res:
             if e["kind"] == "degenerate_segment":
                 # Whole edge equidistant. KKT at the representative decides
@@ -945,8 +1058,11 @@ def _surface_boundary_entities(S, point, out_points, out_curves,
             s = e["t"]
             u, v = (side, s) if fixed_axis == 0 else (s, side)
             _try_add_boundary(S, point, out_points, u, v, rational, atol, ptol_u, ptol_v)
+        if budget_exhausted:
+            break
     for u, v in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]:
         _try_add_boundary(S, point, out_points, u, v, rational, atol, ptol_u, ptol_v)
+    _publish_work_stats(stats, cells, budget_exhausted)
 
 
 def _boundary_kkt_ok(S, point, u, v, rational, atol, ptol_u, ptol_v):

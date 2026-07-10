@@ -86,8 +86,10 @@ def _bezier_curve_param_tol_conservative(P, w, tol, u0=0.0, u1=1.0):
     # Degree scaling + denominator lower bound, mirroring the OCC structure
     L = (p * Lmax) / min_w
 
+    if L == 0.0:
+        return float(tol)
     RealSmall = np.finfo(float).tiny
-    tol_u = float(tol) / max(L, RealSmall)
+    tol_u = min(float(tol), float(tol) / max(L, RealSmall))
     return tol_u
 import numpy as np
 
@@ -116,16 +118,23 @@ def _bezier_curve_param_tol_optimistic( P,w,tol, interval=(0.,1.))->float:
     W0 = w[:-1,None]
     W1 = w[1:,None]
 
-    s=(P1 * W0 - P0 * W1)/ (W0 * W0)
+    # ``P`` is already Euclidean (``from_homogeneous_1d`` divided the
+    # homogeneous numerators by ``w``).  The quotient-rule numerator for
+    # an edge is therefore
+    #
+    #   (P1*w1)*w0 - (P0*w0)*w1 = w0*w1*(P1-P0),
+    #
+    # not ``P1*w0 - P0*w1``.  The old expression mixed Euclidean controls
+    # with homogeneous algebra, was not translation invariant, and gave a
+    # non-zero speed to a geometrically constant rational curve whenever
+    # adjacent weights differed (SSX case 14's collapsed cone-apex edge).
+    s=(P1 - P0) * (W1 / W0)
 
     dt=np.linalg.norm(s,axis=-1).max()
-
-
-
     ddt=interval[1]-interval[0]
 
 
-    if dt<_TINY:
+    if dt == 0.0:
         tol_u=tol
 
     else:
@@ -147,7 +156,9 @@ def _bezier_surface_param_tol_optimistic(P,w,tol, interval_u=(0.,1.), interval_v
     W0 = w[:,:-1,None]
     W1 = w[:,1:,None]
 
-    s=(P1 * W0 - P0 * W1)/ (W0 * W0)
+    # P is Euclidean here; retain the weight ratio but use control-point
+    # differences so the derivative estimate is translation invariant.
+    s=(P1 - P0) * (W1 / W0)
 
     dv=np.linalg.norm(s,axis=-1).max()
 
@@ -156,22 +167,20 @@ def _bezier_surface_param_tol_optimistic(P,w,tol, interval_u=(0.,1.), interval_v
 
     W0 = w[:-1,:,None]
     W1 = w[1:,:,None]
-    s=(P1 * W0 - P0 * W1)/ (W0 * W0)
+    s=(P1 - P0) * (W1 / W0)
 
     du=np.linalg.norm(s,axis=-1).max()
-
-
     ddu=interval_u[1]-interval_u[0]
     ddv=interval_v[1]-interval_v[0]
 
-    if du<_TINY:
+    if du == 0.0:
         tol_u=tol
 
     else:
 
 
         tol_u = tol * (ddu/du)
-    if dv<_TINY:
+    if dv == 0.0:
         tol_v=tol
     else:
         tol_v = tol * (ddv/dv)
@@ -303,8 +312,8 @@ def _bezier_surface_param_tol_conservative(P, w, tol,
     L_v = (q * Lmax_v) / min_w
 
     RealSmall = np.finfo(float).tiny
-    tol_u = tol / max(L_u, RealSmall)
-    tol_v = tol / max(L_v, RealSmall)
+    tol_u = tol if L_u == 0.0 else min(tol, tol / max(L_u, RealSmall))
+    tol_v = tol if L_v == 0.0 else min(tol, tol / max(L_v, RealSmall))
     return float(tol_u), float(tol_v)
 def _nurbs_curve_param_tol_conservative(P, w, U, p, tol):
     """
@@ -529,8 +538,7 @@ def bez_curve_param_tolerance(bez: NDArray, tol: float, rational:bool=False, int
     else:
 
         P,w=bez,np.ones_like(bez[...,0])
-    if rational and np.any(bez[...,-1]<0):
-        P,w=from_homogeneous_1d(bez)
+    if rational and not np.all(w == w.flat[0]):
         return _bezier_curve_param_tol_conservative(P,w,tol=tol,u0=interval[0],u1=interval[1])
 
 
@@ -538,7 +546,8 @@ def bez_curve_param_tolerance(bez: NDArray, tol: float, rational:bool=False, int
 
 
 
-    return _bezier_curve_param_tol_optimistic(P,w,tol=tol,interval=interval)
+    return _bezier_curve_param_tol_optimistic(
+        P, np.ones_like(w), tol=tol, interval=interval)
 
 def bez_surface_param_tolerance(bez: NDArray, tol: float, rational:bool=False, interval_u=(0.,1.),interval_v=(0.,1.)) -> tuple[float,float]:
 
@@ -553,10 +562,7 @@ def bez_surface_param_tolerance(bez: NDArray, tol: float, rational:bool=False, i
         P,w=from_homogeneous_2d(bez)
     else:
         P,w=bez,np.ones_like(bez[...,0])
-    if rational and np.any(bez[...,-1]<0):
-
-
-
+    if rational and not np.all(w == w.flat[0]):
         return _bezier_surface_param_tol_conservative(P,w,tol=tol,u0=interval_u[0],u1=interval_u[1],v0=interval_v[0],v1=interval_v[1])
 
 
@@ -565,7 +571,8 @@ def bez_surface_param_tolerance(bez: NDArray, tol: float, rational:bool=False, i
 
 
 
-        return _bezier_surface_param_tol_optimistic(P,w,tol,interval_u,interval_v)
+        return _bezier_surface_param_tol_optimistic(
+            P, np.ones_like(w), tol, interval_u, interval_v)
 def nurbs_curve_param_tolerance(curve: NURBSCurveTuple, tol: float, der:NURBSCurveTuple=None) -> float:
     if np.any(curve.weights<0):
         return _nurbs_curve_param_tol_conservative(curve.control_points, curve.weights, curve.knot, curve.order - 1, tol)

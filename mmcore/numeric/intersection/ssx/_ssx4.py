@@ -396,10 +396,12 @@ class GaussMapBern:
         # build gauss map control net once
         maph = compute_gauss_map_rational(surf)
 
-        # normalize dehomogenized xyz directions onto unit sphere (matches your original approach)
-        mp_xyz, mp_w = _from_homogeneous(maph)
-        mp_xyz = np.array(unit(mp_xyz.reshape(-1, 3))).reshape(mp_xyz.shape)
-        maph = _to_homogeneous(mp_xyz, mp_w)
+        # Keep the exact homogeneous normal-numerator net.  Normalizing
+        # each control ray is a harmless positive rescaling for the TOP
+        # cone, but de Casteljau subdivision does not commute with those
+        # independent rescalings: child cones can then exclude a true
+        # normal of the restricted surface.  Split the exact net and only
+        # normalize rays on read in ``map_dirs_net``.
 
         return cls(maph, surf)
 

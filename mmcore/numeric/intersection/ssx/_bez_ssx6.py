@@ -194,6 +194,21 @@ def _aabb_disjoint(S1_h, S2_h, atol):
 # Level 2: Boundary analysis (8 CSX problems)
 # ---------------------------------------------------------------------------
 
+def _require_complete_csx_result(result, context):
+    """Reject CSX output that is unsafe to use as SSX boundary topology."""
+    if (bool(result.get('budget_exhausted', False)) or
+            not bool(result.get('boundary_topology_complete', True))):
+        raise RuntimeError(
+            f"{context}: incomplete Bezier CSX result cannot drive SSX "
+            "topology (budget exhausted or boundary topology incomplete)"
+        )
+    if result.get('parameter_fibers'):
+        raise RuntimeError(
+            f"{context}: positive-dimensional parameter fiber requires "
+            "explicit SSX overlap-region handling"
+        )
+    return result
+
 def _map_csx_to_stuv(s1_axis, side, t_crv, u_other, v_other, owner_is_s1):
     """Map CSX result parameters to stuv in [0,1]⁴."""
     stuv = np.zeros(4, dtype=np.float64)
@@ -230,6 +245,7 @@ def _find_ssx_boundary_zeros(S1_h, S2_h, atol, rational=True):
     ptol=np.array([ptol_s,ptol_t,ptol_u,ptol_v])
     def _process_face(iso, other_surf, axis, side, owner_is_s1):
         result = bez_csx(iso, other_surf, atol=atol, rational=rational)
+        _require_complete_csx_result(result, 'SSX boundary face')
 
         for iso_pt in result.get('isolated', []):
             t_crv = float(iso_pt['t'])
@@ -1882,6 +1898,7 @@ def _csx_on_cut_face(cell, cut_axis: int, cut_global_val: float, atol: float):
     else:
         isoline = _extract_isoline(cell.g2.surface, local_axis, cut_local)
         csx_result = bez_csx(isoline, cell.g1.surface, atol=atol, rational=True)
+    _require_complete_csx_result(csx_result, 'SSX cut face')
     csx_result['isolated'] = list((lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_result['isolated']))
     return _isoline_csx_to_global(
         csx_result, cut_axis, cut_global_val, cell.box, surf_to_split,
@@ -3592,6 +3609,7 @@ def bez_ssx(
             for s2_idx in range(n2):
                 s2_piece_surf = g2_pieces[s2_idx].surface
                 csx_r = bez_csx(isoline_s1, s2_piece_surf, atol=atol, rational=True)
+                _require_complete_csx_result(csx_r, 'SSX S1 multi-cut face')
                 ##print(csx_r)
                 csx_r['isolated'] = list(csx_r['isolated'])
 
@@ -3632,6 +3650,7 @@ def bez_ssx(
             for s1_idx in range(n1):
                 s1_piece_surf = g1_pieces[s1_idx].surface
                 csx_r = bez_csx(isoline_s2, s1_piece_surf, atol=atol, rational=True)
+                _require_complete_csx_result(csx_r, 'SSX S2 multi-cut face')
                 csx_r['isolated'] = list(csx_r['isolated'])
 
                 s1_lo = cell.box[s1_axis][0] if s1_idx == 0 else s1_cuts[s1_idx - 1]

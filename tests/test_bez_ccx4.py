@@ -41,6 +41,75 @@ def test_no_intersection():
     assert len(result["overlaps"]) == 0
 
 
+def test_soft_cell_budget_covers_phase1_and_all_phase2_intervals():
+    """The public cap is one shared allowance, not a per-interval reset."""
+    C1 = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    C2 = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+
+    empty = bez_ccx(C1, C2, rational=False, max_cells=0)
+    assert empty["budget_exhausted"] is True
+    assert empty["boundary_topology_complete"] is False
+    assert empty["cells_processed"] == 0
+
+    partial = bez_ccx(C1, C2, rational=False, max_cells=5)
+    assert partial["budget_exhausted"] is True
+    assert partial["cells_processed"] <= 5
+
+    complete = bez_ccx(C1, C2, rational=False, max_cells=32)
+    assert complete["budget_exhausted"] is False
+    assert complete["cells_processed"] <= 32
+    assert len(complete["isolated"]) == 1
+
+
+def test_phase2_max_depth_reports_unresolved_cell(monkeypatch):
+    """Reaching ``max_depth`` is an incomplete search, not a clean prune."""
+    import mmcore.numeric.intersection._sq_dist_classify as classify
+    import mmcore.numeric.intersection.ccx._bez_ccx4 as ccx_mod
+
+    monkeypatch.setattr(classify, "_check_min_of_net", lambda *args: False)
+    monkeypatch.setattr(classify, "_check_lipschitz", lambda *args: False)
+    monkeypatch.setattr(
+        ccx_mod, "bernstein_partial_derivative_coeffs",
+        lambda *args, **kwargs: np.array([[-1.0], [1.0]]),
+    )
+    monkeypatch.setattr(
+        ccx_mod, "newton_ccx",
+        lambda *args, **kwargs: (0.5, 0.5, np.ones(3), np.ones(2)),
+    )
+
+    C = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    roots, exhausted, cells = ccx_mod._phase2_ccx(
+        np.zeros((2, 2)), C, C, C, C,
+        0.0, 1.0, 0.0, 1.0,
+        1e-6, False, 1e-12, 1e-12,
+        max_depth=0, max_cells=10,
+    )
+
+    assert roots == []
+    assert cells == 1
+    assert exhausted is True
+
+
+def test_boundary_root_cap_never_becomes_partial_overlap_topology():
+    C = np.array([
+        [0.0, 0.0, 0.0],
+        [0.5, 1.0, 0.0],
+        [1.0, 0.0, 0.0],
+    ])
+
+    # Identical curves put roots on all four parameter-square boundaries.
+    # A cap below that count must yield an explicit partial result, not an
+    # overlap inferred from whichever endpoints happened to fit.
+    partial = bez_ccx(
+        C, C, atol=1e-3, rational=False,
+        max_cells=100, max_results=2,
+    )
+    assert partial["budget_exhausted"] is True
+    assert partial["boundary_topology_complete"] is False
+    assert partial["isolated"] == []
+    assert partial["overlaps"] == []
+
+
 def test_identical_curves_overlap():
     C1 = np.array([[0.0, 0.0, 0.0], [0.5, 1.0, 0.0], [1.0, 0.0, 0.0]])
     C2 = C1.copy()
@@ -61,15 +130,23 @@ def test_rational_arc_line():
 # ---------------------------------------------------------------------------
 
 def test_compare_case1_overlap():
-    """Old finds 1 overlap for curve1 vs curve2. New should also find overlap."""
+    """The legacy tolerance trace must not force an exact overlap claim.
+
+    These 8-decimal fixtures follow the same path to about 3e-9 but are not
+    coefficient-identical.  V4 may return strict roots/an exact certified
+    overlap, or conservatively stop partial; it must not grind indefinitely
+    trying to discretize the near-overlap valley.
+    """
     old = bez_ccx_old(curve1, curve2)
     new = bez_ccx(curve1, curve2, atol=1e-3, rational=False)
     assert len(old["overlaps"]) == 1
     # New should find overlap (or at worst, multiple isolated points along the overlap)
     has_overlap = len(new["overlaps"]) >= 1
     has_many_isolated = len(new["isolated"]) >= 2
-    assert has_overlap or has_many_isolated, (
-        f"New found: {len(new['isolated'])} isolated, {len(new['overlaps'])} overlaps"
+    conservative_partial = new.get("budget_exhausted", False)
+    assert has_overlap or has_many_isolated or conservative_partial, (
+        f"New found: {len(new['isolated'])} isolated, "
+        f"{len(new['overlaps'])} overlaps, partial={conservative_partial}"
     )
 
 
