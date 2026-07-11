@@ -1,7 +1,20 @@
 # SSX v5 — next-session kickoff (singular-cases hardening)
 
-**Written:** 2026-07-10, from the branched interactive session.
+**Written:** 2026-07-10, from the branched interactive session. **Updated 2026-07-12.**
 **Purpose:** everything a fresh session must read and obey before touching SSX code.
+
+> **Session-start prompt (copy-paste):**
+> Continue SSX v5 hardening on branch `ssx5-singular-hardening` (NOT `tiny`; no pushes).
+> Read first: this kickoff §0–§4; then the approved specs in
+> `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md` §6 + §8;
+> then ledger section "Independent budget/adapter review" (L41–L54).
+> Queue (decisions made 2026-07-12 — don't re-litigate): L41 schema v2 + adapter
+> always-return-status (§6; migrate the six production call sites; update ssx6 contract
+> test + harness) → L42 CSX curved-UV overlap fallback (P0, L28 prerequisite; repro in
+> ledger) → L28 overlap region per approved Option C (§8 dataclass/ladder/test list) →
+> L43–L46 as time allows. Mark items CLAIMED in the ledger before starting; TDD; run §3
+> gates after every item; commit per item with the ledger update in the same commit.
+> Subagents default to Opus (haiku for mechanical checks); Fable only where needed.
 
 ## 0. Read these, in this order, before any edit
 
@@ -19,7 +32,15 @@
 - Coordination protocol from the ledger header: mark an item `CLAIMED(<who>)` in the ledger before starting it.
 - No pushes, no merges to `tiny` without the user.
 
-## 2. Open work items (priority order — updated 2026-07-10 with new USER cases)
+## 2. Open work items (priority order — updated 2026-07-12 after the independent review)
+
+**Next-session start here (decisions made 2026-07-12, ledger L41–L54 registered):**
+1. **L41** — schema v2 (`complete`/`status.reasons`/`status.work`) + adapter default flip to always-return-status (APPROVED; spec in review doc §6).
+2. **L42** — CSX curved-UV overlap fallback (P0; **prerequisite for L28**).
+3. **L28** — overlap region per **APPROVED Option C** (spec + dataclass + tolerance ladder + test list: review doc §8).
+4. **L43–L46** — remaining P0 fixes (c3 pricing, dedup precharge, NaN chain, closest-point signal) — independent, parallel-friendly.
+5. **L25** — after L28 (rim machinery + §8 band-width ladder in place).
+Review doc (source of truth for all of the above): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to cheaper models (Opus) for scan/verify fan-outs — session limits killed two Fable finders on 2026-07-12.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**
 1. [x] **Case 14** (`examples/ssx/bez_ssx5_case14.py`) — instrumentation found the freeze in `_find_ssx_boundary_zeros → bez_csx → _phase2_isolated_search`: an identically collapsed rational apex edge was represented as 16,385 isolated pseudo-roots, then fed quadratic dedup/splitting. CSX now emits a typed parameter fiber through a bounded point-on-surface path; SSX canonicalizes both apex fibers and traces the certified rational tangent generator. The unresolved positive-dimensional Δ complement is honestly partial.
@@ -28,6 +49,7 @@
 
 **P1 — AWAITING USER OUTPUT-SCHEMA DECISION (no implementation started):**
 4. [ ] **Case 12 / L28** (`examples/ssx/bez_ssx5_case12.py`) — true answer is a 2D surface-overlap region. The choices to present are: (A) tagged 3D boundary branch(es), (B) a structured trimmed-region entity, or (C, recommended) the structured region with paired parameter-space loops on both surfaces plus references to compatibility boundary branches. Do not claim or implement L28 until the user selects the contract.
+   → 2026-07-12: full contract proposal (refined Option C with dataclass, tolerance ladder, test list), the budget-concept review with measured evidence, and 15 ranked verified findings on `5d05ddc` are in `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Blocking user decisions listed in its §11 step 0.
 
 **P2 — previously open ledger items:**
 5. [ ] **L25 — edge-graze transversal arc loss** (pre-existing at `40a79a1`). Not started because priority stops at the pending P1 schema decision. Use the minimal edge-graze geometry, coverage harness, and crossing-lifecycle instrumentation (2026-06-09 playbook) before any fix.
