@@ -25,7 +25,8 @@ from mmcore.numeric.bern import (
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
-    newton_csx, bernstein_product_1d,
+    newton_csx, bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
+    restrict_net_axis, restrict_net_axis_v,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
@@ -38,16 +39,8 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _subdivide_curve(ctrl, t=0.5):
-    n = ctrl.shape[0] - 1
-    tmp = ctrl.copy()
-    left = [tmp[0].copy()]
-    right_rev = [tmp[n].copy()]
-    for r in range(1, n + 1):
-        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
-        left.append(tmp[0].copy())
-        right_rev.append(tmp[n - r].copy())
-    return np.array(left), np.array(right_rev[::-1])
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_subdivide_curve = subdivide_curve
 
 
 def _subdivide_surface(ctrl, axis, t=0.5):
@@ -64,10 +57,8 @@ def _subdivide_surface(ctrl, axis, t=0.5):
     return left, right
 
 
-def _subdivide_sq_dist_net(F, axis, t=0.5):
-    Fv = F[..., np.newaxis]
-    left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
-    return left_v[..., 0], right_v[..., 0]
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_subdivide_sq_dist_net = subdivide_sq_dist_net
 
 
 def _subdivide_surface_weights(sw, axis, t=0.5):
@@ -132,19 +123,8 @@ def _residual_excludes_zero(G_cell):
     return False
 
 
-def _restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
-    """Restrict a Bernstein net WITH a trailing value dim along one axis."""
-    span = cell_hi - cell_lo
-    if span < 1e-30:
-        return Fv
-    frac_lo = (lo - cell_lo) / span
-    frac_hi = (hi - cell_lo) / span
-    if frac_lo > 1e-12:
-        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
-        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
-    return Fv
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_restrict_net_axis_v = restrict_net_axis_v
 
 
 def _compute_param_tols_csx(C, S, atol, rational):
@@ -935,22 +915,8 @@ def _split_intervals(cut, lo, hi, ptol):
     return intervals
 
 
-def _restrict_net_axis(F_cell, axis, lo, hi, cell_lo, cell_hi):
-    """Restrict a trivariate net along one axis to [lo, hi] within [cell_lo, cell_hi]."""
-    span = cell_hi - cell_lo
-    if span < 1e-30:
-        return F_cell
-
-    frac_lo = (lo - cell_lo) / span
-    frac_hi = (hi - cell_lo) / span
-
-    Fv = F_cell[..., np.newaxis]
-    if frac_lo > 1e-12:
-        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
-        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
-    return Fv[..., 0]
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_restrict_net_axis = restrict_net_axis
 
 
 def _cutout_3d(F_cell, G_cell, seg_c, pw, sw, t0, t1, u0, u1, v0, v1, depth,

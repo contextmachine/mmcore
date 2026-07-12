@@ -16,7 +16,8 @@ from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_curve_d1, newton_ccx,
-    bernstein_product_1d,
+    bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
+    restrict_net_axis,
 )
 from mmcore.numeric.intersection._sq_dist_classify import (
     classify_sq_dist_net,
@@ -33,41 +34,9 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _subdivide_curve(ctrl, t=0.5):
-    """Split a Bezier curve at parameter t using de Casteljau.
-
-    Parameters
-    ----------
-    ctrl : ndarray, shape (n+1, D)
-        Control polygon of a degree-n Bezier curve.
-    t : float
-        Split parameter in [0, 1].
-
-    Returns
-    -------
-    left, right : ndarray
-        Control polygons of the two halves.
-    """
-    n = ctrl.shape[0] - 1
-    tmp = ctrl.copy()
-    left = [tmp[0].copy()]
-    right_rev = [tmp[n].copy()]
-    for r in range(1, n + 1):
-        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
-        left.append(tmp[0].copy())
-        right_rev.append(tmp[n - r].copy())
-    return np.array(left), np.array(right_rev[::-1])
-
-
-def _subdivide_sq_dist_net(F, axis, t=0.5):
-    """Subdivide the scalar sq-dist Bernstein net along *axis*.
-
-    ``de_casteljau_split_nd`` requires a trailing value dimension, so we
-    temporarily add one and squeeze it back off.
-    """
-    Fv = F[..., np.newaxis]
-    left_v, right_v = de_casteljau_split_nd(Fv, axis=axis, t=t)
-    return left_v[..., 0], right_v[..., 0]
+# L52 slice 7: shared implementations in _bezier_common (verbatim moves).
+_subdivide_curve = subdivide_curve
+_subdivide_sq_dist_net = subdivide_sq_dist_net
 
 def _subdivide_sq_dist_net_2d(F, u=0.5,v=0.5):
     """Subdivide the scalar sq-dist Bernstein net along *axis*.
@@ -681,20 +650,8 @@ from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
 # Phase 2 helpers
 # ---------------------------------------------------------------------------
 
-def _restrict_net_axis(F, axis, lo, hi, cell_lo, cell_hi):
-    """Restrict a bivariate net along one axis to [lo, hi] within [cell_lo, cell_hi]."""
-    span = cell_hi - cell_lo
-    if span < 1e-30:
-        return F
-    frac_lo = (lo - cell_lo) / span
-    frac_hi = (hi - cell_lo) / span
-    Fv = F[..., np.newaxis]
-    if frac_lo > 1e-12:
-        _, Fv = de_casteljau_split_nd(Fv, axis=axis, t=frac_lo)
-    if frac_hi < 1.0 - 1e-12:
-        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
-        Fv, _ = de_casteljau_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
-    return Fv[..., 0]
+# L52 slice 7: shared implementation in _bezier_common (verbatim move).
+_restrict_net_axis = restrict_net_axis
 
 
 def _split_intervals(cut, lo, hi, ptol):

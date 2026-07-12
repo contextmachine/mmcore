@@ -430,3 +430,67 @@ def bernstein_product_1d(A, B):
                       / np.longdouble(_math.comb(m + n, k)))
             out[k] += factor * A[i] * B[j]
     return out
+
+
+# ---------------------------------------------------------------------------
+# Shared subdivision / restriction helpers (ledger L52 slice 7)
+# ---------------------------------------------------------------------------
+from mmcore.numeric.bern import de_casteljau_split_nd as _dc_split_nd
+
+
+def subdivide_curve(ctrl, t=0.5):
+    """Split a Bezier curve at parameter t using de Casteljau.
+
+    Parameters
+    ----------
+    ctrl : ndarray, shape (n+1, D)
+        Control polygon of a degree-n Bezier curve.
+    t : float
+        Split parameter in [0, 1].
+
+    Returns
+    -------
+    left, right : ndarray
+        Control polygons of the two halves.
+    """
+    n = ctrl.shape[0] - 1
+    tmp = ctrl.copy()
+    left = [tmp[0].copy()]
+    right_rev = [tmp[n].copy()]
+    for r in range(1, n + 1):
+        tmp[: n + 1 - r] = (1.0 - t) * tmp[: n + 1 - r] + t * tmp[1 : n + 2 - r]
+        left.append(tmp[0].copy())
+        right_rev.append(tmp[n - r].copy())
+    return np.array(left), np.array(right_rev[::-1])
+
+
+def subdivide_sq_dist_net(F, axis, t=0.5):
+    """Subdivide the scalar sq-dist Bernstein net along *axis*.
+
+    ``de_casteljau_split_nd`` requires a trailing value dimension, so we
+    temporarily add one and squeeze it back off.
+    """
+    Fv = F[..., np.newaxis]
+    left_v, right_v = _dc_split_nd(Fv, axis=axis, t=t)
+    return left_v[..., 0], right_v[..., 0]
+
+
+def restrict_net_axis_v(Fv, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a Bernstein net WITH a trailing value dim along one axis."""
+    span = cell_hi - cell_lo
+    if span < 1e-30:
+        return Fv
+    frac_lo = (lo - cell_lo) / span
+    frac_hi = (hi - cell_lo) / span
+    if frac_lo > 1e-12:
+        _, Fv = _dc_split_nd(Fv, axis=axis, t=frac_lo)
+    if frac_hi < 1.0 - 1e-12:
+        frac_hi_rescaled = (frac_hi - frac_lo) / (1.0 - frac_lo) if frac_lo > 1e-12 else frac_hi
+        Fv, _ = _dc_split_nd(Fv, axis=axis, t=frac_hi_rescaled)
+    return Fv
+
+
+def restrict_net_axis(F, axis, lo, hi, cell_lo, cell_hi):
+    """Restrict a scalar Bernstein net (no value dim) along one axis."""
+    return restrict_net_axis_v(
+        F[..., np.newaxis], axis, lo, hi, cell_lo, cell_hi)[..., 0]
