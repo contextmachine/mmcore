@@ -52,77 +52,31 @@ def _bezier_limit_kwargs(kwargs):
             if name in kwargs}
 
 
-def _new_status(max_cells, max_results):
-    return {
-        'complete': True,
-        'budget_exhausted': False,
-        'boundary_topology_complete': True,
-        'cells_processed': 0,
-        'max_cells': int(max_cells),
-        'results_processed': 0,
-        'max_results': int(max_results),
-        'partial_results': 0,
-    }
-
-
-def _mark_incomplete(status, context, return_status, message):
-    status['complete'] = False
-    status['budget_exhausted'] = True
-    status['partial_results'] += 1
-    if not return_status:
-        raise RuntimeError(f"{context}: {message}; pass return_status=True "
-                           "to receive explicit partial status")
-
-
-def _remaining_allowances(status):
-    return (
-        max(0, status['max_cells'] - status['cells_processed']),
-        max(0, status['max_results'] - status['results_processed']),
-    )
+# Shared aggregate-status ledger (ledger L52): the implementation lives in
+# `_adapter_status`; these thin wrappers keep the adapter's historical
+# private names and message texts.
+from mmcore.numeric.intersection._adapter_status import (
+    consume_bezier_status as _shared_consume_bezier_status,
+    mark_incomplete as _mark_incomplete,
+    new_status as _new_status,
+    remaining_allowances as _remaining_allowances,
+)
 
 
 def _consume_bezier_status(
     result, status, context, return_status, cell_allowance, result_allowance,
 ):
-    """Aggregate and sanitize one span result under call-wide allowances."""
-    result = dict(result)
-    reported_cells = max(0, int(result.get('cells_processed', 0)))
-    # Even an AABB-fast-rejected span consumed one adapter dispatch.  The
-    # one-unit floor prevents an arbitrarily large BVH candidate set from
-    # bypassing the aggregate allowance through zero-cell sub-results.
-    charged_cells = max(1, reported_cells)
-    cells_overrun = charged_cells > cell_allowance
-    status['cells_processed'] += min(charged_cells, cell_allowance)
-
-    kept = 0
-    result_overrun = False
-    for key in ('isolated', 'overlaps'):
-        values = list(result.get(key, ()) or ())
-        remaining = max(0, result_allowance - kept)
-        if len(values) > remaining:
-            values = values[:remaining]
-            result_overrun = True
-        result[key] = values
-        kept += len(values)
-    status['results_processed'] += kept
-
-    exhausted = (bool(result.get('budget_exhausted', False))
-                 or cells_overrun or result_overrun)
-    topology_complete = bool(result.get('boundary_topology_complete', True))
-    incomplete = exhausted or not topology_complete
-
-    status['budget_exhausted'] |= exhausted
-    status['boundary_topology_complete'] &= topology_complete
-    if incomplete:
-        status['complete'] = False
-        status['partial_results'] += 1
-        if not return_status:
-            raise RuntimeError(
-                f"{context}: incomplete Bezier CCX result "
-                "(budget exhausted or boundary topology incomplete); "
-                "pass return_status=True to receive explicit partial status"
-            )
-    return result, incomplete
+    return _shared_consume_bezier_status(
+        result, status,
+        incomplete_message=(
+            f"{context}: incomplete Bezier CCX result "
+            "(budget exhausted or boundary topology incomplete); "
+            "pass return_status=True to receive explicit partial status"),
+        return_status=return_status,
+        cell_allowance=cell_allowance,
+        result_allowance=result_allowance,
+        list_keys=('isolated', 'overlaps'),
+    )
 
 
 # ---------------------------------------------------------------------------

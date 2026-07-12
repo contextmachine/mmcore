@@ -63,34 +63,20 @@ def _bezier_limit_kwargs(kwargs):
             if name in kwargs}
 
 
+# Shared aggregate-status ledger (ledger L52): the implementation lives in
+# `_adapter_status`; these wrappers keep the adapter's historical private
+# names, its extra `parameter_fibers` ledger field, and its message texts.
+from mmcore.numeric.intersection._adapter_status import (
+    consume_bezier_status as _shared_consume_bezier_status,
+    mark_incomplete as _mark_incomplete,
+    new_status as _shared_new_status,
+    remaining_allowances as _remaining_allowances,
+)
+
+
 def _new_status(max_cells, max_results):
-    return {
-        'complete': True,
-        'budget_exhausted': False,
-        'boundary_topology_complete': True,
-        'cells_processed': 0,
-        'max_cells': int(max_cells),
-        'results_processed': 0,
-        'max_results': int(max_results),
-        'partial_results': 0,
-        'parameter_fibers': [],
-    }
-
-
-def _mark_incomplete(status, context, return_status, message):
-    status['complete'] = False
-    status['budget_exhausted'] = True
-    status['partial_results'] += 1
-    if not return_status:
-        raise RuntimeError(f"{context}: {message}; pass return_status=True "
-                           "to receive explicit partial status")
-
-
-def _remaining_allowances(status):
-    return (
-        max(0, status['max_cells'] - status['cells_processed']),
-        max(0, status['max_results'] - status['results_processed']),
-    )
+    return _shared_new_status(
+        max_cells, max_results, extra_list_fields=('parameter_fibers',))
 
 
 def _map_parameter_fiber(fiber, seg_interval, patch_interval):
@@ -124,46 +110,23 @@ def _consume_bezier_status(
     result, status, seg_interval, patch_interval, return_status,
     cell_allowance, result_allowance,
 ):
-    """Aggregate and sanitize one span result under call-wide allowances."""
-    result = dict(result)
-    reported_cells = max(0, int(result.get('cells_processed', 0)))
-    # Charge every candidate dispatch, including an AABB-fast rejection that
-    # reports zero solver cells, so a large candidate set remains bounded.
-    charged_cells = max(1, reported_cells)
-    cells_overrun = charged_cells > cell_allowance
-    status['cells_processed'] += min(charged_cells, cell_allowance)
+    """Aggregate one span result; CSX additionally maps parameter fibers
+    into global NURBS parameters and refuses the legacy two-value return
+    when a positive-dimensional fiber is present."""
+    result, incomplete = _shared_consume_bezier_status(
+        result, status,
+        incomplete_message=(
+            f"nurbs_csx spans {seg_interval} x {patch_interval}: "
+            "incomplete Bezier CSX result (budget exhausted or boundary "
+            "topology incomplete); pass return_status=True to receive "
+            "explicit partial status"),
+        return_status=return_status,
+        cell_allowance=cell_allowance,
+        result_allowance=result_allowance,
+        list_keys=('isolated', 'overlaps', 'parameter_fibers'),
+    )
 
-    kept = 0
-    result_overrun = False
-    for key in ('isolated', 'overlaps', 'parameter_fibers'):
-        values = list(result.get(key, ()) or ())
-        remaining = max(0, result_allowance - kept)
-        if len(values) > remaining:
-            values = values[:remaining]
-            result_overrun = True
-        result[key] = values
-        kept += len(values)
-    status['results_processed'] += kept
-
-    exhausted = bool(result.get('budget_exhausted', False))
-    exhausted = exhausted or cells_overrun or result_overrun
-    topology_complete = bool(result.get('boundary_topology_complete', True))
-    incomplete = exhausted or not topology_complete
     fibers = result['parameter_fibers']
-
-    status['budget_exhausted'] |= exhausted
-    status['boundary_topology_complete'] &= topology_complete
-    if incomplete:
-        status['complete'] = False
-        status['partial_results'] += 1
-        if not return_status:
-            raise RuntimeError(
-                f"nurbs_csx spans {seg_interval} x {patch_interval}: "
-                "incomplete Bezier CSX result (budget exhausted or boundary "
-                "topology incomplete); pass return_status=True to receive "
-                "explicit partial status"
-            )
-
     if fibers:
         status['parameter_fibers'].extend(
             _map_parameter_fiber(fiber, seg_interval, patch_interval)
