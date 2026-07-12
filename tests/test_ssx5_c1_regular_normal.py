@@ -122,7 +122,6 @@ def test_resolution_floor_without_zero_certificate_is_partial(monkeypatch):
             boxes_processed=1,
             budget_exhausted=False,
             external_budget_exhausted=False,
-            stop_requested=False,
         )
         return [], False
 
@@ -184,7 +183,7 @@ def test_interior_regular_touch_does_not_publish_tolerance_valley_branches():
                for g in result["singularities"])
     # A second-order isolation certificate is not yet part of the regular
     # loop-free tracer. Refuse a complete topology claim in that ambiguity.
-    assert result["budget_exhausted"] is True
+    assert result["complete"] is False
 
 
 def _positive_gap_between_two_endpoint_touches(h):
@@ -240,7 +239,7 @@ def test_positive_gap_between_endpoint_touches_is_not_a_branch(h):
 
     assert result["branches"] == []
     assert len(result["points"]) == 2
-    assert result["budget_exhausted"] is True
+    assert result["complete"] is False
 
 
 def test_zero_gap_control_remains_a_tangent_line():
@@ -249,7 +248,7 @@ def test_zero_gap_control_remains_a_tangent_line():
     surface, plane = _positive_gap_between_two_endpoint_touches(0.0)
     result = bez_ssx(surface, plane, atol=1e-3, rational=False)
 
-    assert result["budget_exhausted"] is False
+    assert result["complete"] is True
     assert len(result["branches"]) == 1
     assert result["branches"][0].kind == "tangential"
 
@@ -287,7 +286,7 @@ def test_quartic_regular_tangent_line_is_complete():
     surface, plane = _regular_high_order_tangent_line(4)
     result = bez_ssx(surface, plane, atol=1e-3, rational=False)
 
-    assert result["budget_exhausted"] is False
+    assert result["complete"] is True
     assert len(result["branches"]) == 1
     branch = result["branches"][0]
     assert branch.kind == "tangential"

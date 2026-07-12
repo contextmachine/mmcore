@@ -27,7 +27,12 @@ def _curve_and_surface():
     return curve, surface
 
 
-def test_nurbs_csx_rejects_silent_partial_result(monkeypatch):
+def test_nurbs_csx_default_returns_status_on_partial_result(monkeypatch):
+    # Ledger L41 (review finding 3): the raise-on-incomplete default turned
+    # collapsed-edge geometry (cone apex / sphere pole on-surface) into a
+    # RuntimeError for callers that never opted into status. The default is
+    # now always-return-status; fail-fast stays available as an explicit
+    # return_status=False opt-in.
     curve, surface = _curve_and_surface()
 
     def partial(*args, **kwargs):
@@ -42,18 +47,17 @@ def test_nurbs_csx_rejects_silent_partial_result(monkeypatch):
 
     monkeypatch.setattr(ncsx4, 'bez_csx_v4', partial)
 
-    with pytest.raises(RuntimeError, match='incomplete Bezier CSX'):
-        nurbs_csx(curve, surface)
-
-    isolated, overlaps, status = nurbs_csx(
-        curve, surface, return_status=True,
-    )
+    isolated, overlaps, status = nurbs_csx(curve, surface)
     assert isolated is None
     assert overlaps is None
+    assert status['complete'] is False
     assert status['budget_exhausted'] is True
     assert status['boundary_topology_complete'] is False
     assert status['cells_processed'] == 11
     assert status['partial_results'] == 1
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CSX'):
+        nurbs_csx(curve, surface, return_status=False)
 
 
 def test_nurbs_csx_maps_positive_dimensional_fibers_when_requested(monkeypatch):
@@ -78,11 +82,9 @@ def test_nurbs_csx_maps_positive_dimensional_fibers_when_requested(monkeypatch):
     monkeypatch.setattr(ncsx4, 'bez_csx_v4', fiber)
 
     with pytest.raises(RuntimeError, match='positive-dimensional parameter fiber'):
-        nurbs_csx(curve, surface)
+        nurbs_csx(curve, surface, return_status=False)
 
-    isolated, overlaps, status = nurbs_csx(
-        curve, surface, return_status=True,
-    )
+    isolated, overlaps, status = nurbs_csx(curve, surface)
     assert isolated is None
     assert overlaps is None
     assert status['budget_exhausted'] is False
@@ -95,7 +97,7 @@ def test_nurbs_csx_maps_positive_dimensional_fibers_when_requested(monkeypatch):
     assert mapped['v'] == pytest.approx(35.)
 
 
-def test_nurbs_csx_complete_result_keeps_two_value_return(monkeypatch):
+def test_nurbs_csx_complete_result_return_shapes(monkeypatch):
     curve, surface = _curve_and_surface()
 
     monkeypatch.setattr(ncsx4, 'bez_csx_v4', lambda *args, **kwargs: {
@@ -107,7 +109,12 @@ def test_nurbs_csx_complete_result_keeps_two_value_return(monkeypatch):
         'boundary_topology_complete': True,
     })
 
-    result = nurbs_csx(curve, surface)
+    # Default: always-return-status three-value shape, complete.
+    isolated, overlaps, status = nurbs_csx(curve, surface)
+    assert (isolated, overlaps) == (None, None)
+    assert status['complete'] is True
+    # Explicit fail-fast opt-out keeps the legacy two-value shape.
+    result = nurbs_csx(curve, surface, return_status=False)
     assert result == (None, None)
 
 

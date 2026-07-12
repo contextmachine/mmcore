@@ -37,10 +37,10 @@ translate_vec=np.array([-0.09709519,  0.9952751])*translate_d
 
 curve3=curve2._replace(control_points=curve2.control_points-(translate_vec[np.newaxis,:]))
 
-isolated1,overs1=nurbs_ccx(curve1,curve2,tol)
+isolated1,overs1,_status1=nurbs_ccx(curve1,curve2,tol)
 
 # curve1 x curve3 is not overlap!
-isolated2,overs2=nurbs_ccx(curve1,curve3,tol)
+isolated2,overs2,_status2=nurbs_ccx(curve1,curve3,tol)
 viewer=Viewer(camera=OrbitCamera(target=(-0.5 , 1.2,0.,),up=(0,1.,0.), ortho_half_height=1,distance=1,yaw= -3*np.pi/2,pitch= -np.pi/2))
 viewer.cam.lock_orbit(True)
 

@@ -50,6 +50,23 @@ from mmcore.numeric.algorithms.cygjk import gjk
 # Data structures (§5 of design)
 # ---------------------------------------------------------------------------
 
+# Reason strings published in result['status']['reasons'] (schema v2,
+# 2026-07-12 review doc §6). `complete` is the one bit consumers act on;
+# `reasons` says WHY it is False and which reaction can help.
+#
+# Work family — a resource knob can help:
+REASON_WORK_BUDGET = "work_budget"          # shared cell/CSX ledger or a CSX per-call tier ran dry (max_cells / max_csx_calls / *_csx_max_cells)
+REASON_OUTPUT_CAP = "output_cap"            # max_output_items reached
+REASON_POSTPROCESS_CAP = "postprocess_cap"  # max_postprocess_work reached
+REASON_DEPTH_LIMIT = "depth_limit"          # max_depth ceiling left a crossing-bearing cell unresolved
+# Structural family — raising budgets cannot help:
+REASON_PARAMETER_FIBER = "parameter_fiber"  # positive-dimensional preimage of a boundary point (collapsed edge)
+REASON_OVERLAP_REGION = "overlap_region_unsupported"  # 2-D coincidence region detected; retired by L28's SSXOverlapRegion
+REASON_TANGENTIAL_ZONE = "unresolved_tangential_zone"  # truncated Δ/Φ tangency enumeration or Φ-loop path not certified
+REASON_MULTIPLICITY = "unresolved_multiplicity"  # rank-deficient Δ-root / crossing cluster whose local dimension is unproven
+REASON_TRACE_UNVERIFIED = "trace_unverified"  # marched continuation failed the strict Ψ-zero path certificate
+
+
 @dataclass
 class _SSXSoftBudget:
     """One shared work budget for an entire :func:`bez_ssx` call.
@@ -58,6 +75,12 @@ class _SSXSoftBudget:
     SSX can invoke thousands of CSX/zero-dimensional searches and each search
     used to receive a fresh allowance.  This object is deliberately tiny and
     callback-friendly so nested solvers spend from the same counter.
+
+    Every transition into a partial state records one of the REASON_*
+    strings; ``result_fields`` publishes them as ``status['reasons']`` with
+    the invariant ``complete == (not reasons)``. Only root-cause transitions
+    record a reason — denials that merely echo an already-exhausted state do
+    not re-mark, so ``reasons`` stays a list of causes, not a cascade log.
     """
 
     max_cells: int
@@ -72,7 +95,7 @@ class _SSXSoftBudget:
     exhausted: bool = False
     incomplete: bool = False
     cell_counts: dict = field(default_factory=dict)
-    output_counts: dict = field(default_factory=dict)
+    reasons: list = field(default_factory=list)
 
     def __post_init__(self):
         if self.max_postprocess_work is None:
@@ -81,20 +104,28 @@ class _SSXSoftBudget:
             self.max_postprocess_work = max(
                 0, int(self.max_postprocess_work))
 
+    def _add_reason(self, reason: str) -> None:
+        if reason not in self.reasons:
+            self.reasons.append(reason)
+
     def charge_cells(self, amount: int = 1, source: str = "nested") -> bool:
         amount = max(0, int(amount))
         if self.exhausted:
             return False
         if self.cells_processed + amount > self.max_cells:
             self.exhausted = True
+            self._add_reason(REASON_WORK_BUDGET)
             return False
         self.cells_processed += amount
         self.cell_counts[source] = self.cell_counts.get(source, 0) + amount
         return True
 
     def charge_csx_call(self) -> bool:
-        if self.exhausted or self.csx_calls >= self.max_csx_calls:
+        if self.exhausted:
+            return False
+        if self.csx_calls >= self.max_csx_calls:
             self.exhausted = True
+            self._add_reason(REASON_WORK_BUDGET)
             return False
         self.csx_calls += 1
         return True
@@ -114,6 +145,7 @@ class _SSXSoftBudget:
             self.postprocess_exhausted = True
             self.exhausted = True
             self.incomplete = True
+            self._add_reason(REASON_POSTPROCESS_CAP)
             return False
         self.postprocess_work += amount
         return True
@@ -126,21 +158,28 @@ class _SSXSoftBudget:
     def remaining_postprocess_work(self) -> int:
         return max(0, self.max_postprocess_work - self.postprocess_work)
 
-    def mark_exhausted(self) -> None:
+    def mark_exhausted(self, reason: str = REASON_WORK_BUDGET) -> None:
         self.exhausted = True
+        self._add_reason(reason)
 
-    def mark_incomplete(self) -> None:
-        """Record a partial local result without stopping independent work."""
+    def mark_incomplete(self, reason: str) -> None:
+        """Record a partial local result without stopping independent work.
+
+        ``reason`` is mandatory: the caller names the root cause (one of the
+        REASON_* strings) so ``status['reasons']`` can steer the consumer
+        (raise a knob / wait for typed machinery / accept the resolution
+        limit) instead of conflating everything into one budget flag.
+        """
         self.incomplete = True
+        self._add_reason(reason)
 
     def append_output(self, target: list, value, source: str) -> bool:
         """Append one intermediate/output entity under the global cap."""
         if self.output_items >= self.max_output_items:
-            self.mark_incomplete()
+            self.mark_incomplete(REASON_OUTPUT_CAP)
             return False
         target.append(value)
         self.output_items += 1
-        self.output_counts[source] = self.output_counts.get(source, 0) + 1
         return True
 
     def extend_output(self, target: list, values, source: str) -> bool:
@@ -153,21 +192,20 @@ class _SSXSoftBudget:
 
     def result_fields(self) -> dict:
         return {
-            "budget_exhausted": bool(self.exhausted or self.incomplete),
-            "budget_usage": {
-                "cells_processed": int(self.cells_processed),
-                "csx_calls": int(self.csx_calls),
-                "max_cells": int(self.max_cells),
-                "max_csx_calls": int(self.max_csx_calls),
-                "output_items": int(self.output_items),
-                "max_output_items": int(self.max_output_items),
-                "postprocess_work": int(self.postprocess_work),
-                "max_postprocess_work": int(self.max_postprocess_work),
-                "postprocess_exhausted": bool(self.postprocess_exhausted),
-                "hard_exhausted": bool(self.exhausted),
-                "incomplete": bool(self.incomplete),
-                "cell_counts": dict(self.cell_counts),
-                "output_counts": dict(self.output_counts),
+            "complete": not (self.exhausted or self.incomplete),
+            "status": {
+                "reasons": list(self.reasons),
+                "work": {
+                    "cells_processed": int(self.cells_processed),
+                    "csx_calls": int(self.csx_calls),
+                    "max_cells": int(self.max_cells),
+                    "max_csx_calls": int(self.max_csx_calls),
+                    "output_items": int(self.output_items),
+                    "max_output_items": int(self.max_output_items),
+                    "postprocess_work": int(self.postprocess_work),
+                    "max_postprocess_work": int(self.max_postprocess_work),
+                    "cell_counts": dict(self.cell_counts),
+                },
             },
         }
 
@@ -1146,7 +1184,7 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
     if exhausted and cell.work_budget is not None:
         # A locally capped 0/1-root enumeration is still partial; only the
         # root itself is certified, not the absence of another Delta root.
-        cell.work_budget.mark_incomplete()
+        cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
     local_ptol4 = _cell_ptol4(cell, atol)
     typed_roots = list(roots)
     inconclusive_roots = []
@@ -1179,7 +1217,15 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                     inconclusive_roots.append(
                         np.asarray(root, dtype=np.float64).copy())
                 elif cell.work_budget is not None:
-                    cell.work_budget.mark_incomplete()
+                    # Inside a detected coplanar overlap region the
+                    # ambiguous root is a sample of the 2-D C2 set that the
+                    # result schema cannot represent yet (case-12 class);
+                    # elsewhere it is a genuine multiplicity ambiguity.
+                    cell.work_budget.mark_incomplete(
+                        REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
+                            _local_to_global(np.asarray(root), cell.box),
+                            overlap_boxes)
+                        else REASON_MULTIPLICITY)
             # local_dimension=True is a certified curve sample: preserve it
             # in the returned roots for Phi seeding, but do not type it as an
             # isolated tangent point.
@@ -1706,11 +1752,6 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
             nets, _gn, ptol4, max_cells=max_cells, dedup_xyz=_xyz, atol=atol,
             max_results=64,
             skip_newton=skip_newton, priority=priority,
-            # The skip-aware solver normally permits up to 16x cheap
-            # traversal boxes per charged Newton attempt.  A traced
-            # positive-dimensional tangent curve can fill that allowance
-            # without adding information; bound the traversal itself here.
-            max_boxes=max(256, 16 * int(max_cells)),
             charge_box=((lambda n: cell.work_budget.charge_cells(
                 n, "singular")) if cell.work_budget is not None else None))
     except (np.linalg.LinAlgError, FloatingPointError):
@@ -1723,7 +1764,7 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
     # tangencies.  Preserve any certified roots, but surface partial status
     # through the one shared SSX budget.
     if _exhausted and cell.work_budget is not None:
-        cell.work_budget.mark_incomplete()
+        cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
 
     curve_signature = _delta_roots_curve_like(sols, _exhausted)
     if curve_signature:
@@ -1753,7 +1794,11 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         # Rank-deficient but no certified two-sided continuation (or shared
         # budget denial): never turn ambiguity into a false isolated point.
         if cell.work_budget is not None:
-            cell.work_budget.mark_incomplete()
+            cell.work_budget.mark_incomplete(
+                REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
+                    _local_to_global(np.asarray(sol), cell.box),
+                    overlap_boxes)
+                else REASON_MULTIPLICITY)
     sols = isolated_sols
 
     for xw in sols:
@@ -3877,7 +3922,7 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
         # truncates: a missed seed can own an otherwise boundary-free loop.
         # Keep already certified seeds/fragments, but never call the result
         # globally complete.
-        cell.work_budget.mark_incomplete()
+        cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
         if cell.work_budget.exhausted:
             # A denied shared charge cannot recover during this synchronous
             # call.  Do not spend uncharged corrector/dedup work on partial
@@ -4214,7 +4259,7 @@ def _deflate_tangent_cell(S1, S2, T1, T2, T3, T4, box, crossings, atol,
                     break
         if accepted is None:
             if cell is not None and cell.work_budget is not None:
-                cell.work_budget.mark_incomplete()
+                cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
             continue
         stuv_path, xyz_path = accepted
         start_idx, target_idx = accepted_indices
@@ -4512,7 +4557,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             # hard exhaustion flag.  The additional incomplete bit records
             # that registrations still existed when continuation stopped.
             work_budget.charge_cells(1, "branch_trace")
-            work_budget.mark_incomplete()
+            work_budget.mark_incomplete(REASON_WORK_BUDGET)
 
     if (work_budget is not None
             and (work_budget.exhausted or work_budget.remaining_cells <= 0)):
@@ -4537,7 +4582,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
 
     for i, start_cx in enumerate(cell.crossings):
         if work_budget is not None and work_budget.exhausted:
-            work_budget.mark_incomplete()
+            work_budget.mark_incomplete(REASON_WORK_BUDGET)
             break
         if i in used:
             continue
@@ -4618,7 +4663,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     if (work_budget is not None
                             and not work_budget.charge_cells(
                                 1, "branch_trace")):
-                        work_budget.mark_incomplete()
+                        work_budget.mark_incomplete(REASON_WORK_BUDGET)
                         break
                     cand = np.clip(start_local + sign * alpha * tang_seed,
                                    1e-6, 1.0 - 1e-6)
@@ -4658,11 +4703,11 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             if (work_budget is not None and trace_iterations
                     and not work_budget.charge_cells(
                         trace_iterations, "branch_trace")):
-                work_budget.mark_incomplete()
+                work_budget.mark_incomplete(REASON_WORK_BUDGET)
                 break
             if (trace_iterations >= trace_limit and exit_info is None):
                 if work_budget is not None:
-                    work_budget.mark_incomplete()
+                    work_budget.mark_incomplete(REASON_WORK_BUDGET)
                     if work_budget.remaining_cells <= 0:
                         work_budget.mark_exhausted()
 
@@ -4685,7 +4730,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
             if (work_budget is not None
                     and not work_budget.charge_cells(
                         len(stuv_local), "branch_trace_verify")):
-                work_budget.mark_incomplete()
+                work_budget.mark_incomplete(REASON_WORK_BUDGET)
                 break
             strict_path = True
             for q in np.asarray(stuv_local, dtype=np.float64):
@@ -4698,7 +4743,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     break
             if not strict_path:
                 if work_budget is not None:
-                    work_budget.mark_incomplete()
+                    work_budget.mark_incomplete(REASON_TRACE_UNVERIFIED)
                 continue
 
             # Bounce/degenerate detector, in XYZ over the WHOLE path: a
@@ -4830,7 +4875,7 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 # a branch leaves it.  A successful strict trace above would
                 # resolve that ambiguity; a point-only fallback remains
                 # explicitly partial (positive-gap endpoint-touch control).
-                work_budget.mark_incomplete()
+                work_budget.mark_incomplete(REASON_MULTIPLICITY)
             points.append(SSXPoint(stuv=start_cx.stuv, xyz=start_cx.xyz))
 
     return fragments, points
@@ -4843,7 +4888,7 @@ def _assembly_spend(work_budget, amount: int = 1,
         return True
     if work_budget.charge_postprocess(amount):
         return True
-    work_budget.mark_incomplete()
+    work_budget.mark_incomplete(REASON_POSTPROCESS_CAP)
     return False
 
 
@@ -5210,7 +5255,8 @@ def _assemble_fragments(
                         if (close_iterations >= close_limit
                                 and not reached_start
                                 and work_budget is not None):
-                            work_budget.mark_incomplete()
+                            work_budget.mark_incomplete(
+                                REASON_POSTPROCESS_CAP)
                             if (work_budget.remaining_postprocess_work
                                     <= 0):
                                 work_budget.postprocess_exhausted = True
@@ -6247,11 +6293,23 @@ def bez_ssx(
     containment use one separate call-wide ``max_postprocess_work`` cap
     (default: ``max_cells``), so a stopped search can still assemble its
     certified partial fragments without opening an unbounded second phase.
-    Exhaustion is a soft stop: already-certified output is returned together
-    with ``budget_exhausted=True`` and usage counters.
+    Exhaustion is a soft stop: already-certified output is always returned.
 
-    Returns dict with 'branches', 'points', 'singularities', and budget
-    status fields.
+    Returns dict with 'branches', 'points', 'singularities', plus the
+    schema-v2 status fields (2026-07-12 review doc §6):
+
+    - ``complete`` (bool) — the one bit consumers act on; ``True`` iff the
+      returned topology is proven complete.
+    - ``status['reasons']`` (list[str]) — empty iff complete; each entry is
+      one of the REASON_* strings at the top of this module and names a
+      root cause (work/output/postprocess caps, depth ceiling, or the
+      structural parameter-fiber / overlap-region / tangential-zone /
+      multiplicity / unverified-trace partialities).
+    - ``status['work']`` — usage counters (cells, CSX calls, output items,
+      postprocess work, per-source ``cell_counts``) against their caps.
+
+    The kwargs stay expert knobs with safe defaults: read ``complete`` (and
+    ``reasons`` if you care why); never tune knobs to get correctness.
     """
     S1 = np.asarray(S1, dtype=np.float64)
     S2 = np.asarray(S2, dtype=np.float64)
@@ -6319,7 +6377,7 @@ def bez_ssx(
         def _attempt(allowance):
             attempt_kwargs = dict(kwargs)
             attempt_kwargs['max_cells'] = allowance
-            attempt_kwargs['max_results'] = max(1, int(csx_max_results))
+            attempt_kwargs['max_results'] = int(csx_max_results)
             attempt_result = bez_csx(curve, surface, **attempt_kwargs)
             attempt_used = max(
                 0, int(attempt_result.get('cells_processed', 0)))
@@ -6329,8 +6387,20 @@ def bez_ssx(
 
         per_call_cap = (boundary_csx_max_cells
                         if local_truncation_is_soft else csx_max_cells)
-        allowance = min(max(1, int(per_call_cap)), budget.remaining_cells)
-        result, used = _attempt(allowance)
+        allowance = min(max(0, int(per_call_cap)), budget.remaining_cells)
+        if allowance <= 0 or int(csx_max_results) <= 0:
+            # A zero per-call allowance (`csx_max_cells`,
+            # `boundary_csx_max_cells`, `csx_max_results`) is a hard promise
+            # that bez_csx never runs — its distance-net build precedes its
+            # first charge, so even a "1-cell" call does superlinear setup
+            # work.  Synthesize the truncated result and reuse the ordinary
+            # truncation handling below (soft: face discarded; hard: stop).
+            result, used = {
+                'isolated': [], 'overlaps': [], 'parameter_fibers': [],
+                'budget_exhausted': True, 'cells_processed': 0,
+            }, 0
+        else:
+            result, used = _attempt(allowance)
         if result.get('budget_exhausted', False):
             # A locally truncated CSX root set is not safe input for SSX
             # topology decisions, even if the outer allowance has room.
@@ -6342,7 +6412,7 @@ def bez_ssx(
             # faces are dependencies of child topology and keep the hard-stop
             # behavior below.
             if local_truncation_is_soft and not budget.exhausted:
-                budget.mark_incomplete()
+                budget.mark_incomplete(REASON_WORK_BUDGET)
                 return {
                     'isolated': [], 'overlaps': [],
                     'parameter_fibers': [],
@@ -6395,7 +6465,7 @@ def bez_ssx(
         # A fiber is certified output as a set, but its incident SSI branch
         # multiplicity is not.  Preserve useful branches while refusing a
         # complete-topology claim until that limiting topology is proved.
-        budget.mark_incomplete()
+        budget.mark_incomplete(REASON_PARAMETER_FIBER)
     _overlap_candidates = _overlaps_to_branches(
         boundary_overlaps, S1, atol, rational)
     overlap_branches = []
@@ -6755,7 +6825,7 @@ def bez_ssx(
                         for c in cell.crossings)
 
                 if tangent_cluster_only:
-                    budget.mark_incomplete()
+                    budget.mark_incomplete(REASON_MULTIPLICITY)
                     fr, pt = [], []
                 else:
                     fr, pt = _trace_cell_by_registrations(
@@ -6813,7 +6883,7 @@ def bez_ssx(
                                 covered = True
                                 break
                         if not covered:
-                            budget.mark_incomplete()
+                            budget.mark_incomplete(REASON_MULTIPLICITY)
                             break
                 budget.extend_output(all_fragments, fr, "fragment")
                 budget.extend_output(all_points, pt, "point")
@@ -6995,7 +7065,7 @@ def bez_ssx(
             _ok_curve, _curve_roots, _curve_fn, _curve_exhausted = (
                 _tangency_witness(cell, atol, enumerate_all=False))
             if _curve_exhausted and cell.work_budget is not None:
-                cell.work_budget.mark_incomplete()
+                cell.work_budget.mark_incomplete(REASON_TANGENTIAL_ZONE)
             # Boundary roots on a collapsed apex edge carry an arbitrary
             # free parameter. Canonicalize it to the interior Delta
             # witness before Phi tracing; otherwise identical physical
@@ -7106,7 +7176,7 @@ def bez_ssx(
             # certificates above failed leaves this cell unresolved.  The
             # boundary samples are useful partial output, not a proof that
             # no interior component exists (case 7 at max_depth=0).
-            budget.mark_incomplete()
+            budget.mark_incomplete(REASON_DEPTH_LIMIT)
             continue
 
         # --- Dual-surface subdivision ---
@@ -7697,7 +7767,7 @@ def bez_ssx(
         if (_c1_stats.get("budget_exhausted", False)
                 or _c1_stats.get("external_budget_exhausted", False)
                 or _c1_stats.get("incomplete", False)):
-            budget.mark_incomplete()
+            budget.mark_incomplete(REASON_WORK_BUDGET)
     for hit in c1_hits:
         if not _assembly_spend(budget):
             break
@@ -7781,7 +7851,7 @@ def bez_ssx(
                 xyz=np.asarray(hit["xyz"], dtype=np.float64),
                 branch_links=hit["links"]), "singularity")
         if _c3_stats.get("incomplete", False):
-            budget.mark_incomplete()
+            budget.mark_incomplete(REASON_WORK_BUDGET)
 
     # A reported point within 2·atol (xyz) of an emitted tangent_point is
     # not a separate intersection — it is the certified tangency itself,

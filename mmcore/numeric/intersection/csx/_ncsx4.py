@@ -323,7 +323,7 @@ def nurbs_csx(
     surface: NURBSSurfaceTuple,
     atol: float = 1e-3,
     *,
-    return_status: bool = False,
+    return_status: bool = True,
     **kwargs,
 ):
     """Find all intersections between a NURBS curve and a NURBS surface.
@@ -342,11 +342,15 @@ def nurbs_csx(
         Each entry: {'t': float, 'u': float, 'v': float, 'point': ndarray}
     overlaps : list[dict] or None
         Each entry: {'t_range': (t0,t1), 'u_range': (u0,u1), 'v_range': (v0,v1)}
-    status : dict, optional
-        Returned as a third value only when ``return_status=True``. It carries
-        aggregate bounded-solver diagnostics and globally mapped
-        ``parameter_fibers``. Without that opt-in, partial or
-        positive-dimensional sub-results raise ``RuntimeError``.
+    status : dict
+        Third value, returned by default: aggregate bounded-solver
+        diagnostics and globally mapped ``parameter_fibers``; read
+        ``status['complete']`` before trusting the output as the whole
+        truth (ledger L41 — the former raise-on-incomplete default turned
+        collapsed-edge geometry into a crash for legacy-shaped callers).
+        Pass ``return_status=False`` for the legacy two-value shape, which
+        raises ``RuntimeError`` on partial or positive-dimensional
+        sub-results instead (fail-fast opt-in).
     """
     if isinstance(curve, NURBSCurve):
         curve = _nurbs_to_tuple(curve)
@@ -370,14 +374,20 @@ def nurbs_csx(
 
     raw_isolated = []
     raw_overlaps = []
-    aggregate_max_cells = max(
-        0, int(kwargs.get('max_cells', _DEFAULT_MAX_CELLS)))
+    candidates = list(bvh_intersect(bvh_curves, bvh_surfs, exact=False))
+    # Candidate-scaled default allowance — a flat total that a handful of
+    # ordinary span x patch pairs can exhaust is a mispriced exchange rate
+    # (ledger L41 / review finding 2); explicit ``max_cells`` stays absolute.
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
     aggregate_max_results = max(
         0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
     status = _new_status(aggregate_max_cells, aggregate_max_results)
     bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
-    for a, b in bvh_intersect(bvh_curves, bvh_surfs, exact=False):
+    for a, b in candidates:
         seg = curve_segs[a.object]
         patch = surf_patches[b.object]
 

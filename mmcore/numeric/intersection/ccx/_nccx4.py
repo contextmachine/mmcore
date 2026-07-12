@@ -234,7 +234,7 @@ def _dedup_isolated_pair(entries, curve1, curve2, tol):
 # ---------------------------------------------------------------------------
 from mmcore.geom._nurbs_eval import evaluate_nurbs_curve
 def nurbs_ccx(
-    curve1, curve2, tol: float = 1e-3, *, return_status: bool = False,
+    curve1, curve2, tol: float = 1e-3, *, return_status: bool = True,
     **kwargs,
 ):
     """Find all intersections between two NURBS curves.
@@ -251,10 +251,14 @@ def nurbs_ccx(
         Structured array with fields 'u', 'v', 'point'.
     overlaps : ndarray or None
         Structured array with fields 'u', 'v', 'point' (endpoint pairs).
-    status : dict, optional
-        Returned as a third value only when ``return_status=True``. This is
-        required to consume diagnostic partial output from a bounded Bezier
-        solve; otherwise an incomplete sub-solve raises ``RuntimeError``.
+    status : dict
+        Third value, returned by default: aggregate bounded-solver
+        diagnostics; read ``status['complete']`` before trusting the
+        output as the whole truth (ledger L41 — the former
+        raise-on-incomplete default crashed production callers on
+        near-coincident input). Pass ``return_status=False`` for the
+        legacy two-value shape, which raises ``RuntimeError`` on any
+        incomplete sub-solve instead (fail-fast opt-in).
     """
     dim = max(crv.control_points.shape[1] for crv in (curve1, curve2))
     if isinstance(curve1, NURBSCurve):
@@ -273,14 +277,24 @@ def nurbs_ccx(
 
     raw_isolated = []
     raw_overlaps_u, raw_overlaps_v, raw_overlaps_xyz = [], [], []
-    aggregate_max_cells = max(
-        0, int(kwargs.get('max_cells', _DEFAULT_MAX_CELLS)))
+    candidates = list(bvh_intersect(bvh1, bvh2, exact=False))
+    # The DEFAULT aggregate allowance scales with the candidate-pair count:
+    # a flat per-call total that a handful of ordinary rational span pairs
+    # can exhaust (~25k cells each, ledger L41 / review finding 2) is a
+    # mispriced exchange rate, not a safety property. The scaled default
+    # matches the pre-aggregate per-pair budgets in the worst case while
+    # staying one SHARED ledger (a hog pair may borrow from cheap ones).
+    # An explicit ``max_cells`` remains an absolute promise.
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
     aggregate_max_results = max(
         0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
     status = _new_status(aggregate_max_cells, aggregate_max_results)
     bezier_kwargs = _bezier_limit_kwargs(kwargs)
 
-    for a, b in bvh_intersect(bvh1, bvh2, exact=False):
+    for a, b in candidates:
         _c1 = curves1[a.object]
         _c2 = curves2[b.object]
 
@@ -370,7 +384,7 @@ def nurbs_ccx_multiple(
     tol: float = 1e-3,
     self_intersections: bool = False,
     *,
-    return_status: bool = False,
+    return_status: bool = True,
     **kwargs,
 ):
     """Find all pairwise intersections among multiple NURBS curves.
@@ -389,9 +403,11 @@ def nurbs_ccx_multiple(
         Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
     overlaps : ndarray or None
         Structured array with 'u', 'v', 'point', 'curve1_i', 'curve2_i'.
-    status : dict, optional
-        Returned as a third value only when ``return_status=True``. Without
-        that opt-in, any incomplete Bezier pair raises ``RuntimeError``.
+    status : dict
+        Third value, returned by default; read ``status['complete']``
+        before trusting the output as the whole truth. Pass
+        ``return_status=False`` for the legacy two-value shape, which
+        raises ``RuntimeError`` on any incomplete Bezier pair instead.
     """
     dim = max(crv.control_points.shape[1] for crv in curves)
 
@@ -418,8 +434,11 @@ def nurbs_ccx_multiple(
 
     raw_isolated = []
     raw_overlaps = []
-    aggregate_max_cells = max(
-        0, int(kwargs.get('max_cells', _DEFAULT_MAX_CELLS)))
+    # Candidate-scaled default allowance — see nurbs_ccx (ledger L41).
+    aggregate_max_cells = kwargs.get('max_cells')
+    if aggregate_max_cells is None:
+        aggregate_max_cells = _DEFAULT_MAX_CELLS * max(1, len(int_candidates))
+    aggregate_max_cells = max(0, int(aggregate_max_cells))
     aggregate_max_results = max(
         0, int(kwargs.get('max_results', _DEFAULT_MAX_RESULTS)))
     status = _new_status(aggregate_max_cells, aggregate_max_results)

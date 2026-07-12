@@ -21,7 +21,7 @@ def test_case11_default_nested_csx_budget_preserves_closed_loop():
     One internal line/surface cut needs just over 20k CSX cells.  The former
     per-call default stopped at 20k even though the call-wide SSX allowance
     still had more than 200k cells available, discarded the two certified
-    cut roots, and returned zero branches with ``budget_exhausted=True``.
+    cut roots, and returned zero branches flagged incomplete.
     """
     from examples.ssx.bez_ssx5_case11 import S1, S2
 
@@ -31,7 +31,7 @@ def test_case11_default_nested_csx_budget_preserves_closed_loop():
     result = bez_ssx(
         S1, S2, 1e-3, rational=False, max_cells=60_000)
 
-    assert not result["budget_exhausted"], result["budget_usage"]
+    assert result["complete"], result["status"]
     assert len(result["branches"]) == 1, result
     xyz = np.asarray(result["branches"][0].curve[1], dtype=float)
     assert np.linalg.norm(xyz[0] - xyz[-1]) <= 2e-3
@@ -841,8 +841,8 @@ def _assert_links_nearest_vertex(g, branches):
 def test_self_intersection_point():
     S1, S2 = _umbrella_case()
     r = bez_ssx(S1, S2, 1e-3, rational=False)
-    assert r["budget_exhausted"] is False
-    assert r["budget_usage"]["cell_counts"].get("c3", 0) > 0
+    assert r["complete"] is True
+    assert r["status"]["work"]["cell_counts"].get("c3", 0) > 0
     c3 = [g for g in r["singularities"] if g.kind == "self_intersection"]
     assert len(c3) == 1
     g = c3[0]
@@ -1868,9 +1868,9 @@ def test_transversal_branch_between_two_collapsed_rational_fibers_is_preserved()
         S1, S2, 1e-3, rational=True,
         max_cells=60_000, max_csx_calls=2_000,
     )
-    assert r["budget_exhausted"] is True
-    assert r["budget_usage"]["incomplete"] is True
-    assert r["budget_usage"]["cells_processed"] <= 60_000
+    assert r["complete"] is False
+    assert r["status"]["reasons"]
+    assert r["status"]["work"]["cells_processed"] <= 60_000
     assert len(r["branches"]) == 1
     assert r["points"] == []
     assert [g for g in r["singularities"]
@@ -1932,8 +1932,8 @@ def test_case14_rational_cones_return_certified_branch_and_explicit_partial_stat
     # Delta complement search cannot prove that no additional isolated root
     # exists before its local frontier cap.  That is useful partial output,
     # never a complete topology claim.
-    assert r["budget_exhausted"] is True
-    assert r["budget_usage"]["cells_processed"] <= 60_000
+    assert r["complete"] is False
+    assert r["status"]["work"]["cells_processed"] <= 60_000
     assert len(r["branches"]) == 1
     assert [g for g in r["singularities"]
             if g.kind == "tangent_point"] == []
@@ -1988,8 +1988,8 @@ def test_case13_rational_tangency_terminates_with_explicit_partial_status():
 
     # A residual near-tangent cell reaches a depth/CSX uncertainty frontier.
     # The point below is certified, but absence of more topology is not.
-    assert r["budget_exhausted"] is True
-    assert r["budget_usage"]["cells_processed"] <= 30_000
+    assert r["complete"] is False
+    assert r["status"]["work"]["cells_processed"] <= 30_000
     assert r["branches"] == [] and r["points"] == []
     tangencies = [g for g in r["singularities"]
                   if g.kind == "tangent_point"]
@@ -2027,7 +2027,8 @@ def test_bez_ssx_global_soft_budget_returns_partial_result(monkeypatch):
         s1, s2, 1e-3, rational=False,
         max_cells=0, max_csx_calls=8,
     )
-    assert r["budget_exhausted"] is True
+    assert r["complete"] is False
+    assert r["status"]["reasons"] == ["work_budget"]
     assert set(("branches", "points", "singularities")) <= set(r)
 
 
@@ -2048,8 +2049,9 @@ def test_bez_ssx_preflights_distance_net_work(monkeypatch):
         surface, surface, 1e-3, rational=False,
         max_cells=1, max_csx_calls=1,
     )
-    assert result["budget_exhausted"] is True
-    assert result["budget_usage"]["cells_processed"] == 0
+    assert result["complete"] is False
+    assert result["status"]["reasons"] == ["work_budget"]
+    assert result["status"]["work"]["cells_processed"] == 0
 
 
 def test_bez_ssx_output_budget_bounds_postprocessing():
@@ -2062,8 +2064,9 @@ def test_bez_ssx_output_budget_bounds_postprocessing():
         s1, s2, 1e-3, rational=False,
         max_output_items=0,
     )
-    assert r["budget_exhausted"] is True
-    assert r["budget_usage"]["output_items"] == 0
+    assert r["complete"] is False
+    assert "output_cap" in r["status"]["reasons"]
+    assert r["status"]["work"]["output_items"] == 0
     assert r["branches"] == [] and r["points"] == []
 
 
@@ -2075,10 +2078,10 @@ def test_zero_postprocess_budget_skips_all_postassembly_scans():
         max_postprocess_work=0,
     )
 
-    usage = result["budget_usage"]
-    assert result["budget_exhausted"] is True
-    assert usage["postprocess_work"] == 0
-    assert usage["postprocess_exhausted"] is True
+    work = result["status"]["work"]
+    assert result["complete"] is False
+    assert "postprocess_cap" in result["status"]["reasons"]
+    assert work["postprocess_work"] == 0
     assert result["singularities"] == []
     assert result["points"] == []
     assert result["branches"]
@@ -2094,7 +2097,8 @@ def test_bez_ssx_depth_cap_reports_unresolved_partial_result():
         s1, s2, 1e-3, rational=rational,
         max_depth=0, max_cells=20_000, max_csx_calls=100,
     )
-    assert r["budget_exhausted"] is True
+    assert r["complete"] is False
+    assert "depth_limit" in r["status"]["reasons"]
 
 
 def test_bez_ssx_surfaces_c1_local_truncation(monkeypatch):
@@ -2114,7 +2118,8 @@ def test_bez_ssx_surfaces_c1_local_truncation(monkeypatch):
 
     monkeypatch.setattr(singular, "c1_pass", fake_c1)
     r = bez_ssx(s1, s2, 1e-3, rational=False)
-    assert r["budget_exhausted"] is True
+    assert r["complete"] is False
+    assert "work_budget" in r["status"]["reasons"]
 
 
 def test_phi_seed_local_truncation_marks_shared_budget(monkeypatch):
@@ -2149,7 +2154,8 @@ def test_phi_seed_local_truncation_marks_shared_budget(monkeypatch):
     assert ssx._phi_slice_loop_fragments(
         cell, [np.full(4, 0.5)], 1e-3, 0.1, []) == []
     assert budget.incomplete is True and budget.exhausted is False
-    assert budget.result_fields()["budget_exhausted"] is True
+    assert budget.result_fields()["complete"] is False
+    assert "unresolved_tangential_zone" in budget.reasons
 
 
 def test_deflate_tangent_cell_does_not_march_after_shared_budget_exhaustion(
@@ -2305,7 +2311,7 @@ def test_assembly_pair_join_stops_at_postprocess_budget():
     assert branches
     assert budget.postprocess_work <= 8
     assert budget.postprocess_exhausted
-    assert budget.result_fields()["budget_exhausted"] is True
+    assert budget.result_fields()["complete"] is False
 
 
 def test_phi_slice_closed_march_stops_on_external_budget_exhaustion(
@@ -2453,7 +2459,7 @@ def test_offcurve_delta_local_truncation_marks_shared_budget(monkeypatch):
     ssx._emit_offcurve_tangent_roots(
         cell, [], 1e-3, np.full(4, 4e-3), [], max_cells=2)
     assert budget.incomplete is True and budget.exhausted is False
-    assert budget.result_fields()["budget_exhausted"] is True
+    assert budget.result_fields()["complete"] is False
 
 
 def test_primary_delta_witness_local_truncation_marks_shared_budget(monkeypatch):
@@ -2480,7 +2486,7 @@ def test_primary_delta_witness_local_truncation_marks_shared_budget(monkeypatch)
     ssx._emit_tangent_roots(
         cell, 1e-3, np.full(4, 4e-3), [], enumerate_all=True)
     assert budget.incomplete is True and budget.exhausted is False
-    assert budget.result_fields()["budget_exhausted"] is True
+    assert budget.result_fields()["complete"] is False
 
 
 def test_solve_zero_dim_result_cap_stops_positive_dimensional_flood():
@@ -2595,8 +2601,7 @@ def test_c1_pass_fair_shares_one_budget_across_surfaces(monkeypatch):
         used = min(3, max_cells)
         stats.update(cells_processed=used, boxes_processed=used,
                      budget_exhausted=False,
-                     external_budget_exhausted=False,
-                     stop_requested=False)
+                     external_budget_exhausted=False)
         return [], False
 
     monkeypatch.setattr(singular, "solve_zero_dim", fake_solve)
@@ -2628,8 +2633,7 @@ def test_c1_connectivity_probe_respects_shared_budget(monkeypatch):
         stats.update(
             cells_processed=1, boxes_processed=1,
             budget_exhausted=False,
-            external_budget_exhausted=False,
-            stop_requested=False)
+            external_budget_exhausted=False)
         return list(sols), False
 
     def fake_connected(_sols, newton, _ptol):
@@ -2726,7 +2730,8 @@ def test_coverage_check_rejects_partial_ssx(monkeypatch):
         coverage, "bez_ssx",
         lambda *_a, **_k: {
             "branches": [], "points": [], "singularities": [],
-            "budget_exhausted": True,
+            "complete": False,
+            "status": {"reasons": ["work_budget"], "work": {}},
         })
     monkeypatch.setattr(
         coverage, "reference_cloud",
@@ -2749,3 +2754,132 @@ def test_reference_cloud_rejects_partial_csx(monkeypatch):
         })
     with pytest.raises(RuntimeError, match="reference CSX incomplete"):
         coverage.reference_cloud(surface, surface, n=1, rational=False)
+
+
+# ---------------------------------------------------------------------------
+# L41 — schema v2: result carries complete / status.reasons / status.work
+# (review doc 2026-07-12 §6; replaces budget_exhausted / budget_usage)
+# ---------------------------------------------------------------------------
+
+def _transversal_planes():
+    s1 = np.array([[[0., 0., 0.], [0., 1., 0.]],
+                   [[1., 0., 0.], [1., 1., 0.]]])
+    s2 = np.array([[[0., 0., -1.], [0., 1., 1.]],
+                   [[1., 0., -1.], [1., 1., 1.]]])
+    return s1, s2
+
+
+def _assert_schema_v2(r):
+    assert isinstance(r["complete"], bool)
+    status = r["status"]
+    assert isinstance(status["reasons"], list)
+    work = status["work"]
+    for key in ("cells_processed", "csx_calls", "max_cells", "max_csx_calls",
+                "output_items", "max_output_items", "postprocess_work",
+                "max_postprocess_work", "cell_counts"):
+        assert key in work, key
+    # The one consumer contract: complete iff no reasons.
+    assert r["complete"] == (not status["reasons"]), (
+        r["complete"], status["reasons"])
+    # Schema v2 REPLACES the old flags (rename, not duplication).
+    assert "budget_exhausted" not in r
+    assert "budget_usage" not in r
+    # The unread publications are gone (ledger L41).
+    assert "hard_exhausted" not in work
+    assert "output_counts" not in work
+
+
+def test_schema_v2_complete_run_has_empty_reasons():
+    s1, s2 = _transversal_planes()
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    _assert_schema_v2(r)
+    assert r["complete"] is True
+    assert r["status"]["reasons"] == []
+    assert len(r["branches"]) == 1
+
+
+def test_schema_v2_curve_only_overlap_stays_complete():
+    # L27's shared-edge pair: the coincidence set is 1-D (two edges), fully
+    # represented by overlap branches + the junction tangent_point — the
+    # region schema is NOT needed and the result must claim completeness.
+    s1, s2 = _shared_edge_pair(False)
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    _assert_schema_v2(r)
+    assert r["complete"] is True, r["status"]["reasons"]
+
+
+def test_schema_v2_zero_allowance_reports_work_budget():
+    s1, s2 = _transversal_planes()
+    r = bez_ssx(s1, s2, 1e-3, rational=False, max_cells=0)
+    _assert_schema_v2(r)
+    assert r["complete"] is False
+    assert r["status"]["reasons"] == ["work_budget"]
+    assert r["status"]["work"]["cells_processed"] == 0
+
+
+def test_schema_v2_depth_ceiling_reports_depth_limit():
+    from examples.ssx.bez_ssx5_coverage_check import load_case_surfaces
+
+    s1, s2, rational = load_case_surfaces(7)
+    r = bez_ssx(s1, s2, 1e-3, rational=rational,
+                max_depth=0, max_cells=20_000, max_csx_calls=100)
+    _assert_schema_v2(r)
+    assert r["complete"] is False
+    assert "depth_limit" in r["status"]["reasons"]
+
+
+def test_schema_v2_2d_overlap_reports_region_unsupported():
+    # Case-12 class (L28 pending): coplanar bilinear patches overlapping in
+    # a 2-D region. The rank-deficient Δ-root inside the detected overlap
+    # region's parametric box is the region's structural signature until
+    # SSXOverlapRegion lands; the old schema billed this to the budget at
+    # 1.9% usage (review doc §5 probe 1, case 12).
+    r = bez_ssx(_plane_patch(0, 2), _plane_patch(1, 3), 1e-3, rational=False)
+    _assert_schema_v2(r)
+    assert r["complete"] is False
+    assert "overlap_region_unsupported" in r["status"]["reasons"]
+
+
+def test_schema_v2_collapsed_edge_reports_parameter_fiber():
+    # Collapsed v=0 edge (a point-curve) lying ON the plane: boundary CSX
+    # types it as a parameter fiber (case-14 class at unit-test size); the
+    # limiting branch multiplicity is unproven, so the result is partial
+    # for the structural reason, not a budget one.
+    s1 = np.array([[[0., 0., 0.], [0., 0., 0.]],
+                   [[0., 1., 1.], [1., 1., 1.]]])
+    s2 = np.array([[[-1., -1., 0.], [-1., 1., 0.]],
+                   [[1., -1., 0.], [1., 1., 0.]]])
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+    _assert_schema_v2(r)
+    assert r["complete"] is False
+    assert "parameter_fiber" in r["status"]["reasons"]
+
+
+def test_zero_csx_allowance_knobs_are_honored(monkeypatch):
+    # Ledger L41 / review finding 11: csx_max_cells=0,
+    # boundary_csx_max_cells=0 and csx_max_results=0 were silently promoted
+    # to 1 via max(1, ...) while max_cells=0/max_csx_calls=0 were honored —
+    # a zero allowance is a hard promise that bez_csx never runs.
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    s1, s2 = _transversal_planes()
+    calls = []
+    real_bez_csx = ssx5.bez_csx
+
+    def recording(*args, **kwargs):
+        calls.append(int(kwargs.get("max_cells", -1)))
+        return real_bez_csx(*args, **kwargs)
+
+    monkeypatch.setattr(ssx5, "bez_csx", recording)
+
+    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False,
+                     boundary_csx_max_cells=0, csx_max_cells=0)
+    assert calls == [], "bez_csx ran despite a zero per-call cell allowance"
+    assert r["complete"] is False
+    assert "work_budget" in r["status"]["reasons"]
+
+    calls.clear()
+    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False, csx_max_results=0)
+    assert calls == [], "bez_csx ran despite a zero result allowance"
+    assert r["complete"] is False
+    assert "work_budget" in r["status"]["reasons"]

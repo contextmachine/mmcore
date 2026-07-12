@@ -77,7 +77,18 @@ def point_in_region(
         weights=np.array([1.0, 1.0], dtype=float),
     )
 
-    isolated, overlaps = nurbs_ccx_multiple([seg] + list(region_curves), tol=tol)
+    isolated, overlaps, ccx_status = nurbs_ccx_multiple(
+        [seg] + list(region_curves), tol=tol)
+    if not ccx_status['complete']:
+        # Ledger L41: an incomplete ray-casting CCX must not crash the
+        # boolean (the former adapter default raised RuntimeError here);
+        # a truncated crossing count can misclassify containment, so
+        # surface it loudly while returning the best available answer.
+        import warnings
+        warnings.warn(
+            "boolean2d point-in-region: incomplete CCX ray cast "
+            "(bounded solve truncated) — containment may be unreliable",
+            RuntimeWarning, stacklevel=2)
 
     endpoint_eps = 1/np.linalg.norm(seg.control_points[-1]-seg.control_points[0]) * tol
 
@@ -417,7 +428,16 @@ def _split_curves_at_intersections(
     Returns (sub_segments, sub_sources) where each source tag is 'A', 'B', or
     'AB' (the last indicates a segment produced by merging an overlap pair).
     """
-    isolated, overlaps = nurbs_ccx_multiple(curves, tol=tol)
+    isolated, overlaps, ccx_status = nurbs_ccx_multiple(curves, tol=tol)
+    if not ccx_status['complete']:
+        # Ledger L41: proceed with the certified subset instead of raising —
+        # missed split points degrade the arrangement locally; the warning
+        # is the honest signal until boolean2d grows its own status channel.
+        import warnings
+        warnings.warn(
+            "boolean2d split: incomplete CCX result (bounded solve "
+            "truncated) — some intersection splits may be missing",
+            RuntimeWarning, stacklevel=2)
 
     # Per-curve list of split parameters (including the overlap range
     # endpoints — overlaps must cause splits at both ends).

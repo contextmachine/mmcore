@@ -106,7 +106,19 @@ def ccx(curve1, curve2, tol: float = 0.001):
     """
 
     if isinstance(curve1, (NURBSCurve,NURBSCurveTuple)) and isinstance(curve2,  (NURBSCurve,NURBSCurveTuple)):
-        return nurbs_ccx(curve1, curve2, tol=tol)
+        # Ledger L41: nurbs_ccx now always returns status instead of
+        # raising on incomplete sub-solves (the raise crashed this public
+        # path on near-coincident input). ccx keeps its two-value shape;
+        # partiality is surfaced as a warning — call nurbs_ccx directly for
+        # the status dict.
+        isolated, overlaps, status = nurbs_ccx(curve1, curve2, tol=tol)
+        if not status['complete']:
+            import warnings
+            warnings.warn(
+                "ccx: incomplete NURBS CCX result (bounded solve was "
+                "truncated); call nurbs_ccx(...) for the status dict",
+                RuntimeWarning, stacklevel=2)
+        return isolated, overlaps
     
 
     if hasattr(curve1, "implicit") and hasattr(curve2, "evaluate"):

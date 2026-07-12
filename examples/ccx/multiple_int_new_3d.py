@@ -202,7 +202,7 @@ parser.add_argument('--no-display', action='store_true')
 args=parser.parse_args()
 
 
-isolated,overlaps=nurbs_ccx_multiple(val,tol=0.001,rational=True)
+isolated,overlaps,_status=nurbs_ccx_multiple(val,tol=0.001,rational=True)
 print('\n\nOUT\n')
 print(len(isolated) if isolated is not None else 0,len(overlaps) if overlaps is not None else 0)
 print(isolated,overlaps)

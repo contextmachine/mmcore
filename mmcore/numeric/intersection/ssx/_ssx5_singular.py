@@ -379,12 +379,10 @@ def solve_zero_dim(
     atol: float = 1e-3,
     skip_newton: Optional[Callable] = None,  # (box) -> True to skip the Newton attempt
     priority: Optional[Callable] = None,     # (box) -> float; HIGHER pops first (heap)
-    max_boxes: Optional[int] = None,         # hard backstop on TOTAL processed boxes
     stats: Optional[dict] = None,            # out-param: solver-side counters (see below)
     charge_box: Optional[Callable[[int], bool]] = None,
     # shared outer budget: charge_box(1) must approve BEFORE a box is processed
     max_results: Optional[int] = None,
-    stop_when: Optional[Callable[[list], bool]] = None,
 ):
     """All isolated solutions of {net_i = 0} in `box`.
 
@@ -392,7 +390,8 @@ def solve_zero_dim(
     -------
     (sols, exhausted) : tuple[list, bool]
         `sols` — list of (4,) solutions found. `exhausted` — True iff a
-        budget (`max_cells`, `max_boxes`, or the optional shared
+        budget (`max_cells`, the `16 * max_cells` traversal backstop, or
+        the optional shared
         `charge_box`, see below) ran out with boxes still pending, i.e. the
         enumeration may be INCOMPLETE and `sols` is only a lower bound.
         Callers must check it (a
@@ -404,8 +403,8 @@ def solve_zero_dim(
 
     Budget contract
     ---------------
-    `max_cells` bounds the CHARGED units, `max_boxes` (default
-    `16 * max_cells`) bounds ALL processed boxes:
+    `max_cells` bounds the CHARGED units; a fixed `16 * max_cells`
+    backstop bounds ALL processed boxes:
 
     - Without `skip_newton`, every processed box charges one unit — the
       historical semantics, unchanged (both new bounds below can then
@@ -429,14 +428,14 @@ def solve_zero_dim(
       (measured on the blind-band family: the off-curve touch is
       accepted at box 1.5-7.2k with the box count at 29-60% of the
       bound at that moment, i.e. >= 1.7x margin).
-    - `max_boxes` is the hard termination backstop on top of that: a
-      pathological flood whose frontier keeps attempting Newtons still
-      stops there. Stopping at ANY bound with work pending returns
-      `exhausted=True`.
+    - The `16 * max_cells` box count is the hard termination backstop on
+      top of that: a pathological flood whose frontier keeps attempting
+      Newtons still stops there. Stopping at ANY bound with work pending
+      returns `exhausted=True`.
     - `charge_box`, when supplied, is a shared outer-budget callback. It is
       invoked as `charge_box(1)` immediately before each box is popped. A
       false result stops the solve without processing that box and returns
-      `exhausted=True`; the local `max_cells` / `max_boxes` limits remain in
+      `exhausted=True`; the local `max_cells` / backstop limits remain in
       force independently. This lets one SSX-level allowance cover several
       nested zero-dimensional solves instead of resetting at every call.
 
@@ -514,16 +513,13 @@ def solve_zero_dim(
             e = heapq.heappop(pending)
             return e[2], e[3]
 
-    if max_boxes is None:
-        max_boxes = 16 * max_cells
+    max_boxes = 16 * max_cells
     cells = 0      # charged units (see "Budget contract" above)
     boxes = 0      # every processed box — bounded by the backstops
     external_budget_exhausted = False
-    stop_requested = False
     while (pending and cells < max_cells
            and boxes < min(max_boxes, max_cells + 16 * cells)
-           and (max_results is None or len(sols) < max_results)
-           and not stop_requested):
+           and (max_results is None or len(sols) < max_results)):
         # The shared allowance is charged before the pop: denial must leave
         # the next box unprocessed so `exhausted=True` faithfully means the
         # returned solution list is only partial.
@@ -548,8 +544,6 @@ def solve_zero_dim(
                     box_has_root_witness = True
                     if not _dup(sol):
                         sols.append(sol)
-                        if stop_when is not None and stop_when(sols):
-                            stop_requested = True
         # split the axis with the largest span in units of its OWN ptol —
         # with heterogeneous per-axis ptols the absolutely-widest axis can
         # already be resolved while a tighter-ptol axis is still orders of
@@ -583,7 +577,6 @@ def solve_zero_dim(
         stats["budget_exhausted"] = exhausted
         stats["external_budget_exhausted"] = external_budget_exhausted
         stats["result_limit_reached"] = result_limit_reached
-        stats["stop_requested"] = stop_requested
     return sols, exhausted
 
 
@@ -978,8 +971,7 @@ def c1_pass(S1_h, S2_h, atol, ptol4, max_cells=20000,
         # Decisive test: CONNECTIVITY — Newton the midpoints of
         # consecutive solutions; a curve yields new on-segment roots,
         # isolated cusps yield dups or divergence.
-        curve_like = (bool(solve_stats.get("stop_requested", False))
-                      or len(sols) > 12
+        curve_like = (len(sols) > 12
                       or (exhausted and len(sols) > 1))
         connection_denied = False
 

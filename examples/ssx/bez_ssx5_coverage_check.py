@@ -107,8 +107,9 @@ def check_case(case, atol=1e-3, n_ref=200):
     for g in res.get("singularities", []):
         print(f"    singularity {g.kind}: stuv={np.round(g.stuv, 5).tolist()} "
               f"xyz={np.round(g.xyz, 5).tolist()} links={g.branch_links}")
-    if res.get("budget_exhausted", False):
-        print("    INCOMPLETE SSX RESULT: soft budget/depth/output limit reached")
+    if not res.get("complete", True):
+        reasons = res.get("status", {}).get("reasons", [])
+        print(f"    INCOMPLETE SSX RESULT: reasons={reasons}")
         return False
     # Ledger L24: the regular coverage cases must produce ZERO typed
     # singularities — enforced (exit code), not just printed, so CI

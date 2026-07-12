@@ -85,7 +85,7 @@ class TestNurbsCCXMultiple2D:
 
     def test_no_false_positives(self):
         """Every reported intersection must have dist < atol between the curves."""
-        iso, ovl = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
         assert iso is not None
         for entry in iso:
             c1i, c2i = int(entry['curve1_i']), int(entry['curve2_i'])
@@ -99,7 +99,7 @@ class TestNurbsCCXMultiple2D:
 
     def test_count(self):
         """Should find exactly 11 intersections (matching the old algorithm)."""
-        iso, ovl = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
         assert iso is not None
         assert len(iso) == 11
 
@@ -168,7 +168,7 @@ class TestNurbsCCXPair:
 
     def test_two_ellipses(self):
         """Two rational ellipses that intersect."""
-        iso, ovl = nurbs_ccx(CURVES_2D[0], CURVES_2D[1], tol=0.001)
+        iso, ovl, _status = nurbs_ccx(CURVES_2D[0], CURVES_2D[1], tol=0.001)
         assert iso is not None
         assert len(iso) >= 1
         # Verify all results
@@ -191,7 +191,7 @@ class TestNurbsCCXPair:
             control_points=np.array([[0., 10., 0.], [1., 10., 0.]]),
             weights=np.array([1., 1.]),
         )
-        iso, ovl = nurbs_ccx(c1, c2, tol=0.001)
+        iso, ovl, _status = nurbs_ccx(c1, c2, tol=0.001)
         assert iso is None
 
 
@@ -225,36 +225,45 @@ def _partial_ccx_result(*args, **kwargs):
     }
 
 
-def test_nurbs_ccx_rejects_silent_partial_result(monkeypatch):
+def test_nurbs_ccx_default_returns_status_on_partial_result(monkeypatch):
+    # Ledger L41 (review finding 2): the raise-on-incomplete default crashed
+    # production callers (boolean2d, public ccx) on near-coincident input.
+    # The default is now always-return-status, ssx5-core philosophy: partial
+    # output ships with an explicit status instead of a RuntimeError.
     c1, c2 = _overlapping_lines()
     monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
 
-    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
-        nurbs_ccx(c1, c2)
-
-    isolated, overlaps, status = nurbs_ccx(c1, c2, return_status=True)
+    isolated, overlaps, status = nurbs_ccx(c1, c2)
     assert isolated is None
     assert overlaps is None
+    assert status['complete'] is False
     assert status['budget_exhausted'] is True
     assert status['boundary_topology_complete'] is False
     assert status['cells_processed'] == 7
     assert status['partial_results'] == 1
 
 
-def test_nurbs_ccx_multiple_rejects_silent_partial_result(monkeypatch):
+def test_nurbs_ccx_fail_fast_optin_still_raises(monkeypatch):
     c1, c2 = _overlapping_lines()
     monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
 
     with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
-        nurbs_ccx_multiple([c1, c2])
+        nurbs_ccx(c1, c2, return_status=False)
 
-    isolated, overlaps, status = nurbs_ccx_multiple(
-        [c1, c2], return_status=True,
-    )
+
+def test_nurbs_ccx_multiple_default_returns_status_on_partial_result(monkeypatch):
+    c1, c2 = _overlapping_lines()
+    monkeypatch.setattr(nccx4, 'bez_ccx_v4', _partial_ccx_result)
+
+    isolated, overlaps, status = nurbs_ccx_multiple([c1, c2])
     assert isolated is None
     assert overlaps is None
+    assert status['complete'] is False
     assert status['budget_exhausted'] is True
     assert status['partial_results'] >= 1
+
+    with pytest.raises(RuntimeError, match='incomplete Bezier CCX'):
+        nurbs_ccx_multiple([c1, c2], return_status=False)
 
 
 def test_nurbs_ccx_shares_max_cells_across_all_span_pairs(monkeypatch):
