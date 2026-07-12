@@ -332,6 +332,20 @@ _POINT_PARAM_NEIGHBOR_OFFSETS = tuple(product((-1, 0, 1), repeat=4))
 _POINT_XYZ_NEIGHBOR_OFFSETS = tuple(product((-1, 0, 1), repeat=3))
 
 
+def _point_dedup_charge(n: int) -> int:
+    """Postprocess units for `_deduplicate_ssx_points` on n points.
+
+    Ledger L44: the site used to precharge the PRE-rewrite O(n²) cost for
+    the O(n·108) bucketed algorithm — at the 1024 output cap that quoted
+    1,048,576 units against the 250k default, the charge was denied, and
+    exactly the dense pseudo-root outputs the rewrite targeted shipped
+    UN-deduplicated with a spurious partial flag.  Price the actual probe
+    count (3⁴ param + 3³ xyz neighbor bins per point) at the shared
+    per-128 exchange rate.
+    """
+    return max(1, (int(n) * 108 + 127) // 128)
+
+
 def _deduplicate_ssx_points(points, unify_tol, atol, stats=None):
     """Stable both-guard SSXPoint dedup with a bounded spatial index.
 
@@ -359,6 +373,15 @@ def _deduplicate_ssx_points(points, unify_tol, atol, stats=None):
     def _keys(p):
         pvalues = np.asarray(p.stuv, dtype=np.float64) / pstep
         xvalues = np.asarray(p.xyz, dtype=np.float64) / xstep
+        # Ledger L45: math.floor raises ValueError on NaN / OverflowError
+        # on inf — one non-finite point (a w→0 rational eval upstream)
+        # used to discard the WHOLE completed run after its budget was
+        # spent.  The legacy comparison dedup was NaN-safe (comparisons
+        # all False → point kept); preserve that contract by keeping
+        # non-finite points unbinned and unique.
+        if not (np.all(np.isfinite(pvalues))
+                and np.all(np.isfinite(xvalues))):
+            return None
         # math.floor returns an arbitrary-precision Python int, avoiding the
         # int64 overflow of an ndarray cast on large model coordinates.
         return (
@@ -367,7 +390,11 @@ def _deduplicate_ssx_points(points, unify_tol, atol, stats=None):
         )
 
     for p in points:
-        pkey, xkey = _keys(p)
+        keys = _keys(p)
+        if keys is None:
+            unique.append(p)
+            continue
+        pkey, xkey = keys
         duplicate = False
         for poffset in _POINT_PARAM_NEIGHBOR_OFFSETS:
             pneighbor = tuple(k + d for k, d in zip(pkey, poffset))
@@ -663,8 +690,13 @@ def _find_ssx_boundary_zeros(
                 fixed_axis=fixed_axis, fixed_value=float(side),
                 rational=rational,
             )
-            if pres > _strict_ssx_root_tol(
-                    S1_h, S2_h, rational=rational):
+            # Ledger L45: written accept-if — the reject-if-greater form
+            # (`if pres > tol: continue`) ACCEPTED a NaN residual (all NaN
+            # comparisons are False), turning one w→0 rational eval into a
+            # garbage certified crossing feeding the whole pipeline.
+            if not (np.isfinite(pres)
+                    and pres <= _strict_ssx_root_tol(
+                        S1_h, S2_h, rational=rational)):
                 continue
             stuv = polished
             multiplicity_polished = bool(np.max(np.abs(
@@ -4766,7 +4798,11 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                     cell.g1.surface, q[0], q[1], rational=True)
                 p2 = eval_surface(
                     cell.g2.surface, q[2], q[3], rational=True)
-                if float(np.linalg.norm(p1 - p2)) > strict_root_tol:
+                _vres = float(np.linalg.norm(p1 - p2))
+                # Ledger L45: accept-if — the reject-if-greater form let a
+                # NaN vertex residual certify the path (see the boundary
+                # polish gate above for the same inversion).
+                if not (np.isfinite(_vres) and _vres <= strict_root_tol):
                     strict_path = False
                     break
             if not strict_path:
@@ -7966,7 +8002,7 @@ def bez_ssx(
     # stuv box AND xyz <= 2·atol.
     if (all_points
             and _assembly_spend(
-                budget, max(1, len(all_points) * len(all_points)))):
+                budget, _point_dedup_charge(len(all_points)))):
         all_points = _deduplicate_ssx_points(all_points, unify_tol, atol)
 
     # ------------------------------------------------------------------

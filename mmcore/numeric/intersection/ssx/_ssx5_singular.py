@@ -1349,7 +1349,13 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
                           if c0 == r0 else nr * nc)
             if pair_count <= 0:
                 continue
-            if not _spend(pair_count):
+            # Ledger L43: one vectorized AABB pair test costs ~ns; charging
+            # it 1:1 against subdivision-cell work (~ms) let ~350k raw
+            # pairs burn the whole default allowance on ~10 ms of numpy.
+            # Price per-128 like the SSX `precompute` convention; the
+            # downstream seg_dist/Newton/anchor/dedup work (the real cost)
+            # keeps its 1:1 pricing in `_process_pair`.
+            if not _spend(max(1, (pair_count + 127) // 128)):
                 stop = True
                 break
             pairs_processed += pair_count

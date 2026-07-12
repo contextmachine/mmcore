@@ -3036,3 +3036,106 @@ def test_overlap_region_opposed_orientation():
     assert len(regions) == 1
     assert regions[0].normal_agreement == -1
     assert r["complete"] is True
+
+
+def test_c3_broadphase_pair_pricing_is_batched():
+    # Ledger L43: every vectorized AABB pair test was charged one shared
+    # work unit (~ns of numpy priced like ~ms of subdivision), so ~840
+    # polyline segments (~350k unordered pairs) burned the entire default
+    # 250k allowance on ~10 ms of numpy and flagged spurious exhaustion.
+    # Pair tests are now priced at the `precompute` convention (per-128);
+    # the Newton/exact work keeps its 1:1 pricing.
+    from types import SimpleNamespace
+    from mmcore.numeric.intersection.ssx._ssx5_singular import c3_pass
+
+    plane = _homog(np.array([[[0., 0., 0.], [0., 1., 0.]],
+                             [[1., 0., 0.], [1., 1., 0.]]]))
+    n = 420
+    t = np.linspace(0.0, 1.0, n)
+
+    def straight_branch(y, z):
+        stuv = np.column_stack([t, np.full(n, 0.5), t, np.full(n, 0.5)])
+        xyz = np.column_stack([t, np.full(n, y), np.full(n, z)])
+        return SimpleNamespace(curve=(stuv, xyz), kind="transversal")
+
+    branches = [straight_branch(0.2, 0.0), straight_branch(0.8, 5.0)]
+    stats = {}
+    hits = c3_pass(plane, plane, branches, 1e-3, np.full(4, 1e-4),
+                   max_work=250_000, stats=stats)
+
+    assert hits == []
+    assert stats["budget_exhausted"] is False, stats
+    # ~350k raw pair tests must charge ~/128, not 1:1.
+    assert stats["work_processed"] < 20_000, stats
+
+
+def test_point_dedup_charge_is_linear_and_dedup_runs_at_output_cap():
+    # Ledger L44: the site precharged the pre-rewrite O(n²) cost for the
+    # O(n·108) bucketed dedup — at the 1024 output cap that quoted
+    # 1,048,576 units against the 250k default, was denied, and dense
+    # pseudo-root output shipped UN-deduplicated with a spurious partial
+    # flag. The charge now prices the actual probe count.
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _SSXSoftBudget, _point_dedup_charge, _deduplicate_ssx_points,
+        SSXPoint)
+
+    charge = _point_dedup_charge(1024)
+    assert charge <= 1024, charge          # was 1,048,576
+    budget = _SSXSoftBudget(max_cells=250_000, max_csx_calls=10_000)
+    assert budget.charge_postprocess(charge) is True
+    assert budget.postprocess_exhausted is False
+
+    # and the bucketed dedup actually collapses a dense duplicated cloud
+    rng = np.random.default_rng(7)
+    base = rng.uniform(0.2, 0.8, (512, 4))
+    pts = []
+    for row in base:
+        xyz = np.array([row[0], row[1], 0.0])
+        pts.append(SSXPoint(stuv=row.copy(), xyz=xyz.copy()))
+        pts.append(SSXPoint(stuv=row + 1e-9, xyz=xyz + 1e-9))
+    out = _deduplicate_ssx_points(
+        pts, np.full(4, 1e-4), 1e-3)
+    assert len(out) == 512
+
+
+def test_point_dedup_is_nan_safe():
+    # Ledger L45 (crash half): math.floor raised ValueError on a NaN
+    # coordinate inside the binned dedup, discarding a whole completed run
+    # after its budget was spent; the legacy comparison dedup was NaN-safe.
+    from mmcore.numeric.intersection.ssx._bez_ssx5 import (
+        _deduplicate_ssx_points, SSXPoint)
+
+    pts = [
+        SSXPoint(stuv=np.array([0.5, 0.5, 0.5, 0.5]),
+                 xyz=np.array([1.0, 1.0, 0.0])),
+        SSXPoint(stuv=np.array([0.5, np.nan, 0.5, 0.5]),
+                 xyz=np.array([1.0, np.nan, 0.0])),
+        SSXPoint(stuv=np.array([0.5, 0.5, 0.5, 0.5]),
+                 xyz=np.array([np.inf, 1.0, 0.0])),
+        SSXPoint(stuv=np.array([0.5, 0.5, 0.5, 0.5]) + 1e-9,
+                 xyz=np.array([1.0, 1.0, 0.0]) + 1e-9),
+    ]
+    out = _deduplicate_ssx_points(pts, np.full(4, 1e-4), 1e-3)
+    # no crash; the finite duplicate collapses; non-finite points survive
+    assert len(out) == 3
+
+
+def test_boundary_polish_gate_rejects_nan_residual(monkeypatch):
+    # Ledger L45 (soundness half): the boundary polish gate was written
+    # reject-if-greater (`if pres > tol: continue`), so a NaN residual —
+    # every NaN comparison is False — was ACCEPTED as a certified
+    # crossing. The gate is now accept-if with a finiteness guard.
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as ssx5
+
+    s1, s2 = _transversal_planes()
+
+    def nan_polish(*_a, **_k):
+        return np.array([0.5, 0.5, 0.5, 0.5]), float("nan"), None
+
+    monkeypatch.setattr(ssx5, "_ssx_correct_fixed", nan_polish)
+    r = ssx5.bez_ssx(s1, s2, 1e-3, rational=False)
+    # Every boundary crossing polishes to NaN residual -> none may certify
+    # (pre-fix: all were accepted and traced into garbage branches).
+    assert r["points"] == []
+    assert all(len(np.asarray(b.curve[1])) == 0 or b.kind == "overlap"
+               for b in r["branches"]) or r["branches"] == []
