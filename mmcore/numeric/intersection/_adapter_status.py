@@ -24,6 +24,8 @@ list field and its fiber->global parameter mapping.
 """
 from __future__ import annotations
 
+from mmcore.numeric._work_budget import reconcile_reported
+
 
 def new_status(max_cells, max_results, extra_list_fields=()):
     status = {
@@ -69,9 +71,9 @@ def consume_bezier_status(
     """
     result = dict(result)
     reported_cells = max(0, int(result.get('cells_processed', 0)))
-    charged_cells = max(1, reported_cells)
-    cells_overrun = charged_cells > cell_allowance
-    status['cells_processed'] += min(charged_cells, cell_allowance)
+    charged_cells, cells_overrun = reconcile_reported(
+        reported_cells, cell_allowance)
+    status['cells_processed'] += charged_cells
 
     kept = 0
     result_overrun = False

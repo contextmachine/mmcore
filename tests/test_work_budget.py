@@ -312,6 +312,27 @@ def test_down_counter_clamps_construction_and_tiers():
     assert c2.tier(2_000) == 0           # never negative
 
 
+def test_reconcile_reported_bills_at_least_the_floor():
+    from mmcore.numeric._work_budget import reconcile_reported
+
+    # A fast-rejected span reporting zero work still costs one unit — an
+    # arbitrarily large candidate set must not bypass an aggregate
+    # allowance.
+    assert reconcile_reported(0, 100) == (1, False)
+    assert reconcile_reported(7, 100) == (7, False)
+
+
+def test_reconcile_reported_clamps_overruns_instead_of_denying():
+    from mmcore.numeric._work_budget import reconcile_reported
+
+    # The work already happened; the ledger only reconciles it.
+    assert reconcile_reported(150, 100) == (100, True)
+    assert reconcile_reported(1, 0) == (0, True)
+    # floor=0 disables the minimum charge (for ledgers without the
+    # anti-starvation rule).
+    assert reconcile_reported(0, 100, floor=0) == (0, False)
+
+
 def test_bern_zero_1d_reexports_are_the_same_objects():
     # ccx/csx and the tests import these via _bern_zero_1d; the move must
     # preserve identity (the solver reads the SAME ContextVar object).

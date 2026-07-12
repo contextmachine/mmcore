@@ -131,6 +131,7 @@ def _bernstein_product_nd(a, b):
 
 
 from mmcore.numeric import bern_sq_dist
+from mmcore.numeric._work_budget import reconcile_reported
 from mmcore.numeric.bern import bernstein_partial_derivative_coeffs
 
 
@@ -942,10 +943,10 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
             trace_incomplete = True
         else:
             reported_steps = max(0, int(trace_stats['steps_processed']))
-            charged_steps = min(remaining, max(1, reported_steps))
+            charged_steps, overrun = reconcile_reported(
+                reported_steps, remaining)
             trace_incomplete = (
-                bool(trace_stats.get('budget_exhausted', False))
-                or reported_steps > remaining)
+                bool(trace_stats.get('budget_exhausted', False)) or overrun)
         trace_steps += charged_steps
         if trace_incomplete:
             budget_exhausted = True
@@ -1183,7 +1184,7 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3, *,
                                          max_cells=remaining,
                                          stats=patch_stats)
         used = max(0, int(patch_stats.get("cells_processed", 0)))
-        remaining -= max(1, used)
+        remaining -= reconcile_reported(used, remaining)[0]
         agg_cells += used
         agg_exhausted |= bool(patch_stats.get("budget_exhausted", False))
         for e in local:
@@ -1322,7 +1323,7 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False,
                                            max_cells=remaining,
                                            stats=patch_stats)
         used = max(0, int(patch_stats.get("cells_processed", 0)))
-        remaining -= max(1, used)
+        remaining -= reconcile_reported(used, remaining)[0]
         agg_cells += used
         agg_exhausted |= bool(patch_stats.get("budget_exhausted", False))
 

@@ -363,6 +363,25 @@ def bernstein_zero_budget(max_nodes: int, max_results: int):
         _ZERO_BUDGET.reset(token)
 
 
+def reconcile_reported(reported: int, allowance: int,
+                       floor: int = 1) -> tuple:
+    """Bill already-performed work against a remaining allowance.
+
+    The clamp-and-charge family (`_adapter_status.consume_bezier_status`,
+    the closest-point NURBS aggregators and trace reconciliation): the
+    work has ALREADY happened, so the ledger reconciles rather than
+    denies.  Every dispatch costs at least ``floor`` units — a
+    fast-rejected span reporting zero solver work must not let an
+    arbitrarily large candidate set bypass the aggregate allowance — and
+    an overrun clamps to the allowance while flagging it.
+
+    Returns ``(billed, overrun)``.
+    """
+    demanded = max(int(floor), int(reported))
+    allowance = max(0, int(allowance))
+    return min(demanded, allowance), demanded > allowance
+
+
 def charge_hook(budget: Optional[SoftWorkBudget],
                 source: str) -> Optional[Callable[..., bool]]:
     """Bind a cell-ledger charge callback to ``budget``, or None.
