@@ -10,6 +10,8 @@ Usage:
     python examples/ssx/bez_ssx5_coverage_check.py 10 11   # check cases 10, 11
     python examples/ssx/bez_ssx5_coverage_check.py         # check all known cases
 """
+import json
+import os
 import sys
 
 import numpy as np
@@ -84,7 +86,45 @@ def load_case_surfaces(case):
             bool(ns.get("RATIONAL", False)))
 
 
-def check_case(case, atol=1e-3, n_ref=200):
+WORK_BASELINE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "bez_ssx5_work_baseline.json")
+# Review doc 2026-07-12 §11.5 (ledger L52 slice 11): the gate records
+# per-case status.work and fails on >2x cells drift, so headroom
+# regressions surface the day they happen — not the day a model freezes.
+WORK_DRIFT_FACTOR = 2.0
+
+
+def load_work_baseline():
+    try:
+        with open(WORK_BASELINE_PATH) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def check_work_drift(case, res, baseline):
+    work = res.get("status", {}).get("work", {})
+    cells = int(work.get("cells_processed", 0))
+    csx_calls = int(work.get("csx_calls", 0))
+    base = baseline.get(str(case))
+    if base is None:
+        print(f"    work cells={cells} csx_calls={csx_calls} "
+              f"(no baseline recorded — run --update-baseline)")
+        return True, cells, csx_calls
+    base_cells = max(1, int(base.get("cells_processed", 0)))
+    ratio = cells / base_cells
+    line = (f"    work cells={cells} csx_calls={csx_calls} "
+            f"(baseline {base_cells}, x{ratio:.2f})")
+    if cells > WORK_DRIFT_FACTOR * base_cells:
+        print(line + "  WORK DRIFT: exceeds "
+              f"{WORK_DRIFT_FACTOR}x baseline")
+        return False, cells, csx_calls
+    print(line)
+    return True, cells, csx_calls
+
+
+def check_case(case, atol=1e-3, n_ref=200, work_baseline=None,
+               work_out=None):
     import time
     S1, S2, rational = load_case_surfaces(case)
     t0 = time.time()
@@ -94,6 +134,11 @@ def check_case(case, atol=1e-3, n_ref=200):
     polys = []
     print(f"=== case {case}: {dt:.2f}s, {len(res['branches'])} branches, "
           f"{len(res['points'])} points")
+    work_ok, cells, csx_calls = check_work_drift(
+        case, res, work_baseline if work_baseline is not None else {})
+    if work_out is not None:
+        work_out[str(case)] = {"cells_processed": cells,
+                               "csx_calls": csx_calls}
     for bi, b in enumerate(res["branches"]):
         xyz = np.asarray(b.curve[1])
         seg = np.linalg.norm(np.diff(xyz, axis=0), axis=1)
@@ -136,10 +181,22 @@ def check_case(case, atol=1e-3, n_ref=200):
           + (f"; MISSED {int(missed.sum())} "
              f"(worst {float(dists[missed].max()):.4f} at s={ws[missed][np.argmax(dists[missed])]:.4f})"
              if missed.any() else ""))
-    return (not missed.any()) and clean_singularities
+    return (not missed.any()) and clean_singularities and work_ok
 
 
 if __name__ == "__main__":
-    cases = [int(a) for a in sys.argv[1:]] or list(ALL_CASES)
-    ok = all([check_case(c) for c in cases])
+    args = sys.argv[1:]
+    update_baseline = "--update-baseline" in args
+    cases = [int(a) for a in args if a != "--update-baseline"]
+    cases = cases or list(ALL_CASES)
+    baseline = load_work_baseline()
+    measured = {}
+    ok = all([check_case(c, work_baseline=baseline, work_out=measured)
+              for c in cases])
+    if update_baseline:
+        baseline.update(measured)
+        with open(WORK_BASELINE_PATH, "w") as fh:
+            json.dump(baseline, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        print(f"work baseline updated: {WORK_BASELINE_PATH}")
     sys.exit(0 if ok else 1)
