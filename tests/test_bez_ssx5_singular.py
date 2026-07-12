@@ -3219,3 +3219,51 @@ def test_edge_graze_transversal_arc_survives(d0, expected_branches):
     assert worst <= 5 * atol, (
         f"analytic arc not covered: worst={worst:.5f} at "
         f"t={float(truth[int(dists.argmax()), 1]):.4f}")
+
+
+# ---------------------------------------------------------------------------
+# Ledger L49: cut-face CSX parameter_fibers must be surfaced, not dropped
+# ---------------------------------------------------------------------------
+
+def test_interior_pinch_cut_face_fibers_are_surfaced():
+    """An interior pinched isoline (middle control row R1 = 2P - (R0+R2)/2
+    makes the s=0.5 isoline collapse EXACTLY to the point P, with S_t = 0
+    along it) lying ON the other surface: guided cuts through the pinch hand
+    the collapsed isoline to cut-face CSX, which returns a parameter_fiber
+    and zero isolated roots with budget_exhausted=False. The consumer loops
+    read only 'isolated' — before the L49 fix the fiber vanished without a
+    trace (the boundary path marks REASON_PARAMETER_FIBER for the same
+    structure). The SSI here is two curves crossing at P (an X junction at
+    the fiber image): the geometry must ship whole AND the positive-
+    dimensional preimage must be named in the reasons."""
+    from examples.ssx.bez_ssx5_coverage_check import point_to_polyline_dist
+    from mmcore.numeric.intersection._bezier_common import eval_surface
+
+    P = np.array([0.5, 0.5, 0.0])
+    a, b = 0.6, 0.15
+    r0z = np.array([b, b - a, b])              # Bernstein-2: b - 2at(1-t)
+    R0 = np.column_stack([np.zeros(3), [0.0, 0.5, 1.0], r0z])
+    R2 = np.column_stack([np.ones(3), [0.0, 0.5, 1.0], -r0z])
+    R1 = 2.0 * P[None, :] - 0.5 * (R0 + R2)
+    S1 = np.stack([R0, R1, R2], axis=0)        # (3,3,3), degree (2,2)
+    S2 = np.array([[[-1.0, -1.0, 0.0], [-1.0, 2.0, 0.0]],
+                   [[2.0, -1.0, 0.0], [2.0, 2.0, 0.0]]])
+
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+
+    # the positive-dimensional cut-face structure is NAMED, not silent
+    assert "parameter_fiber" in r["status"]["reasons"], r["status"]["reasons"]
+
+    # geometry: both parameter lines t = 1/2 (1 ± sqrt(1 - 2b/a)) ship whole
+    kinds = [g.kind for g in r.get("singularities", [])]
+    assert "cusp_curve" in kinds, kinds
+    polys = [np.asarray(br.curve[1], dtype=float) for br in r["branches"]]
+    assert polys, r
+    S1_h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
+    root_off = 0.5 * np.sqrt(1.0 - 2.0 * b / a)
+    for t_root in (0.5 - root_off, 0.5 + root_off):
+        pts = np.array([eval_surface(S1_h, s, t_root, rational=True)
+                        for s in np.linspace(0.0, 1.0, 101)])
+        d = np.array([min(point_to_polyline_dist(p, poly) for poly in polys)
+                      for p in pts])
+        assert float(d.max()) <= 5e-3, (t_root, float(d.max()))

@@ -6097,6 +6097,23 @@ def _split_tensor_multi(T, axis_4d, cut_values, cell_box):
     return pieces
 
 
+def _surface_cut_face_fibers(csx_result, work_budget):
+    """Ledger L49: name positive-dimensional cut-face preimages, never drop them.
+
+    A cut-face CSX on a pinched isoline (the cut collapses to a point lying
+    on the other surface — the interior analogue of case 14's apex edge)
+    returns `parameter_fibers` with zero isolated roots and
+    `budget_exhausted=False`. The cut-face consumers read only `isolated`,
+    so before this the fiber vanished without any status trace, while the
+    boundary path marks the SAME structure (`REASON_PARAMETER_FIBER`, see
+    the boundary-fiber block in `bez_ssx`): a fiber's incident SSI branch
+    multiplicity is unproved, so a complete-topology claim must be refused.
+    Mirror that policy here; the isolated-root flow is unchanged.
+    """
+    if work_budget is not None and csx_result.get('parameter_fibers'):
+        work_budget.mark_incomplete(REASON_PARAMETER_FIBER)
+
+
 def _csx_on_cut_face(cell, cut_axis: int, cut_global_val: float, atol: float):
     """Run boundary CSX on one cut face of a cell.
 
@@ -7399,7 +7416,7 @@ def bez_ssx(
                 s2_piece_surf = g2_pieces[s2_idx].surface
                 csx_r = _run_csx(
                     isoline_s1, s2_piece_surf, atol=atol, rational=True)
-                #print(csx_r)
+                _surface_cut_face_fibers(csx_r, budget)
                 csx_r['isolated'] = list(filter(
                     lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_r['isolated']))
 
@@ -7446,6 +7463,7 @@ def bez_ssx(
                 s1_piece_surf = g1_pieces[s1_idx].surface
                 csx_r = _run_csx(
                     isoline_s2, s1_piece_surf, atol=atol, rational=True)
+                _surface_cut_face_fibers(csx_r, budget)
                 csx_r['isolated'] = list(filter(
                     lambda x: not (((1 - x['t']) < 1e-6) or (x['t'] < 1e-6)), csx_r['isolated']))
 
