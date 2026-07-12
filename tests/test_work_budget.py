@@ -201,6 +201,101 @@ def test_reason_vocabulary_is_stable():
     assert REASON_TRACE_UNVERIFIED == "trace_unverified"
 
 
+def test_bernstein_zero_budget_nodes_are_check_then_charge():
+    from mmcore.numeric._work_budget import BernsteinZeroBudget
+
+    b = BernsteinZeroBudget(max_nodes=2, max_results=10)
+    assert b.enter() and b.enter()
+    assert b.nodes == 2 and b.active_depth == 2
+    assert not b.enter()          # denied, nothing spent
+    assert b.nodes == 2
+    assert b.exhausted
+    b.leave()
+    b.leave()
+    assert b.active_depth == 0
+
+
+def test_bernstein_zero_budget_results_charge_at_completion_after_clamp():
+    from mmcore.numeric._work_budget import BernsteinZeroBudget
+
+    b = BernsteinZeroBudget(max_nodes=10, max_results=3)
+    kept = b.cap_top_level_results([1.0, 2.0])
+    assert kept == [1.0, 2.0]
+    assert b.results == 2 and not b.exhausted
+    # Overproduction truncates silently and charges only what was kept.
+    kept = b.cap_top_level_results([3.0, 4.0, 5.0])
+    assert kept == [3.0]
+    assert b.results == 3
+    assert b.exhausted
+    assert b.remaining_results() == 0
+
+
+def test_bernstein_zero_budget_scope_sets_and_resets_contextvar():
+    from mmcore.numeric._work_budget import (
+        bernstein_zero_budget, _ZERO_BUDGET)
+
+    assert _ZERO_BUDGET.get() is None
+    with bernstein_zero_budget(5, 5) as outer:
+        assert _ZERO_BUDGET.get() is outer
+        with bernstein_zero_budget(1, 1) as inner:
+            assert _ZERO_BUDGET.get() is inner
+        assert _ZERO_BUDGET.get() is outer
+    assert _ZERO_BUDGET.get() is None
+
+
+def test_latching_spend_is_all_or_nothing_and_latches():
+    from mmcore.numeric._work_budget import LatchingSpend
+
+    led = LatchingSpend(max_work=5)
+    assert led.spend(3)
+    assert not led.spend(3)          # would overflow: denied, latched
+    assert led.work_processed == 3
+    assert led.exhausted
+    assert not led.spend(1)          # latched: fails fast
+    assert not led.external_exhausted
+
+
+def test_latching_spend_zero_amount_is_a_noop():
+    from mmcore.numeric._work_budget import LatchingSpend
+
+    led = LatchingSpend(max_work=0)
+    assert led.spend(0)
+    assert led.work_processed == 0 and not led.exhausted
+
+
+def test_latching_spend_external_hook_charged_after_local_check():
+    from mmcore.numeric._work_budget import LatchingSpend
+
+    calls = []
+
+    def hook(n):
+        calls.append(n)
+        return len(calls) < 2   # second external charge denied
+
+    led = LatchingSpend(max_work=100, charge_external=hook)
+    assert led.spend(4)
+    assert calls == [4]
+    assert not led.spend(5)          # external denial
+    assert led.work_processed == 4   # local spend NOT recorded on denial
+    assert led.exhausted and led.external_exhausted
+    # local denial must never consult the external hook
+    led2 = LatchingSpend(max_work=2, charge_external=hook)
+    calls.clear()
+    assert not led2.spend(3)
+    assert calls == []
+
+
+def test_bern_zero_1d_reexports_are_the_same_objects():
+    # ccx/csx and the tests import these via _bern_zero_1d; the move must
+    # preserve identity (the solver reads the SAME ContextVar object).
+    from mmcore.numeric.intersection import _bern_zero_1d as bz
+    from mmcore.numeric import _work_budget as wb
+
+    assert bz.BernsteinZeroBudget is wb.BernsteinZeroBudget
+    assert bz.bernstein_zero_budget is wb.bernstein_zero_budget
+    assert bz._ZERO_BUDGET is wb._ZERO_BUDGET
+
+
 def test_bez_ssx5_reexports_are_the_same_objects():
     # Behavior-preservation contract: existing consumers access these via
     # the _bez_ssx5 module namespace (tests, budget-contract gate).

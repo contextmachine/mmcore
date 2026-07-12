@@ -19,6 +19,7 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from mmcore.numeric._work_budget import LatchingSpend
 from mmcore.numeric.bern import (
     bernstein_eval_nd,
     bernstein_partial_derivative_coeffs,
@@ -1127,38 +1128,23 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
         eval_surface, eval_surface_d1,
     )
     ptol4 = np.asarray(ptol4, dtype=np.float64)
-    max_work = max(0, int(max_work))
-    work_processed = 0
     pairs_processed = 0
     candidate_pairs = 0
-    budget_exhausted = False
-    external_budget_exhausted = False
-
-    def _spend(amount=1):
-        """Charge a bounded C3 work unit before performing it."""
-        nonlocal work_processed, budget_exhausted, external_budget_exhausted
-        amount = max(0, int(amount))
-        if budget_exhausted:
-            return False
-        if work_processed + amount > max_work:
-            budget_exhausted = True
-            return False
-        if charge_work is not None and not charge_work(amount):
-            budget_exhausted = True
-            external_budget_exhausted = True
-            return False
-        work_processed += amount
-        return True
+    # check-then-charge / all-or-nothing / latching ledger with the shared
+    # budget as the external hook — the L52 shared implementation of the
+    # former hand-rolled ``_spend`` closure.
+    _ledger = LatchingSpend(max_work=max_work, charge_external=charge_work)
+    _spend = _ledger.spend
 
     def _publish_stats():
         if stats is not None:
             stats.update(
-                work_processed=int(work_processed),
+                work_processed=int(_ledger.work_processed),
                 pairs_processed=int(pairs_processed),
                 candidate_pairs=int(candidate_pairs),
-                budget_exhausted=bool(budget_exhausted),
-                external_budget_exhausted=bool(external_budget_exhausted),
-                incomplete=bool(budget_exhausted),
+                budget_exhausted=bool(_ledger.exhausted),
+                external_budget_exhausted=bool(_ledger.external_exhausted),
+                incomplete=bool(_ledger.exhausted),
             )
 
     def seg_dist(p1, p2, q1, q2):
@@ -1307,12 +1293,12 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
         a4 = (1 - s_) * S4a[k] + s_ * S4b[k]
         b4 = (1 - t_) * S4a[l] + t_ * S4b[l]
         candidate_hits = solve_candidate(a4, b4)
-        if budget_exhausted:
+        if _ledger.exhausted:
             return
         for stuv, mate, xyz in candidate_hits:
             ak = _anchor_vertex(int(br[k]), int(ix[k]), xyz)
             al = _anchor_vertex(int(br[l]), int(ix[l]), xyz)
-            if budget_exhausted or ak is None or al is None:
+            if _ledger.exhausted or ak is None or al is None:
                 return
             links = [(int(br[k]), ak), (int(br[l]), al)]
             dup = None
@@ -1377,7 +1363,7 @@ def c3_pass(S1_h, S2_h, branches, atol, ptol4, *,
             candidate_pairs += len(ki)
             for k, l in zip(ki, li):
                 _process_pair(int(k), int(l))
-                if budget_exhausted:
+                if _ledger.exhausted:
                     stop = True
                     break
             if stop:

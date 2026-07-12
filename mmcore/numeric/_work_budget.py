@@ -37,6 +37,8 @@ requires a reason, and only root-cause transitions record one.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -221,6 +223,115 @@ class SoftWorkBudget:
                 },
             },
         }
+
+
+@dataclass
+class BernsteinZeroBudget:
+    """Scoped work/result budget for nested Bernstein zero searches.
+
+    ``classify_sq_dist_net`` calls the 1-D zero-finder without budget
+    arguments.  A context-local budget lets CCX/CSX bound those Phase-1
+    calls without a process-global mutable limit (and without changing the
+    public classifier API).  ``nodes`` counts recursive solver invocations
+    (ordinary check-then-charge).  Results are charged only when a
+    top-level boundary solve returns — the charge-at-completion-after-
+    truncation family in this module's registry — so shared subdivision
+    endpoints do not consume the result allowance repeatedly.  The
+    remaining result allowance is nevertheless propagated through
+    recursion so a capped solve stops before materializing an unbounded
+    result list.
+    """
+
+    max_nodes: int
+    max_results: int
+    nodes: int = 0
+    results: int = 0
+    active_depth: int = 0
+    exhausted: bool = False
+
+    def enter(self) -> bool:
+        if self.nodes >= self.max_nodes:
+            self.exhausted = True
+            return False
+        self.nodes += 1
+        self.active_depth += 1
+        return True
+
+    def leave(self) -> None:
+        self.active_depth -= 1
+
+    def remaining_results(self) -> int:
+        return max(0, self.max_results - self.results)
+
+    def cap_top_level_results(self, values: list) -> list:
+        remaining = self.remaining_results()
+        if len(values) > remaining:
+            self.exhausted = True
+            values = values[:remaining]
+        self.results += len(values)
+        return values
+
+
+@dataclass
+class LatchingSpend:
+    """Check-then-charge, all-or-nothing, latching work ledger.
+
+    Extraction of the ``_spend`` closure from ``c3_pass``
+    (``_ssx5_singular``): a local cap plus an OPTIONAL external hook
+    (typically :func:`charge_hook` over a shared :class:`SoftWorkBudget`).
+    Semantics preserved exactly:
+
+    - a denied amount is never partially spent;
+    - once exhausted, every later spend fails fast;
+    - the external hook is consulted only AFTER the local check passes, so
+      a local denial never phantom-charges the shared ledger — and a
+      hook denial leaves the LOCAL counter unspent (the shared ledger has
+      latched anyway, so the double-count is moot and matches the closure).
+    """
+
+    max_work: int
+    charge_external: Optional[Callable[[int], bool]] = None
+    work_processed: int = 0
+    exhausted: bool = False
+    external_exhausted: bool = False
+
+    def __post_init__(self):
+        self.max_work = max(0, int(self.max_work))
+
+    def spend(self, amount: int = 1) -> bool:
+        amount = max(0, int(amount))
+        if self.exhausted:
+            return False
+        if self.work_processed + amount > self.max_work:
+            self.exhausted = True
+            return False
+        if (self.charge_external is not None
+                and not self.charge_external(amount)):
+            self.exhausted = True
+            self.external_exhausted = True
+            return False
+        self.work_processed += amount
+        return True
+
+
+_ZERO_BUDGET: ContextVar[Optional[BernsteinZeroBudget]] = ContextVar(
+    "bernstein_zero_budget", default=None,
+)
+
+
+@contextmanager
+def bernstein_zero_budget(max_nodes: int, max_results: int):
+    """Bound all nested ``find_bernstein_zeros_1d`` calls in a scope."""
+
+    budget = BernsteinZeroBudget(
+        max_nodes=max(0, int(max_nodes)),
+        max_results=max(0, int(max_results)),
+    )
+    token = _ZERO_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _ZERO_BUDGET.reset(token)
 
 
 def charge_hook(budget: Optional[SoftWorkBudget],

@@ -11,76 +11,18 @@ Key design choices:
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
-
 import numpy as np
 from numpy.typing import NDArray
 
-
-@dataclass
-class BernsteinZeroBudget:
-    """Scoped work/result budget for nested Bernstein zero searches.
-
-    ``classify_sq_dist_net`` calls this module without budget arguments.  A
-    context-local budget lets CCX/CSX bound those Phase-1 calls without a
-    process-global mutable limit (and without changing the public classifier
-    API).  ``nodes`` counts recursive solver invocations.  Results are charged
-    only when a top-level boundary solve returns, so shared subdivision
-    endpoints do not consume the result allowance repeatedly.  The remaining
-    result allowance is nevertheless propagated through recursion so a capped
-    solve stops before materializing an unbounded result list.
-    """
-
-    max_nodes: int
-    max_results: int
-    nodes: int = 0
-    results: int = 0
-    active_depth: int = 0
-    exhausted: bool = False
-
-    def enter(self) -> bool:
-        if self.nodes >= self.max_nodes:
-            self.exhausted = True
-            return False
-        self.nodes += 1
-        self.active_depth += 1
-        return True
-
-    def leave(self) -> None:
-        self.active_depth -= 1
-
-    def remaining_results(self) -> int:
-        return max(0, self.max_results - self.results)
-
-    def cap_top_level_results(self, values: list[float]) -> list[float]:
-        remaining = self.remaining_results()
-        if len(values) > remaining:
-            self.exhausted = True
-            values = values[:remaining]
-        self.results += len(values)
-        return values
-
-
-_ZERO_BUDGET: ContextVar[BernsteinZeroBudget | None] = ContextVar(
-    "bernstein_zero_budget", default=None,
+# The scoped budget lives in the shared budget module (ledger L52 — the
+# 8-way accounting merge).  Re-imported here because CCX/CSX and the test
+# suites construct it via this module's namespace, and the solver below
+# reads the SAME ContextVar object.
+from mmcore.numeric._work_budget import (  # noqa: F401
+    BernsteinZeroBudget,
+    bernstein_zero_budget,
+    _ZERO_BUDGET,
 )
-
-
-@contextmanager
-def bernstein_zero_budget(max_nodes: int, max_results: int):
-    """Bound all nested :func:`find_bernstein_zeros_1d` calls in a scope."""
-
-    budget = BernsteinZeroBudget(
-        max_nodes=max(0, int(max_nodes)),
-        max_results=max(0, int(max_results)),
-    )
-    token = _ZERO_BUDGET.set(budget)
-    try:
-        yield budget
-    finally:
-        _ZERO_BUDGET.reset(token)
 
 
 def _count_sign_changes(coeffs: NDArray) -> int:
