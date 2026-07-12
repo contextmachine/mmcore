@@ -125,6 +125,12 @@ def test_sub_tolerance_quadratic_hump_is_one_tolerance_overlap():
     assert overlap["certification"] == "tolerance"
     # apex of the quadratic = ctrl_y / 2
     assert overlap["residual_max"] == pytest.approx(0.25 * ATOL, rel=1e-9)
+    # The span itself IS where the exact endpoint touches live (slice-5
+    # review finding): a mislocated/partial span (e.g. (0, 0.5)) would
+    # silently drop coincident range that boolean2d's shared-edge merge
+    # relies on, while passing every assertion above.
+    assert np.allclose(overlap["u_range"], (0.0, 1.0), atol=0.0)
+    assert np.allclose(overlap["v_range"], (0.0, 1.0), atol=0.0)
 
 
 def test_exact_coincident_straight_curves_remain_an_overlap():
