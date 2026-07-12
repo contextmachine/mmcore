@@ -1,4 +1,17 @@
-"""Exact-set contracts for the public Bezier CCX result schema."""
+"""Exact-set contracts for the public Bezier CCX result schema.
+
+Re-pinned 2026-07-12 (ledger L56): this suite predated the L47 residual-
+certified overlap tier and still asserted the pre-L47 semantics
+("sub-tolerance sets are never reported as overlaps").  Under the
+USER-APPROVED L47 contract a crossing-free pair whose dense inversion
+pairs at residual <= atol ships as ONE overlap with
+``certification='tolerance'`` — the exactness property survives in
+sharpened form: such pairs are NEVER certified ``'exact'`` (measured:
+even a 5e-324 offset stays 'tolerance'), and the exact-affine identity
+tier remains magnitude/weight-scale independent.  The suite went
+stale-red silently because it was not in the kickoff §3 gate list; it is
+now part of the unit-batch gate.
+"""
 
 import numpy as np
 import pytest
@@ -45,7 +58,7 @@ def _homogeneous(points, weights, scale=1.0):
     "dz",
     [0.5 * ATOL, 1e-12, np.nextafter(0.0, 1.0)],
 )
-def test_sub_tolerance_parallel_polynomial_lines_are_not_the_same_set(dz):
+def test_sub_tolerance_parallel_polynomial_lines_are_tolerance_never_exact(dz):
     first = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     second = first.copy()
     second[:, 2] = dz
@@ -53,9 +66,16 @@ def test_sub_tolerance_parallel_polynomial_lines_are_not_the_same_set(dz):
     result = bez_ccx(first, second, atol=ATOL, rational=False)
 
     assert result["isolated"] == []
-    assert result["overlaps"] == []
     assert result["budget_exhausted"] is False
     assert result["boundary_topology_complete"] is True
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    # The exactness contract proper: a nonzero offset must never be
+    # certified 'exact', no matter how far below atol it sits.
+    assert overlap["certification"] == "tolerance"
+    assert overlap["residual_max"] == pytest.approx(dz, abs=1e-15)
+    assert np.allclose(overlap["u_range"], (0.0, 1.0), atol=0.0)
+    assert np.allclose(overlap["v_range"], (0.0, 1.0), atol=0.0)
 
 
 @pytest.mark.parametrize("scale1,scale2", [(1.0, 1.0), (1e-30, 1e30)])
@@ -71,13 +91,23 @@ def test_sub_tolerance_parallel_rational_lines_are_weight_scale_invariant(
 
     result = bez_ccx(first, second, atol=ATOL, rational=True)
 
+    # Weight-scale invariance: the (1,1) and (1e-30,1e30) parametrizations
+    # must produce the SAME classification — one tolerance overlap whose
+    # residual is the geometric gap, never an 'exact' claim.
     assert result["isolated"] == []
-    assert result["overlaps"] == []
     assert result["budget_exhausted"] is False
     assert result["boundary_topology_complete"] is True
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    assert overlap["certification"] == "tolerance"
+    assert overlap["residual_max"] == pytest.approx(dz, rel=1e-6)
 
 
-def test_sub_tolerance_quadratic_hump_has_only_its_exact_endpoint_roots():
+def test_sub_tolerance_quadratic_hump_is_one_tolerance_overlap():
+    # The hump touches the line exactly at both ends and deviates 0.25*atol
+    # at its apex with no transverse sign flip — under the L47 contract a
+    # non-flipping in-band pair is ONE tolerance overlap whose endpoints
+    # carry the exact touches (they must not double-report as isolated).
     line = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     hump = np.array([
         [0.0, 0.0, 0.0],
@@ -87,14 +117,14 @@ def test_sub_tolerance_quadratic_hump_has_only_its_exact_endpoint_roots():
 
     result = bez_ccx(line, hump, atol=ATOL, rational=False)
 
-    assert result["overlaps"] == []
     assert result["budget_exhausted"] is False
     assert result["boundary_topology_complete"] is True
-    assert len(result["isolated"]) == 2
-    assert {(root["u"], root["v"]) for root in result["isolated"]} == {
-        (0.0, 0.0),
-        (1.0, 1.0),
-    }
+    assert result["isolated"] == []
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    assert overlap["certification"] == "tolerance"
+    # apex of the quadratic = ctrl_y / 2
+    assert overlap["residual_max"] == pytest.approx(0.25 * ATOL, rel=1e-9)
 
 
 def test_exact_coincident_straight_curves_remain_an_overlap():
@@ -129,8 +159,14 @@ def test_exact_curved_affine_parameter_subcurve_remains_an_overlap():
 
 
 @pytest.mark.parametrize("rational", [False, True])
-def test_translated_sub_tolerance_parallel_lines_remain_distinct(rational):
-    """Neither strict roots nor overlap identity may use world magnitude."""
+def test_translated_sub_tolerance_parallel_lines_never_certify_exact(rational):
+    """Neither strict roots nor overlap identity may use world magnitude.
+
+    The exact-affine identity must keep refusing the 5e-4 gap at a 2e10
+    origin (no world-magnitude envelope); the pair then promotes through
+    the L47 tolerance tier with the geometric gap as its residual, exactly
+    as it does at the origin — translation changes nothing.
+    """
     origin = 2.0e10
     gap = 5.0e-4
     first_xyz = np.array([
@@ -151,9 +187,14 @@ def test_translated_sub_tolerance_parallel_lines_remain_distinct(rational):
     result = bez_ccx(first, second, atol=ATOL, rational=rational)
 
     assert result["isolated"] == []
-    assert result["overlaps"] == []
     assert result["budget_exhausted"] is False
     assert result["boundary_topology_complete"] is True
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    assert overlap["certification"] == "tolerance"
+    # Inversion at a 2e10 origin costs a few float64 ulps of the gap, not
+    # more (poly measured 4.997e-4, rational 5.035e-4).
+    assert overlap["residual_max"] == pytest.approx(gap, rel=2e-2)
 
 
 def test_large_translated_exact_lines_remain_an_overlap():
@@ -208,7 +249,10 @@ def test_float_built_quadratic_subcurve_remains_an_overlap():
         whole, part, (lo, hi), (0.0, 1.0), rational=False)
 
 
-def test_tolerant_non_affine_overlap_candidate_returns_bounded_partial():
+def test_tolerant_non_affine_overlap_candidate_returns_typed_partial():
+    # L47: an overlap-class candidate the tolerance certificate cannot
+    # promote exhausts its bounded fallback and ships the TYPED span —
+    # never a bare budget flag with a complete-looking topology claim.
     first = np.array([
         [-19.77608536, 23.10065701, 0.0],
         [-14.86834768, 28.69713066, 0.0],
@@ -226,5 +270,8 @@ def test_tolerant_non_affine_overlap_candidate_returns_bounded_partial():
 
     assert result["overlaps"] == []
     assert result["budget_exhausted"] is True
-    assert result["boundary_topology_complete"] is True
+    assert result["boundary_topology_complete"] is False
     assert result["cells_processed"] < 5_000
+    span = result["uncertified_overlap_span"]
+    assert span[0] == pytest.approx(0.0, abs=1e-9)
+    assert span[1] == pytest.approx(0.8276, abs=5e-3)
