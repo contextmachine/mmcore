@@ -13,6 +13,7 @@ import numpy as np
 
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.aabb import aabb_intersect,aabb
+from mmcore.numeric._work_budget import DownCounter
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import extract_weights, eval_curve, eval_curve_d1, newton_ccx
@@ -982,8 +983,7 @@ def bez_ccx(
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
 
-    cells_remaining = max(0, int(max_cells))
-    cells_processed = 0
+    cells = DownCounter(max_cells)
     budget_exhausted = False
 
     def _result(isolated, overlaps, *, topology_complete=True):
@@ -991,11 +991,11 @@ def bez_ccx(
             "isolated": isolated,
             "overlaps": overlaps,
             "budget_exhausted": bool(budget_exhausted),
-            "cells_processed": int(cells_processed),
+            "cells_processed": int(cells.processed),
             "boundary_topology_complete": bool(topology_complete),
         }
 
-    if cells_remaining <= 0:
+    if cells.remaining <= 0:
         budget_exhausted = True
         return _result([], [], topology_complete=False)
 
@@ -1021,8 +1021,7 @@ def bez_ccx(
     # every recursive 1-D boundary solve it invokes.  The root cap is kept
     # deliberately below the point where the classifier's pairwise valley
     # check becomes a material O(B^2) operation.
-    cells_remaining -= 1
-    cells_processed += 1
+    cells.spend(1)
     from mmcore.numeric.intersection._bern_zero_1d import bernstein_zero_budget
     boundary_root_cap = min(max(0, int(max_results)), 128)
 
@@ -1042,10 +1041,9 @@ def bez_ccx(
         budget_exhausted = True
         return _result([], [], topology_complete=False)
 
-    with bernstein_zero_budget(cells_remaining, boundary_root_cap) as zero_budget:
+    with bernstein_zero_budget(cells.remaining, boundary_root_cap) as zero_budget:
         cls = classify_sq_dist_net(F, atol, Pw, Qw)
-    cells_remaining -= zero_budget.nodes
-    cells_processed += zero_budget.nodes
+    cells.spend(zero_budget.nodes)
 
     # A capped boundary solve is not a smaller-but-valid topology.  In
     # particular, using its endpoints to declare an overlap or cut Phase 2
@@ -1153,9 +1151,8 @@ def bez_ccx(
     residual_band_evidence = False
     uncertified_span_evidence = None
     interior_bracket_hits = []
-    if not overlap_found and cells_remaining > 0:
-        cells_remaining -= 1
-        cells_processed += 1
+    if not overlap_found and cells.remaining > 0:
+        cells.spend(1)
         tol_overlap, tol_brackets, residual_band_evidence, \
             uncertified_span_evidence = _tolerance_overlap_certificate(
                 C1_orig, C2_orig, atol, rational, ptol_u, ptol_v)
@@ -1187,7 +1184,7 @@ def bez_ccx(
         (cls.kind == OVERLAP or residual_band_evidence)
         and not overlap_found)
     non_affine_overlap_cells_remaining = (
-        min(cells_remaining, 2_000)
+        cells.tier(2_000)
         if non_affine_overlap_fallback else None
     )
 
@@ -1300,12 +1297,12 @@ def bez_ccx(
             continue
 
         # Run Phase 2 on this sub-interval × full v
-        if (cells_remaining <= 0 or len(isolated) >= max_results
+        if (cells.remaining <= 0 or len(isolated) >= max_results
                 or (non_affine_overlap_fallback
                     and non_affine_overlap_cells_remaining <= 0)):
             budget_exhausted = True
             break
-        phase2_cell_limit = cells_remaining
+        phase2_cell_limit = cells.remaining
         if non_affine_overlap_fallback:
             phase2_cell_limit = min(
                 phase2_cell_limit, non_affine_overlap_cells_remaining)
@@ -1317,8 +1314,7 @@ def bez_ccx(
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
         )
-        cells_remaining -= cells_used
-        cells_processed += cells_used
+        cells.spend(cells_used)
         if non_affine_overlap_fallback:
             non_affine_overlap_cells_remaining -= cells_used
         budget_exhausted = budget_exhausted or phase2_exhausted

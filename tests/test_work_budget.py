@@ -285,6 +285,33 @@ def test_latching_spend_external_hook_charged_after_local_check():
     assert calls == []
 
 
+def test_down_counter_pairs_remaining_and_processed():
+    from mmcore.numeric._work_budget import DownCounter
+
+    c = DownCounter(10)
+    c.spend(3)
+    c.spend(4)
+    assert c.remaining == 3 and c.processed == 7
+    # spend is deliberately unchecked (the bez_ccx/bez_csx family keeps
+    # denial policy at each site); overdraw drives remaining negative and
+    # the site's own guard reacts.
+    c.spend(5)
+    assert c.remaining == -2 and c.processed == 12
+
+
+def test_down_counter_clamps_construction_and_tiers():
+    from mmcore.numeric._work_budget import DownCounter
+
+    c = DownCounter(-5)
+    assert c.remaining == 0 and c.processed == 0
+    c2 = DownCounter(10_000)
+    assert c2.tier(2_000) == 2_000       # bounded sub-allowance
+    c2.spend(9_500)
+    assert c2.tier(2_000) == 500         # drawn from the remainder
+    c2.spend(600)
+    assert c2.tier(2_000) == 0           # never negative
+
+
 def test_bern_zero_1d_reexports_are_the_same_objects():
     # ccx/csx and the tests import these via _bern_zero_1d; the move must
     # preserve identity (the solver reads the SAME ContextVar object).

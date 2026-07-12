@@ -17,6 +17,7 @@ import numpy as np
 from .._bezier_common import _compute_remaining_intervals
 from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric._aabb import aabb_intersect, aabb
+from mmcore.numeric._work_budget import DownCounter
 from mmcore.numeric.bern import (
     de_casteljau_split_nd, bernstein_boundary_nd,
     bernstein_partial_derivative_coeffs,
@@ -524,20 +525,18 @@ def _find_csx_boundary_zeros(
     face set to infer overlap topology or cut the Phase-2 domain.
     """
     zeros = []
-    cells_remaining = max(0, int(max_cells))
-    cells_processed = 0
+    cells = DownCounter(max_cells)
     exhausted = False
     F_3d_v = F_3d[..., np.newaxis]
 
     # --- Type 1: Curve endpoints (t=0, t=1) ---
     # Restrict the 3D net to t=0 and t=1 → 2D nets for point-on-surface
     for t_side in (0, 1):
-        if cells_remaining <= 0:
+        if cells.remaining <= 0:
             exhausted = True
             break
         # Charge the fixed face analysis/Newton probe itself.
-        cells_remaining -= 1
-        cells_processed += 1
+        cells.spend(1)
         face_2d = bernstein_boundary_nd(F_3d_v, axis=0, side=t_side)[..., 0]
 
         # Use the 2D classifier (same as CCX) on this face
@@ -557,11 +556,10 @@ def _find_csx_boundary_zeros(
         # (finds zeros on edges of the face)
         from mmcore.numeric.intersection._bern_zero_1d import bernstein_zero_budget
         with bernstein_zero_budget(
-            cells_remaining, max(0, max_results - len(zeros)),
+            cells.remaining, max(0, max_results - len(zeros)),
         ) as zero_budget:
             face_zeros = _find_precise_bz_2d(face_2d, atol, w_scale)
-        cells_remaining -= zero_budget.nodes
-        cells_processed += zero_budget.nodes
+        cells.spend(zero_budget.nodes)
         if zero_budget.exhausted:
             exhausted = True
             break
@@ -631,7 +629,7 @@ def _find_csx_boundary_zeros(
                     zeros.append(bz)
 
     if exhausted:
-        return zeros, True, cells_processed
+        return zeros, True, cells.processed
 
     # --- Type 2: Surface boundaries (u=0, u=1, v=0, v=1) ---
     # Extract boundary isocurves and run CCX
@@ -659,18 +657,17 @@ def _find_csx_boundary_zeros(
             continue
 
         # Run CCX between the original curve and this isocurve
-        if cells_remaining <= 0:
+        if cells.remaining <= 0:
             exhausted = True
             break
         ccx_result = bez_ccx_v4(
             C, iso_curve, atol=atol, rational=rational,
-            max_cells=cells_remaining,
+            max_cells=cells.remaining,
             max_results=max(0, max_results - len(zeros)),
         )
         ccx_cells = int(ccx_result.get("cells_processed", 0))
-        ccx_cells = min(ccx_cells, cells_remaining)
-        cells_remaining -= ccx_cells
-        cells_processed += ccx_cells
+        ccx_cells = min(ccx_cells, cells.remaining)
+        cells.spend(ccx_cells)
         if (ccx_result.get("budget_exhausted", False)
                 or not ccx_result.get("boundary_topology_complete", True)):
             exhausted = True
@@ -721,7 +718,7 @@ def _find_csx_boundary_zeros(
         if exhausted:
             break
 
-    return zeros, exhausted, cells_processed
+    return zeros, exhausted, cells.processed
 
 
 def _project_point_on_surface(pt, S, u_seed, v_seed, atol, rational, max_it=20):
@@ -1425,8 +1422,7 @@ def bez_csx(
     isolated = []
     overlaps = []
     budget_exhausted = False
-    cells_remaining = max(0, int(max_cells))
-    cells_processed = 0
+    cells = DownCounter(max_cells)
 
     # ===================================================================
     # PHASE 1: Boundary analysis + overlap detection (initial patch only)
@@ -1435,10 +1431,9 @@ def bez_csx(
     (csx_boundary_zeros, boundary_exhausted,
      boundary_cells) = _find_csx_boundary_zeros(
         F, C, S, atol, ptol_t, ptol_u, ptol_v, rational,
-        max_cells=cells_remaining, max_results=boundary_result_cap,
+        max_cells=cells.remaining, max_results=boundary_result_cap,
     )
-    cells_remaining -= boundary_cells
-    cells_processed += boundary_cells
+    cells.spend(boundary_cells)
     if boundary_exhausted:
         # Partial face topology cannot safely drive OVERLAP classification
         # (the valley pairing below needs the complete boundary-zero set,
@@ -1546,7 +1541,7 @@ def bez_csx(
     # Phase 2 cannot turn the rejected candidate into a sound public
     # overlap, so it must not burn the caller's whole allowance failing to.
     fallback_cells_remaining = (
-        min(cells_remaining, _NON_AFFINE_OVERLAP_FALLBACK_CELLS)
+        cells.tier(_NON_AFFINE_OVERLAP_FALLBACK_CELLS)
         if non_affine_overlap_span is not None else None)
 
     def _interval_hits_span(a, b):
@@ -1595,7 +1590,7 @@ def bez_csx(
             non_affine_overlap_span is not None
             and any(not _interval_hits_span(a, b)
                     for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
-        if cells_remaining <= 0 or len(isolated) >= max_results:
+        if cells.remaining <= 0 or len(isolated) >= max_results:
             budget_exhausted = True
             if _rest_has_disjoint:
                 non_span_truncation = True
@@ -1606,7 +1601,7 @@ def bez_csx(
             if _rest_has_disjoint:
                 non_span_truncation = True
             break
-        phase2_cell_limit = cells_remaining
+        phase2_cell_limit = cells.remaining
         if fallback_cells_remaining is not None:
             phase2_cell_limit = min(
                 phase2_cell_limit, fallback_cells_remaining)
@@ -1617,8 +1612,7 @@ def bez_csx(
             max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
         )
-        cells_remaining -= _cells_used
-        cells_processed += _cells_used
+        cells.spend(_cells_used)
         if fallback_cells_remaining is not None:
             fallback_cells_remaining -= _cells_used
         if _phase2_exhausted and not _interval_hits_span(t_lo, t_hi):
@@ -1650,7 +1644,7 @@ def bez_csx(
     result = {"isolated": isolated, "overlaps": overlaps,
               "parameter_fibers": [],
               "budget_exhausted": bool(budget_exhausted),
-              "cells_processed": int(cells_processed),
+              "cells_processed": int(cells.processed),
               "boundary_topology_complete": not (
                   boundary_exhausted or overlap_topology_incomplete)}
     if overlap_topology_incomplete:

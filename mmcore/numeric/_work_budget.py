@@ -273,6 +273,35 @@ class BernsteinZeroBudget:
 
 
 @dataclass
+class DownCounter:
+    """Paired remaining/processed cell counter (the bez_ccx/bez_csx family).
+
+    The two locals that always had to move together (``cells_remaining -=
+    n; cells_processed += n``) live in one object so they cannot drift.
+    ``spend`` is deliberately UNCHECKED: this family keeps its denial
+    policy inline at each site (preflight returns, ``break`` on result
+    caps, honesty flags), and sub-phases draw bounded shared-remainder
+    tiers via :meth:`tier` — ``min(remaining, cap)`` — never a fresh
+    allowance.
+    """
+
+    remaining: int
+    processed: int = 0
+
+    def __post_init__(self):
+        self.remaining = max(0, int(self.remaining))
+
+    def spend(self, amount: int) -> None:
+        amount = int(amount)
+        self.remaining -= amount
+        self.processed += amount
+
+    def tier(self, cap: int) -> int:
+        """A bounded sub-allowance drawn from the remainder."""
+        return max(0, min(self.remaining, int(cap)))
+
+
+@dataclass
 class LatchingSpend:
     """Check-then-charge, all-or-nothing, latching work ledger.
 
