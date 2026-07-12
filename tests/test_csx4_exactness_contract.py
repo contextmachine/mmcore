@@ -28,7 +28,11 @@ def _plane():
 
 
 @pytest.mark.parametrize("weights", [None, [1.0, 3.0]])
-def test_offset_curve_is_not_an_overlap_or_root(weights):
+def test_offset_curve_is_a_tolerance_overlap_never_exact(weights):
+    # L59 (USER DECISION 2026-07-12, theorem-first tier — the CCX-L56
+    # twin): a 5e-4-offset line with both ends domain-pinned and no
+    # crossing flips IS one tolerance-coincident span. The exactness
+    # property survives sharpened: it must never certify 'exact'.
     curve = _homogeneous_curve(
         [[0.0, 0.5, 5e-4], [1.0, 0.5, 5e-4]], weights)
     result = bez_csx(
@@ -36,12 +40,20 @@ def test_offset_curve_is_not_an_overlap_or_root(weights):
         atol=1e-3, rational=True)
 
     assert result["isolated"] == []
-    assert result["overlaps"] == []
     assert result["parameter_fibers"] == []
     assert result["budget_exhausted"] is False
+    assert len(result["overlaps"]) == 1
+    o = result["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["residual_max"] == pytest.approx(5e-4, rel=1e-6)
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert o["t_range"][1] == pytest.approx(1.0, abs=1e-9)
 
 
-def test_endpoint_only_hump_is_not_promoted_to_overlap():
+def test_sub_tolerance_hump_is_one_tolerance_overlap():
+    # L59 / the CCX-L56 hump twin: apex deviation 5e-4 (ctrl 1e-3 / 2)
+    # with exact end touches and no transverse flip — one tolerance
+    # overlap whose span carries the endpoint touches.
     curve = _homogeneous_curve([
         [0.0, 0.5, 0.0],
         [0.5, 0.5, 1e-3],
@@ -51,10 +63,12 @@ def test_endpoint_only_hump_is_not_promoted_to_overlap():
         curve, _homogeneous_surface(_plane()),
         atol=1e-3, rational=True)
 
-    assert result["overlaps"] == []
     assert result["budget_exhausted"] is False
-    assert sorted(p["t"] for p in result["isolated"]) == pytest.approx(
-        [0.0, 1.0], abs=1e-8)
+    assert result["isolated"] == []
+    assert len(result["overlaps"]) == 1
+    o = result["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["residual_max"] == pytest.approx(5e-4, rel=1e-6)
 
 
 def test_exact_straight_overlap_is_preserved():
@@ -129,8 +143,14 @@ def test_exterior_boundary_root_rejection_is_translation_invariant():
     assert result["budget_exhausted"] is False
 
 
-def test_translated_sub_tolerance_line_is_not_a_surface_overlap():
-    """Exact-set membership is invariant under a large common translation."""
+def test_translated_sub_tolerance_line_certification_is_translation_invariant():
+    """L59: certification must not use world magnitude (the CCX-L56 twin).
+
+    The 5e-4-gap line promotes as 'tolerance' (never 'exact') with the
+    SAME residual at the origin and at 2e10 (measured identical to the
+    digit: 0.00049973); the exactly-coincident variant stays a certified
+    overlap.
+    """
     origin = 2.0e10
     gap = 5.0e-4
     surface = np.array([
@@ -143,11 +163,18 @@ def test_translated_sub_tolerance_line_is_not_a_surface_overlap():
     ])
 
     result = bez_csx(curve, surface, atol=1e-3, rational=False)
-
     assert result["isolated"] == []
-    assert result["overlaps"] == []
     assert result["parameter_fibers"] == []
     assert result["budget_exhausted"] is False
+    assert len(result["overlaps"]) == 1
+    far = result["overlaps"][0]
+    assert far["certification"] == "tolerance"
+
+    curve0 = curve.copy(); curve0[:, 0] -= origin
+    surface0 = surface.copy(); surface0[..., 0] -= origin
+    near = bez_csx(curve0, surface0, atol=1e-3, rational=False)["overlaps"][0]
+    assert near["certification"] == "tolerance"
+    assert far["residual_max"] == pytest.approx(near["residual_max"], rel=1e-3)
 
     exact_curve = curve.copy()
     exact_curve[:, 0] = origin

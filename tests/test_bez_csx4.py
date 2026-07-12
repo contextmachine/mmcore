@@ -858,29 +858,31 @@ def test_bounded_newton_stall_near_tangent_is_not_a_distinct_root():
     assert root["u"] == pytest.approx(0.75, abs=1e-7)
 
 
-def test_curved_uv_exact_overlap_is_not_reported_complete():
-    """Ledger L42: a curved-UV EXACT overlap must not flood Phase 2 as
-    isolated roots reported COMPLETE (silent wrong topology).
+def test_curved_uv_exact_overlap_is_certified_complete():
+    """Ledger L42 → L59: the curved-UV EXACT overlap's full history.
 
-    Parabola lying exactly on the bilinear z=0 patch over [0,2]^2: the
-    uv-preimage is curved, so the exact affine overlap certificate
-    correctly fails — but the result must then be explicitly partial
-    (bounded fallback allowance + boundary-topology flag), never a
-    ptol-lattice continuum sample claimed complete (measured at 5d05ddc:
-    1,679 isolated roots, 0 overlaps, 33,685 cells, flagged complete —
-    accepted by every downstream consumer including ssx6's guard).
+    Parabola lying exactly on the bilinear z=0 patch: the uv-preimage is
+    curved, so the exact-AFFINE identity correctly refuses. At 5d05ddc
+    this flooded Phase 2 (1,679 lattice roots @33,685 cells, claimed
+    complete); L42 bounded it into an honest typed-partial; the L59
+    theorem-first tier now CERTIFIES it — domain-pinned span ends,
+    roundoff-level witnesses (=> 'exact'), no flips — with no Phase-2
+    grind at all. Neither wrong topology nor a partial flag remains.
     """
     curve = np.array([[0.2, 0.2, 0.], [1., 1.8, 0.], [1.8, 0.2, 0.]])
     surf = np.array([[[0., 0., 0.], [0., 2., 0.]],
                      [[2., 0., 0.], [2., 2., 0.]]])
     result = bez_csx(curve, surf, atol=1e-3, rational=False)
 
-    assert result["boundary_topology_complete"] is False, (
-        f"curved-UV overlap reported topology-complete with "
-        f"{len(result['isolated'])} isolated roots")
-    assert result["budget_exhausted"] is True
-    # The fallback is bounded: no full-budget continuum grind.
-    assert result["cells_processed"] <= 8_000
+    assert result["boundary_topology_complete"] is True
+    assert result["budget_exhausted"] is False
+    assert result["isolated"] == []
+    assert len(result["overlaps"]) == 1
+    o = result["overlaps"][0]
+    assert o["certification"] == "exact"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert o["t_range"][1] == pytest.approx(1.0, abs=1e-9)
+    assert result["cells_processed"] <= 1_000
 
 
 def test_boundary_exhaustion_keeps_certified_roots(monkeypatch):
@@ -956,13 +958,16 @@ def test_zero_allowance_preflights_before_net_build(monkeypatch):
     assert calls["n"] == 0, "net built despite zero allowance"
 
 
-def test_short_clipped_overlap_span_is_not_reported_complete():
-    """L52 slice 10a (A2's confirmed lead): a coincident span shorter than
-    the >12-root chain bar (here 4.2*ptol_t, ended by DOMAIN CLIPPING at
-    u=1 — the only way a genuine exact span can be short) used to ship as
-    3 lattice roots with complete=True and no span. The lattice-cluster
-    detection (>=3 roots, gaps <= 4*ptol_t, gap midpoints pass the STRICT
-    residual certificate) now exports the typed uncertified span."""
+def test_short_clipped_overlap_span_is_certified():
+    """L52 slice 10a → L59: the domain-clipped short span's full history.
+
+    A coincident span of 4.2*ptol_t ended by DOMAIN CLIPPING at u=1 used
+    to ship as 3 lattice roots claimed complete; slice 10a's lattice-
+    cluster detection made it a typed uncertified span; the L59 tier now
+    CERTIFIES it as one tolerance overlap. The span's upper end extends
+    past the exact-coincidence limit t=0.5 to the within-atol fringe of
+    the patch edge (~0.58) — tolerance-coincidence semantics (USER
+    DECISION 2026-07-12)."""
     S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
                   [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
     C = np.array([[0.994, 0.5, 0.0],
@@ -971,15 +976,16 @@ def test_short_clipped_overlap_span_is_not_reported_complete():
 
     r = bez_csx(C, S, atol=1e-3, rational=False)
 
-    assert r["boundary_topology_complete"] is False
-    span = r["uncertified_overlap_span"]
-    assert span[0] == pytest.approx(0.0, abs=1e-9)
-    assert span[1] == pytest.approx(0.5, abs=1e-6)
-    assert r["non_span_truncation"] is False
-    # certified roots are kept (L51 philosophy); no exhaustion is claimed
-    # (none happened — 56 cells)
-    assert len(r["isolated"]) >= 3
+    assert r["boundary_topology_complete"] is True
     assert r["budget_exhausted"] is False
+    assert "uncertified_overlap_span" not in r
+    assert r["isolated"] == []
+    assert len(r["overlaps"]) == 1
+    o = r["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert 0.5 <= o["t_range"][1] <= 0.62
+    assert r["cells_processed"] <= 500
 
 
 def test_sub_atol_valley_root_chain_is_never_merged_by_the_cluster():

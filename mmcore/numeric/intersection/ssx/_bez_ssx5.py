@@ -166,6 +166,10 @@ class BoundaryOverlap:
     stuv_start: NDArray[np.float64]  # (4,)
     stuv_end: NDArray[np.float64]    # (4,)
     face: tuple[int, int]            # (axis 0-3, side 0-1)
+    # L59: when the correspondence is CURVED (non-affine uv path), the
+    # straight stuv chord misrepresents the overlap — a residual-verified
+    # sampled polyline replaces it (None = the chord is faithful).
+    stuv_path: object = None         # Optional[NDArray (n,4)]
 
 
 _POINT_PARAM_NEIGHBOR_OFFSETS = tuple(product((-1, 0, 1), repeat=4))
@@ -598,10 +602,43 @@ def _find_ssx_boundary_zeros(
                 if float(np.linalg.norm(_p1 - _p2)) > 2.0 * atol:
                     chord_ok = False
                     break
+            overlap_path = None
+            if not chord_ok and ovl.get('certification') in (
+                    'exact', 'tolerance'):
+                # L59: a CERTIFIED overlap whose straight stuv chord fails
+                # the residual bar has a CURVED correspondence (non-affine
+                # uv path — the user-fixture class: a straight edge on a
+                # non-parallelogram planar quad). Dropping it silently
+                # left the truncated crossing-built fragment FALSELY
+                # complete. Build the true path instead: sample the iso
+                # curve over t_range, invert each sample on the other
+                # surface, and verify every sample on BOTH surfaces.
+                _n = 33
+                _path = []
+                _path_ok = True
+                for _lam in np.linspace(0.0, 1.0, _n):
+                    _t = (1.0 - _lam) * tr[0] + _lam * tr[1]
+                    _cpt = eval_curve(iso, float(_t), rational=rational)
+                    _uo, _vo = _invert_point_on_surface(
+                        other_surf, _cpt, rational=rational)
+                    _s4 = _map_csx_to_stuv(
+                        axis, side, float(_t), _uo, _vo, owner_is_s1)
+                    _p1 = eval_surface(
+                        S1_h, _s4[0], _s4[1], rational=rational)
+                    _p2 = eval_surface(
+                        S2_h, _s4[2], _s4[3], rational=rational)
+                    if float(np.linalg.norm(_p1 - _p2)) > 2.0 * atol:
+                        _path_ok = False
+                        break
+                    _path.append(_s4)
+                if _path_ok:
+                    overlap_path = np.asarray(_path, dtype=np.float64)
+                    chord_ok = True
             if not chord_ok:
                 continue
             overlaps.append(BoundaryOverlap(stuv_start=stuv_s, stuv_end=stuv_e,
-                                            face=(face_id, side)))
+                                            face=(face_id, side),
+                                            stuv_path=overlap_path))
             # Also add endpoints as crossings (they connect to interior branches)
             xyz_s = eval_surface(S1_h, stuv_s[0], stuv_s[1], rational=rational)
             xyz_e = eval_surface(S1_h, stuv_e[0], stuv_e[1], rational=rational)
@@ -4317,8 +4354,16 @@ def _overlaps_to_branches(boundary_overlaps, S1, atol, rational):
         if is_dup:
             continue
 
-        stuv_path = np.stack([ovl.stuv_start, ovl.stuv_end], axis=0)
-        xyz_path = np.stack([xyz_start, xyz_end], axis=0)
+        if getattr(ovl, "stuv_path", None) is not None:
+            # L59: curved correspondence — ship the residual-verified
+            # sampled polyline, not a straight chord that misrepresents it.
+            stuv_path = np.asarray(ovl.stuv_path, dtype=np.float64)
+            xyz_path = np.stack([
+                eval_surface(S1, s4[0], s4[1], rational=rational)
+                for s4 in stuv_path], axis=0)
+        else:
+            stuv_path = np.stack([ovl.stuv_start, ovl.stuv_end], axis=0)
+            xyz_path = np.stack([xyz_start, xyz_end], axis=0)
         branches.append(SSXBranch(curve=(stuv_path, xyz_path), overlap=True, kind="overlap"))
 
     return branches
@@ -6071,6 +6116,20 @@ def bez_ssx(
                 }
             budget.mark_exhausted(
                 REASON_OVERLAP_REGION if span_only else REASON_WORK_BUDGET)
+        # L59: CERTIFIED overlap spans are rim evidence for the L28 region
+        # assembler, exactly like the L42 typed spans (the assembler
+        # SELF-SAMPLES the rim curve over the span, so curved rational
+        # rims — which the boundary path's straight 2-point chord
+        # verification rightly rejects — still become region loops).
+        # Certified spans are strictly stronger evidence; same channel.
+        for _ovl in result.get('overlaps', ()):
+            _cert = _ovl.get('certification')
+            _tr = _ovl.get('t_range')
+            if _cert in ('exact', 'tolerance') and _tr is not None:
+                uncertified_overlap_spans.append(
+                    (np.array(curve, dtype=np.float64, copy=True),
+                     (float(_tr[0]), float(_tr[1])),
+                     bool(kwargs.get('rational', True))))
         return result
 
     def _run_top_boundary_csx(curve, surface, **kwargs):

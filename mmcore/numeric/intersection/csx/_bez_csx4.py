@@ -467,6 +467,162 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
                 and np.all(residual <= roundoff))
 
 
+def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
+                                        strict_context, n_samples=65):
+    """Theorem-first curve-on-surface overlap certification (ledger L59).
+
+    USER DECISION 2026-07-12 (rationale in the ledger): two polynomial/
+    rational arcs coinciding on any open sub-arc lie on the same algebraic
+    curve, so a maximal overlap can only terminate at a DOMAIN boundary of
+    an operand.  Numerics therefore only (1) arms on cheap endpoint
+    evidence, (2) verifies that the span's ends are domain-pinned — the
+    curve's t-ends on-surface, or points whose surface projection exits
+    the uv-domain — and (3) samples interior witnesses with a crossing
+    flip guard; the theorem, not floating point, carries the interior.
+    Tolerance-coincidence IS coincidence: within-atol membership counts,
+    and the certification field says 'exact' vs 'tolerance'.
+
+    Returns a list of overlap dicts (possibly several spans: improper
+    reparameterizations and domain clipping legitimately produce more
+    than one), or None when nothing is armed/certifiable.  The flip guard
+    preserves the never-merge invariant: a transverse (normal-side) sign
+    flip between consecutive gap samples is crossing structure and
+    refuses promotion of that span; sub-atol valley chains fail the
+    membership march before ever reaching a pinned second end.
+    """
+    diag = float(np.linalg.norm(
+        np.max(S.reshape(-1, S.shape[-1]), axis=0)
+        - np.min(S.reshape(-1, S.shape[-1]), axis=0))) or 1.0
+    tiny = max(4096.0 * float(np.finfo(np.float64).eps), 1e-12) * max(1.0, diag)
+    edge_pad = 1e-9
+
+    def _member(t, seed_uv):
+        p = eval_curve(C, float(t), rational=rational)
+        u, v, dist = _project_point_on_surface(
+            p, S, seed_uv[0], seed_uv[1], atol, rational)
+        u_cl = min(max(u, 0.0), 1.0)
+        v_cl = min(max(v, 0.0), 1.0)
+        if (u_cl, v_cl) != (u, v):
+            s_pt = eval_surface(
+                np.asarray(S, dtype=np.float64), u_cl, v_cl,
+                rational=rational)
+            dist = float(np.linalg.norm(p - s_pt))
+        return p, u_cl, v_cl, float(dist)
+
+    # --- (1) arming: coarse scan for ANY on-surface stretch -------------
+    coarse = np.linspace(0.0, 1.0, 17)
+    seed = (0.5, 0.5)
+    hits = []
+    for t in coarse:
+        _p, u, v, d = _member(float(t), seed)
+        if d <= atol:
+            hits.append(float(t))
+            seed = (u, v)
+    if not hits:
+        return None
+
+    # --- (2) dense membership + witnesses --------------------------------
+    ts = np.linspace(0.0, 1.0, int(n_samples))
+    inside = np.zeros(len(ts), dtype=bool)
+    res = np.zeros(len(ts))
+    uvs = np.zeros((len(ts), 2))
+    signed = np.zeros(len(ts))
+    seed = (0.5, 0.5)
+    S64 = np.asarray(S, dtype=np.float64)
+    for k, t in enumerate(ts):
+        p, u, v, d = _member(float(t), seed)
+        inside[k] = d <= atol
+        res[k] = d
+        uvs[k] = (u, v)
+        if inside[k]:
+            seed = (u, v)
+        s_pt, s_du, s_dv = eval_surface_d1(S64, u, v, rational=rational)
+        n_vec = np.cross(s_du, s_dv)
+        n_len = float(np.linalg.norm(n_vec))
+        signed[k] = (float(np.dot(p - s_pt, n_vec / n_len))
+                     if n_len > 0.0 else 0.0)
+
+    # contiguous in-band runs
+    runs = []
+    k = 0
+    while k < len(ts):
+        if inside[k]:
+            j = k
+            while j + 1 < len(ts) and inside[j + 1]:
+                j += 1
+            runs.append((k, j))
+            k = j + 1
+        else:
+            k += 1
+
+    def _refine(t_in, t_out, seed_uv):
+        """Bisect the tolerance boundary between an in-band and an
+        out-of-band sample."""
+        for _ in range(40):
+            tm = 0.5 * (t_in + t_out)
+            _p, u, v, d = _member(tm, seed_uv)
+            if d <= atol:
+                t_in, seed_uv = tm, (u, v)
+            else:
+                t_out = tm
+            if abs(t_out - t_in) <= max(1e-12, 0.01 * ptol_t):
+                break
+        return t_in, seed_uv
+
+    overlaps = []
+    for k0, k1 in runs:
+        if k1 == k0:
+            # Single-sample runs are the CORNER-CONTACT signature (the
+            # CCX L47 guard's analog: a graze at one grid node whose
+            # bisection fringe can exceed 4*ptol_t is still not band
+            # evidence — measured: a ~4*atol stub at a shared corner
+            # shipped as a junk overlap branch). A genuine span must be
+            # in-band across at least one full grid interval.
+            continue
+        t_lo, t_hi = float(ts[k0]), float(ts[k1])
+        if k0 > 0:
+            t_lo, _ = _refine(t_lo, float(ts[k0 - 1]), tuple(uvs[k0]))
+        if k1 < len(ts) - 1:
+            t_hi, _ = _refine(t_hi, float(ts[k1 + 1]), tuple(uvs[k1]))
+        if t_hi - t_lo < 4.0 * ptol_t:
+            continue                    # too short to claim a 1-D overlap
+        # (2b) domain pinning: each end must sit at the CURVE's domain end
+        # or at the uv-domain edge of the surface (projected pin) — an
+        # interior fade-out on both sides is the offset-twin signature and
+        # is never promoted (the CCX L47 rule).
+        def _pinned(t_end):
+            if t_end <= edge_pad or t_end >= 1.0 - edge_pad:
+                return True
+            _p, u, v, d = _member(t_end, (0.5, 0.5))
+            return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
+        if not (_pinned(t_lo) and _pinned(t_hi)):
+            continue
+        # (3) flip guard on the gap samples INSIDE the span: root-like
+        # samples (res <= tiny) are bridged; consecutive gap samples with
+        # opposite normal-side signs = crossing structure -> refuse.
+        idx = [k for k in range(k0, k1 + 1) if res[k] > tiny]
+        flip = any(signed[a] * signed[b] < 0.0
+                   for a, b in zip(idx, idx[1:]))
+        if flip:
+            continue
+        span_res = float(res[k0:k1 + 1].max())
+        cert = "exact" if span_res <= tiny else "tolerance"
+        u_rng = (float(uvs[k0:k1 + 1, 0].min()),
+                 float(uvs[k0:k1 + 1, 0].max()))
+        v_rng = (float(uvs[k0:k1 + 1, 1].min()),
+                 float(uvs[k0:k1 + 1, 1].max()))
+        overlaps.append({
+            "boundary_zeros": [],
+            "overlap_endpoints": [],
+            "t_range": (t_lo, t_hi),
+            "u_range": u_rng,
+            "v_range": v_rng,
+            "certification": cert,
+            "residual_max": span_res,
+        })
+    return overlaps or None
+
+
 def _boundary_zero_to_tuv(bz: BoundaryZero,
                            t0: float, t1: float,
                            u0: float, u1: float,
@@ -1468,8 +1624,10 @@ def bez_csx(
     # truncated set could pair the wrong endpoints into a false overlap
     # claim (L51: the per-root keeps above are sound, this pairing is not).
     non_affine_overlap_span = None
+    _valley_pair_seen = False
     if not boundary_exhausted and len(csx_boundary_zeros) >= 2:
         overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
+        _valley_pair_seen = overlap_pair is not None
         if overlap_pair is not None:
             bz_a, bz_b = overlap_pair
             t_a, u_a, v_a = _boundary_zero_to_tuv(bz_a, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0)
@@ -1496,6 +1654,7 @@ def bez_csx(
                     "t_range": (t_lo_ovl, t_hi_ovl),
                     "u_range": (min(u_a, u_b), max(u_a, u_b)),
                     "v_range": (min(v_a, v_b), max(v_a, v_b)),
+                    "certification": "exact",
                 })
                 t_exclude.append(
                     (t_lo_ovl - ptol_t, t_hi_ovl + ptol_t))
@@ -1519,6 +1678,34 @@ def bez_csx(
                 # under a separate bounded allowance, and a continuum
                 # signature in the outcome marks the topology incomplete.
                 non_affine_overlap_span = (min(t_a, t_b), max(t_a, t_b))
+
+    # L59 (USER DECISION: theorem-first tier): certify tolerance/exact
+    # overlap spans whenever cheap endpoint evidence arms — a curve t-end
+    # lying ON the surface (an axis-0 boundary zero) or a valley pair —
+    # INDEPENDENTLY of the exact-affine identity.  The real-data class has
+    # only ONE boundary zero (the other span end pins on the uv-domain
+    # edge in the projected sense: measured 6.7e-4 clearance from the edge
+    # line — no exact 3-D root exists there for the boundary phase to
+    # find).  Certified spans bypass the Phase-2 grind entirely.
+    if (not boundary_exhausted and not overlaps
+            and (_valley_pair_seen
+                 or any(bz.axis == 0 for bz in csx_boundary_zeros))):
+        _tier_price = 17 + 65 + 80          # arming + witnesses + refines
+        if cells.remaining > _tier_price:
+            cells.spend(_tier_price)
+            _tol_overlaps = _tolerance_csx_overlap_certificate(
+                C, S, atol, rational, ptol_t, strict_root_tol)
+            if _tol_overlaps:
+                for _o in _tol_overlaps:
+                    overlaps.append(_o)
+                    _t_lo, _t_hi = _o["t_range"]
+                    t_exclude.append((_t_lo - ptol_t, _t_hi + ptol_t))
+                    isolated = [iso for iso in isolated
+                                if not (_t_lo - atol
+                                        <= iso["t"] <= _t_hi + atol)]
+                # the span(s) are certified: the L42 uncertified-span
+                # fallback no longer applies to them.
+                non_affine_overlap_span = None
 
     # ===================================================================
     # PHASE 2: Isolated intersection search on remaining curve intervals
