@@ -1,0 +1,213 @@
+"""Contract tests for mmcore.numeric._work_budget (ledger L52, slice 5).
+
+The shared budget module is the single implementation of the solver-level
+work-ledger mechanics that were previously hand-rolled 8 ways (review doc
+2026-07-12 §10 finding 15).  These tests pin the EXACT semantics extracted
+from `_bez_ssx5._SSXSoftBudget` — the migration must not shift any of them:
+
+- charge_cells is check-then-charge and all-or-nothing (a denied amount is
+  not partially spent);
+- denials that echo an already-exhausted ledger do NOT re-mark reasons
+  (reasons is a cause list, not a cascade log);
+- zero-amount charges are true no-ops that succeed;
+- postprocess has its own latch so a hard-stopped search can still afford
+  assembly, and its cap defaults to max_cells;
+- retire_reason never clears hard exhaustion;
+- complete == (not reasons) holds through mark/retire cycles;
+- charge_hook reproduces the guarded-lambda Optional threading pattern.
+"""
+import pytest
+
+from mmcore.numeric._work_budget import (
+    SoftWorkBudget,
+    charge_hook,
+    REASON_WORK_BUDGET,
+    REASON_OUTPUT_CAP,
+    REASON_POSTPROCESS_CAP,
+    REASON_DEPTH_LIMIT,
+    REASON_PARAMETER_FIBER,
+    REASON_OVERLAP_REGION,
+    REASON_TANGENTIAL_ZONE,
+    REASON_MULTIPLICITY,
+    REASON_TRACE_UNVERIFIED,
+)
+
+
+def test_charge_cells_is_all_or_nothing():
+    b = SoftWorkBudget(max_cells=10, max_csx_calls=5)
+    assert b.charge_cells(8, "a")
+    # 8 + 5 > 10: the whole charge is denied, nothing is spent.
+    assert not b.charge_cells(5, "a")
+    assert b.cells_processed == 8
+    assert b.exhausted
+    assert b.reasons == [REASON_WORK_BUDGET]
+
+
+def test_echo_denials_do_not_cascade_reasons():
+    b = SoftWorkBudget(max_cells=1, max_csx_calls=5)
+    assert b.charge_cells(1, "a")
+    assert not b.charge_cells(1, "a")   # root-cause denial
+    assert not b.charge_cells(1, "b")   # echo — must not re-mark
+    assert not b.charge_csx_call()      # echo through the other ledger
+    assert b.reasons == [REASON_WORK_BUDGET]
+
+
+def test_zero_amount_charge_is_a_successful_noop():
+    b = SoftWorkBudget(max_cells=0, max_csx_calls=1)
+    assert b.charge_cells(0, "a")
+    assert b.cells_processed == 0
+    assert not b.exhausted
+
+
+def test_cell_counts_ledger_tallies_per_source():
+    b = SoftWorkBudget(max_cells=100, max_csx_calls=5)
+    b.charge_cells(3, "ssx")
+    b.charge_cells(4, "csx")
+    b.charge_cells(2, "ssx")
+    assert b.cell_counts == {"ssx": 5, "csx": 4}
+
+
+def test_csx_call_ledger_is_separate_from_cells():
+    b = SoftWorkBudget(max_cells=100, max_csx_calls=2)
+    assert b.charge_csx_call()
+    assert b.charge_csx_call()
+    assert not b.charge_csx_call()
+    assert b.exhausted
+    assert b.cells_processed == 0
+    assert b.reasons == [REASON_WORK_BUDGET]
+
+
+def test_postprocess_latch_survives_search_exhaustion():
+    b = SoftWorkBudget(max_cells=4, max_csx_calls=1)
+    b.mark_exhausted()
+    # Search phase is dead, but assembly still has its own allowance
+    # (defaulting to max_cells).
+    assert b.charge_postprocess(3)
+    assert not b.charge_postprocess(3)
+    assert b.postprocess_exhausted
+    assert REASON_POSTPROCESS_CAP in b.reasons
+    # And the latch fails fast afterwards without re-marking.
+    reasons_after = list(b.reasons)
+    assert not b.charge_postprocess(1)
+    assert b.reasons == reasons_after
+
+
+def test_postprocess_cap_defaults_to_max_cells():
+    b = SoftWorkBudget(max_cells=7, max_csx_calls=1)
+    assert b.max_postprocess_work == 7
+    b2 = SoftWorkBudget(max_cells=7, max_csx_calls=1, max_postprocess_work=3)
+    assert b2.max_postprocess_work == 3
+
+
+def test_retire_reason_never_clears_hard_exhaustion():
+    b = SoftWorkBudget(max_cells=1, max_csx_calls=1)
+    b.mark_incomplete(REASON_OVERLAP_REGION)
+    assert not b.result_fields()["complete"]
+    b.retire_reason(REASON_OVERLAP_REGION)
+    assert b.result_fields()["complete"]
+
+    b.mark_incomplete(REASON_OVERLAP_REGION)
+    b.mark_exhausted()  # hard exhaustion
+    b.retire_reason(REASON_OVERLAP_REGION)
+    fields = b.result_fields()
+    assert not fields["complete"]
+    assert fields["status"]["reasons"] == [REASON_WORK_BUDGET]
+
+
+def test_complete_iff_no_reasons_through_mark_retire_cycle():
+    b = SoftWorkBudget(max_cells=100, max_csx_calls=5)
+    for step in range(3):
+        fields = b.result_fields()
+        assert fields["complete"] == (not fields["status"]["reasons"])
+        b.mark_incomplete(REASON_MULTIPLICITY)
+        fields = b.result_fields()
+        assert fields["complete"] == (not fields["status"]["reasons"])
+        b.retire_reason(REASON_MULTIPLICITY)
+
+
+def test_output_cap_denies_and_marks_incomplete():
+    b = SoftWorkBudget(max_cells=100, max_csx_calls=5, max_output_items=2)
+    out = []
+    assert b.append_output(out, "x", "point")
+    assert b.append_output(out, "y", "point")
+    assert not b.append_output(out, "z", "point")
+    assert out == ["x", "y"]
+    assert REASON_OUTPUT_CAP in b.reasons
+    assert not b.result_fields()["complete"]
+
+
+def test_extend_output_stops_at_first_denial():
+    b = SoftWorkBudget(max_cells=100, max_csx_calls=5, max_output_items=2)
+    out = []
+    assert not b.extend_output(out, ["a", "b", "c"], "fragment")
+    assert out == ["a", "b"]
+
+
+def test_result_fields_schema_v2_shape():
+    b = SoftWorkBudget(max_cells=10, max_csx_calls=3)
+    b.charge_cells(2, "ssx")
+    b.charge_csx_call()
+    fields = b.result_fields()
+    assert fields["complete"] is True
+    work = fields["status"]["work"]
+    assert work == {
+        "cells_processed": 2,
+        "csx_calls": 1,
+        "max_cells": 10,
+        "max_csx_calls": 3,
+        "output_items": 0,
+        "max_output_items": 1024,
+        "postprocess_work": 0,
+        "max_postprocess_work": 10,
+        "cell_counts": {"ssx": 2},
+    }
+
+
+def test_remaining_properties_clamp_at_zero():
+    b = SoftWorkBudget(max_cells=2, max_csx_calls=1)
+    b.charge_cells(2, "a")
+    assert b.remaining_cells == 0
+    b.mark_exhausted()
+    assert b.remaining_cells == 0
+    assert b.remaining_postprocess_work == 2
+
+
+def test_charge_hook_binds_source_and_none_path():
+    assert charge_hook(None, "phi") is None
+    b = SoftWorkBudget(max_cells=3, max_csx_calls=1)
+    hook = charge_hook(b, "phi")
+    assert hook(2)
+    assert b.cell_counts == {"phi": 2}
+    assert not hook(2)
+    assert b.exhausted
+    # default amount is 1, matching charge_cells
+    b2 = SoftWorkBudget(max_cells=3, max_csx_calls=1)
+    hook2 = charge_hook(b2, "singular")
+    assert hook2()
+    assert b2.cells_processed == 1
+
+
+def test_reason_vocabulary_is_stable():
+    # The budget-contract gate scans REASON_* names; the vocabulary is part
+    # of the public schema and must not drift silently.
+    assert REASON_WORK_BUDGET == "work_budget"
+    assert REASON_OUTPUT_CAP == "output_cap"
+    assert REASON_POSTPROCESS_CAP == "postprocess_cap"
+    assert REASON_DEPTH_LIMIT == "depth_limit"
+    assert REASON_PARAMETER_FIBER == "parameter_fiber"
+    assert REASON_OVERLAP_REGION == "overlap_region_unsupported"
+    assert REASON_TANGENTIAL_ZONE == "unresolved_tangential_zone"
+    assert REASON_MULTIPLICITY == "unresolved_multiplicity"
+    assert REASON_TRACE_UNVERIFIED == "trace_unverified"
+
+
+def test_bez_ssx5_reexports_are_the_same_objects():
+    # Behavior-preservation contract: existing consumers access these via
+    # the _bez_ssx5 module namespace (tests, budget-contract gate).
+    from mmcore.numeric.intersection.ssx import _bez_ssx5 as ssx5
+    from mmcore.numeric import _work_budget as wb
+
+    assert ssx5._SSXSoftBudget is wb.SoftWorkBudget
+    for name in dir(wb):
+        if name.startswith("REASON_"):
+            assert getattr(ssx5, name) == getattr(wb, name)

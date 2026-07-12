@@ -50,186 +50,24 @@ from mmcore.numeric.algorithms.cygjk import gjk
 # Data structures (§5 of design)
 # ---------------------------------------------------------------------------
 
-# Reason strings published in result['status']['reasons'] (schema v2,
-# 2026-07-12 review doc §6). `complete` is the one bit consumers act on;
-# `reasons` says WHY it is False and which reaction can help.
-#
-# Work family — a resource knob can help:
-REASON_WORK_BUDGET = "work_budget"          # shared cell/CSX ledger or a CSX per-call tier ran dry (max_cells / max_csx_calls / *_csx_max_cells)
-REASON_OUTPUT_CAP = "output_cap"            # max_output_items reached
-REASON_POSTPROCESS_CAP = "postprocess_cap"  # max_postprocess_work reached
-REASON_DEPTH_LIMIT = "depth_limit"          # max_depth ceiling left a crossing-bearing cell unresolved
-# Structural family — raising budgets cannot help:
-REASON_PARAMETER_FIBER = "parameter_fiber"  # positive-dimensional preimage of a boundary point (collapsed edge)
-REASON_OVERLAP_REGION = "overlap_region_unsupported"  # 2-D coincidence region detected; retired by L28's SSXOverlapRegion
-REASON_TANGENTIAL_ZONE = "unresolved_tangential_zone"  # truncated Δ/Φ tangency enumeration or Φ-loop path not certified
-REASON_MULTIPLICITY = "unresolved_multiplicity"  # rank-deficient Δ-root / crossing cluster whose local dimension is unproven
-REASON_TRACE_UNVERIFIED = "trace_unverified"  # marched continuation failed the strict Ψ-zero path certificate
-
-
-@dataclass
-class _SSXSoftBudget:
-    """One shared work budget for an entire :func:`bez_ssx` call.
-
-    Local solver limits are still useful backstops, but they do not compose:
-    SSX can invoke thousands of CSX/zero-dimensional searches and each search
-    used to receive a fresh allowance.  This object is deliberately tiny and
-    callback-friendly so nested solvers spend from the same counter.
-
-    Every transition into a partial state records one of the REASON_*
-    strings; ``result_fields`` publishes them as ``status['reasons']`` with
-    the invariant ``complete == (not reasons)``. Only root-cause transitions
-    record a reason — denials that merely echo an already-exhausted state do
-    not re-mark, so ``reasons`` stays a list of causes, not a cascade log.
-    """
-
-    max_cells: int
-    max_csx_calls: int
-    max_output_items: int = 1_024
-    max_postprocess_work: Optional[int] = None
-    cells_processed: int = 0
-    csx_calls: int = 0
-    output_items: int = 0
-    postprocess_work: int = 0
-    postprocess_exhausted: bool = False
-    exhausted: bool = False
-    incomplete: bool = False
-    cell_counts: dict = field(default_factory=dict)
-    reasons: list = field(default_factory=list)
-    # (reason, stuv_global) records for STRUCTURAL marks whose location a
-    # later pass can re-examine — ledger L28: an `unresolved_multiplicity`
-    # ambiguity whose root lies INSIDE a certified overlap region is a
-    # region-interior sample of the 2-D C2 set (resolved by the region),
-    # so the assembler may retire it; marks outside any region stay.
-    structural_sites: list = field(default_factory=list)
-
-    def __post_init__(self):
-        if self.max_postprocess_work is None:
-            self.max_postprocess_work = max(0, int(self.max_cells))
-        else:
-            self.max_postprocess_work = max(
-                0, int(self.max_postprocess_work))
-
-    def _add_reason(self, reason: str) -> None:
-        if reason not in self.reasons:
-            self.reasons.append(reason)
-
-    def charge_cells(self, amount: int = 1, source: str = "nested") -> bool:
-        amount = max(0, int(amount))
-        if self.exhausted:
-            return False
-        if self.cells_processed + amount > self.max_cells:
-            self.exhausted = True
-            self._add_reason(REASON_WORK_BUDGET)
-            return False
-        self.cells_processed += amount
-        self.cell_counts[source] = self.cell_counts.get(source, 0) + amount
-        return True
-
-    def charge_csx_call(self) -> bool:
-        if self.exhausted:
-            return False
-        if self.csx_calls >= self.max_csx_calls:
-            self.exhausted = True
-            self._add_reason(REASON_WORK_BUDGET)
-            return False
-        self.csx_calls += 1
-        return True
-
-    def charge_postprocess(self, amount: int = 1) -> bool:
-        """Charge bounded assembly/filter work after the search phase.
-
-        This counter is separate from subdivision cells so a hard-stopped
-        search can still assemble its certified partial fragments. It is
-        nevertheless call-wide and finite, preventing postprocessing from
-        becoming a second unbounded phase.
-        """
-        amount = max(0, int(amount))
-        if self.postprocess_exhausted:
-            return False
-        if self.postprocess_work + amount > self.max_postprocess_work:
-            self.postprocess_exhausted = True
-            self.exhausted = True
-            self.incomplete = True
-            self._add_reason(REASON_POSTPROCESS_CAP)
-            return False
-        self.postprocess_work += amount
-        return True
-
-    @property
-    def remaining_cells(self) -> int:
-        return max(0, self.max_cells - self.cells_processed)
-
-    @property
-    def remaining_postprocess_work(self) -> int:
-        return max(0, self.max_postprocess_work - self.postprocess_work)
-
-    def mark_exhausted(self, reason: str = REASON_WORK_BUDGET) -> None:
-        self.exhausted = True
-        self._add_reason(reason)
-
-    def mark_incomplete(self, reason: str) -> None:
-        """Record a partial local result without stopping independent work.
-
-        ``reason`` is mandatory: the caller names the root cause (one of the
-        REASON_* strings) so ``status['reasons']`` can steer the consumer
-        (raise a knob / wait for typed machinery / accept the resolution
-        limit) instead of conflating everything into one budget flag.
-        """
-        self.incomplete = True
-        self._add_reason(reason)
-
-    def retire_reason(self, reason: str) -> None:
-        """Remove a structural reason that this same call has since RESOLVED.
-
-        Reasons are published only at :meth:`result_fields`; a condition
-        recorded mid-search that later machinery fully represents (ledger
-        L28: `overlap_region_unsupported` once every piece of overlap
-        evidence is covered by a certified region) may be retired before
-        publication.  Hard exhaustion is never retirable — `exhausted`
-        always keeps its `work_budget` reason, so `reasons` can only become
-        empty when the ledger never ran dry.
-        """
-        if reason in self.reasons:
-            self.reasons.remove(reason)
-        if not self.reasons and not self.exhausted:
-            self.incomplete = False
-
-    def append_output(self, target: list, value, source: str) -> bool:
-        """Append one intermediate/output entity under the global cap."""
-        if self.output_items >= self.max_output_items:
-            self.mark_incomplete(REASON_OUTPUT_CAP)
-            return False
-        target.append(value)
-        self.output_items += 1
-        return True
-
-    def extend_output(self, target: list, values, source: str) -> bool:
-        complete = True
-        for value in values:
-            if not self.append_output(target, value, source):
-                complete = False
-                break
-        return complete
-
-    def result_fields(self) -> dict:
-        return {
-            "complete": not (self.exhausted or self.incomplete),
-            "status": {
-                "reasons": list(self.reasons),
-                "work": {
-                    "cells_processed": int(self.cells_processed),
-                    "csx_calls": int(self.csx_calls),
-                    "max_cells": int(self.max_cells),
-                    "max_csx_calls": int(self.max_csx_calls),
-                    "output_items": int(self.output_items),
-                    "max_output_items": int(self.max_output_items),
-                    "postprocess_work": int(self.postprocess_work),
-                    "max_postprocess_work": int(self.max_postprocess_work),
-                    "cell_counts": dict(self.cell_counts),
-                },
-            },
-        }
+# The schema-v2 REASON_* vocabulary and the shared soft budget live in
+# mmcore.numeric._work_budget (ledger L52 — the 8-way accounting merge; its
+# docstring is the charge-semantics registry).  Re-exported here because
+# consumers (the singular test suite, the budget-contract gate's REASON_*
+# vocabulary scan) access them through this module's namespace.
+from mmcore.numeric._work_budget import (  # noqa: F401
+    REASON_WORK_BUDGET,
+    REASON_OUTPUT_CAP,
+    REASON_POSTPROCESS_CAP,
+    REASON_DEPTH_LIMIT,
+    REASON_PARAMETER_FIBER,
+    REASON_OVERLAP_REGION,
+    REASON_TANGENTIAL_ZONE,
+    REASON_MULTIPLICITY,
+    REASON_TRACE_UNVERIFIED,
+    SoftWorkBudget as _SSXSoftBudget,
+    charge_hook as _charge_hook,
+)
 
 
 @dataclass
@@ -1063,11 +901,8 @@ def _tangency_witness(cell, atol, *, enumerate_all=True):
             sols, exhausted = solve_zero_dim(nets, _gn, ptol,
                                              max_cells=2000, dedup_xyz=_xyz,
                                              atol=atol, max_results=64,
-                                             charge_box=((
-                                                 lambda n: cell.work_budget.charge_cells(
-                                                     n, "singular"))
-                                                 if cell.work_budget is not None
-                                                 else None))
+                                             charge_box=_charge_hook(
+                                                 cell.work_budget, "singular"))
             for sol in sols:
                 # same destructive-dedup rule as solve_zero_dim's own _dup:
                 # 1·ptol per-axis box AND xyz <= atol
@@ -1257,9 +1092,8 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
             else:
                 local_dimension = _delta_root_local_dimension(
                     dimension_gn, root, local_ptol4,
-                    charge_work=((lambda n: cell.work_budget.charge_cells(
-                        n, "singular_dimension"))
-                        if cell.work_budget is not None else None))
+                    charge_work=_charge_hook(
+                        cell.work_budget, "singular_dimension"))
             if local_dimension is False:
                 classified.append(root)   # full rank => locally isolated
             elif local_dimension is None:
@@ -1809,8 +1643,7 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
             nets, _gn, ptol4, max_cells=max_cells, dedup_xyz=_xyz, atol=atol,
             max_results=64,
             skip_newton=skip_newton, priority=priority,
-            charge_box=((lambda n: cell.work_budget.charge_cells(
-                n, "singular")) if cell.work_budget is not None else None))
+            charge_box=_charge_hook(cell.work_budget, "singular"))
     except (np.linalg.LinAlgError, FloatingPointError):
         return
 
@@ -1840,9 +1673,7 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
     for sol in sols:
         local_dimension = _delta_root_local_dimension(
             _gn, sol, ptol4,
-            charge_work=((lambda n: cell.work_budget.charge_cells(
-                n, "singular_dimension"))
-                if cell.work_budget is not None else None))
+            charge_work=_charge_hook(cell.work_budget, "singular_dimension"))
         if local_dimension is True:
             continue                    # certified local tangent-curve sample
         if local_dimension is False:
@@ -4000,8 +3831,7 @@ def _phi_slice_loop_fragments(cell, roots, atol, h_max, all_singularities):
             cell.g1.surface, cell.g2.surface,
             T_numeric,
             psi_rows, t_idx, atol, ptol=ptol4,
-            charge_box=((lambda n: cell.work_budget.charge_cells(
-                n, "phi")) if cell.work_budget is not None else None),
+            charge_box=_charge_hook(cell.work_budget, "phi"),
             stats=_phi_stats)
     except (np.linalg.LinAlgError, FloatingPointError):
         return []
@@ -7582,7 +7412,7 @@ def bez_ssx(
         c1_hits, _c1_curve = c1_pass(
             S1_h_top, S2_h_top, atol, ptol4_global,
             max_cells=min(20_000, budget.remaining_cells),
-            charge_box=lambda n: budget.charge_cells(n, "c1"),
+            charge_box=_charge_hook(budget, "c1"),
             stats=_c1_stats)
         if (_c1_stats.get("budget_exhausted", False)
                 or _c1_stats.get("external_budget_exhausted", False)
@@ -7660,7 +7490,7 @@ def bez_ssx(
         _c3_hits = c3_pass(
             S1_h_top, S2_h_top, all_branches, atol, ptol4_global,
             max_work=budget.remaining_cells,
-            charge_work=lambda n: budget.charge_cells(n, "c3"),
+            charge_work=_charge_hook(budget, "c3"),
             stats=_c3_stats,
         )
         for hit in _c3_hits:
