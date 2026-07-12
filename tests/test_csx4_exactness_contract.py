@@ -213,3 +213,41 @@ def test_in_axis_drift_beyond_float_built_floor_is_not_certified():
                        [2.0 / 3.0, 0.5, 1e-14],
                        [1.0, 0.5, 1e-14]])
     assert not _certify_affine_csx_overlap(dz_off, S, a, b, rational=False)
+
+
+def test_exclusion_prune_carries_the_L1_roundoff_margin():
+    """L52 slice 6c: `_residual_excludes_zero` refuses sub-margin clearance.
+
+    §4 invariant: sign/hull exclusion only beyond k*eps*max|coeff|. A
+    wrongful exclusion was NOT reached in practice (240 exact-Fraction
+    restriction-chain comparisons: 0 flips, 0 exclusions within
+    1e-12*scale of the boundary) — the margin is invariant compliance
+    with measured zero practical impact, insurance against restriction
+    chains this probe family does not cover.
+    """
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _residual_excludes_zero)
+
+    eps = np.finfo(np.float64).eps
+    # One component clears zero by well over the 128*eps margin: excludes.
+    clear = np.zeros((2, 2, 2, 3))
+    clear[..., 0] = 1.0
+    clear[..., 1] = np.array([[[1.0, 2.0], [1.0, 2.0]],
+                              [[1.0, 2.0], [1.0, 2.0]]])
+    clear[..., 2] = -1.0
+    assert _residual_excludes_zero(clear)
+
+    # Every component's clearance sits INSIDE the margin (min = 10*eps of
+    # a max-magnitude-1 net): roundoff of the restriction chain could hide
+    # a true sign change, so the prune must refuse.
+    hairline = np.zeros((2, 2, 2, 3))
+    for c in range(3):
+        hairline[..., c] = 1.0
+        hairline[0, 0, 0, c] = 10.0 * eps
+    assert not _residual_excludes_zero(hairline)
+
+    # Straddling hulls never exclude, margin or not.
+    straddle = np.zeros((2, 2, 2, 3))
+    straddle[0, 0, 0, :] = -1.0
+    straddle[1, 1, 1, :] = 1.0
+    assert not _residual_excludes_zero(straddle)

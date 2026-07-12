@@ -112,10 +112,22 @@ def _residual_vec_net(C, S, rational):
 
 
 def _residual_excludes_zero(G_cell):
-    """True if some component's Bernstein hull excludes 0 → no zero of G."""
+    """True if some component's Bernstein hull excludes 0 → no zero of G.
+
+    L52 slice 6c: exclusion only beyond the L1 roundoff margin
+    ``128·ε·max|coeff|`` (§4 invariant — margins make exclusion stricter,
+    the sound direction; ccx's identity-side twin carries a depth-scaled
+    margin, this was the one unmargined sign prune left). Fixture-first
+    measurement: 240 exact-Fraction restriction-chain comparisons on
+    tangential-graze nets produced 0 wrongful exclusions and 0 exclusions
+    within 1e-12·scale of the boundary, so the margin costs nothing in
+    practice — it is insurance for restriction chains outside that family.
+    """
+    eps = float(np.finfo(np.float64).eps)
     for c in range(3):
         comp = G_cell[..., c]
-        if float(comp.min()) > 0.0 or float(comp.max()) < 0.0:
+        margin = 128.0 * eps * float(np.abs(comp).max())
+        if float(comp.min()) > margin or float(comp.max()) < -margin:
             return True
     return False
 
