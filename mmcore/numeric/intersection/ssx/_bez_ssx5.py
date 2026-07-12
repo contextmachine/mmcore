@@ -27,6 +27,7 @@ from numpy.typing import NDArray
 from mmcore.numeric.bern_sq_dist import surface_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_surface, eval_surface_d1, eval_curve,
+    geometry_collapsed,
 )
 from mmcore.numeric.intersection._sq_dist_classify import (
     _check_min_of_net, _check_lipschitz, _weight_max_product,
@@ -405,14 +406,10 @@ def _invert_point_on_surface(S_h, P, rational=True, grid=4, iters=12):
 
 
 def _curve_geometry_collapsed(C, rational=True) -> bool:
+    # L52 slice 7: the shared predicate (local-motion 128·ε rule) lives in
+    # _bezier_common.geometry_collapsed; dehomogenization stays here.
     pts = (C[..., :-1] / C[..., -1:]) if rational else np.asarray(C)
-    # Use local motion, not absolute coordinate magnitude. At x=1e15 the
-    # old global-scale epsilon was ~28 model units and misclassified a
-    # 10-unit line as a point/fiber, deleting its isolated intersection.
-    delta = pts - pts[0]
-    scale = max(1.0, float(np.max(np.abs(delta))))
-    eps = 128.0 * np.finfo(float).eps * scale
-    return float(np.max(np.linalg.norm(delta, axis=-1))) <= eps
+    return geometry_collapsed(pts)
 
 
 def _weight_net_uniform(S) -> bool:

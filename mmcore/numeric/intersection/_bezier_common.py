@@ -494,3 +494,22 @@ def restrict_net_axis(F, axis, lo, hi, cell_lo, cell_hi):
     """Restrict a scalar Bernstein net (no value dim) along one axis."""
     return restrict_net_axis_v(
         F[..., np.newaxis], axis, lo, hi, cell_lo, cell_hi)[..., 0]
+
+
+def geometry_collapsed(points) -> bool:
+    """All Cartesian control points coincide within 128·ε of their extent.
+
+    The single collapsed-geometry predicate (ledger L52 slice 7 — it was
+    hand-rolled three ways: ssx `_curve_geometry_collapsed`, plus two
+    inline csx sites for the collapsed-curve fiber path).  Uses LOCAL
+    motion, not absolute coordinate magnitude: at x=1e15 a global-scale
+    epsilon is ~28 model units and misclassified a 10-unit line as a
+    point/fiber, deleting its isolated intersection (ssx ledger note).
+    Callers dehomogenize/flatten first; `points` is (..., dim) Cartesian.
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    pts = pts.reshape(-1, pts.shape[-1])
+    delta = pts - pts[0]
+    scale = max(1.0, float(np.max(np.abs(delta))))
+    eps = 128.0 * np.finfo(float).eps * scale
+    return float(np.max(np.linalg.norm(delta, axis=-1))) <= eps

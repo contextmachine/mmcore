@@ -26,7 +26,7 @@ from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
     newton_csx, bernstein_product_1d, subdivide_curve, subdivide_sq_dist_net,
-    restrict_net_axis, restrict_net_axis_v,
+    restrict_net_axis, restrict_net_axis_v, geometry_collapsed,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
@@ -1316,10 +1316,7 @@ def bez_csx(
     # t-neighbourhood at a time (case 14: 16,385 pseudo-roots), then paid an
     # O(n^2) duplicate scan.  Classify the fiber explicitly and solve only
     # the genuine point-on-surface problem.
-    _c_delta = c_pts - c_pts[0]
-    _c_scale = max(1.0, float(np.max(np.abs(_c_delta))))
-    _c_eps = 128.0 * np.finfo(float).eps * _c_scale
-    if float(np.max(np.linalg.norm(_c_delta, axis=1))) <= _c_eps:
+    if geometry_collapsed(c_pts):
         from mmcore.numeric._bez_closest_point import bez_surface_closest_points
 
         query = eval_curve(C, 0.5, rational=rational)
@@ -1332,11 +1329,7 @@ def bez_csx(
         closest_used = int(closest_stats.get("cells_processed", 0))
         closest_capped = bool(closest_stats.get("budget_exhausted", False))
         fibers = []
-        s_delta = s_pts - s_pts[0]
-        s_scale = max(1.0, float(np.max(np.abs(s_delta))))
-        surface_collapsed = (
-            float(np.max(np.linalg.norm(s_delta, axis=1)))
-            <= 128.0 * np.finfo(float).eps * s_scale)
+        surface_collapsed = geometry_collapsed(s_pts)
         topology_incomplete = bool(closest_capped)
         result_limit = max(0, int(max_results))
 
