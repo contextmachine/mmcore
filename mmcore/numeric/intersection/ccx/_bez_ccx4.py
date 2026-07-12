@@ -111,27 +111,6 @@ def _compute_param_tols(C1, C2, atol, rational):
     return float(tol_u), float(tol_v)
 
 
-def _curve_component_scale(C, rational):
-    """Per-coordinate Cartesian scale used only for roundoff certification.
-
-    This is deliberately component-wise.  A nonzero separation in a quiet
-    coordinate (for example ``z=0`` versus ``z=dz``) must not inherit the
-    much larger x/y scale and become an ``atol``-sized false root.
-    """
-    C = np.asarray(C, dtype=np.float64)
-    if rational:
-        weights = C[:, -1]
-        if (not np.all(np.isfinite(weights))
-                or np.any(weights == 0.0)):
-            return None
-        points = C[:, :-1] / weights[:, None]
-    else:
-        points = C
-    if not np.all(np.isfinite(points)):
-        return None
-    return np.max(np.abs(points), axis=0)
-
-
 def _cartesian_curve_controls_for_exactness(C, rational):
     C = np.asarray(C, dtype=np.float64)
     if rational:
