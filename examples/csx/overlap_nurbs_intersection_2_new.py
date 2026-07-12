@@ -73,7 +73,7 @@ for b in bnds:
 
  
  
-    result.append(nurbs_csx(b, st2, atol=args.atol, angle_tol=args.angle_tol))
+    result.append(nurbs_csx(b, st2, tol=args.atol))
     print("CSX v4 performed at: ", time.time() - s, " secs.")
 isolated,overlaps=[],[]
 for i,o,_status in  result:

@@ -1,0 +1,235 @@
+import numpy as np
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs, evaluate_nurbs_curve
+
+import time
+
+
+import rich
+
+from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.numeric import evaluate_curvature_vec
+from mmcore.numeric.approx import adaptive_curve_sampler
+from mmcore.numeric.intersection.csx import nurbs_csx_v2, nurbs_csx
+
+import numpy as np
+from mmcore.geom._nurbs_eval import NURBSCurveTuple, NURBSSurfaceTuple, _tuple_to_nurbs
+
+import time
+
+
+import rich
+
+from mmcore.geom._nurbs_knots import trim_curve
+from mmcore.numeric.intersection.csx._ncsx4 import  nurbs_csx
+
+
+import numpy as np
+from mmcore.geom._nurbs_eval import NURBSCurveTuple
+
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser()
+    ssx_params = parser.add_argument_group(title="CSX Parameters")
+    ssx_params.add_argument("--atol", type=float, default=1e-3)
+    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
+
+    general_params = parser.add_argument_group(title="General")
+    general_params.add_argument('--viewer', action='store_true')
+
+    return parser.parse_args()
+args = parse_args()
+curve = NURBSCurveTuple(
+    order=4,
+    knot=np.array([  0.        ,   0.        ,   0.        ,   0.        ,
+             4.09559758,   4.09559758,   8.19119516,   8.19119516,
+            12.28444691,  12.28444691,  16.37769866,  16.37769866,
+            20.47169754,  20.47169754,  24.56569642,  24.56569642,
+            28.65705491,  28.65705491,  32.7484134 ,  32.7484134 ,
+            36.84393517,  36.84393517,  40.93945695,  40.93945695,
+            45.03497872,  45.03497872,  49.13050049,  49.13050049,
+            57.32154404,  57.32154404,  65.51258758,  65.51258758,
+            65.51258758,  74.22314717,  74.22314717,  82.93372876,
+            82.93372876,  91.64440961,  91.64440961,  95.99975003,
+            95.99975003, 100.35509046, 100.35509046, 104.71076842,
+           104.71076842, 109.06644638, 109.06644638, 113.42060811,
+           113.42060811, 117.77476984, 117.77476984, 122.12820706,
+           122.12820706, 126.48164428, 126.48164428, 130.83508151,
+           130.83508151, 135.18851873, 135.18851873, 135.18851873,
+           135.18851873]),
+    control_points=np.array([[  84.07778644, -106.03781562,   10.64806753],
+           [  85.50129643, -106.29987225,   10.57524781],
+           [  86.97218294, -106.45209039,   10.47993656],
+           [  89.96955052, -106.51367517,   10.24858066],
+           [  91.49596457, -106.42299563,   10.11254177],
+           [  94.55888578, -105.98413263,    9.80467975],
+           [  96.09531079, -105.63607038,    9.63288302],
+           [  99.13138243, -104.67746666,    9.25873518],
+           [ 100.63095037, -104.06691887,    9.05638975],
+           [ 103.54498882, -102.58816693,    8.62663262],
+           [ 104.95936756, -101.71992913,    8.39922168],
+           [ 107.65561503,  -99.74079645,    7.92497873],
+           [ 108.93741517,  -98.6299328 ,    7.67815149],
+           [ 111.32430666,  -96.19061235,    7.17078769],
+           [ 112.42945485,  -94.86234231,    6.91026411],
+           [ 114.42626734,  -92.02006833,    6.38069942],
+           [ 115.31788905,  -90.50612013,    6.11166159],
+           [ 116.85773044,  -87.32983412,    5.56982014],
+           [ 117.50567375,  -85.66740825,    5.29701547],
+           [ 118.53422963,  -82.23939698,    4.75255339],
+           [ 118.9148308 ,  -80.47387493,    4.48089763],
+           [ 119.39478393,  -76.88652988,    3.942918  ],
+           [ 119.4941391 ,  -75.06476775,    3.67659495],
+           [ 119.40652816,  -71.41286694,    3.15296862],
+           [ 119.21957782,  -69.58278343,    2.89566541],
+           [ 118.23446665,  -64.15082486,    2.14205202],
+           [ 117.00860556,  -60.6091354 ,    1.66427408],
+           [ 113.5379214 ,  -54.03081541,    0.77748389],
+           [ 111.29425832,  -50.99507207,    0.36842041],
+           [ 108.64959313,  -48.35040687,   -0.        ],
+           [ 105.83719033,  -45.53800408,   -0.39178744],
+           [ 102.57233318,  -43.16832396,   -0.73774195],
+           [  95.47384964,  -39.54662984,   -1.38106435],
+           [  91.64090447,  -38.29493253,   -1.67856795],
+           [  83.79101261,  -37.03099409,   -2.26897066],
+           [  79.77493103,  -37.01909414,   -2.5619779 ],
+           [  73.91976265,  -37.93140849,   -3.02888142],
+           [  71.996306  ,  -38.38956289,   -3.18905109],
+           [  68.25690838,  -39.60193422,   -3.52299623],
+           [  66.44100038,  -40.35615773,   -3.69678045],
+           [  62.96641137,  -42.14040606,   -4.06187106],
+           [  61.3080081 ,  -43.1706093 ,   -4.25371361],
+           [  58.19452872,  -45.47677203,   -4.6537583 ],
+           [  56.73943071,  -46.75262344,   -4.86166962],
+           [  54.0719309 ,  -49.51034979,   -5.28851308],
+           [  52.85950312,  -50.99210797,   -5.50743901],
+           [  50.70805425,  -54.11585052,   -5.95132956],
+           [  49.76908166,  -55.75777312,   -6.17629052],
+           [  48.18670158,  -59.14994839,   -6.62688672],
+           [  47.54327742,  -60.90010702,   -6.85251699],
+           [  46.56322915,  -64.45401311,   -7.29901548],
+           [  46.22661712,  -66.25767553,   -7.51987789],
+           [  45.86042093,  -69.86263843,   -7.95137927],
+           [  45.83082544,  -71.66385138,   -8.16201182],
+           [  46.06763207,  -75.20961664,   -8.56778972],
+           [  46.33399904,  -76.95408641,   -8.76292845],
+           [  46.73756946,  -78.64519304,   -8.94788941]]),
+    weights=np.array([1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+           1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+           1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+           1., 1., 1., 1., 1., 1.])
+)
+import numpy as np
+from mmcore.geom._nurbs_eval import NURBSSurfaceTuple
+
+
+s1 = NURBSSurfaceTuple(
+    order_u=2,
+    order_v=2,
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
+    control_points=np.array([[[-128.25004889, -129.85828719,   67.43742325],
+            [-128.25004889,  129.85828719,    0.        ]],
+
+           [[ 128.25004889,  -46.98266257,    0.        ],
+            [ 128.25004889,  129.85828719,    0.        ]]]),
+    weights=np.array([[1., 1.],
+           [1., 1.]])
+)
+
+
+s2 = NURBSSurfaceTuple(
+    order_u=2,
+    order_v=2,
+    knot_u=np.array([  0.        ,   0.        , 256.50009777, 256.50009777])*0.001,
+    knot_v=np.array([  0.        ,   0.        , 259.71657438, 259.71657438])*0.001,
+    control_points=np.array([[[-128.25004889, -129.85828719,    0.        ],
+            [-128.25004889,  129.85828719,    0.        ]],
+
+           [[ 128.25004889, -129.85828719,    0.        ],
+            [ 128.25004889,  129.85828719,    0.        ]]]),
+    weights=np.array([[1., 1.],
+           [1., 1.]])
+)
+from mmcore.geom.nurbs_iso import extract_surface_boundaries
+from mmcore.geom._nurbs_knots import join_curves
+results_all=[]
+curves2=join_curves(extract_surface_boundaries(s2))
+curves1=join_curves(extract_surface_boundaries(s1))
+import time
+s=time.time()
+for curve in curves1:
+
+    isolated, overlaps = result = nurbs_csx(curve, s2, tol=args.atol)
+
+    results_all.append((curve,isolated,overlaps))
+
+for curve in curves2:
+    isolated, overlaps = result = nurbs_csx(curve, s1, tol=args.atol)
+
+    results_all.append((curve,isolated,overlaps))
+print(f"CSX v4 performed at: {time.time()-s} secs.")
+isolated,overlaps=[],[]
+for c,i,o in  results_all:
+    if i is not None:
+        isolated.extend(i)
+    if o is not None:
+        overlaps.extend(o)
+rich.print('\nisolated:')
+rich.print(isolated)
+rich.print('\noverlaps:')
+rich.print(overlaps)
+
+
+if args.viewer:
+    try:
+        from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
+
+        viewer=Viewer(camera=OrbitCamera(distance=np.linalg.norm(s1.control_points.reshape(-1,3).mean(axis=0))**2,target=  s1.control_points.reshape(-1,3).mean(axis=0)))
+        srf1 = viewer.add_nurbs_surface(s1, color=(0.7, 0.7, 0.7, 1),surface_color=(0.5, 0.5, 0.9, 0.05),u_count=1, v_count=1)
+        srf2 = viewer.add_nurbs_surface(s2, color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.5, 0.01), u_count=1,v_count=1)
+
+        def render_result(result,curve,surface=None):
+            if surface is not None:
+                srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7, 1), v_count=4)
+
+            crv=  viewer.add(curve, color=(0.9, 0.9, 0.9, 1.0))
+            isolated, overlaps = result
+            if isolated is not None:
+                uvs=[]
+                for pt in isolated:
+
+                    viewer.add(pt['point'], color=(0.0, 1.0, 0.5,1.0),size_px=13)
+
+            if overlaps is not None:
+
+                for overlap in overlaps:
+                    t0,t1=overlap['t_range']
+
+                    viewer.add(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                    viewer.add(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+
+                for o in overlaps:
+
+                    t0 = o["t_range"][0]
+                    t1 = o["t_range"][-1]
+
+                    pts=np.linspace(t0,t1,800)
+                    for t in pts:
+
+                        evl=evaluate_nurbs_curve(curve,t,d_order=0)
+                        viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
+
+
+
+
+        for curve,isol,over in results_all:
+            render_result((isol,over ),curve)
+
+        viewer.run()
+
+    except ModuleNotFoundError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except ImportError as err:
+        print("mmcore.renderer is not installed, skip preview.")
+    except Exception as err:
+        raise err
