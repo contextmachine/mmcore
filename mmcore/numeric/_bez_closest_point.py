@@ -839,8 +839,17 @@ def bez_surface_closest_points(S, point, atol=1e-3, rational=False,
     pq = [(d_lo0, next(counter), F, W2, Nu, Nv, 0.0, 1.0, 0.0, 1.0, 0)]
     pops = 0
     capped = False
+    # Ledger L46: the interior best-first heap used to share one
+    # ``max_cells`` with the four boundary searches, so a boundary phase
+    # that burned the whole allowance starved the interior to ZERO pops
+    # and the true interior global minimum silently dropped out of the
+    # certified set (the band-semantics contract).  The interior keeps its
+    # own pop allowance; boundary exhaustion still marks the RESULT capped
+    # below, and the published work counters report the true total.
+    interior_cap = max(1, int(max_cells))
+    capped = capped or budget_exhausted
     while pq:
-        if budget_exhausted or boundary_cells + pops >= max_cells:
+        if pops >= interior_cap:
             capped = True
             budget_exhausted = True
             break
@@ -1125,7 +1134,8 @@ def _patch_surface_net(patch):
     return np.asarray(to_homogeneous_2d(patch.control_points, patch.weights), dtype=np.float64)
 
 
-def nurbs_curve_closest_points(curve, point, atol=1e-3):
+def nurbs_curve_closest_points(curve, point, atol=1e-3, *,
+                               max_cells=None, stats=None):
     """Globally closest points of a NURBS curve (band semantics), in GLOBAL
     parameters, sorted ascending by distance.
 
@@ -1133,6 +1143,13 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
     Bézier segments are merged, e.g. a full circle about its center collapses
     to one entity spanning the domain). Internal seams are deduped; only the
     global domain ends are ``boundary_min``.
+
+    Ledger L46: ``max_cells`` is ONE shared allowance across every Bézier
+    span (default: the per-span 20k scaled by the span count, so ordinary
+    input never truncates while a hog span may borrow from cheap ones);
+    ``stats`` publishes the aggregate ``cells_processed`` /
+    ``budget_exhausted`` — a capped sub-solve can return far-local-min
+    entities, so a consumer of the band-semantics contract must check it.
     """
     if isinstance(curve, NURBSCurve):
         curve = _nurbs_to_tuple(curve)
@@ -1140,6 +1157,10 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
     g_lo, g_hi = _curve_interval(curve)
     patches = decompose_curve(curve)
     band = atol
+    remaining = (20_000 * max(1, len(patches)) if max_cells is None
+                 else max(0, int(max_cells)))
+    agg_cells = 0
+    agg_exhausted = False
 
     # Geometric closure (clamped NURBS: endpoints are the end control points).
     # On a closed curve the domain ends are a periodic seam, not a boundary.
@@ -1151,10 +1172,20 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
     pts = []
     segs = []
     for patch in patches:
+        if remaining <= 0:
+            agg_exhausted = True
+            break
         p_lo, p_hi = _curve_interval(patch)
         net = _patch_curve_net(patch)
+        patch_stats = {}
         local = bez_curve_closest_points(net, point, atol=atol, rational=True,
-                                         upper_bound=best)
+                                         upper_bound=best,
+                                         max_cells=remaining,
+                                         stats=patch_stats)
+        used = max(0, int(patch_stats.get("cells_processed", 0)))
+        remaining -= max(1, used)
+        agg_cells += used
+        agg_exhausted |= bool(patch_stats.get("budget_exhausted", False))
         for e in local:
             best = min(best, e["distance"])
             if e["kind"] == "degenerate_segment":
@@ -1194,6 +1225,7 @@ def nurbs_curve_closest_points(curve, point, atol=1e-3):
                    and abs(e["distance"] - s["distance"]) <= band
                    for s in merged_segs)
 
+    _publish_work_stats(stats, agg_cells, agg_exhausted)
     entities = [e for e in pts if not inside_seg(e)] + merged_segs
     if not entities:
         return []
@@ -1238,7 +1270,8 @@ def _merge_periodic_seam_1d(pts, g_lo, g_hi, atol, geo_scale):
     return out
 
 
-def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
+def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False,
+                                 *, max_cells=None, stats=None):
     """Globally closest entities of a NURBS surface (band semantics), in
     GLOBAL parameters, sorted ascending by distance.
 
@@ -1246,6 +1279,13 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     patch seams are chained; a full ring is marked ``closed``), and
     ``degenerate_surface`` entities. Internal seams are deduped; only the
     global domain border is ``boundary_min``.
+
+    Ledger L46: ``max_cells`` is ONE shared allowance across every Bézier
+    patch (default: the per-patch 20k scaled by the patch count);
+    ``stats`` publishes the aggregate ``cells_processed`` /
+    ``budget_exhausted``.  A capped sub-solve may return far-local-min
+    entities, so any consumer relying on the band-semantics guarantee
+    ("never far local minima") must check the exhaustion flag.
     """
     if isinstance(surface, NURBSSurface):
         surface = _nurbs_to_tuple(surface)
@@ -1253,6 +1293,10 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     (gu_lo, gu_hi), (gv_lo, gv_hi) = _surface_interval(surface)
     patches = decompose_surface(surface)
     band = atol
+    remaining = (20_000 * max(1, len(patches)) if max_cells is None
+                 else max(0, int(max_cells)))
+    agg_cells = 0
+    agg_exhausted = False
 
     # Geometric closure per direction (clamped net: opposite border rows
     # coincide). A closed direction's domain ends are a periodic seam.
@@ -1267,10 +1311,20 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
     curves = []
     surfs = []
     for patch in patches:
+        if remaining <= 0:
+            agg_exhausted = True
+            break
         (pu_lo, pu_hi), (pv_lo, pv_hi) = _surface_interval(patch)
         net = _patch_surface_net(patch)
+        patch_stats = {}
         local = bez_surface_closest_points(net, point, atol=atol, rational=True,
-                                           want_eval=want_eval, upper_bound=best)
+                                           want_eval=want_eval, upper_bound=best,
+                                           max_cells=remaining,
+                                           stats=patch_stats)
+        used = max(0, int(patch_stats.get("cells_processed", 0)))
+        remaining -= max(1, used)
+        agg_cells += used
+        agg_exhausted |= bool(patch_stats.get("budget_exhausted", False))
 
         def to_gu(u):
             return pu_lo + u * (pu_hi - pu_lo)
@@ -1348,6 +1402,7 @@ def nurbs_surface_closest_points(surface, point, atol=1e-3, want_eval=False):
                 return True
         return False
 
+    _publish_work_stats(stats, agg_cells, agg_exhausted)
     entities = [e for e in pts if not subsumed(e)] + curves + surfs
     if not entities:
         return []
