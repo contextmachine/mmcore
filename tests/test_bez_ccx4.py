@@ -195,13 +195,15 @@ def _monomial_to_bernstein(a):
 
 @pytest.mark.parametrize("reverse", [False, True], ids=["same-dir", "reversed"])
 def test_near_coincident_pair_ships_tolerance_overlap(reverse):
-    """Cubic vs itself offset 1e-9 in y (atol=1e-3): exactly disjoint as a
-    point set, coincident at tolerance. The exact-affine narrowing lost the
-    overlap AND misbilled the failure to the budget; the residual tier must
-    certify it (dense-sample inversion pairing, residual <= atol) and ship
-    it complete."""
-    C1 = curve1
-    C2 = curve1.copy()
+    """Monotone-x cubic vs itself offset 1e-9 in y (atol=1e-3): a crossing-
+    free coincidence at tolerance (no tangent of the curve is parallel to
+    the offset, so the offset twin never crosses the original). The exact-
+    affine narrowing lost the overlap AND misbilled the failure to the
+    budget; the residual tier must certify it (dense-sample inversion
+    pairing, residual <= atol) and ship it complete."""
+    C1 = np.array([[0.0, 0.0, 0.0], [1.0, 0.6, 0.0],
+                   [2.0, -0.2, 0.0], [3.0, 0.4, 0.0]])
+    C2 = C1.copy()
     C2[:, 1] += 1e-9
     if reverse:
         C2 = C2[::-1].copy()
@@ -219,6 +221,24 @@ def test_near_coincident_pair_ships_tolerance_overlap(reverse):
     assert r["isolated"] == []
     assert r["budget_exhausted"] is False
     assert r["boundary_topology_complete"] is True
+
+
+def test_offset_twin_with_vertical_tangent_is_not_cleanly_promoted():
+    """L54[A2-1] corollary, measured during the on-node fix: a y-offset of a
+    curve whose tangent turns PARALLEL to the offset (curve1 has a vertical
+    tangent near u=0.75) genuinely CROSSES the original there — the offset
+    slides the curve along itself locally, so 'offset pair' does NOT imply
+    crossing-free. The bridged flip test detects it (the transverse
+    direction reverses through the tangent zone) and promotion is refused:
+    the honest outcome is the woven-family typed partial, not a clean
+    overlap that would merge real crossing structure."""
+    C2 = curve1.copy()
+    C2[:, 1] += 1e-9
+    r = bez_ccx(curve1, C2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 0
+    assert r["budget_exhausted"] is True
+    assert r["boundary_topology_complete"] is False
+    assert "uncertified_overlap_span" in r, sorted(r)
 
 
 def test_exact_affine_overlap_certification_is_exact():
@@ -326,3 +346,28 @@ def test_uncertifiable_overlap_class_reports_typed_span_not_bare_budget():
     assert "uncertified_overlap_span" in r, sorted(r)
     lo, hi = r["uncertified_overlap_span"]
     assert 0.0 <= lo < hi <= 1.0
+
+
+@pytest.mark.parametrize("a, b, t_star", [
+    (3e-4, 3e-4, 0.50),    # crossing exactly on sample node 32/64
+    (3e-4, 9e-4, 0.25),    # crossing exactly on sample node 16/64
+    (3e-4, 7e-4, 0.30),    # off-node control (worked before the fix)
+], ids=["node-0.5", "node-0.25", "off-node-0.3"])
+def test_on_node_interior_crossing_is_never_merged(a, b, t_star):
+    """L54[A2-1] (audit-confirmed): a transversal crossing landing exactly ON
+    one of the 65 sample nodes made that sample root-like, and the flip loop
+    skipped BOTH straddling pairs — the crossing was silently absorbed into a
+    certification='tolerance' overlap reported complete. The flip test must
+    bridge across root-like runs (compare consecutive GAP samples), with the
+    bracket at the intervening root-like node — the root is exactly there.
+    Dyadic-64 fractions (0.25, 0.5, 0.75...) are the most common crossing
+    locations in CAD by symmetry."""
+    line = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    # y(t) = 3t(1-t)[a(1-t) - b t]: shares both endpoints with the line and
+    # crosses it transversally at t* = a/(a+b), all within a sub-atol band.
+    cubic = np.array([[0.0, 0.0, 0.0], [1.0 / 3.0, a, 0.0],
+                      [2.0 / 3.0, -b, 0.0], [1.0, 0.0, 0.0]])
+    r = bez_ccx(line, cubic, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 0, r["overlaps"]
+    us = sorted(float(i["u"]) for i in r["isolated"])
+    assert any(abs(u - t_star) < 5e-3 for u in us), (t_star, us)

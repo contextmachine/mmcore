@@ -494,11 +494,13 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
       2. densely samples the candidate span, requiring every point of C1 to
          invert onto C2 within ``atol`` with a monotone parameter pairing;
       3. refuses to merge sub-tolerance TOPOLOGY (the CSX invariant, 1-D
-         form): an interior exact root (sample residual at roundoff scale
-         between clear-gap neighbours) or a transverse-direction flip
-         between consecutive gap samples means the curves CROSS inside the
-         band — the certificate rejects and returns the crossing brackets
-         so the caller can certify them as isolated roots instead.
+         form): a transverse-direction flip between consecutive GAP samples
+         — bridging any root-like samples in between, so a crossing landing
+         exactly on a sample node is still seen — means the curves CROSS
+         inside the band; the certificate rejects and returns the crossing
+         brackets so the caller can certify them as isolated roots instead.
+         A non-flipping (tangential) touch inside the band is covered by
+         the overlap; root-like dips alone are not crossing evidence.
 
     Returns ``(overlap | None, brackets, band_evidence, span_evidence)``:
     ``brackets`` is a list of ``(u, v)`` seeds for strict root polishing;
@@ -631,26 +633,36 @@ def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
         root_like = res <= tiny
         if not bool(np.all(root_like)):
             # Sub-tolerance topology guard (CSX invariant, 1-D form): a
-            # transverse-direction FLIP between consecutive gap samples
+            # transverse-direction FLIP between consecutive GAP samples
             # means the curves cross inside the band — never merge; reject
             # the promotion and hand the crossing brackets to strict root
-            # polishing. Root-like samples are skipped as direction noise:
-            # a residual dip below roundoff scale alone is NOT crossing
-            # evidence (a y-offset of a curve is locally tangent to it
-            # wherever the tangent is parallel to the offset — measured
-            # residual (offset)^2·kappa there, far below `tiny`); a
-            # non-flipping exact touch inside the band is legitimately
-            # covered by the tolerance overlap.
+            # polishing. Root-like samples carry no direction information
+            # (a residual dip below roundoff scale alone is NOT crossing
+            # evidence — a y-offset of a curve is locally tangent to it
+            # wherever the tangent is parallel to the offset, dipping to
+            # (offset)^2·kappa with no root there), so the flip test
+            # BRIDGES root-like runs and compares each gap sample with the
+            # NEXT gap sample: a crossing landing exactly ON a sample node
+            # (dyadic-64 fractions — audit L54[A2-1]) shows as a root-like
+            # node between opposite-side gaps and must be caught, with the
+            # bracket at that node (the root is exactly there). A
+            # non-flipping exact touch inside the band stays legitimately
+            # covered by the tolerance overlap. Residual limit: an EVEN
+            # number of crossings inside one sample interval still aliases
+            # to no flip (both gap neighbours same side) — inherent to the
+            # fixed 65-sample grid, documented in the L54 ledger entry.
             pair_brackets = []
-            for k in range(n_samples - 1):
-                if root_like[k] or root_like[k + 1]:
-                    continue
-                d0 = dvecs[k]
-                d1 = dvecs[k + 1]
-                if float(np.dot(d0, d1)) < 0.0:
-                    pair_brackets.append(
-                        (0.5 * float(us[k] + us[k + 1]),
-                         0.5 * float(vs[k] + vs[k + 1])))
+            gap_idx = [k for k in range(n_samples) if not root_like[k]]
+            for a_i, b_i in zip(gap_idx, gap_idx[1:]):
+                if float(np.dot(dvecs[a_i], dvecs[b_i])) < 0.0:
+                    if b_i - a_i > 1:
+                        k_root = a_i + 1
+                        pair_brackets.append(
+                            (float(us[k_root]), float(vs[k_root])))
+                    else:
+                        pair_brackets.append(
+                            (0.5 * float(us[a_i] + us[b_i]),
+                             0.5 * float(vs[a_i] + vs[b_i])))
             if pair_brackets:
                 brackets.extend(pair_brackets)
                 continue

@@ -9,19 +9,19 @@
 > commits above `28a9e4d`; reconcile, never clobber.
 > Read first: this kickoff §0–§4 (§2 = what shipped in BOTH 2026-07-12 sessions and
 > what remains); then the ledger entries L50 (investigated-open, fixture analysis +
-> fix direction recorded), L52, L54 in
+> fix direction recorded), L52, and L54's results (A2's two PLAUSIBLE leads feed L52) in
 > `docs/superpowers/issues/2026-07-07-ssx5-singular-review-ledger.md`; then review doc
 > §11 steps 5–6 in `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`.
-> Queue: 1. **L54 results** — two Opus line-scan agents (A1 SSX; A2 CCX/CSX/closest-point
-> + the z=const≠0 lead) ran 2026-07-12 evening; their findings are recorded in the
-> ledger under L54 — VERIFY each before acting (superpowers:receiving-code-review),
-> fix confirmed ones per TDD. 2. **L52** consolidation batch (one budget/status module,
-> exactness kits, margin policies, dead code incl. `_csx_on_cut_face`/`_midpoint_split`,
-> the c1-tier misbilling L49 found) + §11 steps 5–6 (budget_contract gate, de-budget
-> milestones). 3. **L50** only if a REACHING two-tangency fixture is found (see the
-> ledger's recorded analysis; do not fix without it). Schema v2 is IN PLACE: new work
-> reads/emits `complete`/`status.reasons`, never `budget_exhausted`, at the bez_ssx
-> level. CCX overlaps now carry `certification: 'exact'|'tolerance'` (L47 user contract).
+> Queue: 1. **L52** consolidation batch (one budget/status module, exactness kits,
+> margin policies, dead code incl. `_csx_on_cut_face`/`_midpoint_split` and
+> `_curve_component_scale`, the c1-tier misbilling L49 found, A2's csx `>12` chain
+> constant + fixed-65-grid aliasing leads) + §11 steps 5–6 (budget_contract gate,
+> de-budget milestones). 2. **L50** only if a REACHING two-tangency fixture is found
+> (see the ledger's recorded analysis; do not fix without it). Schema v2 is IN PLACE:
+> new work reads/emits `complete`/`status.reasons`, never `budget_exhausted`, at the
+> bez_ssx level. CCX overlaps now carry `certification: 'exact'|'tolerance'` (L47 user
+> contract; crossing structure is never merged — on-node crossings bridged, offset
+> twins with tangent-parallel points are NOT crossing-free).
 > Process: mark items CLAIMED(<who>) in the ledger before starting; TDD (failing test
 > first); run §3 gates after every item and before every commit; commit per item with
 > the ledger update in the same commit; adversarial review after substantial milestones.
@@ -60,10 +60,11 @@
 5. [x] **L51** — CSX boundary-exhaustion keeps certified zeros (CCX parity); valley classification gated on complete sets.
 6. [x] **L53** — USER DECISION: repair + document. ssx6 filter fixed; stale-pre-budget-fork charter in the module docstring; reviews skip it by charter.
 
+7. [x] **L54** — BOTH audit angles completed same session (Opus agents over `6f362b9..HEAD`, findings main-session-verified): A2 CONFIRMED the on-node crossing absorption in the L47 flip test → fixed (bridged flip + on-node tests) + the offset-twin-crosses-at-parallel-tangent corollary pinned; the z=const≠0 lead REFUTED with measurements; A1 NO FINDINGS (13 leads refuted) + the NaN exit-commit latent weakness hardened (accept-if). Two PLAUSIBLE leads recorded in the ledger for L52's cycle (csx `>12` chain constant on short exact spans; even-crossings-per-interval aliasing on the fixed 65-grid).
+
 **Next session:**
-1. **L54** — the two line-scan audit agents (A1: SSX hunks; A2: CCX/CSX/closest-point/param-tol hunks + the z=const≠0 lead) were launched 2026-07-12 evening; VERIFY their findings before acting (receiving-code-review discipline), ledger the confirmed ones.
+1. **L52** consolidation batch + review doc §11 steps 5–6 (in-repo budget_contract gate, de-budget milestones — the L49-found c1-tier misbilling and A2's two plausible leads belong here).
 2. **L50** — investigated-open: the top-cell seed-cache over-claim is real by reading, but three two-tangency fixtures could not REACH the double-slice state (analysis + fix direction recorded in the ledger entry). Fix only with a reaching fixture.
-3. **L52** consolidation batch + review doc §11 steps 5–6 (in-repo budget_contract gate, de-budget milestones — the L49-found c1-tier misbilling belongs here).
 Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to cheaper models (Opus) for scan/verify fan-outs — session limits killed two Fable finders on 2026-07-12.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**

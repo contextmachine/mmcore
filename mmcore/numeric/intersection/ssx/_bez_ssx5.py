@@ -2979,7 +2979,12 @@ def _march_to_boundary(
             interior_len = 0.5 * crossed_alpha * step
             can_retarget = (h > 2.0 * h_floor
                             and interior_len > 0.25 * min_step)
-            if fres > strict_exit_tol:
+            # Accept-if (L45 convention; audit L54[A1 lead 1]): a NaN fres
+            # from a degenerate fixed-face solve must land in the REFUSE
+            # branch, not slip past a reject-if-greater comparison into a
+            # committed poisoned exit vertex (previously masked only by the
+            # tracer's downstream finite-guard in a different function).
+            if not (np.isfinite(fres) and fres <= strict_exit_tol):
                 # No certified Psi zero on this face: the curve does NOT
                 # exit here within this step — it hugs the face and stays
                 # inside (L25 edge-graze), or Newton stalled short on a

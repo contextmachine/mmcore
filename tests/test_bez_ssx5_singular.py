@@ -3267,3 +3267,34 @@ def test_interior_pinch_cut_face_fibers_are_surfaced():
         d = np.array([min(point_to_polyline_dist(p, poly) for poly in polys)
                       for p in pts])
         assert float(d.max()) <= 5e-3, (t_root, float(d.max()))
+
+
+def test_exit_commit_refuses_nonfinite_fixed_face_residual(monkeypatch):
+    """L54[A1 lead 1] hardening: a NaN residual from the fixed-face exit
+    Newton fell into the COMMIT branch of _march_to_boundary (NaN > tol is
+    False) and shipped a poisoned exit vertex — masked only by the tracer's
+    downstream finite-guard in a DIFFERENT function. The commit condition
+    must be accept-if (finite AND <= strict), the L45 convention every other
+    gate follows."""
+    import mmcore.numeric.intersection.ssx._bez_ssx5 as m
+    from examples.ssx.bez_ssx5_case15 import build_graze_pair
+
+    S1, S2 = build_graze_pair(d0=1e-4)
+    S1h = np.concatenate([S1, np.ones(S1.shape[:-1] + (1,))], axis=-1)
+    S2h = np.concatenate([S2, np.ones(S2.shape[:-1] + (1,))], axis=-1)
+    garbage = np.array([0.0, 0.5, 0.25, 0.5])
+    monkeypatch.setattr(
+        m, "_ssx_correct_fixed",
+        lambda *a, **k: (garbage.copy(), float("nan"), 0.7))
+
+    seed = np.array([0.2501, 0.0, 0.37505, 0.25])
+    stuv, xyz, exit_info = m._march_to_boundary(
+        S1h, S2h, seed, atol=1e-3, rational=True,
+        direction_hint=np.array([-0.5, 1.0, -0.25, 0.5]))
+
+    # pre-fix: the first wall poke committed the NaN-residual garbage vertex
+    # as a boundary exit; post-fix every such attempt is refused (the march
+    # retargets interior and ends without a certified exit).
+    committed_garbage = (exit_info is not None
+                         and np.allclose(np.asarray(stuv)[-1], garbage))
+    assert not committed_garbage, (exit_info, np.asarray(stuv)[-1])
