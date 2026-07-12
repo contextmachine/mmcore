@@ -1440,12 +1440,16 @@ def bez_csx(
     cells_remaining -= boundary_cells
     cells_processed += boundary_cells
     if boundary_exhausted:
-        # Partial face topology cannot safely drive overlap classification or
-        # root-neighbourhood exclusion.  Phase 2 may still return useful
-        # interior roots from the full t-domain, but the public flag records
-        # that the result is incomplete.
+        # Partial face topology cannot safely drive OVERLAP classification
+        # (the valley pairing below needs the complete boundary-zero set,
+        # so it is gated on `not boundary_exhausted`), but each zero found
+        # so far is polished through the strict per-root certificate and is
+        # individually sound — keep them (ledger L51: discarding returned
+        # `{isolated: [], budget_exhausted: True}` with certified roots in
+        # hand and ~no Phase-2 budget left to re-find them; CCX keeps its
+        # validated hits in the same situation). The public flag still
+        # records that the topology is incomplete.
         budget_exhausted = True
-        csx_boundary_zeros = []
     elif not all(isinstance(bz, BoundaryZero) for bz in csx_boundary_zeros):
         budget_exhausted = True
         boundary_exhausted = True
@@ -1477,9 +1481,11 @@ def bez_csx(
                 })
                 t_exclude.append((t_r - ptol_t, t_r + ptol_t))
 
-    # Valley check for overlap
+    # Valley check for overlap — only on a COMPLETE boundary-zero set: a
+    # truncated set could pair the wrong endpoints into a false overlap
+    # claim (L51: the per-root keeps above are sound, this pairing is not).
     non_affine_overlap_span = None
-    if len(csx_boundary_zeros) >= 2:
+    if not boundary_exhausted and len(csx_boundary_zeros) >= 2:
         overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
         if overlap_pair is not None:
             bz_a, bz_b = overlap_pair

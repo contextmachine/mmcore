@@ -881,3 +881,49 @@ def test_curved_uv_exact_overlap_is_not_reported_complete():
     assert result["budget_exhausted"] is True
     # The fallback is bounded: no full-budget continuum grind.
     assert result["cells_processed"] <= 8_000
+
+
+def test_boundary_exhaustion_keeps_certified_roots(monkeypatch):
+    """Ledger L51: on boundary-phase exhaustion the certified-partial contract
+    must keep the strictly certified roots already in hand (CCX keeps its
+    validated hits in the same situation). Dropping them returned
+    {isolated: [], budget_exhausted: True} with a certified root found and
+    ~no Phase-2 budget left to re-find it. Partial boundary topology still
+    must not drive overlap classification, and the result stays flagged."""
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+    from mmcore.numeric.intersection._sq_dist_classify import BoundaryZero
+
+    # cubic with its t=0 endpoint exactly ON the plane z=0 at (0.25, 0.25):
+    # z(t) = t (2 (t - 0.6)^2 + 0.001) — the ONLY root is t=0, and the
+    # sub-atol valley (6e-4 deep at t=0.6) makes a 1-cell Phase 2 provably
+    # unable to re-find/exclude anything (sub-atol valleys must be resolved,
+    # never merged).
+    def _mono2bern3(a):
+        from math import comb
+        return [sum(comb(i, k) / comb(3, k) * a[k] for k in range(i + 1))
+                for i in range(4)]
+
+    x = _mono2bern3([0.25, 0.5, 0.0, 0.0])
+    y = _mono2bern3([0.25, 0.5, 0.0, 0.0])
+    z = _mono2bern3([0.0, 0.721, -2.4, 2.0])
+    curve = np.column_stack([x, y, z])
+    surf = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                     [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+
+    bz = BoundaryZero(axis=0, side=0, param=0.25, param2=0.25)
+    # the exhausted boundary phase consumed ~all of the allowance: Phase 2
+    # has 1 cell left and cannot re-find the discarded root
+    monkeypatch.setattr(
+        csx_mod, "_find_csx_boundary_zeros",
+        lambda *a, **k: ([bz], True, 99))
+
+    result = bez_csx(curve, surf, atol=1e-3, rational=False, max_cells=100)
+
+    assert result["budget_exhausted"] is True
+    assert result["boundary_topology_complete"] is False
+    assert len(result["isolated"]) == 1, result["isolated"]
+    iso = result["isolated"][0]
+    assert iso["t"] == pytest.approx(0.0, abs=1e-9)
+    assert iso["u"] == pytest.approx(0.25, abs=1e-6)
+    assert iso["v"] == pytest.approx(0.25, abs=1e-6)
+    assert len(result["overlaps"]) == 0
