@@ -15,7 +15,7 @@ from mmcore.numeric.aabb import aabb_offset
 from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
-from mmcore.numeric.intersection._bezier_common import extract_weights, eval_curve, newton_ccx
+from mmcore.numeric.intersection._bezier_common import extract_weights, eval_curve, eval_curve_d1, newton_ccx
 from mmcore.numeric.intersection._sq_dist_classify import (
     classify_sq_dist_net,
     NO_INTERSECTION,
@@ -433,6 +433,238 @@ def _overlap_mapping_is_identity(C1, C2, u_range, v_range, rational):
     return True
 
 
+def _invert_point_on_curve(C, pt, v0, rational, max_iter=40):
+    """Project *pt* onto curve ``C``: damped 1-D Gauss-Newton on
+    ``||C(v) - pt||`` with a monotone-decreasing line search, clamped to
+    [0,1]. Returns ``(v, residual)`` for the best point found."""
+    pt = np.asarray(pt, dtype=np.float64)
+    v = float(min(1.0, max(0.0, float(v0))))
+    p, d = eval_curve_d1(C, v, rational=rational)
+    r = p - pt
+    best_v, best_r = v, float(np.linalg.norm(r))
+    for _ in range(max_iter):
+        denom = float(np.dot(d, d))
+        if denom < 1e-30:
+            break
+        step = -float(np.dot(r, d)) / denom
+        if abs(step) < 1e-16:
+            break
+        scale = 1.0
+        improved = False
+        for _ls in range(20):
+            cand = min(1.0, max(0.0, v + scale * step))
+            p_c, d_c = eval_curve_d1(C, cand, rational=rational)
+            r_c = p_c - pt
+            n_c = float(np.linalg.norm(r_c))
+            if n_c < best_r:
+                v, p, d, r = cand, p_c, d_c, r_c
+                best_v, best_r = cand, n_c
+                improved = True
+                break
+            scale *= 0.5
+        if not improved:
+            break
+    return best_v, best_r
+
+
+def _project_point_on_curve(C, pt, rational, seed=None):
+    """Coarse-scan (when unseeded) + Newton projection of *pt* onto ``C``."""
+    if seed is None:
+        ts = np.linspace(0.0, 1.0, 17)
+        ds = [float(np.linalg.norm(
+            eval_curve(C, float(t), rational=rational)
+            - np.asarray(pt, dtype=np.float64))) for t in ts]
+        seed = float(ts[int(np.argmin(ds))])
+    return _invert_point_on_curve(C, pt, seed, rational)
+
+
+def _tolerance_overlap_certificate(C1, C2, atol, rational, ptol_u, ptol_v,
+                                   n_samples=65):
+    """L47 residual-certified overlap tier (user decision 2026-07-12).
+
+    The exact-affine identity above certifies coefficient-identical span
+    pairs only. Near-coincident pairs (same path within ``atol`` but not
+    exactly) and same-locus non-affine reparameterizations are genuine
+    overlaps at modeling tolerance — the semantics CSX claims (L27) and SSX
+    regions (L28) already use. This certificate:
+
+      1. gates on the four domain-endpoint inversions (an admissible span
+         must be pinned by a domain end of one curve at each end; interior-
+         ended near-coincident bands stay unpromoted — typed partial);
+      2. densely samples the candidate span, requiring every point of C1 to
+         invert onto C2 within ``atol`` with a monotone parameter pairing;
+      3. refuses to merge sub-tolerance TOPOLOGY (the CSX invariant, 1-D
+         form): an interior exact root (sample residual at roundoff scale
+         between clear-gap neighbours) or a transverse-direction flip
+         between consecutive gap samples means the curves CROSS inside the
+         band — the certificate rejects and returns the crossing brackets
+         so the caller can certify them as isolated roots instead.
+
+    Returns ``(overlap | None, brackets, band_evidence, span_evidence)``:
+    ``brackets`` is a list of ``(u, v)`` seeds for strict root polishing;
+    ``band_evidence`` is True when some qualifying domain end continues as a
+    within-``atol`` coincidence BAND into the domain interior (inward-probe
+    test) — a mere corner CONTACT (curves within atol at one endpoint but
+    diverging immediately, e.g. consecutive edges of a loop sharing a
+    vertex) is NOT band evidence and must not arm the bounded fallback;
+    ``span_evidence`` is the widest endpoint-qualified u-extent (or None).
+    """
+    ends1 = [np.asarray(eval_curve(C1, t, rational=rational), dtype=np.float64)
+             for t in (0.0, 1.0)]
+    ends2 = [np.asarray(eval_curve(C2, t, rational=rational), dtype=np.float64)
+             for t in (0.0, 1.0)]
+    pts1 = _cartesian_curve_controls_for_exactness(C1, rational)
+    pts2 = _cartesian_curve_controls_for_exactness(C2, rational)
+    if pts1 is None or pts2 is None:
+        return None, [], 0, None
+    allpts = np.vstack([pts1, pts2])
+    diag = float(np.linalg.norm(allpts.max(axis=0) - allpts.min(axis=0)))
+    # Roundoff floor separating "exact root at this sample" from "genuine
+    # gap": generous vs eval noise, far below any modeling tolerance.
+    tiny = max(4096.0 * float(np.finfo(np.float64).eps), 1e-12) * max(1.0, diag)
+
+    # Sound AABB pre-filter: the curve lies inside its control-point box, so
+    # an endpoint farther than atol from the box cannot project within atol.
+    # This keeps the endpoint gate ~free on generic (non-coincident) pairs —
+    # CSX runs up to 4 nested CCX calls per cut face, so a Newton projection
+    # per endpoint on every call is real wall-clock on the SSX gates.
+    lo1 = pts1.min(axis=0) - atol
+    hi1 = pts1.max(axis=0) + atol
+    lo2 = pts2.min(axis=0) - atol
+    hi2 = pts2.max(axis=0) + atol
+
+    def _outside(pt, lo, hi):
+        return bool(np.any(pt < lo) or np.any(pt > hi))
+
+    cands = []
+    band_ends = []   # (curve_index, t_end) of qualifying domain ends
+    for t_end, pt in ((0.0, ends1[0]), (1.0, ends1[1])):
+        if _outside(pt, lo2, hi2):
+            continue
+        v_end, r_end = _project_point_on_curve(C2, pt, rational)
+        if r_end <= atol:
+            cands.append((t_end, v_end))
+            band_ends.append((0, t_end))
+    for t_end, pt in ((0.0, ends2[0]), (1.0, ends2[1])):
+        if _outside(pt, lo1, hi1):
+            continue
+        u_end, r_end = _project_point_on_curve(C1, pt, rational)
+        if r_end <= atol:
+            cands.append((u_end, t_end))
+            band_ends.append((1, t_end))
+
+    # Inward-probe band test: a coincidence BAND continues within atol into
+    # the domain interior; a corner CONTACT (shared vertex of consecutive
+    # edges) diverges immediately. Only bands justify the bounded fallback.
+    band_evidence = False
+    for which, t_end in band_ends:
+        src, dst = (C1, C2) if which == 0 else (C2, C1)
+        for step in (0.02, 0.05):
+            t_in = step if t_end == 0.0 else 1.0 - step
+            pt_in = np.asarray(eval_curve(src, t_in, rational=rational),
+                               dtype=np.float64)
+            _t_proj, r_in = _project_point_on_curve(dst, pt_in, rational)
+            if r_in <= atol:
+                band_evidence = True
+                break
+        if band_evidence:
+            break
+
+    if len(cands) < 2:
+        return None, [], band_evidence, None
+    uniq = []
+    for u, v in cands:
+        if not any(abs(u - uu) <= 4.0 * ptol_u and abs(v - vv) <= 4.0 * ptol_v
+                   for uu, vv in uniq):
+            uniq.append((float(u), float(v)))
+    span_evidence = None
+    if len(uniq) >= 2:
+        u_ext = [u for u, _v in uniq]
+        span_evidence = (float(min(u_ext)), float(max(u_ext)))
+
+    pairs = [(uniq[i], uniq[j])
+             for i in range(len(uniq)) for j in range(i + 1, len(uniq))]
+    pairs.sort(key=lambda pr: -abs(pr[1][0] - pr[0][0]))
+
+    brackets: list[tuple[float, float]] = []
+    for (ua, va), (ub, vb) in pairs:
+        if (abs(ub - ua) <= max(4.0 * ptol_u, 1e-6)
+                or abs(vb - va) <= max(4.0 * ptol_v, 1e-6)):
+            continue
+        if ub < ua:
+            ua, ub, va, vb = ub, ua, vb, va
+        direction = 1.0 if vb >= va else -1.0
+        us = np.linspace(ua, ub, n_samples)
+        res = np.empty(n_samples)
+        vs = np.empty(n_samples)
+        dvecs = np.empty((n_samples, ends1[0].shape[0]))
+        ok = True
+        v_prev = None
+        for k in range(n_samples):
+            u_k = float(us[k])
+            pt = np.asarray(eval_curve(C1, u_k, rational=rational),
+                            dtype=np.float64)
+            v_seed = va + (vb - va) * (k / (n_samples - 1.0))
+            if v_prev is not None:
+                v_seed = v_prev + (vb - va) / (n_samples - 1.0)
+            v_k, r_k = _invert_point_on_curve(C2, pt, v_seed, rational)
+            if r_k > atol:
+                v_k2, r_k2 = _project_point_on_curve(C2, pt, rational)
+                if r_k2 < r_k:
+                    v_k, r_k = v_k2, r_k2
+            if r_k > atol:
+                ok = False
+                break
+            if (v_prev is not None
+                    and direction * (v_k - v_prev) < -4.0 * ptol_v):
+                ok = False    # folded pairing — not a functional overlap
+                break
+            vs[k] = v_k
+            res[k] = r_k
+            dvecs[k] = pt - np.asarray(
+                eval_curve(C2, float(v_k), rational=rational),
+                dtype=np.float64)
+            v_prev = v_k
+        if not ok:
+            continue
+
+        root_like = res <= tiny
+        if not bool(np.all(root_like)):
+            # Sub-tolerance topology guard (CSX invariant, 1-D form): a
+            # transverse-direction FLIP between consecutive gap samples
+            # means the curves cross inside the band — never merge; reject
+            # the promotion and hand the crossing brackets to strict root
+            # polishing. Root-like samples are skipped as direction noise:
+            # a residual dip below roundoff scale alone is NOT crossing
+            # evidence (a y-offset of a curve is locally tangent to it
+            # wherever the tangent is parallel to the offset — measured
+            # residual (offset)^2·kappa there, far below `tiny`); a
+            # non-flipping exact touch inside the band is legitimately
+            # covered by the tolerance overlap.
+            pair_brackets = []
+            for k in range(n_samples - 1):
+                if root_like[k] or root_like[k + 1]:
+                    continue
+                d0 = dvecs[k]
+                d1 = dvecs[k + 1]
+                if float(np.dot(d0, d1)) < 0.0:
+                    pair_brackets.append(
+                        (0.5 * float(us[k] + us[k + 1]),
+                         0.5 * float(vs[k] + vs[k + 1])))
+            if pair_brackets:
+                brackets.extend(pair_brackets)
+                continue
+        return ({
+            "boundary_zeros": [],
+            "overlap_endpoints": [],
+            "u_range": (float(ua), float(ub)),
+            "v_range": (float(va), float(vb)),
+            "certification": "tolerance",
+            "residual_max": float(res.max()),
+        }, brackets, band_evidence, span_evidence)
+    return None, brackets, band_evidence, span_evidence
+
+
 def _vector_residual_hull_excludes_zero(C1, C2, rational, depth):
     """Certify that one Cartesian residual component cannot be zero.
 
@@ -747,6 +979,14 @@ def bez_ccx(
     ``max_results`` also caps Phase-1 boundary roots before pairwise topology
     checks.  A capped return sets ``budget_exhausted``; callers must treat
     ``boundary_topology_complete=False`` as diagnostic partial output.
+
+    Overlap entries carry ``certification``: ``'exact'`` (Bernstein affine
+    identity) or ``'tolerance'`` (L47 residual tier: dense-sample inversion
+    pairing within ``atol`` + ``residual_max``, e.g. near-coincident twins
+    and non-affine same-locus reparameterizations). An overlap-class
+    structure that NEITHER certificate can promote and the bounded fallback
+    cannot discretize returns ``uncertified_overlap_span=(u_lo, u_hi)`` with
+    ``boundary_topology_complete=False`` — typed, not a bare budget flag.
     """
     C1 = np.asarray(C1, dtype=np.float64)
     C2 = np.asarray(C2, dtype=np.float64)
@@ -907,20 +1147,73 @@ def bez_ccx(
                 "overlap_endpoints": cls.overlap_endpoints,
                 "u_range": (float(ua), float(ub)),
                 "v_range": (float(va), float(vb)),
+                "certification": "exact",
             })
             overlap_found = True
 
-    # A tolerant OVERLAP classification whose affine identity cannot be
-    # certified is often a broad, near-zero distance valley.  An unrestricted
-    # Phase-2 subdivision of that valley is both expensive and incapable of
-    # turning the rejected candidate into a sound public overlap.  Give the
-    # isolated-root fallback a separate, bounded allowance and report a
-    # partial result if that allowance cannot certify the remaining cells.
-    non_affine_overlap_fallback = cls.kind == OVERLAP and not overlap_found
+    # Ledger L47 (user decision 2026-07-12): residual-certified overlap tier.
+    # Coincidence at modeling tolerance is a real overlap even when no exact
+    # affine identity exists — near-coincident pairs (imported geometry) and
+    # same-locus non-affine reparameterizations. The certificate inverts
+    # dense samples across a domain-end-pinned span (residual <= atol,
+    # monotone pairing) and REFUSES to merge crossing structure inside the
+    # band (transverse-direction flips between gap-scale samples),
+    # returning those brackets for strict isolated-root certification.
+    residual_band_evidence = False
+    uncertified_span_evidence = None
+    interior_bracket_hits = []
+    if not overlap_found and cells_remaining > 0:
+        cells_remaining -= 1
+        cells_processed += 1
+        tol_overlap, tol_brackets, residual_band_evidence, \
+            uncertified_span_evidence = _tolerance_overlap_certificate(
+                C1_orig, C2_orig, atol, rational, ptol_u, ptol_v)
+        if tol_overlap is not None:
+            overlaps.append(tol_overlap)
+            overlap_found = True
+        for u_seed, v_seed in tol_brackets:
+            polished = _strict_polish_ccx(
+                C1_orig, C2_orig, u_seed, v_seed, rational,
+                component_scale=component_scale)
+            if polished is None:
+                continue
+            u_sol, v_sol, point = polished
+            if overlap_found:
+                lo, hi = overlaps[-1]["u_range"]
+                if min(lo, hi) - ptol_u <= u_sol <= max(lo, hi) + ptol_u:
+                    continue
+            interior_bracket_hits.append(
+                (float(u_sol), float(v_sol), point))
+
+    # A tolerant OVERLAP classification (or residual-gate coincidence
+    # evidence) whose certificates all failed is often a broad, near-zero
+    # distance valley.  An unrestricted Phase-2 subdivision of that valley
+    # is both expensive and incapable of turning the rejected candidate
+    # into a sound public overlap.  Give the isolated-root fallback a
+    # separate, bounded allowance and report a partial result if that
+    # allowance cannot certify the remaining cells.
+    non_affine_overlap_fallback = (
+        (cls.kind == OVERLAP or residual_band_evidence)
+        and not overlap_found)
     non_affine_overlap_cells_remaining = (
         min(cells_remaining, 2_000)
         if non_affine_overlap_fallback else None
     )
+
+    def _finalize(topology_complete=True):
+        # Typed L47 outcome, mirroring CSX's L42 export: when the overlap-
+        # class structure could not be certified AND the bounded fallback
+        # could not discretize it, name the span instead of billing the
+        # failure to the budget with topology claimed complete.
+        structural = (non_affine_overlap_fallback and budget_exhausted
+                      and not overlap_found)
+        res = _result(isolated, overlaps,
+                      topology_complete=topology_complete and not structural)
+        if structural:
+            span = uncertified_span_evidence or (0.0, 1.0)
+            res["uncertified_overlap_span"] = (
+                float(span[0]), float(span[1]))
+        return res
 
     # 1c. Classify boundary hits: overlap endpoints go into the overlap,
     #     remaining boundary hits become isolated intersections.
@@ -937,6 +1230,14 @@ def bez_ccx(
                        / (u_end_ovl - u_start_ovl))
                 v_expected = ((1.0 - lam) * v_start_ovl
                               + lam * v_end_ovl)
+                if ovl.get("certification") == "tolerance":
+                    # The pairing of a residual-certified overlap need not
+                    # be affine — locate the expected partner parameter by
+                    # inversion (seeded by the affine guess).
+                    v_expected, _r_inv = _invert_point_on_curve(
+                        C2_orig,
+                        eval_curve(C1_orig, float(u_bz), rational=rational),
+                        v_expected, rational)
                 on_overlap = abs(v_bz - v_expected) <= 2.0 * ptol_v
             if not on_overlap:
                 if not _is_duplicate(isolated, pt, atol):
@@ -952,8 +1253,18 @@ def bez_ccx(
                     break
                 isolated.append({"u": u_bz, "v": v_bz, "point": pt})
 
+    # Interior crossings certified from the residual tier's rejected
+    # brackets (crossing structure inside a tolerance band is topology,
+    # never merged — CSX invariant, 1-D form).
+    for u_hit, v_hit, pt in interior_bracket_hits:
+        if not _is_duplicate(isolated, pt, atol):
+            if len(isolated) >= max_results:
+                budget_exhausted = True
+                break
+            isolated.append({"u": u_hit, "v": v_hit, "point": pt})
+
     if budget_exhausted:
-        return _result(isolated, overlaps)
+        return _finalize()
 
     # ===================================================================
     # PHASE 2: Isolated intersection search
@@ -1029,7 +1340,7 @@ def bez_ccx(
         if non_affine_overlap_fallback and phase2_exhausted:
             break
 
-    return _result(isolated, overlaps)
+    return _finalize()
 
 
 def _is_duplicate(isolated, pt, atol):

@@ -3015,15 +3015,16 @@ def test_overlap_region_rational_twin_case12():
     assert len(regions) == 1, [b.kind for b in r["branches"]]
     _region_loop_checks(r, regions[0])
     # The region is delivered and certified, and the region-attributable
-    # reasons are retired.  `work_budget` legitimately remains: rational
-    # CSX burns its whole 20k boundary tier on two faces (0 results) and
-    # hits the 128-result cap on a third without a valley confirmation —
-    # a measured rational-CSX capability gap OUTSIDE the L28 contract
-    # (registered in the ledger as follow-up), and the honest-partial
-    # contract must say so rather than claim completeness.
+    # reasons are retired. At L28-landing this fixture legitimately kept
+    # `work_budget` (rational CSX burned its whole 20k boundary tier on two
+    # faces with 0 results and result-cap-flooded a third — ledger L55); the
+    # L47 residual-certified CCX overlap tier closed that gap: the coincident
+    # rational boundary isocurve pairs now promote as tolerance overlaps in a
+    # handful of cells and the whole call is honestly COMPLETE (measured:
+    # reasons=[], ~15.3k cells, 2.2 s — was work_budget at ~40k+ cells).
     assert "overlap_region_unsupported" not in r["status"]["reasons"]
     assert "unresolved_multiplicity" not in r["status"]["reasons"]
-    assert r["status"]["reasons"] == ["work_budget"]
+    assert r["status"]["reasons"] == []
 
 
 def test_overlap_region_opposed_orientation():

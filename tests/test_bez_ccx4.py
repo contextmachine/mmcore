@@ -178,3 +178,151 @@ def test_tangent_touching():
     result = bez_ccx(C1, C2, atol=1e-3, rational=False)
     # Should find exactly 1 intersection point (tangent)
     assert len(result["isolated"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Ledger L47: near-coincident / non-affine coincident overlap semantics
+# (USER DECISION 2026-07-12: residual-certified tier alongside the exact one)
+# ---------------------------------------------------------------------------
+
+def _monomial_to_bernstein(a):
+    """Exact monomial -> Bernstein-n coefficient conversion (1-D)."""
+    from math import comb
+    n = len(a) - 1
+    return [sum(comb(i, k) / comb(n, k) * a[k] for k in range(i + 1))
+            for i in range(n + 1)]
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["same-dir", "reversed"])
+def test_near_coincident_pair_ships_tolerance_overlap(reverse):
+    """Cubic vs itself offset 1e-9 in y (atol=1e-3): exactly disjoint as a
+    point set, coincident at tolerance. The exact-affine narrowing lost the
+    overlap AND misbilled the failure to the budget; the residual tier must
+    certify it (dense-sample inversion pairing, residual <= atol) and ship
+    it complete."""
+    C1 = curve1
+    C2 = curve1.copy()
+    C2[:, 1] += 1e-9
+    if reverse:
+        C2 = C2[::-1].copy()
+    r = bez_ccx(C1, C2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 1, r
+    ov = r["overlaps"][0]
+    assert ov["certification"] == "tolerance"
+    assert ov["u_range"] == pytest.approx((0.0, 1.0), abs=1e-6)
+    v0, v1 = ov["v_range"]
+    if reverse:
+        assert (v0, v1) == pytest.approx((1.0, 0.0), abs=1e-6)
+    else:
+        assert (v0, v1) == pytest.approx((0.0, 1.0), abs=1e-6)
+    assert float(ov["residual_max"]) <= 1e-3
+    assert r["isolated"] == []
+    assert r["budget_exhausted"] is False
+    assert r["boundary_topology_complete"] is True
+
+
+def test_exact_affine_overlap_certification_is_exact():
+    """Coefficient-identical curves keep the exact certificate (unchanged
+    semantics; the new field just names it)."""
+    C = np.array([[0.0, 0.0, 0.0], [0.5, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    r = bez_ccx(C, C.copy(), atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 1
+    assert r["overlaps"][0]["certification"] == "exact"
+    assert r["budget_exhausted"] is False
+
+
+def test_non_affine_reparameterized_exact_overlap_certifies():
+    """Same locus, non-affine parameter map q(s) = (s^2+s)/2: a genuine
+    exact overlap that no affine identity can certify. The residual tier
+    must ship it (residual ~ roundoff) instead of flooding isolated roots
+    or stopping partial."""
+    # C1(t) = (2t, 2t(1-t), 0), degree 2
+    C1 = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [2.0, 0.0, 0.0]])
+    # C2(s) = C1(q(s)) with q(s) = (s^2+s)/2 (monotone [0,1]->[0,1]):
+    #   x = s^2 + s;  y = (s^2+s) - (s^4 + 2 s^3 + s^2)/2
+    bx = _monomial_to_bernstein([0.0, 1.0, 1.0, 0.0, 0.0])
+    by = _monomial_to_bernstein([0.0, 1.0, 0.5, -1.0, -0.5])
+    C2 = np.column_stack([bx, by, np.zeros(5)])
+    r = bez_ccx(C1, C2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 1, r
+    ov = r["overlaps"][0]
+    assert ov["certification"] == "tolerance"
+    assert ov["u_range"] == pytest.approx((0.0, 1.0), abs=1e-6)
+    assert ov["v_range"] == pytest.approx((0.0, 1.0), abs=1e-6)
+    assert float(ov["residual_max"]) <= 1e-9
+    assert r["isolated"] == []
+    assert r["budget_exhausted"] is False
+
+
+def test_realistic_woven_near_coincident_reports_typed_span():
+    """curve1 vs curve2 follow the same path to ~3e-9 but WEAVE across each
+    other — genuine crossings at fitting-noise amplitude. Crossing evidence
+    blocks tolerance promotion (the approved no-distinct-roots guard: never
+    merge crossing structure), yet the crossings sit below the strict
+    certification scale (the curves are ~1e-9-parallel there), so they
+    cannot ship as isolated roots either. The honest outcome is the typed
+    uncertified span with topology incomplete, at bounded fallback cost —
+    not a silent bare-budget grind."""
+    r = bez_ccx(curve1, curve2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 0
+    assert r["budget_exhausted"] is True
+    assert r["boundary_topology_complete"] is False
+    lo, hi = r["uncertified_overlap_span"]
+    assert (lo, hi) == pytest.approx((0.0, 0.8276), abs=1e-3)
+    assert r["cells_processed"] < 5_000
+
+
+def test_interior_crossings_inside_tolerance_band_stay_isolated():
+    """Sub-atol-topology invariant (the L42/CSX negative result, 1-D form):
+    a pair whose ENDS are within tolerance but whose interior CROSSES twice
+    must never be merged into a tolerance overlap — the two transversal
+    roots are the topology. The residual tier's transverse-direction flip
+    test is the guard."""
+    # C1 = flat segment y=0 (degree 2); C2 = (t, f(t)) with
+    # f(t) = 1e-9 + 5e-4 (t-0.4)(t-0.6): f(0)=f(1)=1.2e-4 (within atol),
+    # two sign changes near t=0.4 and t=0.6, |f| <= 1.2e-4 everywhere.
+    C1 = np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    f = _monomial_to_bernstein([1e-9 + 5e-4 * 0.24, -5e-4, 5e-4])
+    C2 = np.column_stack([[0.0, 0.5, 1.0], f, np.zeros(3)])
+    r = bez_ccx(C1, C2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 0, r["overlaps"]
+    assert len(r["isolated"]) == 2, r
+    us = sorted(float(i["u"]) for i in r["isolated"])
+    assert us[0] == pytest.approx(0.4, abs=5e-3)
+    assert us[1] == pytest.approx(0.6, abs=5e-3)
+    assert r["budget_exhausted"] is False
+
+
+def test_uncertifiable_overlap_class_reports_typed_span_not_bare_budget():
+    """A valley-confirmed pair that NEITHER certificate can promote must
+    name the structure — uncertified_overlap_span + topology incomplete —
+    instead of a bare budget_exhausted with topology claimed complete."""
+    # C2 = C1 + (0, f(t), 0) on the curved cubic fixture, with
+    # f(t) = 1e-9 + 2e-3 t^8: a LONG 1e-9-coincident band near u=0 (an
+    # undiscretizable diagonal valley — the curved y makes the residual
+    # net straddle zero along it), sub-atol until t ~ 0.92, 2e-3 > atol at
+    # t=1 — so only the u=0 end is pairable and no span candidate exists.
+    # Same side everywhere (no crossings to lose).
+    def _elevate_once(ctrl):
+        n = len(ctrl) - 1
+        out = [ctrl[0]]
+        for i in range(1, n + 1):
+            a = i / (n + 1)
+            out.append(a * ctrl[i - 1] + (1.0 - a) * ctrl[i])
+        out.append(ctrl[-1])
+        return np.asarray(out)
+
+    C1 = curve1
+    C2 = curve1.copy()
+    for _ in range(5):                       # degree 3 -> 8, exact
+        C2 = _elevate_once(C2)
+    C2[:, 1] += _monomial_to_bernstein([1e-9] + [0.0] * 7 + [2e-3])
+    r = bez_ccx(C1, C2, atol=1e-3, rational=False)
+    assert len(r["overlaps"]) == 0
+    assert r["budget_exhausted"] is True, r
+    # the sub-atol band could not be discretized: the typed span must name
+    # the uncertifiable structure and topology must not be claimed complete
+    assert r["boundary_topology_complete"] is False
+    assert "uncertified_overlap_span" in r, sorted(r)
+    lo, hi = r["uncertified_overlap_span"]
+    assert 0.0 <= lo < hi <= 1.0
