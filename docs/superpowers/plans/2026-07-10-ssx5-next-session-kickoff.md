@@ -12,11 +12,14 @@
 > fix direction recorded), L52, and L54's results (A2's two PLAUSIBLE leads feed L52) in
 > `docs/superpowers/issues/2026-07-07-ssx5-singular-review-ledger.md`; then review doc
 > §11 steps 5–6 in `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`.
-> Queue: 1. **L52** consolidation batch (one budget/status module, exactness kits,
-> margin policies, dead code incl. `_csx_on_cut_face`/`_midpoint_split` and
-> `_curve_component_scale`, the c1-tier misbilling L49 found, A2's csx `>12` chain
-> constant + fixed-65-grid aliasing leads) + §11 steps 5–6 (budget_contract gate,
-> de-budget milestones). 2. **L50** only if a REACHING two-tangency fixture is found
+> Queue: 1. **L52 remainder** (4 slices SHIPPED 2026-07-12 late session: dead code,
+> preflight pins, adapter status-twin unification into `_adapter_status.py`, and the
+> in-repo `budget_contract` gate — see the ledger's L52 progress block): the core
+> 8-way budget merge, exactness kits (reconcile envelopes EXPLICITLY), margin
+> policies, predicates/restrictors, kwarg hygiene, Optional-budget threading, the
+> c1 tier + §11.6 de-budget (incl. the L49-found c1-enumeration misbilling), A2's
+> csx `>12` chain constant + fixed-65-grid aliasing leads.
+> 2. **L50** only if a REACHING two-tangency fixture is found
 > (see the ledger's recorded analysis; do not fix without it). Schema v2 is IN PLACE:
 > new work reads/emits `complete`/`status.reasons`, never `budget_exhausted`, at the
 > bez_ssx level. CCX overlaps now carry `certification: 'exact'|'tolerance'` (L47 user
