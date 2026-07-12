@@ -1628,6 +1628,55 @@ def bez_csx(
         if budget_exhausted or chain:
             budget_exhausted = True
             overlap_topology_incomplete = True
+    if not overlap_topology_incomplete and len(isolated) >= 3:
+        # L52 slice 10a (A2's confirmed lead): a SHORT exact overlap span
+        # survives only by DOMAIN CLIPPING (a polynomial curve exactly on
+        # the surface over an open sub-interval is on it everywhere, so
+        # only the uv-domain edge can end a genuine span), and a clipped
+        # span shorter than the >12-root chain bar produced a few lattice
+        # roots reported COMPLETE (measured: 4.2·ptol_t corner-clipped
+        # continuum → 3 isolated roots, complete=True, no span). Detect
+        # the lattice: a run of ≥3 roots with every consecutive gap
+        # ≤ 4·ptol_t whose GAP MIDPOINTS all pass the STRICT residual
+        # certificate — exact continuums verify at roundoff scale, while
+        # sub-atol-valley root pairs FAIL strict (their valley floors sit
+        # far above roundoff), so distinct zeros connected by sub-atol
+        # valleys are never merged (the CSX invariant).
+        entries = sorted(
+            ((float(e["t"]), float(e["u"]), float(e["v"]))
+             for e in isolated), key=lambda x: x[0])
+        runs, run = [], [entries[0]]
+        for prev, cur in zip(entries, entries[1:]):
+            if cur[0] - prev[0] <= 4.0 * ptol_t:
+                run.append(cur)
+            else:
+                runs.append(run)
+                run = [cur]
+        runs.append(run)
+
+        def _run_is_continuum(run_entries):
+            for (ta, ua, va), (tb, ub, vb) in zip(run_entries,
+                                                  run_entries[1:]):
+                tm = 0.5 * (ta + tb)
+                pm = eval_curve(C, tm, rational=rational)
+                um, vm, _dist = _project_point_on_surface(
+                    pm, S, 0.5 * (ua + ub), 0.5 * (va + vb),
+                    atol, rational)
+                ok, _res = _strict_csx_residual_ok(
+                    C, S, tm, um, vm, rational, strict_root_tol)
+                if not ok:
+                    return False
+            return True
+
+        verified = [r for r in runs if len(r) >= 3 and _run_is_continuum(r)]
+        if verified:
+            largest = max(verified, key=len)
+            non_affine_overlap_span = (largest[0][0], largest[-1][0])
+            overlap_topology_incomplete = True
+            # more than one verified continuum: structure ALSO lives
+            # outside the exported span — the caller must not retire the
+            # incompleteness after representing the span alone.
+            non_span_truncation = len(verified) > 1
 
     result = {"isolated": isolated, "overlaps": overlaps,
               "parameter_fibers": [],

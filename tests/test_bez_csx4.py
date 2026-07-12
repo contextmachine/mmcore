@@ -954,3 +954,64 @@ def test_zero_allowance_preflights_before_net_build(monkeypatch):
     assert r["cells_processed"] == 0
     assert r["isolated"] == [] and r["overlaps"] == []
     assert calls["n"] == 0, "net built despite zero allowance"
+
+
+def test_short_clipped_overlap_span_is_not_reported_complete():
+    """L52 slice 10a (A2's confirmed lead): a coincident span shorter than
+    the >12-root chain bar (here 4.2*ptol_t, ended by DOMAIN CLIPPING at
+    u=1 — the only way a genuine exact span can be short) used to ship as
+    3 lattice roots with complete=True and no span. The lattice-cluster
+    detection (>=3 roots, gaps <= 4*ptol_t, gap midpoints pass the STRICT
+    residual certificate) now exports the typed uncertified span."""
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    C = np.array([[0.994, 0.5, 0.0],
+                  [1.000, 0.5, 0.0],
+                  [1.006, 0.506, 0.0]])
+
+    r = bez_csx(C, S, atol=1e-3, rational=False)
+
+    assert r["boundary_topology_complete"] is False
+    span = r["uncertified_overlap_span"]
+    assert span[0] == pytest.approx(0.0, abs=1e-9)
+    assert span[1] == pytest.approx(0.5, abs=1e-6)
+    assert r["non_span_truncation"] is False
+    # certified roots are kept (L51 philosophy); no exhaustion is claimed
+    # (none happened — 56 cells)
+    assert len(r["isolated"]) >= 3
+    assert r["budget_exhausted"] is False
+
+
+def test_sub_atol_valley_root_chain_is_never_merged_by_the_cluster():
+    """Invariant control for the lattice-cluster detection: three strict-
+    distinct roots connected by SUB-ATOL valleys (depth ~5e-4 between
+    roots ~0.15 apart at ptol_t ~0.04) form a gap-qualified cluster, but
+    the STRICT gap-midpoint certificate fails on the valley floors — the
+    roots must ship isolated with complete topology (never merged into a
+    span: sub-tolerance topology is preserved, the CSX invariant)."""
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    # cubic z(t) = 0.25*(t-0.35)(t-0.5)(t-0.65): roots 0.35/0.5/0.65,
+    # valley depth ~4.3e-4 (sub-atol, far above strict roundoff scale);
+    # x spans 0.02 so ptol_t ~ 0.045 and the 0.15 gaps qualify (< 4*ptol).
+    from numpy.polynomial import polynomial as P
+    coeffs = 0.25 * np.array(P.polyfromroots([0.35, 0.5, 0.65]))
+    # convert power basis -> Bernstein-3 control values for z(t)
+    M = np.array([[1.0, 0.0, 0.0, 0.0],
+                  [1.0, 1.0 / 3.0, 0.0, 0.0],
+                  [1.0, 2.0 / 3.0, 1.0 / 3.0, 0.0],
+                  [1.0, 1.0, 1.0, 1.0]])
+    zc = M @ coeffs
+    C = np.column_stack([
+        np.array([0.49, 0.4967, 0.5033, 0.51]),   # x affine, speed 0.02
+        np.full(4, 0.5),
+        zc])
+
+    r = bez_csx(C, S, atol=1e-3, rational=False)
+
+    ts = sorted(x["t"] for x in r["isolated"])
+    assert len(ts) == 3, r["isolated"]
+    assert ts == pytest.approx([0.35, 0.5, 0.65], abs=1e-3)
+    assert r["boundary_topology_complete"] is True
+    assert "uncertified_overlap_span" not in r
+    assert r["budget_exhausted"] is False
