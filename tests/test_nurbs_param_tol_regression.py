@@ -113,3 +113,26 @@ def test_legacy_beztree_closest_point_is_translation_stable():
         ts.append(float(t_best))
     assert ts[0] == pytest.approx(0.5, abs=1e-6)
     assert ts[1] == pytest.approx(ts[0], abs=1e-6)
+
+
+@pytest.mark.parametrize("scale", [0.0, 5e-324, 1e-200, 2.5e-162, 1e-150])
+def test_collapsed_speed_tolerances_stay_finite(scale):
+    """L52 (review §10): the optimistic dt/du/dv guards use `< _TINY`.
+
+    NOTE (fixture-first honesty): with numpy's squared-sum norm this cannot
+    go RED today — components below ~1.5e-162 flush the norm to exactly
+    0.0, so the old `== 0.0` guard was rescued by an underflow accident
+    (measured worst reachable tol is ~4.5e158, finite). This pin exists so
+    a future norm implementation (e.g. scaled/hypot-style) cannot expose
+    the quotient to denormal denominators and ship an inf/NaN ptol — an
+    inf ptol would make every destructive dedup box-test true downstream.
+    """
+    C = np.array([[0.0, 0.0, 0.0], [scale, 0.0, 0.0]])
+    tol_u = bez_curve_param_tolerance(C, 1e-3, rational=False)
+    assert np.isfinite(tol_u) and tol_u > 0.0
+
+    S = np.array([[[0.0, 0.0, 0.0], [scale, 0.0, 0.0]],
+                  [[0.0, scale, 0.0], [scale, scale, 0.0]]])
+    tol_su, tol_sv = bez_surface_param_tolerance(S, 1e-3, rational=False)
+    assert np.isfinite(tol_su) and tol_su > 0.0
+    assert np.isfinite(tol_sv) and tol_sv > 0.0

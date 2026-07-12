@@ -134,7 +134,13 @@ def _bezier_curve_param_tol_optimistic( P,w,tol, interval=(0.,1.))->float:
     ddt=interval[1]-interval[0]
 
 
-    if dt == 0.0:
+    # `< _TINY`, not `== 0.0` (review 2026-07-12 §10): the same collapsed-
+    # speed guard as `_nurbs_curve_param_tol_optimistic`/the conservative
+    # variants.  With the current squared-sum norm the two are equivalent
+    # (sub-1.5e-162 components flush to a norm of exactly 0.0), but a
+    # scaled-norm implementation would expose the quotient to denormal
+    # denominators; the guard must not depend on that accident.
+    if dt < _TINY:
         tol_u=tol
 
     else:
@@ -173,14 +179,15 @@ def _bezier_surface_param_tol_optimistic(P,w,tol, interval_u=(0.,1.), interval_v
     ddu=interval_u[1]-interval_u[0]
     ddv=interval_v[1]-interval_v[0]
 
-    if du == 0.0:
+    # `< _TINY`, not `== 0.0` — see the curve variant's comment.
+    if du < _TINY:
         tol_u=tol
 
     else:
 
 
         tol_u = tol * (ddu/du)
-    if dv == 0.0:
+    if dv < _TINY:
         tol_v=tol
     else:
         tol_v = tol * (ddv/dv)
