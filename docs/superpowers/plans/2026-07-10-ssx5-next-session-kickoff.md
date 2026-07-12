@@ -87,7 +87,8 @@ Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-rev
 
 ```bash
 .venv/bin/python examples/ssx/bez_ssx5_coverage_check.py          # exit 0: 8 cases (incl. 15 = L25 edge-graze), 100% coverage AND zero spurious singularities (enforced)
-.venv/bin/python -m pytest tests/test_bez_ssx5_singular.py -q     # the singular gate (112 tests at last count)
+.venv/bin/python examples/ssx/bez_ssx5_budget_contract.py         # exit 0: schema-v2 contract + residual sanity + determinism, 2 runs/case (L52 / review §11.5)
+.venv/bin/python -m pytest tests/test_bez_ssx5_singular.py -q     # the singular gate (113 tests at last count)
 .venv/bin/python -m pytest tests/test_bez_csx4.py tests/test_bez_ccx4.py tests/test_bez_ccx3_cases.py tests/test_bezier_common.py tests/test_bezier_curves_overlap.py tests/test_nurbs_param_tol_regression.py -q
 ```
 Plus: legacy 4 mini-cases (planes / transversal / tangential / overlaps — overlaps now correctly 2 branches + 1 junction `tangent_point` since L27); timings within ~1.2× of the numbers recorded in the ledger/memory. A "fix" that trades coverage or adds spurious singularities is a regression, full stop.

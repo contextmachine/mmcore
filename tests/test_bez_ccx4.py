@@ -371,3 +371,26 @@ def test_on_node_interior_crossing_is_never_merged(a, b, t_star):
     assert len(r["overlaps"]) == 0, r["overlaps"]
     us = sorted(float(i["u"]) for i in r["isolated"])
     assert any(abs(u - t_star) < 5e-3 for u in us), (t_star, us)
+
+
+def test_zero_allowance_preflights_before_net_build(monkeypatch):
+    """L52 pin: bez_ccx already refuses a zero allowance before building the
+    squared-distance net — lock that ordering so a refactor cannot regress
+    it to the pre-preflight behavior the CSX twin had."""
+    import mmcore.numeric.intersection.ccx._bez_ccx4 as ccx_mod
+
+    calls = {"n": 0}
+    orig = ccx_mod.curve_curve_squared_net_homog
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return orig(*a, **k)
+
+    monkeypatch.setattr(
+        ccx_mod, "curve_curve_squared_net_homog", counting)
+    C1 = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    C2 = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+    r = bez_ccx(C1, C2, rational=False, max_cells=0)
+    assert r["budget_exhausted"] is True
+    assert r["cells_processed"] == 0
+    assert calls["n"] == 0, "net built despite zero allowance"

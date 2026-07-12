@@ -927,3 +927,30 @@ def test_boundary_exhaustion_keeps_certified_roots(monkeypatch):
     assert iso["u"] == pytest.approx(0.25, abs=1e-6)
     assert iso["v"] == pytest.approx(0.25, abs=1e-6)
     assert len(result["overlaps"]) == 0
+
+
+def test_zero_allowance_preflights_before_net_build(monkeypatch):
+    """L52 (zero-allowance preflight): bez_csx(max_cells=0) must refuse
+    BEFORE building the superlinear distance/residual nets — the SSX top
+    entry has preflighted since L32, but the CSX entry still paid the full
+    net construction for an allowance it did not have."""
+    import mmcore.numeric.intersection.csx._bez_csx4 as csx_mod
+
+    calls = {"n": 0}
+    orig = csx_mod.curve_surface_distance_squared_net_homog
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return orig(*a, **k)
+
+    monkeypatch.setattr(
+        csx_mod, "curve_surface_distance_squared_net_homog", counting)
+    curve = np.array([[0.25, 0.25, -1.0], [0.75, 0.75, 1.0]])
+    surf = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                     [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+    r = bez_csx(curve, surf, atol=1e-3, rational=False, max_cells=0)
+    assert r["budget_exhausted"] is True
+    assert r["boundary_topology_complete"] is False
+    assert r["cells_processed"] == 0
+    assert r["isolated"] == [] and r["overlaps"] == []
+    assert calls["n"] == 0, "net built despite zero allowance"
