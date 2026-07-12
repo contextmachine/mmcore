@@ -89,7 +89,7 @@ surface = NURBSSurfaceTuple(
 #rich.print(over)
 
 s = time.time()
-isolated,overlaps = nurbs_csx(curve, surface, tol=args.atol)
+isolated, overlaps, _status = nurbs_csx(curve, surface, tol=args.atol)
 print(f"CSX v4 performed at: {time.time()-s} secs.")
 
 

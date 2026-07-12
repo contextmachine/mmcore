@@ -159,12 +159,12 @@ import time
 s=time.time()
 for curve in curves1:
 
-    isolated, overlaps = result = nurbs_csx(curve, s2, tol=args.atol)
+    isolated, overlaps, _status = result = nurbs_csx(curve, s2, tol=args.atol)
 
     results_all.append((curve,isolated,overlaps))
 
 for curve in curves2:
-    isolated, overlaps = result = nurbs_csx(curve, s1, tol=args.atol)
+    isolated, overlaps, _status = result = nurbs_csx(curve, s1, tol=args.atol)
 
     results_all.append((curve,isolated,overlaps))
 print(f"CSX v4 performed at: {time.time()-s} secs.")

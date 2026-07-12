@@ -231,7 +231,7 @@ import time
 
 s=time.time()
 
-isolated,overlaps=result= nurbs_csx(curve, surface, tol=args.atol)
+isolated, overlaps, _status = result = nurbs_csx(curve, surface, tol=args.atol)
 print(f"CSX v4 performed at: {time.time()-s} secs.")
 
 
