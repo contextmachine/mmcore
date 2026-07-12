@@ -82,10 +82,13 @@ PROCESS: the first slice-5 review workflow run corrupted the tree (agents ran `g
 
 **ALSO COMPLETE (same continuation session, commits `e19fc51`/`37eb45d`):** the slices-6–9a milestone adversarial review (3 minors, all resolved: c1 contention guard `_c1_tier_clamped`, latent nccx-3D-fixture debris, untracked-example disposition) and **L52 slice 10** — A2's leads RESOLVED: (a) the csx `>12` chain constant CONFIRMED-and-fixed via the corner-clipped short-span fixture (lattice-cluster detection with STRICT gap-midpoint verification; never-merge invariant pinned by the valley-chain negative control); (b) 65-grid aliasing verified documented (no change without the user's L47 band-bar decision).
 
+**ALSO COMPLETE (late continuation session, commits `1efe8c2`..`ff2a10d`):** slice 9b (`unresolved_regions` typed complement — depth dumps, abandoned queues, bail-before-queue early returns all name their 4-D boxes); **L59 SHIPPED** (USER DECISION: theorem-first curve-on-surface overlap certification — see the ledger's L59 entry for the full record: the 5d05ddc regression located by bisection, the user's rationale verbatim, the tier + SSX integration, fixtures A/B at C-quality, all six user overlap scripts tracked as real-data gates); L57 absorbed into L59; L58 (sphere segments) PARKED by user decision.
+
 **Next session:**
-1. **L52 slice 9b** — the typed case-13 complement: emit the unresolved Δ-complement as a typed diagnostic entity (4-D AABB + reason; the `parameter_fibers` pattern) instead of the bare `depth_limit` flag (§7.3 item 2).
-2. **L52 slice 12 remainder** — §10 efficiency items (ccx phase-2 AABB-before-hull ordering, strict-polish seeds, `_choose_phi_equations` tensor rebuilds, O(B²) identity-mapping attempts, loop-invariant `_strict_ssx_root_tol`, overlap-postprocess after denial); flag zoo (`hard_exhausted`/`output_counts` have zero readers); slice-7 residuals (centering/cartesian prep ×2, ordered-restriction backend pair).
-3. **L50** — investigated-open: fix ONLY with a reaching two-tangency fixture (analysis + fix direction in the ledger).
+1. **L60** — the near-band emptiness grind (script-3 call 2 ≈51 s; profile + direction in the ledger; pre-existing, NOT an L59 regression).
+2. **L52 slice 12 remainder** — §10 efficiency items; flag zoo (`hard_exhausted`/`output_counts`); slice-7 residuals (centering/cartesian prep ×2, ordered-restriction backend pair).
+3. **L50** — investigated-open: fix ONLY with a reaching two-tangency fixture (analysis + fix direction in the ledger). **L58** — parked until the user re-opens rational spheres.
+4. DEFERRED BY USER mid-session: the PR-to-tiny push + the nurbs_ssx foundation doc — re-confirm with the user before pushing anything.
 Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to Opus for scan/verify fan-outs. REVIEW-AGENT RULE (paid for): every repo-Bash agent prompt carries the READ-ONLY-git instruction; commit WIP before launching agent batches; `git status` after each batch.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**
