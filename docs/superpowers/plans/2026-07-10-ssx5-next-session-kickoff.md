@@ -3,27 +3,25 @@
 **Written:** 2026-07-10, from the branched interactive session. **Updated 2026-07-12.**
 **Purpose:** everything a fresh session must read and obey before touching SSX code.
 
-> **Session-start prompt (copy-paste; updated 2026-07-12 evening — L41/L42/L28/L43–L46 are DONE at `e090f27`):**
+> **Session-start prompt (copy-paste; updated 2026-07-12 late evening — L25/L47/L48/L49/L51/L53 are DONE, L55 resolved; see §2):**
 > Continue SSX v5 hardening on branch `ssx5-singular-hardening` (NOT `tiny`; no pushes).
-> Start with `git status && git log --oneline -8` — expect HEAD at `e090f27` (7 commits
-> ahead of the docs commit `6f362b9`); reconcile, never clobber.
-> Read first: this kickoff §0–§4 (§2 lists what shipped 2026-07-12 and what remains);
-> then the review doc §9 (L25↔L28 relationship) + §11 steps 3–6 in
-> `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`;
-> then the ledger entries L25, L47–L55 and the "End-of-queue adversarial review" note
-> (6 refuted leads for L54) in `docs/superpowers/issues/2026-07-07-ssx5-singular-review-ledger.md`.
-> Queue: 1. **L25** edge-graze transversal arc loss — FIXTURE-FIRST, no fix before the
-> re-pin: build the minimal graze geometry (plane vs patch whose SSI is tangent to u=0
-> at one point), run the coverage harness + crossing-lifecycle instrumentation
-> (2026-06-09 playbook, handoff §7), locate the drop (claim filter vs tracer exit vs
-> assembly), then fix at that altitude; the §8 band ladder + L28 rim machinery now exist
-> to lean on. 2. **L47** CCX near-coincident overlap semantics — DECIDE-FIRST: present
-> the exact-vs-tolerance contract options to the user (AskUserQuestion) BEFORE coding;
-> then the L42-style fallback + reason-correct status. 3. **L48** param-tol legacy
-> regression tests. 4. As time allows: L49–L51 (fixture-first), L52 consolidation,
-> L53 ssx6 disposition (decide-first), L54 audit (start from the recorded leads),
-> L55 rational-CSX gap. Schema v2 is IN PLACE: new work reads/emits
-> `complete`/`status.reasons`, never `budget_exhausted`, at the bez_ssx level.
+> Start with `git status && git log --oneline -10` — expect the L25/L47/L48/L49/L53/L51
+> commits above `28a9e4d`; reconcile, never clobber.
+> Read first: this kickoff §0–§4 (§2 = what shipped in BOTH 2026-07-12 sessions and
+> what remains); then the ledger entries L50 (investigated-open, fixture analysis +
+> fix direction recorded), L52, L54 in
+> `docs/superpowers/issues/2026-07-07-ssx5-singular-review-ledger.md`; then review doc
+> §11 steps 5–6 in `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`.
+> Queue: 1. **L54 results** — two Opus line-scan agents (A1 SSX; A2 CCX/CSX/closest-point
+> + the z=const≠0 lead) ran 2026-07-12 evening; their findings are recorded in the
+> ledger under L54 — VERIFY each before acting (superpowers:receiving-code-review),
+> fix confirmed ones per TDD. 2. **L52** consolidation batch (one budget/status module,
+> exactness kits, margin policies, dead code incl. `_csx_on_cut_face`/`_midpoint_split`,
+> the c1-tier misbilling L49 found) + §11 steps 5–6 (budget_contract gate, de-budget
+> milestones). 3. **L50** only if a REACHING two-tangency fixture is found (see the
+> ledger's recorded analysis; do not fix without it). Schema v2 is IN PLACE: new work
+> reads/emits `complete`/`status.reasons`, never `budget_exhausted`, at the bez_ssx
+> level. CCX overlaps now carry `certification: 'exact'|'tolerance'` (L47 user contract).
 > Process: mark items CLAIMED(<who>) in the ledger before starting; TDD (failing test
 > first); run §3 gates after every item and before every commit; commit per item with
 > the ledger update in the same commit; adversarial review after substantial milestones.
@@ -54,10 +52,18 @@
 3. [x] **L28** — `SSXOverlapRegion` per approved Option C in NEW `_ssx5_overlap.py` (self-sampled rims incl. curved-UV, degree-1 stub peeling, multi-region loops, §8 band-rule witness, reason retirement via recorded structural sites); case 12 → 1 region, `complete=True, reasons=[]`; L27 skew = clean negative control. AS-BUILT: §8's "region + separate transversal branch" sub-case is unrealizable for exact polynomial pairs (ledger note).
 4. [x] **L43–L46** — c3 pair pricing /128 (case-6 charge 18,731→348), dedup precharge linear (runs at the 1024 cap), NaN chain closed (accept-if gates + NaN-safe binned dedup), closest-point aggregators carry `max_cells`/`stats` + interior heap owns its pop allowance.
 
+**COMPLETE on `ssx5-singular-hardening` (2026-07-12 EVENING session 2; commits `34f5ba6`.. — per-item evidence in the ledger):**
+1. [x] **L25** — edge-graze arc loss: `_march_to_boundary` exit commits only on a certified on-face root (strict bar = the tracer's path certificate); refused exits retarget interior and march PAST the graze. Both loss modes pinned (total strict-kill at d0≲atol·sin; silent truncation at d0≳atol·sin). Case 15 in harness ALL_CASES; 20-variant sweep clean.
+2. [x] **L47** — USER DECISION: residual tier. CCX overlaps carry `certification: 'exact'|'tolerance'` (dense inversion pairing ≤ atol, monotone, transverse-FLIP guard — crossing structure never merged, brackets → strict roots); bounded fallback arms on band evidence (inward probes), typed `uncertified_overlap_span` replaces bare budget misbilling; boolean2d shared-edge merge restored. **L55 RESOLVED as a side effect** (rational case-12 twin now complete, reasons=[], 15.3k cells). Residual: woven noise-amplitude twins stay typed-partial (needs a user band-bar decision to merge).
+3. [x] **L48** — param-tol pins (test-only). CORRECTION: the new conservative bound is translation-INVARIANT; the review's 7.6e-7 was the old optimistic dispatch. Both legacy consumers translation-stable, now guarded.
+4. [x] **L49** — cut-face fibers surfaced (`REASON_PARAMETER_FIBER`, boundary-path parity) via the exact interior-pinch fixture; branch loss REFUTED (3 variants); found: permanent work_budget misbilling from the bounded c1 tier on positive-dim Σ lines (5,693 of 1M cells) → §11.6/L52.
+5. [x] **L51** — CSX boundary-exhaustion keeps certified zeros (CCX parity); valley classification gated on complete sets.
+6. [x] **L53** — USER DECISION: repair + document. ssx6 filter fixed; stale-pre-budget-fork charter in the module docstring; reviews skip it by charter.
+
 **Next session:**
-1. **L25** — edge-graze transversal arc loss (prerequisites now in place: L28 rim machinery + the §8 band ladder). Playbook re-pin first (kickoff §2 P2 note + review doc §9).
-2. **L47** (CCX near-coincident semantics — DECIDE with user first), **L48** (param-tol legacy regression tests), **L49–L54** (fixture-first P2s + consolidation + ssx6 disposition + optional line-scan), **L55** (NEW: rational-CSX boundary-phase cost + untyped result-cap floods — found during L28, measured on the rational twin).
-3. Review doc §11 steps 4–6 remain (consolidation batch, in-repo budget_contract gate, de-budget milestones).
+1. **L54** — the two line-scan audit agents (A1: SSX hunks; A2: CCX/CSX/closest-point/param-tol hunks + the z=const≠0 lead) were launched 2026-07-12 evening; VERIFY their findings before acting (receiving-code-review discipline), ledger the confirmed ones.
+2. **L50** — investigated-open: the top-cell seed-cache over-claim is real by reading, but three two-tangency fixtures could not REACH the double-slice state (analysis + fix direction recorded in the ledger entry). Fix only with a reaching fixture.
+3. **L52** consolidation batch + review doc §11 steps 5–6 (in-repo budget_contract gate, de-budget milestones — the L49-found c1-tier misbilling belongs here).
 Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to cheaper models (Opus) for scan/verify fan-outs — session limits killed two Fable finders on 2026-07-12.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**
@@ -79,9 +85,9 @@ Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-rev
 ## 3. Non-negotiable validation gates (run after EVERY task, before every commit)
 
 ```bash
-.venv/bin/python examples/ssx/bez_ssx5_coverage_check.py          # exit 0: 7 cases, 100% coverage AND zero spurious singularities (enforced)
-.venv/bin/python -m pytest tests/test_bez_ssx5_singular.py -q     # the singular gate (50 tests at last count)
-.venv/bin/python -m pytest tests/test_bez_csx4.py tests/test_bez_ccx4.py tests/test_bez_ccx3_cases.py tests/test_bezier_common.py tests/test_bezier_curves_overlap.py -q
+.venv/bin/python examples/ssx/bez_ssx5_coverage_check.py          # exit 0: 8 cases (incl. 15 = L25 edge-graze), 100% coverage AND zero spurious singularities (enforced)
+.venv/bin/python -m pytest tests/test_bez_ssx5_singular.py -q     # the singular gate (112 tests at last count)
+.venv/bin/python -m pytest tests/test_bez_csx4.py tests/test_bez_ccx4.py tests/test_bez_ccx3_cases.py tests/test_bezier_common.py tests/test_bezier_curves_overlap.py tests/test_nurbs_param_tol_regression.py -q
 ```
 Plus: legacy 4 mini-cases (planes / transversal / tangential / overlaps — overlaps now correctly 2 branches + 1 junction `tangent_point` since L27); timings within ~1.2× of the numbers recorded in the ledger/memory. A "fix" that trades coverage or adds spurious singularities is a regression, full stop.
 
