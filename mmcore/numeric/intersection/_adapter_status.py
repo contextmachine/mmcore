@@ -27,6 +27,22 @@ from __future__ import annotations
 from mmcore.numeric._work_budget import reconcile_reported
 
 
+def reject_unknown_kwargs(context, kwargs, allowed):
+    """Fail fast on unknown adapter kwargs (ledger L52 slice 8).
+
+    The adapters' ``**kwargs`` used to swallow anything, so the natural
+    misspelling ``atol=`` (the BEZ-level name) of the adapter-level
+    ``tol=`` ran silently at the DEFAULT tolerance.
+    """
+    unknown = sorted(set(kwargs) - set(allowed))
+    if unknown:
+        raise TypeError(
+            f"{context}: unexpected keyword argument(s) {unknown}; "
+            f"accepted: {sorted(allowed)}. Note: the geometric tolerance "
+            "is 'tol' at the NURBS adapter level ('atol' is the bez-level "
+            "spelling).")
+
+
 def new_status(max_cells, max_results, extra_list_fields=()):
     status = {
         'complete': True,

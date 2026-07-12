@@ -34,6 +34,17 @@ these families deliberately differ and must not be silently averaged):
 The schema-v2 REASON_* vocabulary lives here with the ledger that stamps
 it.  ``complete == (not reasons)`` by construction: ``mark_incomplete``
 requires a reason, and only root-cause transitions record one.
+
+Optional-budget threading disposition (L52 slice 8): the two shared
+mechanisms are :func:`charge_hook` (explicit parameter threading — the
+former guarded-lambda pattern) and the ContextVar scope
+(:func:`bernstein_zero_budget` — budget reaches a leaf solver whose
+public API must stay budget-free).  The remaining ``budget is not None``
+guards at consumer sites are deliberate per-site policy (the None path
+means "local caps bind alone") and are NOT to be mass-converted to a
+null-object: a null budget that silently accepts every charge would turn
+a forgotten wiring into an unbounded solver — the exact failure the
+budgets exist to prevent.
 """
 from __future__ import annotations
 

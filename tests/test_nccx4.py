@@ -85,7 +85,9 @@ class TestNurbsCCXMultiple2D:
 
     def test_no_false_positives(self):
         """Every reported intersection must have dist < atol between the curves."""
-        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        # `rational=` removed (L52 slice 8): the adapter derives rationality per
+        # pair; the kwarg was silently swallowed before rejection landed.
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001)
         assert iso is not None
         for entry in iso:
             c1i, c2i = int(entry['curve1_i']), int(entry['curve2_i'])
@@ -99,7 +101,9 @@ class TestNurbsCCXMultiple2D:
 
     def test_count(self):
         """Should find exactly 11 intersections (matching the old algorithm)."""
-        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001, rational=True)
+        # `rational=` removed (L52 slice 8): the adapter derives rationality per
+        # pair; the kwarg was silently swallowed before rejection landed.
+        iso, ovl, _status = nurbs_ccx_multiple(CURVES_2D, tol=0.001)
         assert iso is not None
         assert len(iso) == 11
 

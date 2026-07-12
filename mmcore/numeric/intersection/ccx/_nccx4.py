@@ -59,6 +59,7 @@ from mmcore.numeric.intersection._adapter_status import (
     consume_bezier_status as _shared_consume_bezier_status,
     mark_incomplete as _mark_incomplete,
     new_status as _new_status,
+    reject_unknown_kwargs as _reject_unknown_kwargs,
     remaining_allowances as _remaining_allowances,
 )
 
@@ -214,6 +215,8 @@ def nurbs_ccx(
         legacy two-value shape, which raises ``RuntimeError`` on any
         incomplete sub-solve instead (fail-fast opt-in).
     """
+    _reject_unknown_kwargs(
+        "nurbs_ccx", kwargs, ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     dim = max(crv.control_points.shape[1] for crv in (curve1, curve2))
     if isinstance(curve1, NURBSCurve):
         curve1 = _nurbs_to_tuple(curve1)
@@ -363,6 +366,9 @@ def nurbs_ccx_multiple(
         ``return_status=False`` for the legacy two-value shape, which
         raises ``RuntimeError`` on any incomplete Bezier pair instead.
     """
+    _reject_unknown_kwargs(
+        "nurbs_ccx_multiple", kwargs,
+        ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     dim = max(crv.control_points.shape[1] for crv in curves)
 
     # Decompose all curves into Bezier segments, build segment map

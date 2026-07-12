@@ -70,6 +70,7 @@ from mmcore.numeric.intersection._adapter_status import (
     consume_bezier_status as _shared_consume_bezier_status,
     mark_incomplete as _mark_incomplete,
     new_status as _shared_new_status,
+    reject_unknown_kwargs as _reject_unknown_kwargs,
     remaining_allowances as _remaining_allowances,
 )
 
@@ -284,7 +285,7 @@ def _dedup_csx_isolated(entries, curve, surface, tol):
 def nurbs_csx(
     curve: NURBSCurveTuple,
     surface: NURBSSurfaceTuple,
-    atol: float = 1e-3,
+    tol: float = 1e-3,
     *,
     return_status: bool = True,
     **kwargs,
@@ -296,7 +297,7 @@ def nurbs_csx(
     ----------
     curve : NURBSCurve or NURBSCurveTuple
     surface : NURBSSurface or NURBSSurfaceTuple
-    atol : float
+    tol : float
         Geometric tolerance.
 
     Returns
@@ -315,6 +316,8 @@ def nurbs_csx(
         raises ``RuntimeError`` on partial or positive-dimensional
         sub-results instead (fail-fast opt-in).
     """
+    _reject_unknown_kwargs(
+        "nurbs_csx", kwargs, ("max_cells", "max_results") + _BEZIER_LIMIT_KWARGS)
     if isinstance(curve, NURBSCurve):
         curve = _nurbs_to_tuple(curve)
     if isinstance(surface, NURBSSurface):
@@ -329,10 +332,10 @@ def nurbs_csx(
 
     # Build BVHs
     bvh_curves = build_bvh([
-        AABB.from_points(seg.control_points).offset(atol) for seg in curve_segs
+        AABB.from_points(seg.control_points).offset(tol) for seg in curve_segs
     ])
     bvh_surfs = build_bvh([
-        _surface_patch_aabb(patch, atol) for patch in surf_patches
+        _surface_patch_aabb(patch, tol) for patch in surf_patches
     ])
 
     raw_isolated = []
@@ -374,7 +377,7 @@ def nurbs_csx(
         call_kwargs['max_cells'] = remaining_cells
         call_kwargs['max_results'] = remaining_results
         result = bez_csx_v4(
-            pts_c, pts_s, atol=atol, rational=rational, **call_kwargs,
+            pts_c, pts_s, atol=tol, rational=rational, **call_kwargs,
         )
 
         result, stop_after_span = _consume_bezier_status(
@@ -415,13 +418,13 @@ def nurbs_csx(
     # ---------------------------------------------------------------
     # Post-processing: merge overlaps, classify micro-fragments
     # ---------------------------------------------------------------
-    ptol_t = float(nurbs_curve_param_tolerance(curve, atol))
+    ptol_t = float(nurbs_curve_param_tolerance(curve, tol))
 
     # 1. Merge adjacent overlaps by t-range
     merged_overlaps = _merge_overlaps_by_t(raw_overlaps, ptol_t)
 
     # 2. Parametric dedup of isolated points
-    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, atol)
+    deduped_isolated = _dedup_csx_isolated(raw_isolated, curve, surface, tol)
 
     # 3. Classify micro-fragments: isolated points adjacent to overlaps
     #    become part of the overlap; others remain isolated
