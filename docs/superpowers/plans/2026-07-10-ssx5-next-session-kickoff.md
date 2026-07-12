@@ -3,18 +3,32 @@
 **Written:** 2026-07-10, from the branched interactive session. **Updated 2026-07-12.**
 **Purpose:** everything a fresh session must read and obey before touching SSX code.
 
-> **Session-start prompt (copy-paste):**
+> **Session-start prompt (copy-paste; updated 2026-07-12 evening — L41/L42/L28/L43–L46 are DONE at `e090f27`):**
 > Continue SSX v5 hardening on branch `ssx5-singular-hardening` (NOT `tiny`; no pushes).
-> Read first: this kickoff §0–§4; then the approved specs in
-> `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md` §6 + §8;
-> then ledger section "Independent budget/adapter review" (L41–L54).
-> Queue (decisions made 2026-07-12 — don't re-litigate): L41 schema v2 + adapter
-> always-return-status (§6; migrate the six production call sites; update ssx6 contract
-> test + harness) → L42 CSX curved-UV overlap fallback (P0, L28 prerequisite; repro in
-> ledger) → L28 overlap region per approved Option C (§8 dataclass/ladder/test list) →
-> L43–L46 as time allows. Mark items CLAIMED in the ledger before starting; TDD; run §3
-> gates after every item; commit per item with the ledger update in the same commit.
-> Subagents default to Opus (haiku for mechanical checks); Fable only where needed.
+> Start with `git status && git log --oneline -8` — expect HEAD at `e090f27` (7 commits
+> ahead of the docs commit `6f362b9`); reconcile, never clobber.
+> Read first: this kickoff §0–§4 (§2 lists what shipped 2026-07-12 and what remains);
+> then the review doc §9 (L25↔L28 relationship) + §11 steps 3–6 in
+> `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`;
+> then the ledger entries L25, L47–L55 and the "End-of-queue adversarial review" note
+> (6 refuted leads for L54) in `docs/superpowers/issues/2026-07-07-ssx5-singular-review-ledger.md`.
+> Queue: 1. **L25** edge-graze transversal arc loss — FIXTURE-FIRST, no fix before the
+> re-pin: build the minimal graze geometry (plane vs patch whose SSI is tangent to u=0
+> at one point), run the coverage harness + crossing-lifecycle instrumentation
+> (2026-06-09 playbook, handoff §7), locate the drop (claim filter vs tracer exit vs
+> assembly), then fix at that altitude; the §8 band ladder + L28 rim machinery now exist
+> to lean on. 2. **L47** CCX near-coincident overlap semantics — DECIDE-FIRST: present
+> the exact-vs-tolerance contract options to the user (AskUserQuestion) BEFORE coding;
+> then the L42-style fallback + reason-correct status. 3. **L48** param-tol legacy
+> regression tests. 4. As time allows: L49–L51 (fixture-first), L52 consolidation,
+> L53 ssx6 disposition (decide-first), L54 audit (start from the recorded leads),
+> L55 rational-CSX gap. Schema v2 is IN PLACE: new work reads/emits
+> `complete`/`status.reasons`, never `budget_exhausted`, at the bez_ssx level.
+> Process: mark items CLAIMED(<who>) in the ledger before starting; TDD (failing test
+> first); run §3 gates after every item and before every commit; commit per item with
+> the ledger update in the same commit; adversarial review after substantial milestones.
+> Invariants: §4. Subagents default to Opus (haiku for mechanical checks); Fable only
+> where genuinely needed.
 
 ## 0. Read these, in this order, before any edit
 
