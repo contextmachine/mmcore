@@ -3,10 +3,11 @@
 **Written:** 2026-07-10, from the branched interactive session. **Updated 2026-07-12.**
 **Purpose:** everything a fresh session must read and obey before touching SSX code.
 
-> **Session-start prompt (copy-paste; updated 2026-07-12 late evening — L25/L47/L48/L49/L51/L53 are DONE, L55 resolved; see §2):**
+> **Session-start prompt (copy-paste; updated 2026-07-12 end of day — L25/L47/L48/L49/L51/L53/L54 DONE, L55 resolved, L52 slices 1-4 shipped; see §2):**
 > Continue SSX v5 hardening on branch `ssx5-singular-hardening` (NOT `tiny`; no pushes).
-> Start with `git status && git log --oneline -10` — expect the L25/L47/L48/L49/L53/L51
-> commits above `28a9e4d`; reconcile, never clobber.
+> Start with `git status && git log --oneline -14` — expect this kickoff-docs commit
+> at HEAD, sitting directly on the L52-slice commits `2322399`/`09ebc47`/`e9736d4`
+> (last code commits; 13+ commits above `28a9e4d`); reconcile, never clobber.
 > Read first: this kickoff §0–§4 (§2 = what shipped in BOTH 2026-07-12 sessions and
 > what remains); then the ledger entries L50 (investigated-open, fixture analysis +
 > fix direction recorded), L52, and L54's results (A2's two PLAUSIBLE leads feed L52) in
@@ -62,6 +63,7 @@
 4. [x] **L49** — cut-face fibers surfaced (`REASON_PARAMETER_FIBER`, boundary-path parity) via the exact interior-pinch fixture; branch loss REFUTED (3 variants); found: permanent work_budget misbilling from the bounded c1 tier on positive-dim Σ lines (5,693 of 1M cells) → §11.6/L52.
 5. [x] **L51** — CSX boundary-exhaustion keeps certified zeros (CCX parity); valley classification gated on complete sets.
 6. [x] **L53** — USER DECISION: repair + document. ssx6 filter fixed; stale-pre-budget-fork charter in the module docstring; reviews skip it by charter.
+8. [x] **L52 slices 1–4** (`2322399`/`09ebc47`/`e9736d4`): measured-dead code removed (boundary-overcut near-miss caught by the gates, recorded in the ledger); zero-allowance net-build preflights pinned (already present — stale review note); `_nccx4`/`_ncsx4` status twins unified into `_adapter_status.py`; the review probes institutionalized as the exit-coded `examples/ssx/bez_ssx5_budget_contract.py` gate (§3 list updated). Remainder scoped in the ledger's L52 progress block.
 
 7. [x] **L54** — BOTH audit angles completed same session (Opus agents over `6f362b9..HEAD`, findings main-session-verified): A2 CONFIRMED the on-node crossing absorption in the L47 flip test → fixed (bridged flip + on-node tests) + the offset-twin-crosses-at-parallel-tangent corollary pinned; the z=const≠0 lead REFUTED with measurements; A1 NO FINDINGS (13 leads refuted) + the NaN exit-commit latent weakness hardened (accept-if). Two PLAUSIBLE leads recorded in the ledger for L52's cycle (csx `>12` chain constant on short exact spans; even-crossings-per-interval aliasing on the fixed 65-grid).
 
