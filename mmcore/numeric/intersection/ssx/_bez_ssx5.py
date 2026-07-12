@@ -66,6 +66,7 @@ from mmcore.numeric._work_budget import (  # noqa: F401
     REASON_TANGENTIAL_ZONE,
     REASON_MULTIPLICITY,
     REASON_TRACE_UNVERIFIED,
+    REASON_SINGULAR_SET,
     SoftWorkBudget as _SSXSoftBudget,
     charge_hook as _charge_hook,
 )
@@ -7406,15 +7407,41 @@ def bez_ssx(
         c1_hits, _c1_curve = [], False
     else:
         _c1_stats = {}
+        # The 20k tier is a per-call C1 allowance clamped by the shared
+        # remainder (L38 pattern). Justification kept WITH a measurement
+        # (§7.3): on positive-dimensional Σ sets the enumeration truncates
+        # on its RESULT cap long before the tier (interior-pinch fixture:
+        # 509 of 20,000 tier cells, 5.7k of 1M shared cells), so a larger
+        # tier buys nothing there; regular isolated-cusp enumerations on
+        # every gate case finish far below 20k.
         c1_hits, _c1_curve = c1_pass(
             S1_h_top, S2_h_top, atol, ptol4_global,
             max_cells=min(20_000, budget.remaining_cells),
             charge_box=_charge_hook(budget, "c1"),
             stats=_c1_stats)
-        if (_c1_stats.get("budget_exhausted", False)
-                or _c1_stats.get("external_budget_exhausted", False)
-                or _c1_stats.get("incomplete", False)):
+        # Reason attribution (L52 slice 9 / §11.6 de-budget — the L49
+        # misbilling): c1_pass deliberately does NOT set `incomplete` when
+        # the detected cusp curve explains a truncated enumeration; the
+        # old wiring OR-ed all three flags into work_budget and erased
+        # that distinction (measured: reasons=['work_budget'] persisted at
+        # max_cells=1e6 with 5.7k cells spent — no knob could help).
+        if _c1_stats.get("external_budget_exhausted", False):
+            # the SHARED ledger ran dry mid-pass — genuinely budgetary.
             budget.mark_incomplete(REASON_WORK_BUDGET)
+        elif (_c1_stats.get("budget_exhausted", False)
+                or _c1_stats.get("incomplete", False)):
+            if _c1_curve:
+                # A positive-dimensional Σ component was DETECTED this
+                # call: point enumeration of a curve saturates any finite
+                # cap (pinch fixture: truncated at 509 cells on the result
+                # cap; case 14: tier drained at 20,000 and a 5x tier
+                # measured >2 min without finishing). The typed cusp_curve
+                # carries the structure; the honesty flag is structural.
+                budget.mark_incomplete(REASON_SINGULAR_SET)
+            else:
+                # no curve found — the tier itself was the limit and more
+                # cells could genuinely finish an isolated-cusp census.
+                budget.mark_incomplete(REASON_WORK_BUDGET)
     for hit in c1_hits:
         if not _assembly_spend(budget):
             break

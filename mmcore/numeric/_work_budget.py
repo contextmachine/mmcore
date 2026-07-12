@@ -69,6 +69,7 @@ REASON_OVERLAP_REGION = "overlap_region_unsupported"  # 2-D coincidence region d
 REASON_TANGENTIAL_ZONE = "unresolved_tangential_zone"  # truncated Δ/Φ tangency enumeration or Φ-loop path not certified
 REASON_MULTIPLICITY = "unresolved_multiplicity"  # rank-deficient Δ-root / crossing cluster whose local dimension is unproven
 REASON_TRACE_UNVERIFIED = "trace_unverified"  # marched continuation failed the strict Ψ-zero path certificate
+REASON_SINGULAR_SET = "unresolved_singular_set"  # a positive-dimensional singular-set (Σ) enumeration truncated at an internal cap: the emitted typed singularities may under-cover the set, and no resource knob can finish a point enumeration of a curve (L52 slice 9 / §11.6 — the honest replacement for the former work_budget misbilling)
 
 
 @dataclass

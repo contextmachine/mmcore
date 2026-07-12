@@ -68,6 +68,12 @@ def check_case(case):
     unknown = [x for x in reasons if x not in REASON_VOCABULARY]
     if unknown:
         fail(f"undocumented reasons {unknown}")
+    # §11.6 de-budget invariant (declared L52 slice 9, 2026-07-12): no
+    # registered GATE case may report work_budget — the gate geometries
+    # complete far below every allowance, so a work_budget here means a
+    # misbilled structural condition or a genuine headroom regression.
+    if "work_budget" in reasons:
+        fail(f"gate case reports work_budget: {reasons}")
     work = status.get("work", {})
     for k, v in work.items():
         if isinstance(v, (int, float)) and not np.isfinite(v):

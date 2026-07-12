@@ -3298,3 +3298,33 @@ def test_exit_commit_refuses_nonfinite_fixed_face_residual(monkeypatch):
     committed_garbage = (exit_info is not None
                          and np.allclose(np.asarray(stuv)[-1], garbage))
     assert not committed_garbage, (exit_info, np.asarray(stuv)[-1])
+
+
+def test_positive_dim_sigma_truncation_is_structural_not_work_budget():
+    """L52 slice 9 (§11.6 de-budget; the L49-found misbilling): enumerating
+    a positive-dimensional Σ line as points saturates ANY finite cap — the
+    interior-pinch fixture reported reasons=['parameter_fiber',
+    'work_budget'] at max_cells=1,000,000 with only ~5.7k cells spent
+    (c1 tally 509, tier remainder 19,491, external_budget_exhausted=False;
+    measured). By the schema's own definition work_budget means "a resource
+    knob can help" — none does here. c1_pass already refuses to set its
+    `incomplete` flag when the detected cusp curve explains the truncated
+    enumeration; the wiring must not erase that distinction."""
+    P = np.array([0.5, 0.5, 0.0])
+    a, b = 0.6, 0.15
+    r0z = np.array([b, b - a, b])
+    R0 = np.column_stack([np.zeros(3), [0.0, 0.5, 1.0], r0z])
+    R2 = np.column_stack([np.ones(3), [0.0, 0.5, 1.0], -r0z])
+    R1 = 2.0 * P[None, :] - 0.5 * (R0 + R2)
+    S1 = np.stack([R0, R1, R2], axis=0)
+    S2 = np.array([[[-1.0, -1.0, 0.0], [-1.0, 2.0, 0.0]],
+                   [[2.0, -1.0, 0.0], [2.0, 2.0, 0.0]]])
+
+    r = bez_ssx(S1, S2, 1e-3, rational=False, max_cells=1_000_000)
+    reasons = r["status"]["reasons"]
+    assert "work_budget" not in reasons, reasons
+    assert "unresolved_singular_set" in reasons, reasons
+    assert "parameter_fiber" in reasons, reasons
+    assert r["complete"] == (not reasons)
+    # the typed structure that EXPLAINS the truncation is still emitted
+    assert "cusp_curve" in [g.kind for g in r.get("singularities", [])]
