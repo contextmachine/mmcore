@@ -856,3 +856,28 @@ def test_bounded_newton_stall_near_tangent_is_not_a_distinct_root():
     root = result["isolated"][0]
     assert root["t"] == pytest.approx(0.5, abs=1e-7)
     assert root["u"] == pytest.approx(0.75, abs=1e-7)
+
+
+def test_curved_uv_exact_overlap_is_not_reported_complete():
+    """Ledger L42: a curved-UV EXACT overlap must not flood Phase 2 as
+    isolated roots reported COMPLETE (silent wrong topology).
+
+    Parabola lying exactly on the bilinear z=0 patch over [0,2]^2: the
+    uv-preimage is curved, so the exact affine overlap certificate
+    correctly fails — but the result must then be explicitly partial
+    (bounded fallback allowance + boundary-topology flag), never a
+    ptol-lattice continuum sample claimed complete (measured at 5d05ddc:
+    1,679 isolated roots, 0 overlaps, 33,685 cells, flagged complete —
+    accepted by every downstream consumer including ssx6's guard).
+    """
+    curve = np.array([[0.2, 0.2, 0.], [1., 1.8, 0.], [1.8, 0.2, 0.]])
+    surf = np.array([[[0., 0., 0.], [0., 2., 0.]],
+                     [[2., 0., 0.], [2., 2., 0.]]])
+    result = bez_csx(curve, surf, atol=1e-3, rational=False)
+
+    assert result["boundary_topology_complete"] is False, (
+        f"curved-UV overlap reported topology-complete with "
+        f"{len(result['isolated'])} isolated roots")
+    assert result["budget_exhausted"] is True
+    # The fallback is bounded: no full-budget continuum grind.
+    assert result["cells_processed"] <= 8_000

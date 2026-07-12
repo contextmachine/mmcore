@@ -1239,6 +1239,14 @@ from mmcore.numeric.intersection._sq_dist_classify import (
 )
 
 
+# L42: separate Phase-2 allowance once a valley-confirmed overlap pair has
+# failed the exact affine certificate — an exact continuum cannot be turned
+# into a sound public overlap by subdivision, so it must not burn the whole
+# caller allowance failing to (CCX's non-affine fallback uses the same
+# pattern; CSX cells price ~2x a curve pair's, hence the 2x number).
+_NON_AFFINE_OVERLAP_FALLBACK_CELLS = 4_000
+
+
 def bez_csx(
     C,
     S,
@@ -1470,6 +1478,7 @@ def bez_csx(
                 t_exclude.append((t_r - ptol_t, t_r + ptol_t))
 
     # Valley check for overlap
+    non_affine_overlap_span = None
     if len(csx_boundary_zeros) >= 2:
         overlap_pair = _check_csx_overlap_valley(C, S, csx_boundary_zeros, atol, rational)
         if overlap_pair is not None:
@@ -1505,11 +1514,34 @@ def bez_csx(
                 isolated = [iso for iso in isolated
                             if not (t_lo_ovl - atol
                                     <= iso["t"] <= t_hi_ovl + atol)]
+            elif root_a and root_b:
+                # Ledger L42: a valley-confirmed pair whose affine identity
+                # cannot be certified is either a curved-UV EXACT overlap
+                # (the public endpoint-range schema cannot represent it) or
+                # a broad near-tangent tolerance valley.  Neither exclusion
+                # nor tolerance merging is sound here (sub-atol valleys
+                # carry real topology), and an unrestricted Phase-2 walk of
+                # an exact continuum floods thousands of ptol-lattice
+                # "isolated" roots REPORTED COMPLETE — silent wrong
+                # topology (measured: 1,679 roots @33,685 cells on a
+                # parabola lying on a bilinear patch).  Port of the CCX
+                # non-affine fallback: Phase 2 keeps running so genuine
+                # isolated roots in a benign valley are still found, but
+                # under a separate bounded allowance, and a continuum
+                # signature in the outcome marks the topology incomplete.
+                non_affine_overlap_span = (min(t_a, t_b), max(t_a, t_b))
 
     # ===================================================================
     # PHASE 2: Isolated intersection search on remaining curve intervals
     # ===================================================================
     t_intervals = _compute_remaining_intervals(t_exclude, 0.0, 1.0)
+
+    # L42 fallback allowance: with an uncertified valley pair on record,
+    # Phase 2 cannot turn the rejected candidate into a sound public
+    # overlap, so it must not burn the caller's whole allowance failing to.
+    fallback_cells_remaining = (
+        min(cells_remaining, _NON_AFFINE_OVERLAP_FALLBACK_CELLS)
+        if non_affine_overlap_span is not None else None)
 
     for t_lo, t_hi in t_intervals:
         if (t_hi - t_lo) < ptol_t:
@@ -1543,24 +1575,55 @@ def bez_csx(
         if cells_remaining <= 0 or len(isolated) >= max_results:
             budget_exhausted = True
             break
+        if (fallback_cells_remaining is not None
+                and fallback_cells_remaining <= 0):
+            budget_exhausted = True
+            break
+        phase2_cell_limit = cells_remaining
+        if fallback_cells_remaining is not None:
+            phase2_cell_limit = min(
+                phase2_cell_limit, fallback_cells_remaining)
         _phase2_iso, _phase2_exhausted, _cells_used = _phase2_isolated_search(
             F_sub, G_sub, C_sub, S, C_orig, S_orig,
             t_lo, t_hi, atol, rational, ptol_t, ptol_u, ptol_v,
             known_points=isolated,
-            max_depth=max_depth, max_cells=cells_remaining,
+            max_depth=max_depth, max_cells=phase2_cell_limit,
             max_results=max_results - len(isolated),
         )
         cells_remaining -= _cells_used
         cells_processed += _cells_used
+        if fallback_cells_remaining is not None:
+            fallback_cells_remaining -= _cells_used
         budget_exhausted = budget_exhausted or _phase2_exhausted
 
 
+
+    # L42 outcome test: with an uncertified valley pair, either the bounded
+    # fallback ran dry, or the surviving roots inside the span form a
+    # ptol-lattice chain (the continuum signature — a short exact overlap
+    # can complete under the fallback cap and would otherwise revive the
+    # completeness lie).  Both directions only ADD flags (conservative);
+    # a benign near-tangent valley with finitely many transversal roots
+    # completes under the cap, forms no chain, and stays complete.
+    overlap_topology_incomplete = False
+    if non_affine_overlap_span is not None:
+        span_lo, span_hi = non_affine_overlap_span
+        in_span = sorted(
+            iso["t"] for iso in isolated
+            if span_lo - ptol_t <= iso["t"] <= span_hi + ptol_t)
+        chain = (len(in_span) > 12
+                 and all(b - a <= 4.0 * ptol_t
+                         for a, b in zip(in_span, in_span[1:])))
+        if budget_exhausted or chain:
+            budget_exhausted = True
+            overlap_topology_incomplete = True
 
     return {"isolated": isolated, "overlaps": overlaps,
             "parameter_fibers": [],
             "budget_exhausted": bool(budget_exhausted),
             "cells_processed": int(cells_processed),
-            "boundary_topology_complete": not boundary_exhausted}
+            "boundary_topology_complete": not (
+                boundary_exhausted or overlap_topology_incomplete)}
 
 
 def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
