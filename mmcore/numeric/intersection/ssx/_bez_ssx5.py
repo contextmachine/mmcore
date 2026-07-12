@@ -5935,13 +5935,18 @@ def bez_ssx(
     )
 
     def _result(branches=None, points=None, singularities=None,
-                overlap_regions=None):
+                overlap_regions=None, unresolved_regions=None):
         result = {
             'branches': [] if branches is None else branches,
             'points': [] if points is None else points,
             'singularities': [] if singularities is None else singularities,
             'overlap_regions': ([] if overlap_regions is None
                                 else overlap_regions),
+            # L52 slice 9b (§7.3): typed diagnostic complement — 'partial'
+            # names WHAT is unresolved (each entry = a 4-D stuv AABB + the
+            # reason it was left behind), the parameter_fibers pattern.
+            'unresolved_regions': ([] if unresolved_regions is None
+                                   else unresolved_regions),
         }
         result.update(budget.result_fields())
         return result
@@ -5976,7 +5981,13 @@ def bez_ssx(
     pair_coefficients = control_product * control_product
     precompute_units = max(1, (pair_coefficients + 127) // 128)
     if not budget.charge_cells(precompute_units, "precompute"):
-        return _result()
+        # L52 slice 9b: a bail before the queue even exists leaves the
+        # WHOLE domain unresolved — name it (the typed-complement contract:
+        # partial always says what is unresolved).
+        return _result(unresolved_regions=[
+            {'stuv_min': (0.0, 0.0, 0.0, 0.0),
+             'stuv_max': (1.0, 1.0, 1.0, 1.0),
+             'reason': REASON_WORK_BUDGET}])
     F_sq_top = surface_surface_distance_squared_net_homog(
         S1_h_top, S2_h_top, rational=True)
 
@@ -6110,7 +6121,12 @@ def bez_ssx(
     overlap_branches = []
     budget.extend_output(overlap_branches, _overlap_candidates, "branch")
     if budget.exhausted:
-        return _result(branches=overlap_branches)
+        # L52 slice 9b: the interior search never ran — the whole domain
+        # is the unresolved complement (typed, not just flagged).
+        return _result(branches=overlap_branches, unresolved_regions=[
+            {'stuv_min': (0.0, 0.0, 0.0, 0.0),
+             'stuv_max': (1.0, 1.0, 1.0, 1.0),
+             'reason': REASON_WORK_BUDGET}])
 
     # --- Level 3: TΨᵢ (once at top level) ---
     if rational:
@@ -6247,6 +6263,7 @@ def bez_ssx(
     all_fragments: list[_Fragment] = []
     all_points = []
     all_singularities: list[SSXSingularity] = []
+    unresolved_regions: list[dict] = []
     if promoted_fiber_fragment is not None:
         budget.append_output(
             all_fragments, promoted_fiber_fragment, "fragment")
@@ -6823,6 +6840,14 @@ def bez_ssx(
             # certificates above failed leaves this cell unresolved.  The
             # boundary samples are useful partial output, not a proof that
             # no interior component exists (case 7 at max_depth=0).
+            # L52 slice 9b: name the complement — the cell's 4-D box is a
+            # typed diagnostic entity, not just a flag.
+            budget.append_output(
+                unresolved_regions,
+                {'stuv_min': tuple(float(cell.box[i][0]) for i in range(4)),
+                 'stuv_max': tuple(float(cell.box[i][1]) for i in range(4)),
+                 'reason': REASON_DEPTH_LIMIT},
+                "unresolved_region")
             budget.mark_incomplete(REASON_DEPTH_LIMIT)
             continue
 
@@ -7065,6 +7090,19 @@ def bez_ssx(
                 for c in sub_cx:
                     _classify_boundary_point(c, scell)
                 queue.append(scell)
+
+    # L52 slice 9b: cells abandoned by a work-exhausted queue are the other
+    # half of the unresolved complement — name them the same way the depth
+    # dump does (typed 4-D boxes; the output cap bounds the list and marks
+    # honestly if it saturates).
+    for cell in queue:
+        if not budget.append_output(
+                unresolved_regions,
+                {'stuv_min': tuple(float(cell.box[i][0]) for i in range(4)),
+                 'stuv_max': tuple(float(cell.box[i][1]) for i in range(4)),
+                 'reason': REASON_WORK_BUDGET},
+                "unresolved_region"):
+            break
 
     # --- §9 assembly: chain fragments by shared BoundaryPoint endpoints ---
     # Pass the original surfaces so the assembly can march any small chain
@@ -7654,4 +7692,4 @@ def bez_ssx(
                     budget.retire_reason(REASON_MULTIPLICITY)
 
     return _result(all_branches, all_points, all_singularities,
-                   overlap_regions)
+                   overlap_regions, unresolved_regions)

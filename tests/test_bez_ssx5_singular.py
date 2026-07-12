@@ -3328,3 +3328,35 @@ def test_positive_dim_sigma_truncation_is_structural_not_work_budget():
     assert r["complete"] == (not reasons)
     # the typed structure that EXPLAINS the truncation is still emitted
     assert "cusp_curve" in [g.kind for g in r.get("singularities", [])]
+
+
+def test_unresolved_complement_is_typed_with_boxes():
+    """L52 slice 9b (§7.3 item 2, the typed case-13 complement): 'partial'
+    must NAME what is unresolved. Cells dumped at the depth ceiling and
+    cells abandoned on work exhaustion emit typed diagnostic entities
+    (their 4-D stuv AABB + the reason) in result['unresolved_regions'],
+    the parameter_fibers pattern — instead of only a bare reason flag.
+    Case 13 is the canonical depth-limit case (reasons=['depth_limit'],
+    measured 5 complement boxes at HEAD)."""
+    from examples.ssx.bez_ssx5_coverage_check import load_case_surfaces
+
+    S1, S2, rational = load_case_surfaces(13)
+    r = bez_ssx(S1, S2, 1e-3, rational=rational)
+    reasons = r["status"]["reasons"]
+    assert "depth_limit" in reasons, reasons
+    regions = r["unresolved_regions"]
+    assert regions, "depth-dumped cells must be named"
+    for reg in regions:
+        lo = np.asarray(reg["stuv_min"], dtype=float)
+        hi = np.asarray(reg["stuv_max"], dtype=float)
+        assert lo.shape == (4,) and hi.shape == (4,)
+        assert np.all(lo >= -1e-12) and np.all(hi <= 1.0 + 1e-12)
+        assert np.all(lo <= hi + 1e-15)
+        assert reg["reason"] == "depth_limit"
+
+    # work-exhaustion complement: an abandoned queue is named the same way
+    r2 = bez_ssx(S1, S2, 1e-3, rational=rational, max_cells=100)
+    assert not r2["complete"]
+    assert "work_budget" in r2["status"]["reasons"]
+    assert any(reg["reason"] == "work_budget"
+               for reg in r2["unresolved_regions"]), r2["unresolved_regions"]
