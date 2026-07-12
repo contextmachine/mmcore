@@ -96,6 +96,12 @@ class _SSXSoftBudget:
     incomplete: bool = False
     cell_counts: dict = field(default_factory=dict)
     reasons: list = field(default_factory=list)
+    # (reason, stuv_global) records for STRUCTURAL marks whose location a
+    # later pass can re-examine — ledger L28: an `unresolved_multiplicity`
+    # ambiguity whose root lies INSIDE a certified overlap region is a
+    # region-interior sample of the 2-D C2 set (resolved by the region),
+    # so the assembler may retire it; marks outside any region stay.
+    structural_sites: list = field(default_factory=list)
 
     def __post_init__(self):
         if self.max_postprocess_work is None:
@@ -172,6 +178,22 @@ class _SSXSoftBudget:
         """
         self.incomplete = True
         self._add_reason(reason)
+
+    def retire_reason(self, reason: str) -> None:
+        """Remove a structural reason that this same call has since RESOLVED.
+
+        Reasons are published only at :meth:`result_fields`; a condition
+        recorded mid-search that later machinery fully represents (ledger
+        L28: `overlap_region_unsupported` once every piece of overlap
+        evidence is covered by a certified region) may be retired before
+        publication.  Hard exhaustion is never retirable — `exhausted`
+        always keeps its `work_budget` reason, so `reasons` can only become
+        empty when the ledger never ran dry.
+        """
+        if reason in self.reasons:
+            self.reasons.remove(reason)
+        if not self.reasons and not self.exhausted:
+            self.incomplete = False
 
     def append_output(self, target: list, value, source: str) -> bool:
         """Append one intermediate/output entity under the global cap."""
@@ -1221,11 +1243,14 @@ def _emit_tangent_roots(cell, atol, unify_tol, all_singularities,
                     # ambiguous root is a sample of the 2-D C2 set that the
                     # result schema cannot represent yet (case-12 class);
                     # elsewhere it is a genuine multiplicity ambiguity.
-                    cell.work_budget.mark_incomplete(
+                    _root_g = _local_to_global(np.asarray(root), cell.box)
+                    _r_reason = (
                         REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
-                            _local_to_global(np.asarray(root), cell.box),
-                            overlap_boxes)
+                            _root_g, overlap_boxes)
                         else REASON_MULTIPLICITY)
+                    cell.work_budget.structural_sites.append(
+                        (_r_reason, _root_g.copy()))
+                    cell.work_budget.mark_incomplete(_r_reason)
             # local_dimension=True is a certified curve sample: preserve it
             # in the returned roots for Phi seeding, but do not type it as an
             # isolated tangent point.
@@ -1794,11 +1819,14 @@ def _emit_offcurve_tangent_roots(cell, fragments_local, atol, unify_tol,
         # Rank-deficient but no certified two-sided continuation (or shared
         # budget denial): never turn ambiguity into a false isolated point.
         if cell.work_budget is not None:
-            cell.work_budget.mark_incomplete(
+            _sol_g = _local_to_global(np.asarray(sol), cell.box)
+            _s_reason = (
                 REASON_OVERLAP_REGION if _stuv_in_overlap_boxes(
-                    _local_to_global(np.asarray(sol), cell.box),
-                    overlap_boxes)
+                    _sol_g, overlap_boxes)
                 else REASON_MULTIPLICITY)
+            cell.work_budget.structural_sites.append(
+                (_s_reason, _sol_g.copy()))
+            cell.work_budget.mark_incomplete(_s_reason)
     sols = isolated_sols
 
     for xw in sols:
@@ -4875,6 +4903,9 @@ def _trace_cell_by_registrations(cell, atol, h_max=None):
                 # a branch leaves it.  A successful strict trace above would
                 # resolve that ambiguity; a point-only fallback remains
                 # explicitly partial (positive-gap endpoint-touch control).
+                work_budget.structural_sites.append(
+                    (REASON_MULTIPLICITY,
+                     np.asarray(start_cx.stuv, dtype=np.float64).copy()))
                 work_budget.mark_incomplete(REASON_MULTIPLICITY)
             points.append(SSXPoint(stuv=start_cx.stuv, xyz=start_cx.xyz))
 
@@ -6321,11 +6352,14 @@ def bez_ssx(
                               else max(0, int(max_postprocess_work))),
     )
 
-    def _result(branches=None, points=None, singularities=None):
+    def _result(branches=None, points=None, singularities=None,
+                overlap_regions=None):
         result = {
             'branches': [] if branches is None else branches,
             'points': [] if points is None else points,
             'singularities': [] if singularities is None else singularities,
+            'overlap_regions': ([] if overlap_regions is None
+                                else overlap_regions),
         }
         result.update(budget.result_fields())
         return result
@@ -6363,6 +6397,12 @@ def bez_ssx(
         return _result()
     F_sq_top = surface_surface_distance_squared_net_homog(
         S1_h_top, S2_h_top, rational=True)
+
+    # Uncertified curved-UV overlap spans surfaced by nested CSX calls
+    # (ledger L42's typed fallback): the L28 region assembler consumes them
+    # as rim evidence, and reason attribution below distinguishes this
+    # STRUCTURAL truncation from a genuine work-budget one.
+    uncertified_overlap_spans = []
 
     def _run_csx(
         curve, surface, *, local_truncation_is_soft=False, **kwargs,
@@ -6411,8 +6451,24 @@ def bez_ssx(
             # faces (case 14's second collapsed apex fiber).  Internal cut
             # faces are dependencies of child topology and keep the hard-stop
             # behavior below.
+            #
+            # Attribution (L28): a truncation whose ONLY cause is the L42
+            # uncertified-overlap fallback is STRUCTURAL — the curve lies on
+            # the surface over the span and the endpoint-range schema cannot
+            # certify it — so it feeds `overlap_region_unsupported` (which
+            # the region assembler can retire), not `work_budget`.
+            span = result.get('uncertified_overlap_span')
+            span_only = (span is not None
+                         and not result.get('non_span_truncation', False))
+            if span_only:
+                uncertified_overlap_spans.append(
+                    (np.array(curve, dtype=np.float64, copy=True),
+                     (float(span[0]), float(span[1])),
+                     bool(kwargs.get('rational', True))))
             if local_truncation_is_soft and not budget.exhausted:
-                budget.mark_incomplete(REASON_WORK_BUDGET)
+                budget.mark_incomplete(
+                    REASON_OVERLAP_REGION if span_only
+                    else REASON_WORK_BUDGET)
                 return {
                     'isolated': [], 'overlaps': [],
                     'parameter_fibers': [],
@@ -6420,7 +6476,8 @@ def bez_ssx(
                     'boundary_topology_complete': False,
                     'cells_processed': used,
                 }
-            budget.mark_exhausted()
+            budget.mark_exhausted(
+                REASON_OVERLAP_REGION if span_only else REASON_WORK_BUDGET)
         return result
 
     def _run_top_boundary_csx(curve, surface, **kwargs):
@@ -6825,6 +6882,10 @@ def bez_ssx(
                         for c in cell.crossings)
 
                 if tangent_cluster_only:
+                    for rg, _rx in root_clusters:
+                        budget.structural_sites.append(
+                            (REASON_MULTIPLICITY,
+                             np.asarray(rg, dtype=np.float64).copy()))
                     budget.mark_incomplete(REASON_MULTIPLICITY)
                     fr, pt = [], []
                 else:
@@ -6883,6 +6944,10 @@ def bez_ssx(
                                 covered = True
                                 break
                         if not covered:
+                            budget.structural_sites.append(
+                                (REASON_MULTIPLICITY,
+                                 np.asarray(root_g,
+                                            dtype=np.float64).copy()))
                             budget.mark_incomplete(REASON_MULTIPLICITY)
                             break
                 budget.extend_output(all_fragments, fr, "fragment")
@@ -7904,4 +7969,70 @@ def bez_ssx(
                 budget, max(1, len(all_points) * len(all_points)))):
         all_points = _deduplicate_ssx_points(all_points, unify_tol, atol)
 
-    return _result(all_branches, all_points, all_singularities)
+    # ------------------------------------------------------------------
+    # L28: 2-D overlap regions (approved Option C, review doc §8).
+    # Assembled last so region loops can reference the FINAL branch list.
+    # Only runs when overlap evidence exists; rims referenced by a region
+    # replace their L27 2-point chords with properly sampled paths, and a
+    # region that covers every piece of evidence retires the structural
+    # `overlap_region_unsupported` reason (case 12 ships reasons=[]).
+    # ------------------------------------------------------------------
+    overlap_regions = []
+    if (boundary_overlaps or uncertified_overlap_spans
+            or REASON_OVERLAP_REGION in budget.reasons):
+        from mmcore.numeric.intersection.ssx._ssx5_overlap import (
+            assemble_overlap_regions)
+        _non_ovl = [b for b in all_branches if b.kind != "overlap"]
+        _ovl = [b for b in all_branches if b.kind == "overlap"]
+        asm = assemble_overlap_regions(
+            S1_h_top, S2_h_top, atol=atol, ptol4=dedup_tol,
+            existing_overlap_branches=_ovl,
+            uncertified_spans=uncertified_overlap_spans,
+            overlap_boxes=overlap_boxes,
+            charge=lambda n: _assembly_spend(budget, n, "overlap_region"),
+        )
+        if asm["regions"]:
+            base = len(_non_ovl)
+            for reg in asm["regions"]:
+                reg.boundary = [[(base + k, rev) for (k, rev) in loop]
+                                for loop in reg.boundary]
+            all_branches = (_non_ovl + asm["rim_branches"]
+                            + asm["unmatched_branches"])
+            overlap_regions = asm["regions"]
+            if asm["covered"] and not budget.exhausted:
+                budget.retire_reason(REASON_OVERLAP_REGION)
+                # An `unresolved_multiplicity` ambiguity whose Δ-root lies
+                # INSIDE a certified region is a region-interior sample of
+                # the represented 2-D C2 set — resolved.  Retire the reason
+                # only when EVERY recorded multiplicity site is explained;
+                # any site outside all regions keeps it (case-14 class).
+                from mmcore.numeric.intersection.ssx._ssx5_overlap import (
+                    _point_in_polygon, _dist_point_polyline_2d)
+                _mult_sites = [g for (rn, g) in budget.structural_sites
+                               if rn == REASON_MULTIPLICITY]
+                _p12 = 8.0 * max(float(dedup_tol[0]), float(dedup_tol[1]))
+                _p34 = 8.0 * max(float(dedup_tol[2]), float(dedup_tol[3]))
+
+                def _site_in_regions(g):
+                    for reg in overlap_regions:
+                        st, uv = g[:2], g[2:]
+                        in1 = (_point_in_polygon(st, reg.uv1_loops[0])
+                               and not any(_point_in_polygon(st, h)
+                                           for h in reg.uv1_loops[1:]))
+                        near1 = min(_dist_point_polyline_2d(st, lp)
+                                    for lp in reg.uv1_loops) <= _p12
+                        in2 = (_point_in_polygon(uv, reg.uv2_loops[0])
+                               and not any(_point_in_polygon(uv, h)
+                                           for h in reg.uv2_loops[1:]))
+                        near2 = min(_dist_point_polyline_2d(uv, lp)
+                                    for lp in reg.uv2_loops) <= _p34
+                        if (in1 or near1) and (in2 or near2):
+                            return True
+                    return False
+
+                if _mult_sites and all(_site_in_regions(g)
+                                       for g in _mult_sites):
+                    budget.retire_reason(REASON_MULTIPLICITY)
+
+    return _result(all_branches, all_points, all_singularities,
+                   overlap_regions)

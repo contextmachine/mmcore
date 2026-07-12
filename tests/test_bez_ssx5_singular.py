@@ -2828,16 +2828,18 @@ def test_schema_v2_depth_ceiling_reports_depth_limit():
     assert "depth_limit" in r["status"]["reasons"]
 
 
-def test_schema_v2_2d_overlap_reports_region_unsupported():
-    # Case-12 class (L28 pending): coplanar bilinear patches overlapping in
-    # a 2-D region. The rank-deficient Δ-root inside the detected overlap
-    # region's parametric box is the region's structural signature until
-    # SSXOverlapRegion lands; the old schema billed this to the budget at
-    # 1.9% usage (review doc §5 probe 1, case 12).
+def test_schema_v2_2d_overlap_resolved_by_region():
+    # L41 originally pinned this strip as complete=False with the
+    # structural `overlap_region_unsupported` reason (the old schema billed
+    # it to the budget at 1.9% usage — review doc §5 probe 1). L28's
+    # region assembler now RESOLVES it — the reason is "retired by L28"
+    # per review doc §6: one certified region ships and the result is
+    # complete with an empty reason list.
     r = bez_ssx(_plane_patch(0, 2), _plane_patch(1, 3), 1e-3, rational=False)
     _assert_schema_v2(r)
-    assert r["complete"] is False
-    assert "overlap_region_unsupported" in r["status"]["reasons"]
+    assert len(r["overlap_regions"]) == 1
+    assert r["complete"] is True
+    assert r["status"]["reasons"] == []
 
 
 def test_schema_v2_collapsed_edge_reports_parameter_fiber():
@@ -2883,3 +2885,154 @@ def test_zero_csx_allowance_knobs_are_honored(monkeypatch):
     assert calls == [], "bez_csx ran despite a zero result allowance"
     assert r["complete"] is False
     assert "work_budget" in r["status"]["reasons"]
+
+
+# ---------------------------------------------------------------------------
+# L28 — 2-D overlap regions (approved Option C, review doc 2026-07-12 §8)
+# ---------------------------------------------------------------------------
+
+def _case12_pair():
+    from examples.ssx.bez_ssx5_case12 import S1, S2
+    return S1.copy(), S2.copy()
+
+
+def _region_loop_checks(r, reg, atol=1e-3):
+    """Shared §8 invariants for one assembled region."""
+    # boundary references result['branches'] overlap rims, head-to-tail
+    assert reg.boundary and all(loop for loop in reg.boundary)
+    for loop in reg.boundary:
+        for idx, reversed_ in loop:
+            b = r["branches"][idx]
+            assert b.kind == "overlap"
+            # rims are properly sampled, not L27's 2-point chords
+            assert len(np.asarray(b.curve[1])) >= 9
+    # uv loops closed, paired, sample-synchronized
+    assert len(reg.uv1_loops) == len(reg.uv2_loops) == len(reg.boundary)
+    for uv1, uv2 in zip(reg.uv1_loops, reg.uv2_loops):
+        assert uv1.shape == uv2.shape and uv1.shape[1] == 2
+        assert np.allclose(uv1[0], uv1[-1], atol=1e-9)
+        assert np.allclose(uv2[0], uv2[-1], atol=1e-9)
+    # certification is in atol units and within tolerance
+    cert = reg.certification
+    assert cert["boundary_resid_max"] <= 1.0
+    assert cert["interior_resid"] <= 1.0
+    assert cert["n_samples"] >= 8
+    # interior witness is a certified coincidence point
+    w = np.asarray(reg.interior_stuv, dtype=float)
+    assert w.shape == (4,)
+
+
+def _sync_residual(S1, S2, uv1, uv2, rational=False):
+    worst = 0.0
+    for k in range(len(uv1)):
+        p1 = eval_surface(_homog(S1), uv1[k, 0], uv1[k, 1], rational=True)
+        p2 = eval_surface(_homog(S2), uv2[k, 0], uv2[k, 1], rational=True)
+        worst = max(worst, float(np.linalg.norm(p1 - p2)))
+    return worst
+
+
+def test_overlap_region_case12_partial_overlap():
+    S1, S2 = _case12_pair()
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+
+    regions = r["overlap_regions"]
+    assert len(regions) == 1, [b.kind for b in r["branches"]]
+    reg = regions[0]
+    _region_loop_checks(r, reg)
+    # this geometry: one loop of 4 rim pieces (2 shared-edge + 2 interior)
+    assert len(reg.boundary) == 1
+    assert len(reg.boundary[0]) == 4
+    assert _sync_residual(S1, S2, reg.uv1_loops[0], reg.uv2_loops[0]) <= 2e-3
+    assert reg.normal_agreement == 1
+    # the structural flag is retired by the region (review doc §8):
+    # case 12 ships reasons=[] and a complete result
+    assert r["status"]["reasons"] == []
+    assert r["complete"] is True
+
+
+def test_overlap_region_full_containment():
+    # S2 strictly inside a genuinely non-affine bilinear S1 (st-coefficient
+    # nonzero), no shared edges: the single rim loop consists entirely of
+    # S2 domain-edge images, all four with CURVED uv1 preimages (the L42
+    # class — sourced by the assembler's own sampling, not affine claims).
+    S1 = np.array([[[0., 0., 0.], [0.3, 2.2, 0.]],
+                   [[2.1, -0.2, 0.], [2.9, 2.6, 0.]]])
+    S2 = np.array([[[0.6, 0.5, 0.], [0.7, 1.4, 0.]],
+                   [[1.5, 0.55, 0.], [1.45, 1.5, 0.]]])
+    r = bez_ssx(S1, S2, 1e-3, rational=False)
+
+    regions = r["overlap_regions"]
+    assert len(regions) == 1, [b.kind for b in r["branches"]]
+    reg = regions[0]
+    _region_loop_checks(r, reg)
+    assert len(reg.boundary) == 1
+    assert len(reg.boundary[0]) == 4
+    assert _sync_residual(S1, S2, reg.uv1_loops[0], reg.uv2_loops[0]) <= 2e-3
+    assert r["status"]["reasons"] == []
+    assert r["complete"] is True
+
+
+def test_overlap_region_identical_patches():
+    S1 = np.array([[[0., 0., 0.], [0.3, 2.2, 0.]],
+                   [[2.1, -0.2, 0.], [2.9, 2.6, 0.]]])
+    r = bez_ssx(S1, S1.copy(), 1e-3, rational=False)
+
+    regions = r["overlap_regions"]
+    assert len(regions) == 1
+    reg = regions[0]
+    _region_loop_checks(r, reg)
+    # region = whole domain: witness in the interior, identical preimages
+    assert np.allclose(reg.interior_stuv[:2], reg.interior_stuv[2:], atol=1e-6)
+    assert reg.normal_agreement == 1
+    assert r["status"]["reasons"] == []
+    assert r["complete"] is True
+
+
+def test_overlap_region_skew_curve_only_negative_control():
+    # L27's shared-edge pair: 1-D coincidence only — NO region may be
+    # invented (the §8 band rule), the junction tangent_point and both
+    # overlap branches stay, and the result stays complete.
+    s1, s2 = _shared_edge_pair(False)
+    r = bez_ssx(s1, s2, 1e-3, rational=False)
+
+    assert r["overlap_regions"] == []
+    assert sum(1 for b in r["branches"] if b.kind == "overlap") >= 2
+    assert [g.kind for g in r["singularities"]] == ["tangent_point"]
+    assert r["complete"] is True
+
+
+def test_overlap_region_rational_twin_case12():
+    # Exactly-rationalized case 12 (weights 1..2, geometry unchanged):
+    # same single region, same completeness.
+    S1, S2 = _case12_pair()
+    w1 = np.array([[1.0, 1.5], [2.0, 1.25]])
+    w2 = np.array([[1.25, 2.0], [1.5, 1.0]])
+    S1_h = np.concatenate([S1 * w1[..., None], w1[..., None]], axis=-1)
+    S2_h = np.concatenate([S2 * w2[..., None], w2[..., None]], axis=-1)
+    r = bez_ssx(S1_h, S2_h, 1e-3, rational=True)
+
+    regions = r["overlap_regions"]
+    assert len(regions) == 1, [b.kind for b in r["branches"]]
+    _region_loop_checks(r, regions[0])
+    # The region is delivered and certified, and the region-attributable
+    # reasons are retired.  `work_budget` legitimately remains: rational
+    # CSX burns its whole 20k boundary tier on two faces (0 results) and
+    # hits the 128-result cap on a third without a valley confirmation —
+    # a measured rational-CSX capability gap OUTSIDE the L28 contract
+    # (registered in the ledger as follow-up), and the honest-partial
+    # contract must say so rather than claim completeness.
+    assert "overlap_region_unsupported" not in r["status"]["reasons"]
+    assert "unresolved_multiplicity" not in r["status"]["reasons"]
+    assert r["status"]["reasons"] == ["work_budget"]
+
+
+def test_overlap_region_opposed_orientation():
+    # S2 with its u direction flipped: same region, opposed normals.
+    S1, S2 = _case12_pair()
+    S2_flipped = S2[::-1].copy()
+    r = bez_ssx(S1, S2_flipped, 1e-3, rational=False)
+
+    regions = r["overlap_regions"]
+    assert len(regions) == 1
+    assert regions[0].normal_agreement == -1
+    assert r["complete"] is True

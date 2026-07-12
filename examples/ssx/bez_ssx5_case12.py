@@ -13,6 +13,12 @@ paper's C2 sub-case #(Delta)=inf, "partially overlap" (Fig. 8 bottom row).
 Current output schema has no overlap-region concept: design decision needed
 before coding.
 
+RESOLVED 2026-07-12 (ledger L28, approved Option C): the result now carries
+result['overlap_regions'] — one SSXOverlapRegion with a closed rim loop of
+4 kind='overlap' branches (2 shared-edge + 2 interior curved-preimage rims),
+paired sample-synchronized uv loops on both surfaces, a certified interior
+witness, and normal_agreement; complete=True with status.reasons == [].
+
 Note RATIONAL=False here (weights all 1); z=0 exactly for every control point.
 """
 import numpy as np

@@ -1543,7 +1543,20 @@ def bez_csx(
         min(cells_remaining, _NON_AFFINE_OVERLAP_FALLBACK_CELLS)
         if non_affine_overlap_span is not None else None)
 
-    for t_lo, t_hi in t_intervals:
+    def _interval_hits_span(a, b):
+        if non_affine_overlap_span is None:
+            return False
+        s_lo, s_hi = non_affine_overlap_span
+        return not (b < s_lo - ptol_t or a > s_hi + ptol_t)
+
+    # L28 attribution: retirement of the structural overlap reason at the
+    # SSX level is sound only if the truncation touched NOTHING outside the
+    # uncertified span — record whether any disjoint interval was truncated
+    # or skipped.
+    non_span_truncation = False
+    t_intervals = list(t_intervals)
+
+    for _ii, (t_lo, t_hi) in enumerate(t_intervals):
         if (t_hi - t_lo) < ptol_t:
             continue
 
@@ -1572,12 +1585,20 @@ def bez_csx(
             continue
 
         # Search for isolated intersections
+        _rest_has_disjoint = (
+            non_affine_overlap_span is not None
+            and any(not _interval_hits_span(a, b)
+                    for a, b in t_intervals[_ii:] if (b - a) >= ptol_t))
         if cells_remaining <= 0 or len(isolated) >= max_results:
             budget_exhausted = True
+            if _rest_has_disjoint:
+                non_span_truncation = True
             break
         if (fallback_cells_remaining is not None
                 and fallback_cells_remaining <= 0):
             budget_exhausted = True
+            if _rest_has_disjoint:
+                non_span_truncation = True
             break
         phase2_cell_limit = cells_remaining
         if fallback_cells_remaining is not None:
@@ -1594,6 +1615,8 @@ def bez_csx(
         cells_processed += _cells_used
         if fallback_cells_remaining is not None:
             fallback_cells_remaining -= _cells_used
+        if _phase2_exhausted and not _interval_hits_span(t_lo, t_hi):
+            non_span_truncation = True
         budget_exhausted = budget_exhausted or _phase2_exhausted
 
 
@@ -1618,12 +1641,23 @@ def bez_csx(
             budget_exhausted = True
             overlap_topology_incomplete = True
 
-    return {"isolated": isolated, "overlaps": overlaps,
-            "parameter_fibers": [],
-            "budget_exhausted": bool(budget_exhausted),
-            "cells_processed": int(cells_processed),
-            "boundary_topology_complete": not (
-                boundary_exhausted or overlap_topology_incomplete)}
+    result = {"isolated": isolated, "overlaps": overlaps,
+              "parameter_fibers": [],
+              "budget_exhausted": bool(budget_exhausted),
+              "cells_processed": int(cells_processed),
+              "boundary_topology_complete": not (
+                  boundary_exhausted or overlap_topology_incomplete)}
+    if overlap_topology_incomplete:
+        # Typed L42 outcome for the SSX consumer (ledger L28): the span
+        # names WHERE the uncertifiable positive-dimensional structure
+        # lives, and `non_span_truncation` says whether anything OUTSIDE
+        # it was also truncated (in which case the caller must not retire
+        # its incompleteness even after representing the span as a region).
+        result["uncertified_overlap_span"] = (
+            float(non_affine_overlap_span[0]),
+            float(non_affine_overlap_span[1]))
+        result["non_span_truncation"] = bool(non_span_truncation)
+    return result
 
 
 def _is_duplicate(isolated, t,u,v, pt, atol, ptol_t,ptol_u,ptol_v):
