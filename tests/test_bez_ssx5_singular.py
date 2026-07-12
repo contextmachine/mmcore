@@ -3139,3 +3139,33 @@ def test_boundary_polish_gate_rejects_nan_residual(monkeypatch):
     assert r["points"] == []
     assert all(len(np.asarray(b.curve[1])) == 0 or b.kind == "overlap"
                for b in r["branches"]) or r["branches"] == []
+
+
+def test_overlap_box_coverage_requires_both_parameter_planes():
+    # Adversarial-review confirmed finding (2026-07-12): the evidence-
+    # coverage check tested only the box's S1 (s,t) center against
+    # uv1_loops — a box on a DIFFERENT S2 sheet sharing an S1 footprint
+    # (folded / self-overlapping S2) was falsely marked explained and the
+    # structural reason wrongly retired. Coverage now requires BOTH
+    # parameter planes, like `_site_in_regions`.
+    from mmcore.numeric.intersection.ssx._ssx5_overlap import (
+        assemble_overlap_regions)
+
+    S1 = _homog(_plane_patch(0, 2))
+    S2 = _homog(_plane_patch(0, 2))
+    ptol4 = np.full(4, 1e-4)
+
+    # identical patches: one whole-domain region, uv1 == uv2
+    in_box = np.array([[0.4, 0.6]] * 4).T.reshape(4, 2)          # center .5^4
+    asm = assemble_overlap_regions(
+        S1, S2, atol=1e-3, ptol4=ptol4, overlap_boxes=[in_box])
+    assert asm["regions"] and asm["covered"] is True
+
+    # same (s,t) footprint, but the (u,v) half far OUTSIDE the region's
+    # uv2 loops (a phantom second S2 sheet): must NOT count as covered.
+    sheet2_box = np.array([[0.45, 0.55], [0.45, 0.55],
+                           [3.45, 3.55], [3.45, 3.55]])
+    asm2 = assemble_overlap_regions(
+        S1, S2, atol=1e-3, ptol4=ptol4, overlap_boxes=[sheet2_box])
+    assert asm2["regions"]
+    assert asm2["covered"] is False

@@ -600,17 +600,29 @@ def assemble_overlap_regions(
     covered = True
     all_rim_xyz = [rims[ri]["xyz"] for ri in referenced]
     p_bar12 = 8.0 * max(float(ptol4[0]), float(ptol4[1]))
+    p_bar34 = 8.0 * max(float(ptol4[2]), float(ptol4[3]))
+
+    def _half_explained(pt2, loops, bar):
+        in_region = (_point_in_polygon(pt2, loops[0])
+                     and not any(_point_in_polygon(pt2, h)
+                                 for h in loops[1:]))
+        near_rim = min(_dist_point_polyline_2d(pt2, lp)
+                       for lp in loops) <= bar
+        return in_region or near_rim
+
     for box in overlap_boxes or ():
         b = np.asarray(box, dtype=np.float64)
-        st = 0.5 * (b[:, 0] + b[:, 1])[:2]
+        center = 0.5 * (b[:, 0] + b[:, 1])
+        st, uv = center[:2], center[2:]
         explained = False
         for _loops, region in regions:
-            in_region = (_point_in_polygon(st, region.uv1_loops[0])
-                         and not any(_point_in_polygon(st, h)
-                                     for h in region.uv1_loops[1:]))
-            near_rim = min(_dist_point_polyline_2d(st, lp)
-                           for lp in region.uv1_loops) <= p_bar12
-            if in_region or near_rim:
+            # BOTH parameter planes must be explained (adversarial-review
+            # confirmed finding, 2026-07-12): a box on a DIFFERENT S2
+            # sheet sharing an S1 footprint (folded/self-overlapping S2)
+            # must not count as covered by the sheet the region actually
+            # represents — same two-sided rule as `_site_in_regions`.
+            if (_half_explained(st, region.uv1_loops, p_bar12)
+                    and _half_explained(uv, region.uv2_loops, p_bar34)):
                 explained = True
                 break
         if not explained:

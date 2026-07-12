@@ -32,15 +32,19 @@
 - Coordination protocol from the ledger header: mark an item `CLAIMED(<who>)` in the ledger before starting it.
 - No pushes, no merges to `tiny` without the user.
 
-## 2. Open work items (priority order — updated 2026-07-12 after the independent review)
+## 2. Open work items (priority order — updated 2026-07-12 EVENING: the queue below is DONE)
 
-**Next-session start here (decisions made 2026-07-12, ledger L41–L54 registered):**
-1. **L41** — schema v2 (`complete`/`status.reasons`/`status.work`) + adapter default flip to always-return-status (APPROVED; spec in review doc §6).
-2. **L42** — CSX curved-UV overlap fallback (P0; **prerequisite for L28**).
-3. **L28** — overlap region per **APPROVED Option C** (spec + dataclass + tolerance ladder + test list: review doc §8).
-4. **L43–L46** — remaining P0 fixes (c3 pricing, dedup precharge, NaN chain, closest-point signal) — independent, parallel-friendly.
-5. **L25** — after L28 (rim machinery + §8 band-width ladder in place).
-Review doc (source of truth for all of the above): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to cheaper models (Opus) for scan/verify fan-outs — session limits killed two Fable finders on 2026-07-12.
+**COMPLETE on `ssx5-singular-hardening` (2026-07-12, commits `ae6a4c6`..`1257fdb`; per-item evidence in the ledger):**
+1. [x] **L41** — schema v2 shipped (`complete`/`status.reasons`/`status.work`; `mark_incomplete(reason)` required; reasons measured per case: 12 → overlap+work, 13 → depth_limit, 14 → fiber+tangential+multiplicity+work); adapters flipped to always-return-status with candidate-scaled default allowances; live v4 callers migrated (`boolean2d`×2 + public `ccx()`; `boundary_intersection`/`implicitize` verified on the OLD `_ncsx` adapter — review's caller graph corrected in the ledger); zero-allowance CSX knobs honored; dead knobs removed.
+2. [x] **L42** — CSX curved-UV overlap fallback: bounded 4k Phase-2 allowance + continuum chain signature ⇒ `budget_exhausted` + `boundary_topology_complete=False` (repro: 1,679 roots @33,685 cells COMPLETE → 214 @4,006 partial); zero reachability from gate geometry measured before landing.
+3. [x] **L28** — `SSXOverlapRegion` per approved Option C in NEW `_ssx5_overlap.py` (self-sampled rims incl. curved-UV, degree-1 stub peeling, multi-region loops, §8 band-rule witness, reason retirement via recorded structural sites); case 12 → 1 region, `complete=True, reasons=[]`; L27 skew = clean negative control. AS-BUILT: §8's "region + separate transversal branch" sub-case is unrealizable for exact polynomial pairs (ledger note).
+4. [x] **L43–L46** — c3 pair pricing /128 (case-6 charge 18,731→348), dedup precharge linear (runs at the 1024 cap), NaN chain closed (accept-if gates + NaN-safe binned dedup), closest-point aggregators carry `max_cells`/`stats` + interior heap owns its pop allowance.
+
+**Next session:**
+1. **L25** — edge-graze transversal arc loss (prerequisites now in place: L28 rim machinery + the §8 band ladder). Playbook re-pin first (kickoff §2 P2 note + review doc §9).
+2. **L47** (CCX near-coincident semantics — DECIDE with user first), **L48** (param-tol legacy regression tests), **L49–L54** (fixture-first P2s + consolidation + ssx6 disposition + optional line-scan), **L55** (NEW: rational-CSX boundary-phase cost + untyped result-cap floods — found during L28, measured on the rational twin).
+3. Review doc §11 steps 4–6 remain (consolidation batch, in-repo budget_contract gate, de-budget milestones).
+Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to cheaper models (Opus) for scan/verify fan-outs — session limits killed two Fable finders on 2026-07-12.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**
 1. [x] **Case 14** (`examples/ssx/bez_ssx5_case14.py`) — instrumentation found the freeze in `_find_ssx_boundary_zeros → bez_csx → _phase2_isolated_search`: an identically collapsed rational apex edge was represented as 16,385 isolated pseudo-roots, then fed quadratic dedup/splitting. CSX now emits a typed parameter fiber through a bounded point-on-surface path; SSX canonicalizes both apex fibers and traces the certified rational tangent generator. The unresolved positive-dimensional Δ complement is honestly partial.
