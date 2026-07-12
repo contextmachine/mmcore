@@ -501,7 +501,8 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
 
 
 def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
-                                        strict_context, n_samples=65):
+                                        strict_context, n_samples=65,
+                                        on_dense=None):
     """Theorem-first curve-on-surface overlap certification (ledger L59).
 
     USER DECISION 2026-07-12 (rationale in the ledger): two polynomial/
@@ -553,6 +554,13 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
             seed = (u, v)
     if not hits:
         return None
+
+    # A no-hit arming scan costs 17 projections; the dense pass below is
+    # the expensive part and is billed separately by the caller (a flat
+    # combined price tripped the §11.5 work-drift gate on nested cut-face
+    # calls, which routinely arm-and-miss).
+    if on_dense is not None:
+        on_dense()
 
     # --- (2) dense membership + witnesses --------------------------------
     ts = np.linspace(0.0, 1.0, int(n_samples))
@@ -1743,14 +1751,28 @@ def bez_csx(
     # edge in the projected sense: measured 6.7e-4 clearance from the edge
     # line — no exact 3-D root exists there for the boundary phase to
     # find).  Certified spans bypass the Phase-2 grind entirely.
+    # Arming: a curve-end zero on-surface, a valley pair, OR a pair with
+    # NO boundary zeros at all (measured on user data: a coincident
+    # stretch that enters AND exits through patch edges with sub-atol
+    # clearance produces zero exact boundary roots — the certificate must
+    # still get its 17-sample look; transversal SSX-nested calls always
+    # carry boundary zeros, so their cost profile is untouched).
     if (not boundary_exhausted and not overlaps
             and (_valley_pair_seen
+                 or not csx_boundary_zeros
                  or any(bz.axis == 0 for bz in csx_boundary_zeros))):
-        _tier_price = 17 + 65 + 80          # arming + witnesses + refines
-        if cells.remaining > _tier_price:
+        # Split pricing (§11.5 drift-gate lesson): the 17-projection
+        # arming scan is billed always; the dense pass (65 witnesses +
+        # refines) only when the scan HITS — nested cut-face calls
+        # routinely arm-and-miss and must not pay the full tier.
+        _tier_price = 17
+        _dense_price = 65 + 80
+        if cells.remaining > _tier_price + _dense_price:
             cells.spend(_tier_price)
             _tol_overlaps = _tolerance_csx_overlap_certificate(
-                C, S, atol, rational, ptol_t, strict_root_tol)
+                C, S, atol, rational, ptol_t, strict_root_tol,
+                on_dense=lambda: cells.spend(
+                    min(_dense_price, max(0, cells.remaining))))
             if _tol_overlaps:
                 for _o in _tol_overlaps:
                     overlaps.append(_o)

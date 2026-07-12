@@ -1,34 +1,34 @@
 {
   "10": {
-    "cells_processed": 36256,
+    "cells_processed": 38960,
     "csx_calls": 261
   },
   "11": {
-    "cells_processed": 48115,
-    "csx_calls": 263
+    "cells_processed": 48930,
+    "csx_calls": 283
   },
   "15": {
-    "cells_processed": 186,
+    "cells_processed": 382,
     "csx_calls": 8
   },
   "5": {
-    "cells_processed": 17925,
+    "cells_processed": 20210,
     "csx_calls": 155
   },
   "6": {
-    "cells_processed": 38404,
+    "cells_processed": 40927,
     "csx_calls": 292
   },
   "7": {
-    "cells_processed": 16017,
+    "cells_processed": 19623,
     "csx_calls": 216
   },
   "8": {
-    "cells_processed": 6976,
+    "cells_processed": 7741,
     "csx_calls": 50
   },
   "9": {
-    "cells_processed": 7554,
+    "cells_processed": 7333,
     "csx_calls": 51
   }
 }
