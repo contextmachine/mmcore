@@ -18,7 +18,7 @@ from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.intersection.csx._bez_csx4 import bez_csx
 from mmcore.numeric.intersection.ssx._bez_ssx5 import bez_ssx
 
-ALL_CASES = (5, 6, 7, 8, 9, 10, 11)
+ALL_CASES = (5, 6, 7, 8, 9, 10, 11, 15)
 
 
 def _extract_isoline(S, axis, value):

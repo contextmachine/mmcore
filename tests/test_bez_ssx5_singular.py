@@ -3169,3 +3169,52 @@ def test_overlap_box_coverage_requires_both_parameter_planes():
         S1, S2, atol=1e-3, ptol4=ptol4, overlap_boxes=[sheet2_box])
     assert asm2["regions"]
     assert asm2["covered"] is False
+
+
+# ---------------------------------------------------------------------------
+# Ledger L25: edge-graze — a transversal arc hugging a domain edge must survive
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "d0, expected_branches",
+    [
+        (1e-5, 1),    # inside, tiny clearance: false exit vertex (residual=d0)
+        (1e-4, 1),    #   passed the atol-scale commit bar, strict path check
+                      #   then killed EVERY fragment -> 0 branches,
+                      #   reasons=['trace_unverified'] (total arc loss)
+        (1e-3, 1),    # inside, ~atol clearance: exit refused -> marcher broke
+                      #   off mid-curve -> 2 truncated branches with a silent
+                      #   ~0.14 t-gap at the graze, falsely complete
+        (0.0, 1),     # exact graze: control (worked before the fix)
+        (-1e-4, 2),   # outside: two genuine s=0 crossings: control
+    ],
+    ids=["inside-1e-5", "inside-1e-4", "inside-atol", "exact", "outside"],
+)
+def test_edge_graze_transversal_arc_survives(d0, expected_branches):
+    """L25: the SSI dips to within d0 of S1's s=0 domain edge (transversal in
+    3D everywhere). The arc must ship whole: an exit may only be committed on
+    a certified on-face root; a refused exit must march PAST the graze, not
+    truncate. Coverage is judged against the exact analytic parabola."""
+    from examples.ssx.bez_ssx5_case15 import analytic_curve, build_graze_pair
+    from examples.ssx.bez_ssx5_coverage_check import point_to_polyline_dist
+
+    atol = 1e-3
+    S1, S2 = build_graze_pair(d0=d0)
+    r = bez_ssx(S1, S2, atol, rational=False)
+
+    assert r["complete"], r["status"]
+    assert r["status"]["reasons"] == []
+    assert r["singularities"] == []
+    assert r["points"] == []
+    assert len(r["branches"]) == expected_branches, (
+        [(b.kind, len(b.curve[1])) for b in r["branches"]])
+    assert all(b.kind == "transversal" for b in r["branches"])
+
+    polys = [np.asarray(b.curve[1], dtype=float) for b in r["branches"]]
+    truth = analytic_curve(d0=d0, n=801)
+    dists = np.array([min(point_to_polyline_dist(p, poly) for poly in polys)
+                      for p in truth])
+    worst = float(dists.max())
+    assert worst <= 5 * atol, (
+        f"analytic arc not covered: worst={worst:.5f} at "
+        f"t={float(truth[int(dists.argmax()), 1]):.4f}")

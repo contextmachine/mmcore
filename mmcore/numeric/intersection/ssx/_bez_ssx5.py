@@ -2927,6 +2927,13 @@ def _march_to_boundary(
         h_max = max(0.05 * _local_diag(S1, rational=rational), 4.0 * atol)
     h = h_init if h_init is not None else 0.25 * h_max
     h_floor = 1e-6 * h_max
+    # Exit commitment bar (L25): the SAME roundoff-scale root certificate the
+    # tracer applies to every path vertex. An exit vertex accepted at any
+    # looser scale is not necessarily a Psi zero — an arc hugging a domain
+    # face makes the fixed-face Newton stall at the closest-approach WITNESS
+    # (residual = clearance, no root on the face at all), and committing it
+    # poisoned the whole fragment under the strict path certificate.
+    strict_exit_tol = _strict_ssx_root_tol(S1, S2, rational=rational)
 
     stuv_pts = [stuv_start.copy()]
     xyz_pts = [eval_surface(S1, stuv_start[0], stuv_start[1], rational=rational)]
@@ -2964,43 +2971,61 @@ def _march_to_boundary(
             # boundary-crossing point.
             stuv_init = current + crossed_alpha * (predicted - current)
             stuv_init[crossed_axis] = crossed_val
-            final, fres, fsin = _ssx_correct_fixed(
+            final, fres, _fsin = _ssx_correct_fixed(
                 S1, S2, stuv_init,
                 fixed_axis=crossed_axis, fixed_value=crossed_val,
                 rational=rational,
             )
-            # Angle-aware acceptance: only commit a converged exit. A
-            # refused exit leaves exit_info=None and the caller decides
-            # what to do with the partial trace.
-            eff_atol = atol * max(fsin, 1e-3)
-            if fres > eff_atol:
-                break
-
-            final_xyz = eval_surface(S1, final[0], final[1], rational=rational)
-            # The exit chord gets the same deviation scrutiny as any other
-            # step: the fixed-axis Newton can slide along the face far
-            # from the interpolated guess (case 10: a 0.47-long exit chord
-            # cutting the corner by 6.5mm). Halving h alone CANNOT shrink
-            # this chord — the ray-face intersection init (and hence the
-            # deterministic fixed-axis Newton result) is independent of
-            # the step length. Instead retarget the predictor at the
-            # interior halfway point toward the face and run the normal
-            # corrector on it: the march makes real progress toward the
-            # boundary and the eventual exit chord shrinks geometrically.
             interior_len = 0.5 * crossed_alpha * step
-            if (h > 2.0 * h_floor
-                    and interior_len > 0.25 * min_step
-                    and _mid_chord_deviates(S1, S2, current, final,
-                                            xyz_pts[-1], final_xyz,
-                                            atol, sag_tol, rational)):
+            can_retarget = (h > 2.0 * h_floor
+                            and interior_len > 0.25 * min_step)
+            if fres > strict_exit_tol:
+                # No certified Psi zero on this face: the curve does NOT
+                # exit here within this step — it hugs the face and stays
+                # inside (L25 edge-graze), or Newton stalled short on a
+                # genuine exit. Either way, retarget the predictor at the
+                # interior halfway point and keep marching: a graze is
+                # walked PAST (the tangent's face component flips sign at
+                # the closest approach), while a genuine exit is re-tried
+                # from a geometrically closer point where Newton certifies.
+                # The old behavior — commit at atol-scale, else abandon the
+                # march — either poisoned the fragment with a non-root exit
+                # vertex (total arc loss under the strict path certificate)
+                # or silently truncated the branch at the graze.
+                if not can_retarget:
+                    break
+                rejects += 1
+                if rejects >= 25:
+                    break
                 h = max(h_floor, h * 0.5)
                 predicted = current + interior_len * tang_prev
                 # fall through to the interior corrector below
             else:
-                stuv_pts.append(final)
-                xyz_pts.append(final_xyz)
-                exit_info = (crossed_axis, crossed_val)
-                break
+                final_xyz = eval_surface(S1, final[0], final[1],
+                                         rational=rational)
+                # The exit chord gets the same deviation scrutiny as any
+                # other step: the fixed-axis Newton can slide along the face
+                # far from the interpolated guess (case 10: a 0.47-long exit
+                # chord cutting the corner by 6.5mm). Halving h alone CANNOT
+                # shrink this chord — the ray-face intersection init (and
+                # hence the deterministic fixed-axis Newton result) is
+                # independent of the step length. Instead retarget the
+                # predictor at the interior halfway point toward the face
+                # and run the normal corrector on it: the march makes real
+                # progress toward the boundary and the eventual exit chord
+                # shrinks geometrically.
+                if (can_retarget
+                        and _mid_chord_deviates(S1, S2, current, final,
+                                                xyz_pts[-1], final_xyz,
+                                                atol, sag_tol, rational)):
+                    h = max(h_floor, h * 0.5)
+                    predicted = current + interior_len * tang_prev
+                    # fall through to the interior corrector below
+                else:
+                    stuv_pts.append(final)
+                    xyz_pts.append(final_xyz)
+                    exit_info = (crossed_axis, crossed_val)
+                    break
 
         # Interior corrector path (also handles the retargeted predictor
         # from a rejected exit chord above).
