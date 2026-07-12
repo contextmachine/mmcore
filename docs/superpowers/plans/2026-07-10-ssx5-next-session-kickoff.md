@@ -84,11 +84,12 @@ PROCESS: the first slice-5 review workflow run corrupted the tree (agents ran `g
 
 **ALSO COMPLETE (late continuation session, commits `1efe8c2`..`ff2a10d`):** slice 9b (`unresolved_regions` typed complement — depth dumps, abandoned queues, bail-before-queue early returns all name their 4-D boxes); **L59 SHIPPED** (USER DECISION: theorem-first curve-on-surface overlap certification — see the ledger's L59 entry for the full record: the 5d05ddc regression located by bisection, the user's rationale verbatim, the tier + SSX integration, fixtures A/B at C-quality, all six user overlap scripts tracked as real-data gates); L57 absorbed into L59; L58 (sphere segments) PARKED by user decision.
 
+**ALSO COMPLETE:** **L60 (two rounds — see the ledger's L60 entry)**: aligned zero exclusion + one-side-pinned band certification + zero-boundary-zero arming with split pricing (the §11.5 drift gate caught the flat price live, twice); script-3 call 2 = ONE overlap in sub-ptol agreement with tiny at 4.2 s (57 s at session start); all six tracked overlap scripts migrated to 3-tuple returns, all running 0.1–4.2 s.
+
 **Next session:**
-1. **L60** — the near-band emptiness grind (script-3 call 2 ≈51 s; profile + direction in the ledger; pre-existing, NOT an L59 regression).
-2. **L52 slice 12 remainder** — §10 efficiency items; flag zoo (`hard_exhausted`/`output_counts`); slice-7 residuals (centering/cartesian prep ×2, ordered-restriction backend pair).
-3. **L50** — investigated-open: fix ONLY with a reaching two-tangency fixture (analysis + fix direction in the ledger). **L58** — parked until the user re-opens rational spheres.
-4. DEFERRED BY USER mid-session: the PR-to-tiny push + the nurbs_ssx foundation doc — re-confirm with the user before pushing anything.
+1. **L52 slice 12 remainder** — §10 efficiency items; flag zoo (`hard_exhausted`/`output_counts`); slice-7 residuals (centering/cartesian prep ×2, ordered-restriction backend pair).
+2. **L50** — investigated-open: fix ONLY with a reaching two-tangency fixture (analysis + fix direction in the ledger). **L58** — parked until the user re-opens rational spheres.
+3. DEFERRED BY USER mid-session: the PR-to-tiny push + the nurbs_ssx foundation doc — re-confirm with the user before pushing anything.
 Review doc (source of truth): `docs/superpowers/plans/2026-07-12-ssx5-budget-review-and-overlap-contract.md`. Subagent policy: default to Opus for scan/verify fan-outs. REVIEW-AGENT RULE (paid for): every repo-Bash agent prompt carries the READ-ONLY-git instruction; commit WIP before launching agent batches; `git status` after each batch.
 
 **P0 — COMPLETE on `ssx5-singular-hardening` (2026-07-10; pending commit):**
