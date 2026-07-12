@@ -123,6 +123,39 @@ def _residual_excludes_zero(G_cell):
     return False
 
 
+def _residual_aligned_excludes_zero(G_cell):
+    """Geometry-ALIGNED zero exclusion (ledger L60).
+
+    The axis-component test above converges linearly in clearance but only
+    along world axes: when the residual direction is diagonal, every axis
+    component mixes the LARGE tangential variation with the SMALL
+    clearance and nothing excludes until cells shrink to clearance scale
+    (measured: 28,961 cells proving one near-band pair empty).  Projecting
+    the net onto its own mean direction asks the same question in the
+    geometry's frame: ``dot(G, n_hat)`` is an EXACT Bernstein net (a fixed
+    linear combination of the exactly-built component nets), so a
+    margined hull exclusion on it proves ``dot(G, n_hat) != 0`` and hence
+    ``G != 0`` everywhere in the cell — sound for ANY fixed direction; the
+    mean maximizes the chance of clearing (same pair: 511 nodes, ~1000x).
+    The 128·ε·max|coeff| L1 margin covers the build, combination and
+    restriction roundoff (the 6c insurance class; margins make exclusion
+    stricter, the sound direction).
+    """
+    flat = G_cell.reshape(-1, 3)
+    n_hat = flat.mean(axis=0)
+    n_len = float(np.linalg.norm(n_hat))
+    if n_len <= 0.0 or not np.isfinite(n_len):
+        return False
+    n_hat = n_hat / n_len
+    scalar = (G_cell[..., 0] * n_hat[0]
+              + G_cell[..., 1] * n_hat[1]
+              + G_cell[..., 2] * n_hat[2])
+    margin = (128.0 * float(np.finfo(np.float64).eps)
+              * float(np.abs(scalar).max()))
+    return bool(float(scalar.min()) > margin
+                or float(scalar.max()) < -margin)
+
+
 # L52 slice 7: shared implementation in _bezier_common (verbatim move).
 _restrict_net_axis_v = restrict_net_axis_v
 
@@ -590,19 +623,36 @@ def _tolerance_csx_overlap_certificate(C, S, atol, rational, ptol_t,
         # or at the uv-domain edge of the surface (projected pin) — an
         # interior fade-out on both sides is the offset-twin signature and
         # is never promoted (the CCX L47 rule).
-        def _pinned(t_end):
+        def _pinned(t_end, outward):
             if t_end <= edge_pad or t_end >= 1.0 - edge_pad:
                 return True
-            _p, u, v, d = _member(t_end, (0.5, 0.5))
+            _p, u, v, _d = _member(t_end, (0.5, 0.5))
+            if min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6:
+                return True
+            # The tolerance boundary and the uv-domain exit can COINCIDE
+            # (measured on user data: d crosses atol at almost the same t
+            # where the projected path leaves through u=1, so the
+            # projection AT the refined boundary is still interior).
+            # Probe one grid step OUTWARD: a domain-clipped span clamps to
+            # an edge there; a genuine interior fade-out (the offset-twin
+            # signature, which must stay refused) does not.
+            t_probe = min(1.0, max(0.0, t_end + outward / (len(ts) - 1.0)))
+            _p, u, v, _d = _member(t_probe, (u, v))
             return (min(u, 1.0 - u) <= 1e-6 or min(v, 1.0 - v) <= 1e-6)
-        if not (_pinned(t_lo) and _pinned(t_hi)):
+        if not (_pinned(t_lo, -1.0) and _pinned(t_hi, +1.0)):
             continue
         # (3) flip guard on the gap samples INSIDE the span: root-like
         # samples (res <= tiny) are bridged; consecutive gap samples with
         # opposite normal-side signs = crossing structure -> refuse.
+        # END-ADJACENT flips are exempt: a genuine touch AT a pinned span
+        # end (real-world-inexact data sits above the roundoff floor, so
+        # bridging cannot cover it) is the span's own endpoint root — the
+        # theorem terminates the overlap there anyway. INTERIOR flips
+        # still refuse (the never-merge-crossings invariant).
         idx = [k for k in range(k0, k1 + 1) if res[k] > tiny]
         flip = any(signed[a] * signed[b] < 0.0
-                   for a, b in zip(idx, idx[1:]))
+                   for a, b in zip(idx, idx[1:])
+                   if a != k0 and b != k1)
         if flip:
             continue
         span_res = float(res[k0:k1 + 1].max())
@@ -1175,6 +1225,12 @@ def _phase2_isolated_search(
         # Cheapest and by far the most decisive prune near transversal
         # roots — run it first.
         if _residual_excludes_zero(G_cell):
+            continue
+
+        # L60: the geometry-aligned exclusion — decisive on near-band
+        # cells whose residual direction is diagonal to the axes (the
+        # axis test converges only at clearance-scale cells there).
+        if _residual_aligned_excludes_zero(G_cell):
             continue
 
         # Quick prune: min-of-net
@@ -1758,6 +1814,14 @@ def bez_csx(
         _, Pw_sub = extract_weights(C_sub, rational=rational)
         w_sc = _weight_max_product(Pw_sub, Sw.ravel())
         if _check_min_of_net(F_sub, atol, w_sc):
+            continue
+
+        # L60: whole-interval geometry-aligned exclusion — a near-band
+        # interval whose residual direction rotates slowly clears here in
+        # one test instead of thousands of phase-2 cells.
+        if (_residual_excludes_zero(G_sub)
+                or _residual_aligned_excludes_zero(G_sub)):
+            cells.spend(1)
             continue
 
         # Search for isolated intersections

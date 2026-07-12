@@ -1021,3 +1021,46 @@ def test_sub_atol_valley_root_chain_is_never_merged_by_the_cluster():
     assert r["boundary_topology_complete"] is True
     assert "uncertified_overlap_span" not in r
     assert r["budget_exhausted"] is False
+
+
+def test_near_band_pair_certifies_cheaply():
+    """L60: the worst profiled pair (28,961 cells) certifies cheaply.
+
+    Real user geometry (overlap_nurbs_intersection_3_new): CORRECTED
+    diagnosis — the curve TOUCHES the patch at its t=0 end (1.6e-9) and
+    runs sub-atol (2.5e-5..7.7e-4) until the projected path exits through
+    the u=1 patch edge at t~0.44, then departs. A one-side-pinned
+    tolerance band whose far end is domain-clipped: under the L59
+    theorem-first semantics this is ONE tolerance overlap (the endpoint
+    touch is the span's own end; end-adjacent sign flips are the endpoint
+    root, not interior crossing structure). Phase 2 then only scans the
+    far, empty remainder — with the L60 geometry-aligned exclusion
+    (scalar Bernstein net dot(G, n_mean), exact linear combination,
+    L1-margined) handling diagonal-residual cells the axis test cannot
+    clear until clearance-scale depth."""
+    C_NEAR = np.array([
+        [92.51428091, 102.781436125, 5.719709275],
+        [91.27842704, 104.13179098, 6.58025473],
+        [89.7844795, 105.2243694, 7.46164544],
+        [88.15200982059918, 105.9854260265158, 8.363880612681537]])
+    S_NEAR = np.array([
+        [[92.51539241324699, 102.7802214952655, 41.41100531879138],
+         [92.51539241324699, 102.7802214952655, 0.10498601801243446]],
+        [[91.96619518531281, 103.38044393393321, 41.41100531879138],
+         [91.96619518531281, 103.38044393393321, 0.10498601801243446]],
+        [[91.36636523847328, 103.93038701100394, 41.41100531879138],
+         [91.36636523847328, 103.93038701100394, 0.10498601801243446]],
+        [[90.72572752430331, 104.42241106003442, 41.41100531879138],
+         [90.72572752430331, 104.42241106003442, 0.10498601801243446]]])
+
+    r = bez_csx(C_NEAR, S_NEAR, atol=1e-3, rational=False)
+
+    assert r["budget_exhausted"] is False
+    assert r["boundary_topology_complete"] is True
+    assert r["isolated"] == []          # the t=0 touch is the span's end
+    assert len(r["overlaps"]) == 1
+    o = r["overlaps"][0]
+    assert o["certification"] == "tolerance"
+    assert o["t_range"][0] == pytest.approx(0.0, abs=1e-9)
+    assert 0.40 <= o["t_range"][1] <= 0.50
+    assert r["cells_processed"] <= 2_000, r["cells_processed"]
