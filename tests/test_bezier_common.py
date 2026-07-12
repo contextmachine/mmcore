@@ -197,3 +197,60 @@ def test_newton_csx_no_intersection():
                   [[0.0, 1.0, 0.0], [1.0, 1.0, 0.0]]], dtype=np.float64)
     t, u, v, G, last_step = newton_csx(C, S, 0.5, 0.5, 0.5, rational=False)
     assert np.linalg.norm(G) > 1.0
+
+
+# --- bernstein_product_1d (ledger L52 slice 6a: the shared exact product) ---
+
+def _reference_product(a, b):
+    """The ccx-arithmetic reference: all factor terms in longdouble."""
+    import math as _math
+    a = np.asarray(a, dtype=np.longdouble)
+    b = np.asarray(b, dtype=np.longdouble)
+    p = a.shape[0] - 1
+    q = b.shape[0] - 1
+    out = np.zeros((p + q + 1,) + np.broadcast_shapes(
+        a.shape[1:], b.shape[1:]), dtype=np.longdouble)
+    for i in range(p + 1):
+        for j in range(q + 1):
+            k = i + j
+            factor = (np.longdouble(_math.comb(p, i))
+                      * np.longdouble(_math.comb(q, j))
+                      / np.longdouble(_math.comb(p + q, k)))
+            out[k] += factor * a[i] * b[j]
+    return out
+
+
+def test_bernstein_product_1d_scalar_operands_bit_identical_to_reference():
+    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+
+    rng = np.random.default_rng(7)
+    for p, q in ((1, 1), (2, 3), (3, 5), (7, 2)):
+        a = rng.standard_normal(p + 1)
+        b = rng.standard_normal(q + 1)
+        got = bernstein_product_1d(a, b)
+        ref = _reference_product(a, b)
+        # exact equality: same accumulation order, same longdouble factor
+        # arithmetic — certificate envelopes compare against eps-scale
+        # bounds, so a last-ulp drift here is a behavior change.
+        assert got.dtype == np.longdouble
+        assert np.array_equal(got, ref)
+
+
+def test_bernstein_product_1d_broadcasts_trailing_value_axes():
+    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+
+    rng = np.random.default_rng(11)
+    A = rng.standard_normal((4, 3))     # degree-3 curve, 3 components
+    B = rng.standard_normal((3, 1))     # degree-2 weights column
+    got = bernstein_product_1d(A, B)
+    assert got.shape == (6, 3)
+    assert np.array_equal(got, _reference_product(A, B))
+
+
+def test_bernstein_product_1d_delegations_are_the_same_object():
+    from mmcore.numeric.intersection._bezier_common import bernstein_product_1d
+    from mmcore.numeric.intersection.ccx import _bez_ccx4
+    from mmcore.numeric.intersection.csx import _bez_csx4
+
+    assert _bez_ccx4._bernstein_product_1d is bernstein_product_1d
+    assert _bez_csx4._bernstein_product_1d is bernstein_product_1d

@@ -395,3 +395,38 @@ def _compute_remaining_intervals(excludes, lo, hi):
         result.append((cursor, hi))
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Exact Bernstein product (ledger L52 slice 6a)
+# ---------------------------------------------------------------------------
+
+def bernstein_product_1d(A, B):
+    """Exact same-parameter Bernstein product with broadcast value axes.
+
+    The single implementation of the degree-reduction identity
+    ``B_i^m * B_j^n = [C(m,i)C(n,j)/C(m+n,i+j)] * B_{i+j}^{m+n}`` that the
+    ccx/csx exact-affine overlap identity certificates both build on
+    (previously two diverged private copies).  Shape handling follows the
+    csx generalization (axis 0 is the degree axis; trailing value axes
+    broadcast), factor arithmetic follows the ccx convention (every term
+    converted to longdouble BEFORE multiply/divide — on platforms with a
+    true 80-bit longdouble the ``int*int/int`` Python-float route rounds
+    the factor to float64 first, a last-ulp difference that matters to
+    eps-scale certificate envelopes).
+    """
+    import math as _math
+    A = np.asarray(A, dtype=np.longdouble)
+    B = np.asarray(B, dtype=np.longdouble)
+    m = A.shape[0] - 1
+    n = B.shape[0] - 1
+    out = np.zeros((m + n + 1,) + np.broadcast_shapes(
+        A.shape[1:], B.shape[1:]), dtype=np.longdouble)
+    for i in range(m + 1):
+        for j in range(n + 1):
+            k = i + j
+            factor = (np.longdouble(_math.comb(m, i))
+                      * np.longdouble(_math.comb(n, j))
+                      / np.longdouble(_math.comb(m + n, k)))
+            out[k] += factor * A[i] * B[j]
+    return out

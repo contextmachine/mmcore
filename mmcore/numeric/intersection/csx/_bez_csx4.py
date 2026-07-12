@@ -25,7 +25,7 @@ from mmcore.numeric.bern import (
 from mmcore.numeric.bern_sq_dist import curve_surface_distance_squared_net_homog
 from mmcore.numeric.intersection._bezier_common import (
     extract_weights, eval_curve, eval_surface, eval_curve_d1, eval_surface_d1,
-    newton_csx,
+    newton_csx, bernstein_product_1d,
 )
 from mmcore.numeric.intersection.ccx._bez_ccx4 import bez_ccx as bez_ccx_v4
 from mmcore.numeric.intersection._sq_dist_classify import (
@@ -392,19 +392,12 @@ def _surface_affine_path_homogeneous(S_h, u0, v0, u1, v1):
     return out
 
 
-def _bernstein_product_1d(A, B):
-    """Exact same-parameter Bernstein product with broadcast value axes."""
-    A = np.asarray(A, dtype=np.longdouble)
-    B = np.asarray(B, dtype=np.longdouble)
-    m = A.shape[0] - 1
-    n = B.shape[0] - 1
-    out = np.zeros((m + n + 1,) + np.broadcast_shapes(
-        A.shape[1:], B.shape[1:]), dtype=np.longdouble)
-    for i in range(m + 1):
-        for j in range(n + 1):
-            k = i + j
-            out[k] += (comb(m, i) * comb(n, j) / comb(m + n, k)) * A[i] * B[j]
-    return out
+# L52 slice 6a: the shared exact product. NOTE: the shared version computes
+# the comb factor fully in longdouble (the old copy here rounded it through
+# a Python float64 first) — identical on macOS (longdouble aliases float64),
+# a last-ulp factor upgrade on true-80-bit platforms, absorbed by the
+# certificate envelope.
+_bernstein_product_1d = bernstein_product_1d
 
 
 def _certify_affine_csx_overlap(C, S, a, b, rational):
@@ -448,12 +441,36 @@ def _certify_affine_csx_overlap(C, S, a, b, rational):
     right = _bernstein_product_1d(
         surf_h[:, :-1], curve_h[:, -1:])
     residual = np.abs(left - right)
-    op_factor = (np.longdouble(4096)
-                 * np.longdouble(max(1, len(curve_h) * len(surf_h)))
-                 * np.longdouble(np.finfo(np.float64).eps))
-    roundoff = op_factor * (
-        np.abs(left) + np.abs(right)
-        + np.asarray(source_product_scale, dtype=np.longdouble)[None, :])
+    # L52 slice 6b — the EXPLICIT envelope reconciliation (review §10 /
+    # ledger): this certificate and ccx's `_overlap_mapping_is_identity`
+    # certify the same class ("residual explainable by roundoff of
+    # exactly-coincident sources") and now share ccx's derived two-term
+    # structure instead of this module's former folded
+    # `4096·n₁n₂·ε_f64·(|l|+|r|+src)` bound:
+    # - the OPERATOR term scales with the eps of the dtype the products
+    #   actually run in (longdouble; aliases float64 on macOS, where the
+    #   computation genuinely is float64 — platform-consistent either way)
+    #   and with n₁·n₂ accumulation terms;
+    # - the SOURCE term scales with ε_float64 (sources are float64 on
+    #   every platform) and n₁+n₂ restriction/degree-reduction steps; the
+    #   8192 constant is the family ccx's float-built-subcurve fixture
+    #   calibrated from below.
+    # Net effect is a measured tightening at gate degrees (in-axis
+    # acceptance boundary (3.0, 3.5]e-11 -> (2.6, 3.0]e-11 on the
+    # cubic/bilinear probe; single-axis offsets were and remain rejected
+    # at every magnitude by the per-coordinate source scale above) — the
+    # SOUND direction: borderline candidates fall to the L42 typed
+    # uncertified_overlap_span fallback instead of certifying.
+    op_factor = (np.longdouble(64)
+                 * np.longdouble(max(1, len(curve_h)))
+                 * np.longdouble(max(1, len(surf_h)))
+                 * np.longdouble(np.finfo(np.longdouble).eps))
+    source_factor = (np.longdouble(8192)
+                     * np.longdouble(max(1, len(curve_h) + len(surf_h)))
+                     * np.longdouble(np.finfo(np.float64).eps))
+    roundoff = (op_factor * (np.abs(left) + np.abs(right))
+                + source_factor * np.asarray(
+                    source_product_scale, dtype=np.longdouble)[None, :])
     return bool(np.all(np.isfinite(residual))
                 and np.all(residual <= roundoff))
 

@@ -7,8 +7,6 @@ avoiding explicit Jacobian-rank analysis.
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 from mmcore.numeric.aabb import aabb_offset
@@ -16,7 +14,10 @@ from mmcore.numeric.aabb import aabb_intersect,aabb
 from mmcore.numeric._work_budget import DownCounter
 from mmcore.numeric.bern import de_casteljau_split_nd
 from mmcore.numeric.bern_sq_dist import curve_curve_squared_net_homog
-from mmcore.numeric.intersection._bezier_common import extract_weights, eval_curve, eval_curve_d1, newton_ccx
+from mmcore.numeric.intersection._bezier_common import (
+    extract_weights, eval_curve, eval_curve_d1, newton_ccx,
+    bernstein_product_1d,
+)
 from mmcore.numeric.intersection._sq_dist_classify import (
     classify_sq_dist_net,
     NO_INTERSECTION,
@@ -165,20 +166,6 @@ def _ccx_exactness_context(C1, C2, rational):
     return H1, H2, component_scale
 
 
-def _eval_curve_longdouble(C, t, rational):
-    """De Casteljau evaluation without float64 underflow in quiet axes."""
-    work = np.asarray(C, dtype=np.longdouble).copy()
-    tt = np.longdouble(t)
-    for _ in range(1, len(work)):
-        work = (np.longdouble(1.0) - tt) * work[:-1] + tt * work[1:]
-    value = work[0]
-    if rational:
-        if value[-1] == 0.0 or not np.isfinite(value[-1]):
-            return None
-        value = value[:-1] / value[-1]
-    return value
-
-
 def _eval_curve_scaled_components(C, t, rational, component_scale):
     """Evaluate Cartesian coordinates after normalizing each quiet axis.
 
@@ -325,21 +312,10 @@ def _restrict_curve_interval(C, lo, hi):
     return out
 
 
-def _bernstein_product_1d(a, b):
-    """Exact-degree Bernstein product coefficients for unequal degrees."""
-    a = np.asarray(a, dtype=np.longdouble).reshape(-1)
-    b = np.asarray(b, dtype=np.longdouble).reshape(-1)
-    p = len(a) - 1
-    q = len(b) - 1
-    out = np.zeros(p + q + 1, dtype=np.longdouble)
-    for i, ai in enumerate(a):
-        for j, bj in enumerate(b):
-            k = i + j
-            factor = (np.longdouble(math.comb(p, i))
-                      * np.longdouble(math.comb(q, j))
-                      / np.longdouble(math.comb(p + q, k)))
-            out[k] += factor * ai * bj
-    return out
+# L52 slice 6a: the shared exact product (broadcast-generalized; same
+# accumulation order and longdouble factor arithmetic as the old private
+# copy — 1-D operands are the degenerate broadcast case).
+_bernstein_product_1d = bernstein_product_1d
 
 
 def _homogeneous_curve_for_identity(C, rational, origin):

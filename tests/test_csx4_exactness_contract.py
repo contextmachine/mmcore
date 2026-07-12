@@ -175,3 +175,41 @@ def test_collapsed_fiber_identity_is_translation_invariant():
     assert result["parameter_fibers"] == []
     assert result["isolated"] == []
     assert result["budget_exhausted"] is False
+
+
+def test_in_axis_drift_beyond_float_built_floor_is_not_certified():
+    """L52 slice 6b: the shared two-term envelope (ccx structure).
+
+    The former folded ``4096*n1*n2*eps_f64`` envelope certified a 3.0e-11
+    in-axis control drift (~135k ulps of O(1) data — real geometry, not
+    roundoff) as an EXACT affine overlap on this cubic/bilinear pair; the
+    reconciled envelope refuses it. The 1e-12 companion pins the floor
+    from below: legitimate float-built restriction roundoff (the
+    8192*(n1+n2)*eps_f64 source family, calibrated by ccx's
+    float-built-subcurve fixture) must keep certifying.
+    """
+    from mmcore.numeric.intersection.csx._bez_csx4 import (
+        _certify_affine_csx_overlap)
+
+    S = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                  [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]]])
+
+    def drifted(dx):
+        return np.array([[0.0, 0.5, 0.0],
+                         [1.0 / 3.0 + dx, 0.5, 0.0],
+                         [2.0 / 3.0 + dx, 0.5, 0.0],
+                         [1.0, 0.5, 0.0]])
+
+    a, b = (0.0, 0.0, 0.5), (1.0, 1.0, 0.5)
+    assert _certify_affine_csx_overlap(drifted(0.0), S, a, b, rational=False)
+    assert _certify_affine_csx_overlap(drifted(1e-12), S, a, b,
+                                       rational=False)
+    assert not _certify_affine_csx_overlap(drifted(3.0e-11), S, a, b,
+                                           rational=False)
+    # single-axis offsets stay rejected at every magnitude (the
+    # per-coordinate source scale keeps a dz-sized floor on the z axis)
+    dz_off = np.array([[0.0, 0.5, 1e-14],
+                       [1.0 / 3.0, 0.5, 1e-14],
+                       [2.0 / 3.0, 0.5, 1e-14],
+                       [1.0, 0.5, 1e-14]])
+    assert not _certify_affine_csx_overlap(dz_off, S, a, b, rational=False)
