@@ -7414,9 +7414,19 @@ def bez_ssx(
         # 509 of 20,000 tier cells, 5.7k of 1M shared cells), so a larger
         # tier buys nothing there; regular isolated-cusp enumerations on
         # every gate case finish far below 20k.
+        _c1_tier = min(20_000, budget.remaining_cells)
+        # Review finding (slices-6-9a adversarial pass): when the tier is
+        # CLAMPED by the shared remainder, a local truncation is shared-
+        # budget scarcity in disguise (c1_pass's per-surface fair share is
+        # always <= the remainder, so charge_box never gets to deny and
+        # external_budget_exhausted stays False) — and c1's curve test has
+        # a documented blind spot (curve_like fires for a budget-truncated
+        # multi-cusp census). Structural classification is only trusted
+        # when the FULL tier was available.
+        _c1_tier_clamped = _c1_tier < 20_000
         c1_hits, _c1_curve = c1_pass(
             S1_h_top, S2_h_top, atol, ptol4_global,
-            max_cells=min(20_000, budget.remaining_cells),
+            max_cells=_c1_tier,
             charge_box=_charge_hook(budget, "c1"),
             stats=_c1_stats)
         # Reason attribution (L52 slice 9 / §11.6 de-budget — the L49
@@ -7430,7 +7440,7 @@ def bez_ssx(
             budget.mark_incomplete(REASON_WORK_BUDGET)
         elif (_c1_stats.get("budget_exhausted", False)
                 or _c1_stats.get("incomplete", False)):
-            if _c1_curve:
+            if _c1_curve and not _c1_tier_clamped:
                 # A positive-dimensional Σ component was DETECTED this
                 # call: point enumeration of a curve saturates any finite
                 # cap (pinch fixture: truncated at 509 cells on the result

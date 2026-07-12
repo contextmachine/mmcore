@@ -126,11 +126,14 @@ class TestNurbsCCXMultiple3D:
 
     @pytest.fixture(scope="class")
     def result(self, curves_3d):
-        return nurbs_ccx_multiple(curves_3d, tol=0.001, rational=True)
+        # `rational=` removed + 3-tuple unpack (L52 slice 8 review finding:
+        # this fixture errors at setup on a pre-existing import today, but
+        # both latent breakages would fire the day that import is repaired).
+        return nurbs_ccx_multiple(curves_3d, tol=0.001)
 
     def test_ground_truth(self, result, expected):
         """All 25 known intersections (excl curve 0) must be found."""
-        iso, ovl = result
+        iso, ovl, _status = result
         assert iso is not None
         iso_filt = [i for i in iso if i['curve1_i'] != 0 and i['curve2_i'] != 0]
         for exp in expected:
@@ -145,13 +148,13 @@ class TestNurbsCCXMultiple3D:
 
     def test_no_span_boundary_duplicates(self, result, expected):
         """Excluding curve 0, raw count should equal unique count (no duplicates)."""
-        iso, ovl = result
+        iso, ovl, _status = result
         iso_filt = [i for i in iso if i['curve1_i'] != 0 and i['curve2_i'] != 0]
         assert len(iso_filt) == 25
 
     def test_no_false_positives(self, result, curves_3d):
         """Every reported intersection must have dist < atol."""
-        iso, ovl = result
+        iso, ovl, _status = result
         for entry in iso:
             c1i, c2i = int(entry['curve1_i']), int(entry['curve2_i'])
             pt1 = evaluate_nurbs_curve(curves_3d[c1i], float(entry['u']), 0)['C']
