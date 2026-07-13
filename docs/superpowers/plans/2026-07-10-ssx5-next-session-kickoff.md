@@ -86,7 +86,8 @@ PROCESS: the first slice-5 review workflow run corrupted the tree (agents ran `g
 
 **ALSO COMPLETE:** **L60 (two rounds — see the ledger's L60 entry)**: aligned zero exclusion + one-side-pinned band certification + zero-boundary-zero arming with split pricing (the §11.5 drift gate caught the flat price live, twice); script-3 call 2 = ONE overlap in sub-ptol agreement with tiny at 4.2 s (57 s at session start); all six tracked overlap scripts migrated to 3-tuple returns, all running 0.1–4.2 s.
 
-**Next session:**
+**Next session (REORDERED 2026-07-12 end of session — merge to `tiny` is BLOCKED on item 1):**
+0. **L61 (MERGE-BLOCKING, REPRO-FIRST)** — the user reports the bilinear non-affine family still loses part of the second branch; NOT reproduced at HEAD `f6d0015` (all five constructible variants pass — see the ledger's L61 entry). FIRST action: obtain the user's exact failing script/geometry, pin it as a RED test, then systematic-debugging. Methodology of record: `docs/superpowers/specs/2026-07-12-theorem-first-overlap-methodology.md`.
 1. **L52 slice 12 remainder** — §10 efficiency items; flag zoo (`hard_exhausted`/`output_counts`); slice-7 residuals (centering/cartesian prep ×2, ordered-restriction backend pair).
 2. **L50** — investigated-open: fix ONLY with a reaching two-tangency fixture (analysis + fix direction in the ledger). **L58** — parked until the user re-opens rational spheres.
 3. DEFERRED BY USER mid-session: the PR-to-tiny push + the nurbs_ssx foundation doc — re-confirm with the user before pushing anything.
