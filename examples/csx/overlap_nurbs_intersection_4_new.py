@@ -16,7 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     ssx_params = parser.add_argument_group(title="CSX Parameters")
     ssx_params.add_argument("--atol", type=float, default=1e-3)
-    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
+    
 
     general_params = parser.add_argument_group(title="General")
     general_params.add_argument('--viewer', action='store_true')
@@ -106,20 +106,20 @@ if args.viewer:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
         viewer=Viewer(camera=OrbitCamera(near=1,far=1e+9))
         primary_color=(*(np.array([250, 102, 166])/255).tolist(),1)
-        srf = viewer.add_nurbs_surface(surface, color=(0.7,0.7,0.7,1),surface_color=(0.5, 0.5, 0.9, 0.05),)
+
 
         if isolated is not None:
             uvs = []
             for pt in isolated:
-                viewer.add(pt['point'], color=(0.0, 1.0, 0.5, 1.0), size_px=13)
+                viewer.add_point3d(pt['point'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
 
         if overlaps is not None:
 
             for overlap in overlaps:
                 t0,t1=overlap['t_range']
 
-                viewer.add(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
-                viewer.add(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=6)
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t0,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+                viewer.add_point3d(evaluate_nurbs_curve(curve, t1,d_order=0)['C'], color=(0.0, 1.0, 0.5, 1.0), size_px=4)
 
             for o in overlaps:
 
@@ -130,7 +130,8 @@ if args.viewer:
                 for t in pts:
 
                     evl=evaluate_nurbs_curve(curve,t,d_order=0)
-                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=3)
+                    viewer.add_point3d(evl['C'],color=(0.0, 1.0, 0.5, 1.0), size_px=4)
+        srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7, 1), surface_color=(0.5, 0.5, 0.9, 0.1), )
         viewer.run()
 
 

@@ -43,7 +43,7 @@ class WiresMaterial(CurveMaterial):
 @dataclass
 class SurfaceMaterial:
 
-    color:tuple[float,float,float,float]=field(default=(0.5, 0.5, 0.9, 0.05))
+    color:tuple[float,float,float,float]=field(default=(0.5, 0.5, 0.9, 0.5))
     show_wires:bool=field(default=True)
     wires_material: WiresMaterial = field(
         default_factory=lambda: WiresMaterial((1.0, 1.0, 1.0, 1.0), show_control_net=False, u_count=1, v_count=1)
@@ -69,7 +69,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     ssx_params=parser.add_argument_group(title="SSX Parameters")
     ssx_params.add_argument("--atol", type=float, default=1e-3)
-    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
+    
 
     general_params=parser.add_argument_group(title="General")
     general_params.add_argument('--viewer', action='store_true')

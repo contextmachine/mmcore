@@ -17,7 +17,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     ssx_params = parser.add_argument_group(title="CSX Parameters")
     ssx_params.add_argument("--atol", type=float, default=1e-3)
-    ssx_params.add_argument("--angle_tol", type=float, default=0.052)
+    
 
     general_params = parser.add_argument_group(title="General")
     general_params.add_argument('--viewer', action='store_true')
@@ -118,7 +118,7 @@ try:
         from mmcore.extras.renderer.renderer3d import Viewer,OrbitCamera
 
         viewer=Viewer(camera=OrbitCamera(target=  surface.control_points.reshape(-1,3).mean(axis=0)))
-        srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7,1.),   surface_color=(0.5, 0.5, 0.9, 0.05), v_count=4)
+        srf = viewer.add_nurbs_surface(surface, color=(0.7, 0.7, 0.7,1.),   surface_color=(0.5, 0.5, 0.9, 0.1), v_count=4)
 
         def render_result(result,curve,surface=None):
             if surface is not None:
@@ -130,7 +130,7 @@ try:
                 uvs=[]
                 for pt in isolated['point']:
 
-                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=13)
+                    viewer.add(pt, color=(0.0, 1.0, 0.5,1.0),size_px=6)
 
             if overlaps is not None:
 

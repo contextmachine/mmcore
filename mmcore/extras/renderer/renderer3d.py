@@ -687,8 +687,8 @@ class EdgeSettings:
     Widths are in window points; multiplied by the content scale at draw time,
     so 2.0 means 2 device-independent pixels on a retina display too."""
 
-    inner_width: float = 1.75    # isocurves and other interior linework
-    outline_width: float = 3.0   # surface boundaries / B-rep edges
+    inner_width: float = 1.   # isocurves and other interior linework
+    outline_width: float = 1.5  # surface boundaries / B-rep edges
     inner_color: tuple[float, float, float, float] = (0.055, 0.058, 0.070, 1.0)
     outline_color: tuple[float, float, float, float] = (0.030, 0.032, 0.040, 1.0)
 

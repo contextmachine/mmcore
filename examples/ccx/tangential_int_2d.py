@@ -52,8 +52,8 @@ print(isolated2)
 for pt in isolated1['point']:
 
     viewer.add(pt
-                    , color=(0.7, 0.9, 0.0, 1.0),size_px=13)
+                    , color=(0.7, 0.9, 0.0, 1.0),size_px=6)
 
 for pt in isolated2['point']:
-    viewer.add(pt, color=(0.0, 0.6, 1.0, 1.0),size_px=13)
+    viewer.add(pt, color=(0.0, 0.6, 1.0, 1.0),size_px=6)
 viewer.run()
